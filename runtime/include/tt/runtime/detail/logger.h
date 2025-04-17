@@ -93,7 +93,10 @@ inline std::string backtrace_to_string(int size = 64, int skip = 2,
 #define LOGGER_TYPES                                                           \
   X(Always)                                                                    \
   X(RuntimeTTNN)                                                               \
-  X(RuntimeTTMetal)
+  X(RuntimeTTMetal)                                                            \
+  X(RuntimeTTMetalBufferCreation)                                              \
+  X(RuntimeTTMetalCircularBufferCreation)                                      \
+  X(RuntimeTTMetalCommand)
 
 enum LogType : uint32_t {
 #define X(a) Log##a,
@@ -307,6 +310,12 @@ tt_throw_(const char *file, int line, const char *assert_type,
   trace_message_ss << reset_text_attrs << std::flush;
   log_fatal_(args..., trace_message_ss.str());
   Logger::get().flush();
+#if defined(TT_RUNTIME_DEBUG) && (TT_RUNTIME_DEBUG == 1)
+  const char *abort_on_error = std::getenv("TTMLIR_RUNTIME_ABORT_ON_ERROR");
+  if (abort_on_error && abort_on_error[0] == '1') {
+    abort();
+  }
+#endif
   throw std::runtime_error("Fatal error");
 }
 

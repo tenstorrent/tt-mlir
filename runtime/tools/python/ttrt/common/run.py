@@ -110,11 +110,25 @@ class Run:
             help="seed for random number generator",
         )
         Run.register_arg(
+            name="--dump-kernels-to-disk",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="dump the kernels to disk (/tmp) as they are being executed",
+        )
+        Run.register_arg(
             name="--load-kernels-from-disk",
             type=bool,
             default=False,
             choices=[True, False],
-            help="pickup the kernels from disk (/tmp) instead of the flatbuffer",
+            help="pickup the kernels from disk (/tmp) instead of the flatbuffer, must have previously run with --dump-kernels-to-disk",
+        )
+        Run.register_arg(
+            name="--disable-device-address-validation",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="validate device addresses are in legal ranges",
         )
         Run.register_arg(
             name="--enable-async-ttnn",
@@ -422,7 +436,7 @@ class Run:
                 self.logging.warning(f"no binaries found to run - returning early")
                 return
 
-            debug_env = ttrt.runtime.DebugEnv.get(self["--load-kernels-from-disk"])
+            debug_env = ttrt.runtime.DebugEnv.get(self["--dump-kernels-to-disk"], self["--load-kernels-from-disk"], not self["--disable-device-address-validation"])
             self.logging.debug(f"setting tt runtime debug env={debug_env}")
             workaround_env = ttrt.runtime.WorkaroundEnv.get(
                 not self["--disable-swap-binary-operands"],
@@ -586,39 +600,26 @@ class Run:
                                 self.logging.debug(
                                     f"starting loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
                                 )
-                                if (
-                                    current_runtime
-                                    == ttrt.runtime.DeviceRuntime.TTMetal
+                                runtime_outputs = ttrt.runtime.submit(
+                                    device,
+                                    bin.fbb,
+                                    program_index,
+                                    total_inputs[loop],
+                                )
+                                ttrt.runtime.wait(runtime_outputs)
+                                for i, runtime_output_tensor in enumerate(
+                                    runtime_outputs
                                 ):
-                                    event = ttrt.runtime.submit(
-                                        device,
-                                        bin.fbb,
-                                        program_index,
-                                        total_inputs[loop],
-                                        total_outputs[loop],
+                                    output_host = ttrt.runtime.to_host(
+                                        runtime_output_tensor, untilize=True
+                                    )[0]
+                                    ttrt.runtime.memcpy(
+                                        total_outputs[loop][i],
+                                        output_host,
                                     )
-
-                                elif current_runtime == ttrt.runtime.DeviceRuntime.TTNN:
-                                    runtime_outputs = ttrt.runtime.submit(
-                                        device,
-                                        bin.fbb,
-                                        program_index,
-                                        total_inputs[loop],
+                                    ttrt.runtime.deallocate_tensor(
+                                        runtime_output_tensor, force=True
                                     )
-                                    ttrt.runtime.wait(runtime_outputs)
-                                    for i, runtime_output_tensor in enumerate(
-                                        runtime_outputs
-                                    ):
-                                        output_host = ttrt.runtime.to_host(
-                                            runtime_output_tensor, untilize=True
-                                        )[0]
-                                        ttrt.runtime.memcpy(
-                                            total_outputs[loop][i],
-                                            output_host,
-                                        )
-                                        ttrt.runtime.deallocate_tensor(
-                                            runtime_output_tensor, force=True
-                                        )
 
                                 self.logging.debug(
                                     f"finished loop={loop+1}/{self['--loops']} for binary={bin.file_path}"

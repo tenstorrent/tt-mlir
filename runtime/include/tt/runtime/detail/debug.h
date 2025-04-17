@@ -19,7 +19,8 @@ struct Env {
 #else
   constexpr static Env
 #endif
-  get(bool loadKernelsFromDisk = false)
+  get(bool dumpKernelsToDisk = false, bool loadKernelsFromDisk = false,
+      bool deviceAddressValidation = false)
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
       ;
 #else
@@ -28,16 +29,26 @@ struct Env {
   }
 #endif
 
+  bool dumpKernelsToDisk;
   bool loadKernelsFromDisk;
+  bool deviceAddressValidation;
 
 private:
-  constexpr Env(bool loadKernelsFromDisk)
-      : loadKernelsFromDisk(loadKernelsFromDisk) {}
+  constexpr Env(bool dumpKernelsToDisk, bool loadKernelsFromDisk,
+                bool deviceAddressValidation)
+      : dumpKernelsToDisk(dumpKernelsToDisk),
+        loadKernelsFromDisk(loadKernelsFromDisk),
+        deviceAddressValidation(deviceAddressValidation) {}
 };
 
 inline std::ostream &operator<<(std::ostream &os, Env const &env) {
   os << "debug::Env{\n"
-     << "\t" << "loadKernelsFromDisk: " << env.loadKernelsFromDisk << "\n"
+     << "\t"
+     << "dumpKernelsToDisk: " << env.dumpKernelsToDisk << "\n"
+     << "\t"
+     << "loadKernelsFromDisk: " << env.loadKernelsFromDisk << "\n"
+     << "\t"
+     << "deviceAddressValidation: " << env.deviceAddressValidation << "\n"
      << "}";
   return os;
 }

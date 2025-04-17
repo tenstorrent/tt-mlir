@@ -329,13 +329,12 @@ public:
     };
 
     auto device = lookupDevice(op);
+    auto systemDesc = getCurrentScopeSystemDesc(op);
     auto chipIds = device.getChipIds();
-    auto chipDescs =
-        op->getParentOfType<ModuleOp>()
-            ->getAttrOfType<SystemDescAttr>(tt::SystemDescAttr::name)
-            .getChipDescs();
-    assert((chipIds.size() == 1) && (chipDescs.size() == 1) &&
-           "Chip ids and chip descs size must equal 1, failing.");
+    assert(chipIds.size() == 1);
+    auto chipDescs = systemDesc.getChipDescs();
+    auto getChipDescIndices = systemDesc.getChipDescIndices();
+    auto chipDesc = chipDescs[getChipDescIndices[chipIds[0]]];
 
     auto applyMap = [&](AffineMap map, ValueRange index) {
       auto apply =
@@ -359,7 +358,7 @@ public:
       if (op.isMcast()) {
         // mcast
         auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
-            rewriter, op.getLoc(), chipDescs.front(), op.getMcastStartIndex());
+            rewriter, op.getLoc(), chipDesc, op.getMcastStartIndex());
         auto [mcastEndY, mcastEndX] = getMcastEndCoords(
             rewriter, op.getLoc(), virtY, virtX, op.getMcastShape());
         auto numDestsIdx = rewriter.create<arith::MulIOp>(
@@ -391,7 +390,7 @@ public:
             op.getLoc(), rewriter.getIndexType(),
             rewriter.getI64IntegerAttr(1));
         auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
-            rewriter, op.getLoc(), chipDescs.front(), ValueRange{myY, myX});
+            rewriter, op.getLoc(), chipDesc, ValueRange{myY, myX});
         auto nocAddr = rewriter.create<ttkernel::GetNocAddrXYOp>(
             op.getLoc(), virtX, virtY, dstL1Start);
         rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Start,
@@ -420,8 +419,7 @@ public:
           op.getLoc(), rewriter.getI32Type(), dstOffset);
 
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
-          rewriter, op.getLoc(), chipDescs.front(),
-          ValueRange{dstGridY, dstGridX});
+          rewriter, op.getLoc(), chipDesc, ValueRange{dstGridY, dstGridX});
       auto nocAddr = rewriter.create<ttkernel::GetNocAddrXYOp>(
           op.getLoc(), virtX, virtY, dstOffsetInt);
       rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Start,
@@ -446,8 +444,7 @@ public:
       auto size =
           i32(op.getNumElems() * getElementSizeBytes(op.getSrcMemRefType()));
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
-          rewriter, op.getLoc(), chipDescs.front(),
-          ValueRange{srcGridY, srcGridX});
+          rewriter, op.getLoc(), chipDesc, ValueRange{srcGridY, srcGridX});
       auto srcNocAddr = rewriter.create<ttkernel::GetNocAddrXYOp>(
           op.getLoc(), virtX, virtY, srcOffsetInt);
       rewriter.create<ttkernel::NocAsyncReadOp>(op.getLoc(), srcNocAddr,
@@ -495,36 +492,27 @@ public:
     };
 
     auto device = lookupDevice(op);
+    auto systemDesc = getCurrentScopeSystemDesc(op);
     auto chipIds = device.getChipIds();
-    auto chipDescs =
-        op->getParentOfType<ModuleOp>()
-            ->getAttrOfType<SystemDescAttr>(tt::SystemDescAttr::name)
-            .getChipDescs();
-    assert(chipIds.size() == chipDescs.size() == 1 &&
-           "Chip ids and chip descs size must equal 1, failing.");
+    assert(chipIds.size() == 1);
+    auto chipDescs = systemDesc.getChipDescs();
+    auto getChipDescIndices = systemDesc.getChipDescIndices();
+    auto chipDesc = chipDescs[getChipDescIndices[chipIds[0]]];
 
     assert(op.getDim() == 0 ||
            op.getDim() == 1 &&
                "Expected core index dim to be in range 0-1, failing.");
     if (op.getDim()) {
       auto coreIndex = rewriter.create<ttkernel::MyXOp>(op.getLoc(), nullptr);
-      auto normalizedCoreIndex =
-          rewriter.create<arith::SubIOp>(op.getLoc(), coreIndex,
-                                         index(chipDescs.front()
-                                                   .getChipPhysicalCores()
-                                                   .getWorker()
-                                                   .front()
-                                                   .getX()));
+      auto normalizedCoreIndex = rewriter.create<arith::SubIOp>(
+          op.getLoc(), coreIndex,
+          index(chipDesc.getChipPhysicalCores().getWorker().front().getX()));
       rewriter.replaceOp(op, normalizedCoreIndex);
     } else {
       auto coreIndex = rewriter.create<ttkernel::MyYOp>(op.getLoc(), nullptr);
-      auto normalizedCoreIndex =
-          rewriter.create<arith::SubIOp>(op.getLoc(), coreIndex,
-                                         index(chipDescs.front()
-                                                   .getChipPhysicalCores()
-                                                   .getWorker()
-                                                   .front()
-                                                   .getY()));
+      auto normalizedCoreIndex = rewriter.create<arith::SubIOp>(
+          op.getLoc(), coreIndex,
+          index(chipDesc.getChipPhysicalCores().getWorker().front().getY()));
       rewriter.replaceOp(op, normalizedCoreIndex);
     }
     return success();
@@ -634,7 +622,7 @@ public:
     ThreadType threadType;
     switch (threadAttr.getThreadType()) {
     case ttir::ThreadType::Compute: {
-      threadType = ThreadType::Tensix;
+      threadType = ThreadType::Compute;
       break;
     }
     case ttir::ThreadType::Datamovement: {

@@ -13,6 +13,8 @@
 #include "ttmlir/Target/Common/types_generated.h"
 #pragma clang diagnostic pop
 
+#include "tt/runtime/detail/flatbuffer_operator_ostream.h"
+
 namespace tt::runtime::utils {
 
 inline std::shared_ptr<void> malloc_shared(size_t size) {
@@ -54,6 +56,9 @@ inline std::vector<uint32_t> calculateStride(const std::vector<T> &shape) {
   }
   return stride;
 }
+
+template<class... Ts>
+struct overloaded : Ts... { using Ts::operator()...; };
 
 } // namespace tt::runtime::utils
 

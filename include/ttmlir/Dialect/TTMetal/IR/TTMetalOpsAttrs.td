@@ -62,6 +62,8 @@ def TTMetal_KernelArgAttr : TTMetal_Attr<"KernelArg", "kernel_arg"> {
                              ttkernel::ArgType type) {
       return KernelArgAttr::get(context, operandIndex, type, std::numeric_limits<size_t>::max());
     }
+
+    bool isCompileTime() const { return getCtValue() != std::numeric_limits<size_t>::max(); }
   }];
 }
 
@@ -77,8 +79,8 @@ def TTMetal_KernelArgsAttr : TTMetal_Attr<"KernelArgs", "kernel_args"> {
 }
 
 
-def TTMetal_TensixConfigAttr: TTMetal_Attr<"TensixConfig", "tensix_config", [TTMetal_KernelConfigInterface]> {
-  let summary = "TT TensixConfig attribute";
+def TTMetal_ComputeConfigAttr: TTMetal_Attr<"ComputeConfig", "compute_config", [TTMetal_KernelConfigInterface]> {
+  let summary = "TT ComputeConfig attribute";
   let description = [{
     TT compute_desc attribute
   }];
@@ -92,21 +94,21 @@ def TTMetal_TensixConfigAttr: TTMetal_Attr<"TensixConfig", "tensix_config", [TTM
   let assemblyFormat =  "`<` $kernel_symbol `,` qualified($core_range) `,` qualified($kernel_args) `,` $math_fidelity`,` $fp32_dest_acc_en`,` $math_approx_mode`,` `[` $unpack_to_dest_mode `]` `>`";
 
   let extraClassDeclaration = [{
-    static TensixConfigAttr get(mlir::MLIRContext *context,
-                                mlir::SymbolRefAttr kernelSymbol,
-                                CoreRangeAttr coreRange,
-                                KernelArgsAttr kernelArgs) {
-      return TensixConfigAttr::get(context,
-                                   kernelSymbol,
-                                   coreRange,
-                                   kernelArgs,
-                                   MathFidelity::HiFi4,
-                                   false,
-                                   false,
-                                   {UnpackToDestMode::Default});
+    static ComputeConfigAttr get(mlir::MLIRContext *context,
+                                 mlir::SymbolRefAttr kernelSymbol,
+                                 CoreRangeAttr coreRange,
+                                 KernelArgsAttr kernelArgs) {
+      return ComputeConfigAttr::get(context,
+                                    kernelSymbol,
+                                    coreRange,
+                                    kernelArgs,
+                                    MathFidelity::HiFi4,
+                                    false,
+                                    false,
+                                    {UnpackToDestMode::Default});
     };
 
-    mlir::tt::ttkernel::ThreadType getThreadType() const { return mlir::tt::ttkernel::ThreadType::Tensix; }
+    mlir::tt::ttkernel::ThreadType getThreadType() const { return mlir::tt::ttkernel::ThreadType::Compute; }
   }];
 }
 
@@ -141,7 +143,7 @@ def TTMetal_EthernetConfigAttr: TTMetal_Attr<"EthernetConfig", "ethernet_config"
   }];
 }
 
-def TTMetal_KernelConfigAttr : AnyAttrOf<[TTMetal_TensixConfigAttr, TTMetal_NocConfigAttr, TTMetal_EthernetConfigAttr]>;
+def TTMetal_KernelConfigAttr : AnyAttrOf<[TTMetal_ComputeConfigAttr, TTMetal_NocConfigAttr, TTMetal_EthernetConfigAttr]>;
 
 def TTMetal_KernelConfigArrayAttr : TypedArrayAttrBase<TTMetal_KernelConfigAttr, "">;
 

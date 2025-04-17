@@ -740,28 +740,8 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    LOG_FATAL("not implemented");
-  }
-#endif
-  LOG_FATAL("runtime is not enabled");
-}
-
-Event submit(Device deviceHandle, Binary executableHandle,
-             std::uint32_t programIndex,
-             std::vector<Tensor> const &inputHandles,
-             std::vector<Tensor> const &outputHandles) {
-#if defined(TT_RUNTIME_ENABLE_TTNN)
-  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    LOG_FATAL("This submit API is deprecated for TTNN. Please switch to the "
-              "new API.");
-  }
-#endif
-
-#if defined(TT_RUNTIME_ENABLE_TTMETAL)
-  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
     return ::tt::runtime::ttmetal::submit(deviceHandle, executableHandle,
-                                          programIndex, inputHandles,
-                                          outputHandles);
+                                          programIndex, inputs);
   }
 #endif
   LOG_FATAL("runtime is not enabled");

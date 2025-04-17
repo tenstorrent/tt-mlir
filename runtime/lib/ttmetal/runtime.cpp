@@ -13,13 +13,13 @@
 #include "ttmlir/Target/TTMetal/Target.h"
 #include "ttmlir/Version.h"
 
+#include "executor.h"
+
 namespace tt::runtime::ttmetal {
+
 using ::tt::runtime::DeviceRuntime;
-constexpr inline std::size_t kHostBufferCommandQueueId = 0;
 using Events = std::vector<std::shared_ptr<::tt::tt_metal::Event>>;
 using DeviceList = std::vector<::tt::tt_metal::IDevice *>;
-using MetalTensor =
-    std::variant<TensorDesc, std::shared_ptr<::tt::tt_metal::Buffer>>;
 
 static ::tt::target::metal::TTMetalBinary const *getBinary(Flatbuffer binary) {
   bool isTTMetal =
@@ -69,16 +69,15 @@ bool isTensorAllocated(Tensor tensor) {
 tt::target::DataType getTensorDataType(Tensor tensor) {
   const MetalTensor &metalTensor =
       tensor.as<MetalTensor>(DeviceRuntime::TTMetal);
-  if (std::holds_alternative<TensorDesc>(metalTensor)) {
-    TensorDesc desc = std::get<TensorDesc>(metalTensor);
-    return desc.dataType;
-  }
-  if (std::holds_alternative<std::shared_ptr<::tt::tt_metal::Buffer>>(
-          metalTensor)) {
-    LOG_FATAL("Datatype mapping from buffer not supported yet.");
-  }
-  LOG_ASSERT(false, "Unsupported tensor type");
-  return ::tt::target::DataType::Float32;
+  return std::visit(
+      utils::overloaded{
+          [&](TensorDesc const &desc) { return desc.dataType; },
+          [&](DeviceBuffer const &buffer) {
+            LOG_FATAL("Datatype mapping from buffer not supported yet.");
+            return ::tt::target::DataType::Float32;
+          },
+      },
+      metalTensor);
 }
 
 bool getTensorRetain(Tensor tensor) {
@@ -231,10 +230,8 @@ getMemoryView(Device deviceHandle, int deviceID) {
 }
 
 void wait(Event event) {
-  Events events = event.as<Events>(DeviceRuntime::TTMetal);
-  for (auto e : events) {
-    ::tt::tt_metal::EventSynchronize(e);
-  }
+  ::tt::tt_metal::EventSynchronize(
+      event.handle_as<::tt::tt_metal::Event>(DeviceRuntime::TTMetal));
 }
 
 void wait(Tensor tensor) { ::tt::runtime::ttmetal::wait(tensor.event); }
@@ -245,84 +242,9 @@ void wait(std::vector<Tensor> const &tensors) {
   }
 }
 
-static std::pair<std::shared_ptr<::tt::tt_metal::Buffer>,
-                 std::shared_ptr<::tt::tt_metal::Event>>
-prepareInput(::tt::tt_metal::IDevice *device, MetalTensor const &metalTensor,
-             void *data, ::tt::target::metal::TensorRef const *tensorRef) {
-  if (std::holds_alternative<TensorDesc>(metalTensor)) {
-    // todo assert that tensorDesc matches hostTensorDesc
-    std::shared_ptr<::tt::tt_metal::Buffer> buffer =
-        createBufferFromTensorRef(device, tensorRef);
-    auto event = std::make_shared<::tt::tt_metal::Event>();
-    ::tt::tt_metal::CommandQueue &cq =
-        device->command_queue(kHostBufferCommandQueueId);
-    bool const blocking = false;
-    ::tt::tt_metal::EnqueueWriteBuffer(cq, buffer, data, blocking);
-    ::tt::tt_metal::EnqueueRecordEvent(cq, event);
-    return std::make_pair(buffer, event);
-  }
-
-  if (std::holds_alternative<std::shared_ptr<::tt::tt_metal::Buffer>>(
-          metalTensor)) {
-    std::shared_ptr<::tt::tt_metal::Buffer> buffer =
-        std::get<std::shared_ptr<::tt::tt_metal::Buffer>>(metalTensor);
-    LOG_FATAL("Input from buffer not supported yet");
-  }
-  LOG_ASSERT(false, "Unsupported tensor type");
-  return std::make_pair(nullptr, nullptr);
-}
-
-static std::shared_ptr<::tt::tt_metal::Buffer>
-prepareOutput(::tt::tt_metal::IDevice *device, MetalTensor const *metalTensor,
-              ::tt::target::metal::TensorRef const *tensorRef) {
-  LOG_ASSERT(metalTensor != nullptr);
-  if (TensorDesc const *hostTensorDesc = std::get_if<TensorDesc>(metalTensor);
-      hostTensorDesc) {
-    return createBufferFromTensorRef(device, tensorRef);
-  }
-
-  if (std::shared_ptr<::tt::tt_metal::Buffer> const *buffer =
-          std::get_if<std::shared_ptr<::tt::tt_metal::Buffer>>(metalTensor);
-      buffer) {
-    return *buffer;
-  }
-  LOG_ASSERT(false, "Unsupported tensor type");
-  return nullptr;
-}
-
-Events maybeCopyHostOutputs(::tt::tt_metal::IDevice *device,
-                            std::vector<Tensor> const &outputHandles,
-                            std::vector<OutputBuffer> submitOutputs,
-                            Events submitEvents) {
-  Events copyEvents;
-  int i = 0;
-  for (Tensor const &outputHandle : outputHandles) {
-    if (TensorDesc const *hostTensor = std::get_if<TensorDesc>(
-            &outputHandle.as<MetalTensor>(DeviceRuntime::TTMetal));
-        hostTensor) {
-      ::tt::tt_metal::CommandQueue &cq =
-          device->command_queue(kHostBufferCommandQueueId);
-      for (auto submitEvent : submitEvents) {
-        ::tt::tt_metal::EnqueueWaitForEvent(cq, submitEvent);
-      }
-      submitEvents.clear();
-      auto event = std::make_shared<::tt::tt_metal::Event>();
-      bool const blocking = false;
-      auto [global_id, buffer] = submitOutputs[i];
-      ::tt::tt_metal::EnqueueReadBuffer(cq, buffer, outputHandle.data.get(),
-                                        blocking);
-      ::tt::tt_metal::EnqueueRecordEvent(cq, event);
-      copyEvents.push_back(event);
-    }
-    ++i;
-  }
-  return copyEvents;
-}
-
-Event submit(Device deviceHandle, Binary executableHandle,
-             std::uint32_t programIndex,
-             std::vector<Tensor> const &inputHandles,
-             std::vector<Tensor> const &outputHandles) {
+std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
+                           std::uint32_t programIndex,
+                           std::vector<Tensor> &inputs) {
   ::tt::target::metal::TTMetalBinary const &fbb = *getBinary(executableHandle);
   ::tt::target::metal::Program const *program =
       fbb.programs()->Get(programIndex);
@@ -333,9 +255,10 @@ Event submit(Device deviceHandle, Binary executableHandle,
   LOG_ASSERT(allDevices.size() > 0, "Unexpected empty device mesh");
   DeviceList deviceList = {allDevices[0]};
   LOG_ASSERT(deviceList.size() == 1, "Only one device is supported for now");
-  std::shared_ptr<Events> events = std::make_shared<Events>();
   LOG_ASSERT(program->device_programs()->size() == deviceList.size(),
              "Device programs size mismatch");
+
+  std::vector<Tensor> outputs;
   for (std::size_t i = 0; i < program->device_programs()->size(); ++i) {
     ::tt::tt_metal::IDevice *device = deviceList[i];
 
@@ -344,58 +267,14 @@ Event submit(Device deviceHandle, Binary executableHandle,
                            "_device_" + std::to_string(device->id());
     ZoneName(zoneName.c_str(), zoneName.size());
 
-    ::tt::target::metal::DeviceProgram const *deviceProgram =
-        program->device_programs()->Get(i);
-    Events deviceEvents;
-
-    std::vector<InputBuffer> inputs;
-    inputs.reserve(inputHandles.size());
-    LOG_ASSERT(inputHandles.size() == deviceProgram->inputs()->size(),
-               "Input size mismatch");
-    for (unsigned i = 0; i < inputHandles.size(); ++i) {
-      ::tt::target::metal::TensorRef const *tensorRef =
-          deviceProgram->inputs()->Get(i);
-      auto [buffer, event] = prepareInput(
-          device, inputHandles[i].as<MetalTensor>(DeviceRuntime::TTMetal),
-          inputHandles[i].data.get(), tensorRef);
-      inputs.emplace_back(deviceProgram->inputs()->Get(i)->global_id(), buffer,
-                          event);
-    }
-
-    std::vector<OutputBuffer> outputs;
-    outputs.reserve(outputHandles.size());
-    LOG_ASSERT(outputHandles.size() == deviceProgram->outputs()->size(),
-               "Output size mismatch");
-    for (unsigned i = 0; i < outputHandles.size(); ++i) {
-      ::tt::target::metal::TensorRef const *tensorRef =
-          deviceProgram->outputs()->Get(i);
-      std::shared_ptr<::tt::tt_metal::Buffer> buffer = prepareOutput(
-          device, &outputHandles[i].as<MetalTensor>(DeviceRuntime::TTMetal),
-          tensorRef);
-      outputs.emplace_back(deviceProgram->outputs()->Get(i)->global_id(),
-                           buffer);
-    }
-
-    std::size_t cq_id = 0;
-    for (::tt::target::metal::CommandQueue const *cq :
-         *deviceProgram->command_queues()) {
-      FrameMark;
-      deviceEvents.push_back(
-          executeCommandQueue(device, cq, cq_id, inputs, outputs));
-      ++cq_id;
-      FrameMark;
-    }
-
-    Events copyEvents =
-        maybeCopyHostOutputs(device, outputHandles, outputs, deviceEvents);
-    if (!copyEvents.empty()) {
-      std::swap(deviceEvents, copyEvents);
-    }
-
-    events->insert(events->end(), deviceEvents.begin(), deviceEvents.end());
+    LOG_ASSERT(outputs.empty(), "Multi-device outputs not supported");
+    outputs = executeDeviceProgram(device, program->device_programs()->Get(i),
+                                   inputs);
+    assert(outputs.size() == program->outputs()->size() &&
+           "Outputs size mismatch");
   }
 
-  return Event(static_pointer_cast<void>(events), DeviceRuntime::TTMetal);
+  return outputs;
 }
 
 std::string getOpDebugString(OpContext opContextHandle) {

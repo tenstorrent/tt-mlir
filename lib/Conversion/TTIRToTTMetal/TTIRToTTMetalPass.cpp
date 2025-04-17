@@ -46,13 +46,12 @@ struct ConvertTTIRToTTMetal
     target.addLegalDialect<memref::MemRefDialect>();
     target.addLegalDialect<ttmetal::TTMetalDialect>();
     target.addLegalDialect<ttkernel::TTKernelDialect>();
+    target.addLegalDialect<tt::TTDialect>();
     target.addLegalDialect<scf::SCFDialect>();
     target.addIllegalDialect<math::MathDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
 
-    target.addLegalOp<tt::DeviceOp>();
     target.addLegalOp<ttir::StreamLayoutOp>();
-    target.addLegalOp<ttir::ViewLayoutOp>();
 
     target.addDynamicallyLegalOp<memref::AllocOp>([&](memref::AllocOp op) {
       return !mlir::dyn_cast_if_present<tt::MemorySpaceAttr>(
