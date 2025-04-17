@@ -603,8 +603,7 @@ MaxPool2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
-  const auto outputShape =
-      mlir::cast<RankedTensorType>(getResult().getType()).getShape();
+  const auto outputShape = getResult().getType().getShape();
 
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
@@ -626,13 +625,51 @@ MaxPool2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
-  const auto outputShape =
-      mlir::cast<RankedTensorType>(getResult().getType()).getShape();
+  const auto outputShape = getResult().getType().getShape();
 
   return op_model::ttnn::MaxPool2DInterface::getOpRuntime(
       inputShape, inputs[0], getBatchSize(), getInputHeight(), getInputWidth(),
       getChannels(), getKernelSize(), getStride(), getPadding(), getDilation(),
       getCeilMode(), outputShape, opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
+// ClampScalarOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<
+    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+ClampScalarOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  const auto outputShape = getResult().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();
+
+  return op_model::ttnn::ClampScalarInterface::getOpConstraints(
+      deviceGrid, inputShape, inputs[0], getMin(), getMax(), outputShape,
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+ClampScalarOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                            const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  const auto outputShape = getResult().getType().getShape();
+
+  return op_model::ttnn::ClampScalarInterface::getOpRuntime(
+      inputShape, inputs[0], getMin(), getMax(), outputShape,
+      opConfig.outputLayout);
 }
 
 } // namespace mlir::tt::ttnn

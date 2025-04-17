@@ -1455,4 +1455,73 @@ INSTANTIATE_TEST_SUITE_P(
             llvm::SmallVector<int32_t>{4, 2}, llvm::SmallVector<int32_t>{0, 0},
             llvm::SmallVector<int32_t>{1, 1}, false, false)));
 
+class OpModelClampScalarParam : public OpModelTest,
+                                public testing::WithParamInterface<
+                                    std::tuple<detail::TestTensor, // input
+                                               detail::TestTensor, // output
+                                               float,              // min
+                                               float,              // max
+                                               bool // expected legal
+                                               >> {};
+
+TEST_P(OpModelClampScalarParam, ClampScalarParam) {
+  auto params = GetParam();
+  const auto [inputShape, inputTensorLayout, inputBufferType,
+              inputVirtualGrid] = std::get<0>(params);
+  const auto [outputShape, outputTensorLayout, outputBufferType,
+              outputVirtualGrid] = std::get<1>(params);
+  const auto minVal = llvm::APFloat(std::get<2>(params));
+  const auto maxVal = llvm::APFloat(std::get<3>(params));
+  const auto expectedLegal = std::get<4>(params);
+
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+  const mlir::tt::ttnn::TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+  SingletonDeviceContext::resetInstance();
+
+  auto constraintsExp = ClampScalarInterface::getOpConstraints(
+      CreateWorkerGrid(), inputShape, inputLayout, minVal, maxVal, outputShape,
+      outputLayout);
+  if (!constraintsExp) {
+    std::cout << "Error: " << llvm::toString(constraintsExp.takeError())
+              << std::endl;
+  }
+  EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+
+  if (constraintsExp) {
+    const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+        constraintsExp.get();
+    EXPECT_GT(cbSize, 0);
+    EXPECT_GT(peakSize, 0);
+    EXPECT_GT(outputSize, 0);
+  } else {
+    // Must clean up the error
+    llvm::consumeError(constraintsExp.takeError());
+  }
+
+  SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp = ClampScalarInterface::getOpRuntime(
+      inputShape, inputLayout, minVal, maxVal, outputShape, outputLayout);
+  EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    llvm::consumeError(runtimeExp.takeError());
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ClampScalarTests, OpModelClampScalarParam,
+    ::testing::Values(std::make_tuple(
+        detail::TestTensor{{1, 1, 128 * 128, 32},
+                           mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                           mlir::tt::ttnn::BufferType::DRAM},
+        detail::TestTensor{{1, 1, 128 * 128, 32},
+                           mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                           mlir::tt::ttnn::BufferType::L1},
+        1.0, 5.0, true)));
+
 } // namespace mlir::tt::op_model::ttnn

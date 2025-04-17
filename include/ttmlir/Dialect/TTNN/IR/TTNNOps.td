@@ -1440,7 +1440,9 @@ def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d",
     let hasVerifier = 1;
 }
 
-def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar", [HasMemoryConfigTrait]> {
+def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar", [HasMemoryConfigTrait,
+      DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Clamp op.";
     let description = [{
       Clamp tensor values to a specified range.
