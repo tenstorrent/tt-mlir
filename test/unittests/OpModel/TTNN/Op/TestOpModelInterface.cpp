@@ -139,7 +139,7 @@ TEST_F(OpModelBase, ReluOpInterfaceNullOutput) {
   // test ReluOp interface
   OpModel backend = dyn_cast<OpModel>(relu.getOperation());
   auto constraintsExp =
-      backend.getOpConstraints(getInputLayouts(relu), nullptr);
+      backend.getOpConstraints(getInputLayouts(relu), OpConfig(nullptr));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
@@ -260,7 +260,8 @@ TEST_F(OpModelBase, AddOpInterfaceNullOutput) {
 
   // test AddOp interface
   OpModel backend = dyn_cast<OpModel>(add.getOperation());
-  auto constraintsExp = backend.getOpConstraints(getInputLayouts(add), nullptr);
+  auto constraintsExp =
+      backend.getOpConstraints(getInputLayouts(add), OpConfig(nullptr));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
@@ -357,7 +358,7 @@ TEST_F(OpModelBase, MatmulOpInterfaceNullOutput) {
   // test MatmulOp interface
   OpModel backend = dyn_cast<OpModel>(matmul.getOperation());
   auto constraintsExp =
-      backend.getOpConstraints(getInputLayouts(matmul), nullptr);
+      backend.getOpConstraints(getInputLayouts(matmul), OpConfig(nullptr));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
@@ -636,7 +637,7 @@ TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
   // test Conv2dOp interface
   OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
   auto constraintsExp =
-      backend.getOpConstraints(getInputLayouts(conv2d), nullptr);
+      backend.getOpConstraints(getInputLayouts(conv2d), OpConfig(nullptr));
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
       constraintsExp.get();
@@ -649,6 +650,85 @@ TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
   EXPECT_TRUE(outputLayout.hasShardedL1TensorMemoryLayout());
   EXPECT_EQ(outputLayout.getMemLayout().getValue(),
             TensorMemoryLayout::HeightSharded);
+}
+
+TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
+  // create Conv2dOp
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
+  llvm::SmallVector<int64_t> weightShape = {1, 1, 1568, 64};
+  llvm::SmallVector<int64_t> outputShape = {1, 1, 12544, 64};
+
+  auto input = createEmptyTensor(inputShape);
+  auto weight = createEmptyTensor(weightShape);
+  auto outputType = createRankedTensorType(outputShape);
+
+  GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
+      builder.getUnknownLoc(), builder.getType<DeviceType>(),
+      ttnn::MeshShapeAttr::get(builder.getContext(), 1, 1),
+      ttnn::MeshOffsetAttr::get(builder.getContext(), 0, 0));
+
+  Conv2dOp conv2d = builder.create<Conv2dOp>(
+      builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
+      64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
+      llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
+      llvm::ArrayRef<int32_t>({1, 1}), 1, nullptr);
+
+  // Device hangs otherwise.
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  auto badConvConfig = Conv2dConfigAttr::get(
+      &context, DataType::BFloat16, DataType::BFloat16,
+      StringAttr::get(&context, ""), 32, false, true, 0, 1, false, false,
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved),
+      ttnn::CoreRangeSetAttr(), false, Layout::Tile, false, false, false, false,
+      false, false);
+  OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(conv2d),
+      OpConfig(getOutputLayout(conv2d), badConvConfig));
+  ASSERT_FALSE(static_cast<bool>(constraintsExp));
+  llvm::consumeError(constraintsExp.takeError());
+
+  // Device hangs otherwise.
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp =
+      backend.getOpRuntime(getInputLayouts(conv2d),
+                           OpConfig(getOutputLayout(conv2d), badConvConfig));
+  ASSERT_FALSE(static_cast<bool>(runtimeExp));
+  llvm::consumeError(runtimeExp.takeError());
+
+  // Device hangs otherwise.
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  auto goodConvConfig = Conv2dConfigAttr::get(
+      &context, DataType::BFloat16, DataType::BFloat16,
+      StringAttr::get(&context, ""), 32, false, true, 0, 1, false, false,
+      TensorMemoryLayoutAttr(), ttnn::CoreRangeSetAttr(), false, Layout::Tile,
+      false, false, /*enable_act_double_buffer=*/true,
+      /*enable_weights_double_buffer=*/true, false, false);
+
+  constraintsExp = backend.getOpConstraints(
+      getInputLayouts(conv2d),
+      OpConfig(getOutputLayout(conv2d), goodConvConfig));
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cb_size, peak_size, output_size, outputLayout] =
+      constraintsExp.get();
+  EXPECT_EQ(
+      cb_size,
+      243776); // Higher CB usage than baseline Conv2dInterface test due to
+               // enable_act_double_buffer and enable_weights_double_buffer
+  EXPECT_EQ(peak_size, 190568);
+  EXPECT_EQ(output_size, 26624);
+
+  // Device hangs otherwise.
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  runtimeExp =
+      backend.getOpRuntime(getInputLayouts(conv2d),
+                           OpConfig(getOutputLayout(conv2d), goodConvConfig));
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(runtimeExp.get(), 0);
 }
 
 TEST_F(OpModelBase, maxPool2DOp) {
