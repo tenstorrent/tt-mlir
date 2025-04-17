@@ -23,10 +23,11 @@ namespace mlir::tt::ttir {
 // Helper methods.
 //===----------------------------------------------------------------------===//
 
-inline MemorySpace getMemorySpace(MemRefType memref) {
+inline MemorySpace getMemorySpace(MemRefType memref, MemorySpace dflt) {
   auto memSpace = memref.getMemorySpace();
-  assert(memSpace && "expecting memrefs in explicit memory spaces");
-  return mlir::cast<MemorySpaceAttr>(memref.getMemorySpace()).getValue();
+  return memSpace
+             ? mlir::cast<MemorySpaceAttr>(memref.getMemorySpace()).getValue()
+             : dflt;
 }
 
 //===----------------------------------------------------------------------===//
@@ -145,7 +146,7 @@ class TTIRAllocateStreams final : public OpRewritePattern<ttir::GenericOp> {
     const llvm::SmallSet<unsigned, 4> bcastDimIndex(bcastDims.begin(),
                                                     bcastDims.end());
 
-    const bool operandNeedsReduction = llvm::any_of(
+    const bool operandNeedsDataMovement = llvm::any_of(
         llvm::seq(operandIndexingMap.getNumResults()),
         [&](unsigned resultIndex) {
           if (bcastDimIndex.contains(resultIndex)) {
@@ -158,7 +159,7 @@ class TTIRAllocateStreams final : public OpRewritePattern<ttir::GenericOp> {
                   .getValue();
           return (iteratorType == IteratorType::Reduction);
         });
-    return operandNeedsReduction;
+    return operandNeedsDataMovement;
   }
 
   static void insertStream(PatternRewriter &rewriter, OpOperand &operand,
@@ -237,13 +238,19 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     DeviceAttr device = lookupDevice(func);
     SimpleAllocator allocator = createSimpleAllocator(chipDesc);
 
-    // Augment 'memref.alloc's with allocated addresses and correct alignment.
+    // Augment all 'memref.alloc's in device memory with allocated addresses and
+    // correct alignments.
 
     IRRewriter rewriter(&getContext());
 
     func->walk([&](memref::AllocOp alloc) {
       MemRefType memrefTy = alloc.getType();
-      MemorySpace memorySpace = getMemorySpace(memrefTy);
+      MemorySpace memorySpace = getMemorySpace(
+          memrefTy, MemorySpace::System); // Interpret unset as "host memory".
+
+      if (!isDeviceMemorySpace(memorySpace)) {
+        return;
+      }
 
       const auto sizeBytes = device.getMemrefSizeBytes(memrefTy, 0);
       const auto [address, alignment] =
