@@ -143,6 +143,8 @@ public:
 
   std::vector<::tt::runtime::Tensor> gatherOutputTensors();
 
+  std::vector<::tt::runtime::Tensor> gatherInputTensors();
+
   TensorPtrMapIterator erase(const ::tt::target::ttnn::TensorRef *tensorRef);
 
   bool contains(const ::tt::target::ttnn::TensorRef *tensorRef) const {

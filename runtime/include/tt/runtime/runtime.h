@@ -180,6 +180,9 @@ std::string getOpDebugString(OpContext opContextHandle);
 
 std::string getOpLocInfo(OpContext opContextHandle);
 
+std::vector<::tt::runtime::Tensor>
+getInputTensors(CallbackContext programContextHandle);
+
 Tensor getOpOutputTensor(OpContext opContextHandle,
                          CallbackContext programContextHandle);
 
