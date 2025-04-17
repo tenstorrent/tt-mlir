@@ -21,10 +21,6 @@ inputs:
     description: "Enable runtime debug"
     default: "OFF"
     required: false
-  enable-ttmlir-whl:
-    description: "Enable building tt-mlir Wheel"
-    default: "OFF"
-    required: false
   build-name:
     description: "A unique name for this build (e.g., 'run' or 'perf')"
     required: true
@@ -92,21 +88,6 @@ runs:
       run: |
         source env/activate
         cmake --build ${{ inputs.build-output-dir }} -- explorer
-
-    - name: Build ttmlir Python Bindings Wheel
-      if: inputs.enable-ttmlir-whl == 'ON'
-      shell: bash
-      working-directory: ${{ inputs.work-dir }}/python
-      run: |
-        source env/activate
-        python -m pip wheel . --wheel-dir build --verbose
-
-    - name: Upload ttmlir Python Bindings Wheel
-      if: inputs.enable-ttmlir-whl == 'ON'
-      uses: actions/upload-artifact@v4
-      with:
-        name: ttmlir-whl
-        path: ${{ inputs.work-dir }}/python/build/ttmlir*.whl
 
     # Install needs to run after the "Compile dylibs" step
     #

@@ -50,7 +50,6 @@ jobs:
       matrix:
         build: [
           {runs-on: ubuntu-latest, enable_op_model: ON, enable_emitc: ON, name: "speedy"},
-          {runs-on: ubuntu-latest, enable_ttmlir_whl: ON, name: "whl_build"},
           {runs-on: ubuntu-latest, enable_perf: ON, enable_emitc: ON, enable_runtime_debug: ON, enable_explorer: ON, name: "tracy"},
         ]
 
@@ -104,7 +103,6 @@ jobs:
         enable-emitc: ${{ matrix.build.enable_emitc }}
         enable-explorer: ${{ matrix.build.enable_explorer }}
         enable-runtime-debug: ${{ matrix.build.enable_runtime_debug }}
-        enable-ttmlir-whl: ${{ matrix.build.enable_ttmlir_whl }}
         build-name: ${{ matrix.build.name }}
         build-output-dir: ${{ steps.strings.outputs.build-output-dir }}
         install-output-dir: ${{ steps.strings.outputs.install-output-dir }}
@@ -520,3 +518,11 @@ jobs:
         files: ${{ steps.strings.outputs.test_report_path }}
         disable_search: true
         token: ${{ secrets.CODECOV_TOKEN }}
+
+  # Call wheel-build workflow to build the ttmlir wheel
+  build-ttmlir-wheel:
+    needs:
+      - build-image
+    uses: ./.github/workflows/wheel-build.yml
+    with:
+      docker-image: ${{ needs.build-image.outputs.docker-image }}
