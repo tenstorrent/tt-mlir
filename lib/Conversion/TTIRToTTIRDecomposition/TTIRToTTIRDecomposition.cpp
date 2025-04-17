@@ -19,13 +19,11 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 
-#include <algorithm>
-#include <cstdint>
-#include <iostream>
 #include <llvm/ADT/ArrayRef.h>
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/SmallVector.h>
-#include <ostream>
+
+#include <algorithm>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -454,13 +452,10 @@ struct GatherToEmbeddingConversionPattern
    *
    * Enforces constraints on gather operation to ensure valid embedding
    * transformation:
-   * - indexVectorDim is the last dimension of startIndices
+   * - start indices tensor isn't 1D when we are indexing multiple dims
    * - operandBatchingDims and startIndicesBatchingDims are none
-   * - startIndexMap = collapsedSliceDims = [0, 1, ...] (the first few
-   * dimensions)
+   * - startIndexMap = collapsedSliceDims
    * - sliceSizes are fullDim for dimensions we are not indexing
-   * - offsetDims is of any length but has form [indexVectorDim, indexVectorDim
-   * + 1...]
    */
 
   LogicalResult checkBasicLegality(ttir::GatherOp op,
@@ -537,8 +532,9 @@ struct GatherToEmbeddingConversionPattern
    * - output shape is the shape of startIndices with the last dimension of the
    * input appended
    *
-   * We confirm that dimensions are in the right order, so we may only need to
-   * reshape to make tensors 2D, and reshape output to return expected shape.
+   * For operands, we permute the dimensions to be in the right order and
+   * reshape to make tensors 1D/2D. For output, we reshape to recover lost dims
+   * and permute to match offset dims.
    */
 
   LogicalResult
