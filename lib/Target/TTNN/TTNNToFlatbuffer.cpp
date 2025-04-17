@@ -993,6 +993,113 @@ createEltwiseTernaryWhereOp(FlatbufferObjectCache &cache, WhereOp op) {
       *cache.fbb, first, second, third, memoryConfig, out);
 }
 
+// Helper to walk to_device -> to_layout -> constant and extract attribute
+template <typename AttrType>
+static AttrType getAttrFromConstantChain(mlir::Value tensorVal,
+                                         const char *expectedTypeMsg) {
+  ttnn::ToDeviceOp toDeviceOp =
+      mlir::dyn_cast<ttnn::ToDeviceOp>(tensorVal.getDefiningOp());
+  if (!toDeviceOp) {
+    llvm_unreachable(
+        "Expected ttnn.to_device as defining op for per-tensor scale/zp.");
+  }
+  ttnn::ToLayoutOp toLayoutOp =
+      mlir::dyn_cast<ttnn::ToLayoutOp>(toDeviceOp.getInput().getDefiningOp());
+  if (!toLayoutOp) {
+    llvm_unreachable(
+        "Expected ttnn.to_layout as defining op for per-tensor scale/zp.");
+  }
+  ttnn::ConstantOp constOp =
+      mlir::dyn_cast<ttnn::ConstantOp>(toLayoutOp.getInput().getDefiningOp());
+  if (!constOp) {
+    llvm_unreachable(
+        "Expected ttnn.constant as defining op for per-tensor scale/zp.");
+  }
+  mlir::Attribute valueAttr = constOp.getValue();
+  if constexpr (std::is_same_v<AttrType, mlir::FloatAttr>) {
+    if (auto dense = mlir::dyn_cast<mlir::DenseFPElementsAttr>(valueAttr)) {
+      if (dense.getNumElements() == 1)
+        return dense.getSplatValue<mlir::FloatAttr>();
+    }
+  }
+  if constexpr (std::is_same_v<AttrType, mlir::IntegerAttr>) {
+    if (auto dense = mlir::dyn_cast<mlir::DenseIntElementsAttr>(valueAttr)) {
+      if (dense.getNumElements() == 1)
+        return dense.getSplatValue<mlir::IntegerAttr>();
+    }
+  }
+  llvm_unreachable(expectedTypeMsg);
+}
+
+// Process scale tensor (float values)
+static std::pair<::tt::target::ttnn::QuantizationScale,
+                 flatbuffers::Offset<void>>
+processScaleTensor(FlatbufferObjectCache &cache, mlir::Value scale) {
+  ::tt::target::ttnn::QuantizationScale scaleType;
+  flatbuffers::Offset<void> scaleUnion;
+
+  mlir::Value scaleTensor = getOperandThroughDPSOps(scale);
+  mlir::RankedTensorType scaleTensorType =
+      mlir::cast<mlir::RankedTensorType>(scaleTensor.getType());
+
+  if (scaleTensorType.getNumElements() == 1) {
+    // In the per-tensor case, the scale is a float scalar.
+    scaleType = ::tt::target::ttnn::QuantizationScale::PerTensorScale;
+    mlir::FloatAttr floatAttr = getAttrFromConstantChain<mlir::FloatAttr>(
+        scaleTensor, "Scale tensor constant must be a float attribute for "
+                     "per-tensor quantization.");
+    float scaleValue = floatAttr.getValueAsDouble();
+    scaleUnion =
+        ::tt::target::ttnn::CreatePerTensorScale(*cache.fbb, scaleValue)
+            .Union();
+  } else {
+    // In the per-axis case, the scale is a tensor.
+    scaleType = ::tt::target::ttnn::QuantizationScale::PerAxisScale;
+    flatbuffers::Offset<::tt::target::ttnn::TensorRef> scaleTensorRef =
+        cache.at<::tt::target::ttnn::TensorRef>(scaleTensor);
+    scaleUnion =
+        ::tt::target::ttnn::CreatePerAxisScale(*cache.fbb, scaleTensorRef)
+            .Union();
+  }
+
+  return {scaleType, scaleUnion};
+}
+
+// Process zero point tensor (int32 values)
+static std::pair<::tt::target::ttnn::QuantizationZeroPoint,
+                 flatbuffers::Offset<void>>
+processZeroPointTensor(FlatbufferObjectCache &cache, mlir::Value zeroPoint) {
+  ::tt::target::ttnn::QuantizationZeroPoint zeroPointType;
+  flatbuffers::Offset<void> zeroPointUnion;
+
+  mlir::Value zeroPointTensor = getOperandThroughDPSOps(zeroPoint);
+  mlir::RankedTensorType zeroPointTensorType =
+      mlir::cast<mlir::RankedTensorType>(zeroPointTensor.getType());
+
+  // In the per-tensor case, the zero point is an int32 scalar.
+  if (zeroPointTensorType.getNumElements() == 1) {
+    zeroPointType =
+        ::tt::target::ttnn::QuantizationZeroPoint::PerTensorZeroPoint;
+    mlir::IntegerAttr intAttr = getAttrFromConstantChain<mlir::IntegerAttr>(
+        zeroPointTensor, "Zero point tensor constant must be an integer "
+                         "attribute for per-tensor quantization.");
+    int32_t zeroPointValue = static_cast<int32_t>(intAttr.getInt());
+    zeroPointUnion =
+        ::tt::target::ttnn::CreatePerTensorZeroPoint(*cache.fbb, zeroPointValue)
+            .Union();
+  } else {
+    // In the per-axis case, the zero point is a tensor.
+    zeroPointType = ::tt::target::ttnn::QuantizationZeroPoint::PerAxisZeroPoint;
+    flatbuffers::Offset<::tt::target::ttnn::TensorRef> zeroPointTensorRef =
+        cache.at<::tt::target::ttnn::TensorRef>(zeroPointTensor);
+    zeroPointUnion = ::tt::target::ttnn::CreatePerAxisZeroPoint(
+                         *cache.fbb, zeroPointTensorRef)
+                         .Union();
+  }
+
+  return {zeroPointType, zeroPointUnion};
+}
+
 template <typename EltwiseQuantizationOp>
 ::flatbuffers::Offset<::tt::target::ttnn::EltwiseQuantizationOp>
 createEltwiseQuantizationOp(FlatbufferObjectCache &cache,
@@ -1002,21 +1109,54 @@ createEltwiseQuantizationOp(FlatbufferObjectCache &cache,
       [&cache](std::variant<QuantizeOp, DequantizeOp> opVariant) {
         return std::visit(
             [&cache](auto &&op) {
-              auto scale = op.getScale().convertToFloat();
-              auto zeroPoint = op.getZeroPoint();
+              // Process scale.
+              ::tt::target::ttnn::QuantizationScale scaleType;
+              flatbuffers::Offset<void> scaleValue;
+              std::tie(scaleType, scaleValue) =
+                  processScaleTensor(cache, op.getScale());
+
+              // Process zero point.
+              ::tt::target::ttnn::QuantizationZeroPoint zeroPointType;
+              flatbuffers::Offset<void> zeroPointValue;
+              std::tie(zeroPointType, zeroPointValue) =
+                  processZeroPointTensor(cache, op.getZeroPoint());
+
               return ::tt::target::ttnn::CreateQuantizeDequantizeOpParams(
-                  *cache.fbb, scale, zeroPoint);
+                  *cache.fbb, scaleType, scaleValue, zeroPointType,
+                  zeroPointValue);
             },
             opVariant);
       };
 
   auto createRequantOpParams = [&cache](RequantizeOp op) {
-    auto inScale = op.getInScale().convertToFloat();
-    auto inZeroPoint = op.getInZeroPoint();
-    auto outScale = op.getOutScale().convertToFloat();
-    auto outZeroPoint = op.getOutZeroPoint();
+    // Process in_scale.
+    ::tt::target::ttnn::QuantizationScale inScaleType;
+    ::flatbuffers::Offset<void> inScaleValue;
+    std::tie(inScaleType, inScaleValue) =
+        processScaleTensor(cache, op.getInScale());
+
+    // Process in_zero_point.
+    ::tt::target::ttnn::QuantizationZeroPoint inZeroPointType;
+    ::flatbuffers::Offset<void> inZeroPointValue;
+    std::tie(inZeroPointType, inZeroPointValue) =
+        processZeroPointTensor(cache, op.getInZeroPoint());
+
+    // Process out_scale.
+    ::tt::target::ttnn::QuantizationScale outScaleType;
+    ::flatbuffers::Offset<void> outScaleValue;
+    std::tie(outScaleType, outScaleValue) =
+        processScaleTensor(cache, op.getOutScale());
+
+    // Process out_zero_point.
+    ::tt::target::ttnn::QuantizationZeroPoint outZeroPointType;
+    ::flatbuffers::Offset<void> outZeroPointValue;
+    std::tie(outZeroPointType, outZeroPointValue) =
+        processZeroPointTensor(cache, op.getOutZeroPoint());
+
     return ::tt::target::ttnn::CreateRequantizeOpParams(
-        *cache.fbb, inScale, inZeroPoint, outScale, outZeroPoint);
+        *cache.fbb, inScaleType, inScaleValue, inZeroPointType,
+        inZeroPointValue, outScaleType, outScaleValue, outZeroPointType,
+        outZeroPointValue);
   };
 
   ::tt::target::ttnn::EltwiseQuantizationOpType type;

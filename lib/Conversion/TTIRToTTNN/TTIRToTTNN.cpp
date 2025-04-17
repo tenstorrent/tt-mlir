@@ -1483,28 +1483,126 @@ public:
 } // namespace
 
 // Utility function to get scale and zero point for quantized types.
-static std::pair<mlir::FloatAttr, mlir::IntegerAttr>
+static std::pair<mlir::Value, mlir::Value>
 getScaleAndZeroPoint(mlir::quant::QuantizedType elementType,
-                     ConversionPatternRewriter &rewriter) {
-  auto quantPerTensorType =
-      mlir::dyn_cast<mlir::quant::UniformQuantizedType>(elementType);
-  if (!quantPerTensorType) {
-    return {nullptr, nullptr};
+                     ConversionPatternRewriter &rewriter, mlir::Location loc,
+                     mlir::Value device) {
+
+  // Create TTNNLayoutAttr for new ops created (for scale and zero point).
+  MLIRContext *ctx = rewriter.getContext();
+  mlir::tt::GridAttr grid = mlir::tt::GridAttr::get(ctx, 2);
+  mlir::tt::ttnn::BufferType bufferType = mlir::tt::ttnn::BufferType::DRAM;
+  mlir::tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr =
+      mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
+          ctx, mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+
+  auto makeTileType = [&](mlir::Type elemType) -> mlir::tt::TileType {
+    return mlir::tt::TileType::get(
+        ctx, elemType,
+        {mlir::tt::ttnn::TILE_HEIGHT, mlir::tt::ttnn::TILE_WIDTH});
+  };
+
+  auto makeLayoutAttr =
+      [&](ArrayRef<int64_t> shape,
+          mlir::Type elemType) -> mlir::tt::ttnn::TTNNLayoutAttr {
+    return mlir::tt::ttnn::TTNNLayoutAttr::get(
+        ctx, shape, makeTileType(elemType), bufferType, grid, memLayoutAttr);
+  };
+
+  // Per-tensor quantization.
+  if (auto quantPerTensorType =
+          mlir::dyn_cast<mlir::quant::UniformQuantizedType>(elementType)) {
+    // Create ttnn::ConstantOp for scale.
+    float scaleValue = quantPerTensorType.getScale();
+
+    mlir::tt::ttnn::TTNNLayoutAttr layoutAttr =
+        makeLayoutAttr({1}, rewriter.getF32Type());
+    mlir::RankedTensorType scaleType =
+        mlir::RankedTensorType::get({1}, rewriter.getF32Type(), layoutAttr);
+    mlir::DenseFPElementsAttr scaleDenseAttr =
+        mlir::DenseFPElementsAttr::get(scaleType, scaleValue);
+    ttnn::ConstantOp scaleConstant =
+        rewriter.create<ttnn::ConstantOp>(loc, scaleType, scaleDenseAttr);
+
+    // Create ttnn::ConstantOp for zero point.
+    int32_t zeroPoint = static_cast<int32_t>(quantPerTensorType.getZeroPoint());
+    mlir::tt::ttnn::TTNNLayoutAttr zeroLayoutAttr =
+        makeLayoutAttr({1}, rewriter.getI32Type());
+    mlir::RankedTensorType zeroPointType =
+        mlir::RankedTensorType::get({1}, rewriter.getI32Type(), zeroLayoutAttr);
+    mlir::DenseIntElementsAttr zeroPointDenseAttr =
+        mlir::DenseIntElementsAttr::get(zeroPointType, zeroPoint);
+    ttnn::ConstantOp zeroPointConstant = rewriter.create<ttnn::ConstantOp>(
+        loc, zeroPointType, zeroPointDenseAttr);
+    return {scaleConstant.getResult(), zeroPointConstant.getResult()};
   }
-  auto scaleAttr = rewriter.getF32FloatAttr(quantPerTensorType.getScale());
-  auto zeroPointAttr = rewriter.getI32IntegerAttr(
-      static_cast<int32_t>(quantPerTensorType.getZeroPoint()));
-  return {scaleAttr, zeroPointAttr};
+
+  // Per-axis quantization.
+  if (auto quantPerAxisType =
+          mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
+              elementType)) {
+    // Create ttnn::ConstantOp for scale.
+    SmallVector<float> scales;
+    for (float scale : quantPerAxisType.getScales()) {
+      scales.push_back(scale);
+    }
+
+    mlir::tt::ttnn::TTNNLayoutAttr layoutAttr = makeLayoutAttr(
+        {static_cast<int64_t>(scales.size())}, rewriter.getF32Type());
+    mlir::RankedTensorType scaleType =
+        mlir::RankedTensorType::get({static_cast<int64_t>(scales.size())},
+                                    rewriter.getF32Type(), layoutAttr);
+    mlir::DenseFPElementsAttr scaleDenseAttr =
+        mlir::DenseFPElementsAttr::get(scaleType, scales);
+    ttnn::ConstantOp scaleConstant =
+        rewriter.create<ttnn::ConstantOp>(loc, scaleType, scaleDenseAttr);
+
+    // Create ttnn::ConstantOp for zero point. In the case of a splat, we use
+    // the Full op.
+    SmallVector<int32_t> zeroPoints;
+    for (int64_t zeroPoint : quantPerAxisType.getZeroPoints()) {
+      zeroPoints.push_back(static_cast<int32_t>(zeroPoint));
+    }
+    bool isZeroPointSplat =
+        !zeroPoints.empty() &&
+        std::all_of(zeroPoints.begin() + 1, zeroPoints.end(),
+                    [&](int32_t zp) { return zp == zeroPoints.front(); });
+    mlir::tt::ttnn::TTNNLayoutAttr zeroLayoutAttr = makeLayoutAttr(
+        {static_cast<int64_t>(zeroPoints.size())}, rewriter.getI32Type());
+    mlir::RankedTensorType zeroPointType = mlir::RankedTensorType::get(
+        {static_cast<int64_t>(zeroPoints.size())},
+        rewriter.getIntegerType(32, /*isSigned=*/true), zeroLayoutAttr);
+    mlir::Value zeroPointValue;
+    if (isZeroPointSplat) {
+      zeroPointValue =
+          rewriter
+              .create<ttnn::FullOp>(
+                  loc, zeroPointType, device,
+                  rewriter.getFloatAttr(rewriter.getF32Type(),
+                                        static_cast<float>(zeroPoints.front())))
+              .getResult();
+    } else {
+      mlir::DenseIntElementsAttr zeroPointDenseAttr =
+          mlir::DenseIntElementsAttr::get(zeroPointType, zeroPoints);
+      zeroPointValue =
+          rewriter
+              .create<ttnn::ConstantOp>(loc, zeroPointType, zeroPointDenseAttr)
+              .getResult();
+    }
+    return {scaleConstant.getResult(), zeroPointValue};
+  }
+
+  return {nullptr, nullptr};
 }
 
 // Utility function to get axis for quantized types.
 static IntegerAttr getAxis(mlir::quant::QuantizedType elementType,
                            ConversionPatternRewriter &rewriter) {
   IntegerAttr axis;
-  if (auto perChannelType =
+  if (auto perAxisType =
           mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
               elementType)) {
-    axis = rewriter.getI32IntegerAttr(perChannelType.getQuantizedDimension());
+    axis = rewriter.getI32IntegerAttr(perAxisType.getQuantizedDimension());
   }
   return axis;
 }
@@ -1529,19 +1627,21 @@ public:
   LogicalResult
   matchAndRewrite(OpTy op, typename OpTy::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto elementType = getQuantizedElementType(op);
+    mlir::quant::QuantizedType elementType = getQuantizedElementType(op);
     if (!elementType) {
       return failure();
     }
 
-    auto [scale, zeroPoint] = getScaleAndZeroPoint(elementType, rewriter);
+    auto [scale, zeroPoint] =
+        getScaleAndZeroPoint(elementType, rewriter, op.getLoc(),
+                             ttnn::utils::getOrInsertDevice(rewriter, op));
     if (!scale) {
       return rewriter.notifyMatchFailure(
-          op, "Only per tensor quantization is supported right now.");
+          op, "Failed to extract scale and zero point from quantized type.");
     }
 
-    auto axisAttr = getAxis(elementType, rewriter);
-    auto outputDataType =
+    IntegerAttr axisAttr = getAxis(elementType, rewriter);
+    DataTypeAttr outputDataType =
         getDataType(op.getResult(), rewriter, this->getTypeConverter());
 
     rewriter.replaceOpWithNewOp<TTNNOpTy>(
@@ -1565,7 +1665,7 @@ public:
 protected:
   mlir::quant::QuantizedType
   getQuantizedElementType(ttir::QuantizeOp op) const override {
-    auto outputType = op.getOutput().getType();
+    mlir::RankedTensorType outputType = op.getOutput().getType();
     return mlir::dyn_cast<mlir::quant::QuantizedType>(
         outputType.getElementType());
   }
@@ -1581,7 +1681,7 @@ public:
 protected:
   mlir::quant::QuantizedType
   getQuantizedElementType(ttir::DequantizeOp op) const override {
-    auto inputType = op.getInput().getType();
+    mlir::RankedTensorType inputType = op.getInput().getType();
     return mlir::dyn_cast<mlir::quant::QuantizedType>(
         inputType.getElementType());
   }
@@ -1595,12 +1695,12 @@ public:
   LogicalResult
   matchAndRewrite(ttir::RequantizeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto inputType = op.getInput().getType();
-    auto outputType = op.getOutput().getType();
+    mlir::RankedTensorType inputType = op.getInput().getType();
+    mlir::RankedTensorType outputType = op.getOutput().getType();
 
-    auto inputElementType =
+    mlir::quant::QuantizedType inputElementType =
         mlir::dyn_cast<mlir::quant::QuantizedType>(inputType.getElementType());
-    auto outputElementType =
+    mlir::quant::QuantizedType outputElementType =
         mlir::dyn_cast<mlir::quant::QuantizedType>(outputType.getElementType());
 
     if (!inputElementType || !outputElementType) {
@@ -1608,21 +1708,25 @@ public:
     }
 
     auto [inputScale, inputZeroPoint] =
-        getScaleAndZeroPoint(inputElementType, rewriter);
+        getScaleAndZeroPoint(inputElementType, rewriter, op.getLoc(),
+                             ttnn::utils::getOrInsertDevice(rewriter, op));
     if (!inputScale) {
       return rewriter.notifyMatchFailure(
-          op, "Only per tensor quantization is supported right now.");
+          op,
+          "Failed to extract input scale and zero point from quantized type.");
     }
 
     auto [outputScale, outputZeroPoint] =
-        getScaleAndZeroPoint(outputElementType, rewriter);
+        getScaleAndZeroPoint(outputElementType, rewriter, op.getLoc(),
+                             ttnn::utils::getOrInsertDevice(rewriter, op));
     if (!outputScale) {
       return rewriter.notifyMatchFailure(
-          op, "Only per tensor quantization is supported right now.");
+          op,
+          "Failed to extract output scale and zero point from quantized type.");
     }
 
-    auto axisAttr = getAxis(inputElementType, rewriter);
-    auto outputDataType =
+    IntegerAttr axisAttr = getAxis(inputElementType, rewriter);
+    DataTypeAttr outputDataType =
         getDataType(op.getResult(), rewriter, this->getTypeConverter());
 
     rewriter.replaceOpWithNewOp<ttnn::RequantizeOp>(
