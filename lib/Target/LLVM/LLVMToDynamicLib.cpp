@@ -29,8 +29,8 @@
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/TargetParser/Host.h"
 
+#include "mlir/IR/BuiltinOps.h"
 #include <fstream>
-#include <mlir/IR/BuiltinOps.h>
 
 namespace mlir::tt::llvm_to_cpu {
 

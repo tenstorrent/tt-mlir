@@ -8,7 +8,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Interfaces/DestinationStyleOpInterface.h"
-#include <llvm/Support/raw_ostream.h>
+#include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::ttnn::wa {
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundInterface.cpp.inc"

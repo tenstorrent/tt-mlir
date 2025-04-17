@@ -8,9 +8,9 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
-#include <llvm/ADT/SmallVector.h>
-#include <mlir/IR/BuiltinOps.h>
-#include <mlir/Pass/Pass.h>
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/Pass/Pass.h"
+#include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt {
 #define GEN_PASS_DECL_CONVERTTTKERNELTOEMITC
