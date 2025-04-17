@@ -9,7 +9,6 @@
 #include "tt/runtime/types.h"
 
 #include <cstdint>
-#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -92,8 +91,7 @@ public:
              const std::string &constEvalFuncName, VersionVec &&inputVersions,
              const std::vector<tt::runtime::Tensor> &tensors) {
     cache[parentFuncName][constEvalFuncName] =
-        CacheValue{.inputVersions = std::forward<VersionVec>(inputVersions),
-                   .tensors = tensors};
+        CacheValue{std::forward<VersionVec>(inputVersions), tensors};
   }
 
   // Clear the entire cache
@@ -108,9 +106,11 @@ public:
   // Remove all const-eval funcs associated with a given outer key.
   void remove(const std::string &outerKey) {
     auto it = cache.find(outerKey);
-    LOG_ASSERT(it != cache.end(),
-               "Call to remove() failed, outer key: ", outerKey,
-               " was not found!");
+    if (it == cache.end()) {
+      LOG_ERROR("Call to remove() failed, outer key: ", outerKey,
+                " was not found!");
+      return;
+    }
     cache.erase(it);
   }
 
