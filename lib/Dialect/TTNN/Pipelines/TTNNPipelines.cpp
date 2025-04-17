@@ -153,6 +153,7 @@ void createTTNNPipelineTTIRImplicitBroadcastFoldPassFromString(
 
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  pm.addPass(mlir::createCanonicalizerPass());
   // Element type normalization should be the first pass in the pipeline.
   pm.addPass(ttir::createElementTypeNormalization());
   // Create DeviceModule to wrap all ops.

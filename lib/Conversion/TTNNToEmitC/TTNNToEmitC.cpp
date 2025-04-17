@@ -780,6 +780,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getDim()),
+        /*keepdim=*/emitter.emit(false),
         /*sub_core_grids=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getUseMulticore()),
         emitter.emit(srcOp.getMemoryConfig()) |

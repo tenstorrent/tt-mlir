@@ -863,18 +863,25 @@ LogicalResult emitOpRegionAsCpp(Region *region, llvm::raw_ostream &os,
 LogicalResult
 emitEnqueueProgramOpRegionsAsCpp(ttmetal::EnqueueProgramOp enqueueProgramOp,
                                  llvm::SmallVector<std::string> &cppStrings) {
-  assert(cppStrings.size() == enqueueProgramOp.getNumRegions() &&
-         "cppStrings size must match number of regions");
 
-  for (auto &reg : enqueueProgramOp->getRegions()) {
-    auto kernelConfig = mlir::cast<ttkernel::KernelConfigInterface>(
-        enqueueProgramOp.getKernelConfigs()[reg.getRegionNumber()]);
-    if (emitOpRegionAsCpp(&reg, cppStrings[reg.getRegionNumber()],
-                          kernelConfig.getThreadType())
-            .failed()) {
-      return llvm::failure();
-    }
-  }
+  // TODO(jdesousa #2960): This code is commented to allow for compilation after
+  // the new TTMetal lowering flow was implemented. This needs to be replaced
+  // with lowering for new enqueue program semantics.
+  llvm_unreachable("EnqueueProgramOp to C++ is not yet implemented for new D2M "
+                   "lowering flow.");
+
+  // assert(cppStrings.size() == enqueueProgramOp.getNumRegions() &&
+  //        "cppStrings size must match number of regions");
+
+  // for (auto &reg : enqueueProgramOp->getRegions()) {
+  //   auto kernelConfig = mlir::cast<ttkernel::KernelConfigInterface>(
+  //       enqueueProgramOp.getKernelConfigs()[reg.getRegionNumber()]);
+  //   if (emitOpRegionAsCpp(&reg, cppStrings[reg.getRegionNumber()],
+  //                         kernelConfig.getThreadType())
+  //           .failed()) {
+  //     return llvm::failure();
+  //   }
+  // }
 
   return success();
 }
