@@ -567,4 +567,42 @@ MaxPool2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       getCeilMode(), outputShape, output);
 }
 
+//===----------------------------------------------------------------------===//
+// ClampScalarOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+ClampScalarOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                const TTNNLayoutAttr &output) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  const auto outputShape =
+      mlir::cast<RankedTensorType>(getResult().getType()).getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  return op_model::ttnn::ClampScalarInterface::getOpConstraints(
+      inputShape, inputs[0], getMin(), getMax(),
+      outputShape, output);
+}
+
+llvm::Expected<size_t>
+ClampScalarOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                            const TTNNLayoutAttr &output) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  const auto outputShape =
+      mlir::cast<RankedTensorType>(getResult().getType()).getShape();
+
+  return op_model::ttnn::ClampScalarInterface::getOpRuntime(
+      inputShape, inputs[0], getMin(), getMax(),
+      outputShape, output);
+}
+
 } // namespace mlir::tt::ttnn

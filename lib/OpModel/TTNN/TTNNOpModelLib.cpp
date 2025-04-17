@@ -1162,4 +1162,36 @@ llvm::Expected<size_t> MaxPool2DInterface::getOpRuntime(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+//===----------------------------------------------------------------------===//
+// ClampScalar
+//===----------------------------------------------------------------------===//
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+ClampScalarInterface::getOpConstraints(
+    llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+    mlir::APFloat min, mlir::APFloat max,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+
+//#ifdef TTMLIR_ENABLE_OPMODEL
+  //return operation::getOpConstraints("ClampScalarInterface", maxPool2DQuery);
+//#else
+  return std::make_tuple(0, 0, 0);
+//#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> ClampScalarInterface::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+    mlir::APFloat min, mlir::APFloat max,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+
+//#ifdef TTMLIR_ENABLE_OPMODEL
+  //return operation::getOpRuntime("ClampScalarInterface", maxPool2DQuery);
+//#else
+  return llvm::createStringError("Not Implemented");
+//#endif // TTMLIR_ENABLE_OPMODEL
+}
+
 } // namespace mlir::tt::op_model::ttnn
