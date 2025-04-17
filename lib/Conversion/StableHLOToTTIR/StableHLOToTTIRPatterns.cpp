@@ -621,22 +621,8 @@ public:
     auto outputType = cast<mlir::RankedTensorType>(convertedType);
 
     // In case value attr is scalar we need to convert it to 1D tensor.
-    ElementsAttr valueAttr = srcOp.getValue();
-    auto valueShapedType = cast<mlir::ShapedType>(
-        getTypeConverter()->convertType(valueAttr.getType()));
-
-    mlir::ElementsAttr newValueAttr;
-
-    if (auto denseAttr = dyn_cast<mlir::DenseElementsAttr>(valueAttr)) {
-      llvm::SmallVector<mlir::Attribute> values(
-          denseAttr.getValues<mlir::Attribute>());
-      newValueAttr = mlir::DenseElementsAttr::get(valueShapedType, values);
-    } else if (auto resourceAttr =
-                   dyn_cast<mlir::DenseResourceElementsAttr>(valueAttr)) {
-      // Rebuild with new type + same resource handle.
-      newValueAttr = mlir::DenseResourceElementsAttr::get(
-          valueShapedType, resourceAttr.getRawHandle());
-    } else {
+    ElementsAttr newValueAttr = getValueAttr(srcOp.getValue());
+    if (!newValueAttr) {
       return rewriter.notifyMatchFailure(
           srcOp, "Expected DenseElementsAttr or DenseResourceElementsAttr");
     }
@@ -649,6 +635,30 @@ public:
   }
 
 private:
+  ElementsAttr getValueAttr(ElementsAttr valueAttr) const {
+    // Shape is not empty, so we can return the value as is.
+    if (!valueAttr.getShapedType().getShape().empty()) {
+      return valueAttr;
+    }
+
+    auto valueShapedType = cast<mlir::ShapedType>(
+        getTypeConverter()->convertType(valueAttr.getType()));
+    if (auto denseAttr = dyn_cast<mlir::DenseElementsAttr>(valueAttr)) {
+      llvm::SmallVector<mlir::Attribute> values(
+          denseAttr.getValues<mlir::Attribute>());
+      return mlir::DenseElementsAttr::get(valueShapedType, values);
+    }
+
+    if (auto resourceAttr =
+            dyn_cast<mlir::DenseResourceElementsAttr>(valueAttr)) {
+      // Rebuild with new type + same resource handle.
+      return mlir::DenseResourceElementsAttr::get(valueShapedType,
+                                                  resourceAttr.getRawHandle());
+    }
+
+    return nullptr;
+  }
+
   LogicalResult
   checkConversionLegality(mlir::stablehlo::ConstantOp &srcOp,
                           ConversionPatternRewriter &rewriter) const {
