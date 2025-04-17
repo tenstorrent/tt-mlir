@@ -117,6 +117,42 @@ SqrtOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// SigmoidOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+SigmoidOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                         const TTNNLayoutAttr &output) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  const auto outputShape = getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+
+  return op_model::ttnn::SigmoidOpInterface::getOpConstraints(
+      inputShape, inputs[0], outputShape, output);
+}
+
+llvm::Expected<size_t>
+SigmoidOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                     const TTNNLayoutAttr &output) {
+
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  const auto outputShape = getType().getShape();
+
+  return op_model::ttnn::SigmoidOpInterface::getOpRuntime(inputShape, inputs[0],
+                                                       outputShape, output);
+}
+
+//===----------------------------------------------------------------------===//
 // AddOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

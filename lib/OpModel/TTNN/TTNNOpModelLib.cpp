@@ -396,6 +396,36 @@ SqrtOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 }
 
 //===----------------------------------------------------------------------===//
+// SigmoidOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+SigmoidOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
+                                  mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                                  llvm::ArrayRef<int64_t> outputShape,
+                                  mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseUnaryOpConstraints("SigmoidOpInterface", ::ttnn::sqrt,
+                                      inputShape, inputLayout, outputShape,
+                                      outputLayout);
+#else
+  return std::make_tuple(0, 0, 0);
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+SigmoidOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                              mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                              llvm::ArrayRef<int64_t> outputShape,
+                              mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseUnaryOpRuntime("SigmoidOpInterface", ::ttnn::sqrt, inputShape,
+                                  inputLayout, outputShape, outputLayout);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // AddOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<std::tuple<size_t, size_t, size_t>>
