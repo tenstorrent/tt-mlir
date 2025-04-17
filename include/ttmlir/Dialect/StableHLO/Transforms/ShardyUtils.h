@@ -143,7 +143,7 @@ inline bool gspmdAnnotationsExist(mlir::ModuleOp &module) {
           auto callTarget = customCall.getCallTargetName();
 
           if (callTarget == "Sharding" ||
-              callTarget == "SPMDFullToShardShape") {
+              callTarget == "SPMDFullToShardShape" || callTarget == "SPMDShardToFullShape") {
             doGspmdAnnotationsExist = true;
           }
         }
@@ -187,6 +187,90 @@ getTensorShardingAttr(mlir::DictionaryAttr &dictAttr,
   return failure();
 }
 
+inline mlir::LogicalResult
+getTensorShardingPerValueAttr(mlir::DictionaryAttr &dictAttr,
+                      mlir::sdy::TensorShardingPerValueAttr &tensorShardingPerValueAttr) {
+  if (dictAttr && dictAttr.contains(mlir::sdy::TensorShardingAttr::name)) {
+    tensorShardingPerValueAttr = mlir::dyn_cast<mlir::sdy::TensorShardingPerValueAttr>(
+        dictAttr.get(mlir::sdy::TensorShardingAttr::name));
+    return success();
+  }
+
+  llvm::errs()
+      << "Could not find tensor sharding per value attribute in attribute dictionary.\n";
+  return failure();
+}
+
+inline mlir::LogicalResult
+getOutShardingAttr(mlir::DictionaryAttr &dictAttr, mlir::sdy::TensorShardingAttr &shardingAttr) {
+  if (dictAttr && dictAttr.contains("out_sharding")) {
+    shardingAttr = mlir::dyn_cast<mlir::sdy::TensorShardingAttr>(
+        dictAttr.get("out_sharding"));
+    return success();
+  }
+
+  llvm::errs()
+      << "Could not find out sharding attribute in attribute dictionary.\n";
+  return failure();
+}
+
+inline mlir::LogicalResult
+getSlicingAxesAttr(mlir::DictionaryAttr &dictAttr, mlir::sdy::ListOfAxisRefListsAttr &slicingAxesAttr) {
+  if (dictAttr && dictAttr.contains("slicing_axes")) {
+    slicingAxesAttr = mlir::dyn_cast<mlir::sdy::ListOfAxisRefListsAttr>(
+        dictAttr.get("slicing_axes"));
+    return success();
+  }
+
+  llvm::errs() << "Could not find slicing axes in attribute dictionary.\n";
+  return failure();
+}
+
+// Calculate the new sharded output based on the sdy slicing axes attribute
+inline mlir::LogicalResult
+populateShardedOutputType(mlir::sdy::MeshAttr meshAttr, mlir::RankedTensorType &newType, mlir::RankedTensorType &oldType, mlir::sdy::TensorShardingAttr &tensorShardingAttr, mlir::sdy::ListOfAxisRefListsAttr &slicingAxesAttr) {
+  MeshMap meshMap = createMeshMapFromMeshAttr(meshAttr);
+  
+  llvm::ArrayRef<mlir::sdy::AxisRefListAttr> axisRefList = slicingAxesAttr.getValue();
+  llvm::SmallVector<int64_t> newShape(oldType.getShape().begin(), oldType.getShape().end());
+
+  // Loop through axisRefList and find which axis need to still get sharded in the output.
+  for (auto shardingAxes : axisRefList) {
+    for (auto shardingAxis : shardingAxes) {
+      llvm::StringRef axisName = shardingAxis.getName();
+      if (meshMap.find(axisName) == meshMap.end()) {
+        llvm::errs() << "Could not find mesh axis in the current meshmap being "
+                        "used by the function.\n";
+        return failure();
+      }
+
+      // Find which tensor dimension this axis is on in tensorShardingAttr.
+      llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> dimShardings = tensorShardingAttr.getDimShardings();
+
+      for (uint32_t i = 0; i < dimShardings.size(); i++) {
+        llvm::ArrayRef<mlir::sdy::AxisRefAttr> dimShardingAxes = dimShardings[i].getAxes();
+
+        for (auto dimShardAxis : dimShardingAxes) {
+          if (axisName == dimShardAxis.getName()) {
+            int64_t currIndexShape = newShape[i];
+
+            if (currIndexShape % meshMap[axisName] != 0) {
+              llvm::errs() << "Output shape does not divide evenly by it's sharded annotation.\n";
+              return failure();
+            }
+
+            currIndexShape = currIndexShape / meshMap[axisName];
+            newShape[i] = currIndexShape;
+          }
+        }
+      }
+    }
+  }
+
+  newType = RankedTensorType::get(newShape, oldType.getElementType());
+  return success();
+}
+
 // Calculate the new sharded output based on the sdy tensor sharding attribute
 inline mlir::LogicalResult
 populateShardedOutputType(mlir::sdy::MeshAttr meshAttr,
@@ -214,8 +298,7 @@ populateShardedOutputType(mlir::sdy::MeshAttr meshAttr,
       }
 
       if (currIndexShape % meshMap[axisName] != 0) {
-        llvm::errs() << "Could not find mesh axis in the current mesh map "
-                        "being used by the function.\n";
+        llvm::errs() << "Output shape does not divide evenly by it's sharded annotation.\n";
         return failure();
       }
       currIndexShape = currIndexShape / meshMap[axisName];

@@ -242,6 +242,28 @@ public:
     }
     pm.clear();
 
+    // Run sdy insert explicit reshards for any sharding mismatches.
+    pm.addNestedPass<mlir::func::FuncOp>(mlir::sdy::createInsertExplicitReshardsPass());
+    if (failed(pm.run(rootModule))) {
+      mlir::emitError(builder.getUnknownLoc(), "Failed to run insert explicit reshards pass from sdy.\n");
+      signalPassFailure();
+      return;
+    }
+    pm.clear();
+
+    rootModule->dump();
+
+    // Run sdy reshard to collectives.
+    pm.addNestedPass<mlir::func::FuncOp>(mlir::sdy::createReshardToCollectivesPass());
+    if (failed(pm.run(rootModule))) {
+      mlir::emitError(builder.getUnknownLoc(), "Failed to run reshard to collectives from sdy.\n");
+      signalPassFailure();
+      return;
+    }
+    pm.clear();
+
+    rootModule->dump();
+
     // Sdy does not have support for a custom call for FullToShard or
     // ShardToFull like gspmd. Therefore, wrap all operations in each function
     // under a sdy.manual_computation op. This is required to enable the
@@ -413,6 +435,8 @@ public:
       }
     }
 
+    rootModule->dump();
+
     // Analysis the graph and cut all the shapes of each operation according to
     // their sdy sharding attribute.
     for (auto &op : rootModule.getBody()->getOperations()) {
@@ -423,16 +447,102 @@ public:
             mlir::topologicalSort(opSet);
 
         for (mlir::Operation *op : sortedOpSet) {
-          for (auto namedAttr : op->getAttrs()) {
-            if (namedAttr.getName() == mlir::sdy::TensorShardingAttr::name) {
-              mlir::sdy::TensorShardingPerValueAttr tensorShardingPerValueAttr =
-                  mlir::dyn_cast<mlir::sdy::TensorShardingPerValueAttr>(
-                      op->getAttr(mlir::sdy::TensorShardingAttr::name));
-              llvm::ArrayRef<mlir::sdy::TensorShardingAttr> tensorShardings =
-                  tensorShardingPerValueAttr.getShardings();
+          // Handle CCL operations independently since they have different ways to calculate their output shardings based on their dictionary attribute.
+          if (auto currOp = llvm::dyn_cast<mlir::sdy::AllGatherOp>(*op)) {
 
-              // Loop through all the tensorShardings and apply them to each
-              // output
+          }
+          else if (auto currOp = llvm::dyn_cast<mlir::sdy::AllSliceOp>(*op)) {
+            if (auto opAttrDict = op->getAttrDictionary()) {
+              mlir::sdy::TensorShardingAttr tensorShardingAttr;
+              // If operation doesn't have any sdy tensor annotations, we skip it.
+              if (failed(sdy_utils::getOutShardingAttr(opAttrDict, tensorShardingAttr))) {
+                continue;
+              }
+
+              mlir::sdy::ListOfAxisRefListsAttr slicingAxesAttr;
+              // If operation doesn't have any slicing axes annotations, we skip it.
+              if (failed(sdy_utils::getSlicingAxesAttr(opAttrDict, slicingAxesAttr))) {
+                continue;
+              }
+
+              // Calculate new output shape of operation.
+              mlir::RankedTensorType oldType = mlir::dyn_cast<mlir::RankedTensorType>(op->getResult(0).getType());
+              mlir::RankedTensorType newType;
+
+              if (failed(sdy_utils::populateShardedOutputType(globalMeshOp.getMesh(), newType, oldType, tensorShardingAttr, slicingAxesAttr))) {
+                mlir::emitError(builder.getUnknownLoc(), "Could not apply propagated tensor shardings to tensor dimensions.");
+                signalPassFailure();
+                return;
+              }
+
+              // Create new operation state.
+              mlir::OperationState state(op->getLoc(), op->getName());
+              state.types.push_back(newType);
+              state.operands.append(op->operand_begin(), op->operand_end());
+              state.attributes = op->getAttrs();
+
+              // Replace current operation with newly created operation with
+              // updated tensor shardings.
+              mlir::Operation *newOp = mlir::Operation::create(state);
+              op->getResult(0).replaceAllUsesWith(newOp->getResult(0));
+              builder.setInsertionPoint(op);
+              builder.insert(newOp);
+              op->erase();
+            }
+          }
+          else if (auto currOp = llvm::dyn_cast<mlir::sdy::AllToAllOp>(*op)) {
+
+          }
+          else if (auto currOp = llvm::dyn_cast<mlir::sdy::CollectivePermuteOp>(*op)) {
+            if (auto opAttrDict = op->getAttrDictionary()) {
+              mlir::sdy::TensorShardingAttr tensorShardingAttr;
+              // If operation doesn't have any sdy tensor annotations, we skip it.
+              if (failed(sdy_utils::getOutShardingAttr(opAttrDict, tensorShardingAttr))) {
+                continue;
+              }
+
+              // Calculate new output shape of operation.
+              mlir::RankedTensorType oldType = mlir::dyn_cast<mlir::RankedTensorType>(op->getResult(0).getType());
+              mlir::RankedTensorType newType;
+
+              if (failed(sdy_utils::populateShardedOutputType(
+                      globalMeshOp.getMesh(), newType, oldType,
+                      tensorShardingAttr))) {
+                mlir::emitError(builder.getUnknownLoc(),
+                                "Could not apply propagated tensor shardings to "
+                                "tensor dimensions.");
+                signalPassFailure();
+                return;
+              }
+
+              // Create new operation state.
+              mlir::OperationState state(op->getLoc(), op->getName());
+              state.types.push_back(newType);
+              state.operands.append(op->operand_begin(), op->operand_end());
+              state.attributes = op->getAttrs();
+
+              // Replace current operation with newly created operation with
+              // updated tensor shardings.
+              mlir::Operation *newOp = mlir::Operation::create(state);
+              op->getResult(0).replaceAllUsesWith(newOp->getResult(0));
+              builder.setInsertionPoint(op);
+              builder.insert(newOp);
+              op->erase();
+            }
+          }
+          else if (auto currOp = llvm::dyn_cast<mlir::sdy::AllReduceOp>(*op)) {
+
+          }
+          else {
+            if (auto opAttrDict = op->getAttrDictionary()) {
+              mlir::sdy::TensorShardingPerValueAttr tensorShardingPerValueAttr;
+              // If operation doesn't have any sdy tensor annotations, we skip it.
+              if (failed(sdy_utils::getTensorShardingPerValueAttr(opAttrDict, tensorShardingPerValueAttr))) {
+                continue;
+              }
+
+              llvm::ArrayRef<mlir::sdy::TensorShardingAttr> tensorShardings = tensorShardingPerValueAttr.getShardings();
+              // Loop through all the tensorShardings and apply them to each output.
               for (uint32_t i = 0; i < tensorShardings.size(); i++) {
                 mlir::sdy::TensorShardingAttr tensorShardingAttr =
                     tensorShardings[i];
@@ -469,6 +579,8 @@ public:
         }
       }
     }
+
+    rootModule->dump();
 
     // Remove all sdy tensor sharding annotations since all the analysis is
     // complete
