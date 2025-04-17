@@ -309,7 +309,7 @@ module attributes {} {
     return %1 : tensor<1x4xf32>
   }
 
-  // In examples 16 to permute ops are needed
+  // In examples 16 and 17 permute ops are needed
   func.func @gather_16(%operand: tensor<1x2x3x5xf32>, %start_indices: tensor<4x1xi32>) -> (tensor<1x2x3x4xf32> {jax.result_info = "result"}) {
     // CHECK: "ttnn.permute"
     // CHECK: "ttnn.reshape"
