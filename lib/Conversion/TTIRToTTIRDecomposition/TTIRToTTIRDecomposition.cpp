@@ -578,7 +578,7 @@ struct GatherToEmbeddingConversionPattern
     auto embeddingOutputType = mlir::RankedTensorType::get(
         newOutputShape, input.getType().getElementType());
     ttir::EmbeddingOp embeddingOp =
-        ttmlir::utils::createDPSOp<ttir::EmbeddingOp>(
+        ttir::utils::createDPSOp<ttir::EmbeddingOp>(
             rewriter, op.getLoc(), embeddingOutputType, startIndices, input);
 
     rewriter.replaceOp(op, reshapeAndPermuteOutput(rewriter, op->getLoc(),
@@ -607,7 +607,7 @@ private:
     }
     auto permutedInputShape =
         ttmlir::utils::applyPermutation(inputType.getShape(), inputPermutation);
-    return ttmlir::utils::createDPSOp<ttir::PermuteOp>(
+    return ttir::utils::createDPSOp<ttir::PermuteOp>(
         rewriter, loc, permutedInputShape, inputType.getElementType(),
         inputType.getEncoding(), input, inputPermutation);
   }
@@ -646,7 +646,7 @@ private:
     auto permutedStartIndicesShape = ttmlir::utils::applyPermutation(
         startIndicesType.getShape(), startIndicesPermutation);
     auto startIndicesPermuted =
-        ttmlir::utils::createDPSOp<ttir::PermuteOp>(
+        ttir::utils::createDPSOp<ttir::PermuteOp>(
             rewriter, op.getLoc(), permutedStartIndicesShape,
             startIndicesType.getElementType(), startIndicesType.getEncoding(),
             startIndices, startIndicesPermutation)
@@ -655,7 +655,7 @@ private:
     // Typecast op because matmul needs float operands.
     auto typecastResultType = startIndicesPermuted.getType().clone(
         mlir::Float32Type::get(getContext()));
-    ttir::TypecastOp typecastOp = ttmlir::utils::createDPSOp<ttir::TypecastOp>(
+    ttir::TypecastOp typecastOp = ttir::utils::createDPSOp<ttir::TypecastOp>(
         rewriter, op->getLoc(), typecastResultType, startIndicesPermuted);
 
     // Const op with correct weights to matmul indices with.
@@ -679,7 +679,7 @@ private:
     auto matmulResultType = mlir::RankedTensorType::get(
         matmulResultShape, Float32Type::get(getContext()));
 
-    return ttmlir::utils::createDPSOp<ttir::MatmulOp>(
+    return ttir::utils::createDPSOp<ttir::MatmulOp>(
         rewriter, op->getLoc(), matmulResultType, typecastOp.getResult(0),
         constantOp);
   }
@@ -736,7 +736,7 @@ private:
     auto reshapedOutput =
         createReshapeOp(rewriter, loc, output, permutedOutputShape);
 
-    return ttmlir::utils::createDPSOp<ttir::PermuteOp>(
+    return ttir::utils::createDPSOp<ttir::PermuteOp>(
         rewriter, loc, expectedOutputType.getShape(),
         expectedOutputType.getElementType(), expectedOutputType.getEncoding(),
         reshapedOutput, ttmlir::utils::inversePermutation(outputPermutation));
