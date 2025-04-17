@@ -55,7 +55,6 @@ class CMakeBuild(build_ext):
             "-DCMAKE_INSTALL_PREFIX=" + str(install_dir),
             "-DCMAKE_C_COMPILER=clang",
             "-DCMAKE_CXX_COMPILER=clang++",
-            "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
             # Add the Source Directory (root)
             "-S",
             str(cwd.parent),
