@@ -283,6 +283,10 @@ PYBIND11_MODULE(_C, m) {
         "Get the debug string of the op");
   m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,
         "Get the location info of the op");
+  m.def("is_op_pre_tagged", &tt::runtime::isOpPreTagged,
+        "Get the pre-callback tag info of the op");
+  m.def("is_op_post_tagged", &tt::runtime::isOpPostTagged,
+        "Get the post-callback tag info of the op");
   m.def(
       "memcpy",
       [](std::uintptr_t dst, ::tt::runtime::Tensor src) {

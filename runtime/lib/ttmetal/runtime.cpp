@@ -410,6 +410,18 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   return "";
 }
 
+bool isOpPreTagged(OpContext opContextHandle) {
+  // Not implemented
+  LOG_WARNING("obtaining op pre tag info for metal runtime not implemented");
+  return false;
+}
+
+bool isOpPostTagged(OpContext opContextHandle) {
+  // Not implemented
+  LOG_WARNING("obtaining op post tag info for metal runtime not implemented");
+  return false;
+}
+
 Tensor getOpOutputTensor(OpContext opContextHandle,
                          CallbackContext programContextHandle) {
   // Not implemented

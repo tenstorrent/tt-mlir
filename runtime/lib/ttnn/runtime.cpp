@@ -746,6 +746,20 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   return std::string(opContext.loc_info()->c_str());
 }
 
+bool isOpPreTagged(OpContext opContextHandle) {
+  // auto const &opContext =
+  //     opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
+  // return opContext.pre_hook_tag();
+  return true;
+}
+
+bool isOpPostTagged(OpContext opContextHandle) {
+  // auto const &opContext =
+  //     opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
+  // return opContext.post_hook_tag();
+  return true;
+}
+
 ::tt::runtime::Tensor getOpOutputTensor(OpContext opContextHandle,
                                         CallbackContext programContextHandle) {
   auto const &programContext =
