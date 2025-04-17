@@ -115,6 +115,16 @@ def TTIR_TileReduceMaxOp : TTIR_GenericRegionComputeOp<"tile_reduce_max"> {
     let results = (outs TT_Tile:$result);
 }
 
+def TTIR_TileMatmulOp : TTIR_GenericRegionComputeOp<"tile_matmul"> {
+  let summary = "TTIR Tile Matmul Op";
+  let description = [{
+        The `tile_matmul` operation computes the matrix multiplication of two input tiles and adds third tile A * B + C.
+    }];
+
+  let arguments = (ins TT_Tile:$a, TT_Tile:$b, TT_Tile:$c);
+  let results = (outs TT_Tile:$result);
+}
+
 def TTIR_TileMatmulBlockOp : TTIR_GenericRegionComputeOp<"tile_matmul_block",
   [DestinationStyleOpInterface, DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
     let summary = "TTIR Tile Matmul Block Op";

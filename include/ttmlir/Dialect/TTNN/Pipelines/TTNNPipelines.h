@@ -192,6 +192,10 @@ struct TTIRToTTNNBackendPipelineOptions
       llvm::cl::desc("Enable implicit broadcast folding pass."),
       llvm::cl::init(true)};
 
+  Option<bool> eraseInverseOpsEnabled{
+      *this, "enable-erase-inverse-ops-pass",
+      llvm::cl::desc("Enable erase inverse ops pass."), llvm::cl::init(true)};
+
   Option<tt::TTArgumentTypeMap, tt::ArgumentTypeMapParser> argumentTypeMap{
       *this, tt::OptionNames::argumentTypes,
       llvm::cl::desc(
@@ -219,16 +223,17 @@ struct TTIRToTTNNBackendPipelineOptions
       *this, "enable-const-eval",
       llvm::cl::desc("Enable const-eval optimization pass."),
       llvm::cl::init(false)};
-
-  Option<bool> enableFP32{*this, "enable-fp32",
-                          llvm::cl::desc("Enable fp32 type."),
-                          llvm::cl::init(true)};
 };
 
 // TTIR to EmitC pipeline options.
 // Inherit from TTIRToTTNNBackendPipelineOptions to reuse the options.
 //
 struct TTIRToEmitCPipelineOptions : public TTIRToTTNNBackendPipelineOptions {};
+
+// TTIR to EmitC SO pipeline options.
+// Inherit from TTIRToEmitCPipelineOptions to reuse the options.
+//
+struct TTIRToEmitCSOPipelineOptions : public TTIRToEmitCPipelineOptions {};
 
 void createTTNNPipelineTTIRPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
@@ -265,6 +270,9 @@ void createTTIRToTTNNBackendPipeline(
 
 void createTTIRToEmitCPipeline(OpPassManager &pm,
                                const TTIRToEmitCPipelineOptions &options);
+
+void createTTIRToEmitCSOPipeline(OpPassManager &pm,
+                                 const TTIRToEmitCSOPipelineOptions &options);
 
 /// Registers all pipelines for the `bufferization` dialect. Currently,
 /// this includes only the "ttir-to-ttnn-backend-pipeline".

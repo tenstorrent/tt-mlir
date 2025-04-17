@@ -8,6 +8,8 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 
+#include "llvm/ADT/DenseSet.h"
+
 namespace mlir::tt::ttnn {
 
 void L1ChainConfig::build() {
@@ -23,7 +25,7 @@ void L1ChainConfig::resolve() {
 ShardSolver L1ChainConfig::resolveWithSolver(
     const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
     unsigned usableL1CacheSize,
-    const std::unordered_set<Edge> &overrideReshardEdges) {
+    const llvm::DenseSet<Edge> &overrideReshardEdges) {
   assert(state == L1ChainState::Built);
 
   // Reconcile adjacent shard specs.
@@ -39,7 +41,7 @@ ShardSolver L1ChainConfig::resolveWithSolver(
 
 void L1ChainConfig::complete(
     const llvm::DenseMap<Operation *, OpConfig> &selectedOpConfig,
-    std::unordered_set<Edge> &memReconfigEdges) {
+    llvm::DenseMap<Edge, MemReconfigEntry> &memReconfigEntryMap) {
   assert(state == L1ChainState::Resolved);
   for (auto &opL1MemSpec : opL1MemSpecs) {
     auto legalConfigsIter = selectedOpConfig.find(opL1MemSpec.op);
@@ -48,7 +50,7 @@ void L1ChainConfig::complete(
     opL1MemSpec.config = legalConfigsIter->second;
   }
 
-  this->memReconfigEdges.swap(memReconfigEdges);
+  this->memReconfigEntryMap.swap(memReconfigEntryMap);
   state = L1ChainState::Completed;
 }
 
@@ -62,8 +64,8 @@ void L1ChainConfig::merge(L1ChainConfig &other) {
   opL1MemSpecs.insert(opL1MemSpecs.end(), other.opL1MemSpecs.begin(),
                       other.opL1MemSpecs.end());
   l1ChainedOps.insert(other.l1ChainedOps.begin(), other.l1ChainedOps.end());
-  memReconfigEdges.insert(other.memReconfigEdges.begin(),
-                          other.memReconfigEdges.end());
+  memReconfigEntryMap.insert(other.memReconfigEntryMap.begin(),
+                             other.memReconfigEntryMap.end());
 }
 
 } // namespace mlir::tt::ttnn

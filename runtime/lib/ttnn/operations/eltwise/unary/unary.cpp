@@ -8,6 +8,7 @@
 #include "tt/runtime/ttnn/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttnn/operations/copy.hpp"
+#include "ttnn/operations/eltwise/unary/common/unary_op_types.hpp"
 
 namespace tt::runtime::ttnn::operations::eltwise::unary {
 
@@ -47,6 +48,28 @@ static void runEltwiseUnaryWithFastAndApproximateModeOp(
 
   ::ttnn::Tensor out =
       ttnnOp(in, /*parameter=*/false, outputMemoryConfig, std::nullopt);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+}
+
+static void runEltwiseUnaryWithVectorAndFastAndApproximateModeOp(
+    const ::tt::target::ttnn::EltwiseUnaryOp *op, ProgramTensorPool &tensorPool,
+    const std::function<
+        ::ttnn::Tensor(const ::ttnn::Tensor &, const int, const bool,
+                       const std::optional<::ttnn::MemoryConfig> &,
+                       const std::optional<::ttnn::Tensor> &)> &ttnnOp) {
+
+  const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          op->memory_config());
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
+
+  ::ttnn::Tensor out =
+      ttnnOp(in, static_cast<int>(::ttnn::operations::unary::VecMode::RC),
+             /*parameter=*/false, outputMemoryConfig, std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
@@ -120,8 +143,8 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Sigmoid: {
-    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool,
-                                                ::ttnn::sigmoid);
+    runEltwiseUnaryWithVectorAndFastAndApproximateModeOp(op, tensorPool,
+                                                         ::ttnn::sigmoid);
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Sin: {

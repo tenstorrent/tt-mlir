@@ -13,7 +13,8 @@ namespace mlir::tt {
 void populateTTIRToTTIRGenericPatterns(MLIRContext *ctx,
                                        RewritePatternSet &patterns,
                                        TypeConverter &typeConverter,
-                                       uint64_t deviceGridRank);
+                                       uint64_t deviceGridRank,
+                                       bool useTileMatmul);
 
 std::unique_ptr<OperationPass<ModuleOp>> createTTIRToTTIRGenericPass();
 

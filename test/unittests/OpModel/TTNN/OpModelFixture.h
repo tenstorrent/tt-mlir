@@ -11,7 +11,7 @@
 #include "ttmlir/Dialect/TT/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/Utils/VirtualToPhysicalAffineMap.h"
+#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/IR/Builders.h"
@@ -141,8 +141,8 @@ public:
              const llvm::ArrayRef<int64_t> virtualGridSize,
              const llvm::ArrayRef<int64_t> physicalGridSize) {
 
-    auto affineMap =
-        mlir::tt::ttnn::utils::CreateSingleDeviceVirtualToPhysicalAffineMap(
+    auto affineMap = mlir::tt::ttnn::optimizer_utils::
+        createSingleDeviceVirtualToPhysicalAffineMap(
             context, tensorMemoryLayout, physicalGridSize);
 
     return mlir::tt::GridAttr::get(context, virtualGridSize, affineMap);
@@ -151,6 +151,28 @@ public:
   mlir::tt::GridAttr CreateWorkerGrid(
       const llvm::ArrayRef<int64_t> physicalGridSize = GetPhysicalGridSize()) {
     return mlir::tt::GridAttr::get(&context, physicalGridSize);
+  }
+
+  void ExpectLayoutsEQ(mlir::tt::ttnn::TTNNLayoutAttr layoutA,
+                       mlir::tt::ttnn::TTNNLayoutAttr layoutB) {
+    EXPECT_EQ(layoutA.getLayout(), layoutB.getLayout());
+    EXPECT_EQ(layoutA.getBufferType(), layoutB.getBufferType());
+    EXPECT_EQ(layoutA.getElementType(), layoutB.getElementType());
+    EXPECT_EQ(layoutA.getDataType(), layoutB.getDataType());
+    EXPECT_EQ(layoutA.getMemLayout().getValue(),
+              layoutB.getMemLayout().getValue());
+    EXPECT_EQ(layoutA.getGrid().getGridVolume(),
+              layoutB.getGrid().getGridVolume());
+    ASSERT_EQ(layoutA.getGrid().getShape().size(),
+              layoutB.getGrid().getShape().size());
+    for (size_t i = 0; i < layoutA.getGrid().getShape().size(); ++i) {
+      EXPECT_EQ(layoutA.getGrid().getShape()[i],
+                layoutB.getGrid().getShape()[i]);
+    }
+    ASSERT_EQ(layoutA.getShardShape().size(), layoutB.getShardShape().size());
+    for (size_t i = 0; i < layoutA.getShardShape().size(); ++i) {
+      EXPECT_EQ(layoutA.getShardShape()[i], layoutB.getShardShape()[i]);
+    }
   }
 
   static constexpr std::array<int64_t, 2> gridShapeHwN300 = {8, 8};

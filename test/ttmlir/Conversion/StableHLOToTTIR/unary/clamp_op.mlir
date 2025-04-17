@@ -53,10 +53,10 @@ module @jit_clamp attributes {} {
 
   func.func public @test_clamp_tensor_constant(%arg0: tensor<1x16xbf16>, %arg1: tensor<bf16>) -> tensor<1x16xbf16> {
     // CHECK-LABEL: func.func public @test_clamp_tensor_constant(
-    // CHECK: %[[CONSTANT:[0-9]+]] = "ttir.constant"() <{value = dense<3.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
+    // CHECK: %[[CONSTANT:[0-9]+]] = "ttir.constant"() <{value = dense<3.000000e+00> : tensor<1xf64>}> : () -> tensor<1xf64>
     %cst = arith.constant dense<3.0> : tensor<1xf64>
     // CHECK: %[[CAST:[0-9]+]] = "ttir.typecast"(%[[CONSTANT]],
-    // CHECK-SAME: (tensor<1xf32>, tensor<1xbf16>) -> tensor<1xbf16>
+    // CHECK-SAME: (tensor<1xf64>, tensor<1xbf16>) -> tensor<1xbf16>
     %0 = stablehlo.convert %cst : (tensor<1xf64>) -> tensor<1xbf16>
     // CHECK: %[[MIN:[0-9]+]] = "ttir.reshape"(%[[CAST]],
     // CHECK-SAME: shape = [1 : i32]

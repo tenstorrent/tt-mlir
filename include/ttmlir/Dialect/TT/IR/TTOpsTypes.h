@@ -5,6 +5,7 @@
 #ifndef TTMLIR_DIALECT_TT_IR_TTOPSTYPES_H
 #define TTMLIR_DIALECT_TT_IR_TTOPSTYPES_H
 
+#include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpImplementation.h"
@@ -77,35 +78,45 @@ inline ::mlir::ParseResult parseVargDimensionList(::mlir::AsmParser &odsParser,
   return result;
 }
 
-inline DataType elementTypeToDataType(Type elementType) {
-  DataType dtype = DataType::Float32;
-  if (isa<FloatType>(elementType)) {
-    auto floatType = mlir::cast<FloatType>(elementType);
-    if (floatType.isF32()) {
-      dtype = DataType::Float32;
-    } else if (floatType.isF16()) {
-      dtype = DataType::Float16;
-    } else if (floatType.isBF16()) {
-      dtype = DataType::BFloat16;
-    } else {
-      assert(false && "unsupported float type");
+inline std::optional<DataType> elementTypeToDataTypeImpl(Type elementType) {
+  if (auto quant = dyn_cast<quant::QuantizedType>(elementType)) {
+    elementType = quant.getExpressedType();
+  }
+
+  if (isa<BFloat16Type>(elementType)) {
+    return DataType::BFloat16;
+  }
+
+  if (auto floatType = dyn_cast<mlir::FloatType>(elementType)) {
+    switch (floatType.getWidth()) {
+    // Treat f64 as f32.
+    case 32:
+    case 64:
+      return DataType::Float32;
+    case 16:
+      return DataType::Float16;
+    default:
+      return {};
     }
-  } else if (isa<IntegerType>(elementType)) {
-    auto intType = mlir::cast<IntegerType>(elementType);
-    if (intType.getWidth() == 32) {
-      // We interpret signed ints (si32) and signless ints (i32) as signed
-      // integers
-      dtype = (intType.isSigned() || intType.isSignless()) ? DataType::Int32
-                                                           : DataType::UInt32;
-    } else if (intType.getWidth() == 16) {
-      dtype = DataType::UInt16;
-    } else if (intType.getWidth() == 8) {
-      dtype = DataType::UInt8;
-    } else {
-      assert(false && "unsupported integer type");
+  } else if (auto intType = dyn_cast<mlir::IntegerType>(elementType)) {
+    switch (intType.getWidth()) {
+    // Booleans treated as bfloat16.
+    case 1:
+      return DataType::BFloat16;
+    case 8:
+      return DataType::UInt8;
+    case 16:
+      return DataType::UInt16;
+    case 32:
+    case 64:
+      return (intType.isSigned() || intType.isSignless()) ? DataType::Int32
+                                                          : DataType::UInt32;
+    default:
+      return {};
     }
   }
-  return dtype;
+
+  return {};
 }
 
 inline Type dataTypeToElementType(::mlir::MLIRContext *context,
@@ -142,6 +153,27 @@ inline Type dataTypeToElementType(::mlir::MLIRContext *context,
     return IntegerType::get(context, 32,
                             IntegerType::SignednessSemantics::Signed);
   }
+}
+
+// Convenience function to convert any type to TTMLIR supported type.
+inline ::mlir::Type toTTMLIRSupportedDataType(Type elementType) {
+  std::optional<DataType> dataType = elementTypeToDataTypeImpl(elementType);
+
+  if (dataType) {
+    return dataTypeToElementType(elementType.getContext(), *dataType);
+  }
+
+  return {};
+}
+
+inline DataType elementTypeToDataType(Type elementType) {
+  std::optional<DataType> dataType = elementTypeToDataTypeImpl(elementType);
+
+  if (dataType) {
+    return *dataType;
+  }
+
+  llvm_unreachable("Unsupported element type.");
 }
 } // namespace mlir::tt
 

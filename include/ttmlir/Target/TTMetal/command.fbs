@@ -29,7 +29,7 @@ union HostBuffer {
 }
 
 table EnqueueWriteBufferCommand {
-  src: HostBuffer;
+  src: TensorRef;
   dst: TensorRef;
 }
 

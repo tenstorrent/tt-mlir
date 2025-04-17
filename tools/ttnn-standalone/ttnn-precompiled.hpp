@@ -10,6 +10,7 @@
 #include "device.hpp"
 #include "operations/ccl/all_gather/all_gather.hpp"
 #include "operations/ccl/ccl_host_types.hpp"
+#include "operations/ccl/mesh_shard_impl.h"
 #include "operations/ccl/reduce_scatter/reduce_scatter.hpp"
 #include "operations/conv/conv2d/conv2d.hpp"
 #include "operations/conv/conv2d/prepare_conv2d_weights.cpp"

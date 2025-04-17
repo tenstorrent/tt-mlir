@@ -6,7 +6,7 @@
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Utils.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -44,8 +44,8 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
-                                                 adaptor.getOperands());
+    ttir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
+                                               adaptor.getOperands());
 
     return success();
   }
@@ -92,7 +92,7 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampScalarOp>(
+    ttir::utils::replaceOpWithNewDPSOp<ttir::ClampScalarOp>(
         rewriter, srcOp, outputType, adaptor.getInput(), adaptor.getMinFp(),
         adaptor.getMaxFp());
 
@@ -113,7 +113,7 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<ttir::ConcatOp>(
+    ttir::utils::replaceOpWithNewDPSOp<ttir::ConcatOp>(
         rewriter, srcOp, outputType, adaptor.getOperands(), adaptor.getAxis());
 
     return success();
@@ -134,7 +134,7 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<ttir::MatmulOp>(
+    ttir::utils::replaceOpWithNewDPSOp<ttir::MatmulOp>(
         rewriter, srcOp, outputType, adaptor.getA(), adaptor.getB());
 
     return success();
@@ -155,7 +155,7 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<DestOp>(
+    ttir::utils::replaceOpWithNewDPSOp<DestOp>(
         rewriter, srcOp, outputType, adaptor.getInput(), /*keep_dim=*/true,
         rewriter.getI32ArrayAttr(adaptor.getAxis()));
 
@@ -182,9 +182,10 @@ public:
     auto pad = srcOp.getPad();
 
     // TODO (azecevic) Add comment about the parameters.
-    ttmlir::utils::replaceOpWithNewDPSOp<ttir::MaxPool2dOp>(
+    ttir::utils::replaceOpWithNewDPSOp<ttir::MaxPool2dOp>(
         rewriter, srcOp, outputType, adaptor.getInput(), dims[0], dims[1],
-        strides[0], strides[1], 1, 1, false, pad[2], pad[3], pad[0], pad[1]);
+        strides[0], strides[1], 1, 1, false, pad[2], pad[3], pad[0], pad[1],
+        /*flattened_compat_info=*/nullptr);
 
     return success();
   }
