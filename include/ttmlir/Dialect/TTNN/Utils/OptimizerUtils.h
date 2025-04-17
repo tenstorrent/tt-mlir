@@ -17,7 +17,7 @@ namespace mlir::tt::ttnn::optimizer_utils {
 std::vector<TTNNLayoutAttr> generateAllPossibleLayouts(
     mlir::MLIRContext *ctx, RankedTensorType tensorType, GridAttr maxGrid,
     Type scalarElementType, bool onlyShardedLayouts = false,
-    int64_t maxNumGeneratedLayouts = -1, bool rowMajorAllowed = false);
+    int64_t maxNumGeneratedLayouts = -1, bool rowMajorAllowed = true);
 
 // Creates an affine map that translates a virtual grid layout to a physical
 // grid layout for a single device based on the specified tensor memory layout.

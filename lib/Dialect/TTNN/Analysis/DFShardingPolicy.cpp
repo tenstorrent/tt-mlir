@@ -103,9 +103,6 @@ void DFShardingPolicy::run() {
           if (llvm::isa<ttnn::MeanOp>(currentOp)) {
             validForSharding = false;
           }
-          if (llvm::isa<ttnn::TransposeOp>(currentOp)) {
-            validForSharding = false;
-          }
           // TODO(#2588): Blocked by graph capture issue.
           if (llvm::isa<ttnn::Conv2dOp>(currentOp)) {
             validForSharding = false;
@@ -215,7 +212,8 @@ void DFShardingPolicy::run() {
   //
   for (auto &l1ChainConfig : *l1ChainConfigs) {
     ShardSolver shardSolver = l1ChainConfig.resolveWithSolver(
-        legalConfigs, usableL1CacheSize, overrideReshardEdges);
+        tensorTypePossibleLayouts, legalConfigs, usableL1CacheSize,
+        overrideReshardEdges);
 
     if (l1ChainConfig.getState() == L1ChainState::Failed) {
       mlir::emitWarning(l1ChainConfig.getOpL1MemSpecs().front().op->getLoc(),

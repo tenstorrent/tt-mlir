@@ -6,6 +6,10 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Support/Logger.h"
+
+#include "llvm/Support/raw_ostream.h"
+
 #include <cassert>
 
 namespace mlir::tt::ttnn {
@@ -84,20 +88,21 @@ private:
              createFromDeviceOp || createToMemoryConfigOp;
     }
 
-    void print() const {
-      llvm::errs() << "OpsToCreate{ \n"
-                   << "\t"
-                   << "CreateToDeviceOp: " << createToDeviceOp << "\n"
-                   << "\t"
-                   << "CreateFromDeviceOp: " << createFromDeviceOp << "\n"
-                   << "\t"
-                   << "CreateToLayoutOp: " << createToLayoutOp << "\n"
-                   << "\t"
-                   << "CreateTypecastOp: " << createDataTypeCastOp << "\n"
-                   << "\t"
-                   << "CreateToMemoryConfigOp: " << createToMemoryConfigOp
-                   << "\n"
-                   << "}\n";
+    friend llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
+                                         const OpsToCreate opsToCreate) {
+      os << "OpsToCreate{ \n"
+         << "\t"
+         << "CreateToDeviceOp: " << opsToCreate.createToDeviceOp << "\n"
+         << "\t"
+         << "CreateFromDeviceOp: " << opsToCreate.createFromDeviceOp << "\n"
+         << "\t"
+         << "CreateToLayoutOp: " << opsToCreate.createToLayoutOp << "\n"
+         << "\t"
+         << "CreateTypecastOp: " << opsToCreate.createDataTypeCastOp << "\n"
+         << "\t"
+         << "CreateToMemoryConfigOp: " << opsToCreate.createToMemoryConfigOp
+         << "\n}\n";
+      return os;
     }
   };
 
@@ -152,6 +157,10 @@ private:
 
     input.shardShape = inputLayoutAttr.getShardShape();
     output.shardShape = outputLayoutAttr.getShardShape();
+    TTMLIR_DEBUG(ttmlir::LogComponent::General,
+                 "Decompose layouts pass for op {} \nInput layout: {} \nOutput "
+                 "layout: {} \n",
+                 op, inputLayoutAttr, outputLayoutAttr);
 
     return {input, output};
   }
@@ -184,6 +193,9 @@ private:
           (input.isL1Sharded() and output.isL1Sharded() and
            input.shardGrid != output.shardGrid);
     }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::General,
+                 "Decompose layouts pass ops to create: {}", opsToCreate);
     return opsToCreate;
   }
 
@@ -259,6 +271,11 @@ private:
                                                     info.output.bufferType);
     newResultType = utils::createRankedTensorTypeWithMemoryLayout(
         newResultType, info.output.tensorMemoryLayout.getValue());
+
+    // Respect grid attribute of the output layout
+    newResultType = utils::createRankedTensorTypeWithGrid(
+        newResultType, info.output.shardGrid);
+
     // Create new ranked tensor type with host memory buffer type
     return this->createOp<ttnn::ToDeviceOp>(rewriter, op, newResultType,
                                             currentInput, info.device,
