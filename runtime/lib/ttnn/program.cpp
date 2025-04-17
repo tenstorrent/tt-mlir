@@ -130,9 +130,9 @@ public:
             ->c_str()); // uh an op would never have multiple outputs right?
     // opnew = opContext.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
     // std::cout << "OP ID: " << opContext->id() << std::endl;
-    std::cout << "OP OUT: " << opContext->out()->c_str() << std::endl;
+    // std::cout << "OP OUT: " << opContext->out()->c_str() << std::endl;
 #include <typeinfo>
-    std::cout << "OP TYPE: " << typeid(opContext->out()).name() << std::endl;
+    // std::cout << "OP TYPE: " << typeid(opContext->out()).name() << std::endl;
   } // Note to self:
 
   void execute() {
@@ -197,7 +197,12 @@ void ProgramExecutor::runCallback(
 void ProgramExecutor::dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice) {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
   static uint32_t counter = 0;
-  if (counter++ >= debug::RuntimeModifications::get().getDumpDeviceRate()) {
+  std::cout << "Testing dump rate" << program->debug_info()->dump_device_rate()
+            << std::endl;
+  if (counter++ >=
+      program->debug_info()
+          ->dump_device_rate()) { // debug::RuntimeModifications::get().getDumpDeviceRate())
+                                  // {
     LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +
                                            std::to_string(counter - 1) +
                                            " operations");

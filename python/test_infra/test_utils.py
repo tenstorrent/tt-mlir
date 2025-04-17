@@ -21,6 +21,7 @@ from ttmlir.passes import (
 from .ttir_builder import Golden, Operand, Shape, TTIRBuilder, DataType, TypeInfo
 
 TT_MLIR_HOME = os.environ.get("TT_MLIR_HOME", "")
+os.environ["TT_DEBUG_DUMP_RATE"] = "2"
 
 # Default output to the current directory from where this module is being invoked
 OUTPUT_PATH = ""

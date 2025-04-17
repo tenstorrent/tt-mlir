@@ -689,6 +689,12 @@ void setDumpDeviceRate(std::uint32_t rate) {
 //  setDumpDeviceRate();
 //}
 
+void setProgramDumpDeviceRate(CallbackContext programContextHandle,
+                              std::uint32_t rate) {
+  debug::RuntimeModifications::get().setDumpDeviceRate(rate);
+  //*program->debug_info()->dump_device_rate();
+}
+
 std::string getOpDebugString(OpContext opContextHandle) {
   auto const &opContext =
       opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
