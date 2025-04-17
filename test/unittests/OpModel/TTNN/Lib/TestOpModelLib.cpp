@@ -84,15 +84,17 @@ TEST_P(OpModelUnaryEltwiseParam, Relu) {
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
   auto constraintsExp = ReluOpInterface::getOpConstraints(
-      inputShape, inputLayout, outputShape, outputLayout);
+      CreateWorkerGrid(), inputShape, inputLayout, outputShape, outputLayout);
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (expectedLegal) {
-    const auto [cbSize, peakSize, outputSize] = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+        constraintsExp.get();
     EXPECT_EQ(cbSize, expectedCbSize);
     EXPECT_EQ(peakSize, expectedPeakSize);
     EXPECT_EQ(outputSize, expectedOutputSize);
+    ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
   } else {
     // Must clean up the error
     llvm::consumeError(constraintsExp.takeError());
@@ -169,15 +171,17 @@ TEST_P(OpModelUnaryEltwiseParam, Sqrt) {
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
   auto constraintsExp = SqrtOpInterface::getOpConstraints(
-      inputShape, inputLayout, outputShape, outputLayout);
+      CreateWorkerGrid(), inputShape, inputLayout, outputShape, outputLayout);
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (expectedLegal) {
-    const auto [cbSize, peakSize, outputSize] = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+        constraintsExp.get();
     EXPECT_EQ(cbSize, expectedCbSize);
     EXPECT_EQ(peakSize, expectedPeakSize);
     EXPECT_EQ(outputSize, expectedOutputSize);
+    ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
   } else {
     // Must clean up the error
     llvm::consumeError(constraintsExp.takeError());
@@ -265,12 +269,14 @@ TEST_P(OpModelReductionParam, Reduction) {
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
   auto constraintsExp = MeanOpInterface::getOpConstraints(
-      inputShape, inputLayout, dimArg, keepDim, outputLayout);
+      CreateWorkerGrid(), inputShape, inputLayout, dimArg, keepDim,
+      outputLayout);
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (expectedLegal) {
-    const auto [cbSize, peakSize, outputSize] = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+        constraintsExp.get();
     EXPECT_EQ(cbSize, expectedCbSize);
     EXPECT_EQ(peakSize, expectedPeakSize);
     EXPECT_EQ(outputSize, expectedOutputSize);
@@ -323,41 +329,51 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
   auto constraintsExp = SoftmaxOpInterface::getOpConstraints(
-      tensorShape, inputLayout_dram, -1, tensorShape, inputLayout_dram);
+      CreateWorkerGrid(), tensorShape, inputLayout_dram, -1, tensorShape,
+      inputLayout_dram);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cb_size, peak_size, output_size] = constraintsExp.get();
+  auto [cb_size, peak_size, output_size, outputLayoutReadBack] =
+      constraintsExp.get();
   EXPECT_EQ(cb_size, 137216);
   EXPECT_EQ(output_size, 0);
   EXPECT_EQ(peak_size, 0);
 
   constraintsExp = SoftmaxOpInterface::getOpConstraints(
-      tensorShape, inputLayout_dram, -1, tensorShape, inputLayout_l1);
+      CreateWorkerGrid(), tensorShape, inputLayout_dram, -1, tensorShape,
+      inputLayout_l1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
+  std::tie(cb_size, peak_size, output_size, outputLayoutReadBack) =
+      constraintsExp.get();
   EXPECT_EQ(cb_size, 137216);
   EXPECT_EQ(output_size, 2048);
   EXPECT_EQ(peak_size, 2048);
 
   constraintsExp = SoftmaxOpInterface::getOpConstraints(
-      tensorShape, inputLayout_l1, -1, tensorShape, inputLayout_dram);
+      CreateWorkerGrid(), tensorShape, inputLayout_l1, -1, tensorShape,
+      inputLayout_dram);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
+  std::tie(cb_size, peak_size, output_size, outputLayoutReadBack) =
+      constraintsExp.get();
   EXPECT_EQ(cb_size, 137216);
   EXPECT_EQ(output_size, 0);
   EXPECT_EQ(peak_size, 0);
 
   constraintsExp = SoftmaxOpInterface::getOpConstraints(
-      tensorShape, inputLayout_l1, -1, tensorShape, inputLayout_l1);
+      CreateWorkerGrid(), tensorShape, inputLayout_l1, -1, tensorShape,
+      inputLayout_l1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
+  std::tie(cb_size, peak_size, output_size, outputLayoutReadBack) =
+      constraintsExp.get();
   EXPECT_EQ(cb_size, 137216);
   EXPECT_EQ(output_size, 2048);
   EXPECT_EQ(peak_size, 2048);
 
   constraintsExp = SoftmaxOpInterface::getOpConstraints(
-      tensorShape, inputLayout_dram, -1, tensorShape, inputLayout_dram);
+      CreateWorkerGrid(), tensorShape, inputLayout_dram, -1, tensorShape,
+      inputLayout_dram);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
+  std::tie(cb_size, peak_size, output_size, outputLayoutReadBack) =
+      constraintsExp.get();
   EXPECT_EQ(cb_size, 137216);
   EXPECT_EQ(output_size, 0);
   EXPECT_EQ(peak_size, 0);
@@ -389,9 +405,11 @@ TEST_F(OpModelTest, Reshape) {
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
   auto constraintsExp = ReshapeOpInterface::getOpConstraints(
-      tensorShape, layoutDRAM, {workerCoresN300 * 4, 256}, layoutDRAM);
+      CreateWorkerGrid(), tensorShape, layoutDRAM, {workerCoresN300 * 4, 256},
+      layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cb_size, peak_size, output_size] = constraintsExp.get();
+  auto [cb_size, peak_size, output_size, outputLayoutReadBack] =
+      constraintsExp.get();
   EXPECT_EQ(cb_size, 262144);
   EXPECT_EQ(output_size, 0);
   EXPECT_EQ(peak_size, 0);
@@ -402,9 +420,11 @@ TEST_F(OpModelTest, Reshape) {
   EXPECT_TRUE(runtimeExp.get() > 0);
 
   constraintsExp = ReshapeOpInterface::getOpConstraints(
-      tensorShape, layoutDRAM, {workerCoresN300 * 4, 256}, layoutL1);
+      CreateWorkerGrid(), tensorShape, layoutDRAM, {workerCoresN300 * 4, 256},
+      layoutL1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
+  std::tie(cb_size, peak_size, output_size, outputLayoutReadBack) =
+      constraintsExp.get();
   EXPECT_EQ(cb_size, 262144);
   EXPECT_EQ(output_size, 2048);
   EXPECT_EQ(peak_size, 4096);
@@ -431,12 +451,15 @@ TEST_F(OpModelTest, ToLayout) {
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
   auto constraintsExp = ToLayoutOpInterface::getOpConstraints(
-      tensorShape, layoutDRAMTiled, std::nullopt, layoutDRAMRowMajor, true);
+      CreateWorkerGrid(), tensorShape, layoutDRAMTiled, std::nullopt,
+      layoutDRAMRowMajor, true);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cb_size, peak_size, output_size] = constraintsExp.get();
+  auto [cb_size, peak_size, output_size, outputLayoutReadBack] =
+      constraintsExp.get();
   EXPECT_EQ(cb_size, 262144);
   EXPECT_EQ(output_size, 0);
   EXPECT_EQ(peak_size, 0);
+  ExpectLayoutsEQ(layoutDRAMRowMajor, outputLayoutReadBack);
 
   auto runtimeExp = ToLayoutOpInterface::getOpRuntime(
       tensorShape, layoutDRAMTiled, std::nullopt, layoutDRAMRowMajor, true);
@@ -444,7 +467,8 @@ TEST_F(OpModelTest, ToLayout) {
   EXPECT_TRUE(runtimeExp.get() > 0);
 
   constraintsExp = ToLayoutOpInterface::getOpConstraints(
-      tensorShape, layoutDRAMTiled, std::nullopt, layoutL1RowMajorHS, true);
+      CreateWorkerGrid(), tensorShape, layoutDRAMTiled, std::nullopt,
+      layoutL1RowMajorHS, true);
   EXPECT_FALSE(static_cast<bool>(constraintsExp));
   llvm::consumeError(constraintsExp.takeError());
 
@@ -454,12 +478,15 @@ TEST_F(OpModelTest, ToLayout) {
   llvm::consumeError(runtimeExp.takeError());
 
   constraintsExp = ToLayoutOpInterface::getOpConstraints(
-      tensorShape, layoutDRAMTiled, std::nullopt, layoutDRAMRowMajor, false);
+      CreateWorkerGrid(), tensorShape, layoutDRAMTiled, std::nullopt,
+      layoutDRAMRowMajor, false);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
+  std::tie(cb_size, peak_size, output_size, outputLayoutReadBack) =
+      constraintsExp.get();
   EXPECT_EQ(cb_size, 262144);
   EXPECT_EQ(output_size, 0);
   EXPECT_EQ(peak_size, 0);
+  ExpectLayoutsEQ(layoutDRAMRowMajor, outputLayoutReadBack);
 
   runtimeExp = ToLayoutOpInterface::getOpRuntime(
       tensorShape, layoutDRAMTiled, std::nullopt, layoutDRAMRowMajor, false);
@@ -484,9 +511,10 @@ TEST_F(OpModelTest, Transpose) {
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
   auto constraintsExp = TransposeOpInterface::getOpConstraints(
-      tensorShape, layoutDRAM, 0, 1, layoutDRAM);
+      CreateWorkerGrid(), tensorShape, layoutDRAM, 0, 1, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cb_size, peak_size, output_size] = constraintsExp.get();
+  auto [cb_size, peak_size, output_size, outputLayoutReadBack] =
+      constraintsExp.get();
   EXPECT_EQ(cb_size, 8192);
   EXPECT_EQ(output_size, 0);
   EXPECT_EQ(peak_size, 0);
@@ -497,9 +525,10 @@ TEST_F(OpModelTest, Transpose) {
   EXPECT_TRUE(runtimeExp.get() > 0);
 
   constraintsExp = TransposeOpInterface::getOpConstraints(
-      tensorShape, layoutDRAM, 0, 1, layoutL1Interleaved);
+      CreateWorkerGrid(), tensorShape, layoutDRAM, 0, 1, layoutL1Interleaved);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
+  std::tie(cb_size, peak_size, output_size, outputLayoutReadBack) =
+      constraintsExp.get();
   EXPECT_EQ(cb_size, 8192);
   EXPECT_EQ(output_size, 2048);
   EXPECT_EQ(peak_size, 2048);
@@ -510,7 +539,8 @@ TEST_F(OpModelTest, Transpose) {
   EXPECT_TRUE(runtimeExp.get() > 0);
 
   constraintsExp = TransposeOpInterface::getOpConstraints(
-      tensorShape, layoutL1Interleaved, 0, 1, layoutL1WSharded);
+      CreateWorkerGrid(), tensorShape, layoutL1Interleaved, 0, 1,
+      layoutL1WSharded);
   EXPECT_FALSE(static_cast<bool>(constraintsExp));
   llvm::consumeError(constraintsExp.takeError());
 
@@ -535,25 +565,31 @@ TEST_F(OpModelTest, SoftmaxSharded) {
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
   auto constraintsExp = SoftmaxOpInterface::getOpConstraints(
-      tensorShape, inputLayout_l1_hs, -2, tensorShape, inputLayout_l1_hs);
+      CreateWorkerGrid(), tensorShape, inputLayout_l1_hs, -2, tensorShape,
+      inputLayout_l1_hs);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cb_size, peak_size, output_size] = constraintsExp.get();
+  auto [cb_size, peak_size, output_size, outputLayoutReadBack] =
+      constraintsExp.get();
   EXPECT_EQ(cb_size, 24576);
   EXPECT_EQ(output_size, 32768);
   EXPECT_EQ(peak_size, 32768);
 
   constraintsExp = SoftmaxOpInterface::getOpConstraints(
-      tensorShape, inputLayout_l1_hs, -2, tensorShape, inputLayout_l1_i);
+      CreateWorkerGrid(), tensorShape, inputLayout_l1_hs, -2, tensorShape,
+      inputLayout_l1_i);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
+  std::tie(cb_size, peak_size, output_size, outputLayoutReadBack) =
+      constraintsExp.get();
   EXPECT_EQ(cb_size, 24576);
   EXPECT_EQ(output_size, 32768);
   EXPECT_EQ(peak_size, 32768);
 
   constraintsExp = SoftmaxOpInterface::getOpConstraints(
-      tensorShape, inputLayout_l1_i, -2, tensorShape, inputLayout_l1_hs);
+      CreateWorkerGrid(), tensorShape, inputLayout_l1_i, -2, tensorShape,
+      inputLayout_l1_hs);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
+  std::tie(cb_size, peak_size, output_size, outputLayoutReadBack) =
+      constraintsExp.get();
   EXPECT_EQ(cb_size, 24576);
   EXPECT_EQ(output_size, 32768);
   EXPECT_EQ(peak_size, 32768);
@@ -582,11 +618,12 @@ TEST_F(OpModelTest, Typecast) {
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
   auto constraintsExp = TypecastOpInterface::getOpConstraints(
-      tensorShape, inputLayoutDRAMIBF16,
+      CreateWorkerGrid(), tensorShape, inputLayoutDRAMIBF16,
       DataTypeAttr::get(&context, DataType::Float32), tensorShape,
       inputLayoutDRAMIF32);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cb_size, peak_size, output_size] = constraintsExp.get();
+  auto [cb_size, peak_size, output_size, outputLayoutReadBack] =
+      constraintsExp.get();
   EXPECT_EQ(cb_size, 12288);
   EXPECT_EQ(output_size, 0);
   EXPECT_EQ(peak_size, 0);
@@ -599,7 +636,7 @@ TEST_F(OpModelTest, Typecast) {
   EXPECT_TRUE(runtimeExp.get() > 0);
 
   constraintsExp = TypecastOpInterface::getOpConstraints(
-      tensorShape, inputLayoutDRAMIBF16,
+      CreateWorkerGrid(), tensorShape, inputLayoutDRAMIBF16,
       DataTypeAttr::get(&context, DataType::Float32), tensorShape,
       inputLayoutL1HSBF16);
   EXPECT_FALSE(static_cast<bool>(constraintsExp));
@@ -632,11 +669,13 @@ protected:
           {OpType::Mul, MultiplyOpInterface::getOpRuntime},
       };
 
-  std::map<OpType,
-           std::function<llvm::Expected<std::tuple<size_t, size_t, size_t>>(
-               llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr,
-               llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr,
-               llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr)>>
+  std::map<
+      OpType,
+      std::function<llvm::Expected<
+          std::tuple<size_t, size_t, size_t, mlir::tt::ttnn::TTNNLayoutAttr>>(
+          GridAttr, llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr,
+          llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr,
+          llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr)>>
       constraintsMap = {
           {OpType::Add, AddOpInterface::getOpConstraints},
           {OpType::Mul, MultiplyOpInterface::getOpConstraints},
@@ -660,17 +699,19 @@ protected:
     const mlir::tt::ttnn::TTNNLayoutAttr outputLayout = CreateTiledLayout(
         outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
-    auto constraintsExp =
-        constraintsMap[opType](inputShapeA, inputLayoutA, inputShapeB,
-                               inputLayoutB, outputShape, outputLayout);
+    auto constraintsExp = constraintsMap[opType](
+        CreateWorkerGrid(), inputShapeA, inputLayoutA, inputShapeB,
+        inputLayoutB, outputShape, outputLayout);
     // Manually cast to bool because EXPECT_TRUE requires a const bool operator
     // which llvm::Expected<T> does not have
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
-      const auto [cbSize, peakSize, outputSize] = constraintsExp.get();
+      const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+          constraintsExp.get();
       EXPECT_EQ(cbSize, expectedCbSize);
       EXPECT_EQ(peakSize, expectedPeakSize);
       EXPECT_EQ(outputSize, expectedOutputSize);
+      ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
     } else {
       // Must clean up the error
       llvm::consumeError(constraintsExp.takeError());
@@ -889,14 +930,15 @@ TEST_P(OpModelMatmulParam, MatmulParam) {
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
   auto constraintsExp = MatmulOpInterface::getOpConstraints(
-      inputShapeA, inputLayoutA, inputShapeB, inputLayoutB, outputShape,
-      outputLayout, false, false);
+      CreateWorkerGrid(), inputShapeA, inputLayoutA, inputShapeB, inputLayoutB,
+      outputShape, outputLayout, false, false);
 
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (expectedLegal) {
-    const auto [cbSize, peakSize, outputSize] = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+        constraintsExp.get();
     EXPECT_EQ(cbSize, expectedCbSize);
     EXPECT_EQ(peakSize, expectedPeakSize);
     EXPECT_EQ(outputSize, expectedOutputSize);
@@ -1087,12 +1129,9 @@ class OpModelConv2dParam
                      llvm::SmallVector<int32_t>, // padding
                      llvm::SmallVector<int32_t>, // dilation
                      uint32_t,                   // groups
-                     bool, bool>> {};
+                     detail::ExpectedResult>> {};
 
 TEST_P(OpModelConv2dParam, Conv2d) {
-  // Enable test once #2588 is fixed.
-  GTEST_SKIP();
-
   auto params = GetParam();
   const auto [inputShape, inputTensorLayout, inputBufferType,
               inputVirtualGrid] = std::get<0>(params);
@@ -1110,8 +1149,8 @@ TEST_P(OpModelConv2dParam, Conv2d) {
   const auto padding = std::get<10>(params);
   const auto dilation = std::get<11>(params);
   const auto groups = std::get<12>(params);
-  const auto constraintsLegal = std::get<13>(params);
-  const auto runtimeLegal = std::get<14>(params);
+  const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+              expectedOutputSize] = std::get<13>(params);
 
   const mlir::tt::ttnn::TTNNLayoutAttr inputLayout = CreateTiledLayout(
       inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
@@ -1124,18 +1163,19 @@ TEST_P(OpModelConv2dParam, Conv2d) {
   SingletonDeviceContext::resetInstance();
 
   auto constraintsExp = Conv2dOpInterface::getOpConstraints(
-      inputShape, inputLayout, weightShape, weightLayout, std::nullopt,
-      std::nullopt, in_channels, out_channels, batch_size, input_height,
-      input_width, kernel_size, stride, padding, dilation, groups, std::nullopt,
-      outputShape, outputLayout);
+      CreateWorkerGrid(), inputShape, inputLayout, weightShape, weightLayout,
+      std::nullopt, std::nullopt, in_channels, out_channels, batch_size,
+      input_height, input_width, kernel_size, stride, padding, dilation, groups,
+      std::nullopt, outputShape, outputLayout);
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
-  EXPECT_EQ(static_cast<bool>(constraintsExp), constraintsLegal);
+  EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
-    const auto [cbSize, peakSize, outputSize] = constraintsExp.get();
-    EXPECT_GT(cbSize, 0);
-    EXPECT_GT(peakSize, 0);
-    EXPECT_GT(outputSize, 0);
+    const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+        constraintsExp.get();
+    EXPECT_EQ(cbSize, expectedCbSize);
+    EXPECT_EQ(peakSize, expectedPeakSize);
+    EXPECT_EQ(outputSize, expectedOutputSize);
   } else {
     // Must clean up the error
     llvm::consumeError(constraintsExp.takeError());
@@ -1151,7 +1191,7 @@ TEST_P(OpModelConv2dParam, Conv2d) {
       outputShape, outputLayout);
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
-  EXPECT_EQ(static_cast<bool>(runtimeExp), runtimeLegal);
+  EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (runtimeExp) {
     const auto runtime = runtimeExp.get();
     EXPECT_GT(runtime, 0);
@@ -1176,14 +1216,14 @@ INSTANTIATE_TEST_SUITE_P(
                                mlir::tt::ttnn::BufferType::DRAM},
             3, 64, 1, 224, 224, llvm::SmallVector<int32_t>{7, 7},
             llvm::SmallVector<int32_t>{2, 2}, llvm::SmallVector<int32_t>{3, 3},
-            llvm::SmallVector<int32_t>{1, 1}, 1, false, true),
-        std::make_tuple(detail::interleavedN300X1024Dram,
-                        detail::interleavedN300X1024Dram,
-                        detail::interleavedN300X1024L1, 3, 64, 32, 224, 224,
-                        llvm::SmallVector<int32_t>{7, 7},
-                        llvm::SmallVector<int32_t>{2, 2},
-                        llvm::SmallVector<int32_t>{3, 3},
-                        llvm::SmallVector<int32_t>{1, 1}, 1, false, false)));
+            llvm::SmallVector<int32_t>{1, 1}, 1,
+            detail::ExpectedResult{true, 229440, 190568, 0}),
+        std::make_tuple(
+            detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+            detail::interleavedN300X1024L1, 3, 64, 32, 224, 224,
+            llvm::SmallVector<int32_t>{7, 7}, llvm::SmallVector<int32_t>{2, 2},
+            llvm::SmallVector<int32_t>{3, 3}, llvm::SmallVector<int32_t>{1, 1},
+            1, detail::ExpectedResult{false, 0, 0, 0})));
 
 class OpModelMaxPool2DParam
     : public OpModelTest,
@@ -1203,6 +1243,10 @@ class OpModelMaxPool2DParam
                      >> {};
 
 TEST_P(OpModelMaxPool2DParam, MaxPool2DParam) {
+  // TODO(2976): Some of these test cases return L1 interleaved row major
+  // tensors which triggers an assertion in TTNNLayoutAttr. Will be reenabled
+  // when the linked issue is fixed
+  GTEST_SKIP();
   auto params = GetParam();
   const auto [inputShape, inputTensorLayout, inputBufferType,
               inputVirtualGrid] = std::get<0>(params);
@@ -1227,9 +1271,9 @@ TEST_P(OpModelMaxPool2DParam, MaxPool2DParam) {
   SingletonDeviceContext::resetInstance();
 
   auto constraintsExp = MaxPool2DInterface::getOpConstraints(
-      inputShape, inputLayout, batchSize, inputHeight, inputWidth,
-      inputChannels, kernelSize, stride, padding, dilation, ceilMode,
-      outputShape, outputLayout);
+      CreateWorkerGrid(), inputShape, inputLayout, batchSize, inputHeight,
+      inputWidth, inputChannels, kernelSize, stride, padding, dilation,
+      ceilMode, outputShape, outputLayout);
   if (!constraintsExp) {
     std::cout << "Error: " << llvm::toString(constraintsExp.takeError())
               << std::endl;
@@ -1237,7 +1281,8 @@ TEST_P(OpModelMaxPool2DParam, MaxPool2DParam) {
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
 
   if (constraintsExp) {
-    const auto [cbSize, peakSize, outputSize] = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+        constraintsExp.get();
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(peakSize, 0);
     EXPECT_GT(outputSize, 0);

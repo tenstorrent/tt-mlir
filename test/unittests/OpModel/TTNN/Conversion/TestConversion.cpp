@@ -633,30 +633,9 @@ TEST_F(Conversion, TensorSpecToLayout) {
         tensorShape, originalLayout);
     const auto reconvertedLayout =
         mlir::tt::op_model::ttnn::conversion::getLayoutAttrFromTensorSpec(
-            &context, tensorSpec);
+            &context, tensorSpec, /*deviceGrid=*/{8, 8});
 
-    EXPECT_EQ(originalLayout.getLayout(), reconvertedLayout.getLayout());
-    EXPECT_EQ(originalLayout.getBufferType(),
-              reconvertedLayout.getBufferType());
-    EXPECT_EQ(originalLayout.getElementType(),
-              reconvertedLayout.getElementType());
-    EXPECT_EQ(originalLayout.getDataType(), reconvertedLayout.getDataType());
-    EXPECT_EQ(originalLayout.getMemLayout().getValue(),
-              reconvertedLayout.getMemLayout().getValue());
-    EXPECT_EQ(originalLayout.getGrid().getGridVolume(),
-              reconvertedLayout.getGrid().getGridVolume());
-    ASSERT_EQ(originalLayout.getGrid().getShape().size(),
-              reconvertedLayout.getGrid().getShape().size());
-    for (size_t i = 0; i < originalLayout.getGrid().getShape().size(); ++i) {
-      EXPECT_EQ(originalLayout.getGrid().getShape()[i],
-                reconvertedLayout.getGrid().getShape()[i]);
-    }
-    ASSERT_EQ(originalLayout.getShardShape().size(),
-              reconvertedLayout.getShardShape().size());
-    for (size_t i = 0; i < originalLayout.getShardShape().size(); ++i) {
-      EXPECT_EQ(originalLayout.getShardShape()[i],
-                reconvertedLayout.getShardShape()[i]);
-    }
+    ExpectLayoutsEQ(originalLayout, reconvertedLayout);
   }
 }
 
@@ -728,7 +707,7 @@ TEST_F(Conversion, TensorSpecToLayoutReversed) {
   for (tt::tt_metal::TensorSpec originalTensorSpec : tensorSpecs) {
     const auto layout =
         mlir::tt::op_model::ttnn::conversion::getLayoutAttrFromTensorSpec(
-            &context, originalTensorSpec);
+            &context, originalTensorSpec, /*deviceGrid=*/{8, 8});
     const auto reconvertedTensorSpec =
         mlir::tt::op_model::ttnn::conversion::getTensorSpec(
             mlir::tt::op_model::ttnn::conversion::getShape(tensorShape),
