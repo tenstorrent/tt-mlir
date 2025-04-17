@@ -16,6 +16,13 @@
 
 namespace tt::runtime::ttnn {
 
+inline ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
+  bool isTTNN = ::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
+      binary.handle.get());
+  LOG_ASSERT(isTTNN, "Unsupported binary format");
+  return ::tt::target::ttnn::GetSizePrefixedTTNNBinary(binary.handle.get());
+}
+
 class ProgramContext; // Forward declaration
 
 /**

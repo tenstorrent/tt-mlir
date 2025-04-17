@@ -31,7 +31,11 @@ using TensorPtrMapIterator = typename TensorPtrMap::iterator;
 class TTNNTensorWrapper {
 public:
   TTNNTensorWrapper(const ::ttnn::Tensor &tensor, bool retain = false)
-      : tensor(tensor), retain(retain) {}
+      : tensor(tensor), retain(retain), version(getLatestVersion()) {}
+  TTNNTensorWrapper(const TTNNTensorWrapper &other)
+      : tensor(other.tensor),
+        retain(other.retain.load(std::memory_order_relaxed)),
+        version(other.version.load(std::memory_order_relaxed)) {}
 
   const ::ttnn::Tensor &getTensor() const { return tensor; }
   ::ttnn::Tensor &getTensor() { return tensor; }
@@ -39,12 +43,25 @@ public:
   bool shouldRetain() const { return retain.load(std::memory_order_relaxed); }
   void setRetain(bool val) { retain.store(val, std::memory_order_relaxed); }
 
+  uint64_t getVersion() const {
+    return version.load(std::memory_order_relaxed);
+  }
+  void updateVersion() {
+    version.store(getLatestVersion(), std::memory_order_relaxed);
+  }
+
 private:
   ::ttnn::Tensor tensor;
   // Whether the tensor should be retained during execution
   // Setting this to true will prohibit deallocate ops within
   // the program from deallocating the tensor
   std::atomic<bool> retain;
+  std::atomic<uint64_t> version;
+
+  static std::atomic<uint64_t> getLatestVersion() {
+    static std::atomic<uint64_t> latestVersion{0};
+    return latestVersion++;
+  }
 };
 
 struct LayoutDesc {
@@ -160,13 +177,6 @@ public:
 
   const std::vector<std::uint32_t> &getProgramOutputIds() const {
     return programOutputIds;
-  }
-
-  std::optional<uint64_t> tryGetVersion(size_t globalId) const {
-    auto it = liveTensors.find(globalId);
-    return (it == liveTensors.end())
-               ? std::nullopt
-               : std::optional<uint64_t>(it->second->version.load());
   }
 
 private:

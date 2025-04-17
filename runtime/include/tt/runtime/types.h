@@ -159,14 +159,14 @@ struct Binary : public Flatbuffer {
   const ::tt::target::GoldenTensor *getDebugInfoGolden(std::string &loc) const;
 
   // Get the tensor cache associated with this binary
-  std::shared_ptr<TensorCache> getCache() const { return cache; }
+  std::shared_ptr<TensorCache> getCache() { return cache; }
 
   // Set the tensor cache for this binary
   void setCache(std::shared_ptr<TensorCache> newCache) { cache = newCache; }
 
 private:
   // The tensor cache associated with this binary
-  mutable std::shared_ptr<TensorCache> cache;
+  std::shared_ptr<TensorCache> cache;
 };
 
 struct Device : public detail::RuntimeCheckedObjectImpl {

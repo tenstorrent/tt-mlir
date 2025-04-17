@@ -5,7 +5,7 @@
 #ifndef TT_RUNTIME_TENSOR_CACHE_H
 #define TT_RUNTIME_TENSOR_CACHE_H
 
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/debug.h"
 #include "tt/runtime/types.h"
 
 #include <cstdint>
@@ -74,10 +74,7 @@ public:
 
     const CacheValue &value = internalIt->second;
     if (value.inputVersions != inputVersions) {
-      for (size_t i = 0; i < inputVersions.size(); ++i) {
-        LOG_DEBUG("Prev version: ", value.inputVersions[i],
-                  " vs given version: ", inputVersions[i]);
-      }
+      debug::logVersionMismatches(value.inputVersions, inputVersions);
       ++stats["misses"];
       return nullptr;
     }
@@ -86,15 +83,17 @@ public:
   }
 
   // Store tensors with explicit input versions
+  // Note: if ttrt used C++20 we could replace this code with proper
+  // concept/constraint.
+  template <typename VersionVec,
+            typename = std::enable_if_t<std::is_convertible_v<
+                std::decay_t<VersionVec>, std::vector<uint64_t>>>>
   void store(const std::string &parentFuncName,
-             const std::string &constEvalFuncName, std::vector<Tensor> tensors,
-             const std::vector<uint64_t> &inputVersions) {
-    CacheValue value;
-    value.inputVersions = inputVersions;
-    value.tensors = std::move(tensors);
-
-    // Replace any existing entry
-    cache[parentFuncName][constEvalFuncName] = std::move(value);
+             const std::string &constEvalFuncName, VersionVec &&inputVersions,
+             const std::vector<tt::runtime::Tensor> &tensors) {
+    cache[parentFuncName][constEvalFuncName] =
+        CacheValue{.inputVersions = std::forward<VersionVec>(inputVersions),
+                   .tensors = tensors};
   }
 
   // Clear the entire cache
@@ -106,22 +105,27 @@ public:
   // Get cache statistics
   std::unordered_map<std::string, size_t> getStats() const { return stats; }
 
-  void remove(const std::string &parentFunc) {
-    auto it = cache.find(parentFunc);
-    if (it == cache.end()) {
-      return;
-    }
+  // Remove all const-eval funcs associated with a given outer key.
+  void remove(const std::string &outerKey) {
+    auto it = cache.find(outerKey);
+    LOG_ASSERT(it != cache.end(),
+               "Call to remove() failed, outer key: ", outerKey,
+               " was not found!");
     cache.erase(it);
   }
 
+  // Remove all const-eval funcs associated with a given device id + program
+  // index.
   void remove(const int deviceId, const size_t programIdx) {
     remove(generateCacheOuterKey(deviceId, programIdx));
   }
 
 private:
+  // Outer key should be combination of device id and program index, created via
+  // generateCacheOuterKey. Inner key will be const-eval func name.
   std::unordered_map<std::string, std::unordered_map<std::string, CacheValue>>
       cache;
-
+  // TODO(#2986): collect stats only if appropriate macros are set.
   mutable std::unordered_map<std::string, size_t> stats;
 };
 

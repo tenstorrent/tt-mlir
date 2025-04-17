@@ -17,7 +17,6 @@ endif()
 add_library(TTRuntimeTTNN
   STATIC
   runtime.cpp
-  program.cpp
   program_executor.cpp
 )
 # We have to set the C++ standard to 20 because tt-metal requires it
