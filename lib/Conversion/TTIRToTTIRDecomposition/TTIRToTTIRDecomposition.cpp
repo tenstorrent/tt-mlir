@@ -577,9 +577,8 @@ struct GatherToEmbeddingConversionPattern
 
     auto embeddingOutputType = mlir::RankedTensorType::get(
         newOutputShape, input.getType().getElementType());
-    ttir::EmbeddingOp embeddingOp =
-        ttir::utils::createDPSOp<ttir::EmbeddingOp>(
-            rewriter, op.getLoc(), embeddingOutputType, startIndices, input);
+    ttir::EmbeddingOp embeddingOp = ttir::utils::createDPSOp<ttir::EmbeddingOp>(
+        rewriter, op.getLoc(), embeddingOutputType, startIndices, input);
 
     rewriter.replaceOp(op, reshapeAndPermuteOutput(rewriter, op->getLoc(),
                                                    embeddingOp, op.getOutput(),
