@@ -106,7 +106,7 @@ runs:
       uses: actions/upload-artifact@v4
       with:
         name: ttmlir-whl
-        path: ${{ inputs/work-dir }}/python/build/ttmlir*.whl
+        path: ${{ inputs.work-dir }}/python/build/ttmlir*.whl
 
     # Install needs to run after the "Compile dylibs" step
     #
