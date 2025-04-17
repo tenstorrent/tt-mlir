@@ -34,11 +34,6 @@ void createTTIRBufferizationPipeline(OpPassManager &pm) {
   //    pm, bufferDeallocationOptions);
 }
 
-void createTTIRAllocatePipeline(OpPassManager &pm) {
-  pm.addPass(ttir::createTTIRFormStreams());
-  pm.addPass(ttir::createTTIRAllocateBuffers());
-}
-
 void createOptimizationPasses(OpPassManager &pm) {
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(mlir::createLoopInvariantCodeMotionPass());
@@ -65,7 +60,7 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(ttir::createTTIROptimizeTensorLayout(optimizeTensorLayoutOptions));
   pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm);
-  createTTIRAllocatePipeline(pm);
+  pm.addPass(ttir::createTTIRAllocate());
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
   pm.addPass(ttir::createTTIRGenericLinearizeMemref());
@@ -92,9 +87,5 @@ void registerTTMetalPipelines() {
       "ttir-bufferization-pipeline",
       "Pipeline bufferizing ttir ops on tensors to ops on buffers (memrefs).",
       tt::ttmetal::createTTIRBufferizationPipeline);
-  mlir::PassPipelineRegistration<>(
-      "ttir-allocate-pipeline",
-      "Pipeline allocating stream layouts and buffers (memrefs).",
-      tt::ttmetal::createTTIRAllocatePipeline);
 }
 } // namespace mlir::tt::ttmetal

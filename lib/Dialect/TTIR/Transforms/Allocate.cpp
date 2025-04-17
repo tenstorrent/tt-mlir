@@ -11,11 +11,12 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/STLForwardCompat.h"
+#include "llvm/ADT/SmallSet.h"
 
+// ----------------------------------------------------------------------------
 namespace mlir::tt::ttir {
 
-#define GEN_PASS_DEF_TTIRALLOCATEBUFFERS
-#define GEN_PASS_DEF_TTIRFORMSTREAMS
+#define GEN_PASS_DEF_TTIRALLOCATE
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 //===----------------------------------------------------------------------===//
@@ -29,117 +30,58 @@ inline MemorySpace getMemorySpace(MemRefType memref) {
 }
 
 //===----------------------------------------------------------------------===//
-// Allocate memref buffers pass.
+// Helper classes.
 //===----------------------------------------------------------------------===//
 namespace {
-// Visit all funcOps of the parent module and add "address" int64 attributes
-// to all 'memref.alloc's computed by a simple bumper allocator.
-class TTIRAllocateBuffers final
-    : public impl::TTIRAllocateBuffersBase<TTIRAllocateBuffers> {
+struct SimpleAllocator {
+  struct MemorySpaceInfo {
+    uint64_t baseAddress = 0;
+    uint64_t size = 0;
+    uint64_t alignment = 0;
 
-public:
-  using impl::TTIRAllocateBuffersBase<
-      TTIRAllocateBuffers>::TTIRAllocateBuffersBase;
+    MemorySpaceInfo() = default;
+    MemorySpaceInfo(uint64_t baseAddress, uint64_t size, uint64_t alignment)
+        : baseAddress(baseAddress), size(size), alignment(alignment) {}
+    inline uint64_t end() const { return baseAddress + size; }
+  };
 
-private:
-  struct SimpleAllocator {
-    struct MemorySpaceInfo {
-      uint64_t baseAddress = 0;
-      uint64_t size = 0;
-      uint64_t alignment = 0;
-
-      MemorySpaceInfo() = default;
-      MemorySpaceInfo(uint64_t baseAddress, uint64_t size, uint64_t alignment)
-          : baseAddress(baseAddress), size(size), alignment(alignment) {}
-      inline uint64_t end() const { return baseAddress + size; }
-    };
-
-    SimpleAllocator(SmallVector<MemorySpaceInfo> memorySpaceInfo)
-        : memorySpaceInfo(memorySpaceInfo) {
-      currPtr.reserve(memorySpaceInfo.size());
-      for (auto const &info : memorySpaceInfo) {
-        currPtr.push_back(info.baseAddress);
-      }
+  SimpleAllocator(SmallVector<MemorySpaceInfo> memorySpaceInfo)
+      : memorySpaceInfo(memorySpaceInfo) {
+    currPtr.reserve(memorySpaceInfo.size());
+    for (auto const &info : memorySpaceInfo) {
+      currPtr.push_back(info.baseAddress);
     }
-
-    uint64_t allocate(uint64_t size, MemorySpace memorySpace) {
-      if (isSystemMemorySpace(memorySpace)) {
-        return 0;
-      }
-
-      auto index = llvm::to_underlying(memorySpace);
-      uint64_t &ptr = currPtr[index];
-      ptr = ttmlir::utils::alignUp(ptr, memorySpaceInfo[index].alignment);
-      auto result = ptr;
-      ptr += size;
-      assert(ptr <= memorySpaceInfo[index].end() && "Out of memory");
-      return result;
-    }
-
-    SmallVector<uint64_t> currPtr;
-    SmallVector<MemorySpaceInfo> memorySpaceInfo;
-  }; // end of nested class
-
-  void runOnOperation() final {
-    ModuleOp moduleOp = getOperation();
-    IRRewriter rewriter(&getContext());
-
-    SystemDescAttr systemDesc = getCurrentScopeSystemDesc(moduleOp);
-    ChipDescAttr chipDesc = systemDesc.getChipDescs().front();
-
-    moduleOp->walk([&](func::FuncOp func) {
-      if (func.isDeclaration()) {
-        return;
-      }
-      assert(func.getBody().hasOneBlock() &&
-             "found func that didn't have one block!");
-      auto systemDesc = getCurrentScopeSystemDesc(func);
-      assert(systemDesc);
-      auto device = lookupDevice(func);
-      assert(device);
-      SimpleAllocator allocator = createSimpleAllocator(chipDesc);
-
-      // Augment 'memref.alloc's with allocated addresses.
-
-      func->walk([&](memref::AllocOp alloc) {
-        MemRefType memrefTy = alloc.getType();
-        MemorySpace memorySpace = getMemorySpace(memrefTy);
-
-        auto sizeBytes = device.getMemrefSizeBytes(memrefTy, 0);
-        auto address = allocator.allocate(sizeBytes, memorySpace);
-        rewriter.modifyOpInPlace(alloc, [&]() {
-          alloc->setAttr("address", rewriter.getI64IntegerAttr(address));
-        });
-      });
-    });
   }
 
-  static SimpleAllocator createSimpleAllocator(ChipDescAttr chipDesc) {
-    SmallVector<SimpleAllocator::MemorySpaceInfo> memorySpaceInfo;
-    memorySpaceInfo.resize(getMaxEnumValForMemorySpace() + 1llu);
-    memorySpaceInfo[llvm::to_underlying(MemorySpace::DeviceL1)] =
-        SimpleAllocator::MemorySpaceInfo(chipDesc.getL1UnreservedBase(),
-                                         chipDesc.getL1Size() -
-                                             chipDesc.getScratchL1RegionSize(),
-                                         chipDesc.getNocL1AddressAlignBytes());
-    memorySpaceInfo[llvm::to_underlying(MemorySpace::DeviceDRAM)] =
-        SimpleAllocator::MemorySpaceInfo(
-            chipDesc.getDramUnreservedBase(), chipDesc.getDramChannelSize(),
-            chipDesc.getNocDRAMAddressAlignBytes());
-    return SimpleAllocator(memorySpaceInfo);
+  std::array<uint64_t, 2> allocate(uint64_t size, MemorySpace memorySpace) {
+    if (isSystemMemorySpace(memorySpace)) {
+      return {0, 0};
+    }
+
+    const auto index = llvm::to_underlying(memorySpace);
+    uint64_t &ptr = currPtr[index];
+    const uint64_t alignment = memorySpaceInfo[index].alignment;
+    ptr = ttmlir::utils::alignUp(ptr, alignment);
+    const uint64_t result = ptr;
+    ptr += size;
+    assert(ptr <= memorySpaceInfo[index].end() && "Out of memory");
+    return {result, alignment};
   }
+
+  SmallVector<uint64_t> currPtr;
+  SmallVector<MemorySpaceInfo> memorySpaceInfo;
 }; // end of class
 } // namespace
 
+//===----------------------------------------------------------------------===//
+// Pass implementation.
+//===----------------------------------------------------------------------===//
 namespace {
-// Visit ttir.generic ops and modify their operands to originate from
-// ttir.stream_layouts where necessary.
-class TTIRGenericFormStreams final : public OpRewritePattern<ttir::GenericOp> {
+class TTIRAllocateStreams final : public OpRewritePattern<ttir::GenericOp> {
+  using base = OpRewritePattern<ttir::GenericOp>;
 
-public:
-  using OpRewritePattern<ttir::GenericOp>::OpRewritePattern;
+  using base::base;
 
-private:
   LogicalResult matchAndRewrite(ttir::GenericOp op,
                                 PatternRewriter &rewriter) const final {
     bool modified = false;
@@ -175,10 +117,16 @@ private:
       return false;
     }
 
+    // A view_layout signals that an op wants to take a view of an
+    // operand, possibly to switch to a different core grid shape.
+    if (mlir::isa_and_nonnull<ttir::ViewLayoutOp>(definingOp)) {
+      return true;
+    }
+
     // No stream (NOC ops) will be needed if 'operand' is already
     // allocated in L1 ("alias" mode), which is currently guaranteed
     // to be the case for outputs.
-    if (isOutput || mlir::isa_and_nonnull<memref::AllocOp>(definingOp)) {
+    if (isOutput) {
       return false;
     }
 
@@ -186,16 +134,25 @@ private:
     // non-local data movement unless it is the only core involved
     // in that dim.
     //
+    // Similar logic applies to a broadcast dim.
+    //
     // TODO(vroubtsov) we are currently fixing the core grid shape to be
     // equal to the output shape, hence could we not infer the *exact*
     // pattern of data movement that's not local to any core by walking
-    // the operand/output affine maps? that is, there seems to be no need
-    // for "reduction always implies non-locality" heuristic?
+    // the operand/output affine maps?
 
-    bool operandNeedsReduction = llvm::any_of(
+    const auto bcastDims = operandIndexingMap.getBroadcastDims();
+    const llvm::SmallSet<unsigned, 4> bcastDimIndex(bcastDims.begin(),
+                                                    bcastDims.end());
+
+    const bool operandNeedsReduction = llvm::any_of(
         llvm::seq(operandIndexingMap.getNumResults()),
         [&](unsigned resultIndex) {
-          unsigned dimPosition = operandIndexingMap.getDimPosition(resultIndex);
+          if (bcastDimIndex.contains(resultIndex)) {
+            return true;
+          }
+          const auto dimPosition =
+              operandIndexingMap.getDimPosition(resultIndex);
           IteratorType iteratorType =
               mlir::cast<IteratorTypeAttr>(iteratorTypes[dimPosition])
                   .getValue();
@@ -218,27 +175,111 @@ private:
     rewriter.modifyOpInPlace(
         op, [&]() { operand.assign(streamLayout.getResult()); });
   }
+
 }; // end of class
 } // namespace
+// ............................................................................
 
-//===----------------------------------------------------------------------===//
-// Form streams pass.
-//===----------------------------------------------------------------------===//
 namespace {
-class TTIRFormStreams final
-    : public impl::TTIRFormStreamsBase<TTIRFormStreams> {
+class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
+  using base = impl::TTIRAllocateBase<TTIRAllocate>;
 
-  using impl::TTIRFormStreamsBase<TTIRFormStreams>::TTIRFormStreamsBase;
+  using base::base;
 
   void runOnOperation() final {
-    RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRGenericFormStreams>(&getContext());
-    if (failed(
-            mlir::applyPatternsGreedily(getOperation(), std::move(patterns)))) {
+    ModuleOp moduleOp = getOperation();
+
+    // Currently, these steps appear independent
+    // this will change (e.g. to use shared analysis context).
+
+    if (failed(runAllocateStreams(moduleOp))) {
       signalPassFailure();
+      return;
+    }
+
+    if (failed(runAllocateBuffers(moduleOp))) {
+      signalPassFailure();
+      return;
     }
   }
+
+  LogicalResult runAllocateStreams(ModuleOp moduleOp) {
+    RewritePatternSet patterns(&getContext());
+    patterns.add<TTIRAllocateStreams>(&getContext());
+    return mlir::applyPatternsGreedily(getOperation(), std::move(patterns));
+  }
+
+  LogicalResult runAllocateBuffers(ModuleOp moduleOp) {
+
+    SystemDescAttr systemDesc = getCurrentScopeSystemDesc(moduleOp);
+    ChipDescAttr chipDesc = systemDesc.getChipDescs().front();
+
+    auto result = moduleOp->walk([&](func::FuncOp func) {
+      if (func.isDeclaration()) {
+        return WalkResult::skip();
+      }
+
+      if (failed(runAllocateBuffers(func, chipDesc))) {
+        return WalkResult::interrupt();
+      }
+
+      return WalkResult::advance();
+    });
+
+    return success(!result.wasInterrupted());
+  }
+
+  LogicalResult runAllocateBuffers(func::FuncOp func,
+                                   const ChipDescAttr &chipDesc) {
+    assert(func.getBody().hasOneBlock() &&
+           "found func that didn't have one block!");
+
+    DeviceAttr device = lookupDevice(func);
+    SimpleAllocator allocator = createSimpleAllocator(chipDesc);
+
+    // Augment 'memref.alloc's with allocated addresses and correct alignment.
+
+    IRRewriter rewriter(&getContext());
+
+    func->walk([&](memref::AllocOp alloc) {
+      MemRefType memrefTy = alloc.getType();
+      MemorySpace memorySpace = getMemorySpace(memrefTy);
+
+      const auto sizeBytes = device.getMemrefSizeBytes(memrefTy, 0);
+      const auto [address, alignment] =
+          allocator.allocate(sizeBytes, memorySpace);
+
+      rewriter.startOpModification(alloc);
+      {
+        alloc.setAlignment(alignment);
+        alloc->setAttr("address", rewriter.getI64IntegerAttr(address));
+      };
+      rewriter.finalizeOpModification(alloc);
+    });
+
+    // Currently, this step always succeeds; out-of-memory condition will result
+    // in hard assert failure.
+
+    return success();
+  }
+
+  static SimpleAllocator createSimpleAllocator(ChipDescAttr chipDesc) {
+    SmallVector<SimpleAllocator::MemorySpaceInfo> memorySpaceInfo;
+    memorySpaceInfo.resize(getMaxEnumValForMemorySpace() + 1llu);
+    memorySpaceInfo[llvm::to_underlying(MemorySpace::DeviceL1)] =
+        SimpleAllocator::MemorySpaceInfo(chipDesc.getL1UnreservedBase(),
+                                         chipDesc.getL1Size() -
+                                             chipDesc.getScratchL1RegionSize(),
+                                         chipDesc.getNocL1AddressAlignBytes());
+    memorySpaceInfo[llvm::to_underlying(MemorySpace::DeviceDRAM)] =
+        SimpleAllocator::MemorySpaceInfo(
+            chipDesc.getDramUnreservedBase(), chipDesc.getDramChannelSize(),
+            chipDesc.getNocDRAMAddressAlignBytes());
+    return SimpleAllocator(memorySpaceInfo);
+  }
+
 }; // end of class
 } // namespace
 
 } // namespace mlir::tt::ttir
+// ----------------------------------------------------------------------------
