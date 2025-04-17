@@ -425,14 +425,8 @@ class Run:
                     input_layout = ttrt.runtime.get_layout(
                         fbb, program_index, input_index
                     )
-                    self.logging.info(
-                        f"original input was allocated? {inputs[input_index].is_allocated()}"
-                    )
                     new_input = ttrt.runtime.to_layout(
                         inputs[input_index], device, input_layout, True
-                    )
-                    self.logging.info(
-                        f"original input was allocated? {new_input.is_allocated()}"
                     )
                     inputs_converted.append(new_input)
                 return inputs_converted
