@@ -361,15 +361,14 @@ public:
     // If the target dimension is not evenly divisible by the number of devices
     // in the cluster, use the all-gather + local reduce breakdown approach.
     if (inputTypeShape[dimension] % meshShape[clusterAxis] != 0) {
-      // Note: The AllGather + LocalReduce method requires significant memory,
-      // so we check if there's enough DRAM capacity before applying it. The
-      // function checkAllGatherLocalReduceMemoryLimit simulates memory usage
-      // and verifies it's within the specified limit (10% of total DRAM
-      // capacity by default). This factor can be adjusted if memory pressure
-      // issues arise.
-      if (checkAllGatherLocalReduceMemoryLimit(getCurrentScopeSystemDesc(op),
-                                               inputType,
-                                               meshShape[clusterAxis], 0.1)) {
+      // Estimate memory usage of AllGather + LocalReduce breakdown and check if
+      // it exceeds the allowed memory limit. This breakdown requires
+      // significantly more memory than ReduceScatter + AllGather due to
+      // internal padding and temporary buffers. To avoid potential memory
+      // blowup, enforce a size constraint based on DRAM capacity.
+      if (exceedsAllGatherReduceMemLimit(getCurrentScopeSystemDesc(op),
+                                         inputType, meshShape[clusterAxis],
+                                         0.1)) {
         return rewriteAsAllGatherLocalReduce(op, meshShape, rewriter);
       }
     }
@@ -522,28 +521,53 @@ private:
     }
     return success();
   }
-  bool checkAllGatherLocalReduceMemoryLimit(
-      tt::SystemDescAttr systemDesc, RankedTensorType inputType,
-      int64_t numOfDevicesInCluster, float memoryLimitFactor = 0.1) const {
+  bool exceedsAllGatherReduceMemLimit(tt::SystemDescAttr systemDesc,
+                                      RankedTensorType inputType,
+                                      int64_t numOfDevicesInCluster,
+                                      float memoryLimitFactor = 0.1) const {
+    // Estimate additional memory required when using AllGather + LocalReduce,
+    // compared to the baseline ReduceScatter + AllGather breakdown.
+    //
+    // Let:
+    //   - a = size of input tensor
+    //   - N = number of devices in the cluster
+    //
+    // Memory usage estimation:
+    //   - ReduceScatter + AllGather ≈ (1 + 1/N) * a
+    //   - AllGather + LocalReduce ≈ (N + 2 * ceil_to_32_multiple(N)) * a
+    //
+    // The LocalReduce implementation allocates two extra padded buffers,
+    // hence the 2 * ceil_to_32_multiple(N) term.
+    //
+    // Since we cannot determine the actual available memory at runtime,
+    // we apply a conservative heuristic: if the *additional* memory required
+    // exceeds a fixed fraction of total DRAM size, we reject this breakdown.
     auto chipDesc = systemDesc.getChipDescs()[0];
     size_t dramCapacity =
         chipDesc.getUsableDramChannelSize() * chipDesc.getNumDramChannels();
     size_t inputTensorSize =
         inputType.getNumElements() * inputType.getElementTypeBitWidth() / 8;
 
-    // Calculate memory requirements for operations
-    size_t expectedAllGatherMemorySize =
-        inputTensorSize * numOfDevicesInCluster;
+    // Estimated memory usage for AllGather + LocalReduce
     // tt-metal transpose the tensor and pad it to tile size. Refer to the
     // issue: https://github.com/tenstorrent/tt-metal/issues/20540
-    // Formula: ((n + 31) / 32) * 32 rounds up to the next multiple of 32
-    int64_t paddedDeviceNumber = ((numOfDevicesInCluster + 31) / 32) * 32;
-    size_t expectedLocalReduceMemorySize = inputTensorSize * paddedDeviceNumber;
+    int64_t paddedN = ((numOfDevicesInCluster + 31) / 32) * 32;
+    size_t memAllgatherLocalReduce =
+        (numOfDevicesInCluster + 2 * paddedN) * inputTensorSize;
 
-    // Check if operations fit within memory limit
-    size_t availableMemory = dramCapacity * memoryLimitFactor;
-    return availableMemory >= expectedAllGatherMemorySize &&
-           availableMemory >= expectedLocalReduceMemorySize;
+    // Estimated memory usage for ReduceScatter + AllGather
+    double memReduceScatterAllGather =
+        (1.0 + 1.0 / static_cast<double>(numOfDevicesInCluster)) *
+        inputTensorSize;
+
+    // Additional memory required
+    double delta = static_cast<double>(memAllgatherLocalReduce) -
+                   memReduceScatterAllGather;
+
+    // Compare against memory limit threshold
+    double threshold = static_cast<double>(dramCapacity) * memoryLimitFactor;
+
+    return delta <= threshold;
   }
 };
 
