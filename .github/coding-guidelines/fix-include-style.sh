@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 
 # Align with coding style guidelines outlined here: docs/src/coding-guidelines.md. Namely:
 # Only the [standard lib header includes](https://en.cppreference.com/w/cpp/header) should use <> whereas all the others should use quotes "".
