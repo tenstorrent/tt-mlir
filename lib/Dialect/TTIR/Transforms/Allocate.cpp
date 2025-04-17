@@ -247,6 +247,9 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
 
     func->walk([&](memref::AllocOp alloc) {
       MemRefType memrefTy = alloc.getType();
+      if (!memrefTy.getMemorySpace()) {
+        return;
+      }
       MemorySpace memorySpace = getMemorySpace(memrefTy);
 
       const auto sizeBytes = device.getMemrefSizeBytes(memrefTy, 0);
