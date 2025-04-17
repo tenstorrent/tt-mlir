@@ -8,6 +8,8 @@
 #include "ttmlir-c/TTNNAttrs.h"
 
 #include <nanobind/stl/optional.h>
+#include <optional>
+
 namespace mlir::ttmlir::python {
 void populateTTNNModule(nb::module_ &m) {
 
@@ -218,10 +220,12 @@ void populateTTNNModule(nb::module_ &m) {
                    })
       .def_prop_ro("shard_layout_as_int",
                    [](tt::ttnn::Conv2dConfigAttr self) {
-                     return static_cast<uint32_t>(
-                         self.getShardLayout().getValue());
+                     return self.getShardLayout()
+                                ? std::optional<uint32_t>(static_cast<uint32_t>(
+                                      self.getShardLayout().getValue()))
+                                : std::nullopt;
                    })
-      // TODO(vkovacevic): parse core_grid
+      // TODO(vkovacevic): parse core_grid #2781
       .def_prop_ro("core_grid",
                    [](tt::ttnn::Conv2dConfigAttr self) { return nb::none(); })
       .def_prop_ro("transpose_shards",

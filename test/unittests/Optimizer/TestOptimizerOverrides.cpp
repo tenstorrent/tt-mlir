@@ -114,7 +114,7 @@ TEST_F(Conv2dConfigOverrideTest, ParsePartialConv2dConfigOverride) {
   ASSERT_TRUE(params.dtype.has_value());
   ASSERT_EQ(params.dtype.value(), mlir::tt::DataType::Float32);
   ASSERT_TRUE(params.activation.has_value());
-  ASSERT_EQ(params.activation.value(), "none");
+  ASSERT_EQ(params.activation.value(), "");
   ASSERT_FALSE(params.weightsDtype.has_value());
   ASSERT_FALSE(params.inputChannelsAlignment.has_value());
   ASSERT_FALSE(params.deallocateActivation.has_value());
@@ -153,7 +153,7 @@ TEST_F(Conv2dConfigOverrideTest, ParseMultipleOps) {
   ASSERT_TRUE(params0.dtype.has_value());
   ASSERT_EQ(params0.dtype.value(), mlir::tt::DataType::Float32);
   ASSERT_TRUE(params0.activation.has_value());
-  ASSERT_EQ(params0.activation.value(), "none");
+  ASSERT_EQ(params0.activation.value(), "");
 
   const auto &params1 = parsedOverride["op1"];
   ASSERT_TRUE(params1.dtype.has_value());

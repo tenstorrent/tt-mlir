@@ -51,6 +51,23 @@ struct Conv2dConfigOverrideParams {
   std::optional<bool> enableWeightsDoubleBuffer = std::nullopt;
   std::optional<bool> enableSplitReader = std::nullopt;
   std::optional<bool> enableSubblockPadding = std::nullopt;
+
+  bool empty() const {
+    return !dtype.has_value() && !weightsDtype.has_value() &&
+           !activation.has_value() && !inputChannelsAlignment.has_value() &&
+           !deallocateActivation.has_value() &&
+           !reallocateHaloOutput.has_value() &&
+           !actBlockHOverride.has_value() && !actBlockWDiv.has_value() &&
+           !reshardIfNotOptimal.has_value() &&
+           !overrideShardingConfig.has_value() && !shardLayout.has_value() &&
+           !coreGrid.has_value() && !transposeShards.has_value() &&
+           !outputLayout.has_value() &&
+           !preprocessWeightsOnDevice.has_value() &&
+           !alwaysPreprocessWeights.has_value() &&
+           !enableActDoubleBuffer.has_value() &&
+           !enableWeightsDoubleBuffer.has_value() &&
+           !enableSplitReader.has_value() && !enableSubblockPadding.has_value();
+  }
 };
 
 struct OutputLayoutOverrideParams {
@@ -60,6 +77,12 @@ struct OutputLayoutOverrideParams {
       std::nullopt; // INTERLEAVED / SHARDED etc...
   std::optional<Layout> memoryLayout = std::nullopt; // ROW_MAJOR / TILE
   std::optional<tt::DataType> dataType = std::nullopt;
+
+  bool empty() const {
+    return !grid.has_value() && !bufferType.has_value() &&
+           !tensorMemoryLayout.has_value() && !memoryLayout.has_value() &&
+           !dataType.has_value();
+  }
 
   // Check if all layout parameters that are generated in LegalLayoutAnalysis
   // are overridden. DataType is the only that is not.
@@ -159,12 +182,16 @@ public:
   Conv2dConfigOverrideParser(llvm::cl::Option &opt)
       : llvm::cl::parser<llvm::StringMap<Conv2dConfigOverrideParams>>(opt) {}
 
-  // Parse override-conv2d-config string. If string format is invalid, return
-  // true, else return false.
+  // Parse string in override-conv2d-config format.
+  // Return true if string format is invalid to indicate error.
+  // Example of a valid string:
+  // "conv2d_1=enable_weights_double_buffer#true:activation#none,conv2d_2=dtype#bf16"
+  //
   bool parse(llvm::cl::Option &opt, StringRef argName, StringRef arg,
              llvm::StringMap<Conv2dConfigOverrideParams> &value);
 
   // Return override-conv2d-config string represenation.
+  //
   static std::string
   toString(const llvm::StringMap<Conv2dConfigOverrideParams> &);
 
