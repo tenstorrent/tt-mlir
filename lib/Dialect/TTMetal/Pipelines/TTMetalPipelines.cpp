@@ -44,25 +44,7 @@ void createOptimizationPasses(OpPassManager &pm) {
   pm.addPass(mlir::arith::createIntRangeOptimizationsPass());
 }
 
-void createTTIRToTTMetalBackendPipeline(
-    OpPassManager &pm, const TTIRToTTMetalBackendPipelineOptions &options) {
-  tt::TTRegisterDevicePassOptions registerDeviceOptions;
-  {
-    registerDeviceOptions.systemDescPath = options.systemDescPath;
-    registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
-  }
-  pm.addPass(tt::createTTRegisterDevicePass(registerDeviceOptions));
-  pm.addPass(tt::createTTIRToTTIRGenericPass());
-  pm.addPass(mlir::createCanonicalizerPass());
-  ttir::TTIROptimizeTensorLayoutOptions optimizeTensorLayoutOptions;
-  {
-    optimizeTensorLayoutOptions.overrideDeviceShape =
-        llvm::to_vector(options.overrideDeviceShape);
-  }
-  pm.addPass(ttir::createTTIROptimizeTensorLayout(optimizeTensorLayoutOptions));
-  pm.addPass(mlir::createCanonicalizerPass());
-  pm.addPass(ttir::createTTIRLowerToLayout());
-  createTTIRBufferizationPipeline(pm);
+void createTTIRPostBufferizationPipeline(OpPassManager &pm) {
   pm.addPass(ttir::createTTIRAllocate());
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
@@ -84,6 +66,28 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(mlir::emitc::createFormExpressionsPass());
 }
 
+void createTTIRToTTMetalBackendPipeline(
+    OpPassManager &pm, const TTIRToTTMetalBackendPipelineOptions &options) {
+  tt::TTRegisterDevicePassOptions registerDeviceOptions;
+  {
+    registerDeviceOptions.systemDescPath = options.systemDescPath;
+    registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
+  }
+  pm.addPass(tt::createTTRegisterDevicePass(registerDeviceOptions));
+  pm.addPass(tt::createTTIRToTTIRGenericPass());
+  pm.addPass(mlir::createCanonicalizerPass());
+  ttir::TTIROptimizeTensorLayoutOptions optimizeTensorLayoutOptions;
+  {
+    optimizeTensorLayoutOptions.overrideDeviceShape =
+        llvm::to_vector(options.overrideDeviceShape);
+  }
+  pm.addPass(ttir::createTTIROptimizeTensorLayout(optimizeTensorLayoutOptions));
+  pm.addPass(mlir::createCanonicalizerPass());
+  pm.addPass(ttir::createTTIRLowerToLayout());
+  createTTIRBufferizationPipeline(pm);
+  createTTIRPostBufferizationPipeline(pm);
+}
+
 //===----------------------------------------------------------------------===//
 // Pipeline registration.
 //===----------------------------------------------------------------------===//
@@ -98,5 +102,9 @@ void registerTTMetalPipelines() {
       "ttir-bufferization-pipeline",
       "Pipeline bufferizing ttir ops on tensors to ops on buffers (memrefs).",
       tt::ttmetal::createTTIRBufferizationPipeline);
+  mlir::PassPipelineRegistration<>(
+      "ttir-to-ttmetal-post-bufferization-pipeline",
+      "Pipeline lowering ttir to ttmetal backend.",
+      tt::ttmetal::createTTIRPostBufferizationPipeline);
 }
 } // namespace mlir::tt::ttmetal

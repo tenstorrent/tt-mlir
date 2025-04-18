@@ -230,8 +230,11 @@ getMemoryView(Device deviceHandle, int deviceID) {
 }
 
 void wait(Event event) {
-  ::tt::tt_metal::EventSynchronize(
-      event.handle_as<::tt::tt_metal::Event>(DeviceRuntime::TTMetal));
+  std::shared_ptr<::tt::tt_metal::Event> eventPtr =
+      event.handle_as<::tt::tt_metal::Event>(DeviceRuntime::TTMetal);
+  if (eventPtr) {
+    ::tt::tt_metal::EventSynchronize(eventPtr);
+  }
 }
 
 void wait(Tensor tensor) { ::tt::runtime::ttmetal::wait(tensor.event); }
@@ -240,6 +243,53 @@ void wait(std::vector<Tensor> const &tensors) {
   for (Tensor tensor : tensors) {
     ::tt::runtime::ttmetal::wait(tensor);
   }
+}
+
+std::vector<Tensor> toHost(Tensor tensor, bool untilize) {
+  ::tt::runtime::ttmetal::wait(tensor);
+  std::visit(utils::overloaded{
+                 [&](TensorDesc const &) { /* no-op */ },
+                 [&](DeviceBuffer const &) {
+                   LOG_FATAL("toHost not yet implemented for device buffer");
+                 },
+             },
+             tensor.as<MetalTensor>(DeviceRuntime::TTMetal));
+  return {tensor};
+}
+
+void memcpy(void *dst, Tensor src) {
+  auto const &metalSrc = src.as<MetalTensor>(DeviceRuntime::TTMetal);
+  LOG_ASSERT(std::holds_alternative<TensorDesc>(metalSrc),
+             "Only TensorDesc supported for now");
+  auto const &hostSrc = std::get<TensorDesc>(metalSrc);
+  std::memcpy(dst, src.data.get(), hostSrc.size());
+}
+
+void memcpy(Tensor dst, Tensor src) {
+  auto &metalDst = dst.as<MetalTensor>(DeviceRuntime::TTMetal);
+  auto const &metalSrc = src.as<MetalTensor>(DeviceRuntime::TTMetal);
+  LOG_ASSERT(std::holds_alternative<TensorDesc>(metalDst),
+             "Only TensorDesc supported for now");
+  LOG_ASSERT(std::holds_alternative<TensorDesc>(metalSrc),
+             "Only TensorDesc supported for now");
+  auto &hostDst = std::get<TensorDesc>(metalDst);
+  auto const &hostSrc = std::get<TensorDesc>(metalSrc);
+  LOG_ASSERT(hostDst.size() == hostSrc.size(),
+             "Tensor size mismatch");
+  LOG_ASSERT(hostDst.dataType == hostSrc.dataType,
+             "Tensor data type mismatch");
+  return ::tt::runtime::ttmetal::memcpy(dst.data.get(), src);
+}
+
+void deallocateTensor(Tensor &tensor, bool) {
+  std::visit(
+      utils::overloaded{
+          [&](TensorDesc const &) { /* no-op */ },
+          [&](DeviceBuffer const &) {
+            LOG_FATAL("deallocateTensor not yet implemented for device buffer");
+          },
+      },
+      tensor.as<MetalTensor>(DeviceRuntime::TTMetal));
 }
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,

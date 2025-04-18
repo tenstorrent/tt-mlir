@@ -596,7 +596,7 @@ std::vector<Tensor> toHost(Tensor tensor, bool untilize) {
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    LOG_FATAL("not implemented");
+    return ::tt::runtime::ttmetal::toHost(tensor, untilize);
   }
 #endif
   LOG_FATAL("runtime is not enabled");
@@ -644,7 +644,7 @@ void memcpy(void *dst, Tensor src) {
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    LOG_FATAL("not implemented");
+    return ::tt::runtime::ttmetal::memcpy(dst, src);
   }
 #endif
   LOG_FATAL("runtime is not enabled");
@@ -659,7 +659,7 @@ void memcpy(Tensor dst, Tensor src) {
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    LOG_FATAL("not implemented");
+    return ::tt::runtime::ttmetal::memcpy(dst, src);
   }
 #endif
   LOG_FATAL("runtime is not enabled");
@@ -674,7 +674,7 @@ void deallocateTensor(Tensor &tensor, bool force) {
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    LOG_FATAL("not implemented");
+    return ::tt::runtime::ttmetal::deallocateTensor(tensor, force);
   }
 #endif
   LOG_FATAL("runtime is not enabled");
