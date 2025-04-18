@@ -288,10 +288,11 @@ public:
   }
 
   static std::tuple<AffineMap, AffineMap, AffineMap>
-  getIndividualResultMaps(MemRefType memref, tt::DeviceAttr device,
+  getIndividualResultMaps(Operation *op, tt::DeviceAttr device,
                           OpBuilder &builder) {
-    size_t pageSize = getMemrefShardSizeBytes(memref);
-    AffineMap memoryMap = device.getMemoryMap(memref, pageSize, 0)
+    std::pair<MemRefType, AffineMap> memrefAndView = ttir::applyViews(op);
+    size_t pageSize = getMemrefShardSizeBytes(memrefAndView.first);
+    AffineMap memoryMap = device.getMemoryMap(memrefAndView, pageSize, 0)
                               .dropResult(0); // drop the device index
     assert(memoryMap.getNumResults() == 3);
     auto gridY = memoryMap.dropResults({1, 2});
@@ -395,7 +396,8 @@ public:
 
       AffineMap dstGridYMap, dstGridXMap, dstOffsetMap;
       std::tie(dstGridYMap, dstGridXMap, dstOffsetMap) =
-          getIndividualResultMaps(op.getDstMemRefType(), device, rewriter);
+          getIndividualResultMaps(op.getDst().getDefiningOp(), device,
+                                  rewriter);
 
       auto dstGridY = applyMap(dstGridYMap, op.getDstIndices());
       auto dstGridX = applyMap(dstGridXMap, op.getDstIndices());
@@ -418,7 +420,8 @@ public:
 
       AffineMap srcGridYMap, srcGridXMap, srcOffsetMap;
       std::tie(srcGridYMap, srcGridXMap, srcOffsetMap) =
-          getIndividualResultMaps(op.getSrcMemRefType(), device, rewriter);
+          getIndividualResultMaps(op.getSrc().getDefiningOp(), device,
+                                  rewriter);
 
       auto srcGridY = applyMap(srcGridYMap, op.getSrcIndices());
       auto srcGridX = applyMap(srcGridXMap, op.getSrcIndices());
