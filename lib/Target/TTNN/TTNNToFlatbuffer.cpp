@@ -17,6 +17,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/TTNNToCpp.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/Common/types_generated.h"
 #include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
@@ -34,6 +35,7 @@
 #include "mlir/Dialect/Quant/IR/Quant.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/Support/LogicalResult.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
@@ -65,18 +67,6 @@ isShardedMemoryLayout(::tt::target::ttnn::TensorMemoryLayout layout) {
          layout == ::tt::target::ttnn::TensorMemoryLayout::WidthSharded ||
          layout == ::tt::target::ttnn::TensorMemoryLayout::BlockSharded;
 }
-static ::tt::target::Dim2d getTensorValueTileShape(Value value) {
-  auto tensorType = mlir::cast<RankedTensorType>(value.getType());
-  auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
-  ::mlir::MemRefType memref = layoutAttr.getMemref();
-  ::mlir::Type elementType = memref.getElementType();
-
-  if (mlir::isa<TileType>(elementType)) {
-    auto tileType = mlir::cast<TileType>(elementType);
-    return ::tt::target::Dim2d(tileType.getHeight(), tileType.getWidth());
-  }
-  return ::tt::target::Dim2d(1, 1);
-}
 
 static std::vector<::tt::target::Dim2dRange>
 getTensorValueCoreRangeSet(FlatbufferObjectCache &cache, Value value) {
@@ -91,25 +81,23 @@ getTensorValueCoreRangeSet(FlatbufferObjectCache &cache, Value value) {
 }
 
 static ttnn::MemoryConfigAttr
-getMemoryConfigAttr(::mlir::tt::ttnn::TTNNLayoutAttr layoutAttr) {
+getMemoryConfigAttr(::mlir::tt::ttnn::TTNNLayoutAttr layoutAttr,
+                    GridAttr deviceGrid) {
   MLIRContext *ctx = layoutAttr.getContext();
   ttnn::BufferTypeAttr bufferTypeAttr =
       ttnn::BufferTypeAttr::get(ctx, layoutAttr.getBufferType());
-  ttnn::ShardSpecAttr shardSpecAttr = ttnn::ShardSpecAttr::get(
-      ctx, ttnn::ShapeAttr::get(ctx, layoutAttr.getShardShape()));
+
   ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
-      ctx, bufferTypeAttr, shardSpecAttr, layoutAttr.getMemLayout());
+      ctx, bufferTypeAttr, layoutAttr.getMemLayout(),
+      utils::createShardSpecIfNeeded(ctx, layoutAttr, deviceGrid));
   return memoryConfigAttr;
 }
 
 static ::flatbuffers::Offset<::tt::target::ttnn::ShardSpec>
 shardSpecToFlatbuffer(FlatbufferObjectCache &cache,
-                      ::mlir::tt::ttnn::ShardSpecAttr shardSpec,
-                      ::tt::target::Dim2d tileShape,
-                      std::vector<::tt::target::Dim2dRange> coreRangeSet) {
-  assert(tileShape.y() == 1 || tileShape.y() == TILE_HEIGHT);
-  assert(tileShape.x() == 1 || tileShape.x() == TILE_WIDTH);
-  llvm::ArrayRef<int64_t> shardShapeArr = shardSpec.getShardShape().getShape();
+                      ::mlir::tt::ttnn::ShardSpecAttr shardSpec) {
+  auto coreRangeSet = toFlatbuffer(cache, shardSpec.getCoreRangeSet());
+  llvm::ArrayRef<int64_t> shardShapeArr = shardSpec.getShape().getShape();
   assert(shardShapeArr.size() == 2);
   std::vector<int32_t> shardShape;
   shardShape.reserve(shardShapeArr.size());
@@ -117,18 +105,17 @@ shardSpecToFlatbuffer(FlatbufferObjectCache &cache,
                  std::back_inserter(shardShape), [](int64_t val) -> int32_t {
                    return static_cast<int32_t>(val);
                  });
-  shardShape[0] *= tileShape.y();
-  shardShape[1] *= tileShape.x();
+  auto shardOrientation =
+      toFlatbuffer(cache, shardSpec.getShardOrientation().getValue());
+  auto shardMode = toFlatbuffer(cache, shardSpec.getShardMode().getValue());
 
-  return ::tt::target::ttnn::CreateShardSpecDirect(*cache.fbb, &coreRangeSet,
-                                                   &shardShape);
+  return ::tt::target::ttnn::CreateShardSpecDirect(
+      *cache.fbb, coreRangeSet, &shardShape, shardOrientation, shardMode);
 }
 
 static ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
 memoryConfigToFlatbuffer(FlatbufferObjectCache &cache,
-                         ::mlir::tt::ttnn::MemoryConfigAttr memoryConfigAttr,
-                         ::tt::target::Dim2d tileShape,
-                         std::vector<::tt::target::Dim2dRange> coreRangeSet) {
+                         ::mlir::tt::ttnn::MemoryConfigAttr memoryConfigAttr) {
   ::tt::target::ttnn::TensorMemoryLayout tensorMemoryLayout =
       toFlatbuffer(cache, memoryConfigAttr.getTensorMemoryLayout());
   ::tt::target::BufferType bufferType =
@@ -136,9 +123,9 @@ memoryConfigToFlatbuffer(FlatbufferObjectCache &cache,
           memoryConfigAttr.getBufferType().getValue());
 
   ::flatbuffers::Offset<::tt::target::ttnn::ShardSpec> shardSpec = 0;
-  if (isShardedMemoryLayout(tensorMemoryLayout)) {
-    shardSpec = shardSpecToFlatbuffer(cache, memoryConfigAttr.getShardSpec(),
-                                      tileShape, coreRangeSet);
+  if (memoryConfigAttr.getShardSpec()) {
+    assert(isShardedMemoryLayout(tensorMemoryLayout));
+    shardSpec = shardSpecToFlatbuffer(cache, memoryConfigAttr.getShardSpec());
   }
   ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
       ::tt::target::ttnn::CreateMemoryConfig(*cache.fbb, tensorMemoryLayout,
@@ -155,11 +142,11 @@ getMemoryConfigFromTensorTypeIfNeeded(FlatbufferObjectCache &cache,
 
   ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
   if (isDeviceBufferType(bufferType)) {
-    auto memoryConfigAttr = getMemoryConfigAttr(layoutAttr);
-    auto tileShape = getTensorValueTileShape(tensor);
-    auto coreRangeSet = getTensorValueCoreRangeSet(cache, tensor);
-    memoryConfig = memoryConfigToFlatbuffer(cache, memoryConfigAttr, tileShape,
-                                            coreRangeSet);
+    DeviceAttr deviceAttr =
+        lookupDevice(tensor.getParentBlock()->getParentOp());
+    auto memoryConfigAttr =
+        getMemoryConfigAttr(layoutAttr, deviceAttr.getWorkerGrid());
+    memoryConfig = memoryConfigToFlatbuffer(cache, memoryConfigAttr);
   }
 
   return memoryConfig;
@@ -173,11 +160,8 @@ getMemoryConfigIfNeeded(FlatbufferObjectCache &cache, OpType op) {
   // TODO (#2415): Once we have this pass, we can remove ternary if
   // and just get memory config attr from the op.
   auto result = op.getResult();
-  auto tileShape = getTensorValueTileShape(result);
-  auto coreRangeSet = getTensorValueCoreRangeSet(cache, result);
   return op.getMemoryConfig()
-             ? memoryConfigToFlatbuffer(cache, *op.getMemoryConfig(), tileShape,
-                                        coreRangeSet)
+             ? memoryConfigToFlatbuffer(cache, *op.getMemoryConfig())
              : getMemoryConfigFromTensorTypeIfNeeded(cache, result);
 }
 
@@ -193,7 +177,7 @@ memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
                        tt::TensorMeshShardingAttr tensorMeshSharding,
                        BufferType bufferType,
                        ttnn::TensorMemoryLayoutAttr memLayoutAttr,
-                       std::vector<::tt::target::Dim2dRange> coreRangeSet) {
+                       tt::GridAttr shardGrid, tt::GridAttr deviceGrid) {
   auto shapeInt64 = memref.getShape();
   std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
   DataType dtype = DataType::Float32;
@@ -232,14 +216,20 @@ memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
   if (bufferType != ttnn::BufferType::SystemMemory) {
     ::mlir::MLIRContext *ctx = memref.getContext();
     auto bufferTypeAttr = BufferTypeAttr::get(ctx, bufferType);
+    auto shardSpecAttr = ttnn::ShardSpecAttr();
+    if (isShardedMemoryLayout(memLayoutAttr.getValue())) {
+      llvm::SmallVector<int64_t> shape(memref.getShape().begin(),
+                                       memref.getShape().end());
+      assert(shape.size() == 2);
+      shape[0] *= tileShape.y();
+      shape[1] *= tileShape.x();
+      shardSpecAttr = ttnn::ShardSpecAttr::get(
+          ctx, ttnn::ShapeAttr::get(ctx, shape), shardGrid, deviceGrid);
+    }
     auto memoryConfigAttr = ::mlir::tt::ttnn::MemoryConfigAttr::get(
-        ctx, bufferTypeAttr,
-        ttnn::ShardSpecAttr::get(ctx,
-                                 ttnn::ShapeAttr::get(ctx, memref.getShape())),
-        memLayoutAttr);
+        ctx, bufferTypeAttr, memLayoutAttr, shardSpecAttr);
 
-    memoryConfig = memoryConfigToFlatbuffer(cache, memoryConfigAttr, tileShape,
-                                            coreRangeSet);
+    memoryConfig = memoryConfigToFlatbuffer(cache, memoryConfigAttr);
   }
 
   return ::tt::target::ttnn::CreateMemoryDesc(
@@ -251,9 +241,6 @@ flatbuffers::Offset<::tt::target::ttnn::LayoutDesc>
 ttnnLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
                            ttnn::TTNNLayoutAttr layoutAttr,
                            DeviceAttr deviceAttr) {
-  std::vector<::tt::target::Dim2dRange> coreRangeSet =
-      toFlatbuffer(cache, layoutAttr.getGrid(), deviceAttr.getWorkerGrid());
-
   // TODO (jnie): Memory reference alone is insufficient to determine LayoutDesc
   // uniquely. Using `cache.getOrCreate()` is unsafe because identical memory
   // references can produce different LayoutDesc objects.
@@ -265,7 +252,8 @@ ttnnLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
       *cache.fbb, toFlatbuffer(cache, OOBVal::Undef),
       memrefAttrToFlatbuffer(
           cache, layoutAttr.getMemref(), layoutAttr.getTensorMeshSharding(),
-          layoutAttr.getBufferType(), layoutAttr.getMemLayout(), coreRangeSet));
+          layoutAttr.getBufferType(), layoutAttr.getMemLayout(),
+          layoutAttr.getGrid(), deviceAttr.getWorkerGrid()));
 }
 
 flatbuffers::Offset<::tt::target::ttnn::TensorDesc>
@@ -352,14 +340,10 @@ createOp(FlatbufferObjectCache &cache, ToMemoryConfigOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
 
-  auto tileShape = getTensorValueTileShape(op.getResult());
-  auto coreRangeSet = getTensorValueCoreRangeSet(cache, op.getResult());
-
   // TODO (jnie): Disabled `cache.getOrCreate` because identical MLIR memory
   // configs may produce different flatbuffer memory configs. One-to-one mapping
   // needed.
-  auto memoryConfig = memoryConfigToFlatbuffer(cache, op.getMemoryConfig(),
-                                               tileShape, coreRangeSet);
+  auto memoryConfig = memoryConfigToFlatbuffer(cache, op.getMemoryConfig());
 
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
@@ -384,13 +368,9 @@ createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
   if (device) {
     device = getOperandThroughDPSOps(device);
   }
-  auto tileShape = getTensorValueTileShape(op.getResult());
   return ::tt::target::ttnn::CreateToLayoutOp(
       *cache.fbb, input, layout, dtype,
-      memoryConfig ? memoryConfigToFlatbuffer(
-                         cache, *memoryConfig, tileShape,
-                         getTensorValueCoreRangeSet(cache, op.getResult()))
-                   : 0,
+      memoryConfig ? memoryConfigToFlatbuffer(cache, *memoryConfig) : 0,
       device ? cache.at<::tt::target::DeviceRef>(device) : 0, output);
 }
 
@@ -432,10 +412,8 @@ createOp(FlatbufferObjectCache &cache, ToDeviceOp op) {
         *cache.fbb, input, cache.at<::tt::target::DeviceRef>(device),
         /* memoryConfig */ 0, output);
   }
-  auto tileShape = getTensorValueTileShape(op.getResult());
-  auto coreRangeSet = getTensorValueCoreRangeSet(cache, op.getResult());
-  auto memoryConfig = memoryConfigToFlatbuffer(
-      cache, op.getMemoryConfig().value(), tileShape, coreRangeSet);
+  auto memoryConfig =
+      memoryConfigToFlatbuffer(cache, op.getMemoryConfig().value());
 
   return ::tt::target::ttnn::CreateToDeviceOp(
       *cache.fbb, input, cache.at<::tt::target::DeviceRef>(device),
@@ -539,10 +517,7 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
       numShards);
   auto output = getOperandThroughDPSOps(op.getResult());
   auto device = getOperandThroughDPSOps(op.getDevice());
-  auto tileShape = getTensorValueTileShape(output);
-  auto coreRangeSet = getTensorValueCoreRangeSet(cache, output);
-  auto memoryConfig = memoryConfigToFlatbuffer(cache, op.getMemoryConfig(),
-                                               tileShape, coreRangeSet);
+  auto memoryConfig = memoryConfigToFlatbuffer(cache, op.getMemoryConfig());
 
   return ::tt::target::ttnn::CreateEmptyOp(
       *cache.fbb, cache.fbb->CreateVector<int64_t>(shape), dtype, layout,
@@ -588,12 +563,9 @@ createOp(FlatbufferObjectCache &cache, ArangeOp op) {
   auto device =
       op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
 
-  auto tileShape = getTensorValueTileShape(op.getResult());
-  auto coreRangeSet = getTensorValueCoreRangeSet(cache, op.getResult());
   auto memoryConfig =
       op.getMemoryConfig().has_value()
-          ? memoryConfigToFlatbuffer(cache, op.getMemoryConfig().value(),
-                                     tileShape, coreRangeSet)
+          ? memoryConfigToFlatbuffer(cache, op.getMemoryConfig().value())
           : 0;
 
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
@@ -631,12 +603,9 @@ createNamedFullOp(FlatbufferObjectCache &cache, OpTy op) {
   flatbuffers::Offset<::tt::target::DeviceRef> device =
       op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
 
-  auto tileShape = getTensorValueTileShape(op.getResult());
-  auto coreRangeSet = getTensorValueCoreRangeSet(cache, op.getResult());
   auto memoryConfig =
       op.getMemoryConfig().has_value()
-          ? memoryConfigToFlatbuffer(cache, op.getMemoryConfig().value(),
-                                     tileShape, coreRangeSet)
+          ? memoryConfigToFlatbuffer(cache, op.getMemoryConfig().value())
           : 0;
 
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
@@ -718,12 +687,10 @@ createOp(FlatbufferObjectCache &cache, MorehCumSumOp op) {
   auto output = cache.getOrCreate(outputType, tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
 
-  auto tileShape = getTensorValueTileShape(outputType);
   auto coreRangeSet = getTensorValueCoreRangeSet(cache, outputType);
   auto memoryConfig =
       op.getMemoryConfig()
-          ? memoryConfigToFlatbuffer(cache, op.getMemoryConfig().value(),
-                                     tileShape, coreRangeSet)
+          ? memoryConfigToFlatbuffer(cache, op.getMemoryConfig().value())
           : 0;
 
   return ::tt::target::ttnn::CreateMorehCumSumOp(*cache.fbb, in, output,
@@ -738,10 +705,7 @@ createOp(FlatbufferObjectCache &cache, PrepareConv2dWeightsOp op) {
                                   kHostAllocatedSize);
 
   ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
-      memoryConfigToFlatbuffer(
-          cache, op.getInputMemoryConfig(),
-          getTensorValueTileShape(op.getResult()),
-          getTensorValueCoreRangeSet(cache, op.getResult()));
+      memoryConfigToFlatbuffer(cache, op.getInputMemoryConfig());
 
   ::tt::target::TensorLayout inputTensorLayout =
       toFlatbuffer(cache, op.getInputTensorLayout());
@@ -932,13 +896,10 @@ createOp(FlatbufferObjectCache &cache, PermuteOp op) {
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
 
-  auto tileShape = getTensorValueTileShape(op.getResult());
   auto coreRangeSet = getTensorValueCoreRangeSet(cache, op.getResult());
   return ::tt::target::ttnn::CreatePermuteOp(
       *cache.fbb, input, permutation,
-      memoryConfig ? memoryConfigToFlatbuffer(cache, memoryConfig.value(),
-                                              tileShape, coreRangeSet)
-                   : 0,
+      memoryConfig ? memoryConfigToFlatbuffer(cache, memoryConfig.value()) : 0,
       padValue, output);
 }
 
@@ -950,12 +911,10 @@ createOp(FlatbufferObjectCache &cache, UpsampleOp op) {
   flatbuffers::Offset<flatbuffers::String> mode =
       toFlatbuffer(cache, op.getMode());
 
-  auto tileShape = getTensorValueTileShape(op.getResult());
   auto coreRangeSet = getTensorValueCoreRangeSet(cache, op.getResult());
   flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
       op.getMemoryConfig()
-          ? memoryConfigToFlatbuffer(cache, op.getMemoryConfig().value(),
-                                     tileShape, coreRangeSet)
+          ? memoryConfigToFlatbuffer(cache, op.getMemoryConfig().value())
           : 0;
   flatbuffers::Offset<::tt::target::ttnn::TensorRef> output = cache.getOrCreate(
       op.getResult(), tensorValueToFlatbuffer, kHostAllocatedSize);
@@ -1388,12 +1347,9 @@ createReductionArgMaxOp(FlatbufferObjectCache &cache, ReductionOp op) {
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
 
-  auto tileShape = getTensorValueTileShape(op.getResult());
-  auto coreRangeSet = getTensorValueCoreRangeSet(cache, op.getResult());
   auto memoryConfig =
       op.getMemoryConfig()
-          ? memoryConfigToFlatbuffer(cache, op.getMemoryConfig().value(),
-                                     tileShape, coreRangeSet)
+          ? memoryConfigToFlatbuffer(cache, op.getMemoryConfig().value())
           : 0;
 
   ::flatbuffers::Optional<int32_t> dim = toFlatbuffer(cache, op.getDim());
@@ -1410,12 +1366,9 @@ createReductionProdOp(FlatbufferObjectCache &cache, ReductionOp op) {
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
 
-  auto tileShape = getTensorValueTileShape(op.getResult());
-  auto coreRangeSet = getTensorValueCoreRangeSet(cache, op.getResult());
   auto memoryConfig =
       op.getMemoryConfig()
-          ? memoryConfigToFlatbuffer(cache, op.getMemoryConfig().value(),
-                                     tileShape, coreRangeSet)
+          ? memoryConfigToFlatbuffer(cache, op.getMemoryConfig().value())
           : 0;
 
   return ::tt::target::ttnn::CreateReductionProdOp(
@@ -1451,13 +1404,9 @@ createConcatOp(FlatbufferObjectCache &cache, ConcatOp op) {
   std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
       op.getMemoryConfig();
 
-  auto tileShape = getTensorValueTileShape(outputType);
-  auto coreRangeSet = getTensorValueCoreRangeSet(cache, outputType);
   return ::tt::target::ttnn::CreateConcatOpDirect(
       *cache.fbb, &ins, out, dim,
-      memoryConfig ? memoryConfigToFlatbuffer(cache, memoryConfig.value(),
-                                              tileShape, coreRangeSet)
-                   : 0);
+      memoryConfig ? memoryConfigToFlatbuffer(cache, memoryConfig.value()) : 0);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::EmbeddingOp>
@@ -1490,13 +1439,9 @@ createEmbeddingBackwardOp(FlatbufferObjectCache &cache,
   auto out = cache.getOrCreate(outputType, tensorValueToFlatbuffer,
                                kHostAllocatedSize);
 
-  auto tileShape = getTensorValueTileShape(outputType);
-  auto coreRangeSet = getTensorValueCoreRangeSet(cache, outputType);
   return ::tt::target::ttnn::CreateEmbeddingBackwardOp(
       *cache.fbb, in0, in1, in2, dtype,
-      memoryConfig ? memoryConfigToFlatbuffer(cache, memoryConfig.value(),
-                                              tileShape, coreRangeSet)
-                   : 0,
+      memoryConfig ? memoryConfigToFlatbuffer(cache, memoryConfig.value()) : 0,
       out);
 }
 
@@ -1511,14 +1456,10 @@ createReshapeOp(FlatbufferObjectCache &cache, ReshapeOp op) {
 
   std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
       op.getMemoryConfig();
-  auto tileShape = getTensorValueTileShape(op.getResult());
-  auto coreRangeSet = getTensorValueCoreRangeSet(cache, op.getResult());
 
   return ::tt::target::ttnn::CreateReshapeOp(
       *cache.fbb, in, out, shape,
-      memoryConfig ? memoryConfigToFlatbuffer(cache, memoryConfig.value(),
-                                              tileShape, coreRangeSet)
-                   : 0);
+      memoryConfig ? memoryConfigToFlatbuffer(cache, memoryConfig.value()) : 0);
 }
 
 template <typename RepeatOp>
@@ -1544,12 +1485,9 @@ createPadOp(FlatbufferObjectCache &cache, PadOp op) {
   flatbuffers::Offset<::tt::target::ttnn::TensorRef> out = cache.getOrCreate(
       op.getResult(), tensorValueToFlatbuffer, kHostAllocatedSize);
 
-  auto tileShape = getTensorValueTileShape(op.getResult());
-  auto coreRangeSet = getTensorValueCoreRangeSet(cache, op.getResult());
-  flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
-      op.getMemoryConfig()
-          ? memoryConfigToFlatbuffer(cache, op.getMemoryConfig().value(),
-                                     tileShape, coreRangeSet)
+  auto memoryConfig =
+      op.getMemoryConfig().has_value()
+          ? memoryConfigToFlatbuffer(cache, op.getMemoryConfig().value())
           : 0;
   return ::tt::target::ttnn::CreatePadOp(
       *cache.fbb, in, out, cache.fbb->CreateVector<uint32_t>(padding), value,
@@ -1606,13 +1544,9 @@ createRepeatInterleaveOp(FlatbufferObjectCache &cache, RepeatInterleaveOp op) {
   uint32_t repeats = op.getRepeats();
   int32_t dim = op.getDim();
 
-  auto tileShape = getTensorValueTileShape(op.getResult());
-  auto coreRangeSet = getTensorValueCoreRangeSet(cache, op.getResult());
   return ::tt::target::ttnn::CreateRepeatInterleaveOp(
       *cache.fbb, input, out, repeats, dim,
-      memoryConfig ? memoryConfigToFlatbuffer(cache, memoryConfig.value(),
-                                              tileShape, coreRangeSet)
-                   : 0);
+      memoryConfig ? memoryConfigToFlatbuffer(cache, memoryConfig.value()) : 0);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::SoftmaxOp>

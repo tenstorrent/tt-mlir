@@ -14,11 +14,11 @@ module attributes {} {
     // CHECK: "ttnn.to_layout"(%arg0, %0)
     // CHECK-SAME: dtype = #tt.supportedDataTypes<bf16>
     // CHECK-SAME: layout = #ttnn.layout<row_major>
-    // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <<1x1>>, <interleaved>>
+    // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <interleaved>>
     // CHECK-SAME: -> tensor<32x32xbf16, #ttnn_layout1>
     // CHECK-NEXT: return
-    %1 = "ttnn.to_layout"(%arg0, %0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <<1x1>>, <interleaved>>}> : (tensor<32x32xbf16, #ttnn_layout>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout1>
-    %2 = "ttnn.to_layout"(%1, %0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#dram, <<1x1>>, <interleaved>>}> : (tensor<32x32xbf16, #ttnn_layout1>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout2>
+    %1 = "ttnn.to_layout"(%arg0, %0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xbf16, #ttnn_layout>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout1>
+    %2 = "ttnn.to_layout"(%1, %0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xbf16, #ttnn_layout1>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout2>
     return %2 : tensor<32x32xbf16, #ttnn_layout2>
   }
 
@@ -27,12 +27,12 @@ module attributes {} {
     // CHECK: "ttnn.to_layout"(%arg0, %0)
     // CHECK-SAME: dtype = #tt.supportedDataTypes<f32>
     // CHECK-SAME: layout = #ttnn.layout<tile>
-    // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <<1x1>>, <interleaved>>
+    // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <interleaved>>
     // CHECK-SAME: -> tensor<32x32xf32, #ttnn_layout2>
     // CHECK-NEXT: return
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.to_layout"(%arg0, %0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <<1x1>>, <interleaved>>}> : (tensor<32x32xbf16, #ttnn_layout>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout1>
-    %2 = "ttnn.to_layout"(%1, %0) <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <<1x1>>, <interleaved>>}> : (tensor<32x32xbf16, #ttnn_layout1>, !ttnn.device) -> tensor<32x32xf32, #ttnn_layout3>
+    %1 = "ttnn.to_layout"(%arg0, %0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xbf16, #ttnn_layout>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout1>
+    %2 = "ttnn.to_layout"(%1, %0) <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xbf16, #ttnn_layout1>, !ttnn.device) -> tensor<32x32xf32, #ttnn_layout3>
     return %2 : tensor<32x32xf32, #ttnn_layout3>
   }
 
@@ -41,12 +41,12 @@ module attributes {} {
     // CHECK: "ttnn.to_layout"(%arg0, %0)
     // CHECK-SAME: dtype = #tt.supportedDataTypes<bf16>
     // CHECK-SAME: layout = #ttnn.layout<tile>
-    // CHECK-SAME: memory_config = #ttnn.memory_config<#system_memory, <<32x32>>>
+    // CHECK-SAME: memory_config = #ttnn.memory_config<#system_memory>
     // CHECK-SAME: -> tensor<32x32xbf16, #ttnn_layout3>
     // CHECK-NEXT: return
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.to_layout"(%arg0, %0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <<1x1>>, <interleaved>>}> : (tensor<32x32xbf16, #ttnn_layout>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout1>
-    %2 = "ttnn.to_layout"(%1, %0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#system_memory, <<32x32>>>}> : (tensor<32x32xbf16, #ttnn_layout1>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout4>
+    %1 = "ttnn.to_layout"(%arg0, %0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xbf16, #ttnn_layout>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout1>
+    %2 = "ttnn.to_layout"(%1, %0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#system_memory>}> : (tensor<32x32xbf16, #ttnn_layout1>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout4>
     return %2 : tensor<32x32xbf16, #ttnn_layout4>
   }
 
@@ -55,12 +55,12 @@ module attributes {} {
     // CHECK: "ttnn.to_layout"(%arg0, %0)
     // CHECK-SAME: dtype = #tt.supportedDataTypes<f32>
     // CHECK-SAME: layout = #ttnn.layout<row_major>
-    // CHECK-SAME: memory_config = #ttnn.memory_config<#system_memory, <<32x32>>>
+    // CHECK-SAME: memory_config = #ttnn.memory_config<#system_memory>
     // CHECK-SAME: -> tensor<32x32xf32, #ttnn_layout4>
     // CHECK-NEXT: return
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.to_layout"(%arg0, %0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <<1x1>>, <interleaved>>}> : (tensor<32x32xbf16, #ttnn_layout>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout1>
-    %2 = "ttnn.to_layout"(%1, %0) <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#system_memory, <<32x32>>>}> : (tensor<32x32xbf16, #ttnn_layout1>, !ttnn.device) -> tensor<32x32xf32, #ttnn_layout5>
+    %1 = "ttnn.to_layout"(%arg0, %0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xbf16, #ttnn_layout>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout1>
+    %2 = "ttnn.to_layout"(%1, %0) <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#system_memory>}> : (tensor<32x32xbf16, #ttnn_layout1>, !ttnn.device) -> tensor<32x32xf32, #ttnn_layout5>
     return %2 : tensor<32x32xf32, #ttnn_layout5>
   }
 
@@ -69,20 +69,20 @@ module attributes {} {
     // CHECK: "ttnn.to_layout"(%arg0, %0)
     // CHECK-SAME: dtype = #tt.supportedDataTypes<f32>
     // CHECK-SAME: layout = #ttnn.layout<row_major>
-    // CHECK-SAME: memory_config = #ttnn.memory_config<#system_memory, <<32x32>>>
+    // CHECK-SAME: memory_config = #ttnn.memory_config<#system_memory>
     // CHECK-SAME: -> tensor<32x32xf32, #ttnn_layout4>
     // CHECK-NEXT: return
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.to_layout"(%arg0, %0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <<1x1>>, <interleaved>>}> : (tensor<32x32xbf16, #ttnn_layout>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout1>
-    %2 = "ttnn.to_layout"(%1, %0) <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#system_memory, <<32x32>>>}> : (tensor<32x32xbf16, #ttnn_layout1>, !ttnn.device) -> tensor<32x32xf32, #ttnn_layout5>
-    %3 = "ttnn.to_layout"(%2, %0) <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <<1x1>>, <interleaved>>}> : (tensor<32x32xf32, #ttnn_layout5>, !ttnn.device) -> tensor<32x32xf32, #ttnn_layout3>
-    %4 = "ttnn.to_layout"(%3, %0) <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#system_memory, <<32x32>>>}> : (tensor<32x32xf32, #ttnn_layout3>, !ttnn.device) -> tensor<32x32xf32, #ttnn_layout5>
+    %1 = "ttnn.to_layout"(%arg0, %0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xbf16, #ttnn_layout>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout1>
+    %2 = "ttnn.to_layout"(%1, %0) <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#system_memory>}> : (tensor<32x32xbf16, #ttnn_layout1>, !ttnn.device) -> tensor<32x32xf32, #ttnn_layout5>
+    %3 = "ttnn.to_layout"(%2, %0) <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xf32, #ttnn_layout5>, !ttnn.device) -> tensor<32x32xf32, #ttnn_layout3>
+    %4 = "ttnn.to_layout"(%3, %0) <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#system_memory>}> : (tensor<32x32xf32, #ttnn_layout3>, !ttnn.device) -> tensor<32x32xf32, #ttnn_layout5>
     return %4 : tensor<32x32xf32, #ttnn_layout5>
   }
 
   func.func @fold_to_layout_op(%arg0: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout> {
     // Verify folding of to_layout_op.
-    %0 = "ttnn.to_layout"(%arg0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#system_memory, <<32x32>>>}> : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
+    %0 = "ttnn.to_layout"(%arg0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#system_memory>}> : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
     // CHECK-NOT: "ttnn.to_layout"
     return %0 : tensor<32x32xbf16, #ttnn_layout>
     // CHECK: return %arg0 : tensor<32x32xbf16
