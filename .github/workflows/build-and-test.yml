@@ -123,19 +123,19 @@ jobs:
         build: [
           {runs-on: n150,   name: "run",  suite: "unit",              image: "speedy", type: "unit",    container-options: "--device /dev/tenstorrent/0"},
           {runs-on: nXX0,   name: "run",  suite: "unit",              image: "tracy",  type: "unit",    container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n150,   name: "run",  suite: "run",               image: "speedy", type: "ttrt",    path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "run",  suite: "run",               image: "speedy", type: "ttrt",    path: "Silicon", flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150,   name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",    path: "Silicon/TTNN/n150/perf", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150,   name: "perf", suite: "optimizer",         image: "tracy",  type: "ttrt",    path: "Silicon/TTNN/n150/optimizer", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n150,   name: "run",  suite: "emitc",             image: "tracy",  type: "ttrt",    path: "EmitC", ttrt_flags: "--emitc", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n150,   name: "run",  suite: "op_model",          image: "speedy", type: "ttrt",    path: "Silicon/TTNN/n150/optimizer", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n150,   name: "run",  suite: "runtime_debug",     image: "tracy",  type: "ttrt",    path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n300,   name: "run",  suite: "run",               image: "speedy", type: "ttrt",    path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n300,   name: "run",  suite: "async",             image: "speedy", type: "ttrt",    path: "Silicon/TTNN", ttrt_flags: "--non-zero --enable-async-ttnn", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "run",  suite: "emitc",             image: "tracy",  type: "ttrt",    path: "EmitC", flags: "--emitc", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "run",  suite: "op_model",          image: "speedy", type: "ttrt",    path: "Silicon/TTNN/n150/optimizer", flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "run",  suite: "runtime_debug",     image: "tracy",  type: "ttrt",    path: "Silicon", flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n300,   name: "run",  suite: "run",               image: "speedy", type: "ttrt",    path: "Silicon", flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n300,   name: "run",  suite: "async",             image: "speedy", type: "ttrt",    path: "Silicon/TTNN", flags: "--non-zero --enable-async-ttnn", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n300,   name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",    path: "Silicon/TTNN/n300/perf", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: llmbox, name: "run",  suite: "run",               image: "speedy", type: "ttrt",    path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          {runs-on: llmbox, name: "run",  suite: "run",               image: "speedy", type: "ttrt",    path: "Silicon", flags: "--non-zero", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
           {runs-on: llmbox, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",    path: "Silicon/TTNN/llmbox/perf", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
-          # {runs-on: tg,     name: "run",  suite: "run",             image: "speedy", type: "ttrt",    path: "Silicon", ttrt_flags: "--non-zero --disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
-          # {runs-on: tg,     name: "perf", suite: "perf",            image: "tracy",  type: "ttrt",    path: "Silicon/TTNN/tg/perf", ttrt_flags: "--disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          # {runs-on: tg,     name: "run",  suite: "run",             image: "speedy", type: "ttrt",    path: "Silicon", flags: "--non-zero --disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          # {runs-on: tg,     name: "perf", suite: "perf",            image: "tracy",  type: "ttrt",    path: "Silicon/TTNN/tg/perf", flags: "--disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
           {runs-on: n150,   name: "perf", suite: "perf",              image: "tracy",  type: "pytest",  path: "runtime/tools/python/test", container-options: "--device /dev/tenstorrent/0"},
           # Although these runtime tests are device agnostic, they depend on n150 compiled mlir artifacts
           # Therefore running these tests on n150 specifically
@@ -286,7 +286,7 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/${{ matrix.build.path }}
+        ttrt ${{ matrix.build.name }} ${{ matrix.build.flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/${{ matrix.build.path }}
         if [ "${{ matrix.build.name }}" = "perf" ]; then
           # collect ops_perf_results.csv
           cp ttrt_report.xml ${{ steps.strings.outputs.test_report_path }}
@@ -309,7 +309,7 @@ jobs:
         source env/activate
         export TT_EXPLORER_GENERATED_MLIR_TEST_DIRS=${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/perf,${{ steps.strings.outputs.build-output-dir }}/test/python/golden/ttnn
         export TT_EXPLORER_GENERATED_TTNN_TEST_DIRS=${{ steps.strings.outputs.build-output-dir }}/test/python/golden/ttnn
-        pytest -ssv ${{ matrix.build.path }} --junit-xml=${{ steps.strings.outputs.test_report_path }}
+        pytest -ssv ${{ matrix.build.path }} ${{ matrix.build.flags }} --junit-xml=${{ steps.strings.outputs.test_report_path }}
 
     - name: Collect and Upload Perf Reports
       if: matrix.build.name == 'perf'
