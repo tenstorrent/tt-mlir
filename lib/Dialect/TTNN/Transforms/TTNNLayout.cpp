@@ -216,7 +216,7 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
   // layout.
   return ttir::utils::createDPSOp<ttir::ToLayoutOp>(
              rewriter, loc, ty.getShape(), ty.getElementType(), desiredLayout,
-             input)
+             input, nullptr)
       ->getResult(0);
 }
 

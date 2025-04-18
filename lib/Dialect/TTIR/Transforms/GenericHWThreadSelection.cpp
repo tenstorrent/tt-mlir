@@ -104,11 +104,14 @@ public:
     auto chipDesc = systemDesc.getChipDescs().front();
     moduleOp.walk([&](GenericOp op) {
       // assert that the op has a valid HW thread selection
-      if (op.getNumRegions() >= (chipDesc.getNumComputeThreads() +
-                                 chipDesc.getNumDatamovementThreads())) {
-        op.emitError("Invalid number of regions, expected at most ")
+      if (op.getNumRegions() > (chipDesc.getNumComputeThreads() +
+                                chipDesc.getNumDatamovementThreads())) {
+        op.emitError("invalid number of regions (")
+            << op.getNumRegions() << "), expected at most ("
             << (chipDesc.getNumComputeThreads() +
-                chipDesc.getNumDatamovementThreads());
+                chipDesc.getNumDatamovementThreads())
+            << ")";
+        signalPassFailure();
       }
     });
   }

@@ -2006,17 +2006,11 @@ mlir::tt::ttir::ToLayoutOp::CompoundComponents
 mlir::tt::ttir::ToLayoutOp::compoundComponents() {
   CompoundComponents components;
   if (mlir::isa<mlir::RankedTensorType>(getInput().getType())) {
-    auto inputLayout = mlir::cast<tt::MetalLayoutAttr>(
-        mlir::cast<mlir::RankedTensorType>(getInput().getType()).getEncoding());
-    auto outputLayout = mlir::cast<tt::MetalLayoutAttr>(
-        mlir::cast<mlir::RankedTensorType>(getOutput().getType())
-            .getEncoding());
+    auto inputLayout = getInputLayout();
+    auto outputLayout = getOutputLayout();
     components.isLayoutChange =
         inputLayout.getLinear() != outputLayout.getLinear();
     components.isGridChange = inputLayout.getGrid() != outputLayout.getGrid();
-    bool isShardChange =
-        inputLayout.getShardShape() != outputLayout.getShardShape();
-    assert(components.isGridChange == isShardChange);
     components.isFormatChange =
         inputLayout.getElementType() != outputLayout.getElementType();
     components.isMemorySpaceChange =
@@ -2033,6 +2027,22 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
         inputMemref.getMemorySpace() != outputMemref.getMemorySpace();
   }
   return components;
+}
+
+mlir::tt::MetalLayoutAttr mlir::tt::ttir::ToLayoutOp::getInputLayout() {
+  auto tensorType = mlir::cast<mlir::RankedTensorType>(getInput().getType());
+  auto inputLayout =
+      mlir::dyn_cast_if_present<tt::MetalLayoutAttr>(tensorType.getEncoding());
+  return inputLayout ? inputLayout
+                     : tt::MetalLayoutAttr::get(getContext(), tensorType);
+}
+
+mlir::tt::MetalLayoutAttr mlir::tt::ttir::ToLayoutOp::getOutputLayout() {
+  auto tensorType = mlir::cast<mlir::RankedTensorType>(getOutput().getType());
+  auto outputLayout =
+      mlir::dyn_cast_if_present<tt::MetalLayoutAttr>(tensorType.getEncoding());
+  return outputLayout ? outputLayout
+                      : tt::MetalLayoutAttr::get(getContext(), tensorType);
 }
 
 mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::fold(
@@ -2098,7 +2108,8 @@ mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::bufferize(
   }
 
   rewriter.create<::mlir::tt::ttir::ToLayoutOp>(getLoc(), TypeRange(),
-                                                *maybeInput, *maybeOutput);
+                                                *maybeInput, *maybeOutput,
+                                                getLayout().value_or(nullptr));
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
                                                      *maybeOutput);
   return success();
