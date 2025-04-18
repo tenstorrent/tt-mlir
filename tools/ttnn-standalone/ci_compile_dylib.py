@@ -121,7 +121,14 @@ def compile_shared_object(cpp_file_path, output_dir):
         # Run build
         #
         print(f"\nBuilding: {cpp_base_name}")
-        build_command = ["cmake", "--build", standalone_build_dir, "--", "ttnn-dylib"]
+        build_command = [
+            "cmake",
+            "--build",
+            standalone_build_dir,
+            "--verbose",
+            "--",
+            "ttnn-dylib",
+        ]
         result = subprocess.run(
             build_command, check=True, cwd=tt_mlir_home, capture_output=True, text=True
         )
