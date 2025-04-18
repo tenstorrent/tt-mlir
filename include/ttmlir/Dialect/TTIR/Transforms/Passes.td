@@ -333,9 +333,9 @@ def TTIRPlaceholderAllocate : Pass<"ttir-placeholder-allocate", "::mlir::ModuleO
     ```mlir
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x4x8x!tt.tile<32x32, f32>, #l1_>
     %storage_0 = memref.alloc() : memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>
-    %stream = "ttir.stream_layout"(%arg0, %storage_0) : (memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>) -> memref<2x4x4x6x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, #l1_>
+    %stream = "ttir.stream_layout"(%arg0, %storage_0) : (memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>) -> memref<2x4x4x6x!tt.tile<32x32, f32>, #tt.view<map(4)>, #l1_>
     %storage_1 = memref.alloc() : memref<4x4x6x8x!tt.tile<32x32, f32>, #l1_>
-    %stream_2 = "ttir.stream_layout"(%arg1, %storage_1) : (memref<4x4x6x8x!tt.tile<32x32, f32>, #l1_>, memref<4x4x6x8x!tt.tile<32x32, f32>, #l1_>) -> memref<4x4x6x8x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, #l1_>
+    %stream_2 = "ttir.stream_layout"(%arg1, %storage_1) : (memref<4x4x6x8x!tt.tile<32x32, f32>, #l1_>, memref<4x4x6x8x!tt.tile<32x32, f32>, #l1_>) -> memref<4x4x6x8x!tt.tile<32x32, f32>, #tt.view<map(4)>, #l1_>
     "ttir.generic"(%stream, %stream_2, %alloc)
     ```
   }];
