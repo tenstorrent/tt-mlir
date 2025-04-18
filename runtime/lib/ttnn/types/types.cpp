@@ -471,6 +471,9 @@ std::vector<::tt::runtime::Tensor> ProgramTensorPool::gatherOutputTensors() {
   outputs.reserve(programOutputIds.size());
   std::transform(programOutputIds.begin(), programOutputIds.end(),
                  std::back_inserter(outputs), [this](std::uint32_t globalId) {
+                   LOG_ASSERT(liveTensors.contains(globalId),
+                              "Output tensor not found in tensor pool. Output "
+                              "tensor may not have been created yet.");
                    ::tt::runtime::Tensor &out = getRuntimeTensor(globalId);
                    ::tt::runtime::ttnn::TTNNTensorWrapper &ttnnTensor =
                        out.as<::tt::runtime::ttnn::TTNNTensorWrapper>(

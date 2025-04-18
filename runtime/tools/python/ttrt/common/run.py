@@ -180,6 +180,13 @@ class Run:
             help="save golden and device tensors that are compared during callback runtime",
         )
         Run.register_arg(
+            name="--save-intermediate-tensors",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="Save all intermediate tensors produced by runtime.",
+        )
+        Run.register_arg(
             name="--debugger",
             type=bool,
             default=False,
@@ -453,6 +460,7 @@ class Run:
                 self["--atol"],
                 self["--rtol"],
                 self["--save-golden-tensors"],
+                self["--save-intermediate-tensors"],
                 self.logging,
                 not self["--disable-golden"],
                 self["--memory"],
@@ -465,6 +473,7 @@ class Run:
                 self["--atol"],
                 self["--rtol"],
                 self["--save-golden-tensors"],
+                self["--save-intermediate-tensors"],
                 self.logging,
                 not self["--disable-golden"],
                 self["--memory"],
