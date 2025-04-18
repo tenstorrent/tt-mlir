@@ -34,6 +34,32 @@ void populatePassesModule(nb::module_ &m) {
   mlir::tt::ttnn::registerTTNNToFlatbuffer();
 
   m.def(
+      "tt_populate_argument_types",
+      [](MlirModule module, std::string argument_types_string = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getContext());
+
+        // Add the pass with options if provided
+        if (!argument_types_string.empty()) {
+          std::string passWithOptions =
+              "tt-populate-argument-types{argument-types=" +
+              argument_types_string + "}";
+          if (failed(
+                  mlir::parsePassPipeline(passWithOptions, pm, llvm::errs()))) {
+            throw std::runtime_error("Failed to parse pass options: " +
+                                     passWithOptions);
+          }
+        } else {
+          pm.addPass(mlir::tt::createTTPopulateArgumentTypes());
+        }
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      nb::arg("module"), nb::arg("argument_types_string") = "");
+
+  m.def(
       "ttnn_pipeline_ttir_passes",
       [](MlirModule module, std::string options = "") {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));

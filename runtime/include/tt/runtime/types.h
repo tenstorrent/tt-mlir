@@ -5,6 +5,7 @@
 #ifndef TT_RUNTIME_TYPES_H
 #define TT_RUNTIME_TYPES_H
 
+#include <atomic>
 #include <cassert>
 #include <memory>
 #include <optional>
@@ -147,6 +148,7 @@ struct SystemDesc : public Flatbuffer {
   ::tt::target::SystemDesc const *operator->() const { return get(); }
 };
 
+class TensorCache;
 struct Binary : public Flatbuffer {
   using Flatbuffer::Flatbuffer;
 
@@ -155,9 +157,22 @@ struct Binary : public Flatbuffer {
   std::vector<TensorDesc> getProgramInputs(std::uint32_t programIndex) const;
   std::vector<TensorDesc> getProgramOutputs(std::uint32_t programIndex) const;
   const ::tt::target::GoldenTensor *getDebugInfoGolden(std::string &loc) const;
+
+  // Get the tensor cache associated with this binary
+  std::shared_ptr<TensorCache> getCache() { return cache; }
+
+  // Set the tensor cache for this binary
+  void setCache(std::shared_ptr<TensorCache> newCache) { cache = newCache; }
+
+private:
+  // The tensor cache associated with this binary
+  std::shared_ptr<TensorCache> cache;
 };
 
 struct Device : public detail::RuntimeCheckedObjectImpl {
+  Device(std::shared_ptr<void> handle, DeviceRuntime runtime,
+         std::shared_ptr<TensorCache> tensorCache)
+      : detail::RuntimeCheckedObjectImpl(handle, runtime) {}
   using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
 };
 
@@ -168,6 +183,7 @@ struct Event : public detail::RuntimeCheckedObjectImpl {
 struct Tensor : public detail::RuntimeCheckedObjectImpl {
   std::shared_ptr<void> data;
   Event event;
+  std::atomic<uint64_t> version{0};
 
   Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data,
          DeviceRuntime runtime)
@@ -175,9 +191,31 @@ struct Tensor : public detail::RuntimeCheckedObjectImpl {
         event(nullptr, runtime) {}
 
   Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data,
+         DeviceRuntime runtime, uint64_t version)
+      : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),
+        event(nullptr, runtime), version(version) {}
+
+  Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data,
          std::shared_ptr<void> eventHandle, DeviceRuntime runtime)
       : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),
         event(eventHandle, runtime) {}
+
+  // Custom copy constructor to handle the atomic field
+  Tensor(const Tensor &other)
+      : detail::RuntimeCheckedObjectImpl(other.handle, other.associatedRuntime),
+        data(other.data), event(other.event), version(other.version.load()) {}
+
+  // Custom copy assignment operator
+  Tensor &operator=(const Tensor &other) {
+    if (this != &other) {
+      handle = other.handle;
+      associatedRuntime = other.associatedRuntime;
+      data = other.data;
+      event = other.event;
+      version.store(other.version.load());
+    }
+    return *this;
+  }
 };
 
 struct Layout : public detail::RuntimeCheckedObjectImpl {

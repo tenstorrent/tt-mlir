@@ -44,6 +44,7 @@
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
 
+#include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/types.h"
 #include "ttmlir/Target/TTNN/Target.h"
 
@@ -172,14 +173,13 @@ std::string getOpLocInfo(OpContext opContextHandle);
                                         CallbackContext programContextHandle);
 
 std::vector<::tt::runtime::Tensor>
-submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
-       std::vector<::tt::runtime::Tensor> &inputs);
+submit(Device deviceHandle, Binary &executableHandle,
+       std::uint32_t programIndex, std::vector<::tt::runtime::Tensor> &inputs);
 
 std::vector<::tt::runtime::Tensor>
-runProgram(::ttnn::MeshDevice &meshDevice, Binary executableHandle,
+runProgram(::ttnn::MeshDevice &meshDevice, Binary &executableHandle,
            std::uint32_t programIndex,
            std::vector<::tt::runtime::Tensor> &inputs);
-
 } // namespace tt::runtime::ttnn
 
 #endif

@@ -337,7 +337,6 @@ private:
 
   // Set of params to original func which can be const-eval'ed.
   llvm::SmallPtrSet<mlir::BlockArgument, 4> constParams;
-
   // Set of ops which every subgraph + original graph must duplicate.
   llvm::SmallVector<mlir::Operation *, 1> sharedOps;
 };
@@ -370,8 +369,9 @@ private:
     ConstEvalAnalyze analyzer(&funcOp);
     ConstEvalAnalysisResults analysisResults = analyzer.getAnalysisResults();
     llvm::SmallVector<ConstEvalSubgraph, 4> subgraphs =
-        analysisResults.subgraphs;
-    llvm::SmallVector<Operation *, 1> sharedOps = analysisResults.sharedOps;
+        std::move(analysisResults.subgraphs);
+    llvm::SmallVector<Operation *, 1> sharedOps =
+        std::move(analysisResults.sharedOps);
 
     if (subgraphs.empty()) {
       return;
@@ -426,7 +426,9 @@ private:
     mlir::ModuleOp moduleOp =
         dyn_cast<mlir::ModuleOp>(originalFunc->getParentOp());
     assert(moduleOp);
-    builder.setInsertionPointToEnd(moduleOp.getBody());
+    // Create the const-eval function before the parent function
+    // This ensures proper ordering in the generated EmitC code.
+    builder.setInsertionPoint(originalFunc);
     auto newFuncOp = builder.create<func::FuncOp>(originalFunc.getLoc(),
                                                   newFuncName, funcType);
     // Mark the new function as const-eval.
