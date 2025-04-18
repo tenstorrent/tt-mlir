@@ -12,7 +12,7 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Region.h"
 #include "mlir/Pass/Pass.h"
-#include <llvm/Support/Casting.h>
+#include "llvm/Support/Casting.h"
 
 namespace mlir::tt {
 #define GEN_PASS_DEF_TTUNWRAPDEVICEMODULEPASS

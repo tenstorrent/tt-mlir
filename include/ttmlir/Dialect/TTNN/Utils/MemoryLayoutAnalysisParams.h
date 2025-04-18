@@ -5,8 +5,8 @@
 #ifndef TTMLIR_DIALECT_TTNN_UTILS_MEMORYLAYOUTANALYSISPARAMS_H
 #define TTMLIR_DIALECT_TTNN_UTILS_MEMORYLAYOUTANALYSISPARAMS_H
 
-#include <llvm/ADT/StringSwitch.h>
-#include <llvm/Support/CommandLine.h>
+#include "llvm/ADT/StringSwitch.h"
+#include "llvm/Support/CommandLine.h"
 
 namespace mlir::tt {
 

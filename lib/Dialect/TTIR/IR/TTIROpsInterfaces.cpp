@@ -8,8 +8,8 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 
-#include <llvm/ADT/ArrayRef.h>
-#include <mlir/IR/ValueRange.h>
+#include "mlir/IR/ValueRange.h"
+#include "llvm/ADT/ArrayRef.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Traits.h"

@@ -11,7 +11,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 
-#include <mlir/IR/BuiltinTypes.h>
+#include "mlir/IR/BuiltinTypes.h"
 #include <optional>
 
 namespace mlir::tt::ttnn::wa {

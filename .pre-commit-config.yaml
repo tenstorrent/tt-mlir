@@ -21,3 +21,12 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-added-large-files
+  - repo: local
+    hooks:
+      - id: fix-include-style
+        name: Fix include style
+        description: Ensures LLVM/MLIR headers use quotes instead of angle brackets
+        entry: .github/coding-guidelines/fix-include-style.sh
+        language: script
+        types: [c++, text]
+        files: \.(cpp|h)$
