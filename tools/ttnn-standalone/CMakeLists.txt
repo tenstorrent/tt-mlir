@@ -39,7 +39,8 @@ if (NOT ${TTNN_STANDALONE_USE_INSTALL_PATHS} STREQUAL ON)
     endif()
 
     set(METAL_ROOT_DIR "$ENV{TT_METAL_HOME}")
-    set(METAL_LIBS_DIR "$ENV{TT_METAL_HOME}-build/lib")
+    # set(METAL_LIBS_DIR "$ENV{TT_METAL_HOME}-build/lib")
+    set(METAL_LIBS_DIR "$ENV{TT_METAL_HOME}/lib")  # temporary hack to test in FFE install path
 else()
     # INSTALL PATH BUILD
     message(STATUS "Building using install paths")
