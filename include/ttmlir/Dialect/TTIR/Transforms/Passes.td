@@ -298,47 +298,57 @@ def TTIRPrepareTensorsForBufferization : Pass<"ttir-prepare-tensors-for-bufferiz
 }
 
 def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
-  let summary = "Insert allocate/deallocate ops for tensors.";
+  let summary = "Create streams required by generic ops.";
   let description = [{
-    This pass walks through the graph and does the following:
-      - Replaces tensor empty ops with allocate ops.
-      - Inserts deallocate ops after a tensor value's last use.
-      - Allocates storage for graph inputs.
+    This pass handles several related tasks:
+      - allocating data streams (stream_layouts) and their associated buffers as required by generic
+        op operands;
+      - allocating memory addresses/alignments for buffers supporting such streams as well as
+        other memref allocs needed by data movement/compute kernel functions.
 
-    Currently the allocator is built into the pass itself, but in the future
-    this should be replaced with an analysis pass that can make global allocation
-    decisions, followed by this pass that mechanically applies those decisions.
-  }];
-}
+    Currently this pass only does some simple heuristics for forming stream_layout ops when required
+    for correctness. In the future, this will be augmented with analysis that will consider resource conflicts
+    between the number of streams, their buffer sizes, and L1 memory size limits.
 
-def TTIRPlaceholderAllocate : Pass<"ttir-placeholder-allocate", "::mlir::ModuleOp"> {
-  let summary = "Placeholder for the eventual full allocate pass.";
-  let description = [{
-    Currently this pass only does some simple heuristics for forming stream_layout ops
-    for the situations that require it for correctness.  In the future, this pass will
-    be replaced with a full allocate pass that has to do more sophisticated analysis
-    for inserting streams on top of actually allocating.
+    Similarly, memory addresses are currently taken from L1 and never deallocated and so are assigned
+    by a simple bumper allocation scheme -- again, this will be modified to do smarter static allocation
+    schedules.
 
-    Converts generic arguments that require a stream (i.e. local storage
-    buffer for circular buffer):
-
+    Converts:
     ```mlir
-    %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x4x8x!tt.tile<32x32, f32>, #l1_>
-    %0 = "ttir.view_layout"(%arg0) : (memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>) -> memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>
-    %1 = "ttir.view_layout"(%arg1) : (memref<4x4x6x8x!tt.tile<32x32, f32>, #l1_>) -> memref<4x4x6x8x!tt.tile<32x32, f32>, #l1_>
-    "ttir.generic"(%0, %1, %alloc)
+    %alloc = memref.alloc() : memref<1x5x1x5x!tt.tile<32x32, f32>, #tt.shard<20480x4096>, #l1_>
+    "ttir.to_layout"(%arg0, %alloc) : (memref<1x1x1x784xf32, #tt.shard<3136x4>, #l1_>, memref<1x5x1x5x!tt.tile<32x32, f32>, #tt.shard<20480x4096>, #l1_>) -> ()
+    %alloc_0 = memref.alloc() : memref<5x8x5x1x!tt.tile<32x32, f32>, #tt.shard<4096x4096>, #l1_>
+    "ttir.to_layout"(%arg1, %alloc_0) : (memref<1x1x784x256xf32, #tt.shard<1024x4>, #l1_>, memref<5x8x5x1x!tt.tile<32x32, f32>, #tt.shard<4096x4096>, #l1_>) -> ()
+    %alloc_1 = memref.alloc() : memref<1x8x1x1x!tt.tile<32x32, f32>, #tt.shard<4096x4096>, #l1_>
+    ttir.generic {grid = #tt.grid<1x8>, indexing_maps = [#map, #map1, #map2], iterator_types = [#parallel, #parallel, #reduction], ...}
+        ins(%alloc, %alloc_0 : memref<1x5x1x5x!tt.tile<32x32, f32>, #tt.shard<20480x4096>, #l1_>, memref<5x8x5x1x!tt.tile<32x32, f32>, #tt.shard<4096x4096>, #l1_>)
+        outs(%alloc_1 : memref<1x8x1x1x!tt.tile<32x32, f32>, #tt.shard<4096x4096>, #l1_>)  {
+      ...
+    }
     ```
 
     Into:
     ```mlir
-    %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x4x8x!tt.tile<32x32, f32>, #l1_>
-    %storage_0 = memref.alloc() : memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>
-    %stream = "ttir.stream_layout"(%arg0, %storage_0) : (memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>) -> memref<2x4x4x6x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, #l1_>
-    %storage_1 = memref.alloc() : memref<4x4x6x8x!tt.tile<32x32, f32>, #l1_>
-    %stream_2 = "ttir.stream_layout"(%arg1, %storage_1) : (memref<4x4x6x8x!tt.tile<32x32, f32>, #l1_>, memref<4x4x6x8x!tt.tile<32x32, f32>, #l1_>) -> memref<4x4x6x8x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, #l1_>
-    "ttir.generic"(%stream, %stream_2, %alloc)
+    %alloc = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<1x5x1x5x!tt.tile<32x32, f32>, #tt.shard<20480x4096>, #l1_>
+    "ttir.to_layout"(%arg0, %alloc) : (memref<1x1x1x784xf32, #tt.shard<3136x4>, #l1_>, memref<1x5x1x5x!tt.tile<32x32, f32>, #tt.shard<20480x4096>, #l1_>) -> ()
+    %alloc_0 = memref.alloc() {address = 21504 : i64, alignment = 16 : i64} : memref<5x8x5x1x!tt.tile<32x32, f32>, #tt.shard<4096x4096>, #l1_>
+    "ttir.to_layout"(%arg1, %alloc_0) : (memref<1x1x784x256xf32, #tt.shard<1024x4>, #l1_>, memref<5x8x5x1x!tt.tile<32x32, f32>, #tt.shard<4096x4096>, #l1_>) -> ()
+    %alloc_1 = memref.alloc() {address = 41984 : i64, alignment = 16 : i64} : memref<1x8x1x1x!tt.tile<32x32, f32>, #tt.shard<4096x4096>, #l1_>
+    %alloc_2 = memref.alloc() {address = 46080 : i64, alignment = 16 : i64} : memref<1x5x1x5x!tt.tile<32x32, f32>, #tt.shard<20480x4096>, #l1_>
+    %stream = "ttir.stream_layout"(%alloc, %alloc_2) : (memref<1x5x1x5x!tt.tile<32x32, f32>, #tt.shard<20480x4096>, #l1_>, memref<1x5x1x5x!tt.tile<32x32, f32>, #tt.shard<20480x4096>, #l1_>)
+     -> memref<1x5x1x5x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, #l1_>
+    %alloc_3 = memref.alloc() {address = 66560 : i64, alignment = 16 : i64} : memref<5x8x5x1x!tt.tile<32x32, f32>, #tt.shard<4096x4096>, #l1_>
+    %stream_4 = "ttir.stream_layout"(%alloc_0, %alloc_3) : (memref<5x8x5x1x!tt.tile<32x32, f32>, #tt.shard<4096x4096>, #l1_>, memref<5x8x5x1x!tt.tile<32x32, f32>, #tt.shard<4096x4096>, #l1_>)
+     -> memref<5x8x5x1x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, #l1_>
+    ttir.generic {grid = #tt.grid<1x8>, indexing_maps = [#map, #map1, #map2], iterator_types = [#parallel, #parallel, #reduction], ...}
+        ins(%stream, %stream_4 : memref<1x5x1x5x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, #l1_>, memref<5x8x5x1x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, #l1_>)
+        outs(%alloc_1 : memref<1x8x1x1x!tt.tile<32x32, f32>, #tt.shard<4096x4096>, #l1_>)  {
+      ...
+    }
     ```
   }];
+  let dependentDialects = ["::mlir::tt::TTDialect", "::mlir::memref::MemRefDialect"];
 }
 
 def TTIRImplicitBroadcastFold: Pass<"ttir-implicit-broadcast-fold", "::mlir::ModuleOp"> {
