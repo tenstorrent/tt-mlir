@@ -51,6 +51,8 @@
 
 namespace ttnn {
 
+constexpr static std::size_t L1_SMALL_SIZE = 1 << 15;
+
 // DeviceGetter class
 //
 // Singleton implementation for Device
@@ -58,7 +60,7 @@ namespace ttnn {
 class DeviceGetter {
 public:
   static ttnn::IDevice *getInstance() {
-    static ttnn::IDevice *instance = &ttnn::open_device(0);
+    static ttnn::IDevice *instance = &ttnn::open_device(0, L1_SMALL_SIZE);
 
     return instance;
   }
