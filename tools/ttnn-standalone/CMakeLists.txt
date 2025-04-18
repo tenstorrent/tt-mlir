@@ -62,6 +62,9 @@ set(INCLUDE_DIRS
     $ENV{TT_METAL_HOME}/.cpmcache/magic_enum/4d76fe0a5b27a0e62d6c15976d02b33c54207096/include
     $ENV{TT_METAL_HOME}/.cpmcache/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
     $ENV{TT_METAL_HOME}/.cpmcache/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
+    $ENV{TT_METAL_HOME}/.cpmcache/xtensor/4a957e26c765b48cbec4a4235fe9e518d5a85d3d/include
+    $ENV{TT_METAL_HOME}/.cpmcache/xtensor-blas/190c3a4314355b67291a7d78b20a2100de3f8f54/include
+    $ENV{TT_METAL_HOME}/.cpmcache/xtl/0918808959d33a292c551b9f014a0e808bc4a95c/include
 
     # Metalium
     $ENV{TT_METAL_HOME}
@@ -73,6 +76,7 @@ set(INCLUDE_DIRS
     $ENV{TT_METAL_HOME}/tt_metal/hw/inc/${ARCH_NAME}
     $ENV{TT_METAL_HOME}/tt_metal/include
     $ENV{TT_METAL_HOME}/tt_stl
+    $ENV{TT_METAL_HOME}/tt_stl/tt_stl
     $ENV{TT_METAL_HOME}/tt_metal/third_party/fmt
     $ENV{TT_METAL_HOME}/tt_metal/third_party/magic_enum
     $ENV{TT_METAL_HOME}/tt_metal/third_party/taskflow
@@ -86,6 +90,9 @@ set(INCLUDE_DIRS
     $ENV{TT_METAL_HOME}/ttnn/cpp
     $ENV{TT_METAL_HOME}/ttnn/cpp/ttnn
     $ENV{TT_METAL_HOME}/ttnn/cpp/ttnn/deprecated
+
+    # TT_MLIR Runtime
+    $ENV{TT_MLIR_HOME}/runtime/lib/ttnn
 )
 
 # Link directories

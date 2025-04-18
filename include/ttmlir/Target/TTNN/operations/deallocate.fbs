@@ -1,0 +1,8 @@
+include "ttmlir/Target/TTNN/types.fbs";
+
+namespace tt.target.ttnn;
+
+table DeallocateOp {
+  in: tt.target.ttnn.TensorRef;
+  force: bool;
+}

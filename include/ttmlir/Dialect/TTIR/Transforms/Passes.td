@@ -7,79 +7,6 @@
 
 include "mlir/Pass/PassBase.td"
 
-def TTIRAttachMetalLayout: Pass<"ttir-attach-metal-layout", "::mlir::ModuleOp"> {
-  let summary = "";
-  let description = [{
-    Attach a TTMetal layout to operands of a TTIR op.
-  }];
-
-  let options = [
-    Option<"initMemorySpace", "init-memory-space",
-          "::mlir::tt::MemorySpace",
-          /*default=*/"::mlir::tt::MemorySpace::DeviceL1",
-           "set the initial memory space for tensors to start in">
-  ];
-}
-
-def TTIRGeneralizeNamedOps: Pass<"ttir-generalize-named-ops", "::mlir::ModuleOp"> {
-  let summary = "Convert named TTIR operations to their ttir.generic form.";
-  let description = [{
-    This pass converts "named" ops to a nested ttir.generic/linalg.generic structure, with
-    ttir.generic denoting the available degrees of parallelism across a grid of cores
-    and linalg.generic adding another level of nesting for a single core's data movement/compute
-    task. This conversion will do an appropriate decomposition of the original op
-    into lower-level tiled/blocked ops.
-
-    Example:
-    ```mlir
-      %0 = "ttir.add"(%arg0, %arg1, %arg2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<128x96xf32>, tensor<128x96xf32>, tensor<128x96xf32>) -> tensor<128x96xf32>
-      %1 = "ttir.sum"(%arg0, %0) <{dim_arg = [-2 : i32], keep_dim = true}> : (tensor<128x96xf32>, tensor<1x96xf32>) -> tensor<1x96xf32>
-      %2 = "ttir.matmul"(%arg0, %arg1, %arg2) <{transpose_a = false, transpose_b = false}> : (tensor<128x96xf32>, tensor<96x64xf32>, tensor<128x64xf32>) -> tensor<128x64xf32>
-    ```
-    becomes
-    ```mlir
-      #map = affine_map<(d0, d1) -> (d0, d1)>
-      #map1 = affine_map<(d0, d1) -> (0, 0)>
-      #map2 = affine_map<(d0, d1) -> (0, d1)>
-      #map3 = affine_map<(d0, d1, d2) -> (d0, d2)>
-      #map4 = affine_map<(d0, d1, d2) -> (d2, d1)>
-      #map5 = affine_map<(d0, d1, d2) -> (d0, d1)>
-      #parallel = #tt.iterator_type<parallel>
-      #reduction = #tt.iterator_type<reduction>
-      #layout = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<4x3x!tt.tile<32x32, f32>, #l1_>>
-      #layout1 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<1x3x!tt.tile<32x32, f32>, #l1_>>
-      #layout2 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<1x1x!tt.tile<32x32, f32>, #l1_>>
-      #layout3 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<3x2x!tt.tile<32x32, f32>, #l1_>>
-      #layout4 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<4x2x!tt.tile<32x32, f32>, #l1_>>
-
-      %0 = "ttir.generic"(%arg0, %arg1, %arg2) <{grid = #tt.grid<1x1>, indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel], operandSegmentSizes = array<i32: 2, 1>}> ({
-      ^compute(%cb0: memref<4x3x!tt.tile<32x32, f32>, #l1_>, %cb1: memref<4x3x!tt.tile<32x32, f32>, #l1_>, %cb2: memref<4x3x!tt.tile<32x32, f32>, #l1_>):
-        linalg.generic {indexing_maps = [#map, #map, #map], iterator_types = ["parallel", "parallel"]} ins(%cb0, %cb1 : memref<4x3x!tt.tile<32x32, f32>, #l1_>, memref<4x3x!tt.tile<32x32, f32>, #l1_>) outs(%cb2 : memref<4x3x!tt.tile<32x32, f32>, #l1_>) {
-        ^bb0(%in: !tt.tile<32x32, f32>, %in_0: !tt.tile<32x32, f32>, %out: !tt.tile<32x32, f32>):
-          %1 = "ttir.tile_add"(%in, %in_0) : (!tt.tile<32x32, f32>, !tt.tile<32x32, f32>) -> !tt.tile<32x32, f32>
-          linalg.yield %1 : !tt.tile<32x32, f32>
-        }
-      }) : (tensor<128x96xf32, #layout>, tensor<128x96xf32, #layout>, tensor<128x96xf32, #layout>) -> tensor<128x96xf32, #layout>
-      return %0 : tensor<128x96xf32, #layout>
-
-      %scaler = "ttir.constant"() <{value = dense<1.000000e+00> : tensor<32x32xf32, #layout2>}> : () -> tensor<32x32xf32, #layout2>
-      %1 = "ttir.generic"(%arg0, %scaler, %0) <{grid = #tt.grid<1x1>, indexing_maps = [#map, #map1, #map2], iterator_types = [#reduction, #parallel], operandSegmentSizes = array<i32: 2, 1>}> ({
-      ^compute(%cb0: memref<4x3x!tt.tile<32x32, f32>, #l1_>, %cb1: memref<1x1x!tt.tile<32x32, f32>, #l1_>, %cb2: memref<1x3x!tt.tile<32x32, f32>, #l1_>):
-        linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["reduction", "parallel"]} ins(%cb0, %cb1 : memref<4x3x!tt.tile<32x32, f32>, #l1_>, memref<1x1x!tt.tile<32x32, f32>, #l1_>) outs(%cb2 : memref<1x3x!tt.tile<32x32, f32>, #l1_>) {
-        ^bb0(%in: !tt.tile<32x32, f32>, %in_0: !tt.tile<32x32, f32>, %out: !tt.tile<32x32, f32>):
-          %3 = "ttir.tile_reduce_sum"(%in, %in_0) <{reduce_dim = #ttir<reduce_dim R>}> : (!tt.tile<32x32, f32>, !tt.tile<32x32, f32>) -> !tt.tile<32x32, f32>
-          linalg.yield %3 : !tt.tile<32x32, f32>
-        }
-      }) : (tensor<128x96xf32, #layout>, tensor<32x32xf32, #layout2>, tensor<1x96xf32, #layout1>) -> tensor<1x96xf32, #layout1>
-
-      %2 = "ttir.generic"(%arg0, %arg1, %arg2) <{grid = #tt.grid<1x1>, indexing_maps = [#map3, #map4, #map5], iterator_types = [#parallel, #parallel, #reduction], operandSegmentSizes = array<i32: 2, 1>}> ({
-      ^compute(%cb0: memref<4x3x!tt.tile<32x32, f32>, #l1_>, %cb1: memref<3x2x!tt.tile<32x32, f32>, #l1_>, %cb2: memref<4x2x!tt.tile<32x32, f32>, #l1_>):
-        "ttir.tile_matmul_block"(%cb0, %cb1, %cb2) : (memref<4x3x!tt.tile<32x32, f32>, #l1_>, memref<3x2x!tt.tile<32x32, f32>, #l1_>, memref<4x2x!tt.tile<32x32, f32>, #l1_>) -> ()
-      }) : (tensor<128x96xf32, #layout>, tensor<96x64xf32, #layout3>, tensor<128x64xf32, #layout4>) -> tensor<128x64xf32, #layout4>
-    ```
-  }];
-}
-
 def TTIRGenericLinearizeMemref: Pass<"ttir-generic-linearize-memref", "::mlir::ModuleOp"> {
   let summary = "Linearize memref operands for generic ops.";
   let description = [{
@@ -261,10 +188,12 @@ def TTIRGenericGenerateLoops : Pass<"ttir-generic-generate-loops", "::mlir::Modu
   }];
 }
 
-def TTIRGenericLowerAffineDMAs : Pass<"ttir-generic-lower-affine-dmas", "::mlir::ModuleOp"> {
-  let summary = "Lower DMA ops from their affine form to indexed form.";
+def TTIRGenericLowerDMAs : Pass<"ttir-generic-lower-dmas", "::mlir::ModuleOp"> {
+  let summary = "Lower DMA ops from their high level form to fully indexed form.";
   let description = [{
-    This pass lowers DMA ops from their affine form to indexed form. This is useful for doing analysis on the DMA
+    This pass lowers DMA ops from their high level forms to fully indexed form.
+
+    One important pattern is rewriting their affine form to indexed form. This is useful for doing analysis on the DMA
     ops and lowering them to an optimal loop nest of coalesced transactions.  This is acheived by sampling the affine
     map over the entire parent generic op iterator space. Note that the affine map provided to the DMA op must be
     one of the indexing maps of the parent generic op.
@@ -283,6 +212,40 @@ def TTIRGenericLowerAffineDMAs : Pass<"ttir-generic-lower-affine-dmas", "::mlir:
     %1 = arith.addi %0, %iter0
     %iter2 = ttir.iter_index(2)
     %tx = ttir.dma %stream [%1, %iter2], %cb0
+    ```
+  }];
+}
+
+def TTIRGenericRegionsToFuncs : Pass<"ttir-generic-regions-to-funcs", "::mlir::ModuleOp"> {
+  let summary = "Move generic regions to top level functions.";
+  let description = [{
+    This pass moves the generic regions to top level functions. This is a useful prerequisite
+    step before lowering because it enables us to better separate kernel program lowering from
+    host program lowering.
+
+    ```mlir
+    func.func @main(/*...*/) {
+      ttir.generic {grid = #tt.grid<1x1>, indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel], threads = [#ttir.thread<compute>]}
+          ins(%arg0, %arg1 : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>, memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>)
+          outs(%alloc : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>)  {
+      ^compute0(%cb0: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %cb1: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %cb2: memref<2x4x!tt.tile<32x32, f32>, #l1_>):
+        // ...compute body...
+      }
+    }
+    ```
+
+    Into (note the new compute function / symbol @compute_kernel0):
+    ```mlir
+    func.func @main(/*...*/) {
+      ttir.generic {grid = #tt.grid<1x1>, indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel], threads = [#ttir.thread<compute, @compute_kernel0>]}
+          ins(%arg0, %arg1 : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>, memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>)
+          outs(%alloc : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>)
+    }
+
+    func.func private @compute_kernel0(%arg0: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg2: memref<2x4x!tt.tile<32x32, f32>, #l1_>) attributes {ttir.thread_type = 0 : i32} {
+      // ...compute body...
+      return
+    }
     ```
   }];
 }
@@ -434,6 +397,66 @@ def TTIRHoistTransform: Pass<"ttir-cpu-hoist-transform", "::mlir::ModuleOp">
   }];
 
   let dependentDialects = ["::mlir::tt::TTDialect"];
+}
+
+def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::ModuleOp">
+{
+  let summary = "Normalize element types into list of supported types.";
+  let description = [{
+    "This pass walks through the graph and normalizes the element types into a list of supported types. This is useful for lowering
+        to a target that only supports a subset of the element types.
+  }];
+}
+
+def TTIRFlattenSlidingWindow: Pass<"ttir-flatten-sliding-window", "::mlir::ModuleOp">
+{
+  let summary = "Flatten sliding window ops.";
+  let description = [{
+    This is a compatibility pass for converting to the TTNN dialect.
+    This pass walks through the graph and flattens sliding window ops (ttir.conv2d, ttir.max_pool2d).
+
+    Example:
+      Before:
+         %dps = ttir.empty() : tensor<3x15x31x16xbf16>
+         %1 = "ttir.conv2d"(%input, %weight, %bias, %dps)
+            <{
+              stride = 2: i32,
+              padding = 0: i32,
+              dilation = 1: i32,
+              groups = 1: i32
+            }> : (tensor<3x32x64x8xbf16>, tensor<16x8x3x3xbf16>, tensor<1x1x1x16xbf16>, tensor<3x15x31x16xbf16>) -> tensor<3x15x31x16xbf16>
+
+      After:
+        %reshape_dps = ttir.empty() : tensor<1x1x6144x8xbf16>
+        %0 = "ttir.reshape"(%input, %reshape_dps) <{[i32: 1, i32: 1, i32: 6144, i32: 8]}> : (tensor<3x32x64x8xbf16>, tensor<1x1x6144x8xbf16>) -> tensor<1x1x6144x8xbf16>
+        %new_conv_dps = ttir.empty() : tensor<1x1x1395x16xbf16>
+        %1 = "ttir.conv2d"(%0, %weight, %bias, %new_conv_dps)
+            <{
+              stride = 2: i32,
+              padding = 0: i32,
+              dilation = 1: i32,
+              groups = 1: i32,
+              flattened_compat_info = #ttir<flattened_compat in_channels = 8, out_channels = 16, batch_size = 3, input_height = 32, input_width = 64,>
+            }> : (tensor<1x1x6144x8xbf16>, tensor<16x8x3x3xbf16>, tensor<1x1x1x16xbf16>, tensor<1x1x1395x16xbf16>) -> tensor<1x1x1395x16xbf16>
+          %output_reshape_dps = ttir.empty() : tensor<3x15x30x16xbf16>
+          %2 = "ttir.reshape"(%1, %output_reshape_dps) <{[i32: 3, i32: 15, i32: 31, i32: 16]}> : (tensor<1x1x1395x16xbf16>, tensor<3x15x31x16xbf16>) -> tensor<3x15x31x16xbf16>
+  }];
+}
+
+def TTIREraseInverseOps: Pass<"ttir-erase-inverse-ops", "::mlir::ModuleOp">
+{
+  let summary = "Erase inverse ops.";
+  let description = [{
+    This pass walks through the graph and erases inverse operations.
+
+    For example:
+      ttir.permute(0, 1, 3, 2) -> ttir.exp -> ttir.permute(0, 1, 3, 2)
+
+    The above sequence can be reduced to simply: "ttir.exp" as the permutations
+    on either end are inverses.
+  }];
+
+  let dependentDialects = ["mlir::tt::TTDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
 #endif

@@ -1,507 +1,79 @@
-include "Common/types.fbs";
-include "Common/debug_info.fbs";
-include "types.fbs";
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/Common/debug_info.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+include "ttmlir/Target/TTNN/operations/ccl.fbs";
+include "ttmlir/Target/TTNN/operations/get_device.fbs";
+include "ttmlir/Target/TTNN/operations/conv.fbs";
+include "ttmlir/Target/TTNN/operations/cpu.fbs";
+include "ttmlir/Target/TTNN/operations/creation.fbs";
+include "ttmlir/Target/TTNN/operations/data_movement.fbs";
+include "ttmlir/Target/TTNN/operations/deallocate.fbs";
+include "ttmlir/Target/TTNN/operations/eltwise.fbs";
+include "ttmlir/Target/TTNN/operations/embedding.fbs";
+include "ttmlir/Target/TTNN/operations/kv_cache.fbs";
+include "ttmlir/Target/TTNN/operations/layout.fbs";
+// ANCHOR: adding_an_op_matmul_fbs_include
+include "ttmlir/Target/TTNN/operations/matmul.fbs";
+// ANCHOR_END: adding_an_op_matmul_fbs_include
+include "ttmlir/Target/TTNN/operations/moreh_cumsum.fbs";
+include "ttmlir/Target/TTNN/operations/softmax.fbs";
+include "ttmlir/Target/TTNN/operations/pool.fbs";
+include "ttmlir/Target/TTNN/operations/reduction.fbs";
 
 namespace tt.target.ttnn;
 
-table GetDeviceOp {
-  mesh: Dim2d;
-  chip_ids: [uint32];
-  out: tt.target.DeviceRef;
-}
-
-table ToMemoryConfigOp {
-  in0: tt.target.ttnn.TensorRef;
-  memcfg: tt.target.ttnn.MemoryConfig;
-  out: tt.target.ttnn.TensorRef;
-}
-
-table ToLayoutOp {
-  in: tt.target.ttnn.TensorRef;
-  layout: tt.target.TensorLayout;
-  dtype: tt.target.DataType = null;
-  memcfg: tt.target.ttnn.MemoryConfig;
-  device: tt.target.DeviceRef;
-  out: tt.target.ttnn.TensorRef;
-}
-
-table ToDTypeOp {
-  in: tt.target.ttnn.TensorRef;
-  dtype: tt.target.DataType;
-  out: tt.target.ttnn.TensorRef;
-}
-
-table TypecastOp {
-  in: tt.target.ttnn.TensorRef;
-  dtype: tt.target.DataType;
-  out: tt.target.ttnn.TensorRef;
-}
-
-table ToDeviceOp {
-  in: tt.target.ttnn.TensorRef;
-  device: tt.target.DeviceRef;
-  memcfg: tt.target.ttnn.MemoryConfig;
-  out: tt.target.ttnn.TensorRef;
-}
-
-table UpdateCacheOp {
-  cache: tt.target.ttnn.TensorRef;
-  input: tt.target.ttnn.TensorRef;
-  update_index: tt.target.ttnn.TensorRef;
-  batch_offset: uint32;
-}
-
-table FillCacheOp {
-  cache: tt.target.ttnn.TensorRef;
-  input: tt.target.ttnn.TensorRef;
-  batch_offset: uint32;
-}
-
-table FromDeviceOp {
-  in: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
-}
-
-table EmptyOp {
-  shape: [int64];
-  dtype: DataType;
-  layout: TensorLayout;
-  num_shards: uint32;
-  device: tt.target.DeviceRef;
-  memcfg: tt.target.ttnn.MemoryConfig;
-  strategy: tt.target.ttnn.DistributionStrategy;
-  out: tt.target.ttnn.TensorRef;
-}
-
-table ConstructTensorOp {
-  shape: [int64];
-  dtype: DataType;
-  layout: TensorLayout;
-  out: tt.target.ttnn.TensorRef;
-}
-
-enum NamedFullOpType: uint32 {
-  Zeros,
-  Ones,
-}
-
-table NamedFullOp {
-  type: NamedFullOpType;
-  shape: [int64];
-  dtype: DataType = null;
-  layout: TensorLayout = null;
-  device: tt.target.DeviceRef;
-  memcfg: tt.target.ttnn.MemoryConfig;
-  out: tt.target.ttnn.TensorRef;
-}
-
-table FullOp {
-  device: tt.target.DeviceRef;
-  fill_value: float;
-  num_shards: uint32;
-  strategy: tt.target.ttnn.DistributionStrategy;
-  out: tt.target.ttnn.TensorRef;
-}
-
-table ArangeOp {
-  start: float;
-  end: float;
-  step: float;
-  dtype: tt.target.DataType = null;
-  device: tt.target.DeviceRef;
-  memcfg: tt.target.ttnn.MemoryConfig;
-  out: tt.target.ttnn.TensorRef;
-}
-
-enum EltwiseOpType: uint32 {
-  Add,
-  Multiply,
-  Subtract,
-  Relu,
-  GreaterEqual,
-  Sqrt,
-  Divide,
-  Sigmoid,
-  Reciprocal,
-  Exp,
-  Maximum,
-  Abs,
-  Neg,
-  Rsqrt,
-  Typecast,
-  Equal,
-  NotEqual,
-  LessEqual,
-  LessThan,
-  GreaterThan,
-  LogicalAnd,
-  LogicalOr,
-  LogicalXor,
-  LogicalNot,
-  BitwiseAnd,
-  BitwiseOr,
-  BitwiseXor,
-  BitwiseNot,
-  Cbrt,
-  Minimum,
-  Ceil,
-  Sin,
-  Cos,
-  Log,
-  Log1p,
-  Expm1,
-  Sign,
-  Remainder,
-  IsFinite,
-  Floor,
-  Where,
-  Gelu,
-  ClampScalar,
-  ClampTensor,
-  LeakyRelu,
-  Scatter,
-  Tan,
-  Tanh,
-  Power,
-  Atan
-}
-
-table ClampScalarOpParams {
-  min: float;
-  max: float;
-}
-
-table ClampTensorOpParams {
-  min: tt.target.ttnn.TensorRef;
-  max: tt.target.ttnn.TensorRef;
-}
-
-table EltwiseOpWithFloatParams {
-  parameter: float;
-}
-
-union EltwiseOpParams {
-  ClampScalarOpParams,
-  ClampTensorOpParams,
-  EltwiseOpWithFloatParams,
-}
-
-table EltwiseOp {
-  type: EltwiseOpType;
-  ins: [tt.target.ttnn.TensorRef];
-  out: tt.target.ttnn.TensorRef;
-  params: EltwiseOpParams;
-}
-
-table MorehCumSumOp {
-  in: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
-  dim: int64;
-  memcfg: tt.target.ttnn.MemoryConfig;
-}
-
-enum ReductionOpType: uint32 {
-  Sum,
-  Mean,
-  Max,
-  Min,
-}
-
-table ReductionOp {
-  type: ReductionOpType;
-  in: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
-  dim_arg: [int32];
-  keep_dim: bool;
-}
-
-table ReductionArgMaxOp {
-  in: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
-  dim: int32 = null;
-  use_multicore: bool;
-  memcfg: tt.target.ttnn.MemoryConfig;
-}
-
-table ReductionProdOp {
-  in: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
-  all_dimensions: bool;
-  dim_arg: int64;
-  keep_dim: bool;
-  memcfg: tt.target.ttnn.MemoryConfig;
-}
-
-table EmbeddingOp {
-  input: tt.target.ttnn.TensorRef;
-  weight: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
-}
-
-table EmbeddingBackwardOp {
-  input: tt.target.ttnn.TensorRef;
-  weight: tt.target.ttnn.TensorRef;
-  in_grad: tt.target.ttnn.TensorRef;
-  dtype: tt.target.DataType = null;
-  memcfg: tt.target.ttnn.MemoryConfig;
-  out: tt.target.ttnn.TensorRef;
-}
-
-table RepeatInterleaveOp {
-  input: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
-  repeats: uint32;
-  dim: int32;
-  memory_config: tt.target.ttnn.MemoryConfig;
-}
-
-table SoftmaxOp {
-  in: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
-  dimension: int32;
-}
-
-table TransposeOp {
-  in: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
-  dim0: int32;
-  dim1: int32;
-}
-
-table ConcatOp {
- inputs: [tt.target.ttnn.TensorRef];
- out: tt.target.ttnn.TensorRef;
- dim: int32;
- memory_config: tt.target.ttnn.MemoryConfig;
-}
-
-table ReshapeOp {
-  in: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
-  shape: [int32];
-  memory_config: tt.target.ttnn.MemoryConfig;
-}
-
-table RepeatOp {
-  in: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
-  repeat_dims: [int64];
-}
-
-table PadOp {
-  in: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
-  padding: [uint32];
-  value: float;
-  use_multicore: bool;
-  memcfg: tt.target.ttnn.MemoryConfig;
-}
-
-table SliceOp {
-  in: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
-  begins: [int64];
-  ends: [int64];
-  step: [int64];
-}
-
-table LinearOp {
-  a: tt.target.ttnn.TensorRef;
-  b: tt.target.ttnn.TensorRef;
-  bias: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
-  transpose_a: bool;
-  transpose_b: bool;
-}
-
-// ANCHOR: adding_an_op_matmul_fbs
-table MatmulOp {
-  a: tt.target.ttnn.TensorRef;
-  b: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
-  transpose_a: bool;
-  transpose_b: bool;
-}
-// ANCHOR_END: adding_an_op_matmul_fbs
-
-table Conv2dOp {
-  input: tt.target.ttnn.TensorRef;
-  weight: tt.target.ttnn.TensorRef;
-  bias: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
-  device: tt.target.DeviceRef;
-  in_channels: uint32;
-  out_channels: uint32;
-  batch_size: uint32;
-  input_height: uint32;
-  input_width: uint32;
-  kernel_size: [int32];
-  stride: [int32];
-  padding: [int32];
-  dilation: [int32];
-  groups: uint32;
-  conv2d_config: tt.target.ttnn.Conv2dConfig;
-}
-
-table ConvTranspose2dOp {
-  input: tt.target.ttnn.TensorRef;
-  weight: tt.target.ttnn.TensorRef;
-  bias: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
-  device: tt.target.DeviceRef;
-  in_channels: uint32;
-  out_channels: uint32;
-  batch_size: uint32;
-  input_height: uint32;
-  input_width: uint32;
-  kernel_size: [int32];
-  stride: [int32];
-  padding: [int32];
-  output_padding: [int32];
-  dilation: [int32];
-  groups: uint32;
-}
-
-table MaxPool2dOp {
-  in: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
-  batch_size: uint32;
-  input_height: uint32;
-  input_width: uint32;
-  channels: uint32;
-  kernel_size: [int32];
-  stride: [int32];
-  padding: [int32];
-  dilation: [int32];
-  ceil_mode: bool;
-}
-
-table DeallocateOp {
-  in: tt.target.ttnn.TensorRef;
-  force: bool;
-}
-
-table AllGatherOp {
-  in: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
-  device: tt.target.DeviceRef;
-  all_gather_dim: int32;
-  cluster_axis: uint32;
-  num_links: uint32;
-}
-
-table PermuteOp {
-  in: tt.target.ttnn.TensorRef;
-  permutation: [int64];
-  memory_config: tt.target.ttnn.MemoryConfig;
-  pad_value: float;
-  out: tt.target.ttnn.TensorRef;
-}
-
-table ReduceScatterOp {
-  in: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
-  device: tt.target.DeviceRef;
-  scatter_dim: int32;
-  reduce_type: uint32;
-  cluster_axis: uint32;
-  num_links: uint32;
-}
-
-table CollectivePermuteOp {
-  in: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
-  device: tt.target.DeviceRef;
-  source_target_pairs: [int64];
-}
-
-table MeshShardOp {
-  in: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
-  device: tt.target.DeviceRef;
-  shard_direction: tt.target.ttnn.MeshShardDirection;
-  shard_type: tt.target.ttnn.MeshShardType;
-  shard_shape: [int64];
-  shard_dims: [int64];
-}
-
-table UniformScale2D {
-  scale: int32;
-}
-
-table NonUniformScale2D {
-  scale: [int32];
-}
-
-union Scale2D {
-  UniformScale2D,
-  NonUniformScale2D,
-}
-
-table UpsampleOp {
-  in: tt.target.ttnn.TensorRef;
-  scale_factor: Scale2D;
-  mode: string;
-  memory_config: tt.target.ttnn.MemoryConfig;
-  out: tt.target.ttnn.TensorRef;
-}
-
-table CpuOp {
-  ins: [tt.target.ttnn.TensorRef];
-  out: tt.target.ttnn.TensorRef;
-  func_name: string;
-  dylib_id: uint32;
-}
-
-table ConstantOp {
-  out: tt.target.ttnn.TensorRef;
-  data: [ubyte];
-}
-
 union OpType {
+  AllGatherOp,
+  CollectivePermuteOp,
+  MeshShardOp,
+  ReduceScatterOp,
   GetDeviceOp,
-  ToMemoryConfigOp,
-  ToLayoutOp,
-  ToDTypeOp,
-  TypecastOp,
-  ToDeviceOp,
-  FromDeviceOp,
-  EmptyOp,
-  ConstructTensorOp,
-  NamedFullOp,
-  FullOp,
-  EltwiseOp,
-  LinearOp,
-  MatmulOp,
-  MorehCumSumOp,
-  ReductionOp,
-  ReductionArgMaxOp,
-  ReductionProdOp,
-  EmbeddingOp,
-  EmbeddingBackwardOp,
-  RepeatInterleaveOp,
-  SoftmaxOp,
-  TransposeOp,
+  PrepareConv2dWeightsOp,
   Conv2dOp,
   ConvTranspose2dOp,
+  CpuOp,
+  ArangeOp,
+  ConstantOp,
+  ConstructTensorOp,
+  EmptyOp,
+  FullOp,
+  NamedFullOp,
   ConcatOp,
+  PadOp,
+  PermuteOp,
+  RepeatInterleaveOp,
+  RepeatOp,
   ReshapeOp,
   SliceOp,
-  MaxPool2dOp,
+  TransposeOp,
   DeallocateOp,
-  AllGatherOp,
-  ReduceScatterOp,
-  MeshShardOp,
-  CollectivePermuteOp,
-  ArangeOp,
-  UpdateCacheOp,
+  EltwiseBinaryOp,
+  EltwiseBinaryCompositeOp,
+  EltwiseTernaryWhereOp,
+  EltwiseQuantizationOp,
+  EltwiseUnaryOp,
+  EltwiseUnaryCompositeOp,
+  EmbeddingBackwardOp,
+  EmbeddingOp,
   FillCacheOp,
-  PermuteOp,
-  RepeatOp,
+  UpdateCacheOp,
+  FromDeviceOp,
+  ToDeviceOp,
+  ToDTypeOp,
+  ToLayoutOp,
+  ToMemoryConfigOp,
+  TypecastOp,
+  LinearOp,
+  // ANCHOR: adding_an_op_matmul_fbs_op_type
+  MatmulOp,
+  // ANCHOR_END: adding_an_op_matmul_fbs_op_type
+  MorehCumSumOp,
+  SoftmaxOp,
+  MaxPool2dOp,
   UpsampleOp,
-  PadOp,
-  CpuOp,
-  ConstantOp,
+  ReductionArgMaxOp,
+  ReductionOp,
+  ReductionProdOp
 }
 
 table Operation {

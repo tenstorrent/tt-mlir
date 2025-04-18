@@ -13,20 +13,22 @@ endif()
 set(FBS_GEN_OUTPUTS)
 
 foreach(FILE ${sources})
+  get_filename_component(FILE_DIR ${FILE} DIRECTORY)
   get_filename_component(BASE_NAME ${FILE} NAME_WE)
   add_custom_command(OUTPUT
-    "${CMAKE_CURRENT_BINARY_DIR}/${BASE_NAME}_generated.h"
-    "${CMAKE_CURRENT_BINARY_DIR}/${BASE_NAME}_bfbs_generated.h"
+    "${CMAKE_CURRENT_BINARY_DIR}/${FILE_DIR}/${BASE_NAME}_generated.h"
+    "${CMAKE_CURRENT_BINARY_DIR}/${FILE_DIR}/${BASE_NAME}_bfbs_generated.h"
     COMMAND ${FLATBUFFERS_COMPILER}
-    ARGS -I ${PROJECT_SOURCE_DIR}/include/ttmlir/Target
+    ARGS -I ${PROJECT_SOURCE_DIR}/include/
     ARGS --bfbs-gen-embed
     ARGS --cpp --cpp-std c++17
     ARGS --scoped-enums --warnings-as-errors
-    ARGS -o "${CMAKE_CURRENT_BINARY_DIR}/" "${FILE}"
+    ARGS --keep-prefix
+    ARGS -o "${CMAKE_CURRENT_BINARY_DIR}/${FILE_DIR}/" "${FILE}"
     DEPENDS ${FILE} ${deps} ${sources}
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-  list(APPEND FBS_GEN_OUTPUTS ${CMAKE_CURRENT_BINARY_DIR}/${BASE_NAME}_generated.h)
-  list(APPEND FBS_GEN_OUTPUTS ${CMAKE_CURRENT_BINARY_DIR}/${BASE_NAME}_bfbs_generated.h)
+  list(APPEND FBS_GEN_OUTPUTS ${CMAKE_CURRENT_BINARY_DIR}/${FILE_DIR}/${BASE_NAME}_generated.h)
+  list(APPEND FBS_GEN_OUTPUTS ${CMAKE_CURRENT_BINARY_DIR}/${FILE_DIR}/${BASE_NAME}_bfbs_generated.h)
 endforeach()
 add_library(${target} INTERFACE ${FBS_GEN_OUTPUTS})
 endfunction()

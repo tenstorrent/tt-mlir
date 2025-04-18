@@ -46,13 +46,21 @@ CoreRangeSet
 toCoreRangeSet(const ::flatbuffers::Vector<const ::tt::target::Dim2dRange *>
                    *coreRangeSet);
 
+CoreCoord toTTNNCoreCoord(const ::tt::target::ttnn::CoreCoord &coreCoord);
+
+CoreRange toTTNNCoreRange(const tt::target::ttnn::CoreRange &coreRange);
+
+CoreRangeSet
+toTTNNCoreRangeSet(const tt::target::ttnn::CoreRangeSet &coreRangeSet);
+
 const ::tt::target::ttnn::MemoryConfig *
 getTensorRefMemoryConfig(const ::tt::target::ttnn::TensorRef *tensorRef);
 
 std::optional<::ttnn::MemoryConfig>
 createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg);
 
-Tensor createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor);
+::tt::runtime::Tensor createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor,
+                                                  bool retain = false);
 
 // Translates a flatbuffer DataType to the native (C++) type.
 template <::tt::target::DataType DataType>

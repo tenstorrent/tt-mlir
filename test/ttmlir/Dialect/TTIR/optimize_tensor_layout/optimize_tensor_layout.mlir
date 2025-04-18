@@ -11,15 +11,16 @@
 
 func.func @reduce_large_grid(%arg0: tensor<256x384xf32, #layout1>, %arg1: tensor<256x384xf32, #layout1>) -> tensor<256x32xf32, #layout2> {
   %0 = ttir.empty() : tensor<256x32xf32, #layout2>
-  // CHECK: %{{[a-z0-9_]+}} = "ttir.view_layout"
-  // CHECK: %{{[a-z0-9_]+}} = "ttir.view_layout"
+  // CHECK: %{{[a-z0-9_]+}} = "ttir.to_layout"
+  // CHECK: %{{[a-z0-9_]+}} = "ttir.to_layout"
   %1 = "ttir.generic"(%arg0, %arg1, %0) <{
         grid = #tt.grid<1x1>,
         indexing_maps = [#map1, #map1, #map2],
         iterator_types = [#parallel, #reduction],
+        threads = [#ttir.thread<compute>],
         operandSegmentSizes = array<i32: 2, 1>
         }> ({
-        // CHECK: ^compute(%cb0: memref<1x2x!tt.tile<32x32, f32>, #l1_>,
+        // CHECK: ^compute0(%cb0: memref<1x2x!tt.tile<32x32, f32>, #l1_>,
         // CHECK-SAME: %cb1: memref<1x2x!tt.tile<32x32, f32>, #l1_>,
         // CHECK-SAME: %cb2: memref<1x1x!tt.tile<32x32, f32>, #l1_>):
         ^bb0(%arg2: memref<8x12x!tt.tile<32x32, f32>, #l1_>,
@@ -36,7 +37,7 @@ func.func @reduce_large_grid(%arg0: tensor<256x384xf32, #layout1>, %arg1: tensor
             }
         "ttir.yield"() : () -> ()
         }) : (tensor<256x384xf32, #layout1>, tensor<256x384xf32, #layout1>, tensor<256x32xf32, #layout2>) -> tensor<256x32xf32, #layout2>
-  // CHECK: %{{[a-z0-9_]+}} = "ttir.view_layout"
+  // CHECK: %{{[a-z0-9_]+}} = "ttir.to_layout"
   return %1 : tensor<256x32xf32, #layout2>
 }
 
@@ -57,9 +58,10 @@ func.func @reduce_prime(%arg0: tensor<32x608xf32, #layout1>, %arg1: tensor<32x60
         grid = #tt.grid<1x1>,
         indexing_maps = [#map1, #map1, #map2],
         iterator_types = [#parallel, #reduction],
+        threads = [#ttir.thread<compute>],
         operandSegmentSizes = array<i32: 2, 1>
         }> ({
-        // CHECK: ^compute(%cb0: memref<1x19x!tt.tile<32x32, f32>, #l1_>,
+        // CHECK: ^compute0(%cb0: memref<1x19x!tt.tile<32x32, f32>, #l1_>,
         // CHECK-SAME: %cb1: memref<1x19x!tt.tile<32x32, f32>, #l1_>,
         // CHECK-SAME: %cb2: memref<1x1x!tt.tile<32x32, f32>, #l1_>):
         ^bb0(%arg2: memref<1x19x!tt.tile<32x32, f32>, #l1_>,

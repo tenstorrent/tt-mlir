@@ -13,7 +13,8 @@ from ..utils import (
     Helper,
     DeviceContext,
     assert_pcc,
-    get_torch_and_runtime_inputs,
+    get_torch_inputs,
+    get_runtime_tensor_from_torch,
     get_torch_output_container,
 )
 
@@ -32,7 +33,8 @@ def test_runtime_stitching_eltwise_binary_op_chain(helper: Helper, request):
 
     first_program: Binary.Program = helper.binary.get_program(0)
     assert first_program.num_inputs() == 2
-    inputs_torch, inputs_runtime = get_torch_and_runtime_inputs(first_program)
+    inputs_torch = get_torch_inputs(first_program)
+    inputs_runtime = [get_runtime_tensor_from_torch(input) for input in inputs_torch]
 
     input_layouts = [
         ttrt.runtime.get_layout(
@@ -50,11 +52,13 @@ def test_runtime_stitching_eltwise_binary_op_chain(helper: Helper, request):
     with DeviceContext(mesh_shape=[1, 1]) as device:
         activations = ttrt.runtime.to_layout(activations, device, activations_layout)
         weights = ttrt.runtime.to_layout(weights, device, weights_layout)
+        weights.set_retain(True)
         for program_index in program_indices:
             program = helper.binary.get_program(program_index)
             assert program.num_inputs() == 2 and program.num_outputs() == 1
+            inputs = [activations, weights]
             outputs = ttrt.runtime.submit(
-                device, helper.binary.fbb, program_index, [activations, weights]
+                device, helper.binary.fbb, program_index, inputs
             )
             activations = ttrt.runtime.to_layout(outputs[0], device, activations_layout)
             ttrt.runtime.deallocate_tensor(outputs[0])

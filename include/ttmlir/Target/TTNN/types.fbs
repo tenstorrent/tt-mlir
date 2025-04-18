@@ -1,4 +1,4 @@
-include "Common/types.fbs";
+include "ttmlir/Target/Common/types.fbs";
 
 namespace tt.target.ttnn;
 
@@ -28,6 +28,20 @@ enum MeshShardType: uint32 {
   Replicate,
   Maximal,
   Devices,
+}
+
+struct CoreCoord {
+  x: uint64;
+  y: uint64;
+}
+
+struct CoreRange {
+  start_coord: CoreCoord;
+  end_coord: CoreCoord;
+}
+
+table CoreRangeSet {
+  core_ranges: [CoreRange];
 }
 
 table ReplicateTensor {
@@ -66,27 +80,6 @@ table MemoryConfig {
   tensor_memory_layout: TensorMemoryLayout;
   buffer_type: BufferType;
   shard_spec: ShardSpec;
-}
-
-table Conv2dConfig {
-  dtype: DataType;
-  weights_dtype: DataType;
-  activation: string;
-  input_channels_alignment: uint32;
-  deallocate_activation: bool;
-  reallocate_halo_output: bool;
-  act_block_h_override: uint32;
-  act_block_w_div: uint32;
-  reshard_if_not_optimal: bool;
-  override_sharding_config: bool;
-  shard_layout: TensorMemoryLayout = null;
-  core_grid: bool = null;
-  transpose_shards: bool;
-  output_layout: TensorLayout;
-  enable_act_double_buffer: bool;
-  enable_weights_double_buffer: bool;
-  enable_split_reader: bool;
-  enable_subblock_padding: bool;
 }
 
 table MemoryDesc {

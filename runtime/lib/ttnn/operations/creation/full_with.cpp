@@ -45,7 +45,7 @@ static void runFullWithOp(const ::tt::target::ttnn::NamedFullOp *op,
 
   ::ttnn::Tensor out = ttnnOp(shape, dtype, layout, device, memoryConfig);
 
-  tensorPool.insertAndValidate(op->out(), out);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
 void run(const ::tt::target::ttnn::NamedFullOp *op, ProgramContext &context) {

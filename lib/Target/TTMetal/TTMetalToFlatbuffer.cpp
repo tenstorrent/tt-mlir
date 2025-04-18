@@ -2,33 +2,29 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <cassert>
-#include <cstddef>
-#include <flatbuffers/buffer.h>
-#include <memory>
-
-#include "mlir/Dialect/EmitC/IR/EmitC.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/Support/LLVM.h"
-#include "mlir/Support/LogicalResult.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/LogicalResult.h"
-#include "llvm/Support/raw_ostream.h"
-
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
-#include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TT/IR/Utils.h"
-#include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
-#include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
 #include "ttmlir/Target/TTMetal/Target.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "ttmlir/Version.h"
-#include "types_generated.h"
+
+#include "flatbuffers/buffer.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/Support/LLVM.h"
+#include "mlir/Support/LogicalResult.h"
+#include "llvm/ADT/STLForwardCompat.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/LogicalResult.h"
+#include "llvm/Support/raw_ostream.h"
+
+#include <cassert>
+#include <cstddef>
+#include <memory>
 
 namespace mlir::tt {
 flatbuffers::Offset<::tt::target::metal::MemoryDesc>
@@ -213,9 +209,8 @@ toFlatbuffer(::flatbuffers::FlatBufferBuilder &fbb,
 cbTypeToFlatbuffer(FlatbufferObjectCache &cache, ttkernel::CBType cbType) {
   auto memref = cache.getOrCreate(cbType.getMemref(), memrefAttrToFlatbuffer);
   return ::tt::target::metal::CreateCBDesc(
-      *cache.fbb,
-      static_cast<std::underlying_type_t<ttkernel::CBPort>>(cbType.getPort()),
-      memref, cbType.getPageSize(), cbType.getNumBuffers());
+      *cache.fbb, llvm::to_underlying(cbType.getPort()), memref,
+      cbType.getPageSize(), cbType.getNumBuffers());
 }
 
 std::pair<::tt::target::metal::RuntimeArg, ::flatbuffers::Offset<void>>
@@ -347,52 +342,61 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
             emitEnqueueProgramOpRegionsAsCpp(enqueueProgramOp, cppKernels);
         assert(success.succeeded() &&
                "failed to emit enqueue program op regions as cpp");
-        for (auto &region : enqueueProgramOp.getRegions()) {
-          std::vector<::tt::target::Dim2dRange> coreRangeSet = {
-              toFlatbuffer(mlir::cast<CoreRangeAttr>(
-                  enqueueProgramOp.getCoreRanges()[region.getRegionNumber()]))};
-          std::vector<::flatbuffers::Offset<::tt::target::metal::CBRef>> cbs;
-          size_t argNumber = 0;
-          std::vector<::tt::target::metal::RuntimeArg> runtime_args_type;
-          std::vector<::flatbuffers::Offset<void>> runtime_args;
-          for (auto arg : region.getArguments()) {
-            if (mlir::isa<ttkernel::CBType>(arg.getType())) {
-              auto cbType = mlir::cast<ttkernel::CBType>(arg.getType());
-              auto cbDesc = cache.getOrCreate(cbType, cbTypeToFlatbuffer);
-              auto tensorRef =
-                  argNumber >= operands.size() ? 0 : operands[argNumber++];
-              cbs.push_back(::tt::target::metal::CreateCBRef(
-                  fbb, cache.global_id++, tensorRef, cbType.getAddress(),
-                  cbDesc));
-            } else if (mlir::isa<ttkernel::SemaphoreType>(arg.getType())) {
-              auto semType = mlir::cast<ttkernel::SemaphoreType>(arg.getType());
-              auto [runtime_arg_type, runtime_arg] =
-                  toFlatbuffer(cache, semType);
-              runtime_args_type.push_back(runtime_arg_type);
-              runtime_args.push_back(runtime_arg);
-            } else {
-              llvm_unreachable(
-                  "Block arguments must be either CBType or SemaphoreType");
-            }
-          }
 
-          std::string &source = cppKernels[region.getRegionNumber()];
-          assert(source.size() > 0 && "empty kernel source");
+        // TODO(jdesousa #2960): This code is commented to allow for compilation
+        // after the new TTMetal lowering flow was implemented. This needs to be
+        // replaced with lowering for new enqueue program semantics.
+        llvm_unreachable(
+            "EnqueueProgramOp to Flatbuffer is not yet implemented for "
+            "new D2M lowering flow.");
+        // for (auto &region : enqueueProgramOp.getRegions()) {
+        //   std::vector<::tt::target::Dim2dRange> coreRangeSet = {
+        //       toFlatbuffer(mlir::cast<CoreRangeAttr>(
+        //           enqueueProgramOp.getCoreRanges()[region.getRegionNumber()]))};
+        //   std::vector<::flatbuffers::Offset<::tt::target::metal::CBRef>> cbs;
+        //   size_t argNumber = 0;
+        //   std::vector<::tt::target::metal::RuntimeArg> runtime_args_type;
+        //   std::vector<::flatbuffers::Offset<void>> runtime_args;
+        //   for (auto arg : region.getArguments()) {
+        //     if (mlir::isa<ttkernel::CBType>(arg.getType())) {
+        //       auto cbType = mlir::cast<ttkernel::CBType>(arg.getType());
+        //       auto cbDesc = cache.getOrCreate(cbType, cbTypeToFlatbuffer);
+        //       auto tensorRef =
+        //           argNumber >= operands.size() ? 0 : operands[argNumber++];
+        //       cbs.push_back(::tt::target::metal::CreateCBRef(
+        //           fbb, cache.global_id++, tensorRef, cbType.getAddress(),
+        //           cbDesc));
+        //     } else if (mlir::isa<ttkernel::SemaphoreType>(arg.getType())) {
+        //       auto semType =
+        //       mlir::cast<ttkernel::SemaphoreType>(arg.getType()); auto
+        //       [runtime_arg_type, runtime_arg] =
+        //           toFlatbuffer(cache, semType);
+        //       runtime_args_type.push_back(runtime_arg_type);
+        //       runtime_args.push_back(runtime_arg);
+        //     } else {
+        //       llvm_unreachable(
+        //           "Block arguments must be either CBType or SemaphoreType");
+        //     }
+        //   }
 
-          // Get pair of kernel's config type and config itself.
-          auto kernelConfig =
-              enqueueProgramOp.getKernelConfigs()[region.getRegionNumber()];
-          auto [kernelConfigType, kernelConfigUnion] = toFlatbuffer(
-              fbb, mlir::cast<ttkernel::KernelConfigInterface>(kernelConfig));
+        //   std::string &source = cppKernels[region.getRegionNumber()];
+        //   assert(source.size() > 0 && "empty kernel source");
 
-          kernels.push_back(::tt::target::metal::CreateKernelDescDirect(
-              fbb, ::tt::target::metal::Kernel::KernelSource,
-              ::tt::target::metal::CreateKernelSourceDirect(
-                  fbb, source.c_str(), kernelConfigType, kernelConfigUnion)
-                  .Union(),
-              &coreRangeSet, &cbs, &runtime_args_type, &runtime_args,
-              nullptr /*TODO debug info*/));
-        }
+        //   // Get pair of kernel's config type and config itself.
+        //   auto kernelConfig =
+        //       enqueueProgramOp.getKernelConfigs()[region.getRegionNumber()];
+        //   auto [kernelConfigType, kernelConfigUnion] = toFlatbuffer(
+        //       fbb,
+        //       mlir::cast<ttkernel::KernelConfigInterface>(kernelConfig));
+
+        //   kernels.push_back(::tt::target::metal::CreateKernelDescDirect(
+        //       fbb, ::tt::target::metal::Kernel::KernelSource,
+        //       ::tt::target::metal::CreateKernelSourceDirect(
+        //           fbb, source.c_str(), kernelConfigType, kernelConfigUnion)
+        //           .Union(),
+        //       &coreRangeSet, &cbs, &runtime_args_type, &runtime_args,
+        //       nullptr /*TODO debug info*/));
+        // }
         ::flatbuffers::Offset<::tt::target::metal::ProgramDesc> program =
             ::tt::target::metal::CreateProgramDescDirect(fbb, &kernels);
 
@@ -433,11 +437,11 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
       } else if (auto enqueueWriteBufferOp =
                      dyn_cast_if_present<tt::ttmetal::EnqueueWriteBufferOp>(op);
                  enqueueWriteBufferOp) {
-        auto [hostBufferType, hostBuffer] =
-            hostBufferToFlatbuffer(cache, enqueueWriteBufferOp.getValue());
         cqBuilder.appendCommand(
             ::tt::target::metal::CreateEnqueueWriteBufferCommand(
-                fbb, hostBufferType, hostBuffer,
+                fbb,
+                cache.at<::tt::target::metal::TensorRef>(
+                    getOperandThroughDPSOps(enqueueWriteBufferOp.getInput())),
                 cache.at<::tt::target::metal::TensorRef>(
                     getOperandThroughDPSOps(enqueueWriteBufferOp.getOutput()))),
             op);

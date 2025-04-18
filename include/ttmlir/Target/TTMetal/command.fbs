@@ -1,5 +1,5 @@
-include "program.fbs";
-include "types.fbs";
+include "ttmlir/Target/TTMetal/program.fbs";
+include "ttmlir/Target/TTMetal/types.fbs";
 
 namespace tt.target.metal;
 
@@ -29,7 +29,7 @@ union HostBuffer {
 }
 
 table EnqueueWriteBufferCommand {
-  src: HostBuffer;
+  src: TensorRef;
   dst: TensorRef;
 }
 

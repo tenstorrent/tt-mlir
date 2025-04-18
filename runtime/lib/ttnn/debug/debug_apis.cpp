@@ -87,4 +87,5 @@ void checkTensorRefMatchesTTNNTensor(
                  ", got ", actualMemoryConfig);
   }
 }
+
 } // namespace tt::runtime::ttnn::debug

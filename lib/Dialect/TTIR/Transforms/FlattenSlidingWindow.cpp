@@ -1,0 +1,154 @@
+// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
+#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
+
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Operation.h"
+#include "mlir/IR/OperationSupport.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/Transforms/DialectConversion.h"
+
+#include <cstdint>
+
+namespace mlir::tt::ttir {
+#define GEN_PASS_DEF_TTIRFLATTENSLIDINGWINDOW
+#include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
+
+namespace {
+
+RankedTensorType getNHWFlattenedType(RankedTensorType unflattenedOutputType) {
+  llvm::ArrayRef<int64_t> outputShape = unflattenedOutputType.getShape();
+  assert(outputShape.size() == 4 && "Expecting 4D tensor");
+  llvm::SmallVector<int64_t, 4> flattenedOutputShape = {
+      1, 1, outputShape[0] * outputShape[1] * outputShape[2], outputShape[3]};
+
+  return RankedTensorType::get(flattenedOutputShape,
+                               unflattenedOutputType.getElementType());
+}
+
+ttir::ReshapeOp generateReshape(mlir::TypedValue<mlir::RankedTensorType> input,
+                                RankedTensorType outputType,
+                                PatternRewriter &rewriter) {
+  // We cannot pass the shape directly as the attribute as ttir::ReshapeOp
+  // requires that the shape attribute is a 32-bit integer array attribute.
+  // Construction the SmallVector allows us to cast it.
+  return ttir::utils::createDPSOp<ttir::ReshapeOp>(
+      rewriter, input.getLoc(), outputType, input,
+      rewriter.getI32ArrayAttr(SmallVector<int32_t>(
+          outputType.getShape().begin(), outputType.getShape().end())));
+}
+
+class ConvertToFlattenedConv2dPattern
+    : public OpConversionPattern<ttir::Conv2dOp> {
+public:
+  using OpConversionPattern<ttir::Conv2dOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::Conv2dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    auto inputType = op.getInput().getType();
+    auto outputType = op.getResult().getType();
+
+    Value flattenedInput = generateReshape(
+        op.getInput(), getNHWFlattenedType(inputType), rewriter);
+
+    auto flattenedCompatInfoAttr = ttir::FlattenedCompatInfoAttr::get(
+        getContext(), inputType.getDimSize(0), inputType.getDimSize(1),
+        inputType.getDimSize(2));
+
+    auto newConv = ttir::utils::createDPSOp<ttir::Conv2dOp>(
+        rewriter, op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
+        adaptor.getWeight(), adaptor.getBias(), adaptor.getStride(),
+        adaptor.getPadding(), adaptor.getDilation(), adaptor.getGroups(),
+        flattenedCompatInfoAttr);
+
+    Value output = generateReshape(newConv, outputType, rewriter);
+
+    rewriter.replaceOp(op, output);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class ConvertToMaxPool2dFlattenedCompatOpConversionPattern
+    : public OpConversionPattern<ttir::MaxPool2dOp> {
+public:
+  using OpConversionPattern<ttir::MaxPool2dOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::MaxPool2dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto inputType = op.getInput().getType();
+    auto outputType = op.getResult().getType();
+
+    Value flattenedInput = generateReshape(
+        op.getInput(), getNHWFlattenedType(inputType), rewriter);
+
+    auto flattenedCompatInfoAttr = ttir::FlattenedCompatInfoAttr::get(
+        getContext(), inputType.getDimSize(0), inputType.getDimSize(1),
+        inputType.getDimSize(2));
+
+    auto newPool = ttir::utils::createDPSOp<ttir::MaxPool2dOp>(
+        rewriter, op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
+        adaptor.getKernelHeight(), adaptor.getKernelWidth(),
+        adaptor.getStrideHeight(), adaptor.getStrideWidth(),
+        adaptor.getDilationHeight(), adaptor.getDilationWidth(),
+        adaptor.getCeilMode(), adaptor.getPaddingLeft(),
+        adaptor.getPaddingRight(), adaptor.getPaddingTop(),
+        adaptor.getPaddingBottom(), flattenedCompatInfoAttr);
+
+    Value output = generateReshape(newPool, outputType, rewriter);
+
+    rewriter.replaceOp(op, output);
+    return success();
+  }
+};
+} // namespace
+
+class TTIRFlattenSlidingWindow
+    : public impl::TTIRFlattenSlidingWindowBase<TTIRFlattenSlidingWindow> {
+public:
+  using impl::TTIRFlattenSlidingWindowBase<
+      TTIRFlattenSlidingWindow>::TTIRFlattenSlidingWindowBase;
+
+  void runOnOperation() final {
+    RewritePatternSet conversionPatterns(&getContext());
+    TypeConverter typeConverter;
+    // All types map 1:1.
+    typeConverter.addConversion([](Type type) { return type; });
+    conversionPatterns
+        .add<ConvertToFlattenedConv2dPattern,
+             ConvertToMaxPool2dFlattenedCompatOpConversionPattern>(
+            typeConverter, &getContext());
+    FrozenRewritePatternSet conversionPatternSet(std::move(conversionPatterns));
+
+    mlir::ConversionTarget target(getContext());
+    target.addLegalDialect<ttir::TTIRDialect>();
+    target.addLegalDialect<mlir::func::FuncDialect>();
+
+    target.addDynamicallyLegalOp<ttir::Conv2dOp>([&](ttir::Conv2dOp op) {
+      return op.getFlattenedCompatInfo() != nullptr;
+    });
+    target.addDynamicallyLegalOp<ttir::MaxPool2dOp>([&](ttir::MaxPool2dOp op) {
+      return op.getFlattenedCompatInfo() != nullptr;
+    });
+
+    if (failed(applyPartialConversion(getOperation(), target,
+                                      std::move(conversionPatternSet)))) {
+      signalPassFailure();
+      return;
+    }
+  }
+};
+
+} // namespace mlir::tt::ttir

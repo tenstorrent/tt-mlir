@@ -62,6 +62,7 @@ def get_supported_nodes():
         ast.GtE,
         # Subscripting
         ast.Subscript,
+        ast.List,
         # Statements
         ast.Pass,
         ast.Assign,
@@ -117,7 +118,6 @@ class TTKernelCompiler(ast.NodeVisitor):
         self.func_entry = None
         self.symbol_tables = []
         self.supported_nodes = get_supported_nodes()
-        ttkernel.register_dialect(self.ctx)
 
         self.cb_args = args
         self.rt_args = None
@@ -263,11 +263,34 @@ class TTKernelCompiler(ast.NodeVisitor):
         # NOTE: else-if blocks are not supported in SCF dialect
         # NOTE: Only handling Compare for if statements right now
         # TODO: if cond can be: Name, Expr, Compare, Call, UnaryOp, BoolOp
-        assert isinstance(
-            node.test, ast.Compare
-        ), "Only Compare supported in if statements"
+        # assert isinstance(
+        #     node.test, ast.Compare
+        # ), "Only Compare supported in if statements"
         if_cond = self.visit(node.test)
-        # if not if_cond.result.type.width == 1 or not if_cond.result.type.is_signless:
+        cond_type = None
+
+        if hasattr(if_cond, "result"):
+            if_cond = if_cond.result
+
+        if hasattr(if_cond, "type") and isinstance(if_cond.type, memref.MemRefType):
+            if_cond = memref.LoadOp(
+                if_cond, arith.ConstantOp(IndexType.get(self.ctx), 0)
+            ).result
+            cond_type = if_cond.type
+        elif hasattr(if_cond, "type") and isinstance(if_cond.type, IntegerType):
+            cond_type = if_cond.type
+        elif isinstance(if_cond, arith.ConstantOp):
+            cond_type = if_cond.type
+
+        # Create C-Style comparison if cond_type is not None
+        if cond_type is None or not isinstance(cond_type, IntegerType):
+            raise ValueError("Cannot Compare Non-Integer Values")
+
+        if cond_type.width != 1:
+            # Turn into comparison to make sure value is not 0
+            if_cond = arith.cmpi(
+                arith.CmpIPredicate.ne, if_cond, arith.ConstantOp(cond_type, 0)
+            )
         # if_cond = arith.TruncIOp(IntegerType.get_signless(1), if_cond) # temporary since expr not implemented yet
         if_exp = scf.IfOp(cond=if_cond, hasElse=bool(node.orelse))
 
@@ -313,6 +336,10 @@ class TTKernelCompiler(ast.NodeVisitor):
         for_op = scf.ForOp(lower_bound, upper_bound, step)
         with (InsertionPoint(for_op.body)), Location.unknown():
             self.symbol_tables.append({})
+
+            # Add the iterator into the symbol_table
+            self.symbol_tables[-1][node.target.id] = for_op.induction_variable
+
             for stmt in node.body:
                 self.visit(stmt)
             scf.YieldOp([])
@@ -398,6 +425,13 @@ class TTKernelCompiler(ast.NodeVisitor):
         var = self.visit(node.targets[0])
         value = self.visit(node.value)
         sym_table = self.symbol_tables[-1]
+
+        # Handle Subscript Assignment here
+        if isinstance(node.targets[0], ast.Subscript):
+            # Var will contain a memref.LoadOp here, we can access the memref and write to it
+            memref.StoreOp(value, var.memref, var.indices)
+            return
+
         var_name = node.targets[0].id
 
         if hasattr(var, "type") and isinstance(var.type, MemRefType):
@@ -412,6 +446,31 @@ class TTKernelCompiler(ast.NodeVisitor):
         sym_table = self.symbol_tables[-1]
         var_name = node.target.id
 
+        # Check the annotation for array creation
+        if isinstance(node.annotation, ast.List):
+            # Syntax is [dtype, *shape]
+            if not len(node.annotation.elts) >= 2 or not isinstance(
+                node.annotation.elts[0], ast.Name
+            ):
+                raise ValueError(
+                    "Array Initialization must follow [dtype, *shape] syntax."
+                )
+            dtype = self.visit(node.annotation.elts[0])
+            # We are creating a list with the shape from elts now, use dynamic types to allow for creating variadic index memrefs
+            var_type = IntegerType.get_signless(32, self.ctx)
+
+            if all(isinstance(elt, ast.Constant) for elt in node.annotation.elts[1:]):
+                # Strictly constant, easiest case. Onus is on the user to not create arrays with other weird values.
+                memref_type = MemRefType.get(
+                    [elt.value for elt in node.annotation.elts[1:]], var_type
+                )
+                sym_table[var_name] = memref.alloca(memref_type, [], [])
+                return
+            else:
+                raise NotImplementedError(
+                    "Not possible to use dynamic dimensions in EmitC."
+                )
+
         if hasattr(value, "type") and isinstance(value.type, MemRefType):
             raise ValueError(
                 "Not allowed to AnnAssign to another AnnAssign'ed variable. Temporary fix is to just add 0 to the variable."
@@ -423,12 +482,44 @@ class TTKernelCompiler(ast.NodeVisitor):
             var = memref.alloca(memref_type, [], [])
             sym_table[var_name] = var
         else:
-            assert isinstance(var, MemRefType), "Can not AugAssign to non-memref types"
+            assert isinstance(var, MemRefType), "Can not AnnAssign to non-memref types"
 
         memref.StoreOp(value, var, [arith.ConstantOp(IndexType.get(self.ctx), 0)])
 
     def visit_AugAssign(self, node):
-        raise NotImplementedError("AugAssign not supported yet")
+        target = self.visit(node.target)
+
+        # Target must already be defined in the scope of the symbol table
+        if not target:
+            raise ValueError(
+                "AugAssign can only Assign to values that have been defined"
+            )
+
+        value = self.visit(node.value)
+        sym_table = self.symbol_tables[-1]
+
+        if not isinstance(target.type, memref.MemRefType):
+            raise ValueError("Can not AugAssign to non-memref types")
+
+        _target = memref.LoadOp(
+            target, arith.ConstantOp(IndexType.get(self.ctx), 0)
+        ).result
+
+        # Determine the operation based on the type of AugAssign
+        match node.op:
+            case ast.Add():
+                result = arith.AddIOp(_target, value)
+            case ast.Sub():
+                result = arith.SubIOp(_target, value)
+            case ast.Mult():
+                result = arith.MulIOp(_target, value)
+            case _:
+                raise NotImplementedError(
+                    f"AugAssign operation {type(node.op).__name__} not supported"
+                )
+
+        # Store the result back to the target
+        memref.StoreOp(result, target, [arith.ConstantOp(IndexType.get(self.ctx), 0)])
 
     # Function calls
     def visit_Call(self, node):
@@ -458,6 +549,59 @@ class TTKernelCompiler(ast.NodeVisitor):
         # NOTE: will catch function calls and expressions where return values not used.
         return self.visit(node.value)
 
+    def visit_BoolOp(self, node):
+        values = [self.visit(arg) for arg in node.values]
+
+        # Make sure that each of the values are booleans
+        for i in range(len(values)):
+            value = values[i]
+            value_type = None
+            if hasattr(value, "type") and isinstance(value.type, memref.MemRefType):
+                value = memref.LoadOp(
+                    value, arith.ConstantOp(IndexType.get(self.ctx), 0)
+                ).result
+                value_type = value.type
+            elif hasattr(value, "type") and isinstance(value.type, IntegerType):
+                value_type = value.type
+            elif isinstance(value, arith.ConstantOp):
+                value_type = value.type
+
+            if value_type is None:
+                raise ValueError(
+                    "BoolOp values must be MemRef, ConstantOp, or IntegerType"
+                )
+
+            if not isinstance(value_type, IntegerType):
+                raise ValueError(
+                    "BoolOp values must be MemRef or ConstantOp of IntegerType"
+                )
+
+            if value_type.width != 1:
+                # Set the value to 1 if not equal to 0, otherwise 0. This is the C-style way
+                values[i] = arith.cmpi(
+                    arith.CmpIPredicate.ne, value, arith.ConstantOp(value_type, 0)
+                )
+
+        # Chain all of the comparisons together
+        def _match_bool_op(lhs, rhs):
+            # We will know and assume LHS and RHS are booleans
+            match (node.op):
+                case ast.And():
+                    return arith.andi(lhs, rhs)
+                case ast.Or():
+                    return arith.ori(lhs, rhs)
+                case _:
+                    raise NotImplementedError(f"BoolOp {node.op} not supported")
+
+        # Atleast 2 Ops must exist in BoolOp
+        chained_op = _match_bool_op(values[0], values[1])
+
+        # Chain all of the remaining values
+        for i in range(2, len(values)):
+            chained_op = _match_bool_op(chained_op, values[i])
+
+        return chained_op
+
     def visit_BinOp(self, node):
         # TODO: need to load MemRef types when using variables
         # TODO: need to handle float, unsigned, and signed operations
@@ -467,6 +611,12 @@ class TTKernelCompiler(ast.NodeVisitor):
             raise ValueError("Binary operands not found")
 
         # load variable if needed
+        if isinstance(lhs, OpView):
+            lhs = lhs.result
+
+        if isinstance(rhs, OpView):
+            rhs = rhs.result
+
         if isinstance(lhs.type, memref.MemRefType):
             lhs = memref.LoadOp(
                 lhs, arith.ConstantOp(IndexType.get(self.ctx), 0)
@@ -482,6 +632,20 @@ class TTKernelCompiler(ast.NodeVisitor):
                 return arith.subi(lhs, rhs)
             case ast.Mult():
                 return arith.muli(lhs, rhs)
+            case ast.FloorDiv():
+                return arith.floordivsi(lhs, rhs)
+            case ast.Mod():
+                return arith.remsi(lhs, rhs)
+            case ast.LShift():
+                return arith.shli(lhs, rhs)
+            case ast.RShift():
+                return arith.shrsi(lhs, rhs)
+            case ast.BitOr():
+                return arith.ori(lhs, rhs)
+            case ast.BitAnd():
+                return arith.andi(lhs, rhs)
+            case ast.BitXor():
+                return arith.xori(lhs, rhs)
             # case ast.Div(): # only worried about integers right now
             # return arith.divf(lhs, rhs)
             case _:
@@ -497,17 +661,19 @@ class TTKernelCompiler(ast.NodeVisitor):
         if isinstance(operand.type, memref.MemRefType):
             operand = memref.LoadOp(
                 operand, arith.ConstantOp(IndexType.get(self.ctx), 0)
-            )
+            ).result
 
         match (node.op):
             # need to expose emitc for these unary operators, not sure if this is necessary yet
-            # case ast.USub():
-            #     # emitc has a unary minus operator
-            #     return arith.subi(arith.ConstantOp(IntegerType.get_signless(32, self.ctx), 0), operand)
-            # case ast.Not():
-            #     return arith.xori(operand, arith.ConstantOp(IntegerType.get_signless(32, self.ctx), 1))
-            # case ast.Invert():
-            #     return arith.xori(operand, arith.ConstantOp(IntegerType.get_signless(32, self.ctx), -1))
+            case ast.USub():
+                return emitc.UnaryMinusOp(operand.type, operand)
+            case ast.UAdd():
+                return emitc.UnaryPlusOp(operand.type, operand)
+            case ast.Not():
+                # Must return a 1-bit Signless Integer (bool)
+                return emitc.logical_not(IntegerType.get_signless(1, self.ctx), operand)
+            case ast.Invert():
+                return emitc.bitwise_not(operand.type, operand)
             case _:
                 raise NotImplementedError(
                     f"Unary operator {type(node.op).__name__} not implemented"
@@ -546,34 +712,164 @@ class TTKernelCompiler(ast.NodeVisitor):
 
     # Subscript Value
     def visit_Subscript(self, node):
-        # This is where we can invoke the rt_args for the kernel to be loaded in
-        if self.rt_args is not None:
-            # rt_args has been defined, we know that the id of the array to reference from is "rt_args"
-            if node.value.id == self.rt_args.arg:
-                # Get index from slice and ensure it's a single integral value
-                if isinstance(node.slice, ast.Constant):
-                    # Now we have a single integral constant here, construct and return the get_arg_val call.
-                    arg_index = self.visit(node.slice)
+        # rt_args has been defined, we know that the id of the array to reference from is "rt_args"
+        if self.rt_args is not None and node.value.id == self.rt_args.arg:
+            # Get index from slice and ensure it's a single integral value
+            if isinstance(node.slice, ast.Constant):
+                # Now we have a single integral constant here, construct and return the get_arg_val call.
+                arg_index = self.visit(node.slice)
+                int_type = IntegerType.get_signless(32, self.ctx)
+                return ttkernel.get_arg_val(int_type, arg_index)
+            else:
+                # Iterate from slice to generate rt_arg calls
+                # Upper and Lower must be defined, step can be inferred as 1
+                _step = 1 if node.slice.step is None else node.slice.step.value
+                _lower = 0 if node.slice.lower is None else node.slice.lower.value
+                if node.slice.upper is None:
+                    raise IndexError("Runtime Arg Slices must have Upper Bound defined")
+                result = []
+                for i in range(_lower, node.slice.upper.value, _step):
+                    arg_index = self.visit(ast.Constant(i))
                     int_type = IntegerType.get_signless(32, self.ctx)
-                    return ttkernel.get_arg_val(int_type, arg_index)
-                else:
-                    # Iterate from slice to generate rt_arg calls
-                    # Upper and Lower must be defined, step can be inferred as 1
-                    _step = 1 if node.slice.step is None else node.slice.step.value
-                    _lower = 0 if node.slice.lower is None else node.slice.lower.value
-                    if node.slice.upper is None:
-                        raise IndexError(
-                            "Runtime Arg Slices must have Upper Bound defined"
+                    result.append(ttkernel.get_arg_val(int_type, arg_index))
+                return result
+
+        # Now process accessing elements from array types
+        # Accesses are done through numpy style tuple indices or constants
+        tbl = self.var_exists(node.value.id)
+
+        if not tbl:
+            raise ValueError("Array doesn't exist.")
+
+        arr = tbl[node.value.id]
+
+        # Make sure this is a memref type
+        if not hasattr(arr, "type") or not isinstance(arr.type, MemRefType):
+            raise ValueError("Can only subscript Arrays")
+
+        # Ensure slice is valid
+        # Visit the slice, if not Tuple or constant
+
+        # Make sure that the Constant checks up against rank type
+        if isinstance(node.slice, ast.Constant):
+            # Make sure Constant checks up against rank
+            if arr.type.rank > 1:
+                raise IndexError("Can only index elements of Array, rank > 1")
+
+            # Check against bounds
+            if arr.type.shape[0] <= node.slice.value:
+                raise IndexError("Index out of bounds.")
+
+            return memref.LoadOp(
+                arr, arith.ConstantOp(IndexType.get(self.ctx), node.slice.value)
+            )
+        elif isinstance(node.slice, ast.Tuple):
+            # Check Rank
+            if arr.type.rank != len(node.slice.elts):
+                raise IndexError("Can only index elements of Array, rank != len(index)")
+
+            # Check against bounds
+            for i in range(len(arr.type.shape)):
+                if arr.type.shape[i] <= node.slice.elts[i].value:
+                    raise IndexError("Index out of bounds.")
+
+            return memref.LoadOp(
+                arr,
+                [
+                    arith.ConstantOp(IndexType.get(self.ctx), elt.value)
+                    for elt in node.slice.elts
+                ],
+            )
+        else:
+            # Forcefully cast to IndexType if we have a BinOp, etc...
+            # Allow MLIR to take care of errors.
+            idx = self.visit(node.slice)
+            idx = arith.IndexCastOp(IndexType.get(self.ctx), idx)
+            return memref.LoadOp(arr, idx)
+
+    def visit_List(self, node):
+        # Snoop List for nested loops and get size
+        def snoop_list(node):
+            result_arr = []
+            result_shape = []
+            sz = 0
+
+            if any(isinstance(elt, ast.List) for elt in node.elts) and not all(
+                isinstance(elt, ast.List) for elt in node.elts
+            ):
+                # The shape is not consistent, we will raise an error here:
+                raise NotImplementedError("All nested arrays must be of same size.")
+
+            for elt in node.elts:
+                if isinstance(elt, ast.Name):
+                    tbl = self.var_exists(elt.id)
+                    elt = tbl[elt.id]
+                    if hasattr(elt, "type") and isinstance(elt.type, MemRefType):
+                        if elt.type.rank > 1 or elt.type.shape[0] != 1:
+                            raise NotImplementedError(
+                                "Creating Arrays with Pre-Defined Nested Arrays Not Supported."
+                            )
+                    sz += 1
+                    result_arr.append(
+                        memref.LoadOp(
+                            elt, arith.ConstantOp(IndexType.get(self.ctx), 0)
+                        ).result
+                    )
+                elif isinstance(elt, ast.List):
+                    size, arr = snoop_list(elt)
+                    if not result_shape:
+                        result_shape = size
+                    elif size != result_shape:
+                        raise NotImplementedError(
+                            "All nested arrays must be of same size."
                         )
-                    result = []
-                    for i in range(_lower, node.slice.upper.value, _step):
-                        arg_index = self.visit(ast.Constant(i))
-                        int_type = IntegerType.get_signless(32, self.ctx)
-                        result.append(ttkernel.get_arg_val(int_type, arg_index))
-                    return result
-        raise NotImplementedError(
-            "Loading from Subscripts except Runtime Args not supported"
-        )
+                    sz += 1
+                    result_arr.append(arr)
+                elif isinstance(elt, ast.Constant):
+                    elt = self.visit(elt)
+                    sz += 1
+                    result_arr.append(elt.result)
+                else:
+                    elt = self.visit(elt)
+                    if (
+                        not hasattr(elt, "type")
+                        or not isinstance(elt.type, IntegerType)
+                        or elt.type.width != 32
+                    ):
+                        raise ValueError("Array element must be an integer type")
+                    result_arr.append(elt)
+                    sz += 1
+            # Collect the size and result_shape
+            return ([sz] + result_shape), result_arr
+
+        # Need to deal with nested loops, determine the shape from filled array
+        shape, array = snoop_list(node)
+
+        # empty sz catch case
+        if shape == [0]:
+            raise NotImplementedError(
+                "Array object must be filled, otherwise use AnnAssign."
+            )
+
+        # Create the memref, must be of integral type.
+        # TODO(vprajapati): Consider implementing arrays of other types
+        var_type = IntegerType.get_signless(32, self.ctx)
+        memref_type = MemRefType.get(shape, var_type)
+        var = memref.alloca(memref_type, [], [])
+
+        # Populate the table
+        def populate_list(arr, _idx=[]):
+            nonlocal var
+            for i, elt in enumerate(arr):
+                idx = _idx + [arith.ConstantOp(IndexType.get(self.ctx), i)]
+                if isinstance(elt, list):
+                    populate_list(elt, idx)
+                else:
+                    memref.StoreOp(elt, var, idx)
+
+        populate_list(array)
+
+        return var
 
     # Literals
     def visit_Constant(self, node):
@@ -590,7 +886,9 @@ class TTKernelCompiler(ast.NodeVisitor):
         if any(
             isinstance(node, supported_node) for supported_node in self.supported_nodes
         ):
-            if self.verbose and isinstance(node, (ast.Assign, ast.AnnAssign)):
+            if self.verbose and isinstance(
+                node, (ast.Assign, ast.AnnAssign, ast.AugAssign)
+            ):
                 # Create a verbatim Op here to store the comment
                 source_code = self.get_source_comment(node)
                 emitc.verbatim(source_code)
@@ -599,7 +897,7 @@ class TTKernelCompiler(ast.NodeVisitor):
             raise NotImplementedError(f"visit {type(node).__name__} not supported")
 
 
-def ttkernel_compile(kernel_type=None, verbose: bool = False):
+def ttkernel_compile(kernel_type=None, verbose: bool = False, optimize: bool = True):
     def _decorator(f):
         @functools.wraps(f)
         def _wrapper(*args, **kwargs):
@@ -618,8 +916,9 @@ def ttkernel_compile(kernel_type=None, verbose: bool = False):
             b.module.operation.verify()
 
             # Run the PyKernel Compile Pipeline to fit model for Translation
-            pykernel_compile_pipeline(b.module)
-            print("---- Optimized PyKernel Module ----", b.module, sep="\n\n")
+            if optimize:
+                pykernel_compile_pipeline(b.module)
+                print("---- Optimized PyKernel Module ----", b.module, sep="\n\n")
 
             if kernel_type:
                 assert kernel_type in ["noc", "tensix"], "Invalid kernel type"
@@ -632,9 +931,9 @@ def ttkernel_compile(kernel_type=None, verbose: bool = False):
     return _decorator
 
 
-def ttkernel_tensix_compile(verbose: bool = False):
-    return ttkernel_compile(kernel_type="tensix", verbose=verbose)
+def ttkernel_tensix_compile(verbose: bool = False, optimize: bool = True):
+    return ttkernel_compile(kernel_type="tensix", verbose=verbose, optimize=optimize)
 
 
-def ttkernel_noc_compile(verbose: bool = False):
-    return ttkernel_compile(kernel_type="noc", verbose=verbose)
+def ttkernel_noc_compile(verbose: bool = False, optimize: bool = True):
+    return ttkernel_compile(kernel_type="noc", verbose=verbose, optimize=optimize)

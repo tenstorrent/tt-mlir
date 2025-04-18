@@ -124,13 +124,13 @@ TEST_F(EmitCConversionTest, IntegralExpectedFailure) {
 TEST_F(EmitCConversionTest, ConvertF32FloatAttr) {
   mlir::FloatAttr floatAttr = builder.getF32FloatAttr(42.0);
   std::string converted = EmitCTypeConverter<float>::convert(floatAttr);
-  EXPECT_EQ(converted, "42.000000");
+  EXPECT_EQ(converted, "42.000000f");
 
   mlir::Attribute floatAsAttribute = floatAttr;
   std::optional<std::string> maybeConverted =
       EmitCTypeConverter<float>::convert(floatAsAttribute);
   ASSERT_TRUE(maybeConverted);
-  EXPECT_EQ(*maybeConverted, "42.000000");
+  EXPECT_EQ(*maybeConverted, "42.000000f");
 }
 
 TEST_F(EmitCConversionTest, ConvertF64FloatAttr) {
@@ -148,7 +148,7 @@ TEST_F(EmitCConversionTest, ConvertF64FloatAttr) {
 TEST_F(EmitCConversionTest, ConvertAPFloat) {
   mlir::APFloat apFloat32(42.0);
   std::string converted = EmitCTypeConverter<float>::convert(apFloat32);
-  EXPECT_EQ(converted, "42.000000");
+  EXPECT_EQ(converted, "42.000000f");
 
   mlir::APFloat apFloat64(42.0);
   converted = EmitCTypeConverter<double>::convert(apFloat64);
@@ -158,7 +158,7 @@ TEST_F(EmitCConversionTest, ConvertAPFloat) {
 TEST_F(EmitCConversionTest, ConvertCFPType) {
   float f32Val = 42.0;
   std::string converted = EmitCTypeConverter<float>::convert(f32Val);
-  EXPECT_EQ(converted, "42.000000");
+  EXPECT_EQ(converted, "42.000000f");
 
   converted = EmitCTypeConverter<double>::convert(f32Val);
   EXPECT_EQ(converted, "42.000000");
@@ -219,14 +219,14 @@ TEST_F(EmitCConversionTest, ConvertDenseF32ArrayAttrToStdVector) {
       builder.getDenseF32ArrayAttr({1.0, 2.0, 3.0});
   std::string converted =
       EmitCTypeConverter<std::vector<float>>::convert(denseArrayAttr);
-  EXPECT_EQ(converted, "::std::vector<float>{1.000000, 2.000000, 3.000000}");
+  EXPECT_EQ(converted, "::std::vector<float>{1.000000f, 2.000000f, 3.000000f}");
 
   mlir::Attribute denseArrayAsAttribute = denseArrayAttr;
   std::optional<std::string> maybeConverted =
       EmitCTypeConverter<std::vector<float>>::convert(denseArrayAsAttribute);
   ASSERT_TRUE(maybeConverted);
   EXPECT_EQ(*maybeConverted,
-            "::std::vector<float>{1.000000, 2.000000, 3.000000}");
+            "::std::vector<float>{1.000000f, 2.000000f, 3.000000f}");
 }
 
 TEST_F(EmitCConversionTest, ConvertDenseIntElementsAttrToStdVector) {
@@ -284,7 +284,7 @@ TEST_F(EmitCConversionTest, ConvertDenseF32ArrayAttrToTtnnSmallVector) {
   std::string converted =
       EmitCTypeConverter<::ttnn::SmallVector<float>>::convert(denseArrayAttr);
   EXPECT_EQ(converted,
-            "::ttnn::SmallVector<float>{1.000000, 2.000000, 3.000000}");
+            "::ttnn::SmallVector<float>{1.000000f, 2.000000f, 3.000000f}");
 }
 
 TEST_F(EmitCConversionTest, ConvertDenseIntElementsAttrToTtnnSmallVector) {
@@ -352,14 +352,15 @@ TEST_F(EmitCConversionTest, ConvertDenseF32ArrayAttrToStdArray) {
   std::optional<std::string> converted =
       EmitCTypeConverter<std::array<float, 3>>::convert(denseArrayAttr);
   ASSERT_TRUE(converted);
-  EXPECT_EQ(*converted, "::std::array<float, 3>{1.000000, 2.000000, 3.000000}");
+  EXPECT_EQ(*converted,
+            "::std::array<float, 3>{1.000000f, 2.000000f, 3.000000f}");
 
   mlir::Attribute denseArrayAsAttribute = denseArrayAttr;
   std::optional<std::string> maybeConverted =
       EmitCTypeConverter<std::array<float, 3>>::convert(denseArrayAsAttribute);
   ASSERT_TRUE(maybeConverted);
   EXPECT_EQ(*maybeConverted,
-            "::std::array<float, 3>{1.000000, 2.000000, 3.000000}");
+            "::std::array<float, 3>{1.000000f, 2.000000f, 3.000000f}");
 }
 
 TEST_F(EmitCConversionTest, ConvertDenseIntElementsAttrToStdArray) {
@@ -388,7 +389,7 @@ TEST_F(EmitCConversionTest, ConvertStdVariantPrimitiveTypes) {
 
   mlir::FloatAttr floatAttr = builder.getF32FloatAttr(42.0);
   converted = EmitCTypeConverter<TargetTy>::convert(floatAttr);
-  EXPECT_EQ(converted, "42.000000");
+  EXPECT_EQ(converted, "42.000000f");
 
   mlir::Attribute int32AsAttribute = int32Attr;
   std::optional<std::string> maybeConverted =
@@ -399,7 +400,7 @@ TEST_F(EmitCConversionTest, ConvertStdVariantPrimitiveTypes) {
   mlir::Attribute floatAsAttribute = floatAttr;
   maybeConverted = EmitCTypeConverter<TargetTy>::convert(floatAsAttribute);
   ASSERT_TRUE(maybeConverted);
-  EXPECT_EQ(*maybeConverted, "42.000000");
+  EXPECT_EQ(*maybeConverted, "42.000000f");
 }
 
 TEST_F(EmitCConversionTest, ConvertStdVariantCompoundTypes) {
@@ -415,7 +416,7 @@ TEST_F(EmitCConversionTest, ConvertStdVariantCompoundTypes) {
 
   mlir::FloatAttr floatAttr = builder.getF32FloatAttr(42.0);
   converted = EmitCTypeConverter<TargetTy>::convert(floatAttr);
-  EXPECT_EQ(converted, "42.000000");
+  EXPECT_EQ(converted, "42.000000f");
 }
 
 TEST_F(EmitCConversionTest, ConvertStdVariantMultiLevelCompoundTypes) {
@@ -440,7 +441,7 @@ TEST_F(EmitCConversionTest, ConvertStdVariantMultiLevelCompoundTypes) {
 
   mlir::FloatAttr floatAttr = builder.getF32FloatAttr(42.0);
   converted = EmitCTypeConverter<TargetTy>::convert(floatAttr);
-  EXPECT_EQ(converted, "42.000000");
+  EXPECT_EQ(converted, "42.000000f");
 
   mlir::IntegerAttr int32Attr = builder.getI32IntegerAttr(42);
   converted = EmitCTypeConverter<TargetTy>::convert(int32Attr);

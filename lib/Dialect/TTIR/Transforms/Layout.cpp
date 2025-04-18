@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -86,7 +87,7 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
         .getResult();
   }
 
-  return ttmlir::utils::createDPSOp<ttir::ToLayoutOp>(
+  return ttir::utils::createDPSOp<ttir::ToLayoutOp>(
              rewriter, loc, ty.getShape(), ty.getElementType(), desiredLayout,
              input)
       ->getResult(0);
@@ -234,7 +235,7 @@ public:
                                     Value input,
                                     MetalLayoutAttr desiredLayout) const {
     auto ty = mlir::cast<RankedTensorType>(input.getType());
-    return ttmlir::utils::createDPSOp<ttir::ToLayoutOp>(
+    return ttir::utils::createDPSOp<ttir::ToLayoutOp>(
         rewriter, loc, ty.getShape(), ty.getElementType(), desiredLayout,
         input);
   }

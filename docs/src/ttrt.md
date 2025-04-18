@@ -24,7 +24,7 @@ Add the following flags when building the compiler
 ```
 
 ## LOGGER Levels
-ttrt support logging at different logger levels. You will need to set env var `TTRT_LOGGER_LEVEL`. By default, it will print all log messages.
+ttrt support logging at different logger levels. You will need to set env var `TTRT_LOGGER_LEVEL`. By default, it's set to `INFO`.
 ```bash
 TTRT_LOGGER_LEVEL=INFO
 TTRT_LOGGER_LEVEL=CRITICAL
@@ -336,7 +336,7 @@ result_code, results = run_instance()
 ```
 
 ## Bonus Section: Extending runtime to other FE's
-MLIR Runtime exposes a feature to register a python callback function. Any python fuction can be provided - and this function will be executed after every op in MLIR Runtime. The following steps describe how to extend your application to register a python function.
+MLIR Runtime exposes a feature to register python callback functions. Any two python fuctions can be provided - the first function will be executed before every op in MLIR Runtime, the second after every op. The following steps describe how to extend your application to register python functions.
 
 1. Pybind DebugHooks C++ class, specifically `tt::runtime::debug::Hooks::get`. See `runtime/tools/python/ttrt/runtime/module.cpp` for an example of how TTRT pybinds it.
 ```bash
@@ -344,18 +344,18 @@ tt::runtime::debug::Hooks
 tt::runtime::debug::Hooks::get
 ```
 
-2. Register callback function in your python script. The following is registering a golden python function. Assume the Debug Hooks `get` function has been pybinded to `ttrt.runtime.DebugHooks.get`
+2. Register callback functions in your python script. The following is registering two golden python functions. Assume the Debug Hooks get function has been pybinded to `ttrt.runtime.DebugHooks.get`
 ```bash
-callback_env = ttrt.runtime.DebugHooks.get(golden)
+callback_env = ttrt.runtime.DebugHooks.get(preOpGolden, postOpGolden)
 ```
 
 3. The callback function has a particular function signature, which looks like the following
 ```bash
-def golden(binary, programContext, opContext):
+def preOpGolden(binary, programContext, opContext):
 ```
-binary: reference to the binary you are currently running
-programContext: reference to the program currently running
-opContext: reference to the op that is currently running
+`binary`: reference to the binary you are currently running
+`programContext`: reference to the program currently running
+`opContext`: reference to the op that is currently running
 
 4. Each of these parameters has certain APIs exposed which can be called within the callback function
 ```bash

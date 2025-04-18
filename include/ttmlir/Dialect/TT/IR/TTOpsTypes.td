@@ -63,6 +63,8 @@ def TT_GridAttr : TT_Attr<"Grid", "grid"> {
         }
         return cGridVolume;
       }
+
+      uint64_t getRank() const { return getShape().size(); }
   }];
 }
 
@@ -331,6 +333,13 @@ def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout"> {
 
   let extraClassDeclaration = [{
       static MetalLayoutAttr get(::mlir::MLIRContext *context,
+                            RankedTensorType ty,
+                            uint64_t gridRank,
+                            bool tiled = false,
+                            MemorySpace memorySpace = MemorySpace::System,
+                            ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}},
+                            OOBVal oobVal = OOBVal::Undef);
+      static MetalLayoutAttr get(::mlir::MLIRContext *context,
                             ArrayRef<int64_t> tensorShape,
                             Type elementType,
                             MemorySpace memorySpace = MemorySpace::System,
@@ -494,14 +503,14 @@ def TT_TensorMeshShardingAttr : TT_Attr<"TensorMeshSharding", "mesh_sharding", [
 
       (ii) multi-device tensor with tensor mesh shard axis indicate all devices in "mesh"
           have sharded tensor defined by the TensorMeshShardingAxisAttr. e.g., 192x16384 for
-            tensor<784x16384xf32, #tt.mesh_sharding<"mesh" : [ 4(1),  1]>>.
+            tensor<784x16384xf32, #tt.mesh_sharding<"mesh", [ 4(1),  1]>>.
           Here, 4(1) indicates shard_shape(shard_dim), so 784 should be sharded by 4
           at "mesh"'s second hardware dimension. 1 indicates no sharding, so 16384 is not
           being sharded.
   }];
   let parameters = (ins "StringAttr":$name,
                         OptionalArrayRefParameter<"TensorMeshShardingAxisAttr">:$tensor_mesh_sharding_axis);
-  let assemblyFormat = "`<` $name (`:` `[`$tensor_mesh_sharding_axis^`]`)? `>`";
+  let assemblyFormat = "`<` $name (`,` `[` $tensor_mesh_sharding_axis^ `]` )? `>`";
 
   let extraClassDeclaration = [{
       static TensorMeshShardingAttr get(::mlir::MLIRContext *context, StringRef name) {
@@ -529,6 +538,16 @@ def TT_MeshesAttr : TT_Attr<"Meshes", "meshes"> {
   }];
   let parameters = (ins ArrayRefParameter<"MeshAttr">:$meshes);
   let assemblyFormat = "`<` `[` $meshes `]` `>`";
+  let extraClassDeclaration = [{
+      MeshAttr getMesh(StringRef name) {
+        for( auto mesh : getMeshes() ) {
+          if( mesh.getName() == name ) {
+            return mesh;
+          }
+        }
+        return nullptr;
+      }
+  }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -547,7 +566,8 @@ def TT_Tile : TT_Type<"Tile", "tile", [MemRefElementTypeInterface]> {
     let assemblyFormat = "`<` custom<DimensionList>($shape) `,` $dataType `>`";
 
     let extraClassDeclaration = [{
-      static TileType get(::mlir::MLIRContext *context, Type elementType, ArrayRef<int64_t> shape = {32, 32});
+      static constexpr std::array<int64_t, 2> getDefaultShape() { return {32, 32}; }
+      static TileType get(::mlir::MLIRContext *context, Type elementType, ArrayRef<int64_t> shape = getDefaultShape());
       SmallVector<int64_t> getScalarShape(SmallVector<int64_t> tiledShape) const;
       SmallVector<int64_t> getTiledShape(SmallVector<int64_t> scalarShape) const;
       uint64_t getSizeBytes() const;

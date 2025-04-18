@@ -8,10 +8,12 @@
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
+#include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TTNNAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "llvm/ADT/DenseSet.h"
 
 #include <vector>
 
@@ -20,7 +22,8 @@ namespace mlir::tt::ttnn {
 struct MemoryLayoutAnalysisInput {
   llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
   unsigned usableL1CacheSize = 0;
-  std::unordered_set<Edge> overrideReshardEdges;
+  llvm::DenseSet<Edge> overrideReshardEdges;
+
   MemoryLayoutAnalysisPolicyType policy;
 
   MemoryLayoutAnalysisInput() : legalConfigs() {}
@@ -28,7 +31,7 @@ struct MemoryLayoutAnalysisInput {
   MemoryLayoutAnalysisInput(
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       unsigned usableL1CacheSize,
-      const std::unordered_set<Edge> &overrideReshardEdges,
+      const llvm::DenseSet<Edge> &overrideReshardEdges,
       MemoryLayoutAnalysisPolicyType policy)
       : legalConfigs(legalConfigs), usableL1CacheSize(usableL1CacheSize),
         overrideReshardEdges(overrideReshardEdges), policy(policy) {}
@@ -44,18 +47,18 @@ struct MemoryLayoutAnalysisInput {
 
 struct MemoryLayoutAnalysisResult {
   llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
-  std::unordered_set<Edge> memReconfigEdges;
+  llvm::DenseMap<Edge, MemReconfigEntry> memReconfigEntryMap;
   std::vector<Operation *> spillToDramOps;
   llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> schedule;
 
   MemoryLayoutAnalysisResult()
-      : legalConfigs(), memReconfigEdges(), spillToDramOps(), schedule() {}
+      : legalConfigs(), memReconfigEntryMap(), spillToDramOps(), schedule() {}
 
   MemoryLayoutAnalysisResult(
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
-      const std::unordered_set<Edge> &memReconfigEdges,
+      const llvm::DenseMap<Edge, MemReconfigEntry> &memReconfigEntryMap,
       const std::vector<Operation *> &spillToDramOps)
-      : legalConfigs(legalConfigs), memReconfigEdges(memReconfigEdges),
+      : legalConfigs(legalConfigs), memReconfigEntryMap(memReconfigEntryMap),
         spillToDramOps(spillToDramOps) {}
 };
 

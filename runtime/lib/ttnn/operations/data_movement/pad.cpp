@@ -4,7 +4,7 @@
 
 #include "operations/data_movement/pad.h"
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/ttnn/debug_apis.h"
+
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/workarounds.h"
@@ -16,13 +16,13 @@ namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::PadOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
-  const ::ttnn::Tensor &in = tensorPool.getAndValidate(op->in());
+  const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
   float padValue = op->value();
 
   ::ttnn::Tensor out;
 
-  std::vector<std::pair<uint32_t, uint32_t>> padding;
+  ::ttnn::SmallVector<::ttnn::operations::data_movement::PadSpecDim> padding;
   for (uint32_t i = 0; i < op->padding()->size(); i += 2) {
     padding.emplace_back(op->padding()->Get(i), op->padding()->Get(i + 1));
   }
@@ -33,6 +33,6 @@ void run(const ::tt::target::ttnn::PadOp *op, ProgramContext &context) {
   out = ::ttnn::pad(in, padding, padValue, op->use_multicore(),
                     outputMemoryConfig);
 
-  tensorPool.insertAndValidate(op->out(), out);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement

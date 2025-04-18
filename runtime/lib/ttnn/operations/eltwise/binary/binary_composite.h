@@ -8,26 +8,11 @@
 #include "tt/runtime/ttnn/types.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 
-namespace tt::runtime::ttnn::operations::binary::composite {
+namespace tt::runtime::ttnn::operations::eltwise::binary {
 
-inline bool isBinaryCompositeOp(const ::tt::target::ttnn::EltwiseOp *op) {
-  switch (op->type()) {
-  case ::tt::target::ttnn::EltwiseOpType::Maximum:
-  case ::tt::target::ttnn::EltwiseOpType::Minimum:
-  case ::tt::target::ttnn::EltwiseOpType::Remainder:
-  case ::tt::target::ttnn::EltwiseOpType::Scatter:
-  case ::tt::target::ttnn::EltwiseOpType::Power:
-  case ::tt::target::ttnn::EltwiseOpType::BitwiseAnd:
-  case ::tt::target::ttnn::EltwiseOpType::BitwiseOr:
-  case ::tt::target::ttnn::EltwiseOpType::BitwiseXor:
-    return true;
-  default:
-    return false;
-  }
-}
+void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
+         ProgramContext &context);
 
-void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context);
-
-} // namespace tt::runtime::ttnn::operations::binary::composite
+} // namespace tt::runtime::ttnn::operations::eltwise::binary
 
 #endif

@@ -47,6 +47,30 @@ def TTIR_ConvolutionLayoutAttr : AttrDef<TTIR_Dialect, "ConvolutionLayout", [], 
   }];
 }
 
+def TTIR_FlattenedCompatInfoAttr : AttrDef<TTIR_Dialect, "FlattenedCompatInfo", [], "::mlir::Attribute"> {
+  let mnemonic = "flattened_compat";
+  let summary = "Information for sliding window operations with tensors flattened to (1, 1, N*H*W, C)";
+  let description = [{
+    This attribute marks operations that are compatible with flattened tensors.
+    It is used as a marker and doesn't carry any additional data.
+  }];
+
+
+  let parameters = (ins
+    "int64_t":$batchSize,
+    "int64_t":$inputHeight,
+    "int64_t":$inputWidth
+  );
+
+  let assemblyFormat = [{
+        `batch_size` `=` $batchSize `,`
+        `input_height` `=` $inputHeight `,`
+        `input_width` `=` $inputWidth
+  }];
+
+  let constBuilderCall = "$0";
+}
+
 def TTIR_HoistedCallAttr : AttrDef<TTIR_Dialect, "HoistedCall", [], "::mlir::Attribute"> {
   let mnemonic = "hoisted_call";
   let summary = "Indicates that this call operation has been hoisted";
@@ -55,5 +79,27 @@ def TTIR_HoistedCallAttr : AttrDef<TTIR_Dialect, "HoistedCall", [], "::mlir::Att
     It is used as a marker and doesn't carry any additional data.
   }];
 }
+
+def TTIR_ThreadAttr : AttrDef<TTIR_Dialect, "Thread", [], "::mlir::Attribute"> {
+  let mnemonic = "thread";
+  let summary = "Thread information for a generic op.";
+  let description = [{
+    Holds the thread information corresponding to a single generic op region.
+  }];
+  let parameters = (ins
+    "ThreadType":$threadType,
+    OptionalParameter<"SymbolRefAttr">:$kernelSymbol
+  );
+
+  let assemblyFormat = [{ `<` $threadType (`,` $kernelSymbol^)? `>` }];
+
+  let extraClassDeclaration = [{
+      static ThreadAttr get(::mlir::MLIRContext *context, ThreadType threadType) {
+        return get(context, threadType, nullptr);
+      }
+  }];
+}
+
+def TTIR_ThreadArrayAttr : TypedArrayAttrBase<TTIR_ThreadAttr, "">;
 
 #endif // TTMLIR_TTIR_ATTRS_TD

@@ -4,6 +4,7 @@
 
 #include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/ttnn/types.h"
 
 namespace tt::runtime::ttnn::utils {
 
@@ -201,6 +202,26 @@ toCoreRangeSet(const ::flatbuffers::Vector<const ::tt::target::Dim2dRange *>
   return CoreRangeSet(coreRanges);
 }
 
+CoreCoord toTTNNCoreCoord(const ::tt::target::ttnn::CoreCoord &coreCoord) {
+  return CoreCoord(coreCoord.x(), coreCoord.y());
+}
+
+CoreRange toTTNNCoreRange(const tt::target::ttnn::CoreRange &coreRange) {
+  CoreCoord start = toTTNNCoreCoord(coreRange.start_coord());
+  CoreCoord end = toTTNNCoreCoord(coreRange.end_coord());
+  return CoreRange(start, end);
+}
+
+CoreRangeSet
+toTTNNCoreRangeSet(const tt::target::ttnn::CoreRangeSet &coreRangeSet) {
+  std::set<CoreRange> coreRanges;
+  for (const tt::target::ttnn::CoreRange *coreRange :
+       *coreRangeSet.core_ranges()) {
+    coreRanges.emplace(toTTNNCoreRange(*coreRange));
+  }
+  return CoreRangeSet(coreRanges);
+}
+
 const ::tt::target::ttnn::MemoryConfig *
 getTensorRefMemoryConfig(const ::tt::target::ttnn::TensorRef *tensorRef) {
   return tensorRef->desc()->layout()->memory_desc()->memory_config();
@@ -254,10 +275,12 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
   return std::make_optional(memoryConfig);
 }
 
-Tensor createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor) {
-  auto tensorPtr = std::make_shared<::ttnn::Tensor>(tensor);
-  return Tensor(std::static_pointer_cast<void>(tensorPtr), nullptr,
-                DeviceRuntime::TTNN);
+::tt::runtime::Tensor createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor,
+                                                  bool retain) {
+  auto tensorPtr =
+      std::make_shared<::tt::runtime::ttnn::TTNNTensorWrapper>(tensor, retain);
+  return ::tt::runtime::Tensor(std::static_pointer_cast<void>(tensorPtr),
+                               nullptr, DeviceRuntime::TTNN);
 }
 
 } // namespace tt::runtime::ttnn::utils

@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-optimizer=true memory-layout-analysis-enabled=true memreconfig-enabled=true insert-memreconfig=add_0_1_2=0 override-output-layout=add_1_2=1x1:dram:interleaved:row_major:f32" %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-optimizer=true memory-layout-analysis-enabled=true memreconfig-enabled=true insert-memreconfig=add_2=0 override-output-layout=add_1=1x1:dram:interleaved:row_major:f32" %s | FileCheck %s
 #loc = loc("test_ops.py:17_0_0":0:0)
 module attributes {} {
   func.func @main(%arg0: tensor<1x32x32xf32> loc("test_ops.py:17_0_0":0:0), %arg1: tensor<1x32x32xf32> loc("test_ops.py:17_0_0":0:0), %arg2: tensor<1x32x32xf32> loc("test_ops.py:17_0_0":0:0)) -> tensor<1x32x32xf32> {
@@ -21,6 +21,6 @@ module attributes {} {
 #loc2 = loc("test_ops.py:17_0_0":0:6)
 #loc3 = loc("test_ops.py:17_0_0":0:3)
 #loc4 = loc(unknown)
-#loc5 = loc("add_1_2"(#loc1))
-#loc6 = loc("add_0_1_2"(#loc2))
+#loc5 = loc("add_1"(#loc1))
+#loc6 = loc("add_2"(#loc2))
 #loc7 = loc("relu"(#loc3))

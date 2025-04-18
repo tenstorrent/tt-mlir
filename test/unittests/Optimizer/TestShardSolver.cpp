@@ -4,15 +4,6 @@
 
 #include <gtest/gtest.h>
 
-#include "mlir/IR/Value.h"
-#include "mlir/IR/ValueRange.h"
-#include "llvm/ADT/SmallVector.h"
-
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/MLIRContext.h"
-
 #include "ttmlir/Dialect/TT/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
@@ -20,6 +11,15 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/Value.h"
+#include "mlir/IR/ValueRange.h"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SmallVector.h"
 
 using namespace mlir::tt::ttnn;
 
@@ -151,12 +151,12 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
   std::vector<OpL1MemSpec> opL1MemSpecs;
   llvm::DenseSet<mlir::Operation *> l1ChainedOps;
   constexpr unsigned usableL1CacheSize = 1024 * 1024;
-  std::unordered_set<Edge> overrideReshardEdges;
+  llvm::DenseSet<Edge> overrideReshardEdges;
 
   mlir::Value lhs = func.getBody().getBlocks().front().getArgument(0);
   mlir::Value rhs = func.getBody().getBlocks().front().getArgument(1);
   mlir::Operation *op =
-      builder.create<AddOp>(builder.getUnknownLoc(), lhs, rhs, lhs.getType());
+      builder.create<AddOp>(builder.getUnknownLoc(), lhs.getType(), lhs, rhs);
   mlir::Operation *firstOp = op;
 
   prepareOpForShardSolver(op, opL1MemSpecs, l1ChainedOps);
@@ -168,7 +168,7 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
                  TensorMemoryLayout::BlockSharded, 2, 2);
 
   rhs = op->getResult(0);
-  op = builder.create<ReluOp>(builder.getUnknownLoc(), rhs);
+  op = builder.create<ReluOp>(builder.getUnknownLoc(), rhs.getType(), rhs);
   prepareOpForShardSolver(op, opL1MemSpecs, l1ChainedOps);
   addConfigForOp(op, legalConfigs, BufferType::L1,
                  TensorMemoryLayout::WidthSharded, 1, 8);
@@ -180,7 +180,7 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
   lhs = func.getBody().getBlocks().front().getArgument(0);
   rhs = op->getResult(0);
 
-  op = builder.create<AddOp>(builder.getUnknownLoc(), lhs, rhs, lhs.getType());
+  op = builder.create<AddOp>(builder.getUnknownLoc(), lhs.getType(), lhs, rhs);
   prepareOpForShardSolver(op, opL1MemSpecs, l1ChainedOps);
   addConfigForOp(op, legalConfigs, BufferType::L1,
                  TensorMemoryLayout::WidthSharded, 1, 4);
@@ -189,7 +189,7 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
   addConfigForOp(op, legalConfigs, BufferType::L1,
                  TensorMemoryLayout::BlockSharded, 1, 1);
 
-  op = builder.create<AddOp>(builder.getUnknownLoc(), lhs, rhs, lhs.getType());
+  op = builder.create<AddOp>(builder.getUnknownLoc(), lhs.getType(), lhs, rhs);
   prepareOpForShardSolver(op, opL1MemSpecs, l1ChainedOps);
   addConfigForOp(op, legalConfigs, BufferType::L1,
                  TensorMemoryLayout::WidthSharded, 1, 4);
@@ -200,7 +200,7 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
 
   lhs = opL1MemSpecs[opL1MemSpecs.size() - 2].op->getResult(0);
   rhs = opL1MemSpecs[opL1MemSpecs.size() - 1].op->getResult(0);
-  op = builder.create<AddOp>(builder.getUnknownLoc(), lhs, rhs, lhs.getType());
+  op = builder.create<AddOp>(builder.getUnknownLoc(), lhs.getType(), lhs, rhs);
   prepareOpForShardSolver(op, opL1MemSpecs, l1ChainedOps);
   addConfigForOp(op, legalConfigs, BufferType::L1,
                  TensorMemoryLayout::WidthSharded, 1, 2);
@@ -210,7 +210,7 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
                  TensorMemoryLayout::BlockSharded, 1, 1);
 
   rhs = op->getResult(0);
-  op = builder.create<ReluOp>(builder.getUnknownLoc(), rhs);
+  op = builder.create<ReluOp>(builder.getUnknownLoc(), rhs.getType(), rhs);
   prepareOpForShardSolver(op, opL1MemSpecs, l1ChainedOps);
   addConfigForOp(op, legalConfigs, BufferType::L1,
                  TensorMemoryLayout::WidthSharded, 1, 2);

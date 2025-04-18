@@ -5,7 +5,7 @@
 #include "operations/conv/conv_transpose2d.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/ttnn/debug_apis.h"
+
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
@@ -16,12 +16,15 @@ namespace tt::runtime::ttnn::operations::conv {
 void run(const ::tt::target::ttnn::ConvTranspose2dOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  const ::ttnn::Tensor &input = tensorPool.getAndValidate(op->input());
-  const ::ttnn::Tensor &weight = tensorPool.getAndValidate(op->weight());
+  const ::ttnn::Tensor &input =
+      tensorPool.getTTNNTensorAndValidate(op->input());
+  const ::ttnn::Tensor &weight =
+      tensorPool.getTTNNTensorAndValidate(op->weight());
 
   std::optional<::ttnn::Tensor> bias =
-      op->bias() ? std::make_optional(tensorPool.getAndValidate(op->bias()))
-                 : std::nullopt;
+      op->bias()
+          ? std::make_optional(tensorPool.getTTNNTensorAndValidate(op->bias()))
+          : std::nullopt;
 
   LOG_ASSERT(op->kernel_size()->size() == 2,
              "Kernel size expected to have 2 elements");
@@ -56,7 +59,7 @@ void run(const ::tt::target::ttnn::ConvTranspose2dOp *op,
       },
       targetDevice);
 
-  tensorPool.insertAndValidate(op->out(), out);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
 } // namespace tt::runtime::ttnn::operations::conv

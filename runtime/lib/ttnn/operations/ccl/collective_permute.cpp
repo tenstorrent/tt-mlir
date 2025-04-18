@@ -5,7 +5,7 @@
 #include "operations/ccl/collective_permute.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/ttnn/debug_apis.h"
+
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "ttnn/operations/ccl/ccl_host_types.hpp"
@@ -27,7 +27,7 @@ void run(const ::tt::target::ttnn::CollectivePermuteOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
-  const ::ttnn::Tensor &input = tensorPool.getAndValidate(op->in());
+  const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
 
   const auto *fbSourceTargetPairs = op->source_target_pairs();
   std::vector<int64_t> sourceTargetPairs(fbSourceTargetPairs->begin(),
@@ -37,21 +37,19 @@ void run(const ::tt::target::ttnn::CollectivePermuteOp *op,
              "Input of collective_permute must be multidevice storage. id:",
              op->in()->global_id());
 
-  // Get list of individual per device tensors.
+  // Get list of individual per-device tensors. It should be returned in logical
+  // id order.
   std::vector<::ttnn::Tensor> originalDeviceTensors =
       ::ttnn::distributed::get_tensors_from_multi_device_storage(input);
 
-  // Iterate through originalDeviceTensors and create mapping of device_id :
-  // owned_storage. Also store device id to IDevice mapping.
-  std::unordered_map<int, ::ttnn::Tensor> mappedOwnedStorageTensors;
-  std::unordered_map<int, ::ttnn::IDevice *> mappedDeviceIds;
+  std::vector<::ttnn::Tensor> ownedStorageTensors;
+  ownedStorageTensors.reserve(originalDeviceTensors.size());
+  std::vector<::ttnn::IDevice *> devices;
+  devices.reserve(originalDeviceTensors.size());
 
   for (const auto &tensor : originalDeviceTensors) {
-    auto *tensorDevice = tensor.device();
-    auto deviceId = tensorDevice->id();
-    ::ttnn::Tensor hostTensor = ::ttnn::from_device(tensor);
-    mappedOwnedStorageTensors[deviceId] = hostTensor;
-    mappedDeviceIds[deviceId] = tensorDevice;
+    ownedStorageTensors.emplace_back(::ttnn::from_device(tensor));
+    devices.emplace_back(tensor.device());
   }
 
   // Iterate through sourceTargetPairs and for each pair, get the source tensor
@@ -64,15 +62,15 @@ void run(const ::tt::target::ttnn::CollectivePermuteOp *op,
     int64_t src = sourceTargetPairs[i];
     int64_t dest = sourceTargetPairs[i + 1];
 
-    auto srcHostTensorIt = mappedOwnedStorageTensors.find(src);
-    LOG_ASSERT(srcHostTensorIt != mappedOwnedStorageTensors.end(),
-               "Could not find device id in owned storage tensor map!");
-    auto srcHostTensor = srcHostTensorIt->second;
+    LOG_ASSERT(
+        (src < static_cast<int64_t>(originalDeviceTensors.size()) && src >= 0),
+        "Source device id is out of bounds!");
+    LOG_ASSERT((dest < static_cast<int64_t>(originalDeviceTensors.size()) &&
+                dest >= 0),
+               "Destination device id is out of bounds!");
 
-    auto deviceIt = mappedDeviceIds.find(dest);
-    LOG_ASSERT(deviceIt != mappedDeviceIds.end(),
-               "Could not find device id in device map!");
-    auto *device = deviceIt->second;
+    auto &srcHostTensor = ownedStorageTensors[src];
+    auto &device = devices[dest];
 
     std::optional<::ttnn::MemoryConfig> memoryConfig =
         srcHostTensor.memory_config();
@@ -88,15 +86,8 @@ void run(const ::tt::target::ttnn::CollectivePermuteOp *op,
       continue;
     }
 
-    auto srcHostTensorIt = mappedOwnedStorageTensors.find(i);
-    LOG_ASSERT(srcHostTensorIt != mappedOwnedStorageTensors.end(),
-               "Could not find device id in owned storage tensor map!");
-    auto srcHostTensor = srcHostTensorIt->second;
-
-    auto deviceIt = mappedDeviceIds.find(i);
-    LOG_ASSERT(deviceIt != mappedDeviceIds.end(),
-               "Could not find device id in device map!");
-    auto *device = deviceIt->second;
+    auto &srcHostTensor = ownedStorageTensors[i];
+    auto &device = devices[i];
 
     // We need to memset this tensor value to 0 based on collective permute
     // operation semantics
@@ -117,6 +108,6 @@ void run(const ::tt::target::ttnn::CollectivePermuteOp *op,
       newDeviceTensors, ::ttnn::StorageType::MULTI_DEVICE,
       ::ttnn::distributed::get_distributed_tensor_config_from_tensor(input));
 
-  tensorPool.insertAndValidate(op->out(), out);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::ccl

@@ -12,11 +12,10 @@ namespace tt::runtime::workaround {
 struct Env {
   static const Env &get(bool swapBinaryOperands = true,
                         bool readUpdateIndexFromDeviceForKVCache = true,
-                        bool toLayoutAPIAssumeSingleChip = true,
-                        bool manualDeviceStorageFromBorrowedStorage = true) {
-    static const Env config(
-        swapBinaryOperands, readUpdateIndexFromDeviceForKVCache,
-        toLayoutAPIAssumeSingleChip, manualDeviceStorageFromBorrowedStorage);
+                        bool toLayoutAPIAssumeSingleChip = true) {
+    static const Env config(swapBinaryOperands,
+                            readUpdateIndexFromDeviceForKVCache,
+                            toLayoutAPIAssumeSingleChip);
     return config;
   }
 
@@ -40,23 +39,14 @@ struct Env {
   // grid information to the tensorDesc.
   bool toLayoutAPIAssumeSingleChip;
 
-  // TODO(bug tenstorrent/tt-metal#18842) ReplicateTensorToMesh api currently
-  // has a bug where it can only accept device storage tensors, not borrowed
-  // storage. This workaround manually creates a device storage tensor if the
-  // tensor is of borrowed storage.
-  bool manualDeviceStorageFromBorrowedStorage;
-
 private:
   constexpr Env(bool swapBinaryOperands,
                 bool readUpdateIndexFromDeviceForKVCache,
-                bool toLayoutAPIAssumeSingleChip,
-                bool manualDeviceStorageFromBorrowedStorage)
+                bool toLayoutAPIAssumeSingleChip)
       : swapBinaryOperands(swapBinaryOperands),
         readUpdateIndexFromDeviceForKVCache(
             readUpdateIndexFromDeviceForKVCache),
-        toLayoutAPIAssumeSingleChip(toLayoutAPIAssumeSingleChip),
-        manualDeviceStorageFromBorrowedStorage(
-            manualDeviceStorageFromBorrowedStorage) {}
+        toLayoutAPIAssumeSingleChip(toLayoutAPIAssumeSingleChip) {}
 };
 
 inline std::ostream &operator<<(std::ostream &os, const Env &env) {
@@ -69,9 +59,6 @@ inline std::ostream &operator<<(std::ostream &os, const Env &env) {
   os << "\t"
      << "toLayoutAPIAssumeSingleChip: " << env.toLayoutAPIAssumeSingleChip
      << "\n";
-  os << "\t"
-     << "manualDeviceStorageFromBorrowedStorage: "
-     << env.manualDeviceStorageFromBorrowedStorage << "\n";
   os << "}";
   return os;
 }

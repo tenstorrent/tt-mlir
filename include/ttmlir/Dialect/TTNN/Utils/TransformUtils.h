@@ -24,7 +24,7 @@ createToLayoutOp(mlir::Operation *op,
                  PatternRewriter &rewriter, Layout targetTensorLayout,
                  BufferType targetTensorBufferType,
                  std::optional<TensorMemoryLayout> targetTensorMemoryLayout,
-                 DataType targetTensorDataType);
+                 DataType targetTensorDataType, llvm::StringRef locSuffix = "");
 } // namespace mlir::tt::ttnn::utils
 
 #endif

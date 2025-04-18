@@ -15,6 +15,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -38,11 +39,29 @@ struct IDevice;
 
 struct Tensor;
 
-namespace operations::creation::detail {
+namespace operations {
+namespace unary {
 
+// Mock definition of VecMode enum from tt-metal
+enum class VecMode {
+  None = 0,
+  R = 1,
+  C = 2,
+  RC = 4,
+  RC_custom = 6,
+  Invalid = 0xFF,
+};
+
+} // namespace unary
+
+namespace creation::detail {
 struct OptionalAnyDevice;
+} // namespace creation::detail
 
-} // namespace operations::creation::detail
+namespace conv::conv2d {
+struct Conv2dConfig;
+} // namespace conv::conv2d
+} // namespace operations
 } // namespace ttnn
 
 namespace mlir {
@@ -159,6 +178,12 @@ struct TypeName<::ttnn::Tensor> {
 };
 
 template <>
+struct TypeName<::ttnn::operations::conv::conv2d::Conv2dConfig> {
+  inline static const std::string value =
+      "::ttnn::operations::conv::conv2d::Conv2dConfig";
+};
+
+template <>
 struct JoinTypeNames<> {
   inline static const std::string value = "";
 };
@@ -261,13 +286,25 @@ struct EmitCTypeConverter<T,
   }
 
   static std::string convert(mlir::APFloat value) {
-    return convert(value.convertToDouble());
+    if constexpr (std::is_same_v<T, float>) {
+      // Add 'f' suffix for float literals to ensure correct type in C++.
+      std::string result = std::to_string(value.convertToDouble());
+      result.append("f");
+      return result;
+    } else {
+      return std::to_string(value.convertToDouble());
+    }
   }
 
   template <typename U>
   static std::enable_if_t<std::is_floating_point_v<U>, std::string>
   convert(U value) {
-    return std::to_string(static_cast<T>(value));
+    // Add 'f' suffix for float literals to ensure correct type in C++.
+    std::string result = std::to_string(static_cast<T>(value));
+    if constexpr (std::is_same_v<T, float>) {
+      result.append("f");
+    }
+    return result;
   }
 };
 
@@ -809,10 +846,10 @@ public:
   template <typename TargetTy = void, typename SourceTy>
   std::enable_if_t<!IsMLIRTypeV<SourceTy>, mlir::Attribute>
   emit(SourceTy &&attr) {
-    using ActualTargetTy = std::conditional_t<
-        std::is_void_v<TargetTy>,
-        TTNNTargetT<std::remove_reference_t<std::remove_cv_t<SourceTy>>>,
-        TargetTy>;
+    using ActualTargetTy =
+        std::conditional_t<std::is_void_v<TargetTy>,
+                           TTNNTargetT<llvm::remove_cvref_t<SourceTy>>,
+                           TargetTy>;
     auto result = EmitCTypeConverter<ActualTargetTy>::convert(
         std::forward<SourceTy>(attr));
     // It's assumed that the conversion will always succeed, if the result is
@@ -926,6 +963,31 @@ public:
     return emit(memoryConfigAttr);
   }
 
+  // TODO (azecevic): This is a temporary solution for handling the case when
+  // the value of the Conv2dConfigAttr is nullptr. This should be removed once
+  // https://github.com/tenstorrent/tt-mlir/issues/2852 lands.
+  mlir::Attribute getConv2dConfig(mlir::Value input, mlir::Value weight) {
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    auto weightType = mlir::cast<RankedTensorType>(weight.getType());
+
+    auto inputLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
+    auto weightLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(weightType.getEncoding());
+
+    DataType inputDataType = inputLayoutAttr.getDataType();
+    DataType weightDataType = weightLayoutAttr.getDataType();
+
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+    rso << TypeNameV<::ttnn::operations::conv::conv2d::Conv2dConfig> << "{";
+    rso << ".dtype = " << convert(inputDataType) << ", ";
+    rso << ".weights_dtype = " << convert(weightDataType);
+    rso << "}";
+
+    return rewriter.getType<emitc::OpaqueAttr>(buf);
+  }
+
 private:
   mlir::Value createVector(ValueRange operands) {
     tt::ttnn_to_emitc::utils::insertVecCreateFnIfNotExists(rewriter, op);
@@ -962,7 +1024,7 @@ private:
 // For example, instead of calling `emit<std::variant<int32_t, float>>(attr)`,
 // one can call `emit<int32_t>(attr) | emit<float>(attr)`.
 inline mlir::Attribute operator|(mlir::Attribute lhs, mlir::Attribute rhs) {
-  static const mlir::Attribute nulloptAttr = emitc::OpaqueAttr::get(
+  const mlir::Attribute nulloptAttr = emitc::OpaqueAttr::get(
       lhs.getContext(), tt::ttnn_to_emitc::TypeNameV<std::nullopt_t>);
   if (!lhs || lhs == nulloptAttr) {
     return rhs;

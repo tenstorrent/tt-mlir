@@ -5,7 +5,7 @@
 #include "operations/layout/typecast.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/ttnn/debug_apis.h"
+
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/workarounds.h"
@@ -14,14 +14,15 @@
 namespace tt::runtime::ttnn::operations::layout {
 void run(const ::tt::target::ttnn::TypecastOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  const ::ttnn::Tensor &inputTensor = tensorPool.getAndValidate(op->in());
+  const ::ttnn::Tensor &inputTensor =
+      tensorPool.getTTNNTensorAndValidate(op->in());
 
   ::ttnn::DataType targetDataType =
       ::tt::runtime::ttnn::utils::toTTNNDataType(op->dtype());
 
   ::ttnn::Tensor out = ::ttnn::typecast(inputTensor, targetDataType);
 
-  tensorPool.insertAndValidate(op->out(), out);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
 } // namespace tt::runtime::ttnn::operations::layout

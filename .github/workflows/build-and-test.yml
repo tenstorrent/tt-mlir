@@ -127,10 +127,10 @@ jobs:
           {runs-on: n150,   name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",    path: "Silicon/TTNN/n150/perf", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150,   name: "perf", suite: "optimizer",         image: "tracy",  type: "ttrt",    path: "Silicon/TTNN/n150/optimizer", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150,   name: "run",  suite: "emitc",             image: "tracy",  type: "ttrt",    path: "EmitC", ttrt_flags: "--emitc", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: nXX0,   name: "run",  suite: "async",             image: "speedy", type: "ttrt",    path: "Silicon/TTNN", ttrt_flags: "--non-zero --enable-async-ttnn", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150,   name: "run",  suite: "op_model",          image: "speedy", type: "ttrt",    path: "Silicon/TTNN/n150/optimizer", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: nXX0,   name: "run",  suite: "runtime_debug",     image: "tracy",  type: "ttrt",    path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "run",  suite: "runtime_debug",     image: "tracy",  type: "ttrt",    path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n300,   name: "run",  suite: "run",               image: "speedy", type: "ttrt",    path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n300,   name: "run",  suite: "async",             image: "speedy", type: "ttrt",    path: "Silicon/TTNN", ttrt_flags: "--non-zero --enable-async-ttnn", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n300,   name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",    path: "Silicon/TTNN/n300/perf", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: llmbox, name: "run",  suite: "run",               image: "speedy", type: "ttrt",    path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
           {runs-on: llmbox, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",    path: "Silicon/TTNN/llmbox/perf", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
@@ -196,7 +196,7 @@ jobs:
     - name: 'Untar install directory'
       shell: bash
       working-directory: ${{ steps.strings.outputs.install-output-dir }}
-      run: tar xvf artifact.tar
+      run: tar xf artifact.tar
 
     - name: Remove existing whls files
       shell: bash
@@ -229,7 +229,7 @@ jobs:
       if: ${{ matrix.build.type }} == "unit" || ${{ matrix.build.suite }} == "explorer"
       shell: bash
       working-directory: ${{ steps.strings.outputs.build-output-dir }}
-      run: tar xvf artifact.tar
+      run: tar xf artifact.tar
 
     # TG galaxy doesn't have support for dispatch on eth cores - thus need to disable it
     - name: Generate system descriptor
@@ -335,6 +335,7 @@ jobs:
         if-no-files-found: 'ignore'
 
     - name: Show Test Report
+      continue-on-error: true
       uses: mikepenz/action-junit-report@v4
       if: success() || failure()
       with:
@@ -400,7 +401,15 @@ jobs:
         source env/activate
         python tools/scripts/filter-clang-tidy-fixes.py ${{ steps.strings.outputs.build-output-dir }}/clang-tidy-fixes.yaml
 
+    - name: Upload clang-tidy fixes
+      uses: actions/upload-artifact@v4
+      if: failure() && steps.lint.outcome == 'failure'
+      with:
+        name: clang-tidy-result
+        path: ${{ steps.strings.outputs.build-output-dir }}/clang-tidy-fixes.yaml
+
     - name: Clang-tidy PR Comments
+      continue-on-error: true
       uses: platisd/clang-tidy-pr-comments@a8811fa17cd6bd02c52a3791b44f9840777e396a
       if: failure() && steps.lint.outcome == 'failure'
       with:

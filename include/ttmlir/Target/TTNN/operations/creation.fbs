@@ -1,0 +1,60 @@
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+
+namespace tt.target.ttnn;
+
+table ArangeOp {
+  start: float;
+  end: float;
+  step: float;
+  dtype: tt.target.DataType = null;
+  device: tt.target.DeviceRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}
+
+table ConstantOp {
+  out: tt.target.ttnn.TensorRef;
+  data: [ubyte];
+}
+
+table ConstructTensorOp {
+  shape: [int64];
+  dtype: DataType;
+  layout: tt.target.TensorLayout;
+  out: tt.target.ttnn.TensorRef;
+}
+
+table EmptyOp {
+  shape: [int64];
+  dtype: tt.target.DataType;
+  layout: tt.target.TensorLayout;
+  num_shards: uint32;
+  device: tt.target.DeviceRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
+  strategy: tt.target.ttnn.DistributionStrategy;
+  out: tt.target.ttnn.TensorRef;
+}
+
+table FullOp {
+  device: tt.target.DeviceRef;
+  fill_value: float;
+  num_shards: uint32;
+  strategy: tt.target.ttnn.DistributionStrategy;
+  out: tt.target.ttnn.TensorRef;
+}
+
+enum NamedFullOpType: uint32 {
+  Zeros,
+  Ones,
+}
+
+table NamedFullOp {
+  type: NamedFullOpType;
+  shape: [int64];
+  dtype: tt.target.DataType = null;
+  layout: tt.target.TensorLayout = null;
+  device: tt.target.DeviceRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}

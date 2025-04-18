@@ -62,6 +62,10 @@ Tensor createTensor(std::shared_ptr<void> data,
                 DeviceRuntime::TTMetal);
 }
 
+bool isTensorAllocated(Tensor tensor) {
+  LOG_FATAL("isTensorAllocated not implemented for metal runtime");
+}
+
 tt::target::DataType getTensorDataType(Tensor tensor) {
   const MetalTensor &metalTensor =
       tensor.as<MetalTensor>(DeviceRuntime::TTMetal);
@@ -75,6 +79,14 @@ tt::target::DataType getTensorDataType(Tensor tensor) {
   }
   LOG_ASSERT(false, "Unsupported tensor type");
   return ::tt::target::DataType::Float32;
+}
+
+bool getTensorRetain(Tensor tensor) {
+  LOG_FATAL("getTensorRetain not implemented for metal runtime");
+}
+
+void setTensorRetain(Tensor tensor, bool retain) {
+  LOG_FATAL("setTensorRetain not implemented for metal runtime");
 }
 
 size_t getNumAvailableDevices() {

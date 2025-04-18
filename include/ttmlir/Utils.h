@@ -9,11 +9,9 @@
 
 #include "mlir-c/IR.h"
 #include "mlir/CAPI/IR.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/Error.h"
@@ -24,10 +22,6 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
-
-namespace mlir::tt::ttnn {
-class DeviceType;
-} // namespace mlir::tt::ttnn
 
 namespace ttmlir::utils {
 
@@ -101,11 +95,6 @@ IntType volume(mlir::ArrayRef<IntType> shape) {
     result *= dim;
   }
   return result;
-}
-
-template <typename Enum>
-constexpr std::underlying_type_t<Enum> enum_as_int(Enum e) {
-  return static_cast<std::underlying_type_t<Enum>>(e);
 }
 
 // Returns a string that is the concatenation of the string representations of
@@ -320,235 +309,64 @@ getQuadrupleOfInteger(mlir::Attribute attr) {
   }
 }
 
-// It's assumed that operand is convertible to mlir::Value or mlir::ValueRange.
-// The only exception being tt::ttnn::DeviceType, which is convertible to
-// mlir::Value but should not be considered an operand.
-template <typename T>
-struct is_operand
-    : std::bool_constant<(std::is_convertible_v<T, mlir::Value> ||
-                          std::is_convertible_v<T, mlir::ValueRange>) &&
-                         !std::is_convertible_v<
-                             T, mlir::TypedValue<mlir::tt::ttnn::DeviceType>>> {
-};
+namespace detail {
+template <typename, typename = void>
+struct is_leaf_type : std::true_type {};
 
 template <typename T>
-inline constexpr bool is_operand_v = is_operand<T>::value;
+struct is_leaf_type<T, std::void_t<decltype(std::declval<T>().begin())>>
+    : std::false_type {};
 
-template <typename... ArgsTy>
-struct count_consecutive : std::integral_constant<size_t, 0> {};
+template <typename T>
+constexpr bool is_leaf_type_v = is_leaf_type<T>::value;
 
-template <typename... ArgsTy>
-inline constexpr size_t count_consecutive_v =
-    count_consecutive<ArgsTy...>::value;
-
-template <typename FirstTy, typename... RestTy>
-struct count_consecutive<FirstTy, RestTy...>
-    : std::conditional_t<
-          is_operand_v<FirstTy>,
-          std::integral_constant<size_t, 1 + count_consecutive_v<RestTy...>>,
-          std::integral_constant<size_t, 0>> {};
-
-template <typename OpTy, typename IndexSeqFirst, typename IndexSeqRest>
-struct SplitCaller;
-
-template <typename OpTy, size_t... Is, size_t... Js>
-struct SplitCaller<OpTy, std::index_sequence<Is...>,
-                   std::index_sequence<Js...>> {
-  template <typename... ArgsTy>
-  static auto call(mlir::PatternRewriter &rewriter, mlir::Location loc,
-                   mlir::Value output, ArgsTy &&...args) {
-    return rewriter.create<OpTy>(
-        loc, output.getType(),
-        std::get<Is>(std::forward_as_tuple(std::forward<ArgsTy>(args)...))...,
-        output,
-        std::get<sizeof...(Is) + Js>(
-            std::forward_as_tuple(std::forward<ArgsTy>(args)...))...);
-  }
+template <typename T, typename = void>
+struct get_value_type {
+  using type = llvm::remove_cvref_t<T>;
 };
 
-template <typename OpTy, size_t OperandCountV, size_t AttributeCountV>
-struct SplitImpl {
-  template <typename... ArgsTy>
-  static auto call(mlir::PatternRewriter &rewriter, mlir::Location loc,
-                   mlir::Value dpsOutput, ArgsTy &&...args) {
-    return SplitCaller<OpTy, std::make_index_sequence<OperandCountV>,
-                       std::make_index_sequence<AttributeCountV>>::
-        call(rewriter, loc, dpsOutput, std::forward<ArgsTy>(args)...);
-  }
+template <typename T>
+using get_value_type_t = typename get_value_type<T>::type;
+
+template <typename T>
+struct get_value_type<T, std::enable_if_t<!is_leaf_type_v<T>>> {
+  using type = get_value_type_t<typename std::iterator_traits<
+      decltype(std::declval<T>().begin())>::value_type>;
 };
 
-template <typename OpTy, typename... ArgsTy>
-auto splitAndCall(mlir::PatternRewriter &rewriter, mlir::Location loc,
-                  mlir::Value output, ArgsTy &&...args) {
-  constexpr size_t count = count_consecutive_v<ArgsTy...>;
-
-  return SplitImpl<OpTy, count, sizeof...(ArgsTy) - count>::call(
-      rewriter, loc, output, std::forward<ArgsTy>(args)...);
-}
-
-// Wrapper for creating a DPS op with a given output type. It's assumed that a
-// DPS op has exactly one output that comes after all of the inputs and before
-// any of the attributes in the builder of an op. The output is generated using
-// a ttir::EmptyOp. Calling this function:
-// createDPSOp<OpTy>(rewriter, loc,  outputType, operand1, operand2, ...,
-// operandN, attribute1, attribute2, ..., attributeM);
-// is equivalent to:
-// auto output = rewriter.create<ttir::EmptyOp>(loc, outputType.getShape(),
-// outputType.getElementType(), outputType.getEncoding());
-// rewriter.create<OpTy>(loc, outputType, operand1, operand2, ..., operandN,
-// output, attribute1, attribute2, ..., attributeM);
-template <typename OpTy, typename... ArgsTy>
-OpTy createDPSOp(mlir::PatternRewriter &rewriter, mlir::Location loc,
-                 mlir::RankedTensorType outputType, ArgsTy &&...args) {
-  static_assert(
-      OpTy::template hasTrait<mlir::DestinationStyleOpInterface::Trait>());
-
-  auto output = rewriter.create<mlir::tt::ttir::EmptyOp>(
-      loc, outputType.getShape(), outputType.getElementType(),
-      outputType.getEncoding());
-
-  return splitAndCall<OpTy>(rewriter, loc, output,
-                            std::forward<ArgsTy>(args)...);
-}
-
-// Wrapper for creating a DPS op with a given output shape, element type and
-// encoding. It's assumed that a  DPS op has exactly one output that comes after
-// all of the inputs and before any of the attributes in the builder of an op.
-// The output is generated using a ttir::EmptyOp. Calling this function:
-// createDPSOp<OpTy>(rewriter, loc,  outputShape, outputElementType,
-// outputEncoding, operand1, operand2, ..., operandN, attribute1, attribute2,
-// ..., attributeM);
-// is equivalent to:
-// auto outputType = mlir::RankedTensorType::get(outputShape, outputElementType,
-// outputEncoding);
-// auto output = rewriter.create<ttir::EmptyOp>(loc, outputShape,
-// outputElementType, outputEncoding);
-// rewriter.create<OpTy>(loc, outputType, operand1, operand2, ..., operandN,
-// output, attribute1, attribute2, ..., attributeM);
-template <typename OpTy, typename... ArgsTy>
-OpTy createDPSOp(mlir::PatternRewriter &rewriter, mlir::Location loc,
-                 llvm::ArrayRef<int64_t> outputShape,
-                 mlir::Type outputElementType, mlir::Attribute outputEncoding,
-                 ArgsTy &&...args) {
-  static_assert(
-      OpTy::template hasTrait<mlir::DestinationStyleOpInterface::Trait>());
-
-  auto outputType = mlir::RankedTensorType::get(outputShape, outputElementType,
-                                                outputEncoding);
-  return createDPSOp<OpTy>(rewriter, loc, outputType,
-                           std::forward<ArgsTy>(args)...);
-}
-
-// Wrapper for replacing an op with a DPS op with a given output type.
-// It's assumed that a  DPS op has exactly one output that comes after all of
-// the inputs and before any of the attributes in the builder of a DPS op. The
-// output is generated using a ttir::EmptyOp. Calling this function:
-// replaceOpWithNewDPSOp<OpTy>(rewriter, op, outputType, operand1, operand2,
-// ..., operandN, attribute1, attribute2, ..., attributeM);
-// is equivalent to:
-// auto output = rewriter.create<ttir::EmptyOp>(loc, outputType.getShape(),
-// outputType.getElementType(), outputType.getEncoding());
-// rewriter.replaceOpWithNewOp<OpTy>(op, outputType, operand1, operand2, ...,
-// operandN, output, attribute1, attribute2, ..., attributeM);
-template <typename OpTy, typename... ArgsTy>
-OpTy replaceOpWithNewDPSOp(mlir::PatternRewriter &rewriter, mlir::Operation *op,
-                           mlir::RankedTensorType outputType,
-                           ArgsTy &&...args) {
-  static_assert(
-      OpTy::template hasTrait<mlir::DestinationStyleOpInterface::Trait>());
-
-  auto newOp = createDPSOp<OpTy>(rewriter, op->getLoc(), outputType,
-                                 std::forward<ArgsTy>(args)...);
-  rewriter.replaceOp(op, newOp.getOperation());
-  return newOp;
-}
-
-// Wrapper for replacing an op with a DPS op with a given output shape, element
-// type and encoding. It's assumed that a  DPS op has exactly one output that
-// comes after all of the inputs and before any of the attributes in the builder
-// of a DPS op. The output is generated using a ttir::EmptyOp. Calling this
-// function:
-// replaceOpWithNewDPSOp<OpTy>(rewriter, op,  outputShape,
-// outputElementType, outputEncoding, operand1, operand2, ..., operandN,
-// attribute1, attribute2, ..., attributeM);
-// is equivalent to:
-// auto outputType = mlir::RankedTensorType::get(outputShape, outputElementType,
-// outputEncoding);
-// auto output = rewriter.create<ttir::EmptyOp>(loc, outputShape,
-// outputElementType, outputEncoding);
-// rewriter.replaceOpWithNewOp<OpTy>(op, outputType, operand1, operand2, ...,
-// operandN, output, attribute1, attribute2, ..., attributeM);
-template <typename OpTy, typename... ArgsTy>
-OpTy replaceOpWithNewDPSOp(mlir::PatternRewriter &rewriter, mlir::Operation *op,
-                           llvm::ArrayRef<int64_t> outputShape,
-                           mlir::Type outputElementType,
-                           mlir::Attribute outputEncoding, ArgsTy &&...args) {
-  static_assert(
-      OpTy::template hasTrait<mlir::DestinationStyleOpInterface::Trait>());
-
-  auto newOp =
-      createDPSOp<OpTy>(rewriter, op->getLoc(), outputShape, outputElementType,
-                        outputEncoding, std::forward<ArgsTy>(args)...);
-  rewriter.replaceOp(op, newOp.getOperation());
-  return newOp;
-}
-
-// [TODO] Refactor and move non-templated code to
-// <include|lib>/ttmlir/Dialect/TTIR/Utils/TransformUtils.<h|cpp>
-// https://github.com/tenstorrent/tt-mlir/issues/2669
-// Helper function to unsqueeze a value either on front or back dimension.
-inline llvm::SmallVector<int64_t>
-unsqueezeValue(mlir::PatternRewriter &rewriter, mlir::Location loc,
-               mlir::Value &input, mlir::RankedTensorType desiredType,
-               bool frontUnsqueeze) {
-  auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
-  llvm::SmallVector<int64_t> unsqueezeShape(desiredType.getRank(), 1);
-  for (int64_t i = 0; i < inputType.getRank(); ++i) {
-    int64_t idx =
-        frontUnsqueeze ? (desiredType.getRank() - inputType.getRank()) + i : i;
-    unsqueezeShape[idx] = inputType.getDimSize(i);
+template <typename T, typename U>
+std::enable_if_t<std::is_convertible_v<get_value_type_t<T>, U>>
+append(llvm::SmallVector<U> &result, T &&value) {
+  if constexpr (is_leaf_type_v<T>) {
+    result.push_back(std::forward<T>(value));
+  } else {
+    for (auto &&v : value) {
+      append(result, std::forward<decltype(v)>(v));
+    }
   }
+}
+} // namespace detail
 
-  llvm::SmallVector<int32_t> reshapeDim(unsqueezeShape.begin(),
-                                        unsqueezeShape.end());
+template <typename FirstTy, typename FallbackTy>
+using type_or_fallback_t =
+    std::conditional_t<std::is_void_v<FirstTy>, FallbackTy, FirstTy>;
 
-  auto reshapeDimAttr = rewriter.getI32ArrayAttr(reshapeDim);
-  input = createDPSOp<::mlir::tt::ttir::ReshapeOp>(
-      rewriter, loc, unsqueezeShape, desiredType.getElementType(),
-      desiredType.getEncoding(), input, reshapeDimAttr);
-  return unsqueezeShape;
+template <typename ReturnTy = void, typename FirstTy, typename... RestTy>
+llvm::SmallVector<
+    type_or_fallback_t<ReturnTy, detail::get_value_type_t<FirstTy>>>
+flatten(FirstTy &&first, RestTy &&...rest) {
+  using TrueReturnTy =
+      type_or_fallback_t<ReturnTy, detail::get_value_type_t<FirstTy>>;
+  static_assert(
+      (std::is_convertible_v<detail::get_value_type_t<FirstTy>, TrueReturnTy> &&
+       ... &&
+       std::is_convertible_v<detail::get_value_type_t<RestTy>, TrueReturnTy>));
+  llvm::SmallVector<TrueReturnTy> result;
+  detail::append(result, std::forward<FirstTy>(first));
+  (detail::append(result, std::forward<RestTy>(rest)), ...);
+  return result;
 }
 
-// Helper function to broadcast a value to desired shape.
-inline mlir::LogicalResult
-broadcastValue(mlir::PatternRewriter &rewriter, mlir::Value input,
-               mlir::RankedTensorType desiredType, mlir::Value &output,
-               mlir::Location loc, bool frontUnsqueeze) {
-  auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
-  auto inputShape = inputType.getShape();
-  llvm::SmallVector<int64_t, 4> broadcastedShape;
-  if (!mlir::OpTrait::util::getBroadcastedShape(
-          inputShape, desiredType.getShape(), broadcastedShape)) {
-    return mlir::failure();
-  }
-
-  if (inputShape == desiredType.getShape()) {
-    output = input;
-    return mlir::success();
-  }
-
-  if (inputType.getRank() != desiredType.getRank()) {
-    inputShape =
-        unsqueezeValue(rewriter, loc, input, desiredType, frontUnsqueeze);
-  }
-
-  llvm::SmallVector<int64_t> broadcastDims =
-      getBroadcastDimensions<int64_t>(inputShape, desiredType.getShape());
-
-  output = createDPSOp<mlir::tt::ttir::BroadcastOp>(rewriter, loc, desiredType,
-                                                    input, broadcastDims);
-  return mlir::success();
-}
 // Append a suffix to a location name if it's a NameLoc.
 // If the location is not a NameLoc or suffix is empty, returns the original
 // location.
@@ -575,6 +393,25 @@ inline std::string firstNLines(std::string str, int n) {
     result += "\n";
   }
   return result;
+}
+
+template <typename...>
+constexpr bool always_false() {
+  return false;
+}
+
+template <typename... ParentOps>
+static mlir::Region *getRegionWithParentOfType(mlir::Operation *op) {
+  mlir::Region *region = op->getParentRegion();
+  mlir::Operation *parentOp = region->getParentOp();
+  while (!mlir::isa<ParentOps...>(parentOp)) {
+    region = parentOp->getParentRegion();
+    if (!region) {
+      break;
+    }
+    parentOp = region->getParentOp();
+  }
+  return region;
 }
 
 } // namespace ttmlir::utils

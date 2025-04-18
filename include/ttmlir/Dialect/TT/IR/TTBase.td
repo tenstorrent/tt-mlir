@@ -34,4 +34,17 @@ def TT_Dialect : Dialect {
 class TT_Op<string mnemonic, list<Trait> traits = []> :
         Op<TT_Dialect, mnemonic, traits>;
 
+
+//===----------------------------------------------------------------------===//
+// Base TT trait definition.
+//===----------------------------------------------------------------------===//
+
+class TT_Trait<string name> : NativeOpTrait<name> {
+  let cppNamespace = "::mlir::tt::Trait";
+}
+
+// Trait for ops which should be duplicated in all const-eval subgraphs + original.
+def TT_DuplicateConstEvalTrait : TT_Trait<"TTDuplicateConstEvalTrait">;
+// Trait for ops which create tensors -- these ops will be const-eval hoisted if any of uses are const-eval ops.
+def TT_CreationOpTrait : TT_Trait<"TTCreationOpTrait">;
 #endif

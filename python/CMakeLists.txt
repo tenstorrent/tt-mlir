@@ -82,6 +82,14 @@ declare_mlir_python_sources(TTMLIRPythonTestInfra.TestInfra
   SOURCES
     ttir_builder.py
     test_utils.py
+    ccl_golden.py
+)
+
+# Enable Site Initialization Target to be piped into _mlir_libs/__init__.py
+declare_mlir_python_sources(TTMLIRPythonSiteInitialize
+  ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
+  ADD_TO_PARENT TTMLIRPythonSources
+  SOURCES _mlir_libs/_site_initialize_0.py
 )
 
 declare_mlir_python_extension(TTMLIRPythonExtensions.Main
@@ -138,6 +146,7 @@ set(TTMLIR_PYTHON_SOURCES
   TTMLIRPythonSources
   TTMLIRPythonExtensions
   TTMLIRPythonTestInfra
+  TTMLIRPythonSiteInitialize
 )
 
 add_mlir_python_common_capi_library(TTMLIRPythonCAPI
