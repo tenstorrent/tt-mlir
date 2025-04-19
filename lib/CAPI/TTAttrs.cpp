@@ -34,21 +34,27 @@ MlirAttribute ttmlirTTDataTypeAttrGet(MlirContext ctx,
 
 MlirAttribute ttmlirTTChipDescAttrGet(
     MlirContext ctx, MlirAttribute arch, int64_t *grid, size_t gridSize,
+    int64_t *coordTranslationOffsets, size_t coordTranslationOffsetsSize,
     unsigned l1Size, unsigned numDramChannels, unsigned dramChannelSize,
     unsigned nocL1AddressAlignBytes, unsigned pcieAddressAlignBytes,
     unsigned nocDRAMAddressAlignBytes, unsigned l1UnreservedBase,
     unsigned eriscL1UnreservedBase, unsigned dramUnreservedBase,
-    unsigned dramUnreservedEnd, MlirAttribute chipPhysicalCores,
+    unsigned dramUnreservedEnd, MlirAttribute chipPhysicalHelperCores,
     MlirAttribute *supportedDataTypes, MlirAttribute *supportedTileSizes,
     unsigned numCBs, unsigned numComputeThreads,
     unsigned numDatamovementThreads) {
   std::vector<int64_t> gridVec(grid, grid + gridSize);
+  std::vector<int64_t> coordTranslationOffsetsVec(
+      coordTranslationOffsets,
+      coordTranslationOffsets + coordTranslationOffsetsSize);
   return wrap(ChipDescAttr::get(
-      unwrap(ctx), mlir::dyn_cast<ArchAttr>(unwrap(arch)), gridVec, l1Size,
-      numDramChannels, dramChannelSize, nocL1AddressAlignBytes,
-      pcieAddressAlignBytes, nocDRAMAddressAlignBytes, l1UnreservedBase,
-      eriscL1UnreservedBase, dramUnreservedBase, dramUnreservedEnd,
-      mlir::dyn_cast<ChipPhysicalCoresAttr>(unwrap(chipPhysicalCores)),
+      unwrap(ctx), mlir::dyn_cast<ArchAttr>(unwrap(arch)), gridVec,
+      coordTranslationOffsetsVec, l1Size, numDramChannels, dramChannelSize,
+      nocL1AddressAlignBytes, pcieAddressAlignBytes, nocDRAMAddressAlignBytes,
+      l1UnreservedBase, eriscL1UnreservedBase, dramUnreservedBase,
+      dramUnreservedEnd,
+      mlir::dyn_cast<ChipPhysicalHelperCoresAttr>(
+          unwrap(chipPhysicalHelperCores)),
       mlir::dyn_cast<DataTypeAttr>(unwrap(*supportedDataTypes)),
       mlir::dyn_cast<TileSizeAttr>(unwrap(*supportedTileSizes)), numCBs,
       numComputeThreads, numDatamovementThreads));
@@ -166,15 +172,10 @@ MlirAttribute ttmlirTTTileSizeAttrGet(MlirContext ctx, int64_t y, int64_t x) {
   return wrap(TileSizeAttr::get(unwrap(ctx), y, x));
 }
 
-MlirAttribute ttmlirTTChipPhysicalCoresAttrGet(
-    MlirContext ctx, MlirAttribute *worker, size_t workerSize,
-    MlirAttribute *dram, size_t dramSize, MlirAttribute *eth, size_t ethSize,
-    MlirAttribute *eth_inactive, size_t eth_inactiveSize) {
-  std::vector<CoreCoordAttr> workerVec, dramVec, ethVec, ethInactiveVec;
-  for (size_t i = 0; i < workerSize; i++) {
-    workerVec.push_back(mlir::cast<CoreCoordAttr>(unwrap(worker[i])));
-  }
-
+MlirAttribute ttmlirTTChipPhysicalHelperCoresAttrGet(
+    MlirContext ctx, MlirAttribute *dram, size_t dramSize, MlirAttribute *eth,
+    size_t ethSize, MlirAttribute *eth_inactive, size_t eth_inactiveSize) {
+  std::vector<CoreCoordAttr> dramVec, ethVec, ethInactiveVec;
   for (size_t i = 0; i < dramSize; i++) {
     dramVec.push_back(mlir::cast<CoreCoordAttr>(unwrap(dram[i])));
   }
@@ -188,8 +189,8 @@ MlirAttribute ttmlirTTChipPhysicalCoresAttrGet(
         mlir::cast<CoreCoordAttr>(unwrap(eth_inactive[i])));
   }
 
-  return wrap(ChipPhysicalCoresAttr::get(unwrap(ctx), workerVec, dramVec,
-                                         ethVec, ethInactiveVec));
+  return wrap(ChipPhysicalHelperCoresAttr::get(unwrap(ctx), dramVec, ethVec,
+                                               ethInactiveVec));
 }
 
 MlirAttribute ttmlirTTCoreCoordAttrGet(MlirContext ctx, int64_t y, int64_t x) {

@@ -97,14 +97,14 @@ def TT_TileSizeAttr : TT_Attr<"TileSize", "tile_size"> {
 }
 
 
-def TT_ChipPhysicalCoresAttr : TT_Attr<"ChipPhysicalCores", "chip_physical_cores"> {
-  let summary = "TT chip_physical_cores attribute";
+def TT_ChipPhysicalHelperCoresAttr : TT_Attr<"ChipPhysicalHelperCores", "chip_physical_helper_cores"> {
+  let summary = "TT chip_physical_helper_cores attribute";
   let description = [{
-    TT chip_physical_cores attribute containing arrays of physical cores by core type in order of logical cores.
+    TT chip_physical_helper_cores attribute containing arrays of physical helper cores by core type in order of logical cores.
   }];
 
-  let parameters = (ins ArrayRefParameter<"CoreCoordAttr">:$worker, ArrayRefParameter<"CoreCoordAttr">:$dram, OptionalArrayRefParameter<"CoreCoordAttr">:$eth, OptionalArrayRefParameter<"CoreCoordAttr">:$eth_inactive);
-  let assemblyFormat = "`{` `worker` `=` `[` $worker `]` `dram` `=` `[` $dram `]` (`eth` `=` `[` $eth^ `]`)? (`eth_inactive` `=` `[` $eth_inactive^ `]`)? `}`";
+  let parameters = (ins ArrayRefParameter<"CoreCoordAttr">:$dram, OptionalArrayRefParameter<"CoreCoordAttr">:$eth, OptionalArrayRefParameter<"CoreCoordAttr">:$eth_inactive);
+  let assemblyFormat = "`{` `dram` `=` `[` $dram `]` (`eth` `=` `[` $eth^ `]`)? (`eth_inactive` `=` `[` $eth_inactive^ `]`)? `}`";
 }
 
 def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
@@ -115,6 +115,7 @@ def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
 
   let parameters = (ins "ArchAttr":$arch,
                     ArrayRefParameter<"int64_t">:$grid,
+                    ArrayRefParameter<"int64_t">:$coordTranslationOffsets,
                     "unsigned":$l1Size,
                     "unsigned":$numDramChannels,
                     "unsigned":$dramChannelSize,
@@ -125,7 +126,7 @@ def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
                     "unsigned":$eriscL1UnreservedBase,
                     "unsigned":$dramUnreservedBase,
                     "unsigned":$dramUnreservedEnd,
-                    "ChipPhysicalCoresAttr":$chipPhysicalCores,
+                    "ChipPhysicalHelperCoresAttr":$chipPhysicalHelperCores,
                     ArrayRefParameter<"DataTypeAttr">:$supportedDataTypes,
                     ArrayRefParameter<"TileSizeAttr">:$supportedTileSizes,
                     "unsigned":$numCBs,
@@ -133,6 +134,7 @@ def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
                     "unsigned":$numDatamovementThreads);
   let assemblyFormat = [{`{` `arch` `=` $arch `,`
                              `grid` `=` custom<DimensionList>($grid) `,`
+                             `coord_translation_offsets` `=` custom<DimensionList>($coordTranslationOffsets) `,`
                              `l1_size` `=` $l1Size `,`
                              `num_dram_channels` `=` $numDramChannels `,`
                              `dram_channel_size` `=` $dramChannelSize `,`
@@ -143,7 +145,7 @@ def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
                              `erisc_l1_unreserved_base` `=` $eriscL1UnreservedBase `,`
                              `dram_unreserved_base` `=` $dramUnreservedBase `,`
                              `dram_unreserved_end` `=` $dramUnreservedEnd `,`
-                             `physical_cores` `=` $chipPhysicalCores `,`
+                             `physical_helper_cores` `=` $chipPhysicalHelperCores `,`
                              `supported_data_types` `=` `[` $supportedDataTypes `]` `,`
                              `supported_tile_sizes` `=` `[` $supportedTileSizes `]` `,`
                              `num_cbs` `=` $numCBs `,`
