@@ -34,6 +34,8 @@ std::string compile_cpp_to_so(const std::string &cpp_source,
     var_value = std::getenv("FORGE_HOME");
     std::cout << "  FORGE_HOME" << " environment variable: "
               << (var_value != nullptr ? var_value : "not set") << std::endl;
+
+    std::cout << "  PRINTING FROM " << __FILE__ << std::endl;
   }
 
   fs::path directoryPath = fs::path(tmp_path_dir);

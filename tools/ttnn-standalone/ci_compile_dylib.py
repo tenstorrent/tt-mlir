@@ -196,6 +196,8 @@ def main():
     var_value = os.environ.get(var_name)
     print(f"  {var_name} environment variable: {var_value if var_value else 'not set'}")
 
+    print(f"  PRINTING FROM: {__file__}")
+
     args = parse_arguments()
     build_dir = args.build_dir
     file = args.file
