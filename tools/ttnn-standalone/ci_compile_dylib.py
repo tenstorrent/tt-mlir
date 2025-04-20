@@ -12,6 +12,7 @@ import subprocess
 import shutil
 import argparse
 
+
 # Returns the path where EmitC TTNN tests live
 #
 def get_emitc_tests_path(build_dir):
@@ -23,24 +24,12 @@ def get_emitc_tests_path(build_dir):
     return get_emitc_tests_path.path
 
 
-# Returns TT_MLIR_HOME env var value
-#
-def get_ttmlir_home():
-    if get_ttmlir_home.path:
-        return get_ttmlir_home.path
-
-    get_ttmlir_home.path = os.environ.get("TT_MLIR_HOME")
-    if not get_ttmlir_home.path:
-        print("Error: TT_MLIR_HOME environment variable is not set.")
-        sys.exit(1)
-
-    return get_ttmlir_home.path
-
-
 # Returns ttnn-standalone dir
 #
 def get_standalone_dir():
-    return os.path.join(get_ttmlir_home(), "tools/ttnn-standalone")
+    # Calculate this relative to this script's location
+    #
+    return os.path.dirname(os.path.abspath(__file__))
 
 
 # Runs cmake setup for .so compilation
@@ -50,10 +39,8 @@ def run_cmake_setup():
     if run_cmake_setup.already_created:
         return
 
-    tt_mlir_home = get_ttmlir_home()
-
-    source_dir = get_standalone_dir()
-    standalone_build_dir = os.path.join(source_dir, "build")
+    standalone_source_dir = get_standalone_dir()
+    standalone_build_dir = os.path.join(standalone_source_dir, "build")
     cmake_command = [
         "cmake",
         "-G",
@@ -61,14 +48,18 @@ def run_cmake_setup():
         "-B",
         standalone_build_dir,
         "-S",
-        source_dir,
+        standalone_source_dir,
         "-DCMAKE_BUILD_TYPE=Release",
         "-DCMAKE_CXX_COMPILER=clang++",
     ]
 
     try:
         result = subprocess.run(
-            cmake_command, check=True, cwd=tt_mlir_home, capture_output=True, text=True
+            cmake_command,
+            check=True,
+            cwd=standalone_source_dir,
+            capture_output=True,
+            text=True,
         )
     except subprocess.CalledProcessError as e:
         print(f"Error setting up cmake environment: {e}")
@@ -86,23 +77,20 @@ def run_cmake_setup():
 #
 get_emitc_tests_path.path = None
 run_cmake_setup.already_created = None
-get_ttmlir_home.path = None
 
 
 # Compile shared object, given source cpp and dest dir
 #
 def compile_shared_object(cpp_file_path, output_dir):
-    tt_mlir_home = get_ttmlir_home()
-
     # Base name of the provided cpp file
     #
     cpp_base_name = os.path.basename(cpp_file_path).rsplit(".", 1)[0]
 
     # Various dirs
     #
-    source_dir = get_standalone_dir()
-    standalone_build_dir = os.path.join(source_dir, "build")
-    source_cpp_path = os.path.join(source_dir, "ttnn-dylib.cpp")
+    standalone_source_dir = get_standalone_dir()
+    standalone_build_dir = os.path.join(standalone_source_dir, "build")
+    source_cpp_path = os.path.join(standalone_source_dir, "ttnn-dylib.cpp")
     compiled_so_path = os.path.join(standalone_build_dir, "libttnn-dylib.so")
 
     try:
@@ -130,7 +118,11 @@ def compile_shared_object(cpp_file_path, output_dir):
             "ttnn-dylib",
         ]
         result = subprocess.run(
-            build_command, check=True, cwd=tt_mlir_home, capture_output=True, text=True
+            build_command,
+            check=True,
+            cwd=standalone_source_dir,
+            capture_output=True,
+            text=True,
         )
         print(f"  Build finished successfully!")
 
@@ -213,10 +205,18 @@ def main():
 
     if file:
         print(f"Using custom file for compilation: {file}")
+
+        if not os.path.isfile(file) or not file.endswith(".cpp"):
+            print(f"Error: File '{file}' does not exist or is not a .cpp file.")
+            sys.exit(1)
+
         cpp_files.append(file)
     else:
         if not build_dir:
-            build_dir = os.path.join(get_ttmlir_home(), "build")
+            build_dir = os.path.join(
+                get_standalone_dir(),
+                "../../build",
+            )
 
         test_path = get_emitc_tests_path(build_dir)
 
