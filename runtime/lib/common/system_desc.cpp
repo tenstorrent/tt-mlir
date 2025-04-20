@@ -97,43 +97,42 @@ static flatbuffers::Offset<::tt::target::ChipPhysicalHelperCores>
 createChipPhysicalHelperCores(const ::tt::tt_metal::IDevice *device,
                               flatbuffers::FlatBufferBuilder &fbb) {
 
-  std::vector<::tt::target::Dim2d> dram_cores, eth_cores, eth_inactive_cores;
+  std::vector<::tt::target::Dim2d> dramCores, ethCores, ethInactiveCores;
 
-  for (int dram_channel = 0; dram_channel < device->num_dram_channels();
-       ++dram_channel) {
-    CoreCoord logical = device->logical_core_from_dram_channel(dram_channel);
-    dram_cores.emplace_back(::tt::target::Dim2d(logical.y, logical.x));
+  for (int dramChannel = 0; dramChannel < device->num_dram_channels();
+       ++dramChannel) {
+    CoreCoord logical = device->logical_core_from_dram_channel(dramChannel);
+    dramCores.emplace_back(::tt::target::Dim2d(logical.y, logical.x));
   }
 
   for (const CoreCoord &logical : device->get_active_ethernet_cores(true)) {
     CoreCoord physical = device->ethernet_core_from_logical_core(logical);
-    eth_cores.emplace_back(::tt::target::Dim2d(physical.y, physical.x));
+    ethCores.emplace_back(::tt::target::Dim2d(physical.y, physical.x));
   }
 
   for (const CoreCoord &logical : device->get_inactive_ethernet_cores()) {
     CoreCoord physical = device->ethernet_core_from_logical_core(logical);
-    eth_inactive_cores.emplace_back(
-        ::tt::target::Dim2d(physical.y, physical.x));
+    ethInactiveCores.emplace_back(::tt::target::Dim2d(physical.y, physical.x));
   }
 
-  sort(dram_cores);
-  sort(eth_cores);
-  sort(eth_inactive_cores);
+  sort(dramCores);
+  sort(ethCores);
+  sort(ethInactiveCores);
 
   return ::tt::target::CreateChipPhysicalHelperCores(
-      fbb, fbb.CreateVectorOfStructs(dram_cores),
-      fbb.CreateVectorOfStructs(eth_cores),
-      fbb.CreateVectorOfStructs(eth_inactive_cores));
+      fbb, fbb.CreateVectorOfStructs(dramCores),
+      fbb.CreateVectorOfStructs(ethCores),
+      fbb.CreateVectorOfStructs(ethInactiveCores));
 }
 
 ::tt::target::Dim2d
 getCoordinateTranslationOffsets(const ::tt::tt_metal::IDevice *device) {
-  const CoreCoord worker_nw_corner =
+  const CoreCoord workerNWCorner =
       device->worker_core_from_logical_core({0, 0});
-  const CoreCoord worker_nw_corner_translated =
-      device->virtual_noc0_coordinate(0, worker_nw_corner);
-  return ::tt::target::Dim2d(worker_nw_corner_translated.y,
-                             worker_nw_corner_translated.x);
+  const CoreCoord workerNWCornerTranslated =
+      device->virtual_noc0_coordinate(0, workerNWCorner);
+  return ::tt::target::Dim2d(workerNWCornerTranslated.y,
+                             workerNWCornerTranslated.x);
 }
 
 // Calculate the end of the DRAM region that is not usable by compiler.  This

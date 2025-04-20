@@ -67,7 +67,7 @@ mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
   llvm::SmallVector<std::int64_t> coordTranslationOffsets = {18, 18};
 
   // Populate a placeholder for supported tile sizes.
-  llvm::SmallVector<DataTypeAttr> supported_data_types = {
+  llvm::SmallVector<DataTypeAttr> supportedDataTypes = {
       DataTypeAttr::get(context, DataType::Float32),
       DataTypeAttr::get(context, DataType::Float16),
       DataTypeAttr::get(context, DataType::BFloat16),
@@ -84,7 +84,7 @@ mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
   };
 
   // Populate a placeholder for supported tile sizes.
-  llvm::SmallVector<TileSizeAttr> supported_tile_sizes = {
+  llvm::SmallVector<TileSizeAttr> supportedTileSizes = {
       TileSizeAttr::get(context, 4, 16),  TileSizeAttr::get(context, 16, 16),
       TileSizeAttr::get(context, 32, 16), TileSizeAttr::get(context, 4, 32),
       TileSizeAttr::get(context, 16, 32), TileSizeAttr::get(context, 32, 32),
@@ -113,7 +113,7 @@ mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
         l1UnreservedBase, eriscL1UnreservedBase, dramUnreservedBase,
         dramUnreservedEnd,
         ChipPhysicalHelperCoresAttr::get(context, dramCores, {}, {}),
-        supported_data_types, supported_tile_sizes, numCBs, numComputeThreads,
+        supportedDataTypes, supportedTileSizes, numCBs, numComputeThreads,
         numDatamovementThreads));
   }
 
@@ -173,25 +173,24 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
   fbb.read(static_cast<char *>(buffer.get()), size);
 
   // Read relevant information from binary
-  auto const *binary_system_desc =
+  auto const *binarySystemDesc =
       ::tt::target::GetSizePrefixedSystemDescRoot(buffer.get())->system_desc();
-  auto const *binary_cpu_desc = binary_system_desc->cpu_descs();
-  auto const *binary_chip_desc = binary_system_desc->chip_descs();
-  auto const *binary_chip_desc_indices =
-      binary_system_desc->chip_desc_indices();
-  auto const *chip_capabilities = binary_system_desc->chip_capabilities();
-  auto const *binary_chip_coords = binary_system_desc->chip_coords();
-  auto const *chip_channel_connections = binary_system_desc->chip_channels();
+  auto const *binaryCpuDesc = binarySystemDesc->cpu_descs();
+  auto const *binaryChipDesc = binarySystemDesc->chip_descs();
+  auto const *binaryChipDescIndices = binarySystemDesc->chip_desc_indices();
+  auto const *chipCapabilities = binarySystemDesc->chip_capabilities();
+  auto const *binaryChipCoords = binarySystemDesc->chip_coords();
+  auto const *chipChannelConnections = binarySystemDesc->chip_channels();
 
   // Acquire cpu descs
-  std::vector<tt::CPUDescAttr> cpu_desc_list;
-  for (auto const *element : *binary_cpu_desc) {
+  std::vector<tt::CPUDescAttr> cpuDescList;
+  for (auto const *element : *binaryCpuDesc) {
     static_assert(llvm::to_underlying(::mlir::tt::CPURole::Device) ==
                   llvm::to_underlying(::tt::target::CPURole::Device));
     static_assert(llvm::to_underlying(::mlir::tt::CPURole::Host) ==
                   llvm::to_underlying(::tt::target::CPURole::Host));
     const auto *flatbufferTargetTripleString = element->target_triple();
-    cpu_desc_list.emplace_back(tt::CPUDescAttr::get(
+    cpuDescList.emplace_back(tt::CPUDescAttr::get(
         context, static_cast<mlir::tt::CPURole>(element->role()),
         mlir::StringAttr::get(
             context, std::string(flatbufferTargetTripleString->c_str(),
@@ -199,29 +198,29 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
   }
 
   // Acquire chip descs
-  std::vector<tt::ChipDescAttr> chip_desc_list;
-  for (auto const *element : *binary_chip_desc) {
-    std::vector<tt::CoreCoordAttr> dram_cores, eth_cores, eth_inactive_cores;
-    auto const *physical_helper_cores = element->physical_helper_cores();
+  std::vector<tt::ChipDescAttr> chipDescList;
+  for (auto const *element : *binaryChipDesc) {
+    std::vector<tt::CoreCoordAttr> dramCores, ethCores, ethInactiveCores;
+    auto const *physicalHelperCores = element->physical_helper_cores();
 
     // Populate all vecrors with CoreCoordAttr instances
-    for (auto const &core : *physical_helper_cores->dram()) {
-      dram_cores.emplace_back(
+    for (auto const &core : *physicalHelperCores->dram()) {
+      dramCores.emplace_back(
           tt::CoreCoordAttr::get(context, core->y(), core->x()));
     }
-    for (auto const &core : *physical_helper_cores->eth()) {
-      eth_cores.emplace_back(
+    for (auto const &core : *physicalHelperCores->eth()) {
+      ethCores.emplace_back(
           tt::CoreCoordAttr::get(context, core->y(), core->x()));
     }
-    for (auto const &core : *physical_helper_cores->eth_inactive()) {
-      eth_inactive_cores.emplace_back(
+    for (auto const &core : *physicalHelperCores->eth_inactive()) {
+      ethInactiveCores.emplace_back(
           tt::CoreCoordAttr::get(context, core->y(), core->x()));
     }
 
     // Create ChipPhysicalHelperCoresAttr from the list of CoreCoordAttr
     // instances
-    auto chip_physical_helper_cores_attr = tt::ChipPhysicalHelperCoresAttr::get(
-        context, dram_cores, eth_cores, eth_inactive_cores);
+    auto chipPhysicalHelperCoresAttr = tt::ChipPhysicalHelperCoresAttr::get(
+        context, dramCores, ethCores, ethInactiveCores);
 
     tt::Arch arch;
     switch (element->arch()) {
@@ -236,73 +235,73 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
       break;
     }
 
-    std::vector<tt::DataTypeAttr> supported_data_types_attr;
+    std::vector<tt::DataTypeAttr> supportedDataTypesAttr;
 
     for (auto it : *(element->supported_data_types())) {
       switch (it) {
       case ::tt::target::DataType::Float32:
-        supported_data_types_attr.push_back(
+        supportedDataTypesAttr.push_back(
             tt::DataTypeAttr::get(context, tt::DataType::Float32));
         break;
       case ::tt::target::DataType::Float16:
-        supported_data_types_attr.push_back(
+        supportedDataTypesAttr.push_back(
             tt::DataTypeAttr::get(context, tt::DataType::Float16));
         break;
       case ::tt::target::DataType::BFloat16:
-        supported_data_types_attr.push_back(
+        supportedDataTypesAttr.push_back(
             tt::DataTypeAttr::get(context, tt::DataType::BFloat16));
         break;
       case ::tt::target::DataType::BFP_Float8:
-        supported_data_types_attr.push_back(
+        supportedDataTypesAttr.push_back(
             tt::DataTypeAttr::get(context, tt::DataType::BFP_Float8));
         break;
       case ::tt::target::DataType::BFP_BFloat8:
-        supported_data_types_attr.push_back(
+        supportedDataTypesAttr.push_back(
             tt::DataTypeAttr::get(context, tt::DataType::BFP_BFloat8));
         break;
       case ::tt::target::DataType::BFP_Float4:
-        supported_data_types_attr.push_back(
+        supportedDataTypesAttr.push_back(
             tt::DataTypeAttr::get(context, tt::DataType::BFP_Float4));
         break;
       case ::tt::target::DataType::BFP_BFloat4:
-        supported_data_types_attr.push_back(
+        supportedDataTypesAttr.push_back(
             tt::DataTypeAttr::get(context, tt::DataType::BFP_BFloat4));
         break;
       case ::tt::target::DataType::BFP_Float2:
-        supported_data_types_attr.push_back(
+        supportedDataTypesAttr.push_back(
             tt::DataTypeAttr::get(context, tt::DataType::BFP_Float2));
         break;
       case ::tt::target::DataType::BFP_BFloat2:
-        supported_data_types_attr.push_back(
+        supportedDataTypesAttr.push_back(
             tt::DataTypeAttr::get(context, tt::DataType::BFP_BFloat2));
         break;
       case ::tt::target::DataType::UInt32:
-        supported_data_types_attr.push_back(
+        supportedDataTypesAttr.push_back(
             tt::DataTypeAttr::get(context, tt::DataType::UInt32));
         break;
       case ::tt::target::DataType::UInt16:
-        supported_data_types_attr.push_back(
+        supportedDataTypesAttr.push_back(
             tt::DataTypeAttr::get(context, tt::DataType::UInt16));
         break;
       case ::tt::target::DataType::UInt8:
-        supported_data_types_attr.push_back(
+        supportedDataTypesAttr.push_back(
             tt::DataTypeAttr::get(context, tt::DataType::UInt8));
         break;
       case ::tt::target::DataType::Int32:
-        supported_data_types_attr.push_back(
+        supportedDataTypesAttr.push_back(
             tt::DataTypeAttr::get(context, tt::DataType::Int32));
         break;
       }
     }
 
-    SmallVector<tt::TileSizeAttr> supported_tile_sizes_attr;
+    SmallVector<tt::TileSizeAttr> supportedTileSizesAttr;
 
     for (auto const *it : *(element->supported_tile_sizes())) {
-      supported_tile_sizes_attr.push_back(
+      supportedTileSizesAttr.push_back(
           tt::TileSizeAttr::get(context, it->y(), it->x()));
     }
 
-    auto current_chip_desc_attr = tt::ChipDescAttr::get(
+    auto currentChipDescAttr = tt::ChipDescAttr::get(
         context, tt::ArchAttr::get(context, arch),
         {element->grid_size()->y(), element->grid_size()->x()},
         {element->coord_translation_offsets()->y(),
@@ -312,62 +311,61 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
         element->pcie_address_align_bytes(),
         element->noc_dram_address_align_bytes(), element->l1_unreserved_base(),
         element->erisc_l1_unreserved_base(), element->dram_unreserved_base(),
-        element->dram_unreserved_end(), chip_physical_helper_cores_attr,
-        supported_data_types_attr, supported_tile_sizes_attr,
-        element->num_cbs(), element->num_compute_threads(),
-        element->num_datamovement_threads());
-    chip_desc_list.push_back(current_chip_desc_attr);
+        element->dram_unreserved_end(), chipPhysicalHelperCoresAttr,
+        supportedDataTypesAttr, supportedTileSizesAttr, element->num_cbs(),
+        element->num_compute_threads(), element->num_datamovement_threads());
+    chipDescList.push_back(currentChipDescAttr);
   }
 
   // Acquire chip indices
-  std::vector<uint32_t> chip_indices_list;
-  for (auto element : *binary_chip_desc_indices) {
-    chip_indices_list.push_back(element);
+  std::vector<uint32_t> chipIndicesList;
+  for (auto element : *binaryChipDescIndices) {
+    chipIndicesList.push_back(element);
   }
 
   // Acquire chip capabilities
-  std::vector<tt::ChipCapabilityAttr> chip_capabilities_list;
-  for (auto element : *chip_capabilities) {
+  std::vector<tt::ChipCapabilityAttr> chipCapabilitiesList;
+  for (auto element : *chipCapabilities) {
     static_assert(llvm::to_underlying(::mlir::tt::ChipCapability::PCIE) ==
                   llvm::to_underlying(::tt::target::ChipCapability::PCIE));
     static_assert(llvm::to_underlying(::mlir::tt::ChipCapability::HostMMIO) ==
                   llvm::to_underlying(::tt::target::ChipCapability::HostMMIO));
 
-    auto chip_capabilities_attr = tt::ChipCapabilityAttr::get(
+    auto chipCapabilitiesAttr = tt::ChipCapabilityAttr::get(
         context, static_cast<::mlir::tt::ChipCapability>(element));
-    chip_capabilities_list.push_back(chip_capabilities_attr);
+    chipCapabilitiesList.push_back(chipCapabilitiesAttr);
   }
 
   // Acquire chip coordinates
-  std::vector<tt::ChipCoordAttr> chip_coordinate_list;
-  for (auto const *element : *binary_chip_coords) {
-    auto chip_coordinate_attr = tt::ChipCoordAttr::get(
+  std::vector<tt::ChipCoordAttr> chipCoordinateList;
+  for (auto const *element : *binaryChipCoords) {
+    auto chipCoordinateAttr = tt::ChipCoordAttr::get(
         context, element->rack(), element->shelf(), element->y(), element->x());
-    chip_coordinate_list.push_back(chip_coordinate_attr);
+    chipCoordinateList.push_back(chipCoordinateAttr);
   }
 
-  std::vector<tt::ChipChannelAttr> chip_channel_list;
-  for (auto const *element : *chip_channel_connections) {
-    std::vector<int64_t> ethernet_core_coord0_vec = {
+  std::vector<tt::ChipChannelAttr> chipChannelList;
+  for (auto const *element : *chipChannelConnections) {
+    std::vector<int64_t> ethernetCoreCoord0Vec = {
         element->ethernet_core_coord0().y(),
         element->ethernet_core_coord0().x()};
 
-    std::vector<int64_t> ethernet_core_coord1_vec = {
+    std::vector<int64_t> ethernetCoreCoord1Vec = {
         element->ethernet_core_coord1().y(),
         element->ethernet_core_coord1().x()};
 
-    auto chip_channel_attr = tt::ChipChannelAttr::get(
-        context, element->device_id0(), ethernet_core_coord0_vec,
-        element->device_id1(), ethernet_core_coord1_vec);
-    chip_channel_list.push_back(chip_channel_attr);
+    auto chipChannelAttr = tt::ChipChannelAttr::get(
+        context, element->device_id0(), ethernetCoreCoord0Vec,
+        element->device_id1(), ethernetCoreCoord1Vec);
+    chipChannelList.push_back(chipChannelAttr);
   }
 
   // Generate system desc attribute
-  auto system_desc_attr = tt::SystemDescAttr::get(
-      context, cpu_desc_list, chip_desc_list, chip_indices_list,
-      chip_capabilities_list, chip_coordinate_list, chip_channel_list);
+  auto systemDescAttr = tt::SystemDescAttr::get(
+      context, cpuDescList, chipDescList, chipIndicesList, chipCapabilitiesList,
+      chipCoordinateList, chipChannelList);
 
-  return system_desc_attr;
+  return systemDescAttr;
 }
 
 unsigned SystemDescAttr::getAddressAlignBytes(unsigned chipIndex) const {
