@@ -11,6 +11,31 @@ namespace fs = std::filesystem;
 std::string compile_cpp_to_so(const std::string &cpp_source,
                               const std::string &tmp_path_dir) {
 
+  {
+    std::cout << "PRINTING ENVS CCTS" << std::endl;
+    std::cout << "I'm in compile_cpp_to_so function, generating shared object "
+                 "from C++"
+              << std::endl;
+    const char *var_value;
+
+    var_value = std::getenv("TT_METAL_HOME");
+    std::cout << "  TT_METAL_HOME" << " environment variable: "
+              << (var_value != nullptr ? var_value : "not set") << std::endl;
+
+    var_value = std::getenv("CMAKE_INSTALL_PREFIX");
+    std::cout << "  CMAKE_INSTALL_PREFIX"
+              << " environment variable: "
+              << (var_value != nullptr ? var_value : "not set") << std::endl;
+
+    var_value = std::getenv("TT_MLIR_HOME");
+    std::cout << "  TT_MLIR_HOME" << " environment variable: "
+              << (var_value != nullptr ? var_value : "not set") << std::endl;
+
+    var_value = std::getenv("FORGE_HOME");
+    std::cout << "  FORGE_HOME" << " environment variable: "
+              << (var_value != nullptr ? var_value : "not set") << std::endl;
+  }
+
   fs::path directoryPath = fs::path(tmp_path_dir);
   fs::path filePath = directoryPath / "emitted.cpp";
 

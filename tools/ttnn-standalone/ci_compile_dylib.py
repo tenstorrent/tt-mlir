@@ -184,6 +184,26 @@ def parse_arguments():
 
 
 def main():
+    print("PRINTING ENVS CCD")
+    print("I'm in ci_compile_dylib.py")
+
+    # Unrolled version of the loop
+    var_name = "TT_METAL_HOME"
+    var_value = os.environ.get(var_name)
+    print(f"  {var_name} environment variable: {var_value if var_value else 'not set'}")
+
+    var_name = "CMAKE_INSTALL_PREFIX"
+    var_value = os.environ.get(var_name)
+    print(f"  {var_name} environment variable: {var_value if var_value else 'not set'}")
+
+    var_name = "TT_MLIR_HOME"
+    var_value = os.environ.get(var_name)
+    print(f"  {var_name} environment variable: {var_value if var_value else 'not set'}")
+
+    var_name = "FORGE_HOME"
+    var_value = os.environ.get(var_name)
+    print(f"  {var_name} environment variable: {var_value if var_value else 'not set'}")
+
     args = parse_arguments()
     build_dir = args.build_dir
     file = args.file
