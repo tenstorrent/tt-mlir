@@ -19,8 +19,7 @@ struct Env {
 #else
   constexpr static Env
 #endif
-  get(bool loadKernelsFromDisk = false,
-      std::optional<std::uint32_t> dumpDeviceRate = 1000)
+  get(bool loadKernelsFromDisk = false, std::uint32_t dumpDeviceRate = 1000)
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
       ;
 #else
@@ -31,7 +30,7 @@ struct Env {
 
   std::uint32_t getDumpDeviceRate() const {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-    return dumpDeviceRate.value();
+    return dumpDeviceRate;
 #else
     return 1000;
 #endif
@@ -47,12 +46,11 @@ struct Env {
 
 private:
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  constexpr Env(bool loadKernelsFromDisk,
-                std::optional<std::uint32_t> dumpDeviceRate)
+  constexpr Env(bool loadKernelsFromDisk, std::uint32_t dumpDeviceRate)
       : loadKernelsFromDisk(loadKernelsFromDisk),
         dumpDeviceRate(dumpDeviceRate) {}
 
-  mutable std::optional<std::uint32_t> dumpDeviceRate;
+  mutable std::uint32_t dumpDeviceRate;
 #else
   constexpr Env() = default;
 #endif

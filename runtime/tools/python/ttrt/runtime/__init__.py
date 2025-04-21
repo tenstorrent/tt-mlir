@@ -40,8 +40,6 @@ try:
         WorkaroundEnv,
         get_op_loc_info,
         unregister_hooks,
-        get_dump_device_rate,
-        set_dump_device_rate,
     )
 except ModuleNotFoundError:
     raise ImportError(

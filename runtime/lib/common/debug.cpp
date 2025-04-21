@@ -9,8 +9,7 @@
 
 namespace tt::runtime::debug {
 
-Env const &Env::get(bool loadKernelsFromDisk,
-                    std::optional<std::uint32_t> dumpDeviceRate) {
+Env const &Env::get(bool loadKernelsFromDisk, std::uint32_t dumpDeviceRate) {
   static Env config(loadKernelsFromDisk, dumpDeviceRate);
   return config;
 }
