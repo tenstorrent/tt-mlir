@@ -368,7 +368,7 @@ public:
       // blowup, enforce a size constraint based on DRAM capacity.
       if (exceedsAllGatherReduceMemLimit(getCurrentScopeSystemDesc(op),
                                          inputType, meshShape[clusterAxis],
-                                         0.1)) {
+                                         0.05)) {
         return rewriteAsAllGatherLocalReduce(op, meshShape, rewriter);
       }
     }
