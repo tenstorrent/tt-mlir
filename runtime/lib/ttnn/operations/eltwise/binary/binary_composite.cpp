@@ -91,7 +91,7 @@ void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Pow: {
-    runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::pow);
+    runEltwiseBinaryNGCompositeOp(op, tensorPool, ::ttnn::pow);
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Atan2: {
