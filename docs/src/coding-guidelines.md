@@ -38,14 +38,14 @@ Each category should:
 
 Only the [standard lib header](https://en.cppreference.com/w/cpp/header) includes should use <> whereas all the others should use quotes "". Additionally, all project headers must use absolute paths (rooted at ttmlir) to prevent preprocessor and namespacing issues. For example, the following is preferred:
 
-``` 
-#include "ttmlir/module/something.h" 
+```
+#include "ttmlir/module/something.h"
 ```
 
 over:
 
-``` 
-#include "something.h" 
+```
+#include "something.h"
 ```
 
 Using TTIRToTTNN.cpp as an example, this is what includes would look like for us:
@@ -69,21 +69,21 @@ Write comments as full sentences, starting with a capital letter and ending with
 
 Example of a comment:
 
-``` 
-// Initialize the buffer to store incoming data from the network. 
+```
+// Initialize the buffer to store incoming data from the network.
 ```
 
 In general, C++ style comments (//) should be used. Use C-style comments (/**/) only for when documenting the significance of constants used as actual parameters in a call:
 
-``` 
-object.callFunction(/*arg0=*/nullptr); 
+```
+object.callFunction(/*arg0=*/nullptr);
 ```
 
 Every function, class, or non-trivial piece of logic should have a comment. Avoid redundant comments for self-explanatory code, but never leave complex code unexplained. Example of redundant comment:
 
 ``` c++
-// Increment the counter by 1.  // Redundant, avoid. 
-counter++; 
+// Increment the counter by 1.  // Redundant, avoid.
+counter++;
 ```
 
 Ensure comments are accurate and reflect the current state of the code. Outdated or misleading comments can be worse than no comments at all.
@@ -175,14 +175,14 @@ void A() {
 
 These coding guidelines address visibility and linkage of simple helper functions to ensure clarity, prevent linking errors, and improve maintainability:
 
-* If a helper function needs to be defined in a .cpp file, it should be declared static or wrapped inside an anonymous namespace. 
+* If a helper function needs to be defined in a .cpp file, it should be declared static or wrapped inside an anonymous namespace.
 
 * If a helper function needs to be defined in a header file (for example, for templated or performance-critical code), it should be marked as inline.
 
 > [!NOTE]
-> A significant concern with declaring functions as non-public (for example, static functions 
-> or functions in unnamed namespaces) is that they cannot be unit tested in isolation. 
-> This limitation hinders our ability to write focused, granular tests that verify the 
+> A significant concern with declaring functions as non-public (for example, static functions
+> or functions in unnamed namespaces) is that they cannot be unit tested in isolation.
+> This limitation hinders our ability to write focused, granular tests that verify the
 > correctness of individual components and it also reduces test coverage.
 
 ## Using Namespaces
@@ -198,7 +198,7 @@ Follow these guidelines when using namespaces:
 
 * Do not use a using-directive to make all names from a namespace available because it pollutes the namespace.
 
-```c++ 
+```c++
 // Forbidden -- This pollutes the namespace.
 using namespace std;
 ```
@@ -229,9 +229,9 @@ Choose alias names that clarify their role in the code. Avoid overly generic nam
 
 ## Using `auto` to Deduce Type
 
-Use auto only when it enhances code readability or maintainability. Avoid defaulting to “always use auto.” Instead, apply it thoughtfully in the following scenarios: 
-  * When the type is immediately clear from the initializer, such as in cast<Foo>(...). 
-  * When the type is obvious from the context, making the code cleaner and more concise. 
+Use auto only when it enhances code readability or maintainability. Avoid defaulting to “always use auto.” Instead, apply it thoughtfully in the following scenarios:
+  * When the type is immediately clear from the initializer, such as in cast<Foo>(...).
+  * When the type is obvious from the context, making the code cleaner and more concise.
   * When the type is already abstracted, such as with container typedefs like std::vector<T>::iterator.
 
 In all other cases, prefer explicit type declarations to maintain clarity and ensure the code remains easy to understand.
@@ -252,5 +252,3 @@ Here is a quick example, but see the black documentation for details:
 ```bash
 $ black test.py                    # format entire file
 ```
-
-
