@@ -524,7 +524,7 @@ private:
   bool exceedsAllGatherReduceMemLimit(tt::SystemDescAttr systemDesc,
                                       RankedTensorType inputType,
                                       int64_t numOfDevicesInCluster,
-                                      float memoryLimitFactor = 0.1) const {
+                                      float memoryLimitFactor = 0.05) const {
     // Estimate additional memory required when using AllGather + LocalReduce,
     // compared to the baseline ReduceScatter + AllGather breakdown.
     //
@@ -561,13 +561,13 @@ private:
         inputTensorSize;
 
     // Additional memory required
-    double delta = static_cast<double>(memAllgatherLocalReduce) -
-                   memReduceScatterAllGather;
+    double overhead = static_cast<double>(memAllgatherLocalReduce) -
+                      memReduceScatterAllGather;
 
     // Compare against memory limit threshold
     double threshold = static_cast<double>(dramCapacity) * memoryLimitFactor;
 
-    return delta <= threshold;
+    return overhead <= threshold;
   }
 };
 
