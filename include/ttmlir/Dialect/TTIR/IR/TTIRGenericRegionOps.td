@@ -128,10 +128,9 @@ def TTIR_TileReduceSumOp : TTIR_GenericRegionComputeOp<"tile_reduce_sum">{
         The `tile_reduce_sum` operation computes the weighted sum of all elements in the input tile over the specified reduction dim(s).
     }];
 
-    let arguments = (ins TT_Tile:$input,
-                         TT_Tile:$weight,
-                         TTIR_ReduceDimAttr:$reduce_dim);
-    let results = (outs TT_Tile:$result);
+  let arguments = (ins TT_Tile:$input, TT_Tile:$weight,
+      TTIR_ReduceDimAttr:$reduce_dim);
+  let results = (outs TT_Tile:$result);
 }
 
 def TTIR_TileReduceMaxOp : TTIR_GenericRegionComputeOp<"tile_reduce_max"> {
