@@ -19,7 +19,8 @@ struct Env {
 #else
   constexpr static Env
 #endif
-  get(bool loadKernelsFromDisk = false)
+  get(bool loadKernelsFromDisk = false,
+      std::optional<std::uint32_t> dumpDeviceRate = 1000)
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
       ;
 #else
@@ -28,16 +29,39 @@ struct Env {
   }
 #endif
 
+  std::uint32_t getDumpDeviceRate() const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    return dumpDeviceRate.value();
+#else
+    return 1000;
+#endif
+  }
+
+  void setDumpDeviceRate(std::uint32_t rate) const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    dumpDeviceRate = rate;
+#endif
+  }
+
   bool loadKernelsFromDisk;
 
 private:
-  constexpr Env(bool loadKernelsFromDisk)
-      : loadKernelsFromDisk(loadKernelsFromDisk) {}
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  constexpr Env(bool loadKernelsFromDisk,
+                std::optional<std::uint32_t> dumpDeviceRate)
+      : loadKernelsFromDisk(loadKernelsFromDisk),
+        dumpDeviceRate(dumpDeviceRate) {}
+
+  mutable std::optional<std::uint32_t> dumpDeviceRate;
+#else
+  constexpr Env() = default;
+#endif
 };
 
 inline std::ostream &operator<<(std::ostream &os, Env const &env) {
   os << "debug::Env{\n"
      << "\t" << "loadKernelsFromDisk: " << env.loadKernelsFromDisk << "\n"
+     << "dumpDeviceRate: " << std::to_string(env.getDumpDeviceRate()) << "\n"
      << "}";
   return os;
 }

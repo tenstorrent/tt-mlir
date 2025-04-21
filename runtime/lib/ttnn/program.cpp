@@ -164,7 +164,10 @@ void ProgramExecutor::runCallback(
 void ProgramExecutor::dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice) {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
   static uint32_t counter = 0;
-  if (counter++ >= program->debug_info()->dump_device_rate()) {
+  //  if (counter++ >= program->debug_info()->dump_device_rate()) {
+  if (counter++ >= debug::Env::get().getDumpDeviceRate()) {
+    uint32_t rate = debug::Env::get().getDumpDeviceRate();
+    LOG_DEBUG("Debug Rate: " + std::to_string(rate));
     LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +
                                            std::to_string(counter) +
                                            " operations");

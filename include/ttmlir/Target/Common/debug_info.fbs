@@ -30,5 +30,4 @@ table DebugInfo {
   cpp: string;
   mlir_stages: [MLIR];
   golden_info: GoldenInfo;
-  dump_device_rate: uint32;
 }
