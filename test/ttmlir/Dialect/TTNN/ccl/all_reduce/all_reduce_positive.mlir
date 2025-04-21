@@ -118,17 +118,17 @@ module attributes {} {
 
 // Verify breakdown of all_reduce into all_gather and local reduce memory limit
 // Reduce_Scatter + All_Gather breakdown need to be used for this case due to memory limitation
-// 1x38x256x515xf32 tensor needs additional 1292559360 bytes of memory when we use all_gather + local reduce breakdown
-// It exceedes 10% of DRAM capacity limit : 1288488960 bytes with default system descriptor
+// 1x38x128x515xf32 tensor needs additional 646279680 bytes of memory when we use all_gather + local reduce breakdown
+// It exceedes 5% of DRAM capacity limit : 644244480 bytes with default system descriptor
 
 module attributes {} {
   // CHECK-LABEL: all_reduce_positive_with_non_divisible_dimensions_over_memory_limit
-  func.func @all_reduce_positive_with_non_divisible_dimensions_over_memory_limit(%arg0: tensor<1x38x256x515xf32>) -> tensor<1x38x256x515xf32> {
-    %0 = ttir.empty() : tensor<1x38x256x515xf32>
-    %1 = "ttir.all_reduce"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #tt.reduce_type<sum>}> : (tensor<1x38x256x515xf32>, tensor<1x38x256x515xf32>) -> tensor<1x38x256x515xf32>
+  func.func @all_reduce_positive_with_non_divisible_dimensions_over_memory_limit(%arg0: tensor<1x38x128x515xf32>) -> tensor<1x38x128x515xf32> {
+    %0 = ttir.empty() : tensor<1x38x128x515xf32>
+    %1 = "ttir.all_reduce"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #tt.reduce_type<sum>}> : (tensor<1x38x128x515xf32>, tensor<1x38x128x515xf32>) -> tensor<1x38x128x515xf32>
     // CHECK: "ttnn.reduce_scatter"
     // CHECK: "ttnn.all_gather"
     // CHECK-NOT: "ttnn.sum"
-    return %1 : tensor<1x38x256x515xf32>
+    return %1 : tensor<1x38x128x515xf32>
   }
 }
