@@ -1742,24 +1742,6 @@ def TTIR_ReverseOp : TTIR_NamedOp<"reverse", [AllShapesMatch<["input", "result"]
     let hasCanonicalizer = 1;
 }
 
-def TTIR_FillOp : TTIR_NamedOp<"fill", [AllShapesMatch<["value", "result"]>]> {
-    let summary = "Fill operation.";
-    let description = [{
-      Produces tensor filled with given fill value.
-
-      Examples:
-        %0 = ttir.empty() : () -> tensor<2x3xi32>
-        %1 = "ttir.fill"(%0) {value = dense<0> : tensor<2x3xi32>} : () -> tensor<2x3xi32>
-        %2 = ttir.empty() : () -> tensor<2xf32>
-        %3 = "ttir.fill"(%2) {value = dense<[0.2, 1.3]> : tensor<2xf32>} : () -> tensor<2xf32>
-    }];
-
-    let arguments = (ins AnyRankedTensor:$output,
-                         ElementsAttr:$value);
-
-    let results = (outs AnyRankedTensor:$result);
-}
-
 def TTIR_LinearOp : TTIR_NamedOp<"linear"> {
     let summary = "Linear transformation of inputs.";
     let description = [{
