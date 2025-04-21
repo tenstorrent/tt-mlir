@@ -15,17 +15,10 @@ namespace tt::runtime::debug {
 
 struct Env {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  static Env const &
+  static Env const &get(bool loadKernelsFromDisk = false,
+                        std::uint32_t dumpDeviceRate = 1000);
 #else
-  constexpr static Env
-#endif
-  get(bool loadKernelsFromDisk = false, std::uint32_t dumpDeviceRate = 1000)
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-      ;
-#else
-  {
-    return Env(false);
-  }
+  constexpr static Env get() { return Env(); }
 #endif
 
   std::uint32_t getDumpDeviceRate() const {
