@@ -113,6 +113,39 @@ public:
       newOp = rewriter.create<ttkernel::MaxTilesOp>(
           op->getLoc(), i32(rewriter, op->getLoc(), 0),
           i32(rewriter, op->getLoc(), 1));
+    } else if (mlir::isa<ttir::TileReduceSumOp>(op) ||
+               mlir::isa<ttir::TileReduceMaxOp>(op)) {
+      assert(operands.size() == 2);
+      auto dstIdx = index(rewriter, op->getLoc(), 0);
+      Value input = operands[0];
+      Value weight = operands[1];
+      ttkernel::ReduceType reduce_type;
+      ttir::ReduceDim reduce_dim;
+      if (mlir::isa<ttir::TileReduceSumOp>(op)) {
+        reduce_type = ttkernel::ReduceType::Sum;
+        auto reduce_sum_op = mlir::dyn_cast<ttir::TileReduceSumOp>(op);
+        reduce_dim = reduce_sum_op.getReduceDim();
+      } else {
+        reduce_type = ttkernel::ReduceType::Max;
+        auto reduce_max_op = mlir::dyn_cast<ttir::TileReduceMaxOp>(op);
+        reduce_dim = reduce_max_op.getReduceDim();
+      }
+      ttkernel::ReduceDim kernel_reduce_dim;
+      switch (reduce_dim) {
+      case ttir::ReduceDim::C:
+        kernel_reduce_dim = ttkernel::ReduceDim::Col;
+        break;
+      case ttir::ReduceDim::R:
+        kernel_reduce_dim = ttkernel::ReduceDim::Row;
+        break;
+      case ttir::ReduceDim::RC:
+        kernel_reduce_dim = ttkernel::ReduceDim::Scalar;
+        break;
+      }
+      newOp = rewriter.create<ttkernel::ReduceTileOp>(
+          op->getLoc(), getCB(rewriter, input), getCB(rewriter, weight),
+          getLoadIndex(input), getLoadIndex(weight), dstIdx, reduce_type,
+          kernel_reduce_dim);
     } else if (mlir::isa<ttir::TileAddOp>(op)) {
       assert(op->hasOneUse());
       auto store = mlir::cast<memref::StoreOp>(*op->user_begin());
