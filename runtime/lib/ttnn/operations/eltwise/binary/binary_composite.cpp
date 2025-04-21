@@ -36,7 +36,7 @@ static void runEltwiseBinaryCompositeOp(
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
-static void runEltwiseBinaryCompositeMaxOp(
+static void runEltwiseBinaryNGCompositeOp(
     const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
     ProgramTensorPool &tensorPool,
     const std::function<::ttnn::Tensor(
@@ -75,11 +75,11 @@ void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
   ProgramTensorPool &tensorPool = context.getTensorPool();
   switch (op->type()) {
   case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Maximum: {
-    runEltwiseBinaryCompositeMaxOp(op, tensorPool, ::ttnn::maximum);
+    runEltwiseBinaryNGCompositeOp(op, tensorPool, ::ttnn::maximum);
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Minimum: {
-    runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::minimum);
+    runEltwiseBinaryNGCompositeOp(op, tensorPool, ::ttnn::minimum);
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Remainder: {
