@@ -241,7 +241,7 @@ def test_execute_and_check_memory_data_exists():
 
 
 # TODO: figure out if this should be deleted, or adapted with new tests
-@pytest.skip(
+@pytest.mark.skip(
     "This is now handled by tests under `test/python/golden/test_ttir_models.py`"
 )
 def test_execute_and_check_accuracy_data_exists():

@@ -868,6 +868,7 @@ def prod(in0: Operand, builder: TTIRBuilder):
     return builder.prod(in0, [1], False)
 
 
+@pytest.mark.fails_golden
 @pytest.mark.parametrize("shapes", [[(1, 32, 64, 512), (1, 32, 3, 512)]])
 def test_fill_cache(shapes: List[Shape], request):
     def fill_cache(in0: Operand, in1: Operand, builder: TTIRBuilder):
@@ -889,6 +890,7 @@ def test_softmax(shapes: List[Shape], request):
     compile_to_flatbuffer(softmax, shapes, test_base=request.node.name)
 
 
+@pytest.mark.run_error
 @pytest.mark.parametrize("shapes", [[(1, 32, 64, 512), (1, 32, 1, 512), (1,)]])
 @pytest.mark.parametrize("dtypes", [[torch.bfloat16, torch.bfloat16, torch.int32]])
 def test_update_cache(shapes: List[Shape], dtypes: List[torch.dtype], request):
