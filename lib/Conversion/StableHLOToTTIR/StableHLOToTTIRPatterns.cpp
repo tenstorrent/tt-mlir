@@ -1870,7 +1870,7 @@ public:
         auto fullToShardCustomCall =
             mlir::dyn_cast_if_present<mlir::stablehlo::CustomCallOp>(
                 *srcOp->user_begin());
-        if (!fullToShardCustomCall || !fullToShardCustomCall->hasOneUse()) {
+        if (!fullToShardCustomCall || !srcOp->hasOneUse()) {
           return failure();
         }
 
