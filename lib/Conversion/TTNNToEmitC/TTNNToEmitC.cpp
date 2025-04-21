@@ -399,6 +399,41 @@ public:
 };
 } // namespace
 
+// Eltwise Binary NG Composite op conversion pattern
+//
+// Currently, it has to insert nullopts for some parameters that are not
+// modelled in the dialect (memcfg).
+//
+namespace {
+template <typename SourceOp>
+class EltwiseBinaryNGCompositeOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      SourceOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = typename SourceOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(SourceOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getLhs()),
+        emitter.emit(srcOp.getRhs()),
+        emitter.emit(std::nullopt),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // Eltwise Ternary op conversion pattern
 //
 // Currently, it has to insert nullopts for some parameters that are not
@@ -1913,12 +1948,12 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            EltwiseBinaryOpConversionPattern<tt::ttnn::GreaterThanOp>,
            EltwiseBinaryOpConversionPattern<tt::ttnn::LessEqualOp>,
            EltwiseBinaryOpConversionPattern<tt::ttnn::LessThanOp>,
-           EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::MaximumOp>,
-           EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::MinimumOp>,
+           EltwiseBinaryNGCompositeOpConversionPattern<tt::ttnn::MaximumOp>,
+           EltwiseBinaryNGCompositeOpConversionPattern<tt::ttnn::MinimumOp>,
            EltwiseBinaryOpConversionPattern<tt::ttnn::DivideOp>,
            EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::ScatterOp>,
            EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::RemainderOp>,
-           EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::PowOp>,
+           EltwiseBinaryNGCompositeOpConversionPattern<tt::ttnn::PowOp>,
            EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::Atan2Op>>(
           typeConverter, ctx);
 
