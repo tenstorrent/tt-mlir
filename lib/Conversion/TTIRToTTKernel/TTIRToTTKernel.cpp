@@ -276,6 +276,33 @@ public:
       lowerLoadToCopyTile(
           adaptor.getC().template getDefiningOp<memref::LoadOp>(), false, true,
           rewriter);
+    } else if constexpr (std::is_same_v<ConcreteOp, ttir::TileReduceSumOp> ||
+                         std::is_same_v<ConcreteOp, ttir::TileReduceMaxOp>) {
+      ttkernel::ReduceType reduce_type;
+      ttir::ReduceDim reduce_dim;
+      if constexpr (std::is_same_v<ConcreteOp, ttir::TileReduceSumOp>) {
+        reduce_type = ttkernel::ReduceType::Sum;
+        reduce_dim = op->getReduceDim();
+      } else {
+        reduce_type = ttkernel::ReduceType::Max;
+        reduce_dim = op->getReduceDim();
+      }
+      ttkernel::ReduceDim kernel_reduce_dim;
+      switch (reduce_dim) {
+      case ttir::ReduceDim::C:
+        kernel_reduce_dim = ttkernel::ReduceDim::Col;
+        break;
+      case ttir::ReduceDim::R:
+        kernel_reduce_dim = ttkernel::ReduceDim::Row;
+        break;
+      case ttir::ReduceDim::RC:
+        kernel_reduce_dim = ttkernel::ReduceDim::Scalar;
+        break;
+      }
+      rewriter.create<ttkernel::ReduceTileOp>(
+          op->getLoc(), getCB(rewriter, adaptor.getA()),
+          getCB(rewriter, adaptor.getB()), getLoadIndex(adaptor.getA()),
+          getLoadIndex(adaptor.getA()), dstIdx, reduce_type, kernel_reduce_dim);
     } else if constexpr (arity == 2) {
       rewriter.create<InitOp>(op->getLoc(), getCB(rewriter, adaptor.getLhs()),
                               getCB(rewriter, adaptor.getRhs()));
