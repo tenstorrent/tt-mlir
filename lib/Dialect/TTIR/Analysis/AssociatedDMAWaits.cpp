@@ -3,9 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTIR/Analysis/AssociatedDMAWaits.h"
-
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-
 namespace mlir::tt::ttir {
 
 static SmallVector<ttir::DMAWaitOp> findAssociatedDMAWaits(ttir::DMAOp op) {

@@ -58,7 +58,11 @@ struct ConvertTTIRToTTKernel
     target.addLegalOp<ttir::GenericOp>();
     target.addIllegalOp<memref::CollapseShapeOp>();
     target.addIllegalOp<memref::StoreOp>();
-    target.addIllegalOp<memref::CollapseShapeOp>();
+
+    target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
+      return !op->hasAttr(ttir::ThreadAttr::name) ||
+             (op.getFunctionType().getNumInputs() == 0);
+    });
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });
@@ -68,10 +72,6 @@ struct ConvertTTIRToTTKernel
     typeConverter.addConversion([](MemRefType memref) {
       return ttkernel::CBType::get(
           memref.getContext(), ttkernel::symbolizeCBPort(0).value(), 0, memref);
-    });
-    target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
-      return !op->hasAttr(ttir::ThreadAttr::name) ||
-             (op.getFunctionType().getNumInputs() == 0);
     });
 
     ttir::AssociatedDMAWaits associatedDMAWaits =

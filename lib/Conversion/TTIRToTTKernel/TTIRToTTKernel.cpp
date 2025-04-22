@@ -22,14 +22,14 @@ namespace mlir::tt::ttkernel {
 
 namespace {
 
-static Value i32(PatternRewriter &rewriter, Location loc, int32_t value) {
+static Value i32(OpBuilder &rewriter, Location loc, int32_t value) {
   return rewriter
       .create<arith::ConstantOp>(loc, rewriter.getI32Type(),
                                  rewriter.getI32IntegerAttr(value))
       .getResult();
 }
 
-static Value index(PatternRewriter &rewriter, Location loc, int64_t value) {
+static Value index(OpBuilder &rewriter, Location loc, int64_t value) {
   return rewriter
       .create<arith::ConstantOp>(loc, rewriter.getIndexType(),
                                  rewriter.getIndexAttr(value))
@@ -95,7 +95,7 @@ public:
     };
 
     auto cb = rewriter.getRemappedValue(op.getMemref());
-    auto cbType = mlir::dyn_cast<ttkernel::CBType>(cb.getType());
+    auto cbType = mlir::cast<ttkernel::CBType>(cb.getType());
     rewriter.create<ttkernel::CopyTileInitOp>(op.getLoc(), cb);
     rewriter.create<ttkernel::CopyTileOp>(
         op.getLoc(), cb, op.getIndices().front(),
@@ -175,13 +175,17 @@ public:
 
 namespace {
 
-template <typename T>
-class TTIRAwaitYieldRewriter : public OpConversionPattern<T> {
+template <typename ConcreteOp>
+class TTIRAwaitYieldRewriter : public OpConversionPattern<ConcreteOp> {
 public:
-  using OpConversionPattern<T>::OpConversionPattern;
+  using OpConversionPattern<ConcreteOp>::OpConversionPattern;
+
+  static_assert(std::is_same_v<ConcreteOp, ttir::AwaitOp> ||
+                    std::is_same_v<ConcreteOp, ttir::YieldOp>,
+                "Expected Await or Yield op passed to TTIRAwaitYieldRewriter.");
 
   LogicalResult
-  matchAndRewrite(T op, typename T::Adaptor adaptor,
+  matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
 
     for (Value input : adaptor.getValues()) {
@@ -330,7 +334,7 @@ public:
     if (op.isSrcLocal() && op.isDstLocal()) {
       // local movmement, mcast
 
-      auto srcCb = mlir::dyn_cast<ttkernel::CBType>(adaptor.getSrc().getType());
+      auto srcCb = mlir::cast<ttkernel::CBType>(adaptor.getSrc().getType());
 
       Value srcL1Start = rewriter.create<ttkernel::GetReadPtrOp>(
           op.getLoc(), adaptor.getSrc());
