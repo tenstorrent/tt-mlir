@@ -35,7 +35,7 @@ def get_standalone_dir():
 # Runs cmake setup for .so compilation
 # Runs only once per script
 #
-def run_cmake_setup():
+def run_cmake_setup(args):
     if run_cmake_setup.already_created:
         return
 
@@ -53,12 +53,23 @@ def run_cmake_setup():
         "-DCMAKE_CXX_COMPILER=clang++",
     ]
 
+    if args.metal_src_dir:
+        cmake_command.append(f"-DMETAL_SRC_DIR={args.metal_src_dir}")
+
+    if args.metal_lib_dir:
+        cmake_command.append(f"-DMETAL_LIB_DIR={args.metal_lib_dir}")
+
+    # Print metal_src_dir and metal_lib_dir
+    print(f"Setting up cmake environment with:")
+    print(f"  METAL_SRC_DIR: {args.metal_src_dir}")
+    print(f"  METAL_LIB_DIR: {args.metal_lib_dir}")
+
     try:
         result = subprocess.run(
             cmake_command,
             check=True,
             cwd=standalone_source_dir,
-            capture_output=True,
+            # capture_output=True,
             text=True,
         )
     except subprocess.CalledProcessError as e:
@@ -81,7 +92,7 @@ run_cmake_setup.already_created = None
 
 # Compile shared object, given source cpp and dest dir
 #
-def compile_shared_object(cpp_file_path, output_dir):
+def compile_shared_object(cpp_file_path, output_dir, args):
     # Base name of the provided cpp file
     #
     cpp_base_name = os.path.basename(cpp_file_path).rsplit(".", 1)[0]
@@ -100,7 +111,7 @@ def compile_shared_object(cpp_file_path, output_dir):
 
         # Run cmake setup command first
         #
-        run_cmake_setup()
+        run_cmake_setup(args)
 
         # Remove previous .so if exists
         if os.path.exists(compiled_so_path):
@@ -172,6 +183,22 @@ def parse_arguments():
         metavar="FILE",
         help="Specify a single cpp file for compilation",
     )
+
+    # Add option to override metal-src-dir and metal-lib-dir
+    #
+    # TODO: Verify that either all group arguments are provided or none
+    #
+    group = parser.add_argument_group(
+        "dirs", description="Directories needed from copilation"
+    )
+    parser.add_argument(
+        "--metal-src-dir",
+        type=str,
+    )
+    parser.add_argument(
+        "--metal-lib-dir",
+        type=str,
+    )
     return parser.parse_args()
 
 
@@ -235,7 +262,11 @@ def main():
                     cpp_files.append(cpp_file_path)
 
     for cpp_file in cpp_files:
-        compile_shared_object(cpp_file, os.path.dirname(cpp_file))
+        compile_shared_object(
+            cpp_file_path=cpp_file,
+            output_dir=os.path.dirname(cpp_file),
+            args=args,
+        )
 
     print("Compilation completed successfully!")
 

@@ -1,7 +1,8 @@
-option(TTNN_STANDALONE_USE_INSTALL_PATHS "Use install paths" OFF)
-
 cmake_minimum_required(VERSION 3.16)
 project(ttnn-standalone CXX)
+
+# Install options
+option(TTNN_STANDALONE_USE_INSTALL_PATHS "Use install paths" OFF)
 
 set(CMAKE_CXX_STANDARD 20 CACHE STRING "C++ standard to conform to")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -26,87 +27,79 @@ else()
     message(WARNING "Clang++-17 not found!!!")
 endif()
 
-# This tool can be compiled in two ways:
-# 1. Local build (default)
-# 2. Using install paths - initially used for frontends like FFE
-if (NOT ${TTNN_STANDALONE_USE_INSTALL_PATHS} STREQUAL ON)
-    # LOCAL BUILD
-    message(STATUS "Building locally")
+# TT_METAL_HOME env variable needs to be set
+if(NOT DEFINED ENV{TT_METAL_HOME})
+    message(FATAL_ERROR "TT_METAL_HOME is not set")
+endif()
 
-    # Check if env TT_METAL_HOME is set
-    if(NOT DEFINED ENV{TT_METAL_HOME})
-        message(FATAL_ERROR "TT_METAL_HOME is not set")
-    endif()
+# Metal dir variables
+set(METAL_SRC_DIR "$ENV{TT_METAL_HOME}" CACHE PATH "Path to the tt-metal root src directory")
+set(METAL_LIB_DIR "$ENV{TT_METAL_HOME}-build/lib" CACHE PATH "Path to the tt-metal lib directory")
 
-    set(METAL_ROOT_DIR "$ENV{TT_METAL_HOME}")
-    set(METAL_LIBS_DIR "$ENV{TT_METAL_HOME}-build/lib")
-    # set(METAL_LIBS_DIR "$ENV{TT_METAL_HOME}/lib")  # temporary hack to test in FFE install path
-else()
-    # INSTALL PATH BUILD
-    message(STATUS "Building using install paths")
+message(STATUS "TT_METAL_HOME: $ENV{TT_METAL_HOME}")
+message(STATUS "METAL_SRC_DIR: ${METAL_SRC_DIR}")
+message(STATUS "METAL_LIB_DIR: ${METAL_LIB_DIR}")
 
+if (${TTNN_STANDALONE_USE_INSTALL_PATHS} STREQUAL ON)
     if (NOT DEFINED CMAKE_INSTALL_PREFIX)
         message(FATAL_ERROR "CMAKE_INSTALL_PREFIX is not set. Aborting!")
     endif()
 
-    # message(STATUS "CMAKE_INSTALL_PREFIX: ${CMAKE_INSTALL_PREFIX}")
-
-    set(METAL_ROOT_DIR "${CMAKE_INSTALL_PREFIX}/tt-metal")
-    set(METAL_LIBS_DIR "${CMAKE_INSTALL_PREFIX}/lib")
+    message(STATUS "CMAKE_INSTALL_PREFIX: ${CMAKE_INSTALL_PREFIX}")
+    set(METAL_LIB_DIR "${CMAKE_INSTALL_PREFIX}/lib")
 endif()
-message(STATUS "METAL_ROOT_DIR: ${METAL_ROOT_DIR}")
-message(STATUS "METAL_LIBS_DIR: ${METAL_LIBS_DIR}")
 
 # Directories to search for headers
 #
 set(INCLUDE_DIRS
     # TODO: Remove these when ttmetal removes the dependencies from public facing headers
-    ${METAL_ROOT_DIR}/.cpmcache/reflect/e75434c4c5f669e4a74e4d84e0a30d7249c1e66f
-    ${METAL_ROOT_DIR}/.cpmcache/fmt/73b5ec45edbd92babfd91c3777a9e1ab9cac8238/include
-    ${METAL_ROOT_DIR}/.cpmcache/magic_enum/4d76fe0a5b27a0e62d6c15976d02b33c54207096/include
-    ${METAL_ROOT_DIR}/.cpmcache/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
-    ${METAL_ROOT_DIR}/.cpmcache/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
-    ${METAL_ROOT_DIR}/.cpmcache/xtensor/4a957e26c765b48cbec4a4235fe9e518d5a85d3d/include
-    ${METAL_ROOT_DIR}/.cpmcache/xtensor-blas/190c3a4314355b67291a7d78b20a2100de3f8f54/include
-    ${METAL_ROOT_DIR}/.cpmcache/xtl/0918808959d33a292c551b9f014a0e808bc4a95c/include
+    ${METAL_SRC_DIR}/.cpmcache/reflect/e75434c4c5f669e4a74e4d84e0a30d7249c1e66f
+    ${METAL_SRC_DIR}/.cpmcache/fmt/73b5ec45edbd92babfd91c3777a9e1ab9cac8238/include
+    ${METAL_SRC_DIR}/.cpmcache/magic_enum/4d76fe0a5b27a0e62d6c15976d02b33c54207096/include
+    ${METAL_SRC_DIR}/.cpmcache/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
+    ${METAL_SRC_DIR}/.cpmcache/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
+    ${METAL_SRC_DIR}/.cpmcache/xtensor/4a957e26c765b48cbec4a4235fe9e518d5a85d3d/include
+    ${METAL_SRC_DIR}/.cpmcache/xtensor-blas/190c3a4314355b67291a7d78b20a2100de3f8f54/include
+    ${METAL_SRC_DIR}/.cpmcache/xtl/0918808959d33a292c551b9f014a0e808bc4a95c/include
 
     # Metalium
-    ${METAL_ROOT_DIR}
-    ${METAL_ROOT_DIR}/tt_metal
-    ${METAL_ROOT_DIR}/tt_metal/api
-    ${METAL_ROOT_DIR}/tt_metal/hostdevcommon/api
-    ${METAL_ROOT_DIR}/tt_metal/hw/inc
-    ${METAL_ROOT_DIR}/tt_metal/hw/inc/grayskull
-    ${METAL_ROOT_DIR}/tt_metal/hw/inc/wormhole/wormhole_b0_defines
-    ${METAL_ROOT_DIR}/tt_metal/hw/inc/wormhole
-    ${METAL_ROOT_DIR}/tt_metal/hw/inc/blackhole
-    ${METAL_ROOT_DIR}/tt_metal/include
-    ${METAL_ROOT_DIR}/tt_stl
-    ${METAL_ROOT_DIR}/tt_stl/tt_stl
-    ${METAL_ROOT_DIR}/tt_metal/third_party/fmt
-    ${METAL_ROOT_DIR}/tt_metal/third_party/magic_enum
-    ${METAL_ROOT_DIR}/tt_metal/third_party/taskflow
-    ${METAL_ROOT_DIR}/tt_metal/third_party/tracy/public
-    ${METAL_ROOT_DIR}/tt_metal/third_party/umd
-    ${METAL_ROOT_DIR}/tt_metal/third_party/umd/device/api
-    ${METAL_ROOT_DIR}/tt_metal/third_party/umd/src/firmware/riscv/grayskull
-    ${METAL_ROOT_DIR}/tt_metal/third_party/umd/src/firmware/riscv/wormhole
-    ${METAL_ROOT_DIR}/tt_metal/third_party/umd/src/firmware/riscv/blackhole
+    ${METAL_SRC_DIR}
+    ${METAL_SRC_DIR}/tt_metal
+    ${METAL_SRC_DIR}/tt_metal/api
+    ${METAL_SRC_DIR}/tt_metal/hostdevcommon/api
+    ${METAL_SRC_DIR}/tt_metal/hw/inc
+    ${METAL_SRC_DIR}/tt_metal/hw/inc/grayskull
+    ${METAL_SRC_DIR}/tt_metal/hw/inc/wormhole/wormhole_b0_defines
+    ${METAL_SRC_DIR}/tt_metal/hw/inc/wormhole
+    ${METAL_SRC_DIR}/tt_metal/hw/inc/blackhole
+    ${METAL_SRC_DIR}/tt_metal/include
+    ${METAL_SRC_DIR}/tt_stl
+    ${METAL_SRC_DIR}/tt_stl/tt_stl
+    ${METAL_SRC_DIR}/tt_metal/third_party/fmt
+    ${METAL_SRC_DIR}/tt_metal/third_party/magic_enum
+    ${METAL_SRC_DIR}/tt_metal/third_party/taskflow
+    ${METAL_SRC_DIR}/tt_metal/third_party/tracy/public
+    ${METAL_SRC_DIR}/tt_metal/third_party/umd
+    ${METAL_SRC_DIR}/tt_metal/third_party/umd/device/api
+    ${METAL_SRC_DIR}/tt_metal/third_party/umd/src/firmware/riscv/grayskull
+    ${METAL_SRC_DIR}/tt_metal/third_party/umd/src/firmware/riscv/wormhole
+    ${METAL_SRC_DIR}/tt_metal/third_party/umd/src/firmware/riscv/blackhole
 
     # TTNN
-    ${METAL_ROOT_DIR}/ttnn
-    ${METAL_ROOT_DIR}/ttnn/cpp
-    ${METAL_ROOT_DIR}/ttnn/cpp/ttnn
-    ${METAL_ROOT_DIR}/ttnn/cpp/ttnn/deprecated
+    ${METAL_SRC_DIR}/ttnn
+    ${METAL_SRC_DIR}/ttnn/cpp
+    ${METAL_SRC_DIR}/ttnn/cpp/ttnn
+    ${METAL_SRC_DIR}/ttnn/cpp/ttnn/deprecated
 
-    # TT_MLIR Runtime
-    $ENV{TT_MLIR_HOME}/runtime/lib/ttnn
+    # TODO: This needs to be copied locally to preserve the "standalonedness"
+    # # TT_MLIR Runtime
+    # $ENV{TT_MLIR_HOME}/runtime/lib/ttnn
 )
 
 # Link directories
 #
 set(LINK_DIRS
-    ${METAL_LIBS_DIR}
+    ${METAL_LIB_DIR}
 )
 
 # Libraries to link
@@ -117,7 +110,7 @@ set(LINK_LIBS
 
     # TTNN
     # _ttnn  # Why doesn't this work?
-    ${METAL_LIBS_DIR}/_ttnn.so
+    ${METAL_LIB_DIR}/_ttnn.so
 )
 
 # Compile definitions
