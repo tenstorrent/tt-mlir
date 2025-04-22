@@ -68,8 +68,8 @@ static void runEltwiseBinaryNGCompositeOp(
   if (op->type() == ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Minimum &&
       lhs->get_logical_shape() != rhs->get_logical_shape()) {
     // Set use_legacy to false for minimum op when shapes require broadcasting
-    // TODO: Remove after https://github.com/tenstorrent/tt-metal/issues/16147
-    // is closed
+    // TODO(brataTT): Remove after
+    // https://github.com/tenstorrent/tt-metal/issues/16147 is closed
     use_legacy = false;
   }
   ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, std::nullopt, outputMemoryConfig,
