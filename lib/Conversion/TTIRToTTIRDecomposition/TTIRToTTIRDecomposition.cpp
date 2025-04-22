@@ -19,10 +19,6 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 
-#include <llvm/ADT/ArrayRef.h>
-#include <llvm/ADT/STLExtras.h>
-#include <llvm/ADT/SmallVector.h>
-
 #include <algorithm>
 
 using namespace mlir;
@@ -515,7 +511,8 @@ struct GatherToEmbeddingConversionPattern
   }
 
   /**
-   * Lowers Gather Op into Embedding Op (and applies Reshape Op, if necessary)
+   * Lowers Gather Op into Embedding Op (and applies Reshape and Permute Ops, if
+   * necessary)
    *
    * There is no TTNN Gather support.
    * TTIR Gather Op is lowered into TTIR Embedding Op.
@@ -525,16 +522,21 @@ struct GatherToEmbeddingConversionPattern
    * lowered into slice/ concat/ etc.
    *
    * TTIR Embedding Op expects:
-   * - input (weights) to be strictly 2D. Indices from start indices apply to
-   * first dimension, and slices from the second dimension are gathered.
-   * - start indices tensor can be 1D or 2D, and the index dimension
-   * (indexVectorDim) of size 1 isn't included
-   * - output shape is the shape of startIndices with the last dimension of the
-   * input appended
+   * - weights to be strictly 2D. We index the first dimension of weights, and
+   * take slices from the full second dimension.
+   * - input can be 1D or 2D
+   * - output shape is the shape of input with the last dimension of the
+   * weights appended
    *
-   * For operands, we permute the dimensions to be in the right order and
-   * reshape to make tensors 1D/2D. For output, we reshape to recover lost dims
-   * and permute to match offset dims.
+   *  - TTIR Gather input becomes TTIR Embedding weights. Because it can have
+   * any number and order of dimensions, it is permuted and reshaped
+   * (flattened).
+   *  - TTIR Gather startIndices becomes TTIR Embedding input. Because it can
+   * have any number and order of dimensions, it is permuted and reshaped
+   * (flattened).
+   * - TTIR Embedding output needs to be reshaped to recover lost
+   * dimensions and permuted as TTIR Gather output dimensions can be in any
+   * order.
    */
 
   LogicalResult
@@ -568,7 +570,9 @@ struct GatherToEmbeddingConversionPattern
 
     // Calculate a new shape for output: this is new start indices shape + last
     // dim of input shape.
-    std::vector<int64_t> newOutputShape = startIndices.getType().getShape();
+    auto startIndicesShape = startIndices.getType().getShape();
+    llvm::SmallVector<int64_t> newOutputShape(startIndicesShape.begin(),
+                                              startIndicesShape.end());
     newOutputShape.push_back(input.getType().getShape()[1]);
 
     auto embeddingOutputType = mlir::RankedTensorType::get(
@@ -583,6 +587,13 @@ struct GatherToEmbeddingConversionPattern
   }
 
 private:
+  // In StableHLO, startIndexMap attribute refers to which dims of input
+  // we are indexing (with startIndices). We need these dims to be
+  // flattened together to be the first dim of transformed input (that is
+  // weights for ttir.embedding). This helper makes these indexing dims
+  // the first few dims of input.
+  // Example: inputShape = [2, 3, 4, 5], startIndexMap = [1, 3] ->
+  // permutedInputShape = [3, 5, 2, 4]
   ttir::PermuteOp
   permuteInput(ConversionPatternRewriter &rewriter, Location loc,
                ::mlir::TypedValue<::mlir::RankedTensorType> input,
@@ -607,6 +618,10 @@ private:
         inputType.getEncoding(), input, inputPermutation);
   }
 
+  // This helper flattens the indexing dims to be one, first dim of
+  // transformed input, and all the other dims to be the second dim.
+  // Example: permutedInputShape = [3, 5, 2, 4], numIndexingDims = 2 ->
+  // newIputShape = [15, 8]
   ttir::ReshapeOp
   reshapeInput(ConversionPatternRewriter &rewriter, Location loc,
                ::mlir::TypedValue<::mlir::RankedTensorType> input,
@@ -622,6 +637,15 @@ private:
     return createReshapeOp(rewriter, loc, input, newInputShape);
   }
 
+  // If we are indexing multiple dimes of input, we need to adjust start
+  // indices to represent indices that index one flattened dimension.
+  // - indexVectorDim represents in what dimension are indices, so first we
+  // permute to make sure it is the last dimension
+  // - matmul doesn't work with integers (which startIndices are when lowered
+  // form SHLO), so a typecast is added
+  // - then we add matmul to transform the indices
+  // Example: indexingDimsSizes = [3, 5], startIndices[...] = (i, j) ->
+  // startIndices[...] = 5 * i + j (because reshaped indexingDimSize is 15)
   ttir::MatmulOp transformStartIndices(ConversionPatternRewriter &rewriter,
                                        ::llvm::ArrayRef<int64_t> inputShape,
                                        ttir::GatherOp op) const {
@@ -679,6 +703,8 @@ private:
         constantOp);
   }
 
+  // Helper that reshapes start indices to reduce number of dims as it can't be
+  // 3 or greater.
   ttir::ReshapeOp reshapeStartIndices(
       ConversionPatternRewriter &rewriter, Location loc,
       ::mlir::TypedValue<::mlir::RankedTensorType> startIndices) const {
@@ -691,18 +717,14 @@ private:
     return createReshapeOp(rewriter, loc, startIndices, newStartIndicesShape);
   }
 
-  ttir::ReshapeOp createReshapeOp(PatternRewriter &rewriter, Location loc,
-                                  Value input,
-                                  ::llvm::ArrayRef<int64_t> targetShape) const {
-    auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
-    auto shapeAttr =
-        rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(targetShape));
-
-    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
-        rewriter, loc, targetShape, inputType.getElementType(),
-        inputType.getEncoding(), input, shapeAttr);
-  }
-
+  // In output, dims other than offsetDims map to startIndices shape, and
+  // offsetDims map to input slices. After ttir.embedding all offseDims are
+  // flattened to the last dim of output. First we reshape that output to
+  // recover lost dims, then we permute them so offset dims are where the
+  // attribute states.
+  // Example: expectedOutputShape = [2, 3, 4, 5], offsetDims = [1, 3]
+  // -> embeddingOutputShape = [2, 4, 15] -reshape-> [2, 4, 3, 5] -permute-> [2,
+  // 3, 4, 5]
   ttir::PermuteOp reshapeAndPermuteOutput(
       ConversionPatternRewriter &rewriter, Location loc,
       ::mlir::TypedValue<::mlir::RankedTensorType> output,
@@ -735,6 +757,18 @@ private:
         rewriter, loc, expectedOutputType.getShape(),
         expectedOutputType.getElementType(), expectedOutputType.getEncoding(),
         reshapedOutput, ttmlir::utils::inversePermutation(outputPermutation));
+  }
+
+  ttir::ReshapeOp createReshapeOp(PatternRewriter &rewriter, Location loc,
+                                  Value input,
+                                  ::llvm::ArrayRef<int64_t> targetShape) const {
+    auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
+    auto shapeAttr =
+        rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(targetShape));
+
+    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, loc, targetShape, inputType.getElementType(),
+        inputType.getEncoding(), input, shapeAttr);
   }
 };
 } // namespace
