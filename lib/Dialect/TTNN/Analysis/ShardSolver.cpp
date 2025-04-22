@@ -774,8 +774,10 @@ llvm::Expected<bool> ShardSolver::checkShardCompatible(
 
     // TODO(odjuricic): This needs to change to pass full consumer config once #
     // is completed.
-    llvm::Expected<std::tuple<size_t, size_t, size_t>> l1UsageExp =
-        backend.getOpConstraints(inputLayouts, consumerConfig.outputLayout);
+    llvm::Expected<
+        std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+        l1UsageExp =
+            backend.getOpConstraints(inputLayouts, consumerConfig.outputLayout);
 
     if (!l1UsageExp) {
       llvm::Error error = l1UsageExp.takeError();
@@ -795,7 +797,8 @@ llvm::Expected<bool> ShardSolver::checkShardCompatible(
 
       return error;
     }
-    auto [cBUsagePeak, tensorUsage, outputTensorUsage] = l1UsageExp.get();
+    auto [cBUsagePeak, tensorUsage, outputTensorUsage, outputLayout] =
+        l1UsageExp.get();
 
     if (DEBUG) {
       llvm::errs() << "OpModel constraints valid. ";

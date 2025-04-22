@@ -12,4 +12,5 @@ add_mlir_dialect_library(MLIRTTKernelDialect
 
         LINK_LIBS PUBLIC
         MLIRTTMetalDialect
+        MLIRTTDialect
         )

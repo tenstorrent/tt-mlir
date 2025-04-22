@@ -424,3 +424,19 @@ module @jit_matmul_shardy_automatic_test2 attributes {mhlo.num_partitions = 8 : 
 // CHECK-SAME: tensor<4096x16384xf32, #tt.mesh_sharding<"mesh">>
 // CHECK-SAME: tensor<8192x16384xf32, #tt.mesh_sharding<"mesh", [ 2(0),  1]>>
 // CHECK-SAME: tensor<8192x16384xf32, #tt.mesh_sharding<"mesh", [ 2(0),  1]>>
+
+// -----
+
+// torchax - reshape
+module @jit_reshape attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
+  sdy.mesh @mesh = <["x"=1, "batch"=8]>
+  func.func public @main(%arg0: tensor<1024x2x32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"batch"}, {}, {}, {}]>}) -> (tensor<2048x1024xf32> {jax.result_info = ""}) {
+    %0 = stablehlo.reshape %arg0 : (tensor<1024x2x32x32xf32>) -> tensor<2048x1024xf32>
+    return %0 : tensor<2048x1024xf32>
+  }
+}
+// CHECK: "ttir.mesh_shard"
+// CHECK-SAME: shard_dims = array<i64: -1, 0>
+// CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
+// CHECK-SAME: shard_shape = array<i64: 8, 1, 1, 1>
+// CHECK-SAME: shard_type = #tt.shard_type<devices>

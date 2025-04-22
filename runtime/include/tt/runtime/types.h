@@ -73,18 +73,25 @@ struct RuntimeCheckedObjectImpl {
   bool matchesRuntime(DeviceRuntime runtime) const {
     return associatedRuntime == runtime;
   }
+  void assertMatchesRuntime(DeviceRuntime expectedRuntime) const {
+    assert(matchesRuntime(expectedRuntime) &&
+           "Associated runtime does not match expected runtime of cast");
+  }
 
   template <typename T>
   T &as(DeviceRuntime expectedRuntime) {
-    assert(associatedRuntime == expectedRuntime &&
-           "Associated runtime does not match expected runtime of cast");
+    assertMatchesRuntime(expectedRuntime);
     return *static_cast<T *>(handle.get());
   }
   template <typename T>
   T const &as(DeviceRuntime expectedRuntime) const {
-    assert(associatedRuntime == expectedRuntime &&
-           "Associated runtime does not match expected runtime of cast");
+    assertMatchesRuntime(expectedRuntime);
     return *static_cast<T const *>(handle.get());
+  }
+  template <typename T>
+  std::shared_ptr<T> asSharedPtr(DeviceRuntime expectedRuntime) const {
+    assertMatchesRuntime(expectedRuntime);
+    return std::static_pointer_cast<T>(handle);
   }
 };
 
