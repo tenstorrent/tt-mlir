@@ -678,7 +678,7 @@ private:
         rewriter, op->getLoc(), typecastResultType, startIndicesPermuted);
 
     // Const op with correct weights to matmul indices with.
-    std::vector<float> indexWeight(numIndexingDims);
+    llvm::SmallVector<float> indexWeight(numIndexingDims);
     int dimensionOffset = 1;
     for (int i = numIndexingDims - 1; i >= 0; i--) {
       indexWeight[i] = dimensionOffset;
