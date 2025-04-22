@@ -15,12 +15,11 @@ OVERRIDE_PARAMETER_DISABLED_STR = "None"
 
 def parse_loc_string(loc_str):
     """
-    This can be replaced by ttmlir.ir.Module.parse, but requires some further wodo to extract the actual location object from the module.
+    This can be replaced by ttmlir.ir.Module.parse, but requires some further work to extract the actual location object from the module.
     """
     match = re.match(r'^loc\("([^"]+)"', loc_str)
-    if match:
-        return match.group(1)
-    return None
+    assert match, f"Failed to parse location string: {loc_str}"
+    return match.group(1)
 
 
 class AttrHandler:
@@ -914,6 +913,8 @@ def build_graph(module, perf_trace=None, memory_trace=None, golden_results=None)
         # Merge with existing attributes if namespace already exists
         graph.groupNodeAttributes[namespace].update(module_attrs)
 
+    processed_locs = set()
+
     # Process the module hierarchy recursively
     process_operations(
         module.body.operations,
@@ -926,7 +927,12 @@ def build_graph(module, perf_trace=None, memory_trace=None, golden_results=None)
         perf_node_data,
         memory_data,
         accuracy_node_data,
+        processed_locs,
     )
+
+    # Check if all perf locations match some graph node
+    for loc in loc_to_perf.keys():
+        assert loc in processed_locs, f"Perf location {loc} not found in graph nodes"
 
     # Add Overlay Data if it exists
     overlays = {}
@@ -973,6 +979,7 @@ def process_operations(
     perf_node_data,
     memory_data,
     accuracy_node_data,
+    processed_locs,
 ):
     """
     Recursively process a list of operations, including handling nested modules.
@@ -1006,6 +1013,7 @@ def process_operations(
                 perf_node_data,
                 memory_data,
                 accuracy_node_data,
+                processed_locs,
             )
             continue
 
@@ -1024,10 +1032,12 @@ def process_operations(
                     perf_node_data,
                     memory_data,
                     accuracy_node_data,
+                    processed_locs,
                 )
 
         # Create graph node for this operation
         operation = OpHandler(op)
+        processed_locs.add(operation.named_location)
 
         if (
             operation.named_location in loc_to_perf
