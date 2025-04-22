@@ -170,27 +170,13 @@ if(TTMLIR_ENABLE_PYKERNEL)
   declare_mlir_python_sources(TTPykernelSources
     ROOT_DIR "${TTPYKERNEL_ROOT_DIR}"
     SOURCES
-      pykernel_ast.py
-      pykernel_types.py
+      ast.py
+      types.py
   )
   add_mlir_python_modules(TTPykernelModules
     ROOT_PREFIX "${TTMLIR_PYTHON_PACKAGES_DIR}/pykernel"
     INSTALL_PREFIX "python_packages/pykernel"
     DECLARED_SOURCES TTPykernelSources
-  )
-
-  # Add an install COMPONENT for PyKernel
-  # Include the two install commands with the PyKernel component
-  install(DIRECTORY ${CMAKE_BINARY_DIR}/python/dialects/ DESTINATION python/dialects COMPONENT PyKernel EXCLUDE_FROM_ALL)
-  install(DIRECTORY ${CMAKE_BINARY_DIR}/python_packages/ DESTINATION . COMPONENT PyKernel EXCLUDE_FROM_ALL)
-
-
-  install(TARGETS TTMLIRCompilerStatic
-    COMPONENT PyKernel
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
-    RUNTIME DESTINATION bin
-    EXCLUDE_FROM_ALL
   )
 endif()
 
