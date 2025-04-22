@@ -1152,10 +1152,6 @@ class OpModelConv2dParam
                      detail::ExpectedResult>> {};
 
 TEST_P(OpModelConv2dParam, Conv2d) {
-  // Disabled due to segfault after reshape op called with program cache enabled
-  // TODO(brataTT): Re-enable after
-  // https://github.com/tenstorrent/tt-mlir/issues/3054
-  GTEST_SKIP();
   auto params = GetParam();
   const auto [inputShape, inputTensorLayout, inputBufferType,
               inputVirtualGrid] = std::get<0>(params);
