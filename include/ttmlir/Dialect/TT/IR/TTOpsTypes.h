@@ -58,8 +58,9 @@ parseDimensionList(mlir::AsmParser &odsParser,
 }
 
 template <typename... Args>
-inline void printVargDimensionList(mlir::AsmPrinter &printer, Args... dims) {
-  printDimensionList(printer, llvm::SmallVector<int64_t>({dims...}));
+inline void printVargDimensionList(mlir::AsmPrinter &printer, Args &&...dims) {
+  printDimensionList(printer,
+                     llvm::SmallVector<int64_t>({std::forward<Args>(dims)...}));
 }
 
 inline void printIdentityAffineMap(mlir::AsmPrinter &printer,
@@ -75,26 +76,27 @@ inline void printIdentityAffineMap(mlir::AsmPrinter &printer,
 
 inline mlir::ParseResult parseIdentityAffineMap(mlir::AsmParser &odsParser,
                                                 mlir::AffineMap &affineMap) {
-  if (odsParser.parseOptionalKeyword("map").succeeded()) {
-    if (odsParser.parseLParen().failed()) {
-      return failure();
-    }
-
-    unsigned rank;
-    if (odsParser.parseInteger(rank).failed()) {
-      return failure();
-    }
-
-    if (odsParser.parseRParen().failed()) {
-      return failure();
-    }
-
-    affineMap =
-        mlir::AffineMap::getMultiDimIdentityMap(rank, odsParser.getContext());
-
-    return success();
+  if (!odsParser.parseOptionalKeyword("map").succeeded()) {
+    return odsParser.parseAffineMap(affineMap);
   }
-  return odsParser.parseAffineMap(affineMap);
+
+  if (odsParser.parseLParen().failed()) {
+    return failure();
+  }
+
+  unsigned rank;
+  if (odsParser.parseInteger(rank).failed()) {
+    return failure();
+  }
+
+  if (odsParser.parseRParen().failed()) {
+    return failure();
+  }
+
+  affineMap =
+      mlir::AffineMap::getMultiDimIdentityMap(rank, odsParser.getContext());
+
+  return success();
 }
 
 template <typename... Args>
