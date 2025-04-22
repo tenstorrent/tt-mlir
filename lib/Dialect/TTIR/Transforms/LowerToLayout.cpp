@@ -20,7 +20,8 @@ public:
 
   static LogicalResult lowerLayoutChange(PatternRewriter &rewriter,
                                          ToLayoutOp op) {
-    assert(false && "TODO issue #");
+    assert(false &&
+           "TODO issue https://github.com/tenstorrent/tt-mlir/issues/3037");
   }
 
   static LogicalResult lowerSystemLayoutChange(PatternRewriter &rewriter,
