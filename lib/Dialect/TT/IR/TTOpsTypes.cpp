@@ -67,6 +67,9 @@ mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
     // Populate dummy values for single chip or multi chip config.
     llvm::SmallVector<std::int64_t> gridShape = {10, 13};
 
+    // Physical-to-translated coordinate translation offsets
+    llvm::SmallVector<std::int64_t> coordTranslationOffsets = {18, 18}; // TODO what is this for BH?
+
     // Populate a placeholder for supported tile sizes.
     llvm::SmallVector<DataTypeAttr> supported_data_types = {
         DataTypeAttr::get(context, DataType::Float32),
@@ -91,6 +94,7 @@ mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
         TileSizeAttr::get(context, 16, 32), TileSizeAttr::get(context, 32, 32),
     };
 
+    /*
     llvm::SmallVector<CoreCoordAttr> workerCores;
     // workerCores.reserve(gridShape[0] * gridShape[1]);
     for (std::int64_t y = 2; y <= 11; ++y) {
@@ -101,6 +105,7 @@ mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
         workerCores.push_back(CoreCoordAttr::get(context, y, x));
       }
     }
+    */
 
     // dram = [ 0x0,  1x0,  2x0,  3x0,  4x0,  5x0,  6x0,  7x0]
     llvm::SmallVector<CoreCoordAttr> dramCores;
@@ -108,6 +113,7 @@ mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
       dramCores.push_back(CoreCoordAttr::get(context, y, 0));
     }
 
+    /*
     // eth = [ 1x3,  1x5,  1x6,  1x7,  1x10,  1x11,  1x14]
     llvm::SmallVector<CoreCoordAttr> ethCores;
     for (std::int64_t x : {3, 5, 6, 7, 10, 11, 14}) {
@@ -119,6 +125,7 @@ mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
     for (std::int64_t x : {1, 2, 13, 15, 16}) {
       inactiveEthCores.push_back(CoreCoordAttr::get(context, 1, x));
     }
+    */
 
     // Get number of chips indices.
     llvm::SmallVector<uint32_t> chipIndicesList =
@@ -130,12 +137,12 @@ mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
 
     for (auto i = 0; i < numberOfChips; i++) {
       chipDescs.push_back(ChipDescAttr::get(
-          context, ArchAttr::get(context, Arch::Blackhole), gridShape, l1Size,
-          numDramChannels, dramChannelSize, nocL1AddressAlignBytes,
-          pcieAddressAlignBytes, nocDRAMAddressAlignBytes, l1UnreservedBase,
-          eriscL1UnreservedBase, dramUnreservedBase, dramUnreservedEnd,
-          ChipPhysicalCoresAttr::get(context, workerCores, dramCores, ethCores,
-                                     inactiveEthCores),
+          context, ArchAttr::get(context, Arch::Blackhole), gridShape,
+          coordTranslationOffsets, l1Size, numDramChannels, dramChannelSize,
+          nocL1AddressAlignBytes, pcieAddressAlignBytes, nocDRAMAddressAlignBytes,
+          l1UnreservedBase, eriscL1UnreservedBase, dramUnreservedBase,
+          dramUnreservedEnd,
+          ChipPhysicalHelperCoresAttr::get(context, dramCores, {}, {}),
           supported_data_types, supported_tile_sizes, numCBs, numComputeThreads,
           numDatamovementThreads));
     }
