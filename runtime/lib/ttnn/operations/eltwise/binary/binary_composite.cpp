@@ -64,8 +64,16 @@ static void runEltwiseBinaryNGCompositeOp(
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
+  std::optional<bool> use_legacy = std::nullopt;
+  if (op->type() == ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Minimum &&
+      lhs->get_logical_shape() != rhs->get_logical_shape()) {
+    // Set use_legacy to false for minimum op when shapes require broadcasting
+    // TODO: Remove after https://github.com/tenstorrent/tt-metal/issues/16147
+    // is closed
+    use_legacy = false;
+  }
   ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, std::nullopt, outputMemoryConfig,
-                              std::nullopt, {}, {}, {}, std::nullopt);
+                              std::nullopt, {}, {}, {}, use_legacy);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
