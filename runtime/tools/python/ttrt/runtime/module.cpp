@@ -301,13 +301,26 @@ PYBIND11_MODULE(_C, m) {
   m.def("deallocate_tensor", &tt::runtime::deallocateTensor, py::arg("tensor"),
         py::arg("force") = false, "Deallocate the tensor memory");
   py::class_<tt::runtime::debug::Env>(m, "DebugEnv")
-      .def_static("get", &tt::runtime::debug::Env::get,
-                  py::arg("load_kernels_from_disk") = false,
-                  py::arg("dump_device_rate") = 1000,
-                  "Get the debug environment")
+      .def_static("get",
+                  [](bool loadKernelsFromDisk) {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+                    return tt::runtime::debug::Env::get(loadKernelsFromDisk);
+#else
+    return tt::runtime::debug::Env::get();
+#endif
+                  })
+      .def_static("get",
+                  [](bool loadKernelsFromDisk, std::uint32_t dumpDeviceRate) {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+                    return tt::runtime::debug::Env::get(loadKernelsFromDisk,
+                                                        dumpDeviceRate);
+#else
+    return tt::runtime::debug::Env::get();
+#endif
+                  })
       .def("get_dump_device_rate", &tt::runtime::debug::Env::getDumpDeviceRate)
       .def("set_dump_device_rate", &tt::runtime::debug::Env::setDumpDeviceRate)
-      .def("__str__", [](const tt::runtime::debug::Env &env) {
+      .def("__str__", [](tt::runtime::debug::Env &env) {
         std::stringstream os;
         os << env;
         return os.str();

@@ -15,13 +15,20 @@ namespace tt::runtime::debug {
 
 struct Env {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  static Env const &get(bool loadKernelsFromDisk = false,
-                        std::uint32_t dumpDeviceRate = 1000);
+  static Env &
 #else
-  constexpr static Env get() { return Env(); }
+  constexpr static Env
+#endif
+  get(bool loadKernelsFromDisk = false, std::uint32_t dumpDeviceRate = 1000)
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+      ;
+#else
+  {
+    return Env(false, 1000);
+  }
 #endif
 
-  std::uint32_t getDumpDeviceRate() const {
+  std::uint32_t getDumpDeviceRate() {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     return dumpDeviceRate;
 #else
@@ -29,7 +36,7 @@ struct Env {
 #endif
   }
 
-  void setDumpDeviceRate(std::uint32_t rate) const {
+  void setDumpDeviceRate(std::uint32_t rate) {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     dumpDeviceRate = rate;
 #endif
@@ -39,7 +46,7 @@ struct Env {
 
 private:
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  constexpr Env(bool loadKernelsFromDisk, std::uint32_t dumpDeviceRate)
+  Env(bool loadKernelsFromDisk, std::uint32_t dumpDeviceRate)
       : loadKernelsFromDisk(loadKernelsFromDisk),
         dumpDeviceRate(dumpDeviceRate) {}
 
@@ -49,7 +56,7 @@ private:
 #endif
 };
 
-inline std::ostream &operator<<(std::ostream &os, Env const &env) {
+inline std::ostream &operator<<(std::ostream &os, Env &env) {
   os << "debug::Env{\n"
      << "\t" << "loadKernelsFromDisk: " << env.loadKernelsFromDisk << "\n"
      << "dumpDeviceRate: " << std::to_string(env.getDumpDeviceRate()) << "\n"

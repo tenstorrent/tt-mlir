@@ -233,3 +233,28 @@ def test_get_system_desc(runtime, dispatch_core_type, with_device):
     assert (
         device_ids == sorted_device_ids
     ), f"Expected device IDs {sorted_device_ids}, got {device_ids}"
+
+
+@pytest.mark.parametrize(
+    "load_kernels_from_disk",
+    [True, False],
+)
+@pytest.mark.parametrize(
+    "dump_device_rate",
+    [None, 500],
+)
+def test_debug_env(load_kernels_from_disk, dump_device_rate):
+    if dump_device_rate:
+        debug_env = ttrt.runtime.DebugEnv.get(load_kernels_from_disk, dump_device_rate)
+    else:
+        debug_env = ttrt.runtime.DebugEnv.get(load_kernels_from_disk)
+
+    example_rate = 100
+    ttrt.runtime.DebugEnv.set_dump_device_rate(debug_env, example_rate)
+    get_rate = ttrt.runtime.DebugEnv.get_dump_device_rate(debug_env)
+    assert (
+        get_rate == example_rate
+    ), f"Expected dump device rate to be {example_rate}, got {get_rate}"
+
+    assert debug_env is not None, "Debug environment should exist"
+    assert isinstance(debug_env, ttrt.runtime.DebugEnv), "Expected DebugEnv instance"
