@@ -73,4 +73,11 @@ if (TTMLIR_ENABLE_RUNTIME)
       DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}
       COMPONENT SharedLib
   )
+  # Install detail directory headers separately
+  install(FILES
+    "../include/tt/runtime/detail/debug.h"
+    "../include/tt/runtime/detail/logger.h"
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/tt/runtime/detail
+    COMPONENT SharedLib
+  )
 endif()
