@@ -2,16 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""
-Convenience python wrappers around some commonly used compiler and runtime calls.
-"""
-
 from dataclasses import dataclass
 from enum import Enum
 from multiprocessing import Process, Queue
 from typing import Any, Callable
 
-from ttmlir.compile_and_run_utils import *
+from ttmlir.compile_and_run_internal import *
 from ttmlir.ir import Module
 from ttmlir.passes import (
     stablehlo_to_ttir_pipeline,

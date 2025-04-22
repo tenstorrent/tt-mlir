@@ -113,6 +113,8 @@ def convert_to_pydantic_model(result: ExecutionResult) -> OpTest:
         for output in result.last_generated_module.outputs
     ]
 
+    # TODO This is the point we lose track of ExecutionPhase since we are missing a
+    # field in which we can store it.
     error_msg = (
         None
         if result.device_run_passed

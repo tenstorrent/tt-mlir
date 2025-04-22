@@ -13,7 +13,7 @@ raising RuntimeError that can be handled with a try-except block in caller.
 
 import os
 
-from ttmlir.compile_and_run_utils import *
+from ttmlir.compile_and_run_internal import *
 from ttmlir.ir import Module
 from ttrt.common.util import Binary
 

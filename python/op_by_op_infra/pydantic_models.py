@@ -23,7 +23,7 @@ class TensorDesc(BaseModel):
     data_type: str = Field(
         description="Data type of the tensor, e.g. Float32, " "BFloat16, etc."
     )
-    # TODO Only TTNN ops have the following attributes. Thus set to optional.
+    # NOTE Only TTNN ops have the following attributes. Thus set to optional.
     buffer_type: Optional[str] = Field(
         default=None,
         description="Memory space of the tensor, e.g. Dram, L1, " "System.",
@@ -48,13 +48,15 @@ class OpTest(BaseModel):
     results, configuration.
     """
 
-    # TODO Set during job collection and running the CI pipeline, can't be set earlier.
-    # Not needed here. Set as optional.
+    # NOTE Set during job collection and running the CI pipeline, can't be set earlier.
+    # Set as optional.
     github_job_id: Optional[int] = Field(
         default=None,
         description="Identifier for the Github Actions CI job, which ran the test.",
     )
-    # TODO Set by frontend.
+    # NOTE This is pytest metadata, can't be set in op by op infra nor provided by
+    # frontend. Must be set somewhere in pydantic model -> db table conversion.
+    # Set as optional.
     full_test_name: Optional[str] = Field(
         default=None, description="Test name plus config."
     )
@@ -64,31 +66,37 @@ class OpTest(BaseModel):
     test_end_ts: datetime = Field(
         description="Timestamp with timezone when the test execution ended."
     )
-    # TODO what should be set here? Set as optional for now.
+    # NOTE This is pytest metadata, can't be set in op by op infra nor provided by
+    # frontend. Must be set somewhere in pydantic model -> db table conversion.
+    # Set as optional.
     test_case_name: Optional[str] = Field(
         default=None, description="Name of the pytest function."
     )
-    # TODO Set by frontend.
+    # NOTE This is pytest metadata, can't be set in op by op infra nor provided by
+    # frontend. Must be set somewhere in pydantic model -> db table conversion.
+    # Set as optional.
     filepath: Optional[str] = Field(
         default=None, description="Test file path and name."
     )
     success: bool = Field(description="Test execution success.")
-    # TODO Never skipped in op by op infra, always ends at some step. Defaulted to False.
+    # NOTE This is pytest metadata, can't be set in op by op infra nor provided by
+    # frontend. Must be set somewhere in pydantic model -> db table conversion.
+    # Set as optional.
     skipped: bool = Field(
         default=False, description="Some tests in a job can be skipped."
     )
     error_message: Optional[str] = Field(
         None, description="Succinct error string, such as exception type."
     )
-    # Unused.
+    # NOTE Unused for now.
     config: Optional[dict] = Field(
         default=None, description="Test configuration, as key/value pairs."
     )
-    # TODO Set by frontend.
+    # NOTE This field must be provided from frontend.
     frontend: Optional[str] = Field(
         default=None, description="ML frontend or framework used to run the test."
     )
-    # TODO Set by frontend.
+    # NOTE This field must be provided from frontend.
     model_name: Optional[str] = Field(
         default=None,
         description="Name of the ML model in which this operation is used.",
@@ -106,7 +114,7 @@ class OpTest(BaseModel):
     )
     inputs: List[TensorDesc] = Field(description="List of input tensors.")
     outputs: List[TensorDesc] = Field(description="List of output tensors.")
-    # TODO Unused.
+    # NOTE Unused for now.
     op_params: Optional[dict] = Field(
         default=None,
         description="Parametrization criteria for the operation, based on its kind, "

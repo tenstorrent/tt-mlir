@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Callable, List, Optional
 
-from ttmlir.dialects import stablehlo, tt, ttir, ttnn
+from ttmlir.dialects import stablehlo, tt, ttnn
 from ttmlir.ir import (
     Context,
     Module,
@@ -152,11 +152,7 @@ class OpWrapper:
         self.operands = [
             Operand(operand.get_name(), operand.type) for operand in op.operands
         ]
-        self.result = (
-            Result(op.result.get_name(), op.result.type)
-            if len(op.results) > 0
-            else None
-        )
+        self.results = [Result(result.get_name(), result.type) for result in op.results]
         self.attributes = attrs
 
     def __str__(self) -> str:
@@ -189,12 +185,15 @@ class OpWrapper:
             f"{operand.name}: {operand.type}" for operand in self.operands
         )
 
-        # Handle special case of ops that don't return anything.
-        if self.result is not None:
-            fn_return_type = self.result.type
-            return_stmt = f"return {self.result.name} : {self.result.type}"
+        if len(self.results) > 1:
+            results = f"({', '.join(result.name for result in self.results)})"
+            return_type = f"({', '.join(str(result.type) for result in self.results)})"
+            return_stmt = f"return {results} : {return_type}"
+        elif len(self.results) == 1:
+            return_type = self.results[0].type
+            return_stmt = f"return {self.results[0].name} : {self.results[0].type}"
         else:
-            fn_return_type = "()"
+            return_type = "()"
             return_stmt = "return"
 
         # Handle special case of modules that carry attributes.
@@ -207,7 +206,7 @@ class OpWrapper:
 
         return (
             f"module attributes {attrs} {{ \n"
-            f"  func.func @main({unpacked_operands}) -> {fn_return_type} {{ \n"
+            f"  func.func @main({unpacked_operands}) -> {return_type} {{ \n"
             f"    {self.op} \n"
             f"    {return_stmt} \n"
             f"  }} \n"
@@ -222,7 +221,7 @@ class OpWrapper:
         # Store important references to the original op.
         module_wrapper.origin_op_name = self.name
         module_wrapper.origin_op_operands = self.operands
-        module_wrapper.origin_op_result = self.result
+        module_wrapper.origin_op_results = self.results
         return module_wrapper
 
 
@@ -269,12 +268,15 @@ class TTNNOpWrapper(OpWrapper):
             f"{operand.name}: {operand.type}" for operand in self.operands
         )
 
-        # Handle special case of ops that don't return anything.
-        if self.result is not None:
-            fn_return_type = self.result.type
-            return_stmt = f"return {self.result.name} : {self.result.type}"
+        if len(self.results) > 1:
+            results = f"({', '.join(result.name for result in self.results)})"
+            return_type = f"({', '.join(str(result.type) for result in self.results)})"
+            return_stmt = f"return {results} : {return_type}"
+        elif len(self.results) == 1:
+            return_type = self.results[0].type
+            return_stmt = f"return {self.results[0].name} : {self.results[0].type}"
         else:
-            fn_return_type = "()"
+            return_type = "()"
             return_stmt = "return"
 
         # Handle special case of modules that carry attributes.
@@ -290,7 +292,7 @@ class TTNNOpWrapper(OpWrapper):
             f"tt.device_module {{ \n"
             f"builtin.module attributes {attrs} {{ \n"
             f"  {self.tt_device_op} \n"
-            f"  func.func @main({unpacked_operands}) -> {fn_return_type} {{ \n"
+            f"  func.func @main({unpacked_operands}) -> {return_type} {{ \n"
             f"    {self.op} \n"
             f"    {return_stmt} \n"
             f"  }} \n"
@@ -317,14 +319,14 @@ class ModuleWrapper:
         *,
         origin_op_name: Optional[str] = None,
         origin_op_operands: Optional[List[Operand]] = None,
-        origin_op_result: Optional[Result] = None,
+        origin_op_results: Optional[List[Result]] = None,
     ) -> None:
         self.module: Module = module
         self.dialect: ModuleDialect = dialect or ModuleDialect.detect(module)
 
         self.origin_op_name = origin_op_name
         self.origin_op_operands = origin_op_operands
-        self.origin_op_result = origin_op_result
+        self.origin_op_results = origin_op_results
 
     def __repr__(self) -> str:
         s = f"ModuleWrapper(\ndialect: {self.dialect.value}\n{self.module}"
@@ -351,7 +353,7 @@ class ModuleWrapper:
     def outputs(self) -> List[Result]:
         """Shorthand accessor for results of origin op."""
         assert self.has_origin_op
-        return [self.origin_op_result] if self.origin_op_result is not None else []
+        return self.origin_op_results if self.origin_op_results is not None else []
 
     @property
     def has_origin_op(self) -> bool:
@@ -409,14 +411,14 @@ class TTNNModuleWrapper(ModuleWrapper):
         *,
         origin_op_name: Optional[str] = None,
         origin_op_operands: Optional[List[Operand]] = None,
-        origin_op_result: Optional[Result] = None,
+        origin_op_results: Optional[List[Result]] = None,
     ) -> None:
         super().__init__(
             module,
             dialect,
             origin_op_name=origin_op_name,
             origin_op_operands=origin_op_operands,
-            origin_op_result=origin_op_result,
+            origin_op_results=origin_op_results,
         )
 
         self._tt_device_module_op: tt.DeviceModuleOp = self.module.body.operations[0]
@@ -480,21 +482,13 @@ def create_mlir_module_from_string(module_str: str) -> Module:
     def register_dialect(dialect: ModuleDialect, ctx: Context) -> None:
         """
         Detects dialect used in `module_str` and registers it with context `ctx`.
+
+        Note that only `stablehlo` needs to be registered this way. All custom TT
+        dialects are registered automatically.
         """
         if dialect == ModuleDialect.STABLE_HLO:
             stablehlo.register_dialect(ctx)
-            # TODO there must be a better way to do this. We need to register `tt`
-            # (or any other of our dialects) otherwise we'll encounter problems with
-            # `func` dialect which isn't included through `stablehlo` and doesn't
-            # provide `func.register_dialect(ctx)` on its own.
-            tt.register_dialect(ctx)
-        elif dialect == ModuleDialect.TTIR:
-            ttir.register_dialect(ctx)
-        elif dialect == ModuleDialect.TTNN:
-            ttnn.register_dialect(ctx)
-        elif dialect == ModuleDialect.TT:
-            tt.register_dialect(ctx)
-        else:
+        elif dialect not in [ModuleDialect.TTIR, ModuleDialect.TTNN, ModuleDialect.TT]:
             raise ValueError(f"Unknown dialect: {dialect.name}")
 
     with Context() as ctx:

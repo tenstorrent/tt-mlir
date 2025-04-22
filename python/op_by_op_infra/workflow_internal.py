@@ -15,8 +15,6 @@ from .pydantic_models import OpTest
 def convert_results_to_pydantic_models(
     results: List[ExecutionResult],
     *,
-    full_test_name: Optional[str] = None,
-    filepath: Optional[str] = None,
     frontend: Optional[str] = None,
     model_name: Optional[str] = None,
 ) -> List[OpTest]:
@@ -32,14 +30,12 @@ def convert_results_to_pydantic_models(
     # Check if any of the missing attributes were passed to the function and add them
     # to the model if they were.
     missing_attributes_provided = any(
-        param is not None for param in [full_test_name, filepath, frontend, model_name]
+        param is not None for param in [frontend, model_name]
     )
     if missing_attributes_provided:
         for pydantic_model in models:
             add_missing_attributes(
                 pydantic_model,
-                full_test_name=full_test_name,
-                filepath=filepath,
                 frontend=frontend,
                 model_name=model_name,
             )
@@ -50,8 +46,6 @@ def convert_results_to_pydantic_models(
 def add_missing_attributes(
     pydantic_model: OpTest,
     *,
-    full_test_name: Optional[str] = None,
-    filepath: Optional[str] = None,
     frontend: Optional[str] = None,
     model_name: Optional[str] = None,
 ) -> None:
@@ -63,12 +57,6 @@ def add_missing_attributes(
     pydantic_model: OpTest
         Model instance who's attributes we change.
 
-    full_test_name: Optional[str]
-        Path to the model test file + additional suffix specifying test uniquely.
-
-    filepath: Optional[str]
-        Path to the file in which test is written.
-
     frontend: Optional[str]
         Name of the frontend using op by op infra.
 
@@ -76,8 +64,6 @@ def add_missing_attributes(
         Name of the ML model which was passed as original MLIR module to the op by op
         infra. I.e model in which operation `pydantic_model.op_name` is used.
     """
-    pydantic_model.full_test_name = full_test_name
-    pydantic_model.filepath = filepath
     pydantic_model.frontend = frontend
     pydantic_model.model_name = model_name
 

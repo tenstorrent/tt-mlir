@@ -163,8 +163,7 @@ class MLIRModuleExecutor:
         module.
         """
         # During compilation steps, keep in mind that compilation API uses MLIR `Module`
-        # which it modifies in-place. Make copy of the original underlying module and
-        # work on it. Also, don't lose track of the origin op.
+        # which it modifies in-place. Also, don't lose track of the origin op.
         try:
             shlo = self._module.module
 
@@ -175,7 +174,7 @@ class MLIRModuleExecutor:
                     ttir,
                     origin_op_name=self._module.origin_op_name,
                     origin_op_operands=self._module.origin_op_operands,
-                    origin_op_result=self._module.origin_op_result,
+                    origin_op_results=self._module.origin_op_results,
                 ),
             )
 
@@ -186,7 +185,7 @@ class MLIRModuleExecutor:
                     ttnn,
                     origin_op_name=self._module.origin_op_name,
                     origin_op_operands=self._module.origin_op_operands,
-                    origin_op_result=self._module.origin_op_result,
+                    origin_op_results=self._module.origin_op_results,
                 ),
             )
         finally:
@@ -209,7 +208,7 @@ class MLIRModuleExecutor:
                     ttnn,
                     origin_op_name=self._module.origin_op_name,
                     origin_op_operands=self._module.origin_op_operands,
-                    origin_op_result=self._module.origin_op_result,
+                    origin_op_results=self._module.origin_op_results,
                 ),
             )
         finally:

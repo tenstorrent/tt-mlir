@@ -144,8 +144,8 @@ declare_mlir_python_sources(TTMLIRPythonCommon.Main
   ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/common"
   ADD_TO_PARENT TTMLIRPythonCommon
   SOURCES
+    compile_and_run_internal.py
     compile_and_run.py
-    compile_and_run_utils.py
 )
 
 declare_mlir_python_sources(TTMLIRPythonOpByOpInfra)
@@ -159,8 +159,8 @@ declare_mlir_python_sources(TTMLIRPythonOpByOpInfra.Main
     mlir_module_splitter.py
     pydantic_models.py
     utils.py
-    workflow_utils.py
-    workflows.py
+    workflow_internal.py
+    workflow.py
 )
 
 declare_mlir_python_sources(TTMLIRPythonTestInfra)
