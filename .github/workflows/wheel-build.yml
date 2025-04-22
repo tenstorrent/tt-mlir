@@ -124,7 +124,7 @@ jobs:
           # Don't activate env since this will attempt to install in fresh venv
           python3 -m venv whl_test
           source whl_test/bin/activate
-          WHEEL_FILE=$(ls ./dist/ttmlir-*.whl)
+          WHEEL_FILE=$(ls ./dist/pykernel-*.whl)
           echo "Installing wheel: $WHEEL_FILE"
           pip install $WHEEL_FILE
 
