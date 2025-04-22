@@ -47,12 +47,9 @@ struct SimpleAllocator {
   };
 
   SimpleAllocator(SmallVector<MemorySpaceInfo> memorySpaceInfo)
-      : memorySpaceInfo(memorySpaceInfo) {
-    currPtr.reserve(memorySpaceInfo.size());
-    for (auto const &info : memorySpaceInfo) {
-      currPtr.push_back(info.baseAddress);
-    }
-  }
+      : currPtr(llvm::map_to_vector(
+            memorySpaceInfo, [](auto &&info) { return info.baseAddress; })),
+        memorySpaceInfo(memorySpaceInfo) {}
 
   std::array<uint64_t, 2> allocate(uint64_t size, MemorySpace memorySpace) {
     if (isSystemMemorySpace(memorySpace)) {
