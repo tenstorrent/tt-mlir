@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Utility library for parsing MLIR
 import re
+from pathlib import Path
 from collections import defaultdict
 from model_explorer import graph_builder, node_data_builder
 
@@ -845,9 +846,10 @@ FILTERED_OPS = [
 ]
 
 
-def build_graph(module, perf_trace=None, memory_trace=None, golden_results=None):
+def build_graph(module_path: str, module, perf_trace=None, memory_trace=None, golden_results=None):
+    graph_id = f"TT Graph: {Path(module_path).stem}"
     output_connections = defaultdict(int)
-    graph = graph_builder.Graph(id="tt-graph")
+    graph = graph_builder.Graph(id=graph_id)
 
     op_to_graph_node = {}
     # Track operands already added to graph to avoid duplicates
@@ -941,7 +943,7 @@ def build_graph(module, perf_trace=None, memory_trace=None, golden_results=None)
             results=perf_node_data, gradient=gradient
         )
         overlays["perf_data"] = node_data_builder.ModelNodeData(
-            graphsData={"tt-graph": graph_node_data}
+            graphsData={graph_id: graph_node_data}
         ).graphsData
 
     if accuracy_node_data:
@@ -955,7 +957,7 @@ def build_graph(module, perf_trace=None, memory_trace=None, golden_results=None)
             results=accuracy_node_data, thresholds=thres
         )
         overlays["accuracy_data"] = node_data_builder.ModelNodeData(
-            graphsData={"tt-graph": graph_node_data}
+            graphsData={graph_id: graph_node_data}
         ).graphsData
 
     OpHandler.schedule = 0
