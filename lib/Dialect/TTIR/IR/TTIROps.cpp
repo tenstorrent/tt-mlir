@@ -3814,7 +3814,7 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 
 // CumSumOp verification
 ::mlir::LogicalResult mlir::tt::ttir::CumSumOp::verify() {
-  int64_t dim = getDimAttr().getSInt();
+  int64_t dim = getDim();
   int64_t inputRank = getInput().getType().getRank();
   if (dim < -inputRank || dim >= inputRank) {
     return emitOpError() << "specified dimension should be between "
@@ -3828,7 +3828,7 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 // CumSumOp folding
 ::mlir::OpFoldResult mlir::tt::ttir::CumSumOp::fold(FoldAdaptor adaptor) {
   // Normalize `dim` to be in range [0, rank).
-  int64_t dim = getDimAttr().getSInt();
+  int64_t dim = getDim();
   int64_t rank = getInput().getType().getRank();
   if (dim < 0) {
     setDim(dim + rank);
