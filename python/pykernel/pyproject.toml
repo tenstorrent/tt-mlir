@@ -1,12 +1,10 @@
 [build-system]
-requires = ["setuptools>=61.0", "cmake", "pybind11", "nanobind", "wheel", "pip"]
+requires = ["setuptools", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "pykernel"
 description = "Python Endpoint to write TT-Metal Kernels"
-readme = "README.md"
-license = { file = "LICENSE" }
 authors = [
   { name = "Tenstorrent", email = "info@tenstorrent.com" }
 ]
@@ -20,5 +18,19 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Artificial Intelligence"
 ]
 
-# We will dynamically provide `version` and `dependencies` in setup.py
-dynamic = ["version", "dependencies"]
+dynamic = ["dependencies", "version"]
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.package-dir]
+pykernel = "../pykernel"
+
+[tool.setuptools.packages.find]
+where = [".."]
+include = ["pykernel"]
+namespaces = false
+
+[tool.setuptools.dynamic]
+dependencies = {file = "requirements.txt"}
+version = {attr = "pykernel.__version__"}

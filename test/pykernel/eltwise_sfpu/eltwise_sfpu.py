@@ -5,8 +5,8 @@
 # RUN: %python %s | FileCheck %s
 # REQUIRES: pykernel
 
-from pykernel.pykernel_ast import *
-from pykernel.pykernel_types import *
+from pykernel.ast import *
+from pykernel.types import *
 
 
 @ttkernel_tensix_compile()
