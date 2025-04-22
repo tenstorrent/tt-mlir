@@ -422,13 +422,11 @@ class Run:
 
                 inputs_converted = []
                 for input_index in range(len(inputs)):
-                    input_layout = ttrt.runtime.get_layout(
-                        fbb, program_index, input_index
+                    inputs_converted.append(
+                        ttrt.runtime.to_layout(
+                            inputs[input_index], device, input_layout, True
+                        )
                     )
-                    new_input = ttrt.runtime.to_layout(
-                        inputs[input_index], device, input_layout, True
-                    )
-                    inputs_converted.append(new_input)
                 return inputs_converted
 
             if len(binaries) == 0:
@@ -555,52 +553,113 @@ class Run:
                             Run.TorchInitializer.get_initilizer("zeros")
                         )
 
-                        total_inputs = []
-                        total_outputs = []
-                        for loop in range(self["--loops"]):
-                            self.logging.debug(
-                                f"generating inputs/outputs for loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
+                        inputs = []
+                        outputs = []
+                        for i in program.input_tensors:
+                            new_input = ttrt.runtime.create_owned_tensor(
+                                i.data_ptr(),
+                                list(i.shape),
+                                list(i.stride()),
+                                i.element_size(),
+                                Binary.Program.to_data_type(i.dtype),
                             )
+                            inputs.append(new_input)
 
-                            inputs = []
-                            outputs = []
-                            for i in program.input_tensors:
-                                new_input = ttrt.runtime.create_owned_tensor(
+                        for i in program.output_tensors:
+                            outputs.append(
+                                ttrt.runtime.create_owned_tensor(
                                     i.data_ptr(),
                                     list(i.shape),
                                     list(i.stride()),
                                     i.element_size(),
                                     Binary.Program.to_data_type(i.dtype),
                                 )
-                                inputs.append(new_input)
-
-                            for i in program.output_tensors:
-                                outputs.append(
-                                    ttrt.runtime.create_owned_tensor(
-                                        i.data_ptr(),
-                                        list(i.shape),
-                                        list(i.stride()),
-                                        i.element_size(),
-                                        Binary.Program.to_data_type(i.dtype),
-                                    )
-                                )
-
-                            total_inputs.append(inputs)
-                            total_outputs.append(outputs)
+                            )
 
                         event = None
+
+                        # Parse the dirty tensor schedule
+                        update_tensor_schedule = {}
+                        if self["--dirty-tensor-schedule"]:
+                            dirty_configs = self["--dirty-tensor-schedule"].split(",")
+
+                            if not dirty_configs:
+                                raise Exception(
+                                    "Invalid --dirty-tensor-schedule format. Expected 'index:iterations,...'"
+                                )
+                            for config in dirty_configs:
+                                if ":" not in config:
+                                    raise Exception(
+                                        f"Invalid dirty tensor configuration: '{config}'. Missing colon separator. Expected format 'index:iterations'"
+                                    )
+                                parts = config.split(":")
+                                if len(parts) != 2:
+                                    raise Exception(
+                                        f"Invalid dirty tensor configuration: '{config}'. Too many colons. Expected format 'index:iterations'"
+                                    )
+                                try:
+                                    input_idx = int(parts[0])
+                                    iterations = int(parts[1])
+                                except ValueError:
+                                    raise Exception(
+                                        f"Invalid dirty tensor configuration: '{config}'. Both index and iterations must be integers. Got '{parts[0]}' and '{parts[1]}'"
+                                    )
+
+                                if input_idx < 0:
+                                    raise Exception(
+                                        f"Invalid dirty tensor configuration: '{config}'. Tensor index must be non-negative. Got {input_idx}"
+                                    )
+
+                                if iterations < 0:
+                                    raise Exception(
+                                        f"Invalid dirty tensor configuration: '{config}'. Iterations must be non-negative. Got {iterations}"
+                                    )
+
+                                if iterations not in update_tensor_schedule:
+                                    update_tensor_schedule[iterations] = []
+                                update_tensor_schedule[iterations].append(input_idx)
+
+                        # pre-upload inputs
+                        inputs = convert_input_layouts(
+                            device, inputs, bin.fbb, program_index
+                        )
 
                         for loop in range(self["--loops"]):
                             self.logging.debug(
                                 f"starting loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
                             )
+                            # Check if we need to dirty any input tensors in this iteration
+                            if loop in update_tensor_schedule:
+                                for input_idx in update_tensor_schedule[loop]:
+                                    if input_idx < len(inputs):
+                                        # Get the tensor to dirty
+                                        tensor_to_dirty = inputs[input_idx]
+                                        # Call the dirtyTensor function to increment the version counter
+                                        expected_layout = ttrt.runtime.get_layout(
+                                            bin.fbb, program_index, input_idx
+                                        )
+                                        result_tensor = ttrt.runtime.to_layout(
+                                            tensor_to_dirty,
+                                            device,
+                                            expected_layout,
+                                            True,
+                                        )
+                                        inputs[input_idx] = result_tensor
+                                        self.logging.info(
+                                            f"Marked input tensor {input_idx} as dirty after {loop} iterations"
+                                        )
+                                    else:
+                                        self.logging.warning(
+                                            f"Cannot dirty input tensor {input_idx}, only {len(inputs)} inputs available"
+                                        )
+
                             if current_runtime == ttrt.runtime.DeviceRuntime.TTMetal:
                                 event = ttrt.runtime.submit(
                                     device,
                                     bin.fbb,
                                     program_index,
-                                    total_inputs[loop],
-                                    total_outputs[loop],
+                                    inputs,
+                                    outputs,
                                 )
 
                             elif current_runtime == ttrt.runtime.DeviceRuntime.TTNN:
@@ -608,8 +667,17 @@ class Run:
                                     device,
                                     bin.fbb,
                                     program_index,
-                                    total_inputs[loop],
+                                    inputs,
                                 )
+                                if self["--check-cache-stats"]:
+                                    # Log cache stats after execution
+                                    cache_stats = bin.fbb.get_tensor_cache().get_stats()
+                                    hits = cache_stats.get("hits", 0)
+                                    misses = cache_stats.get("misses", 0)
+                                    self.logging.debug(
+                                        f"Tensor cache stats: hits={hits}, misses={misses}"
+                                    )
+
                                 ttrt.runtime.wait(runtime_outputs)
                                 for i, runtime_output_tensor in enumerate(
                                     runtime_outputs
@@ -618,7 +686,7 @@ class Run:
                                         runtime_output_tensor, untilize=True
                                     )[0]
                                     ttrt.runtime.memcpy(
-                                        total_outputs[loop][i],
+                                        outputs[i],
                                         output_host,
                                     )
                                     ttrt.runtime.deallocate_tensor(
@@ -645,16 +713,10 @@ class Run:
                             )
 
                             for loop in range(self["--loops"]):
-                                inputs_converted = convert_input_layouts(
-                                    device,
-                                    total_inputs[loop],
-                                    bin.fbb,
-                                    program_index,
-                                )
                                 emitc_outs = ttrt.runtime.testing.run_so_program(
                                     emitc_dylib_handle,
                                     fwd_func_sym,
-                                    inputs_converted,
+                                    inputs,
                                     device,
                                 )
                                 emitc_outs = [
@@ -666,14 +728,14 @@ class Run:
                                 )
 
                                 all_tensors_match = ttrt.runtime.testing.compare_outs(
-                                    total_outputs[0], emitc_outs
+                                    outputs, emitc_outs
                                 )
 
                                 if not all_tensors_match:
                                     self.logging.error(
                                         "Failed: TTRT and EmitC outputs do not match! program_index={program_index}, loop={loop}"
                                     )
-                                    self.logging.error(total_outputs[loop], emitc_outs)
+                                    self.logging.error(outputs, emitc_outs)
                                     raise Exception(
                                         "Failed: TTRT and EmitC outputs do not match! program_index={program_index}, loop={loop}"
                                     )
@@ -769,6 +831,60 @@ class Run:
                                 self.logging.debug(
                                     f"Finished comparing program level golden for output_{idx}"
                                 )
+
+                            # Check cache statistics if requested
+                            if self["--check-cache-stats"]:
+                                # Parse the requested cache stats from the parameter
+                                requested_stats = {}
+                                try:
+                                    stats_configs = self["--check-cache-stats"].split(
+                                        ","
+                                    )
+                                    for config in stats_configs:
+                                        if ":" not in config:
+                                            raise Exception(
+                                                f"Invalid cache stats format: '{config}'. Expected format 'key:value'"
+                                            )
+                                        key, value = config.split(":", 1)
+                                        key = key.strip().lower()
+                                        value = value.strip()
+                                        if not value.isdigit():
+                                            raise Exception(
+                                                f"Invalid cache stats value: '{value}'. Expected a non-negative integer"
+                                            )
+                                        requested_stats[key] = int(value)
+
+                                        # Get the actual cache stats from the device
+                                        cache_stats = (
+                                            bin.fbb.get_tensor_cache().get_stats()
+                                        )
+
+                                        # Compare the requested stats with the actual stats
+                                        for (
+                                            key,
+                                            expected_value,
+                                        ) in requested_stats.items():
+                                            actual_value = cache_stats.get(key, 0)
+                                            self.logging.debug(
+                                                f"Checking cache stat {key}: expected={expected_value}, actual={actual_value}"
+                                            )
+
+                                            if actual_value != expected_value:
+                                                error_msg = f"Cache statistics validation failed: {key} expected={expected_value}, actual={actual_value}"
+                                                self.logging.error(error_msg)
+                                                raise Exception(error_msg)
+
+                                        self.logging.info(
+                                            f"Cache statistics validation successful: {requested_stats}"
+                                        )
+
+                                except Exception as e:
+                                    error_msg = (
+                                        f"Failed to validate cache statistics: {str(e)}"
+                                    )
+                                    self.logging.error(error_msg)
+                                    # Wrap in a TTRTTestException so it gets properly handled as a test error
+                                    raise TTRTTestException(error_msg)
 
                         if self["--memory"]:
                             if self["--save-artifacts"]:
