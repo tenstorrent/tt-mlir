@@ -422,6 +422,9 @@ class Run:
 
                 inputs_converted = []
                 for input_index in range(len(inputs)):
+                    input_layout = ttrt.runtime.get_layout(
+                        fbb, program_index, input_index
+                    )
                     inputs_converted.append(
                         ttrt.runtime.to_layout(
                             inputs[input_index], device, input_layout, True
