@@ -1122,6 +1122,8 @@ def TTIR_CumSumOp : TTIR_NamedOp<"cumsum"> {
   let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;
+
+  let hasFolder = 1;
 }
 
 def TTIR_SoftmaxOp : TTIR_NamedOp<"softmax"> {
