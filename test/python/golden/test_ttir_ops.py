@@ -757,11 +757,11 @@ def test_cumsum(in0: Operand, in1: Operand, builder: TTIRBuilder):
 
 
 @compile_to_flatbuffer(
-    [(512, 1024), (512, 1024)],
-    inputs_types=[torch.bfloat16, torch.bfloat16],
+    [(512, 1024)],
+    inputs_types=[torch.bfloat16],
     targets=["ttnn"],
 )
-def test_softmax(in0: Operand, in1: Operand, builder: TTIRBuilder):
+def test_softmax(in0: Operand, builder: TTIRBuilder):
     return builder.softmax(in0, dimension=-1)
 
 
