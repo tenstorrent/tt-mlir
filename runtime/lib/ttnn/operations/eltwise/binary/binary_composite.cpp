@@ -65,9 +65,8 @@ static void runEltwiseBinaryNGCompositeOp(
              "Memory config must exist for device tensors");
 
   std::optional<bool> use_legacy = std::nullopt;
-  if (op->type() == ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Minimum &&
-      lhs->get_logical_shape() != rhs->get_logical_shape()) {
-    // Set use_legacy to false for minimum op when shapes require broadcasting
+  if (lhs->get_logical_shape() != rhs->get_logical_shape()) {
+    // Set use_legacy to false when shapes require broadcasting
     // TODO(brataTT): Remove after
     // https://github.com/tenstorrent/tt-metal/issues/16147 is closed
     use_legacy = false;
