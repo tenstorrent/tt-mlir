@@ -83,4 +83,5 @@ table ConvTranspose2dOp {
   output_padding: [int32];
   dilation: [int32];
   groups: uint32;
+  memory_config: tt.target.ttnn.MemoryConfig;
 }
