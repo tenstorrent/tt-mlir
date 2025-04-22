@@ -305,7 +305,57 @@ PYBIND11_MODULE(_C, m) {
   m.def("deallocate_tensor", &tt::runtime::deallocateTensor, py::arg("tensor"),
         py::arg("force") = false, "Deallocate the tensor memory");
   py::class_<tt::runtime::debug::Env>(m, "DebugEnv")
-      .def_static("get", &tt::runtime::debug::Env::get)
+      .def_static(
+          "get",
+          [](bool load_kernels_from_disk,
+             std::optional<std::vector<std::uint32_t>> pre_tagged_op_ids =
+                 std::nullopt,
+             std::optional<std::vector<std::uint32_t>> post_tagged_op_ids =
+                 std::nullopt) {
+            std::vector<std::uint32_t> pre_tags = {};
+            std::vector<std::uint32_t> post_tags = {};
+            if (pre_tagged_op_ids) {
+              pre_tags = *pre_tagged_op_ids;
+            }
+            if (post_tagged_op_ids) {
+              post_tags = *post_tagged_op_ids;
+            }
+            return tt::runtime::debug::Env::get(load_kernels_from_disk,
+                                                pre_tags, post_tags);
+          },
+          py::arg("load_kernels_from_disk") = false,
+          py::arg("pre_tagged__op_ids") = std::nullopt,
+          py::arg("post_tagged__op_ids") = std::nullopt,
+          "Get the debug environment")
+      .def("get_pre_tagged_op_ids", &tt::runtime::debug::Env::getPreTaggedOpIds,
+           "Get the list of op ids that have been tagged for pre-op callback")
+      .def("get_post_tagged_op_ids",
+           &tt::runtime::debug::Env::getPostTaggedOpIds,
+           "Get the list of op ids that have been tagged for post-op callback")
+      .def("tag_pre_op", &tt::runtime::debug::Env::tagPreOp,
+           "Add an op id to the list of op ids that have been tagged for "
+           "pre-op callback")
+      .def("tag_post_op", &tt::runtime::debug::Env::tagPostOp,
+           "Add an op id to the list of op ids that have been tagged for "
+           "post-op callback")
+      .def("tag_pre_ops", &tt::runtime::debug::Env::tagPreOps,
+           "Add a list of op ids to the list of op ids that have been tagged "
+           "for pre-op callback")
+      .def("tag_post_ops", &tt::runtime::debug::Env::tagPostOps,
+           "Add a list of op ids to the list of op ids that have been tagged "
+           "for post-op callback")
+      .def("untag_pre_op", &tt::runtime::debug::Env::untagPreOp,
+           "Remove an op id from the list of op ids that have been tagged for "
+           "pre-op callback")
+      .def("untag_post_op", &tt::runtime::debug::Env::untagPostOp,
+           "Remove an op id from the list of op ids that have been tagged for "
+           "post-op callback")
+      .def("is_op_pre_tagged", &tt::runtime::debug::Env::isOpPreTagged,
+           "Check if an op id is in the list of op ids that have been tagged "
+           "for pre-op callback")
+      .def("is_op_post_tagged", &tt::runtime::debug::Env::isOpPostTagged,
+           "Check if an op id is in the list of op ids that have been tagged "
+           "for post-op callback")
       .def("__str__", [](const tt::runtime::debug::Env &env) {
         std::stringstream os;
         os << env;
@@ -374,8 +424,11 @@ PYBIND11_MODULE(_C, m) {
    */
   auto cleanup_callback = []() {
     ::tt::runtime::debug::Hooks::get().unregisterHooks();
+    ::tt::runtime::debug::Env::get().unregisterEnv();
   };
   m.add_object("_cleanup", py::capsule(cleanup_callback));
   m.def("unregister_hooks",
         []() { ::tt::runtime::debug::Hooks::get().unregisterHooks(); });
+  m.def("unregister_env",
+        []() { ::tt::runtime::debug::Env::get().unregisterEnv(); });
 }

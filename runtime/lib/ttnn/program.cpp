@@ -123,13 +123,16 @@ public:
       LOG_DEBUG(LogType::LogRuntimeTTNN,
                 "Executing operation: ", op->debug_info()->c_str());
       tracyLogOpLocation(op);
-      runCallback(debug::Hooks::get().getPreOperatorCallback(),
-                  true, // op->pre_hook_tag(),
-                  executableHandle, op, context.get());
+      runCallback(
+          debug::Hooks::get().getPreOperatorCallback(),
+          true, // debug::Eng::get().isOpPreTagged(), // op->pre_hook_tag(),
+          executableHandle, op, context.get());
       runOperation(op);
       runCallback(debug::Hooks::get().getPostOperatorCallback(),
                   true, // op->post_hook_tag(),
                   executableHandle, op, context.get());
+      // std::cout << "Tags: " << debug::Eng::get().isOpPreTagged()
+      //           << " " << debug::Eng::get().isOpPostTagged() << std::endl;
       dumpPerfCountersIfNeeded(context->getParentMesh());
     }
   }
@@ -148,11 +151,16 @@ private:
 };
 } // namespace
 
-void ProgramExecutor::runCallback(
+void ProgramExecutor::runCallback( // what if the list of op ids is empty? do I
+                                   // require users to add all ops or let empty
+                                   // mean all ops?
     std::optional<debug::Hooks::CallbackFn> callback, bool tag,
     Binary &executableHandle, const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
   if (callback && tag) {
+    std::cout << "Running callback for operation: "
+              << opContext->debug_info()->c_str()
+              << "at loc: " << opContext->loc_info()->c_str() << std::endl;
     std::shared_ptr<void> programContextPtr =
         ::tt::runtime::utils::unsafe_borrow_shared(programContext);
     std::shared_ptr<void> opContextPtr =

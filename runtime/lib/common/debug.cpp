@@ -9,8 +9,10 @@
 
 namespace tt::runtime::debug {
 
-Env const &Env::get(bool loadKernelsFromDisk) {
-  static Env config(loadKernelsFromDisk);
+Env const &Env::get(bool loadKernelsFromDisk,
+                    std::vector<std::uint32_t> preTaggedOpIds,
+                    std::vector<std::uint32_t> postTaggedOpIds) {
+  static Env config(loadKernelsFromDisk, preTaggedOpIds, postTaggedOpIds);
   return config;
 }
 

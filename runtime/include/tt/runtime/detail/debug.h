@@ -15,29 +15,116 @@ namespace tt::runtime::debug {
 
 struct Env {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  static Env const &
+  static Env const &get(bool loadKernelsFromDisk = false,
+                        std::vector<std::uint32_t> preTaggedOpIds = {},
+                        std::vector<std::uint32_t> postTaggedOpIds = {});
 #else
-  constexpr static Env
+  constexpr static Env get() { return Env(); }
 #endif
-  get(bool loadKernelsFromDisk = false)
+
+  std::vector<std::uint32_t> getPreTaggedOpIds() const {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-      ;
+    return preTaggedOpIds;
 #else
-  {
-    return Env(false);
-  }
+    return {};
 #endif
+  }
+
+  std::vector<std::uint32_t> getPostTaggedOpIds() const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    return postTaggedOpIds;
+#else
+    return {};
+#endif
+  }
+
+  void tagPreOp(uint32_t id) const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    preTaggedOpIds.push_back(id);
+#endif
+  }
+
+  void tagPostOp(uint32_t id) const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    postTaggedOpIds.push_back(id);
+#endif
+  }
+
+  void tagPreOps(std::vector<std::uint32_t> ids) const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    preTaggedOpIds.insert(preTaggedOpIds.end(), ids.begin(), ids.end());
+    ;
+#endif
+  }
+
+  void tagPostOps(std::vector<std::uint32_t> ids) const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    postTaggedOpIds.insert(postTaggedOpIds.end(), ids.begin(), ids.end());
+#endif
+  }
+
+  void untagPreOp(uint32_t id) const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    preTaggedOpIds.erase(
+        std::remove(preTaggedOpIds.begin(), preTaggedOpIds.end(), id));
+#endif
+  }
+
+  void untagPostOp(uint32_t id) const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    postTaggedOpIds.erase(
+        std::remove(postTaggedOpIds.begin(), postTaggedOpIds.end(), id));
+#endif
+  }
+
+  bool isOpPreTagged(uint32_t id) const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    // return preTaggedOpIds.find(id) != preTaggedOpIds.end();
+    return std::find(preTaggedOpIds.begin(), preTaggedOpIds.end(), id) !=
+           preTaggedOpIds.end();
+#else
+    return false;
+#endif
+  }
+
+  bool isOpPostTagged(uint32_t id) const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    // return postTaggedOpIds.find(id) != postTaggedOpIds.end();
+    return std::find(postTaggedOpIds.begin(), postTaggedOpIds.end(), id) !=
+           postTaggedOpIds.end();
+#else
+    return false;
+#endif
+  }
+
+  void unregisterEnv() const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    preTaggedOpIds = {};
+    postTaggedOpIds = {};
+#endif
+  }
 
   bool loadKernelsFromDisk;
 
 private:
-  constexpr Env(bool loadKernelsFromDisk)
-      : loadKernelsFromDisk(loadKernelsFromDisk) {}
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  Env(bool loadKernelsFromDisk, std::vector<std::uint32_t> preTaggedOpIds,
+      std::vector<std::uint32_t> postTaggedOpIds)
+      : loadKernelsFromDisk(loadKernelsFromDisk),
+        preTaggedOpIds(preTaggedOpIds), postTaggedOpIds(postTaggedOpIds) {}
+
+  mutable std::vector<std::uint32_t> preTaggedOpIds;
+  mutable std::vector<std::uint32_t> postTaggedOpIds;
+#else
+  constexpr Env() = default;
+#endif
 };
 
 inline std::ostream &operator<<(std::ostream &os, Env const &env) {
   os << "debug::Env{\n"
      << "\t" << "loadKernelsFromDisk: " << env.loadKernelsFromDisk << "\n"
+     << "preTaggedOpIds: " << !env.getPreTaggedOpIds().empty()
+     << "postTaggedOpIds: " << !env.getPostTaggedOpIds().empty() << ",\n"
      << "}";
   return os;
 }
