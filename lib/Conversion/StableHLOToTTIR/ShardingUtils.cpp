@@ -444,7 +444,7 @@ void MeshSharding::extractMeshShardingFromTensorMeshShardingAttr(
 
   auto axes = tensorMeshShardingAttr.getTensorMeshShardingAxis();
   shardShape.resize(axes.size());
-  shardDims.resize(axes.size(), -1);
+  shardDims.resize(meshShape.size(), -1);
   for (auto [dim, axis] : llvm::enumerate(axes)) {
     shardShape[dim] = axis.getShardShape();
     for (auto deviceDim : axis.getAxes()) {

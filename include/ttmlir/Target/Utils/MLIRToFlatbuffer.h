@@ -226,31 +226,26 @@ inline ::tt::target::Dim2d toFlatbuffer(FlatbufferObjectCache &cache,
   return ::tt::target::Dim2d(arch.getShape()[0], arch.getShape()[1]);
 }
 
-inline flatbuffers::Offset<::tt::target::ChipPhysicalCores>
+inline flatbuffers::Offset<::tt::target::ChipPhysicalHelperCores>
 toFlatbuffer(FlatbufferObjectCache &cache,
-             ChipPhysicalCoresAttr chipPhysicalCores) {
+             ChipPhysicalHelperCoresAttr chipPhysicalHelperCores) {
 
   // Create a Flatbuffer Dim2d struct for each type of core.
-  std::vector<::tt::target::Dim2d> workerCores, dramCores, ethCores,
-      ethInactiveCores;
+  std::vector<::tt::target::Dim2d> dramCores, ethCores, ethInactiveCores;
 
-  for (auto const &coreCoord : chipPhysicalCores.getWorker()) {
-    workerCores.emplace_back(coreCoord.getY(), coreCoord.getX());
-  }
-  for (auto const &coreCoord : chipPhysicalCores.getDram()) {
+  for (auto const &coreCoord : chipPhysicalHelperCores.getDram()) {
     dramCores.emplace_back(coreCoord.getY(), coreCoord.getX());
   }
-  for (auto const &coreCoord : chipPhysicalCores.getEth()) {
+  for (auto const &coreCoord : chipPhysicalHelperCores.getEth()) {
     ethCores.emplace_back(coreCoord.getY(), coreCoord.getX());
   }
-  for (auto const &coreCoord : chipPhysicalCores.getEthInactive()) {
+  for (auto const &coreCoord : chipPhysicalHelperCores.getEthInactive()) {
     ethInactiveCores.emplace_back(coreCoord.getY(), coreCoord.getX());
   }
 
-  // Create and return the ChipPhysicalCores flatbuffer object
-  return ::tt::target::CreateChipPhysicalCores(
+  // Create and return the ChipPhysicalHelperCores flatbuffer object
+  return ::tt::target::CreateChipPhysicalHelperCores(
       *cache.fbb,
-      cache.fbb->CreateVectorOfStructs<::tt::target::Dim2d>(workerCores),
       cache.fbb->CreateVectorOfStructs<::tt::target::Dim2d>(dramCores),
       cache.fbb->CreateVectorOfStructs<::tt::target::Dim2d>(ethCores),
       cache.fbb->CreateVectorOfStructs<::tt::target::Dim2d>(ethInactiveCores));
@@ -314,15 +309,18 @@ inline flatbuffers::Offset<::tt::target::ChipDesc>
 toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
   assert(chipDesc.getGrid().size() == 2 && "expected a 2D grid");
   auto grid = ::tt::target::Dim2d(chipDesc.getGrid()[0], chipDesc.getGrid()[1]);
+  auto coordTranslationOffsets =
+      ::tt::target::Dim2d(chipDesc.getCoordTranslationOffsets()[0],
+                          chipDesc.getCoordTranslationOffsets()[1]);
   return ::tt::target::CreateChipDesc(
       *cache.fbb, toFlatbuffer(cache, chipDesc.getArch()), &grid,
-      chipDesc.getL1Size(), chipDesc.getNumDramChannels(),
-      chipDesc.getDramChannelSize(), chipDesc.getNocL1AddressAlignBytes(),
-      chipDesc.getPcieAddressAlignBytes(),
+      &coordTranslationOffsets, chipDesc.getL1Size(),
+      chipDesc.getNumDramChannels(), chipDesc.getDramChannelSize(),
+      chipDesc.getNocL1AddressAlignBytes(), chipDesc.getPcieAddressAlignBytes(),
       chipDesc.getNocDRAMAddressAlignBytes(), chipDesc.getL1UnreservedBase(),
       chipDesc.getEriscL1UnreservedBase(), chipDesc.getDramUnreservedBase(),
       chipDesc.getDramUnreservedEnd(),
-      toFlatbuffer(cache, chipDesc.getChipPhysicalCores()),
+      toFlatbuffer(cache, chipDesc.getChipPhysicalHelperCores()),
       toFlatbuffer(cache, chipDesc.getSupportedDataTypes()),
       toFlatbuffer(cache, chipDesc.getSupportedTileSizes()),
       chipDesc.getNumCBs(), chipDesc.getNumComputeThreads(),
@@ -648,27 +646,35 @@ toFlatbuffer(FlatbufferObjectCache &cache,
 inline ::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>
 toFlatbuffer(FlatbufferObjectCache &cache,
              ttnn::Conv2dConfigAttr conv2dConfigAttr) {
-  return ::tt::target::ttnn::CreateConv2dConfig(
-      *cache.fbb, toFlatbuffer(cache, conv2dConfigAttr.getDtype()),
-      toFlatbuffer(cache, conv2dConfigAttr.getWeightsDtype()),
-      toFlatbuffer(cache, conv2dConfigAttr.getActivation().getValue()),
-      conv2dConfigAttr.getInputChannelsAlignment(),
-      conv2dConfigAttr.getDeallocateActivation(),
-      conv2dConfigAttr.getReallocateHaloOutput(),
-      conv2dConfigAttr.getActBlockHOverride(),
-      conv2dConfigAttr.getActBlockWDiv(),
-      conv2dConfigAttr.getReshardIfNotOptimal(),
-      conv2dConfigAttr.getOverrideShardingConfig(),
-      toFlatbuffer(cache, conv2dConfigAttr.getShardLayout()),
-      toFlatbuffer(cache, conv2dConfigAttr.getCoreGrid()),
-      conv2dConfigAttr.getTransposeShards(),
-      toFlatbuffer(cache, conv2dConfigAttr.getOutputLayout()),
-      conv2dConfigAttr.getPreprocessWeightsOnDevice(),
-      conv2dConfigAttr.getAlwaysPreprocessWeights(),
-      conv2dConfigAttr.getEnableActDoubleBuffer(),
-      conv2dConfigAttr.getEnableWeightsDoubleBuffer(),
-      conv2dConfigAttr.getEnableSplitReader(),
-      conv2dConfigAttr.getEnableSubblockPadding());
+  ::flatbuffers::Optional<::tt::target::ttnn::TensorMemoryLayout> shardLayout;
+  if (conv2dConfigAttr.getShardLayout()) {
+    shardLayout = toFlatbuffer(cache, conv2dConfigAttr.getShardLayout());
+  }
+  // TODO(vkovacevic): Add support for coreGrid #2781
+  ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet> coreGrid;
+
+  ::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig> conv2dConfigDesc =
+      ::tt::target::ttnn::CreateConv2dConfig(
+          *cache.fbb, toFlatbuffer(cache, conv2dConfigAttr.getDtype()),
+          toFlatbuffer(cache, conv2dConfigAttr.getWeightsDtype()),
+          toFlatbuffer(cache, conv2dConfigAttr.getActivation().getValue()),
+          conv2dConfigAttr.getInputChannelsAlignment(),
+          conv2dConfigAttr.getDeallocateActivation(),
+          conv2dConfigAttr.getReallocateHaloOutput(),
+          conv2dConfigAttr.getActBlockHOverride(),
+          conv2dConfigAttr.getActBlockWDiv(),
+          conv2dConfigAttr.getReshardIfNotOptimal(),
+          conv2dConfigAttr.getOverrideShardingConfig(), shardLayout, coreGrid,
+          conv2dConfigAttr.getTransposeShards(),
+          toFlatbuffer(cache, conv2dConfigAttr.getOutputLayout()),
+          conv2dConfigAttr.getPreprocessWeightsOnDevice(),
+          conv2dConfigAttr.getAlwaysPreprocessWeights(),
+          conv2dConfigAttr.getEnableActDoubleBuffer(),
+          conv2dConfigAttr.getEnableWeightsDoubleBuffer(),
+          conv2dConfigAttr.getEnableSplitReader(),
+          conv2dConfigAttr.getEnableSubblockPadding());
+
+  return conv2dConfigDesc;
 }
 
 } // namespace mlir::tt

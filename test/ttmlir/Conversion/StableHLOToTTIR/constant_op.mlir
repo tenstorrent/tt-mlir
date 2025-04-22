@@ -346,6 +346,13 @@ module @jit_constant attributes {} {
     // CHECK: return %{{[0-9]+}} : tensor<1x2xbf16>
     return %0 : tensor<1x2xbf16>
   }
+
+  func.func @test_big_splat() -> tensor<1x19200x256xbf16> {
+    // CHECK: %[[CONSTANT:[0-9]+]] = "ttir.constant"() <{value = dense<1.000000e+00> : tensor<1x19200x256xbf16>}> : () -> tensor<1x19200x256xbf16>
+    %0 = stablehlo.constant dense<1.000000e+00> : tensor<1x19200x256xbf16>
+    // CHECK: return %[[CONSTANT]] : tensor<1x19200x256xbf16>
+    return %0: tensor<1x19200x256xbf16>
+  }
 }
 {-#
     dialect_resources: {

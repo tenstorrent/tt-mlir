@@ -2346,3 +2346,34 @@ module @jit_collective_permute_8x4_rank_4_cluster_0_partial_target_pairs attribu
     return %0 : tensor<1x1x2048x64xf32>
   }
 }
+
+// -----
+
+// torchax - GSPMD test with multi-user case
+module @jit_jax_wrapper attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
+  func.func public @main(%arg0: tensor<1024x1024xf32> {mhlo.sharding = "{devices=[8,1]<=[8]}"}) -> (tensor<1024x1024xf32> {jax.result_info = "", mhlo.sharding = "{devices=[8,1]<=[8]}"}) {
+    %0 = stablehlo.custom_call @Sharding(%arg0) {mhlo.sharding = "{devices=[8,1]<=[8]}"} : (tensor<1024x1024xf32>) -> tensor<1024x1024xf32>
+    %1 = stablehlo.custom_call @SPMDFullToShardShape(%0) {mhlo.sharding = "{manual}"} : (tensor<1024x1024xf32>) -> tensor<128x1024xf32>
+    // CHECK: "ttir.mesh_shard"
+    // CHECK-SAME: shard_dims = array<i64: -1, 0>
+    // CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+    // CHECK-SAME: shard_shape = array<i64: 8, 1>
+    // CHECK-SAME: shard_type = #tt.shard_type<identity>
+    %2 = call @shmap_body(%1) : (tensor<128x1024xf32>) -> tensor<128x1024xf32>
+    %3 = stablehlo.custom_call @Sharding(%2) {mhlo.sharding = "{manual}"} : (tensor<128x1024xf32>) -> tensor<128x1024xf32>
+    %4 = stablehlo.custom_call @SPMDShardToFullShape(%3) {mhlo.sharding = "{devices=[8,1]<=[8]}"} : (tensor<128x1024xf32>) -> tensor<1024x1024xf32>
+    // CHECK: "ttir.mesh_shard"
+    // CHECK-SAME: shard_dims = array<i64: -1, 0>
+    // CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
+    // CHECK-SAME: shard_shape = array<i64: 8, 1>
+    // CHECK-SAME: shard_type = #tt.shard_type<identity>
+    return %4 : tensor<1024x1024xf32>
+  }
+  func.func private @shmap_body(%arg0: tensor<128x1024xf32>) -> (tensor<128x1024xf32> {jax.result_info = "[('torch_dist',), None]"}) {
+    %cst = stablehlo.constant dense<1.000000e+00> : tensor<f32>
+    %0 = stablehlo.broadcast_in_dim %cst, dims = [] : (tensor<f32>) -> tensor<128x1024xf32>
+    %1 = stablehlo.multiply %arg0, %0 : tensor<128x1024xf32>
+    %2 = stablehlo.add %arg0, %1 : tensor<128x1024xf32>
+    return %2 : tensor<128x1024xf32>
+  }
+}

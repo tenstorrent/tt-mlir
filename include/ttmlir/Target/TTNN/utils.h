@@ -8,7 +8,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Target/Common/types_generated.h"
-#include <llvm/Support/ErrorHandling.h>
+#include "llvm/Support/ErrorHandling.h"
 
 namespace tt::mlir::ttnn::utils {
 

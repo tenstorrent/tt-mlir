@@ -40,6 +40,17 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: Setup Metal CPM Cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/.cpm_cache
+        key: metal-cpm-cache
+
+    - name: Set Metal CPM Cache Environment Variable
+      shell: bash
+      run: |
+        mkdir -p ${{ github.workspace }}/.cpm_cache
+        echo "CPM_SOURCE_CACHE=${{ github.workspace }}/.cpm_cache" >> $GITHUB_ENV
 
     - name: Configure CMake
       shell: bash
@@ -64,7 +75,9 @@ runs:
       shell: bash
       run: |
         source env/activate
+        ccache -z
         cmake --build ${{ inputs.build-output-dir }}
+        ccache -s
 
     - name: Build ttrt
       shell: bash

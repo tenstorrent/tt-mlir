@@ -5,11 +5,11 @@
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
-#include <mlir/Dialect/Tensor/IR/Tensor.h>
-#include <mlir/IR/Iterators.h>
-#include <mlir/Rewrite/FrozenRewritePatternSet.h>
-#include <mlir/Transforms/DialectConversion.h>
-#include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/Iterators.h"
+#include "mlir/Rewrite/FrozenRewritePatternSet.h"
+#include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIROPTIMIZETENSORLAYOUT

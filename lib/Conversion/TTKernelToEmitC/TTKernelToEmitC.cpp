@@ -9,28 +9,28 @@
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
-#include <llvm/ADT/DenseMap.h>
-#include <llvm/ADT/SmallVector.h>
-#include <llvm/ADT/StringRef.h>
-#include <llvm/Support/LogicalResult.h>
-#include <llvm/Support/raw_ostream.h>
-#include <mlir/Conversion/ArithToEmitC/ArithToEmitC.h>
-#include <mlir/Conversion/MemRefToEmitC/MemRefToEmitC.h>
-#include <mlir/Conversion/SCFToEmitC/SCFToEmitC.h>
-#include <mlir/Dialect/EmitC/IR/EmitC.h>
-#include <mlir/Dialect/Func/IR/FuncOps.h>
-#include <mlir/Dialect/MemRef/IR/MemRef.h>
-#include <mlir/Dialect/SCF/IR/SCF.h>
-#include <mlir/IR/Builders.h>
-#include <mlir/IR/BuiltinOps.h>
-#include <mlir/IR/IRMapping.h>
-#include <mlir/IR/Location.h>
-#include <mlir/IR/Operation.h>
-#include <mlir/IR/Value.h>
-#include <mlir/Pass/PassManager.h>
-#include <mlir/Support/LLVM.h>
-#include <mlir/Target/Cpp/CppEmitter.h>
-#include <mlir/Transforms/DialectConversion.h>
+#include "mlir/Conversion/ArithToEmitC/ArithToEmitC.h"
+#include "mlir/Conversion/MemRefToEmitC/MemRefToEmitC.h"
+#include "mlir/Conversion/SCFToEmitC/SCFToEmitC.h"
+#include "mlir/Dialect/EmitC/IR/EmitC.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/IRMapping.h"
+#include "mlir/IR/Location.h"
+#include "mlir/IR/Operation.h"
+#include "mlir/IR/Value.h"
+#include "mlir/Pass/PassManager.h"
+#include "mlir/Support/LLVM.h"
+#include "mlir/Target/Cpp/CppEmitter.h"
+#include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/Support/LogicalResult.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <cctype>
 #include <string>
@@ -863,18 +863,25 @@ LogicalResult emitOpRegionAsCpp(Region *region, llvm::raw_ostream &os,
 LogicalResult
 emitEnqueueProgramOpRegionsAsCpp(ttmetal::EnqueueProgramOp enqueueProgramOp,
                                  llvm::SmallVector<std::string> &cppStrings) {
-  assert(cppStrings.size() == enqueueProgramOp.getNumRegions() &&
-         "cppStrings size must match number of regions");
 
-  for (auto &reg : enqueueProgramOp->getRegions()) {
-    auto kernelConfig = mlir::cast<ttkernel::KernelConfigInterface>(
-        enqueueProgramOp.getKernelConfigs()[reg.getRegionNumber()]);
-    if (emitOpRegionAsCpp(&reg, cppStrings[reg.getRegionNumber()],
-                          kernelConfig.getThreadType())
-            .failed()) {
-      return llvm::failure();
-    }
-  }
+  // TODO(jdesousa #2960): This code is commented to allow for compilation after
+  // the new TTMetal lowering flow was implemented. This needs to be replaced
+  // with lowering for new enqueue program semantics.
+  llvm_unreachable("EnqueueProgramOp to C++ is not yet implemented for new D2M "
+                   "lowering flow.");
+
+  // assert(cppStrings.size() == enqueueProgramOp.getNumRegions() &&
+  //        "cppStrings size must match number of regions");
+
+  // for (auto &reg : enqueueProgramOp->getRegions()) {
+  //   auto kernelConfig = mlir::cast<ttkernel::KernelConfigInterface>(
+  //       enqueueProgramOp.getKernelConfigs()[reg.getRegionNumber()]);
+  //   if (emitOpRegionAsCpp(&reg, cppStrings[reg.getRegionNumber()],
+  //                         kernelConfig.getThreadType())
+  //           .failed()) {
+  //     return llvm::failure();
+  //   }
+  // }
 
   return success();
 }
