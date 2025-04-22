@@ -61,8 +61,6 @@ if (TTMLIR_ENABLE_RUNTIME)
     "../include/tt/runtime/utils.h"
     "../include/tt/runtime/workarounds.h"
     "../include/tt/runtime/tensor_cache.h"
-    "../include/tt/runtime/detail/debug.h"
-    "../include/tt/runtime/detail/logger.h"
   )
   set_target_properties(TTMLIRRuntime PROPERTIES PUBLIC_HEADER "${TTMLIR_RUNTIME_PUBLIC_HEADERS}")
   install(TARGETS TTMLIRRuntime
@@ -72,12 +70,5 @@ if (TTMLIR_ENABLE_RUNTIME)
     LIBRARY
       DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}
       COMPONENT SharedLib
-  )
-  # Install detail directory headers separately
-  install(FILES
-    "../include/tt/runtime/detail/debug.h"
-    "../include/tt/runtime/detail/logger.h"
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/tt/runtime/detail
-    COMPONENT SharedLib
   )
 endif()

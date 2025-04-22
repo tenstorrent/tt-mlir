@@ -102,18 +102,6 @@ inline std::ostream &operator<<(std::ostream &os, Hooks const &hooks) {
   return os;
 }
 
-inline void logVersionMismatches(const std::vector<uint64_t> &lhs,
-                                 const std::vector<uint64_t> &rhs) {
-  if (lhs.size() != rhs.size()) {
-    LOG_DEBUG("Expected ", lhs.size(), " versions but got ", rhs.size(),
-              "versions.");
-    return;
-  }
-  for (size_t i = 0; i < lhs.size(); ++i) {
-    LOG_DEBUG("Expected ", lhs[i], " and got ", rhs[i], " for ", i,
-              "th version");
-  }
-}
 } // namespace tt::runtime::debug
 
 #endif // TT_RUNTIME_DETAIL_DEBUG_H

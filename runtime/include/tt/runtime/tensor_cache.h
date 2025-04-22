@@ -5,7 +5,6 @@
 #ifndef TT_RUNTIME_TENSOR_CACHE_H
 #define TT_RUNTIME_TENSOR_CACHE_H
 
-#include "tt/runtime/detail/debug.h"
 #include "tt/runtime/types.h"
 
 #include <cstdint>
@@ -73,7 +72,6 @@ public:
 
     const CacheValue &value = internalIt->second;
     if (value.inputVersions != inputVersions) {
-      debug::logVersionMismatches(value.inputVersions, inputVersions);
       ++stats["misses"];
       return nullptr;
     }
@@ -106,11 +104,7 @@ public:
   // Remove all const-eval funcs associated with a given outer key.
   void remove(const std::string &outerKey) {
     auto it = cache.find(outerKey);
-    if (it == cache.end()) {
-      LOG_ERROR("Call to remove() failed, outer key: ", outerKey,
-                " was not found!");
-      return;
-    }
+    assert(it == cache.end() && "Outer key not found in remove() call!");
     cache.erase(it);
   }
 
