@@ -9,12 +9,9 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ArgMaxOpRewritePattern.h"
-<<<<<<< HEAD
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
-=======
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpDimRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpRankRewritePattern.h"
->>>>>>> 7cae88dff (refactoring existing wa)
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceOpsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RepeatOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
@@ -593,6 +590,7 @@ public:
                        ttnn::MeanOp, /*keepDimUnsupported*/ false>,
                    workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
                        ttnn::MinOp, /*keepDimUnsupported*/ false>,
+                   workarounds::decomposition::CumSumOpDimRewritePattern,
                    workarounds::decomposition::CumSumOpRankRewritePattern,
                    workarounds::decomposition::ArgMaxOpRewritePattern>(
           &getContext());
