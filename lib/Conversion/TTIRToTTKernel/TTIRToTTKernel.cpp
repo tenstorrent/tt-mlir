@@ -115,10 +115,11 @@ public:
           i32(rewriter, op->getLoc(), 1));
     } else if (mlir::isa<ttir::TileReduceSumOp>(op) ||
                mlir::isa<ttir::TileReduceMaxOp>(op)) {
-      assert(operands.size() == 2);
+      assert(operands.size() == 3);
       auto dstIdx = index(rewriter, op->getLoc(), 0);
-      Value input = operands[0];
-      Value weight = operands[1];
+      Value a = operands[0];
+      Value b = operands[1];
+      Value c = operands[2];
       ttkernel::ReduceType reduce_type;
       ttir::ReduceDim reduce_dim;
       if (mlir::isa<ttir::TileReduceSumOp>(op)) {
@@ -142,10 +143,12 @@ public:
         kernel_reduce_dim = ttkernel::ReduceDim::Scalar;
         break;
       }
+      rewriter.create<ttkernel::ReduceInitOp>(
+          op->getLoc(), getCB(rewriter, a), getCB(rewriter, b),
+          getCB(rewriter, c), reduce_type, kernel_reduce_dim);
       newOp = rewriter.create<ttkernel::ReduceTileOp>(
-          op->getLoc(), getCB(rewriter, input), getCB(rewriter, weight),
-          getLoadIndex(input), getLoadIndex(weight), dstIdx, reduce_type,
-          kernel_reduce_dim);
+          op->getLoc(), getCB(rewriter, a), getCB(rewriter, b), getLoadIndex(a),
+          getLoadIndex(b), dstIdx, reduce_type, kernel_reduce_dim);
     } else if (mlir::isa<ttir::TileAddOp>(op)) {
       assert(op->hasOneUse());
       auto store = mlir::cast<memref::StoreOp>(*op->user_begin());
