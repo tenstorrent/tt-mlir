@@ -147,9 +147,9 @@ std::vector<TTNNLayoutAttr> generateAllPossibleLayouts(
 
     // L1 Sharded
     TTNNLayoutAttr shardedBase =
-        layoutAttr.withBufferType(ctx, BufferType::L1)
-            .withMemoryLayout(ctx, TensorMemoryLayout::BlockSharded)
-            .withElementType(ctx, elementType, tensorShape);
+        layoutAttr.withBufferType(BufferType::L1)
+            .withMemoryLayout(TensorMemoryLayout::BlockSharded)
+            .withElementType(elementType, tensorShape);
 
     assert(maxGrid.getShape().size() == 2 &&
            "Max device grid is expected to be 2D.");
@@ -160,9 +160,9 @@ std::vector<TTNNLayoutAttr> generateAllPossibleLayouts(
       for (int width = 1; width <= maxGrid.getShape()[1]; ++width) {
         shardedResults.push_back(
             shardedBase
-                .withGrid(ctx, tensorType,
+                .withGrid(tensorType,
                           GridAttr::get(ctx, {height, width}, affineMapBs))
-                .withMemoryLayout(ctx, TensorMemoryLayout::BlockSharded));
+                .withMemoryLayout(TensorMemoryLayout::BlockSharded));
       }
     }
 
@@ -174,9 +174,9 @@ std::vector<TTNNLayoutAttr> generateAllPossibleLayouts(
     for (int height = 1; height <= numCores; ++height) {
       shardedResults.push_back(
           shardedBase
-              .withGrid(ctx, tensorType,
+              .withGrid(tensorType,
                         GridAttr::get(ctx, {height, 1}, affineMapHs))
-              .withMemoryLayout(ctx, TensorMemoryLayout::HeightSharded));
+              .withMemoryLayout(TensorMemoryLayout::HeightSharded));
     }
 
     // Width Sharded
@@ -185,9 +185,8 @@ std::vector<TTNNLayoutAttr> generateAllPossibleLayouts(
     for (int width = 1; width <= numCores; ++width) {
       shardedResults.push_back(
           shardedBase
-              .withGrid(ctx, tensorType,
-                        GridAttr::get(ctx, {1, width}, affineMapWs))
-              .withMemoryLayout(ctx, TensorMemoryLayout::WidthSharded));
+              .withGrid(tensorType, GridAttr::get(ctx, {1, width}, affineMapWs))
+              .withMemoryLayout(TensorMemoryLayout::WidthSharded));
     }
   }
 

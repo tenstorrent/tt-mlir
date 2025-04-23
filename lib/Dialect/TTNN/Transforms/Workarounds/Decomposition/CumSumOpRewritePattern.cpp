@@ -42,7 +42,7 @@ CumSumOpRewritePattern::matchAndRewrite(ttnn::MorehCumSumOp srcOp,
       mlir::RankedTensorType::Builder(inputType).setShape(reshapeOutputShape);
   ttnn::TTNNLayoutAttr newOutputLayoutAttr =
       mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding())
-          .withTensorShape(rewriter.getContext(), reshapeOutputType.getShape());
+          .withTensorShape(reshapeOutputType.getShape());
   RankedTensorType newOutputType =
       RankedTensorType::get(reshapeOutputType.getShape(),
                             outputType.getElementType(), newOutputLayoutAttr);

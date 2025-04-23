@@ -237,9 +237,8 @@ bool ShardSolver::supportsInterleavedInputShardedOutput(Operation *op,
   TTNNLayoutAttr inputLayout = mlir::cast<TTNNLayoutAttr>(
       mlir::cast<RankedTensorType>(op->getOperand(0).getType()).getEncoding());
 
-  inputLayout =
-      inputLayout.withBufferType(op->getContext(), BufferType::DRAM)
-          .withMemoryLayout(op->getContext(), TensorMemoryLayout::Interleaved);
+  inputLayout = inputLayout.withBufferType(BufferType::DRAM)
+                    .withMemoryLayout(TensorMemoryLayout::Interleaved);
 
   llvm::Expected<bool> shardCompatible =
       checkShardCompatible(op->getOperand(0), inputLayout, op, outputConfig);

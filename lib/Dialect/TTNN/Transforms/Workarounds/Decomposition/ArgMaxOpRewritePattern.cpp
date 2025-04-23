@@ -50,7 +50,7 @@ ArgMaxOpRewritePattern::matchAndRewrite(ttnn::ArgMaxOp srcOp,
   // output type.
   ttnn::TTNNLayoutAttr newOutputLayoutAttr =
       mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding())
-          .withTensorShape(rewriter.getContext(), argMaxOutputShape);
+          .withTensorShape(argMaxOutputShape);
   RankedTensorType newOutputType = RankedTensorType::get(
       argMaxOutputShape, outputType.getElementType(), newOutputLayoutAttr);
 

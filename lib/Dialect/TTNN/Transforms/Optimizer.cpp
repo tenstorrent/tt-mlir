@@ -591,9 +591,8 @@ private:
 
       // Create a new tensor type with DRAM layout.
       TTNNLayoutAttr dramLayout =
-          layoutAttr.withBufferType(op->getContext(), BufferType::DRAM)
-              .withMemoryLayout(op->getContext(),
-                                TensorMemoryLayout::Interleaved);
+          layoutAttr.withBufferType(BufferType::DRAM)
+              .withMemoryLayout(TensorMemoryLayout::Interleaved);
       RankedTensorType newTensorType = RankedTensorType::get(
           tensorShape, tensorType.getElementType(), dramLayout);
 

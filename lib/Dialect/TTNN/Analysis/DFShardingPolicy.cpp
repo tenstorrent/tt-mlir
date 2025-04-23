@@ -160,13 +160,10 @@ void DFShardingPolicy::run() {
                 TTNNLayoutAttr firstOpInputShardedLayout =
                     firstOpInputLayout
                         .withBufferType(
-                            currentOp->getContext(),
                             currentOpConfig.outputLayout.getBufferType())
                         .withMemoryLayout(
-                            currentOp->getContext(),
                             currentOpConfig.outputLayout.getMemLayout())
-                        .withGrid(currentOp->getContext(),
-                                  firstOpInputTensorType,
+                        .withGrid(firstOpInputTensorType,
                                   currentOpConfig.outputLayout.getGrid());
 
                 uint64_t firstInputL1Usage =
