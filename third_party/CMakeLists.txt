@@ -189,9 +189,6 @@ install(
     ${CPM_SOURCE_CACHE}/reflect
     ${CPM_SOURCE_CACHE}/spdlog
     ${CPM_SOURCE_CACHE}/tt-logger
-    ${CPM_SOURCE_CACHE}/xtensor
-    ${CPM_SOURCE_CACHE}/xtensor-blas
-    ${CPM_SOURCE_CACHE}/xtl
   DESTINATION tt-metal/.cpmcache
   COMPONENT TTNNStandalone
   EXCLUDE_FROM_ALL
