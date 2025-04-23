@@ -19,6 +19,19 @@
 
 namespace tt::runtime {
 
+Binary::Binary(Flatbuffer fb)
+    : Flatbuffer(fb), cache(std::make_shared<TensorCache>()) {}
+Binary::Binary(std::shared_ptr<void> handle)
+    : Flatbuffer(handle), cache(std::make_shared<TensorCache>()) {}
+
+Binary &Binary::operator=(Flatbuffer fb) {
+  this->handle = fb.handle;
+  if (!cache) {
+    cache = std::make_shared<TensorCache>();
+  }
+  return *this;
+}
+
 static std::string asJson(void const *fbb, uint8_t const *binarySchema,
                           size_t schemaSize) {
   flatbuffers::IDLOptions opts;
@@ -321,8 +334,7 @@ SystemDesc SystemDesc::loadFromPath(char const *path) {
 }
 
 Binary Binary::loadFromPath(char const *path) {
-  return Binary(Flatbuffer::loadFromPath(path).handle,
-                std::make_shared<TensorCache>());
+  return Binary(Flatbuffer::loadFromPath(path).handle);
 }
 
 std::vector<TensorDesc>

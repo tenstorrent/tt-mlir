@@ -149,12 +149,14 @@ struct SystemDesc : public Flatbuffer {
 
 class TensorCache;
 struct Binary : public Flatbuffer {
-  Binary(Flatbuffer fb, std::shared_ptr<TensorCache> &&cache)
-      : Flatbuffer(fb), cache(std::move(cache)) {}
-  Binary(std::shared_ptr<void> handle, std::shared_ptr<TensorCache> &&cache)
-      : Flatbuffer(handle), cache(std::move(cache)) {}
+  Binary(Flatbuffer fb);
+  Binary(std::shared_ptr<void> handle);
   Binary(const Binary &) = default;
   Binary(Binary &&) = default;
+
+  Binary &operator=(const Binary &other) = default;
+  Binary &operator=(Binary &&other) = default;
+  Binary &operator=(Flatbuffer fb);
 
   using Flatbuffer::Flatbuffer;
 
