@@ -285,6 +285,10 @@ public:
 
   // Create workarounds for arange op.
   static TTNNOperandsWorkarounds createArangeOpOperandsWorkarounds();
+
+  // Create workarounds for reduction op operands.
+  static TTNNOperandsWorkarounds
+  createReductionOpOperandsWorkarounds(mlir::Operation *op);
 };
 
 } // namespace mlir::tt::ttnn::wa
