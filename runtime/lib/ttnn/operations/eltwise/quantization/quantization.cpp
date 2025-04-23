@@ -34,7 +34,6 @@ static std::variant<::ttnn::Tensor, float> getScaleValueFromQuantizationParams(
                                     context);
   }
   LOG_FATAL("Invalid scale type.");
-  return 0.0f;
 }
 
 // Helper function to get zero point value from QuantizationOpParams.
@@ -52,7 +51,6 @@ getZeroPointValueFromQuantizationParams(
         params->zero_point_as_PerAxisZeroPoint()->zero_point(), context);
   }
   LOG_FATAL("Invalid zero point type.");
-  return 0;
 }
 
 // Helper function to handle common logic.
@@ -87,104 +85,104 @@ static void runQuantizationOp(const OpType *op, ProgramContext &context,
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
+// Helper to unify Quantize and Dequantize
+static void runQuantizeDequantize(
+    const ::tt::target::ttnn::EltwiseQuantizationOp *op,
+    ProgramContext &context,
+    const std::function<::ttnn::Tensor(
+        const ::ttnn::Tensor &, const std::variant<::ttnn::Tensor, float> &,
+        const std::variant<::ttnn::Tensor, int32_t> &, std::optional<int32_t>,
+        std::optional<::ttnn::DataType>, std::optional<::ttnn::MemoryConfig>,
+        std::optional<::ttnn::Tensor>)> &func) {
+  const auto *const params = op->params_as_QuantizeDequantizeOpParams();
+  auto scale = getScaleValueFromQuantizationParams(params, context);
+  auto zeroPoint = getZeroPointValueFromQuantizationParams(params, context);
+  runQuantizationOp(op, context,
+                    [&](const ::ttnn::Tensor &input,
+                        std::optional<int32_t> axis,
+                        std::optional<::ttnn::DataType> outputDataType,
+                        std::optional<::ttnn::MemoryConfig> memoryConfig) {
+                      return func(input, scale, zeroPoint, axis, outputDataType,
+                                  memoryConfig, std::nullopt);
+                    });
+}
+
+// Helper to unify Requantize
+static void runRequantize(const ::tt::target::ttnn::EltwiseQuantizationOp *op,
+                          ProgramContext &context) {
+  const auto *const params = op->params_as_RequantizeOpParams();
+  auto inScale = [&]() -> std::variant<::ttnn::Tensor, float> {
+    if (params->in_scale_type() ==
+        ::tt::target::ttnn::QuantizationScale::PerTensorScale) {
+      return params->in_scale_as_PerTensorScale()->scale();
+    }
+    if (params->in_scale_type() ==
+        ::tt::target::ttnn::QuantizationScale::PerAxisScale) {
+      return convertTensorRefToTensor(
+          params->in_scale_as_PerAxisScale()->scale(), context);
+    }
+    LOG_FATAL("Invalid input scale type.");
+  }();
+  auto outScale = [&]() -> std::variant<::ttnn::Tensor, float> {
+    if (params->out_scale_type() ==
+        ::tt::target::ttnn::QuantizationScale::PerTensorScale) {
+      return params->out_scale_as_PerTensorScale()->scale();
+    }
+    if (params->out_scale_type() ==
+        ::tt::target::ttnn::QuantizationScale::PerAxisScale) {
+      return convertTensorRefToTensor(
+          params->out_scale_as_PerAxisScale()->scale(), context);
+    }
+    LOG_FATAL("Invalid output scale type.");
+  }();
+  auto inZeroPoint = [&]() -> std::variant<::ttnn::Tensor, int32_t> {
+    if (params->in_zero_point_type() ==
+        ::tt::target::ttnn::QuantizationZeroPoint::PerTensorZeroPoint) {
+      return params->in_zero_point_as_PerTensorZeroPoint()->zero_point();
+    }
+    if (params->in_zero_point_type() ==
+        ::tt::target::ttnn::QuantizationZeroPoint::PerAxisZeroPoint) {
+      return convertTensorRefToTensor(
+          params->in_zero_point_as_PerAxisZeroPoint()->zero_point(), context);
+    }
+    LOG_FATAL("Invalid input zero point type.");
+  }();
+  auto outZeroPoint = [&]() -> std::variant<::ttnn::Tensor, int32_t> {
+    if (params->out_zero_point_type() ==
+        ::tt::target::ttnn::QuantizationZeroPoint::PerTensorZeroPoint) {
+      return params->out_zero_point_as_PerTensorZeroPoint()->zero_point();
+    }
+    if (params->out_zero_point_type() ==
+        ::tt::target::ttnn::QuantizationZeroPoint::PerAxisZeroPoint) {
+      return convertTensorRefToTensor(
+          params->out_zero_point_as_PerAxisZeroPoint()->zero_point(), context);
+    }
+    LOG_FATAL("Invalid output zero point type.");
+  }();
+  runQuantizationOp(
+      op, context,
+      [&](const ::ttnn::Tensor &input, std::optional<int32_t> axis,
+          std::optional<::ttnn::DataType> outputDataType,
+          std::optional<::ttnn::MemoryConfig> memoryConfig) {
+        return ::ttnn::requantize(input, inScale, inZeroPoint, outScale,
+                                  outZeroPoint, axis, outputDataType,
+                                  memoryConfig, std::nullopt);
+      });
+}
+
 void run(const ::tt::target::ttnn::EltwiseQuantizationOp *op,
          ProgramContext &context) {
   using namespace ::tt::target::ttnn;
-
   switch (op->type()) {
-  case EltwiseQuantizationOpType::Quantize: {
-    const auto *const params = op->params_as_QuantizeDequantizeOpParams();
-    auto scale = getScaleValueFromQuantizationParams(params, context);
-    auto zeroPoint = getZeroPointValueFromQuantizationParams(params, context);
-    runQuantizationOp(
-        op, context,
-        [&](const ::ttnn::Tensor &input, std::optional<int32_t> axis,
-            std::optional<::ttnn::DataType> outputDataType,
-            std::optional<::ttnn::MemoryConfig> memoryConfig) {
-          return ::ttnn::quantize(input, scale, zeroPoint, axis, outputDataType,
-                                  memoryConfig,
-                                  /* optional_output_tensor=*/std::nullopt);
-        });
+  case EltwiseQuantizationOpType::Quantize:
+    runQuantizeDequantize(op, context, ::ttnn::quantize);
     break;
-  }
-  case EltwiseQuantizationOpType::Dequantize: {
-    const auto *const params = op->params_as_QuantizeDequantizeOpParams();
-    auto scale = getScaleValueFromQuantizationParams(params, context);
-    auto zeroPoint = getZeroPointValueFromQuantizationParams(params, context);
-    runQuantizationOp(
-        op, context,
-        [&](const ::ttnn::Tensor &input, std::optional<int32_t> axis,
-            std::optional<::ttnn::DataType> outputDataType,
-            std::optional<::ttnn::MemoryConfig> memoryConfig) {
-          return ::ttnn::dequantize(input, scale, zeroPoint, axis,
-                                    outputDataType, memoryConfig,
-                                    /* optional_output_tensor=*/std::nullopt);
-        });
+  case EltwiseQuantizationOpType::Dequantize:
+    runQuantizeDequantize(op, context, ::ttnn::dequantize);
     break;
-  }
-  case EltwiseQuantizationOpType::Requantize: {
-    const auto *const params = op->params_as_RequantizeOpParams();
-    auto inScale = [&]() -> std::variant<::ttnn::Tensor, float> {
-      if (params->in_scale_type() == QuantizationScale::PerTensorScale) {
-        return params->in_scale_as_PerTensorScale()->scale();
-      }
-      if (params->in_scale_type() == QuantizationScale::PerAxisScale) {
-        return convertTensorRefToTensor(
-            params->in_scale_as_PerAxisScale()->scale(), context);
-      }
-      LOG_FATAL("Invalid input scale type.");
-      return 0.0f;
-    }();
-    auto outScale = [&]() -> std::variant<::ttnn::Tensor, float> {
-      if (params->out_scale_type() == QuantizationScale::PerTensorScale) {
-        return params->out_scale_as_PerTensorScale()->scale();
-      }
-      if (params->out_scale_type() == QuantizationScale::PerAxisScale) {
-        return convertTensorRefToTensor(
-            params->out_scale_as_PerAxisScale()->scale(), context);
-      }
-      LOG_FATAL("Invalid output scale type.");
-      return 0.0f;
-    }();
-    auto inZeroPoint = [&]() -> std::variant<::ttnn::Tensor, int32_t> {
-      if (params->in_zero_point_type() ==
-          QuantizationZeroPoint::PerTensorZeroPoint) {
-        return params->in_zero_point_as_PerTensorZeroPoint()->zero_point();
-      }
-      if (params->in_zero_point_type() ==
-          QuantizationZeroPoint::PerAxisZeroPoint) {
-        return convertTensorRefToTensor(
-            params->in_zero_point_as_PerAxisZeroPoint()->zero_point(), context);
-      }
-      LOG_FATAL("Invalid input zero point type.");
-      return 0;
-    }();
-    auto outZeroPoint = [&]() -> std::variant<::ttnn::Tensor, int32_t> {
-      if (params->out_zero_point_type() ==
-          QuantizationZeroPoint::PerTensorZeroPoint) {
-        return params->out_zero_point_as_PerTensorZeroPoint()->zero_point();
-      }
-      if (params->out_zero_point_type() ==
-          QuantizationZeroPoint::PerAxisZeroPoint) {
-        return convertTensorRefToTensor(
-            params->out_zero_point_as_PerAxisZeroPoint()->zero_point(),
-            context);
-      }
-      LOG_FATAL("Invalid output zero point type.");
-      return 0;
-    }();
-    runQuantizationOp(
-        op, context,
-        [&](const ::ttnn::Tensor &input, std::optional<int32_t> axis,
-            std::optional<::ttnn::DataType> outputDataType,
-            std::optional<::ttnn::MemoryConfig> memoryConfig) {
-          return ::ttnn::requantize(input, inScale, inZeroPoint, outScale,
-                                    outZeroPoint, axis, outputDataType,
-                                    memoryConfig,
-                                    /* optional_output_tensor=*/std::nullopt);
-        });
+  case EltwiseQuantizationOpType::Requantize:
+    runRequantize(op, context);
     break;
-  }
   }
 }
 
