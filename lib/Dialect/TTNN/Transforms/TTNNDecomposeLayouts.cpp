@@ -247,6 +247,7 @@ private:
                                        mlir::Value currentInput,
                                        const OpCreationInfo &info,
                                        bool forceCreate = false) const {
+    return currentInput;
     if (!info.opsToCreate.createToDeviceOp && !forceCreate) {
       return currentInput;
     }
@@ -271,6 +272,7 @@ private:
                                          mlir::Value currentInput,
                                          const OpCreationInfo &info,
                                          bool forceCreate = false) const {
+    return currentInput;
     if (!info.opsToCreate.createFromDeviceOp && !forceCreate) {
       return currentInput;
     }
