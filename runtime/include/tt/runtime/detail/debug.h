@@ -9,7 +9,6 @@
 #include <optional>
 #include <ostream>
 
-#include "tt/runtime/detail/logger.h"
 #include "tt/runtime/types.h"
 
 namespace tt::runtime::debug {
@@ -101,7 +100,6 @@ inline std::ostream &operator<<(std::ostream &os, Hooks const &hooks) {
      << "}";
   return os;
 }
-
 } // namespace tt::runtime::debug
 
 #endif // TT_RUNTIME_DETAIL_DEBUG_H

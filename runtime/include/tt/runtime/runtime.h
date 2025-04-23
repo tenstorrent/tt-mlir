@@ -9,7 +9,6 @@
 #include <functional>
 #include <vector>
 
-#include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/types.h"
 
 namespace tt::runtime {
@@ -109,8 +108,6 @@ inline Tensor createOwnedHostTensor(void const *data, TensorDesc const &desc) {
   return ::tt::runtime::createOwnedHostTensor(data, desc.shape, desc.stride,
                                               desc.itemsize, desc.dataType);
 }
-
-void initCache(Device &device);
 
 inline Tensor createBorrowedHostTensor(void *data, TensorDesc const &desc) {
   return ::tt::runtime::createBorrowedHostTensor(data, desc.shape, desc.stride,

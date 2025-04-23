@@ -362,7 +362,6 @@ def TTIR_DeallocOp : TTIR_Op<"dealloc"> {
 class TTIR_NamedOp<string mnemonic, list<Trait> traits = []> :
     TTIR_DPSOp<mnemonic, [Pure] # traits>;
 
-
 class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
     TTIR_NamedOp<mnemonic, [AttrSizedOperandSegments, TTIR_Broadcastable] # traits> {
 

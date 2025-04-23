@@ -8,8 +8,6 @@
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
 
-#include "tt/runtime/tensor_cache.h"
-
 #if defined(TT_RUNTIME_ENABLE_TTNN)
 #include "tt/runtime/detail/ttnn.h"
 #endif
@@ -78,11 +76,6 @@ getMemoryView(Device device, int deviceID) {
 
   LOG_FATAL("runtime is not enabled");
 }
-
-std::shared_ptr<TensorCache> createTensorCache() {
-  return std::make_shared<TensorCache>();
-}
-
 } // namespace detail
 
 DeviceRuntime getCurrentRuntime() {

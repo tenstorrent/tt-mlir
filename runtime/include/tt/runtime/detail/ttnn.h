@@ -44,7 +44,6 @@
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
 
-#include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/types.h"
 #include "ttmlir/Target/TTNN/Target.h"
 
@@ -180,6 +179,7 @@ std::vector<::tt::runtime::Tensor>
 runProgram(::ttnn::MeshDevice &meshDevice, Binary executableHandle,
            std::uint32_t programIndex,
            std::vector<::tt::runtime::Tensor> &inputs);
+
 } // namespace tt::runtime::ttnn
 
 #endif
