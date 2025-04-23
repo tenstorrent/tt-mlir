@@ -40,8 +40,7 @@ CumSumOpRankRewritePattern::matchAndRewrite(ttnn::MorehCumSumOp srcOp,
           .setShape(adaptedShape)
           .setEncoding(
               mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding())
-                  .withTensorShape(outputType.getEncoding().getContext(),
-                                   adaptedShape));
+                  .withTensorShape(adaptedShape));
 
   MorehCumSumOp adaptedCumSumOp =
       rewriter.create<mlir::tt::ttnn::MorehCumSumOp>(
