@@ -157,6 +157,7 @@ struct Binary : public Flatbuffer {
   Binary &operator=(const Binary &other) = default;
   Binary &operator=(Binary &&other) = default;
   Binary &operator=(Flatbuffer fb);
+  Binary &operator=(std::shared_ptr<void> handle);
 
   using Flatbuffer::Flatbuffer;
 

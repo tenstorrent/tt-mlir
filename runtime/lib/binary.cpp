@@ -21,11 +21,20 @@ namespace tt::runtime {
 
 Binary::Binary(Flatbuffer fb)
     : Flatbuffer(fb), cache(std::make_shared<TensorCache>()) {}
+
 Binary::Binary(std::shared_ptr<void> handle)
     : Flatbuffer(handle), cache(std::make_shared<TensorCache>()) {}
 
 Binary &Binary::operator=(Flatbuffer fb) {
   this->handle = fb.handle;
+  if (!cache) {
+    cache = std::make_shared<TensorCache>();
+  }
+  return *this;
+}
+
+Binary &Binary::operator=(std::shared_ptr<void> handle) {
+  this->handle = handle;
   if (!cache) {
     cache = std::make_shared<TensorCache>();
   }
