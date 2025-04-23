@@ -279,13 +279,11 @@ public:
     } else if constexpr (std::is_same_v<ConcreteOp, ttir::TileReduceSumOp> ||
                          std::is_same_v<ConcreteOp, ttir::TileReduceMaxOp>) {
       ttkernel::ReduceType reduce_type;
-      ttir::ReduceDim reduce_dim;
+      ttir::ReduceDim reduce_dim = op.getReduceDim();
       if constexpr (std::is_same_v<ConcreteOp, ttir::TileReduceSumOp>) {
         reduce_type = ttkernel::ReduceType::Sum;
-        reduce_dim = op->getReduceDim();
       } else {
         reduce_type = ttkernel::ReduceType::Max;
-        reduce_dim = op->getReduceDim();
       }
       ttkernel::ReduceDim kernel_reduce_dim;
       switch (reduce_dim) {
@@ -299,10 +297,29 @@ public:
         kernel_reduce_dim = ttkernel::ReduceDim::Scalar;
         break;
       }
+
+      auto insertionPoint = rewriter.getInsertionPoint();
+      auto cbA = getCB(rewriter, adaptor.getA());
+      auto cbB = getCB(rewriter, adaptor.getB());
+      auto cbC = getCB(rewriter, adaptor.getC());
+      setInsertionPointAfterOperands(rewriter, {cbA, cbB, cbC});
+      rewriter.create<ttkernel::ReduceInitOp>(
+          op->getLoc(), cbA,
+          cbB, cbC,
+          reduce_type, kernel_reduce_dim);
+      rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+      auto reduceInitShortOp = rewriter.create<ttkernel::ReduceInitShortOp>(
+        op->getLoc(),cbA,
+        cbB, cbC,
+        reduce_type, kernel_reduce_dim);
       rewriter.create<ttkernel::ReduceTileOp>(
-          op->getLoc(), getCB(rewriter, adaptor.getA()),
-          getCB(rewriter, adaptor.getB()), getLoadIndex(adaptor.getA()),
-          getLoadIndex(adaptor.getA()), dstIdx, reduce_type, kernel_reduce_dim);
+          op->getLoc(), cbA,
+          cbB, getLoadIndex(adaptor.getA()),
+          getLoadIndex(adaptor.getB()), dstIdx, reduce_type, kernel_reduce_dim);
+      rewriter.setInsertionPoint(reduceInitShortOp);
+      lowerLoadToCopyTile(
+          adaptor.getC().template getDefiningOp<memref::LoadOp>(), false, true,
+          rewriter);
     } else if constexpr (arity == 2) {
       rewriter.create<InitOp>(op->getLoc(), getCB(rewriter, adaptor.getLhs()),
                               getCB(rewriter, adaptor.getRhs()));
@@ -1064,6 +1081,8 @@ void populateTTIRToTTKernelPatterns(
       ttkernel::TTIRFPUOpsRewriter<ttir::TileAddOp,      ttkernel::AddTilesInitOp, ttkernel::AddTilesOp>,
       ttkernel::TTIRFPUOpsRewriter<ttir::TileMulOp,      ttkernel::MulTilesInitOp, ttkernel::MulTilesOp>,
       ttkernel::TTIRFPUOpsRewriter<ttir::TileMatmulOp,   ttkernel::MatmulInitOp,   ttkernel::MatmulTilesOp>,
+      ttkernel::TTIRFPUOpsRewriter<ttir::TileReduceSumOp,   ttkernel::ReduceInitOp, ttkernel::ReduceTileOp>,
+      ttkernel::TTIRFPUOpsRewriter<ttir::TileReduceMaxOp,   ttkernel::ReduceInitOp, ttkernel::ReduceTileOp>,
 
       // Elementwise SFPU.
       ttkernel::TTIRSFPUOpsRewriter<ttir::TileDivOp,     ttkernel::DivBinaryTilesInitOp, ttkernel::DivBinaryTilesOp>,
