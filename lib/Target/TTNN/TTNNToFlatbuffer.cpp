@@ -1634,8 +1634,34 @@ createDeallocateOp(FlatbufferObjectCache &cache, DeallocateOp op) {
   return ::tt::target::ttnn::CreateDeallocateOp(*cache.fbb, in, force);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::LoadCachedOp>
+createOp(FlatbufferObjectCache &cache, tt::LoadCachedOp op,
+         const llvm::StringMap<uint32_t> &programIndexMap) {
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> ins;
+  for (auto input : op.getInputs()) {
+    ins.push_back(cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(input)));
+  }
+
+  // Collect output tensors
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> outputs;
+  for (auto result : op.getResults()) {
+    outputs.push_back(
+        cache.getOrCreate(result, tensorValueToFlatbuffer, kHostAllocatedSize));
+  }
+
+  auto it = programIndexMap.find(op.getCallee().str());
+  assert(it != programIndexMap.end() &&
+         "Program name not found in program index map!");
+  const uint32_t programIdx = it->second;
+
+  // Create the LoadCachedOp with indices instead of inputs
+  return ::tt::target::ttnn::CreateLoadCachedOpDirect(
+      *cache.fbb, &ins, op.getCallee().str().c_str(), programIdx, &outputs);
+}
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
+                  const llvm::StringMap<uint32_t> &programIndexMap,
                   std::string const &debugString, std::string const &locInfo) {
   if (auto getDeviceOp = dyn_cast<GetDeviceOp>(op); getDeviceOp) {
     return createOperation(cache, createOp(cache, getDeviceOp), debugString,
@@ -2062,6 +2088,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createCpuOp(cache, callOp, 0), debugString,
                            locInfo);
   }
+  if (auto loadCachedOp = dyn_cast<tt::LoadCachedOp>(op); loadCachedOp) {
+    return createOperation(cache,
+                           createOp(cache, loadCachedOp, programIndexMap),
+                           debugString, locInfo);
+  }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");
 }
@@ -2149,11 +2180,47 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   auto debugInfo = ::tt::target::CreateDebugInfoDirect(
       fbb, mlir, cpp.c_str(), &moduleCacheList, goldenInfo);
 
-  std::vector<::flatbuffers::Offset<::tt::target::ttnn::Program>> programs;
+  size_t programIdx = 0;
+  llvm::StringMap<uint32_t> programIdxMap;
+  // Preserve original ordering by skipping const-eval in the first pass.
   module->walk([&](func::FuncOp func) {
+    if (func->hasAttr("const_eval")) {
+      return;
+    }
+    programIdxMap[func.getSymName().str()] = programIdx++;
+  });
+
+  // Add const-eval funcs after normal funcs.
+  module->walk([&](func::FuncOp func) {
+    if (!func->hasAttr("const_eval")) {
+      return;
+    }
+    programIdxMap[func.getSymName().str()] = programIdx++;
+  });
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::Program>> programs;
+  // Again, process original funcs in order first to perserve input order.
+  module->walk([&](func::FuncOp func) {
+    if (func->hasAttr("const_eval")) {
+      return;
+    }
     Program<::tt::target::ttnn::Operation> program =
         funcOpToProgram<::tt::target::ttnn::Operation>(
-            cache, func, emitTTNNOperation, tensorValueToFlatbuffer);
+            cache, func, emitTTNNOperation, tensorValueToFlatbuffer,
+            programIdxMap);
+    programs.push_back(::tt::target::ttnn::CreateProgramDirect(
+        fbb, program.name, &program.inputs, &program.outputs, &program.ops,
+        &dylibs, debugInfo));
+  });
+  // Then process const-eval funcs in 2nd pass.
+  module->walk([&](func::FuncOp func) {
+    if (!func->hasAttr("const_eval")) {
+      return;
+    }
+    Program<::tt::target::ttnn::Operation> program =
+        funcOpToProgram<::tt::target::ttnn::Operation>(
+            cache, func, emitTTNNOperation, tensorValueToFlatbuffer,
+            programIdxMap);
     programs.push_back(::tt::target::ttnn::CreateProgramDirect(
         fbb, program.name, &program.inputs, &program.outputs, &program.ops,
         &dylibs, debugInfo));

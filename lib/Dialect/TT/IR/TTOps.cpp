@@ -115,6 +115,29 @@ LogicalResult DeviceModuleOp::verify() { return verifyModuleWrapper(*this); }
 
 LogicalResult CPUModuleOp::verify() { return verifyModuleWrapper(*this); }
 
+// Helper method to verify a list of tensors (inputs or outputs) for
+// LoadCachedOp.
+static LogicalResult verifyTensorList(LoadCachedOp *op, ValueRange opValues,
+                                      TypeRange fnTypes, bool isInput) {
+  // Verify count
+  if (opValues.size() != fnTypes.size()) {
+    return op->emitOpError("Incorrect number of ")
+           << (isInput ? "operands" : "results") << " for callee"
+           << " -- expected " << fnTypes.size()
+           << " but got: " << opValues.size();
+  }
+
+  // Verify types
+  for (unsigned i = 0; i < fnTypes.size(); ++i) {
+    if (opValues[i].getType() != fnTypes[i]) {
+      return op->emitOpError() << (isInput ? "Operand" : "Result")
+                               << " type mismatch at index " << i;
+    }
+  }
+
+  return success();
+}
+
 LogicalResult LoadCachedOp::verify() {
   // Verify that the callee exists and has the right type.
   FlatSymbolRefAttr calleeAttr = this->getCalleeAttr();
@@ -127,28 +150,36 @@ LogicalResult LoadCachedOp::verify() {
 
   FunctionType fnType = funcOp.getFunctionType();
 
-  if (fnType.getNumInputs() != this->getNumOperands()) {
-    return emitOpError("Incorrect number of operands for callee -- expected ")
-           << fnType.getNumInputs() << " but got: " << this->getNumOperands();
+  // Check if we have tuple inputs/outputs.
+  bool hasTupleInput = fnType.getNumInputs() == 1 &&
+                       mlir::isa<mlir::TupleType>(fnType.getInput(0));
+  bool hasTupleResult = fnType.getNumResults() == 1 &&
+                        mlir::isa<mlir::TupleType>(fnType.getResult(0));
+
+  // Enforce consistency in tuple usage between inputs and outputs.
+  if (hasTupleInput != hasTupleResult) {
+    return emitOpError("Inconsistent use of tuples: cannot mix tuple and "
+                       "non-tuple for inputs and outputs");
   }
 
-  for (unsigned i = 0; i < fnType.getNumInputs(); ++i) {
-    if (this->getOperand(i).getType() != fnType.getInput(i)) {
-      return emitOpError("Operand type mismatch at index ") << i;
-    }
+  if (LogicalResult result = verifyTensorList(
+          this, this->getOperands(),
+          hasTupleInput
+              ? mlir::cast<mlir::TupleType>(fnType.getInput(0)).getTypes()
+              : fnType.getInputs(),
+          /*isInput=*/true);
+      failed(result)) {
+    return result;
   }
 
-  // Verify result count.
-  if (fnType.getNumResults() != this->getNumResults()) {
-    return emitOpError("Incorrect number of results for callee -- expected ")
-           << fnType.getNumResults() << " but got: " << this->getNumResults();
-  }
-
-  // Verify result types.
-  for (unsigned i = 0; i < fnType.getNumResults(); ++i) {
-    if (this->getResult(i).getType() != fnType.getResult(i)) {
-      return emitOpError("Result type mismatch at index ") << i;
-    }
+  if (LogicalResult result = verifyTensorList(
+          this, this->getResults(),
+          hasTupleResult
+              ? mlir::cast<mlir::TupleType>(fnType.getResult(0)).getTypes()
+              : fnType.getResults(),
+          false);
+      failed(result)) {
+    return result;
   }
 
   return success();

@@ -10,6 +10,7 @@ from typing import Callable, List, Optional, Tuple, Union
 from ttmlir.dialects import func
 from ttmlir.ir import *
 from ttmlir.passes import (
+    tt_populate_argument_types,
     ttir_to_ttnn_backend_pipeline,
     ttnn_to_flatbuffer_file,
     ttir_to_ttmetal_backend_pipeline,
@@ -177,6 +178,7 @@ def ttir_to_ttnn(
     output_file_name: str = "test.mlir",
     system_desc_path: Optional[str] = None,
     mesh_shape: Optional[Tuple[int, int]] = None,
+    argument_types_string: str = None,
 ):
     """
     Converts TTIR module to TTNN module and optionally dumps to file.
@@ -195,6 +197,8 @@ def ttir_to_ttnn(
     -------
     MLIR module containing MLIR op graph defined by `module` and instance of TTIRBuilder.
     """
+    if argument_types_string:
+        tt_populate_argument_types(module, argument_types_string)
 
     # Default to the `SYSTEM_DESC_PATH` envvar
     if system_desc_path is None:
@@ -206,6 +210,8 @@ def ttir_to_ttnn(
         options.append(f"system-desc-path={system_desc_path}")
     if mesh_shape and len(mesh_shape) == 2:
         options.append(f"mesh-shape={mesh_shape[0]},{mesh_shape[1]}")
+    if argument_types_string:
+        options.append("enable-const-eval=true")
 
     # Now, pass it through the TTIR to TTNN pipeline. Module gets
     # modified in place.
@@ -317,6 +323,7 @@ def compile_to_flatbuffer(
     targets: List[str] = ["ttmetal", "ttnn"],
     mesh_shape: Tuple[int, int] = None,
     module_dump: bool = False,
+    argument_types_string: str = None,
 ):
     """
     Decorator to run an e2e Python -> Flatbuffer test using the decorated
@@ -406,7 +413,11 @@ def compile_to_flatbuffer(
                 module_logger = MLIRModuleLogger()
                 module_logger.attach_context(module.context)
                 module = ttir_to_ttnn(
-                    module, module_dump, test_base + "_ttnn.mlir", mesh_shape=mesh_shape
+                    module,
+                    module_dump,
+                    test_base + "_ttnn.mlir",
+                    mesh_shape=mesh_shape,
+                    argument_types_string=argument_types_string,
                 )
                 ttnn_to_flatbuffer(
                     module, builder, test_base + ".ttnn", module_logger.module_log
