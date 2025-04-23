@@ -5,6 +5,7 @@
 #include "OpModelFixture.h"
 #include "SingletonDeviceContext.h"
 
+#include "TTNNOpModel.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -48,8 +49,14 @@ public:
       if (!operand || !mlir::isa<RankedTensorType>(operand.getType())) {
         continue;
       }
-      auto inputShape =
-          mlir::cast<RankedTensorType>(operand.getType()).getShape();
+      auto operandType = mlir::cast<RankedTensorType>(operand.getType());
+      if (operandType.getEncoding()) {
+        inputs.push_back(mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
+            operandType.getEncoding()));
+        continue;
+      }
+
+      auto inputShape = operandType.getShape();
       auto inputLayout = CreateTiledLayout(inputShape, BufferType::L1,
                                            TensorMemoryLayout::Interleaved);
       inputs.push_back(inputLayout);
@@ -80,15 +87,26 @@ public:
     return DeviceAttr::get(&context, workerGrid, map4, map4, {1}, {0});
   }
 
-  mlir::RankedTensorType createRankedTensorType(llvm::ArrayRef<int64_t> shape) {
-    Type elementType = builder.getBF16Type();
+  mlir::RankedTensorType
+  createRankedTensorType(llvm::ArrayRef<int64_t> shape,
+                         mlir::Type elementType = nullptr,
+                         TTNNLayoutAttr layout = nullptr) {
+    if (!elementType) {
+      elementType = builder.getBF16Type();
+    }
     RankedTensorType rankedTensorType =
-        RankedTensorType::get(shape, elementType);
+        RankedTensorType::get(shape, elementType, layout);
     return rankedTensorType;
   }
 
-  mlir::Value createEmptyTensor(llvm::ArrayRef<int64_t> tensorShape) {
-    RankedTensorType rankedTensorType = createRankedTensorType(tensorShape);
+  mlir::Value createEmptyTensor(llvm::ArrayRef<int64_t> tensorShape,
+                                mlir::Type elementType = nullptr,
+                                TTNNLayoutAttr layout = nullptr) {
+    if (!elementType) {
+      elementType = builder.getBF16Type();
+    }
+    RankedTensorType rankedTensorType =
+        createRankedTensorType(tensorShape, elementType, layout);
     return builder.create<OnesOp>(builder.getUnknownLoc(), rankedTensorType,
                                   ShapeAttr::get(&context, tensorShape),
                                   nullptr, nullptr, nullptr, nullptr);
@@ -579,11 +597,15 @@ TEST_F(OpModelBase, typecastOp) {
 TEST_F(OpModelBase, Conv2dInterface) {
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
-  llvm::SmallVector<int64_t> weightShape = {1, 1, 1568, 64};
+  llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
   llvm::SmallVector<int64_t> outputShape = {1, 1, 12544, 64};
 
   auto input = createEmptyTensor(inputShape);
-  auto weight = createEmptyTensor(weightShape);
+  Type weightElementType = builder.getBF16Type();
+  auto weightLayout = mlir::tt::ttnn::TTNNLayoutAttr::get(
+      &context, weightShape, weightElementType,
+      mlir::tt::ttnn::BufferType::SystemMemory, GridAttr::get(&context, 2));
+  auto weight = createEmptyTensor(weightShape, weightElementType, weightLayout);
   auto outputType = createRankedTensorType(outputShape);
 
   GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
@@ -624,11 +646,15 @@ TEST_F(OpModelBase, Conv2dInterface) {
 TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
-  llvm::SmallVector<int64_t> weightShape = {1, 1, 1568, 64};
+  llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
   llvm::SmallVector<int64_t> outputShape = {1, 1, 12544, 64};
 
   auto input = createEmptyTensor(inputShape);
-  auto weight = createEmptyTensor(weightShape);
+  Type weightElementType = builder.getBF16Type();
+  auto weightLayout = mlir::tt::ttnn::TTNNLayoutAttr::get(
+      &context, weightShape, weightElementType,
+      mlir::tt::ttnn::BufferType::SystemMemory, GridAttr::get(&context, 2));
+  auto weight = createEmptyTensor(weightShape, weightElementType, weightLayout);
   auto outputType = createRankedTensorType(outputShape);
 
   GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
@@ -661,6 +687,50 @@ TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
   EXPECT_TRUE(outputLayout.hasShardedL1TensorMemoryLayout());
   EXPECT_EQ(outputLayout.getMemLayout().getValue(),
             TensorMemoryLayout::HeightSharded);
+}
+
+TEST_F(OpModelBase, PrepareConv2dWeightsOutput) {
+  // create Conv2dOp
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
+  llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
+  llvm::SmallVector<int64_t> outputShape = {1, 1, 12544, 64};
+
+  Type elemetType = builder.getBF16Type();
+
+  auto inputLayout = mlir::tt::ttnn::TTNNLayoutAttr::get(
+      &context, inputShape, elemetType, mlir::tt::ttnn::BufferType::DRAM,
+      GridAttr::get(&context, 2),
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
+  auto input = createEmptyTensor(inputShape, elemetType, inputLayout);
+
+  auto weightLayout = mlir::tt::ttnn::TTNNLayoutAttr::get(
+      &context, weightShape, elemetType,
+      mlir::tt::ttnn::BufferType::SystemMemory, GridAttr::get(&context, 2));
+  auto weight = createEmptyTensor(weightShape, elemetType, weightLayout);
+
+  auto outputType = createRankedTensorType(outputShape);
+
+  GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
+      builder.getUnknownLoc(), builder.getType<DeviceType>(),
+      ttnn::MeshShapeAttr::get(builder.getContext(), 1, 1),
+      ttnn::MeshOffsetAttr::get(builder.getContext(), 0, 0));
+
+  Conv2dOp conv2d = builder.create<Conv2dOp>(
+      builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
+      64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
+      llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
+      llvm::ArrayRef<int32_t>({1, 1}), 1, nullptr);
+
+  auto preparedWeightOutput =
+      mlir::tt::op_model::ttnn::getPreparedConv2dWeightsOutput(&conv2d);
+
+  auto preparedShape = preparedWeightOutput.getShape();
+  llvm::SmallVector<int64_t> expectedShape = {1, 1, 147, 64};
+
+  EXPECT_EQ(preparedShape.size(), expectedShape.size());
+  for (size_t i = 0; i < preparedShape.size(); i++) {
+    EXPECT_EQ(preparedShape[i], expectedShape[i]);
+  }
 }
 
 TEST_F(OpModelBase, maxPool2DOp) {

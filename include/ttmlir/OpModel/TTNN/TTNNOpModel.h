@@ -6,11 +6,13 @@
 #define TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpModelInterface.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/Error.h"
 
+#include "mlir/IR/BuiltinTypes.h"
 #include <tuple>
 
 namespace mlir::tt::op_model::ttnn {
@@ -18,6 +20,10 @@ namespace mlir::tt::op_model::ttnn {
 // Checks if the tensor layout is legal for the given tensor shape.
 bool isLayoutLegalForTensorShape(llvm::ArrayRef<int64_t> tensorShape,
                                  mlir::tt::ttnn::TTNNLayoutAttr layout);
+
+// Calculate the output tensor of the prepared weights for a conv2d op.
+mlir::RankedTensorType
+getPreparedConv2dWeightsOutput(mlir::tt::ttnn::Conv2dOp *op);
 
 //===----------------------------------------------------------------------===//
 // Device
