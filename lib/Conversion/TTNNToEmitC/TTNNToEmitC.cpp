@@ -962,6 +962,53 @@ public:
 };
 } // namespace
 
+// ConvTranspose2d op conversion pattern
+//
+namespace {
+class ConvTranspose2dOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::ConvTranspose2dOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::ttnn::ConvTranspose2dOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::ConvTranspose2dOp srcOp,
+                  tt::ttnn::ConvTranspose2dOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::ConvTranspose2dOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getWeight()),
+        emitter.emit(srcOp.getDevice()),
+        emitter.emit(srcOp.getInChannels()),
+        emitter.emit(srcOp.getOutChannels()),
+        emitter.emit(srcOp.getBatchSize()),
+        emitter.emit(srcOp.getInputHeight()),
+        emitter.emit(srcOp.getInputWidth()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getKernelSizeAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getPaddingAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getOutputPaddingAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
+        emitter.emit(srcOp.getGroups()),
+        emitter.emit(srcOp.getBias()),
+        emitter.emit(std::nullopt) |
+            emitter.getConv2dConfig(srcOp.getInput(), srcOp.getWeight()),
+        /*compute_config=*/emitter.emit(std::nullopt),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // ReshapeOp conversion pattern
 //
 namespace {
@@ -2124,8 +2171,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<PrepareConv2dWeightsOpConversionPattern>(typeConverter, ctx);
   patterns.add<Conv2dOpConversionPattern>(typeConverter, ctx);
-  patterns.add<DefaultOpConversionPattern<tt::ttnn::ConvTranspose2dOp>>(
-      typeConverter, ctx);
+  patterns.add<ConvTranspose2dOpConversionPattern>(typeConverter, ctx);
 
   // Other ops
   //
