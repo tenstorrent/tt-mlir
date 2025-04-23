@@ -45,7 +45,10 @@ void run(const ::tt::target::ttnn::ConvTranspose2dOp *op,
   auto config = ::ttnn::operations::conv::Conv2dConfig();
   config.dtype = utils::getDataType(op->input());
   config.weights_dtype = utils::getDataType(op->weight());
-  config.shard_layout = ::ttnn::TensorMemoryLayout::WIDTH_SHARDED;
+
+  std::optional<::ttnn::MemoryConfig> memoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          op->memory_config());
 
   DeviceVariant targetDevice =
       context.getTargetDevice(op->device()->global_id());
@@ -55,7 +58,8 @@ void run(const ::tt::target::ttnn::ConvTranspose2dOp *op,
             input, weight, &targetDevice.get(), op->in_channels(),
             op->out_channels(), op->batch_size(), op->input_height(),
             op->input_width(), kernelSize, stride, padding, outputPadding,
-            dilation, op->groups(), bias, config));
+            dilation, op->groups(), bias, config,
+            /*compute_config*/ std::nullopt, memoryConfig));
       },
       targetDevice);
 
