@@ -330,7 +330,7 @@ TTNNOperandsWorkaroundsFactory::createSliceOpOperandsWorkarounds(
 
 // ConstantOp is not a TTNN (lib) operation, but it is used to create TTNN
 // tensors. Tensor is expected to be on host in ROW_MAJOR layout. This
-// workaround is used to gurantee those ivariants.
+// workaround is used to guarantee those ivariants.
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds() {
   TTNNOperandWorkarounds hostRowMajorWorkaround = TTNNOperandWorkarounds();
@@ -579,4 +579,27 @@ TTNNOperandsWorkaroundsFactory::createArangeOpOperandsWorkarounds() {
       .addOutputOperandWorkaround(arangeOpOperandWorkaround);
 }
 
+// Factory method to create a set of workaround for reduction ops operands.
+// Data type workaround is required for reduction ops for following cases:
+// 1. Reduction ops requires padding if the input tensor shape is not same as
+//    padded shape and padding op only supports bfloat16 and float32.
+// 2. Reduction ops requires transpose in some cases which support bfloat16 and
+//    float32 data types only.
+// 3. Reduction ops generates incorrect output for integer input tensor.
+//    tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/21071
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createReductionOpOperandsWorkarounds(
+    mlir::Operation *op) {
+  auto inputType =
+      mlir::cast<mlir::RankedTensorType>(op->getOperand(0).getType())
+          .getElementType();
+  TTNNOperandWorkarounds operandWorkaround;
+  if (!inputType.isF32() && !inputType.isBF16()) {
+    operandWorkaround.tensorDataTypeWorkaround = DataType::BFloat16;
+  }
+
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(operandWorkaround)
+      .addOutputOperandWorkaround(operandWorkaround);
+}
 } // namespace mlir::tt::ttnn::wa
