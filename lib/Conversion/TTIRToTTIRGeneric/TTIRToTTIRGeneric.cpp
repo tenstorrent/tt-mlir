@@ -344,7 +344,7 @@ private:
                 mlir::ValueRange bbArgs) {
               mlir::Value yield = bbBuilder.create<TileOp>(
                   loc, /* resultTypes */ bbArgs.take_back(numOutputs),
-                  /* operands */ bbArgs.take_front(numInputs), attributes);
+                  /* operands */ bbArgs, attributes);
               bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
             });
       }
