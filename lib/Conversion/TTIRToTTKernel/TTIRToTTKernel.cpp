@@ -232,16 +232,16 @@ public:
                                     ChipDescAttr chipDesc,
                                     ValueRange dstCoreIndex) {
     std::pair<Value, Value> nocCoords;
-    auto offset = chipDesc.getChipPhysicalCores().getWorker().front();
+    auto offset = chipDesc.getCoordTranslationOffsets();
     nocCoords.first =
         rewriter
             .create<arith::AddIOp>(dstCoreIndex[0].getLoc(), dstCoreIndex[0],
-                                   index(rewriter, loc, offset.getY()))
+                                   index(rewriter, loc, offset[0]))
             .getResult();
     nocCoords.second =
         rewriter
             .create<arith::AddIOp>(dstCoreIndex[1].getLoc(), dstCoreIndex[1],
-                                   index(rewriter, loc, offset.getX()))
+                                   index(rewriter, loc, offset[1]))
             .getResult();
     return nocCoords;
   }
@@ -490,14 +490,14 @@ public:
       auto normalizedCoreIndex = rewriter.create<arith::SubIOp>(
           op.getLoc(), coreIndex,
           index(rewriter, op->getLoc(),
-                chipDesc.getChipPhysicalCores().getWorker().front().getX()));
+                chipDesc.getCoordTranslationOffsets()[1]));
       rewriter.replaceOp(op, normalizedCoreIndex);
     } else {
       auto coreIndex = rewriter.create<ttkernel::MyYOp>(op.getLoc(), nullptr);
       auto normalizedCoreIndex = rewriter.create<arith::SubIOp>(
           op.getLoc(), coreIndex,
           index(rewriter, op->getLoc(),
-                chipDesc.getChipPhysicalCores().getWorker().front().getY()));
+                chipDesc.getCoordTranslationOffsets()[0]));
       rewriter.replaceOp(op, normalizedCoreIndex);
     }
     return success();
