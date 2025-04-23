@@ -332,10 +332,12 @@ public:
 
     bool isRead = false;
     if (op.isSrcLocal() && op.isDstLocal()) {
-      // local movmement, mcast
+      // Local to Local Datamovement & Multicast
 
       auto srcCb = mlir::cast<ttkernel::CBType>(adaptor.getSrc().getType());
 
+      // Both src and dst are local, use the metal cb pointers to determine
+      // addressing
       Value srcL1Start = rewriter.create<ttkernel::GetReadPtrOp>(
           op.getLoc(), adaptor.getSrc());
       Value dstL1Start = rewriter.create<ttkernel::GetWritePtrOp>(
@@ -343,11 +345,13 @@ public:
 
       Value transferSize =
           i32(rewriter, op->getLoc(), getMemrefSizeBytes(srcCb.getMemref()));
-      // local movement
       if (op.isMcast()) {
-        // mcast
+        // Multicast lowering
+        // Get virtual start coordinates from DMA op logical coordinates
         auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
             rewriter, op.getLoc(), chipDesc, op.getMcastStartIndex());
+        // Get the multicast end coordinates from the virtual start coordinates
+        // and mcast shape
         auto [mcastEndY, mcastEndX] = getMcastEndCoords(
             rewriter, op.getLoc(), virtY, virtX, op.getMcastShape());
         auto numDestsIdx = rewriter.create<arith::MulIOp>(
@@ -358,26 +362,29 @@ public:
             op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, dstL1Start,
             nullptr);
         if (adaptor.getSrc() == adaptor.getDst()) {
-          // no loopback
+          // If src and dst refer to the same memref, we do not loopback mcast
+          // Dests are one less because the sender core is not included
           auto numDestsLessOne = rewriter.create<arith::SubIOp>(
               op.getLoc(), numDests, i32(rewriter, op->getLoc(), 1));
           rewriter.create<ttkernel::NocAsyncWriteMulticastOp>(
               op.getLoc(), srcL1Start, mcastAddr, transferSize, numDestsLessOne,
               nullptr, nullptr, nullptr);
         } else {
-          // loopback
+          // If src != dst, we loopback mcast
           rewriter.create<ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>(
               op.getLoc(), srcL1Start, mcastAddr, transferSize, numDests,
               nullptr, nullptr, nullptr);
         }
       } else {
-        // local movement
+        // Local L1 to Local L1 local data movement lowering
+        // Get local coordinates using myY and myX ops
         auto myY = rewriter.create<ttir::CoreIndexOp>(
             op.getLoc(), rewriter.getIndexType(),
             rewriter.getI64IntegerAttr(0));
         auto myX = rewriter.create<ttir::CoreIndexOp>(
             op.getLoc(), rewriter.getIndexType(),
             rewriter.getI64IntegerAttr(1));
+        // Convert local coordinates to virtual coordinates
         auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
             rewriter, op.getLoc(), chipDesc, ValueRange{myY, myX});
         auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
@@ -386,7 +393,7 @@ public:
                                                    nocAddr, transferSize);
       }
     } else if (op.isSrcLocal() && op.isDstRemote()) {
-      // local to remote dram/l1
+      // Local to Remote write
       if (!op.getOptNumElems()) {
         op.setOptNumElems(getMemrefShardNumElems(op.getDst().getType()));
       }
@@ -394,9 +401,12 @@ public:
           i32(rewriter, op->getLoc(),
               op.getNumElems() * getElementSizeBytes(op.getDstMemRefType()));
 
+      // Use the cb addr as the read address since it is local
       Value srcL1Start = rewriter.create<ttkernel::GetReadPtrOp>(
           op.getLoc(), adaptor.getSrc());
 
+      // Use the affine mapping from the dst memref to get the dst address and
+      // coordinates
       AffineMap dstGridYMap, dstGridXMap, dstOffsetMap;
       std::tie(dstGridYMap, dstGridXMap, dstOffsetMap) =
           getIndividualResultMaps(op.getDstMemRefType(), device, rewriter);
@@ -407,6 +417,7 @@ public:
       auto dstOffsetInt = rewriter.create<arith::IndexCastOp>(
           op.getLoc(), rewriter.getI32Type(), dstOffset);
 
+      // Translate the dst coordinates to virtual coordinates
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, op.getLoc(), chipDesc, ValueRange{dstGridY, dstGridX});
       auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
@@ -414,12 +425,17 @@ public:
       rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Start,
                                                  nocAddr, transferSize);
     } else if (op.isSrcRemote() && op.isDstLocal()) {
+      // Remote to Local read
       if (!op.getOptNumElems()) {
         op.setOptNumElems(getMemrefShardNumElems(op.getSrc().getType()));
       }
+
+      // Use the cb addr as the write address since it is local
       Value dstL1Start = rewriter.create<ttkernel::GetWritePtrOp>(
           op.getLoc(), adaptor.getDst());
 
+      // Use the affine mapping from the src memref to get the src address and
+      // coordinates
       AffineMap srcGridYMap, srcGridXMap, srcOffsetMap;
       std::tie(srcGridYMap, srcGridXMap, srcOffsetMap) =
           getIndividualResultMaps(op.getSrcMemRefType(), device, rewriter);
@@ -432,6 +448,7 @@ public:
       auto size =
           i32(rewriter, op->getLoc(),
               op.getNumElems() * getElementSizeBytes(op.getSrcMemRefType()));
+      // Translate the src coordinates to virtual coordinates
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, op.getLoc(), chipDesc, ValueRange{srcGridY, srcGridX});
       auto srcNocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
@@ -444,6 +461,9 @@ public:
       return failure();
     }
 
+    // Add attribute marking whether the DMA wait is for a read or write
+    // operation This will be used when loweing the wait ops because the current
+    // DMA op will be replaced with a NullTx.
     auto dmaWaitOps = associatedDMAWaits->get(op);
     for (auto dmaWaitOp : dmaWaitOps) {
       rewriter.modifyOpInPlace(dmaWaitOp, [&]() {
