@@ -7,7 +7,24 @@
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 
+#include <cstdlib>
 namespace tt::runtime::ttnn::operations::eltwise::binary {
+
+static ::ttnn::Tensor myadd(
+    const ::ttnn::Tensor &lhs, const ::ttnn::Tensor &rhs,
+    const std::optional<const ::ttnn::DataType> &outputDataType,
+    const std::optional<::ttnn::MemoryConfig> &outputMemoryConfig,
+    std::optional<::ttnn::Tensor> out,
+    tt::stl::Span<const ::ttnn::operations::unary::UnaryWithParam> lhsUnaryOps,
+    tt::stl::Span<const ::ttnn::operations::unary::UnaryWithParam> rhsUnaryOps,
+    tt::stl::Span<const ::ttnn::operations::unary::UnaryWithParam>
+        outUnaryOps) {
+  bool use_legacy = (std::getenv("USE_LEGACY") != nullptr &&
+                     std::string(std::getenv("USE_LEGACY")) == "1");
+
+  return ::ttnn::add(lhs, rhs, outputDataType, outputMemoryConfig, out,
+                     lhsUnaryOps, rhsUnaryOps, outUnaryOps, use_legacy);
+}
 
 static void runEltwiseBinaryOp(
     const ::tt::target::ttnn::EltwiseBinaryOp *op,
@@ -54,7 +71,7 @@ void run(const ::tt::target::ttnn::EltwiseBinaryOp *op,
   switch (op->type()) {
   /* Eltwise Binary */
   case ::tt::target::ttnn::EltwiseBinaryOpType::Add: {
-    runEltwiseBinaryOp(op, tensorPool, ::ttnn::add);
+    runEltwiseBinaryOp(op, tensorPool, myadd);
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::Multiply: {
