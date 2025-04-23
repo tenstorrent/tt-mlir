@@ -746,6 +746,22 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   return std::string(opContext.loc_info()->c_str());
 }
 
+std::vector<std::uint32_t>
+getInputTensorIds(CallbackContext programContextHandle) {
+  auto &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  return programContext.getTensorPool().getProgramInputIds();
+}
+
+std::vector<std::uint32_t>
+getOutputTensorIds(CallbackContext programContextHandle) {
+  auto &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  return programContext.getTensorPool().getProgramOutputIds();
+}
+
 std::vector<::tt::runtime::Tensor>
 getInputTensors(CallbackContext programContextHandle) {
   auto &programContext =
@@ -1207,30 +1223,6 @@ getIntermediateOutputTensor(OpContext opContextHandle,
   return createNullTensor();
 }
 
-std::vector<std::uint32_t>
-getInputTensorIds(CallbackContext programContextHandle) {
-  auto &programContext =
-      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
-          DeviceRuntime::TTNN);
-  return programContext.getTensorPool().getProgramInputIds();
-}
-
-std::vector<std::uint32_t>
-getOutputTensorIds(CallbackContext programContextHandle) {
-  auto &programContext =
-      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
-          DeviceRuntime::TTNN);
-  return programContext.getTensorPool().getProgramOutputIds();
-}
-
-bool isTensorLive(CallbackContext programContextHandle,
-                  std::uint32_t global_id) {
-  auto &programContext =
-      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
-          DeviceRuntime::TTNN);
-  return programContext.getTensorPool().containsId(global_id);
-}
-
 ::tt::runtime::Tensor getTensor(CallbackContext programContextHandle,
                                 std::uint32_t global_id) {
   auto &programContext =
@@ -1241,6 +1233,14 @@ bool isTensorLive(CallbackContext programContextHandle,
   }
   LOG_DEBUG("Tensor with ID ", global_id, " not found in tensor pool");
   return createNullTensor();
+}
+
+bool isTensorLive(CallbackContext programContextHandle,
+                  std::uint32_t global_id) {
+  auto &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  return programContext.getTensorPool().containsId(global_id);
 }
 
 std::vector<::tt::runtime::Tensor>

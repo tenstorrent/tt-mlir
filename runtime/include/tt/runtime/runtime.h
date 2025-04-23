@@ -178,6 +178,12 @@ std::string getOpDebugString(OpContext opContextHandle);
 
 std::string getOpLocInfo(OpContext opContextHandle);
 
+std::vector<std::uint32_t>
+getInputTensorIds(CallbackContext programContextHandle);
+
+std::vector<std::uint32_t>
+getOutputTensorIds(CallbackContext programContextHandle);
+
 std::vector<::tt::runtime::Tensor>
 getInputTensors(CallbackContext programContextHandle);
 
@@ -185,27 +191,21 @@ std::vector<::tt::runtime::Tensor>
 getOutputTensors(CallbackContext programContextHandle);
 
 std::vector<std::uint32_t>
-getInputTensorIds(CallbackContext programContextHandle);
-
-std::vector<std::uint32_t>
-getOutputTensorIds(CallbackContext programContextHandle);
-
-std::vector<std::uint32_t>
 getIntermediateInputTensorIds(OpContext opContextHandle);
 
 std::uint32_t getIntermediateOutputTensorId(OpContext opContextHandle);
 
-bool isTensorLive(CallbackContext programContextHandle,
-                  std::uint32_t global_id);
-
-Tensor getTensor(CallbackContext programContextHandle, std::uint32_t global_id);
+std::vector<Tensor>
+getIntermediateInputTensors(OpContext opContextHandle,
+                            CallbackContext programContextHandle);
 
 Tensor getIntermediateOutputTensor(OpContext opContextHandle,
                                    CallbackContext programContextHandle);
 
-std::vector<Tensor>
-getIntermediateInputTensors(OpContext opContextHandle,
-                            CallbackContext programContextHandle);
+Tensor getTensor(CallbackContext programContextHandle, std::uint32_t global_id);
+
+bool isTensorLive(CallbackContext programContextHandle,
+                  std::uint32_t global_id);
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,

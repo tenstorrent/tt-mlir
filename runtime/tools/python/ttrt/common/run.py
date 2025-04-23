@@ -501,6 +501,7 @@ class Run:
                 self["--debugger"],
             )
             # put this in a seperate-function?
+            """
             if self["--import-callback-file"]:
                 from importlib import import_module
                 import sys
@@ -526,6 +527,35 @@ class Run:
                     pre_op_get_callback_fn(pre_op_callback_runtime_config),
                     post_op_get_callback_fn(post_op_callback_runtime_config),
                 )
+            """
+            pre_callback_fn = pre_op_get_callback_fn
+            post_callback_fn = post_op_get_callback_fn
+
+            if self["--import-callback-file"]:
+                from importlib import import_module
+
+                # import sys
+
+                self.logging.debug(
+                    f"importing callback file={self['--import-callback-file']}"
+                )
+                # sys.path.append("/home/jgrim/wh-01-src/tt-mlir/runtime/test/python")
+                callback_module = import_module(self["--import-callback-file"])
+                self.logging.debug(f"importing callback module={callback_module}")
+
+                if self["--import-pre-callback-function"]:
+                    pre_callback_fn = getattr(
+                        callback_module, self["--import-pre-callback-function"]
+                    )
+                if self["--import-post-callback-function"]:
+                    post_callback_fn = getattr(
+                        callback_module, self["--import-post-callback-function"]
+                    )
+
+            callback_env = ttrt.runtime.DebugHooks.get(
+                pre_callback_fn(pre_op_callback_runtime_config),
+                post_callback_fn(post_op_callback_runtime_config),
+            )
 
             try:
                 for bin in binaries:
@@ -962,6 +992,7 @@ class Run:
                 )
         return run_parser
 
+    @staticmethod
     class TorchInitializer:
         init_fns = sorted(["randn", "arange", "zeros", "ones"])
 

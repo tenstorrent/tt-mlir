@@ -254,7 +254,6 @@ def pre_op_get_callback_fn(callback_runtime_config):
 
 def post_op_callback(callback_runtime_config, binary, program_context, op_context):
     print("YOU ARE IN THE POST OP CALLBACK")
-    return 0
     logging = callback_runtime_config.logging
     logging.debug("executing post-op callback")
     op_intermediate_tensor_ids = ttrt.runtime.get_intermediate_output_tensor_ids(
@@ -303,7 +302,9 @@ def post_op_get_callback_fn(callback_runtime_config):
 # see explorer runner.py for more info
 def test_program_ttrt_apis(helper: Helper, request):
     # Add callback functions in here just in case
+    import sys
 
+    sys.path.append("/home/jgrim/wh-01-src/tt-mlir/runtime/test/python")
     binary_path = os.path.join(
         FLATBUFFER_BASE_PATH, "eltwise_binary_op_chain.mlir.tmp.ttnn"
     )
@@ -339,6 +340,7 @@ def test_program_ttrt_apis(helper: Helper, request):
             print(output.strip())
     process.stdout.close()
     process.wait()
+    assert False, "test"
 
 
 # This is the python path that works for me: /home/jgrim/wh-01-src/tt-mlir/runtime/test/python:/home/jgrim/wh-01-src/tt-mlir/build/python_packages:/home/jgrim/wh-01-src/tt-mlir/.local/toolchain/python_packages/mlir_core:/home/jgrim/wh-01-src/tt-mlir/third_party/tt-metal/src/tt-metal:/home/jgrim/wh-01-src/tt-mlir/third_party/tt-metal/src/tt-metal/tt_eager:/home/jgrim/wh-01-src/tt-mlir/third_party/tt-metal/src/tt-metal-build/tools/profiler/bin:/home/jgrim/wh-01-src/tt-mlir/third_party/tt-metal/src/tt-metal/ttnn
