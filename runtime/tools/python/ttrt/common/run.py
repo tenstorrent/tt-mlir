@@ -500,7 +500,7 @@ class Run:
                 self["--memory"],
                 self["--debugger"],
             )
-            # put this in a sub-function?
+            # put this in a seperate-function?
             if self["--import-callback-file"]:
                 from importlib import import_module
                 import sys
@@ -508,15 +508,7 @@ class Run:
                 self.logging.debug(
                     f"importing callback file={self['--import-callback-file']}"
                 )
-                self.logging.debug(os.path.dirname(self["--import-callback-file"]))
                 sys.path.append("/home/jgrim/wh-01-src/tt-mlir/runtime/test/python")
-                x = os.path.dirname(self["--import-callback-file"])
-                # sys.path.append(x)
-                self.logging.debug(f"sys.path={x}")
-                # sys.path.append("/home/jgrim/wh-01-src/tt-mlir/runtime/test/python/ttnn")
-                self.logging.debug(f"sys.path={sys.path}")
-                callback_module_name = os.path.basename(self["--import-callback-file"])
-                self.logging.debug(f"callback module name={callback_module_name}")
                 callback_module = import_module(self["--import-callback-file"])
                 self.logging.debug(f"importing callback module={callback_module}")
                 pre_callback_func = getattr(
@@ -525,13 +517,8 @@ class Run:
                 post_callback_func = getattr(
                     callback_module, self["--import-post-callback-function"]
                 )
-
-                # callback_module = import_module(self["--import-callback-file"], fromlist=["test_runtime_api"])
-                # pre_callback_func = getattr(callback_module, self["--import-pre-callback-function"])
-                # post_callback_func = getattr(callback_module, self["--import-post-callback-function"])
                 callback_env = ttrt.runtime.DebugHooks.get(
                     pre_callback_func(pre_op_callback_runtime_config),
-                    # post_callback_func(post_op_callback_runtime_config),
                     post_op_get_callback_fn(post_op_callback_runtime_config),
                 )
             else:

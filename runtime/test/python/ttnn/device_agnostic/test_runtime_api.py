@@ -317,10 +317,7 @@ def test_program_ttrt_apis(helper: Helper, request):
         "--log-file",
         "ttrt.log",
         "--import-callback-file",
-        # "/home/jgrim/wh-01-src/tt-mlir/runtime/test/python/ttnn/device_agnostic/test_runtime_api",
         "ttnn.device_agnostic.test_runtime_api",
-        # "/test/python/ttnn/device_agnostic/test_runtime_api",
-        # ["/test/python/ttnn/device_agnostic", "test_runtime_api.py", "pre_op_callback", "post_op_callback"],
         "--import-pre-callback-function",
         "pre_op_get_callback_fn",
         "--import-post-callback-function",
@@ -342,4 +339,6 @@ def test_program_ttrt_apis(helper: Helper, request):
             print(output.strip())
     process.stdout.close()
     process.wait()
-    # assert False, "This test is not implemented yet"
+
+
+# This is the python path that works for me: /home/jgrim/wh-01-src/tt-mlir/runtime/test/python:/home/jgrim/wh-01-src/tt-mlir/build/python_packages:/home/jgrim/wh-01-src/tt-mlir/.local/toolchain/python_packages/mlir_core:/home/jgrim/wh-01-src/tt-mlir/third_party/tt-metal/src/tt-metal:/home/jgrim/wh-01-src/tt-mlir/third_party/tt-metal/src/tt-metal/tt_eager:/home/jgrim/wh-01-src/tt-mlir/third_party/tt-metal/src/tt-metal-build/tools/profiler/bin:/home/jgrim/wh-01-src/tt-mlir/third_party/tt-metal/src/tt-metal/ttnn

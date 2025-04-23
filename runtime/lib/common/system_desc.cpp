@@ -277,19 +277,13 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
 
 std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc(
     std::optional<DispatchCoreType> dispatchCoreType = std::nullopt) {
-  LOG_DEBUG("opening getCurrentSystemDesc");
-  size_t numDevices = 2; // = ::tt::tt_metal::GetNumAvailableDevices();
-  LOG_DEBUG("opening getCurrentSystemDesc2");
+  size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
   ::tt::tt_metal::DispatchCoreType type =
       tt::runtime::common::getDispatchCoreType(dispatchCoreType);
-  LOG_DEBUG("opening getCurrentSystemDesc3");
   std::vector<chip_id_t> deviceIds(numDevices);
-  LOG_DEBUG("opening getCurrentSystemDesc4");
   std::iota(deviceIds.begin(), deviceIds.end(), 0);
-  LOG_DEBUG("opening getCurrentSystemDesc5");
   ::tt::tt_metal::distributed::MeshShape meshShape{
       1, static_cast<uint32_t>(numDevices)};
-  LOG_DEBUG("opening getCurrentSystemDesc6");
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevice =
       ::tt::tt_metal::distributed::MeshDevice::create(
           ::tt::tt_metal::distributed::MeshDeviceConfig(meshShape),
