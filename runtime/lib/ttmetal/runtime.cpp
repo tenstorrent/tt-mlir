@@ -255,7 +255,7 @@ prepareInput(::tt::tt_metal::IDevice *device, MetalTensor const &metalTensor,
         createBufferFromTensorRef(device, tensorRef);
     auto event = std::make_shared<::tt::tt_metal::Event>();
     ::tt::tt_metal::CommandQueue &cq =
-        device->command_queue(kHostBufferCommandQueueId);
+        device->mesh_command_queue(kHostBufferCommandQueueId);
     bool const blocking = false;
     ::tt::tt_metal::EnqueueWriteBuffer(cq, buffer, data, blocking);
     ::tt::tt_metal::EnqueueRecordEvent(cq, event);
@@ -301,7 +301,7 @@ Events maybeCopyHostOutputs(::tt::tt_metal::IDevice *device,
             &outputHandle.as<MetalTensor>(DeviceRuntime::TTMetal));
         hostTensor) {
       ::tt::tt_metal::CommandQueue &cq =
-          device->command_queue(kHostBufferCommandQueueId);
+          device->mesh_command_queue(kHostBufferCommandQueueId);
       for (auto submitEvent : submitEvents) {
         ::tt::tt_metal::EnqueueWaitForEvent(cq, submitEvent);
       }

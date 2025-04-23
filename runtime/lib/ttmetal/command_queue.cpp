@@ -67,7 +67,7 @@ CQExecutor::CQExecutor(::tt::tt_metal::IDevice *device, std::size_t cq_id,
     buffers[global_id] = buffer;
   }
 
-  cq = &device->command_queue(cq_id);
+  cq = &device->mesh_command_queue(cq_id);
 }
 
 std::shared_ptr<::tt::tt_metal::Event>
