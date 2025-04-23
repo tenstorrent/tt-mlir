@@ -9,8 +9,9 @@
 namespace fs = std::filesystem;
 
 std::string compile_cpp_to_so(const std::string &cpp_source,
-                              const std::string &tmp_path_dir) {
-
+                              const std::string &tmp_path_dir,
+                              const std::string &metal_src_dir,
+                              const std::string &metal_lib_dir) {
   {
     std::cout << "PRINTING ENVS CCTS" << std::endl;
     std::cout << "I'm in compile_cpp_to_so function, generating shared object "
@@ -35,6 +36,12 @@ std::string compile_cpp_to_so(const std::string &cpp_source,
     std::cout << "  FORGE_HOME" << " environment variable: "
               << (var_value != nullptr ? var_value : "not set") << std::endl;
 
+    std::cout << "  metal_src_dir: "
+              << (metal_src_dir != "" ? metal_src_dir : "not set") << std::endl;
+
+    std::cout << "  metal_lib_dir: "
+              << (metal_lib_dir != "" ? metal_lib_dir : "not set") << std::endl;
+
     std::cout << "  PRINTING FROM " << __FILE__ << std::endl;
   }
 
@@ -55,8 +62,13 @@ std::string compile_cpp_to_so(const std::string &cpp_source,
 
   // Compile the C++ code to a shared object.
   //
-  fs::path currDir = std::filesystem::path(__FILE__).parent_path();
-  std::string pythonScriptPath = currDir / "ci_compile_dylib.py";
+  fs::path currDir;
+  if (metal_src_dir == "") {
+    currDir = fs::path(__FILE__).parent_path();
+  } else {
+    currDir = fs::path(metal_src_dir) / "/../tools/ttnn-standalone";
+  }
+  fs::path pythonScriptPath = currDir / "ci_compile_dylib.py";
   std::cout << "Curr dir of compile_so.cpp: " << currDir << std::endl;
   std::cout << "Curr path of ci_compile_dylib.py " << pythonScriptPath
             << std::endl;
@@ -69,7 +81,14 @@ std::string compile_cpp_to_so(const std::string &cpp_source,
   }
 
   std::string command =
-      "python " + pythonScriptPath + " --file " + filePath.string();
+      "python " + pythonScriptPath.string() + " --file " + filePath.string();
+
+  if (metal_src_dir != "") {
+    command += " --metal_src_dir " + metal_src_dir;
+  }
+  if (metal_lib_dir != "") {
+    command += " --metal_lib_dir " + metal_lib_dir;
+  }
 
   int result = std::system(command.c_str());
 
