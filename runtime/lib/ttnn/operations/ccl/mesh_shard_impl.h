@@ -56,7 +56,7 @@ inline ::ttnn::Tensor ShardToFullShape(const ::ttnn::Tensor &input,
                                        const std::vector<int64_t> &shardShape,
                                        const std::vector<int64_t> &shardDims) {
   std::vector<::ttnn::Tensor> input_tensors =
-      ::ttnn::distributed::get_tensors_from_multi_device_storage(input);
+      ::ttnn::distributed::get_device_tensors(input);
   if (shardType == MeshShardType::Replicate) {
     return input_tensors[0];
   } else {

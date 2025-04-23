@@ -246,9 +246,8 @@ static ::tt::runtime::Tensor createMultiDeviceHostTensor(
 
   DistributedTensorConfig distributionStrategy =
       ::tt::tt_metal::get_distributed_tensor_config(strategy);
-  ::ttnn::Tensor tensor = ::ttnn::distributed::create_multi_device_tensor(
-      ownedTensorShards, ::ttnn::StorageType::MULTI_DEVICE_HOST,
-      distributionStrategy);
+  ::ttnn::Tensor tensor = ::ttnn::distributed::aggregate_as_tensor(
+      ownedTensorShards, distributionStrategy);
 
   return utils::createRuntimeTensorFromTTNN(tensor);
 }

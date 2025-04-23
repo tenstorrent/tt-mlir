@@ -40,7 +40,7 @@ void run(const ::tt::target::ttnn::CollectivePermuteOp *op,
   // Get list of individual per-device tensors. It should be returned in logical
   // id order.
   std::vector<::ttnn::Tensor> originalDeviceTensors =
-      ::ttnn::distributed::get_tensors_from_multi_device_storage(input);
+      ::ttnn::distributed::get_device_tensors(input);
 
   std::vector<::ttnn::Tensor> ownedStorageTensors;
   ownedStorageTensors.reserve(originalDeviceTensors.size());
@@ -104,8 +104,8 @@ void run(const ::tt::target::ttnn::CollectivePermuteOp *op,
 
   // Combine all device tensor shards into a single multi device tensor with
   // multi device storage type.
-  ::ttnn::Tensor out = ::ttnn::distributed::create_multi_device_tensor(
-      newDeviceTensors, ::ttnn::StorageType::MULTI_DEVICE,
+  ::ttnn::Tensor out = ::ttnn::distributed::aggregate_as_tensor(
+      newDeviceTensors,
       ::ttnn::distributed::get_distributed_tensor_config_from_tensor(input));
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);

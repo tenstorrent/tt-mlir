@@ -67,8 +67,8 @@ createFullOnMultiDevice(ProgramContext &context, FullTensorConfig &config,
                     return ::ttnn::full(config.shape, config.fillValue,
                                         config.dtype, config.layout);
                   });
-  ::ttnn::Tensor out = ::ttnn::distributed::create_multi_device_tensor(
-      tensorShards, ::ttnn::StorageType::MULTI_DEVICE_HOST, strategy);
+  ::ttnn::Tensor out =
+      ::ttnn::distributed::aggregate_as_tensor(tensorShards, strategy);
   if (deviceRef) {
     ::ttnn::MeshDevice &meshDevice = context.getSubMesh(deviceRef->global_id());
     LOG_ASSERT(config.numShards == meshDevice.num_devices());
