@@ -30,8 +30,8 @@ static IntegerType getIntegerTypeFromBitWidth(MLIRContext *context,
   case 64:
     return IntegerType::get(context, bitWidth, IntegerType::Signed);
   default:
-    emitError(loc, "Invalid quantization bit width (must be 8, 16, 32, or 64). "
-                   "Returning null IntegerType.");
+    emitError(loc,
+              "Invalid quantization bit width (must be 8, 16, 32, or 64). ");
     return nullptr;
   }
 }
@@ -52,8 +52,8 @@ getStorageTypeMinMax(IntegerType intType, Location loc) {
     return std::make_pair(std::numeric_limits<int64_t>::min(),
                           std::numeric_limits<int64_t>::max());
   default:
-    emitError(loc, "Invalid quantization bit width (must be 8, 16, 32, or 64). "
-                   "Returning null bounds.");
+    emitError(loc,
+              "Invalid quantization bit width (must be 8, 16, 32, or 64). ");
     return std::nullopt;
   }
 }
