@@ -298,14 +298,6 @@ def TTIRLowerToLayout: Pass<"ttir-lower-to-layout", "::mlir::ModuleOp"> {
   }];
 }
 
-def TTIRConstantAsFill: Pass<"ttir-constant-as-fill", "::mlir::ModuleOp"> {
-  let summary = "Converts constant ops to empty + fill.";
-  let description = [{
-    This pass converts constant ops to empty + fill ops to allow for better
-    optimization and easier lowering for some backend targets.
-  }];
-}
-
 def TTIRPrepareTensorsForBufferization : Pass<"ttir-prepare-tensors-for-bufferization", "::mlir::ModuleOp"> {
   let summary = "Prepare tensor shapes for bufferization.";
   let description = [{
