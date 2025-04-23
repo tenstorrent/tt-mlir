@@ -33,7 +33,7 @@ class ProgramExecutor {
 public:
   // Constructor for executing a program
   ProgramExecutor(const ::tt::target::ttnn::Program *program,
-                  Binary &executableHandle,
+                  const Binary &executableHandle,
                   std::vector<::tt::runtime::Tensor> &programInputs,
                   ::ttnn::MeshDevice *meshDevice,
                   const size_t programIndex = 0);

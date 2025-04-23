@@ -195,7 +195,7 @@ public:
                  const std::vector<uint32_t> &programOutputIds,
                  TensorPtrMap &&liveTensors,
                  common::DylibManager &&programDylibManager,
-                 ::ttnn::MeshDevice *parentMesh, Binary &executableHandle,
+                 ::ttnn::MeshDevice *parentMesh, const Binary &executableHandle,
                  size_t programIndex = 0)
       : tensorPool(ProgramTensorPool(programInputIds, programOutputIds,
                                      std::move(liveTensors))),
@@ -252,13 +252,7 @@ public:
   // Executable Handle Operations
   //
   std::shared_ptr<TensorCache> getCache() {
-    auto cache = executableHandle.getCache();
-    if (!cache) {
-      // Create a new cache if it doesn't exist
-      executableHandle.setCache(std::make_shared<TensorCache>());
-      return executableHandle.getCache();
-    }
-    return cache;
+    return executableHandle.getCache();
   }
 
   Binary &getExecutableHandle() { return executableHandle; }
@@ -281,7 +275,7 @@ private:
   std::unordered_map<uint32_t, std::shared_ptr<::ttnn::MeshDevice>> subMeshes;
 
   // The executable binary handle
-  Binary &executableHandle;
+  Binary executableHandle;
 
   // The index of the program within the binary
   const size_t programIndex;

@@ -7,6 +7,7 @@
 #include "flatbuffers/idl.h"
 
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/Common/system_desc_bfbs_generated.h"
@@ -320,7 +321,8 @@ SystemDesc SystemDesc::loadFromPath(char const *path) {
 }
 
 Binary Binary::loadFromPath(char const *path) {
-  return Binary(Flatbuffer::loadFromPath(path).handle);
+  return Binary(Flatbuffer::loadFromPath(path).handle,
+                std::make_shared<TensorCache>());
 }
 
 std::vector<TensorDesc>

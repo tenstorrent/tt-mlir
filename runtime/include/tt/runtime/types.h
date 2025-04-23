@@ -150,6 +150,13 @@ struct SystemDesc : public Flatbuffer {
 
 class TensorCache;
 struct Binary : public Flatbuffer {
+  Binary(Flatbuffer fb, std::shared_ptr<TensorCache> &&cache)
+      : Flatbuffer(fb), cache(std::move(cache)) {}
+  Binary(std::shared_ptr<void> handle, std::shared_ptr<TensorCache> &&cache)
+      : Flatbuffer(handle), cache(std::move(cache)) {}
+  Binary(const Binary &) = default;
+  Binary(Binary &&) = default;
+
   using Flatbuffer::Flatbuffer;
 
   static Binary loadFromPath(char const *path);
@@ -160,9 +167,6 @@ struct Binary : public Flatbuffer {
 
   // Get the tensor cache associated with this binary
   std::shared_ptr<TensorCache> getCache() { return cache; }
-
-  // Set the tensor cache for this binary
-  void setCache(std::shared_ptr<TensorCache> newCache) { cache = newCache; }
 
 private:
   // The tensor cache associated with this binary

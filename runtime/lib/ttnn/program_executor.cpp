@@ -72,7 +72,7 @@ static void tracyLogOpLocation(const ::tt::target::ttnn::Operation *op) {
 }
 
 ProgramExecutor::ProgramExecutor(
-    const ::tt::target::ttnn::Program *program, Binary &executableHandle,
+    const ::tt::target::ttnn::Program *program, const Binary &executableHandle,
     std::vector<::tt::runtime::Tensor> &programInputs,
     ::ttnn::MeshDevice *meshDevice, const size_t programIndex)
     : program(program), executableHandle(executableHandle) {

@@ -933,8 +933,8 @@ std::string getOpLocInfo(OpContext opContextHandle) {
 }
 
 std::vector<::tt::runtime::Tensor>
-submit(Device deviceHandle, Binary &executableHandle,
-       std::uint32_t programIndex, std::vector<::tt::runtime::Tensor> &inputs) {
+submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
+       std::vector<::tt::runtime::Tensor> &inputs) {
 
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
@@ -946,7 +946,7 @@ submit(Device deviceHandle, Binary &executableHandle,
 }
 
 std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
-                               Binary &executableHandle,
+                               Binary executableHandle,
                                std::uint32_t programIndex,
                                std::vector<::tt::runtime::Tensor> &inputs) {
   ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
