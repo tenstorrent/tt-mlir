@@ -99,6 +99,10 @@ createOwnedTTNNTensor(void const *data, std::vector<std::uint32_t> const &shape,
                         ::ttnn::Layout::ROW_MAJOR);
 }
 
+static ::tt::runtime::Tensor createNullTensor() {
+  return ::tt::runtime::Tensor(nullptr, nullptr, DeviceRuntime::TTNN);
+}
+
 static ::tt::runtime::Tensor toHostSingleTensor(::tt::runtime::Tensor tensor,
                                                 bool untilize) {
   const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
@@ -743,6 +747,14 @@ std::string getOpLocInfo(OpContext opContextHandle) {
 }
 
 std::vector<::tt::runtime::Tensor>
+getInputTensors(CallbackContext programContextHandle) {
+  auto &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  return programContext.getTensorPool().gatherInputTensors();
+}
+
+std::vector<::tt::runtime::Tensor>
 getOutputTensors(CallbackContext programContextHandle) {
   auto &programContext =
       programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
@@ -1170,7 +1182,12 @@ getIntermediateInputTensors(OpContext opContextHandle,
   std::vector<::tt::runtime::Tensor> results;
   results.reserve(ids.size());
   for (auto id : ids) {
-    results.push_back(programContext.getTensorPool().getRuntimeTensor(id));
+    if (programContext.getTensorPool().containsId(id)) {
+      results.push_back(programContext.getTensorPool().getRuntimeTensor(id));
+    } else {
+      LOG_DEBUG("Intermediate input tensor with ID ", id,
+                " not found in tensor pool");
+    }
   }
   return results;
 }
@@ -1182,7 +1199,12 @@ getIntermediateOutputTensor(OpContext opContextHandle,
       programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
           DeviceRuntime::TTNN);
   std::uint32_t id = getIntermediateOutputTensorId(opContextHandle);
-  return programContext.getTensorPool().getRuntimeTensor(id);
+  if (programContext.getTensorPool().containsId(id)) {
+    return programContext.getTensorPool().getRuntimeTensor(id);
+  }
+  LOG_DEBUG("Intermediate output tensor with ID ", id,
+            " not found in tensor pool");
+  return createNullTensor();
 }
 
 std::vector<std::uint32_t>
@@ -1214,7 +1236,11 @@ bool isTensorLive(CallbackContext programContextHandle,
   auto &programContext =
       programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
           DeviceRuntime::TTNN);
-  return programContext.getTensorPool().getRuntimeTensor(global_id);
+  if (programContext.getTensorPool().containsId(global_id)) {
+    return programContext.getTensorPool().getRuntimeTensor(global_id);
+  }
+  LOG_DEBUG("Tensor with ID ", global_id, " not found in tensor pool");
+  return createNullTensor();
 }
 
 std::vector<::tt::runtime::Tensor>

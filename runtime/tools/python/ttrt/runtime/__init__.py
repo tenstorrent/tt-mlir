@@ -34,6 +34,8 @@ try:
         to_layout,
         get_layout,
         get_intermediate_output_tensor,
+        get_intermediate_input_tensors,
+        get_input_tensors,
         get_output_tensors,
         get_op_debug_str,
         get_input_tensor_ids,

@@ -129,6 +129,7 @@ void setCompatibleRuntime(const Binary &binary) {
 std::pair<SystemDesc, DeviceIds>
 getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType) {
 #if defined(TT_RUNTIME_ENABLE_TTNN) || defined(TT_RUNTIME_ENABLE_TTMETAL)
+  LOG_DEBUG("getCurrentSystemDesc open runtime");
   return system_desc::getCurrentSystemDesc(dispatchCoreType);
 #endif
   LOG_FATAL("runtime is not enabled");
@@ -711,6 +712,22 @@ std::string getOpLocInfo(OpContext opContextHandle) {
 }
 
 std::vector<::tt::runtime::Tensor>
+getInputTensors(CallbackContext programContextHandle) {
+#ifdef TT_RUNTIME_ENABLE_TTNN
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::getInputTensors(programContextHandle);
+  }
+#endif
+
+#ifdef TT_RUNTIME_ENABLE_TTMETAL
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::getInputTensors(programContextHandle);
+  }
+#endif
+  throw std::runtime_error("runtime is not enabled");
+}
+
+std::vector<::tt::runtime::Tensor>
 getOutputTensors(CallbackContext programContextHandle) {
 #ifdef TT_RUNTIME_ENABLE_TTNN
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
@@ -724,6 +741,25 @@ getOutputTensors(CallbackContext programContextHandle) {
   }
 #endif
   throw std::runtime_error("runtime is not enabled");
+}
+
+std::vector<Tensor>
+getIntermediateInputTensors(OpContext opContextHandle,
+                            CallbackContext programContextHandle) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::getIntermediateInputTensors(
+        opContextHandle, programContextHandle);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::getIntermediateInputTensors(
+        opContextHandle, programContextHandle);
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
 }
 
 Tensor getIntermediateOutputTensor(OpContext opContextHandle,

@@ -141,6 +141,8 @@ public:
                               const ::ttnn::Tensor &ttnnTensor,
                               bool retain = false);
 
+  std::vector<::tt::runtime::Tensor> gatherInputTensors();
+
   std::vector<::tt::runtime::Tensor> gatherOutputTensors();
 
   TensorPtrMapIterator erase(const ::tt::target::ttnn::TensorRef *tensorRef);
@@ -150,6 +152,10 @@ public:
   }
 
   bool containsId(std::uint32_t global_id) {
+    return liveTensors.contains(global_id);
+  }
+
+  bool containsId(std::uint32_t global_id) const {
     return liveTensors.contains(global_id);
   }
 

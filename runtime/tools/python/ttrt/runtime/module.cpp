@@ -266,6 +266,8 @@ PYBIND11_MODULE(_C, m) {
         ::tt::runtime::wait(tensors);
       },
       py::arg("tensors"));
+  m.def("get_input_tensors", &tt::runtime::getInputTensors,
+        "Get input tensors off device");
   m.def("get_output_tensors", &tt::runtime::getOutputTensors,
         "Get output tensors off device");
   m.def(
@@ -279,6 +281,9 @@ PYBIND11_MODULE(_C, m) {
                    : std::optional<tt::runtime::Tensor>(tensor);
       },
       "Get the intermediate output tensor of the op");
+  m.def("get_intermediate_input_tensors",
+        &tt::runtime::getIntermediateInputTensors,
+        "Get intermediate input tensors for an operation");
   m.def("get_op_debug_str", &tt::runtime::getOpDebugString,
         "Get the debug string of the op");
   m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,

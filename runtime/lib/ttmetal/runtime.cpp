@@ -411,10 +411,27 @@ std::string getOpLocInfo(OpContext opContextHandle) {
 }
 
 std::vector<::tt::runtime::Tensor>
+getInputTensors(CallbackContext programContextHandle) {
+  // Not implemented
+  LOG_WARNING("obtaining all input tensors for metal runtime not implemented");
+  return {};
+}
+
+std::vector<::tt::runtime::Tensor>
 getOutputTensors(CallbackContext programContextHandle) {
   // Not implemented
   LOG_WARNING("obtaining all output tensors for metal runtime not implemented");
   return {};
+}
+
+std::vector<Tensor>
+getIntermediateInputTensors(OpContext opContextHandle,
+                            CallbackContext programContextHandle) {
+  // Not implemented
+  LOG_WARNING("obtaining op input tensors for metal runtime not implemented");
+  std::vector<Tensor> results;
+  results.push_back(createNullTensor());
+  return results;
 }
 
 Tensor getIntermediateOutputTensor(OpContext opContextHandle,

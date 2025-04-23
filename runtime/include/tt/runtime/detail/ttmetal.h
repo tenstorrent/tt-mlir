@@ -75,11 +75,18 @@ std::string getOpDebugString(OpContext opContextHandle);
 
 std::string getOpLocInfo(OpContext opContextHandle);
 
-Tensor getIntermediateOutputTensor(OpContext opContextHandle,
-                                   CallbackContext programContextHandle);
+std::vector<::tt::runtime::Tensor>
+getInputTensors(CallbackContext programContextHandle);
 
 std::vector<::tt::runtime::Tensor>
 getOutputTensors(CallbackContext programContextHandle);
+
+Tensor getIntermediateOutputTensor(OpContext opContextHandle,
+                                   CallbackContext programContextHandle);
+
+std::vector<Tensor>
+getIntermediateInputTensors(OpContext opContextHandle,
+                            CallbackContext programContextHandle);
 
 std::vector<std::uint32_t>
 getInputTensorIds(CallbackContext programContextHandle);

@@ -179,6 +179,9 @@ std::string getOpDebugString(OpContext opContextHandle);
 std::string getOpLocInfo(OpContext opContextHandle);
 
 std::vector<::tt::runtime::Tensor>
+getInputTensors(CallbackContext programContextHandle);
+
+std::vector<::tt::runtime::Tensor>
 getOutputTensors(CallbackContext programContextHandle);
 
 std::vector<std::uint32_t>

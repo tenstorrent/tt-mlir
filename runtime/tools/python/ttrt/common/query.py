@@ -138,7 +138,7 @@ class Query:
                 self.system_desc,
                 self.device_ids,
             ) = ttrt.runtime.get_current_system_desc(dispatch_core_type)
-
+            self.logging.debug(f"got system descriptor")
             if not self["--quiet"]:
                 self.logging.info(self.system_desc.as_json())
         except Exception as e:

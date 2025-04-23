@@ -219,7 +219,7 @@ class Run:
             type=bool,
             default=False,
             choices=[True, False],
-            help="Ignore check for Major/Minor/Patch between flatbuffer and TTRT, use at your own risk.",
+            help="ignore check for Major/Minor/Patch between flatbuffer and TTRT, use at your own risk.",
         )
         Run.register_arg(
             name="binary",
@@ -227,6 +227,27 @@ class Run:
             default="",
             choices=None,
             help="flatbuffer binary file",
+        )
+        Run.register_arg(
+            name="--import-callback-file",
+            type=str,
+            default="",
+            choices=None,
+            help="file name from which to import a callback function",
+        )
+        Run.register_arg(
+            name="--import-pre-callback-function",
+            type=str,
+            default="",
+            choices=None,
+            help="function name of imported pre-op callback function from a file",
+        )
+        Run.register_arg(
+            name="--import-post-callback-function",
+            type=str,
+            default="",
+            choices=None,
+            help="function name of imported post-op callback function from a file",
         )
 
     def __init__(self, args={}, logger=None, artifacts=None):
@@ -479,11 +500,45 @@ class Run:
                 self["--memory"],
                 self["--debugger"],
             )
+            # put this in a sub-function?
+            if self["--import-callback-file"]:
+                from importlib import import_module
+                import sys
 
-            callback_env = ttrt.runtime.DebugHooks.get(
-                pre_op_get_callback_fn(pre_op_callback_runtime_config),
-                post_op_get_callback_fn(post_op_callback_runtime_config),
-            )
+                self.logging.debug(
+                    f"importing callback file={self['--import-callback-file']}"
+                )
+                self.logging.debug(os.path.dirname(self["--import-callback-file"]))
+                sys.path.append("/home/jgrim/wh-01-src/tt-mlir/runtime/test/python")
+                x = os.path.dirname(self["--import-callback-file"])
+                # sys.path.append(x)
+                self.logging.debug(f"sys.path={x}")
+                # sys.path.append("/home/jgrim/wh-01-src/tt-mlir/runtime/test/python/ttnn")
+                self.logging.debug(f"sys.path={sys.path}")
+                callback_module_name = os.path.basename(self["--import-callback-file"])
+                self.logging.debug(f"callback module name={callback_module_name}")
+                callback_module = import_module(self["--import-callback-file"])
+                self.logging.debug(f"importing callback module={callback_module}")
+                pre_callback_func = getattr(
+                    callback_module, self["--import-pre-callback-function"]
+                )
+                post_callback_func = getattr(
+                    callback_module, self["--import-post-callback-function"]
+                )
+
+                # callback_module = import_module(self["--import-callback-file"], fromlist=["test_runtime_api"])
+                # pre_callback_func = getattr(callback_module, self["--import-pre-callback-function"])
+                # post_callback_func = getattr(callback_module, self["--import-post-callback-function"])
+                callback_env = ttrt.runtime.DebugHooks.get(
+                    pre_callback_func(pre_op_callback_runtime_config),
+                    # post_callback_func(post_op_callback_runtime_config),
+                    post_op_get_callback_fn(post_op_callback_runtime_config),
+                )
+            else:
+                callback_env = ttrt.runtime.DebugHooks.get(
+                    pre_op_get_callback_fn(pre_op_callback_runtime_config),
+                    post_op_get_callback_fn(post_op_callback_runtime_config),
+                )
 
             try:
                 for bin in binaries:

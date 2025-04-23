@@ -65,7 +65,9 @@ class CallbackRuntimeConfig:
 
         self.logging.debug(f"Saved memory report to={memory_report_path}")
 
-    def save_intermediate_tensors(self, program_context, op_context):
+    def save_intermediate_tensors(
+        self, program_context, op_context
+    ):  # do I want to also save op info or metadata?
         op_intermediate_input_ids = ttrt.runtime.get_intermediate_input_tensor_ids(
             op_context
         )
@@ -157,7 +159,9 @@ def golden(callback_runtime_config, binary, program_context, op_context):
             op_context, program_context
         )
     else:
-        logging.debug("Output tensor is empty - skipping golden comparison")
+        logging.debug(
+            "Op intermediate output tensor is empty - skipping golden comparison"
+        )
         return
 
     rt_buffer = op_intermediate_tensor.get_data_buffer()

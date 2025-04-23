@@ -466,14 +466,29 @@ ProgramTensorPool::insertTTNNTensorAndValidate(
   return liveTensors.insert_or_assign(globalId, &(iter->second));
 }
 
+std::vector<::tt::runtime::Tensor> ProgramTensorPool::gatherInputTensors() {
+  std::vector<::tt::runtime::Tensor> inputs;
+  inputs.reserve(programInputIds.size());
+  std::transform(programInputIds.begin(), programInputIds.end(),
+                 std::back_inserter(inputs), [this](std::uint32_t globalId) {
+                   LOG_ASSERT(liveTensors.contains(globalId),
+                              "Input tensor not found in tensor pool. Input "
+                              "tensor may no longer be in use");
+                   ::tt::runtime::Tensor &in = getRuntimeTensor(globalId);
+                   ::tt::runtime::ttnn::TTNNTensorWrapper &ttnnTensor =
+                       in.as<::tt::runtime::ttnn::TTNNTensorWrapper>(
+                           DeviceRuntime::TTNN);
+                   ttnnTensor.setRetain(false);
+                   return in;
+                 });
+  return inputs;
+}
+
 std::vector<::tt::runtime::Tensor> ProgramTensorPool::gatherOutputTensors() {
   std::vector<::tt::runtime::Tensor> outputs;
   outputs.reserve(programOutputIds.size());
   std::transform(programOutputIds.begin(), programOutputIds.end(),
                  std::back_inserter(outputs), [this](std::uint32_t globalId) {
-                   LOG_ASSERT(liveTensors.contains(globalId),
-                              "Output tensor not found in tensor pool. Output "
-                              "tensor may not have been created yet.");
                    ::tt::runtime::Tensor &out = getRuntimeTensor(globalId);
                    ::tt::runtime::ttnn::TTNNTensorWrapper &ttnnTensor =
                        out.as<::tt::runtime::ttnn::TTNNTensorWrapper>(
