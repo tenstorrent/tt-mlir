@@ -83,7 +83,7 @@ jobs:
         shell: bash
         run: |
           source env/activate
-          pip install "pip<24" 
+          pip install "pip<24"
           mkdir -p ${{ steps.strings.outputs.wheel-output-dir }}
           cd python
           python -m pip wheel ./pykernel --wheel-dir ${{ steps.strings.outputs.wheel-output-dir }} --verbose
