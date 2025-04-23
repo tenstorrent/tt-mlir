@@ -53,15 +53,25 @@ endif()
 
 message($ENV{TT_METAL_HOME}/tt_metal/third_party/src/firmware/riscv/$ENV{ARCH_NAME})
 
+if (DEFINED ENV{CPM_SOURCE_CACHE})
+  set(CPM_SOURCE_CACHE $ENV{CPM_SOURCE_CACHE})
+else()
+  set(CPM_SOURCE_CACHE $ENV{TT_METAL_HOME}/.cpmcache)
+endif()
+message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
+
 # Directories to search for headers
 #
 set(INCLUDE_DIRS
     # TODO: Remove these when ttmetal removes the dependencies from public facing headers
-    $ENV{TT_METAL_HOME}/.cpmcache/reflect/e75434c4c5f669e4a74e4d84e0a30d7249c1e66f
-    $ENV{TT_METAL_HOME}/.cpmcache/fmt/73b5ec45edbd92babfd91c3777a9e1ab9cac8238/include
-    $ENV{TT_METAL_HOME}/.cpmcache/magic_enum/4d76fe0a5b27a0e62d6c15976d02b33c54207096/include
-    $ENV{TT_METAL_HOME}/.cpmcache/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
-    $ENV{TT_METAL_HOME}/.cpmcache/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
+    ${CPM_SOURCE_CACHE}/reflect/e75434c4c5f669e4a74e4d84e0a30d7249c1e66f
+    ${CPM_SOURCE_CACHE}/fmt/73b5ec45edbd92babfd91c3777a9e1ab9cac8238/include
+    ${CPM_SOURCE_CACHE}/magic_enum/4d76fe0a5b27a0e62d6c15976d02b33c54207096/include
+    ${CPM_SOURCE_CACHE}/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
+    ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
+    ${CPM_SOURCE_CACHE}/xtensor/4a957e26c765b48cbec4a4235fe9e518d5a85d3d/include
+    ${CPM_SOURCE_CACHE}/xtensor-blas/190c3a4314355b67291a7d78b20a2100de3f8f54/include
+    ${CPM_SOURCE_CACHE}/xtl/0918808959d33a292c551b9f014a0e808bc4a95c/include
 
     # Metalium
     $ENV{TT_METAL_HOME}
@@ -87,6 +97,9 @@ set(INCLUDE_DIRS
     $ENV{TT_METAL_HOME}/ttnn/cpp
     $ENV{TT_METAL_HOME}/ttnn/cpp/ttnn
     $ENV{TT_METAL_HOME}/ttnn/cpp/ttnn/deprecated
+
+    # TT_MLIR Runtime
+    $ENV{TT_MLIR_HOME}/runtime/lib/ttnn
 )
 
 # Link directories

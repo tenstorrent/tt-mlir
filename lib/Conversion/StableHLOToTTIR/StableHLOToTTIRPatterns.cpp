@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -20,6 +21,7 @@
 #include "mlir/IR/BuiltinAttributeInterfaces.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/DialectResourceBlobManager.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Region.h"
 #include "mlir/IR/Value.h"
@@ -125,8 +127,8 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
-                                                 adaptor.getOperands());
+    ttir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
+                                               adaptor.getOperands());
 
     return success();
   }
@@ -144,7 +146,8 @@ public:
   matchAndRewrite(mlir::stablehlo::ReduceOp srcOp,
                   mlir::stablehlo::ReduceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    LogicalResult legalityResult = checkBasicLegality(srcOp, adaptor, rewriter);
+    LogicalResult legalityResult =
+        checkConversionLegality(srcOp, adaptor, rewriter);
     if (!legalityResult.succeeded()) {
       return legalityResult;
     }
@@ -183,9 +186,10 @@ public:
   }
 
 private:
-  LogicalResult checkBasicLegality(mlir::stablehlo::ReduceOp &srcOp,
-                                   mlir::stablehlo::ReduceOp::Adaptor adaptor,
-                                   ConversionPatternRewriter &rewriter) const {
+  LogicalResult
+  checkConversionLegality(mlir::stablehlo::ReduceOp &srcOp,
+                          mlir::stablehlo::ReduceOp::Adaptor adaptor,
+                          ConversionPatternRewriter &rewriter) const {
     if (!srcOp.getBody().hasOneBlock()) {
       return rewriter.notifyMatchFailure(
           srcOp,
@@ -234,9 +238,9 @@ private:
     mlir::ArrayAttr dimArg = rewriter.getI32ArrayAttr(
         llvm::SmallVector<int32_t>(srcOp.getDimensions()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
-                                                 adaptor.getInputs().front(),
-                                                 /*keep_dim=*/false, dimArg);
+    ttir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
+                                               adaptor.getInputs().front(),
+                                               /*keep_dim=*/false, dimArg);
 
     return success();
   }
@@ -537,7 +541,7 @@ public:
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
     // The stablehlo.transpose and ttir.permute have the same semantics.
-    ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::PermuteOp>(
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::PermuteOp>(
         rewriter, srcOp, outputType, adaptor.getOperand(),
         adaptor.getPermutation());
 
@@ -562,7 +566,7 @@ public:
     ArrayAttr newShapeAttr = rewriter.getI32ArrayAttr(
         llvm::SmallVector<int32_t>(outputType.getShape()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ReshapeOp>(
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ReshapeOp>(
         rewriter, srcOp, outputType, adaptor.getOperand(), newShapeAttr);
 
     return success();
@@ -607,119 +611,65 @@ public:
   matchAndRewrite(mlir::stablehlo::ConstantOp srcOp,
                   mlir::stablehlo::ConstantOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    LogicalResult legalityResult = checkBasicLegality(srcOp, rewriter);
-    if (!legalityResult.succeeded()) {
-      return legalityResult;
+    // Check legality of the conversion.
+    if (failed(checkConversionLegality(srcOp, rewriter))) {
+      return failure();
     }
 
-    auto outputType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(srcOp.getResult().getType()));
+    auto convertedType =
+        getTypeConverter()->convertType(srcOp.getResult().getType());
+    auto outputType = cast<mlir::RankedTensorType>(convertedType);
 
-    mlir::ElementsAttr valueAttr;
-    LogicalResult valueAttrLegalityResult =
-        getValueAttr(srcOp, rewriter, valueAttr);
-
-    if (!valueAttrLegalityResult.succeeded()) {
-      return valueAttrLegalityResult;
+    // In case value attr is scalar we need to convert it to 1D tensor.
+    ElementsAttr newValueAttr = getValueAttr(srcOp.getValue());
+    if (!newValueAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Expected DenseElementsAttr or DenseResourceElementsAttr");
     }
 
+    // Replace with ttir.constant.
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConstantOp>(srcOp, outputType,
-                                                            valueAttr);
+                                                            newValueAttr);
+
     return success();
   }
 
 private:
-  LogicalResult checkBasicLegality(mlir::stablehlo::ConstantOp &srcOp,
-                                   ConversionPatternRewriter &rewriter) const {
+  ElementsAttr getValueAttr(ElementsAttr valueAttr) const {
+    // Shape is not empty, so we can return the value as is.
+    if (!valueAttr.getShapedType().getShape().empty()) {
+      return valueAttr;
+    }
+
+    auto valueShapedType = cast<mlir::ShapedType>(
+        getTypeConverter()->convertType(valueAttr.getType()));
+    if (auto denseAttr = dyn_cast<mlir::DenseElementsAttr>(valueAttr)) {
+      llvm::SmallVector<mlir::Attribute> values(
+          denseAttr.getValues<mlir::Attribute>());
+      return mlir::DenseElementsAttr::get(valueShapedType, values);
+    }
+
+    if (auto resourceAttr =
+            dyn_cast<mlir::DenseResourceElementsAttr>(valueAttr)) {
+      // Rebuild with new type + same resource handle.
+      return mlir::DenseResourceElementsAttr::get(valueShapedType,
+                                                  resourceAttr.getRawHandle());
+    }
+
+    return nullptr;
+  }
+
+  LogicalResult
+  checkConversionLegality(mlir::stablehlo::ConstantOp &srcOp,
+                          ConversionPatternRewriter &rewriter) const {
     if (isa<DenseElementsAttr, DenseResourceElementsAttr>(srcOp.getValue()) &&
         !srcOp.getValue().getElementType().isIntOrFloat()) {
-      return rewriter.notifyMatchFailure(srcOp, "Unsupported element type.");
+      return rewriter.notifyMatchFailure(
+          srcOp, "ttir.constant only supports DenseElementsAttr or "
+                 "DenseResourceElementsAttr with int or float types.");
     }
 
     return success();
-  }
-
-  // Rebuilding value of constant op for following cases.
-  // 1. Scalar values: TTNN does not support scalar types. So they are converted
-  //    1-D tensors.
-  // 2. Boolean tensor: TTNN does not support boolean data. So they are
-  //    converted to bfloat16 tensors.
-  // 3. Integer tensor: TTNN does not support 64 bit integer. So they are
-  //    converted to 32 bit tensor (with signed saturation).
-  // 4. Float tensor: TTNN does not support 64 bit float. So they are converted
-  //    to 32 bit tensor.
-  LogicalResult getValueAttr(mlir::stablehlo::ConstantOp &srcOp,
-                             ConversionPatternRewriter &rewriter,
-                             mlir::ElementsAttr &newValueAttr) const {
-    mlir::ElementsAttr valueAttr = srcOp.getValue();
-    Type elementType = valueAttr.getElementType();
-    size_t bitWidth = elementType.getIntOrFloatBitWidth();
-    bool isScalar = valueAttr.getShapedType().getShape().empty();
-    bool isElementTypeSupported =
-        (isa<IntegerType>(elementType) || isa<FloatType>(elementType)) &&
-        bitWidth != 1 && bitWidth != 64;
-    if (!isScalar && isElementTypeSupported) {
-      newValueAttr = valueAttr;
-      return success();
-    }
-
-    mlir::ShapedType valueType = mlir::cast<mlir::ShapedType>(
-        getTypeConverter()->convertType(valueAttr.getShapedType()));
-    if (isa<IntegerType>(elementType)) {
-      newValueAttr = rebuildIntValueAttr(valueAttr, valueType, bitWidth);
-      return success();
-    }
-    if (isa<FloatType>(elementType)) {
-      newValueAttr = rebuildFloatValueAttr(valueAttr, valueType, bitWidth);
-      return success();
-    }
-    return rewriter.notifyMatchFailure(srcOp, "Unsupported data type.");
-  }
-
-  // Extract the values and create new ElementsAttr data structure. This is used
-  // to convert scalars boolean to bfloat16 and 64 bit integer to 32 bit integer
-  // by truncating with signed saturation.
-  mlir::ElementsAttr rebuildIntValueAttr(mlir::ElementsAttr valueAttr,
-                                         mlir::ShapedType valueType,
-                                         size_t bitWidth) const {
-    // Create data structure for boolean type with bfloat16.
-    if (bitWidth == 1) {
-      std::vector<mlir::APFloat> booleanValue = {};
-      for (bool value : valueAttr.getValues<bool>()) {
-        booleanValue.emplace_back(mlir::APFloat::BFloat(), value);
-      }
-      return mlir::DenseElementsAttr::get(valueType, booleanValue);
-    }
-
-    // Create data structure for other types.
-    std::vector<mlir::APInt> IntegerValue = {};
-    for (mlir::APInt value : valueAttr.getValues<mlir::APInt>()) {
-      // Truncate to 32 bits with signed saturation in case of 64 bit integers.
-      IntegerValue.emplace_back(bitWidth == 64 ? value.truncSSat(32) : value);
-    }
-    return mlir::DenseElementsAttr::get(valueType, IntegerValue);
-  }
-
-  mlir::ElementsAttr rebuildFloatValueAttr(mlir::ElementsAttr valueAttr,
-                                           mlir::ShapedType valueType,
-                                           size_t bitWidth) const {
-    // Convert 64 bit floating point numbers to 32 bit floating point numbers.
-    if (bitWidth == 64) {
-      std::vector<mlir::APFloat> floatValues;
-      for (mlir::APFloat value : valueAttr.getValues<mlir::APFloat>()) {
-        float fl = static_cast<float>(value.convertToDouble());
-        mlir::APFloat input = mlir::APFloat(fl);
-        floatValues.emplace_back(input);
-      }
-      return mlir::DenseElementsAttr::get(valueType, floatValues);
-    }
-    // In case of float values llvm has a bug where not all float types are
-    // supported for iterating in DenseElementsAttr, so we have to use a
-    // different constructor.
-    std::vector<mlir::APFloat> floatValues(
-        valueAttr.getValues<mlir::APFloat>().begin(),
-        valueAttr.getValues<mlir::APFloat>().end());
-    return mlir::DenseElementsAttr::get(valueType, floatValues);
   }
 };
 } // namespace
@@ -736,7 +686,7 @@ public:
                   mlir::stablehlo::UniformQuantizeOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    LogicalResult legalityResult = checkBasicLegality(srcOp, rewriter);
+    LogicalResult legalityResult = checkConversionLegality(srcOp, rewriter);
 
     if (!legalityResult.succeeded()) {
       return legalityResult;
@@ -764,8 +714,9 @@ public:
   }
 
 private:
-  LogicalResult checkBasicLegality(mlir::stablehlo::UniformQuantizeOp &srcOp,
-                                   ConversionPatternRewriter &rewriter) const {
+  LogicalResult
+  checkConversionLegality(mlir::stablehlo::UniformQuantizeOp &srcOp,
+                          ConversionPatternRewriter &rewriter) const {
     // Expect a single input/output.
     if (srcOp->getNumOperands() != 1 || srcOp->getNumResults() != 1) {
       return rewriter.notifyMatchFailure(srcOp,
@@ -793,8 +744,8 @@ private:
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
-                                                 adaptor.getOperand());
+    ttir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
+                                               adaptor.getOperand());
 
     return success();
   }
@@ -813,7 +764,7 @@ public:
                   mlir::stablehlo::UniformDequantizeOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    LogicalResult legalityResult = checkBasicLegality(srcOp, rewriter);
+    LogicalResult legalityResult = checkConversionLegality(srcOp, rewriter);
     if (!legalityResult.succeeded()) {
       return legalityResult;
     }
@@ -821,15 +772,15 @@ public:
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::DequantizeOp>(
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::DequantizeOp>(
         rewriter, srcOp, outputType, adaptor.getOperand());
-
     return success();
   }
 
 private:
-  LogicalResult checkBasicLegality(mlir::stablehlo::UniformDequantizeOp &srcOp,
-                                   ConversionPatternRewriter &rewriter) const {
+  LogicalResult
+  checkConversionLegality(mlir::stablehlo::UniformDequantizeOp &srcOp,
+                          ConversionPatternRewriter &rewriter) const {
     // Expect a single input/output.
     if (srcOp->getNumOperands() != 1 || srcOp->getNumResults() != 1) {
       return rewriter.notifyMatchFailure(srcOp,
@@ -887,7 +838,7 @@ public:
             : rewriter.getDenseBoolArrayAttr(
                   SmallVector<bool>(numSpatialDims, false));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ConvolutionOp>(
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ConvolutionOp>(
         rewriter, srcOp, outputType, adaptor.getLhs(), adaptor.getRhs(),
         Value(), windowStridesAttr, paddingAttr, inputDilationAttr,
         kernelDilationAttr, windowReversalAttr,
@@ -1233,7 +1184,8 @@ public:
   matchAndRewrite(mlir::stablehlo::BroadcastInDimOp srcOp,
                   mlir::stablehlo::BroadcastInDimOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    LogicalResult legalityResult = checkBasicLegality(srcOp, adaptor, rewriter);
+    LogicalResult legalityResult =
+        checkConversionLegality(srcOp, adaptor, rewriter);
     if (!legalityResult.succeeded()) {
       return legalityResult;
     }
@@ -1254,7 +1206,7 @@ public:
           ttmlir::utils::getBroadcastDimensions<int64_t>(inputShape,
                                                          outputShape);
 
-      ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::BroadcastOp>(
+      ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::BroadcastOp>(
           rewriter, srcOp, outputType, adaptor.getOperand(), broadcastShape);
     } else {
       // This stablehlo operation cannot be represented by a single TTIR
@@ -1276,7 +1228,7 @@ public:
                                       unsqueezeShape.end());
       auto reshapeDimAttr = rewriter.getI32ArrayAttr(reshapeDim);
 
-      ttir::ReshapeOp reshapeOp = ttmlir::utils::createDPSOp<ttir::ReshapeOp>(
+      ttir::ReshapeOp reshapeOp = ttir::utils::createDPSOp<ttir::ReshapeOp>(
           rewriter, srcOp.getLoc(), unsqueezeShape, outputType.getElementType(),
           outputType.getEncoding(), adaptor.getOperand(), reshapeDimAttr);
 
@@ -1287,7 +1239,7 @@ public:
           ttmlir::utils::getBroadcastDimensions<int64_t>(inputShape,
                                                          outputShape);
 
-      ttmlir::utils::replaceOpWithNewDPSOp<ttir::BroadcastOp>(
+      ttir::utils::replaceOpWithNewDPSOp<ttir::BroadcastOp>(
           rewriter, srcOp, outputType, reshapeOp, broadcastShape);
     }
 
@@ -1296,9 +1248,9 @@ public:
 
 private:
   LogicalResult
-  checkBasicLegality(mlir::stablehlo::BroadcastInDimOp &srcOp,
-                     mlir::stablehlo::BroadcastInDimOp::Adaptor adaptor,
-                     ConversionPatternRewriter &rewriter) const {
+  checkConversionLegality(mlir::stablehlo::BroadcastInDimOp &srcOp,
+                          mlir::stablehlo::BroadcastInDimOp::Adaptor adaptor,
+                          ConversionPatternRewriter &rewriter) const {
 
     llvm::SmallVector<int64_t, 4> broadcastedShape;
     auto srcType =
@@ -1377,8 +1329,8 @@ private:
         mlir::cast<RankedTensorType>(this->getTypeConverter()->convertType(
             srcOp->getResults()[0].getType()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
-                                                 adaptor.getOperands());
+    ttir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
+                                               adaptor.getOperands());
 
     return success();
   }
@@ -1398,8 +1350,8 @@ public:
                   mlir::stablehlo::ConcatenateOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // Check legality of the operation
-    LogicalResult err = checkBasicLegality(srcOp, adaptor, rewriter);
+    // Check legality of the conversion.
+    LogicalResult err = checkConversionLegality(srcOp, adaptor, rewriter);
     if (failed(err)) {
       return err;
     }
@@ -1408,7 +1360,7 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<ttir::ConcatOp>(
+    ttir::utils::replaceOpWithNewDPSOp<ttir::ConcatOp>(
         rewriter, srcOp, outputType, adaptor.getInputs(),
         static_cast<int32_t>(adaptor.getDimension()));
 
@@ -1417,9 +1369,9 @@ public:
 
 private:
   LogicalResult
-  checkBasicLegality(mlir::stablehlo::ConcatenateOp &srcOp,
-                     mlir::stablehlo::ConcatenateOp::Adaptor adaptor,
-                     ConversionPatternRewriter &rewriter) const {
+  checkConversionLegality(mlir::stablehlo::ConcatenateOp &srcOp,
+                          mlir::stablehlo::ConcatenateOp::Adaptor adaptor,
+                          ConversionPatternRewriter &rewriter) const {
     if (srcOp.getInputs().empty()) {
       return rewriter.notifyMatchFailure(
           srcOp, "ConcatOp must have at least one input.");
@@ -1467,10 +1419,10 @@ public:
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
     if (getStableHLOOpType(srcOp) == StableHLOOpType::kLogical) {
-      ttmlir::utils::replaceOpWithNewDPSOp<LogicalDestOp>(
+      ttir::utils::replaceOpWithNewDPSOp<LogicalDestOp>(
           rewriter, srcOp, outputType, adaptor.getOperands());
     } else {
-      ttmlir::utils::replaceOpWithNewDPSOp<BitwiseDestOp>(
+      ttir::utils::replaceOpWithNewDPSOp<BitwiseDestOp>(
           rewriter, srcOp, outputType, adaptor.getOperands());
     }
 
@@ -1606,8 +1558,8 @@ public:
                   mlir::stablehlo::AllReduceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // Check legality of the operation
-    LogicalResult err = checkBasicLegality(srcOp, adaptor, rewriter);
+    // Check legality of the conversion.
+    LogicalResult err = checkConversionLegality(srcOp, adaptor, rewriter);
     if (failed(err)) {
       return err;
     }
@@ -1646,10 +1598,9 @@ public:
       auto outputType = mlir::cast<RankedTensorType>(
           getTypeConverter()->convertType(resultOperand.getType()));
 
-      auto allReduceOp =
-          ttmlir::utils::createDPSOp<mlir::tt::ttir::AllReduceOp>(
-              rewriter, srcOp.getLoc(), outputType, inputOperand, *reduceType,
-              clusterAxis);
+      auto allReduceOp = ttir::utils::createDPSOp<mlir::tt::ttir::AllReduceOp>(
+          rewriter, srcOp.getLoc(), outputType, inputOperand, *reduceType,
+          clusterAxis);
 
       allReduceOpResults.push_back(allReduceOp.getResult());
     }
@@ -1660,9 +1611,9 @@ public:
 
 private:
   LogicalResult
-  checkBasicLegality(mlir::stablehlo::AllReduceOp &srcOp,
-                     mlir::stablehlo::AllReduceOp::Adaptor adaptor,
-                     ConversionPatternRewriter &rewriter) const {
+  checkConversionLegality(mlir::stablehlo::AllReduceOp &srcOp,
+                          mlir::stablehlo::AllReduceOp::Adaptor adaptor,
+                          ConversionPatternRewriter &rewriter) const {
     if (srcOp.getOperands().empty()) {
       return rewriter.notifyMatchFailure(
           srcOp, "AllReduceOp must have at least one input/output.");
@@ -1715,7 +1666,7 @@ public:
           srcOp, "ReduceScatterOp cannot specify reduce type.");
     }
 
-    ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ReduceScatterOp>(
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ReduceScatterOp>(
         rewriter, srcOp, outputType, adaptor.getOperands()[0], *reduceType,
         adaptor.getScatterDimension(), clusterAxis);
 
@@ -1734,8 +1685,8 @@ public:
   matchAndRewrite(mlir::stablehlo::AllGatherOp srcOp,
                   mlir::stablehlo::AllGatherOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Check legality of the operation
-    LogicalResult err = checkBasicLegality(srcOp, adaptor, rewriter);
+    // Check legality of the conversion.
+    LogicalResult err = checkConversionLegality(srcOp, adaptor, rewriter);
     if (failed(err)) {
       return err;
     }
@@ -1751,7 +1702,7 @@ public:
           srcOp, "AllGather cannot specify cluster axis.");
     }
 
-    ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::AllGatherOp>(
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::AllGatherOp>(
         rewriter, srcOp, outputType, adaptor.getOperands()[0],
         adaptor.getAllGatherDim(), clusterAxis);
 
@@ -1760,9 +1711,9 @@ public:
 
 private:
   LogicalResult
-  checkBasicLegality(mlir::stablehlo::AllGatherOp &srcOp,
-                     mlir::stablehlo::AllGatherOp::Adaptor adaptor,
-                     ConversionPatternRewriter &rewriter) const {
+  checkConversionLegality(mlir::stablehlo::AllGatherOp &srcOp,
+                          mlir::stablehlo::AllGatherOp::Adaptor adaptor,
+                          ConversionPatternRewriter &rewriter) const {
     if (srcOp.getOperands().empty() || srcOp.getOperands().size() > 1) {
       return rewriter.notifyMatchFailure(
           srcOp, "AllGatherOp must have one input/output for now.");
@@ -1801,7 +1752,7 @@ public:
       }
     }
 
-    ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::CollectivePermuteOp>(
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::CollectivePermuteOp>(
         rewriter, srcOp, outputType, adaptor.getOperand(),
         adaptor.getSourceTargetPairs());
 
@@ -1822,8 +1773,8 @@ public:
                   mlir::stablehlo::CustomCallOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // Check legality of the operation
-    LogicalResult err = checkBasicLegality(srcOp, adaptor, rewriter);
+    // Check legality of the conversion.
+    LogicalResult err = checkConversionLegality(srcOp, adaptor, rewriter);
     if (failed(err)) {
       return err;
     }
@@ -1898,7 +1849,7 @@ public:
         auto outputType = mlir::cast<RankedTensorType>(
             getTypeConverter()->convertType(srcOp->getResult(0).getType()));
 
-        ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
+        ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
             rewriter, srcOp, outputType, inputOperand,
             meshSharding.getShardType(),
             mlir::tt::MeshShardDirection::ShardToFull,
@@ -1919,7 +1870,7 @@ public:
         auto fullToShardCustomCall =
             mlir::dyn_cast_if_present<mlir::stablehlo::CustomCallOp>(
                 *srcOp->user_begin());
-        if (!fullToShardCustomCall || !fullToShardCustomCall->hasOneUse()) {
+        if (!fullToShardCustomCall || !srcOp->hasOneUse()) {
           return failure();
         }
 
@@ -1937,7 +1888,7 @@ public:
               mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
                   fullToShardCustomCall->getResult(0).getType()));
 
-          ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
+          ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
               rewriter, srcOp, outputType, inputOperand,
               meshSharding.getShardType(),
               mlir::tt::MeshShardDirection::FullToShard,
@@ -1955,9 +1906,9 @@ public:
 
 private:
   LogicalResult
-  checkBasicLegality(mlir::stablehlo::CustomCallOp &srcOp,
-                     mlir::stablehlo::CustomCallOp::Adaptor adaptor,
-                     ConversionPatternRewriter &rewriter) const {
+  checkConversionLegality(mlir::stablehlo::CustomCallOp &srcOp,
+                          mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                          ConversionPatternRewriter &rewriter) const {
     // Expect single input/output and at least one use of result.
     if (srcOp->getNumOperands() != 1 || srcOp->getNumResults() != 1 ||
         srcOp->getResult(0).use_empty()) {
@@ -1989,7 +1940,7 @@ public:
     llvm::SmallVector<int32_t> endIndices(adaptor.getLimitIndices());
     llvm::SmallVector<int32_t> step(adaptor.getStrides());
 
-    ttmlir::utils::replaceOpWithNewDPSOp<ttir::SliceOp>(
+    ttir::utils::replaceOpWithNewDPSOp<ttir::SliceOp>(
         rewriter, srcOp, outputType, adaptor.getOperand(),
         rewriter.getI32ArrayAttr(startIndices),
         rewriter.getI32ArrayAttr(endIndices), rewriter.getI32ArrayAttr(step));
@@ -2013,7 +1964,7 @@ public:
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampTensorOp>(
+    ttir::utils::replaceOpWithNewDPSOp<ttir::ClampTensorOp>(
         rewriter, srcOp, outputType, adaptor.getOperand(), adaptor.getMin(),
         adaptor.getMax());
     return success();
@@ -2037,7 +1988,7 @@ public:
 
     auto dimensionNumbers = srcOp.getDimensionNumbers();
 
-    ttmlir::utils::replaceOpWithNewDPSOp<ttir::GatherOp>(
+    ttir::utils::replaceOpWithNewDPSOp<ttir::GatherOp>(
         rewriter, srcOp, outputType, adaptor.getOperands()[0],
         adaptor.getOperands()[1], dimensionNumbers.getOffsetDims(),
         dimensionNumbers.getCollapsedSliceDims(),
@@ -2116,7 +2067,7 @@ public:
     auto indicesAreSorted = adaptor.getIndicesAreSorted();
     auto uniqueIndices = adaptor.getUniqueIndices();
 
-    ttmlir::utils::replaceOpWithNewDPSOp<ttir::ScatterOp>(
+    ttir::utils::replaceOpWithNewDPSOp<ttir::ScatterOp>(
         rewriter, srcOp, outputType, operand, scatterIndices, update,
         llvm::SmallVector<int32_t>(updateWindowsDims),
         llvm::SmallVector<int32_t>(insertedWindowDims),
@@ -2144,7 +2095,7 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<ttir::ReverseOp>(
+    ttir::utils::replaceOpWithNewDPSOp<ttir::ReverseOp>(
         rewriter, srcOp, outputType, adaptor.getOperand(),
         adaptor.getDimensions());
 
@@ -2163,7 +2114,8 @@ public:
   matchAndRewrite(mlir::stablehlo::PadOp srcOp,
                   mlir::stablehlo::PadOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    LogicalResult legalityResult = checkBasicLegality(srcOp, adaptor, rewriter);
+    LogicalResult legalityResult =
+        checkConversionLegality(srcOp, adaptor, rewriter);
     if (!legalityResult.succeeded()) {
       return legalityResult;
     }
@@ -2189,13 +2141,9 @@ public:
       value = paddingValueAttr.getSplatValue<APFloat>().convertToDouble();
     }
 
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::PadOp>(
-        srcOp,
-        outputType,                            // result type
-        adaptor.getOperand(),                  // input
-        rewriter.getDenseI32ArrayAttr(padDim), // padding dimensions
-        rewriter.getF32FloatAttr(value)        // padding value
-    );
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::PadOp>(
+        rewriter, srcOp, outputType, adaptor.getOperand(),
+        rewriter.getDenseI32ArrayAttr(padDim), rewriter.getF32FloatAttr(value));
 
     return success();
   }
@@ -2213,9 +2161,10 @@ private:
     return mlir::dyn_cast_if_present<ttir::ConstantOp>(valueDef);
   }
 
-  LogicalResult checkBasicLegality(mlir::stablehlo::PadOp &srcOp,
-                                   mlir::stablehlo::PadOp::Adaptor adaptor,
-                                   ConversionPatternRewriter &rewriter) const {
+  LogicalResult
+  checkConversionLegality(mlir::stablehlo::PadOp &srcOp,
+                          mlir::stablehlo::PadOp::Adaptor adaptor,
+                          ConversionPatternRewriter &rewriter) const {
 
     // Due to lack of support by device, we do not support interior padding,
     // so verify if interior padding is requested and exit early with error.

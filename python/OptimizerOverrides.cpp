@@ -60,6 +60,9 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
       .def("get_output_layout_overrides",
            &tt::ttnn::OptimizerOverridesHandler::
                getOutputLayoutOverridesNanobindWrapper)
+      .def("get_conv2d_config_overrides",
+           &tt::ttnn::OptimizerOverridesHandler::
+               getConv2dConfigOverridesNanobindWrapper)
 
       .def("add_input_layout_override",
            &tt::ttnn::OptimizerOverridesHandler::
@@ -67,6 +70,9 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
       .def("add_output_layout_override",
            &tt::ttnn::OptimizerOverridesHandler::
                addOutputLayoutOverrideNanobindWrapper)
+      .def("add_conv2d_config_override",
+           &tt::ttnn::OptimizerOverridesHandler::
+               addConv2dConfigOverrideNanobindWrapper)
 
       .def("to_string", &tt::ttnn::OptimizerOverridesHandler::toString);
 
@@ -198,7 +204,184 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
              } else {
                throw std::invalid_argument("Invalid data type: " + value);
              }
-           });
+           })
+      .def("empty", &mlir::tt::ttnn::OutputLayoutOverrideParams::empty);
+
+  nb::class_<mlir::tt::ttnn::Conv2dConfigOverrideParams>(
+      m, "Conv2dConfigOverrideParams")
+      .def(nb::init<>())
+      .def_rw("dtype", &mlir::tt::ttnn::Conv2dConfigOverrideParams::dtype)
+      .def_rw("weights_dtype",
+              &mlir::tt::ttnn::Conv2dConfigOverrideParams::weightsDtype)
+      .def_rw("activation",
+              &mlir::tt::ttnn::Conv2dConfigOverrideParams::activation)
+      .def_rw(
+          "input_channels_alignment",
+          &mlir::tt::ttnn::Conv2dConfigOverrideParams::inputChannelsAlignment)
+      .def_rw("deallocate_activation",
+              &mlir::tt::ttnn::Conv2dConfigOverrideParams::deallocateActivation)
+      .def_rw("reallocate_halo_output",
+              &mlir::tt::ttnn::Conv2dConfigOverrideParams::reallocateHaloOutput)
+      .def_rw("act_block_h_override",
+              &mlir::tt::ttnn::Conv2dConfigOverrideParams::actBlockHOverride)
+      .def_rw("act_block_w_div",
+              &mlir::tt::ttnn::Conv2dConfigOverrideParams::actBlockWDiv)
+      .def_rw("reshard_if_not_optimal",
+              &mlir::tt::ttnn::Conv2dConfigOverrideParams::reshardIfNotOptimal)
+      .def_rw(
+          "override_sharding_config",
+          &mlir::tt::ttnn::Conv2dConfigOverrideParams::overrideShardingConfig)
+      .def_rw("shard_layout",
+              &mlir::tt::ttnn::Conv2dConfigOverrideParams::shardLayout)
+      .def_rw("core_grid",
+              &mlir::tt::ttnn::Conv2dConfigOverrideParams::coreGrid)
+      .def_rw("transpose_shards",
+              &mlir::tt::ttnn::Conv2dConfigOverrideParams::transposeShards)
+      .def_rw("output_layout",
+              &mlir::tt::ttnn::Conv2dConfigOverrideParams::outputLayout)
+      .def_rw("preprocess_weights_on_device",
+              &mlir::tt::ttnn::Conv2dConfigOverrideParams::
+                  preprocessWeightsOnDevice)
+      .def_rw(
+          "always_preprocess_weights",
+          &mlir::tt::ttnn::Conv2dConfigOverrideParams::alwaysPreprocessWeights)
+      .def_rw(
+          "enable_act_double_buffer",
+          &mlir::tt::ttnn::Conv2dConfigOverrideParams::enableActDoubleBuffer)
+      .def_rw("enable_weights_double_buffer",
+              &mlir::tt::ttnn::Conv2dConfigOverrideParams::
+                  enableWeightsDoubleBuffer)
+      .def_rw("enable_split_reader",
+              &mlir::tt::ttnn::Conv2dConfigOverrideParams::enableSplitReader)
+      .def_rw(
+          "enable_subblock_padding",
+          &mlir::tt::ttnn::Conv2dConfigOverrideParams::enableSubblockPadding)
+      .def("set_dtype_from_str",
+           [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
+              const std::string &value) {
+             if (auto dtype_ = mlir::tt::DataTypeStringToEnum(value)) {
+               obj.dtype = dtype_;
+             } else {
+               throw std::invalid_argument("Invalid dtype: " + value);
+             }
+           })
+      .def("set_weights_dtype_from_str",
+           [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
+              const std::string &value) {
+             if (auto weightsDtype_ = mlir::tt::DataTypeStringToEnum(value)) {
+               obj.weightsDtype = weightsDtype_;
+             } else {
+               throw std::invalid_argument("Invalid weights dtype: " + value);
+             }
+           })
+      .def("set_activation_from_str",
+           [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
+              const std::string &value) {
+             if (value != "none" && value != "relu") {
+               throw std::invalid_argument("Invalid activation: " + value);
+             }
+             obj.activation = value;
+           })
+      .def("set_input_channels_alignment_from_str",
+           [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
+              const std::string &value) {
+             obj.inputChannelsAlignment = std::stoul(value);
+           })
+      .def("set_deallocate_activation_from_str",
+           [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
+              const std::string &value) {
+             obj.deallocateActivation = (value == "True");
+           })
+      .def("set_reallocate_halo_output_from_str",
+           [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
+              const std::string &value) {
+             obj.reallocateHaloOutput = (value == "True");
+           })
+      .def("set_act_block_h_override_from_str",
+           [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
+              const std::string &value) {
+             obj.actBlockHOverride = std::stoul(value);
+           })
+      .def("set_act_block_w_div_from_str",
+           [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
+              const std::string &value) {
+             obj.actBlockWDiv = std::stoul(value);
+           })
+      .def("set_reshard_if_not_optimal_from_str",
+           [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
+              const std::string &value) {
+             obj.reshardIfNotOptimal = (value == "True");
+           })
+      .def("set_override_sharding_config_from_str",
+           [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
+              const std::string &value) {
+             obj.overrideShardingConfig = (value == "True");
+           })
+      .def("set_shard_layout_from_str",
+           [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
+              const std::string &value) {
+             if (auto shardLayout_ =
+                     mlir::tt::ttnn::symbolizeTensorMemoryLayout(value)) {
+               obj.shardLayout = shardLayout_;
+             } else {
+               throw std::invalid_argument("Invalid shard layout: " + value);
+             }
+           })
+      // TODO(vkovacevic): #2781
+      //.def("set_core_grid_from_str",
+      //[](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj, const std::string
+      //&value) {
+      //    if (auto coreGrid_ = mlir::tt::ttnn::symbolizeAttribute(value)) {
+      //        obj.coreGrid = coreGrid_;
+      //    } else {
+      //        throw std::invalid_argument("Invalid core grid: " + value);
+      //    }
+      //})
+      .def("set_transpose_shards_from_str",
+           [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
+              const std::string &value) {
+             obj.transposeShards = (value == "True");
+           })
+      .def("set_output_layout_from_str",
+           [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
+              const std::string &value) {
+             if (auto outputLayout_ = mlir::tt::ttnn::symbolizeLayout(value)) {
+               obj.outputLayout = outputLayout_;
+             } else {
+               throw std::invalid_argument("Invalid output layout: " + value);
+             }
+           })
+      .def("set_preprocess_weights_on_device_from_str",
+           [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
+              const std::string &value) {
+             obj.preprocessWeightsOnDevice = (value == "True");
+           })
+      .def("set_always_preprocess_weights_from_str",
+           [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
+              const std::string &value) {
+             obj.alwaysPreprocessWeights = (value == "True");
+           })
+      .def("set_enable_act_double_buffer_from_str",
+           [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
+              const std::string &value) {
+             obj.enableActDoubleBuffer = (value == "True");
+           })
+      .def("set_enable_weights_double_buffer_from_str",
+           [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
+              const std::string &value) {
+             obj.enableWeightsDoubleBuffer = (value == "True");
+           })
+      .def("set_enable_split_reader_from_str",
+           [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
+              const std::string &value) {
+             obj.enableSplitReader = (value == "True");
+           })
+      .def("set_enable_subblock_padding_from_str",
+           [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
+              const std::string &value) {
+             obj.enableSubblockPadding = (value == "True");
+           })
+      .def("empty", &mlir::tt::ttnn::Conv2dConfigOverrideParams::empty);
 }
 
 } // namespace mlir::ttmlir::python

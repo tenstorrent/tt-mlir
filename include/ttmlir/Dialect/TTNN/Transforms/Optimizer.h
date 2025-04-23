@@ -5,7 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTNN_TRANSFORMS_OPTIMIZER_H
 #define TTMLIR_DIALECT_TTNN_TRANSFORMS_OPTIMIZER_H
 
-#include <mlir/Pass/PassRegistry.h>
+#include "mlir/Pass/PassRegistry.h"
 
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
 
@@ -18,6 +18,8 @@ struct TTNNOptimizerOptions {
       llvm::StringMap<InputLayoutOverrideParams>();
   llvm::StringMap<OutputLayoutOverrideParams> overrideOutputLayout =
       llvm::StringMap<OutputLayoutOverrideParams>();
+  llvm::StringMap<Conv2dConfigOverrideParams> overrideConv2dConfig =
+      llvm::StringMap<Conv2dConfigOverrideParams>();
   bool memoryLayoutAnalysisEnabled = false;
   MemoryLayoutAnalysisPolicyType memoryLayoutAnalysisPolicy =
       MemoryLayoutAnalysisPolicyType::DFSharding;

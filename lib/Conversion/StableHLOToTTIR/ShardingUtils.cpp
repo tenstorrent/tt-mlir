@@ -295,6 +295,7 @@ MeshSharding::parseSdySharding(mlir::sdy::TensorShardingAttr sdySharding,
   shardShape.assign(sdySharding.getRank(), 1);
   shardDims.assign(meshAttr.getAxes().size(), -1);
 
+  meshShape.clear();
   llvm::SmallDenseMap<::llvm::StringRef, int64_t> axisPosition;
   for (auto [idx, meshAxisAttr] : llvm::enumerate(meshAttr.getAxes())) {
     axisPosition[meshAxisAttr.getName()] = idx;
@@ -443,7 +444,7 @@ void MeshSharding::extractMeshShardingFromTensorMeshShardingAttr(
 
   auto axes = tensorMeshShardingAttr.getTensorMeshShardingAxis();
   shardShape.resize(axes.size());
-  shardDims.resize(axes.size(), -1);
+  shardDims.resize(meshShape.size(), -1);
   for (auto [dim, axis] : llvm::enumerate(axes)) {
     shardShape[dim] = axis.getShardShape();
     for (auto deviceDim : axis.getAxes()) {
@@ -470,19 +471,11 @@ MeshSharding::fillStrategyMapFromSharding(
       strategy["replication_factor"] = std::to_string(num_devices);
     }
   } else if (meshType == mlir::tt::MeshShardType::Devices) {
-    llvm::ArrayRef<int64_t> shardShape = meshSharding.getShardShape();
-    if (shardShape.size() == 2) {
-      strategy["strategy"] = "shard_2d";
-      strategy["mesh_shape_y"] = std::to_string(shardShape[0]);
-      strategy["mesh_shape_x"] = std::to_string(shardShape[1]);
-    } else if (shardShape.size() == 1) {
-      strategy["strategy"] = "shard";
-      // If the shard shape is size of one, the output is 1d sharded, on the
-      // first dimension.
-      strategy["shard_dim"] = "0";
-    } else {
-      return mlir::failure();
-    }
+    llvm::ArrayRef<int64_t> meshShape = meshSharding.getMeshShape();
+    assert(meshShape.size() == 2);
+    strategy["strategy"] = "shard_2d";
+    strategy["mesh_shape_y"] = std::to_string(meshShape[0]);
+    strategy["mesh_shape_x"] = std::to_string(meshShape[1]);
   } else if (meshType == mlir::tt::MeshShardType::Identity) {
     strategy["strategy"] = "identity";
   } else {

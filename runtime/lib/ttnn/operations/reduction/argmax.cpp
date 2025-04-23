@@ -18,10 +18,12 @@ runReductionArgMaxOp(::tt::target::ttnn::ReductionArgMaxOp const *op,
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
 
-  ::ttnn::Tensor out =
-      ::ttnn::argmax(in, op->dim(), std::nullopt, op->use_multicore(),
-                     /*memory_config_arg=*/outputMemoryConfig,
-                     /*optional_output_tensor=*/std::nullopt);
+  ::ttnn::Tensor out = ::ttnn::argmax(in, op->dim(),
+                                      /*keepdim=*/false,
+                                      /*sub_core_grids=*/std::nullopt,
+                                      /*use_multicore=*/op->use_multicore(),
+                                      /*memory_config_arg=*/outputMemoryConfig,
+                                      /*optional_output_tensor=*/std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

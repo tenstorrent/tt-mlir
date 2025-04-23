@@ -40,7 +40,25 @@ if (NOT DEFINED ENV{TTMLIR_TOOLCHAIN_DIR})
     message(FATAL_ERROR "TTMLIR_TOOLCHAIN_DIR environment variable not set. Please run 'source env/activate'.")
 endif()
 
+# Enable debug logs only in Debug mode
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+    add_compile_definitions(TTMLIR_ENABLE_DEBUG_LOGS)
+endif()
+
 add_compile_options(-Wall -Wextra -Wpedantic -Werror -Wno-unused-parameter --system-header-prefix=ENV{TTMLIR_TOOLCHAIN_DIR})
+
+set(CMAKE_LINKER_TYPE DEFAULT)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  execute_process(COMMAND ${CMAKE_CXX_COMPILER} --version OUTPUT_VARIABLE CLANG_VERSION_INFO ERROR_QUIET)
+  string(REGEX MATCH "version ([0-9]+)\\.[0-9]+" CLANG_VERSION "${CLANG_VERSION_INFO}")
+  set(LLD_EXECUTABLE "lld-${CMAKE_MATCH_1}")
+  set(LD_LLD_EXECUTABLE "ld.lld-${CMAKE_MATCH_1}")
+  find_program(LLD NAMES ${LLD_EXECUTABLE} ${LD_LLD_EXECUTABLE})
+  if(LLD)
+    message(STATUS "Using linker: ${LLD}")
+    set(CMAKE_LINKER_TYPE LLD)
+  endif()
+endif()
 
 include(TTMLIRBuildTypes)
 

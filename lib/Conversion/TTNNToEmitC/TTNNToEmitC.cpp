@@ -182,6 +182,41 @@ public:
 };
 } // namespace
 
+// EltwiseUnaryWithVectorAndFastAndApproximateModeOp conversion pattern
+//
+// Currently, it has to insert nullopts for some parameters that are not
+// modelled in the dialect (parameter, memcfg).
+//
+namespace {
+template <typename SourceOp>
+class EltwiseUnaryWithVectorAndFastAndApproximateModeOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      SourceOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = typename SourceOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(SourceOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(static_cast<int>(::ttnn::operations::unary::VecMode::RC)),
+        /*parameter=*/emitter.emit(false),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // ElementwiseUnaryWithFloatParameterOp conversion pattern
 //
 // Currently, it has to insert nullopts for some parameters that are not
@@ -745,6 +780,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getDim()),
+        /*keepdim=*/emitter.emit(false),
         /*sub_core_grids=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getUseMulticore()),
         emitter.emit(srcOp.getMemoryConfig()) |
@@ -791,6 +827,61 @@ public:
 };
 } // namespace
 
+// PrepareConv2dWeights op conversion pattern
+//
+namespace {
+class PrepareConv2dWeightsOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          tt::ttnn::PrepareConv2dWeightsOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.prepare_conv2d_weights";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::operations::conv::conv2d::prepare_conv_weights";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::ttnn::PrepareConv2dWeightsOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::PrepareConv2dWeightsOp srcOp,
+                  tt::ttnn::PrepareConv2dWeightsOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::PrepareConv2dWeightsOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getWeightTensor()),
+        emitter.emit(srcOp.getInputMemoryConfig()),
+        emitter.emit(srcOp.getInputTensorLayout()),
+        emitter.emit(srcOp.getWeightsFormat()),
+        emitter.emit(srcOp.getInChannels()),
+        emitter.emit(srcOp.getOutChannels()),
+        emitter.emit(srcOp.getBatchSize()),
+        emitter.emit(srcOp.getInputHeight()),
+        emitter.emit(srcOp.getInputWidth()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getKernelSizeAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getPaddingAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
+        emitter.emit(srcOp.getHasBias()),
+        emitter.emit(srcOp.getGroups()),
+        emitter.emit(srcOp.getDevice()),
+        /*conv2d_config=*/emitter.emit(std::nullopt),
+        /*compute_config_=*/emitter.emit(std::nullopt),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // Conv2d op conversion pattern
 //
 namespace {
@@ -823,7 +914,8 @@ public:
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getGroups()),
         emitter.emit(srcOp.getBias()),
-        /*conv2d_config=*/emitter.emit(std::nullopt),
+        emitter.emit(std::nullopt) |
+            emitter.getConv2dConfig(srcOp.getInput(), srcOp.getWeight()),
         /*compute_config=*/emitter.emit(std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
@@ -1768,39 +1860,40 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Eltwise unary ops
   //
-  patterns.add<EltwiseUnaryOpConversionPattern<tt::ttnn::AbsOp>,
-               EltwiseUnaryCompositeOpConversionPattern<tt::ttnn::CbrtOp>,
-               ClampOpConversionPattern<tt::ttnn::ClampScalarOp>,
-               ClampOpConversionPattern<tt::ttnn::ClampTensorOp>,
-               EltwiseUnaryOpConversionPattern<tt::ttnn::FloorOp>,
-               EltwiseUnaryOpConversionPattern<tt::ttnn::IsFiniteOp>,
-               EltwiseUnaryOpConversionPattern<tt::ttnn::LogicalNotOp>,
-               EltwiseUnaryOpConversionPattern<tt::ttnn::BitwiseNotOp>,
-               EltwiseUnaryOpConversionPattern<tt::ttnn::NegOp>,
-               EltwiseUnaryOpConversionPattern<tt::ttnn::ReluOp>,
-               ElementwiseUnaryWithFloatParameterOpConversionPattern<
-                   tt::ttnn::LeakyReluOp>,
-               EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
-                   tt::ttnn::GeluOp>,
-               EltwiseUnaryOpConversionPattern<tt::ttnn::SqrtOp>,
-               EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
-                   tt::ttnn::RsqrtOp>,
-               EltwiseUnaryOpConversionPattern<tt::ttnn::SignOp>,
-               EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
-                   tt::ttnn::SigmoidOp>,
-               EltwiseUnaryCompositeOpConversionPattern<tt::ttnn::Log1pOp>,
-               EltwiseUnaryOpConversionPattern<tt::ttnn::ReciprocalOp>,
-               EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
-                   tt::ttnn::ExpOp>,
-               EltwiseUnaryOpConversionPattern<tt::ttnn::CeilOp>,
-               EltwiseUnaryOpConversionPattern<tt::ttnn::SinOp>,
-               EltwiseUnaryOpConversionPattern<tt::ttnn::CosOp>,
-               EltwiseUnaryOpConversionPattern<tt::ttnn::Expm1Op>,
-               EltwiseUnaryOpConversionPattern<tt::ttnn::TanOp>,
-               EltwiseUnaryOpConversionPattern<tt::ttnn::TanhOp>,
-               EltwiseUnaryOpConversionPattern<tt::ttnn::AtanOp>,
-               EltwiseUnaryOpConversionPattern<tt::ttnn::LogOp>>(typeConverter,
-                                                                 ctx);
+  patterns
+      .add<EltwiseUnaryOpConversionPattern<tt::ttnn::AbsOp>,
+           EltwiseUnaryCompositeOpConversionPattern<tt::ttnn::CbrtOp>,
+           ClampOpConversionPattern<tt::ttnn::ClampScalarOp>,
+           ClampOpConversionPattern<tt::ttnn::ClampTensorOp>,
+           EltwiseUnaryOpConversionPattern<tt::ttnn::FloorOp>,
+           EltwiseUnaryOpConversionPattern<tt::ttnn::IsFiniteOp>,
+           EltwiseUnaryOpConversionPattern<tt::ttnn::LogicalNotOp>,
+           EltwiseUnaryOpConversionPattern<tt::ttnn::BitwiseNotOp>,
+           EltwiseUnaryOpConversionPattern<tt::ttnn::NegOp>,
+           EltwiseUnaryOpConversionPattern<tt::ttnn::ReluOp>,
+           ElementwiseUnaryWithFloatParameterOpConversionPattern<
+               tt::ttnn::LeakyReluOp>,
+           EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
+               tt::ttnn::GeluOp>,
+           EltwiseUnaryOpConversionPattern<tt::ttnn::SqrtOp>,
+           EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
+               tt::ttnn::RsqrtOp>,
+           EltwiseUnaryOpConversionPattern<tt::ttnn::SignOp>,
+           EltwiseUnaryWithVectorAndFastAndApproximateModeOpConversionPattern<
+               tt::ttnn::SigmoidOp>,
+           EltwiseUnaryCompositeOpConversionPattern<tt::ttnn::Log1pOp>,
+           EltwiseUnaryOpConversionPattern<tt::ttnn::ReciprocalOp>,
+           EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
+               tt::ttnn::ExpOp>,
+           EltwiseUnaryOpConversionPattern<tt::ttnn::CeilOp>,
+           EltwiseUnaryOpConversionPattern<tt::ttnn::SinOp>,
+           EltwiseUnaryOpConversionPattern<tt::ttnn::CosOp>,
+           EltwiseUnaryOpConversionPattern<tt::ttnn::Expm1Op>,
+           EltwiseUnaryOpConversionPattern<tt::ttnn::TanOp>,
+           EltwiseUnaryOpConversionPattern<tt::ttnn::TanhOp>,
+           EltwiseUnaryOpConversionPattern<tt::ttnn::AtanOp>,
+           EltwiseUnaryOpConversionPattern<tt::ttnn::LogOp>>(typeConverter,
+                                                             ctx);
 
   // Eltwise binary ops
   //
@@ -1869,6 +1962,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Convolution ops
   //
+  patterns.add<PrepareConv2dWeightsOpConversionPattern>(typeConverter, ctx);
   patterns.add<Conv2dOpConversionPattern>(typeConverter, ctx);
   patterns.add<DefaultOpConversionPattern<tt::ttnn::ConvTranspose2dOp>>(
       typeConverter, ctx);

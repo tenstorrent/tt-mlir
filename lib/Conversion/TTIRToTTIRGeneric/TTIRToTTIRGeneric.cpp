@@ -475,14 +475,15 @@ private:
 } // namespace
 // ............................................................................
 namespace {
-// At this time, matmul ops are rewritten into a ttir.generic without a nested
-// linagl.generic because we use metal counterpart op that is already "blocked".
+template <typename TileOp>
 class TTIRMatmulRewriter final
     : public mlir::OpConversionPattern<ttir::MatmulOp>,
       TTIRNamedRewriterCommon {
 
   using ConcreteOp = ttir::MatmulOp;
-  using TileOp = ttir::TileMatmulBlockOp;
+  static_assert(std::is_same_v<TileOp, ttir::TileMatmulBlockOp> ||
+                    std::is_same_v<TileOp, ttir::TileMatmulOp>,
+                "Unsupported Matmul TileOp");
 
 public:
   TTIRMatmulRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
@@ -503,15 +504,15 @@ private:
         toLayoutOperands(rewriter, adaptor, op.getDpsInits().size(),
                          deviceGridRank, /*tiled*/ true);
 
-    std::size_t const numInputs = inputs.size();
-    std::size_t const numOutputs = outputs.size();
-    std::size_t const numOperands = (numInputs + numOutputs);
+    const std::size_t numInputs = inputs.size();
+    const std::size_t numOutputs = outputs.size();
+    const std::size_t numOperands = (numInputs + numOutputs);
 
     assert(numOperands == op->getNumOperands());
 
     tt::GridAttr grid = tt::GridAttr::get(ctx, expectedInputGridShape());
 
-    std::size_t const rank = grid.getShape().size();
+    const std::size_t rank = grid.getShape().size();
 
     // TODO(#2591) handle 'transpose_{a,b}' attributes
 
@@ -539,9 +540,34 @@ private:
 
         // Delegate next level of nesting to a "block" op.
 
-        rewriter.create<TileOp>(loc,
-                                /* resultTypes */ mlir::TypeRange(),
-                                /* operands */ blockArgs);
+        if constexpr (std::is_same_v<ttir::TileMatmulBlockOp, TileOp>) {
+          rewriter.create<TileOp>(loc,
+                                  /* resultTypes */ mlir::TypeRange(),
+                                  /* operands */ blockArgs);
+
+        } else if constexpr (std::is_same_v<ttir::TileMatmulOp, TileOp>) {
+
+          static constexpr std::size_t tileOpNumInputs = 3;
+          static constexpr std::size_t tileOpNumOutputs = 1;
+
+          SmallVector<mlir::AffineMap> linalgIndexingMaps =
+              getAffineMapsArray(rewriter, numOperands, rank);
+          SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
+              iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
+
+          rewriter.create<mlir::linalg::GenericOp>(
+              loc, /* inputs */ blockArgs.take_front(numInputs),
+              /* outputs */ blockArgs.take_back(numOutputs), linalgIndexingMaps,
+              linalgIteratorTypes,
+              [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
+                  mlir::ValueRange bbArgs) {
+                mlir::Value yield = bbBuilder.create<TileOp>(
+                    loc, /* resultTypes */ bbArgs.take_back(tileOpNumOutputs),
+                    /* operands */ bbArgs.take_front(tileOpNumInputs));
+
+                bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
+              });
+        }
       }
     }
     rewriter.finalizeOpModification(generic);
@@ -591,7 +617,8 @@ private:
 void populateTTIRToTTIRGenericPatterns(MLIRContext *ctx,
                                        RewritePatternSet &patterns,
                                        TypeConverter &typeConverter,
-                                       uint64_t deviceGridRank) {
+                                       uint64_t deviceGridRank,
+                                       bool useTileMatmul) {
   // clang-format off
   patterns.add<
     // Elementwise.
@@ -601,10 +628,16 @@ void populateTTIRToTTIRGenericPatterns(MLIRContext *ctx,
     TTIRNamedElementwiseRewriter<ttir::LogOp,       ttir::TileLogOp>,
     // Reductions.
     TTIRNamedReductionRewriter<ttir::SumOp,         ttir::TileReduceSumOp>,
-    TTIRNamedReductionRewriter<ttir::MaxOp,         ttir::TileReduceMaxOp>,
-    // Matmul.
-    TTIRMatmulRewriter
+    TTIRNamedReductionRewriter<ttir::MaxOp,         ttir::TileReduceMaxOp>
   >(typeConverter, ctx, deviceGridRank);
+
+  // Matmul.
+  if (useTileMatmul) {
+    patterns.add<TTIRMatmulRewriter<ttir::TileMatmulOp>>(typeConverter, ctx, deviceGridRank);
+  }
+  else {
+    patterns.add<TTIRMatmulRewriter<ttir::TileMatmulBlockOp>>(typeConverter, ctx, deviceGridRank);
+  }
   // clang-format on
 }
 

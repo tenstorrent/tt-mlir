@@ -7,13 +7,15 @@
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
+#include "ttmlir/Dialect/TTNN/Analysis/MemReconfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+
+#include "llvm/ADT/DenseSet.h"
 
 #include <algorithm>
 #include <bitset>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace mlir::tt::ttnn {
@@ -22,13 +24,13 @@ struct OpL1MemSpec;
 
 struct ShardSolverSolution {
   llvm::DenseMap<Operation *, OpConfig> selectedOpConfig;
-  std::unordered_set<Edge> memReconfigEdges;
+  llvm::DenseMap<Edge, MemReconfigEntry> memReconfigEntryMap;
 
   ShardSolverSolution(
       const llvm::DenseMap<Operation *, OpConfig> &selectedOpConfig,
-      const std::unordered_set<Edge> &memReconfigEdges)
-      : selectedOpConfig(selectedOpConfig), memReconfigEdges(memReconfigEdges) {
-  }
+      const llvm::DenseMap<Edge, MemReconfigEntry> &memReconfigEntryMap)
+      : selectedOpConfig(selectedOpConfig),
+        memReconfigEntryMap(memReconfigEntryMap) {}
 };
 
 // Reconcile adjacent shard specs by using constraints on top of legal op
@@ -285,7 +287,7 @@ public:
       const std::vector<OpL1MemSpec> &shardSpecs,
       const llvm::DenseSet<Operation *> &shardedOps,
       const unsigned usableL1CacheSize,
-      const std::unordered_set<Edge> &overrideReshardEdges,
+      const llvm::DenseSet<Edge> &overrideReshardEdges,
       std::function<bool(mlir::Value, TTNNLayoutAttr, mlir::Operation *,
                          OpConfig)>
           customCheckShardCompatible = nullptr);
@@ -307,13 +309,22 @@ private:
 
   llvm::DenseMap<Operation *, std::vector<Edge>> operandOpEdges;
   llvm::DenseMap<Operation *, std::vector<Edge>> userOpEdges;
+
   std::vector<PathSet> pathSets;
   std::vector<Bitset> bitsets;
   std::unordered_map<Edge, PathSetId> pathSetIds;
   std::unordered_map<Operation *, BitsetId> bitsetIds;
 
   llvm::DenseMap<Operation *, OpConfig> selectedOpConfig;
-  std::unordered_set<Edge> memReconfigEdges;
+
+  // Map of every edge prepared for resharding. Key is the edge, value is
+  // the resharding entry. The entry contains a map of consumer op config bit
+  // index to vector of valid producer op configs.
+  llvm::DenseMap<Edge, MemReconfigEntry> memReconfigMap;
+
+  // Edges indicated for resharding.
+  llvm::DenseSet<Edge> memReconfigEdges;
+
   std::function<bool(mlir::Value, TTNNLayoutAttr, mlir::Operation *, OpConfig)>
       customCheckShardCompatible;
 };

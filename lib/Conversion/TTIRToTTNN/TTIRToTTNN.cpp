@@ -921,17 +921,26 @@ public:
   matchAndRewrite(ttir::Conv2dOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
+    if (!adaptor.getFlattenedCompatInfo()) {
+      return rewriter.notifyMatchFailure(
+          op, "TTNN only supports flattened input tensors for Conv2dOp. Please "
+              "run the FlattenSlidingWindow pass before lowering to TTNN.");
+    }
+    auto flattenedCompatInfo = adaptor.getFlattenedCompatInfo();
     auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
 
-    auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
     auto kernelTy = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
-    auto outputTy = op.getResult().getType();
-
-    auto batchSizeAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(0));
-    auto inputHeightAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(1));
-    auto inputWidthAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(2));
-    auto inChannelsAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(3));
-    auto outChannelsAttr = rewriter.getI32IntegerAttr(outputTy.getDimSize(3));
+    constexpr unsigned int CHANNEL_DIM = 3;
+    auto batchSizeAttr =
+        rewriter.getI32IntegerAttr(flattenedCompatInfo.getBatchSize());
+    auto inputHeightAttr =
+        rewriter.getI32IntegerAttr(flattenedCompatInfo.getInputHeight());
+    auto inputWidthAttr =
+        rewriter.getI32IntegerAttr(flattenedCompatInfo.getInputWidth());
+    auto inChannelsAttr = rewriter.getI32IntegerAttr(
+        op.getInput().getType().getDimSize(CHANNEL_DIM));
+    auto outChannelsAttr = rewriter.getI32IntegerAttr(
+        op.getResult().getType().getDimSize(CHANNEL_DIM));
 
     auto kernelSizeAttr = rewriter.getDenseI32ArrayAttr(
         {static_cast<int32_t>(kernelTy.getDimSize(2)),
@@ -970,32 +979,13 @@ public:
 
     auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
 
-    Value flattenedInput = ttir_to_ttnn::utils::generateNHWFlatten(
-        mlir::cast<mlir::TypedValue<RankedTensorType>>(adaptor.getInput()),
-        rewriter, "_flatten");
+    rewriter.replaceOpWithNewOp<ttnn::Conv2dOp>(
+        op, getTypeConverter()->convertType(op.getResult().getType()),
+        adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(), device,
+        inChannelsAttr, outChannelsAttr, batchSizeAttr, inputHeightAttr,
+        inputWidthAttr, kernelSizeAttr, *strideAttr, reducedPaddingAttr,
+        *dilationAttr, groupsAttr, nullptr);
 
-    // Convolution in ttnn returns a tensor in a flattened shape
-    // (1 x 1 x N * H * W x C)
-    llvm::ArrayRef<std::int64_t> outputShape = outputTy.getShape();
-    llvm::SmallVector<std::int64_t, 4> flattenedOutputShape = {
-        1, 1, outputShape[0] * outputShape[1] * outputShape[2], outputShape[3]};
-    outputTy = mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
-        outputTy.cloneWith(flattenedOutputShape, outputTy.getElementType())));
-
-    outputTy = mlir::RankedTensorType::get(flattenedOutputShape,
-                                           outputTy.getElementType(),
-                                           outputTy.getEncoding());
-
-    ttnn::Conv2dOp newConv = rewriter.create<ttnn::Conv2dOp>(
-        op.getLoc(), outputTy, flattenedInput, adaptor.getWeight(),
-        adaptor.getBias(), device, inChannelsAttr, outChannelsAttr,
-        batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
-        *strideAttr, reducedPaddingAttr, *dilationAttr, groupsAttr, nullptr);
-
-    Value output = ttir_to_ttnn::utils::generateReshape(newConv, outputShape,
-                                                        rewriter, "_unflatten");
-
-    rewriter.replaceOp(op, output);
     return success();
   }
 
@@ -1162,7 +1152,12 @@ public:
   LogicalResult
   matchAndRewrite(ttir::MaxPool2dOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
+    if (!adaptor.getFlattenedCompatInfo()) {
+      return rewriter.notifyMatchFailure(
+          op,
+          "TTNN only supports flattened input tensors for MaxPool2dOp. Please "
+          "run the FlattenSlidingWindow pass before lowering to TTNN.");
+    }
     assert(adaptor.getPaddingBottom() == adaptor.getPaddingTop() &&
            "TTNN max_pool2d does not support padding top/bottom/left/right "
            "separately");
@@ -1170,25 +1165,9 @@ public:
            "TTNN max_pool2d does not support padding top/bottom/left/right "
            "separately");
 
-    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
-    llvm::ArrayRef<std::int64_t> inputShape = inputType.getShape();
-
-    auto batchSize = static_cast<int32_t>(inputShape[inputShape.size() - 4]);
-    auto channels = static_cast<int32_t>(inputShape[inputShape.size() - 1]);
-
-    Value flattenedInput = ttir_to_ttnn::utils::generateNHWFlatten(
-        mlir::cast<mlir::TypedValue<RankedTensorType>>(adaptor.getInput()),
-        rewriter, "_flatten");
-
-    auto outputType = op.getResult().getType();
-    llvm::ArrayRef<std::int64_t> outputShape = outputType.getShape();
-
-    llvm::SmallVector<int64_t> flattenedOutputShape{
-        1, 1, outputShape[0] * outputShape[1] * outputShape[2], outputShape[3]};
-
-    outputType = mlir::RankedTensorType::get(flattenedOutputShape,
-                                             outputType.getElementType(),
-                                             outputType.getEncoding());
+    auto batchSize = adaptor.getFlattenedCompatInfo().getBatchSize();
+    constexpr unsigned int CHANNEL_DIM = 3;
+    auto channels = op.getInput().getType().getDimSize(CHANNEL_DIM);
 
     DenseI32ArrayAttr kernelSizeAttr = rewriter.getDenseI32ArrayAttr(
         {adaptor.getKernelHeight(), adaptor.getKernelWidth()});
@@ -1204,18 +1183,13 @@ public:
     DenseI32ArrayAttr dilationAttr = rewriter.getDenseI32ArrayAttr(
         {adaptor.getDilationHeight(), adaptor.getDilationWidth()});
 
-    auto newPool = rewriter.create<ttnn::MaxPool2dOp>(
-        op.getLoc(), this->getTypeConverter()->convertType(outputType),
-        flattenedInput, batchSize,
-        static_cast<int32_t>(inputShape[inputShape.size() - 3]),
-        static_cast<int32_t>(inputShape[inputShape.size() - 2]), channels,
+    rewriter.replaceOpWithNewOp<ttnn::MaxPool2dOp>(
+        op, this->getTypeConverter()->convertType(op.getResult().getType()),
+        adaptor.getInput(), batchSize,
+        adaptor.getFlattenedCompatInfo().getInputHeight(),
+        adaptor.getFlattenedCompatInfo().getInputWidth(), channels,
         kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
         adaptor.getCeilMode());
-
-    Value output = ttir_to_ttnn::utils::generateReshape(newPool, outputShape,
-                                                        rewriter, "_unflatten");
-
-    rewriter.replaceOp(op, output);
 
     return success();
   }

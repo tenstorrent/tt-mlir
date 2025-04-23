@@ -82,6 +82,7 @@ declare_mlir_python_sources(TTMLIRPythonTestInfra.TestInfra
   SOURCES
     ttir_builder.py
     test_utils.py
+    ccl_golden.py
 )
 
 # Enable Site Initialization Target to be piped into _mlir_libs/__init__.py
@@ -169,7 +170,7 @@ if(TTMLIR_ENABLE_PYKERNEL)
   declare_mlir_python_sources(TTPykernelSources
     ROOT_DIR "${TTPYKERNEL_ROOT_DIR}"
     SOURCES
-      pykernel_ast.py
+      ast.py
       types.py
   )
   add_mlir_python_modules(TTPykernelModules
@@ -178,6 +179,9 @@ if(TTMLIR_ENABLE_PYKERNEL)
     DECLARED_SOURCES TTPykernelSources
   )
 endif()
+
+# PyWheel Component to create install directives for the packaged TTMLIR bindings wheel:
+install(DIRECTORY ${CMAKE_BINARY_DIR}/python_packages/ DESTINATION . COMPONENT TTMLIRPythonWheel EXCLUDE_FROM_ALL)
 
 install(DIRECTORY ${CMAKE_BINARY_DIR}/python/dialects/ DESTINATION python/dialects COMPONENT Test EXCLUDE_FROM_ALL)
 install(DIRECTORY ${CMAKE_BINARY_DIR}/python_packages/ DESTINATION python_packages COMPONENT Test EXCLUDE_FROM_ALL)

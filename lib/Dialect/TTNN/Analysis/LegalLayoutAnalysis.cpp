@@ -8,64 +8,13 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-#include "ttmlir/Dialect/TTNN/Utils/VirtualToPhysicalAffineMap.h"
-#include "ttmlir/OpModel//TTNN/TTNNOpModel.h"
+#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
+#include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
+
+#include "mlir/IR/BuiltinTypes.h"
+#include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::ttnn {
-
-bool mockIsOutputTensorLegalForOp(Operation *op, TTNNLayoutAttr layout) {
-  // Placeholder, needs to be replaced with a call the the TTNN op interface.
-  return true;
-}
-
-bool tensorShapeCompatibleWithShard(Operation *op, TTNNLayoutAttr layout) {
-  // These constraints are implemented seperatelly in every TTNN op.
-  // Almost nothing seems to be shared between EVERY op, so is hard to have any
-  // logic here without the risk of discarding a valid configuraiton or modeling
-  // the constraint for each op.
-
-  // For now just check if we have enough tiles to shard the tensor to the
-  // desired grid. This is a safe heuristic that should be valid for all ops.
-  if (!layout.hasShardedTensorMemoryLayout()) {
-    return true;
-  }
-
-  RankedTensorType tensorType =
-      mlir::cast<RankedTensorType>(op->getResult(0).getType());
-  llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
-
-  if (!op_model::ttnn::isLayoutLegalForTensorShape(tensorShape, layout)) {
-    return false;
-  }
-
-  // TODO(rpavlovic): Revisit this logic now that we are able to check validity
-  // through op model interface.
-  if (layout.isTiled()) {
-    llvm::SmallVector<int64_t, 2> tiledShape =
-        layout.getTiledShape(tensorShape);
-    llvm::ArrayRef<int64_t> gridShape = layout.getGrid().getShape();
-
-    assert(tiledShape.size() == gridShape.size() &&
-           "Tiled tensor shape and grid shape must have the same rank");
-
-    for (size_t i = 0; i < tiledShape.size(); i++) {
-      // We need to have at least as many tiles as the grid size.
-      // Could also experiment with tiledShape[i] % gridShape[i] == 0, but need
-      // more context.
-      if (tiledShape[i] < gridShape[i]) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  // TODO(odjuricic): For row major there are no constraints on how the tensor
-  // can be sharded. We need some kind of a heuristic to reduce the search
-  // space.
-  return true;
-}
 
 bool cantChangeOutputLayout(Operation *op) {
   // Check if OP belongs to TTNN dialect.
@@ -83,6 +32,82 @@ bool cantChangeOutputLayout(Operation *op) {
   }
 
   return false;
+}
+
+void applyConv2dConfigOverrides(
+    Operation *op, const Conv2dConfigOverrideParams &conv2dConfigOverrides,
+    std::vector<OpConfig> &analysisResult) {
+  // Apply conv2d config overrides to all legal (layout) configurations of
+  // current op.
+  // TODO(vkovacevic): Currently conv2d config overrides are applied without any
+  // analysis, but will need to go through analysis in the future to check if
+  // they are valid.
+  //
+
+  // vkovacevic: This is needed to get through a tt-metal assert in
+  // prepare_conv2d_weights.cpp where `weight_tensor_.get_dtype() ==
+  // weights_bias_dtype`.
+  //
+  MLIRContext *context = op->getContext();
+  DataType newDtype = elementTypeToDataType(
+      mlir::cast<RankedTensorType>(op->getOperand(0).getType())
+          .getElementType());
+  DataType newWeightsDtype = elementTypeToDataType(
+      mlir::cast<RankedTensorType>(op->getOperand(1).getType())
+          .getElementType());
+
+  StringAttr newActivation =
+      StringAttr::get(context, conv2dConfigOverrides.activation.value_or(""));
+  uint32_t newInputChannelsAlignment =
+      conv2dConfigOverrides.inputChannelsAlignment.value_or(32);
+  bool newDeallocateActivation =
+      conv2dConfigOverrides.deallocateActivation.value_or(false);
+  bool newReallocateHaloOutput =
+      conv2dConfigOverrides.reallocateHaloOutput.value_or(true);
+  uint32_t newActBlockHOverride =
+      conv2dConfigOverrides.actBlockHOverride.value_or(0);
+  uint32_t newActBlockWDiv = conv2dConfigOverrides.actBlockWDiv.value_or(1);
+  bool newReshardIfNotOptimal =
+      conv2dConfigOverrides.reshardIfNotOptimal.value_or(false);
+  bool newOverrideShardingConfig =
+      conv2dConfigOverrides.overrideShardingConfig.value_or(false);
+  ttnn::TensorMemoryLayoutAttr newShardLayout;
+  if (conv2dConfigOverrides.shardLayout.has_value()) {
+    newShardLayout = TensorMemoryLayoutAttr::get(
+        context, conv2dConfigOverrides.shardLayout.value());
+  }
+  ttnn::CoreRangeSetAttr newCoreGrid =
+      conv2dConfigOverrides.coreGrid.value_or(ttnn::CoreRangeSetAttr());
+  bool newTransposeShards =
+      conv2dConfigOverrides.transposeShards.value_or(false);
+  Layout newOutputLayout =
+      conv2dConfigOverrides.outputLayout.value_or(Layout::Tile);
+  bool newPreprocessWeightsOnDevice =
+      conv2dConfigOverrides.preprocessWeightsOnDevice.value_or(false);
+  bool newAlwaysPreprocessWeights =
+      conv2dConfigOverrides.alwaysPreprocessWeights.value_or(false);
+  bool newEnableActDoubleBuffer =
+      conv2dConfigOverrides.enableActDoubleBuffer.value_or(false);
+  bool newEnableWeightsDoubleBuffer =
+      conv2dConfigOverrides.enableWeightsDoubleBuffer.value_or(false);
+  bool newEnableSplitReader =
+      conv2dConfigOverrides.enableSplitReader.value_or(false);
+  bool newEnableSubblockPadding =
+      conv2dConfigOverrides.enableSubblockPadding.value_or(false);
+
+  for (auto &opConfig : analysisResult) {
+    assert(!opConfig.config &&
+           "OpConfig should not have a config set before applying overrides");
+    opConfig.config = Conv2dConfigAttr::get(
+        context, newDtype, newWeightsDtype, newActivation,
+        newInputChannelsAlignment, newDeallocateActivation,
+        newReallocateHaloOutput, newActBlockHOverride, newActBlockWDiv,
+        newReshardIfNotOptimal, newOverrideShardingConfig, newShardLayout,
+        newCoreGrid, newTransposeShards, newOutputLayout,
+        newPreprocessWeightsOnDevice, newAlwaysPreprocessWeights,
+        newEnableActDoubleBuffer, newEnableWeightsDoubleBuffer,
+        newEnableSplitReader, newEnableSubblockPadding);
+  }
 }
 
 bool LegalLayoutAnalysis::applyOverrides() {
@@ -139,6 +164,21 @@ bool LegalLayoutAnalysis::applyOverrides() {
       TensorMemoryLayoutAttr::get(op->getContext(),
                                   layoutOverride.tensorMemoryLayout.value())));
 
+  // Apply conv2d config overrides.
+  // If they do not exist, or they do not exist for a specific conv2d op, set
+  // conv2d config with default values.
+  //
+  if (isa<ttnn::Conv2dOp>(op)) {
+    Conv2dConfigOverrideParams conv2dConfigOverrides;
+    if (analysisInput.conv2dConfigOverrides) {
+      auto overrideConv2dIt =
+          analysisInput.conv2dConfigOverrides->find(opLocName);
+      if (overrideConv2dIt != analysisInput.conv2dConfigOverrides->end()) {
+        conv2dConfigOverrides = overrideConv2dIt->getValue();
+      }
+    }
+    applyConv2dConfigOverrides(op, conv2dConfigOverrides, analysisResult);
+  }
   return true;
 }
 
@@ -192,7 +232,6 @@ void LegalLayoutAnalysis::analysisImplementation() {
   // Get output tensor type.
   RankedTensorType tensorType =
       mlir::cast<RankedTensorType>(op->getResult(0).getType());
-  llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
   TTNNLayoutAttr layout = mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
 
   // Return existing layout if it is not possible to change it.
@@ -218,9 +257,6 @@ void LegalLayoutAnalysis::analysisImplementation() {
     }
   }
 
-  Type tileElementType = TileType::get(op->getContext(), scalarElementType);
-  std::vector<TTNNLayoutAttr> shardedResults;
-
   bool rowMajorAllowed = analysisInput.rowMajorEnabled;
   if (override.has_value() && override->memoryLayout.has_value() &&
       override->memoryLayout.value() == Layout::RowMajor) {
@@ -228,111 +264,15 @@ void LegalLayoutAnalysis::analysisImplementation() {
     rowMajorAllowed = true;
   }
 
-  // Generate both TILE and ROW_MAJOR layouts.
-  for (Type elementType : {scalarElementType, tileElementType}) {
-    if (!rowMajorAllowed && elementType == scalarElementType) {
-      continue;
-    }
-    // DRAM
-    analysisResult.push_back(TTNNLayoutAttr::get(
-        op->getContext(), tensorShape, elementType, BufferType::DRAM,
-        analysisInput.maxGrid,
-        TensorMemoryLayoutAttr::get(op->getContext(),
-                                    TensorMemoryLayout::Interleaved)));
+  std::vector<TTNNLayoutAttr> generatedLayouts =
+      optimizer_utils::generateAllPossibleLayouts(
+          op->getContext(), tensorType, analysisInput.maxGrid,
+          scalarElementType,
+          /*onlyShardedLayouts=*/false, analysisInput.maxShardedConfigs,
+          rowMajorAllowed);
 
-    // L1 Interleaved - It must be tiled.
-    // TODO(odjuricic): Check that this is always the case.
-    if (elementType == tileElementType) {
-      analysisResult.push_back(TTNNLayoutAttr::get(
-          op->getContext(), tensorShape, elementType, BufferType::L1,
-          analysisInput.maxGrid,
-          TensorMemoryLayoutAttr::get(op->getContext(),
-                                      TensorMemoryLayout::Interleaved)));
-    }
-
-    // L1 Sharded
-    TTNNLayoutAttr shardedBase =
-        layout.withBufferType(op->getContext(), BufferType::L1)
-            .withMemoryLayout(op->getContext(),
-                              TensorMemoryLayout::BlockSharded)
-            .withElementType(op->getContext(), elementType, tensorShape);
-
-    assert(analysisInput.maxGrid.getShape().size() == 2 &&
-           "Max device grid is expected to be 2D.");
-    // Block Sharded
-    auto affineMapBs =
-        mlir::tt::ttnn::utils::CreateSingleDeviceVirtualToPhysicalAffineMap(
-            op->getContext(), TensorMemoryLayout::BlockSharded,
-            analysisInput.maxGrid.getShape());
-    for (int height = 1; height <= analysisInput.maxGrid.getShape()[0];
-         ++height) {
-      for (int width = 1; width <= analysisInput.maxGrid.getShape()[1];
-           ++width) {
-        shardedResults.push_back(
-            shardedBase
-                .withGrid(op->getContext(), tensorType,
-                          GridAttr::get(op->getContext(), {height, width},
-                                        affineMapBs))
-                .withMemoryLayout(op->getContext(),
-                                  TensorMemoryLayout::BlockSharded));
-      }
-    }
-
-    int64_t numCores = analysisInput.maxGrid.getGridVolume();
-    // Height Sharded
-    auto affineMapHs =
-        mlir::tt::ttnn::utils::CreateSingleDeviceVirtualToPhysicalAffineMap(
-            op->getContext(), TensorMemoryLayout::HeightSharded,
-            analysisInput.maxGrid.getShape());
-
-    for (int height = 1; height <= numCores; ++height) {
-      shardedResults.push_back(
-          shardedBase
-              .withGrid(
-                  op->getContext(), tensorType,
-                  GridAttr::get(op->getContext(), {height, 1}, affineMapHs))
-              .withMemoryLayout(op->getContext(),
-                                TensorMemoryLayout::HeightSharded));
-    }
-
-    // Width Sharded
-    auto affineMapWs =
-        mlir::tt::ttnn::utils::CreateSingleDeviceVirtualToPhysicalAffineMap(
-            op->getContext(), TensorMemoryLayout::WidthSharded,
-            analysisInput.maxGrid.getShape());
-    for (int width = 1; width <= numCores; ++width) {
-      shardedResults.push_back(
-          shardedBase
-              .withGrid(
-                  op->getContext(), tensorType,
-                  GridAttr::get(op->getContext(), {1, width}, affineMapWs))
-              .withMemoryLayout(op->getContext(),
-                                TensorMemoryLayout::WidthSharded));
-    }
-  }
-
-  // Filter layouts based on output tensor legality for current op.
-  shardedResults.erase(
-      std::remove_if(shardedResults.begin(), shardedResults.end(),
-                     [this](TTNNLayoutAttr layout) {
-                       return !tensorShapeCompatibleWithShard(op, layout) ||
-                              !mockIsOutputTensorLegalForOp(op, layout);
-                     }),
-      shardedResults.end());
-
-  // Pick top largest sharded grids.
-  // This becomes a problem when we introduce row_major since an 8x8 tensor can
-  // be sharded onto a 8x8 grid.
-  std::sort(shardedResults.begin(), shardedResults.end(),
-            [](TTNNLayoutAttr a, TTNNLayoutAttr b) {
-              return a.getGrid().getGridVolume() > b.getGrid().getGridVolume();
-            });
-
-  analysisResult.insert(
-      analysisResult.end(), shardedResults.begin(),
-      shardedResults.begin() +
-          std::min(analysisInput.maxShardedConfigs,
-                   static_cast<int64_t>(shardedResults.size())));
+  analysisResult.insert(analysisResult.end(), generatedLayouts.begin(),
+                        generatedLayouts.end());
 
   // Apply partial layout overrides. Remove layouts that conflict with at least
   // one overriden param.
@@ -343,6 +283,25 @@ void LegalLayoutAnalysis::analysisImplementation() {
                                         analysisResult.end(),
                                         shouldRemoveLayout),
                          analysisResult.end());
+  }
+
+  // Apply conv2d config overrides.
+  // If they do not exist, or they do not exist for a specific conv2d op, set
+  // conv2d config with default values.
+  //
+  if (auto opLoc = mlir::dyn_cast<NameLoc>(op->getLoc())) {
+    StringRef opLocName = opLoc.getName().strref();
+    if (isa<ttnn::Conv2dOp>(op)) {
+      Conv2dConfigOverrideParams conv2dConfigOverrides;
+      if (analysisInput.conv2dConfigOverrides) {
+        auto overrideConv2dIt =
+            analysisInput.conv2dConfigOverrides->find(opLocName);
+        if (overrideConv2dIt != analysisInput.conv2dConfigOverrides->end()) {
+          conv2dConfigOverrides = overrideConv2dIt->getValue();
+        }
+      }
+      applyConv2dConfigOverrides(op, conv2dConfigOverrides, analysisResult);
+    }
   }
 
   if (analysisResult.empty()) {

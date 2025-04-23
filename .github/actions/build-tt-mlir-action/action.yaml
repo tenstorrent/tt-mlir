@@ -40,6 +40,17 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: Setup Metal CPM Cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/.cpm_cache
+        key: metal-cpm-cache
+
+    - name: Set Metal CPM Cache Environment Variable
+      shell: bash
+      run: |
+        mkdir -p ${{ github.workspace }}/.cpm_cache
+        echo "CPM_SOURCE_CACHE=${{ github.workspace }}/.cpm_cache" >> $GITHUB_ENV
 
     - name: Configure CMake
       shell: bash
@@ -64,7 +75,9 @@ runs:
       shell: bash
       run: |
         source env/activate
+        ccache -z
         cmake --build ${{ inputs.build-output-dir }}
+        ccache -s
 
     - name: Build ttrt
       shell: bash
@@ -107,12 +120,7 @@ runs:
     - name: Archive Install Directory
       shell: bash
       working-directory: ${{ inputs.install-output-dir }}
-      run: tar cvf artifact.tar .
-
-    - name: Archive Build Directory
-      shell: bash
-      working-directory: ${{ inputs.build-output-dir }}
-      run: tar cvf artifact.tar .
+      run: tar cf artifact.tar .
 
     - name: Upload Install Folder
       uses: actions/upload-artifact@v4
@@ -120,11 +128,24 @@ runs:
         name: install-artifacts-${{ inputs.build-name }}
         path: ${{ inputs.install-output-dir }}/artifact.tar
 
+    - name: Remove tar archive
+      shell: bash
+      run: rm -f ${{ inputs.install-output-dir }}/artifact.tar
+
+    - name: Archive Build Directory
+      shell: bash
+      working-directory: ${{ inputs.build-output-dir }}
+      run: tar cf artifact.tar .
+
     - name: Upload Build Folder
       uses: actions/upload-artifact@v4
       with:
         name: build-artifacts-${{ inputs.build-name }}
         path: ${{ inputs.build-output-dir }}/artifact.tar
+
+    - name: Remove tar archive
+      shell: bash
+      run: rm -f ${{ inputs.build-output-dir }}/artifact.tar
 
     - name: Get Latest Tag and Version
       shell: bash

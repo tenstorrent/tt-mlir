@@ -58,12 +58,12 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
       context.getTargetDevice(op->device()->global_id());
   ::ttnn::Tensor out = std::visit(
       [&](auto &&targetDevice) -> ::ttnn::Tensor {
-        return std::get<0>(::ttnn::operations::conv::conv2d::conv2d(
+        return std::get<0>(::ttnn::conv2d(
             input, weight, &(targetDevice.get()), op->in_channels(),
             op->out_channels(), op->batch_size(), op->input_height(),
             op->input_width(), kernelSize, stride, padding, dilation,
-            op->groups(), bias, conv2dConfig, computeConfig,
-            outputMemoryConfig));
+            op->groups(), bias, conv2dConfig, computeConfig, outputMemoryConfig,
+            std::nullopt));
       },
       targetDevice);
 

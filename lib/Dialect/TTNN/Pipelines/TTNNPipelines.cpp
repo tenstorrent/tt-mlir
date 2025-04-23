@@ -41,6 +41,15 @@ void createTTNNPipelineTTIRPasses(
   // Inlines all private functions. I.e flattens the program into the main
   // function. Removes all private functions.
   pm.addPass(mlir::createInlinerPass());
+
+  // Flattening sliding window ops for compatibility with conversion to TTNN
+  pm.addPass(mlir::tt::ttir::createTTIRFlattenSlidingWindow());
+
+  // Add pass to erase inverse ops. This is disabled by default
+  // while the pass is experimental.
+  if (options.eraseInverseOpsEnabled) {
+    pm.addPass(mlir::tt::ttir::createTTIREraseInverseOps());
+  }
 }
 
 void createTTNNPipelineAnalysisPasses(
@@ -49,6 +58,7 @@ void createTTNNPipelineAnalysisPasses(
     ttnn::TTNNOptimizerOptions optimizerOptions;
     optimizerOptions.overrideInputLayout = options.overrideInputLayout;
     optimizerOptions.overrideOutputLayout = options.overrideOutputLayout;
+    optimizerOptions.overrideConv2dConfig = options.overrideConv2dConfig;
     optimizerOptions.memoryLayoutAnalysisEnabled =
         options.memoryLayoutAnalysisEnabled;
     optimizerOptions.memReconfigEnabled = options.memReconfigEnabled;
@@ -143,11 +153,11 @@ void createTTNNPipelineTTIRImplicitBroadcastFoldPassFromString(
 
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  pm.addPass(mlir::createCanonicalizerPass());
+  // Element type normalization should be the first pass in the pipeline.
+  pm.addPass(ttir::createElementTypeNormalization());
   // Create DeviceModule to wrap all ops.
   pm.addPass(tt::createTTWrapDeviceModulePass());
-  ttir::ElementTypeNormalizationOptions normalizationOptions{
-      options.enableFP32};
-  pm.addPass(ttir::createElementTypeNormalization(normalizationOptions));
   // Create CPUModuleOp to wrap hoisted ops (if any).
   pm.addPass(ttir::createTTIRHoistTransform());
 
@@ -181,6 +191,14 @@ void createTTIRToEmitCPipeline(OpPassManager &pm,
   pm.addPass(createConvertTTNNToEmitCPass());
 }
 
+void createTTIRToEmitCSOPipeline(OpPassManager &pm,
+                                 const TTIRToEmitCSOPipelineOptions &options) {
+  createTTIRToTTNNBackendPipeline(pm, options);
+  pm.addPass(tt::createTTUnwrapDeviceModulePass());
+  pm.addPass(createTTNNModifySignaturesForDylib());
+  pm.addPass(createConvertTTNNToEmitCPass());
+}
+
 //===----------------------------------------------------------------------===//
 // Pipeline registration.
 //===----------------------------------------------------------------------===//
@@ -202,5 +220,14 @@ void registerTTNNPipelines() {
       "--ttir-to-ttnn-backend-pipeline and then converts the resulting TTNN "
       "dialect to EmitC.",
       mlir::tt::ttnn::createTTIRToEmitCPipeline);
+
+  // TTIR to EmitC SO pipeline.
+  //
+  mlir::PassPipelineRegistration<mlir::tt::ttnn::TTIRToEmitCSOPipelineOptions>(
+      "ttir-to-emitc-so-pipeline",
+      "Pipeline lowering TTIR to EmitC, similar to TTIRToEmitCPipeline, but "
+      "with emitted C++ code packaged so that it's suitable for compiling into "
+      "a shared object.",
+      mlir::tt::ttnn::createTTIRToEmitCSOPipeline);
 }
 } // namespace mlir::tt::ttnn

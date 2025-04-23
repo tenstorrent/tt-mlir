@@ -22,6 +22,40 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.cpp.inc"
 
 namespace mlir::tt::ttnn {
+//===----------------------------------------------------------------------===//
+// Utils
+//===----------------------------------------------------------------------===//
+
+template <typename T>
+static ::mlir::LogicalResult
+foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
+  // Fold two consecutive data type cast ops into a single one
+  T previousDataCastOp = op.getInput().template getDefiningOp<T>();
+
+  // If there is no previous data cast op, return failure.
+  if (!previousDataCastOp) {
+    return ::mlir::failure();
+  }
+
+  // Check if the previous cast op has only one use. We can only fold if the
+  // previous op has single use.
+  if (!previousDataCastOp->hasOneUse()) {
+    return ::mlir::failure();
+  }
+
+  // Replace the previous op with the merged data type cast op.
+  Value foldedTypecastOp = rewriter.replaceOpWithNewOp<T>(
+      previousDataCastOp, op.getType(), previousDataCastOp.getInput(),
+      op.getDtypeAttr());
+
+  // Replace all uses of the current op with the merged TypecastOp.
+  rewriter.replaceAllUsesWith(op, foldedTypecastOp);
+
+  // Erase the current op.
+  rewriter.eraseOp(op);
+
+  return ::mlir::success();
+}
 
 //===----------------------------------------------------------------------===//
 // ConstantOp
@@ -48,6 +82,74 @@ namespace mlir::tt::ttnn {
 
   if (inputTensorType.getShape() != outputTensorType.getShape()) {
     return emitOpError("input and output must have same shape.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// PrepareConv2dWeightsOp
+//===----------------------------------------------------------------------===//
+
+// PrepareConv2dWeightsOp verification
+::mlir::LogicalResult mlir::tt::ttnn::PrepareConv2dWeightsOp::verify() {
+  mlir::RankedTensorType weightType = getWeightTensor().getType();
+
+  if (weightType.getRank() != 4) {
+    return emitOpError("Weight must be a 4D tensor");
+  }
+
+  if (getWeightsFormat() != "OIHW") {
+    return emitOpError("Only `OIHW` weights format is currently supported");
+  }
+
+  constexpr unsigned int WEIGHT_OUT_CHANNEL_DIM = 0, WEIGHT_IN_CHANNEL_DIM = 1;
+  constexpr unsigned int WEIGHT_KERNEL_HEIGHT_DIM = 2,
+                         WEIGHT_KERNEL_WIDTH_DIM = 3;
+
+  if (weightType.getShape()[WEIGHT_OUT_CHANNEL_DIM] != getOutChannels()) {
+    return emitOpError()
+           << "Expected output channels attribute (" << getOutChannels()
+           << ") to match the first dimension of the weight tensor ("
+           << weightType.getShape()[WEIGHT_OUT_CHANNEL_DIM] << ")";
+  }
+
+  if (weightType.getShape()[WEIGHT_IN_CHANNEL_DIM] !=
+      getInChannels() / getGroups()) {
+    return emitOpError()
+           << "Expected input channels attribute (" << getInChannels()
+           << ") to match the number of input channels per group ("
+           << weightType.getShape()[WEIGHT_IN_CHANNEL_DIM] / getGroups() << ")";
+  }
+
+  if (getKernelSize().size() != 2) {
+    return emitOpError("Expected kernel size attribute to be a 2D tensor");
+  }
+
+  if (weightType.getShape()[WEIGHT_KERNEL_HEIGHT_DIM] != getKernelSize()[0]) {
+    return emitOpError()
+           << "Expected kernel height attribute (" << getKernelSize()[0]
+           << ") to match the third dimension of the weight tensor ("
+           << weightType.getShape()[WEIGHT_KERNEL_HEIGHT_DIM] << ")";
+  }
+
+  if (weightType.getShape()[WEIGHT_KERNEL_WIDTH_DIM] != getKernelSize()[1]) {
+    return emitOpError()
+           << "Expected kernel width attribute (" << getKernelSize()[1]
+           << ") to match the fourth dimension of the weight tensor ("
+           << weightType.getShape()[WEIGHT_KERNEL_WIDTH_DIM] << ")";
+  }
+
+  if (getStride().size() != 2) {
+    return emitOpError("Expected stride attribute to be a 2D tensor");
+  }
+
+  if (getDilation().size() != 2) {
+    return emitOpError("Expected dilation attribute to be a 2D tensor");
+  }
+
+  if (getPadding().size() != 2) {
+    return emitOpError("Expected padding attribute to be a 2D tensor");
   }
 
   return success();
@@ -155,22 +257,10 @@ namespace mlir::tt::ttnn {
                          << dilation[1] << ") must be greater than 0";
   }
 
-  constexpr unsigned int WEIGHT_OUT_CHANNEL_DIM = 0, WEIGHT_IN_CHANNEL_DIM = 1;
-  constexpr unsigned int WEIGHT_KERNEL_HEIGHT_DIM = 2,
-                         WEIGHT_KERNEL_WIDTH_DIM = 3;
   llvm::ArrayRef<int32_t> kernelSize = getKernelSize();
   if (kernelSize.size() != 2) {
     return emitOpError() << "Kernel size attribute must have two values, got: "
                          << kernelSize.size();
-  }
-  if (kernelSize[0] != weightType.getDimSize(WEIGHT_KERNEL_HEIGHT_DIM) ||
-      kernelSize[1] != weightType.getDimSize(WEIGHT_KERNEL_WIDTH_DIM)) {
-    return emitOpError()
-           << "Kernel size attribute (" << kernelSize[0] << ", "
-           << kernelSize[1]
-           << ") must match the last two dimensions of the weight tensor ("
-           << weightType.getDimSize(2) << ", " << weightType.getDimSize(3)
-           << ")";
   }
 
   llvm::SmallVector<uint32_t, 2> paddedInputSize{inputHeight + 2 * padding[0],
@@ -201,21 +291,6 @@ namespace mlir::tt::ttnn {
     return emitOpError() << "Number of output channels (" << outChannels
                          << ") must be divisible by the number of groups ("
                          << groups << ")";
-  }
-
-  llvm::ArrayRef<std::int64_t> weightShape = weightType.getShape();
-  if (outChannels != weightShape[WEIGHT_OUT_CHANNEL_DIM]) {
-    return emitOpError()
-           << "Number of output channels (" << outChannels
-           << ") must match the first dimension of the weight tensor ("
-           << weightShape[0] << ")";
-  }
-
-  if (inChannels / groups != weightShape[WEIGHT_IN_CHANNEL_DIM]) {
-    return emitOpError()
-           << "Number of input channels per group (" << (inChannels / groups)
-           << ") must match the second dimension of the weight tensor ("
-           << weightShape[1] << ")";
   }
 
   int32_t calculatedHOut =
@@ -533,8 +608,62 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 }
 
 //===----------------------------------------------------------------------===//
+// Typecast Op
+//===----------------------------------------------------------------------===//
+
+// Typecast Op verification
+::mlir::LogicalResult mlir::tt::ttnn::TypecastOp::verify() {
+  ::mlir::RankedTensorType outputType = getResult().getType();
+  TTNNLayoutAttr outputLayout =
+      mlir::cast<TTNNLayoutAttr>(outputType.getEncoding());
+
+  if (getDtype() != outputLayout.getDataType()) {
+    return emitOpError() << "Output tensor data type "
+                         << DataTypeEnumToString(outputLayout.getDataType())
+                         << " must match the data type of dtype attribute "
+                         << DataTypeEnumToString(getDtype()) << ".";
+  }
+
+  return success();
+}
+
+// TypecastOp folder
+::mlir::OpFoldResult mlir::tt::ttnn::TypecastOp::fold(FoldAdaptor adaptor) {
+
+  // If the input and output are same, fold to the input.
+  if (getType() == getInput().getType()) {
+    return getInput();
+  }
+
+  return nullptr;
+}
+
+// Typecast canonicalizer method
+::llvm::LogicalResult
+mlir::tt::ttnn::TypecastOp::canonicalize(TypecastOp typecastOp,
+                                         ::mlir::PatternRewriter &rewriter) {
+  return foldConsecutiveDataCastOps(typecastOp, rewriter);
+}
+
+//===----------------------------------------------------------------------===//
 // ToDTypeOp
 //===----------------------------------------------------------------------===//
+
+// ToDTypeOp verification
+::mlir::LogicalResult mlir::tt::ttnn::ToDTypeOp::verify() {
+  ::mlir::RankedTensorType outputType = getResult().getType();
+  TTNNLayoutAttr outputLayout =
+      mlir::cast<TTNNLayoutAttr>(outputType.getEncoding());
+
+  if (getDtype() != outputLayout.getDataType()) {
+    return emitOpError() << "Output tensor data type "
+                         << DataTypeEnumToString(outputLayout.getDataType())
+                         << " must match the data type of dtype attribute "
+                         << DataTypeEnumToString(getDtype()) << ".";
+  }
+
+  return success();
+}
 
 // ToDTypeOp folder
 ::mlir::OpFoldResult mlir::tt::ttnn::ToDTypeOp::fold(FoldAdaptor adaptor) {
@@ -545,6 +674,14 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
   }
 
   return nullptr;
+}
+
+// ToDTypeOp canonicalizer method
+::llvm::LogicalResult
+mlir::tt::ttnn::ToDTypeOp::canonicalize(ToDTypeOp op,
+                                        ::mlir::PatternRewriter &rewriter) {
+  // NOLINTNEXTLINE
+  return foldConsecutiveDataCastOps(op, rewriter);
 }
 
 //===----------------------------------------------------------------------===//

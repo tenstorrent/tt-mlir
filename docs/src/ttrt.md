@@ -24,7 +24,7 @@ Add the following flags when building the compiler
 ```
 
 ## LOGGER Levels
-ttrt support logging at different logger levels. You will need to set env var `TTRT_LOGGER_LEVEL`. By default, it will print all log messages.
+ttrt support logging at different logger levels. You will need to set env var `TTRT_LOGGER_LEVEL`. By default, it's set to `INFO`.
 ```bash
 TTRT_LOGGER_LEVEL=INFO
 TTRT_LOGGER_LEVEL=CRITICAL

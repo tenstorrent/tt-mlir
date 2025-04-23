@@ -1,0 +1,86 @@
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+
+namespace tt.target.ttnn;
+
+table Conv2dConfig {
+  dtype: tt.target.DataType;
+  weights_dtype: tt.target.DataType;
+  activation: string;
+  input_channels_alignment: uint32;
+  deallocate_activation: bool;
+  reallocate_halo_output: bool;
+  act_block_h_override: uint32;
+  act_block_w_div: uint32;
+  reshard_if_not_optimal: bool;
+  override_sharding_config: bool;
+  shard_layout: tt.target.ttnn.TensorMemoryLayout = null;
+  core_grid: tt.target.ttnn.CoreRangeSet;
+  transpose_shards: bool;
+  output_layout: tt.target.TensorLayout;
+  preprocess_weights_on_device: bool;
+  always_preprocess_weights: bool;
+  enable_act_double_buffer: bool;
+  enable_weights_double_buffer: bool;
+  enable_split_reader: bool;
+  enable_subblock_padding: bool;
+}
+
+table PrepareConv2dWeightsOp {
+  weight_tensor: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  input_memory_config: tt.target.ttnn.MemoryConfig;
+  input_tensor_layout: tt.target.TensorLayout;
+  weights_format: string;
+  in_channels: uint32;
+  out_channels: uint32;
+  batch_size: uint32;
+  input_height: uint32;
+  input_width: uint32;
+  kernel_size: [int32];
+  stride: [int32];
+  padding: [int32];
+  dilation: [int32];
+  has_bias: bool;
+  groups: uint32;
+  device: tt.target.DeviceRef;
+  conv2d_config: tt.target.ttnn.Conv2dConfig;
+}
+
+table Conv2dOp {
+  input: tt.target.ttnn.TensorRef;
+  weight: tt.target.ttnn.TensorRef;
+  bias: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  device: tt.target.DeviceRef;
+  in_channels: uint32;
+  out_channels: uint32;
+  batch_size: uint32;
+  input_height: uint32;
+  input_width: uint32;
+  kernel_size: [int32];
+  stride: [int32];
+  padding: [int32];
+  dilation: [int32];
+  groups: uint32;
+  conv2d_config: tt.target.ttnn.Conv2dConfig;
+}
+
+table ConvTranspose2dOp {
+  input: tt.target.ttnn.TensorRef;
+  weight: tt.target.ttnn.TensorRef;
+  bias: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  device: tt.target.DeviceRef;
+  in_channels: uint32;
+  out_channels: uint32;
+  batch_size: uint32;
+  input_height: uint32;
+  input_width: uint32;
+  kernel_size: [int32];
+  stride: [int32];
+  padding: [int32];
+  output_padding: [int32];
+  dilation: [int32];
+  groups: uint32;
+}

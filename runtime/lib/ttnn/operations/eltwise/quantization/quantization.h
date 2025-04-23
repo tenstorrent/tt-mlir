@@ -8,20 +8,10 @@
 #include "tt/runtime/ttnn/types.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 
-namespace tt::runtime::ttnn::operations::quantization {
+namespace tt::runtime::ttnn::operations::eltwise::quantization {
 
-inline bool isQuantizationOp(const ::tt::target::ttnn::EltwiseOp *op) {
-  switch (op->type()) {
-  case ::tt::target::ttnn::EltwiseOpType::Quantize:
-  case ::tt::target::ttnn::EltwiseOpType::Dequantize:
-  case ::tt::target::ttnn::EltwiseOpType::Requantize:
-    return true;
-  default:
-    return false;
-  }
-}
-
-void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context);
-} // namespace tt::runtime::ttnn::operations::quantization
+void run(const ::tt::target::ttnn::EltwiseQuantizationOp *op,
+         ProgramContext &context);
+} // namespace tt::runtime::ttnn::operations::eltwise::quantization
 
 #endif // RUNTIME_LIB_TTNN_OPERATIONS_QUANTIZATION_QUANTIZE_H

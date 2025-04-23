@@ -12,6 +12,9 @@ from ttmlir.dialects import ttir, tt, tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
 import torch
 import array
+from enum import Enum, auto
+import re
+from .ccl_golden import *
 
 # Alias for operands of ops which can be either BlockArguments, Values, or other
 # ops wrapped in OpView or Operation.
@@ -109,6 +112,12 @@ class TypeInfo:
     zero_point: Optional[int] = None
 
 
+class GoldenCheckLevel(Enum):
+    DISABLED = auto()  # Do not store golden.
+    OP_LEVEL = auto()  # Check every single op level goldens
+    GRAPH_LEVEL = auto()  # Check graph level goldens only
+
+
 class TTIRBuilder:
     """Builder class providing API for creating TTIR ops."""
 
@@ -130,11 +139,24 @@ class TTIRBuilder:
         # mesh_shape for multi-device
         self.mesh_shape = ()
 
+        # golden check level
+        self._golden_check_level = GoldenCheckLevel.OP_LEVEL
+
     # ----- Public helpers -----
 
     @property
     def goldens(self) -> Dict:
         return self._goldens
+
+    @property
+    def golden_check_level(self) -> GoldenCheckLevel:
+        return self._golden_check_level
+
+    @golden_check_level.setter
+    def golden_check_level(self, level: GoldenCheckLevel):
+        if not isinstance(level, GoldenCheckLevel):
+            raise ValueError("Invalid golden check level.")
+        self._golden_check_level = level
 
     def get_next_global_id(self) -> int:
         self._global_id += 1
@@ -189,7 +211,13 @@ class TTIRBuilder:
 
     def get_golden_map(self) -> Dict:
         golden_info = {}
+        if self.golden_check_level == GoldenCheckLevel.DISABLED:
+            return golden_info
         for name, golden_tensor in self.id_golden_map.items():
+            if self.golden_check_level == GoldenCheckLevel.GRAPH_LEVEL:
+                if re.match(r"^(input|output)_[0-9]+$", name) is None:
+                    # It means this is not graph level golden.
+                    continue
             golden_tensor = golden_tensor.contiguous()
             data_type = self.get_datatype_from_torch_dtype(golden_tensor.tensor.dtype)
             golden_info[name] = GoldenTensor(
@@ -220,6 +248,7 @@ class TTIRBuilder:
             self.id_golden_map[input_key] = Golden(tensor)
 
         if outputs is not None:
+            self.golden_check_level = GoldenCheckLevel.GRAPH_LEVEL
             for index, tensor in enumerate(outputs):
                 output_key = f"output_{index}"
                 self.id_golden_map[output_key] = Golden(tensor)
@@ -566,7 +595,6 @@ class TTIRBuilder:
 
                 for attr_name in unit_attrs:
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
-
             self.id_golden_map[str(loc)] = golden
             self._store_golden(op, golden)
             self._override_golden(output, golden)
@@ -579,6 +607,31 @@ class TTIRBuilder:
         inputs: List[Operand],
     ) -> OpView:
         return self.op_proxy(op_golden_function, op_ttir_function, inputs)
+
+    def ccl_proxy(
+        self,
+        op_golden_function: Callable,
+        op_ttir_function: Callable,
+        inputs: List[Operand],
+        kwargs: dict = {},
+    ) -> OpView:
+        # Force GoldenCheckLevel to GRAPH_LEVEL when CCL Ops are used(phase 0)
+        self.golden_check_level = GoldenCheckLevel.GRAPH_LEVEL
+        return self.op_proxy(
+            op_golden_function=op_golden_function,
+            op_ttir_function=op_ttir_function,
+            inputs=inputs,
+            organize_golden_args=lambda i: (
+                [self._get_golden_tensor(i[0]), self.mesh_shape]
+            ),
+            organize_ttir_args=lambda i, o, shape: (
+                self._get_type(o),
+                i[0],
+                o,
+            ),
+            golden_kwargs=kwargs,
+            ttir_kwargs=kwargs,
+        )
 
     # TTIR top level ops
 
@@ -1078,7 +1131,7 @@ class TTIRBuilder:
         return self.op_proxy(
             self.conv2d_golden_function,
             ttir.Conv2dOp,
-            [in0, weight],
+            [in0, weight, bias],
             golden_kwargs={
                 "stride": stride,
                 "padding": padding,
@@ -1090,7 +1143,6 @@ class TTIRBuilder:
                 "padding": padding,
                 "dilation": dilation,
                 "groups": groups,
-                "bias": bias,
             },
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], o),
         )
@@ -1099,6 +1151,7 @@ class TTIRBuilder:
         self,
         input_tensor: Operand,
         weight: Operand,
+        bias: Optional[Operand],
         stride: Union[IntegerAttr, DenseI32ArrayAttr],
         padding: Union[IntegerAttr, DenseI32ArrayAttr],
         dilation: Union[IntegerAttr, DenseI32ArrayAttr],
@@ -1112,19 +1165,23 @@ class TTIRBuilder:
         dilation = (
             tuple(dilation) if not isinstance(dilation, IntegerAttr) else int(dilation)
         )
-        golden_bias = torch.rand((weight.size()[0]), dtype=input_tensor.dtype)
+
+        # ttir can handle a broadcastable bias in the shape [1, 1, 1, C_out], but PyTorch requires the bias is rank 1: [C_out]
+        bias = bias.squeeze()  # Removes all dims of size 1
 
         # Reorganize input and output tensors, golden and ttir functions have different expected tensor shapes
         input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
         result = torch.nn.functional.conv2d(
             input_tensor,
             weight,
-            bias=golden_bias,
+            bias=bias,
             stride=stride,
             padding=padding,
             dilation=dilation,
             groups=groups,
         )
+        result = result.transpose(-3, -2).transpose(-2, -1)
+        return result
         result = result.transpose(-3, -2).transpose(-2, -1)
         return result
 
@@ -1259,6 +1316,9 @@ class TTIRBuilder:
         # TTIR  max_pool2d is channels last. PyTorch max_pool2d is channels first.
         # We need to transpose the input tensor to channels first before applying max_pool2d,
         # and transpose back to channels last afterward to properly calculate the golden tensor.
+        # TTIR  max_pool2d is channels last. PyTorch max_pool2d is channels first.
+        # We need to transpose the input tensor to channels first before applying max_pool2d,
+        # and transpose back to channels last afterward to properly calculate the golden tensor.
         maxpool_object = torch.nn.MaxPool2d(
             kernel_size, stride, padding, dilation, ceil_mode
         )
@@ -1278,7 +1338,7 @@ class TTIRBuilder:
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
         )
 
-    def pad(self, in0: Operand, padding: List[int], value: int) -> OpView:
+    def pad(self, in0: Operand, in1: Operand, padding: List[int], value: int) -> OpView:
         # Reformatting padding dimensions for golden tensor:
         golden_padding = []
         for i in range(len(padding) // 2):
@@ -1287,10 +1347,11 @@ class TTIRBuilder:
         return self.op_proxy(
             torch.nn.functional.pad,
             ttir.PadOp,
-            [in0],
+            [in0, in1],
             golden_kwargs={"pad": golden_padding, "mode": "constant", "value": value},
             ttir_kwargs={"padding": padding, "value": value},
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
+            organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
         )
 
     def select(
@@ -1627,4 +1688,91 @@ class TTIRBuilder:
             output_type=self.get_type_from_torch_dtype(
                 TypeInfo(dtype=dtype, scale=scale, zero_point=zero_point)
             ),
+        )
+
+    # CCL ops
+    def mesh_shard(
+        self,
+        input: Operand,
+        shard_type: str,
+        shard_direction: str,
+        shard_shape: Tuple[int, ...],
+        shard_dims: Tuple[int, ...],
+    ) -> OpView:
+        kwargs = {
+            "shard_type": Attribute.parse(shard_type),
+            "shard_direction": Attribute.parse(shard_direction),
+            "shard_shape": shard_shape,
+            "shard_dims": shard_dims,
+        }
+        return self.ccl_proxy(
+            mesh_shard_golden,
+            ttir.MeshShardOp,
+            [input],
+            kwargs=kwargs,
+        )
+
+    def all_gather(
+        self,
+        input: Operand,
+        all_gather_dim: int = None,
+        cluster_axis: int = None,
+    ) -> OpView:
+        kwargs = {"all_gather_dim": all_gather_dim, "cluster_axis": cluster_axis}
+        return self.ccl_proxy(
+            all_gather_golden,
+            ttir.AllGatherOp,
+            [input],
+            kwargs=kwargs,
+        )
+
+    def all_reduce(
+        self,
+        input: Operand,
+        reduce_type: str,
+        cluster_axis: int,
+    ) -> OpView:
+        kwargs = {
+            "reduce_type": Attribute.parse(reduce_type),
+            "cluster_axis": cluster_axis,
+        }
+        return self.ccl_proxy(
+            all_reduce_golden,
+            ttir.AllReduceOp,
+            [input],
+            kwargs=kwargs,
+        )
+
+    def reduce_scatter(
+        self,
+        input: Operand,
+        reduce_type: str,
+        scatter_dim: int,
+        cluster_axis: int,
+    ) -> OpView:
+        kwargs = {
+            "reduce_type": Attribute.parse(reduce_type),
+            "scatter_dim": scatter_dim,
+            "cluster_axis": cluster_axis,
+        }
+        return self.ccl_proxy(
+            reduce_scatter_golden,
+            ttir.ReduceScatterOp,
+            [input],
+            kwargs=kwargs,
+        )
+
+    def collective_permute(
+        self,
+        input: Operand,
+        source_target_pairs: List[Tuple[int, int]],
+    ) -> OpView:
+        kwargs = {
+            "source_target_pairs": source_target_pairs,
+        }
+        return self.ccl_proxy(
+            collective_permute_golden,
+            ttir.CollectivePermuteOp,
+            [input],
+            kwargs=kwargs,
         )
