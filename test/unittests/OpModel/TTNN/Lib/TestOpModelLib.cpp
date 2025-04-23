@@ -252,6 +252,10 @@ class OpModelReductionParam
                      detail::ExpectedResult>> {};
 
 TEST_P(OpModelReductionParam, Reduction) {
+  // Disabled due to segfault after reshape op called with program cache enabled
+  // TODO(brataTT): Re-enable after
+  // https://github.com/tenstorrent/tt-mlir/issues/3054
+  GTEST_SKIP();
   auto params = GetParam();
   const auto [inputShape, inputTensorLayout, inputBufferType,
               inputVirtualGrid] = std::get<0>(params);
@@ -316,6 +320,10 @@ INSTANTIATE_TEST_SUITE_P(
                         detail::ExpectedResult{true, 12288, 0, 0})));
 
 TEST_F(OpModelTest, SoftmaxInterleaved) {
+  // Disabled due to segfault after reshape op called with program cache enabled
+  // TODO(brataTT): Re-enable after
+  // https://github.com/tenstorrent/tt-mlir/issues/3054
+  GTEST_SKIP();
   const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
   const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
   const mlir::tt::ttnn::TTNNLayoutAttr inputLayout_dram =
@@ -393,6 +401,10 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
 }
 
 TEST_F(OpModelTest, Reshape) {
+  // Disabled due to segfault after reshape op called with program cache enabled
+  // TODO(brataTT): Re-enable after
+  // https://github.com/tenstorrent/tt-mlir/issues/3054
+  GTEST_SKIP();
   const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
   const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
   const mlir::tt::ttnn::TTNNLayoutAttr layoutDRAM =
@@ -410,7 +422,7 @@ TEST_F(OpModelTest, Reshape) {
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   auto [cb_size, peak_size, output_size, outputLayoutReadBack] =
       constraintsExp.get();
-  EXPECT_EQ(cb_size, 262144);
+  EXPECT_EQ(cb_size, 5120);
   EXPECT_EQ(output_size, 0);
   EXPECT_EQ(peak_size, 0);
 
@@ -425,9 +437,9 @@ TEST_F(OpModelTest, Reshape) {
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   std::tie(cb_size, peak_size, output_size, outputLayoutReadBack) =
       constraintsExp.get();
-  EXPECT_EQ(cb_size, 262144);
+  EXPECT_EQ(cb_size, 5120);
   EXPECT_EQ(output_size, 2048);
-  EXPECT_EQ(peak_size, 4096);
+  EXPECT_EQ(peak_size, 2048);
 
   runtimeExp = ReshapeOpInterface::getOpRuntime(
       tensorShape, layoutDRAM, {workerCoresN300 * 4, 256}, layoutL1);
@@ -495,6 +507,10 @@ TEST_F(OpModelTest, ToLayout) {
 }
 
 TEST_F(OpModelTest, Transpose) {
+  // Disabled due to segfault after reshape op called with program cache enabled
+  // TODO(brataTT): Re-enable after
+  // https://github.com/tenstorrent/tt-mlir/issues/3054
+  GTEST_SKIP();
   const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
   const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
   const mlir::tt::ttnn::TTNNLayoutAttr layoutDRAM =
@@ -551,6 +567,10 @@ TEST_F(OpModelTest, Transpose) {
 }
 
 TEST_F(OpModelTest, SoftmaxSharded) {
+  // Disabled due to segfault after reshape op called with program cache enabled
+  // TODO(brataTT): Re-enable after
+  // https://github.com/tenstorrent/tt-mlir/issues/3054
+  GTEST_SKIP();
   const llvm::SmallVector<int64_t> tensorShape = {16 * workerCoresN300 * 32,
                                                   32};
   const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
