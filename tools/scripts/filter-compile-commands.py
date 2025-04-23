@@ -11,6 +11,8 @@ import sys
 
 
 def get_diff_files(compile_commands):
+    print("Is shallow clone: ")
+    subprocess.check_output(["git", "rev-parse", "-is-shallow-repository"])
     fork_point = (
         subprocess.check_output(["git", "merge-base", "--fork-point", "origin/main"])
         .decode("utf-8")
