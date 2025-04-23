@@ -35,16 +35,17 @@ public:
   ProgramExecutor(const ::tt::target::ttnn::Program *program,
                   const Binary &executableHandle,
                   std::vector<::tt::runtime::Tensor> &programInputs,
-                  ::ttnn::MeshDevice *meshDevice,
+                  std::shared_ptr<::ttnn::MeshDevice> meshDevice,
                   const size_t programIndex = 0);
 
   /**
    * Executes pre and post operation callbacks if registered
    */
-  void runCallback(std::optional<debug::Hooks::CallbackFn> callback,
-                   Binary &executableHandle,
-                   const ::tt::target::ttnn::Operation *opContext,
-                   ProgramContext *programContext);
+  void
+  runCallback(std::optional<::tt::runtime::debug::Hooks::CallbackFn> callback,
+              Binary &executableHandle,
+              const ::tt::target::ttnn::Operation *opContext,
+              ProgramContext *programContext);
 
   /**
    * Executes all operations in the program
@@ -59,9 +60,7 @@ public:
   /**
    * Gathers and returns output tensors from the program
    */
-  std::vector<::tt::runtime::Tensor> gatherOutputTensors() {
-    return context->getTensorPool().gatherOutputTensors();
-  }
+  std::vector<::tt::runtime::Tensor> gatherOutputTensors();
 
 private:
   const ::tt::target::ttnn::Program *program;

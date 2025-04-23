@@ -143,22 +143,23 @@ void closeMeshDevice(Device parentMesh) {
 }
 
 Device createSubMeshDevice(
-    Device parentMesh, const std::pair<uint32_t, uint32_t> &meshShape,
-    const std::optional<const std::pair<uint32_t, uint32_t>> &meshOffset) {
+    Device parentMesh, const std::vector<uint32_t> &meshShape,
+    const std::optional<const std::vector<uint32_t>> &meshOffset) {
   ::tt::tt_metal::distributed::MeshDevice &parentMeshDevice =
       parentMesh.as<::tt::tt_metal::distributed::MeshDevice>(
           DeviceRuntime::TTMetal);
   LOG_ASSERT(parentMeshDevice.is_parent_mesh(),
              "Mesh device must be a parent mesh");
-
-  ::tt::tt_metal::distributed::MeshShape shape{meshShape.first,
-                                               meshShape.second};
+  LOG_ASSERT(meshShape.size() == 2, "Mesh shape must be 2D for now");
+  ::tt::tt_metal::distributed::MeshShape shape{meshShape[0], meshShape[1]};
 
   std::optional<::tt::tt_metal::distributed::MeshCoordinate> offset =
       std::nullopt;
   if (meshOffset.has_value()) {
-    offset = ::tt::tt_metal::distributed::MeshCoordinate{
-        meshOffset.value().first, meshOffset.value().second};
+    LOG_ASSERT(meshOffset.value().size() == 2,
+               "Mesh offset must be 2D for now");
+    offset = ::tt::tt_metal::distributed::MeshCoordinate{meshOffset.value()[0],
+                                                         meshOffset.value()[1]};
   }
 
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> subMeshDevice =
@@ -178,6 +179,16 @@ void releaseSubMeshDevice(Device subMesh) {
 
   metalMeshDevice.close();
   subMesh.handle.reset();
+}
+
+void reshapeMeshDevice(Device meshDevice,
+                       const std::vector<uint32_t> &meshShape) {
+  ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
+      meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+
+  metalMeshDevice.reshape(
+      ::tt::tt_metal::distributed::MeshShape(meshShape[0], meshShape[1]));
 }
 
 void deallocateBuffers(Device deviceHandle) {

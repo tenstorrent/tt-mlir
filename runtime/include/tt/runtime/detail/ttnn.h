@@ -68,7 +68,7 @@ createBorrowedHostTensor(void *data, std::vector<std::uint32_t> const &shape,
 // Creates multi-device host tensor with owned storage (buffers of the tensor
 // are on the host and their allocation/deallocation is owned by this tensor
 // instance).
-::tt::runtime::Tensor createOwnedMultiDeviceHostTensor(
+::tt::runtime::Tensor createMultiDeviceHostTensor(
     std::vector<void const *> const &data,
     std::vector<std::uint32_t> const &shape,
     std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
@@ -97,10 +97,10 @@ inline ::tt::runtime::Tensor createBorrowedHostTensor(void *data,
       data, desc.shape, desc.stride, desc.itemsize, desc.dataType);
 }
 
-inline ::tt::runtime::Tensor createOwnedMultiDeviceHostTensor(
+inline ::tt::runtime::Tensor createMultiDeviceHostTensor(
     std::vector<void const *> const &data, TensorDesc const &desc,
     std::unordered_map<std::string, std::string> const &strategy) {
-  return ::tt::runtime::ttnn::createOwnedMultiDeviceHostTensor(
+  return ::tt::runtime::ttnn::createMultiDeviceHostTensor(
       data, desc.shape, desc.stride, desc.itemsize, desc.dataType, strategy);
 }
 
@@ -128,12 +128,15 @@ Device openMeshDevice(const std::vector<uint32_t> &meshShape,
 
 void closeMeshDevice(Device parentMesh);
 
-Device createSubMeshDevice(
-    Device parentMesh, const std::pair<uint32_t, uint32_t> &meshShape,
-    const std::optional<const std::pair<uint32_t, uint32_t>> &meshOffset =
-        std::nullopt);
+Device createSubMeshDevice(Device parentMesh,
+                           const std::vector<uint32_t> &meshShape,
+                           const std::optional<const std::vector<uint32_t>>
+                               &meshOffset = std::nullopt);
 
 void releaseSubMeshDevice(Device subMesh);
+
+void reshapeMeshDevice(Device meshDevice,
+                       const std::vector<uint32_t> &meshShape);
 
 void deallocateBuffers(Device device);
 
@@ -176,8 +179,8 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs);
 
 std::vector<::tt::runtime::Tensor>
-runProgram(::ttnn::MeshDevice &meshDevice, Binary executableHandle,
-           std::uint32_t programIndex,
+runProgram(std::shared_ptr<::ttnn::MeshDevice> meshDevice,
+           Binary executableHandle, std::uint32_t programIndex,
            std::vector<::tt::runtime::Tensor> &inputs);
 
 } // namespace tt::runtime::ttnn

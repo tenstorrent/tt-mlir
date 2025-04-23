@@ -62,6 +62,8 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg);
 ::tt::runtime::Tensor createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor,
                                                   bool retain = false);
 
+void *getRawHostDataPtr(const ::ttnn::Tensor &tensor);
+
 // Translates a flatbuffer DataType to the native (C++) type.
 template <::tt::target::DataType DataType>
 struct NativeDType {

@@ -74,7 +74,7 @@ static void tracyLogOpLocation(const ::tt::target::ttnn::Operation *op) {
 ProgramExecutor::ProgramExecutor(
     const ::tt::target::ttnn::Program *program, const Binary &executableHandle,
     std::vector<::tt::runtime::Tensor> &programInputs,
-    ::ttnn::MeshDevice *meshDevice, const size_t programIndex)
+    std::shared_ptr<::ttnn::MeshDevice> meshDevice, const size_t programIndex)
     : program(program), executableHandle(executableHandle) {
   LOG_ASSERT(program, "Program must be provided for execution");
 
@@ -98,8 +98,8 @@ ProgramExecutor::ProgramExecutor(
 
   context = std::make_unique<ProgramContext>(
       programInputIds, programOutputIds, std::move(liveTensors),
-      common::DylibManager(program->dylibs()), meshDevice, executableHandle,
-      programIndex);
+      common::DylibManager(program->dylibs()), std::move(meshDevice),
+      executableHandle, programIndex);
 }
 
 void ProgramExecutor::runCallback(
@@ -119,6 +119,8 @@ void ProgramExecutor::runCallback(
 }
 
 void ProgramExecutor::execute() {
+  LOG_DEBUG(LogType::LogRuntimeTTNN,
+            "Starting execution of program: ", program->name()->c_str());
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
@@ -128,8 +130,14 @@ void ProgramExecutor::execute() {
     runOperation(op);
     runCallback(debug::Hooks::get().getPostOperatorCallback(), executableHandle,
                 op, context.get());
-    dumpPerfCountersIfNeeded(context->getParentMesh());
+    dumpPerfCountersIfNeeded(context->getMeshDevice());
   }
+  LOG_DEBUG(LogType::LogRuntimeTTNN,
+            "Finished execution of program: ", program->name()->c_str());
+}
+
+std::vector<::tt::runtime::Tensor> ProgramExecutor::gatherOutputTensors() {
+  return context->getTensorPool().gatherOutputTensors();
 }
 
 void ProgramExecutor::dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice) {

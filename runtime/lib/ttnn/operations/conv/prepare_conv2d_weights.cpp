@@ -40,22 +40,16 @@ void run(const ::tt::target::ttnn::PrepareConv2dWeightsOp *op,
     conv2dConfig = utils::createConv2dConfig(op->conv2d_config());
   }
 
-  DeviceVariant targetDevice =
-      context.getTargetDevice(op->device()->global_id());
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  ::ttnn::Tensor out = std::visit(
-      [&](auto &&device) {
-        using DeviceType = std::decay_t<decltype(device)>::type;
-        return ::ttnn::operations::conv::conv2d::prepare_conv_weights<
-            DeviceType>(
-            weightTensor, *inputMemoryConfig,
-            ::tt::runtime::ttnn::utils::toTTNNLayout(op->input_tensor_layout()),
-            op->weights_format()->str(), op->in_channels(), op->out_channels(),
-            op->batch_size(), op->input_height(), op->input_width(), kernelSize,
-            stride, padding, dilation, op->has_bias(), op->groups(),
-            &device.get(), conv2dConfig, std::nullopt);
-      },
-      targetDevice);
+  ::ttnn::Tensor out = ::ttnn::operations::conv::conv2d::prepare_conv_weights<
+      ::ttnn::MeshDevice>(
+      weightTensor, *inputMemoryConfig,
+      ::tt::runtime::ttnn::utils::toTTNNLayout(op->input_tensor_layout()),
+      op->weights_format()->str(), op->in_channels(), op->out_channels(),
+      op->batch_size(), op->input_height(), op->input_width(), kernelSize,
+      stride, padding, dilation, op->has_bias(), op->groups(), &targetDevice,
+      conv2dConfig, std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

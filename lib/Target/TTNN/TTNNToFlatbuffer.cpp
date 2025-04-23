@@ -220,7 +220,7 @@ memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
   if (tensorMeshSharding) {
     storageType = bufferType == ttnn::BufferType::SystemMemory
                       ? ::tt::target::ttnn::StorageType::MultiDeviceHost
-                      : ::tt::target::ttnn::StorageType::MultiDevice;
+                      : ::tt::target::ttnn::StorageType::Device;
   } else {
     storageType = bufferType == ttnn::BufferType::SystemMemory
                       ? ::tt::target::ttnn::StorageType::Owned
@@ -534,10 +534,6 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
   ::tt::target::TensorLayout layout =
       ::tt::mlir::ttnn::utils::toTargetTensorLayout(op.getLayout());
 
-  uint32_t numShards = 1;
-  auto strategy = createDistributionStrategy(
-      cache, op.getDevice(), mlir::cast<RankedTensorType>(op.getType()),
-      numShards);
   auto output = getOperandThroughDPSOps(op.getResult());
   auto device = getOperandThroughDPSOps(op.getDevice());
   auto tileShape = getTensorValueTileShape(output);
@@ -547,8 +543,7 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
 
   return ::tt::target::ttnn::CreateEmptyOp(
       *cache.fbb, cache.fbb->CreateVector<int64_t>(shape), dtype, layout,
-      numShards, cache.at<::tt::target::DeviceRef>(device), memoryConfig,
-      strategy,
+      cache.at<::tt::target::DeviceRef>(device), memoryConfig,
       cache.getOrCreate(output, tensorValueToFlatbuffer, kHostAllocatedSize));
 }
 
@@ -572,13 +567,8 @@ createOp(FlatbufferObjectCache &cache, FullOp op) {
   auto device = getOperandThroughDPSOps(op.getDevice());
   auto fillValue = op.getFillValue().convertToFloat();
   auto output = getOperandThroughDPSOps(op.getResult());
-  uint32_t numShards = 1;
-  auto strategy = createDistributionStrategy(
-      cache, op.getDevice(), mlir::cast<RankedTensorType>(op.getType()),
-      numShards);
   return ::tt::target::ttnn::CreateFullOp(
       *cache.fbb, cache.at<::tt::target::DeviceRef>(device), fillValue,
-      numShards, strategy,
       cache.getOrCreate(output, tensorValueToFlatbuffer, kHostAllocatedSize));
 }
 

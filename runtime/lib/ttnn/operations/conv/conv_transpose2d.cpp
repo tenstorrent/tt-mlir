@@ -50,18 +50,13 @@ void run(const ::tt::target::ttnn::ConvTranspose2dOp *op,
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           op->memory_config());
 
-  DeviceVariant targetDevice =
-      context.getTargetDevice(op->device()->global_id());
-  ::ttnn::Tensor out = std::visit(
-      [&](auto &&targetDevice) -> ::ttnn::Tensor {
-        return std::get<0>(::ttnn::conv_transpose2d(
-            input, weight, &targetDevice.get(), op->in_channels(),
-            op->out_channels(), op->batch_size(), op->input_height(),
-            op->input_width(), kernelSize, stride, padding, outputPadding,
-            dilation, op->groups(), bias, config,
-            /*compute_config*/ std::nullopt, memoryConfig));
-      },
-      targetDevice);
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
+
+  ::ttnn::Tensor out = std::get<0>(::ttnn::conv_transpose2d(
+      input, weight, &targetDevice, op->in_channels(), op->out_channels(),
+      op->batch_size(), op->input_height(), op->input_width(), kernelSize,
+      stride, padding, outputPadding, dilation, op->groups(), bias, config,
+      /*compute_config*/ std::nullopt, memoryConfig));
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

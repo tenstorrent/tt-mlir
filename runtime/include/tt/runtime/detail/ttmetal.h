@@ -47,12 +47,15 @@ Device openMeshDevice(const std::vector<uint32_t> &meshShape,
 
 void closeMeshDevice(Device parentMesh);
 
-Device createSubMeshDevice(
-    Device parentMesh, const std::pair<uint32_t, uint32_t> &meshShape,
-    const std::optional<const std::pair<uint32_t, uint32_t>> &meshOffset =
-        std::nullopt);
+Device createSubMeshDevice(Device parentMesh,
+                           const std::vector<uint32_t> &meshShape,
+                           const std::optional<const std::vector<uint32_t>>
+                               &meshOffset = std::nullopt);
 
 void releaseSubMeshDevice(Device subMesh);
+
+void reshapeMeshDevice(Device meshDevice,
+                       const std::vector<uint32_t> &meshShape);
 
 void deallocateBuffers(Device device);
 

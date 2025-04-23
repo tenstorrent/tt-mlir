@@ -9,6 +9,7 @@
 #include "tt/runtime/detail/dylib.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/ttnn/debug_apis.h"
 #include "tt/runtime/ttnn/program_executor.h"
 #include "tt/runtime/ttnn/types.h"
 #include "tt/runtime/ttnn/utils.h"
@@ -119,17 +120,10 @@ static ::tt::runtime::Tensor toHostSingleTensor(::tt::runtime::Tensor tensor,
   if (untilize) {
     hostTensor = ::ttnn::to_layout(hostTensor, ::ttnn::Layout::ROW_MAJOR,
                                    std::nullopt, std::nullopt,
-                                   static_cast<::ttnn::IDevice *>(nullptr));
+                                   static_cast<::ttnn::MeshDevice *>(nullptr));
   }
 
   return utils::createRuntimeTensorFromTTNN(hostTensor, shouldRetain);
-}
-
-static DeviceVariant getTargetDevice(::ttnn::MeshDevice &meshDevice) {
-  if (meshDevice.num_devices() == 1) {
-    return std::ref(*(meshDevice.get_device(::ttnn::MeshCoordinate(0, 0))));
-  }
-  return std::ref(meshDevice);
 }
 
 static tt::runtime::MemoryView
@@ -168,65 +162,6 @@ createBorrowedHostTensor(void *data, std::vector<std::uint32_t> const &shape,
   return utils::createRuntimeTensorFromTTNN(tensor);
 }
 
-static ::ttnn::Tensor
-createOwnedFromBorrowedTTNNTensor(const ::ttnn::Tensor &borrowedTensor) {
-  BorrowedStorage borrowedStorage =
-      std::get<BorrowedStorage>(borrowedTensor.get_storage());
-  OwnedStorage ownedStorage = std::visit(
-      [](auto &&bufferVariant) {
-        return createOwnedStorage(bufferVariant.data(), bufferVariant.size());
-      },
-      borrowedStorage.buffer);
-  return ::ttnn::Tensor(ownedStorage, borrowedTensor.get_tensor_spec());
-}
-
-static ::tt::runtime::Tensor createMultiDeviceHostTensor(
-    std::vector<::ttnn::Tensor> const &tensorShards,
-    std::unordered_map<std::string, std::string> const &strategy) {
-  // Currently metal distributed API allows creating multi-device tensors only
-  // from owned tensors, so we have to convert all borrowed tensors into owned.
-  // https://github.com/tenstorrent/tt-metal/issues/19177#issuecomment-2779877793
-  std::vector<::ttnn::Tensor> ownedTensorShards;
-  ownedTensorShards.reserve(tensorShards.size());
-  std::transform(
-      tensorShards.begin(), tensorShards.end(),
-      std::back_inserter(ownedTensorShards),
-      [&](::ttnn::Tensor tensorShard) -> ::ttnn::Tensor {
-        LOG_ASSERT(
-            tensorShard.storage_type() == ::ttnn::StorageType::OWNED ||
-                tensorShard.storage_type() == ::ttnn::StorageType::BORROWED,
-            "Multi-device host tensor can be created only from host tensors "
-            "with owned or borrowed storage");
-        return tensorShard.storage_type() == ::ttnn::StorageType::OWNED
-                   ? tensorShard
-                   : createOwnedFromBorrowedTTNNTensor(tensorShard);
-      });
-
-  DistributedTensorConfig distributionStrategy =
-      ::tt::tt_metal::get_distributed_tensor_config(strategy);
-  ::ttnn::Tensor tensor = ::ttnn::distributed::create_multi_device_tensor(
-      ownedTensorShards, ::ttnn::StorageType::MULTI_DEVICE_HOST,
-      distributionStrategy);
-
-  return utils::createRuntimeTensorFromTTNN(tensor);
-}
-
-::tt::runtime::Tensor createOwnedMultiDeviceHostTensor(
-    std::vector<void const *> const &data,
-    std::vector<std::uint32_t> const &shape,
-    std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
-    ::tt::target::DataType dataType,
-    std::unordered_map<std::string, std::string> const &strategy) {
-  std::vector<::ttnn::Tensor> ttnnTensorShards;
-  ttnnTensorShards.reserve(data.size());
-  std::transform(data.begin(), data.end(), std::back_inserter(ttnnTensorShards),
-                 [&](void const *dataShard) -> ::ttnn::Tensor {
-                   return createOwnedTTNNTensor(dataShard, shape, stride,
-                                                itemsize, dataType);
-                 });
-  return createMultiDeviceHostTensor(ttnnTensorShards, strategy);
-}
-
 ::tt::runtime::Tensor createMultiDeviceHostTensor(
     std::vector<::tt::runtime::Tensor> const &tensorShards,
     std::unordered_map<std::string, std::string> const &strategy) {
@@ -235,9 +170,35 @@ static ::tt::runtime::Tensor createMultiDeviceHostTensor(
   std::transform(tensorShards.begin(), tensorShards.end(),
                  std::back_inserter(ttnnTensorShards),
                  [&](::tt::runtime::Tensor tensorShard) -> ::ttnn::Tensor {
-                   return tensorShard.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+                   return tensorShard
+                       .as<::tt::runtime::ttnn::TTNNTensorWrapper>(
+                           DeviceRuntime::TTNN)
+                       .getTensor();
                  });
-  return createMultiDeviceHostTensor(ttnnTensorShards, strategy);
+
+  DistributedTensorConfig distributionStrategy =
+      ::tt::tt_metal::get_distributed_tensor_config(strategy);
+  ::ttnn::Tensor multiDeviceHostTensor =
+      ::ttnn::distributed::aggregate_as_tensor(ttnnTensorShards,
+                                               distributionStrategy);
+
+  return utils::createRuntimeTensorFromTTNN(multiDeviceHostTensor);
+}
+
+::tt::runtime::Tensor createMultiDeviceHostTensor(
+    std::vector<void const *> const &data,
+    std::vector<std::uint32_t> const &shape,
+    std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType,
+    std::unordered_map<std::string, std::string> const &strategy) {
+  std::vector<::tt::runtime::Tensor> tensorShards;
+  tensorShards.reserve(data.size());
+  std::transform(data.begin(), data.end(), std::back_inserter(tensorShards),
+                 [&](void const *dataShard) -> ::tt::runtime::Tensor {
+                   return createOwnedHostTensor(dataShard, shape, stride,
+                                                itemsize, dataType);
+                 });
+  return createMultiDeviceHostTensor(tensorShards, strategy);
 }
 
 ::tt::runtime::Tensor createEmptyTensor(
@@ -251,15 +212,12 @@ static ::tt::runtime::Tensor createMultiDeviceHostTensor(
     ::tt::runtime::Tensor out = utils::createRuntimeTensorFromTTNN(tensor);
     return ::tt::runtime::ttnn::toLayout(out, device, layout);
   }
-  DeviceVariant targetDevice =
-      getTargetDevice(device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN));
-  ::ttnn::Tensor tensor = std::visit(
-      [&](auto &&device) -> ::ttnn::Tensor {
-        return ::ttnn::operations::core::allocate_tensor_on_device(
-            ::ttnn::Shape(shape), layoutDesc.dataType, layoutDesc.layout,
-            &(device.get()), layoutDesc.memoryConfig);
-      },
-      targetDevice);
+  ::ttnn::MeshDevice &meshDevice =
+      device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  ::ttnn::Tensor tensor = ::ttnn::operations::core::allocate_tensor_on_device(
+      ::ttnn::Shape(shape), layoutDesc.dataType, layoutDesc.layout, &meshDevice,
+      layoutDesc.memoryConfig);
+
   return utils::createRuntimeTensorFromTTNN(tensor);
 }
 
@@ -469,19 +427,22 @@ void closeMeshDevice(Device parentMesh) {
 }
 
 Device createSubMeshDevice(
-    Device parentMesh, const std::pair<uint32_t, uint32_t> &meshShape,
-    const std::optional<const std::pair<uint32_t, uint32_t>> &meshOffset) {
+    Device parentMesh, const std::vector<uint32_t> &meshShape,
+    const std::optional<const std::vector<uint32_t>> &meshOffset) {
   ::ttnn::MeshDevice &parentMeshDevice =
       parentMesh.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
   LOG_ASSERT(parentMeshDevice.is_parent_mesh(),
              "Mesh device must be a parent mesh");
 
-  ::ttnn::MeshShape shape{meshShape.first, meshShape.second};
+  LOG_ASSERT(meshShape.size() == 2, "Mesh shape must be 2D for now");
+  ::ttnn::MeshShape shape{meshShape[0], meshShape[1]};
 
   std::optional<::ttnn::MeshCoordinate> offset = std::nullopt;
   if (meshOffset.has_value()) {
-    offset = ::ttnn::MeshCoordinate{meshOffset.value().first,
-                                    meshOffset.value().second};
+    LOG_ASSERT(meshOffset.value().size() == 2,
+               "Mesh offset must be 2D for now");
+    offset =
+        ::ttnn::MeshCoordinate{meshOffset.value()[0], meshOffset.value()[1]};
   }
 
   std::shared_ptr<::ttnn::MeshDevice> subMeshDevice =
@@ -500,20 +461,24 @@ void releaseSubMeshDevice(Device subMesh) {
   ttnnMeshDevice.close();
 }
 
+void reshapeMeshDevice(Device meshDevice,
+                       const std::vector<uint32_t> &meshShape) {
+  ::ttnn::MeshDevice &ttnnMeshDevice =
+      meshDevice.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+
+  ttnnMeshDevice.reshape(::ttnn::MeshShape(meshShape[0], meshShape[1]));
+}
+
 void deallocateBuffers(Device deviceHandle) {
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-  for (::ttnn::IDevice *device : meshDevice.get_devices()) {
-    device->allocator()->deallocate_buffers();
-  }
+  ::ttnn::deallocate_buffers(&meshDevice);
 }
 
 void dumpMemoryReport(Device deviceHandle) {
-  ::ttnn::MeshDevice &meshDevice =
+  const ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-  for (::ttnn::IDevice *device : meshDevice.get_devices()) {
-    ::tt::tt_metal::detail::DumpDeviceMemoryState(device);
-  }
+  ::tt::tt_metal::detail::DumpDeviceMemoryState(&meshDevice);
 }
 
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
@@ -571,18 +536,11 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
   bool shouldRetain = tensorWrapper.shouldRetain();
 
   std::vector<::tt::runtime::Tensor> hostTensors;
-  if (multiDeviceTensor.storage_type() ==
-          ::ttnn::StorageType::MULTI_DEVICE_HOST ||
-      multiDeviceTensor.storage_type() == ::ttnn::StorageType::MULTI_DEVICE) {
-    std::vector<::ttnn::Tensor> singleTensors =
-        ::ttnn::distributed::get_device_tensors(multiDeviceTensor);
-    for (auto &tensor : singleTensors) {
-      hostTensors.push_back(::tt::runtime::ttnn::toHostSingleTensor(
-          utils::createRuntimeTensorFromTTNN(tensor, shouldRetain), untilize));
-    }
-  } else {
-    hostTensors.push_back(
-        ::tt::runtime::ttnn::toHostSingleTensor(tensor, untilize));
+  std::vector<::ttnn::Tensor> singleTensors =
+      ::ttnn::distributed::get_device_tensors(multiDeviceTensor);
+  for (auto &tensor : singleTensors) {
+    hostTensors.push_back(::tt::runtime::ttnn::toHostSingleTensor(
+        utils::createRuntimeTensorFromTTNN(tensor, shouldRetain), untilize));
   }
   return hostTensors;
 }
@@ -594,8 +552,8 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
   const LayoutDesc &desiredLayoutDesc =
       layout.as<LayoutDesc>(DeviceRuntime::TTNN);
 
-  ::ttnn::MeshDevice &meshDevice =
-      device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  OptionalMeshDeviceRef meshDevice =
+      std::ref(device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN));
 
   ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
       tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
@@ -603,14 +561,8 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
   const ::ttnn::Tensor &ttnnTensor = tensorWrapper.getTensor();
   bool shouldRetain = retain.value_or(tensorWrapper.shouldRetain());
 
-  DeviceVariant targetDevice = getTargetDevice(meshDevice);
-  if (workaround::Env::get().toLayoutAPIAssumeSingleChip) {
-    targetDevice =
-        std::ref(*meshDevice.get_device(::ttnn::MeshCoordinate(0, 0)));
-  }
-
   LayoutConverter converter(tensorLayoutDesc, desiredLayoutDesc);
-  ::ttnn::Tensor out = converter.convertTensorLayout(ttnnTensor, targetDevice);
+  ::ttnn::Tensor out = converter.convertTensorLayout(ttnnTensor, meshDevice);
 
   ::tt::runtime::Tensor result =
       utils::createRuntimeTensorFromTTNN(out, shouldRetain);
@@ -657,7 +609,7 @@ void memcpy(void *dst, ::tt::runtime::Tensor src) {
       src.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
           .getTensor();
   if (utils::isOnHost(srcTensor.storage_type())) {
-    const void *srcPtr = ::tt::tt_metal::get_raw_host_data_ptr(srcTensor);
+    const void *srcPtr = utils::getRawHostDataPtr(srcTensor);
     size_t size = srcTensor.volume() * srcTensor.element_size();
     std::memcpy(dst, srcPtr, size);
   } else {
@@ -677,10 +629,10 @@ void memcpy(::tt::runtime::Tensor dst, ::tt::runtime::Tensor src) {
              "Input output tensor size mismatch in memcpy: ",
              srcTensor.volume(), " * ", srcTensor.element_size(),
              " != ", dstTensor.volume(), " * ", dstTensor.element_size());
-  if (utils::isOnHost(srcTensor.storage_type()) and
+  if (utils::isOnHost(srcTensor.storage_type()) &&
       utils::isOnHost(dstTensor.storage_type())) {
-    void *dstPtr = ::tt::tt_metal::get_raw_host_data_ptr(dstTensor);
-    const void *srcPtr = ::tt::tt_metal::get_raw_host_data_ptr(srcTensor);
+    void *dstPtr = utils::getRawHostDataPtr(dstTensor);
+    const void *srcPtr = utils::getRawHostDataPtr(srcTensor);
     size_t size = srcTensor.volume() * srcTensor.element_size();
     std::memcpy(dstPtr, srcPtr, size);
   } else {
@@ -927,7 +879,7 @@ std::string getOpLocInfo(OpContext opContextHandle) {
 
   ::ttnn::Tensor hostTensor = ::ttnn::to_layout(
       ::ttnn::from_device(*outPtr), ::ttnn::Layout::ROW_MAJOR, std::nullopt,
-      std::nullopt, static_cast<::ttnn::IDevice *>(nullptr));
+      std::nullopt, static_cast<::ttnn::MeshDevice *>(nullptr));
 
   return utils::createRuntimeTensorFromTTNN(hostTensor);
 }
@@ -936,24 +888,24 @@ std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs) {
 
-  ::ttnn::MeshDevice &meshDevice =
-      deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  std::shared_ptr<::ttnn::MeshDevice> meshDevice =
+      deviceHandle.asSharedPtr<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
 
   std::vector<::tt::runtime::Tensor> outputs = ::tt::runtime::ttnn::runProgram(
-      meshDevice, executableHandle, programIndex, inputs);
+      std::move(meshDevice), executableHandle, programIndex, inputs);
 
   return outputs;
 }
 
-std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
+std::vector<Tensor> runProgram(std::shared_ptr<::ttnn::MeshDevice> meshDevice,
                                Binary executableHandle,
                                std::uint32_t programIndex,
                                std::vector<::tt::runtime::Tensor> &inputs) {
   ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
   ::tt::target::ttnn::Program const *program =
       fbb.programs()->Get(programIndex);
-  ProgramExecutor executor(program, executableHandle, inputs, &meshDevice,
-                           programIndex);
+  ProgramExecutor executor(program, executableHandle, inputs,
+                           std::move(meshDevice), programIndex);
   executor.execute();
   std::vector<::tt::runtime::Tensor> outputTensors =
       executor.gatherOutputTensors();

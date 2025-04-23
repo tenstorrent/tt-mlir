@@ -22,8 +22,7 @@ LayoutDesc LayoutDesc::fromTensor(const ::tt::runtime::Tensor &tensor) {
   ::ttnn::DataType dtype = ttnnTensor.get_dtype();
 
   std::optional<::ttnn::MemoryConfig> memoryConfig = std::nullopt;
-  if (storageType == ::ttnn::StorageType::DEVICE ||
-      storageType == ::ttnn::StorageType::MULTI_DEVICE) {
+  if (storageType == ::ttnn::StorageType::DEVICE) {
     memoryConfig = ttnnTensor.memory_config();
   }
 
@@ -69,8 +68,9 @@ LayoutConverter::LayoutConverter(const LayoutDesc &inputDesc,
   shouldFromDevice = (inputDesc.isOnDevice() && outputDesc.isOnHost());
 }
 
-::ttnn::Tensor LayoutConverter::convertTensorLayout(
-    const ::ttnn::Tensor &input, std::optional<DeviceVariant> targetDevice) {
+::ttnn::Tensor
+LayoutConverter::convertTensorLayout(const ::ttnn::Tensor &input,
+                                     OptionalMeshDeviceRef targetDevice) {
   if (inputDesc.isOnHost()) {
     return convertHostTensorLayout(input, targetDevice);
   }
@@ -81,12 +81,12 @@ LayoutConverter::LayoutConverter(const LayoutDesc &inputDesc,
   if (shouldTilize) {
     return ::ttnn::to_layout(input, ::ttnn::Layout::TILE, std::nullopt,
                              std::nullopt,
-                             static_cast<::ttnn::IDevice *>(nullptr));
+                             static_cast<::ttnn::MeshDevice *>(nullptr));
   }
   if (shouldUntilize) {
     return ::ttnn::to_layout(input, ::ttnn::Layout::ROW_MAJOR, std::nullopt,
                              std::nullopt,
-                             static_cast<::ttnn::IDevice *>(nullptr));
+                             static_cast<::ttnn::MeshDevice *>(nullptr));
   }
   return input;
 }
@@ -103,16 +103,12 @@ LayoutConverter::LayoutConverter(const LayoutDesc &inputDesc,
 
 ::ttnn::Tensor
 LayoutConverter::toDeviceIfNeeded(const ::ttnn::Tensor &input,
-                                  std::optional<DeviceVariant> targetDevice,
+                                  OptionalMeshDeviceRef targetDevice,
                                   bool force) {
   if (shouldToDevice || force) {
     LOG_ASSERT(targetDevice.has_value());
-    return std::visit(
-        [&](auto &&targetDevice) -> ::ttnn::Tensor {
-          return ::ttnn::to_device(input, &(targetDevice.get()),
-                                   outputDesc.memoryConfig);
-        },
-        targetDevice.value());
+    return ::ttnn::to_device(input, &(targetDevice.value().get()),
+                             outputDesc.memoryConfig);
   }
   return input;
 }
@@ -135,14 +131,14 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
 }
 
 ::ttnn::Tensor LayoutConverter::handleHostInputNoLayoutNoTypecast(
-    const ::ttnn::Tensor &input, std::optional<DeviceVariant> targetDevice) {
+    const ::ttnn::Tensor &input, OptionalMeshDeviceRef targetDevice) {
   ::ttnn::Tensor out = toDeviceIfNeeded(input, targetDevice);
   out = toMemoryConfigIfNeeded(out);
   return out;
 }
 
 ::ttnn::Tensor LayoutConverter::handleHostInputLayoutNoTypecast(
-    const ::ttnn::Tensor &input, std::optional<DeviceVariant> targetDevice) {
+    const ::ttnn::Tensor &input, OptionalMeshDeviceRef targetDevice) {
   if (shouldUntilize) {
     ::ttnn::Tensor out = toLayoutIfNeeded(input);
     out = toDeviceIfNeeded(out, targetDevice);
@@ -167,7 +163,7 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
 }
 
 ::ttnn::Tensor LayoutConverter::handleHostInputNoLayoutTypecast(
-    const ::ttnn::Tensor &input, std::optional<DeviceVariant> targetDevice) {
+    const ::ttnn::Tensor &input, OptionalMeshDeviceRef targetDevice) {
   if (outputDesc.layout == ::ttnn::Layout::TILE) {
     ::ttnn::Tensor out = toDeviceIfNeeded(input, targetDevice);
     out = typecastIfNeeded(out);
@@ -185,7 +181,7 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
 }
 
 ::ttnn::Tensor LayoutConverter::handleHostInputLayoutTypecast(
-    const ::ttnn::Tensor &input, std::optional<DeviceVariant> targetDevice) {
+    const ::ttnn::Tensor &input, OptionalMeshDeviceRef targetDevice) {
   if (shouldUntilize) {
     ::ttnn::Tensor out = typecastIfNeeded(input);
     out = toLayoutIfNeeded(out);
@@ -205,7 +201,7 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
   if (shouldTilize && outputDesc.dataType == ::ttnn::DataType::BFLOAT16) {
     ::ttnn::Tensor out = typecastIfNeeded(input);
     out = toDeviceIfNeeded(out, targetDevice);
-    out = toLayoutIfNeeded(input);
+    out = toLayoutIfNeeded(out);
     out = toMemoryConfigIfNeeded(out);
     return out;
   }
@@ -222,8 +218,9 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
   LOG_FATAL("Unreachable code path");
 }
 
-::ttnn::Tensor LayoutConverter::convertHostTensorLayout(
-    const ::ttnn::Tensor &input, std::optional<DeviceVariant> targetDevice) {
+::ttnn::Tensor
+LayoutConverter::convertHostTensorLayout(const ::ttnn::Tensor &input,
+                                         OptionalMeshDeviceRef targetDevice) {
   bool shouldToLayout = (shouldTilize || shouldUntilize);
   LOG_ASSERT(!shouldToDevice || targetDevice.has_value(),
              "Target device must be provided for ToDevice");
@@ -298,7 +295,7 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
   if (inputDesc.isTilized()) {
     ::ttnn::Tensor out = typecastIfNeeded(input);
     out = toMemoryConfigIfNeeded(out);
-    out = fromDeviceIfNeeded(input);
+    out = fromDeviceIfNeeded(out);
     return out;
   }
 
@@ -321,7 +318,7 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
 LayoutConverter::handleDeviceInputLayoutTypecast(const ::ttnn::Tensor &input) {
   if (shouldUntilize && shouldFromDevice) {
     ::ttnn::Tensor out = typecastIfNeeded(input);
-    out = fromDeviceIfNeeded(input);
+    out = fromDeviceIfNeeded(out);
     out = toLayoutIfNeeded(out);
     return out;
   }
@@ -329,7 +326,7 @@ LayoutConverter::handleDeviceInputLayoutTypecast(const ::ttnn::Tensor &input) {
   if (shouldUntilize && !shouldFromDevice) {
     LOG_WARNING("Currently no constraint checking for on-device untilize.");
     ::ttnn::Tensor out = typecastIfNeeded(input);
-    out = toLayoutIfNeeded(input);
+    out = toLayoutIfNeeded(out);
     out = toMemoryConfigIfNeeded(out);
     return out;
   }
@@ -490,49 +487,6 @@ ProgramTensorPool::erase(const ::tt::target::ttnn::TensorRef *tensorRef) {
   LOG_ASSERT(it != liveTensors.end(),
              "Tensor to erase not found in tensor pool");
   return liveTensors.erase(it);
-}
-
-//
-// ProgramContext APIs
-//
-void ProgramContext::addSubMesh(uint32_t meshId,
-                                std::shared_ptr<::ttnn::MeshDevice> subMesh) {
-  auto [it, inserted] = subMeshes.try_emplace(meshId, subMesh);
-  LOG_ASSERT(inserted, "Submesh already exists");
-}
-
-::ttnn::MeshDevice &ProgramContext::getSubMesh(uint32_t meshId) {
-  LOG_ASSERT(subMeshes.contains(meshId));
-  return *subMeshes.at(meshId);
-}
-
-size_t ProgramContext::subMeshSize(uint32_t meshId) const {
-  LOG_ASSERT(subMeshes.contains(meshId));
-  return subMeshes.at(meshId)->num_devices();
-}
-
-::ttnn::IDevice &ProgramContext::getDeviceFromSubMesh(uint32_t meshId,
-                                                      int physicalDeviceId) {
-  LOG_ASSERT(subMeshes.contains(meshId));
-  auto &subMesh = *subMeshes.at(meshId);
-  return *subMesh.get_device(physicalDeviceId);
-}
-
-::ttnn::IDevice &ProgramContext::getDeviceIndexFromSubMesh(
-    uint32_t meshId, ::tt::tt_metal::distributed::MeshCoordinate meshCoords) {
-  LOG_ASSERT(subMeshes.contains(meshId));
-  auto &subMesh = *subMeshes.at(meshId);
-  return *subMesh.get_device(meshCoords);
-}
-
-DeviceVariant ProgramContext::getTargetDevice(uint32_t meshId) {
-  LOG_ASSERT(subMeshes.contains(meshId));
-  auto &subMesh = *subMeshes.at(meshId);
-  if (subMesh.num_devices() == 1) {
-    return std::ref(
-        *subMesh.get_device(::tt::tt_metal::distributed::MeshCoordinate(0, 0)));
-  }
-  return std::ref(subMesh);
 }
 
 } // namespace tt::runtime::ttnn

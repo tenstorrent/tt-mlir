@@ -85,7 +85,7 @@ Tensor createTensor(std::shared_ptr<void> data,
 // Creates multi-device host tensor with owned storage (buffers of the tensor
 // are on the host and their allocation/deallocation is owned by this tensor
 // instance).
-Tensor createOwnedMultiDeviceHostTensor(
+Tensor createMultiDeviceHostTensor(
     std::vector<void const *> const &data,
     std::vector<std::uint32_t> const &shape,
     std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
@@ -114,10 +114,10 @@ inline Tensor createBorrowedHostTensor(void *data, TensorDesc const &desc) {
                                                  desc.itemsize, desc.dataType);
 }
 
-inline Tensor createOwnedMultiDeviceHostTensor(
+inline Tensor createMultiDeviceHostTensor(
     std::vector<void const *> const &data, TensorDesc const &desc,
     std::unordered_map<std::string, std::string> const &strategy) {
-  return ::tt::runtime::createOwnedMultiDeviceHostTensor(
+  return ::tt::runtime::createMultiDeviceHostTensor(
       data, desc.shape, desc.stride, desc.itemsize, desc.dataType, strategy);
 }
 
@@ -145,12 +145,15 @@ Device openMeshDevice(const std::vector<uint32_t> &meshShape,
 
 void closeMeshDevice(Device parentMesh);
 
-Device createSubMeshDevice(
-    Device parentMesh, const std::pair<uint32_t, uint32_t> &meshShape,
-    const std::optional<const std::pair<uint32_t, uint32_t>> &meshOffset =
-        std::nullopt);
+Device createSubMeshDevice(Device parentMesh,
+                           const std::vector<uint32_t> &meshShape,
+                           const std::optional<const std::vector<uint32_t>>
+                               &meshOffset = std::nullopt);
 
 void releaseSubMeshDevice(Device subMesh);
+
+void reshapeMeshDevice(Device meshDevice,
+                       const std::vector<uint32_t> &meshShape);
 
 void wait(Event event);
 

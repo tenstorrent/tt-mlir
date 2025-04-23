@@ -54,18 +54,13 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
-  DeviceVariant targetDevice =
-      context.getTargetDevice(op->device()->global_id());
-  ::ttnn::Tensor out = std::visit(
-      [&](auto &&targetDevice) -> ::ttnn::Tensor {
-        return std::get<0>(::ttnn::conv2d(
-            input, weight, &(targetDevice.get()), op->in_channels(),
-            op->out_channels(), op->batch_size(), op->input_height(),
-            op->input_width(), kernelSize, stride, padding, dilation,
-            op->groups(), bias, conv2dConfig, computeConfig, outputMemoryConfig,
-            std::nullopt));
-      },
-      targetDevice);
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
+
+  ::ttnn::Tensor out = std::get<0>(::ttnn::conv2d(
+      input, weight, &targetDevice, op->in_channels(), op->out_channels(),
+      op->batch_size(), op->input_height(), op->input_width(), kernelSize,
+      stride, padding, dilation, op->groups(), bias, conv2dConfig,
+      computeConfig, outputMemoryConfig, std::nullopt));
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

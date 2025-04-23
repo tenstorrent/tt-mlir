@@ -138,11 +138,11 @@ class Run:
             help="disable read update index for kv cache workaround",
         )
         Run.register_arg(
-            name="--disable-to-layout-api-assume-single-chip",
+            name="--disable-raw-host-data-pointer-wrapper",
             type=bool,
             default=False,
             choices=[True, False],
-            help="disable runtime to_layout api assume single chip workaround",
+            help="disable runtime raw host data pointer wrapper workaround",
         )
         Run.register_arg(
             name="--disable-manual-device-storage-from-borrowed-storage",
@@ -441,7 +441,7 @@ class Run:
             workaround_env = ttrt.runtime.WorkaroundEnv.get(
                 not self["--disable-swap-binary-operands"],
                 not self["--disable-read-update-index-for-kv-cache"],
-                not self["--disable-to-layout-api-assume-single-chip"],
+                not self["--disable-raw-host-data-pointer-wrapper"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
             self.logging.debug(f"setting torch manual seed={self['--seed']}")
@@ -454,14 +454,15 @@ class Run:
             if self["--disable-eth-dispatch"]:
                 dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
 
+            mesh_shape = [1, len(self.query.device_ids)]
+            mesh_options = ttrt.runtime.MeshDeviceOptions()
+            mesh_options.dispatch_core_type = dispatch_core_type
+            mesh_options.enable_async_ttnn = self["--enable-async-ttnn"]
+            device = ttrt.runtime.open_mesh_device(mesh_shape, mesh_options)
+
             for bin in binaries:
                 try:
                     self.logging.info(f"evaluating binary={bin.file_path}")
-                    mesh_shape = [1, len(self.query.device_ids)]
-                    mesh_options = ttrt.runtime.MeshDeviceOptions()
-                    mesh_options.dispatch_core_type = dispatch_core_type
-                    mesh_options.enable_async_ttnn = self["--enable-async-ttnn"]
-                    device = ttrt.runtime.open_mesh_device(mesh_shape, mesh_options)
 
                     pre_op_callback_runtime_config = CallbackRuntimeConfig(
                         device,
@@ -559,7 +560,7 @@ class Run:
                         inputs = []
                         outputs = []
                         for i in program.input_tensors:
-                            new_input = ttrt.runtime.create_owned_tensor(
+                            new_input = ttrt.runtime.create_tensor(
                                 i.data_ptr(),
                                 list(i.shape),
                                 list(i.stride()),
@@ -765,12 +766,6 @@ class Run:
                             inputs = convert_input_layouts(
                                 device, inputs, bin.fbb, program_index
                             )
-                            inputs = convert_input_layouts(
-                                device, inputs, bin.fbb, program_index
-                            )
-                            inputs = convert_input_layouts(
-                                device, inputs, bin.fbb, program_index
-                            )
 
                             for loop in range(self["--loops"]):
                                 emitc_outs = ttrt.runtime.testing.run_so_program(
@@ -925,7 +920,9 @@ class Run:
                     self.results.add_result(test_result)
                     bin.test_result = result
                 finally:
-                    ttrt.runtime.close_mesh_device(device)
+                    ttrt.runtime.reshape_mesh_device(device, mesh_shape)
+
+            ttrt.runtime.close_mesh_device(device)
 
         self.logging.debug(f"executing ttnn binaries")
         _execute(self.ttnn_binaries)
