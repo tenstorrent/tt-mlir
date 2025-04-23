@@ -85,9 +85,6 @@ set(INCLUDE_DIRS
     ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
     ${CPM_SOURCE_CACHE}/spdlog/b1c2586bb5c35a7929362e87f62433eb68206873/include
     ${CPM_SOURCE_CACHE}/tt-logger/37d08f9c0e2a5cc0247e0cf050c06563597d9c7c/include
-    ${CPM_SOURCE_CACHE}/xtl/0_8_0_patched/include
-    ${CPM_SOURCE_CACHE}/xtensor/0_26_0_patched/include
-    ${CPM_SOURCE_CACHE}/xtensor-blas/0_22_0_patched/include
 
     # Metalium
     ${METAL_SRC_DIR}
