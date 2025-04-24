@@ -527,6 +527,10 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
         cqBuilder.appendCommand(
             target::metal::CreateReturnCommandDirect(fbb, &cqBuilder.outputs),
             op);
+      } else if (auto getGlobalOp =
+                     dyn_cast_if_present<memref::GetGlobalOp>(op);
+                 getGlobalOp) {
+        cache.getOrCreate(getGlobalOp.getResult(), bufferValueToFlatbuffer, 0);
       }
     });
 
