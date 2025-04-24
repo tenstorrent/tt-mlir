@@ -594,10 +594,10 @@ private:
   // the first few dims of input.
   // Example: inputShape = [2, 3, 4, 5], startIndexMap = [1, 3] ->
   // permutedInputShape = [3, 5, 2, 4]
-  ttir::PermuteOp
+  static ttir::PermuteOp
   permuteInput(ConversionPatternRewriter &rewriter, Location loc,
                ::mlir::TypedValue<::mlir::RankedTensorType> input,
-               ::llvm::ArrayRef<int64_t> startIndexMap) const {
+               ::llvm::ArrayRef<int64_t> startIndexMap) {
     auto inputType = input.getType();
     llvm::SmallVector<int64_t> inputPermutation(startIndexMap);
     size_t startIndexMapIndex = 0;
@@ -622,10 +622,10 @@ private:
   // transformed input, and all the other dims to be the second dim.
   // Example: permutedInputShape = [3, 5, 2, 4], numIndexingDims = 2 ->
   // newIputShape = [15, 8]
-  ttir::ReshapeOp
+  static ttir::ReshapeOp
   reshapeInput(ConversionPatternRewriter &rewriter, Location loc,
                ::mlir::TypedValue<::mlir::RankedTensorType> input,
-               size_t numIndexingDims) const {
+               size_t numIndexingDims) {
     auto inputShape = input.getType().getShape();
     llvm::SmallVector<int64_t> newInputShape = {1, 1};
     for (size_t i = 0; i < numIndexingDims; i++) {
@@ -646,9 +646,9 @@ private:
   // - then we add matmul to transform the indices
   // Example: indexingDimsSizes = [3, 5], startIndices[...] = (i, j) ->
   // startIndices[...] = 5 * i + j (because reshaped indexingDimSize is 15)
-  ttir::MatmulOp transformStartIndices(ConversionPatternRewriter &rewriter,
+  static ttir::MatmulOp transformStartIndices(ConversionPatternRewriter &rewriter,
                                        ::llvm::ArrayRef<int64_t> inputShape,
-                                       ttir::GatherOp op) const {
+                                       ttir::GatherOp op) {
     auto startIndices = op.getStartIndices();
     auto startIndicesType = startIndices.getType();
     auto numIndexingDims = op.getStartIndexMap().size();
@@ -673,7 +673,7 @@ private:
 
     // Typecast op because matmul needs float operands.
     auto typecastResultType = startIndicesPermuted.getType().clone(
-        mlir::Float32Type::get(getContext()));
+        mlir::Float32Type::get(op.getContext()));
     ttir::TypecastOp typecastOp = ttir::utils::createDPSOp<ttir::TypecastOp>(
         rewriter, op->getLoc(), typecastResultType, startIndicesPermuted);
 
@@ -686,7 +686,7 @@ private:
     }
     auto tensorType =
         mlir::RankedTensorType::get({static_cast<long>(numIndexingDims), 1},
-                                    mlir::Float32Type::get(getContext()));
+                                    mlir::Float32Type::get(op.getContext()));
     auto denseAttr =
         mlir::DenseElementsAttr::get(tensorType, llvm::ArrayRef(indexWeight));
     ttir::ConstantOp constantOp =
@@ -696,7 +696,7 @@ private:
     llvm::SmallVector<int64_t> matmulResultShape = permutedStartIndicesShape;
     matmulResultShape[matmulResultShape.size() - 1] = 1;
     auto matmulResultType = mlir::RankedTensorType::get(
-        matmulResultShape, Float32Type::get(getContext()));
+        matmulResultShape, Float32Type::get(op.getContext()));
 
     return ttir::utils::createDPSOp<ttir::MatmulOp>(
         rewriter, op->getLoc(), matmulResultType, typecastOp.getResult(0),
@@ -705,9 +705,9 @@ private:
 
   // Helper that reshapes start indices to reduce number of dims as it can't be
   // 3 or greater.
-  ttir::ReshapeOp reshapeStartIndices(
+  static ttir::ReshapeOp reshapeStartIndices(
       ConversionPatternRewriter &rewriter, Location loc,
-      ::mlir::TypedValue<::mlir::RankedTensorType> startIndices) const {
+      ::mlir::TypedValue<::mlir::RankedTensorType> startIndices) {
     auto startIndicesType = startIndices.getType();
     auto startIndicesShape = startIndicesType.getShape();
     llvm::SmallVector<int64_t, 1> newStartIndicesShape = {1};
@@ -725,11 +725,11 @@ private:
   // Example: expectedOutputShape = [2, 3, 4, 5], offsetDims = [1, 3]
   // -> embeddingOutputShape = [2, 4, 15] -reshape-> [2, 4, 3, 5] -permute-> [2,
   // 3, 4, 5]
-  ttir::PermuteOp reshapeAndPermuteOutput(
+  static ttir::PermuteOp reshapeAndPermuteOutput(
       ConversionPatternRewriter &rewriter, Location loc,
       ::mlir::TypedValue<::mlir::RankedTensorType> output,
       ::mlir::TypedValue<::mlir::RankedTensorType> expectedOutput,
-      ::llvm::ArrayRef<int64_t> offsetDims) const {
+      ::llvm::ArrayRef<int64_t> offsetDims) {
     auto expectedOutputType = expectedOutput.getType();
     auto expectedOutputShape = expectedOutputType.getShape();
 
@@ -759,9 +759,9 @@ private:
         reshapedOutput, ttmlir::utils::inversePermutation(outputPermutation));
   }
 
-  ttir::ReshapeOp createReshapeOp(PatternRewriter &rewriter, Location loc,
+  static ttir::ReshapeOp createReshapeOp(PatternRewriter &rewriter, Location loc,
                                   Value input,
-                                  ::llvm::ArrayRef<int64_t> targetShape) const {
+                                  ::llvm::ArrayRef<int64_t> targetShape) {
     auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
     auto shapeAttr =
         rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(targetShape));
