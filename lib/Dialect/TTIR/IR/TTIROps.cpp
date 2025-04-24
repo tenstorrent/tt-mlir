@@ -35,14 +35,14 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
 
 namespace mlir::tt::ttir {
-static MemRefType getBufferType(Type type) {
+static MemRefType getBufferType(Type type, bool isView) {
   auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(type);
   if (!rankedTensorType.getEncoding()) {
     return MemRefType::get(rankedTensorType.getShape(),
                            rankedTensorType.getElementType());
   }
   return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
-      .getBufferType();
+      .getBufferType(isView);
 }
 } // namespace mlir::tt::ttir
 
@@ -300,7 +300,7 @@ mlir::tt::ttir::EmptyOp::getAliasingValues(
 mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::EmptyOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     ::llvm::SmallVector<mlir::Value> &) {
-  return mlir::tt::ttir::getBufferType(value.getType());
+  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false);
 }
 
 //===----------------------------------------------------------------------===//
@@ -360,7 +360,7 @@ mlir::tt::ttir::ConstantOp::getAliasingValues(
 mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::ConstantOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     ::llvm::SmallVector<mlir::Value> &) {
-  return mlir::tt::ttir::getBufferType(value.getType());
+  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false);
 }
 
 //===----------------------------------------------------------------------===//
@@ -2133,6 +2133,12 @@ mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::bufferize(
   return success();
 }
 
+mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::ToLayoutOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false);
+}
+
 //===----------------------------------------------------------------------===//
 // StreamLayoutOp
 //===----------------------------------------------------------------------===//
@@ -2151,7 +2157,7 @@ void mlir::tt::ttir::StreamLayoutOp::getCanonicalizationPatterns(
     }
 
     auto currentResultMemref = mlir::cast<MemRefType>(op.getResult().getType());
-    auto streamAttr = rewriter.getAttr<StreamLayoutAttr>(
+    auto streamAttr = rewriter.getAttr<ViewLayoutAttr>(
         viewMemref.getLayout().getAffineMap().compose(
             currentResultMemref.getLayout().getAffineMap()));
     auto newMemref = MemRefType::get(
@@ -2233,6 +2239,13 @@ mlir::LogicalResult mlir::tt::ttir::StreamLayoutOp::bufferize(
   return success();
 }
 
+mlir::FailureOr<mlir::BaseMemRefType>
+mlir::tt::ttir::StreamLayoutOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/true);
+}
+
 //===----------------------------------------------------------------------===//
 // ViewLayoutOp
 //===----------------------------------------------------------------------===//
@@ -2293,7 +2306,7 @@ mlir::FailureOr<mlir::BaseMemRefType>
 mlir::tt::ttir::ViewLayoutOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     ::llvm::SmallVector<mlir::Value> &) {
-  return mlir::tt::ttir::getBufferType(value.getType());
+  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/true);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3500,7 +3513,7 @@ verifyAffineShapes(llvm::function_ref<mlir::InFlightDiagnostic()> diagFn,
         // shape.
         assert(memref.getRank() % 2 == 0);
         expectedShardShape = memref.getShape().take_back(memref.getRank() / 2);
-        isStream = mlir::isa<tt::StreamLayoutAttr>(memref.getLayout());
+        isStream = mlir::isa<tt::ViewLayoutAttr>(memref.getLayout());
       }
 
       if (!isStream && expectedMemorySpace != blockMemref.getMemorySpace()) {
@@ -3687,6 +3700,12 @@ mlir::LogicalResult mlir::tt::ttir::GenericOp::bufferize(
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
                                                      bufferOutputs);
   return success();
+}
+
+mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::GenericOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false);
 }
 
 //===----------------------------------------------------------------------===//
