@@ -224,6 +224,9 @@ private:
                   /* operands */ bbArgs.take_front(numInputs));
               bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
             });
+#if !VLAD_BUFFERIZE_1
+        rewriter.create<ttir::ReturnOp>(loc);
+#endif // VLAD_BUFFERIZE_1
       }
     }
     rewriter.finalizeOpModification(generic);
@@ -347,6 +350,9 @@ private:
                   /* operands */ bbArgs.take_front(numInputs), attributes);
               bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
             });
+#if !VLAD_BUFFERIZE_1
+        rewriter.create<ttir::ReturnOp>(loc);
+#endif // VLAD_BUFFERIZE_1
       }
     }
     rewriter.finalizeOpModification(generic);
@@ -568,6 +574,9 @@ private:
                 bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
               });
         }
+#if !VLAD_BUFFERIZE_1
+        rewriter.create<ttir::ReturnOp>(loc);
+#endif // VLAD_BUFFERIZE_1
       }
     }
     rewriter.finalizeOpModification(generic);

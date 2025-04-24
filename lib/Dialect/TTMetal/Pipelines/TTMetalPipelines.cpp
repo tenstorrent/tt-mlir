@@ -11,6 +11,7 @@
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
+#include "mlir/Dialect/Bufferization/Pipelines/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/Passes.h"
@@ -28,11 +29,12 @@ void createTTIRBufferizationPipeline(OpPassManager &pm) {
   ttir::initializeOneShotBufferizationOptions(bufferizationOptions);
   pm.addPass(
       mlir::bufferization::createOneShotBufferizePass(bufferizationOptions));
+#if !VLAD_BUFFERIZE_1
   // TODO(#2246)
-  // bufferization::BufferDeallocationPipelineOptions
-  // bufferDeallocationOptions;
-  // mlir::bufferization::buildBufferDeallocationPipeline(
-  //    pm, bufferDeallocationOptions);
+  bufferization::BufferDeallocationPipelineOptions bufferDeallocationOptions;
+  mlir::bufferization::buildBufferDeallocationPipeline(
+      pm, bufferDeallocationOptions);
+#endif // VLAD_BUFFERIZE_1
 }
 
 void createOptimizationPasses(OpPassManager &pm) {
@@ -60,8 +62,9 @@ void createTTIRToTTMetalBackendPipeline(
   }
   pm.addPass(ttir::createTTIROptimizeTensorLayout(optimizeTensorLayoutOptions));
   pm.addPass(mlir::createCanonicalizerPass());
-  pm.addPass(ttir::createTTIRLowerToLayout());
+  // pm.addPass(ttir::createTTIRLowerToLayout());
   createTTIRBufferizationPipeline(pm);
+#if VLAD_BUFFERIZE_1
   pm.addPass(ttir::createTTIRAllocate());
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
@@ -77,6 +80,7 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(ttkernel::createTTKernelControlDstSection());
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(createConvertTTIRToTTMetalPass());
+#endif // VLAD_BUFFERIZE_1
 }
 
 //===----------------------------------------------------------------------===//

@@ -58,6 +58,7 @@ struct TTIRToTTIRGenericPass final
 
       // An explicit list of legal ttir.* ops.
       target.addLegalOp<ttir::GenericOp>();
+      target.addLegalOp<ttir::ReturnOp>();
       target.addLegalOp<ttir::ToLayoutOp>();
       target.addLegalOp<ttir::StreamLayoutOp>();
       target.addLegalOp<ttir::ViewLayoutOp>();

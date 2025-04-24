@@ -3513,16 +3513,18 @@ verifyAffineShapes(llvm::function_ref<mlir::InFlightDiagnostic()> diagFn,
                            "shape of the corresponding operand");
       }
     }
-
+#if VLAD_BUFFERIZE_1
     auto additionalArguments =
         region.getArguments().drop_front(operandTypes.size());
     for (BlockArgument arg : additionalArguments) {
       bool supportedType = mlir::isa<SemaphoreType>(arg.getType());
       if (!supportedType) {
         return emitOpError(
-            "additional region arguments must be of 'semaphore' type");
+                   "additional region arguments must be of 'semaphore' type")
+               << " instead of " << arg;
       }
     }
+#endif // VLAD_BUFFERIZE_1
   }
 
   if (isExternalSymbolForm()) {

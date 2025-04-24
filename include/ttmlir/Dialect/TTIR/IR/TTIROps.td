@@ -29,6 +29,13 @@ class TTIR_DPSOp<string mnemonic, list<Trait> traits = []> :
     }];
 }
 
+def TTIR_ReturnOp : TTIR_Op<"return", [TTIROpInterface, Pure, ReturnLike, Terminator]> {
+    let summary = "Return op.";
+    let description = [{
+      TODO experiment w/ ownership-based bufferization
+    }];
+}
+
 //===----------------------------------------------------------------------===//
 // TTIR top level, bufferizable, ops
 //===----------------------------------------------------------------------===//
@@ -81,7 +88,6 @@ class TTIR_BufferizableOp<string mnemonic, list<Trait> traits = []> :
 
 def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
   [ AttrSizedOperandSegments
-  , NoTerminator
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmBlockArgumentNames", "getAsmBlockNames"]>
   ]> {
     let summary = "Generically dispatch work to a grid of cores.";
