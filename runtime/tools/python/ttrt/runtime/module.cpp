@@ -162,6 +162,8 @@ PYBIND11_MODULE(_C, m) {
   m.def("set_current_runtime", &tt::runtime::setCurrentRuntime,
         py::arg("runtime"), "Set the backend device runtime type");
   m.def("get_current_system_desc", &tt::runtime::getCurrentSystemDesc,
+        py::arg("dispatch_core_type") = py::none(),
+        py::arg("mesh_device") = py::none(),
         "Get the current system descriptor");
   m.def(
       "create_tensor",
@@ -232,7 +234,7 @@ PYBIND11_MODULE(_C, m) {
         "Get the layout of the input tensor");
   m.def(
       "submit",
-      [](::tt::runtime::Device device, ::tt::runtime::Binary executable,
+      [](::tt::runtime::Device device, ::tt::runtime::Binary &executable,
          std::uint32_t programIndex, std::vector<::tt::runtime::Tensor> &inputs)
           -> std::vector<::tt::runtime::Tensor> {
         return ::tt::runtime::submit(device, executable, programIndex, inputs);

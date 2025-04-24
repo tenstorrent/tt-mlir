@@ -607,3 +607,88 @@ bool CoreRangeAttr::intersects(CoreRangeAttr other) const {
 
   return ::llvm::success();
 }
+
+// MLIR attributes are immutable, so we can't just modify arbitrary param of
+// Conv2dConfigAttr. Instead iwe will use this struct to store the params and
+// build a new Conv2dConfigAttr.
+struct Conv2dConfigAttrParams {
+  mlir::tt::DataType dtype;
+  mlir::tt::DataType weightsDtype;
+  mlir::StringAttr activation;
+  uint32_t inputChannelsAlignment;
+  mlir::BoolAttr deallocateActivation;
+  mlir::BoolAttr reallocateHaloOutput;
+  uint32_t actBlockHOverride;
+  uint32_t actBlockWDiv;
+  mlir::BoolAttr reshardIfNotOptimal;
+  mlir::BoolAttr overrideShardingConfig;
+  TensorMemoryLayout shardLayout;
+  CoreRangeSetAttr coreGrid;
+  mlir::BoolAttr transposeShards;
+  Layout outputLayout;
+  mlir::BoolAttr preprocessWeightsOnDevice;
+  mlir::BoolAttr alwaysPreprocessWeights;
+  mlir::BoolAttr enableActDoubleBuffer;
+  mlir::BoolAttr enableWeightsDoubleBuffer;
+  mlir::BoolAttr enableSplitReader;
+  mlir::BoolAttr enableSubblockPadding;
+
+  Conv2dConfigAttrParams() = delete;
+
+  Conv2dConfigAttrParams(Conv2dConfigAttr attr) {
+    mlir::MLIRContext *ctx = attr.getContext();
+    auto getOrDefault = [ctx](mlir::BoolAttr attr) {
+      return attr ? attr : mlir::BoolAttr::get(ctx, false);
+    };
+
+    dtype = attr.getDtype().value_or(mlir::tt::DataType::BFloat16);
+    weightsDtype =
+        attr.getWeightsDtype().value_or(mlir::tt::DataType::BFloat16);
+    activation = attr.getActivation() ? attr.getActivation()
+                                      : mlir::StringAttr::get(ctx, "");
+    inputChannelsAlignment = attr.getInputChannelsAlignment().value_or(32);
+    deallocateActivation = getOrDefault(attr.getDeallocateActivation());
+    reallocateHaloOutput = getOrDefault(attr.getReallocateHaloOutput());
+    actBlockHOverride = attr.getActBlockHOverride().value_or(0);
+    actBlockWDiv = attr.getActBlockWDiv().value_or(1);
+    reshardIfNotOptimal = getOrDefault(attr.getReshardIfNotOptimal());
+    overrideShardingConfig = getOrDefault(attr.getOverrideShardingConfig());
+    shardLayout =
+        attr.getShardLayout().value_or(TensorMemoryLayout::HeightSharded);
+    coreGrid = attr.getCoreGrid() ? attr.getCoreGrid() : CoreRangeSetAttr{};
+    transposeShards = getOrDefault(attr.getTransposeShards());
+    outputLayout = attr.getOutputLayout().value_or(Layout::Tile);
+    preprocessWeightsOnDevice =
+        getOrDefault(attr.getPreprocessWeightsOnDevice());
+    alwaysPreprocessWeights = getOrDefault(attr.getAlwaysPreprocessWeights());
+    enableActDoubleBuffer = getOrDefault(attr.getEnableActDoubleBuffer());
+    enableWeightsDoubleBuffer =
+        getOrDefault(attr.getEnableWeightsDoubleBuffer());
+    enableSplitReader = getOrDefault(attr.getEnableSplitReader());
+    enableSubblockPadding = getOrDefault(attr.getEnableSubblockPadding());
+  }
+
+  Conv2dConfigAttr buildConv2dConfig(mlir::MLIRContext *ctx) const {
+    return Conv2dConfigAttr::get(
+        ctx, dtype, weightsDtype, activation, inputChannelsAlignment,
+        deallocateActivation, reallocateHaloOutput, actBlockHOverride,
+        actBlockWDiv, reshardIfNotOptimal, overrideShardingConfig, shardLayout,
+        coreGrid, transposeShards, outputLayout, preprocessWeightsOnDevice,
+        alwaysPreprocessWeights, enableActDoubleBuffer,
+        enableWeightsDoubleBuffer, enableSplitReader, enableSubblockPadding);
+  }
+};
+
+Conv2dConfigAttr Conv2dConfigAttr::get(::mlir::MLIRContext *context) {
+  return Conv2dConfigAttr::get(context, std::nullopt, std::nullopt, nullptr,
+                               std::nullopt, nullptr, nullptr, std::nullopt,
+                               std::nullopt, nullptr, nullptr, std::nullopt,
+                               nullptr, nullptr, std::nullopt, nullptr, nullptr,
+                               nullptr, nullptr, nullptr, nullptr);
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withActivation(StringRef activation) const {
+  Conv2dConfigAttrParams params(*this);
+  params.activation = StringAttr::get(getContext(), activation);
+  return params.buildConv2dConfig(getContext());
+}

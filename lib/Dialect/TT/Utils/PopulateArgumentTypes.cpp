@@ -12,10 +12,10 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Diagnostics.h"
+#include "mlir/Support/LLVM.h"
 #include "llvm/ADT/SmallSet.h"
-#include <llvm/Support/LogicalResult.h>
-#include <mlir/IR/Diagnostics.h>
-#include <mlir/Support/LLVM.h>
+#include "llvm/Support/LogicalResult.h"
 
 namespace mlir::tt {
 

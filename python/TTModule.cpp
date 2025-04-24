@@ -152,22 +152,23 @@ void populateTTModule(nb::module_ &m) {
       .def_static(
           "get",
           [](MlirContext ctx, MlirAttribute arch, std::vector<int64_t> grid,
-             unsigned l1Size, unsigned numDramChannels,
-             unsigned dramChannelSize, unsigned nocL1AddressAlignBytes,
-             unsigned pcieAddressAlignBytes, unsigned nocDRAMAddressAlignBytes,
-             unsigned l1UnreservedBase, unsigned eriscL1UnreservedBase,
-             unsigned dramUnreservedBase, unsigned dramUnreservedEnd,
-             MlirAttribute chipPhysicalCores, MlirAttribute supportedDataTypes,
-             MlirAttribute supportedTileSizes, unsigned numCBs,
-             unsigned numComputeThreads, unsigned numDatamovementThreads) {
+             std::vector<int64_t> coordTranslationOffsets, unsigned l1Size,
+             unsigned numDramChannels, unsigned dramChannelSize,
+             unsigned nocL1AddressAlignBytes, unsigned pcieAddressAlignBytes,
+             unsigned nocDRAMAddressAlignBytes, unsigned l1UnreservedBase,
+             unsigned eriscL1UnreservedBase, unsigned dramUnreservedBase,
+             unsigned dramUnreservedEnd, MlirAttribute chipPhysicalHelperCores,
+             MlirAttribute supportedDataTypes, MlirAttribute supportedTileSizes,
+             unsigned numCBs, unsigned numComputeThreads,
+             unsigned numDatamovementThreads) {
             return wrap(tt::ChipDescAttr::get(
                 unwrap(ctx), mlir::cast<tt::ArchAttr>(unwrap(arch)), grid,
-                l1Size, numDramChannels, dramChannelSize,
-                nocL1AddressAlignBytes, pcieAddressAlignBytes,
+                coordTranslationOffsets, l1Size, numDramChannels,
+                dramChannelSize, nocL1AddressAlignBytes, pcieAddressAlignBytes,
                 nocDRAMAddressAlignBytes, l1UnreservedBase,
                 eriscL1UnreservedBase, dramUnreservedBase, dramUnreservedEnd,
-                mlir::dyn_cast<tt::ChipPhysicalCoresAttr>(
-                    unwrap(chipPhysicalCores)),
+                mlir::dyn_cast<tt::ChipPhysicalHelperCoresAttr>(
+                    unwrap(chipPhysicalHelperCores)),
                 mlir::cast<tt::DataTypeAttr>(unwrap(supportedDataTypes)),
                 mlir::cast<tt::TileSizeAttr>(unwrap(supportedTileSizes)),
                 numCBs, numComputeThreads, numDatamovementThreads));
@@ -178,6 +179,10 @@ void populateTTModule(nb::module_ &m) {
       .def_prop_ro("arch", &tt::ChipDescAttr::getArch)
       .def_prop_ro("grid",
                    [](tt::ChipDescAttr self) { return self.getGrid().vec(); })
+      .def_prop_ro("coord_translation_offsets",
+                   [](tt::ChipDescAttr self) {
+                     return self.getCoordTranslationOffsets().vec();
+                   })
       .def_prop_ro("l1_size", &tt::ChipDescAttr::getL1Size)
       .def_prop_ro("num_dram_channels", &tt::ChipDescAttr::getNumDramChannels)
       .def_prop_ro("dram_channel_size", &tt::ChipDescAttr::getDramChannelSize)
@@ -194,8 +199,8 @@ void populateTTModule(nb::module_ &m) {
                    &tt::ChipDescAttr::getDramUnreservedBase)
       .def_prop_ro("dram_unreserved_end",
                    &tt::ChipDescAttr::getDramUnreservedEnd)
-      .def_prop_ro("chip_physical_cores",
-                   &tt::ChipDescAttr::getChipPhysicalCores)
+      .def_prop_ro("chip_physical_helper_cores",
+                   &tt::ChipDescAttr::getChipPhysicalHelperCores)
       .def_prop_ro("supported_data_types",
                    [](tt::ChipDescAttr self) {
                      return self.getSupportedDataTypes().vec();
@@ -214,25 +219,24 @@ void populateTTModule(nb::module_ &m) {
       .def_prop_ro("y", &tt::TileSizeAttr::getY)
       .def_prop_ro("x", &tt::TileSizeAttr::getX);
 
-  tt_attribute_class<tt::ChipPhysicalCoresAttr>(m, "ChipPhysicalCoresAttr")
+  tt_attribute_class<tt::ChipPhysicalHelperCoresAttr>(
+      m, "ChipPhysicalHelperCoresAttr")
       .def_static("get",
-                  [](MlirContext ctx, std::vector<tt::CoreCoordAttr> worker,
-                     std::vector<tt::CoreCoordAttr> dram,
+                  [](MlirContext ctx, std::vector<tt::CoreCoordAttr> dram,
                      std::vector<tt::CoreCoordAttr> eth,
                      std::vector<tt::CoreCoordAttr> eth_inactive) {
-                    return wrap(tt::ChipPhysicalCoresAttr::get(
-                        unwrap(ctx), worker, dram, eth, eth_inactive));
+                    return wrap(tt::ChipPhysicalHelperCoresAttr::get(
+                        unwrap(ctx), dram, eth, eth_inactive));
                   })
-      .def_prop_ro(
-          "worker",
-          [](tt::ChipPhysicalCoresAttr self) { return self.getWorker().vec(); })
-      .def_prop_ro(
-          "dram",
-          [](tt::ChipPhysicalCoresAttr self) { return self.getDram().vec(); })
-      .def_prop_ro(
-          "eth",
-          [](tt::ChipPhysicalCoresAttr self) { return self.getEth().vec(); })
-      .def_prop_ro("eth_inactive", [](tt::ChipPhysicalCoresAttr self) {
+      .def_prop_ro("dram",
+                   [](tt::ChipPhysicalHelperCoresAttr self) {
+                     return self.getDram().vec();
+                   })
+      .def_prop_ro("eth",
+                   [](tt::ChipPhysicalHelperCoresAttr self) {
+                     return self.getEth().vec();
+                   })
+      .def_prop_ro("eth_inactive", [](tt::ChipPhysicalHelperCoresAttr self) {
         return self.getEthInactive().vec();
       });
 

@@ -212,6 +212,43 @@ def test_set_program_cache(helper):
             ttrt.runtime.testing.is_program_cache_enabled(device) == True
         ), "Expected program cache to be enabled"
 
+@pytest.mark.parametrize(
+    "runtime",
+    [ttrt.runtime.DeviceRuntime.TTNN, ttrt.runtime.DeviceRuntime.TTMetal],
+    ids=["ttnn", "ttmetal"],
+)
+@pytest.mark.parametrize(
+    "dispatch_core_type",
+    [None, ttrt.runtime.DispatchCoreType.ETH, ttrt.runtime.DispatchCoreType.WORKER],
+    ids=["no_dispatch_core", "eth_dispatch_core", "worker_dispatch_core"],
+)
+@pytest.mark.parametrize("with_device", [False, True], ids=["no_device", "with_device"])
+def test_get_system_desc(runtime, dispatch_core_type, with_device):
+    ttrt.runtime.set_current_runtime(runtime)
+    num_devices = ttrt.runtime.get_num_available_devices()
+
+    if with_device:
+        with DeviceContext(mesh_shape=[1, num_devices]) as device:
+            system_desc, device_ids = ttrt.runtime.get_current_system_desc(
+                dispatch_core_type, device
+            )
+
+    else:
+        system_desc, device_ids = ttrt.runtime.get_current_system_desc(
+            dispatch_core_type
+        )
+
+        assert (
+            len(device_ids) == num_devices
+        ), f"Expected {num_devices} device IDs, got {len(device_ids)}"
+
+    assert system_desc is not None, "System descriptor should exist"
+    assert device_ids is not None, "Device IDs should exist"
+
+    sorted_device_ids = sorted(device_ids)
+    assert (
+        device_ids == sorted_device_ids
+    ), f"Expected device IDs {sorted_device_ids}, got {device_ids}"
 
 def pre_op_callback(callback_runtime_config, binary, program_context, op_context):
     print("YOU ARE IN THE PRE OP CALLBACK")

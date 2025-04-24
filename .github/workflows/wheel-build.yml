@@ -1,0 +1,89 @@
+name: Build ttmlir Wheel
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      docker-image:
+        description: 'Docker image to use for building the wheel'
+        required: true
+        type: string
+
+jobs:
+  build-wheel:
+    timeout-minutes: 60
+    name: Build ttmlir Python Wheel
+    runs-on: ubuntu-latest
+    container:
+      # Use the provided docker image from workflow_call or build our own for direct triggers
+      image: ${{ inputs.docker-image != '' && inputs.docker-image || 'ghcr.io/tenstorrent/tt-mlir-dev:latest' }}
+
+    steps:
+      - name: Maximize space
+        uses: tenstorrent/tt-github-actions/.github/actions/maximize_space@main
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set reusable strings
+        id: strings
+        shell: bash
+        run: |
+          echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
+          echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
+          echo "wheel-output-dir=$(pwd)/dist" >> "$GITHUB_OUTPUT"
+
+      - name: Git safe dir
+        run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
+
+      - name: Build ttmlir wheel
+        shell: bash
+        run: |
+          source env/activate
+          mkdir -p ${{ steps.strings.outputs.wheel-output-dir }}
+          cd python
+          python -m pip wheel . --wheel-dir ${{ steps.strings.outputs.wheel-output-dir }} --verbose
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ttmlir-wheel
+          path: ${{ steps.strings.outputs.wheel-output-dir }}/*.whl
+          if-no-files-found: error
+
+  test-wheel-install:
+    needs: build-wheel
+    timeout-minutes: 30
+    name: Test ttmlir Wheel Installation
+    runs-on: ubuntu-latest
+    container:
+      # Use the provided docker image from workflow_call or build our own for direct triggers
+      image: ${{ inputs.docker-image != '' && inputs.docker-image || 'ghcr.io/tenstorrent/tt-mlir-dev:latest' }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Git safe dir
+        run: git config --global --add safe.directory $(pwd)
+
+      - name: Download wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: ttmlir-wheel
+          path: ./dist
+
+      - name: Test wheel installation
+        shell: bash
+        run: |
+          # Don't activate env since this will attempt to install in fresh venv
+          python3 -m venv whl_test
+          source whl_test/bin/activate
+          WHEEL_FILE=$(ls ./dist/ttmlir-*.whl)
+          echo "Installing wheel: $WHEEL_FILE"
+          pip install $WHEEL_FILE
+
+          # Test the installation
+          python -c "from ttmlir import ir; print('Imported ttmlir & Created CTX: ', ir.Context())"

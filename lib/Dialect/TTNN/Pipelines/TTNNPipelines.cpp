@@ -153,6 +153,7 @@ void createTTNNPipelineTTIRImplicitBroadcastFoldPassFromString(
 
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  pm.addPass(mlir::createCanonicalizerPass());
   // Element type normalization should be the first pass in the pipeline.
   pm.addPass(ttir::createElementTypeNormalization());
   // Create DeviceModule to wrap all ops.
@@ -190,6 +191,14 @@ void createTTIRToEmitCPipeline(OpPassManager &pm,
   pm.addPass(createConvertTTNNToEmitCPass());
 }
 
+void createTTIRToEmitCSOPipeline(OpPassManager &pm,
+                                 const TTIRToEmitCSOPipelineOptions &options) {
+  createTTIRToTTNNBackendPipeline(pm, options);
+  pm.addPass(tt::createTTUnwrapDeviceModulePass());
+  pm.addPass(createTTNNModifySignaturesForDylib());
+  pm.addPass(createConvertTTNNToEmitCPass());
+}
+
 //===----------------------------------------------------------------------===//
 // Pipeline registration.
 //===----------------------------------------------------------------------===//
@@ -211,5 +220,14 @@ void registerTTNNPipelines() {
       "--ttir-to-ttnn-backend-pipeline and then converts the resulting TTNN "
       "dialect to EmitC.",
       mlir::tt::ttnn::createTTIRToEmitCPipeline);
+
+  // TTIR to EmitC SO pipeline.
+  //
+  mlir::PassPipelineRegistration<mlir::tt::ttnn::TTIRToEmitCSOPipelineOptions>(
+      "ttir-to-emitc-so-pipeline",
+      "Pipeline lowering TTIR to EmitC, similar to TTIRToEmitCPipeline, but "
+      "with emitted C++ code packaged so that it's suitable for compiling into "
+      "a shared object.",
+      mlir::tt::ttnn::createTTIRToEmitCSOPipeline);
 }
 } // namespace mlir::tt::ttnn

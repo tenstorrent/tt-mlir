@@ -24,7 +24,7 @@ Add the following flags when building the compiler
 ```
 
 ## LOGGER Levels
-ttrt support logging at different logger levels. You will need to set env var `TTRT_LOGGER_LEVEL`. By default, it will print all log messages.
+ttrt support logging at different logger levels. You will need to set env var `TTRT_LOGGER_LEVEL`. By default, it's set to `INFO`.
 ```bash
 TTRT_LOGGER_LEVEL=INFO
 TTRT_LOGGER_LEVEL=CRITICAL
@@ -100,7 +100,7 @@ ttrt run /path/to/dir/of/flatbuffers
 Inside of your .mlir file, you can add certain config options that llvm-lit will use when running against that test case. For the purpose of generating flatbuffer executables, you can add `--tt-register-device="system-desc-path=%system_desc_path%"` which will tell llvm-lit to parse the system desc found from the environment flag set by `export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys`. You can also paste a custom path to a system desc file as well.
 
 ```bash
-// RUN: ttmlir-opt --tt-register-device="system-desc-path=%system_desc_path%" --ttir-layout --convert-ttir-to-ttnn %s  > %t.mlir
+// RUN: ttmlir-opt --tt-register-device="system-desc-path=%system_desc_path%" --ttnn-layout --convert-ttir-to-ttnn %s  > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 ```

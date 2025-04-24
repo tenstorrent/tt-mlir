@@ -7,6 +7,7 @@
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/TT/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
@@ -59,8 +60,9 @@ void createTTIRToTTMetalBackendPipeline(
   }
   pm.addPass(ttir::createTTIROptimizeTensorLayout(optimizeTensorLayoutOptions));
   pm.addPass(mlir::createCanonicalizerPass());
+  pm.addPass(ttir::createTTIRLowerToLayout());
   createTTIRBufferizationPipeline(pm);
-  pm.addPass(ttir::createTTIRPlaceholderAllocate());
+  pm.addPass(ttir::createTTIRAllocate());
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
   pm.addPass(ttir::createTTIRGenericLinearizeMemref());
@@ -71,6 +73,10 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(ttir::createTTIRGenericGenerateLoops());
   createOptimizationPasses(pm);
   pm.addPass(ttir::createTTIRGenericRegionsToFuncs());
+  pm.addPass(tt::createConvertTTIRToTTKernelPass());
+  pm.addPass(ttkernel::createTTKernelControlDstSection());
+  pm.addPass(mlir::createCanonicalizerPass());
+  pm.addPass(createConvertTTIRToTTMetalPass());
 }
 
 //===----------------------------------------------------------------------===//
@@ -79,13 +85,13 @@ void createTTIRToTTMetalBackendPipeline(
 
 void registerTTMetalPipelines() {
   mlir::PassPipelineRegistration<
-      mlir::tt::ttmetal::TTIRToTTMetalBackendPipelineOptions>(
+      tt::ttmetal::TTIRToTTMetalBackendPipelineOptions>(
       "ttir-to-ttmetal-backend-pipeline",
       "Pipeline lowering ttir to ttmetal backend.",
-      mlir::tt::ttmetal::createTTIRToTTMetalBackendPipeline);
+      tt::ttmetal::createTTIRToTTMetalBackendPipeline);
   mlir::PassPipelineRegistration<>(
       "ttir-bufferization-pipeline",
       "Pipeline bufferizing ttir ops on tensors to ops on buffers (memrefs).",
-      mlir::tt::ttmetal::createTTIRBufferizationPipeline);
+      tt::ttmetal::createTTIRBufferizationPipeline);
 }
 } // namespace mlir::tt::ttmetal

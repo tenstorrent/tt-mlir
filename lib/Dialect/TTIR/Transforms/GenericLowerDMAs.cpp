@@ -160,8 +160,7 @@ public:
                                ArrayRef<int64_t> shardShape) {
     auto [lbs, ubs, steps] = getLoopBounds(builder, loc, shardShape);
 
-    auto initTx = builder.create<ttir::NullTxOp>(dma.getLoc(),
-                                                 builder.getType<MemTxType>());
+    auto initTx = builder.create<ttir::NullTxOp>(dma.getLoc());
     scf::LoopNest loopNest = scf::buildLoopNest(
         builder, loc, lbs, ubs, steps, ValueRange(initTx),
         [&](OpBuilder &builder, Location loc, ValueRange iters,

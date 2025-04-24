@@ -168,9 +168,7 @@ getBufferType(const ::tt::tt_metal::BufferType bufferType) {
 }
 
 ::tt::tt_metal::TensorMemoryLayout getTensorMemoryLayout(
-    const mlir::tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr) {
-  auto tensorMemoryLayout = memLayoutAttr.getValue();
-
+    const mlir::tt::ttnn::TensorMemoryLayout tensorMemoryLayout) {
   switch (tensorMemoryLayout) {
   case mlir::tt::ttnn::TensorMemoryLayout::Interleaved:
     return ::tt::tt_metal::TensorMemoryLayout::INTERLEAVED;
@@ -198,6 +196,12 @@ getTensorMemoryLayout(const ::tt::tt_metal::TensorMemoryLayout memLayout) {
   case ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED:
     return mlir::tt::ttnn::TensorMemoryLayout::BlockSharded;
   }
+}
+
+::tt::tt_metal::TensorMemoryLayout getTensorMemoryLayout(
+    const mlir::tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr) {
+  auto tensorMemoryLayout = memLayoutAttr.getValue();
+  return getTensorMemoryLayout(tensorMemoryLayout);
 }
 
 ::tt::tt_metal::MemoryConfig
@@ -238,31 +242,98 @@ std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> getConv2dConfig(
   assert(!conv2dConfig->getCoreGrid() && "CoreGrid is not supported yet");
 
   ::ttnn::operations::conv::conv2d::Conv2dConfig config;
-  config.dtype = getDataType(conv2dConfig->getDtype());
-  config.weights_dtype = getDataType(conv2dConfig->getWeightsDtype());
-  config.activation = conv2dConfig->getActivation().str();
-  config.input_channels_alignment = conv2dConfig->getInputChannelsAlignment();
-  config.deallocate_activation = conv2dConfig->getDeallocateActivation();
-  config.reallocate_halo_output = conv2dConfig->getReallocateHaloOutput();
-  config.act_block_h_override = conv2dConfig->getActBlockHOverride();
-  config.act_block_w_div = conv2dConfig->getActBlockWDiv();
-  config.reshard_if_not_optimal = conv2dConfig->getReshardIfNotOptimal();
-  config.override_sharding_config = conv2dConfig->getOverrideShardingConfig();
-  config.shard_layout = conv2dConfig->getShardLayout()
-                            ? std::make_optional(getTensorMemoryLayout(
-                                  conv2dConfig->getShardLayout()))
-                            : std::nullopt;
+
+  if (conv2dConfig->getDtype()) {
+    config.dtype = getDataType(*conv2dConfig->getDtype());
+  }
+
+  if (conv2dConfig->getWeightsDtype()) {
+    config.weights_dtype = getDataType(*conv2dConfig->getWeightsDtype());
+  }
+
+  if (conv2dConfig->getActivation()) {
+    config.activation = conv2dConfig->getActivation().getValue().str();
+  }
+
+  if (conv2dConfig->getInputChannelsAlignment()) {
+    config.input_channels_alignment =
+        *conv2dConfig->getInputChannelsAlignment();
+  }
+
+  if (conv2dConfig->getDeallocateActivation()) {
+    config.deallocate_activation =
+        conv2dConfig->getDeallocateActivation().getValue();
+  }
+
+  if (conv2dConfig->getReallocateHaloOutput()) {
+    config.reallocate_halo_output =
+        conv2dConfig->getReallocateHaloOutput().getValue();
+  }
+
+  if (conv2dConfig->getActBlockHOverride()) {
+    config.act_block_h_override = *conv2dConfig->getActBlockHOverride();
+  }
+
+  if (conv2dConfig->getActBlockWDiv()) {
+    config.act_block_w_div = *conv2dConfig->getActBlockWDiv();
+  }
+
+  if (conv2dConfig->getReshardIfNotOptimal()) {
+    config.reshard_if_not_optimal =
+        conv2dConfig->getReshardIfNotOptimal().getValue();
+  }
+
+  if (conv2dConfig->getOverrideShardingConfig()) {
+    config.override_sharding_config =
+        conv2dConfig->getOverrideShardingConfig().getValue();
+  }
+
+  if (conv2dConfig->getShardLayout()) {
+    config.shard_layout =
+        getTensorMemoryLayout(*conv2dConfig->getShardLayout());
+  } else {
+    config.shard_layout = std::nullopt;
+  }
+
   config.core_grid = std::nullopt;
-  config.transpose_shards = conv2dConfig->getTransposeShards();
-  config.output_layout = getPageLayout(conv2dConfig->getOutputLayout());
-  config.preprocess_weights_on_device =
-      conv2dConfig->getPreprocessWeightsOnDevice();
-  config.always_preprocess_weights = conv2dConfig->getAlwaysPreprocessWeights();
-  config.enable_act_double_buffer = conv2dConfig->getEnableActDoubleBuffer();
-  config.enable_weights_double_buffer =
-      conv2dConfig->getEnableWeightsDoubleBuffer();
-  config.enable_split_reader = conv2dConfig->getEnableSplitReader();
-  config.enable_subblock_padding = conv2dConfig->getEnableSubblockPadding();
+
+  if (conv2dConfig->getTransposeShards()) {
+    config.transpose_shards = conv2dConfig->getTransposeShards().getValue();
+  }
+
+  if (conv2dConfig->getOutputLayout()) {
+    config.output_layout = getPageLayout(*conv2dConfig->getOutputLayout());
+  }
+
+  if (conv2dConfig->getPreprocessWeightsOnDevice()) {
+    config.preprocess_weights_on_device =
+        conv2dConfig->getPreprocessWeightsOnDevice().getValue();
+  }
+
+  if (conv2dConfig->getAlwaysPreprocessWeights()) {
+    config.always_preprocess_weights =
+        conv2dConfig->getAlwaysPreprocessWeights().getValue();
+  }
+
+  if (conv2dConfig->getEnableActDoubleBuffer()) {
+    config.enable_act_double_buffer =
+        conv2dConfig->getEnableActDoubleBuffer().getValue();
+  }
+
+  if (conv2dConfig->getEnableWeightsDoubleBuffer()) {
+    config.enable_weights_double_buffer =
+        conv2dConfig->getEnableWeightsDoubleBuffer().getValue();
+  }
+
+  if (conv2dConfig->getEnableSplitReader()) {
+    config.enable_split_reader =
+        conv2dConfig->getEnableSplitReader().getValue();
+  }
+
+  if (conv2dConfig->getEnableSubblockPadding()) {
+    config.enable_subblock_padding =
+        conv2dConfig->getEnableSubblockPadding().getValue();
+  }
 
   return config;
 }
@@ -298,10 +369,16 @@ getLogicalGridShape(const ::tt::tt_metal::MemoryConfig &memoryConfig,
 
 mlir::tt::ttnn::TTNNLayoutAttr
 getLayoutAttrFromTensorSpec(MLIRContext *context,
-                            const ::ttnn::TensorSpec &tensorSpec) {
-  // TODO(@arminaleTT) pass in the device grid size
-  llvm::SmallVector<int64_t> deviceMaxGrid{8, 8};
-  llvm::SmallVector<int64_t> shape = getShape(tensorSpec.logical_shape());
+                            const ::ttnn::TensorSpec &tensorSpec,
+                            llvm::ArrayRef<int64_t> deviceGrid) {
+  llvm::SmallVector<int64_t> shape;
+  if (tensorSpec.logical_shape().size() > 0) {
+    shape = getShape(tensorSpec.logical_shape());
+  } else {
+    // Scalar. This can result from reduction operations. Convert it to (1,1)
+    // for compatibility
+    shape = {1, 1};
+  }
 
   Type elementType;
   if (tensorSpec.layout() == ::tt::tt_metal::Layout::TILE) {
@@ -321,10 +398,10 @@ getLayoutAttrFromTensorSpec(MLIRContext *context,
       context, getTensorMemoryLayout(tensorSpec.memory_config().memory_layout));
 
   GridAttr grid = mlir::tt::GridAttr::get(
-      context, getLogicalGridShape(tensorSpec.memory_config(), deviceMaxGrid),
+      context, getLogicalGridShape(tensorSpec.memory_config(), deviceGrid),
       ::mlir::tt::ttnn::optimizer_utils::
           createSingleDeviceVirtualToPhysicalAffineMap(
-              context, memoryLayoutAttr.getValue(), deviceMaxGrid));
+              context, memoryLayoutAttr.getValue(), deviceGrid));
 
   return mlir::tt::ttnn::TTNNLayoutAttr::get(
       context, shape, elementType, bufferType, grid, memoryLayoutAttr);
