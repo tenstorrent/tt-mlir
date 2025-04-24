@@ -5,9 +5,9 @@
 #include "tt/runtime/detail/debug.h"
 #include <set>
 
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-
 namespace tt::runtime::debug {
+
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
 
 Env const &Env::get(bool loadKernelsFromDisk) {
   static Env config(loadKernelsFromDisk);
@@ -30,6 +30,6 @@ PerfEnv const &PerfEnv::get(std::uint32_t dumpDeviceRate) {
   return config;
 }
 
-#endif
-
 } // namespace tt::runtime::debug
+
+#endif
