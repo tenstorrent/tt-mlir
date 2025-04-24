@@ -84,9 +84,6 @@ jobs:
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
         echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
         echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
-        echo "op_test_report_path=op_report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
-        echo "model_test_report_path=model_report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
-        echo "ttrt_run_test_report_path=ttrt_run_test_report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
