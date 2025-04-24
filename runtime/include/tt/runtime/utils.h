@@ -45,7 +45,7 @@ inline std::uint32_t dataTypeElementSize(::tt::target::DataType dataType) {
   }
 }
 
-template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
+template <std::integral T>
 inline std::vector<uint32_t> calculateStride(const std::vector<T> &shape) {
   assert(!shape.empty());
   std::vector<uint32_t> stride(shape.size(), 1);

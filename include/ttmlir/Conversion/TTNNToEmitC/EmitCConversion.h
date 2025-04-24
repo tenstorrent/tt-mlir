@@ -244,8 +244,8 @@ struct EmitCTypeConverter<std::string> {
 };
 
 // Converter for integral types.
-template <typename T>
-struct EmitCTypeConverter<T, std::enable_if_t<std::is_integral_v<T>, void>> {
+template <std::integral T>
+struct EmitCTypeConverter<T> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
     if (auto intAttr = mlir::dyn_cast_if_present<mlir::IntegerAttr>(attr)) {
       return convert(intAttr);
@@ -264,16 +264,15 @@ struct EmitCTypeConverter<T, std::enable_if_t<std::is_integral_v<T>, void>> {
     return convert(value.getZExtValue());
   }
 
-  template <typename U>
-  static std::enable_if_t<std::is_integral_v<U>, std::string> convert(U value) {
+  template <std::integral U>
+  static std::string convert(U value) {
     return std::to_string(static_cast<T>(value));
   }
 };
 
 // Converter for floating point types.
-template <typename T>
-struct EmitCTypeConverter<T,
-                          std::enable_if_t<std::is_floating_point_v<T>, void>> {
+template <std::floating_point T>
+struct EmitCTypeConverter<T> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
     if (auto floatAttr = mlir::dyn_cast_if_present<mlir::FloatAttr>(attr)) {
       return convert(floatAttr);
@@ -296,9 +295,8 @@ struct EmitCTypeConverter<T,
     }
   }
 
-  template <typename U>
-  static std::enable_if_t<std::is_floating_point_v<U>, std::string>
-  convert(U value) {
+  template <std::floating_point U>
+  static std::string convert(U value) {
     // Add 'f' suffix for float literals to ensure correct type in C++.
     std::string result = std::to_string(static_cast<T>(value));
     if constexpr (std::is_same_v<T, float>) {
@@ -326,7 +324,7 @@ struct EmitCContainerTypeConverter {
       return {};
     }
 
-    if constexpr (std::is_integral_v<value_type>) {
+    if constexpr (std::integral<value_type>) {
       return llvm::TypeSwitch<mlir::Attribute, std::optional<std::string>>(attr)
           .Case<mlir::DenseBoolArrayAttr, mlir::DenseI8ArrayAttr,
                 mlir::DenseI16ArrayAttr, mlir::DenseI32ArrayAttr,
@@ -339,7 +337,7 @@ struct EmitCContainerTypeConverter {
           .Default([](auto) { return std::optional<std::string>{}; });
     }
 
-    if constexpr (std::is_floating_point_v<value_type>) {
+    if constexpr (std::floating_point<value_type>) {
       return llvm::TypeSwitch<mlir::Attribute, std::optional<std::string>>(attr)
           .Case<mlir::DenseF32ArrayAttr, mlir::DenseF64ArrayAttr>(
               [](auto denseArrayAttr) { return convert(denseArrayAttr); })
@@ -362,9 +360,8 @@ struct EmitCContainerTypeConverter {
   }
 
   template <typename U>
-  static std::enable_if_t<
-      std::is_constructible_v<mlir::detail::DenseArrayAttrImpl<U>>, std::string>
-  convert(mlir::detail::DenseArrayAttrImpl<U> attr) {
+    requires std::constructible_from<mlir::detail::DenseArrayAttrImpl<U>>
+  static std::string convert(mlir::detail::DenseArrayAttrImpl<U> attr) {
     llvm::SmallVector<std::string> result;
     for (auto element : attr.asArrayRef()) {
       result.push_back(EmitCTypeConverter<value_type>::convert(element));
@@ -431,7 +428,7 @@ struct EmitCTypeConverter<std::array<T, k>> {
       return {};
     }
 
-    if constexpr (std::is_integral_v<T>) {
+    if constexpr (std::integral<T>) {
       return llvm::TypeSwitch<mlir::Attribute, std::optional<std::string>>(attr)
           .Case<mlir::DenseBoolArrayAttr, mlir::DenseI8ArrayAttr,
                 mlir::DenseI16ArrayAttr, mlir::DenseI32ArrayAttr,
@@ -444,7 +441,7 @@ struct EmitCTypeConverter<std::array<T, k>> {
           .Default([](auto) { return std::optional<std::string>{}; });
     }
 
-    if constexpr (std::is_floating_point_v<T>) {
+    if constexpr (std::floating_point<T>) {
       return llvm::TypeSwitch<mlir::Attribute, std::optional<std::string>>(attr)
           .Case<mlir::DenseF32ArrayAttr, mlir::DenseF64ArrayAttr>(
               [](auto denseArrayAttr) { return convert(denseArrayAttr); })
@@ -475,9 +472,8 @@ struct EmitCTypeConverter<std::array<T, k>> {
   }
 
   template <typename U>
-  static std::enable_if_t<
-      std::is_constructible_v<mlir::detail::DenseArrayAttrImpl<U>>,
-      std::optional<std::string>>
+    requires std::constructible_from<mlir::detail::DenseArrayAttrImpl<U>>
+  static std::optional<std::string>
   convert(mlir::detail::DenseArrayAttrImpl<U> attr) {
     if (attr.size() != k) {
       return {};
@@ -730,7 +726,10 @@ struct IsMLIRType {
 };
 
 template <typename T>
-static constexpr bool IsMLIRTypeV = IsMLIRType<T>::value;
+concept MLIRTypeC = IsMLIRType<T>::value;
+
+template <typename T>
+concept NotMLIRTypeC = !MLIRTypeC<T>;
 
 template <typename TTNNOp>
 class EmitCTTNNEmitter {
@@ -843,9 +842,8 @@ public:
   // llvm::ArrayRef<T> to std::vector<U>). For convenience, by default
   // `TargetTy` is the same as `SourceTy`, for cases where we already have an
   // appropriate C++ type.
-  template <typename TargetTy = void, typename SourceTy>
-  std::enable_if_t<!IsMLIRTypeV<SourceTy>, mlir::Attribute>
-  emit(SourceTy &&attr) {
+  template <typename TargetTy = void, NotMLIRTypeC SourceTy>
+  mlir::Attribute emit(SourceTy &&attr) {
     using ActualTargetTy =
         std::conditional_t<std::is_void_v<TargetTy>,
                            TTNNTargetT<llvm::remove_cvref_t<SourceTy>>,

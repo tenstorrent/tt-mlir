@@ -10,7 +10,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/TTNN/Target.h"
-#include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
+#include "ttmlir/Target/Utils/Concepts.h"
 
 #include "flatbuffers/buffer.h"
 #include "llvm/ADT/STLForwardCompat.h"
@@ -251,34 +251,19 @@ toFlatbuffer(FlatbufferObjectCache &cache,
       cache.fbb->CreateVectorOfStructs<::tt::target::Dim2d>(ethInactiveCores));
 }
 
-template <typename T, std::enable_if_t<std::is_arithmetic<T>::value, int> = 0>
+template <IsArithmetic T>
 T toFlatbuffer(FlatbufferObjectCache &, T arith) {
   return arith;
 }
 
-template <typename T>
-using ToFlatbufferReturnType = decltype(toFlatbuffer(
-    std::declval<FlatbufferObjectCache &>(), std::declval<T>()));
-
-template <typename, typename = void>
-struct IsNativeFlatbufferType : std::false_type {};
-
-template <typename T>
-struct IsNativeFlatbufferType<
-    T, std::void_t<typename ToFlatbufferReturnType<T>::Traits::type>>
-    : std::true_type {};
-
-template <typename T>
-constexpr bool IsNativeFlatbufferTypeV = IsNativeFlatbufferType<T>::value;
-
-template <typename T>
+template <HasToFlatbuffer T>
 flatbuffers::Optional<ToFlatbufferReturnType<T>>
 toFlatbuffer(FlatbufferObjectCache &cache, const std::optional<T> &optValue) {
   return llvm::transformOptional(
       optValue, [&](const T &val) { return toFlatbuffer(cache, val); });
 }
 
-template <typename T, std::enable_if_t<IsNativeFlatbufferTypeV<T>, int> = 0>
+template <NativeFlatbufferTypeC T>
 flatbuffers::Offset<flatbuffers::Vector<ToFlatbufferReturnType<T> const *>>
 toFlatbuffer(FlatbufferObjectCache &cache, ::llvm::ArrayRef<T> arr) {
   static_assert(std::is_trivially_copyable_v<ToFlatbufferReturnType<T>>);
@@ -292,7 +277,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, ::llvm::ArrayRef<T> arr) {
   return vec;
 }
 
-template <typename T, std::enable_if_t<!IsNativeFlatbufferTypeV<T>, int> = 0>
+template <NonNativeFlatbufferTypeC T>
 flatbuffers::Offset<flatbuffers::Vector<ToFlatbufferReturnType<T>>>
 toFlatbuffer(FlatbufferObjectCache &cache, ::llvm::ArrayRef<T> arr) {
   return cache.fbb->CreateVector<ToFlatbufferReturnType<T>>(

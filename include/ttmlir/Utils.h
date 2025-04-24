@@ -310,17 +310,15 @@ getQuadrupleOfInteger(mlir::Attribute attr) {
 }
 
 namespace detail {
-template <typename, typename = void>
-struct is_leaf_type : std::true_type {};
+template <typename T>
+concept NotLeafTypeC = requires(T t) {
+  { t.begin() };
+};
 
 template <typename T>
-struct is_leaf_type<T, std::void_t<decltype(std::declval<T>().begin())>>
-    : std::false_type {};
+concept LeafTypeC = !NotLeafTypeC<T>;
 
 template <typename T>
-constexpr bool is_leaf_type_v = is_leaf_type<T>::value;
-
-template <typename T, typename = void>
 struct get_value_type {
   using type = llvm::remove_cvref_t<T>;
 };
@@ -328,16 +326,16 @@ struct get_value_type {
 template <typename T>
 using get_value_type_t = typename get_value_type<T>::type;
 
-template <typename T>
-struct get_value_type<T, std::enable_if_t<!is_leaf_type_v<T>>> {
+template <NotLeafTypeC T>
+struct get_value_type<T> {
   using type = get_value_type_t<typename std::iterator_traits<
       decltype(std::declval<T>().begin())>::value_type>;
 };
 
 template <typename T, typename U>
-std::enable_if_t<std::is_convertible_v<get_value_type_t<T>, U>>
-append(llvm::SmallVector<U> &result, T &&value) {
-  if constexpr (is_leaf_type_v<T>) {
+  requires std::convertible_to<get_value_type_t<T>, U>
+void append(llvm::SmallVector<U> &result, T &&value) {
+  if constexpr (LeafTypeC<T>) {
     result.push_back(std::forward<T>(value));
   } else {
     for (auto &&v : value) {
