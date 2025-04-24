@@ -578,6 +578,20 @@ class Run:
                                     Binary.Program.to_data_type(i.dtype),
                                 )
                             )
+                        # load output golden tensors
+                        golden_outputs_torch = []
+                        for idx in range(0, len(program.output_tensors)):
+                            golden_tensor = bin.fbb.get_debug_info_golden(
+                                f"output_{idx}"
+                            )
+                            if golden_tensor is not None:
+                                golden_tensor_torch = torch.frombuffer(
+                                    golden_tensor,
+                                    dtype=ttrt_datatype_to_torch_dtype(
+                                        golden_tensor.dtype
+                                    ),
+                                ).reshape(golden_tensor.shape)
+                                golden_outputs_torch.append(golden_tensor_torch)
 
                         event = None
 
@@ -696,6 +710,40 @@ class Run:
                                         runtime_output_tensor, force=True
                                     )
 
+                                    # compare program level golden.
+                                    if i < len(golden_outputs_torch):
+                                        self.logging.debug(
+                                            f"executing program level golden comparison for output_{i}"
+                                        )
+                                        output_tensor = outputs[i]
+                                        output_tensor_torch = torch.frombuffer(
+                                            bytearray(output_tensor.get_data_buffer()),
+                                            dtype=ttrt_datatype_to_torch_dtype(
+                                                output_tensor.get_dtype()
+                                            ),
+                                        ).reshape(output_tensor.get_shape())
+                                        golden_tensor_torch = golden_outputs_torch[i]
+                                        if (
+                                            golden_tensor_torch.shape
+                                            != output_tensor_torch.shape
+                                        ):
+                                            raise Exception(
+                                                f"Failed: program-level output doesn't match golden shape! golden_shape={golden_tensor_torch.shape}, output_shape={output_tensor_torch.shape}"
+                                            )
+                                        _, _, cal_pcc, _ = get_atol_rtol_pcc(
+                                            golden_tensor_torch, output_tensor_torch
+                                        )
+                                        if (
+                                            cal_pcc
+                                            < post_op_callback_runtime_config.pcc
+                                        ):
+                                            raise PCCErrorException(
+                                                f"Failed: prgram-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={post_op_callback_runtime_config.pcc}"
+                                            )
+                                        self.logging.debug(
+                                            f"Program level golden for output_{idx} matched. pcc={cal_pcc}"
+                                        )
+
                             self.logging.debug(
                                 f"finished loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
                             )
@@ -793,55 +841,6 @@ class Run:
                                 )
                             # check operation level golden comparison result.
                             post_op_callback_runtime_config.check_pcc()
-
-                            # compare program level golden.
-                            self.logging.debug(
-                                "executing program level golden comparison"
-                            )
-                            for idx in range(0, len(program.output_tensors)):
-                                golden_tensor = bin.fbb.get_debug_info_golden(
-                                    f"output_{idx}"
-                                )
-                                if golden_tensor is None:
-                                    self.logging.debug(
-                                        f"Skip comparing program level golden for output_{idx}"
-                                    )
-                                    continue
-                                golden_tensor_torch = torch.frombuffer(
-                                    golden_tensor,
-                                    dtype=ttrt_datatype_to_torch_dtype(
-                                        golden_tensor.dtype
-                                    ),
-                                ).reshape(golden_tensor.shape)
-
-                                for loop in range(self["--loops"]):
-                                    output_tensor = total_outputs[loop][idx]
-                                    output_tensor_torch = torch.frombuffer(
-                                        bytearray(output_tensor.get_data_buffer()),
-                                        dtype=ttrt_datatype_to_torch_dtype(
-                                            output_tensor.get_dtype()
-                                        ),
-                                    ).reshape(output_tensor.get_shape())
-                                    if (
-                                        golden_tensor_torch.shape
-                                        != output_tensor_torch.shape
-                                    ):
-                                        self.logging.error(
-                                            f"Failed: program-level output doesn't match golden shape! golden_shape={golden_tensor_torch.shape}, output_shape={output_tensor_torch.shape}"
-                                        )
-                                        raise Exception(
-                                            f"Failed: program-level output doesn't match golden shape! golden_shape={golden_tensor_torch.shape}, output_shape={output_tensor_torch.shape}"
-                                        )
-                                    _, _, cal_pcc, _ = get_atol_rtol_pcc(
-                                        golden_tensor_torch, output_tensor_torch
-                                    )
-                                    if cal_pcc < post_op_callback_runtime_config.pcc:
-                                        raise PCCErrorException(
-                                            f"Failed: prgram-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={post_op_callback_runtime_config.pcc}"
-                                        )
-                                self.logging.debug(
-                                    f"Finished comparing program level golden for output_{idx}"
-                                )
 
                             # Check cache statistics if requested
                             if self["--check-cache-stats"]:
