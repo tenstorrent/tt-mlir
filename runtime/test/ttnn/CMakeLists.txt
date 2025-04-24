@@ -30,6 +30,7 @@ if (TTMLIR_ENABLE_RUNTIME_TESTS)
     PUBLIC_HEADER
       DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/tt/runtime/test
       COMPONENT TTNNStandalone
+# Do we need the arhive if we link TTNNRuntimeTTNNTestLib into TTMLIRRuntime
     ARCHIVE
       DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}
       COMPONENT TTNNStandalone

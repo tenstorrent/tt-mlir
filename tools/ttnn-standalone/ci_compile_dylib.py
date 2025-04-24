@@ -27,7 +27,7 @@ def get_emitc_tests_path(build_dir):
 # Returns ttnn-standalone dir
 #
 def get_standalone_dir():
-    # Calculate this relative to this script's location
+    # Calculate standalone dir path by using this script's location
     #
     return os.path.dirname(os.path.abspath(__file__))
 
@@ -59,10 +59,10 @@ def run_cmake_setup(args):
     if args.metal_lib_dir:
         cmake_command.append(f"-DMETAL_LIB_DIR={args.metal_lib_dir}")
 
-    # Print metal_src_dir and metal_lib_dir
-    print(f"Setting up cmake environment with:")
-    print(f"  METAL_SRC_DIR: {args.metal_src_dir}")
-    print(f"  METAL_LIB_DIR: {args.metal_lib_dir}")
+    # # Print metal_src_dir and metal_lib_dir
+    # print(f"Setting up cmake environment with:")
+    # print(f"  METAL_SRC_DIR: {args.metal_src_dir}")
+    # print(f"  METAL_LIB_DIR: {args.metal_lib_dir}")
 
     try:
         result = subprocess.run(
@@ -72,13 +72,10 @@ def run_cmake_setup(args):
             # capture_output=True,
             text=True,
         )
-    except subprocess.CalledProcessError as e:
+    except Exception as e:
         print(f"Error setting up cmake environment: {e}")
         print(e.stderr)
         print(e.stdout)
-        sys.exit(1)
-    except Exception as e:
-        print(f"Error setting up cmake environment: {e}")
         sys.exit(1)
 
     run_cmake_setup.already_created = True
@@ -124,7 +121,7 @@ def compile_shared_object(cpp_file_path, output_dir, args):
             "cmake",
             "--build",
             standalone_build_dir,
-            "--verbose",
+            # "--verbose",
             "--",
             "ttnn-dylib",
         ]
@@ -203,28 +200,6 @@ def parse_arguments():
 
 
 def main():
-    print("PRINTING ENVS CCD")
-    print("I'm in ci_compile_dylib.py")
-
-    # Unrolled version of the loop
-    var_name = "TT_METAL_HOME"
-    var_value = os.environ.get(var_name)
-    print(f"  {var_name} environment variable: {var_value if var_value else 'not set'}")
-
-    var_name = "CMAKE_INSTALL_PREFIX"
-    var_value = os.environ.get(var_name)
-    print(f"  {var_name} environment variable: {var_value if var_value else 'not set'}")
-
-    var_name = "TT_MLIR_HOME"
-    var_value = os.environ.get(var_name)
-    print(f"  {var_name} environment variable: {var_value if var_value else 'not set'}")
-
-    var_name = "FORGE_HOME"
-    var_value = os.environ.get(var_name)
-    print(f"  {var_name} environment variable: {var_value if var_value else 'not set'}")
-
-    print(f"  PRINTING FROM: {__file__}")
-
     args = parse_arguments()
     build_dir = args.build_dir
     file = args.file
@@ -241,6 +216,7 @@ def main():
 
         cpp_files.append(file)
     else:
+        # If not even build_dir is provided, use default test path in tt-mlir
         if not build_dir:
             build_dir = os.path.join(
                 get_standalone_dir(),
@@ -260,6 +236,10 @@ def main():
                 if file.endswith(".cpp"):
                     cpp_file_path = os.path.join(dir_path, file)
                     cpp_files.append(cpp_file_path)
+
+    if len(cpp_files) == 0:
+        print("Error: No .cpp files found for compilation.")
+        sys.exit(1)
 
     for cpp_file in cpp_files:
         compile_shared_object(

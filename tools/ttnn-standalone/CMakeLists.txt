@@ -1,13 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
 project(ttnn-standalone CXX)
 
-# Install options
-option(TTNN_STANDALONE_USE_INSTALL_PATHS "Use install paths" OFF)
-
 set(CMAKE_CXX_STANDARD 20 CACHE STRING "C++ standard to conform to")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-set(CMAKE_VERBOSE_MAKEFILE on)
+# set(CMAKE_VERBOSE_MAKEFILE on)
 
 if(DEFINED ENV{CONFIG})
     message(STATUS "CONFIG is set, CMAKE_BUILD_TYPE being set to $ENV{CONFIG}")
@@ -35,19 +32,6 @@ endif()
 # Metal dir variables
 set(METAL_SRC_DIR "$ENV{TT_METAL_HOME}" CACHE PATH "Path to the tt-metal root src directory")
 set(METAL_LIB_DIR "$ENV{TT_METAL_HOME}-build/lib" CACHE PATH "Path to the tt-metal lib directory")
-
-message(STATUS "TT_METAL_HOME: $ENV{TT_METAL_HOME}")
-message(STATUS "METAL_SRC_DIR: ${METAL_SRC_DIR}")
-message(STATUS "METAL_LIB_DIR: ${METAL_LIB_DIR}")
-
-if (${TTNN_STANDALONE_USE_INSTALL_PATHS} STREQUAL ON)
-    if (NOT DEFINED CMAKE_INSTALL_PREFIX)
-        message(FATAL_ERROR "CMAKE_INSTALL_PREFIX is not set. Aborting!")
-    endif()
-
-    message(STATUS "CMAKE_INSTALL_PREFIX: ${CMAKE_INSTALL_PREFIX}")
-    set(METAL_LIB_DIR "${CMAKE_INSTALL_PREFIX}/lib")
-endif()
 
 if (DEFINED ENV{CPM_SOURCE_CACHE})
   set(CPM_SOURCE_CACHE $ENV{CPM_SOURCE_CACHE})
@@ -163,6 +147,7 @@ target_compile_options(ttnn-dylib PRIVATE -mavx -mavx2)
 
 target_precompile_headers(ttnn-dylib PRIVATE ttnn-precompiled.hpp)
 
+# TODO: this needs to be either moved or deleted
 # # Test compile_so
 # add_executable(test_compile_so
 #     test_compile_so.cpp

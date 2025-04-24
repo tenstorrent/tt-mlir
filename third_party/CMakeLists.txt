@@ -162,11 +162,11 @@ install(
 # Copy .cpmcache libs
 install(
   DIRECTORY
-    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/boost
-    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/fmt
-    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/magic_enum
-    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/nlohmann_json
-    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/reflect
+    ${CPM_SOURCE_CACHE}/boost
+    ${CPM_SOURCE_CACHE}/fmt
+    ${CPM_SOURCE_CACHE}/magic_enum
+    ${CPM_SOURCE_CACHE}/nlohmann_json
+    ${CPM_SOURCE_CACHE}/reflect
   DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal/.cpmcache
   COMPONENT TTNNStandalone
   EXCLUDE_FROM_ALL
