@@ -421,8 +421,9 @@ def compile_to_flatbuffer(
         output_root,
         test_base + mlir_suffix,
         system_desc_path=system_desc_path,
-        mesh_shape=mesh_shape, 
-        argument_types_string=argument_types_string)
+        mesh_shape=mesh_shape,
+        argument_types_string=argument_types_string,
+    )
 
     module_logger = MLIRModuleLogger()
     module_logger.attach_context(module.context)
