@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TT/IR/TTOps.h"
 #include "ttmlir/Dialect/TT/IR/TTTraits.h"
 #include "ttmlir/Transforms/Passes.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -110,32 +111,7 @@ private:
       return;
     }
 
-    auto args = funcOp->getArguments();
-
-    // Iterate through arguments and check their tt.argument_type attributes
-    for (auto arg : args) {
-      auto argAttrs = funcOp->getArgAttrDict(arg.getArgNumber());
-      if (!argAttrs) {
-        continue;
-      }
-      auto typeAttr = argAttrs.get("tt.argument_type");
-      if (!typeAttr) {
-        continue;
-      }
-
-      // Cast to ArgumentTypeAttr
-      if (auto enumAttr =
-              mlir::dyn_cast<mlir::tt::ArgumentTypeAttr>(typeAttr)) {
-        // Get the enum value
-        mlir::tt::ArgumentType attrValue = enumAttr.getValue();
-
-        // Compare with Parameter and Constant
-        if (attrValue == mlir::tt::ArgumentType::Parameter ||
-            attrValue == mlir::tt::ArgumentType::Constant) {
-          constParams.insert(arg);
-        }
-      }
-    }
+    constParams = ttmlir::utils::populateConstParams(*funcOp);
   }
 
   // Recurse up hierarchy to find root of given subset.

@@ -1272,6 +1272,9 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d",
     let hasVerifier = 1;
 
     let extraClassDeclaration = [{
+      // Get number of output channels.
+      int64_t getOutputChannelSize();
+      bool verifyBias(llvm::ArrayRef<int64_t> biasDims);
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
             getBias() != nullptr

@@ -9,6 +9,7 @@
 
 #include "mlir-c/IR.h"
 #include "mlir/CAPI/IR.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -412,6 +413,67 @@ static mlir::Region *getRegionWithParentOfType(mlir::Operation *op) {
     parentOp = region->getParentOp();
   }
   return region;
+}
+
+// Check if all users of srcOp are of UserOps types.
+template <typename... UserOps>
+inline bool allUsers(mlir::Operation *srcOp) {
+  auto check = [](mlir::Operation *op) { return mlir::isa<UserOps...>(op); };
+  return all_of(srcOp->getResult(0).getUsers(), check);
+}
+
+// Count the number of users of a value.
+inline size_t countUsers(mlir::Value value) {
+  return std::distance(value.user_begin(), value.user_end());
+}
+
+// Return vector of currentOp operands and drop:
+// - dps operand if currentOp is a DestinationStyleOpInterface
+// - operand which is defined by currentOpOperand
+inline llvm::SmallVector<mlir::OpOperand *>
+getOtherOperands(mlir::Operation *currentOp,
+                 mlir::Operation *currentOpOperand) {
+  llvm::SmallVector<mlir::OpOperand *> operands;
+  for (auto &opOperand : currentOp->getOpOperands()) {
+    if (auto dpsUserOp =
+            mlir::dyn_cast<mlir::DestinationStyleOpInterface>(currentOp)) {
+      if (dpsUserOp.isDpsInit(&opOperand)) {
+        continue;
+      }
+    }
+
+    if (mlir::Operation *op = opOperand.get().getDefiningOp()) {
+      if (op != currentOpOperand) {
+        operands.push_back(&opOperand);
+      }
+    } else {
+      // This is block argument.
+      operands.push_back(&opOperand);
+    }
+  }
+
+  return operands;
+}
+
+// Filters out the constant parameters from the function signature.
+inline llvm::SmallPtrSet<mlir::BlockArgument, 4>
+populateConstParams(mlir::func::FuncOp funcOp) {
+  assert(!funcOp.isDeclaration() && "Function should not be a declaration.");
+
+  llvm::SmallPtrSet<mlir::BlockArgument, 4> constParams;
+
+  for (auto arg : funcOp.getArguments()) {
+    if (auto typeAttr = funcOp.getArgAttrOfType<mlir::tt::ArgumentTypeAttr>(
+            arg.getArgNumber(), "tt.argument_type")) {
+      auto attrValue = typeAttr.getValue();
+      if (attrValue == mlir::tt::ArgumentType::Parameter ||
+          attrValue == mlir::tt::ArgumentType::Constant) {
+        constParams.insert(arg);
+      }
+    }
+  }
+
+  return constParams;
 }
 
 } // namespace ttmlir::utils
