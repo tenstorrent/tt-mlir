@@ -20,6 +20,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 
 #include <algorithm>
+#include <numeric>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -600,17 +601,9 @@ private:
                ::llvm::ArrayRef<int64_t> startIndexMap) {
     auto inputType = input.getType();
     llvm::SmallVector<int64_t> inputPermutation(startIndexMap);
-    size_t startIndexMapIndex = 0;
-    for (size_t inputShapeIndex = 0;
-         inputShapeIndex < inputType.getShape().size(); inputShapeIndex++) {
-      if (startIndexMapIndex < startIndexMap.size() &&
-          startIndexMap[startIndexMapIndex] ==
-              static_cast<long>(inputShapeIndex)) {
-        startIndexMapIndex++;
-        continue;
-      }
-      inputPermutation.push_back(inputShapeIndex);
-    }
+    inputPermutation.append(llvm::filter_to_vector(
+        llvm::seq<int64_t>(inputType.getRank()),
+        [&startIndexMap](int64_t idx) { return !llvm::is_contained(startIndexMap, idx); }));
     auto permutedInputShape =
         ttmlir::utils::applyPermutation(inputType.getShape(), inputPermutation);
     return ttir::utils::createDPSOp<ttir::PermuteOp>(
@@ -627,13 +620,11 @@ private:
                ::mlir::TypedValue<::mlir::RankedTensorType> input,
                size_t numIndexingDims) {
     auto inputShape = input.getType().getShape();
-    llvm::SmallVector<int64_t> newInputShape = {1, 1};
-    for (size_t i = 0; i < numIndexingDims; i++) {
-      newInputShape[0] *= inputShape[i];
-    }
-    for (size_t i = numIndexingDims; i < inputShape.size(); i++) {
-      newInputShape[1] *= inputShape[i];
-    }
+    assert(numIndexingDims <= inputShape.size() && "Number of indexing dims can't be greater than number of input dims");
+     llvm::SmallVector<int64_t> newInputShape {
+      std::accumulate(inputShape.begin(), inputShape.begin() + numIndexingDims, int64_t{1}, std::multiplies<>()),
+      std::accumulate(inputShape.begin() + numIndexingDims, inputShape.end(), int64_t{1}, std::multiplies<>())
+    };
     return createReshapeOp(rewriter, loc, input, newInputShape);
   }
 
@@ -654,12 +645,9 @@ private:
     auto numIndexingDims = op.getStartIndexMap().size();
     auto indexVectorDim = op.getIndexVectorDim();
 
-    llvm::SmallVector<int64_t> startIndicesPermutation;
-    for (size_t i = 0; i < startIndicesType.getShape().size(); i++) {
-      if (static_cast<int>(i) != indexVectorDim) {
-        startIndicesPermutation.push_back(i);
-      }
-    }
+     llvm::SmallVector<int64_t> startIndicesPermutation = llvm::filter_to_vector(
+        llvm::seq<int64_t>(startIndicesType.getRank()),
+        [&indexVectorDim](int64_t idx) { return idx != indexVectorDim; });
     startIndicesPermutation.push_back(indexVectorDim);
 
     auto permutedStartIndicesShape = ttmlir::utils::applyPermutation(
@@ -678,17 +666,17 @@ private:
         rewriter, op->getLoc(), typecastResultType, startIndicesPermuted);
 
     // Const op with correct weights to matmul indices with.
-    llvm::SmallVector<float> indexWeight(numIndexingDims);
+    llvm::SmallVector<float> strides(numIndexingDims);
     int dimensionOffset = 1;
     for (int i = numIndexingDims - 1; i >= 0; i--) {
-      indexWeight[i] = dimensionOffset;
+      strides[i] = dimensionOffset;
       dimensionOffset *= inputShape[i];
     }
     auto tensorType =
         mlir::RankedTensorType::get({static_cast<long>(numIndexingDims), 1},
                                     mlir::Float32Type::get(op.getContext()));
     auto denseAttr =
-        mlir::DenseElementsAttr::get(tensorType, llvm::ArrayRef(indexWeight));
+        mlir::DenseElementsAttr::get(tensorType, llvm::ArrayRef(strides));
     ttir::ConstantOp constantOp =
         rewriter.create<ttir::ConstantOp>(op->getLoc(), tensorType, denseAttr);
 
@@ -703,17 +691,14 @@ private:
         constantOp);
   }
 
-  // Helper that reshapes start indices to reduce number of dims as it can't be
-  // 3 or greater.
+  // Helper that reshapes start indices to reduce number of dims, as Embedding Op input can be 1D or 2D.
   static ttir::ReshapeOp reshapeStartIndices(
       ConversionPatternRewriter &rewriter, Location loc,
       ::mlir::TypedValue<::mlir::RankedTensorType> startIndices) {
-    auto startIndicesType = startIndices.getType();
-    auto startIndicesShape = startIndicesType.getShape();
-    llvm::SmallVector<int64_t, 1> newStartIndicesShape = {1};
-    for (size_t i = 0; i < startIndicesShape.size(); i++) {
-      newStartIndicesShape[0] *= startIndicesShape[i];
-    }
+    auto startIndicesShape = startIndices.getType().getShape();
+    llvm::SmallVector<int64_t, 1> newStartIndicesShape {
+      std::accumulate(startIndicesShape.begin(), startIndicesShape.end(), int64_t{1}, std::multiplies<>())
+    };
     return createReshapeOp(rewriter, loc, startIndices, newStartIndicesShape);
   }
 
