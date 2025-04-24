@@ -172,26 +172,6 @@ TTNNOperandsWorkaroundsFactory::createUpsampleOpOperandsWorkarounds() {
       .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
 }
 
-// Factory method to create a set of workarounds for cumsum operation operands.
-// The cumsum op generates incorrect results for integer data types. So input
-// tensor is converted to float32 in case of integer input.
-
-// Metal issue for generation of incorrect outputs for integer inputs.
-// https://github.com/tenstorrent/tt-mlir/issues/1979
-
-TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createCumSumOpOperandsWorkarounds(
-    RankedTensorType inputType) {
-  mlir::Type inputElementType = inputType.getElementType();
-  TTNNOperandWorkarounds typeWorkaround =
-      isa<IntegerType>(inputElementType)
-          ? TTNNOperandWorkarounds(DataType::Float32)
-          : TTNNOperandWorkarounds();
-  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(typeWorkaround)
-      .addOutputOperandWorkaround(typeWorkaround);
-}
-
 // Factory method to create a set of workarounds for full op output operand.
 // ttnn::FullOp does not support 1D tilized tensors
 // If the output of full is a 1D tensor and is tiled

@@ -226,10 +226,6 @@ public:
   // Create workarounds for upsample op operands.
   static TTNNOperandsWorkarounds createUpsampleOpOperandsWorkarounds();
 
-  // Create workarounds for cumulative sum op operands.
-  static TTNNOperandsWorkarounds
-  createCumSumOpOperandsWorkarounds(RankedTensorType inputType);
-
   // Create workarounds for full op operands.
   static TTNNOperandsWorkarounds
   createFullOpOperandsWorkarounds(RankedTensorType outputType);

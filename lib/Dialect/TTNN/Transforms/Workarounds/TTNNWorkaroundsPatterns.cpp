@@ -581,19 +581,20 @@ public:
   void runOnOperation() final {
     if (decompositionWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
-      patterns.add<TTNNAllReduceWorkarounds,
-                   workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
-                       ttnn::SumOp, /*keepDimUnsupported*/ false>,
-                   workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
-                       ttnn::MaxOp, /*keepDimUnsupported*/ false>,
-                   workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
-                       ttnn::MeanOp, /*keepDimUnsupported*/ false>,
-                   workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
-                       ttnn::MinOp, /*keepDimUnsupported*/ false>,
-                   workarounds::decomposition::CumSumOpDimRewritePattern,
-                   workarounds::decomposition::CumSumOpRankRewritePattern,
-                   workarounds::decomposition::ArgMaxOpRewritePattern>(
-          &getContext());
+      patterns.add<
+          TTNNAllReduceWorkarounds,
+          workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
+              ttnn::SumOp, /*keepDimUnsupported*/ false>,
+          workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
+              ttnn::MaxOp, /*keepDimUnsupported*/ false>,
+          workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
+              ttnn::MeanOp, /*keepDimUnsupported*/ false>,
+          workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
+              ttnn::MinOp, /*keepDimUnsupported*/ false>,
+          workarounds::decomposition::CumSumOpDimRewritePattern,
+          workarounds::decomposition::CumSumOpRankRewritePattern,
+          workarounds::decomposition::EmbeddingOpSqueezeWeightRewritePattern,
+          workarounds::decomposition::ArgMaxOpRewritePattern>(&getContext());
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);

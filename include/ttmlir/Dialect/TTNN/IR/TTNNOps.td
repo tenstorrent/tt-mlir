@@ -930,13 +930,6 @@ def TTNN_MorehCumSumOp : TTNN_Op<"moreh_cumsum"> {
                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
   let results = (outs AnyRankedTensor:$result);
-
-  let extraClassDeclaration = [{
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        RankedTensorType inputType = getInput().getType();
-        return wa::TTNNOperandsWorkaroundsFactory::createCumSumOpOperandsWorkarounds(inputType);
-      }
-    }];
 }
 
 def TTNN_SoftmaxOp : TTNN_Op<"softmax",
