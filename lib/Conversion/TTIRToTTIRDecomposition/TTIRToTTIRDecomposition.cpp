@@ -471,8 +471,8 @@ struct GatherToEmbeddingConversionPattern
     // dimensions because of matmul restrictions.
     if (startIndexMap.size() > 1 && startIndicesShape.size() == 1) {
       return rewriter.notifyMatchFailure(
-          op,
-          "Did not satisfy startIndicesShape.size() > 1 when startIndexMap.size() > 1");
+          op, "Did not satisfy startIndicesShape.size() > 1 when "
+              "startIndexMap.size() > 1");
     }
 
     // Check if there are no batching dims.
@@ -602,8 +602,9 @@ private:
     auto inputType = input.getType();
     llvm::SmallVector<int64_t> inputPermutation(startIndexMap);
     inputPermutation.append(llvm::filter_to_vector(
-        llvm::seq<int64_t>(inputType.getRank()),
-        [&startIndexMap](int64_t idx) { return !llvm::is_contained(startIndexMap, idx); }));
+        llvm::seq<int64_t>(inputType.getRank()), [&startIndexMap](int64_t idx) {
+          return !llvm::is_contained(startIndexMap, idx);
+        }));
     auto permutedInputShape =
         ttmlir::utils::applyPermutation(inputType.getShape(), inputPermutation);
     return ttir::utils::createDPSOp<ttir::PermuteOp>(
@@ -620,11 +621,15 @@ private:
                ::mlir::TypedValue<::mlir::RankedTensorType> input,
                size_t numIndexingDims) {
     auto inputShape = input.getType().getShape();
-    assert(numIndexingDims <= inputShape.size() && "Number of indexing dims can't be greater than number of input dims");
-     llvm::SmallVector<int64_t> newInputShape {
-      std::accumulate(inputShape.begin(), inputShape.begin() + numIndexingDims, int64_t{1}, std::multiplies<>()),
-      std::accumulate(inputShape.begin() + numIndexingDims, inputShape.end(), int64_t{1}, std::multiplies<>())
-    };
+    assert(
+        numIndexingDims <= inputShape.size() &&
+        "Number of indexing dims can't be greater than number of input dims");
+    llvm::SmallVector<int64_t> newInputShape{
+        std::accumulate(inputShape.begin(),
+                        inputShape.begin() + numIndexingDims, int64_t{1},
+                        std::multiplies<>()),
+        std::accumulate(inputShape.begin() + numIndexingDims, inputShape.end(),
+                        int64_t{1}, std::multiplies<>())};
     return createReshapeOp(rewriter, loc, input, newInputShape);
   }
 
@@ -637,15 +642,16 @@ private:
   // - then we add matmul to transform the indices
   // Example: indexingDimsSizes = [3, 5], startIndices[...] = (i, j) ->
   // startIndices[...] = 5 * i + j (because reshaped indexingDimSize is 15)
-  static ttir::MatmulOp transformStartIndices(ConversionPatternRewriter &rewriter,
-                                       ::llvm::ArrayRef<int64_t> inputShape,
-                                       ttir::GatherOp op) {
+  static ttir::MatmulOp
+  transformStartIndices(ConversionPatternRewriter &rewriter,
+                        ::llvm::ArrayRef<int64_t> inputShape,
+                        ttir::GatherOp op) {
     auto startIndices = op.getStartIndices();
     auto startIndicesType = startIndices.getType();
     auto numIndexingDims = op.getStartIndexMap().size();
     auto indexVectorDim = op.getIndexVectorDim();
 
-     llvm::SmallVector<int64_t> startIndicesPermutation = llvm::filter_to_vector(
+    llvm::SmallVector<int64_t> startIndicesPermutation = llvm::filter_to_vector(
         llvm::seq<int64_t>(startIndicesType.getRank()),
         [&indexVectorDim](int64_t idx) { return idx != indexVectorDim; });
     startIndicesPermutation.push_back(indexVectorDim);
@@ -691,14 +697,15 @@ private:
         constantOp);
   }
 
-  // Helper that reshapes start indices to reduce number of dims, as Embedding Op input can be 1D or 2D.
+  // Helper that reshapes start indices to reduce number of dims, as Embedding
+  // Op input can be 1D or 2D.
   static ttir::ReshapeOp reshapeStartIndices(
       ConversionPatternRewriter &rewriter, Location loc,
       ::mlir::TypedValue<::mlir::RankedTensorType> startIndices) {
     auto startIndicesShape = startIndices.getType().getShape();
-    llvm::SmallVector<int64_t, 1> newStartIndicesShape {
-      std::accumulate(startIndicesShape.begin(), startIndicesShape.end(), int64_t{1}, std::multiplies<>())
-    };
+    llvm::SmallVector<int64_t, 1> newStartIndicesShape{
+        std::accumulate(startIndicesShape.begin(), startIndicesShape.end(),
+                        int64_t{1}, std::multiplies<>())};
     return createReshapeOp(rewriter, loc, startIndices, newStartIndicesShape);
   }
 
@@ -744,9 +751,9 @@ private:
         reshapedOutput, ttmlir::utils::inversePermutation(outputPermutation));
   }
 
-  static ttir::ReshapeOp createReshapeOp(PatternRewriter &rewriter, Location loc,
-                                  Value input,
-                                  ::llvm::ArrayRef<int64_t> targetShape) {
+  static ttir::ReshapeOp
+  createReshapeOp(PatternRewriter &rewriter, Location loc, Value input,
+                  ::llvm::ArrayRef<int64_t> targetShape) {
     auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
     auto shapeAttr =
         rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(targetShape));
