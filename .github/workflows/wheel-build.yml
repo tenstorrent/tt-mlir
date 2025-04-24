@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       # Use the provided docker image from workflow_call or build our own for direct triggers
-      image: ${{ inputs.docker-image != '' && inputs.docker-image || 'ghcr.io/tenstorrent/tt-mlir-dev:latest' }}
+      image: ${{ inputs.docker-image != '' && inputs.docker-image || 'ghcr.io/tenstorrent/tt-mlir/tt-mlir-ci-ubuntu-22-04:latest' }}
 
     steps:
       - name: Maximize space
@@ -59,7 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       # Use the provided docker image from workflow_call or build our own for direct triggers
-      image: ${{ inputs.docker-image != '' && inputs.docker-image || 'ghcr.io/tenstorrent/tt-mlir-dev:latest' }}
+      image: ${{ inputs.docker-image != '' && inputs.docker-image || 'ghcr.io/tenstorrent/tt-mlir/tt-mlir-ci-ubuntu-22-04:latest' }}
 
     steps:
       - uses: actions/checkout@v4
