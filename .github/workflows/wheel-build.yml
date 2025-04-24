@@ -79,6 +79,14 @@ jobs:
       - name: Git safe dir
         run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
 
+      # Add some of John's Bash Dark Magic to Update requirements.txt if possible.
+      - name: Update ttmlir Requirement
+        shell: bash
+        run: |
+          URL=$(curl -s https://api.github.com/repos/tenstorrent/tt-forge/releases | jq -r 'map(select(.prerelease)) | first | .assets | map(select(.browser_download_url | contains("mlir"))) | .[].browser_download_url')
+          echo "$URL" > python/pykernel/requirements.txt
+          echo "Updated requirements.txt with: $URL"
+
       - name: Build pykernel wheel
         shell: bash
         run: |
