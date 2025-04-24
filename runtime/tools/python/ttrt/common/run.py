@@ -570,7 +570,7 @@ class Run:
 
                         for i in program.output_tensors:
                             outputs.append(
-                                ttrt.runtime.create_owned_tensor(
+                                ttrt.runtime.create_tensor(
                                     i.data_ptr(),
                                     list(i.shape),
                                     list(i.stride()),
