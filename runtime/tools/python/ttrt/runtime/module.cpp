@@ -308,6 +308,14 @@ PYBIND11_MODULE(_C, m) {
         return os.str();
       });
 
+  py::class_<tt::runtime::debug::PerfEnv>(m, "DebugPerfEnv")
+      .def_static("get", &tt::runtime::debug::PerfEnv::get)
+      .def("__str__", [](const tt::runtime::debug::PerfEnv &env) {
+        std::stringstream os;
+        os << env;
+        return os.str();
+      });
+
   py::class_<tt::runtime::debug::Hooks>(m, "DebugHooks")
       .def_static(
           "get",

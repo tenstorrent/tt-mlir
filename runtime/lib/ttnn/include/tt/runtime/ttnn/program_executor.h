@@ -73,8 +73,7 @@ private:
    */
   void runOperation(const ::tt::target::ttnn::Operation *op);
 
-  void dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice,
-                                std::uint32_t sampleRate = 1000);
+  void dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice);
 };
 
 } // namespace tt::runtime::ttnn
