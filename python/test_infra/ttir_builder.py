@@ -1002,7 +1002,8 @@ class TTIRBuilder:
 
     def softmax(self, in0: Operand, dimension: int = 1) -> OpView:
         return self.op_proxy(
-            torch.softmax,
+            # torch.softmax,
+            torch.nn.functional.softmax,
             ttir.SoftmaxOp,
             [in0],
             golden_kwargs={"dim": dimension},
