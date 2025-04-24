@@ -61,12 +61,12 @@ getStorageTypeMinMax(IntegerType intType, Location loc) {
 // Convert quantized type to use the target integer bit width.
 static Type convertQuantizedType(quant::QuantizedType quantType,
                                  IntegerType targetIntType, Location loc,
-                                 std::shared_ptr<bool> conversionFailed) {
+                                 bool &conversionFailed) {
   // Use the target integer type's min and max values.
   std::optional<std::pair<int64_t, int64_t>> storageTypeMinMax =
       getStorageTypeMinMax(targetIntType, loc);
   if (!storageTypeMinMax) {
-    *conversionFailed = true;
+    conversionFailed = true;
     return nullptr;
   }
   int64_t storageTypeMin = storageTypeMinMax->first;
@@ -80,7 +80,7 @@ static Type convertQuantizedType(quant::QuantizedType quantType,
                        std::to_string(
                            quantType.getStorageType().getIntOrFloatBitWidth()) +
                        ". Out of range.");
-    *conversionFailed = true;
+    conversionFailed = true;
     return nullptr;
   }
 
@@ -105,16 +105,14 @@ class QuantDataTypeConverter : public TypeConverter {
 private:
   IntegerType targetIntType;
   Location loc;
-  std::shared_ptr<bool> conversionFailed;
 
 public:
   QuantDataTypeConverter(IntegerType targetIntType, Location loc,
-                         std::shared_ptr<bool> conversionFailed)
-      : targetIntType(targetIntType), loc(loc),
-        conversionFailed(conversionFailed) {
+                         bool &conversionFailed)
+      : targetIntType(targetIntType), loc(loc) {
     addConversion([](Type type) -> Type { return type; });
 
-    addConversion([targetIntType, loc, conversionFailed](
+    addConversion([targetIntType, loc, &conversionFailed](
                       RankedTensorType type) -> std::optional<Type> {
       Type elementType = type.getElementType();
       if (!mlir::isa<quant::QuantizedType>(elementType)) {
@@ -134,7 +132,7 @@ public:
                                    type.getEncoding());
     });
 
-    addConversion([targetIntType, loc, conversionFailed](
+    addConversion([targetIntType, loc, &conversionFailed](
                       quant::QuantizedType type) -> std::optional<Type> {
       return convertQuantizedType(type, targetIntType, loc, conversionFailed);
     });
@@ -162,12 +160,12 @@ struct TTIRQuantDataTypeConversionPass
       return;
     }
     RewritePatternSet patterns(context);
-    std::shared_ptr<bool> conversionFailed = std::make_shared<bool>(false);
+    bool conversionFailed = false;
     QuantDataTypeConverter converter(targetIntType, getOperation()->getLoc(),
                                      conversionFailed);
     patterns.add<UniformTypeRewriter>(converter, context);
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))) ||
-        *conversionFailed) {
+        conversionFailed) {
       signalPassFailure();
       return;
     }
