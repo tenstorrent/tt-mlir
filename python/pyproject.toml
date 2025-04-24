@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0", "cmake", "pybind11", "nanobind", "wheel", "pip"]
+requires = ["setuptools>=61.0", "cmake", "pybind11", "nanobind", "wheel", "pip", "ninja"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -20,3 +20,10 @@ classifiers = [
 
 # We will dynamically provide `version` and `dependencies` in setup.py
 dynamic = ["version", "dependencies"]
+
+[tool.cibuildwheel]
+build = "cp310-manylinux_x86_64*"
+skip = "*-musllinux_*"
+
+[tool.cibuildwheel.linux]
+manylinux-x86_64-image = "ttmlir-cibuildwheel-image:latest"
