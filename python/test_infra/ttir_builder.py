@@ -1005,7 +1005,7 @@ class TTIRBuilder:
             ttir.SoftmaxOp,
             [in0],
             golden_kwargs={"dim": dimension},
-            organize_ttir_args=lambda i, o, shape: (
+            organize_ttir_args=lambda i, o, _: (
                 self._get_type(o),
                 i[0],
                 o,

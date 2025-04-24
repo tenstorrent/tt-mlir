@@ -883,11 +883,13 @@ def test_fill_cache(shapes: List[Shape], request):
     )
 
 
-@pytest.mark.parametrize("shapes", [[512, 1024]])
-def test_softmax(shapes: List[Shape], request):
+@pytest.mark.parametrize("shape", [(512, 1024)])
+@pytest.mark.parametrize("dimension", [-1])
+def test_softmax(shape: List[Shape], dimension: int, request):
     def softmax(in0: Operand, builder: TTIRBuilder):
-        return builder.softmax(in0, dimension=-1)
-    compile_to_flatbuffer(softmax, shapes, test_base=request.node.name)
+        return builder.softmax(in0, dimension=dimension)
+
+    compile_to_flatbuffer(softmax, [shape], test_base=request.node.name)
 
 
 @pytest.mark.run_error
