@@ -27,3 +27,7 @@ skip = "*-musllinux_*"
 
 [tool.cibuildwheel.linux]
 manylinux-x86_64-image = "ttmlir-cibuildwheel-image:latest"
+
+before-all = """
+dnf install -y lld
+"""

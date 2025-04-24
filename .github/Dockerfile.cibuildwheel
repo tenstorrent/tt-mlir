@@ -34,6 +34,9 @@ RUN mkdir -p $TTMLIR_TOOLCHAIN_DIR && mkdir -p /build
 
 RUN git clone https://github.com/tenstorrent/tt-mlir.git /build/tt-mlir
 
+# Checkout to dev branch
+RUN cd /build/tt-mlir && git pull && git checkout vprajapati/issue-3060
+
 RUN cd /build/tt-mlir && \
     source env/activate && \
     cmake -B env/build env && \
