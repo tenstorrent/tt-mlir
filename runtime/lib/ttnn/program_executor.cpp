@@ -136,7 +136,7 @@ void ProgramExecutor::dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice,
                                                std::uint32_t sampleRate) {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
   static uint32_t counter = 0;
-  if (counter++ >= sampleRate) {
+  if (counter++ >= debug::Env::get().getDumpDeviceRate()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +
                                            std::to_string(counter) +
                                            " operations");
