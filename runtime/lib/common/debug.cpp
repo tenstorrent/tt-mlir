@@ -21,7 +21,7 @@ Hooks::get(std::optional<debug::Hooks::CallbackFn> preOperatorCallback,
   return config;
 }
 
-#endif
+#endif // TT_RUNTIME_DEBUG
 
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
 
@@ -30,6 +30,6 @@ PerfEnv const &PerfEnv::get(std::uint32_t dumpDeviceRate) {
   return config;
 }
 
-} // namespace tt::runtime::debug
+#endif // TT_RUNTIME_ENABLE_PERF_TRACE
 
-#endif
+} // namespace tt::runtime::debug
