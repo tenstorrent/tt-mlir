@@ -17,11 +17,11 @@ module {
       // CHECK: "ttkernel.cb_reserve_back"
       scf.if %0 {
         // CHECK: %{{[0-9]+}} = "ttkernel.get_compile_time_arg_val"
-        %1 = ttir.get_global_operand(0) : memref<8x8x1x3x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 12288 + d3 * 4096)>, #l1_>
+        %1 = ttir.get_global_operand(0) : memref<8x8x1x3x!tt.tile<32x32, f32>, #tt.shard<12288x4096>, #l1_>
         // CHECK: %{{[0-9]+}} = "ttkernel.get_write_ptr"
         // CHECK: %{{[0-9]+}} = "ttkernel.get_noc_addr"
         // CHECK: "ttkernel.noc_async_read"
-        %tx = ttir.dma %1 [%c0, %arg7, %c0, %c0], %arg0 [%c0, %c0] : (memref<8x8x1x3x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 12288 + d3 * 4096)>, #l1_>, memref<1x3x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
+        %tx = ttir.dma %1 [%c0, %arg7, %c0, %c0], %arg0 [%c0, %c0] : (memref<8x8x1x3x!tt.tile<32x32, f32>, #tt.shard<12288x4096>, #l1_>, memref<1x3x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
         // CHECK: "ttkernel.noc_async_read_barrier"
         ttir.dma_wait %tx
         // ttir.semaphore_wait %arg3, %c7 reset %c0
