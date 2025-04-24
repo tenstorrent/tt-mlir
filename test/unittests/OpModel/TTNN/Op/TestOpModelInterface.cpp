@@ -178,11 +178,11 @@ TEST_F(OpModelBase, SqrtOpInterface) {
   auto input = createEmptyTensor(tensorShape);
   auto outputType = createRankedTensorType(tensorShape);
 
-  auto relu = builder.create<SqrtOp>(builder.getUnknownLoc(), outputType,
+  auto sqrt = builder.create<SqrtOp>(builder.getUnknownLoc(), outputType,
                                      ::mlir::ValueRange{input});
 
   // test SqrtOp interface
-  auto constraintsExp = getOpConstraints(relu.getOperation());
+  auto constraintsExp = getOpConstraints(sqrt.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
@@ -194,7 +194,7 @@ TEST_F(OpModelBase, SqrtOpInterface) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
-  auto runtimeExp = getOpRuntime(relu.getOperation());
+  auto runtimeExp = getOpRuntime(sqrt.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
