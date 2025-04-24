@@ -444,9 +444,9 @@ struct GatherToEmbeddingConversionPattern
   using OpConversionPattern<ttir::GatherOp>::OpConversionPattern;
 
   /**
-   * Validates gather op constraints for embedding conversion
+   * Validates Gather Op constraints for embedding conversion
    *
-   * Enforces constraints on gather operation to ensure valid embedding
+   * Enforces constraints on Gather Op to ensure valid embedding
    * transformation:
    * - start indices tensor isn't 1D when we are indexing multiple dims
    * - operandBatchingDims and startIndicesBatchingDims are none
@@ -471,7 +471,7 @@ struct GatherToEmbeddingConversionPattern
     if (startIndexMap.size() > 1 && startIndicesShape.size() == 1) {
       return rewriter.notifyMatchFailure(
           op,
-          "Did not satisfy indexVectorDim != 0 when startIndexMap.size() > 1");
+          "Did not satisfy startIndicesShape.size() > 1 when startIndexMap.size() > 1");
     }
 
     // Check if there are no batching dims.
@@ -515,27 +515,27 @@ struct GatherToEmbeddingConversionPattern
    * necessary)
    *
    * There is no TTNN Gather support.
-   * TTIR Gather Op is lowered into TTIR Embedding Op.
+   * Gather Op is lowered into Embedding Op Op.
    * Torch embeddings are lowered into Gather Op.
    * Most models use Gather Op to implement simple embeddings.
    * If encountered more complicated Gather Op implementations, they can be
    * lowered into slice/ concat/ etc.
    *
-   * TTIR Embedding Op expects:
+   * Embedding Op expects:
    * - weights to be strictly 2D. We index the first dimension of weights, and
    * take slices from the full second dimension.
    * - input can be 1D or 2D
    * - output shape is the shape of input with the last dimension of the
    * weights appended
    *
-   *  - TTIR Gather input becomes TTIR Embedding weights. Because it can have
+   *  - Gather Op input becomes Embedding Op weights. Because it can have
    * any number and order of dimensions, it is permuted and reshaped
    * (flattened).
-   *  - TTIR Gather startIndices becomes TTIR Embedding input. Because it can
+   *  - Gather Op startIndices becomes Embedding Op input. Because it can
    * have any number and order of dimensions, it is permuted and reshaped
    * (flattened).
-   * - TTIR Embedding output needs to be reshaped to recover lost
-   * dimensions and permuted as TTIR Gather output dimensions can be in any
+   * - Embedding Op output needs to be reshaped to recover lost
+   * dimensions and permuted as Gather Op output dimensions can be in any
    * order.
    */
 
