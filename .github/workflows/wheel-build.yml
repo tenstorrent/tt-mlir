@@ -84,7 +84,7 @@ jobs:
         shell: bash
         run: |
           URL=$(curl -s https://api.github.com/repos/tenstorrent/tt-forge/releases | jq -r 'map(select(.prerelease)) | first | .assets | map(select(.browser_download_url | contains("mlir"))) | .[].browser_download_url')
-          echo "$URL" > python/pykernel/requirements.txt
+          echo "ttmlir @ $URL" > python/pykernel/requirements.txt
           echo "Updated requirements.txt with: $URL"
 
       - name: Build pykernel wheel
