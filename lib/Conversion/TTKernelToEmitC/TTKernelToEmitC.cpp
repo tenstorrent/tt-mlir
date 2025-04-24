@@ -637,6 +637,8 @@ public:
         TTMetalToEmitCOpaqueRewriter<ttkernel::MaxTilesOp>,
         TTMetalToEmitCOpaqueRewriter<ttkernel::ReduceInitOp>,
         TTMetalToEmitCOpaqueRewriter<ttkernel::ReduceTileOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::MatmulTilesOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::MatmulInitOp>,
         TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>,
         TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOp>,
         TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadTileOp>,
@@ -708,6 +710,8 @@ public:
       builder->create<emitc::IncludeOp>(loc, "llk_defs.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/common.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/matmul.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/tilize.h",
                                         /*isStandard=*/false);
