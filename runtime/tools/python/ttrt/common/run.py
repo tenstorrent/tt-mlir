@@ -579,19 +579,20 @@ class Run:
                                 )
                             )
                         # load output golden tensors
-                        golden_outputs_torch = []
-                        for idx in range(0, len(program.output_tensors)):
-                            golden_tensor = bin.fbb.get_debug_info_golden(
-                                f"output_{idx}"
-                            )
-                            if golden_tensor is not None:
-                                golden_tensor_torch = torch.frombuffer(
-                                    golden_tensor,
-                                    dtype=ttrt_datatype_to_torch_dtype(
-                                        golden_tensor.dtype
-                                    ),
-                                ).reshape(golden_tensor.shape)
-                                golden_outputs_torch.append(golden_tensor_torch)
+                        if not self["--disable-golden"]:
+                            golden_outputs_torch = []
+                            for idx in range(0, len(program.output_tensors)):
+                                golden_tensor = bin.fbb.get_debug_info_golden(
+                                    f"output_{idx}"
+                                )
+                                if golden_tensor is not None:
+                                    golden_tensor_torch = torch.frombuffer(
+                                        golden_tensor,
+                                        dtype=ttrt_datatype_to_torch_dtype(
+                                            golden_tensor.dtype
+                                        ),
+                                    ).reshape(golden_tensor.shape)
+                                    golden_outputs_torch.append(golden_tensor_torch)
 
                         event = None
 
@@ -711,7 +712,9 @@ class Run:
                                     )
 
                                     # compare program level golden.
-                                    if i < len(golden_outputs_torch):
+                                    if (not self["--disable-golden"]) and (
+                                        i < len(golden_outputs_torch)
+                                    ):
                                         self.logging.debug(
                                             f"executing program level golden comparison for output_{i}"
                                         )
