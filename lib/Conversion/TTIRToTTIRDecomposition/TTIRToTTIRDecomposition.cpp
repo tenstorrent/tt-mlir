@@ -1437,52 +1437,6 @@ public:
 };
 } // namespace
 
-// tt-metal does not support 'keepdim' attribute for argmax op and always
-// generate output with the same rank as input tensor. Decompose the op to
-// argmax followed by reshape if keepdim = False.
-namespace {
-struct ArgMaxOpKeepDimConversionPattern
-    : public OpConversionPattern<ttir::ArgMaxOp> {
-public:
-  using OpConversionPattern<ttir::ArgMaxOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::ArgMaxOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    bool keepDim = op.getKeepDim();
-    if (keepDim) {
-      return failure();
-    }
-
-    RankedTensorType inputType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(op.getInput().getType()));
-    RankedTensorType outputType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(op.getOutput().getType()));
-    llvm::SmallVector<int64_t> outputShapeVec =
-        ttnn::workarounds::decomposition::calculateNewReduceShape(
-            inputType, op.getDimArg());
-    RankedTensorType newOutputType = RankedTensorType::get(
-        outputShapeVec, outputType.getElementType(), outputType.getEncoding());
-
-    ttir::EmptyOp argMaxOutputTensor = rewriter.create<ttir::EmptyOp>(
-        op.getLoc(), outputShapeVec, outputType.getElementType());
-
-    ttir::ArgMaxOp newArgMaxOp = rewriter.create<mlir::tt::ttir::ArgMaxOp>(
-        op->getLoc(), newOutputType, op.getInput(), argMaxOutputTensor,
-        /*keepDim*/ true, op.getDimArgAttr());
-
-    ttir::EmptyOp reshapeOutputTensor = rewriter.create<ttir::EmptyOp>(
-        op.getLoc(), outputType.getShape(), outputType.getElementType());
-    mlir::ArrayAttr shapeAttr = rewriter.getI32ArrayAttr(
-        llvm::SmallVector<int32_t>(outputType.getShape()));
-    rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(
-        op, outputType, newArgMaxOp, reshapeOutputTensor, shapeAttr);
-
-    return success();
-  }
-};
-} // namespace
-
 // TTNN does not support reduction operation for logical or. So this reduction
 // is performed by decomposing/converting into reduction sum (ttnn.sum op).
 // If ttnn.sum output is zero then reduce_or output is false; otherwise the
@@ -1520,7 +1474,6 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<DotGeneralToMatmulConversionPattern>(typeConverter, ctx);
   patterns.add<ReductionAndPattern>(typeConverter, ctx);
   patterns.add<ReductionOrPattern>(typeConverter, ctx);
-  patterns.add<ArgMaxOpKeepDimConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
