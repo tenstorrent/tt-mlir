@@ -34,7 +34,7 @@ LogicalResult EmbeddingOpSqueezeWeightRewritePattern::matchAndRewrite(
 
   // Create reshape op to squeeze weight tensor to 4D.
   ReshapeOp reshapeWeightOp = ttir_to_ttnn::utils::generateReshape(
-      srcOp.getInput(), adaptedWeightShape, rewriter);
+      srcOp.getWeight(), adaptedWeightShape, rewriter);
 
   rewriter.modifyOpInPlace(
       srcOp, [&]() { srcOp.getWeightMutable().assign(reshapeWeightOp); });
