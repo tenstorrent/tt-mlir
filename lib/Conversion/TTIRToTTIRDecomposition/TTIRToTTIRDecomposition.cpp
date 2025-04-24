@@ -671,7 +671,7 @@ private:
     ttir::TypecastOp typecastOp = ttir::utils::createDPSOp<ttir::TypecastOp>(
         rewriter, op->getLoc(), typecastResultType, startIndicesPermuted);
 
-    // Const op with correct weights to matmul indices with.
+    // Const op with correct strides to matmul indices with.
     llvm::SmallVector<float> strides(numIndexingDims);
     int dimensionOffset = 1;
     for (int i = numIndexingDims - 1; i >= 0; i--) {
