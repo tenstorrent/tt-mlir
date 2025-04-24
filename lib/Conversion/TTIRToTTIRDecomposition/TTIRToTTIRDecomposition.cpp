@@ -560,6 +560,8 @@ struct GatherToEmbeddingConversionPattern
     // single (flattened) indexing dim.
     auto startIndicesTransformed = op.getStartIndices();
     if (numIndexingDims > 1) {
+      op->emitWarning("End results might be incorrect when indexing multiple "
+                      "dimensions of input because of typecast ops.");
       startIndicesTransformed = transformStartIndices(
           rewriter, inputPermuted.getType().getShape(), op);
     }
