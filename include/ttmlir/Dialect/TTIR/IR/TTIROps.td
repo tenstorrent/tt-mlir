@@ -1403,6 +1403,13 @@ def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d"> {
                          I32Attr:$groups,
                          DefaultValuedAttr<TTIR_FlattenedCompatInfoAttr, "nullptr">:$flattened_compat_info);
 
+    let extraClassDeclaration = [{
+      // Get number of output channels
+      int64_t getOutputChannelSize();
+      bool verifyBias(llvm::ArrayRef<int64_t> biasDims);
+      MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
+    }];
+
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;

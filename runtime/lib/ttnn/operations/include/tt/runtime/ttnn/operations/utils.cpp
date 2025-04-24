@@ -251,42 +251,97 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::MatmulOp *op) {
 }
 
 ::ttnn::operations::conv::conv2d::Conv2dConfig
-createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *memcfg) {
-  std::optional<::ttnn::TensorMemoryLayout> shardLayout;
-  if (memcfg->shard_layout()) {
-    shardLayout = ::tt::runtime::ttnn::utils::toTTNNTensorMemoryLayout(
-        memcfg->shard_layout().value());
-  }
-  std::optional<::ttnn::CoreRangeSet> coreGrid;
-  if (memcfg->core_grid()) {
-    coreGrid =
-        ::tt::runtime::ttnn::utils::toTTNNCoreRangeSet(*memcfg->core_grid());
+createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
+  ::ttnn::operations::conv::Conv2dConfig conv2dConfig;
+
+  if (config->dtype()) {
+    conv2dConfig.dtype =
+        ::tt::runtime::ttnn::utils::toTTNNDataType(*config->dtype());
   }
 
-  ::ttnn::operations::conv::conv2d::Conv2dConfig conv2dConfig = {
-      .dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(memcfg->dtype()),
-      .weights_dtype =
-          ::tt::runtime::ttnn::utils::toTTNNDataType(memcfg->weights_dtype()),
-      .activation = memcfg->activation()->str(),
-      .input_channels_alignment = memcfg->input_channels_alignment(),
-      .deallocate_activation = memcfg->deallocate_activation(),
-      .reallocate_halo_output = memcfg->reallocate_halo_output(),
-      .act_block_h_override = memcfg->act_block_h_override(),
-      .act_block_w_div = memcfg->act_block_w_div(),
-      .reshard_if_not_optimal = memcfg->reshard_if_not_optimal(),
-      .override_sharding_config = memcfg->override_sharding_config(),
-      .shard_layout = shardLayout,
-      .core_grid = coreGrid,
-      .transpose_shards = memcfg->transpose_shards(),
-      .output_layout =
-          ::tt::runtime::ttnn::utils::toTTNNLayout(memcfg->output_layout()),
-      .preprocess_weights_on_device = memcfg->preprocess_weights_on_device(),
-      .always_preprocess_weights = memcfg->always_preprocess_weights(),
-      .enable_act_double_buffer = memcfg->enable_act_double_buffer(),
-      .enable_weights_double_buffer = memcfg->enable_weights_double_buffer(),
-      .enable_split_reader = memcfg->enable_split_reader(),
-      .enable_subblock_padding = memcfg->enable_subblock_padding(),
-  };
+  if (config->weights_dtype()) {
+    conv2dConfig.weights_dtype =
+        ::tt::runtime::ttnn::utils::toTTNNDataType(*config->weights_dtype());
+  }
+
+  if (config->activation()) {
+    conv2dConfig.activation = config->activation()->str();
+  }
+
+  if (config->input_channels_alignment()) {
+    conv2dConfig.input_channels_alignment = *config->input_channels_alignment();
+  }
+
+  if (config->deallocate_activation()) {
+    conv2dConfig.deallocate_activation = *config->deallocate_activation();
+  }
+
+  if (config->reallocate_halo_output()) {
+    conv2dConfig.reallocate_halo_output = *config->reallocate_halo_output();
+  }
+
+  if (config->act_block_h_override()) {
+    conv2dConfig.act_block_h_override = *config->act_block_h_override();
+  }
+
+  if (config->act_block_w_div()) {
+    conv2dConfig.act_block_w_div = *config->act_block_w_div();
+  }
+
+  if (config->reshard_if_not_optimal()) {
+    conv2dConfig.reshard_if_not_optimal = *config->reshard_if_not_optimal();
+  }
+
+  if (config->override_sharding_config()) {
+    conv2dConfig.override_sharding_config = *config->override_sharding_config();
+  }
+
+  if (config->shard_layout()) {
+    conv2dConfig.shard_layout =
+        ::tt::runtime::ttnn::utils::toTTNNTensorMemoryLayout(
+            *config->shard_layout());
+  }
+
+  if (config->core_grid()) {
+    conv2dConfig.core_grid = std::make_optional(
+        ::tt::runtime::ttnn::utils::toTTNNCoreRangeSet(*config->core_grid()));
+  }
+
+  if (config->transpose_shards()) {
+    conv2dConfig.transpose_shards = *config->transpose_shards();
+  }
+
+  if (config->output_layout()) {
+    conv2dConfig.output_layout =
+        ::tt::runtime::ttnn::utils::toTTNNLayout(*config->output_layout());
+  }
+
+  if (config->preprocess_weights_on_device()) {
+    conv2dConfig.preprocess_weights_on_device =
+        *config->preprocess_weights_on_device();
+  }
+
+  if (config->always_preprocess_weights()) {
+    conv2dConfig.always_preprocess_weights =
+        *config->always_preprocess_weights();
+  }
+
+  if (config->enable_act_double_buffer()) {
+    conv2dConfig.enable_act_double_buffer = *config->enable_act_double_buffer();
+  }
+
+  if (config->enable_weights_double_buffer()) {
+    conv2dConfig.enable_weights_double_buffer =
+        *config->enable_weights_double_buffer();
+  }
+
+  if (config->enable_split_reader()) {
+    conv2dConfig.enable_split_reader = *config->enable_split_reader();
+  }
+
+  if (config->enable_subblock_padding()) {
+    conv2dConfig.enable_subblock_padding = *config->enable_subblock_padding();
+  }
 
   return conv2dConfig;
 }
