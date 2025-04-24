@@ -535,6 +535,10 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
       } else if (auto finishOp = dyn_cast_if_present<tt::ttmetal::FinishOp>(op);
                  finishOp) {
         cqBuilder.appendCommand(target::metal::CreateFinishCommand(fbb), op);
+      } else if (auto getGlobalOp =
+                     dyn_cast_if_present<memref::GetGlobalOp>(op);
+                 getGlobalOp) {
+        cache.getOrCreate(getGlobalOp.getResult(), bufferValueToFlatbuffer, 0);
       } else if (auto funcOp = dyn_cast_if_present<func::FuncOp>(op); funcOp) {
         // Unqualified walk will visit the root op itself last, we should ignore
         // this.
