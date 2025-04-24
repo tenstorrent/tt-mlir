@@ -25,6 +25,8 @@ using namespace mlir::tt;
 
 #include "ttmlir/Dialect/TT/IR/TTOpsEnums.cpp.inc"
 
+#include "ttmlir/Dialect/TT/IR/TTAttrInterfaces.cpp.inc"
+
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.cpp.inc"
 
@@ -1093,19 +1095,14 @@ DeviceAttr::getMemoryMap(std::pair<MemRefType, AffineMap> memrefAndView,
 
 size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType,
                                       size_t pageSize) const {
-  assert(memrefType.getRank() % 2 == 0);
+  DeviceLayoutInterface layout =
+      mlir::cast<DeviceLayoutInterface>(memrefType.getLayout());
   mlir::Type elementType = memrefType.getElementType();
-  uint64_t size = 0;
-  if (mlir::isa<TileType>(elementType)) {
-    auto tileType = mlir::cast<TileType>(elementType);
-    size = tileType.getSizeBytes();
-  } else {
-    size = elementType.getIntOrFloatBitWidth() / 8;
-  }
-
-  auto shardShape = memrefType.getShape().drop_front(memrefType.getRank() / 2);
-  return std::accumulate(shardShape.begin(), shardShape.end(), size,
-                         std::multiplies<uint64_t>());
+  auto tileType = mlir::dyn_cast<TileType>(elementType);
+  uint64_t elementSizeBytes = tileType
+                                  ? tileType.getSizeBytes()
+                                  : elementType.getIntOrFloatBitWidth() / 8;
+  return layout.getShardNumElements(memrefType) * elementSizeBytes;
 }
 
 // Sample the last index in the tensor to get the last addressable element of
