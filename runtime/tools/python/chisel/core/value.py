@@ -52,11 +52,18 @@ class TensorValue:
     def set_device_data(self, data: np.ndarray, program_context):
         # TODO: handle bfloat16
         self.current_data = data
-        if type(data) != np.ndarray:
-            data = np.array(data)
-        data_ptr = data.ctypes.data
+        if isinstance(data, np.ndarray):
+            data_ptr = data.ctypes.data
+        if isinstance(data, torch.Tensor):
+            data_ptr = data.data_ptr()
+
         np_dtype = np_dtype_mapping[self.tensor_ref.tensor.get_dtype()]
-        stride = list(np.array(data.strides, dtype=np_dtype) // data.itemsize)
+        if isinstance(data, np.ndarray):
+            stride = list(np.array(data.strides, dtype=np.int32) // data.itemsize)
+        elif isinstance(data, torch.Tensor):
+            stride = list(
+                np.array(data.stride(), dtype=np.int32) // data.element_size()
+            )
         shape = list(data.shape)
         size = np.prod(data.shape)
         dtype = self.tensor_ref.tensor.get_dtype()

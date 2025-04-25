@@ -55,6 +55,9 @@ class OpMapping:
                 inputs[0] if isinstance(inputs, list) and len(inputs) == 1 else inputs
             )
 
+        if ir_op.name == "ttir.sum":
+            pass
+
         torch_args = {}
         for k, v in self.arg_map.items():
             if k in ir_op.attributes:
@@ -62,16 +65,23 @@ class OpMapping:
                     torch_args[v] = resolve_dense_attr(ir_op.attributes[k]).value
                 elif isinstance(ir_op.attributes[k], ttmlir.ir.DenseI64ArrayAttr):
                     torch_args[v] = [x for x in ir_op.attributes[k]]
+                elif isinstance(ir_op.attributes[k], ttmlir.ir.DenseI32ArrayAttr):
+                    torch_args[v] = [x for x in ir_op.attributes[k]]
                 elif isinstance(ir_op.attributes[k], ttmlir.ir.ArrayAttr):
                     torch_args[v] = [x.value for x in ir_op.attributes[k]]
                 else:
                     torch_args[v] = ir_op.attributes[k].value
-            if v == "dim":
-                torch_args[v] = torch_args[v][0]
+            # if v == "dim": # this breaks sum across multiple axes
+            #    torch_args[v] = torch_args[v][0]
 
         if ir_op.name == "ttir.constant":
             torch_args["dtype"] = ttir_dtype_maps[
                 str(ir_op.attributes[0].attr.type.element_type)
+            ]
+
+        if ir_op.name == "ttir.typecast":
+            torch_args["dtype"] = ttir_dtype_maps[
+                str(ir_op.outputs[0].type.element_type)
             ]
 
         if not self.unpack_inputs:
@@ -89,6 +99,10 @@ class OpMapping:
 
 
 def custom_broadcast(x, size=None):
+    if size is None:
+        return x
+    while len(x.shape) < len(size):
+        x = x.unsqueeze(0)
     for i in range(len(size)):
         try:
             if size[i] < x.shape[i]:
@@ -107,15 +121,62 @@ def custom_where(a, b, c):
 
 
 def custom_typecast(x, dtype=None):
+    print(f"Debug: custom_typecast {x.shape} {dtype}")
     if dtype is None:
         return x
-    return x.to(dtype)
+    res = x.to(dtype)
+
+    return res
 
 
 def custom_constant(*args, **kwargs):
     data = kwargs["data"]
     kwargs.pop("data")
     return torch.tensor([data], *args, **kwargs)
+
+
+def custom_conv2d(*args, **kwargs):
+    # Convert from channels last (NHWC) to channels first (NCHW) for PyTorch
+    I = args[0].permute(0, 3, 1, 2)
+    weight = args[1].permute(0, 1, 2, 3)
+
+    print(f"Debug: custom_conv2d {I}\n{weight}")
+
+    # Get and validate kwargs with defaults
+    padding = kwargs.get("padding", 0)
+    if isinstance(padding, list):
+        if all(e == padding[0] for e in padding):
+            padding = (padding[0], padding[0])
+        else:
+            raise ValueError("Unsupported padding format")
+
+    stride = kwargs.get("stride", 1)
+    if isinstance(stride, list):
+        if all(e == stride[0] for e in stride):
+            stride = stride[0]
+        else:
+            raise ValueError("Unsupported stride format")
+
+    dilation = kwargs.get("dilation", 1)
+    if isinstance(dilation, list):
+        if all(e == dilation[0] for e in dilation):
+            dilation = dilation[0]
+        else:
+            raise ValueError("Unsupported dilation format")
+
+    groups = kwargs.get("groups", 1)
+    if isinstance(groups, list):
+        if len(groups) == 1:
+            groups = groups[0]
+        else:
+            raise ValueError("Unsupported groups format")
+
+    result = torch.nn.functional.conv2d(
+        I, weight, stride=stride, padding=padding, dilation=dilation, groups=groups
+    )
+
+    # Convert back to channels last (NHWC)
+    return result.permute(0, 2, 3, 1)
 
 
 ttir_to_torch_mapping = {
@@ -155,8 +216,20 @@ ttir_to_torch_mapping = {
         torch.sum, {"dim_arg": "dim", "keep_dim": "keepdim"}, unpack_inputs=False
     ),
     "ttir.tanh": OpMapping(torch.tanh, unpack_inputs=False),
-    "ttir.typecast": OpMapping(custom_typecast, {"dtype": "dtype"}),
+    "ttir.typecast": OpMapping(
+        custom_typecast, {"dtype": "dtype"}, unpack_inputs=False
+    ),
     "ttir.where": OpMapping(custom_where),
     "ttir.concat": OpMapping(torch.concat, {"dim": "dim"}, unpack_inputs=False),
     "ttir.embedding": OpMapping(torch.nn.functional.embedding),
+    "ttir.conv2d": OpMapping(
+        custom_conv2d,
+        {
+            "stride": "stride",
+            "padding": "padding",
+            "dilation": "dilation",
+            "groups": "groups",
+        },
+    ),
+    "ttir.minimum": OpMapping(torch.minimum),
 }
