@@ -30,17 +30,17 @@ mlir::tt::ttir::detail::verifyBroadcastable(mlir::Operation *op) {
   if (auto dpsOp = mlir::dyn_cast<mlir::DestinationStyleOpInterface>(op)) {
     assert(dpsOp.getNumDpsInits() == 1 &&
            "Expected a single dps init for broadcastable operation");
-    operands.drop_back(dpsOp.getNumDpsInits());
+    operands = operands.drop_back(dpsOp.getNumDpsInits());
   }
-  auto operandsShape = llvm::map_range(operands, getShape);
+  auto operandShapes = llvm::map_range(operands, getShape);
   llvm::SmallVector<int64_t> broadcastedShape;
-  for (llvm::ArrayRef<int64_t> operandShape : operandsShape) {
+  for (llvm::ArrayRef<int64_t> operandShape : operandShapes) {
     llvm::SmallVector<int64_t> prevBroadcastedShape = broadcastedShape;
     if (!mlir::OpTrait::util::getBroadcastedShape(
             prevBroadcastedShape, operandShape, broadcastedShape)) {
       return op->emitOpError()
              << "operand shape (" << operandShape
-             << ") is not broadcast compatible with inferred operands shape ("
+             << ") is not broadcast compatible with inferred operand shapes ("
              << prevBroadcastedShape << ")";
     }
   }
@@ -51,8 +51,9 @@ mlir::tt::ttir::detail::verifyBroadcastable(mlir::Operation *op) {
   llvm::SmallVector<int64_t> resultShape(getShape(op->getResult(0)));
   if (broadcastedShape != resultShape) {
     return op->emitOpError()
-           << "result shape (" << resultShape << ") must match operands shape ("
-           << operandsShape << ") after broadcasting";
+           << "result shape (" << resultShape
+           << ") doesn't match expected shape after broadcasting ("
+           << broadcastedShape << ")";
   }
 
   return success();
