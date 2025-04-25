@@ -345,6 +345,55 @@ private:
 
 // Common implementation shared between passes
 namespace {
+// Deduplicate operations with TTDuplicateConstEvalTrait in a function; assume
+// any op with TTDuplicateConstEvalTrait is equivalent to the same op with the
+// same attrs.
+static void deduplicateSharedOps(func::FuncOp funcOp) {
+  // Map from operation signature to first instance
+  using OpKey = std::pair<StringRef, DictionaryAttr>;
+  llvm::DenseMap<OpKey, Operation *> sharedOps;
+
+  // Collect operations that need to be erased
+  SmallVector<Operation *, 8> opsToErase;
+
+  for (auto &block : funcOp.getBlocks()) {
+    for (auto &op : block) {
+      if (op.hasTrait<mlir::tt::Trait::TTDuplicateConstEvalTrait>()) {
+        // Create a key based on operation name and all attributes
+        StringRef opName = op.getName().getStringRef();
+        DictionaryAttr attrs = op.getAttrDictionary();
+
+        OpKey key = std::make_pair(opName, attrs);
+
+        // If this is the first instance with these attributes, record it
+        auto [it, inserted] = sharedOps.insert({key, &op});
+        if (inserted) {
+          // This was the first instance with these attributes, no need to
+          // substite.
+          continue;
+        }
+
+        // This is a duplicate, replace its uses with the first instance.
+        Operation *firstOp = it->second;
+        // Replace all uses of this op's results with the first instance's
+        // results.
+        for (size_t i = 0; i < op.getNumResults(); ++i) {
+          op.getResult(i).replaceAllUsesWith(firstOp->getResult(i));
+        }
+
+        // Mark for later erasure to ensure we don't invalidate the block we're
+        // stepping through.
+        opsToErase.push_back(&op);
+      }
+    }
+  }
+
+  // Now erase all duplicate operations.
+  for (Operation *op : opsToErase) {
+    op->erase();
+  }
+}
+
 // Helper to inline a const-eval function
 static void inlineConstEvalFunction(mlir::func::FuncOp funcOp,
                                     mlir::tt::LoadCachedOp callOp,
@@ -397,10 +446,9 @@ static void undoConstEvalImpl(mlir::ModuleOp module,
   OpBuilder builder(context);
 
   // Find all const-eval functions and their callers
-  llvm::DenseMap<mlir::func::FuncOp,
-                 llvm::SmallVector<mlir::tt::LoadCachedOp, 4>>
-      funcToCalls;
+  llvm::DenseMap<mlir::func::FuncOp, mlir::tt::LoadCachedOp> funcToCall;
   llvm::SmallVector<mlir::func::FuncOp, 4> constEvalFuncs;
+  llvm::SmallVector<mlir::func::FuncOp, 4> parentFuncs;
 
   // Find all const-eval functions
   module.walk([&](mlir::func::FuncOp funcOp) {
@@ -414,29 +462,34 @@ static void undoConstEvalImpl(mlir::ModuleOp module,
     mlir::StringRef calleeName = loadOp.getCallee();
     auto funcOp = module.lookupSymbol<mlir::func::FuncOp>(calleeName);
     assert(funcOp && funcOp->hasAttr("const_eval"));
-    funcToCalls[funcOp].push_back(loadOp);
+    auto [_, inserted] = funcToCall.insert({funcOp, loadOp});
+    assert(inserted && "Found const-eval func used more than once!");
   });
 
   // Inline each const-eval function
   for (auto funcOp : constEvalFuncs) {
-    auto callsIt = funcToCalls.find(funcOp);
-    if (callsIt == funcToCalls.end())
-      continue;
-
-    auto &calls = callsIt->second;
-    for (auto callOp : calls) {
-      inlineConstEvalFunction(funcOp, callOp, builder);
+    auto callIt = funcToCall.find(funcOp);
+    assert(callIt != funcToCall.end() &&
+           "Found const-eval func that was never called!");
+    mlir::tt::LoadCachedOp &callOp = callIt->second;
+    // Get the parent function of this call
+    mlir::func::FuncOp parentFunc =
+        callOp->getParentOfType<mlir::func::FuncOp>();
+    if (parentFunc) {
+      parentFuncs.emplace_back(parentFunc);
     }
 
-    // Mark function for deletion
-    funcOp->setAttr("to_delete", builder.getUnitAttr());
+    inlineConstEvalFunction(funcOp, callOp, builder);
+  }
+
+  // Deduplicate shared ops in each function where we performed inlining
+  for (auto funcOp : parentFuncs) {
+    deduplicateSharedOps(funcOp);
   }
 
   // Delete inlined functions
   for (auto funcOp : constEvalFuncs) {
-    if (funcOp->hasAttr("to_delete")) {
-      funcOp.erase();
-    }
+    funcOp.erase();
   }
 }
 } // namespace
@@ -469,7 +522,6 @@ public:
     mlir::ModuleOp module = this->getOperation();
     llvm::SmallVector<func::FuncOp, 4> functionsToProcess;
 
-    // TODO (vwells): should we gate this with an option maybe?
     bool hasExistingConstEvalFuncs = false;
     module.walk([&](func::FuncOp funcOp) {
       if (funcOp->hasAttr("const_eval")) {
@@ -672,5 +724,4 @@ private:
   }
 };
 } // namespace
-
 } // namespace mlir::tt::transforms
