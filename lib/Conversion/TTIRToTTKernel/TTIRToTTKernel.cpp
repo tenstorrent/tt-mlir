@@ -441,9 +441,13 @@ public:
       auto srcOffsetInt = rewriter.create<arith::IndexCastOp>(
           op.getLoc(), rewriter.getI32Type(), srcOffset);
 
-      auto srcAddr = rewriter.create<arith::AddIOp>(
-          op.getLoc(), srcOffsetInt,
-          adaptor.getSrc());
+      auto srcAddrAsInt =
+          rewriter
+              .create<UnrealizedConversionCastOp>(
+                  op.getLoc(), rewriter.getI32Type(), adaptor.getSrc())
+              ->getResult(0);
+      auto srcAddr = rewriter.create<arith::AddIOp>(op.getLoc(), srcOffsetInt,
+                                                    srcAddrAsInt);
 
       auto size =
           i32(rewriter, op->getLoc(),
