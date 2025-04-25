@@ -80,11 +80,6 @@ set(INCLUDE_DIRS
     ${METAL_SRC_DIR}/ttnn
     ${METAL_SRC_DIR}/ttnn/cpp
     ${METAL_SRC_DIR}/ttnn/cpp/ttnn
-    ${METAL_SRC_DIR}/ttnn/cpp/ttnn/deprecated
-
-    # TODO: This needs to be copied locally to preserve the "standalonedness"
-    # # TT_MLIR Runtime
-    # $ENV{TT_MLIR_HOME}/runtime/lib/ttnn
 )
 
 # Link directories

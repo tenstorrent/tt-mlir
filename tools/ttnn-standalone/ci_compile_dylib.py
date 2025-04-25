@@ -59,11 +59,6 @@ def run_cmake_setup(args):
     if args.metal_lib_dir:
         cmake_command.append(f"-DMETAL_LIB_DIR={args.metal_lib_dir}")
 
-    # # Print metal_src_dir and metal_lib_dir
-    # print(f"Setting up cmake environment with:")
-    # print(f"  METAL_SRC_DIR: {args.metal_src_dir}")
-    # print(f"  METAL_LIB_DIR: {args.metal_lib_dir}")
-
     try:
         result = subprocess.run(
             cmake_command,
@@ -121,7 +116,6 @@ def compile_shared_object(cpp_file_path, output_dir, args):
             "cmake",
             "--build",
             standalone_build_dir,
-            # "--verbose",
             "--",
             "ttnn-dylib",
         ]
@@ -186,7 +180,7 @@ def parse_arguments():
     # TODO: Verify that either all group arguments are provided or none
     #
     group = parser.add_argument_group(
-        "dirs", description="Directories needed from copilation"
+        "dirs", description="Overrides for metal-src-dir and metal-lib-dir"
     )
     parser.add_argument(
         "--metal-src-dir",
