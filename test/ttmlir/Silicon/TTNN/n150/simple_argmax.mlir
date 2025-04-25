@@ -37,4 +37,26 @@ module attributes {} {
     %1 = "ttir.argmax"(%arg0, %0) <{dim_arg = [3 : i32], keep_dim = false}> : (tensor<1x1x128x64xf32>, tensor<1x1x128xi32>) -> tensor<1x1x128xi32>
     return %1 : tensor<1x1x128xi32>
   }
+
+  func.func public @argmax_all_reduce(%arg0: tensor<2x4x32x32xf32>) -> tensor<1xi32> {
+    // CHECK-LABEL: func.func public @argmax_all_reduce(
+    %0 = ttir.empty() : tensor<1xi32>
+    // CHECK: "ttnn.argmax"
+    // CHECK-SAME: {keep_dim = false, use_multicore = false}>
+    // CHECK-SAME: tensor<2x4x32x32xbf16
+    // CHECK-SAME: -> tensor<1xui32
+    %1 = "ttir.argmax"(%arg0, %0) <{keep_dim = false}> : (tensor<2x4x32x32xf32>, tensor<1xi32>) -> tensor<1xi32>
+    return %1 : tensor<1xi32>
+  }
+
+  func.func public @argmax_keepdim(%arg0: tensor<2x4x32x32xf32>) -> tensor<2x4x32x1xui32> {
+    // CHECK-LABEL: func.func public @argmax_keepdim(
+    %0 = ttir.empty() : tensor<2x4x32x1xui32>
+    // CHECK: "ttnn.argmax"
+    // CHECK-SAME: {dim = 3 : i32, keep_dim = true, use_multicore = false}>
+    // CHECK-SAME: tensor<2x4x32x32xbf16
+    // CHECK-SAME: -> tensor<2x4x32x1xui32
+    %1 = "ttir.argmax"(%arg0, %0) <{dim_arg = [3 : i32], keep_dim = true}> : (tensor<2x4x32x32xf32>, tensor<2x4x32x1xui32>) -> tensor<2x4x32x1xui32>
+    return %1 : tensor<2x4x32x1xui32>
+  }
 }
