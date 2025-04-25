@@ -107,9 +107,10 @@ public:
   matchAndRewrite(Operation *op, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const final {
     Operation *newOp;
+    Operation *initOp = nullptr;
 
     if (mlir::isa<ttir::TileMaximumOp>(op)) {
-      rewriter.create<ttkernel::MaxTilesInitOp>(op->getLoc());
+      initOp = rewriter.create<ttkernel::MaxTilesInitOp>(op->getLoc());
       newOp = rewriter.create<ttkernel::MaxTilesOp>(
           op->getLoc(), i32(rewriter, op->getLoc(), 0),
           i32(rewriter, op->getLoc(), 1));
@@ -121,10 +122,15 @@ public:
           getLoadIndex(operands[1]), dstIdx);
     } else if (mlir::isa<ttir::TileMatmulOp>(op)) {
       auto dstIdx = index(rewriter, op->getLoc(), 0);
+      initOp = rewriter.create<ttkernel::MatmulInitOp>(
+          op->getLoc(), getCB(rewriter, operands[0]),
+          getCB(rewriter, operands[1]), getCB(rewriter, operands[2]),
+          i32(rewriter, op->getLoc(), 0) /* transpose */);
       newOp = rewriter.create<ttkernel::MatmulTilesOp>(
           op->getLoc(), getCB(rewriter, operands[0]),
           getCB(rewriter, operands[1]), getLoadIndex(operands[0]),
-          getLoadIndex(operands[1]), dstIdx);
+          getLoadIndex(operands[1]), dstIdx,
+          i32(rewriter, op->getLoc(), 0) /* transpose */);
     } else if (mlir::isa<ttir::TileTilizeBlockOp>(op)) {
       assert(operands.size() == 2);
       Value src = operands[0];
@@ -132,7 +138,7 @@ public:
       auto numTiles =
           i32(rewriter, op->getLoc(),
               mlir::cast<ttkernel::CBType>(dst.getType()).getNumTiles());
-      rewriter.create<ttkernel::TilizeInitOp>(op->getLoc(), src, numTiles, dst);
+      initOp = rewriter.create<ttkernel::TilizeInitOp>(op->getLoc(), src, numTiles, dst);
       newOp = rewriter.create<ttkernel::TilizeBlockOp>(op->getLoc(), src,
                                                        numTiles, dst);
     } else if (mlir::isa<ttir::TileUntilizeBlockOp>(op)) {
@@ -142,14 +148,14 @@ public:
       auto numTiles =
           i32(rewriter, op->getLoc(),
               mlir::cast<ttkernel::CBType>(src.getType()).getNumTiles());
-      rewriter.create<ttkernel::UntilizeInitOp>(op->getLoc(), src, dst);
+      initOp = rewriter.create<ttkernel::UntilizeInitOp>(op->getLoc(), src, dst);
       newOp = rewriter.create<ttkernel::UntilizeBlockOp>(op->getLoc(), src,
                                                          numTiles, dst);
     } else {
       return failure();
     }
 
-    rewriter.setInsertionPoint(newOp);
+    rewriter.setInsertionPoint(initOp == nullptr ? newOp : initOp);
     if (mlir::isa<ttkernel::MatmulTilesOp>(newOp)) {
       lowerLoadToCopyTile(operands[2].getDefiningOp<memref::LoadOp>(), false,
                           rewriter);
@@ -407,10 +413,14 @@ public:
       auto dstOffsetInt = rewriter.create<arith::IndexCastOp>(
           op.getLoc(), rewriter.getI32Type(), dstOffset);
 
+      auto dstAddr = rewriter.create<arith::AddIOp>(
+          op.getLoc(), dstOffsetInt,
+          adaptor.getDst());
+
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, op.getLoc(), chipDesc, ValueRange{dstGridY, dstGridX});
       auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
-          op.getLoc(), virtX, virtY, dstOffsetInt);
+          op.getLoc(), virtX, virtY, dstAddr);
       rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Start,
                                                  nocAddr, transferSize);
     } else if (op.isSrcRemote() && op.isDstLocal()) {
@@ -430,13 +440,18 @@ public:
       auto srcOffset = applyMap(srcOffsetMap, op.getSrcIndices());
       auto srcOffsetInt = rewriter.create<arith::IndexCastOp>(
           op.getLoc(), rewriter.getI32Type(), srcOffset);
+
+      auto srcAddr = rewriter.create<arith::AddIOp>(
+          op.getLoc(), srcOffsetInt,
+          adaptor.getSrc());
+
       auto size =
           i32(rewriter, op->getLoc(),
               op.getNumElems() * getElementSizeBytes(op.getSrcMemRefType()));
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, op.getLoc(), chipDesc, ValueRange{srcGridY, srcGridX});
       auto srcNocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
-          op.getLoc(), virtX, virtY, srcOffsetInt);
+          op.getLoc(), virtX, virtY, srcAddr);
       rewriter.create<ttkernel::NocAsyncReadOp>(op.getLoc(), srcNocAddr,
                                                 dstL1Start, size);
       isRead = true;
@@ -554,7 +569,6 @@ public:
 
     rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
         op, rewriter.getI32Type(), argIndex);
-
     return success();
   }
 };

@@ -518,7 +518,7 @@ def TTIR_CoreIndexOp : TTIR_IndexOp<"core_index", [ConstantLike]> {
 // TTIR Remote Access ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
-def TTIR_GetGlobalOperandOp : TTIR_GenericRegionOp<"get_global_operand", [Pure]> {
+def TTIR_GetGlobalOperandOp : TTIR_GenericRegionOp<"get_global_operand"> {
     let summary = "Get global operand op.";
     let description = [{
       Access the global, aka parent generic op, operand at the specified index.

@@ -121,6 +121,15 @@ def TTKernel_BinaryOpInitCommonOp : TTKernel_InitOp<"binary_op_init_common"> {
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, TTKernel_CB:$out_cb);
 }
 
+def TTKernel_MatmulInitOp : TTKernel_InitOp<"mm_init"> {
+    let summary = "Matmul init function";
+    let description = [{
+      Must be run before matmul.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, TTKernel_CB:$out_cb, I32:$transpose);
+}
+
 def TTKernel_MatmulTilesOp : TTKernel_FPUOp<"matmul_tiles"> {
     let summary = "Matmul tiles operation";
     let description = [{
@@ -134,7 +143,8 @@ def TTKernel_MatmulTilesOp : TTKernel_FPUOp<"matmul_tiles"> {
                          TTKernel_CB:$in1_cb_id,
                          IndexLike:$in0_tile_idx,
                          IndexLike:$in1_tile_idx,
-                         IndexLike:$dst_tile_idx);
+                         IndexLike:$dst_tile_idx,
+                         I32:$transpose);
 }
 
 def TTKernel_AddTilesInitOp : TTKernel_InitOp<"add_tiles_init"> {

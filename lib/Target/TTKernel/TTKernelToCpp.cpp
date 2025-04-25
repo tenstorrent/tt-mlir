@@ -41,6 +41,8 @@ public:
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/common.h",
                                         /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/matmul.h",
+                                        /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/tilize.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/untilize.h",
