@@ -47,4 +47,14 @@ def ConstEvalHoistTransform: Pass<"const-eval-hoist-transform", "::mlir::ModuleO
   let dependentDialects = ["::mlir::tt::TTDialect"];
 }
 
+def UndoConstEvalTransform : Pass<"undo-const-eval", "mlir::ModuleOp"> {
+  let summary = "Undo const-eval hoisting by inlining const-eval functions";
+  let description = [{
+    This pass inlines all functions marked with the "const_eval" attribute,
+    effectively undoing the transformations performed by ConstEvalHoistTransform.
+  }];
+
+  let dependentDialects = ["::mlir::tt::TTDialect"];
+}
+
 #endif

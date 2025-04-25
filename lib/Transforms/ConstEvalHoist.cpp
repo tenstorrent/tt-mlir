@@ -20,6 +20,7 @@
 namespace mlir::tt::transforms {
 
 #define GEN_PASS_DEF_CONSTEVALHOISTTRANSFORM
+#define GEN_PASS_DEF_UNDOCONSTEVALTRANSFORM
 #include "ttmlir/Transforms/Passes.h.inc"
 
 //===----------------------------------------------------------------------===//
@@ -342,6 +343,119 @@ private:
 };
 } // namespace
 
+// Common implementation shared between passes
+namespace {
+// Helper to inline a const-eval function
+static void inlineConstEvalFunction(mlir::func::FuncOp funcOp,
+                                    mlir::tt::LoadCachedOp callOp,
+                                    OpBuilder &builder) {
+  builder.setInsertionPoint(callOp);
+
+  // Map from func args to call operands
+  llvm::DenseMap<mlir::Value, mlir::Value> valueMap;
+  for (size_t i = 0; i < funcOp.getNumArguments(); ++i) {
+    valueMap[funcOp.getArgument(i)] = callOp.getOperand(i);
+  }
+
+  // Clone operations from const-eval function
+  auto &funcBody = funcOp.getBody().front();
+  for (auto &op : funcBody) {
+    // Skip the return operation
+    if (op.hasTrait<mlir::OpTrait::IsTerminator>())
+      continue;
+
+    // Clone operation and update operands
+    auto *clonedOp = builder.clone(op);
+    for (size_t i = 0; i < clonedOp->getNumOperands(); ++i) {
+      auto originalOperand = op.getOperand(i);
+      auto it = valueMap.find(originalOperand);
+      if (it != valueMap.end()) {
+        clonedOp->setOperand(i, it->second);
+      }
+    }
+
+    // Update value mapping with results
+    for (size_t i = 0; i < clonedOp->getNumResults(); ++i) {
+      valueMap[op.getResult(i)] = clonedOp->getResult(i);
+    }
+  }
+
+  // Map return values to their cloned values
+  auto returnOp = dyn_cast<mlir::func::ReturnOp>(funcBody.back());
+  for (size_t i = 0; i < returnOp.getNumOperands(); ++i) {
+    auto returnVal = returnOp.getOperand(i);
+    auto mappedVal = valueMap[returnVal];
+    callOp.getResult(i).replaceAllUsesWith(mappedVal);
+  }
+
+  // Erase the call operation
+  callOp.erase();
+}
+
+static void undoConstEvalImpl(mlir::ModuleOp module,
+                              mlir::MLIRContext *context) {
+  OpBuilder builder(context);
+
+  // Find all const-eval functions and their callers
+  llvm::DenseMap<mlir::func::FuncOp,
+                 llvm::SmallVector<mlir::tt::LoadCachedOp, 4>>
+      funcToCalls;
+  llvm::SmallVector<mlir::func::FuncOp, 4> constEvalFuncs;
+
+  // Find all const-eval functions
+  module.walk([&](mlir::func::FuncOp funcOp) {
+    if (funcOp->hasAttr("const_eval")) {
+      constEvalFuncs.push_back(funcOp);
+    }
+  });
+
+  // Find all calls to const-eval functions
+  module.walk([&](mlir::tt::LoadCachedOp loadOp) {
+    mlir::StringRef calleeName = loadOp.getCallee();
+    auto funcOp = module.lookupSymbol<mlir::func::FuncOp>(calleeName);
+    assert(funcOp && funcOp->hasAttr("const_eval"));
+    funcToCalls[funcOp].push_back(loadOp);
+  });
+
+  // Inline each const-eval function
+  for (auto funcOp : constEvalFuncs) {
+    auto callsIt = funcToCalls.find(funcOp);
+    if (callsIt == funcToCalls.end())
+      continue;
+
+    auto &calls = callsIt->second;
+    for (auto callOp : calls) {
+      inlineConstEvalFunction(funcOp, callOp, builder);
+    }
+
+    // Mark function for deletion
+    funcOp->setAttr("to_delete", builder.getUnitAttr());
+  }
+
+  // Delete inlined functions
+  for (auto funcOp : constEvalFuncs) {
+    if (funcOp->hasAttr("to_delete")) {
+      funcOp.erase();
+    }
+  }
+}
+} // namespace
+
+namespace {
+// Standalone pass to undo const-eval transformations
+class UndoConstEvalTransform
+    : public impl::UndoConstEvalTransformBase<UndoConstEvalTransform> {
+public:
+  using impl::UndoConstEvalTransformBase<
+      UndoConstEvalTransform>::UndoConstEvalTransformBase;
+
+  void runOnOperation() final {
+    mlir::ModuleOp module = this->getOperation();
+    undoConstEvalImpl(module, &getContext());
+  }
+};
+} // namespace
+
 namespace {
 // Transform pass to hoist const-eval subgraphs into separate funcs, invoked
 // w/ tt.load_cached ops.
@@ -354,6 +468,21 @@ public:
   void runOnOperation() final {
     mlir::ModuleOp module = this->getOperation();
     llvm::SmallVector<func::FuncOp, 4> functionsToProcess;
+
+    // TODO (vwells): should we gate this with an option maybe?
+    bool hasExistingConstEvalFuncs = false;
+    module.walk([&](func::FuncOp funcOp) {
+      if (funcOp->hasAttr("const_eval")) {
+        hasExistingConstEvalFuncs = true;
+        return WalkResult::interrupt();
+      }
+      return WalkResult::advance();
+    });
+
+    // If we found existing const-eval functions, undo them first
+    if (hasExistingConstEvalFuncs) {
+      undoConstEvalImpl(module, &getContext());
+    }
 
     // Collect functions that need processing
     module.walk([&](func::FuncOp funcOp) { processFunction(funcOp); });
@@ -543,4 +672,5 @@ private:
   }
 };
 } // namespace
+
 } // namespace mlir::tt::transforms
