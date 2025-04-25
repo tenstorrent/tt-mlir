@@ -359,8 +359,8 @@ getLogicalGridShape(const ::tt::tt_metal::MemoryConfig &memoryConfig,
     assert(memoryConfig.shard_spec.has_value());
     CoreRange boundingGrid = memoryConfig.shard_spec->grid.bounding_box();
     assert(memoryConfig.shard_spec->num_cores() == boundingGrid.size());
-    return {static_cast<long>(boundingGrid.grid_size().x),
-            static_cast<long>(boundingGrid.grid_size().y)};
+    return {static_cast<int64_t>(boundingGrid.grid_size().y),
+            static_cast<int64_t>(boundingGrid.grid_size().x)};
   }
 
   // interleaved

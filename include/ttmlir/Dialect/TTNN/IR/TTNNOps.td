@@ -1274,13 +1274,6 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d",
 
     let hasVerifier = 1;
 
-    let extraClassDeclaration = [{
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        return wa::TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
-            getBias() != nullptr
-        );
-      }
-    }];
 }
 
 def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d"> {
