@@ -33,7 +33,7 @@ module {
 }
 
 // -----
-// Veirify that the output shpae is equal to the input shape with the addition of the last dim of the weight tensor.
+// Verify that the output shape is equal to the input shape with the addition of the last dim of the weight tensor.
 module {
   func.func @embedding_output_shape(%input: tensor<2x4xui32>, %weight: tensor<1x5x10xbf16>) -> tensor<2x4x5x10xbf16> {
     %output = ttir.empty() : tensor<2x4x5x10xbf16>
