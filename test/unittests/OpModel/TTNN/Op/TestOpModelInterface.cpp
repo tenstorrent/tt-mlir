@@ -765,11 +765,22 @@ TEST_F(OpModelBase, PrepareConv2dWeightsOutput) {
 TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
-  llvm::SmallVector<int64_t> weightShape = {1, 1, 1568, 64};
+  llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
   llvm::SmallVector<int64_t> outputShape = {1, 1, 12544, 64};
 
-  auto input = createEmptyTensor(inputShape);
-  auto weight = createEmptyTensor(weightShape);
+  Type elemetType = builder.getBF16Type();
+
+  auto inputLayout = mlir::tt::ttnn::TTNNLayoutAttr::get(
+      &context, inputShape, elemetType, mlir::tt::ttnn::BufferType::DRAM,
+      GridAttr::get(&context, 2),
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
+  auto input = createEmptyTensor(inputShape, elemetType, inputLayout);
+
+  auto weightLayout = mlir::tt::ttnn::TTNNLayoutAttr::get(
+      &context, weightShape, elemetType,
+      mlir::tt::ttnn::BufferType::SystemMemory, GridAttr::get(&context, 2));
+  auto weight = createEmptyTensor(weightShape, elemetType, weightLayout);
+
   auto outputType = createRankedTensorType(outputShape);
 
   GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
@@ -830,11 +841,8 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cb_size, peak_size, output_size, outputLayout] =
       constraintsExp.get();
-  EXPECT_EQ(
-      cb_size,
-      243776); // Higher CB usage than baseline Conv2dInterface test due to
-               // enable_act_double_buffer and enable_weights_double_buffer
-  EXPECT_EQ(peak_size, 190568);
+  EXPECT_EQ(cb_size, 69696);
+  EXPECT_EQ(peak_size, 88400);
   EXPECT_EQ(output_size, 26624);
 
   // Device hangs otherwise.
