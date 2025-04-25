@@ -21,20 +21,18 @@ target_include_directories(TTRuntimeTTNNTestLib SYSTEM PUBLIC "$<BUILD_INTERFACE
 add_dependencies(TTRuntimeTTNNTestLib TTRuntimeTTNNUtils FBS_GENERATION)
 target_link_libraries(TTRuntimeTTNNTestLib PUBLIC TTRuntimeTTNNUtils)
 
-if (TTMLIR_ENABLE_RUNTIME_TESTS)
-  set(TTMLIR_RUNTIME_TEST_PUBLIC_HEADERS
-    "../include/tt/runtime/ttnn/test/dylib.h"
-  )
-  set_target_properties(TTRuntimeTTNNTestLib PROPERTIES PUBLIC_HEADER "${TTMLIR_RUNTIME_TEST_PUBLIC_HEADERS}")
-  install(TARGETS TTRuntimeTTNNTestLib
-    PUBLIC_HEADER
-      DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/tt/runtime/test
-      COMPONENT TTNNStandalone
-# Do we need the arhive if we link TTNNRuntimeTTNNTestLib into TTMLIRRuntime
-    ARCHIVE
-      DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}
-      COMPONENT TTNNStandalone
-  )
-endif()
+set(TTMLIR_RUNTIME_TEST_PUBLIC_HEADERS
+  "../include/tt/runtime/ttnn/test/dylib.h"
+)
+set_target_properties(TTRuntimeTTNNTestLib PROPERTIES PUBLIC_HEADER "${TTMLIR_RUNTIME_TEST_PUBLIC_HEADERS}")
+install(TARGETS TTRuntimeTTNNTestLib
+  PUBLIC_HEADER
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/tt/runtime/test
+    COMPONENT TTNNStandalone
+# # Do we need the arhive if we link TTNNRuntimeTTNNTestLib into TTMLIRRuntime
+#   ARCHIVE
+#     DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}
+#     COMPONENT TTNNStandalone
+)
 
 add_subdirectory(gtest)
