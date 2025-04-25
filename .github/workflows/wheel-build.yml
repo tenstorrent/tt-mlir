@@ -39,6 +39,8 @@ jobs:
 
       - name: Build ttmlir Wheel (manylinux)
         uses: pypa/cibuildwheel@v2.23.2
+        env:
+          IN_CIBW_ENV: ON
         with:
           output-dir: ${{ steps.strings.outputs.wheel-output-dir }}
           package-dir: python
