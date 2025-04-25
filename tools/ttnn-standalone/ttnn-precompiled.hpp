@@ -14,6 +14,7 @@
 #include "operations/ccl/reduce_scatter/reduce_scatter.hpp"
 #include "operations/conv/conv2d/conv2d.hpp"
 #include "operations/conv/conv2d/prepare_conv2d_weights.cpp"
+#include "operations/conv/conv_transpose2d/conv_transpose2d.hpp"
 #include "operations/copy.hpp"
 #include "operations/core/core.hpp"
 #include "operations/creation.hpp"
