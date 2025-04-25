@@ -24,7 +24,7 @@ module attributes {} {
     // CHECK: #[[LAYOUT_6:.*]] = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8, (d0, d1) -> (0, d0, d1)>, memref<16x36x!tt.tile<32x32, bf16>, #dram>, <interleaved>>
     %0 = ttir.empty() : tensor<4096x5120xbf16>
     // CHECK-DAG: %{{.*}} = "ttnn.relu"{{.*}} -> tensor<4096x5120xbf16, #[[LAYOUT_5]]>
-    %1 = "ttir.relu"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<4096x5120xbf16>, tensor<4096x5120xbf16>) -> tensor<4096x5120xbf16>
+    %1 = "ttir.relu"(%arg0, %0) : (tensor<4096x5120xbf16>, tensor<4096x5120xbf16>) -> tensor<4096x5120xbf16>
     %2 = ttir.empty() : tensor<4096x9216xbf16>
     // CHECK-DAG: %{{.*}} = "ttnn.matmul"{{.*}} -> tensor<4096x9216xbf16, #[[LAYOUT_6]]>
     %3 = "ttir.matmul"(%1, %arg1, %2) : (tensor<4096x5120xbf16>, tensor<5120x9216xbf16>, tensor<4096x9216xbf16>) -> tensor<4096x9216xbf16>
@@ -36,7 +36,7 @@ module attributes {} {
     %7 = "ttir.matmul"(%1, %arg3, %6) : (tensor<4096x5120xbf16>, tensor<5120x1024xbf16>, tensor<4096x1024xbf16>) -> tensor<4096x1024xbf16>
     %8 = ttir.empty() : tensor<4096x1024xbf16>
     // CHECK-DAG: %{{.*}} = "ttnn.add"{{.*}} -> tensor<4096x1024xbf16, #[[LAYOUT_4]]>
-    %9 = "ttir.add"(%5, %7, %8) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<4096x1024xbf16>, tensor<4096x1024xbf16>, tensor<4096x1024xbf16>) -> tensor<4096x1024xbf16>
+    %9 = "ttir.add"(%5, %7, %8) : (tensor<4096x1024xbf16>, tensor<4096x1024xbf16>, tensor<4096x1024xbf16>) -> tensor<4096x1024xbf16>
     return %9 : tensor<4096x1024xbf16>
   }
 }

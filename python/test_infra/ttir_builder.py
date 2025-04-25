@@ -470,9 +470,9 @@ class TTIRBuilder:
 
     # ----- TTIR op factories -----
     def _organize_eltwise_ttir(
-        self, inputs: List[Operand], output: OpView, output_shape: Optional[Shape]
+        self, inputs: List[Operand], output: OpView, _: Optional[Shape]
     ):
-        return ([self._get_type(output)], inputs, [output])
+        return (self._get_type(output), *inputs, output)
 
     def _organize_eltwise_golden(self, inputs: List[Operand]):
         return [self._get_golden_tensor(inp) for inp in inputs]

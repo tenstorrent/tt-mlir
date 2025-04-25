@@ -9,25 +9,25 @@ module @LLama_3.2_1B attributes {} {
     %0 = ttir.empty() : tensor<1x11x2048xbf16>
     %1 = "ttir.embedding"(%arg0, %arg164, %0) : (tensor<1x11xi32>, tensor<128256x2048xbf16>, tensor<1x11x2048xbf16>) -> tensor<1x11x2048xbf16>
     %2 = ttir.empty() : tensor<1x11x2048xf32>
-    %3 = "ttir.typecast"(%1, %2) <{operandSegmentSizes = array<i32: 1, 1>}> {dtype = "Float32"} : (tensor<1x11x2048xbf16>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %3 = "ttir.typecast"(%1, %2) {dtype = "Float32"} : (tensor<1x11x2048xbf16>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %4 = ttir.empty() : tensor<1x11x2048xf32>
-    %5 = "ttir.typecast"(%1, %4) <{operandSegmentSizes = array<i32: 1, 1>}> {dtype = "Float32"} : (tensor<1x11x2048xbf16>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %5 = "ttir.typecast"(%1, %4) {dtype = "Float32"} : (tensor<1x11x2048xbf16>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %6 = ttir.empty() : tensor<1x11x2048xf32>
-    %7 = "ttir.typecast"(%1, %6) <{operandSegmentSizes = array<i32: 1, 1>}> {dtype = "Float32"} : (tensor<1x11x2048xbf16>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %7 = "ttir.typecast"(%1, %6) {dtype = "Float32"} : (tensor<1x11x2048xbf16>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %8 = ttir.empty() : tensor<1x11x2048xf32>
-    %9 = "ttir.multiply"(%7, %7, %8) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %9 = "ttir.multiply"(%7, %7, %8) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %10 = ttir.empty() : tensor<1x11x1xf32>
     %11 = "ttir.mean"(%9, %10) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %12 = ttir.empty() : tensor<1x11x1xf32>
-    %13 = "ttir.add"(%11, %arg1, %12) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %13 = "ttir.add"(%11, %arg1, %12) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %14 = ttir.empty() : tensor<1x11x1xf32>
-    %15 = "ttir.sqrt"(%13, %14) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %15 = "ttir.sqrt"(%13, %14) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %16 = ttir.empty() : tensor<1x11x1xf32>
-    %17 = "ttir.reciprocal"(%15, %16) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %17 = "ttir.reciprocal"(%15, %16) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %18 = ttir.empty() : tensor<1x11x2048xf32>
-    %19 = "ttir.multiply"(%5, %17, %18) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %19 = "ttir.multiply"(%5, %17, %18) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %20 = ttir.empty() : tensor<1x11x2048xf32>
-    %21 = "ttir.multiply"(%arg165, %19, %20) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %21 = "ttir.multiply"(%arg165, %19, %20) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %22 = ttir.empty() : tensor<11x2048xf32>
     %23 = "ttir.squeeze"(%21, %22) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %24 = ttir.empty() : tensor<11x2048xf32>
@@ -39,11 +39,11 @@ module @LLama_3.2_1B attributes {} {
     %30 = ttir.empty() : tensor<1x11x64xf32>
     %31 = "ttir.concat"(%arg2, %arg2, %30) <{dim = -1 : si32}> : (tensor<1x11x32xf32>, tensor<1x11x32xf32>, tensor<1x11x64xf32>) -> tensor<1x11x64xf32>
     %32 = ttir.empty() : tensor<1x11x64xf32>
-    %33 = "ttir.cos"(%31, %32) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x64xf32>, tensor<1x11x64xf32>) -> tensor<1x11x64xf32>
+    %33 = "ttir.cos"(%31, %32) : (tensor<1x11x64xf32>, tensor<1x11x64xf32>) -> tensor<1x11x64xf32>
     %34 = ttir.empty() : tensor<1x1x11x64xf32>
     %35 = "ttir.unsqueeze"(%33, %34) <{dim = 1 : si32}> : (tensor<1x11x64xf32>, tensor<1x1x11x64xf32>) -> tensor<1x1x11x64xf32>
     %36 = ttir.empty() : tensor<1x32x11x64xf32>
-    %37 = "ttir.multiply"(%29, %35, %36) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %37 = "ttir.multiply"(%29, %35, %36) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %38 = ttir.empty() : tensor<1x32x64x11xf32>
     %39 = "ttir.transpose"(%29, %38) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %40 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -51,7 +51,7 @@ module @LLama_3.2_1B attributes {} {
     %42 = ttir.empty() : tensor<1x32x11x32xf32>
     %43 = "ttir.transpose"(%41, %42) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x32x11xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %44 = ttir.empty() : tensor<1x32x11x32xf32>
-    %45 = "ttir.multiply"(%43, %arg4, %44) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
+    %45 = "ttir.multiply"(%43, %arg4, %44) : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %46 = ttir.empty() : tensor<1x32x64x11xf32>
     %47 = "ttir.transpose"(%29, %46) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %48 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -61,13 +61,13 @@ module @LLama_3.2_1B attributes {} {
     %52 = ttir.empty() : tensor<1x32x11x64xf32>
     %53 = "ttir.concat"(%45, %51, %52) <{dim = -1 : si32}> : (tensor<1x32x11x32xf32>, tensor<1x32x11x32xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %54 = ttir.empty() : tensor<1x11x64xf32>
-    %55 = "ttir.sin"(%31, %54) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x64xf32>, tensor<1x11x64xf32>) -> tensor<1x11x64xf32>
+    %55 = "ttir.sin"(%31, %54) : (tensor<1x11x64xf32>, tensor<1x11x64xf32>) -> tensor<1x11x64xf32>
     %56 = ttir.empty() : tensor<1x1x11x64xf32>
     %57 = "ttir.unsqueeze"(%55, %56) <{dim = 1 : si32}> : (tensor<1x11x64xf32>, tensor<1x1x11x64xf32>) -> tensor<1x1x11x64xf32>
     %58 = ttir.empty() : tensor<1x32x11x64xf32>
-    %59 = "ttir.multiply"(%53, %57, %58) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %59 = "ttir.multiply"(%53, %57, %58) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %60 = ttir.empty() : tensor<1x32x11x64xf32>
-    %61 = "ttir.add"(%37, %59, %60) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %61 = "ttir.add"(%37, %59, %60) : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %62 = ttir.empty() : tensor<32x11x64xf32>
     %63 = "ttir.squeeze"(%61, %62) <{dim = 0 : si32}> : (tensor<1x32x11x64xf32>, tensor<32x11x64xf32>) -> tensor<32x11x64xf32>
     %64 = ttir.empty() : tensor<11x512xf32>
@@ -77,7 +77,7 @@ module @LLama_3.2_1B attributes {} {
     %68 = ttir.empty() : tensor<1x8x11x64xf32>
     %69 = "ttir.transpose"(%67, %68) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x8x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %70 = ttir.empty() : tensor<1x8x11x64xf32>
-    %71 = "ttir.multiply"(%69, %35, %70) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %71 = "ttir.multiply"(%69, %35, %70) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %72 = ttir.empty() : tensor<1x8x64x11xf32>
     %73 = "ttir.transpose"(%69, %72) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %74 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -85,7 +85,7 @@ module @LLama_3.2_1B attributes {} {
     %76 = ttir.empty() : tensor<1x8x11x32xf32>
     %77 = "ttir.transpose"(%75, %76) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x32x11xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %78 = ttir.empty() : tensor<1x8x11x32xf32>
-    %79 = "ttir.multiply"(%77, %arg7, %78) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
+    %79 = "ttir.multiply"(%77, %arg7, %78) : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %80 = ttir.empty() : tensor<1x8x64x11xf32>
     %81 = "ttir.transpose"(%69, %80) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %82 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -95,9 +95,9 @@ module @LLama_3.2_1B attributes {} {
     %86 = ttir.empty() : tensor<1x8x11x64xf32>
     %87 = "ttir.concat"(%79, %85, %86) <{dim = -1 : si32}> : (tensor<1x8x11x32xf32>, tensor<1x8x11x32xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %88 = ttir.empty() : tensor<1x8x11x64xf32>
-    %89 = "ttir.multiply"(%87, %57, %88) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %89 = "ttir.multiply"(%87, %57, %88) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %90 = ttir.empty() : tensor<1x8x11x64xf32>
-    %91 = "ttir.add"(%71, %89, %90) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %91 = "ttir.add"(%71, %89, %90) : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %92 = ttir.empty() : tensor<1x8x1x11x64xf32>
     %93 = "ttir.unsqueeze"(%91, %92) <{dim = 2 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x1x11x64xf32>) -> tensor<1x8x1x11x64xf32>
     %94 = ttir.empty() : tensor<1x8x1x11x64xf32>
@@ -113,9 +113,9 @@ module @LLama_3.2_1B attributes {} {
     %104 = ttir.empty() : tensor<1x32x11x11xf32>
     %105 = "ttir.unsqueeze"(%103, %104) <{dim = 0 : si32}> : (tensor<32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %106 = ttir.empty() : tensor<1x32x11x11xf32>
-    %107 = "ttir.multiply"(%105, %arg9, %106) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %107 = "ttir.multiply"(%105, %arg9, %106) : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %108 = ttir.empty() : tensor<1x32x11x11xf32>
-    %109 = "ttir.add"(%107, %arg10, %108) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %109 = "ttir.add"(%107, %arg10, %108) : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %110 = ttir.empty() : tensor<1x32x11x11xf32>
     %111 = "ttir.softmax"(%109, %110) <{dimension = -1 : si32}> : (tensor<1x32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %112 = ttir.empty() : tensor<32x11x11xf32>
@@ -153,21 +153,21 @@ module @LLama_3.2_1B attributes {} {
     %144 = ttir.empty() : tensor<1x11x2048xf32>
     %145 = "ttir.unsqueeze"(%143, %144) <{dim = 0 : si32}> : (tensor<11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %146 = ttir.empty() : tensor<1x11x2048xf32>
-    %147 = "ttir.add"(%3, %145, %146) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %147 = "ttir.add"(%3, %145, %146) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %148 = ttir.empty() : tensor<1x11x2048xf32>
-    %149 = "ttir.multiply"(%147, %147, %148) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %149 = "ttir.multiply"(%147, %147, %148) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %150 = ttir.empty() : tensor<1x11x1xf32>
     %151 = "ttir.mean"(%149, %150) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %152 = ttir.empty() : tensor<1x11x1xf32>
-    %153 = "ttir.add"(%151, %arg11, %152) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %153 = "ttir.add"(%151, %arg11, %152) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %154 = ttir.empty() : tensor<1x11x1xf32>
-    %155 = "ttir.sqrt"(%153, %154) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %155 = "ttir.sqrt"(%153, %154) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %156 = ttir.empty() : tensor<1x11x1xf32>
-    %157 = "ttir.reciprocal"(%155, %156) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %157 = "ttir.reciprocal"(%155, %156) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %158 = ttir.empty() : tensor<1x11x2048xf32>
-    %159 = "ttir.multiply"(%147, %157, %158) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %159 = "ttir.multiply"(%147, %157, %158) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %160 = ttir.empty() : tensor<1x11x2048xf32>
-    %161 = "ttir.multiply"(%arg170, %159, %160) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %161 = "ttir.multiply"(%arg170, %159, %160) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %162 = ttir.empty() : tensor<11x2048xf32>
     %163 = "ttir.squeeze"(%161, %162) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %164 = ttir.empty() : tensor<11x8192xf32>
@@ -175,33 +175,33 @@ module @LLama_3.2_1B attributes {} {
     %166 = ttir.empty() : tensor<1x11x8192xf32>
     %167 = "ttir.unsqueeze"(%165, %166) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %168 = ttir.empty() : tensor<1x11x8192xf32>
-    %169 = "ttir.sigmoid"(%167, %168) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %169 = "ttir.sigmoid"(%167, %168) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %170 = ttir.empty() : tensor<1x11x8192xf32>
-    %171 = "ttir.multiply"(%167, %169, %170) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %171 = "ttir.multiply"(%167, %169, %170) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %172 = ttir.empty() : tensor<11x8192xf32>
     %173 = "ttir.matmul"(%163, %arg172, %172) : (tensor<11x2048xf32>, tensor<2048x8192xf32>, tensor<11x8192xf32>) -> tensor<11x8192xf32>
     %174 = ttir.empty() : tensor<1x11x8192xf32>
     %175 = "ttir.unsqueeze"(%173, %174) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %176 = ttir.empty() : tensor<1x11x8192xf32>
-    %177 = "ttir.multiply"(%171, %175, %176) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %177 = "ttir.multiply"(%171, %175, %176) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %178 = ttir.empty() : tensor<1x11x2048xf32>
     %179 = "ttir.matmul"(%177, %arg173, %178) : (tensor<1x11x8192xf32>, tensor<8192x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %180 = ttir.empty() : tensor<1x11x2048xf32>
-    %181 = "ttir.add"(%147, %179, %180) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %181 = "ttir.add"(%147, %179, %180) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %182 = ttir.empty() : tensor<1x11x2048xf32>
-    %183 = "ttir.multiply"(%181, %181, %182) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %183 = "ttir.multiply"(%181, %181, %182) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %184 = ttir.empty() : tensor<1x11x1xf32>
     %185 = "ttir.mean"(%183, %184) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %186 = ttir.empty() : tensor<1x11x1xf32>
-    %187 = "ttir.add"(%185, %arg12, %186) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %187 = "ttir.add"(%185, %arg12, %186) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %188 = ttir.empty() : tensor<1x11x1xf32>
-    %189 = "ttir.sqrt"(%187, %188) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %189 = "ttir.sqrt"(%187, %188) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %190 = ttir.empty() : tensor<1x11x1xf32>
-    %191 = "ttir.reciprocal"(%189, %190) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %191 = "ttir.reciprocal"(%189, %190) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %192 = ttir.empty() : tensor<1x11x2048xf32>
-    %193 = "ttir.multiply"(%181, %191, %192) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %193 = "ttir.multiply"(%181, %191, %192) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %194 = ttir.empty() : tensor<1x11x2048xf32>
-    %195 = "ttir.multiply"(%arg174, %193, %194) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %195 = "ttir.multiply"(%arg174, %193, %194) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %196 = ttir.empty() : tensor<11x2048xf32>
     %197 = "ttir.squeeze"(%195, %196) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %198 = ttir.empty() : tensor<11x2048xf32>
@@ -211,7 +211,7 @@ module @LLama_3.2_1B attributes {} {
     %202 = ttir.empty() : tensor<1x32x11x64xf32>
     %203 = "ttir.transpose"(%201, %202) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x32x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %204 = ttir.empty() : tensor<1x32x11x64xf32>
-    %205 = "ttir.multiply"(%203, %35, %204) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %205 = "ttir.multiply"(%203, %35, %204) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %206 = ttir.empty() : tensor<1x32x64x11xf32>
     %207 = "ttir.transpose"(%203, %206) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %208 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -219,7 +219,7 @@ module @LLama_3.2_1B attributes {} {
     %210 = ttir.empty() : tensor<1x32x11x32xf32>
     %211 = "ttir.transpose"(%209, %210) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x32x11xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %212 = ttir.empty() : tensor<1x32x11x32xf32>
-    %213 = "ttir.multiply"(%211, %arg14, %212) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
+    %213 = "ttir.multiply"(%211, %arg14, %212) : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %214 = ttir.empty() : tensor<1x32x64x11xf32>
     %215 = "ttir.transpose"(%203, %214) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %216 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -229,9 +229,9 @@ module @LLama_3.2_1B attributes {} {
     %220 = ttir.empty() : tensor<1x32x11x64xf32>
     %221 = "ttir.concat"(%213, %219, %220) <{dim = -1 : si32}> : (tensor<1x32x11x32xf32>, tensor<1x32x11x32xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %222 = ttir.empty() : tensor<1x32x11x64xf32>
-    %223 = "ttir.multiply"(%221, %57, %222) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %223 = "ttir.multiply"(%221, %57, %222) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %224 = ttir.empty() : tensor<1x32x11x64xf32>
-    %225 = "ttir.add"(%205, %223, %224) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %225 = "ttir.add"(%205, %223, %224) : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %226 = ttir.empty() : tensor<32x11x64xf32>
     %227 = "ttir.squeeze"(%225, %226) <{dim = 0 : si32}> : (tensor<1x32x11x64xf32>, tensor<32x11x64xf32>) -> tensor<32x11x64xf32>
     %228 = ttir.empty() : tensor<11x512xf32>
@@ -241,7 +241,7 @@ module @LLama_3.2_1B attributes {} {
     %232 = ttir.empty() : tensor<1x8x11x64xf32>
     %233 = "ttir.transpose"(%231, %232) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x8x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %234 = ttir.empty() : tensor<1x8x11x64xf32>
-    %235 = "ttir.multiply"(%233, %35, %234) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %235 = "ttir.multiply"(%233, %35, %234) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %236 = ttir.empty() : tensor<1x8x64x11xf32>
     %237 = "ttir.transpose"(%233, %236) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %238 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -249,7 +249,7 @@ module @LLama_3.2_1B attributes {} {
     %240 = ttir.empty() : tensor<1x8x11x32xf32>
     %241 = "ttir.transpose"(%239, %240) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x32x11xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %242 = ttir.empty() : tensor<1x8x11x32xf32>
-    %243 = "ttir.multiply"(%241, %arg17, %242) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
+    %243 = "ttir.multiply"(%241, %arg17, %242) : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %244 = ttir.empty() : tensor<1x8x64x11xf32>
     %245 = "ttir.transpose"(%233, %244) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %246 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -259,9 +259,9 @@ module @LLama_3.2_1B attributes {} {
     %250 = ttir.empty() : tensor<1x8x11x64xf32>
     %251 = "ttir.concat"(%243, %249, %250) <{dim = -1 : si32}> : (tensor<1x8x11x32xf32>, tensor<1x8x11x32xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %252 = ttir.empty() : tensor<1x8x11x64xf32>
-    %253 = "ttir.multiply"(%251, %57, %252) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %253 = "ttir.multiply"(%251, %57, %252) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %254 = ttir.empty() : tensor<1x8x11x64xf32>
-    %255 = "ttir.add"(%235, %253, %254) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %255 = "ttir.add"(%235, %253, %254) : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %256 = ttir.empty() : tensor<1x8x1x11x64xf32>
     %257 = "ttir.unsqueeze"(%255, %256) <{dim = 2 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x1x11x64xf32>) -> tensor<1x8x1x11x64xf32>
     %258 = ttir.empty() : tensor<1x8x1x11x64xf32>
@@ -277,9 +277,9 @@ module @LLama_3.2_1B attributes {} {
     %268 = ttir.empty() : tensor<1x32x11x11xf32>
     %269 = "ttir.unsqueeze"(%267, %268) <{dim = 0 : si32}> : (tensor<32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %270 = ttir.empty() : tensor<1x32x11x11xf32>
-    %271 = "ttir.multiply"(%269, %arg19, %270) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %271 = "ttir.multiply"(%269, %arg19, %270) : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %272 = ttir.empty() : tensor<1x32x11x11xf32>
-    %273 = "ttir.add"(%271, %arg20, %272) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %273 = "ttir.add"(%271, %arg20, %272) : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %274 = ttir.empty() : tensor<1x32x11x11xf32>
     %275 = "ttir.softmax"(%273, %274) <{dimension = -1 : si32}> : (tensor<1x32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %276 = ttir.empty() : tensor<32x11x11xf32>
@@ -317,21 +317,21 @@ module @LLama_3.2_1B attributes {} {
     %308 = ttir.empty() : tensor<1x11x2048xf32>
     %309 = "ttir.unsqueeze"(%307, %308) <{dim = 0 : si32}> : (tensor<11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %310 = ttir.empty() : tensor<1x11x2048xf32>
-    %311 = "ttir.add"(%181, %309, %310) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %311 = "ttir.add"(%181, %309, %310) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %312 = ttir.empty() : tensor<1x11x2048xf32>
-    %313 = "ttir.multiply"(%311, %311, %312) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %313 = "ttir.multiply"(%311, %311, %312) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %314 = ttir.empty() : tensor<1x11x1xf32>
     %315 = "ttir.mean"(%313, %314) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %316 = ttir.empty() : tensor<1x11x1xf32>
-    %317 = "ttir.add"(%315, %arg21, %316) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %317 = "ttir.add"(%315, %arg21, %316) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %318 = ttir.empty() : tensor<1x11x1xf32>
-    %319 = "ttir.sqrt"(%317, %318) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %319 = "ttir.sqrt"(%317, %318) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %320 = ttir.empty() : tensor<1x11x1xf32>
-    %321 = "ttir.reciprocal"(%319, %320) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %321 = "ttir.reciprocal"(%319, %320) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %322 = ttir.empty() : tensor<1x11x2048xf32>
-    %323 = "ttir.multiply"(%311, %321, %322) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %323 = "ttir.multiply"(%311, %321, %322) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %324 = ttir.empty() : tensor<1x11x2048xf32>
-    %325 = "ttir.multiply"(%arg179, %323, %324) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %325 = "ttir.multiply"(%arg179, %323, %324) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %326 = ttir.empty() : tensor<11x2048xf32>
     %327 = "ttir.squeeze"(%325, %326) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %328 = ttir.empty() : tensor<11x8192xf32>
@@ -339,33 +339,33 @@ module @LLama_3.2_1B attributes {} {
     %330 = ttir.empty() : tensor<1x11x8192xf32>
     %331 = "ttir.unsqueeze"(%329, %330) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %332 = ttir.empty() : tensor<1x11x8192xf32>
-    %333 = "ttir.sigmoid"(%331, %332) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %333 = "ttir.sigmoid"(%331, %332) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %334 = ttir.empty() : tensor<1x11x8192xf32>
-    %335 = "ttir.multiply"(%331, %333, %334) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %335 = "ttir.multiply"(%331, %333, %334) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %336 = ttir.empty() : tensor<11x8192xf32>
     %337 = "ttir.matmul"(%327, %arg181, %336) : (tensor<11x2048xf32>, tensor<2048x8192xf32>, tensor<11x8192xf32>) -> tensor<11x8192xf32>
     %338 = ttir.empty() : tensor<1x11x8192xf32>
     %339 = "ttir.unsqueeze"(%337, %338) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %340 = ttir.empty() : tensor<1x11x8192xf32>
-    %341 = "ttir.multiply"(%335, %339, %340) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %341 = "ttir.multiply"(%335, %339, %340) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %342 = ttir.empty() : tensor<1x11x2048xf32>
     %343 = "ttir.matmul"(%341, %arg182, %342) : (tensor<1x11x8192xf32>, tensor<8192x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %344 = ttir.empty() : tensor<1x11x2048xf32>
-    %345 = "ttir.add"(%311, %343, %344) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %345 = "ttir.add"(%311, %343, %344) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %346 = ttir.empty() : tensor<1x11x2048xf32>
-    %347 = "ttir.multiply"(%345, %345, %346) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %347 = "ttir.multiply"(%345, %345, %346) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %348 = ttir.empty() : tensor<1x11x1xf32>
     %349 = "ttir.mean"(%347, %348) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %350 = ttir.empty() : tensor<1x11x1xf32>
-    %351 = "ttir.add"(%349, %arg22, %350) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %351 = "ttir.add"(%349, %arg22, %350) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %352 = ttir.empty() : tensor<1x11x1xf32>
-    %353 = "ttir.sqrt"(%351, %352) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %353 = "ttir.sqrt"(%351, %352) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %354 = ttir.empty() : tensor<1x11x1xf32>
-    %355 = "ttir.reciprocal"(%353, %354) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %355 = "ttir.reciprocal"(%353, %354) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %356 = ttir.empty() : tensor<1x11x2048xf32>
-    %357 = "ttir.multiply"(%345, %355, %356) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %357 = "ttir.multiply"(%345, %355, %356) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %358 = ttir.empty() : tensor<1x11x2048xf32>
-    %359 = "ttir.multiply"(%arg183, %357, %358) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %359 = "ttir.multiply"(%arg183, %357, %358) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %360 = ttir.empty() : tensor<11x2048xf32>
     %361 = "ttir.squeeze"(%359, %360) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %362 = ttir.empty() : tensor<11x2048xf32>
@@ -375,7 +375,7 @@ module @LLama_3.2_1B attributes {} {
     %366 = ttir.empty() : tensor<1x32x11x64xf32>
     %367 = "ttir.transpose"(%365, %366) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x32x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %368 = ttir.empty() : tensor<1x32x11x64xf32>
-    %369 = "ttir.multiply"(%367, %35, %368) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %369 = "ttir.multiply"(%367, %35, %368) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %370 = ttir.empty() : tensor<1x32x64x11xf32>
     %371 = "ttir.transpose"(%367, %370) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %372 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -383,7 +383,7 @@ module @LLama_3.2_1B attributes {} {
     %374 = ttir.empty() : tensor<1x32x11x32xf32>
     %375 = "ttir.transpose"(%373, %374) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x32x11xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %376 = ttir.empty() : tensor<1x32x11x32xf32>
-    %377 = "ttir.multiply"(%375, %arg24, %376) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
+    %377 = "ttir.multiply"(%375, %arg24, %376) : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %378 = ttir.empty() : tensor<1x32x64x11xf32>
     %379 = "ttir.transpose"(%367, %378) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %380 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -393,9 +393,9 @@ module @LLama_3.2_1B attributes {} {
     %384 = ttir.empty() : tensor<1x32x11x64xf32>
     %385 = "ttir.concat"(%377, %383, %384) <{dim = -1 : si32}> : (tensor<1x32x11x32xf32>, tensor<1x32x11x32xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %386 = ttir.empty() : tensor<1x32x11x64xf32>
-    %387 = "ttir.multiply"(%385, %57, %386) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %387 = "ttir.multiply"(%385, %57, %386) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %388 = ttir.empty() : tensor<1x32x11x64xf32>
-    %389 = "ttir.add"(%369, %387, %388) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %389 = "ttir.add"(%369, %387, %388) : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %390 = ttir.empty() : tensor<32x11x64xf32>
     %391 = "ttir.squeeze"(%389, %390) <{dim = 0 : si32}> : (tensor<1x32x11x64xf32>, tensor<32x11x64xf32>) -> tensor<32x11x64xf32>
     %392 = ttir.empty() : tensor<11x512xf32>
@@ -405,7 +405,7 @@ module @LLama_3.2_1B attributes {} {
     %396 = ttir.empty() : tensor<1x8x11x64xf32>
     %397 = "ttir.transpose"(%395, %396) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x8x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %398 = ttir.empty() : tensor<1x8x11x64xf32>
-    %399 = "ttir.multiply"(%397, %35, %398) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %399 = "ttir.multiply"(%397, %35, %398) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %400 = ttir.empty() : tensor<1x8x64x11xf32>
     %401 = "ttir.transpose"(%397, %400) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %402 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -413,7 +413,7 @@ module @LLama_3.2_1B attributes {} {
     %404 = ttir.empty() : tensor<1x8x11x32xf32>
     %405 = "ttir.transpose"(%403, %404) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x32x11xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %406 = ttir.empty() : tensor<1x8x11x32xf32>
-    %407 = "ttir.multiply"(%405, %arg27, %406) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
+    %407 = "ttir.multiply"(%405, %arg27, %406) : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %408 = ttir.empty() : tensor<1x8x64x11xf32>
     %409 = "ttir.transpose"(%397, %408) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %410 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -423,9 +423,9 @@ module @LLama_3.2_1B attributes {} {
     %414 = ttir.empty() : tensor<1x8x11x64xf32>
     %415 = "ttir.concat"(%407, %413, %414) <{dim = -1 : si32}> : (tensor<1x8x11x32xf32>, tensor<1x8x11x32xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %416 = ttir.empty() : tensor<1x8x11x64xf32>
-    %417 = "ttir.multiply"(%415, %57, %416) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %417 = "ttir.multiply"(%415, %57, %416) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %418 = ttir.empty() : tensor<1x8x11x64xf32>
-    %419 = "ttir.add"(%399, %417, %418) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %419 = "ttir.add"(%399, %417, %418) : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %420 = ttir.empty() : tensor<1x8x1x11x64xf32>
     %421 = "ttir.unsqueeze"(%419, %420) <{dim = 2 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x1x11x64xf32>) -> tensor<1x8x1x11x64xf32>
     %422 = ttir.empty() : tensor<1x8x1x11x64xf32>
@@ -441,9 +441,9 @@ module @LLama_3.2_1B attributes {} {
     %432 = ttir.empty() : tensor<1x32x11x11xf32>
     %433 = "ttir.unsqueeze"(%431, %432) <{dim = 0 : si32}> : (tensor<32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %434 = ttir.empty() : tensor<1x32x11x11xf32>
-    %435 = "ttir.multiply"(%433, %arg29, %434) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %435 = "ttir.multiply"(%433, %arg29, %434) : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %436 = ttir.empty() : tensor<1x32x11x11xf32>
-    %437 = "ttir.add"(%435, %arg30, %436) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %437 = "ttir.add"(%435, %arg30, %436) : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %438 = ttir.empty() : tensor<1x32x11x11xf32>
     %439 = "ttir.softmax"(%437, %438) <{dimension = -1 : si32}> : (tensor<1x32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %440 = ttir.empty() : tensor<32x11x11xf32>
@@ -481,21 +481,21 @@ module @LLama_3.2_1B attributes {} {
     %472 = ttir.empty() : tensor<1x11x2048xf32>
     %473 = "ttir.unsqueeze"(%471, %472) <{dim = 0 : si32}> : (tensor<11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %474 = ttir.empty() : tensor<1x11x2048xf32>
-    %475 = "ttir.add"(%345, %473, %474) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %475 = "ttir.add"(%345, %473, %474) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %476 = ttir.empty() : tensor<1x11x2048xf32>
-    %477 = "ttir.multiply"(%475, %475, %476) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %477 = "ttir.multiply"(%475, %475, %476) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %478 = ttir.empty() : tensor<1x11x1xf32>
     %479 = "ttir.mean"(%477, %478) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %480 = ttir.empty() : tensor<1x11x1xf32>
-    %481 = "ttir.add"(%479, %arg31, %480) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %481 = "ttir.add"(%479, %arg31, %480) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %482 = ttir.empty() : tensor<1x11x1xf32>
-    %483 = "ttir.sqrt"(%481, %482) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %483 = "ttir.sqrt"(%481, %482) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %484 = ttir.empty() : tensor<1x11x1xf32>
-    %485 = "ttir.reciprocal"(%483, %484) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %485 = "ttir.reciprocal"(%483, %484) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %486 = ttir.empty() : tensor<1x11x2048xf32>
-    %487 = "ttir.multiply"(%475, %485, %486) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %487 = "ttir.multiply"(%475, %485, %486) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %488 = ttir.empty() : tensor<1x11x2048xf32>
-    %489 = "ttir.multiply"(%arg188, %487, %488) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %489 = "ttir.multiply"(%arg188, %487, %488) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %490 = ttir.empty() : tensor<11x2048xf32>
     %491 = "ttir.squeeze"(%489, %490) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %492 = ttir.empty() : tensor<11x8192xf32>
@@ -503,33 +503,33 @@ module @LLama_3.2_1B attributes {} {
     %494 = ttir.empty() : tensor<1x11x8192xf32>
     %495 = "ttir.unsqueeze"(%493, %494) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %496 = ttir.empty() : tensor<1x11x8192xf32>
-    %497 = "ttir.sigmoid"(%495, %496) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %497 = "ttir.sigmoid"(%495, %496) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %498 = ttir.empty() : tensor<1x11x8192xf32>
-    %499 = "ttir.multiply"(%495, %497, %498) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %499 = "ttir.multiply"(%495, %497, %498) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %500 = ttir.empty() : tensor<11x8192xf32>
     %501 = "ttir.matmul"(%491, %arg190, %500) : (tensor<11x2048xf32>, tensor<2048x8192xf32>, tensor<11x8192xf32>) -> tensor<11x8192xf32>
     %502 = ttir.empty() : tensor<1x11x8192xf32>
     %503 = "ttir.unsqueeze"(%501, %502) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %504 = ttir.empty() : tensor<1x11x8192xf32>
-    %505 = "ttir.multiply"(%499, %503, %504) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %505 = "ttir.multiply"(%499, %503, %504) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %506 = ttir.empty() : tensor<1x11x2048xf32>
     %507 = "ttir.matmul"(%505, %arg191, %506) : (tensor<1x11x8192xf32>, tensor<8192x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %508 = ttir.empty() : tensor<1x11x2048xf32>
-    %509 = "ttir.add"(%475, %507, %508) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %509 = "ttir.add"(%475, %507, %508) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %510 = ttir.empty() : tensor<1x11x2048xf32>
-    %511 = "ttir.multiply"(%509, %509, %510) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %511 = "ttir.multiply"(%509, %509, %510) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %512 = ttir.empty() : tensor<1x11x1xf32>
     %513 = "ttir.mean"(%511, %512) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %514 = ttir.empty() : tensor<1x11x1xf32>
-    %515 = "ttir.add"(%513, %arg32, %514) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %515 = "ttir.add"(%513, %arg32, %514) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %516 = ttir.empty() : tensor<1x11x1xf32>
-    %517 = "ttir.sqrt"(%515, %516) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %517 = "ttir.sqrt"(%515, %516) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %518 = ttir.empty() : tensor<1x11x1xf32>
-    %519 = "ttir.reciprocal"(%517, %518) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %519 = "ttir.reciprocal"(%517, %518) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %520 = ttir.empty() : tensor<1x11x2048xf32>
-    %521 = "ttir.multiply"(%509, %519, %520) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %521 = "ttir.multiply"(%509, %519, %520) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %522 = ttir.empty() : tensor<1x11x2048xf32>
-    %523 = "ttir.multiply"(%arg192, %521, %522) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %523 = "ttir.multiply"(%arg192, %521, %522) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %524 = ttir.empty() : tensor<11x2048xf32>
     %525 = "ttir.squeeze"(%523, %524) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %526 = ttir.empty() : tensor<11x2048xf32>
@@ -539,7 +539,7 @@ module @LLama_3.2_1B attributes {} {
     %530 = ttir.empty() : tensor<1x32x11x64xf32>
     %531 = "ttir.transpose"(%529, %530) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x32x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %532 = ttir.empty() : tensor<1x32x11x64xf32>
-    %533 = "ttir.multiply"(%531, %35, %532) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %533 = "ttir.multiply"(%531, %35, %532) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %534 = ttir.empty() : tensor<1x32x64x11xf32>
     %535 = "ttir.transpose"(%531, %534) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %536 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -547,7 +547,7 @@ module @LLama_3.2_1B attributes {} {
     %538 = ttir.empty() : tensor<1x32x11x32xf32>
     %539 = "ttir.transpose"(%537, %538) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x32x11xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %540 = ttir.empty() : tensor<1x32x11x32xf32>
-    %541 = "ttir.multiply"(%539, %arg34, %540) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
+    %541 = "ttir.multiply"(%539, %arg34, %540) : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %542 = ttir.empty() : tensor<1x32x64x11xf32>
     %543 = "ttir.transpose"(%531, %542) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %544 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -557,9 +557,9 @@ module @LLama_3.2_1B attributes {} {
     %548 = ttir.empty() : tensor<1x32x11x64xf32>
     %549 = "ttir.concat"(%541, %547, %548) <{dim = -1 : si32}> : (tensor<1x32x11x32xf32>, tensor<1x32x11x32xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %550 = ttir.empty() : tensor<1x32x11x64xf32>
-    %551 = "ttir.multiply"(%549, %57, %550) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %551 = "ttir.multiply"(%549, %57, %550) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %552 = ttir.empty() : tensor<1x32x11x64xf32>
-    %553 = "ttir.add"(%533, %551, %552) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %553 = "ttir.add"(%533, %551, %552) : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %554 = ttir.empty() : tensor<32x11x64xf32>
     %555 = "ttir.squeeze"(%553, %554) <{dim = 0 : si32}> : (tensor<1x32x11x64xf32>, tensor<32x11x64xf32>) -> tensor<32x11x64xf32>
     %556 = ttir.empty() : tensor<11x512xf32>
@@ -569,7 +569,7 @@ module @LLama_3.2_1B attributes {} {
     %560 = ttir.empty() : tensor<1x8x11x64xf32>
     %561 = "ttir.transpose"(%559, %560) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x8x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %562 = ttir.empty() : tensor<1x8x11x64xf32>
-    %563 = "ttir.multiply"(%561, %35, %562) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %563 = "ttir.multiply"(%561, %35, %562) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %564 = ttir.empty() : tensor<1x8x64x11xf32>
     %565 = "ttir.transpose"(%561, %564) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %566 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -577,7 +577,7 @@ module @LLama_3.2_1B attributes {} {
     %568 = ttir.empty() : tensor<1x8x11x32xf32>
     %569 = "ttir.transpose"(%567, %568) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x32x11xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %570 = ttir.empty() : tensor<1x8x11x32xf32>
-    %571 = "ttir.multiply"(%569, %arg37, %570) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
+    %571 = "ttir.multiply"(%569, %arg37, %570) : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %572 = ttir.empty() : tensor<1x8x64x11xf32>
     %573 = "ttir.transpose"(%561, %572) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %574 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -587,9 +587,9 @@ module @LLama_3.2_1B attributes {} {
     %578 = ttir.empty() : tensor<1x8x11x64xf32>
     %579 = "ttir.concat"(%571, %577, %578) <{dim = -1 : si32}> : (tensor<1x8x11x32xf32>, tensor<1x8x11x32xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %580 = ttir.empty() : tensor<1x8x11x64xf32>
-    %581 = "ttir.multiply"(%579, %57, %580) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %581 = "ttir.multiply"(%579, %57, %580) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %582 = ttir.empty() : tensor<1x8x11x64xf32>
-    %583 = "ttir.add"(%563, %581, %582) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %583 = "ttir.add"(%563, %581, %582) : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %584 = ttir.empty() : tensor<1x8x1x11x64xf32>
     %585 = "ttir.unsqueeze"(%583, %584) <{dim = 2 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x1x11x64xf32>) -> tensor<1x8x1x11x64xf32>
     %586 = ttir.empty() : tensor<1x8x1x11x64xf32>
@@ -605,9 +605,9 @@ module @LLama_3.2_1B attributes {} {
     %596 = ttir.empty() : tensor<1x32x11x11xf32>
     %597 = "ttir.unsqueeze"(%595, %596) <{dim = 0 : si32}> : (tensor<32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %598 = ttir.empty() : tensor<1x32x11x11xf32>
-    %599 = "ttir.multiply"(%597, %arg39, %598) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %599 = "ttir.multiply"(%597, %arg39, %598) : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %600 = ttir.empty() : tensor<1x32x11x11xf32>
-    %601 = "ttir.add"(%599, %arg40, %600) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %601 = "ttir.add"(%599, %arg40, %600) : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %602 = ttir.empty() : tensor<1x32x11x11xf32>
     %603 = "ttir.softmax"(%601, %602) <{dimension = -1 : si32}> : (tensor<1x32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %604 = ttir.empty() : tensor<32x11x11xf32>
@@ -645,21 +645,21 @@ module @LLama_3.2_1B attributes {} {
     %636 = ttir.empty() : tensor<1x11x2048xf32>
     %637 = "ttir.unsqueeze"(%635, %636) <{dim = 0 : si32}> : (tensor<11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %638 = ttir.empty() : tensor<1x11x2048xf32>
-    %639 = "ttir.add"(%509, %637, %638) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %639 = "ttir.add"(%509, %637, %638) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %640 = ttir.empty() : tensor<1x11x2048xf32>
-    %641 = "ttir.multiply"(%639, %639, %640) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %641 = "ttir.multiply"(%639, %639, %640) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %642 = ttir.empty() : tensor<1x11x1xf32>
     %643 = "ttir.mean"(%641, %642) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %644 = ttir.empty() : tensor<1x11x1xf32>
-    %645 = "ttir.add"(%643, %arg41, %644) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %645 = "ttir.add"(%643, %arg41, %644) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %646 = ttir.empty() : tensor<1x11x1xf32>
-    %647 = "ttir.sqrt"(%645, %646) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %647 = "ttir.sqrt"(%645, %646) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %648 = ttir.empty() : tensor<1x11x1xf32>
-    %649 = "ttir.reciprocal"(%647, %648) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %649 = "ttir.reciprocal"(%647, %648) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %650 = ttir.empty() : tensor<1x11x2048xf32>
-    %651 = "ttir.multiply"(%639, %649, %650) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %651 = "ttir.multiply"(%639, %649, %650) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %652 = ttir.empty() : tensor<1x11x2048xf32>
-    %653 = "ttir.multiply"(%arg197, %651, %652) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %653 = "ttir.multiply"(%arg197, %651, %652) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %654 = ttir.empty() : tensor<11x2048xf32>
     %655 = "ttir.squeeze"(%653, %654) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %656 = ttir.empty() : tensor<11x8192xf32>
@@ -667,33 +667,33 @@ module @LLama_3.2_1B attributes {} {
     %658 = ttir.empty() : tensor<1x11x8192xf32>
     %659 = "ttir.unsqueeze"(%657, %658) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %660 = ttir.empty() : tensor<1x11x8192xf32>
-    %661 = "ttir.sigmoid"(%659, %660) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %661 = "ttir.sigmoid"(%659, %660) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %662 = ttir.empty() : tensor<1x11x8192xf32>
-    %663 = "ttir.multiply"(%659, %661, %662) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %663 = "ttir.multiply"(%659, %661, %662) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %664 = ttir.empty() : tensor<11x8192xf32>
     %665 = "ttir.matmul"(%655, %arg199, %664) : (tensor<11x2048xf32>, tensor<2048x8192xf32>, tensor<11x8192xf32>) -> tensor<11x8192xf32>
     %666 = ttir.empty() : tensor<1x11x8192xf32>
     %667 = "ttir.unsqueeze"(%665, %666) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %668 = ttir.empty() : tensor<1x11x8192xf32>
-    %669 = "ttir.multiply"(%663, %667, %668) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %669 = "ttir.multiply"(%663, %667, %668) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %670 = ttir.empty() : tensor<1x11x2048xf32>
     %671 = "ttir.matmul"(%669, %arg200, %670) : (tensor<1x11x8192xf32>, tensor<8192x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %672 = ttir.empty() : tensor<1x11x2048xf32>
-    %673 = "ttir.add"(%639, %671, %672) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %673 = "ttir.add"(%639, %671, %672) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %674 = ttir.empty() : tensor<1x11x2048xf32>
-    %675 = "ttir.multiply"(%673, %673, %674) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %675 = "ttir.multiply"(%673, %673, %674) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %676 = ttir.empty() : tensor<1x11x1xf32>
     %677 = "ttir.mean"(%675, %676) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %678 = ttir.empty() : tensor<1x11x1xf32>
-    %679 = "ttir.add"(%677, %arg42, %678) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %679 = "ttir.add"(%677, %arg42, %678) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %680 = ttir.empty() : tensor<1x11x1xf32>
-    %681 = "ttir.sqrt"(%679, %680) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %681 = "ttir.sqrt"(%679, %680) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %682 = ttir.empty() : tensor<1x11x1xf32>
-    %683 = "ttir.reciprocal"(%681, %682) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %683 = "ttir.reciprocal"(%681, %682) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %684 = ttir.empty() : tensor<1x11x2048xf32>
-    %685 = "ttir.multiply"(%673, %683, %684) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %685 = "ttir.multiply"(%673, %683, %684) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %686 = ttir.empty() : tensor<1x11x2048xf32>
-    %687 = "ttir.multiply"(%arg201, %685, %686) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %687 = "ttir.multiply"(%arg201, %685, %686) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %688 = ttir.empty() : tensor<11x2048xf32>
     %689 = "ttir.squeeze"(%687, %688) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %690 = ttir.empty() : tensor<11x2048xf32>
@@ -703,7 +703,7 @@ module @LLama_3.2_1B attributes {} {
     %694 = ttir.empty() : tensor<1x32x11x64xf32>
     %695 = "ttir.transpose"(%693, %694) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x32x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %696 = ttir.empty() : tensor<1x32x11x64xf32>
-    %697 = "ttir.multiply"(%695, %35, %696) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %697 = "ttir.multiply"(%695, %35, %696) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %698 = ttir.empty() : tensor<1x32x64x11xf32>
     %699 = "ttir.transpose"(%695, %698) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %700 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -711,7 +711,7 @@ module @LLama_3.2_1B attributes {} {
     %702 = ttir.empty() : tensor<1x32x11x32xf32>
     %703 = "ttir.transpose"(%701, %702) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x32x11xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %704 = ttir.empty() : tensor<1x32x11x32xf32>
-    %705 = "ttir.multiply"(%703, %arg44, %704) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
+    %705 = "ttir.multiply"(%703, %arg44, %704) : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %706 = ttir.empty() : tensor<1x32x64x11xf32>
     %707 = "ttir.transpose"(%695, %706) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %708 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -721,9 +721,9 @@ module @LLama_3.2_1B attributes {} {
     %712 = ttir.empty() : tensor<1x32x11x64xf32>
     %713 = "ttir.concat"(%705, %711, %712) <{dim = -1 : si32}> : (tensor<1x32x11x32xf32>, tensor<1x32x11x32xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %714 = ttir.empty() : tensor<1x32x11x64xf32>
-    %715 = "ttir.multiply"(%713, %57, %714) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %715 = "ttir.multiply"(%713, %57, %714) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %716 = ttir.empty() : tensor<1x32x11x64xf32>
-    %717 = "ttir.add"(%697, %715, %716) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %717 = "ttir.add"(%697, %715, %716) : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %718 = ttir.empty() : tensor<32x11x64xf32>
     %719 = "ttir.squeeze"(%717, %718) <{dim = 0 : si32}> : (tensor<1x32x11x64xf32>, tensor<32x11x64xf32>) -> tensor<32x11x64xf32>
     %720 = ttir.empty() : tensor<11x512xf32>
@@ -733,7 +733,7 @@ module @LLama_3.2_1B attributes {} {
     %724 = ttir.empty() : tensor<1x8x11x64xf32>
     %725 = "ttir.transpose"(%723, %724) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x8x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %726 = ttir.empty() : tensor<1x8x11x64xf32>
-    %727 = "ttir.multiply"(%725, %35, %726) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %727 = "ttir.multiply"(%725, %35, %726) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %728 = ttir.empty() : tensor<1x8x64x11xf32>
     %729 = "ttir.transpose"(%725, %728) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %730 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -741,7 +741,7 @@ module @LLama_3.2_1B attributes {} {
     %732 = ttir.empty() : tensor<1x8x11x32xf32>
     %733 = "ttir.transpose"(%731, %732) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x32x11xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %734 = ttir.empty() : tensor<1x8x11x32xf32>
-    %735 = "ttir.multiply"(%733, %arg47, %734) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
+    %735 = "ttir.multiply"(%733, %arg47, %734) : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %736 = ttir.empty() : tensor<1x8x64x11xf32>
     %737 = "ttir.transpose"(%725, %736) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %738 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -751,9 +751,9 @@ module @LLama_3.2_1B attributes {} {
     %742 = ttir.empty() : tensor<1x8x11x64xf32>
     %743 = "ttir.concat"(%735, %741, %742) <{dim = -1 : si32}> : (tensor<1x8x11x32xf32>, tensor<1x8x11x32xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %744 = ttir.empty() : tensor<1x8x11x64xf32>
-    %745 = "ttir.multiply"(%743, %57, %744) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %745 = "ttir.multiply"(%743, %57, %744) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %746 = ttir.empty() : tensor<1x8x11x64xf32>
-    %747 = "ttir.add"(%727, %745, %746) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %747 = "ttir.add"(%727, %745, %746) : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %748 = ttir.empty() : tensor<1x8x1x11x64xf32>
     %749 = "ttir.unsqueeze"(%747, %748) <{dim = 2 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x1x11x64xf32>) -> tensor<1x8x1x11x64xf32>
     %750 = ttir.empty() : tensor<1x8x1x11x64xf32>
@@ -769,9 +769,9 @@ module @LLama_3.2_1B attributes {} {
     %760 = ttir.empty() : tensor<1x32x11x11xf32>
     %761 = "ttir.unsqueeze"(%759, %760) <{dim = 0 : si32}> : (tensor<32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %762 = ttir.empty() : tensor<1x32x11x11xf32>
-    %763 = "ttir.multiply"(%761, %arg49, %762) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %763 = "ttir.multiply"(%761, %arg49, %762) : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %764 = ttir.empty() : tensor<1x32x11x11xf32>
-    %765 = "ttir.add"(%763, %arg50, %764) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %765 = "ttir.add"(%763, %arg50, %764) : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %766 = ttir.empty() : tensor<1x32x11x11xf32>
     %767 = "ttir.softmax"(%765, %766) <{dimension = -1 : si32}> : (tensor<1x32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %768 = ttir.empty() : tensor<32x11x11xf32>
@@ -809,21 +809,21 @@ module @LLama_3.2_1B attributes {} {
     %800 = ttir.empty() : tensor<1x11x2048xf32>
     %801 = "ttir.unsqueeze"(%799, %800) <{dim = 0 : si32}> : (tensor<11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %802 = ttir.empty() : tensor<1x11x2048xf32>
-    %803 = "ttir.add"(%673, %801, %802) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %803 = "ttir.add"(%673, %801, %802) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %804 = ttir.empty() : tensor<1x11x2048xf32>
-    %805 = "ttir.multiply"(%803, %803, %804) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %805 = "ttir.multiply"(%803, %803, %804) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %806 = ttir.empty() : tensor<1x11x1xf32>
     %807 = "ttir.mean"(%805, %806) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %808 = ttir.empty() : tensor<1x11x1xf32>
-    %809 = "ttir.add"(%807, %arg51, %808) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %809 = "ttir.add"(%807, %arg51, %808) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %810 = ttir.empty() : tensor<1x11x1xf32>
-    %811 = "ttir.sqrt"(%809, %810) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %811 = "ttir.sqrt"(%809, %810) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %812 = ttir.empty() : tensor<1x11x1xf32>
-    %813 = "ttir.reciprocal"(%811, %812) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %813 = "ttir.reciprocal"(%811, %812) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %814 = ttir.empty() : tensor<1x11x2048xf32>
-    %815 = "ttir.multiply"(%803, %813, %814) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %815 = "ttir.multiply"(%803, %813, %814) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %816 = ttir.empty() : tensor<1x11x2048xf32>
-    %817 = "ttir.multiply"(%arg206, %815, %816) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %817 = "ttir.multiply"(%arg206, %815, %816) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %818 = ttir.empty() : tensor<11x2048xf32>
     %819 = "ttir.squeeze"(%817, %818) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %820 = ttir.empty() : tensor<11x8192xf32>
@@ -831,33 +831,33 @@ module @LLama_3.2_1B attributes {} {
     %822 = ttir.empty() : tensor<1x11x8192xf32>
     %823 = "ttir.unsqueeze"(%821, %822) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %824 = ttir.empty() : tensor<1x11x8192xf32>
-    %825 = "ttir.sigmoid"(%823, %824) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %825 = "ttir.sigmoid"(%823, %824) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %826 = ttir.empty() : tensor<1x11x8192xf32>
-    %827 = "ttir.multiply"(%823, %825, %826) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %827 = "ttir.multiply"(%823, %825, %826) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %828 = ttir.empty() : tensor<11x8192xf32>
     %829 = "ttir.matmul"(%819, %arg208, %828) : (tensor<11x2048xf32>, tensor<2048x8192xf32>, tensor<11x8192xf32>) -> tensor<11x8192xf32>
     %830 = ttir.empty() : tensor<1x11x8192xf32>
     %831 = "ttir.unsqueeze"(%829, %830) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %832 = ttir.empty() : tensor<1x11x8192xf32>
-    %833 = "ttir.multiply"(%827, %831, %832) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %833 = "ttir.multiply"(%827, %831, %832) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %834 = ttir.empty() : tensor<1x11x2048xf32>
     %835 = "ttir.matmul"(%833, %arg209, %834) : (tensor<1x11x8192xf32>, tensor<8192x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %836 = ttir.empty() : tensor<1x11x2048xf32>
-    %837 = "ttir.add"(%803, %835, %836) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %837 = "ttir.add"(%803, %835, %836) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %838 = ttir.empty() : tensor<1x11x2048xf32>
-    %839 = "ttir.multiply"(%837, %837, %838) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %839 = "ttir.multiply"(%837, %837, %838) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %840 = ttir.empty() : tensor<1x11x1xf32>
     %841 = "ttir.mean"(%839, %840) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %842 = ttir.empty() : tensor<1x11x1xf32>
-    %843 = "ttir.add"(%841, %arg52, %842) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %843 = "ttir.add"(%841, %arg52, %842) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %844 = ttir.empty() : tensor<1x11x1xf32>
-    %845 = "ttir.sqrt"(%843, %844) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %845 = "ttir.sqrt"(%843, %844) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %846 = ttir.empty() : tensor<1x11x1xf32>
-    %847 = "ttir.reciprocal"(%845, %846) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %847 = "ttir.reciprocal"(%845, %846) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %848 = ttir.empty() : tensor<1x11x2048xf32>
-    %849 = "ttir.multiply"(%837, %847, %848) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %849 = "ttir.multiply"(%837, %847, %848) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %850 = ttir.empty() : tensor<1x11x2048xf32>
-    %851 = "ttir.multiply"(%arg210, %849, %850) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %851 = "ttir.multiply"(%arg210, %849, %850) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %852 = ttir.empty() : tensor<11x2048xf32>
     %853 = "ttir.squeeze"(%851, %852) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %854 = ttir.empty() : tensor<11x2048xf32>
@@ -867,7 +867,7 @@ module @LLama_3.2_1B attributes {} {
     %858 = ttir.empty() : tensor<1x32x11x64xf32>
     %859 = "ttir.transpose"(%857, %858) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x32x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %860 = ttir.empty() : tensor<1x32x11x64xf32>
-    %861 = "ttir.multiply"(%859, %35, %860) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %861 = "ttir.multiply"(%859, %35, %860) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %862 = ttir.empty() : tensor<1x32x64x11xf32>
     %863 = "ttir.transpose"(%859, %862) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %864 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -875,7 +875,7 @@ module @LLama_3.2_1B attributes {} {
     %866 = ttir.empty() : tensor<1x32x11x32xf32>
     %867 = "ttir.transpose"(%865, %866) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x32x11xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %868 = ttir.empty() : tensor<1x32x11x32xf32>
-    %869 = "ttir.multiply"(%867, %arg54, %868) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
+    %869 = "ttir.multiply"(%867, %arg54, %868) : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %870 = ttir.empty() : tensor<1x32x64x11xf32>
     %871 = "ttir.transpose"(%859, %870) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %872 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -885,9 +885,9 @@ module @LLama_3.2_1B attributes {} {
     %876 = ttir.empty() : tensor<1x32x11x64xf32>
     %877 = "ttir.concat"(%869, %875, %876) <{dim = -1 : si32}> : (tensor<1x32x11x32xf32>, tensor<1x32x11x32xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %878 = ttir.empty() : tensor<1x32x11x64xf32>
-    %879 = "ttir.multiply"(%877, %57, %878) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %879 = "ttir.multiply"(%877, %57, %878) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %880 = ttir.empty() : tensor<1x32x11x64xf32>
-    %881 = "ttir.add"(%861, %879, %880) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %881 = "ttir.add"(%861, %879, %880) : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %882 = ttir.empty() : tensor<32x11x64xf32>
     %883 = "ttir.squeeze"(%881, %882) <{dim = 0 : si32}> : (tensor<1x32x11x64xf32>, tensor<32x11x64xf32>) -> tensor<32x11x64xf32>
     %884 = ttir.empty() : tensor<11x512xf32>
@@ -897,7 +897,7 @@ module @LLama_3.2_1B attributes {} {
     %888 = ttir.empty() : tensor<1x8x11x64xf32>
     %889 = "ttir.transpose"(%887, %888) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x8x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %890 = ttir.empty() : tensor<1x8x11x64xf32>
-    %891 = "ttir.multiply"(%889, %35, %890) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %891 = "ttir.multiply"(%889, %35, %890) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %892 = ttir.empty() : tensor<1x8x64x11xf32>
     %893 = "ttir.transpose"(%889, %892) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %894 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -905,7 +905,7 @@ module @LLama_3.2_1B attributes {} {
     %896 = ttir.empty() : tensor<1x8x11x32xf32>
     %897 = "ttir.transpose"(%895, %896) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x32x11xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %898 = ttir.empty() : tensor<1x8x11x32xf32>
-    %899 = "ttir.multiply"(%897, %arg57, %898) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
+    %899 = "ttir.multiply"(%897, %arg57, %898) : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %900 = ttir.empty() : tensor<1x8x64x11xf32>
     %901 = "ttir.transpose"(%889, %900) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %902 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -915,9 +915,9 @@ module @LLama_3.2_1B attributes {} {
     %906 = ttir.empty() : tensor<1x8x11x64xf32>
     %907 = "ttir.concat"(%899, %905, %906) <{dim = -1 : si32}> : (tensor<1x8x11x32xf32>, tensor<1x8x11x32xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %908 = ttir.empty() : tensor<1x8x11x64xf32>
-    %909 = "ttir.multiply"(%907, %57, %908) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %909 = "ttir.multiply"(%907, %57, %908) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %910 = ttir.empty() : tensor<1x8x11x64xf32>
-    %911 = "ttir.add"(%891, %909, %910) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %911 = "ttir.add"(%891, %909, %910) : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %912 = ttir.empty() : tensor<1x8x1x11x64xf32>
     %913 = "ttir.unsqueeze"(%911, %912) <{dim = 2 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x1x11x64xf32>) -> tensor<1x8x1x11x64xf32>
     %914 = ttir.empty() : tensor<1x8x1x11x64xf32>
@@ -933,9 +933,9 @@ module @LLama_3.2_1B attributes {} {
     %924 = ttir.empty() : tensor<1x32x11x11xf32>
     %925 = "ttir.unsqueeze"(%923, %924) <{dim = 0 : si32}> : (tensor<32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %926 = ttir.empty() : tensor<1x32x11x11xf32>
-    %927 = "ttir.multiply"(%925, %arg59, %926) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %927 = "ttir.multiply"(%925, %arg59, %926) : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %928 = ttir.empty() : tensor<1x32x11x11xf32>
-    %929 = "ttir.add"(%927, %arg60, %928) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %929 = "ttir.add"(%927, %arg60, %928) : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %930 = ttir.empty() : tensor<1x32x11x11xf32>
     %931 = "ttir.softmax"(%929, %930) <{dimension = -1 : si32}> : (tensor<1x32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %932 = ttir.empty() : tensor<32x11x11xf32>
@@ -973,21 +973,21 @@ module @LLama_3.2_1B attributes {} {
     %964 = ttir.empty() : tensor<1x11x2048xf32>
     %965 = "ttir.unsqueeze"(%963, %964) <{dim = 0 : si32}> : (tensor<11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %966 = ttir.empty() : tensor<1x11x2048xf32>
-    %967 = "ttir.add"(%837, %965, %966) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %967 = "ttir.add"(%837, %965, %966) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %968 = ttir.empty() : tensor<1x11x2048xf32>
-    %969 = "ttir.multiply"(%967, %967, %968) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %969 = "ttir.multiply"(%967, %967, %968) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %970 = ttir.empty() : tensor<1x11x1xf32>
     %971 = "ttir.mean"(%969, %970) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %972 = ttir.empty() : tensor<1x11x1xf32>
-    %973 = "ttir.add"(%971, %arg61, %972) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %973 = "ttir.add"(%971, %arg61, %972) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %974 = ttir.empty() : tensor<1x11x1xf32>
-    %975 = "ttir.sqrt"(%973, %974) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %975 = "ttir.sqrt"(%973, %974) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %976 = ttir.empty() : tensor<1x11x1xf32>
-    %977 = "ttir.reciprocal"(%975, %976) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %977 = "ttir.reciprocal"(%975, %976) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %978 = ttir.empty() : tensor<1x11x2048xf32>
-    %979 = "ttir.multiply"(%967, %977, %978) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %979 = "ttir.multiply"(%967, %977, %978) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %980 = ttir.empty() : tensor<1x11x2048xf32>
-    %981 = "ttir.multiply"(%arg215, %979, %980) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %981 = "ttir.multiply"(%arg215, %979, %980) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %982 = ttir.empty() : tensor<11x2048xf32>
     %983 = "ttir.squeeze"(%981, %982) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %984 = ttir.empty() : tensor<11x8192xf32>
@@ -995,33 +995,33 @@ module @LLama_3.2_1B attributes {} {
     %986 = ttir.empty() : tensor<1x11x8192xf32>
     %987 = "ttir.unsqueeze"(%985, %986) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %988 = ttir.empty() : tensor<1x11x8192xf32>
-    %989 = "ttir.sigmoid"(%987, %988) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %989 = "ttir.sigmoid"(%987, %988) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %990 = ttir.empty() : tensor<1x11x8192xf32>
-    %991 = "ttir.multiply"(%987, %989, %990) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %991 = "ttir.multiply"(%987, %989, %990) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %992 = ttir.empty() : tensor<11x8192xf32>
     %993 = "ttir.matmul"(%983, %arg217, %992) : (tensor<11x2048xf32>, tensor<2048x8192xf32>, tensor<11x8192xf32>) -> tensor<11x8192xf32>
     %994 = ttir.empty() : tensor<1x11x8192xf32>
     %995 = "ttir.unsqueeze"(%993, %994) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %996 = ttir.empty() : tensor<1x11x8192xf32>
-    %997 = "ttir.multiply"(%991, %995, %996) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %997 = "ttir.multiply"(%991, %995, %996) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %998 = ttir.empty() : tensor<1x11x2048xf32>
     %999 = "ttir.matmul"(%997, %arg218, %998) : (tensor<1x11x8192xf32>, tensor<8192x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1000 = ttir.empty() : tensor<1x11x2048xf32>
-    %1001 = "ttir.add"(%967, %999, %1000) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1001 = "ttir.add"(%967, %999, %1000) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1002 = ttir.empty() : tensor<1x11x2048xf32>
-    %1003 = "ttir.multiply"(%1001, %1001, %1002) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1003 = "ttir.multiply"(%1001, %1001, %1002) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1004 = ttir.empty() : tensor<1x11x1xf32>
     %1005 = "ttir.mean"(%1003, %1004) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1006 = ttir.empty() : tensor<1x11x1xf32>
-    %1007 = "ttir.add"(%1005, %arg62, %1006) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1007 = "ttir.add"(%1005, %arg62, %1006) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1008 = ttir.empty() : tensor<1x11x1xf32>
-    %1009 = "ttir.sqrt"(%1007, %1008) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1009 = "ttir.sqrt"(%1007, %1008) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1010 = ttir.empty() : tensor<1x11x1xf32>
-    %1011 = "ttir.reciprocal"(%1009, %1010) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1011 = "ttir.reciprocal"(%1009, %1010) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1012 = ttir.empty() : tensor<1x11x2048xf32>
-    %1013 = "ttir.multiply"(%1001, %1011, %1012) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1013 = "ttir.multiply"(%1001, %1011, %1012) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1014 = ttir.empty() : tensor<1x11x2048xf32>
-    %1015 = "ttir.multiply"(%arg219, %1013, %1014) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1015 = "ttir.multiply"(%arg219, %1013, %1014) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1016 = ttir.empty() : tensor<11x2048xf32>
     %1017 = "ttir.squeeze"(%1015, %1016) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %1018 = ttir.empty() : tensor<11x2048xf32>
@@ -1031,7 +1031,7 @@ module @LLama_3.2_1B attributes {} {
     %1022 = ttir.empty() : tensor<1x32x11x64xf32>
     %1023 = "ttir.transpose"(%1021, %1022) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x32x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1024 = ttir.empty() : tensor<1x32x11x64xf32>
-    %1025 = "ttir.multiply"(%1023, %35, %1024) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %1025 = "ttir.multiply"(%1023, %35, %1024) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1026 = ttir.empty() : tensor<1x32x64x11xf32>
     %1027 = "ttir.transpose"(%1023, %1026) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %1028 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -1039,7 +1039,7 @@ module @LLama_3.2_1B attributes {} {
     %1030 = ttir.empty() : tensor<1x32x11x32xf32>
     %1031 = "ttir.transpose"(%1029, %1030) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x32x11xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %1032 = ttir.empty() : tensor<1x32x11x32xf32>
-    %1033 = "ttir.multiply"(%1031, %arg64, %1032) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
+    %1033 = "ttir.multiply"(%1031, %arg64, %1032) : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %1034 = ttir.empty() : tensor<1x32x64x11xf32>
     %1035 = "ttir.transpose"(%1023, %1034) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %1036 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -1049,9 +1049,9 @@ module @LLama_3.2_1B attributes {} {
     %1040 = ttir.empty() : tensor<1x32x11x64xf32>
     %1041 = "ttir.concat"(%1033, %1039, %1040) <{dim = -1 : si32}> : (tensor<1x32x11x32xf32>, tensor<1x32x11x32xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1042 = ttir.empty() : tensor<1x32x11x64xf32>
-    %1043 = "ttir.multiply"(%1041, %57, %1042) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %1043 = "ttir.multiply"(%1041, %57, %1042) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1044 = ttir.empty() : tensor<1x32x11x64xf32>
-    %1045 = "ttir.add"(%1025, %1043, %1044) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %1045 = "ttir.add"(%1025, %1043, %1044) : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1046 = ttir.empty() : tensor<32x11x64xf32>
     %1047 = "ttir.squeeze"(%1045, %1046) <{dim = 0 : si32}> : (tensor<1x32x11x64xf32>, tensor<32x11x64xf32>) -> tensor<32x11x64xf32>
     %1048 = ttir.empty() : tensor<11x512xf32>
@@ -1061,7 +1061,7 @@ module @LLama_3.2_1B attributes {} {
     %1052 = ttir.empty() : tensor<1x8x11x64xf32>
     %1053 = "ttir.transpose"(%1051, %1052) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x8x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1054 = ttir.empty() : tensor<1x8x11x64xf32>
-    %1055 = "ttir.multiply"(%1053, %35, %1054) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %1055 = "ttir.multiply"(%1053, %35, %1054) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1056 = ttir.empty() : tensor<1x8x64x11xf32>
     %1057 = "ttir.transpose"(%1053, %1056) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %1058 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -1069,7 +1069,7 @@ module @LLama_3.2_1B attributes {} {
     %1060 = ttir.empty() : tensor<1x8x11x32xf32>
     %1061 = "ttir.transpose"(%1059, %1060) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x32x11xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %1062 = ttir.empty() : tensor<1x8x11x32xf32>
-    %1063 = "ttir.multiply"(%1061, %arg67, %1062) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
+    %1063 = "ttir.multiply"(%1061, %arg67, %1062) : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %1064 = ttir.empty() : tensor<1x8x64x11xf32>
     %1065 = "ttir.transpose"(%1053, %1064) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %1066 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -1079,9 +1079,9 @@ module @LLama_3.2_1B attributes {} {
     %1070 = ttir.empty() : tensor<1x8x11x64xf32>
     %1071 = "ttir.concat"(%1063, %1069, %1070) <{dim = -1 : si32}> : (tensor<1x8x11x32xf32>, tensor<1x8x11x32xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1072 = ttir.empty() : tensor<1x8x11x64xf32>
-    %1073 = "ttir.multiply"(%1071, %57, %1072) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %1073 = "ttir.multiply"(%1071, %57, %1072) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1074 = ttir.empty() : tensor<1x8x11x64xf32>
-    %1075 = "ttir.add"(%1055, %1073, %1074) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %1075 = "ttir.add"(%1055, %1073, %1074) : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1076 = ttir.empty() : tensor<1x8x1x11x64xf32>
     %1077 = "ttir.unsqueeze"(%1075, %1076) <{dim = 2 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x1x11x64xf32>) -> tensor<1x8x1x11x64xf32>
     %1078 = ttir.empty() : tensor<1x8x1x11x64xf32>
@@ -1097,9 +1097,9 @@ module @LLama_3.2_1B attributes {} {
     %1088 = ttir.empty() : tensor<1x32x11x11xf32>
     %1089 = "ttir.unsqueeze"(%1087, %1088) <{dim = 0 : si32}> : (tensor<32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %1090 = ttir.empty() : tensor<1x32x11x11xf32>
-    %1091 = "ttir.multiply"(%1089, %arg69, %1090) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %1091 = "ttir.multiply"(%1089, %arg69, %1090) : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %1092 = ttir.empty() : tensor<1x32x11x11xf32>
-    %1093 = "ttir.add"(%1091, %arg70, %1092) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %1093 = "ttir.add"(%1091, %arg70, %1092) : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %1094 = ttir.empty() : tensor<1x32x11x11xf32>
     %1095 = "ttir.softmax"(%1093, %1094) <{dimension = -1 : si32}> : (tensor<1x32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %1096 = ttir.empty() : tensor<32x11x11xf32>
@@ -1137,21 +1137,21 @@ module @LLama_3.2_1B attributes {} {
     %1128 = ttir.empty() : tensor<1x11x2048xf32>
     %1129 = "ttir.unsqueeze"(%1127, %1128) <{dim = 0 : si32}> : (tensor<11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1130 = ttir.empty() : tensor<1x11x2048xf32>
-    %1131 = "ttir.add"(%1001, %1129, %1130) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1131 = "ttir.add"(%1001, %1129, %1130) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1132 = ttir.empty() : tensor<1x11x2048xf32>
-    %1133 = "ttir.multiply"(%1131, %1131, %1132) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1133 = "ttir.multiply"(%1131, %1131, %1132) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1134 = ttir.empty() : tensor<1x11x1xf32>
     %1135 = "ttir.mean"(%1133, %1134) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1136 = ttir.empty() : tensor<1x11x1xf32>
-    %1137 = "ttir.add"(%1135, %arg71, %1136) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1137 = "ttir.add"(%1135, %arg71, %1136) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1138 = ttir.empty() : tensor<1x11x1xf32>
-    %1139 = "ttir.sqrt"(%1137, %1138) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1139 = "ttir.sqrt"(%1137, %1138) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1140 = ttir.empty() : tensor<1x11x1xf32>
-    %1141 = "ttir.reciprocal"(%1139, %1140) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1141 = "ttir.reciprocal"(%1139, %1140) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1142 = ttir.empty() : tensor<1x11x2048xf32>
-    %1143 = "ttir.multiply"(%1131, %1141, %1142) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1143 = "ttir.multiply"(%1131, %1141, %1142) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1144 = ttir.empty() : tensor<1x11x2048xf32>
-    %1145 = "ttir.multiply"(%arg224, %1143, %1144) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1145 = "ttir.multiply"(%arg224, %1143, %1144) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1146 = ttir.empty() : tensor<11x2048xf32>
     %1147 = "ttir.squeeze"(%1145, %1146) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %1148 = ttir.empty() : tensor<11x8192xf32>
@@ -1159,33 +1159,33 @@ module @LLama_3.2_1B attributes {} {
     %1150 = ttir.empty() : tensor<1x11x8192xf32>
     %1151 = "ttir.unsqueeze"(%1149, %1150) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1152 = ttir.empty() : tensor<1x11x8192xf32>
-    %1153 = "ttir.sigmoid"(%1151, %1152) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %1153 = "ttir.sigmoid"(%1151, %1152) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1154 = ttir.empty() : tensor<1x11x8192xf32>
-    %1155 = "ttir.multiply"(%1151, %1153, %1154) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %1155 = "ttir.multiply"(%1151, %1153, %1154) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1156 = ttir.empty() : tensor<11x8192xf32>
     %1157 = "ttir.matmul"(%1147, %arg226, %1156) : (tensor<11x2048xf32>, tensor<2048x8192xf32>, tensor<11x8192xf32>) -> tensor<11x8192xf32>
     %1158 = ttir.empty() : tensor<1x11x8192xf32>
     %1159 = "ttir.unsqueeze"(%1157, %1158) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1160 = ttir.empty() : tensor<1x11x8192xf32>
-    %1161 = "ttir.multiply"(%1155, %1159, %1160) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %1161 = "ttir.multiply"(%1155, %1159, %1160) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1162 = ttir.empty() : tensor<1x11x2048xf32>
     %1163 = "ttir.matmul"(%1161, %arg227, %1162) : (tensor<1x11x8192xf32>, tensor<8192x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1164 = ttir.empty() : tensor<1x11x2048xf32>
-    %1165 = "ttir.add"(%1131, %1163, %1164) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1165 = "ttir.add"(%1131, %1163, %1164) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1166 = ttir.empty() : tensor<1x11x2048xf32>
-    %1167 = "ttir.multiply"(%1165, %1165, %1166) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1167 = "ttir.multiply"(%1165, %1165, %1166) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1168 = ttir.empty() : tensor<1x11x1xf32>
     %1169 = "ttir.mean"(%1167, %1168) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1170 = ttir.empty() : tensor<1x11x1xf32>
-    %1171 = "ttir.add"(%1169, %arg72, %1170) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1171 = "ttir.add"(%1169, %arg72, %1170) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1172 = ttir.empty() : tensor<1x11x1xf32>
-    %1173 = "ttir.sqrt"(%1171, %1172) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1173 = "ttir.sqrt"(%1171, %1172) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1174 = ttir.empty() : tensor<1x11x1xf32>
-    %1175 = "ttir.reciprocal"(%1173, %1174) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1175 = "ttir.reciprocal"(%1173, %1174) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1176 = ttir.empty() : tensor<1x11x2048xf32>
-    %1177 = "ttir.multiply"(%1165, %1175, %1176) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1177 = "ttir.multiply"(%1165, %1175, %1176) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1178 = ttir.empty() : tensor<1x11x2048xf32>
-    %1179 = "ttir.multiply"(%arg228, %1177, %1178) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1179 = "ttir.multiply"(%arg228, %1177, %1178) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1180 = ttir.empty() : tensor<11x2048xf32>
     %1181 = "ttir.squeeze"(%1179, %1180) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %1182 = ttir.empty() : tensor<11x2048xf32>
@@ -1195,7 +1195,7 @@ module @LLama_3.2_1B attributes {} {
     %1186 = ttir.empty() : tensor<1x32x11x64xf32>
     %1187 = "ttir.transpose"(%1185, %1186) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x32x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1188 = ttir.empty() : tensor<1x32x11x64xf32>
-    %1189 = "ttir.multiply"(%1187, %35, %1188) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %1189 = "ttir.multiply"(%1187, %35, %1188) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1190 = ttir.empty() : tensor<1x32x64x11xf32>
     %1191 = "ttir.transpose"(%1187, %1190) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %1192 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -1203,7 +1203,7 @@ module @LLama_3.2_1B attributes {} {
     %1194 = ttir.empty() : tensor<1x32x11x32xf32>
     %1195 = "ttir.transpose"(%1193, %1194) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x32x11xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %1196 = ttir.empty() : tensor<1x32x11x32xf32>
-    %1197 = "ttir.multiply"(%1195, %arg74, %1196) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
+    %1197 = "ttir.multiply"(%1195, %arg74, %1196) : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %1198 = ttir.empty() : tensor<1x32x64x11xf32>
     %1199 = "ttir.transpose"(%1187, %1198) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %1200 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -1213,9 +1213,9 @@ module @LLama_3.2_1B attributes {} {
     %1204 = ttir.empty() : tensor<1x32x11x64xf32>
     %1205 = "ttir.concat"(%1197, %1203, %1204) <{dim = -1 : si32}> : (tensor<1x32x11x32xf32>, tensor<1x32x11x32xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1206 = ttir.empty() : tensor<1x32x11x64xf32>
-    %1207 = "ttir.multiply"(%1205, %57, %1206) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %1207 = "ttir.multiply"(%1205, %57, %1206) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1208 = ttir.empty() : tensor<1x32x11x64xf32>
-    %1209 = "ttir.add"(%1189, %1207, %1208) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %1209 = "ttir.add"(%1189, %1207, %1208) : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1210 = ttir.empty() : tensor<32x11x64xf32>
     %1211 = "ttir.squeeze"(%1209, %1210) <{dim = 0 : si32}> : (tensor<1x32x11x64xf32>, tensor<32x11x64xf32>) -> tensor<32x11x64xf32>
     %1212 = ttir.empty() : tensor<11x512xf32>
@@ -1225,7 +1225,7 @@ module @LLama_3.2_1B attributes {} {
     %1216 = ttir.empty() : tensor<1x8x11x64xf32>
     %1217 = "ttir.transpose"(%1215, %1216) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x8x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1218 = ttir.empty() : tensor<1x8x11x64xf32>
-    %1219 = "ttir.multiply"(%1217, %35, %1218) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %1219 = "ttir.multiply"(%1217, %35, %1218) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1220 = ttir.empty() : tensor<1x8x64x11xf32>
     %1221 = "ttir.transpose"(%1217, %1220) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %1222 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -1233,7 +1233,7 @@ module @LLama_3.2_1B attributes {} {
     %1224 = ttir.empty() : tensor<1x8x11x32xf32>
     %1225 = "ttir.transpose"(%1223, %1224) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x32x11xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %1226 = ttir.empty() : tensor<1x8x11x32xf32>
-    %1227 = "ttir.multiply"(%1225, %arg77, %1226) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
+    %1227 = "ttir.multiply"(%1225, %arg77, %1226) : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %1228 = ttir.empty() : tensor<1x8x64x11xf32>
     %1229 = "ttir.transpose"(%1217, %1228) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %1230 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -1243,9 +1243,9 @@ module @LLama_3.2_1B attributes {} {
     %1234 = ttir.empty() : tensor<1x8x11x64xf32>
     %1235 = "ttir.concat"(%1227, %1233, %1234) <{dim = -1 : si32}> : (tensor<1x8x11x32xf32>, tensor<1x8x11x32xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1236 = ttir.empty() : tensor<1x8x11x64xf32>
-    %1237 = "ttir.multiply"(%1235, %57, %1236) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %1237 = "ttir.multiply"(%1235, %57, %1236) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1238 = ttir.empty() : tensor<1x8x11x64xf32>
-    %1239 = "ttir.add"(%1219, %1237, %1238) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %1239 = "ttir.add"(%1219, %1237, %1238) : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1240 = ttir.empty() : tensor<1x8x1x11x64xf32>
     %1241 = "ttir.unsqueeze"(%1239, %1240) <{dim = 2 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x1x11x64xf32>) -> tensor<1x8x1x11x64xf32>
     %1242 = ttir.empty() : tensor<1x8x1x11x64xf32>
@@ -1261,9 +1261,9 @@ module @LLama_3.2_1B attributes {} {
     %1252 = ttir.empty() : tensor<1x32x11x11xf32>
     %1253 = "ttir.unsqueeze"(%1251, %1252) <{dim = 0 : si32}> : (tensor<32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %1254 = ttir.empty() : tensor<1x32x11x11xf32>
-    %1255 = "ttir.multiply"(%1253, %arg79, %1254) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %1255 = "ttir.multiply"(%1253, %arg79, %1254) : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %1256 = ttir.empty() : tensor<1x32x11x11xf32>
-    %1257 = "ttir.add"(%1255, %arg80, %1256) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %1257 = "ttir.add"(%1255, %arg80, %1256) : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %1258 = ttir.empty() : tensor<1x32x11x11xf32>
     %1259 = "ttir.softmax"(%1257, %1258) <{dimension = -1 : si32}> : (tensor<1x32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %1260 = ttir.empty() : tensor<32x11x11xf32>
@@ -1301,21 +1301,21 @@ module @LLama_3.2_1B attributes {} {
     %1292 = ttir.empty() : tensor<1x11x2048xf32>
     %1293 = "ttir.unsqueeze"(%1291, %1292) <{dim = 0 : si32}> : (tensor<11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1294 = ttir.empty() : tensor<1x11x2048xf32>
-    %1295 = "ttir.add"(%1165, %1293, %1294) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1295 = "ttir.add"(%1165, %1293, %1294) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1296 = ttir.empty() : tensor<1x11x2048xf32>
-    %1297 = "ttir.multiply"(%1295, %1295, %1296) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1297 = "ttir.multiply"(%1295, %1295, %1296) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1298 = ttir.empty() : tensor<1x11x1xf32>
     %1299 = "ttir.mean"(%1297, %1298) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1300 = ttir.empty() : tensor<1x11x1xf32>
-    %1301 = "ttir.add"(%1299, %arg81, %1300) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1301 = "ttir.add"(%1299, %arg81, %1300) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1302 = ttir.empty() : tensor<1x11x1xf32>
-    %1303 = "ttir.sqrt"(%1301, %1302) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1303 = "ttir.sqrt"(%1301, %1302) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1304 = ttir.empty() : tensor<1x11x1xf32>
-    %1305 = "ttir.reciprocal"(%1303, %1304) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1305 = "ttir.reciprocal"(%1303, %1304) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1306 = ttir.empty() : tensor<1x11x2048xf32>
-    %1307 = "ttir.multiply"(%1295, %1305, %1306) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1307 = "ttir.multiply"(%1295, %1305, %1306) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1308 = ttir.empty() : tensor<1x11x2048xf32>
-    %1309 = "ttir.multiply"(%arg233, %1307, %1308) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1309 = "ttir.multiply"(%arg233, %1307, %1308) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1310 = ttir.empty() : tensor<11x2048xf32>
     %1311 = "ttir.squeeze"(%1309, %1310) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %1312 = ttir.empty() : tensor<11x8192xf32>
@@ -1323,33 +1323,33 @@ module @LLama_3.2_1B attributes {} {
     %1314 = ttir.empty() : tensor<1x11x8192xf32>
     %1315 = "ttir.unsqueeze"(%1313, %1314) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1316 = ttir.empty() : tensor<1x11x8192xf32>
-    %1317 = "ttir.sigmoid"(%1315, %1316) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %1317 = "ttir.sigmoid"(%1315, %1316) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1318 = ttir.empty() : tensor<1x11x8192xf32>
-    %1319 = "ttir.multiply"(%1315, %1317, %1318) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %1319 = "ttir.multiply"(%1315, %1317, %1318) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1320 = ttir.empty() : tensor<11x8192xf32>
     %1321 = "ttir.matmul"(%1311, %arg235, %1320) : (tensor<11x2048xf32>, tensor<2048x8192xf32>, tensor<11x8192xf32>) -> tensor<11x8192xf32>
     %1322 = ttir.empty() : tensor<1x11x8192xf32>
     %1323 = "ttir.unsqueeze"(%1321, %1322) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1324 = ttir.empty() : tensor<1x11x8192xf32>
-    %1325 = "ttir.multiply"(%1319, %1323, %1324) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %1325 = "ttir.multiply"(%1319, %1323, %1324) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1326 = ttir.empty() : tensor<1x11x2048xf32>
     %1327 = "ttir.matmul"(%1325, %arg236, %1326) : (tensor<1x11x8192xf32>, tensor<8192x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1328 = ttir.empty() : tensor<1x11x2048xf32>
-    %1329 = "ttir.add"(%1295, %1327, %1328) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1329 = "ttir.add"(%1295, %1327, %1328) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1330 = ttir.empty() : tensor<1x11x2048xf32>
-    %1331 = "ttir.multiply"(%1329, %1329, %1330) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1331 = "ttir.multiply"(%1329, %1329, %1330) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1332 = ttir.empty() : tensor<1x11x1xf32>
     %1333 = "ttir.mean"(%1331, %1332) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1334 = ttir.empty() : tensor<1x11x1xf32>
-    %1335 = "ttir.add"(%1333, %arg82, %1334) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1335 = "ttir.add"(%1333, %arg82, %1334) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1336 = ttir.empty() : tensor<1x11x1xf32>
-    %1337 = "ttir.sqrt"(%1335, %1336) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1337 = "ttir.sqrt"(%1335, %1336) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1338 = ttir.empty() : tensor<1x11x1xf32>
-    %1339 = "ttir.reciprocal"(%1337, %1338) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1339 = "ttir.reciprocal"(%1337, %1338) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1340 = ttir.empty() : tensor<1x11x2048xf32>
-    %1341 = "ttir.multiply"(%1329, %1339, %1340) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1341 = "ttir.multiply"(%1329, %1339, %1340) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1342 = ttir.empty() : tensor<1x11x2048xf32>
-    %1343 = "ttir.multiply"(%arg237, %1341, %1342) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1343 = "ttir.multiply"(%arg237, %1341, %1342) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1344 = ttir.empty() : tensor<11x2048xf32>
     %1345 = "ttir.squeeze"(%1343, %1344) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %1346 = ttir.empty() : tensor<11x2048xf32>
@@ -1359,7 +1359,7 @@ module @LLama_3.2_1B attributes {} {
     %1350 = ttir.empty() : tensor<1x32x11x64xf32>
     %1351 = "ttir.transpose"(%1349, %1350) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x32x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1352 = ttir.empty() : tensor<1x32x11x64xf32>
-    %1353 = "ttir.multiply"(%1351, %35, %1352) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %1353 = "ttir.multiply"(%1351, %35, %1352) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1354 = ttir.empty() : tensor<1x32x64x11xf32>
     %1355 = "ttir.transpose"(%1351, %1354) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %1356 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -1367,7 +1367,7 @@ module @LLama_3.2_1B attributes {} {
     %1358 = ttir.empty() : tensor<1x32x11x32xf32>
     %1359 = "ttir.transpose"(%1357, %1358) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x32x11xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %1360 = ttir.empty() : tensor<1x32x11x32xf32>
-    %1361 = "ttir.multiply"(%1359, %arg84, %1360) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
+    %1361 = "ttir.multiply"(%1359, %arg84, %1360) : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %1362 = ttir.empty() : tensor<1x32x64x11xf32>
     %1363 = "ttir.transpose"(%1351, %1362) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %1364 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -1377,9 +1377,9 @@ module @LLama_3.2_1B attributes {} {
     %1368 = ttir.empty() : tensor<1x32x11x64xf32>
     %1369 = "ttir.concat"(%1361, %1367, %1368) <{dim = -1 : si32}> : (tensor<1x32x11x32xf32>, tensor<1x32x11x32xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1370 = ttir.empty() : tensor<1x32x11x64xf32>
-    %1371 = "ttir.multiply"(%1369, %57, %1370) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %1371 = "ttir.multiply"(%1369, %57, %1370) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1372 = ttir.empty() : tensor<1x32x11x64xf32>
-    %1373 = "ttir.add"(%1353, %1371, %1372) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %1373 = "ttir.add"(%1353, %1371, %1372) : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1374 = ttir.empty() : tensor<32x11x64xf32>
     %1375 = "ttir.squeeze"(%1373, %1374) <{dim = 0 : si32}> : (tensor<1x32x11x64xf32>, tensor<32x11x64xf32>) -> tensor<32x11x64xf32>
     %1376 = ttir.empty() : tensor<11x512xf32>
@@ -1389,7 +1389,7 @@ module @LLama_3.2_1B attributes {} {
     %1380 = ttir.empty() : tensor<1x8x11x64xf32>
     %1381 = "ttir.transpose"(%1379, %1380) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x8x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1382 = ttir.empty() : tensor<1x8x11x64xf32>
-    %1383 = "ttir.multiply"(%1381, %35, %1382) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %1383 = "ttir.multiply"(%1381, %35, %1382) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1384 = ttir.empty() : tensor<1x8x64x11xf32>
     %1385 = "ttir.transpose"(%1381, %1384) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %1386 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -1397,7 +1397,7 @@ module @LLama_3.2_1B attributes {} {
     %1388 = ttir.empty() : tensor<1x8x11x32xf32>
     %1389 = "ttir.transpose"(%1387, %1388) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x32x11xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %1390 = ttir.empty() : tensor<1x8x11x32xf32>
-    %1391 = "ttir.multiply"(%1389, %arg87, %1390) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
+    %1391 = "ttir.multiply"(%1389, %arg87, %1390) : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %1392 = ttir.empty() : tensor<1x8x64x11xf32>
     %1393 = "ttir.transpose"(%1381, %1392) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %1394 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -1407,9 +1407,9 @@ module @LLama_3.2_1B attributes {} {
     %1398 = ttir.empty() : tensor<1x8x11x64xf32>
     %1399 = "ttir.concat"(%1391, %1397, %1398) <{dim = -1 : si32}> : (tensor<1x8x11x32xf32>, tensor<1x8x11x32xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1400 = ttir.empty() : tensor<1x8x11x64xf32>
-    %1401 = "ttir.multiply"(%1399, %57, %1400) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %1401 = "ttir.multiply"(%1399, %57, %1400) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1402 = ttir.empty() : tensor<1x8x11x64xf32>
-    %1403 = "ttir.add"(%1383, %1401, %1402) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %1403 = "ttir.add"(%1383, %1401, %1402) : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1404 = ttir.empty() : tensor<1x8x1x11x64xf32>
     %1405 = "ttir.unsqueeze"(%1403, %1404) <{dim = 2 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x1x11x64xf32>) -> tensor<1x8x1x11x64xf32>
     %1406 = ttir.empty() : tensor<1x8x1x11x64xf32>
@@ -1425,9 +1425,9 @@ module @LLama_3.2_1B attributes {} {
     %1416 = ttir.empty() : tensor<1x32x11x11xf32>
     %1417 = "ttir.unsqueeze"(%1415, %1416) <{dim = 0 : si32}> : (tensor<32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %1418 = ttir.empty() : tensor<1x32x11x11xf32>
-    %1419 = "ttir.multiply"(%1417, %arg89, %1418) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %1419 = "ttir.multiply"(%1417, %arg89, %1418) : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %1420 = ttir.empty() : tensor<1x32x11x11xf32>
-    %1421 = "ttir.add"(%1419, %arg90, %1420) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %1421 = "ttir.add"(%1419, %arg90, %1420) : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %1422 = ttir.empty() : tensor<1x32x11x11xf32>
     %1423 = "ttir.softmax"(%1421, %1422) <{dimension = -1 : si32}> : (tensor<1x32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %1424 = ttir.empty() : tensor<32x11x11xf32>
@@ -1465,21 +1465,21 @@ module @LLama_3.2_1B attributes {} {
     %1456 = ttir.empty() : tensor<1x11x2048xf32>
     %1457 = "ttir.unsqueeze"(%1455, %1456) <{dim = 0 : si32}> : (tensor<11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1458 = ttir.empty() : tensor<1x11x2048xf32>
-    %1459 = "ttir.add"(%1329, %1457, %1458) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1459 = "ttir.add"(%1329, %1457, %1458) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1460 = ttir.empty() : tensor<1x11x2048xf32>
-    %1461 = "ttir.multiply"(%1459, %1459, %1460) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1461 = "ttir.multiply"(%1459, %1459, %1460) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1462 = ttir.empty() : tensor<1x11x1xf32>
     %1463 = "ttir.mean"(%1461, %1462) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1464 = ttir.empty() : tensor<1x11x1xf32>
-    %1465 = "ttir.add"(%1463, %arg91, %1464) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1465 = "ttir.add"(%1463, %arg91, %1464) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1466 = ttir.empty() : tensor<1x11x1xf32>
-    %1467 = "ttir.sqrt"(%1465, %1466) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1467 = "ttir.sqrt"(%1465, %1466) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1468 = ttir.empty() : tensor<1x11x1xf32>
-    %1469 = "ttir.reciprocal"(%1467, %1468) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1469 = "ttir.reciprocal"(%1467, %1468) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1470 = ttir.empty() : tensor<1x11x2048xf32>
-    %1471 = "ttir.multiply"(%1459, %1469, %1470) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1471 = "ttir.multiply"(%1459, %1469, %1470) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1472 = ttir.empty() : tensor<1x11x2048xf32>
-    %1473 = "ttir.multiply"(%arg242, %1471, %1472) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1473 = "ttir.multiply"(%arg242, %1471, %1472) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1474 = ttir.empty() : tensor<11x2048xf32>
     %1475 = "ttir.squeeze"(%1473, %1474) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %1476 = ttir.empty() : tensor<11x8192xf32>
@@ -1487,33 +1487,33 @@ module @LLama_3.2_1B attributes {} {
     %1478 = ttir.empty() : tensor<1x11x8192xf32>
     %1479 = "ttir.unsqueeze"(%1477, %1478) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1480 = ttir.empty() : tensor<1x11x8192xf32>
-    %1481 = "ttir.sigmoid"(%1479, %1480) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %1481 = "ttir.sigmoid"(%1479, %1480) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1482 = ttir.empty() : tensor<1x11x8192xf32>
-    %1483 = "ttir.multiply"(%1479, %1481, %1482) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %1483 = "ttir.multiply"(%1479, %1481, %1482) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1484 = ttir.empty() : tensor<11x8192xf32>
     %1485 = "ttir.matmul"(%1475, %arg244, %1484) : (tensor<11x2048xf32>, tensor<2048x8192xf32>, tensor<11x8192xf32>) -> tensor<11x8192xf32>
     %1486 = ttir.empty() : tensor<1x11x8192xf32>
     %1487 = "ttir.unsqueeze"(%1485, %1486) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1488 = ttir.empty() : tensor<1x11x8192xf32>
-    %1489 = "ttir.multiply"(%1483, %1487, %1488) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %1489 = "ttir.multiply"(%1483, %1487, %1488) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1490 = ttir.empty() : tensor<1x11x2048xf32>
     %1491 = "ttir.matmul"(%1489, %arg245, %1490) : (tensor<1x11x8192xf32>, tensor<8192x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1492 = ttir.empty() : tensor<1x11x2048xf32>
-    %1493 = "ttir.add"(%1459, %1491, %1492) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1493 = "ttir.add"(%1459, %1491, %1492) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1494 = ttir.empty() : tensor<1x11x2048xf32>
-    %1495 = "ttir.multiply"(%1493, %1493, %1494) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1495 = "ttir.multiply"(%1493, %1493, %1494) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1496 = ttir.empty() : tensor<1x11x1xf32>
     %1497 = "ttir.mean"(%1495, %1496) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1498 = ttir.empty() : tensor<1x11x1xf32>
-    %1499 = "ttir.add"(%1497, %arg92, %1498) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1499 = "ttir.add"(%1497, %arg92, %1498) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1500 = ttir.empty() : tensor<1x11x1xf32>
-    %1501 = "ttir.sqrt"(%1499, %1500) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1501 = "ttir.sqrt"(%1499, %1500) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1502 = ttir.empty() : tensor<1x11x1xf32>
-    %1503 = "ttir.reciprocal"(%1501, %1502) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1503 = "ttir.reciprocal"(%1501, %1502) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1504 = ttir.empty() : tensor<1x11x2048xf32>
-    %1505 = "ttir.multiply"(%1493, %1503, %1504) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1505 = "ttir.multiply"(%1493, %1503, %1504) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1506 = ttir.empty() : tensor<1x11x2048xf32>
-    %1507 = "ttir.multiply"(%arg246, %1505, %1506) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1507 = "ttir.multiply"(%arg246, %1505, %1506) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1508 = ttir.empty() : tensor<11x2048xf32>
     %1509 = "ttir.squeeze"(%1507, %1508) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %1510 = ttir.empty() : tensor<11x2048xf32>
@@ -1523,7 +1523,7 @@ module @LLama_3.2_1B attributes {} {
     %1514 = ttir.empty() : tensor<1x32x11x64xf32>
     %1515 = "ttir.transpose"(%1513, %1514) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x32x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1516 = ttir.empty() : tensor<1x32x11x64xf32>
-    %1517 = "ttir.multiply"(%1515, %35, %1516) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %1517 = "ttir.multiply"(%1515, %35, %1516) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1518 = ttir.empty() : tensor<1x32x64x11xf32>
     %1519 = "ttir.transpose"(%1515, %1518) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %1520 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -1531,7 +1531,7 @@ module @LLama_3.2_1B attributes {} {
     %1522 = ttir.empty() : tensor<1x32x11x32xf32>
     %1523 = "ttir.transpose"(%1521, %1522) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x32x11xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %1524 = ttir.empty() : tensor<1x32x11x32xf32>
-    %1525 = "ttir.multiply"(%1523, %arg94, %1524) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
+    %1525 = "ttir.multiply"(%1523, %arg94, %1524) : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %1526 = ttir.empty() : tensor<1x32x64x11xf32>
     %1527 = "ttir.transpose"(%1515, %1526) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %1528 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -1541,9 +1541,9 @@ module @LLama_3.2_1B attributes {} {
     %1532 = ttir.empty() : tensor<1x32x11x64xf32>
     %1533 = "ttir.concat"(%1525, %1531, %1532) <{dim = -1 : si32}> : (tensor<1x32x11x32xf32>, tensor<1x32x11x32xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1534 = ttir.empty() : tensor<1x32x11x64xf32>
-    %1535 = "ttir.multiply"(%1533, %57, %1534) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %1535 = "ttir.multiply"(%1533, %57, %1534) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1536 = ttir.empty() : tensor<1x32x11x64xf32>
-    %1537 = "ttir.add"(%1517, %1535, %1536) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %1537 = "ttir.add"(%1517, %1535, %1536) : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1538 = ttir.empty() : tensor<32x11x64xf32>
     %1539 = "ttir.squeeze"(%1537, %1538) <{dim = 0 : si32}> : (tensor<1x32x11x64xf32>, tensor<32x11x64xf32>) -> tensor<32x11x64xf32>
     %1540 = ttir.empty() : tensor<11x512xf32>
@@ -1553,7 +1553,7 @@ module @LLama_3.2_1B attributes {} {
     %1544 = ttir.empty() : tensor<1x8x11x64xf32>
     %1545 = "ttir.transpose"(%1543, %1544) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x8x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1546 = ttir.empty() : tensor<1x8x11x64xf32>
-    %1547 = "ttir.multiply"(%1545, %35, %1546) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %1547 = "ttir.multiply"(%1545, %35, %1546) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1548 = ttir.empty() : tensor<1x8x64x11xf32>
     %1549 = "ttir.transpose"(%1545, %1548) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %1550 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -1561,7 +1561,7 @@ module @LLama_3.2_1B attributes {} {
     %1552 = ttir.empty() : tensor<1x8x11x32xf32>
     %1553 = "ttir.transpose"(%1551, %1552) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x32x11xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %1554 = ttir.empty() : tensor<1x8x11x32xf32>
-    %1555 = "ttir.multiply"(%1553, %arg97, %1554) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
+    %1555 = "ttir.multiply"(%1553, %arg97, %1554) : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %1556 = ttir.empty() : tensor<1x8x64x11xf32>
     %1557 = "ttir.transpose"(%1545, %1556) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %1558 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -1571,9 +1571,9 @@ module @LLama_3.2_1B attributes {} {
     %1562 = ttir.empty() : tensor<1x8x11x64xf32>
     %1563 = "ttir.concat"(%1555, %1561, %1562) <{dim = -1 : si32}> : (tensor<1x8x11x32xf32>, tensor<1x8x11x32xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1564 = ttir.empty() : tensor<1x8x11x64xf32>
-    %1565 = "ttir.multiply"(%1563, %57, %1564) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %1565 = "ttir.multiply"(%1563, %57, %1564) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1566 = ttir.empty() : tensor<1x8x11x64xf32>
-    %1567 = "ttir.add"(%1547, %1565, %1566) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %1567 = "ttir.add"(%1547, %1565, %1566) : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1568 = ttir.empty() : tensor<1x8x1x11x64xf32>
     %1569 = "ttir.unsqueeze"(%1567, %1568) <{dim = 2 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x1x11x64xf32>) -> tensor<1x8x1x11x64xf32>
     %1570 = ttir.empty() : tensor<1x8x1x11x64xf32>
@@ -1589,9 +1589,9 @@ module @LLama_3.2_1B attributes {} {
     %1580 = ttir.empty() : tensor<1x32x11x11xf32>
     %1581 = "ttir.unsqueeze"(%1579, %1580) <{dim = 0 : si32}> : (tensor<32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %1582 = ttir.empty() : tensor<1x32x11x11xf32>
-    %1583 = "ttir.multiply"(%1581, %arg99, %1582) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %1583 = "ttir.multiply"(%1581, %arg99, %1582) : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %1584 = ttir.empty() : tensor<1x32x11x11xf32>
-    %1585 = "ttir.add"(%1583, %arg100, %1584) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %1585 = "ttir.add"(%1583, %arg100, %1584) : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %1586 = ttir.empty() : tensor<1x32x11x11xf32>
     %1587 = "ttir.softmax"(%1585, %1586) <{dimension = -1 : si32}> : (tensor<1x32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %1588 = ttir.empty() : tensor<32x11x11xf32>
@@ -1629,21 +1629,21 @@ module @LLama_3.2_1B attributes {} {
     %1620 = ttir.empty() : tensor<1x11x2048xf32>
     %1621 = "ttir.unsqueeze"(%1619, %1620) <{dim = 0 : si32}> : (tensor<11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1622 = ttir.empty() : tensor<1x11x2048xf32>
-    %1623 = "ttir.add"(%1493, %1621, %1622) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1623 = "ttir.add"(%1493, %1621, %1622) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1624 = ttir.empty() : tensor<1x11x2048xf32>
-    %1625 = "ttir.multiply"(%1623, %1623, %1624) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1625 = "ttir.multiply"(%1623, %1623, %1624) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1626 = ttir.empty() : tensor<1x11x1xf32>
     %1627 = "ttir.mean"(%1625, %1626) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1628 = ttir.empty() : tensor<1x11x1xf32>
-    %1629 = "ttir.add"(%1627, %arg101, %1628) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1629 = "ttir.add"(%1627, %arg101, %1628) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1630 = ttir.empty() : tensor<1x11x1xf32>
-    %1631 = "ttir.sqrt"(%1629, %1630) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1631 = "ttir.sqrt"(%1629, %1630) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1632 = ttir.empty() : tensor<1x11x1xf32>
-    %1633 = "ttir.reciprocal"(%1631, %1632) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1633 = "ttir.reciprocal"(%1631, %1632) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1634 = ttir.empty() : tensor<1x11x2048xf32>
-    %1635 = "ttir.multiply"(%1623, %1633, %1634) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1635 = "ttir.multiply"(%1623, %1633, %1634) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1636 = ttir.empty() : tensor<1x11x2048xf32>
-    %1637 = "ttir.multiply"(%arg251, %1635, %1636) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1637 = "ttir.multiply"(%arg251, %1635, %1636) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1638 = ttir.empty() : tensor<11x2048xf32>
     %1639 = "ttir.squeeze"(%1637, %1638) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %1640 = ttir.empty() : tensor<11x8192xf32>
@@ -1651,33 +1651,33 @@ module @LLama_3.2_1B attributes {} {
     %1642 = ttir.empty() : tensor<1x11x8192xf32>
     %1643 = "ttir.unsqueeze"(%1641, %1642) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1644 = ttir.empty() : tensor<1x11x8192xf32>
-    %1645 = "ttir.sigmoid"(%1643, %1644) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %1645 = "ttir.sigmoid"(%1643, %1644) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1646 = ttir.empty() : tensor<1x11x8192xf32>
-    %1647 = "ttir.multiply"(%1643, %1645, %1646) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %1647 = "ttir.multiply"(%1643, %1645, %1646) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1648 = ttir.empty() : tensor<11x8192xf32>
     %1649 = "ttir.matmul"(%1639, %arg253, %1648) : (tensor<11x2048xf32>, tensor<2048x8192xf32>, tensor<11x8192xf32>) -> tensor<11x8192xf32>
     %1650 = ttir.empty() : tensor<1x11x8192xf32>
     %1651 = "ttir.unsqueeze"(%1649, %1650) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1652 = ttir.empty() : tensor<1x11x8192xf32>
-    %1653 = "ttir.multiply"(%1647, %1651, %1652) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %1653 = "ttir.multiply"(%1647, %1651, %1652) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1654 = ttir.empty() : tensor<1x11x2048xf32>
     %1655 = "ttir.matmul"(%1653, %arg254, %1654) : (tensor<1x11x8192xf32>, tensor<8192x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1656 = ttir.empty() : tensor<1x11x2048xf32>
-    %1657 = "ttir.add"(%1623, %1655, %1656) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1657 = "ttir.add"(%1623, %1655, %1656) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1658 = ttir.empty() : tensor<1x11x2048xf32>
-    %1659 = "ttir.multiply"(%1657, %1657, %1658) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1659 = "ttir.multiply"(%1657, %1657, %1658) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1660 = ttir.empty() : tensor<1x11x1xf32>
     %1661 = "ttir.mean"(%1659, %1660) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1662 = ttir.empty() : tensor<1x11x1xf32>
-    %1663 = "ttir.add"(%1661, %arg102, %1662) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1663 = "ttir.add"(%1661, %arg102, %1662) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1664 = ttir.empty() : tensor<1x11x1xf32>
-    %1665 = "ttir.sqrt"(%1663, %1664) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1665 = "ttir.sqrt"(%1663, %1664) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1666 = ttir.empty() : tensor<1x11x1xf32>
-    %1667 = "ttir.reciprocal"(%1665, %1666) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1667 = "ttir.reciprocal"(%1665, %1666) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1668 = ttir.empty() : tensor<1x11x2048xf32>
-    %1669 = "ttir.multiply"(%1657, %1667, %1668) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1669 = "ttir.multiply"(%1657, %1667, %1668) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1670 = ttir.empty() : tensor<1x11x2048xf32>
-    %1671 = "ttir.multiply"(%arg255, %1669, %1670) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1671 = "ttir.multiply"(%arg255, %1669, %1670) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1672 = ttir.empty() : tensor<11x2048xf32>
     %1673 = "ttir.squeeze"(%1671, %1672) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %1674 = ttir.empty() : tensor<11x2048xf32>
@@ -1687,7 +1687,7 @@ module @LLama_3.2_1B attributes {} {
     %1678 = ttir.empty() : tensor<1x32x11x64xf32>
     %1679 = "ttir.transpose"(%1677, %1678) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x32x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1680 = ttir.empty() : tensor<1x32x11x64xf32>
-    %1681 = "ttir.multiply"(%1679, %35, %1680) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %1681 = "ttir.multiply"(%1679, %35, %1680) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1682 = ttir.empty() : tensor<1x32x64x11xf32>
     %1683 = "ttir.transpose"(%1679, %1682) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %1684 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -1695,7 +1695,7 @@ module @LLama_3.2_1B attributes {} {
     %1686 = ttir.empty() : tensor<1x32x11x32xf32>
     %1687 = "ttir.transpose"(%1685, %1686) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x32x11xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %1688 = ttir.empty() : tensor<1x32x11x32xf32>
-    %1689 = "ttir.multiply"(%1687, %arg104, %1688) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
+    %1689 = "ttir.multiply"(%1687, %arg104, %1688) : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %1690 = ttir.empty() : tensor<1x32x64x11xf32>
     %1691 = "ttir.transpose"(%1679, %1690) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %1692 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -1705,9 +1705,9 @@ module @LLama_3.2_1B attributes {} {
     %1696 = ttir.empty() : tensor<1x32x11x64xf32>
     %1697 = "ttir.concat"(%1689, %1695, %1696) <{dim = -1 : si32}> : (tensor<1x32x11x32xf32>, tensor<1x32x11x32xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1698 = ttir.empty() : tensor<1x32x11x64xf32>
-    %1699 = "ttir.multiply"(%1697, %57, %1698) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %1699 = "ttir.multiply"(%1697, %57, %1698) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1700 = ttir.empty() : tensor<1x32x11x64xf32>
-    %1701 = "ttir.add"(%1681, %1699, %1700) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %1701 = "ttir.add"(%1681, %1699, %1700) : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1702 = ttir.empty() : tensor<32x11x64xf32>
     %1703 = "ttir.squeeze"(%1701, %1702) <{dim = 0 : si32}> : (tensor<1x32x11x64xf32>, tensor<32x11x64xf32>) -> tensor<32x11x64xf32>
     %1704 = ttir.empty() : tensor<11x512xf32>
@@ -1717,7 +1717,7 @@ module @LLama_3.2_1B attributes {} {
     %1708 = ttir.empty() : tensor<1x8x11x64xf32>
     %1709 = "ttir.transpose"(%1707, %1708) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x8x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1710 = ttir.empty() : tensor<1x8x11x64xf32>
-    %1711 = "ttir.multiply"(%1709, %35, %1710) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %1711 = "ttir.multiply"(%1709, %35, %1710) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1712 = ttir.empty() : tensor<1x8x64x11xf32>
     %1713 = "ttir.transpose"(%1709, %1712) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %1714 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -1725,7 +1725,7 @@ module @LLama_3.2_1B attributes {} {
     %1716 = ttir.empty() : tensor<1x8x11x32xf32>
     %1717 = "ttir.transpose"(%1715, %1716) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x32x11xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %1718 = ttir.empty() : tensor<1x8x11x32xf32>
-    %1719 = "ttir.multiply"(%1717, %arg107, %1718) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
+    %1719 = "ttir.multiply"(%1717, %arg107, %1718) : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %1720 = ttir.empty() : tensor<1x8x64x11xf32>
     %1721 = "ttir.transpose"(%1709, %1720) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %1722 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -1735,9 +1735,9 @@ module @LLama_3.2_1B attributes {} {
     %1726 = ttir.empty() : tensor<1x8x11x64xf32>
     %1727 = "ttir.concat"(%1719, %1725, %1726) <{dim = -1 : si32}> : (tensor<1x8x11x32xf32>, tensor<1x8x11x32xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1728 = ttir.empty() : tensor<1x8x11x64xf32>
-    %1729 = "ttir.multiply"(%1727, %57, %1728) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %1729 = "ttir.multiply"(%1727, %57, %1728) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1730 = ttir.empty() : tensor<1x8x11x64xf32>
-    %1731 = "ttir.add"(%1711, %1729, %1730) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %1731 = "ttir.add"(%1711, %1729, %1730) : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1732 = ttir.empty() : tensor<1x8x1x11x64xf32>
     %1733 = "ttir.unsqueeze"(%1731, %1732) <{dim = 2 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x1x11x64xf32>) -> tensor<1x8x1x11x64xf32>
     %1734 = ttir.empty() : tensor<1x8x1x11x64xf32>
@@ -1753,9 +1753,9 @@ module @LLama_3.2_1B attributes {} {
     %1744 = ttir.empty() : tensor<1x32x11x11xf32>
     %1745 = "ttir.unsqueeze"(%1743, %1744) <{dim = 0 : si32}> : (tensor<32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %1746 = ttir.empty() : tensor<1x32x11x11xf32>
-    %1747 = "ttir.multiply"(%1745, %arg109, %1746) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %1747 = "ttir.multiply"(%1745, %arg109, %1746) : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %1748 = ttir.empty() : tensor<1x32x11x11xf32>
-    %1749 = "ttir.add"(%1747, %arg110, %1748) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %1749 = "ttir.add"(%1747, %arg110, %1748) : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %1750 = ttir.empty() : tensor<1x32x11x11xf32>
     %1751 = "ttir.softmax"(%1749, %1750) <{dimension = -1 : si32}> : (tensor<1x32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %1752 = ttir.empty() : tensor<32x11x11xf32>
@@ -1793,21 +1793,21 @@ module @LLama_3.2_1B attributes {} {
     %1784 = ttir.empty() : tensor<1x11x2048xf32>
     %1785 = "ttir.unsqueeze"(%1783, %1784) <{dim = 0 : si32}> : (tensor<11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1786 = ttir.empty() : tensor<1x11x2048xf32>
-    %1787 = "ttir.add"(%1657, %1785, %1786) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1787 = "ttir.add"(%1657, %1785, %1786) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1788 = ttir.empty() : tensor<1x11x2048xf32>
-    %1789 = "ttir.multiply"(%1787, %1787, %1788) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1789 = "ttir.multiply"(%1787, %1787, %1788) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1790 = ttir.empty() : tensor<1x11x1xf32>
     %1791 = "ttir.mean"(%1789, %1790) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1792 = ttir.empty() : tensor<1x11x1xf32>
-    %1793 = "ttir.add"(%1791, %arg111, %1792) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1793 = "ttir.add"(%1791, %arg111, %1792) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1794 = ttir.empty() : tensor<1x11x1xf32>
-    %1795 = "ttir.sqrt"(%1793, %1794) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1795 = "ttir.sqrt"(%1793, %1794) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1796 = ttir.empty() : tensor<1x11x1xf32>
-    %1797 = "ttir.reciprocal"(%1795, %1796) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1797 = "ttir.reciprocal"(%1795, %1796) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1798 = ttir.empty() : tensor<1x11x2048xf32>
-    %1799 = "ttir.multiply"(%1787, %1797, %1798) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1799 = "ttir.multiply"(%1787, %1797, %1798) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1800 = ttir.empty() : tensor<1x11x2048xf32>
-    %1801 = "ttir.multiply"(%arg260, %1799, %1800) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1801 = "ttir.multiply"(%arg260, %1799, %1800) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1802 = ttir.empty() : tensor<11x2048xf32>
     %1803 = "ttir.squeeze"(%1801, %1802) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %1804 = ttir.empty() : tensor<11x8192xf32>
@@ -1815,33 +1815,33 @@ module @LLama_3.2_1B attributes {} {
     %1806 = ttir.empty() : tensor<1x11x8192xf32>
     %1807 = "ttir.unsqueeze"(%1805, %1806) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1808 = ttir.empty() : tensor<1x11x8192xf32>
-    %1809 = "ttir.sigmoid"(%1807, %1808) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %1809 = "ttir.sigmoid"(%1807, %1808) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1810 = ttir.empty() : tensor<1x11x8192xf32>
-    %1811 = "ttir.multiply"(%1807, %1809, %1810) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %1811 = "ttir.multiply"(%1807, %1809, %1810) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1812 = ttir.empty() : tensor<11x8192xf32>
     %1813 = "ttir.matmul"(%1803, %arg262, %1812) : (tensor<11x2048xf32>, tensor<2048x8192xf32>, tensor<11x8192xf32>) -> tensor<11x8192xf32>
     %1814 = ttir.empty() : tensor<1x11x8192xf32>
     %1815 = "ttir.unsqueeze"(%1813, %1814) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1816 = ttir.empty() : tensor<1x11x8192xf32>
-    %1817 = "ttir.multiply"(%1811, %1815, %1816) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %1817 = "ttir.multiply"(%1811, %1815, %1816) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1818 = ttir.empty() : tensor<1x11x2048xf32>
     %1819 = "ttir.matmul"(%1817, %arg263, %1818) : (tensor<1x11x8192xf32>, tensor<8192x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1820 = ttir.empty() : tensor<1x11x2048xf32>
-    %1821 = "ttir.add"(%1787, %1819, %1820) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1821 = "ttir.add"(%1787, %1819, %1820) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1822 = ttir.empty() : tensor<1x11x2048xf32>
-    %1823 = "ttir.multiply"(%1821, %1821, %1822) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1823 = "ttir.multiply"(%1821, %1821, %1822) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1824 = ttir.empty() : tensor<1x11x1xf32>
     %1825 = "ttir.mean"(%1823, %1824) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1826 = ttir.empty() : tensor<1x11x1xf32>
-    %1827 = "ttir.add"(%1825, %arg112, %1826) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1827 = "ttir.add"(%1825, %arg112, %1826) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1828 = ttir.empty() : tensor<1x11x1xf32>
-    %1829 = "ttir.sqrt"(%1827, %1828) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1829 = "ttir.sqrt"(%1827, %1828) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1830 = ttir.empty() : tensor<1x11x1xf32>
-    %1831 = "ttir.reciprocal"(%1829, %1830) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1831 = "ttir.reciprocal"(%1829, %1830) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1832 = ttir.empty() : tensor<1x11x2048xf32>
-    %1833 = "ttir.multiply"(%1821, %1831, %1832) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1833 = "ttir.multiply"(%1821, %1831, %1832) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1834 = ttir.empty() : tensor<1x11x2048xf32>
-    %1835 = "ttir.multiply"(%arg264, %1833, %1834) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1835 = "ttir.multiply"(%arg264, %1833, %1834) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1836 = ttir.empty() : tensor<11x2048xf32>
     %1837 = "ttir.squeeze"(%1835, %1836) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %1838 = ttir.empty() : tensor<11x2048xf32>
@@ -1851,7 +1851,7 @@ module @LLama_3.2_1B attributes {} {
     %1842 = ttir.empty() : tensor<1x32x11x64xf32>
     %1843 = "ttir.transpose"(%1841, %1842) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x32x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1844 = ttir.empty() : tensor<1x32x11x64xf32>
-    %1845 = "ttir.multiply"(%1843, %35, %1844) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %1845 = "ttir.multiply"(%1843, %35, %1844) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1846 = ttir.empty() : tensor<1x32x64x11xf32>
     %1847 = "ttir.transpose"(%1843, %1846) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %1848 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -1859,7 +1859,7 @@ module @LLama_3.2_1B attributes {} {
     %1850 = ttir.empty() : tensor<1x32x11x32xf32>
     %1851 = "ttir.transpose"(%1849, %1850) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x32x11xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %1852 = ttir.empty() : tensor<1x32x11x32xf32>
-    %1853 = "ttir.multiply"(%1851, %arg114, %1852) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
+    %1853 = "ttir.multiply"(%1851, %arg114, %1852) : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %1854 = ttir.empty() : tensor<1x32x64x11xf32>
     %1855 = "ttir.transpose"(%1843, %1854) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %1856 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -1869,9 +1869,9 @@ module @LLama_3.2_1B attributes {} {
     %1860 = ttir.empty() : tensor<1x32x11x64xf32>
     %1861 = "ttir.concat"(%1853, %1859, %1860) <{dim = -1 : si32}> : (tensor<1x32x11x32xf32>, tensor<1x32x11x32xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1862 = ttir.empty() : tensor<1x32x11x64xf32>
-    %1863 = "ttir.multiply"(%1861, %57, %1862) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %1863 = "ttir.multiply"(%1861, %57, %1862) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1864 = ttir.empty() : tensor<1x32x11x64xf32>
-    %1865 = "ttir.add"(%1845, %1863, %1864) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %1865 = "ttir.add"(%1845, %1863, %1864) : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %1866 = ttir.empty() : tensor<32x11x64xf32>
     %1867 = "ttir.squeeze"(%1865, %1866) <{dim = 0 : si32}> : (tensor<1x32x11x64xf32>, tensor<32x11x64xf32>) -> tensor<32x11x64xf32>
     %1868 = ttir.empty() : tensor<11x512xf32>
@@ -1881,7 +1881,7 @@ module @LLama_3.2_1B attributes {} {
     %1872 = ttir.empty() : tensor<1x8x11x64xf32>
     %1873 = "ttir.transpose"(%1871, %1872) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x8x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1874 = ttir.empty() : tensor<1x8x11x64xf32>
-    %1875 = "ttir.multiply"(%1873, %35, %1874) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %1875 = "ttir.multiply"(%1873, %35, %1874) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1876 = ttir.empty() : tensor<1x8x64x11xf32>
     %1877 = "ttir.transpose"(%1873, %1876) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %1878 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -1889,7 +1889,7 @@ module @LLama_3.2_1B attributes {} {
     %1880 = ttir.empty() : tensor<1x8x11x32xf32>
     %1881 = "ttir.transpose"(%1879, %1880) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x32x11xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %1882 = ttir.empty() : tensor<1x8x11x32xf32>
-    %1883 = "ttir.multiply"(%1881, %arg117, %1882) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
+    %1883 = "ttir.multiply"(%1881, %arg117, %1882) : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %1884 = ttir.empty() : tensor<1x8x64x11xf32>
     %1885 = "ttir.transpose"(%1873, %1884) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %1886 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -1899,9 +1899,9 @@ module @LLama_3.2_1B attributes {} {
     %1890 = ttir.empty() : tensor<1x8x11x64xf32>
     %1891 = "ttir.concat"(%1883, %1889, %1890) <{dim = -1 : si32}> : (tensor<1x8x11x32xf32>, tensor<1x8x11x32xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1892 = ttir.empty() : tensor<1x8x11x64xf32>
-    %1893 = "ttir.multiply"(%1891, %57, %1892) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %1893 = "ttir.multiply"(%1891, %57, %1892) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1894 = ttir.empty() : tensor<1x8x11x64xf32>
-    %1895 = "ttir.add"(%1875, %1893, %1894) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %1895 = "ttir.add"(%1875, %1893, %1894) : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %1896 = ttir.empty() : tensor<1x8x1x11x64xf32>
     %1897 = "ttir.unsqueeze"(%1895, %1896) <{dim = 2 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x1x11x64xf32>) -> tensor<1x8x1x11x64xf32>
     %1898 = ttir.empty() : tensor<1x8x1x11x64xf32>
@@ -1917,9 +1917,9 @@ module @LLama_3.2_1B attributes {} {
     %1908 = ttir.empty() : tensor<1x32x11x11xf32>
     %1909 = "ttir.unsqueeze"(%1907, %1908) <{dim = 0 : si32}> : (tensor<32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %1910 = ttir.empty() : tensor<1x32x11x11xf32>
-    %1911 = "ttir.multiply"(%1909, %arg119, %1910) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %1911 = "ttir.multiply"(%1909, %arg119, %1910) : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %1912 = ttir.empty() : tensor<1x32x11x11xf32>
-    %1913 = "ttir.add"(%1911, %arg120, %1912) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %1913 = "ttir.add"(%1911, %arg120, %1912) : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %1914 = ttir.empty() : tensor<1x32x11x11xf32>
     %1915 = "ttir.softmax"(%1913, %1914) <{dimension = -1 : si32}> : (tensor<1x32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %1916 = ttir.empty() : tensor<32x11x11xf32>
@@ -1957,21 +1957,21 @@ module @LLama_3.2_1B attributes {} {
     %1948 = ttir.empty() : tensor<1x11x2048xf32>
     %1949 = "ttir.unsqueeze"(%1947, %1948) <{dim = 0 : si32}> : (tensor<11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1950 = ttir.empty() : tensor<1x11x2048xf32>
-    %1951 = "ttir.add"(%1821, %1949, %1950) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1951 = "ttir.add"(%1821, %1949, %1950) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1952 = ttir.empty() : tensor<1x11x2048xf32>
-    %1953 = "ttir.multiply"(%1951, %1951, %1952) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1953 = "ttir.multiply"(%1951, %1951, %1952) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1954 = ttir.empty() : tensor<1x11x1xf32>
     %1955 = "ttir.mean"(%1953, %1954) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1956 = ttir.empty() : tensor<1x11x1xf32>
-    %1957 = "ttir.add"(%1955, %arg121, %1956) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1957 = "ttir.add"(%1955, %arg121, %1956) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1958 = ttir.empty() : tensor<1x11x1xf32>
-    %1959 = "ttir.sqrt"(%1957, %1958) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1959 = "ttir.sqrt"(%1957, %1958) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1960 = ttir.empty() : tensor<1x11x1xf32>
-    %1961 = "ttir.reciprocal"(%1959, %1960) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1961 = "ttir.reciprocal"(%1959, %1960) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1962 = ttir.empty() : tensor<1x11x2048xf32>
-    %1963 = "ttir.multiply"(%1951, %1961, %1962) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1963 = "ttir.multiply"(%1951, %1961, %1962) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1964 = ttir.empty() : tensor<1x11x2048xf32>
-    %1965 = "ttir.multiply"(%arg269, %1963, %1964) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1965 = "ttir.multiply"(%arg269, %1963, %1964) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1966 = ttir.empty() : tensor<11x2048xf32>
     %1967 = "ttir.squeeze"(%1965, %1966) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %1968 = ttir.empty() : tensor<11x8192xf32>
@@ -1979,33 +1979,33 @@ module @LLama_3.2_1B attributes {} {
     %1970 = ttir.empty() : tensor<1x11x8192xf32>
     %1971 = "ttir.unsqueeze"(%1969, %1970) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1972 = ttir.empty() : tensor<1x11x8192xf32>
-    %1973 = "ttir.sigmoid"(%1971, %1972) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %1973 = "ttir.sigmoid"(%1971, %1972) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1974 = ttir.empty() : tensor<1x11x8192xf32>
-    %1975 = "ttir.multiply"(%1971, %1973, %1974) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %1975 = "ttir.multiply"(%1971, %1973, %1974) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1976 = ttir.empty() : tensor<11x8192xf32>
     %1977 = "ttir.matmul"(%1967, %arg271, %1976) : (tensor<11x2048xf32>, tensor<2048x8192xf32>, tensor<11x8192xf32>) -> tensor<11x8192xf32>
     %1978 = ttir.empty() : tensor<1x11x8192xf32>
     %1979 = "ttir.unsqueeze"(%1977, %1978) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1980 = ttir.empty() : tensor<1x11x8192xf32>
-    %1981 = "ttir.multiply"(%1975, %1979, %1980) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %1981 = "ttir.multiply"(%1975, %1979, %1980) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %1982 = ttir.empty() : tensor<1x11x2048xf32>
     %1983 = "ttir.matmul"(%1981, %arg272, %1982) : (tensor<1x11x8192xf32>, tensor<8192x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1984 = ttir.empty() : tensor<1x11x2048xf32>
-    %1985 = "ttir.add"(%1951, %1983, %1984) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1985 = "ttir.add"(%1951, %1983, %1984) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1986 = ttir.empty() : tensor<1x11x2048xf32>
-    %1987 = "ttir.multiply"(%1985, %1985, %1986) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1987 = "ttir.multiply"(%1985, %1985, %1986) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1988 = ttir.empty() : tensor<1x11x1xf32>
     %1989 = "ttir.mean"(%1987, %1988) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1990 = ttir.empty() : tensor<1x11x1xf32>
-    %1991 = "ttir.add"(%1989, %arg122, %1990) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1991 = "ttir.add"(%1989, %arg122, %1990) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1992 = ttir.empty() : tensor<1x11x1xf32>
-    %1993 = "ttir.sqrt"(%1991, %1992) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1993 = "ttir.sqrt"(%1991, %1992) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1994 = ttir.empty() : tensor<1x11x1xf32>
-    %1995 = "ttir.reciprocal"(%1993, %1994) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %1995 = "ttir.reciprocal"(%1993, %1994) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %1996 = ttir.empty() : tensor<1x11x2048xf32>
-    %1997 = "ttir.multiply"(%1985, %1995, %1996) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1997 = "ttir.multiply"(%1985, %1995, %1996) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %1998 = ttir.empty() : tensor<1x11x2048xf32>
-    %1999 = "ttir.multiply"(%arg273, %1997, %1998) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %1999 = "ttir.multiply"(%arg273, %1997, %1998) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2000 = ttir.empty() : tensor<11x2048xf32>
     %2001 = "ttir.squeeze"(%1999, %2000) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %2002 = ttir.empty() : tensor<11x2048xf32>
@@ -2015,7 +2015,7 @@ module @LLama_3.2_1B attributes {} {
     %2006 = ttir.empty() : tensor<1x32x11x64xf32>
     %2007 = "ttir.transpose"(%2005, %2006) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x32x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %2008 = ttir.empty() : tensor<1x32x11x64xf32>
-    %2009 = "ttir.multiply"(%2007, %35, %2008) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %2009 = "ttir.multiply"(%2007, %35, %2008) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %2010 = ttir.empty() : tensor<1x32x64x11xf32>
     %2011 = "ttir.transpose"(%2007, %2010) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %2012 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -2023,7 +2023,7 @@ module @LLama_3.2_1B attributes {} {
     %2014 = ttir.empty() : tensor<1x32x11x32xf32>
     %2015 = "ttir.transpose"(%2013, %2014) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x32x11xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %2016 = ttir.empty() : tensor<1x32x11x32xf32>
-    %2017 = "ttir.multiply"(%2015, %arg124, %2016) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
+    %2017 = "ttir.multiply"(%2015, %arg124, %2016) : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %2018 = ttir.empty() : tensor<1x32x64x11xf32>
     %2019 = "ttir.transpose"(%2007, %2018) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %2020 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -2033,9 +2033,9 @@ module @LLama_3.2_1B attributes {} {
     %2024 = ttir.empty() : tensor<1x32x11x64xf32>
     %2025 = "ttir.concat"(%2017, %2023, %2024) <{dim = -1 : si32}> : (tensor<1x32x11x32xf32>, tensor<1x32x11x32xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %2026 = ttir.empty() : tensor<1x32x11x64xf32>
-    %2027 = "ttir.multiply"(%2025, %57, %2026) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %2027 = "ttir.multiply"(%2025, %57, %2026) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %2028 = ttir.empty() : tensor<1x32x11x64xf32>
-    %2029 = "ttir.add"(%2009, %2027, %2028) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %2029 = "ttir.add"(%2009, %2027, %2028) : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %2030 = ttir.empty() : tensor<32x11x64xf32>
     %2031 = "ttir.squeeze"(%2029, %2030) <{dim = 0 : si32}> : (tensor<1x32x11x64xf32>, tensor<32x11x64xf32>) -> tensor<32x11x64xf32>
     %2032 = ttir.empty() : tensor<11x512xf32>
@@ -2045,7 +2045,7 @@ module @LLama_3.2_1B attributes {} {
     %2036 = ttir.empty() : tensor<1x8x11x64xf32>
     %2037 = "ttir.transpose"(%2035, %2036) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x8x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %2038 = ttir.empty() : tensor<1x8x11x64xf32>
-    %2039 = "ttir.multiply"(%2037, %35, %2038) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %2039 = "ttir.multiply"(%2037, %35, %2038) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %2040 = ttir.empty() : tensor<1x8x64x11xf32>
     %2041 = "ttir.transpose"(%2037, %2040) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %2042 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -2053,7 +2053,7 @@ module @LLama_3.2_1B attributes {} {
     %2044 = ttir.empty() : tensor<1x8x11x32xf32>
     %2045 = "ttir.transpose"(%2043, %2044) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x32x11xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %2046 = ttir.empty() : tensor<1x8x11x32xf32>
-    %2047 = "ttir.multiply"(%2045, %arg127, %2046) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
+    %2047 = "ttir.multiply"(%2045, %arg127, %2046) : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %2048 = ttir.empty() : tensor<1x8x64x11xf32>
     %2049 = "ttir.transpose"(%2037, %2048) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %2050 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -2063,9 +2063,9 @@ module @LLama_3.2_1B attributes {} {
     %2054 = ttir.empty() : tensor<1x8x11x64xf32>
     %2055 = "ttir.concat"(%2047, %2053, %2054) <{dim = -1 : si32}> : (tensor<1x8x11x32xf32>, tensor<1x8x11x32xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %2056 = ttir.empty() : tensor<1x8x11x64xf32>
-    %2057 = "ttir.multiply"(%2055, %57, %2056) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %2057 = "ttir.multiply"(%2055, %57, %2056) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %2058 = ttir.empty() : tensor<1x8x11x64xf32>
-    %2059 = "ttir.add"(%2039, %2057, %2058) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %2059 = "ttir.add"(%2039, %2057, %2058) : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %2060 = ttir.empty() : tensor<1x8x1x11x64xf32>
     %2061 = "ttir.unsqueeze"(%2059, %2060) <{dim = 2 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x1x11x64xf32>) -> tensor<1x8x1x11x64xf32>
     %2062 = ttir.empty() : tensor<1x8x1x11x64xf32>
@@ -2081,9 +2081,9 @@ module @LLama_3.2_1B attributes {} {
     %2072 = ttir.empty() : tensor<1x32x11x11xf32>
     %2073 = "ttir.unsqueeze"(%2071, %2072) <{dim = 0 : si32}> : (tensor<32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %2074 = ttir.empty() : tensor<1x32x11x11xf32>
-    %2075 = "ttir.multiply"(%2073, %arg129, %2074) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %2075 = "ttir.multiply"(%2073, %arg129, %2074) : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %2076 = ttir.empty() : tensor<1x32x11x11xf32>
-    %2077 = "ttir.add"(%2075, %arg130, %2076) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %2077 = "ttir.add"(%2075, %arg130, %2076) : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %2078 = ttir.empty() : tensor<1x32x11x11xf32>
     %2079 = "ttir.softmax"(%2077, %2078) <{dimension = -1 : si32}> : (tensor<1x32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %2080 = ttir.empty() : tensor<32x11x11xf32>
@@ -2121,21 +2121,21 @@ module @LLama_3.2_1B attributes {} {
     %2112 = ttir.empty() : tensor<1x11x2048xf32>
     %2113 = "ttir.unsqueeze"(%2111, %2112) <{dim = 0 : si32}> : (tensor<11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2114 = ttir.empty() : tensor<1x11x2048xf32>
-    %2115 = "ttir.add"(%1985, %2113, %2114) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2115 = "ttir.add"(%1985, %2113, %2114) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2116 = ttir.empty() : tensor<1x11x2048xf32>
-    %2117 = "ttir.multiply"(%2115, %2115, %2116) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2117 = "ttir.multiply"(%2115, %2115, %2116) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2118 = ttir.empty() : tensor<1x11x1xf32>
     %2119 = "ttir.mean"(%2117, %2118) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2120 = ttir.empty() : tensor<1x11x1xf32>
-    %2121 = "ttir.add"(%2119, %arg131, %2120) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %2121 = "ttir.add"(%2119, %arg131, %2120) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2122 = ttir.empty() : tensor<1x11x1xf32>
-    %2123 = "ttir.sqrt"(%2121, %2122) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %2123 = "ttir.sqrt"(%2121, %2122) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2124 = ttir.empty() : tensor<1x11x1xf32>
-    %2125 = "ttir.reciprocal"(%2123, %2124) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %2125 = "ttir.reciprocal"(%2123, %2124) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2126 = ttir.empty() : tensor<1x11x2048xf32>
-    %2127 = "ttir.multiply"(%2115, %2125, %2126) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2127 = "ttir.multiply"(%2115, %2125, %2126) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2128 = ttir.empty() : tensor<1x11x2048xf32>
-    %2129 = "ttir.multiply"(%arg278, %2127, %2128) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2129 = "ttir.multiply"(%arg278, %2127, %2128) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2130 = ttir.empty() : tensor<11x2048xf32>
     %2131 = "ttir.squeeze"(%2129, %2130) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %2132 = ttir.empty() : tensor<11x8192xf32>
@@ -2143,33 +2143,33 @@ module @LLama_3.2_1B attributes {} {
     %2134 = ttir.empty() : tensor<1x11x8192xf32>
     %2135 = "ttir.unsqueeze"(%2133, %2134) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %2136 = ttir.empty() : tensor<1x11x8192xf32>
-    %2137 = "ttir.sigmoid"(%2135, %2136) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %2137 = "ttir.sigmoid"(%2135, %2136) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %2138 = ttir.empty() : tensor<1x11x8192xf32>
-    %2139 = "ttir.multiply"(%2135, %2137, %2138) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %2139 = "ttir.multiply"(%2135, %2137, %2138) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %2140 = ttir.empty() : tensor<11x8192xf32>
     %2141 = "ttir.matmul"(%2131, %arg280, %2140) : (tensor<11x2048xf32>, tensor<2048x8192xf32>, tensor<11x8192xf32>) -> tensor<11x8192xf32>
     %2142 = ttir.empty() : tensor<1x11x8192xf32>
     %2143 = "ttir.unsqueeze"(%2141, %2142) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %2144 = ttir.empty() : tensor<1x11x8192xf32>
-    %2145 = "ttir.multiply"(%2139, %2143, %2144) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %2145 = "ttir.multiply"(%2139, %2143, %2144) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %2146 = ttir.empty() : tensor<1x11x2048xf32>
     %2147 = "ttir.matmul"(%2145, %arg281, %2146) : (tensor<1x11x8192xf32>, tensor<8192x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2148 = ttir.empty() : tensor<1x11x2048xf32>
-    %2149 = "ttir.add"(%2115, %2147, %2148) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2149 = "ttir.add"(%2115, %2147, %2148) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2150 = ttir.empty() : tensor<1x11x2048xf32>
-    %2151 = "ttir.multiply"(%2149, %2149, %2150) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2151 = "ttir.multiply"(%2149, %2149, %2150) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2152 = ttir.empty() : tensor<1x11x1xf32>
     %2153 = "ttir.mean"(%2151, %2152) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2154 = ttir.empty() : tensor<1x11x1xf32>
-    %2155 = "ttir.add"(%2153, %arg132, %2154) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %2155 = "ttir.add"(%2153, %arg132, %2154) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2156 = ttir.empty() : tensor<1x11x1xf32>
-    %2157 = "ttir.sqrt"(%2155, %2156) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %2157 = "ttir.sqrt"(%2155, %2156) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2158 = ttir.empty() : tensor<1x11x1xf32>
-    %2159 = "ttir.reciprocal"(%2157, %2158) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %2159 = "ttir.reciprocal"(%2157, %2158) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2160 = ttir.empty() : tensor<1x11x2048xf32>
-    %2161 = "ttir.multiply"(%2149, %2159, %2160) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2161 = "ttir.multiply"(%2149, %2159, %2160) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2162 = ttir.empty() : tensor<1x11x2048xf32>
-    %2163 = "ttir.multiply"(%arg282, %2161, %2162) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2163 = "ttir.multiply"(%arg282, %2161, %2162) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2164 = ttir.empty() : tensor<11x2048xf32>
     %2165 = "ttir.squeeze"(%2163, %2164) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %2166 = ttir.empty() : tensor<11x2048xf32>
@@ -2179,7 +2179,7 @@ module @LLama_3.2_1B attributes {} {
     %2170 = ttir.empty() : tensor<1x32x11x64xf32>
     %2171 = "ttir.transpose"(%2169, %2170) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x32x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %2172 = ttir.empty() : tensor<1x32x11x64xf32>
-    %2173 = "ttir.multiply"(%2171, %35, %2172) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %2173 = "ttir.multiply"(%2171, %35, %2172) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %2174 = ttir.empty() : tensor<1x32x64x11xf32>
     %2175 = "ttir.transpose"(%2171, %2174) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %2176 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -2187,7 +2187,7 @@ module @LLama_3.2_1B attributes {} {
     %2178 = ttir.empty() : tensor<1x32x11x32xf32>
     %2179 = "ttir.transpose"(%2177, %2178) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x32x11xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %2180 = ttir.empty() : tensor<1x32x11x32xf32>
-    %2181 = "ttir.multiply"(%2179, %arg134, %2180) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
+    %2181 = "ttir.multiply"(%2179, %arg134, %2180) : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %2182 = ttir.empty() : tensor<1x32x64x11xf32>
     %2183 = "ttir.transpose"(%2171, %2182) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %2184 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -2197,9 +2197,9 @@ module @LLama_3.2_1B attributes {} {
     %2188 = ttir.empty() : tensor<1x32x11x64xf32>
     %2189 = "ttir.concat"(%2181, %2187, %2188) <{dim = -1 : si32}> : (tensor<1x32x11x32xf32>, tensor<1x32x11x32xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %2190 = ttir.empty() : tensor<1x32x11x64xf32>
-    %2191 = "ttir.multiply"(%2189, %57, %2190) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %2191 = "ttir.multiply"(%2189, %57, %2190) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %2192 = ttir.empty() : tensor<1x32x11x64xf32>
-    %2193 = "ttir.add"(%2173, %2191, %2192) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %2193 = "ttir.add"(%2173, %2191, %2192) : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %2194 = ttir.empty() : tensor<32x11x64xf32>
     %2195 = "ttir.squeeze"(%2193, %2194) <{dim = 0 : si32}> : (tensor<1x32x11x64xf32>, tensor<32x11x64xf32>) -> tensor<32x11x64xf32>
     %2196 = ttir.empty() : tensor<11x512xf32>
@@ -2209,7 +2209,7 @@ module @LLama_3.2_1B attributes {} {
     %2200 = ttir.empty() : tensor<1x8x11x64xf32>
     %2201 = "ttir.transpose"(%2199, %2200) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x8x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %2202 = ttir.empty() : tensor<1x8x11x64xf32>
-    %2203 = "ttir.multiply"(%2201, %35, %2202) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %2203 = "ttir.multiply"(%2201, %35, %2202) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %2204 = ttir.empty() : tensor<1x8x64x11xf32>
     %2205 = "ttir.transpose"(%2201, %2204) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %2206 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -2217,7 +2217,7 @@ module @LLama_3.2_1B attributes {} {
     %2208 = ttir.empty() : tensor<1x8x11x32xf32>
     %2209 = "ttir.transpose"(%2207, %2208) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x32x11xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %2210 = ttir.empty() : tensor<1x8x11x32xf32>
-    %2211 = "ttir.multiply"(%2209, %arg137, %2210) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
+    %2211 = "ttir.multiply"(%2209, %arg137, %2210) : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %2212 = ttir.empty() : tensor<1x8x64x11xf32>
     %2213 = "ttir.transpose"(%2201, %2212) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %2214 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -2227,9 +2227,9 @@ module @LLama_3.2_1B attributes {} {
     %2218 = ttir.empty() : tensor<1x8x11x64xf32>
     %2219 = "ttir.concat"(%2211, %2217, %2218) <{dim = -1 : si32}> : (tensor<1x8x11x32xf32>, tensor<1x8x11x32xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %2220 = ttir.empty() : tensor<1x8x11x64xf32>
-    %2221 = "ttir.multiply"(%2219, %57, %2220) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %2221 = "ttir.multiply"(%2219, %57, %2220) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %2222 = ttir.empty() : tensor<1x8x11x64xf32>
-    %2223 = "ttir.add"(%2203, %2221, %2222) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %2223 = "ttir.add"(%2203, %2221, %2222) : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %2224 = ttir.empty() : tensor<1x8x1x11x64xf32>
     %2225 = "ttir.unsqueeze"(%2223, %2224) <{dim = 2 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x1x11x64xf32>) -> tensor<1x8x1x11x64xf32>
     %2226 = ttir.empty() : tensor<1x8x1x11x64xf32>
@@ -2245,9 +2245,9 @@ module @LLama_3.2_1B attributes {} {
     %2236 = ttir.empty() : tensor<1x32x11x11xf32>
     %2237 = "ttir.unsqueeze"(%2235, %2236) <{dim = 0 : si32}> : (tensor<32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %2238 = ttir.empty() : tensor<1x32x11x11xf32>
-    %2239 = "ttir.multiply"(%2237, %arg139, %2238) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %2239 = "ttir.multiply"(%2237, %arg139, %2238) : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %2240 = ttir.empty() : tensor<1x32x11x11xf32>
-    %2241 = "ttir.add"(%2239, %arg140, %2240) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %2241 = "ttir.add"(%2239, %arg140, %2240) : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %2242 = ttir.empty() : tensor<1x32x11x11xf32>
     %2243 = "ttir.softmax"(%2241, %2242) <{dimension = -1 : si32}> : (tensor<1x32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %2244 = ttir.empty() : tensor<32x11x11xf32>
@@ -2285,21 +2285,21 @@ module @LLama_3.2_1B attributes {} {
     %2276 = ttir.empty() : tensor<1x11x2048xf32>
     %2277 = "ttir.unsqueeze"(%2275, %2276) <{dim = 0 : si32}> : (tensor<11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2278 = ttir.empty() : tensor<1x11x2048xf32>
-    %2279 = "ttir.add"(%2149, %2277, %2278) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2279 = "ttir.add"(%2149, %2277, %2278) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2280 = ttir.empty() : tensor<1x11x2048xf32>
-    %2281 = "ttir.multiply"(%2279, %2279, %2280) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2281 = "ttir.multiply"(%2279, %2279, %2280) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2282 = ttir.empty() : tensor<1x11x1xf32>
     %2283 = "ttir.mean"(%2281, %2282) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2284 = ttir.empty() : tensor<1x11x1xf32>
-    %2285 = "ttir.add"(%2283, %arg141, %2284) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %2285 = "ttir.add"(%2283, %arg141, %2284) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2286 = ttir.empty() : tensor<1x11x1xf32>
-    %2287 = "ttir.sqrt"(%2285, %2286) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %2287 = "ttir.sqrt"(%2285, %2286) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2288 = ttir.empty() : tensor<1x11x1xf32>
-    %2289 = "ttir.reciprocal"(%2287, %2288) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %2289 = "ttir.reciprocal"(%2287, %2288) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2290 = ttir.empty() : tensor<1x11x2048xf32>
-    %2291 = "ttir.multiply"(%2279, %2289, %2290) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2291 = "ttir.multiply"(%2279, %2289, %2290) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2292 = ttir.empty() : tensor<1x11x2048xf32>
-    %2293 = "ttir.multiply"(%arg287, %2291, %2292) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2293 = "ttir.multiply"(%arg287, %2291, %2292) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2294 = ttir.empty() : tensor<11x2048xf32>
     %2295 = "ttir.squeeze"(%2293, %2294) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %2296 = ttir.empty() : tensor<11x8192xf32>
@@ -2307,33 +2307,33 @@ module @LLama_3.2_1B attributes {} {
     %2298 = ttir.empty() : tensor<1x11x8192xf32>
     %2299 = "ttir.unsqueeze"(%2297, %2298) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %2300 = ttir.empty() : tensor<1x11x8192xf32>
-    %2301 = "ttir.sigmoid"(%2299, %2300) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %2301 = "ttir.sigmoid"(%2299, %2300) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %2302 = ttir.empty() : tensor<1x11x8192xf32>
-    %2303 = "ttir.multiply"(%2299, %2301, %2302) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %2303 = "ttir.multiply"(%2299, %2301, %2302) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %2304 = ttir.empty() : tensor<11x8192xf32>
     %2305 = "ttir.matmul"(%2295, %arg289, %2304) : (tensor<11x2048xf32>, tensor<2048x8192xf32>, tensor<11x8192xf32>) -> tensor<11x8192xf32>
     %2306 = ttir.empty() : tensor<1x11x8192xf32>
     %2307 = "ttir.unsqueeze"(%2305, %2306) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %2308 = ttir.empty() : tensor<1x11x8192xf32>
-    %2309 = "ttir.multiply"(%2303, %2307, %2308) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %2309 = "ttir.multiply"(%2303, %2307, %2308) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %2310 = ttir.empty() : tensor<1x11x2048xf32>
     %2311 = "ttir.matmul"(%2309, %arg290, %2310) : (tensor<1x11x8192xf32>, tensor<8192x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2312 = ttir.empty() : tensor<1x11x2048xf32>
-    %2313 = "ttir.add"(%2279, %2311, %2312) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2313 = "ttir.add"(%2279, %2311, %2312) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2314 = ttir.empty() : tensor<1x11x2048xf32>
-    %2315 = "ttir.multiply"(%2313, %2313, %2314) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2315 = "ttir.multiply"(%2313, %2313, %2314) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2316 = ttir.empty() : tensor<1x11x1xf32>
     %2317 = "ttir.mean"(%2315, %2316) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2318 = ttir.empty() : tensor<1x11x1xf32>
-    %2319 = "ttir.add"(%2317, %arg142, %2318) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %2319 = "ttir.add"(%2317, %arg142, %2318) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2320 = ttir.empty() : tensor<1x11x1xf32>
-    %2321 = "ttir.sqrt"(%2319, %2320) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %2321 = "ttir.sqrt"(%2319, %2320) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2322 = ttir.empty() : tensor<1x11x1xf32>
-    %2323 = "ttir.reciprocal"(%2321, %2322) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %2323 = "ttir.reciprocal"(%2321, %2322) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2324 = ttir.empty() : tensor<1x11x2048xf32>
-    %2325 = "ttir.multiply"(%2313, %2323, %2324) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2325 = "ttir.multiply"(%2313, %2323, %2324) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2326 = ttir.empty() : tensor<1x11x2048xf32>
-    %2327 = "ttir.multiply"(%arg291, %2325, %2326) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2327 = "ttir.multiply"(%arg291, %2325, %2326) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2328 = ttir.empty() : tensor<11x2048xf32>
     %2329 = "ttir.squeeze"(%2327, %2328) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %2330 = ttir.empty() : tensor<11x2048xf32>
@@ -2343,7 +2343,7 @@ module @LLama_3.2_1B attributes {} {
     %2334 = ttir.empty() : tensor<1x32x11x64xf32>
     %2335 = "ttir.transpose"(%2333, %2334) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x32x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %2336 = ttir.empty() : tensor<1x32x11x64xf32>
-    %2337 = "ttir.multiply"(%2335, %35, %2336) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %2337 = "ttir.multiply"(%2335, %35, %2336) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %2338 = ttir.empty() : tensor<1x32x64x11xf32>
     %2339 = "ttir.transpose"(%2335, %2338) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %2340 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -2351,7 +2351,7 @@ module @LLama_3.2_1B attributes {} {
     %2342 = ttir.empty() : tensor<1x32x11x32xf32>
     %2343 = "ttir.transpose"(%2341, %2342) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x32x11xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %2344 = ttir.empty() : tensor<1x32x11x32xf32>
-    %2345 = "ttir.multiply"(%2343, %arg144, %2344) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
+    %2345 = "ttir.multiply"(%2343, %arg144, %2344) : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %2346 = ttir.empty() : tensor<1x32x64x11xf32>
     %2347 = "ttir.transpose"(%2335, %2346) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %2348 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -2361,9 +2361,9 @@ module @LLama_3.2_1B attributes {} {
     %2352 = ttir.empty() : tensor<1x32x11x64xf32>
     %2353 = "ttir.concat"(%2345, %2351, %2352) <{dim = -1 : si32}> : (tensor<1x32x11x32xf32>, tensor<1x32x11x32xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %2354 = ttir.empty() : tensor<1x32x11x64xf32>
-    %2355 = "ttir.multiply"(%2353, %57, %2354) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %2355 = "ttir.multiply"(%2353, %57, %2354) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %2356 = ttir.empty() : tensor<1x32x11x64xf32>
-    %2357 = "ttir.add"(%2337, %2355, %2356) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %2357 = "ttir.add"(%2337, %2355, %2356) : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %2358 = ttir.empty() : tensor<32x11x64xf32>
     %2359 = "ttir.squeeze"(%2357, %2358) <{dim = 0 : si32}> : (tensor<1x32x11x64xf32>, tensor<32x11x64xf32>) -> tensor<32x11x64xf32>
     %2360 = ttir.empty() : tensor<11x512xf32>
@@ -2373,7 +2373,7 @@ module @LLama_3.2_1B attributes {} {
     %2364 = ttir.empty() : tensor<1x8x11x64xf32>
     %2365 = "ttir.transpose"(%2363, %2364) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x8x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %2366 = ttir.empty() : tensor<1x8x11x64xf32>
-    %2367 = "ttir.multiply"(%2365, %35, %2366) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %2367 = "ttir.multiply"(%2365, %35, %2366) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %2368 = ttir.empty() : tensor<1x8x64x11xf32>
     %2369 = "ttir.transpose"(%2365, %2368) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %2370 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -2381,7 +2381,7 @@ module @LLama_3.2_1B attributes {} {
     %2372 = ttir.empty() : tensor<1x8x11x32xf32>
     %2373 = "ttir.transpose"(%2371, %2372) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x32x11xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %2374 = ttir.empty() : tensor<1x8x11x32xf32>
-    %2375 = "ttir.multiply"(%2373, %arg147, %2374) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
+    %2375 = "ttir.multiply"(%2373, %arg147, %2374) : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %2376 = ttir.empty() : tensor<1x8x64x11xf32>
     %2377 = "ttir.transpose"(%2365, %2376) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %2378 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -2391,9 +2391,9 @@ module @LLama_3.2_1B attributes {} {
     %2382 = ttir.empty() : tensor<1x8x11x64xf32>
     %2383 = "ttir.concat"(%2375, %2381, %2382) <{dim = -1 : si32}> : (tensor<1x8x11x32xf32>, tensor<1x8x11x32xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %2384 = ttir.empty() : tensor<1x8x11x64xf32>
-    %2385 = "ttir.multiply"(%2383, %57, %2384) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %2385 = "ttir.multiply"(%2383, %57, %2384) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %2386 = ttir.empty() : tensor<1x8x11x64xf32>
-    %2387 = "ttir.add"(%2367, %2385, %2386) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %2387 = "ttir.add"(%2367, %2385, %2386) : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %2388 = ttir.empty() : tensor<1x8x1x11x64xf32>
     %2389 = "ttir.unsqueeze"(%2387, %2388) <{dim = 2 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x1x11x64xf32>) -> tensor<1x8x1x11x64xf32>
     %2390 = ttir.empty() : tensor<1x8x1x11x64xf32>
@@ -2409,9 +2409,9 @@ module @LLama_3.2_1B attributes {} {
     %2400 = ttir.empty() : tensor<1x32x11x11xf32>
     %2401 = "ttir.unsqueeze"(%2399, %2400) <{dim = 0 : si32}> : (tensor<32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %2402 = ttir.empty() : tensor<1x32x11x11xf32>
-    %2403 = "ttir.multiply"(%2401, %arg149, %2402) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %2403 = "ttir.multiply"(%2401, %arg149, %2402) : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %2404 = ttir.empty() : tensor<1x32x11x11xf32>
-    %2405 = "ttir.add"(%2403, %arg150, %2404) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %2405 = "ttir.add"(%2403, %arg150, %2404) : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %2406 = ttir.empty() : tensor<1x32x11x11xf32>
     %2407 = "ttir.softmax"(%2405, %2406) <{dimension = -1 : si32}> : (tensor<1x32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %2408 = ttir.empty() : tensor<32x11x11xf32>
@@ -2449,21 +2449,21 @@ module @LLama_3.2_1B attributes {} {
     %2440 = ttir.empty() : tensor<1x11x2048xf32>
     %2441 = "ttir.unsqueeze"(%2439, %2440) <{dim = 0 : si32}> : (tensor<11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2442 = ttir.empty() : tensor<1x11x2048xf32>
-    %2443 = "ttir.add"(%2313, %2441, %2442) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2443 = "ttir.add"(%2313, %2441, %2442) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2444 = ttir.empty() : tensor<1x11x2048xf32>
-    %2445 = "ttir.multiply"(%2443, %2443, %2444) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2445 = "ttir.multiply"(%2443, %2443, %2444) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2446 = ttir.empty() : tensor<1x11x1xf32>
     %2447 = "ttir.mean"(%2445, %2446) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2448 = ttir.empty() : tensor<1x11x1xf32>
-    %2449 = "ttir.add"(%2447, %arg151, %2448) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %2449 = "ttir.add"(%2447, %arg151, %2448) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2450 = ttir.empty() : tensor<1x11x1xf32>
-    %2451 = "ttir.sqrt"(%2449, %2450) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %2451 = "ttir.sqrt"(%2449, %2450) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2452 = ttir.empty() : tensor<1x11x1xf32>
-    %2453 = "ttir.reciprocal"(%2451, %2452) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %2453 = "ttir.reciprocal"(%2451, %2452) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2454 = ttir.empty() : tensor<1x11x2048xf32>
-    %2455 = "ttir.multiply"(%2443, %2453, %2454) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2455 = "ttir.multiply"(%2443, %2453, %2454) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2456 = ttir.empty() : tensor<1x11x2048xf32>
-    %2457 = "ttir.multiply"(%arg296, %2455, %2456) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2457 = "ttir.multiply"(%arg296, %2455, %2456) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2458 = ttir.empty() : tensor<11x2048xf32>
     %2459 = "ttir.squeeze"(%2457, %2458) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %2460 = ttir.empty() : tensor<11x8192xf32>
@@ -2471,33 +2471,33 @@ module @LLama_3.2_1B attributes {} {
     %2462 = ttir.empty() : tensor<1x11x8192xf32>
     %2463 = "ttir.unsqueeze"(%2461, %2462) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %2464 = ttir.empty() : tensor<1x11x8192xf32>
-    %2465 = "ttir.sigmoid"(%2463, %2464) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %2465 = "ttir.sigmoid"(%2463, %2464) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %2466 = ttir.empty() : tensor<1x11x8192xf32>
-    %2467 = "ttir.multiply"(%2463, %2465, %2466) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %2467 = "ttir.multiply"(%2463, %2465, %2466) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %2468 = ttir.empty() : tensor<11x8192xf32>
     %2469 = "ttir.matmul"(%2459, %arg298, %2468) : (tensor<11x2048xf32>, tensor<2048x8192xf32>, tensor<11x8192xf32>) -> tensor<11x8192xf32>
     %2470 = ttir.empty() : tensor<1x11x8192xf32>
     %2471 = "ttir.unsqueeze"(%2469, %2470) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %2472 = ttir.empty() : tensor<1x11x8192xf32>
-    %2473 = "ttir.multiply"(%2467, %2471, %2472) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %2473 = "ttir.multiply"(%2467, %2471, %2472) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %2474 = ttir.empty() : tensor<1x11x2048xf32>
     %2475 = "ttir.matmul"(%2473, %arg299, %2474) : (tensor<1x11x8192xf32>, tensor<8192x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2476 = ttir.empty() : tensor<1x11x2048xf32>
-    %2477 = "ttir.add"(%2443, %2475, %2476) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2477 = "ttir.add"(%2443, %2475, %2476) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2478 = ttir.empty() : tensor<1x11x2048xf32>
-    %2479 = "ttir.multiply"(%2477, %2477, %2478) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2479 = "ttir.multiply"(%2477, %2477, %2478) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2480 = ttir.empty() : tensor<1x11x1xf32>
     %2481 = "ttir.mean"(%2479, %2480) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2482 = ttir.empty() : tensor<1x11x1xf32>
-    %2483 = "ttir.add"(%2481, %arg152, %2482) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %2483 = "ttir.add"(%2481, %arg152, %2482) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2484 = ttir.empty() : tensor<1x11x1xf32>
-    %2485 = "ttir.sqrt"(%2483, %2484) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %2485 = "ttir.sqrt"(%2483, %2484) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2486 = ttir.empty() : tensor<1x11x1xf32>
-    %2487 = "ttir.reciprocal"(%2485, %2486) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %2487 = "ttir.reciprocal"(%2485, %2486) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2488 = ttir.empty() : tensor<1x11x2048xf32>
-    %2489 = "ttir.multiply"(%2477, %2487, %2488) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2489 = "ttir.multiply"(%2477, %2487, %2488) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2490 = ttir.empty() : tensor<1x11x2048xf32>
-    %2491 = "ttir.multiply"(%arg300, %2489, %2490) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2491 = "ttir.multiply"(%arg300, %2489, %2490) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2492 = ttir.empty() : tensor<11x2048xf32>
     %2493 = "ttir.squeeze"(%2491, %2492) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %2494 = ttir.empty() : tensor<11x2048xf32>
@@ -2507,7 +2507,7 @@ module @LLama_3.2_1B attributes {} {
     %2498 = ttir.empty() : tensor<1x32x11x64xf32>
     %2499 = "ttir.transpose"(%2497, %2498) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x32x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %2500 = ttir.empty() : tensor<1x32x11x64xf32>
-    %2501 = "ttir.multiply"(%2499, %35, %2500) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %2501 = "ttir.multiply"(%2499, %35, %2500) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %2502 = ttir.empty() : tensor<1x32x64x11xf32>
     %2503 = "ttir.transpose"(%2499, %2502) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %2504 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -2515,7 +2515,7 @@ module @LLama_3.2_1B attributes {} {
     %2506 = ttir.empty() : tensor<1x32x11x32xf32>
     %2507 = "ttir.transpose"(%2505, %2506) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x32x11xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %2508 = ttir.empty() : tensor<1x32x11x32xf32>
-    %2509 = "ttir.multiply"(%2507, %arg154, %2508) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
+    %2509 = "ttir.multiply"(%2507, %arg154, %2508) : (tensor<1x32x11x32xf32>, tensor<1xf32>, tensor<1x32x11x32xf32>) -> tensor<1x32x11x32xf32>
     %2510 = ttir.empty() : tensor<1x32x64x11xf32>
     %2511 = "ttir.transpose"(%2499, %2510) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x11x64xf32>, tensor<1x32x64x11xf32>) -> tensor<1x32x64x11xf32>
     %2512 = ttir.empty() : tensor<1x32x32x11xf32>
@@ -2525,9 +2525,9 @@ module @LLama_3.2_1B attributes {} {
     %2516 = ttir.empty() : tensor<1x32x11x64xf32>
     %2517 = "ttir.concat"(%2509, %2515, %2516) <{dim = -1 : si32}> : (tensor<1x32x11x32xf32>, tensor<1x32x11x32xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %2518 = ttir.empty() : tensor<1x32x11x64xf32>
-    %2519 = "ttir.multiply"(%2517, %57, %2518) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %2519 = "ttir.multiply"(%2517, %57, %2518) : (tensor<1x32x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %2520 = ttir.empty() : tensor<1x32x11x64xf32>
-    %2521 = "ttir.add"(%2501, %2519, %2520) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
+    %2521 = "ttir.add"(%2501, %2519, %2520) : (tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>, tensor<1x32x11x64xf32>) -> tensor<1x32x11x64xf32>
     %2522 = ttir.empty() : tensor<32x11x64xf32>
     %2523 = "ttir.squeeze"(%2521, %2522) <{dim = 0 : si32}> : (tensor<1x32x11x64xf32>, tensor<32x11x64xf32>) -> tensor<32x11x64xf32>
     %2524 = ttir.empty() : tensor<11x512xf32>
@@ -2537,7 +2537,7 @@ module @LLama_3.2_1B attributes {} {
     %2528 = ttir.empty() : tensor<1x8x11x64xf32>
     %2529 = "ttir.transpose"(%2527, %2528) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x11x8x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %2530 = ttir.empty() : tensor<1x8x11x64xf32>
-    %2531 = "ttir.multiply"(%2529, %35, %2530) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %2531 = "ttir.multiply"(%2529, %35, %2530) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %2532 = ttir.empty() : tensor<1x8x64x11xf32>
     %2533 = "ttir.transpose"(%2529, %2532) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %2534 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -2545,7 +2545,7 @@ module @LLama_3.2_1B attributes {} {
     %2536 = ttir.empty() : tensor<1x8x11x32xf32>
     %2537 = "ttir.transpose"(%2535, %2536) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x32x11xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %2538 = ttir.empty() : tensor<1x8x11x32xf32>
-    %2539 = "ttir.multiply"(%2537, %arg157, %2538) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
+    %2539 = "ttir.multiply"(%2537, %arg157, %2538) : (tensor<1x8x11x32xf32>, tensor<1xf32>, tensor<1x8x11x32xf32>) -> tensor<1x8x11x32xf32>
     %2540 = ttir.empty() : tensor<1x8x64x11xf32>
     %2541 = "ttir.transpose"(%2529, %2540) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x64x11xf32>) -> tensor<1x8x64x11xf32>
     %2542 = ttir.empty() : tensor<1x8x32x11xf32>
@@ -2555,9 +2555,9 @@ module @LLama_3.2_1B attributes {} {
     %2546 = ttir.empty() : tensor<1x8x11x64xf32>
     %2547 = "ttir.concat"(%2539, %2545, %2546) <{dim = -1 : si32}> : (tensor<1x8x11x32xf32>, tensor<1x8x11x32xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %2548 = ttir.empty() : tensor<1x8x11x64xf32>
-    %2549 = "ttir.multiply"(%2547, %57, %2548) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %2549 = "ttir.multiply"(%2547, %57, %2548) : (tensor<1x8x11x64xf32>, tensor<1x1x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %2550 = ttir.empty() : tensor<1x8x11x64xf32>
-    %2551 = "ttir.add"(%2531, %2549, %2550) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
+    %2551 = "ttir.add"(%2531, %2549, %2550) : (tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>, tensor<1x8x11x64xf32>) -> tensor<1x8x11x64xf32>
     %2552 = ttir.empty() : tensor<1x8x1x11x64xf32>
     %2553 = "ttir.unsqueeze"(%2551, %2552) <{dim = 2 : si32}> : (tensor<1x8x11x64xf32>, tensor<1x8x1x11x64xf32>) -> tensor<1x8x1x11x64xf32>
     %2554 = ttir.empty() : tensor<1x8x1x11x64xf32>
@@ -2573,9 +2573,9 @@ module @LLama_3.2_1B attributes {} {
     %2564 = ttir.empty() : tensor<1x32x11x11xf32>
     %2565 = "ttir.unsqueeze"(%2563, %2564) <{dim = 0 : si32}> : (tensor<32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %2566 = ttir.empty() : tensor<1x32x11x11xf32>
-    %2567 = "ttir.multiply"(%2565, %arg159, %2566) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %2567 = "ttir.multiply"(%2565, %arg159, %2566) : (tensor<1x32x11x11xf32>, tensor<1xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %2568 = ttir.empty() : tensor<1x32x11x11xf32>
-    %2569 = "ttir.add"(%2567, %arg160, %2568) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
+    %2569 = "ttir.add"(%2567, %arg160, %2568) : (tensor<1x32x11x11xf32>, tensor<1x1x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %2570 = ttir.empty() : tensor<1x32x11x11xf32>
     %2571 = "ttir.softmax"(%2569, %2570) <{dimension = -1 : si32}> : (tensor<1x32x11x11xf32>, tensor<1x32x11x11xf32>) -> tensor<1x32x11x11xf32>
     %2572 = ttir.empty() : tensor<32x11x11xf32>
@@ -2613,21 +2613,21 @@ module @LLama_3.2_1B attributes {} {
     %2604 = ttir.empty() : tensor<1x11x2048xf32>
     %2605 = "ttir.unsqueeze"(%2603, %2604) <{dim = 0 : si32}> : (tensor<11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2606 = ttir.empty() : tensor<1x11x2048xf32>
-    %2607 = "ttir.add"(%2477, %2605, %2606) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2607 = "ttir.add"(%2477, %2605, %2606) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2608 = ttir.empty() : tensor<1x11x2048xf32>
-    %2609 = "ttir.multiply"(%2607, %2607, %2608) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2609 = "ttir.multiply"(%2607, %2607, %2608) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2610 = ttir.empty() : tensor<1x11x1xf32>
     %2611 = "ttir.mean"(%2609, %2610) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2612 = ttir.empty() : tensor<1x11x1xf32>
-    %2613 = "ttir.add"(%2611, %arg161, %2612) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %2613 = "ttir.add"(%2611, %arg161, %2612) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2614 = ttir.empty() : tensor<1x11x1xf32>
-    %2615 = "ttir.sqrt"(%2613, %2614) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %2615 = "ttir.sqrt"(%2613, %2614) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2616 = ttir.empty() : tensor<1x11x1xf32>
-    %2617 = "ttir.reciprocal"(%2615, %2616) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %2617 = "ttir.reciprocal"(%2615, %2616) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2618 = ttir.empty() : tensor<1x11x2048xf32>
-    %2619 = "ttir.multiply"(%2607, %2617, %2618) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2619 = "ttir.multiply"(%2607, %2617, %2618) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2620 = ttir.empty() : tensor<1x11x2048xf32>
-    %2621 = "ttir.multiply"(%arg305, %2619, %2620) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2621 = "ttir.multiply"(%arg305, %2619, %2620) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2622 = ttir.empty() : tensor<11x2048xf32>
     %2623 = "ttir.squeeze"(%2621, %2622) <{dim = 0 : si32}> : (tensor<1x11x2048xf32>, tensor<11x2048xf32>) -> tensor<11x2048xf32>
     %2624 = ttir.empty() : tensor<11x8192xf32>
@@ -2635,33 +2635,33 @@ module @LLama_3.2_1B attributes {} {
     %2626 = ttir.empty() : tensor<1x11x8192xf32>
     %2627 = "ttir.unsqueeze"(%2625, %2626) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %2628 = ttir.empty() : tensor<1x11x8192xf32>
-    %2629 = "ttir.sigmoid"(%2627, %2628) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %2629 = "ttir.sigmoid"(%2627, %2628) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %2630 = ttir.empty() : tensor<1x11x8192xf32>
-    %2631 = "ttir.multiply"(%2627, %2629, %2630) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %2631 = "ttir.multiply"(%2627, %2629, %2630) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %2632 = ttir.empty() : tensor<11x8192xf32>
     %2633 = "ttir.matmul"(%2623, %arg307, %2632) : (tensor<11x2048xf32>, tensor<2048x8192xf32>, tensor<11x8192xf32>) -> tensor<11x8192xf32>
     %2634 = ttir.empty() : tensor<1x11x8192xf32>
     %2635 = "ttir.unsqueeze"(%2633, %2634) <{dim = 0 : si32}> : (tensor<11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %2636 = ttir.empty() : tensor<1x11x8192xf32>
-    %2637 = "ttir.multiply"(%2631, %2635, %2636) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
+    %2637 = "ttir.multiply"(%2631, %2635, %2636) : (tensor<1x11x8192xf32>, tensor<1x11x8192xf32>, tensor<1x11x8192xf32>) -> tensor<1x11x8192xf32>
     %2638 = ttir.empty() : tensor<1x11x2048xf32>
     %2639 = "ttir.matmul"(%2637, %arg308, %2638) : (tensor<1x11x8192xf32>, tensor<8192x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2640 = ttir.empty() : tensor<1x11x2048xf32>
-    %2641 = "ttir.add"(%2607, %2639, %2640) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2641 = "ttir.add"(%2607, %2639, %2640) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2642 = ttir.empty() : tensor<1x11x2048xf32>
-    %2643 = "ttir.multiply"(%2641, %2641, %2642) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2643 = "ttir.multiply"(%2641, %2641, %2642) : (tensor<1x11x2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2644 = ttir.empty() : tensor<1x11x1xf32>
     %2645 = "ttir.mean"(%2643, %2644) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2646 = ttir.empty() : tensor<1x11x1xf32>
-    %2647 = "ttir.add"(%2645, %arg162, %2646) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %2647 = "ttir.add"(%2645, %arg162, %2646) : (tensor<1x11x1xf32>, tensor<1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2648 = ttir.empty() : tensor<1x11x1xf32>
-    %2649 = "ttir.sqrt"(%2647, %2648) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %2649 = "ttir.sqrt"(%2647, %2648) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2650 = ttir.empty() : tensor<1x11x1xf32>
-    %2651 = "ttir.reciprocal"(%2649, %2650) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
+    %2651 = "ttir.reciprocal"(%2649, %2650) : (tensor<1x11x1xf32>, tensor<1x11x1xf32>) -> tensor<1x11x1xf32>
     %2652 = ttir.empty() : tensor<1x11x2048xf32>
-    %2653 = "ttir.multiply"(%2641, %2651, %2652) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2653 = "ttir.multiply"(%2641, %2651, %2652) : (tensor<1x11x2048xf32>, tensor<1x11x1xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     %2654 = ttir.empty() : tensor<1x11x2048xf32>
-    %2655 = "ttir.multiply"(%arg163, %2653, %2654) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
+    %2655 = "ttir.multiply"(%arg163, %2653, %2654) : (tensor<2048xf32>, tensor<1x11x2048xf32>, tensor<1x11x2048xf32>) -> tensor<1x11x2048xf32>
     return %2655 : tensor<1x11x2048xf32>
   }
 }

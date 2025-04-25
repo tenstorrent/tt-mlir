@@ -6,9 +6,9 @@ module attributes {} {
     // CHECK: #[[LAYOUT_1:.*]] = #ttnn.ttnn_layout<{{.*}}memref<4x4xf32{{.*}}
     %0 = ttir.empty() : tensor<1x32x32xf32> loc(#loc5)
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<1x32x32xf32, #[[LAYOUT_1]]>
-    %1 = "ttir.add"(%arg1, %arg2, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc5)
+    %1 = "ttir.add"(%arg1, %arg2, %0) : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc5)
     %2 = ttir.empty() : tensor<1x32x32xf32> loc(#loc6)
-    %3 = "ttir.add"(%1, %arg0, %2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc6)
+    %3 = "ttir.add"(%1, %arg0, %2) : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc6)
     return %1, %3 : tensor<1x32x32xf32>, tensor<1x32x32xf32> loc(#loc4)
   } loc(#loc)
 } loc(#loc)

@@ -6,7 +6,7 @@ module {
     %0 = ttir.empty() : tensor<1x16x32xf32>
     %1 = "ttir.broadcast"(%arg1, %0) <{broadcast_dimensions = array<i64: 1, 16, 1>}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
     %2 = ttir.empty() : tensor<1x16x32xf32>
-    %3 = "ttir.add"(%arg0, %1, %2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x16x32xf32>, tensor<1x16x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
+    %3 = "ttir.add"(%arg0, %1, %2) : (tensor<1x16x32xf32>, tensor<1x16x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
     return %3 : tensor<1x16x32xf32>
   }
 }
@@ -30,7 +30,7 @@ func.func @main(%arg0: tensor<128xf32>, %arg1: tensor<128xf32>) -> tensor<784x12
     %6 = ttir.empty() : tensor<784x128xf32>
     %7 = "ttir.broadcast"(%5, %6) <{broadcast_dimensions = array<i64: 784, 1>}> : (tensor<1x128xf32>, tensor<784x128xf32>) -> tensor<784x128xf32>
     %8 = ttir.empty() : tensor<784x128xf32>
-    %9 = "ttir.add"(%3, %7, %8) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<784x128xf32>, tensor<784x128xf32>, tensor<784x128xf32>) -> tensor<784x128xf32>
+    %9 = "ttir.add"(%3, %7, %8) : (tensor<784x128xf32>, tensor<784x128xf32>, tensor<784x128xf32>) -> tensor<784x128xf32>
     return %9 : tensor<784x128xf32>
   }
 }
@@ -46,9 +46,9 @@ module {
     %0 = ttir.empty() : tensor<1x16x32xf32>
     %1 = "ttir.broadcast"(%arg1, %0) <{broadcast_dimensions = array<i64: 1, 16, 1>}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
     %2 = ttir.empty() : tensor<1x16x32xf32>
-    %3 = "ttir.multiply"(%arg0, %1, %2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x16x32xf32>, tensor<1x16x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
+    %3 = "ttir.multiply"(%arg0, %1, %2) : (tensor<1x16x32xf32>, tensor<1x16x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
     %4 = ttir.empty() : tensor<1x16x32xf32>
-    %5 = "ttir.maximum"(%1, %3, %4) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x16x32xf32>, tensor<1x16x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
+    %5 = "ttir.maximum"(%1, %3, %4) : (tensor<1x16x32xf32>, tensor<1x16x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
     return %5 : tensor<1x16x32xf32>
   }
 }
@@ -63,9 +63,9 @@ module {
     %0 = ttir.empty() : tensor<1x16x32xf32>
     %1 = "ttir.broadcast"(%arg1, %0) <{broadcast_dimensions = array<i64: 1, 16, 1>}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
     %2 = ttir.empty() : tensor<1x16x32xf32>
-    %3 = "ttir.add"(%arg0, %1, %2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x16x32xf32>, tensor<1x16x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
+    %3 = "ttir.add"(%arg0, %1, %2) : (tensor<1x16x32xf32>, tensor<1x16x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
     %4 = ttir.empty() : tensor<1x16x32xf32>
-    %5 = "ttir.add"(%1, %3, %4) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x16x32xf32>, tensor<1x16x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
+    %5 = "ttir.add"(%1, %3, %4) : (tensor<1x16x32xf32>, tensor<1x16x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
     return %5 : tensor<1x16x32xf32>
   }
 }
