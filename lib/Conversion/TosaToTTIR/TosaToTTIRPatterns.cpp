@@ -45,11 +45,8 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    // TODO (azecevic): Return to this!
-    auto dpsOutput = rewriter.create<ttir::EmptyOp>(srcOp.getLoc(), outputType);
-    rewriter.replaceOpWithNewOp<DestOp>(
-        srcOp, outputType,
-        ttmlir::utils::flatten(adaptor.getOperands(), dpsOutput));
+    ttir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
+                                               adaptor.getOperands());
 
     return success();
   }

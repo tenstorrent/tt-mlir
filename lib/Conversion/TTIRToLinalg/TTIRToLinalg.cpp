@@ -132,7 +132,6 @@ public:
       return rewriter.notifyMatchFailure(op, "Operands are not broadcastable!");
     }
 
-    // TODO (azecevic): Return to this!
     // Rewrite inputs to target dims with broadcast and collapse shape ops, as
     // needed.
     SmallVector<Value, 2> inputs{adaptor.getLhs(), adaptor.getRhs()};
