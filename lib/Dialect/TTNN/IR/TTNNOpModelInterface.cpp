@@ -501,7 +501,8 @@ Conv2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   // If a conv config has been specified, use that. If not, read the op property
   std::optional<Conv2dConfigAttr> conv2dConfig = std::nullopt;
   if (opConfig.config) {
-    assert(mlir::isa<Conv2dConfigAttr>(opConfig.config));
+    assert(mlir::isa<Conv2dConfigAttr>(opConfig.config) &&
+           "Unexpected OpConfig.config. Expected Conv2ConfigAttr");
     conv2dConfig = mlir::cast<Conv2dConfigAttr>(opConfig.config);
   } else {
     conv2dConfig = getConv2dConfig();
@@ -535,7 +536,8 @@ Conv2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   // If a conv config has been specified, use that. If not, read the op property
   std::optional<Conv2dConfigAttr> conv2dConfig = std::nullopt;
   if (opConfig.config) {
-    assert(mlir::isa<Conv2dConfigAttr>(opConfig.config));
+    assert(mlir::isa<Conv2dConfigAttr>(opConfig.config) &&
+           "Unexpected OpConfig.config. Expected Conv2ConfigAttr");
     conv2dConfig = mlir::cast<Conv2dConfigAttr>(opConfig.config);
   } else {
     conv2dConfig = getConv2dConfig();
