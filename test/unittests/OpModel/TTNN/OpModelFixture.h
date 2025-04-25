@@ -41,16 +41,6 @@ public:
     mlir::tt::registerDevice(module.get());
   }
 
-  // helper function
-  llvm::SmallVector<int64_t>
-  GetTensorShapeInTiles(const llvm::ArrayRef<int64_t> &tensorShape) {
-    llvm::SmallVector<int64_t> shapeInTiles;
-    for (const auto &dim : tensorShape) {
-      shapeInTiles.push_back(ttmlir::utils::alignUp(dim, 32L));
-    }
-    return shapeInTiles;
-  }
-
   static llvm::SmallVector<int64_t> GetPhysicalGridSize() {
     llvm::SmallVector<int64_t> grid = {gridShapeHwN300[0], gridShapeHwN300[1]};
     return grid;
@@ -72,7 +62,7 @@ public:
       physicalShape[0] *= tilePaddedShape[i];
     }
     auto shapeInTiles = llvm::SmallVector<int64_t, 2>(
-        {physicalShape[0] / 32, physicalShape[1] / 32});
+        {physicalShape[0] / TILE_HEIGHT, physicalShape[1] / TILE_WIDTH});
 
     int64_t tensorTiles = 1;
     for (const auto &dim : physicalShape) {
@@ -189,6 +179,8 @@ public:
 
   static constexpr std::array<int64_t, 2> gridShapeHwN300 = {8, 8};
   static constexpr size_t workerCoresN300 = 64;
+  static constexpr int64_t TILE_HEIGHT = 32;
+  static constexpr int64_t TILE_WIDTH = 32;
 };
 
 #endif // UNITTESTS_OPMODEL_TTNN_OPMODELFIXTURE_H

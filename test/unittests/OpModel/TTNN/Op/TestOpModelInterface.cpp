@@ -614,10 +614,24 @@ TEST_F(OpModelBase, Conv2dInterface) {
       ttnn::MeshOffsetAttr::get(builder.getContext(), 0, 0));
 
   Conv2dOp conv2d = builder.create<Conv2dOp>(
-      builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
-      64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
-      llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
-      llvm::ArrayRef<int32_t>({1, 1}), 1, nullptr);
+      builder.getUnknownLoc(),         // Location
+      outputType,                      // Output type
+      input,                           // Input tensor
+      weight,                          // Weight tensor
+      nullptr,                         // Bias tensor (optional)
+      deviceOp,                        // Device operation
+      3,                               // Input channels
+      64,                              // Output channels
+      1,                               // Batch size
+      224,                             // Input height
+      224,                             // Input width
+      llvm::ArrayRef<int32_t>({7, 7}), // Kernel size [H, W]
+      llvm::ArrayRef<int32_t>({2, 2}), // Stride [H, W]
+      llvm::ArrayRef<int32_t>({3, 3}), // Padding [H, W]
+      llvm::ArrayRef<int32_t>({1, 1}), // Dilation [H, W]
+      1,                               // Groups
+      nullptr                          // Padding mode (optional)
+  );
 
   // Device hangs otherwise.
   mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
@@ -663,10 +677,24 @@ TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
       ttnn::MeshOffsetAttr::get(builder.getContext(), 0, 0));
 
   Conv2dOp conv2d = builder.create<Conv2dOp>(
-      builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
-      64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
-      llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
-      llvm::ArrayRef<int32_t>({1, 1}), 1, nullptr);
+      builder.getUnknownLoc(),         // Location
+      outputType,                      // Output type
+      input,                           // Input tensor
+      weight,                          // Weight tensor
+      nullptr,                         // Bias tensor (optional)
+      deviceOp,                        // Device operation
+      3,                               // Input channels
+      64,                              // Output channels
+      1,                               // Batch size
+      224,                             // Input height
+      224,                             // Input width
+      llvm::ArrayRef<int32_t>({7, 7}), // Kernel size [H, W]
+      llvm::ArrayRef<int32_t>({2, 2}), // Stride [H, W]
+      llvm::ArrayRef<int32_t>({3, 3}), // Padding [H, W]
+      llvm::ArrayRef<int32_t>({1, 1}), // Dilation [H, W]
+      1,                               // Groups
+      nullptr                          // Padding mode (optional)
+  );
 
   // Device hangs otherwise.
   mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
@@ -722,7 +750,7 @@ TEST_F(OpModelBase, PrepareConv2dWeightsOutput) {
       llvm::ArrayRef<int32_t>({1, 1}), 1, nullptr);
 
   auto preparedWeightOutput =
-      mlir::tt::op_model::ttnn::getPreparedConv2dWeightsOutput(&conv2d);
+      mlir::tt::op_model::ttnn::getPreparedConv2dWeightsOutputTensor(&conv2d);
 
   auto preparedShape = preparedWeightOutput.getShape();
   llvm::SmallVector<int64_t> expectedShape = {1, 1, 147, 64};

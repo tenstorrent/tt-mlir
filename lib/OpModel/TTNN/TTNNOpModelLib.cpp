@@ -253,7 +253,9 @@ bool isLayoutLegalForTensorShape(llvm::ArrayRef<int64_t> tensorShape,
 #endif
 }
 
-::tt::tt_metal::OwnedStorage
+#ifdef TTMLIR_ENABLE_OPMODEL
+
+static ::tt::tt_metal::OwnedStorage
 createOwnedStorage(std::uint32_t numElements,
                    ::tt::tt_metal::DataType dataType) {
   switch (dataType) {
@@ -264,14 +266,16 @@ createOwnedStorage(std::uint32_t numElements,
     return ::tt::tt_metal::OwnedStorage(
         ::tt::tt_metal::owned_buffer::create<bfloat16>(numElements));
   default:
-    throw std::runtime_error("Unsupported data type");
+    llvm::report_fatal_error("Unsupported data type");
   }
 }
 
-::tt::tt_metal::Tensor createMetalHostTensor(llvm::ArrayRef<int64_t> shape,
-                                             ::mlir::tt::DataType dataType) {
+// Allocate a ttnn tensor with the given shape and data type.
+static ::tt::tt_metal::Tensor
+createMetalHostTensor(llvm::ArrayRef<int64_t> shape,
+                      ::mlir::tt::DataType dataType) {
   // Calculate total volume of the tensor
-  int volume = 1;
+  uint32_t volume = 1;
   for (size_t i = 0; i < shape.size(); i++) {
     volume *= shape[i];
   }
@@ -283,21 +287,25 @@ createOwnedStorage(std::uint32_t numElements,
                                 ::tt::tt_metal::Layout::ROW_MAJOR);
 }
 
-llvm::Expected<::ttnn::TensorSpec> getPrepareConv2dWeightsOpOutput(
+// Returns the output tensor spec of the prepared weights for a conv2d op.
+// Transform the standard OIHW weights layout to the ttnn convolution internal
+// layout that is desired. The output shape is dependant on the conv2d config
+// and input memory config.
+static llvm::Expected<::ttnn::TensorSpec>
+getPrepareConv2dWeightsOpOutputTensorSpec(
     llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> weightShape,
-    mlir::tt::ttnn::TTNNLayoutAttr weightLayout, int32_t in_channels,
-    int32_t out_channels, int32_t batch_size, int32_t input_height,
-    int32_t input_width, llvm::ArrayRef<int32_t> kernel_size,
+    mlir::tt::ttnn::TTNNLayoutAttr weightLayout, uint32_t in_channels,
+    uint32_t out_channels, uint32_t batch_size, uint32_t input_height,
+    uint32_t input_width, llvm::ArrayRef<int32_t> kernel_size,
     llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
-    llvm::ArrayRef<int32_t> dilation, int32_t groups,
+    llvm::ArrayRef<int32_t> dilation, uint32_t groups,
     std::optional<mlir::tt::ttnn::Conv2dConfigAttr> conv2dConfig,
     bool hasBias) {
-#ifdef TTMLIR_ENABLE_OPMODEL
   if (weightLayout.getBufferType() !=
       mlir::tt::ttnn::BufferType::SystemMemory) {
-    assert(false && "Conv2d weight tensor assumed to be on host.");
+    llvm::report_fatal_error("Conv2d weight tensor assumed to be on host.");
   }
 
   // Create ttnn weight tesnor.
@@ -352,13 +360,12 @@ llvm::Expected<::ttnn::TensorSpec> getPrepareConv2dWeightsOpOutput(
 
   assert(output.get().output_tensor_spec.has_value());
   return output.get().output_tensor_spec.value();
-#else
-  assert(false && "OpModel must be enabled.")
-#endif // TTMLIR_ENABLE_OPMODEL
 }
 
+#endif // TTMLIR_ENABLE_OPMODEL
+
 mlir::RankedTensorType
-getPreparedConv2dWeightsOutput(mlir::tt::ttnn::Conv2dOp *op) {
+getPreparedConv2dWeightsOutputTensor(mlir::tt::ttnn::Conv2dOp *op) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   auto input = op->getInput().getType();
   auto weight = op->getWeight().getType();
@@ -368,7 +375,7 @@ getPreparedConv2dWeightsOutput(mlir::tt::ttnn::Conv2dOp *op) {
       mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(weight.getEncoding());
 
   llvm::Expected<::ttnn::TensorSpec> outputTensorSpec =
-      getPrepareConv2dWeightsOpOutput(
+      getPrepareConv2dWeightsOpOutputTensorSpec(
           input.getShape(), inputLayout, weight.getShape(), weightLayout,
           op->getInChannels(), op->getOutChannels(), op->getBatchSize(),
           op->getInputHeight(), op->getInputWidth(), op->getKernelSize(),
@@ -1191,18 +1198,18 @@ Conv2dOpInterface::getOpConstraints(
     mlir::tt::ttnn::TTNNLayoutAttr weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout,
-    int32_t in_channels, int32_t out_channels, int32_t batch_size,
-    int32_t input_height, int32_t input_width,
+    uint32_t in_channels, uint32_t out_channels, uint32_t batch_size,
+    uint32_t input_height, uint32_t input_width,
     llvm::ArrayRef<int32_t> kernel_size, llvm::ArrayRef<int32_t> stride,
     llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
-    int32_t groups,
+    uint32_t groups,
     std::optional<mlir::tt::ttnn::Conv2dConfigAttr> conv2dConfig,
     llvm::ArrayRef<int64_t> outputShape,
     mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   // Prepare weight tensor first.
   llvm::Expected<::ttnn::TensorSpec> preparedWeightExp =
-      getPrepareConv2dWeightsOpOutput(
+      getPrepareConv2dWeightsOpOutputTensorSpec(
           inputShape, inputLayout, weightShape, weightLayout, in_channels,
           out_channels, batch_size, input_height, input_width, kernel_size,
           stride, padding, dilation, groups, conv2dConfig,
@@ -1269,11 +1276,11 @@ llvm::Expected<size_t> Conv2dOpInterface::getOpRuntime(
     mlir::tt::ttnn::TTNNLayoutAttr weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout,
-    int32_t in_channels, int32_t out_channels, int32_t batch_size,
-    int32_t input_height, int32_t input_width,
+    uint32_t in_channels, uint32_t out_channels, uint32_t batch_size,
+    uint32_t input_height, uint32_t input_width,
     llvm::ArrayRef<int32_t> kernel_size, llvm::ArrayRef<int32_t> stride,
     llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
-    int32_t groups,
+    uint32_t groups,
     std::optional<mlir::tt::ttnn::Conv2dConfigAttr> conv2dConfig,
     llvm::ArrayRef<int64_t> outputShape,
     mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
@@ -1281,7 +1288,7 @@ llvm::Expected<size_t> Conv2dOpInterface::getOpRuntime(
 
   // Prepare weight tensor first.
   llvm::Expected<::ttnn::TensorSpec> preparedWeightExp =
-      getPrepareConv2dWeightsOpOutput(
+      getPrepareConv2dWeightsOpOutputTensorSpec(
           inputShape, inputLayout, weightShape, weightLayout, in_channels,
           out_channels, batch_size, input_height, input_width, kernel_size,
           stride, padding, dilation, groups, conv2dConfig,
