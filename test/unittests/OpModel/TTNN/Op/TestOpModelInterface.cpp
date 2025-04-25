@@ -796,6 +796,11 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
 
   // Device hangs otherwise.
   mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  // Will fail due to assertion at
+  // tt-metal/ttnn/cpp/ttnn/operations/conv/conv2d/conv2d_utils.cpp:156 "Conv2d
+  // supports Height, Block or Width Sharded Layouts but got
+  // TensorMemoryLayout::INTERLEAVED"
   auto badConvConfig = Conv2dConfigAttr::get(
       &context, /*dtype=*/DataType::BFloat16,
       /*weights_dtype=*/DataType::BFloat16,
