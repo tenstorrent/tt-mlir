@@ -630,7 +630,7 @@ TEST_F(OpModelBase, Conv2dInterface) {
       llvm::ArrayRef<int32_t>({3, 3}), // Padding [H, W]
       llvm::ArrayRef<int32_t>({1, 1}), // Dilation [H, W]
       1,                               // Groups
-      nullptr                          // Padding mode (optional)
+      nullptr                          // Conv2dConfig (optional)
   );
 
   // Device hangs otherwise.
@@ -693,7 +693,7 @@ TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
       llvm::ArrayRef<int32_t>({3, 3}), // Padding [H, W]
       llvm::ArrayRef<int32_t>({1, 1}), // Dilation [H, W]
       1,                               // Groups
-      nullptr                          // Padding mode (optional)
+      nullptr                          // Conv2dConfig (optional)
   );
 
   // Device hangs otherwise.
