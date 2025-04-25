@@ -32,6 +32,9 @@ class CMakeBuild(build_ext):
         if _dir.exists():
             shutil.rmtree(_dir)
 
+    def in_ci(self) -> bool:
+        return os.environ.get("IN_CIBW_ENV") == "ON"
+
     def build_(self, ext):
         build_lib = self.build_lib
         if not os.path.exists(build_lib):
@@ -47,7 +50,9 @@ class CMakeBuild(build_ext):
         # Set it to install directly into the wheel, so there's no need to raise the directory for ttmlir python files
         install_dir = pathlib.Path(self.build_lib)
 
-        print(str(build_dir), str(install_dir))
+        # Fix install dir if using cibuildwheel
+        if self.in_ci():
+            install_dir = cwd / "build" / install_dir.name
 
         cmake_args = [
             "-G",
@@ -55,31 +60,44 @@ class CMakeBuild(build_ext):
             "-B",
             str(build_dir),
             "-DCMAKE_BUILD_TYPE=Release",
-            "-DCMAKE_INSTALL_PREFIX=" + str(cwd / "build" / "lib.linux-x86_64-cpython-310"),
+            "-DCMAKE_INSTALL_PREFIX=" + str(install_dir),
             "-DCMAKE_C_COMPILER=clang",
             "-DCMAKE_CXX_COMPILER=clang++",
-            f"-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld",
-            f"-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld",
-	    f"-DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld"
         ]
 
-        # CD Into root instead
-        subprocess.run(
-            " ".join(
+        # Use LLD if in cibuildwheel
+        if self.in_ci():
+            cmake_args.extend(
                 [
-                    "cd",
-                    str(cwd.parent),
-                    "&&",
-                    "source",
-                    "env/activate",
-                    "&&",
-                    "cmake",
-                    *cmake_args,
+                    f"-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld",
+                    f"-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld",
+                    f"-DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld",
                 ]
-            ),
-            shell=True,
-            check=True,
-        )
+            )
+        # Otherwise, force the source to be set
+        else:
+            cmake_args.extend(["-S", str(cwd.parent)])
+
+        # Run source env/activate if in ci, otherwise onus is on dev
+        if self.in_ci():
+            subprocess.run(
+                " ".join(
+                    [
+                        "cd",
+                        str(cwd.parent),
+                        "&&",
+                        "source",
+                        "env/activate",
+                        "&&",
+                        "cmake",
+                        *cmake_args,
+                    ]
+                ),
+                shell=True,
+                check=True,
+            )
+        else:
+            self.spawn(["cmake", *cmake_args])
 
         self.spawn(["cmake", "--build", str(build_dir)])
 
@@ -104,126 +122,8 @@ setup(
     install_requires=[],
     # Include ttmlir as top-level packages
     packages=["ttmlir"],
-    # Map the package names to their locations.
-    # "." will include files in the current source (not needed)
-    # We delete all of this during the build_ext step
     package_dir={"ttmlir": ""},
     ext_modules=[ttmlir_c],
     cmdclass={"build_ext": CMakeBuild},
     zip_safe=False,
 )
-
-VALID_AL9_BUILD_SCRIPT = """
-#!/bin/bash
-set -exo pipefail
-
-dnf check-update || true
-dnf install -y epel-release
-dnf config-manager --set-enabled crb
-
-dnf install -y \
-    gcc-c++ make cmake ninja-build pkgconf-pkg-config ccache \
-    clang \
-    git wget curl jq sudo patch unzip \
-    hwloc-devel tbb-devel capstone-devel \
-    yaml-cpp-devel boost-devel libcurl-devel \
-    pandoc doxygen graphviz patchelf lcov perf \
-    xz
-
-
-dnf clean all
-clang --version
-
-# Update ninja
-echo "Attempting to install latest Ninja build tool..."
-NINJA_VERSION="1.11.1" # Check https://github.com/ninja-build/ninja/releases for latest
-NINJA_URL="https://github.com/ninja-build/ninja/releases/download/v${NINJA_VERSION}/ninja-linux.zip"
-NINJA_ZIP="ninja-linux.zip"
-
-# Use curl to download (already installed)
-curl -L -o "${NINJA_ZIP}" "${NINJA_URL}"
-# Need unzip - add 'unzip' to the dnf install list above!
-unzip "${NINJA_ZIP}" -d /usr/local/bin/
-# Make sure it's executable
-chmod +x /usr/local/bin/ninja
-rm -f "${NINJA_ZIP}"
-
-echo "Installed Ninja version:"
-/usr/local/bin/ninja --version
-# Ensure /usr/local/bin is early in the PATH if the system ninja wasn't removed
-# The CIBW_ENVIRONMENT PATH setting should already handle this if /usr/local/bin is standard.
-# Verify which ninja will be used:
-which ninja
-
-# Need to build environment from here
-
-# Clean potential copied artifacts
-rm -rf env/build
-rm -rf build
-
-mkdir -p /opt/ttmlir-toolchain
-export TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
-
-cd /project
-cmake -B env/build env
-cmake --build env/build
-
-source env/activate
-"""
-
-VALID_AL8_BUILD_SCRIPT = """
-#!/bin/bash
-set -exo pipefail
-
-dnf check-update || true
-dnf install -y epel-release
-dnf config-manager --set-enabled powertools
-
-dnf install -y \
-    gcc-c++ make cmake ninja-build pkgconf-pkg-config ccache \
-    clang \
-    git wget curl jq sudo patch \
-    hwloc-devel tbb-devel capstone-devel \
-    yaml-cpp-devel boost-devel libcurl-devel \
-    pandoc doxygen graphviz patchelf lcov perf
-
-dnf clean all
-# Verify clang version from the new source
-clang --version
-
-# Update ninja
-echo "Attempting to install latest Ninja build tool..."
-NINJA_VERSION="1.11.1" # Check https://github.com/ninja-build/ninja/releases for latest
-NINJA_URL="https://github.com/ninja-build/ninja/releases/download/v${NINJA_VERSION}/ninja-linux.zip"
-NINJA_ZIP="ninja-linux.zip"
-
-# Use curl to download (already installed)
-curl -L -o "${NINJA_ZIP}" "${NINJA_URL}"
-# Need unzip - add 'unzip' to the dnf install list above!
-unzip "${NINJA_ZIP}" -d /usr/local/bin/
-# Make sure it's executable
-chmod +x /usr/local/bin/ninja
-rm -f "${NINJA_ZIP}"
-
-echo "Installed Ninja version:"
-/usr/local/bin/ninja --version
-# Ensure /usr/local/bin is early in the PATH if the system ninja wasn't removed
-# The CIBW_ENVIRONMENT PATH setting should already handle this if /usr/local/bin is standard.
-# Verify which ninja will be used:
-which ninja
-
-# Need to build environment from here
-
-# Clean potential copied artifacts
-rm -rf env/build
-rm -rf build
-
-mkdir -p /opt/ttmlir-toolchain
-export TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
-
-cd /project
-cmake -B env/build env
-cmake --build env/build
-
-source env/activate
-"""
