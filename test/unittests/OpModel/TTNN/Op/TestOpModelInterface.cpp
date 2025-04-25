@@ -785,13 +785,15 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
 
   // Device hangs otherwise.
   mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
-
   auto badConvConfig = Conv2dConfigAttr::get(
       &context, DataType::BFloat16, DataType::BFloat16,
-      StringAttr::get(&context, ""), 32, false, true, 0, 1, false, false,
-      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved),
-      ttnn::CoreRangeSetAttr(), false, Layout::Tile, false, false, false, false,
-      false, false);
+      StringAttr::get(&context, ""), 32, BoolAttr::get(&context, false),
+      BoolAttr::get(&context, true), 0, 1, BoolAttr::get(&context, false),
+      BoolAttr::get(&context, false), TensorMemoryLayout::Interleaved,
+      ttnn::CoreRangeSetAttr(), BoolAttr::get(&context, false), Layout::Tile,
+      BoolAttr::get(&context, false), BoolAttr::get(&context, false),
+      BoolAttr::get(&context, false), BoolAttr::get(&context, false),
+      BoolAttr::get(&context, false), BoolAttr::get(&context, false));
   OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
   auto constraintsExp = backend.getOpConstraints(
       getInputLayouts(conv2d),
@@ -813,10 +815,14 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
 
   auto goodConvConfig = Conv2dConfigAttr::get(
       &context, DataType::BFloat16, DataType::BFloat16,
-      StringAttr::get(&context, ""), 32, false, true, 0, 1, false, false,
-      TensorMemoryLayoutAttr(), ttnn::CoreRangeSetAttr(), false, Layout::Tile,
-      false, false, /*enable_act_double_buffer=*/true,
-      /*enable_weights_double_buffer=*/true, false, false);
+      StringAttr::get(&context, ""), 32, BoolAttr::get(&context, false),
+      BoolAttr::get(&context, true), 0, 1, BoolAttr::get(&context, false),
+      BoolAttr::get(&context, false), std::nullopt, ttnn::CoreRangeSetAttr(),
+      BoolAttr::get(&context, false), Layout::Tile,
+      BoolAttr::get(&context, false), BoolAttr::get(&context, false),
+      /*enable_act_double_buffer=*/BoolAttr::get(&context, true),
+      /*enable_weights_double_buffer=*/BoolAttr::get(&context, true),
+      BoolAttr::get(&context, false), BoolAttr::get(&context, false));
 
   constraintsExp = backend.getOpConstraints(
       getInputLayouts(conv2d),
