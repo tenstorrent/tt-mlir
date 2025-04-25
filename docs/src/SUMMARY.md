@@ -4,7 +4,7 @@
 
 # User Guide
 
-- [Building](./build.md)
+- [Getting Started](./getting-started.md)
   - [Docker Notes](./docker-notes.md)
 - [Testing](./testing.md)
   - [Lit testing](./lit-testing.md)

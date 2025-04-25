@@ -1,28 +1,76 @@
-# Building
+# Getting Started
 
-These are the steps required to get the TT-MLIR project running on your machine
+This page walks you through the steps required to set up tt-mlir for development and running models. When you complete the information here you will have:
+
+* Configured your hardware
+* Installed the required system dependencies
+* Created an environment using one of two methods
+  * Manual
+  * Docker (*recommended*)
+* Built the runtime environment
+* Added pre-commit
+* Built the docs (*optional*)
+
+After the project is running, you can do development work, run models, or set up additional projects that build on tt-mlir. Documentation links for the various options are presented at the end of this document.
 
 ## Prerequisites
 
-- [System Dependencies](#system-dependencies)
-- [Hardware Setup](https://docs.tenstorrent.com/getting-started/README.html)
+### Hardware Setup
+
+Use this guide to set up your hardware - [Hardware Setup](https://docs.tenstorrent.com/getting-started/README.html).
+
+### System Dependencies
+
+The tt-mlir project has the following system dependencies:
+* Ubuntu 22.04 OS
+* Clang 17
+* Ninja
+* CMake 3.20
+* Python 3.10
+
+> [!NOTE] The installation instructions use Ubuntu 22.04.
+
+1. On Ubuntu 22.04, install Clang 17, Ninja, and update the version of CMake to 3.20, which is the minimum required for this project.
+
+```bash
+sudo apt update
+sudo apt upgrade
+
+sudo apt install clang-17
+sudo apt install ninja-build
+
+sudo apt remove cmake -y
+pip3 install cmake --upgrade
+hash -r
+```
+
+2. Ensure CMake can be found in the path pip installed it to. For example, `PATH=$PATH:$HOME/.local/bin`
+
+3. Run the following command to check that the CMake version is later than 3.20:
+
+```bash
+cmake --version
+```
+
+4. Install Ninja with the following command:
+
+```bash
+sudo apt install ninja-build
+```
 
 ## Environment Setup
 
-There are two ways to set up the environment, either using a docker image or
-building the environment manually. The docker image is recommended for most users
-since it's easier to set up and use.
+There are two ways to set up the environment, either using a docker image or building the environment manually. The docker image is recommended since it is easier to set up and use.
 
 ### Using a Docker Image
 
 Please see [Docker Notes](docker-notes.md#using-the-docker-image) for more information on how to use the docker image.
 
-Once you have the docker image running and you've logged into the container, you
-should now be ready to build.
+Once you have the docker image running and you are logged into the container, you should be ready to build.
 
 ### Building the Environment Manually
 
-You only need to build this once, it builds llvm, flatbuffers and a python virtual environment.
+You only need to build this once, it builds llvm, flatbuffers, and a Python virtual environment.
 
 ```bash
 source env/activate
@@ -121,47 +169,6 @@ Both can be installed using Homebrew by running the following commands:
 ```bash
 brew install doxygen
 brew install graphviz
-```
-
-## System Dependencies
-
-### Ubuntu 22.04
-
-On Ubuntu 22.04 we need to install clang, ninja, and to update the version of cmake because 3.20 is the minimum required for this project.
-
-```bash
-sudo apt update
-sudo apt upgrade
-
-sudo apt install clang-17
-sudo apt install ninja-build
-
-sudo apt remove cmake -y
-pip3 install cmake --upgrade
-hash -r
-```
-
-> Ensure cmake can by found in this path pip installed it to. E.g. `PATH=$PATH:$HOME/.local/bin`
-
-Then run the following command to see the cmake version which should be later than 3.20
-
-```bash
-cmake --version
-```
-
-We also need to install Ninja which can be done with the following command
-
-```bash
-sudo apt install ninja-build
-```
-
-### MacOS
-
-On MacOS we need to install the latest version of [cmake](https://cmake.org/), and [ninja](https://ninja-build.org/) which can be done using Homebrew with (Docs for installing Homebrew: https://brew.sh).
-
-```bash
-brew install cmake
-brew install ninja
 ```
 
 ## Common Build Errors
