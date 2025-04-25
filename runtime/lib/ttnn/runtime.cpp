@@ -128,43 +128,6 @@ static ::tt::runtime::Tensor toHostSingleTensor(::tt::runtime::Tensor tensor,
   return utils::createRuntimeTensorFromTTNN(hostTensor, shouldRetain);
 }
 
-static std::vector<::tt::runtime::Tensor>
-convertInputLayouts(Device deviceHandle, Binary executableHandle,
-                    std::uint32_t programIndex,
-                    std::vector<::tt::runtime::Tensor> &inputs) {
-  // Convert input tensors to the layout expected by the program
-  std::vector<::tt::runtime::Tensor> inputsWithLayout;
-  inputsWithLayout.reserve(inputs.size());
-  for (size_t i = 0; i < inputs.size(); i++) {
-    ::tt::runtime::Tensor &input = inputs[i];
-    Layout desiredLayout =
-        ::tt::runtime::ttnn::getLayout(executableHandle, programIndex, i);
-
-    const LayoutDesc tensorLayoutDesc = LayoutDesc::fromTensor(input);
-
-    const LayoutDesc &desiredlayoutDesc =
-        desiredLayout.as<LayoutDesc>(DeviceRuntime::TTNN);
-
-    // If the input tensor already has the correct layout
-    // reuse it and continue
-    if (tensorLayoutDesc == desiredlayoutDesc) {
-      inputsWithLayout.push_back(input);
-      continue;
-    }
-
-    // Convert the input tensor to the correct layout
-    // Deallocating the original tensor if it is not retained
-    ::tt::runtime::Tensor inputWithLayout = ::tt::runtime::ttnn::toLayout(
-        input, deviceHandle, desiredLayout, /*retain=*/false);
-    inputsWithLayout.push_back(inputWithLayout);
-
-    if (!::tt::runtime::ttnn::getTensorRetain(input)) {
-      ::tt::runtime::ttnn::deallocateTensor(input);
-    }
-  }
-
-  return inputsWithLayout;
-}
 void CallbackTensor::updateTensor(CallbackContext programContext) {
   if (!tensor.has_value()) {
     LOG_WARNING("Tensor not found in update context. Didn't update tensor.");
