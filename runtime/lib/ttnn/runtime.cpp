@@ -129,6 +129,34 @@ static ::tt::runtime::Tensor toHostSingleTensor(::tt::runtime::Tensor tensor,
   return utils::createRuntimeTensorFromTTNN(hostTensor, shouldRetain);
 }
 
+void CallbackTensor::updateTensor(CallbackContext programContext) {
+  if (!tensor.has_value()) {
+    LOG_WARNING("Tensor not found in update context. Didn't update tensor.");
+    return;
+  }
+  ProgramContext &progContext =
+      programContext.as<ProgramContext>(DeviceRuntime::TTNN);
+  ProgramTensorPool &tensorPool = progContext.getTensorPool();
+  if (!tensorPool.contains(tensorRef)) {
+    LOG_WARNING("Tensor not found in tensor pool. Didn't update tensor.");
+    return;
+  }
+  ::ttnn::Tensor &srcTensor =
+      tensor.value().as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  ::ttnn::Tensor dstTensor = tensorPool.getTTNNTensorAndValidate(tensorRef);
+  srcTensor = srcTensor.pad_to_tile(0.0f);
+  srcTensor = srcTensor.to_layout(dstTensor.get_layout());
+  srcTensor = srcTensor.to_device(dstTensor.device());
+  tensorPool.insertTTNNTensorAndValidate(tensorRef, srcTensor);
+}
+
+static DeviceVariant getTargetDevice(::ttnn::MeshDevice &meshDevice) {
+  if (meshDevice.num_devices() == 1) {
+    return std::ref(*(meshDevice.get_device(::ttnn::MeshCoordinate(0, 0))));
+  }
+  return std::ref(meshDevice);
+}
+
 static tt::runtime::MemoryView
 createMemoryView(const tt::tt_metal::detail::MemoryView &memoryView) {
   return tt::runtime::MemoryView{
