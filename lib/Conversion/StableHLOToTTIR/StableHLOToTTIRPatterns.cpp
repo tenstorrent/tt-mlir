@@ -127,8 +127,11 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    ttir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
-                                               adaptor.getOperands());
+    // TODO (azecevic): Return to this!
+    auto dpsOutput = rewriter.create<ttir::EmptyOp>(srcOp.getLoc(), outputType);
+    rewriter.replaceOpWithNewOp<DestOp>(
+        srcOp, outputType,
+        ttmlir::utils::flatten(adaptor.getOperands(), dpsOutput));
 
     return success();
   }
@@ -1389,8 +1392,8 @@ private:
         mlir::cast<RankedTensorType>(this->getTypeConverter()->convertType(
             srcOp->getResults()[0].getType()));
 
-    ttir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
-                                               adaptor.getOperands());
+    ttir::utils::replaceOpWithNewDPSOp<DestOp>(
+        rewriter, srcOp, outputType, adaptor.getLhs(), adaptor.getRhs());
 
     return success();
   }
@@ -1478,12 +1481,16 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
+    // TODO (azecevic): Return to this!
+    auto dpsOutput = rewriter.create<ttir::EmptyOp>(srcOp.getLoc(), outputType);
     if (getStableHLOOpType(srcOp) == StableHLOOpType::kLogical) {
-      ttir::utils::replaceOpWithNewDPSOp<LogicalDestOp>(
-          rewriter, srcOp, outputType, adaptor.getOperands());
+      rewriter.replaceOpWithNewOp<LogicalDestOp>(
+          srcOp, outputType,
+          ttmlir::utils::flatten(adaptor.getOperands(), dpsOutput));
     } else {
-      ttir::utils::replaceOpWithNewDPSOp<BitwiseDestOp>(
-          rewriter, srcOp, outputType, adaptor.getOperands());
+      rewriter.replaceOpWithNewOp<BitwiseDestOp>(
+          srcOp, outputType,
+          ttmlir::utils::flatten(adaptor.getOperands(), dpsOutput));
     }
 
     return success();

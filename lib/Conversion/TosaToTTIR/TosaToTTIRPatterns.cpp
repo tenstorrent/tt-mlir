@@ -16,6 +16,7 @@
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "ttmlir/Utils.h"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -44,8 +45,11 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    ttir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
-                                               adaptor.getOperands());
+    // TODO (azecevic): Return to this!
+    auto dpsOutput = rewriter.create<ttir::EmptyOp>(srcOp.getLoc(), outputType);
+    rewriter.replaceOpWithNewOp<DestOp>(
+        srcOp, outputType,
+        ttmlir::utils::flatten(adaptor.getOperands(), dpsOutput));
 
     return success();
   }

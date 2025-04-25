@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include <cstdint>
 
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
@@ -20,31 +21,38 @@
 
 mlir::LogicalResult
 mlir::tt::ttir::detail::verifyBroadcastable(mlir::Operation *op) {
-  const auto getShape = [](const Value val) {
+  auto getShape = [](const Value val) {
     return mlir::cast<mlir::RankedTensorType>(val.getType()).getShape();
   };
 
-  const auto operandSegmentSizes =
-      op->getAttrOfType<mlir::DenseI32ArrayAttr>("operandSegmentSizes");
+  auto operands = op->getOperands();
   // DPS operands shouldn't affect the result shape.
-  const auto outputSegmentSize =
-      operandSegmentSizes[operandSegmentSizes.size() - 1];
-  const auto operandShapes = llvm::map_range(op->getOperands(), getShape);
-  llvm::SmallVector<int64_t, 4> broadcastedShape;
-  for (const auto operandShape :
-       llvm::drop_end(operandShapes, outputSegmentSize)) {
-    const auto prevBroadcastedShape = broadcastedShape;
+  if (auto dpsOp = mlir::dyn_cast<mlir::DestinationStyleOpInterface>(op)) {
+    assert(dpsOp.getNumDpsInits() == 1 &&
+           "Expected a single dps init for broadcastable operation");
+    operands.drop_back(dpsOp.getNumDpsInits());
+  }
+  auto operandsShape = llvm::map_range(operands, getShape);
+  llvm::SmallVector<int64_t> broadcastedShape;
+  for (llvm::ArrayRef<int64_t> operandShape : operandsShape) {
+    llvm::SmallVector<int64_t> prevBroadcastedShape = broadcastedShape;
     if (!mlir::OpTrait::util::getBroadcastedShape(
             prevBroadcastedShape, operandShape, broadcastedShape)) {
-      return op->emitOpError("Operands are not broadcast compatible");
+      return op->emitOpError()
+             << "operand shape (" << operandShape
+             << ") is not broadcast compatible with inferred operands shape ("
+             << prevBroadcastedShape << ")";
     }
   }
 
   // Check that the result shape matches the broadcasted shape of the operands.
-  llvm::SmallVector<int64_t, 4> resultShape(getShape(op->getResults().front()));
+  assert(op->getNumResults() == 1 &&
+         "Expected a single result for broadcastable operation");
+  llvm::SmallVector<int64_t> resultShape(getShape(op->getResult(0)));
   if (broadcastedShape != resultShape) {
-    return op->emitOpError(
-        "Result shape must match operand shapes after broadcasting");
+    return op->emitOpError()
+           << "result shape (" << resultShape << ") must match operands shape ("
+           << operandsShape << ") after broadcasting";
   }
 
   return success();

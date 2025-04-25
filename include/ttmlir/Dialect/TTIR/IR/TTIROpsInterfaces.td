@@ -57,8 +57,6 @@ def TTIROpInterface : OpInterface<"TTIROp"> {
 def TTIR_Broadcastable : OpInterface<"Broadcastable"> {
   let cppNamespace = "::mlir::tt::ttir";
 
-  let dependentTraits = [AttrSizedOperandSegments];
-
   let verify = [{
     return detail::verifyBroadcastable($_op);
   }];
