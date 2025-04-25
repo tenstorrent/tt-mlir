@@ -8,13 +8,13 @@
 include "mlir/IR/EnumAttr.td"
 
 def TTKernel_ThreadTypeNoc : I32EnumAttrCase<"Noc", 0, "noc">;
-def TTKernel_ThreadTypeTensix : I32EnumAttrCase<"Tensix", 1, "tensix">;
+def TTKernel_ThreadTypeCompute : I32EnumAttrCase<"Compute", 1, "compute">;
 def TTKernel_ThreadTypeEthernet : I32EnumAttrCase<"Ethernet", 2, "ethernet">;
 
 def TTKernel_ThreadType : I32EnumAttr<"ThreadType", "TTKernel ThreadTypes",
                            [
                             TTKernel_ThreadTypeNoc,
-                            TTKernel_ThreadTypeTensix,
+                            TTKernel_ThreadTypeCompute,
                             TTKernel_ThreadTypeEthernet,
                            ]> {
   let genSpecializedAttr = 0;
