@@ -156,8 +156,8 @@ TEST_F(OpModelBase, ReluOpInterfaceNullOutput) {
 
   // test ReluOp interface
   OpModel backend = dyn_cast<OpModel>(relu.getOperation());
-  auto constraintsExp =
-      backend.getOpConstraints(getInputLayouts(relu), OpConfig(nullptr));
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(relu), OpConfig(/*outputLayout=*/nullptr));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
@@ -282,8 +282,8 @@ TEST_F(OpModelBase, AddOpInterfaceNullOutput) {
 
   // test AddOp interface
   OpModel backend = dyn_cast<OpModel>(add.getOperation());
-  auto constraintsExp =
-      backend.getOpConstraints(getInputLayouts(add), OpConfig(nullptr));
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(add), OpConfig(/*outputLayout=*/nullptr));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
@@ -379,8 +379,8 @@ TEST_F(OpModelBase, MatmulOpInterfaceNullOutput) {
 
   // test MatmulOp interface
   OpModel backend = dyn_cast<OpModel>(matmul.getOperation());
-  auto constraintsExp =
-      backend.getOpConstraints(getInputLayouts(matmul), OpConfig(nullptr));
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(matmul), OpConfig(/*outputLayout=*/nullptr));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
@@ -702,8 +702,8 @@ TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
 
   // test Conv2dOp interface
   OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
-  auto constraintsExp =
-      backend.getOpConstraints(getInputLayouts(conv2d), OpConfig(nullptr));
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(conv2d), OpConfig(/*outputLayout=*/nullptr));
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
       constraintsExp.get();
@@ -797,14 +797,26 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
   // Device hangs otherwise.
   mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
   auto badConvConfig = Conv2dConfigAttr::get(
-      &context, DataType::BFloat16, DataType::BFloat16,
-      StringAttr::get(&context, ""), 32, BoolAttr::get(&context, false),
-      BoolAttr::get(&context, true), 0, 1, BoolAttr::get(&context, false),
-      BoolAttr::get(&context, false), TensorMemoryLayout::Interleaved,
-      ttnn::CoreRangeSetAttr(), BoolAttr::get(&context, false), Layout::Tile,
-      BoolAttr::get(&context, false), BoolAttr::get(&context, false),
-      BoolAttr::get(&context, false), BoolAttr::get(&context, false),
-      BoolAttr::get(&context, false), BoolAttr::get(&context, false));
+      &context, /*dtype=*/DataType::BFloat16,
+      /*weights_dtype=*/DataType::BFloat16,
+      /*activation=*/StringAttr::get(&context, ""),
+      /*input_channels_alignment=*/32,
+      /*deallocate_activation=*/BoolAttr::get(&context, false),
+      /*reallocate_halo_output=*/BoolAttr::get(&context, true),
+      /*act_block_h_override=*/0, /*act_block_w_div=*/1,
+      /*reshard_if_not_optimal=*/BoolAttr::get(&context, false),
+      /*override_sharding_config=*/BoolAttr::get(&context, false),
+      /*shard_layout=*/TensorMemoryLayout::Interleaved,
+      /*core_grid=*/ttnn::CoreRangeSetAttr(),
+      /*transpose_shards=*/BoolAttr::get(&context, false),
+      /*output_layout=*/Layout::Tile,
+      /*preprocess_weights_on_device=*/BoolAttr::get(&context, false),
+      /*always_preprocess_weights=*/BoolAttr::get(&context, false),
+      /*enable_act_double_buffer=*/BoolAttr::get(&context, false),
+      /*enable_weights_double_buffer=*/BoolAttr::get(&context, false),
+      /*enable_split_reader=*/BoolAttr::get(&context, false),
+      /*enable_subblock_padding=*/BoolAttr::get(&context, false));
+
   OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
   auto constraintsExp = backend.getOpConstraints(
       getInputLayouts(conv2d),
@@ -825,15 +837,25 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
   mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   auto goodConvConfig = Conv2dConfigAttr::get(
-      &context, DataType::BFloat16, DataType::BFloat16,
-      StringAttr::get(&context, ""), 32, BoolAttr::get(&context, false),
-      BoolAttr::get(&context, true), 0, 1, BoolAttr::get(&context, false),
-      BoolAttr::get(&context, false), std::nullopt, ttnn::CoreRangeSetAttr(),
-      BoolAttr::get(&context, false), Layout::Tile,
-      BoolAttr::get(&context, false), BoolAttr::get(&context, false),
+      &context, /*dtype=*/DataType::BFloat16,
+      /*weights_dtype=*/DataType::BFloat16,
+      /*activation=*/StringAttr::get(&context, ""),
+      /*input_channels_alignment=*/32,
+      /*deallocate_activation=*/BoolAttr::get(&context, false),
+      /*reallocate_halo_output=*/BoolAttr::get(&context, true),
+      /*act_block_h_override=*/0, /*act_block_w_div=*/1,
+      /*reshard_if_not_optimal=*/BoolAttr::get(&context, false),
+      /*override_sharding_config=*/BoolAttr::get(&context, false),
+      /*shard_layout=*/std::nullopt,
+      /*core_grid=*/ttnn::CoreRangeSetAttr(),
+      /*transpose_shards=*/BoolAttr::get(&context, false),
+      /*output_layout=*/Layout::Tile,
+      /*preprocess_weights_on_device=*/BoolAttr::get(&context, false),
+      /*always_preprocess_weights=*/BoolAttr::get(&context, false),
       /*enable_act_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, true),
-      BoolAttr::get(&context, false), BoolAttr::get(&context, false));
+      /*enable_split_reader=*/BoolAttr::get(&context, false),
+      /*enable_subblock_padding=*/BoolAttr::get(&context, false));
 
   constraintsExp = backend.getOpConstraints(
       getInputLayouts(conv2d),
