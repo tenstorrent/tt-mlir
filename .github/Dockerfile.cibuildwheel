@@ -8,7 +8,7 @@ RUN dnf config-manager --set-enabled crb
 
 RUN dnf install -y \
     gcc-c++ make cmake ninja-build pkgconf-pkg-config ccache \
-    clang \
+    clang lld \
     git wget curl jq sudo patch unzip \
     hwloc-devel tbb-devel capstone-devel \
     yaml-cpp-devel boost-devel libcurl-devel \

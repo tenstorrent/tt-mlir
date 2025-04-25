@@ -25,9 +25,7 @@ dynamic = ["version", "dependencies"]
 build = "cp310-manylinux_x86_64*"
 skip = "*-musllinux_*"
 
+build-verbosity = 2
+
 [tool.cibuildwheel.linux]
 manylinux-x86_64-image = "ttmlir-cibuildwheel-image:latest"
-
-before-all = """
-dnf install -y lld
-"""

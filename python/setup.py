@@ -45,12 +45,9 @@ class CMakeBuild(build_ext):
         build_dir = cwd.parent / "build"
 
         # Set it to install directly into the wheel, so there's no need to raise the directory for ttmlir python files
-        install_dir = extension_path.parent
+        install_dir = pathlib.Path(self.build_lib)
 
-        # Check for flatbuffers library path in environment or use a default
-        flatbuffers_lib_dir = os.environ.get(
-            "FLATBUFFERS_LIB_DIR", "/opt/ttmlir-toolchain/lib"
-        )
+        print(str(build_dir), str(install_dir))
 
         cmake_args = [
             "-G",
@@ -58,11 +55,12 @@ class CMakeBuild(build_ext):
             "-B",
             str(build_dir),
             "-DCMAKE_BUILD_TYPE=Release",
-            "-DCMAKE_INSTALL_PREFIX=" + str(install_dir),
+            "-DCMAKE_INSTALL_PREFIX=" + str(cwd / "build" / "lib.linux-x86_64-cpython-310"),
             "-DCMAKE_C_COMPILER=clang",
             "-DCMAKE_CXX_COMPILER=clang++",
             f"-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld",
             f"-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld",
+	    f"-DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld"
         ]
 
         # CD Into root instead
@@ -83,7 +81,7 @@ class CMakeBuild(build_ext):
             check=True,
         )
 
-        self.spawn(["cmake", "--build", str(build_dir), "--", "-j4"])
+        self.spawn(["cmake", "--build", str(build_dir)])
 
         # Install the PythonWheel Component
         self.spawn(
@@ -104,12 +102,12 @@ setup(
     name="ttmlir",
     version=version,
     install_requires=[],
-    # Include both pykernel and ttmlir as top-level packages
+    # Include ttmlir as top-level packages
     packages=["ttmlir"],
     # Map the package names to their locations.
     # "." will include files in the current source (not needed)
     # We delete all of this during the build_ext step
-    package_dir={"ttmlir": "."},
+    package_dir={"ttmlir": ""},
     ext_modules=[ttmlir_c],
     cmdclass={"build_ext": CMakeBuild},
     zip_safe=False,
