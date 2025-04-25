@@ -1,8 +1,8 @@
-// RUN: ttmlir-translate --ttkernel-to-cpp-noc %s | FileCheck %s
+// RUN: ttmlir-opt --convert-ttkernel-to-emitc %s | ttmlir-translate --ttkernel-to-cpp | FileCheck %s
 
 // CHECK: #include "dataflow_api.h"
 // CHECK: void kernel_main
-func.func @ttkernel_noc() -> () {
+func.func @ttkernel_noc() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
     // CHECK: int32_t [[B0:.*]] = 262432
     %c262432_i32 = arith.constant 262432 : i32
     // CHECK: int32_t [[B1:.*]] = 262208
@@ -26,5 +26,5 @@ func.func @ttkernel_noc() -> () {
     // CHECK: noc_async_read_barrier
     "ttkernel.noc_async_read_barrier"() : () -> ()
     // CHECK: return
-    "ttkernel.return"() : () -> ()
+    func.return
 }

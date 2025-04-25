@@ -174,9 +174,9 @@ toFlatbuffer(::flatbuffers::FlatBufferBuilder &fbb,
         fbb, toFlatbuffer(nocConfigAttr.getNocIndex()));
     return std::make_pair(configType, config.Union());
   }
-  case ttkernel::ThreadType::Tensix: {
+  case ttkernel::ThreadType::Compute: {
     auto tensixConfigAttr =
-        mlir::dyn_cast<ttkernel::TensixConfigAttr>(kernelConfig);
+        mlir::dyn_cast<ttkernel::ComputeConfigAttr>(kernelConfig);
     auto configType = ::tt::target::metal::KernelConfig::TensixConfig;
     auto unpackToDestModeVec =
         toFlatbuffer(tensixConfigAttr.getUnpackToDestMode());
@@ -336,12 +336,12 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
         std::vector<::flatbuffers::Offset<::tt::target::metal::KernelDesc>>
             kernels;
 
-        llvm::SmallVector<std::string> cppKernels(
-            enqueueProgramOp->getNumRegions());
-        llvm::LogicalResult success =
-            emitEnqueueProgramOpRegionsAsCpp(enqueueProgramOp, cppKernels);
-        assert(success.succeeded() &&
-               "failed to emit enqueue program op regions as cpp");
+        // llvm::SmallVector<std::string> cppKernels(
+        //     enqueueProgramOp->getNumRegions());
+        // llvm::LogicalResult success =
+        //     emitEnqueueProgramOpRegionsAsCpp(enqueueProgramOp, cppKernels);
+        // assert(success.succeeded() &&
+        //        "failed to emit enqueue program op regions as cpp");
 
         // TODO(jdesousa #2960): This code is commented to allow for compilation
         // after the new TTMetal lowering flow was implemented. This needs to be
