@@ -14,6 +14,7 @@
 #include "operations/ccl/reduce_scatter/reduce_scatter.hpp"
 #include "operations/conv/conv2d/conv2d.hpp"
 #include "operations/conv/conv2d/prepare_conv2d_weights.cpp"
+#include "operations/conv/conv_transpose2d/conv_transpose2d.hpp"
 #include "operations/copy.hpp"
 #include "operations/core/core.hpp"
 #include "operations/creation.hpp"
@@ -72,6 +73,18 @@ public:
 
   ttnn::IDevice *device;
 };
+
+// Wrapper to abstract const-eval logic out of runtime funcs to keep them
+// cleaner.  Invokes constEvalFunc iff outputs is empty.
+void constEvalFuncWrapper(
+    std::function<std::vector<ttnn::Tensor>(std::vector<ttnn::Tensor>)>
+        constEvalFunc,
+    const std::vector<ttnn::Tensor> &inputs,
+    std::vector<ttnn::Tensor> *outputs) {
+  if (outputs->empty()) {
+    *outputs = constEvalFunc(inputs);
+  }
+}
 
 } // namespace ttnn
 

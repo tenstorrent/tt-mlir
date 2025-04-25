@@ -63,14 +63,6 @@ class TTIR_BufferizableOp<string mnemonic, list<Trait> traits = []> :
         return result;
       }
 
-      FailureOr<mlir::BaseMemRefType> $cppClass::getBufferType(
-          Value value, const bufferization::BufferizationOptions &,
-          SmallVector<mlir::Value> &) {
-        auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-        return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
-            .getBufferType();
-      }
-
       void $cppClass::getEffects(
           SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
               &effects) {
@@ -128,21 +120,35 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
       OpBuilder<(ins "ValueRange": $inputs,
                      "ValueRange": $outputs,
                      "ArrayAttr": $indexingMaps,
-                     "ArrayAttr": $iteratorTypes),
+                     "ArrayAttr": $iteratorTypes,
+                     CArg<"GridAttr", "nullptr">: $grid,
+                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType),
       [{
         assert(!indexingMaps.empty() && "expected non-empty indexing maps");
-        auto firstIndexingMap = mlir::cast<AffineMapAttr>(indexingMaps[0]).getValue();
-        auto grid = $_builder.getAttr<tt::GridAttr>(SmallVector<int64_t>(firstIndexingMap.getNumResults(), 1));
-        auto threads = $_builder.getArrayAttr($_builder.getAttr<ThreadAttr>(ThreadType::Compute));
+        assert(outputs.size() == 1 && "expected single output");
+        if (!grid) {
+          RankedTensorType tensorType = mlir::dyn_cast<RankedTensorType>(outputs[0].getType());
+          if (tensorType) {
+            grid = mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding()).getGrid();
+          } else {
+            MemRefType memrefType = mlir::cast<MemRefType>(outputs[0].getType());
+            assert(memrefType.getRank() % 2 == 0 && "expected even rank");
+            ArrayRef<int64_t> gridShape = memrefType.getShape().take_front(memrefType.getRank() / 2);
+            grid = $_builder.getAttr<tt::GridAttr>(gridShape);
+          }
+        }
+        auto threads = $_builder.getArrayAttr($_builder.getAttr<ThreadAttr>(singleThreadType));
         build($_builder, $_state, TypeRange(outputs), inputs, outputs, grid, indexingMaps, iteratorTypes, threads, 1);
       }]>,
       OpBuilder<(ins "ValueRange": $inputs,
                      "ValueRange": $outputs,
                      "ArrayAttr": $indexingMaps,
                      "ArrayAttr": $iteratorTypes,
-                     "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $computeRegionBuilder),
+                     "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
+                     CArg<"GridAttr", "nullptr">: $grid,
+                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType),
       [{
-        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes);
+        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, grid, singleThreadType);
         llvm::SmallVector<Type> blockTypes = llvm::map_to_vector(TypeRange($_state.operands), [&](Type t) -> Type {
           mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
           return mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding()).getMemref();
@@ -151,11 +157,29 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
         llvm::SmallVector<mlir::Location> locs($_state.operands.size(), $_state.location);
         OpBuilder::InsertionGuard guard($_builder);
         Block* block = $_builder.createBlock(&region, region.end(), blockTypes, locs);
-        computeRegionBuilder($_builder, $_state.location, block->getArguments());
+        singleThreadRegionBuilder($_builder, $_state.location, block->getArguments());
+      }]>,
+      OpBuilder<(ins "ValueRange": $inputs,
+                     "ValueRange": $outputs,
+                     "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
+                     CArg<"GridAttr", "nullptr">: $grid,
+                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType),
+      [{
+        assert(outputs.size() == 1 && "expected single output");
+        RankedTensorType tensorType = mlir::cast<RankedTensorType>(outputs[0].getType());
+        MetalLayoutAttr layout = mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding());
+        auto [indexingMaps, iteratorTypes] = buildParallelAffineMapsAndIteratorTypes($_builder, inputs.size() + outputs.size(), layout.getRank());
+        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadRegionBuilder, grid, singleThreadType);
       }]>,
     ];
 
     let extraClassDeclaration = [{
+      static std::pair<ArrayAttr, ArrayAttr> buildParallelAffineMapsAndIteratorTypes(mlir::OpBuilder &builder, size_t arity, size_t rank) {
+        auto map = builder.getMultiDimIdentityMap(rank);
+        Attribute parallel = builder.getAttr<tt::IteratorTypeAttr>(tt::IteratorType::Parallel);
+        return std::make_pair(builder.getAffineMapArrayAttr(SmallVector<AffineMap>(arity, map)),
+                              builder.getArrayAttr(SmallVector<Attribute>(rank, parallel)));
+      }
       MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
       unsigned getNumLoops();
       unsigned getNumDims();
@@ -165,6 +189,10 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
       SmallVector<SmallVector<int64_t>> getOperandGridShapes();
       ThreadType getRegionThreadType(unsigned regionIndex) {
         return mlir::cast<ThreadAttr>(getThreads()[regionIndex]).getThreadType();
+      }
+      bool isComputeOnlyForm() {
+        auto threads = getThreads();
+        return threads.size() == 1 && mlir::cast<ThreadAttr>(threads[0]).getThreadType() == ThreadType::Compute;
       }
       bool isAffineMapForm() { return !getIndexingMaps().empty(); }
       bool isLoweredLoopForm() { return !isAffineMapForm(); }
@@ -190,14 +218,17 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
     }];
 
     let arguments = (ins AnyRankedTensorOrMemRef:$input,
-                         AnyRankedTensorOrMemRef:$output);
+                         AnyRankedTensorOrMemRef:$output,
+                         OptionalAttr<TT_MetalLayoutAttr>:$layout);
     let results = (outs Variadic<AnyRankedTensor>:$results);
+
+    let assemblyFormat = [{ $input `,` $output `:` type($input) `into` type($output) (`hostInfo` `=` $layout^)? attr-dict (`->` type($results)^)? }];
 
     let builders =
     [
-      OpBuilder<(ins "Value": $input, "Value": $output),
+      OpBuilder<(ins "Value": $input, "Value": $output, CArg<"MetalLayoutAttr", "nullptr">: $layout),
       [{
-        build($_builder, $_state, {output.getType()}, input, output);
+        build($_builder, $_state, {output.getType()}, input, output, layout);
       }]>,
     ];
 
@@ -209,10 +240,19 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
         bool isGridChange = false;
         bool isFormatChange = false;
         bool isMemorySpaceChange = false;
+
+        bool isCompound() {
+          return (static_cast<int>(isLayoutChange) +
+                  static_cast<int>(isGridChange || isMemorySpaceChange) +
+                  static_cast<int>(isFormatChange)) > 1;
+        }
       };
 
       // Returns booleans indicating if the op changes layout, grid, format, memory space or memory layout.
       CompoundComponents compoundComponents();
+      bool isCompound() { return compoundComponents().isCompound(); }
+      MetalLayoutAttr getInputLayout();
+      MetalLayoutAttr getOutputLayout();
     }];
 
     let hasVerifier = 1;
@@ -221,8 +261,17 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
     let hasCanonicalizer = 1;
 }
 
-def TTIR_StreamLayoutOp : TTIR_BufferizableOp<"stream_layout",
-  [DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>]> {
+def TTIR_StreamLayoutOp : TTIR_Op<"stream_layout",
+  [ Pure
+  , DeclareOpInterfaceMethods<OpAsmOpInterface , ["getAsmResultNames"]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  , TTIR_ViewOpInterface
+  ]> {
     let summary = "Stream Layout op.";
     let description = [{
       StreamLayout operation used to form a stream between remote and local memory spaces. Note that this op has
@@ -240,7 +289,7 @@ def TTIR_StreamLayoutOp : TTIR_BufferizableOp<"stream_layout",
       ```llvm
       %input = memref.alloc() {alignment = 64 : i64} : memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>
       %storage = memref.alloc() {alignment = 64 : i64} : memref<2x4x1x1x!tt.tile<32x32, f32>, #l1_>
-      %stream = "ttir.stream_layout"(%input, %storage) : (memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, memref<2x4x1x1x!tt.tile<32x32, f32>, #l1_>) -> memref<2x4x4x6x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3)>, #l1_>
+      %stream = "ttir.stream_layout"(%input, %storage) : (memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, memref<2x4x1x1x!tt.tile<32x32, f32>, #l1_>) -> memref<2x4x4x6x!tt.tile<32x32, f32>, #tt.view<map(4)>, #l1_>
       ```
     }];
 
@@ -266,6 +315,7 @@ def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
                                                        , "getAliasingValues"
                                                        , "getBufferType"
                                                        ]>
+  , TTIR_ViewOpInterface
   ]> {
     let summary = "View Layout op.";
     let description = [{
@@ -1122,6 +1172,8 @@ def TTIR_CumSumOp : TTIR_NamedOp<"cumsum"> {
   let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;
+
+  let hasFolder = 1;
 }
 
 def TTIR_SoftmaxOp : TTIR_NamedOp<"softmax"> {
@@ -1352,6 +1404,13 @@ def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d"> {
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$dilation,
                          I32Attr:$groups,
                          DefaultValuedAttr<TTIR_FlattenedCompatInfoAttr, "nullptr">:$flattened_compat_info);
+
+    let extraClassDeclaration = [{
+      // Get number of output channels
+      int64_t getOutputChannelSize();
+      bool verifyBias(llvm::ArrayRef<int64_t> biasDims);
+      MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
+    }];
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1740,24 +1799,6 @@ def TTIR_ReverseOp : TTIR_NamedOp<"reverse", [AllShapesMatch<["input", "result"]
     let hasVerifier = 1;
 
     let hasCanonicalizer = 1;
-}
-
-def TTIR_FillOp : TTIR_NamedOp<"fill", [AllShapesMatch<["value", "result"]>]> {
-    let summary = "Fill operation.";
-    let description = [{
-      Produces tensor filled with given fill value.
-
-      Examples:
-        %0 = ttir.empty() : () -> tensor<2x3xi32>
-        %1 = "ttir.fill"(%0) {value = dense<0> : tensor<2x3xi32>} : () -> tensor<2x3xi32>
-        %2 = ttir.empty() : () -> tensor<2xf32>
-        %3 = "ttir.fill"(%2) {value = dense<[0.2, 1.3]> : tensor<2xf32>} : () -> tensor<2xf32>
-    }];
-
-    let arguments = (ins AnyRankedTensor:$output,
-                         ElementsAttr:$value);
-
-    let results = (outs AnyRankedTensor:$result);
 }
 
 def TTIR_LinearOp : TTIR_NamedOp<"linear"> {

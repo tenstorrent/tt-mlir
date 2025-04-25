@@ -686,18 +686,25 @@ def TTNN_Atan2Op :  TTNN_ElementwiseBinaryOp<"atan2"> {
 }
 
 class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_Op<mnemonic, traits> {
-    let summary = "Reduction op.";
-    let description = [{
-      Reduction op.
-    }];
+  let summary = "Reduction op.";
+  let description = [{
+    Reduction op.
+  }];
 
-    let arguments = (ins AnyRankedTensor:$input,
-                         BoolAttr:$keep_dim,
-                         OptionalAttr<I32ArrayAttr>:$dim_arg);
+  let arguments = (ins AnyRankedTensor:$input,
+                       BoolAttr:$keep_dim,
+                       OptionalAttr<I32ArrayAttr>:$dim_arg);
 
-    let results = (outs AnyRankedTensor:$result);
+  let results = (outs AnyRankedTensor:$result);
 
-    let hasVerifier = 1;
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return
+        wa::TTNNOperandsWorkaroundsFactory::createReductionOpOperandsWorkarounds(*this);
+    }
+  }];
+
+  let hasVerifier = 1;
 }
 
 def TTNN_SumOp : TTNN_ReductionOp<"sum"> {
@@ -1348,7 +1355,8 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d"> {
                          DenseI32ArrayAttr:$padding,
                          DenseI32ArrayAttr:$output_padding,
                          DenseI32ArrayAttr:$dilation,
-                         I32Attr:$groups);
+                         I32Attr:$groups,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
 

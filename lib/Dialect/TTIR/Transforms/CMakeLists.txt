@@ -2,7 +2,6 @@ add_subdirectory(EraseInverseOps)
 add_mlir_dialect_library(MLIRTTIRTransforms
         Allocate.cpp
         Broadcast.cpp
-        Constant.cpp
         FlattenSlidingWindow.cpp
         GenericLinearizeMemref.cpp
         GenericGenerateDatamovement.cpp
@@ -13,8 +12,8 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         OptimizeTensorLayout.cpp
         HoistCPUOps.cpp
         Bufferization.cpp
-        Layout.cpp
         ElementTypeNormalization.cpp
+        LowerToLayout.cpp
         Transforms.cpp
 
         ADDITIONAL_HEADER_DIRS

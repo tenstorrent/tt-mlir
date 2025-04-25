@@ -46,29 +46,66 @@ inline bool isL1MemorySpace(MemorySpace memorySpace) {
   return memorySpace == MemorySpace::DeviceL1;
 }
 
-inline void printDimensionList(::mlir::AsmPrinter &printer,
-                               ::llvm::ArrayRef<int64_t> shape) {
+inline void printDimensionList(mlir::AsmPrinter &printer,
+                               llvm::ArrayRef<int64_t> shape) {
   printer.printDimensionList(shape);
 }
 
-inline ::mlir::ParseResult
-parseDimensionList(::mlir::AsmParser &odsParser,
-                   ::llvm::SmallVector<int64_t> &dimensions) {
+inline mlir::ParseResult
+parseDimensionList(mlir::AsmParser &odsParser,
+                   llvm::SmallVector<int64_t> &dimensions) {
   return odsParser.parseDimensionList(dimensions, false, false);
 }
 
 template <typename... Args>
-inline void printVargDimensionList(::mlir::AsmPrinter &printer, Args... dims) {
-  printDimensionList(printer, ::llvm::SmallVector<int64_t>({dims...}));
+inline void printVargDimensionList(mlir::AsmPrinter &printer, Args &&...dims) {
+  printDimensionList(printer,
+                     llvm::SmallVector<int64_t>({std::forward<Args>(dims)...}));
+}
+
+inline void printIdentityAffineMap(mlir::AsmPrinter &printer,
+                                   mlir::AffineMap affineMap) {
+  if (affineMap.isIdentity()) {
+    printer << "map(";
+    printer << affineMap.getNumResults() << ")";
+    return;
+  }
+
+  affineMap.print(printer.getStream());
+}
+
+inline mlir::ParseResult parseIdentityAffineMap(mlir::AsmParser &odsParser,
+                                                mlir::AffineMap &affineMap) {
+  if (!odsParser.parseOptionalKeyword("map").succeeded()) {
+    return odsParser.parseAffineMap(affineMap);
+  }
+
+  if (odsParser.parseLParen().failed()) {
+    return failure();
+  }
+
+  unsigned rank;
+  if (odsParser.parseInteger(rank).failed()) {
+    return failure();
+  }
+
+  if (odsParser.parseRParen().failed()) {
+    return failure();
+  }
+
+  affineMap =
+      mlir::AffineMap::getMultiDimIdentityMap(rank, odsParser.getContext());
+
+  return success();
 }
 
 template <typename... Args>
-inline ::mlir::ParseResult parseVargDimensionList(::mlir::AsmParser &odsParser,
-                                                  Args &...dims) {
-  ::llvm::SmallVector<int64_t> dimensions;
-  ::mlir::ParseResult result = parseDimensionList(odsParser, dimensions);
+inline mlir::ParseResult parseVargDimensionList(mlir::AsmParser &odsParser,
+                                                Args &...dims) {
+  llvm::SmallVector<int64_t> dimensions;
+  mlir::ParseResult result = parseDimensionList(odsParser, dimensions);
   if (succeeded(result)) {
-    ::llvm::SmallVector<std::tuple_element_t<0, std::tuple<Args...>> *> copy(
+    llvm::SmallVector<std::tuple_element_t<0, std::tuple<Args...>> *> copy(
         {&dims...});
     assert(dimensions.size() == sizeof...(dims));
     for (size_t i = 0; i < dimensions.size(); ++i) {
@@ -119,8 +156,7 @@ inline std::optional<DataType> elementTypeToDataTypeImpl(Type elementType) {
   return {};
 }
 
-inline Type dataTypeToElementType(::mlir::MLIRContext *context,
-                                  DataType dtype) {
+inline Type dataTypeToElementType(mlir::MLIRContext *context, DataType dtype) {
   switch (dtype) {
   case DataType::Float32:
     return Float32Type::get(context);
@@ -156,7 +192,7 @@ inline Type dataTypeToElementType(::mlir::MLIRContext *context,
 }
 
 // Convenience function to convert any type to TTMLIR supported type.
-inline ::mlir::Type toTTMLIRSupportedDataType(Type elementType) {
+inline mlir::Type toTTMLIRSupportedDataType(Type elementType) {
   std::optional<DataType> dataType = elementTypeToDataTypeImpl(elementType);
 
   if (dataType) {
@@ -184,30 +220,27 @@ inline DataType elementTypeToDataType(Type elementType) {
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h.inc"
 
 mlir::AffineMap collapsedLinearAffineMap(
-    ::mlir::MLIRContext *context, ::llvm::ArrayRef<int64_t> shape,
-    ::llvm::ArrayRef<int64_t> gridShape,
-    ::llvm::ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals);
+    mlir::MLIRContext *context, llvm::ArrayRef<int64_t> shape,
+    llvm::ArrayRef<int64_t> gridShape,
+    llvm::ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals);
 
 mlir::SmallVector<std::int64_t>
 calculateLogicalShardShape(mlir::ArrayRef<int64_t> tensorShape,
                            mlir::AffineMap linear, mlir::tt::GridAttr grid);
 
 template <typename T, typename TAttr>
-mlir::MemRefType buildMemRef(::mlir::MLIRContext *context,
-                             ::llvm::ArrayRef<int64_t> shardShape,
-                             ::mlir::Type elementType, T memorySpace,
-                             mlir::tt::StreamLayoutAttr layout = {}) {
-  ::llvm::SmallVector<int64_t> scalarShardShape(shardShape);
+mlir::MemRefType buildMemRef(mlir::MLIRContext *context,
+                             llvm::ArrayRef<int64_t> shardShape,
+                             mlir::Type elementType, T memorySpace) {
+  llvm::SmallVector<int64_t> scalarShardShape(shardShape);
   if (mlir::isa<mlir::tt::TileType>(elementType)) {
     scalarShardShape = mlir::cast<mlir::tt::TileType>(elementType)
                            .getTiledShape(scalarShardShape);
   }
-  return layout ? mlir::MemRefType::get(scalarShardShape, elementType, layout,
-                                        TAttr::get(context, memorySpace))
-                : mlir::MemRefType::get(scalarShardShape, elementType,
-                                        mlir::AffineMap::getMultiDimIdentityMap(
-                                            scalarShardShape.size(), context),
-                                        TAttr::get(context, memorySpace));
+  return mlir::MemRefType::get(
+      scalarShardShape, elementType,
+      mlir::AffineMap::getMultiDimIdentityMap(scalarShardShape.size(), context),
+      TAttr::get(context, memorySpace));
 }
 
 #endif

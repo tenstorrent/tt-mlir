@@ -291,9 +291,9 @@ module {
 
 // -----
 module {
-  func.func @conv2d_input_channels_missmatch_with_output_tensor(%arg0: tensor<1x1x1024x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x32xbf16>) -> tensor<1x1x900x64xbf16> {
+  func.func @conv2d_input_channels_missmatch_with_output_tensor(%arg0: tensor<1x1x1024x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x1x900x64xbf16> {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    // CHECK: error: 'ttnn.conv2d' op Expected output channels attribute (32) to match the last dimension of the output tensor (64)
+    // CHECK: error: 'ttnn.conv2d' op Expected output channels attribute (32) to match the last dimension of the bias tensor (64)
     %1 = "ttnn.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               in_channels = 64: i32,
@@ -306,7 +306,7 @@ module {
               padding = array<i32: 0, 0>,
               dilation = array<i32: 1, 1>,
               groups = 1: i32
-            }> : (tensor<1x1x1024x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x32xbf16>, !ttnn.device) -> tensor<1x1x900x64xbf16>
+            }> : (tensor<1x1x1024x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, !ttnn.device) -> tensor<1x1x900x64xbf16>
     return %1 : tensor<1x1x900x64xbf16>
   }
 }

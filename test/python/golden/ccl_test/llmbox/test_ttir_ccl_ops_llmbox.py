@@ -188,6 +188,333 @@ def test_collective_permute(in0: Operand, builder: TTIRBuilder):
     )
 
 
+@compile_to_flatbuffer(
+    [
+        (8192, 784),
+        (784, 16384),
+    ],
+    targets=["ttnn"],
+    mesh_shape=[2, 4],
+)
+def test_matmul_2x4(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    input = builder._get_golden_tensor(in0)
+    weight = builder._get_golden_tensor(in1)
+    golden_output = torch.matmul(input, weight)
+    builder.set_graph_input_output([input, weight], [golden_output])
+
+    sharded_in0 = builder.mesh_shard(
+        in0,
+        shard_direction="#tt.shard_direction<full_to_shard>",
+        shard_type="#tt.shard_type<devices>",
+        shard_shape=[2, 4],
+        shard_dims=[0, 1],
+    )
+    sharded_in1 = builder.mesh_shard(
+        in1,
+        shard_direction="#tt.shard_direction<full_to_shard>",
+        shard_type="#tt.shard_type<devices>",
+        shard_shape=[4, 1],
+        shard_dims=[-1, 0],
+    )
+    partial_matmul = builder.matmul(sharded_in0, sharded_in1)
+    reduced = builder.all_reduce(
+        partial_matmul,
+        reduce_type="#tt.reduce_type<sum>",
+        cluster_axis=1,
+    )
+    return builder.mesh_shard(
+        reduced,
+        shard_direction="#tt.shard_direction<shard_to_full>",
+        shard_type="#tt.shard_type<devices>",
+        shard_shape=[2, 1],
+        shard_dims=[0, -1],
+    )
+
+
+@compile_to_flatbuffer(
+    [
+        (8192, 784),
+        (784, 16384),
+    ],
+    targets=["ttnn"],
+    mesh_shape=[1, 8],
+)
+def test_matmul_1x8(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    input = builder._get_golden_tensor(in0)
+    weight = builder._get_golden_tensor(in1)
+    golden_output = torch.matmul(input, weight)
+    builder.set_graph_input_output([input, weight], [golden_output])
+
+    sharded_in0 = builder.mesh_shard(
+        in0,
+        shard_direction="#tt.shard_direction<full_to_shard>",
+        shard_type="#tt.shard_type<devices>",
+        shard_shape=[1, 8],
+        shard_dims=[-1, 1],
+    )
+    sharded_in1 = builder.mesh_shard(
+        in1,
+        shard_direction="#tt.shard_direction<full_to_shard>",
+        shard_type="#tt.shard_type<devices>",
+        shard_shape=[8, 1],
+        shard_dims=[-1, 0],
+    )
+    partial_matmul = builder.matmul(sharded_in0, sharded_in1)
+    reduced = builder.all_reduce(
+        partial_matmul,
+        reduce_type="#tt.reduce_type<sum>",
+        cluster_axis=1,
+    )
+    return builder.mesh_shard(
+        reduced,
+        shard_direction="#tt.shard_direction<shard_to_full>",
+        shard_type="#tt.shard_type<replicate>",
+        shard_shape=[1],
+        shard_dims=[-1],
+    )
+
+
+@compile_to_flatbuffer(
+    [
+        (1, 256, 64, 256),
+    ],
+    targets=["ttnn"],
+    mesh_shape=[2, 4],
+)
+def test_neg_2x4(in0: Operand, builder: TTIRBuilder):
+    input = builder._get_golden_tensor(in0)
+    golden_output = torch.neg(input)
+    builder.set_graph_input_output([input], [golden_output])
+
+    sharded_in0 = builder.mesh_shard(
+        in0,
+        shard_direction="#tt.shard_direction<full_to_shard>",
+        shard_type="#tt.shard_type<devices>",
+        shard_shape=[1, 2, 1, 4],
+        shard_dims=[1, 3],
+    )
+    neg_output = builder.neg(sharded_in0)
+    return builder.mesh_shard(
+        neg_output,
+        shard_direction="#tt.shard_direction<shard_to_full>",
+        shard_type="#tt.shard_type<devices>",
+        shard_shape=[1, 2, 1, 4],
+        shard_dims=[1, 3],
+    )
+
+
+@compile_to_flatbuffer(
+    [
+        (1, 256, 64, 256),
+    ],
+    targets=["ttnn"],
+    mesh_shape=[2, 4],
+)
+def test_neg_2x4_cluster_0(in0: Operand, builder: TTIRBuilder):
+    input = builder._get_golden_tensor(in0)
+    golden_output = torch.neg(input)
+    builder.set_graph_input_output([input], [golden_output])
+
+    sharded_in0 = builder.mesh_shard(
+        in0,
+        shard_direction="#tt.shard_direction<full_to_shard>",
+        shard_type="#tt.shard_type<devices>",
+        shard_shape=[1, 2, 1, 1],
+        shard_dims=[1, -1],
+    )
+    neg_output = builder.neg(sharded_in0)
+    return builder.mesh_shard(
+        neg_output,
+        shard_direction="#tt.shard_direction<shard_to_full>",
+        shard_type="#tt.shard_type<devices>",
+        shard_shape=[1, 2, 1, 1],
+        shard_dims=[1, -1],
+    )
+
+
+@compile_to_flatbuffer(
+    [
+        (1, 256, 64, 256),
+    ],
+    targets=["ttnn"],
+    mesh_shape=[2, 4],
+)
+def test_neg_2x4_cluster_1(in0: Operand, builder: TTIRBuilder):
+    input = builder._get_golden_tensor(in0)
+    golden_output = torch.neg(input)
+    builder.set_graph_input_output([input], [golden_output])
+
+    sharded_in0 = builder.mesh_shard(
+        in0,
+        shard_direction="#tt.shard_direction<full_to_shard>",
+        shard_type="#tt.shard_type<devices>",
+        shard_shape=[1, 1, 1, 4],
+        shard_dims=[1, 3],
+    )
+    neg_output = builder.neg(sharded_in0)
+    return builder.mesh_shard(
+        neg_output,
+        shard_direction="#tt.shard_direction<shard_to_full>",
+        shard_type="#tt.shard_type<devices>",
+        shard_shape=[1, 1, 1, 4],
+        shard_dims=[1, 3],
+    )
+
+
+@compile_to_flatbuffer(
+    [
+        (1, 256, 64, 256),
+    ],
+    targets=["ttnn"],
+    mesh_shape=[2, 4],
+)
+def test_neg_2x4_reversed_cluster(in0: Operand, builder: TTIRBuilder):
+    input = builder._get_golden_tensor(in0)
+    golden_output = torch.neg(input)
+    builder.set_graph_input_output([input], [golden_output])
+
+    sharded_in0 = builder.mesh_shard(
+        in0,
+        shard_direction="#tt.shard_direction<full_to_shard>",
+        shard_type="#tt.shard_type<devices>",
+        shard_shape=[1, 4, 1, 2],
+        shard_dims=[3, 1],
+    )
+    neg_output = builder.neg(sharded_in0)
+    return builder.mesh_shard(
+        neg_output,
+        shard_direction="#tt.shard_direction<shard_to_full>",
+        shard_type="#tt.shard_type<devices>",
+        shard_shape=[1, 4, 1, 2],
+        shard_dims=[3, 1],
+    )
+
+
+@compile_to_flatbuffer(
+    [
+        (1, 256, 64, 256),
+    ],
+    targets=["ttnn"],
+    mesh_shape=[2, 4],
+)
+def test_neg_2x4_reversed_cluster_0(in0: Operand, builder: TTIRBuilder):
+    input = builder._get_golden_tensor(in0)
+    golden_output = torch.neg(input)
+    builder.set_graph_input_output([input], [golden_output])
+
+    sharded_in0 = builder.mesh_shard(
+        in0,
+        shard_direction="#tt.shard_direction<full_to_shard>",
+        shard_type="#tt.shard_type<devices>",
+        shard_shape=[1, 1, 1, 2],
+        shard_dims=[3, -1],
+    )
+    neg_output = builder.neg(sharded_in0)
+    return builder.mesh_shard(
+        neg_output,
+        shard_direction="#tt.shard_direction<shard_to_full>",
+        shard_type="#tt.shard_type<devices>",
+        shard_shape=[1, 1, 1, 2],
+        shard_dims=[3, -1],
+    )
+
+
+@compile_to_flatbuffer(
+    [
+        (1, 256, 64, 256),
+    ],
+    targets=["ttnn"],
+    mesh_shape=[1, 8],
+)
+def test_neg_1x8_dim_3(in0: Operand, builder: TTIRBuilder):
+    input = builder._get_golden_tensor(in0)
+    golden_output = torch.neg(input)
+    builder.set_graph_input_output([input], [golden_output])
+
+    sharded_in0 = builder.mesh_shard(
+        in0,
+        shard_direction="#tt.shard_direction<full_to_shard>",
+        shard_type="#tt.shard_type<devices>",
+        shard_shape=[1, 1, 1, 8],
+        shard_dims=[-1, 3],
+    )
+    neg_output = builder.neg(sharded_in0)
+    return builder.mesh_shard(
+        neg_output,
+        shard_direction="#tt.shard_direction<shard_to_full>",
+        shard_type="#tt.shard_type<devices>",
+        shard_shape=[1, 1, 1, 8],
+        shard_dims=[-1, 3],
+    )
+
+
+@compile_to_flatbuffer(
+    [
+        (1, 256, 64, 256),
+    ],
+    targets=["ttnn"],
+    mesh_shape=[1, 8],
+)
+def test_neg_1x8_dim_1(in0: Operand, builder: TTIRBuilder):
+    input = builder._get_golden_tensor(in0)
+    golden_output = torch.neg(input)
+    builder.set_graph_input_output([input], [golden_output])
+
+    sharded_in0 = builder.mesh_shard(
+        in0,
+        shard_direction="#tt.shard_direction<full_to_shard>",
+        shard_type="#tt.shard_type<devices>",
+        shard_shape=[1, 8, 1, 1],
+        shard_dims=[-1, 1],
+    )
+    neg_output = builder.neg(sharded_in0)
+    return builder.mesh_shard(
+        neg_output,
+        shard_direction="#tt.shard_direction<shard_to_full>",
+        shard_type="#tt.shard_type<devices>",
+        shard_shape=[1, 8, 1, 1],
+        shard_dims=[-1, 1],
+    )
+
+
+@compile_to_flatbuffer(
+    [
+        (512, 1024),
+        (512, 1024),
+    ],
+    targets=["ttnn"],
+    mesh_shape=[2, 4],
+)
+def test_eltwise_multidevice(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    input = builder._get_golden_tensor(in0)
+    weight = builder._get_golden_tensor(in1)
+    golden_output = torch.add(input, weight)
+    builder.set_graph_input_output([input, weight], [golden_output])
+
+    sharded_in0 = builder.mesh_shard(
+        in0,
+        shard_direction="#tt.shard_direction<full_to_shard>",
+        shard_type="#tt.shard_type<devices>",
+        shard_shape=[2, 4],
+        shard_dims=[0, 1],
+    )
+    sharded_in1 = builder.mesh_shard(
+        in1,
+        shard_direction="#tt.shard_direction<full_to_shard>",
+        shard_type="#tt.shard_type<devices>",
+        shard_shape=[2, 4],
+        shard_dims=[0, 1],
+    )
+    partial_sum = builder.add(sharded_in0, sharded_in1)
+    return builder.mesh_shard(
+        partial_sum,
+        shard_direction="#tt.shard_direction<shard_to_full>",
+        shard_type="#tt.shard_type<devices>",
+        shard_shape=[2, 4],
+        shard_dims=[0, 1],
+    )
+
+
 if __name__ == "__main__":
     import argparse, os
 

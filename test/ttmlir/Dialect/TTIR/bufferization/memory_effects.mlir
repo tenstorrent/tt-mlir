@@ -21,7 +21,7 @@ func.func @matmul_pure_tensors(%arg0: tensor<2x4x!tt.tile<32x32, f32>>, %arg1: t
 func.func @to_layout_pure_tensors(%arg0: tensor<2x4x!tt.tile<32x32, f32>>) -> tensor<2x4x!tt.tile<32x32, f32>> {
   %0 = ttir.empty() : tensor<2x4x!tt.tile<32x32, f32>>
   // No uses of %3, so it should be removed.
-  // CHECK-NOT: "ttir.to_layout"
+  // CHECK-NOT: ttir.to_layout
   %3 = "ttir.to_layout"(%arg0, %0) : (tensor<2x4x!tt.tile<32x32, f32>>, tensor<2x4x!tt.tile<32x32, f32>>) -> tensor<2x4x!tt.tile<32x32, f32>>
   return %0 : tensor<2x4x!tt.tile<32x32, f32>>
 }
@@ -40,7 +40,7 @@ func.func @matmul_memref(%arg0: memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>, %arg
 func.func @to_layout_memref(%arg0: memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>) -> memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_> {
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>
   // Ensure that the layout op is not removed.
-  // CHECK: "ttir.to_layout"
+  // CHECK: ttir.to_layout
   "ttir.to_layout"(%arg0, %alloc) : (memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>, memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>) -> ()
   return %alloc : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>
 }
