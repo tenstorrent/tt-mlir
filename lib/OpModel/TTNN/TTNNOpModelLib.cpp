@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "TTNNOpModel.h"
+#include <llvm/Support/ErrorHandling.h>
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
@@ -65,6 +66,7 @@ getOpConstraints(std::string_view name, MLIRContext *context,
     llvm::errs() << "Exception thrown during op constraints query: " << e.what()
                  << "\n";
     assert(false && "Exception thrown during op constraints query");
+    llvm::report_fatal_error(llvm::Twine("Exception thrown during op constraints query: ") + e.what());
   }
 
   if (query.status != ::ttnn::graph::ExecutionStatus::Success) {

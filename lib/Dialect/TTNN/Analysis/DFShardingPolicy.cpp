@@ -11,6 +11,7 @@
 #include "ttmlir/Scheduler/Scheduler.h"
 
 #include "mlir/IR/Diagnostics.h"
+#include "ttmlir/Support/Logger.h"
 
 namespace mlir::tt::ttnn {
 
@@ -251,8 +252,12 @@ void DFShardingPolicy::pickOpShardConfigs(ShardSolver &shardSolver,
     ShardSolver::RemainingConfigAttrs validConfigs = shardSolver.at(op);
     const OpConfig *selectedConfig = validConfigs.begin().get();
     float maxCoreUsage = 0;
+    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                 "Valid configs for op {} are {}", op->getName(), validConfigs.mask.to_string());
     for (auto configIterator = validConfigs.begin();
          configIterator != validConfigs.end(); ++configIterator) {
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "ConfigIterator.index {}", configIterator.index());
       if (accMaxCoreUsage[op][configIterator.index()] > maxCoreUsage) {
         maxCoreUsage = accMaxCoreUsage[op][configIterator.index()];
         selectedConfig = configIterator.get();

@@ -32,6 +32,7 @@
 #include "mlir/IR/Visitors.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/Support/Debug.h"
+#include <llvm/Support/Error.h>
 
 namespace mlir::tt::ttnn {
 
@@ -464,6 +465,9 @@ private:
       if (!opOverridenAndExists) {
         llvm::errs() << "Trying to override non-existing op: " << opLoc << "\n";
         assert(false && "Trying to override non-existing op");
+        llvm::report_fatal_error(
+            "Trying to override non-existing op: " + opLoc +
+            ". Check logs for details");
       }
     }
   }
