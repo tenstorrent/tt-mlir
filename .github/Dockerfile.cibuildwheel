@@ -32,10 +32,7 @@ ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
 
 RUN mkdir -p $TTMLIR_TOOLCHAIN_DIR && mkdir -p /build
 
-RUN git clone https://github.com/tenstorrent/tt-mlir.git /build/tt-mlir
-
-# Checkout to dev branch
-RUN cd /build/tt-mlir && git pull && git checkout vprajapati/issue-3060
+RUN git clone --depth 1 https://github.com/tenstorrent/tt-mlir.git /build/tt-mlir
 
 RUN cd /build/tt-mlir && \
     source env/activate && \
