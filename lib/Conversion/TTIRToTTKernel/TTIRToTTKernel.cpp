@@ -185,12 +185,13 @@ public:
   LogicalResult
   matchAndRewrite(T op, typename T::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-
+    auto device = lookupDevice(op);
     for (Value input : adaptor.getValues()) {
       auto cb = mlir::dyn_cast<ttkernel::CBType>(input.getType());
       assert(cb && "Expected CB input type to await/yield, failing.");
       auto memref = cb.getMemref();
-      auto numPages = i32(rewriter, op->getLoc(), memref.getNumElements());
+      auto cbNumPages = device.getMemrefCBNumPages(memref);
+      auto numPages = i32(rewriter, op->getLoc(), cbNumPages);
       Block *block = op->getBlock();
       if (mlir::isa<ttir::AwaitOp>(op)) {
         rewriter.create<ttkernel::CBWaitFrontOp>(op.getLoc(), input, numPages);

@@ -1123,19 +1123,46 @@ DeviceAttr::getMemoryMap(std::pair<MemRefType, AffineMap> memrefAndView,
 size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType, size_t pageSize,
                                       bool includeBuffers) const {
   assert(pageSize == 0 && "Page size not supported yet");
-  ShardLayoutAttr layout = mlir::cast<ShardLayoutAttr>(memrefType.getLayout());
+  mlir::Type elementType = memrefType.getElementType();
+  int64_t elementSizeBytes = 0;
+  if (mlir::isa<TileType>(elementType)) {
+    auto tileType = mlir::cast<TileType>(elementType);
+    elementSizeBytes = tileType.getSizeBytes();
+  } else {
+    elementSizeBytes = elementType.getIntOrFloatBitWidth() / 8;
+  }
+
+  ShardLayoutAttr layout =
+      mlir::dyn_cast<ShardLayoutAttr>(memrefType.getLayout());
+  assert(
+      (layout || !mlir::isa<DeviceLayoutInterface>(memrefType.getLayout())) &&
+      "expected shard layout");
+  bool isLocalMemref = (layout == nullptr);
+  auto shardShape =
+      isLocalMemref ? memrefType.getShape() : layout.getShardShape(memrefType);
+  return static_cast<size_t>(ttmlir::utils::volume(
+      shardShape,
+      elementSizeBytes * (includeBuffers ? layout.getBuffers() : 1)));
+}
+
+size_t DeviceAttr::getMemrefCBPageSizeBytes(MemRefType memrefType) const {
   mlir::Type elementType = memrefType.getElementType();
   int64_t size = 0;
   if (mlir::isa<TileType>(elementType)) {
     auto tileType = mlir::cast<TileType>(elementType);
     size = tileType.getSizeBytes();
   } else {
-    size = elementType.getIntOrFloatBitWidth() / 8;
+    size = TileType::get(elementType.getContext(), elementType).getSizeBytes();
   }
+  return size;
+}
 
-  auto shardShape = layout.getShardShape(memrefType);
-  return static_cast<size_t>(ttmlir::utils::volume(
-      shardShape, size * (includeBuffers ? layout.getBuffers() : 1)));
+size_t DeviceAttr::getMemrefCBNumPages(MemRefType memrefType) const {
+  size_t sizeBytes =
+      getMemrefSizeBytes(memrefType, /*pageSize=*/0, /*includeBuffers=*/false);
+  size_t pageSize = getMemrefCBPageSizeBytes(memrefType);
+  assert(sizeBytes % pageSize == 0);
+  return sizeBytes / pageSize;
 }
 
 // Sample the last index in the tensor to get the last addressable element of

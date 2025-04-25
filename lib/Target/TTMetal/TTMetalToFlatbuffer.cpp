@@ -210,16 +210,8 @@ memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
 
   uint64_t shardSize =
       device.getMemrefSizeBytes(memref, 0, /*includeBuffers=*/true);
+  uint64_t pageSize = device.getMemrefCBPageSizeBytes(memref);
   uint64_t numBuffers = shardLayout.getBuffers();
-  ArrayRef<int64_t> stride = shardLayout.getStride();
-  assert(stride.size() >= 2);
-
-  // If we have a row major layout, the pageSize is 1 full row. If it's tile
-  // layout, than the page size is 1 tile size in bytes.
-  bool isRowMajor = tileShape.y() == 1;
-  uint64_t pageSize =
-      isRowMajor ? stride[stride.size() - 2] : stride[stride.size() - 1];
-
   return target::metal::CreateCircularBufferConfigDirect(
       *cache.fbb, &coreRangeSet, /*total_size=*/shardSize,
       /*page_size=*/pageSize, numBuffers);

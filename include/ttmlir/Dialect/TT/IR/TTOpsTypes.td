@@ -432,6 +432,8 @@ def TT_DeviceAttr : TT_Attr<"Device", "device", []> {
                              size_t pageSize,
                              size_t baseOffset = 0) const;
       size_t getMemrefSizeBytes(MemRefType memrefType, size_t pageSize, bool includeBuffers = false) const;
+      size_t getMemrefCBPageSizeBytes(MemRefType memrefType) const;
+      size_t getMemrefCBNumPages(MemRefType memrefType) const;
 
       // Returns the footprint size in bytes of the tensor layout distributed across the given memory space.
       // The resulting size is a function of the memory space, roughly speaking this ends up being:
