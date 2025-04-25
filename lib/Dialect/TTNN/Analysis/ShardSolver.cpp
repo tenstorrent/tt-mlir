@@ -774,8 +774,7 @@ llvm::Expected<bool> ShardSolver::checkShardCompatible(
 
     llvm::Expected<
         std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
-        l1UsageExp =
-            backend.getOpConstraints(inputLayouts, consumerConfig);
+        l1UsageExp = backend.getOpConstraints(inputLayouts, consumerConfig);
 
     if (!l1UsageExp) {
       llvm::Error error = l1UsageExp.takeError();
