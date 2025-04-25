@@ -28,6 +28,7 @@ class SingletonDeviceContext {
 public:
   static SingletonDeviceContext &getInstance();
   static void resetInstance();
+  static void closeInstance();
 
   ::tt::tt_metal::IDevice *getDevice() { return m_device; }
 

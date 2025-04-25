@@ -10,6 +10,9 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
+#define TTMLIR_ENABLE_OPMODEL
+#include "../lib/OpModel/TTNN/SingletonDeviceContext.h"
+
 namespace mlir::tt::ttnn {
 
 bool MemoryLayoutAnalysis::applyOverrides() {
@@ -111,5 +114,7 @@ void MemoryLayoutAnalysis::analysisImplementation() {
       analysisResult.spillToDramOps.push_back(l1ChainConfig.getLastOp());
     }
   }
+
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::closeInstance();
 }
 } // namespace mlir::tt::ttnn

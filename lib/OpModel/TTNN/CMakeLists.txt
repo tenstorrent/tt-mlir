@@ -28,10 +28,14 @@ if (TTMLIR_ENABLE_OPMODEL)
     endif()
     target_link_libraries(${LIB_NAME} PUBLIC ${TTNN_LIBS})
     target_compile_definitions(${LIB_NAME} PUBLIC TTMLIR_ENABLE_OPMODEL)
+
+    set_target_properties(${LIB_NAME} PROPERTIES INSTALL_RPATH "$ORIGIN")
+    set_target_properties(${LIB_NAME} PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
 else()
     # link stubs implementation when op model library is disabled
     message(WARNING "TTNNOpModelLib is disabled. The optimizer will not achieve optimal performance.")
 endif()
+
 
 # Specify the include directories for the library
 target_include_directories(${LIB_NAME}

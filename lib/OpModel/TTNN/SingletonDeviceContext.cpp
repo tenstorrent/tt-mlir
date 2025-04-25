@@ -21,7 +21,9 @@ SingletonDeviceContext::SingletonDeviceContext(const size_t traceRegionSize) {
 }
 
 SingletonDeviceContext::~SingletonDeviceContext() {
-  ::tt::tt_metal::CloseDevice(m_device);
+  if (m_device) {
+    ::tt::tt_metal::CloseDevice(m_device);
+  }
 }
 
 SingletonDeviceContext &SingletonDeviceContext::getInstance() {
@@ -33,6 +35,14 @@ SingletonDeviceContext &SingletonDeviceContext::getInstance() {
 void SingletonDeviceContext::resetInstance() {
   SingletonDeviceContext &instance = getInstance();
   instance.resetDevice(opModelDefaultTraceRegionSize);
+}
+
+void SingletonDeviceContext::closeInstance() {
+  SingletonDeviceContext &instance = getInstance();
+  if (instance.m_device) {
+    ::tt::tt_metal::CloseDevice(instance.m_device);
+    instance.m_device = nullptr;
+  }
 }
 
 void SingletonDeviceContext::resetDevice(const size_t traceRegionSize) {
