@@ -471,15 +471,19 @@ std::vector<::tt::runtime::Tensor> ProgramTensorPool::gatherInputTensors() {
   inputs.reserve(programInputIds.size());
   std::transform(programInputIds.begin(), programInputIds.end(),
                  std::back_inserter(inputs), [this](std::uint32_t globalId) {
-                   LOG_ASSERT(liveTensors.contains(globalId),
-                              "Input tensor not found in tensor pool. Input "
-                              "tensor may no longer be in use");
-                   ::tt::runtime::Tensor &in = getRuntimeTensor(globalId);
-                   ::tt::runtime::ttnn::TTNNTensorWrapper &ttnnTensor =
-                       in.as<::tt::runtime::ttnn::TTNNTensorWrapper>(
-                           DeviceRuntime::TTNN);
-                   ttnnTensor.setRetain(false);
-                   return in;
+                   if (!liveTensors.contains(globalId)) {
+                     LOG_WARNING("Input tensor with ID ", globalId,
+                                 " not found in tensor pool.");
+                     return ::tt::runtime::Tensor(nullptr, nullptr,
+                                                  DeviceRuntime::TTNN);
+                   } else {
+                     ::tt::runtime::Tensor &in = getRuntimeTensor(globalId);
+                     ::tt::runtime::ttnn::TTNNTensorWrapper &ttnnTensor =
+                         in.as<::tt::runtime::ttnn::TTNNTensorWrapper>(
+                             DeviceRuntime::TTNN);
+                     ttnnTensor.setRetain(false);
+                     return in;
+                   }
                  });
   return inputs;
 }
@@ -489,12 +493,19 @@ std::vector<::tt::runtime::Tensor> ProgramTensorPool::gatherOutputTensors() {
   outputs.reserve(programOutputIds.size());
   std::transform(programOutputIds.begin(), programOutputIds.end(),
                  std::back_inserter(outputs), [this](std::uint32_t globalId) {
-                   ::tt::runtime::Tensor &out = getRuntimeTensor(globalId);
-                   ::tt::runtime::ttnn::TTNNTensorWrapper &ttnnTensor =
-                       out.as<::tt::runtime::ttnn::TTNNTensorWrapper>(
-                           DeviceRuntime::TTNN);
-                   ttnnTensor.setRetain(false);
-                   return out;
+                   if (!liveTensors.contains(globalId)) {
+                     LOG_WARNING("Output tensor with ID ", globalId,
+                                 " not found in tensor pool.");
+                     return ::tt::runtime::Tensor(nullptr, nullptr,
+                                                  DeviceRuntime::TTNN);
+                   } else {
+                     ::tt::runtime::Tensor &out = getRuntimeTensor(globalId);
+                     ::tt::runtime::ttnn::TTNNTensorWrapper &ttnnTensor =
+                         out.as<::tt::runtime::ttnn::TTNNTensorWrapper>(
+                             DeviceRuntime::TTNN);
+                     ttnnTensor.setRetain(false);
+                     return out;
+                   }
                  });
   return outputs;
 }

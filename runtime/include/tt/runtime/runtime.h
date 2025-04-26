@@ -186,26 +186,46 @@ getInputTensorIds(CallbackContext programContextHandle);
 std::vector<std::uint32_t>
 getOutputTensorIds(CallbackContext programContextHandle);
 
+// Retrieves input tensors from ProgramContext TensorPool.
+// Logs a warning and returns null tensor for input tensors that have been
+// erased from TensorPool (are no longer Live). Best used gated by
+// CallbackRuntimeConfig callback_counter() to avoid repeated warnings
 std::vector<::tt::runtime::Tensor>
 getInputTensors(CallbackContext programContextHandle);
 
+// Retrieves output tensors from ProgramContext TensorPool.
+// Logs a warning and returns null tensor for output tensors that have not been
+// created yet. Best used gated by CallbackRuntimeConfig callback_counter() to
+// avoid repeated warnings
 std::vector<::tt::runtime::Tensor>
 getOutputTensors(CallbackContext programContextHandle);
 
+// Returns vector of global IDs of all Op arguments of type TensorRef or list of
+// TensorRefs. If Op has no input TensorRefs, logs a debug message, returns
+// empty list.
 std::vector<std::uint32_t>
 getIntermediateInputTensorIds(OpContext opContextHandle);
 
+// Returns global ID of Op output argument.
+// If Op has no output, logs a debug message, returns -1.
 std::uint32_t getIntermediateOutputTensorId(OpContext opContextHandle);
 
+// Returns vector of intermediate Op input tensors. Vector is empty if none
+// exist.
 std::vector<Tensor>
 getIntermediateInputTensors(OpContext opContextHandle,
                             CallbackContext programContextHandle);
 
+// Returns intermediate Op output tensor. Returns null tensor if Op has no
+// output.
 Tensor getIntermediateOutputTensor(OpContext opContextHandle,
                                    CallbackContext programContextHandle);
 
+// Returns tensor retrieved from TensorPool liveTensors.
+// Logs warning and returns null tensor if global_id is not found in pool.
 Tensor getTensor(CallbackContext programContextHandle, std::uint32_t global_id);
 
+// Checks global_id against TensorPool liveTensors.
 bool isTensorLive(CallbackContext programContextHandle,
                   std::uint32_t global_id);
 

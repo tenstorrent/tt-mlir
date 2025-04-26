@@ -4,7 +4,9 @@
 
 import os
 import pytest
-import subprocess
+import threading
+
+# import subprocess
 from functools import partial
 import ttrt
 import ttrt.runtime
@@ -12,7 +14,8 @@ import ttrt.binary
 import torch
 from ttrt import API as ttrt_api
 from ttrt.common.util import *
-from ttnn.utils import (
+from ttrt.common.callback import CallbackRuntimeConfig
+from ..utils import (
     TT_MLIR_HOME,
     Helper,
     DeviceContext,
@@ -20,11 +23,11 @@ from ttnn.utils import (
     get_torch_inputs,
     get_runtime_tensor_from_torch,
     get_torch_output_container,
+    assert_pcc,
+    get_to_layout_inputs,
 )
 
-FLATBUFFER_BASE_PATH = (
-    f"{TT_MLIR_HOME}/build/test/ttmlir/Silicon/TTNN/n150/runtime_stitching/Output"
-)
+FLATBUFFER_BASE_PATH = f"{TT_MLIR_HOME}/build/test/ttmlir/Silicon/TTNN/n300/perf/Output"
 
 
 @pytest.mark.parametrize("shape", [(64, 128)])
@@ -212,6 +215,7 @@ def test_set_program_cache(helper):
             ttrt.runtime.testing.is_program_cache_enabled(device) == True
         ), "Expected program cache to be enabled"
 
+
 @pytest.mark.parametrize(
     "runtime",
     [ttrt.runtime.DeviceRuntime.TTNN, ttrt.runtime.DeviceRuntime.TTMetal],
@@ -250,39 +254,27 @@ def test_get_system_desc(runtime, dispatch_core_type, with_device):
         device_ids == sorted_device_ids
     ), f"Expected device IDs {sorted_device_ids}, got {device_ids}"
 
+
 def pre_op_callback(callback_runtime_config, binary, program_context, op_context):
-    print("YOU ARE IN THE PRE OP CALLBACK")
-    logging = callback_runtime_config.logging
-    logging.debug("executing pre-op callback")
-    op_intermediate_tensor_ids = ttrt.runtime.get_intermediate_input_tensor_ids(
-        op_context
+    # Testing apis in pre op callback function
+
+    callback_runtime_config.save_intermediates(program_context, op_context)
+    intermeds = callback_runtime_config.intermediates
+    in_tensor_ids = ttrt.runtime.get_input_tensor_ids(program_context)
+    out_tensor_ids = ttrt.runtime.get_output_tensor_ids(program_context)
+    in_tensors = ttrt.runtime.get_input_tensors(program_context)
+    out_tensors = ttrt.runtime.get_output_tensors(program_context)
+    intermed_in_tensor_ids = ttrt.runtime.get_intermediate_input_tensor_ids(op_context)
+    intermed_out_tensor_id = ttrt.runtime.get_intermediate_output_tensor_id(op_context)
+
+    op_intermediate_tensors = ttrt.runtime.get_intermediate_input_tensors(
+        op_context, program_context
     )
-    for tensor_id in op_intermediate_tensor_ids:  # restructure
-        logging.debug(f"Intermediate input tensor id: {int(tensor_id)}")
-        if ttrt.runtime.is_tensor_live(program_context, tensor_id):
-            op_intermediate_tensors = ttrt.runtime.get_intermediate_input_tensors(
-                op_context, program_context
-            )
+    for intermed_in_tensor_id in intermed_in_tensor_ids:
+        if ttrt.runtime.is_tensor_live(program_context, intermed_in_tensor_id):
             op_intermediate_tensor_get = ttrt.runtime.get_tensor(
-                program_context, tensor_id
+                program_context, intermed_out_tensor_id
             )
-            logging.debug(f"Intermediate input tensors: {op_intermediate_tensors}")
-            logging.debug(
-                f"Intermediate input tensor method 2: {op_intermediate_tensor_get}"
-            )
-            # assert tensor_id in
-            # Do I need to implement getTensorId from tensor?
-
-            # for some reason, the tensors returned from the same ID have different object at values
-            # assert op_intermediate_tensor_get in op_intermediate_tensors, f"Intermediate input tensors do not match. 1: {op_intermediate_tensors}, 2: {op_intermediate_tensor_get}"
-        else:
-            logging.debug("Input tensor is empty - skipping")
-
-    input_tensor_ids = ttrt.runtime.get_input_tensor_ids(program_context)
-    logging.debug(f"Input tensor ids: {input_tensor_ids}")
-    output_tensor_ids = ttrt.runtime.get_output_tensor_ids(program_context)
-    logging.debug(f"Output tensor ids: {output_tensor_ids}")
-    logging.debug("Finished pre-op callback")
 
 
 def pre_op_get_callback_fn(callback_runtime_config):
@@ -290,94 +282,68 @@ def pre_op_get_callback_fn(callback_runtime_config):
 
 
 def post_op_callback(callback_runtime_config, binary, program_context, op_context):
-    print("YOU ARE IN THE POST OP CALLBACK")
-    logging = callback_runtime_config.logging
-    logging.debug("executing post-op callback")
-    op_intermediate_tensor_ids = ttrt.runtime.get_intermediate_output_tensor_ids(
-        op_context
-    )
-    for tensor_id in op_intermediate_tensor_ids:
-        logging.debug(f"Intermediate output tensor id: {int(tensor_id)}")
-        if ttrt.runtime.is_tensor_live(program_context, tensor_id):
-            op_intermediate_tensor = ttrt.runtime.get_intermediate_output_tensor(
-                op_context, program_context
-            )
-            op_intermediate_tensor_get = ttrt.runtime.get_tensor(
-                program_context, tensor_id
-            )
-            logging.debug(f"Intermediate output tensor: {op_intermediate_tensor}")
-            logging.debug(
-                f"Intermediate output tensor method 2: {op_intermediate_tensor_get}"
-            )
-            assert (
-                op_intermediate_tensor == op_intermediate_tensor_get
-            ), f"Intermediate output tensors do not match. 1: {op_intermediate_tensor}, 2: {op_intermediate_tensor_get}"
-        else:
-            logging.debug("Output tensor is empty - skipping")
-    logging.debug("Finished post-op callback")
+    # Testing apis in post op callback function
+
+    callback_runtime_config.save_intermediates(program_context, op_context)
+    intermeds = callback_runtime_config.intermediates
+    in_tensor_ids = ttrt.runtime.get_input_tensor_ids(program_context)
+    out_tensor_ids = ttrt.runtime.get_output_tensor_ids(program_context)
+    in_tensors = ttrt.runtime.get_input_tensors(program_context)
+    out_tensors = ttrt.runtime.get_output_tensors(program_context)
+    intermed_in_tensor_ids = ttrt.runtime.get_intermediate_input_tensor_ids(op_context)
+    intermed_out_tensor_id = ttrt.runtime.get_intermediate_output_tensor_id(op_context)
+
+    if ttrt.runtime.is_tensor_live(program_context, intermed_out_tensor_id):
+        op_intermediate_tensor = ttrt.runtime.get_intermediate_output_tensor(
+            op_context, program_context
+        )
+        op_intermediate_tensor_get = ttrt.runtime.get_tensor(
+            program_context, intermed_out_tensor_id
+        )
 
 
 def post_op_get_callback_fn(callback_runtime_config):
     return partial(post_op_callback, callback_runtime_config)
 
 
-# to test: getOutputTensors(program context), get_intermediate_output_tensor, get_input/output_tensor_ids,
-# get_intermediate_input_tensor_ids, is_tensor_live, get_tensor
-# I think I still need to write get_intermediate_input_tensor in module.cpp
-
-# in callback: getInputTensors(eventually)(only works before first op is run),
-# get_intermediate_input_tensor_ids, get_intermediate_input_tensors(generally): pre callback only
-# get_intermediate_output_tensor_ids, get_intermediate_output_tensors: post callback only (I think?)
-# outside callback: getOutputTensos: run after program execution
-# doesn't matter: getIn/OutputTensorIds, is_tensor_live, get_tensor
-
-# I'd like to set this up such that it's scalable for future api runtime tests
-
-# it would be nice to be able to run callback functions without having to hard code them in callback.py
-# could I arrange for it to be passed in as a flag?
-
-# see explorer runner.py for more info
-def test_program_ttrt_apis(helper: Helper, request):
-    # Add callback functions in here just in case
-    import sys
-
-    sys.path.append("/home/jgrim/wh-01-src/tt-mlir/runtime/test/python")
-    binary_path = os.path.join(
-        FLATBUFFER_BASE_PATH, "eltwise_binary_op_chain.mlir.tmp.ttnn"
-    )
-    binary_path = "ttnn/test_abs.ttnn"
+# NOTE: All callback API functions are run, but verification is not implemented yet
+def test_callback_apis(
+    helper: Helper,
+    request,
+):
+    """Test that callback APIs work as expected."""
+    binary_path = os.path.join(FLATBUFFER_BASE_PATH, "all_gather.mlir.tmp.ttnn")
     assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
-    # add save intermediate tensors flag
-    ttrt_run_command = [
-        "ttrt",
-        "run",
-        binary_path,
-        "--log-file",
-        "ttrt.log",
-        "--import-callback-file",
-        "ttnn.device_agnostic.test_runtime_api",
-        "--import-pre-callback-function",
-        "pre_op_get_callback_fn",
-        "--import-post-callback-function",
-        "post_op_get_callback_fn",
+    num_devices = ttrt.runtime.get_num_available_devices()
+    helper.initialize(request.node.name, binary_path)
+    helper.check_constraints()
+
+    # Set the current runtime to TTNN, Callback APIs are not supported in TTMetal
+    ttrt.runtime.set_current_runtime(ttrt.runtime.DeviceRuntime.TTNN)
+    program: Binary.Program = helper.binary.get_program(0)
+
+    torch_inputs = get_torch_inputs(program)
+    runtime_inputs = [
+        get_runtime_tensor_from_torch(torch_input) for torch_input in torch_inputs
     ]
 
-    print(f"Running command: {' '.join(ttrt_run_command)}")
-    process = subprocess.Popen(
-        ttrt_run_command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-    while True:
-        output = process.stdout.readline()
-        if output == "" and process.poll() is not None:
-            break
-        if output:
-            print(output.strip())
-    process.stdout.close()
-    process.wait()
-    assert False, "test"
+    with DeviceContext(mesh_shape=[1, num_devices]) as parent_mesh:
+        runtime_inputs_with_layouts = get_to_layout_inputs(
+            parent_mesh, runtime_inputs, helper.binary, 0
+        )
 
+        # Set up pre and post op callback hooks
+        pre_op_callback_runtime_config = CallbackRuntimeConfig(parent_mesh)
+        post_op_callback_runtime_config = CallbackRuntimeConfig(parent_mesh)
+        callback_env = ttrt.runtime.DebugHooks.get(
+            pre_op_get_callback_fn(pre_op_callback_runtime_config),
+            post_op_get_callback_fn(post_op_callback_runtime_config),
+        )
 
-# This is the python path that works for me: /home/jgrim/wh-01-src/tt-mlir/runtime/test/python:/home/jgrim/wh-01-src/tt-mlir/build/python_packages:/home/jgrim/wh-01-src/tt-mlir/.local/toolchain/python_packages/mlir_core:/home/jgrim/wh-01-src/tt-mlir/third_party/tt-metal/src/tt-metal:/home/jgrim/wh-01-src/tt-mlir/third_party/tt-metal/src/tt-metal/tt_eager:/home/jgrim/wh-01-src/tt-mlir/third_party/tt-metal/src/tt-metal-build/tools/profiler/bin:/home/jgrim/wh-01-src/tt-mlir/third_party/tt-metal/src/tt-metal/ttnn
+        # Perform submit operation
+        output = ttrt.runtime.submit(
+            parent_mesh, helper.binary.fbb, 0, runtime_inputs_with_layouts
+        )[0]
+        output_host = ttrt.runtime.to_host(output, untilize=True)[0]
+
+    helper.teardown()

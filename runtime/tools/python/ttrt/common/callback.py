@@ -41,6 +41,7 @@ class CallbackRuntimeConfig:
         self.golden_report = golden_report
         self.memory_report = memory_report
         self.counter = -1
+        self.intermediates = {}
 
     def start_new_callback(self, artifact_dir):
         self.artifact_dir = artifact_dir
@@ -65,9 +66,11 @@ class CallbackRuntimeConfig:
 
         self.logging.debug(f"Saved memory report to={memory_report_path}")
 
-    def save_intermediate_tensors(
+    def save_intermediates(
         self, program_context, op_context
     ):  # do I want to also save op info or metadata?
+        import ttrt.runtime
+
         op_intermediate_input_ids = ttrt.runtime.get_intermediate_input_tensor_ids(
             op_context
         )
@@ -80,9 +83,12 @@ class CallbackRuntimeConfig:
             )
             self.intermediates[op_intermediate_output_id] = op_intermediate_output
         for op_intermediate_input_id in op_intermediate_input_ids:
-            if ttrt.runtime.is_tensor_live(program_context, op_intermediate_input_id):
-                op_intermediate_input = ttrt.runtime.get_intermediate_input_tensor(
-                    op_context, program_context
+            if (
+                ttrt.runtime.is_tensor_live(program_context, op_intermediate_input_id)
+                and op_intermediate_input_id not in self.intermediates
+            ):
+                op_intermediate_input = ttrt.runtime.get_tensor(
+                    program_context, op_intermediate_input_id
                 )
                 self.intermediates[op_intermediate_input_id] = op_intermediate_input
 
@@ -330,7 +336,7 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
         debugger(callback_runtime_config, binary, program_context, op_context)
 
     if callback_runtime_config.save_intermediate_tensors:
-        save_intermediate_tensors(program_context, op_context)
+        save_intermediates(program_context, op_context)
 
 
 def post_op_get_callback_fn(callback_runtime_config):

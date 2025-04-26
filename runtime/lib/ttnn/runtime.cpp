@@ -983,11 +983,14 @@ getIntermediateInputTensorIds(OpContext opContextHandle) {
   case ::tt::target::ttnn::OpType::ArangeOp:
   case ::tt::target::ttnn::OpType::ConstantOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp: {
-    LOG_DEBUG("Op type has no inputs.");
+    LOG_DEBUG("The operation ",
+              ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
+                  opContext.type_type())],
+              " has no intermediate input tensors to get.");
     break;
   }
   default:
-    LOG_WARNING("unhandled op type in getIntermediateInputTensor");
+    LOG_FATAL("Unsupported op type in getIntermediateInputTensorIds");
     break;
   }
   return ids;
@@ -1139,16 +1142,17 @@ std::uint32_t getIntermediateOutputTensorId(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::GetDeviceOp:
   case ::tt::target::ttnn::OpType::DeallocateOp: {
-    LOG_WARNING("getting output tensor is not supported for ",
-                ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
-                    opContext.type_type())]);
-    return 0;
+    LOG_DEBUG("The operation ",
+              ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
+                  opContext.type_type())],
+              " has no intermediate output tensor to get.");
+    return -1;
   }
   default: {
-    LOG_FATAL("Unsupported operation type");
+    LOG_FATAL("Unsupported op type in getIntermediateOutputTensorId");
   }
   }
-  return 0;
+  return -1;
 }
 
 std::vector<::tt::runtime::Tensor>
@@ -1165,8 +1169,8 @@ getIntermediateInputTensors(OpContext opContextHandle,
     if (programContext.getTensorPool().containsId(id)) {
       results.push_back(programContext.getTensorPool().getRuntimeTensor(id));
     } else {
-      LOG_DEBUG("Intermediate input tensor with ID ", id,
-                " not found in tensor pool");
+      LOG_WARNING("Intermediate input tensor with ID ", id,
+                  " not found in tensor pool");
     }
   }
   return results;
@@ -1182,8 +1186,8 @@ getIntermediateOutputTensor(OpContext opContextHandle,
   if (programContext.getTensorPool().containsId(id)) {
     return programContext.getTensorPool().getRuntimeTensor(id);
   }
-  LOG_DEBUG("Intermediate output tensor with ID ", id,
-            " not found in tensor pool");
+  LOG_WARNING("Intermediate output tensor with ID ", id,
+              " not found in tensor pool");
   return createNullTensor();
 }
 
@@ -1195,7 +1199,7 @@ getIntermediateOutputTensor(OpContext opContextHandle,
   if (programContext.getTensorPool().containsId(global_id)) {
     return programContext.getTensorPool().getRuntimeTensor(global_id);
   }
-  LOG_DEBUG("Tensor with ID ", global_id, " not found in tensor pool");
+  LOG_WARNING("Tensor with ID ", global_id, " not found in tensor pool");
   return createNullTensor();
 }
 
