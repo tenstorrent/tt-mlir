@@ -6,11 +6,10 @@
 #include <optional>
 #include <stdexcept>
 #ifdef TTMLIR_ENABLE_OPMODEL
-#include "Conversion.hpp"
-
 #include "ttmlir/Dialect/TT/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
+#include "ttmlir/OpModel/TTNN/Conversion.hpp"
 
 #include "llvm/ADT/ArrayRef.h"
 

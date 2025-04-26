@@ -4,8 +4,8 @@
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
-#include "MetalHeaders.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/OpModel/TTNN/MetalHeaders.h"
 
 #include "llvm/ADT/ArrayRef.h"
 
