@@ -361,7 +361,7 @@ def preOpGolden(binary, programContext, opContext):
 ```bash
 op_debug_str = ttrt.runtime.get_op_debug_str(opContext) : get the op debug str (ie you can parse this string to get the location of the op which is used as the key when indexing the golden tensors stored in the flatbuffer)
 op_golden_tensor = binary.get_debug_info_golden(loc) : get the golden tensor from the binary as list of float32
-op_intermediate_tensor = ttrt.runtime.get_intermediate_output_tensor(opContext, programContext) : get the currently running output tensor from device as list of float32
+op_intermediate_tensor = ttrt.runtime.get_intermediate_output_tensor(opContext, programContext) : get the currently running op's output tensor from device as a Tensor object
 ```
 
 5. A potential application for this callback function is implementing a golden callback. TTRT achieves this by first storing the golden data within the flatbuffer binary. See `python/Passes.cpp` - specifically `ttnn_to_flatbuffer_file` function for an example. This is used by `python/test_infra/ttir_builder.py` to construct flatbuffers with embedded golden data. You can store input/output/intermediate data within the flatbuffer. The choice of the map `key` for inputs/outputs is left to the golden implementor. The intermediate tensor key is derived from loc data for ttrt. External users can implement their own key/value logic. See `runtime/tools/python/ttrt/common/golden.py` for how ttrt implement the golden callback function.
