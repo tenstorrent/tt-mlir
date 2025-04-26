@@ -1782,17 +1782,15 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            debugString, locInfo);
   }
   if (auto maximumOp = dyn_cast<MaximumOp>(op); maximumOp) {
-    return createOperation(cache,
-                           createEltwiseBinaryCompositeOp(cache, maximumOp),
+    return createOperation(cache, createEltwiseBinaryOp(cache, maximumOp),
                            debugString, locInfo);
   }
   if (auto minimumOp = dyn_cast<MinimumOp>(op); minimumOp) {
-    return createOperation(cache,
-                           createEltwiseBinaryCompositeOp(cache, minimumOp),
+    return createOperation(cache, createEltwiseBinaryOp(cache, minimumOp),
                            debugString, locInfo);
   }
   if (auto powOp = dyn_cast<PowOp>(op); powOp) {
-    return createOperation(cache, createEltwiseBinaryCompositeOp(cache, powOp),
+    return createOperation(cache, createEltwiseBinaryOp(cache, powOp),
                            debugString, locInfo);
   }
   if (auto remainderOp = dyn_cast<RemainderOp>(op); remainderOp) {
