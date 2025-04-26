@@ -9,7 +9,7 @@
 #include "ttmlir/Dialect/TT/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
-#include "ttmlir/OpModel/TTNN/Conversion.hpp"
+#include "ttmlir/OpModel/TTNN/Conversion.h"
 
 #include "llvm/ADT/ArrayRef.h"
 
