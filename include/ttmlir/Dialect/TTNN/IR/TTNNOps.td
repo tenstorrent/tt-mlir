@@ -645,7 +645,7 @@ def TTNN_MaximumOp :  TTNN_ElementwiseBinaryOp<"maximum"> {
     }];
 }
 
-def TTNN_MinimumOp :  TTNN_ElementwiseBinaryOp_NoBinaryNG<"minimum"> {
+def TTNN_MinimumOp :  TTNN_ElementwiseBinaryOp<"minimum"> {
     let summary = "Eltwise minimum OP.";
     let description = [{
       Calculates minimum of input tensors' values element-wise and stores result
@@ -690,7 +690,7 @@ def TTNN_RemainderOp : TTNN_ElementwiseBinaryOp_NoBinaryNG<"remainder"> {
     }];
 }
 
-def TTNN_PowOp : TTNN_ElementwiseBinaryOp_NoBinaryNG<"pow"> {
+def TTNN_PowOp : TTNN_ElementwiseBinaryOp<"pow"> {
     let summary = "Eltwise power OP.";
     let description = [{
       Performs element-wise exponentiation of lhs tensor by rhs tensor and produces a
