@@ -30,6 +30,7 @@ table EltwiseBinaryOp {
   output_dtype: tt.target.DataType = null;
   memory_config: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
+  use_legacy: bool;
 }
 
 enum EltwiseBinaryCompositeOpType: uint32 {
