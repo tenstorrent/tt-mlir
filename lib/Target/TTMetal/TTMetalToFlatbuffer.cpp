@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
 #include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include "ttmlir/Target/TTMetal/Target.h"
+#include "ttmlir/Target/TTMetal/command_generated.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "ttmlir/Version.h"
@@ -27,6 +28,9 @@
 #include <cassert>
 #include <cstddef>
 #include <memory>
+#include <mlir/IR/BuiltinTypeInterfaces.h>
+#include <mlir/IR/BuiltinTypes.h>
+#include <vector>
 
 namespace mlir::tt::ttmetal {
 
@@ -538,10 +542,42 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
       } else if (auto getGlobalOp =
                      dyn_cast_if_present<memref::GetGlobalOp>(op);
                  getGlobalOp) {
-        cache.getOrCreate(getGlobalOp.getResult(), bufferValueToFlatbuffer, 0);
+        auto globalSymbolRef =
+            mlir::cast<mlir::FlatSymbolRefAttr>(getGlobalOp->getAttr("name"));
+        auto globalOp = mlir::cast<memref::GlobalOp>(
+            symbolTable.lookup(globalSymbolRef.getValue()));
+
+        auto globalResult = getGlobalOp.getResult();
+
+        if (auto value =
+                mlir::dyn_cast<MemRefType>(globalOp.getTypeAttr().getValue());
+            value) {
+
+          if (mlir::isa<FloatType>(value.getElementType())) {
+
+            auto initial_value_attr = mlir::cast<mlir::DenseElementsAttr>(
+                globalOp.getInitialValueAttr());
+
+            fbb.StartVector<flatbuffers::Offset<float>>(
+                initial_value_attr.getNumElements());
+
+            for (auto i = initial_value_attr.value_begin<float>();
+                 i != initial_value_attr.value_end<float>(); i++) {
+              fbb.PushElement(*i);
+            }
+            auto vector = fbb.EndVector(initial_value_attr.getNumElements());
+
+            cqBuilder.appendCommand(
+                target::metal::CreateGetGlobalCommand(
+                    fbb,
+                    cache.getOrCreate(globalResult, bufferValueToFlatbuffer, 0),
+                    vector),
+                op);
+          }
+        }
       } else if (auto funcOp = dyn_cast_if_present<func::FuncOp>(op); funcOp) {
-        // Unqualified walk will visit the root op itself last, we should ignore
-        // this.
+        // Unqualified walk will visit the root op itself last, we should
+        // ignore this.
         return;
       } else {
         llvm_unreachable("Encountered unsupported op.");
