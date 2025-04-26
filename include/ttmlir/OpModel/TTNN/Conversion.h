@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
-
+#ifndef TTMLIR_OPMODEL_TTNN_CONVERSION_H
+#define TTMLIR_OPMODEL_TTNN_CONVERSION_H
 #ifdef TTMLIR_ENABLE_OPMODEL
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -83,3 +84,4 @@ getLayoutAttrFromTensorSpec(MLIRContext *context,
 } // namespace mlir::tt::op_model::ttnn
 
 #endif // TTMLIR_ENABLE_OPMODEL
+#endif // TTMLIR_OPMODEL_TTNN_CONVERSION_H
