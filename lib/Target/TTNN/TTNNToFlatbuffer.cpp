@@ -1052,6 +1052,12 @@ createEltwiseBinaryOp(FlatbufferObjectCache &cache, EltwiseBinaryOp op) {
     type = ::tt::target::ttnn::EltwiseBinaryOpType::LogicalOr;
   } else if constexpr (std::is_same_v<EltwiseBinaryOp, LogicalXorOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryOpType::LogicalXor;
+  } else if constexpr (std::is_same_v<EltwiseBinaryOp, MaximumOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryOpType::Maximum;
+  } else if constexpr (std::is_same_v<EltwiseBinaryOp, MinimumOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryOpType::Minimum;
+  } else if constexpr (std::is_same_v<EltwiseBinaryOp, PowOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryOpType::Pow;
   } else {
     llvm_unreachable("unhandled EltwiseBinaryOp");
   }
@@ -1088,16 +1094,10 @@ createEltwiseBinaryCompositeOp(FlatbufferObjectCache &cache,
                                EltwiseBinaryCompositeOp op) {
 
   ::tt::target::ttnn::EltwiseBinaryCompositeOpType type;
-  if (std::is_same_v<EltwiseBinaryCompositeOp, MaximumOp>) {
-    type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Maximum;
-  } else if (std::is_same_v<EltwiseBinaryCompositeOp, MinimumOp>) {
-    type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Minimum;
-  } else if (std::is_same_v<EltwiseBinaryCompositeOp, RemainderOp>) {
+  if (std::is_same_v<EltwiseBinaryCompositeOp, RemainderOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Remainder;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, ScatterOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Scatter;
-  } else if (std::is_same_v<EltwiseBinaryCompositeOp, PowOp>) {
-    type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Pow;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, Atan2Op>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Atan2;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, BitwiseAndOp>) {

@@ -112,6 +112,18 @@ void run(const ::tt::target::ttnn::EltwiseBinaryOp *op,
     runEltwiseBinaryOp(op, tensorPool, ::ttnn::logical_xor);
     break;
   }
+  case ::tt::target::ttnn::EltwiseBinaryOpType::Maximum: {
+    runEltwiseBinaryOp(op, tensorPool, ::ttnn::maximum);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseBinaryOpType::Minimum: {
+    runEltwiseBinaryOp(op, tensorPool, ::ttnn::minimum);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseBinaryOpType::Pow: {
+    runEltwiseBinaryOp(op, tensorPool, ::ttnn::pow);
+    break;
+  }
   }
 }
 
