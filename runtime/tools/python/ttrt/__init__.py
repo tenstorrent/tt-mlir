@@ -14,6 +14,7 @@ ttrt.library_tweaks.set_tt_metal_home()
 
 import ttrt.binary
 from ttrt.common.api import API
+from importlib.metadata import version
 
 
 def main():
@@ -21,6 +22,9 @@ def main():
 
     parser = argparse.ArgumentParser(
         description="ttrt: a runtime tool for parsing and executing flatbuffer binaries"
+    )
+    parser.add_argument(
+        "-V", "--version", action="version", version=f"ttrt {version('ttrt')}"
     )
     subparsers = parser.add_subparsers(required=True)
 
@@ -30,8 +34,7 @@ def main():
 
     try:
         args = parser.parse_args()
-    except:
-        parser.print_help()
+    except SystemExit:
         return 1
 
     request_api = args.api(args)
