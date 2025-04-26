@@ -363,7 +363,7 @@ public:
           if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(op)) {
             if (auto conv2dConfig =
                     mlir::dyn_cast_if_present<ttnn::Conv2dConfigAttr>(
-                        opConfigAnalysis.getResult().at(op).config)) {
+                        opConfigAnalysis.getResult().at(op).opSpecificAttr)) {
               conv2dOp.setConv2dConfigAttr(conv2dConfig);
             }
           }
