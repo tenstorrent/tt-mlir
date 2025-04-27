@@ -276,19 +276,62 @@ PYBIND11_MODULE(_C, m) {
         "Get the input tensor ids.");
   m.def("get_output_tensor_ids", &tt::runtime::getOutputTensorIds,
         "Get the output tensor ids.");
-  m.def("get_input_tensors", &tt::runtime::getInputTensors,
-        "Get all live input tensors.");
-  m.def("get_output_tensors", &tt::runtime::getOutputTensors,
-        "Get all live final output tensors");
+  m.def(
+      "get_input_tensors",
+      [](tt::runtime::CallbackContext &programContextHandle) {
+        std::vector<tt::runtime::Tensor> tensors =
+            tt::runtime::getInputTensors(programContextHandle);
+        std::vector<std::optional<tt::runtime::Tensor>> results;
+        for (tt::runtime::Tensor tensor : tensors) {
+          std::optional<tt::runtime::Tensor> result =
+              tensor.handle.get() == nullptr
+                  ? std::nullopt
+                  : std::optional<tt::runtime::Tensor>(tensor);
+          results.push_back(result);
+        }
+        return results;
+      },
+      "Get all live input tensors.");
+  m.def(
+      "get_output_tensors",
+      [](tt::runtime::CallbackContext &programContextHandle) {
+        std::vector<tt::runtime::Tensor> tensors =
+            tt::runtime::getOutputTensors(programContextHandle);
+        std::vector<std::optional<tt::runtime::Tensor>> results;
+        for (tt::runtime::Tensor tensor : tensors) {
+          std::optional<tt::runtime::Tensor> result =
+              tensor.handle.get() == nullptr
+                  ? std::nullopt
+                  : std::optional<tt::runtime::Tensor>(tensor);
+          results.push_back(result);
+        }
+        return results;
+      },
+      "Get all live final output tensors");
   m.def("get_intermediate_input_tensor_ids",
         &tt::runtime::getIntermediateInputTensorIds,
         "Get the intermediate input tensor ids of an op.");
   m.def("get_intermediate_output_tensor_id",
         &tt::runtime::getIntermediateOutputTensorId,
         "Get the intermediate output tensor id of an op.");
-  m.def("get_intermediate_input_tensors",
-        &tt::runtime::getIntermediateInputTensors,
-        "Get the intermediate input tensors of an op.");
+  m.def(
+      "get_intermediate_input_tensors",
+      [](tt::runtime::OpContext &opContextHandle,
+         tt::runtime::CallbackContext &programContextHandle) {
+        std::vector<tt::runtime::Tensor> tensors =
+            tt::runtime::getIntermediateInputTensors(opContextHandle,
+                                                     programContextHandle);
+        std::vector<std::optional<tt::runtime::Tensor>> results;
+        for (tt::runtime::Tensor tensor : tensors) {
+          std::optional<tt::runtime::Tensor> result =
+              tensor.handle.get() == nullptr
+                  ? std::nullopt
+                  : std::optional<tt::runtime::Tensor>(tensor);
+          results.push_back(result);
+        }
+        return results;
+      },
+      "Get the intermediate input tensors of an op.");
   m.def(
       "get_intermediate_output_tensor",
       [](tt::runtime::OpContext &opContextHandle,
