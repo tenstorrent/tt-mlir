@@ -990,7 +990,10 @@ getIntermediateInputTensorIds(OpContext opContextHandle) {
     break;
   }
   default:
-    LOG_FATAL("Unsupported op type in getIntermediateInputTensorIds");
+    LOG_FATAL("Unsupported op type ",
+              ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
+                  opContext.type_type())],
+              " in getIntermediateInputTensorIds");
     break;
   }
   return ids;
@@ -1149,7 +1152,10 @@ std::uint32_t getIntermediateOutputTensorId(OpContext opContextHandle) {
     return -1;
   }
   default: {
-    LOG_FATAL("Unsupported op type in getIntermediateOutputTensorId");
+    LOG_FATAL("Unsupported op type ",
+              ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
+                  opContext.type_type())],
+              " in getIntermediateOutputTensorId");
   }
   }
   return -1;

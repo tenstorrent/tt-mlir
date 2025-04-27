@@ -180,13 +180,6 @@ class Run:
             help="save golden and device tensors that are compared during callback runtime",
         )
         Run.register_arg(
-            name="--save-intermediate-tensors",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="Save all intermediate tensors produced by runtime.",
-        )
-        Run.register_arg(
             name="--debugger",
             type=bool,
             default=False,
@@ -219,7 +212,7 @@ class Run:
             type=bool,
             default=False,
             choices=[True, False],
-            help="ignore check for Major/Minor/Patch between flatbuffer and TTRT, use at your own risk.",
+            help="Ignore check for Major/Minor/Patch between flatbuffer and TTRT, use at your own risk.",
         )
         Run.register_arg(
             name="--dirty-tensor-schedule",
@@ -243,25 +236,11 @@ class Run:
             help="flatbuffer binary file",
         )
         Run.register_arg(
-            name="--import-callback-file",
-            type=str,
-            default="",
-            choices=None,
-            help="file name from which to import a callback function",
-        )
-        Run.register_arg(
-            name="--import-pre-callback-function",
-            type=str,
-            default="",
-            choices=None,
-            help="function name of imported pre-op callback function from a file",
-        )
-        Run.register_arg(
-            name="--import-post-callback-function",
-            type=str,
-            default="",
-            choices=None,
-            help="function name of imported post-op callback function from a file",
+            name="--save-intermediate-tensors",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="Save all intermediate tensors produced by runtime.",
         )
 
     def __init__(self, args={}, logger=None, artifacts=None):
@@ -516,33 +495,9 @@ class Run:
                         self["--debugger"],
                     )
 
-                    pre_callback_fn = pre_op_get_callback_fn
-                    post_callback_fn = post_op_get_callback_fn
-
-                    if self["--import-callback-file"]:
-                        from importlib import import_module
-
-                        # import sys
-
-                        self.logging.debug(
-                            f"importing callback file={self['--import-callback-file']}"
-                        )
-                        # sys.path.append("/home/jgrim/wh-01-src/tt-mlir/runtime/test/python")
-                        callback_module = import_module(self["--import-callback-file"])
-                        self.logging.debug(f"importing callback module={callback_module}")
-
-                        if self["--import-pre-callback-function"]:
-                            pre_callback_fn = getattr(
-                                callback_module, self["--import-pre-callback-function"]
-                            )
-                        if self["--import-post-callback-function"]:
-                            post_callback_fn = getattr(
-                                callback_module, self["--import-post-callback-function"]
-                            )
-
                     callback_env = ttrt.runtime.DebugHooks.get(
-                        pre_callback_fn(pre_op_callback_runtime_config),
-                        post_callback_fn(post_op_callback_runtime_config),
+                        pre_op_get_callback_fn(pre_op_callback_runtime_config),
+                        post_op_get_callback_fn(post_op_callback_runtime_config),
                     )
 
                     if self["--save-artifacts"]:
@@ -630,6 +585,21 @@ class Run:
                                     Binary.Program.to_data_type(i.dtype),
                                 )
                             )
+                        # load output golden tensors
+                        if not self["--disable-golden"]:
+                            golden_outputs_torch = []
+                            for idx in range(0, len(program.output_tensors)):
+                                golden_tensor = bin.fbb.get_debug_info_golden(
+                                    f"output_{idx}"
+                                )
+                                if golden_tensor is not None:
+                                    golden_tensor_torch = torch.frombuffer(
+                                        golden_tensor,
+                                        dtype=ttrt_datatype_to_torch_dtype(
+                                            golden_tensor.dtype
+                                        ),
+                                    ).reshape(golden_tensor.shape)
+                                    golden_outputs_torch.append(golden_tensor_torch)
 
                         event = None
 
@@ -748,6 +718,42 @@ class Run:
                                         runtime_output_tensor, force=True
                                     )
 
+                                    # compare program level golden.
+                                    if (not self["--disable-golden"]) and (
+                                        i < len(golden_outputs_torch)
+                                    ):
+                                        self.logging.debug(
+                                            f"executing program level golden comparison for output_{i}"
+                                        )
+                                        output_tensor = outputs[i]
+                                        output_tensor_torch = torch.frombuffer(
+                                            bytearray(output_tensor.get_data_buffer()),
+                                            dtype=ttrt_datatype_to_torch_dtype(
+                                                output_tensor.get_dtype()
+                                            ),
+                                        ).reshape(output_tensor.get_shape())
+                                        golden_tensor_torch = golden_outputs_torch[i]
+                                        if (
+                                            golden_tensor_torch.shape
+                                            != output_tensor_torch.shape
+                                        ):
+                                            raise Exception(
+                                                f"Failed: program-level output doesn't match golden shape! golden_shape={golden_tensor_torch.shape}, output_shape={output_tensor_torch.shape}"
+                                            )
+                                        _, _, cal_pcc, _ = get_atol_rtol_pcc(
+                                            golden_tensor_torch, output_tensor_torch
+                                        )
+                                        if (
+                                            cal_pcc
+                                            < post_op_callback_runtime_config.pcc
+                                        ):
+                                            raise PCCErrorException(
+                                                f"Failed: prgram-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={post_op_callback_runtime_config.pcc}"
+                                            )
+                                        self.logging.debug(
+                                            f"Program level golden for output_{idx} matched. pcc={cal_pcc}"
+                                        )
+
                             self.logging.debug(
                                 f"finished loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
                             )
@@ -757,7 +763,6 @@ class Run:
 
                         # Compare to EmitC
                         if self["--emitc"]:
-                            print("in emitc")
                             # Create symbol string to read from dylib
                             fwd_func_name = program.program["name"]
                             fwd_func_name_len = len(fwd_func_name)
@@ -775,7 +780,6 @@ class Run:
                             )
 
                             for loop in range(self["--loops"]):
-                                print(f"in emitc iteration: {loop}")
                                 emitc_outs = ttrt.runtime.testing.run_so_program(
                                     emitc_dylib_handle,
                                     fwd_func_sym,
@@ -845,55 +849,6 @@ class Run:
                                 )
                             # check operation level golden comparison result.
                             post_op_callback_runtime_config.check_pcc()
-
-                            # compare program level golden.
-                            self.logging.debug(
-                                "executing program level golden comparison"
-                            )
-                            for idx in range(0, len(program.output_tensors)):
-                                golden_tensor = bin.fbb.get_debug_info_golden(
-                                    f"output_{idx}"
-                                )
-                                if golden_tensor is None:
-                                    self.logging.debug(
-                                        f"Skip comparing program level golden for output_{idx}"
-                                    )
-                                    continue
-                                golden_tensor_torch = torch.frombuffer(
-                                    golden_tensor,
-                                    dtype=ttrt_datatype_to_torch_dtype(
-                                        golden_tensor.dtype
-                                    ),
-                                ).reshape(golden_tensor.shape)
-
-                                for loop in range(self["--loops"]):
-                                    output_tensor = total_outputs[loop][idx]
-                                    output_tensor_torch = torch.frombuffer(
-                                        bytearray(output_tensor.get_data_buffer()),
-                                        dtype=ttrt_datatype_to_torch_dtype(
-                                            output_tensor.get_dtype()
-                                        ),
-                                    ).reshape(output_tensor.get_shape())
-                                    if (
-                                        golden_tensor_torch.shape
-                                        != output_tensor_torch.shape
-                                    ):
-                                        self.logging.error(
-                                            f"Failed: program-level output doesn't match golden shape! golden_shape={golden_tensor_torch.shape}, output_shape={output_tensor_torch.shape}"
-                                        )
-                                        raise Exception(
-                                            f"Failed: program-level output doesn't match golden shape! golden_shape={golden_tensor_torch.shape}, output_shape={output_tensor_torch.shape}"
-                                        )
-                                    _, _, cal_pcc, _ = get_atol_rtol_pcc(
-                                        golden_tensor_torch, output_tensor_torch
-                                    )
-                                    if cal_pcc < post_op_callback_runtime_config.pcc:
-                                        raise PCCErrorException(
-                                            f"Failed: prgram-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={post_op_callback_runtime_config.pcc}"
-                                        )
-                                self.logging.debug(
-                                    f"Finished comparing program level golden for output_{idx}"
-                                )
 
                             # Check cache statistics if requested
                             if self["--check-cache-stats"]:
@@ -1088,7 +1043,6 @@ class Run:
                 )
         return run_parser
 
-    @staticmethod
     class TorchInitializer:
         init_fns = sorted(["randn", "arange", "zeros", "ones"])
 

@@ -66,9 +66,7 @@ class CallbackRuntimeConfig:
 
         self.logging.debug(f"Saved memory report to={memory_report_path}")
 
-    def save_intermediates(
-        self, program_context, op_context
-    ):  # do I want to also save op info or metadata?
+    def save_intermediates(self, program_context, op_context):
         import ttrt.runtime
 
         op_intermediate_input_ids = ttrt.runtime.get_intermediate_input_tensor_ids(

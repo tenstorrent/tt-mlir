@@ -4,15 +4,11 @@
 
 import os
 import pytest
-import threading
 
-# import subprocess
 from functools import partial
 import ttrt
 import ttrt.runtime
-import ttrt.binary
 import torch
-from ttrt import API as ttrt_api
 from ttrt.common.util import *
 from ttrt.common.callback import CallbackRuntimeConfig
 from ..utils import (
@@ -22,8 +18,6 @@ from ..utils import (
     assert_pcc,
     get_torch_inputs,
     get_runtime_tensor_from_torch,
-    get_torch_output_container,
-    assert_pcc,
     get_to_layout_inputs,
 )
 

@@ -180,9 +180,11 @@ std::string getOpDebugString(OpContext opContextHandle);
 
 std::string getOpLocInfo(OpContext opContextHandle);
 
+// Retrieves TensorPool programInputIds argument.
 std::vector<std::uint32_t>
 getInputTensorIds(CallbackContext programContextHandle);
 
+// Retrieves TensorPool programOutputIds argument.
 std::vector<std::uint32_t>
 getOutputTensorIds(CallbackContext programContextHandle);
 

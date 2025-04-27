@@ -273,22 +273,22 @@ PYBIND11_MODULE(_C, m) {
   m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,
         "Get the location information for an op.");
   m.def("get_input_tensor_ids", &tt::runtime::getInputTensorIds,
-        "Get the input tensor ids for a program context.");
+        "Get the input tensor ids.");
   m.def("get_output_tensor_ids", &tt::runtime::getOutputTensorIds,
-        "Get the output tensor ids for a program context.");
+        "Get the output tensor ids.");
   m.def("get_input_tensors", &tt::runtime::getInputTensors,
-        "Get the input tensors for a program context.");
+        "Get all live input tensors.");
   m.def("get_output_tensors", &tt::runtime::getOutputTensors,
-        "Get the output tensors for a program context.");
+        "Get all live final output tensors");
   m.def("get_intermediate_input_tensor_ids",
         &tt::runtime::getIntermediateInputTensorIds,
-        "Get the intermediate input tensor ids for an op context.");
+        "Get the intermediate input tensor ids of an op.");
   m.def("get_intermediate_output_tensor_id",
         &tt::runtime::getIntermediateOutputTensorId,
-        "Get the intermediate output tensor id for an op context.");
+        "Get the intermediate output tensor id of an op.");
   m.def("get_intermediate_input_tensors",
         &tt::runtime::getIntermediateInputTensors,
-        "Get the intermediate input tensors for an op context.");
+        "Get the intermediate input tensors of an op.");
   m.def(
       "get_intermediate_output_tensor",
       [](tt::runtime::OpContext &opContextHandle,
@@ -299,7 +299,7 @@ PYBIND11_MODULE(_C, m) {
                    ? std::nullopt
                    : std::optional<tt::runtime::Tensor>(tensor);
       },
-      "Get the intermediate output tensor of the op");
+      "Get the intermediate output tensor of an op");
   m.def(
       "get_tensor",
       [](tt::runtime::CallbackContext &programContextHandle,
