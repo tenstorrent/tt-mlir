@@ -1,0 +1,1 @@
+ttmlir @ https://github.com/tenstorrent/tt-forge/releases/download/20250422060157.nightly/ttmlir-20250422060157.nightly-cp310-cp310-linux_x86_64.whl

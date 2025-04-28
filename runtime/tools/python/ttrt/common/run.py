@@ -756,7 +756,6 @@ class Run:
 
                         # Compare to EmitC
                         if self["--emitc"]:
-                            print("in emitc")
                             # Create symbol string to read from dylib
                             fwd_func_name = program.program["name"]
                             fwd_func_name_len = len(fwd_func_name)
@@ -774,7 +773,6 @@ class Run:
                             )
 
                             for loop in range(self["--loops"]):
-                                print(f"in emitc iteration: {loop}")
                                 emitc_outs = ttrt.runtime.testing.run_so_program(
                                     emitc_dylib_handle,
                                     fwd_func_sym,

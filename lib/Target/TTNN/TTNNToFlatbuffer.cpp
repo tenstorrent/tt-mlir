@@ -1389,19 +1389,12 @@ createReductionArgMaxOp(FlatbufferObjectCache &cache, ReductionOp op) {
       getOperandThroughDPSOps(op.getInput()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
-
-  auto tileShape = getTensorValueTileShape(op.getResult());
-  auto coreRangeSet = getTensorValueCoreRangeSet(cache, op.getResult());
-  auto memoryConfig =
-      op.getMemoryConfig()
-          ? memoryConfigToFlatbuffer(cache, op.getMemoryConfig().value(),
-                                     tileShape, coreRangeSet)
-          : 0;
-
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
   ::flatbuffers::Optional<int32_t> dim = toFlatbuffer(cache, op.getDim());
 
   return ::tt::target::ttnn::CreateReductionArgMaxOp(
-      *cache.fbb, in, output, dim, op.getUseMulticore(), memoryConfig);
+      *cache.fbb, in, output, dim, op.getKeepDim(), op.getUseMulticore(),
+      memoryConfig);
 }
 
 template <typename ReductionOp>

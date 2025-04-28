@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pykernel"
+description = "Python Endpoint to write TT-Metal Kernels"
+authors = [
+  { name = "Tenstorrent", email = "info@tenstorrent.com" }
+]
+requires-python = ">=3.8"
+keywords = ["pykernel", "tt-metal", "kernel", "machine learning", "tenstorrent"]
+
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence"
+]
+
+dynamic = ["dependencies", "version"]
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.package-dir]
+pykernel = "../pykernel"
+
+[tool.setuptools.packages.find]
+where = [".."]
+include = ["pykernel"]
+namespaces = false
+
+[tool.setuptools.dynamic]
+dependencies = {file = "requirements.txt"}
+version = {attr = "pykernel.__version__"}
