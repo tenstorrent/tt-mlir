@@ -33,7 +33,9 @@ class CMakeBuild(build_ext):
             shutil.rmtree(_dir)
 
     def in_ci(self) -> bool:
-        return os.environ.get("IN_CIBW_ENV") == "ON"
+        res = os.environ.get("IN_CIBW_ENV") == "ON"
+        print(res)
+        return res or True
 
     def build_(self, ext):
         build_lib = self.build_lib
