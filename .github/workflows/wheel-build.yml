@@ -71,6 +71,12 @@ jobs:
       - name: Git safe dir
         run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
 
+      - name: Install jq and curl
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq curl
+
       # Add some of John's Bash Dark Magic to Update requirements.txt if possible.
       - name: Update ttmlir Requirement
         shell: bash
@@ -110,6 +116,11 @@ jobs:
       - name: Git safe dir
         run: git config --global --add safe.directory $(pwd)
 
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
       - name: Download wheel
         uses: actions/download-artifact@v4
         with:
@@ -119,9 +130,6 @@ jobs:
       - name: Test wheel installation
         shell: bash
         run: |
-          # Don't activate env since this will attempt to install in fresh venv
-          python3 -m venv whl_test
-          source whl_test/bin/activate
           WHEEL_FILE=$(ls ./dist/pykernel-*.whl)
           echo "Installing wheel: $WHEEL_FILE"
           pip install $WHEEL_FILE
