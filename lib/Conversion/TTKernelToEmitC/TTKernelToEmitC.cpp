@@ -220,23 +220,6 @@ public:
 } // namespace
 
 namespace {
-class TTKernelToEmitCGetCBOpRewriter
-    : public OpConversionPattern<ttkernel::GetCBOp> {
-public:
-  using OpConversionPattern<ttkernel::GetCBOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttkernel::GetCBOp op, ttkernel::GetCBOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<emitc::ConstantOp>(
-        op, this->getTypeConverter()->convertType(op.getCb().getType()),
-        convertCBPort(rewriter, *ttkernel::symbolizeCBPort(op.getCbIndex())));
-    return success();
-  }
-};
-} // namespace
-
-namespace {
 template <typename SourceOp, typename Adaptor = typename SourceOp::Adaptor>
 class TTKernelToEmitCOpaqueRewriter : public OpConversionPattern<SourceOp> {
 public:
@@ -327,6 +310,24 @@ public:
 
 private:
   std::string opName;
+};
+} // namespace
+
+namespace {
+class TTKernelToEmitCGetCompileArgValRewriter
+    : public OpConversionPattern<ttkernel::GetCompileArgValOp> {
+public:
+  using OpConversionPattern<ttkernel::GetCompileArgValOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttkernel::GetCompileArgValOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<emitc::LiteralOp>(
+        op, getTypeConverter()->convertType(op.getResult().getType()),
+        (Twine("get_compile_time_arg_val(") + Twine(op.getArgIndex()) + ")")
+            .str());
+    return success();
+  }
 };
 } // namespace
 
@@ -496,7 +497,8 @@ public:
     populateMemRefToEmitCConversionPatterns(patterns, typeConverter);
 
     patterns.add<
-        TTKernelToEmitCFuncArgsRewriter, TTKernelToEmitCGetCBOpRewriter,
+        TTKernelToEmitCFuncArgsRewriter,
+        TTKernelToEmitCGetCompileArgValRewriter,
         TTKernelToEmitCPassthroughRewriter<ttkernel::CBReinterpretShapeOp>,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosBaseOp>,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosSizeOp>,
@@ -560,7 +562,6 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetWritePtrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetReadPtrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetTileSizeOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::GetCompileArgValOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrFromBankIDOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetDataFormatOp>>(
         typeConverter, funcOp.getContext());

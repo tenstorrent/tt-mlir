@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --tt-register-device --convert-ttir-to-ttmetal %s > %t.mlir
+// RUN: ttmlir-opt --tt-register-device --convert-ttir-to-ttkernel --convert-ttir-to-ttmetal %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 
 #l1_ = #tt.memory_space<l1>
@@ -10,8 +10,7 @@ module {
     %alloc_1 = memref.alloc() {alignment = 64 : i64, address = 0x15000} : memref<8x8x3x4x!tt.tile<32x32, f32>, #tt.shard<16384x4096>, #l1_>
     %stream_2 = "ttir.stream_layout"(%arg1, %alloc_1) : (memref<1x1x24x32x!tt.tile<32x32, f32>, #tt.shard<131072x4096>, #l1_>, memref<8x8x3x4x!tt.tile<32x32, f32>, #tt.shard<16384x4096>, #l1_>) -> memref<8x8x3x4x!tt.tile<32x32, f32>, #tt.view<map(4)>, #l1_>
     // CHECK: "ttmetal.enqueue_program"
-    // CHECK-SAME: {{.*}}core_ranges = [#ttmetal.core_range<0x0, 8x8>, #ttmetal.core_range<0x0, 8x8>, #ttmetal.core_range<0x0, 8x8>]
-    // CHECK-SAME: {{.*}}threads = [#ttir.thread<datamovement, @datamovement_kernel0>, #ttir.thread<datamovement, @datamovement_kernel1>, #ttir.thread<compute, @compute_kernel2>]
+    // CHECK-SAME: {{.*}}cb_ports = array<i64: 0, 1, 2>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel0, #ttmetal.core_range<0x0, 8x8>, #ttmetal.kernel_args<rt_args = [<semaphore[0]>, <semaphore[1]>, <semaphore[2]>, <semaphore[3]>] ct_args = [<cb_port[0]>, <cb_port[1]>, <cb_port[2]>]>, noc0>, #ttmetal.noc_config<@datamovement_kernel1, #ttmetal.core_range<0x0, 8x8>, #ttmetal.kernel_args<rt_args = [<semaphore[0]>, <semaphore[1]>, <semaphore[2]>, <semaphore[3]>] ct_args = [<cb_port[0]>, <cb_port[1]>, <cb_port[2]>]>, noc1>, #ttmetal.compute_config<@compute_kernel2, #ttmetal.core_range<0x0, 8x8>, #ttmetal.kernel_args<rt_args = [<semaphore[0]>, <semaphore[1]>, <semaphore[2]>, <semaphore[3]>] ct_args = [<cb_port[0]>, <cb_port[1]>, <cb_port[2]>]>, hifi4, false, false, [default]>]
     ttir.generic {grid = #tt.grid<8x8>, indexing_maps = [], iterator_types = [], threads = [#ttir.thread<datamovement, @datamovement_kernel0>, #ttir.thread<datamovement, @datamovement_kernel1>, #ttir.thread<compute, @compute_kernel2>]}
         ins(%stream, %stream_2 : memref<8x8x1x3x!tt.tile<32x32, f32>, #tt.view<map(4)>, #l1_>, memref<8x8x3x4x!tt.tile<32x32, f32>, #tt.view<map(4)>, #l1_>)
         outs(%alloc : memref<8x8x1x4x!tt.tile<32x32, f32>, #l1_>)
