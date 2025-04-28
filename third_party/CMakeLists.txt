@@ -167,7 +167,7 @@ install(
     ${CPM_SOURCE_CACHE}/magic_enum
     ${CPM_SOURCE_CACHE}/nlohmann_json
     ${CPM_SOURCE_CACHE}/reflect
-  DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal/.cpmcache
+  DESTINATION tt-metal/.cpmcache
   COMPONENT TTNNStandalone
   EXCLUDE_FROM_ALL
 )
@@ -175,7 +175,7 @@ install(
 install(
   DIRECTORY
     ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/third_party
-  DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal/tt_metal
+  DESTINATION tt-metal/tt_metal
   COMPONENT TTNNStandalone
   EXCLUDE_FROM_ALL
 )
@@ -183,7 +183,7 @@ install(
 install(
   DIRECTORY
     ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_stl
-  DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal
+  DESTINATION tt-metal
   COMPONENT TTNNStandalone
   EXCLUDE_FROM_ALL
 )
