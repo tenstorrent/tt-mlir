@@ -1,12 +1,16 @@
 FROM quay.io/pypa/manylinux_2_34_x86_64
 SHELL ["/bin/bash", "-c"]
 
+# Force dnf to stop being mean
+RUN FILES=(/etc/yum.repos.d/almalinux*.repo) && \
+    sed --in-place -e 's/^mirrorlist=/# mirrorlist=/g' -e "s/^# baseurl=/baseurl=/" "${FILES[@]}"
+
 # Install dependencies
 RUN dnf check-update || true
-RUN dnf install -y epel-release
+RUN dnf install --refresh -y epel-release
 RUN dnf config-manager --set-enabled crb
 
-RUN dnf install -y \
+RUN dnf install --refresh -y \
     gcc-c++ make cmake ninja-build pkgconf-pkg-config ccache \
     clang lld \
     git wget curl jq sudo patch unzip \
