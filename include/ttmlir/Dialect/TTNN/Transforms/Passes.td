@@ -134,9 +134,11 @@ def TTNNModifySignaturesForDylib: Pass<"ttnn-modify-signatures-for-dylib", "::ml
 }
 
 def TTNNPrepareConv2dWeights : Pass<"ttnn-prepare-conv2d-weights", "::mlir::ModuleOp"> {
-  let summary = "Optimize Conv2d ops by inserting PrepareConv2dWeights before them";
+  let summary = "Optimize Conv2d ops by inserting PrepareConv2dWeights before them.";
   let description = [{
-    This pass inserts a PrepareConv2dWeights op that preprocesses the weights used by Conv2d operations.
+    This pass inserts a PrepareConv2dWeights operation before each Conv2d op which preprocess the weights used by Conv2d operations.
+    The PrepareConv2dWeights op can be then const-evaled, leading to improved performance. In order to use this pass,
+    the project must be built with the op model library by setting -DTTMLIR_ENABLE_OP_MODEL=ON during the build process.
   }];
 }
 
