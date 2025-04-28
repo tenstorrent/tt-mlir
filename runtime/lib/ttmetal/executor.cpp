@@ -200,6 +200,11 @@ void CQExecutor::execute(target::metal::HostAllocCommand const *command) {
   auto data = std::shared_ptr<void>(std::malloc(size), std::free);
   assert(data);
 
+  if (command->data() != nullptr) {
+    assert(command->data()->size() == size);
+    std::memcpy(data.get(), command->data()->data(), size);
+  }
+
   std::shared_ptr<MetalTensor> tensor = std::make_shared<MetalTensor>(desc);
   auto [_, inserted] = hostBuffers.try_emplace(
       command->dst()->global_id(), static_pointer_cast<void>(tensor), data,

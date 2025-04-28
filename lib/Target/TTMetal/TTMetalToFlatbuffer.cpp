@@ -560,12 +560,16 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
             auto vector = fbb.EndVector(initial_value_attr.getNumElements());
 
             cqBuilder.appendCommand(
-                target::metal::CreateGetGlobalCommand(
+                target::metal::CreateHostAllocCommand(
                     fbb,
                     cache.getOrCreate(globalResult, bufferValueToFlatbuffer, 0),
                     vector),
                 op);
+          } else {
+            assert(false);
           }
+        } else {
+          assert(false);
         }
       }
     });

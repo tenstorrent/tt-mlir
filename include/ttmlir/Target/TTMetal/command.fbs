@@ -6,6 +6,7 @@ namespace tt.target.metal;
 
 table HostAllocCommand {
   dst: BufferRef;
+  data: [ubyte];
 }
 
 table ReturnCommand {
@@ -59,11 +60,6 @@ table EventQueryCommand {
 table FinishCommand {
 }
 
-table GetGlobalCommand {
-  dst: BufferRef;
-  data: [ubyte];
-}
-
 union CommandType {
   HostAllocCommand,
   ReturnCommand,
@@ -78,7 +74,6 @@ union CommandType {
   EventSynchronizeCommand,
   EventQueryCommand,
   FinishCommand,
-  GetGlobalCommand,
 }
 
 table Command {
