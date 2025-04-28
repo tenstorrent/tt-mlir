@@ -202,6 +202,11 @@ void CQExecutor::execute(const target::metal::HostAllocCommand *command) {
     LOG_FATAL("HostAllocCommand: Failed to allocate host memory.");
   }
 
+  if (command->data() != nullptr) {
+    assert(command->data()->size() == size);
+    std::memcpy(data.get(), command->data()->data(), size);
+  }
+
   std::shared_ptr<MetalTensor> tensor = std::make_shared<MetalTensor>(desc);
   auto [_, inserted] = hostBuffers.try_emplace(
       command->dst()->global_id(), static_pointer_cast<void>(tensor), data,
