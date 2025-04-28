@@ -7,10 +7,10 @@
 
 #include <string>
 
-std::string compile_cpp_to_so(const std::string &cpp_source,
-                              const std::string &tmp_path_dir,
-                              const std::string &metal_src_dir,
-                              const std::string &metal_lib_dir,
-                              const std::string &standalone_dir);
+std::string compileCppToSo(const std::string &cppSource,
+                           const std::string &tmpPathDir,
+                           const std::string &metalSrcDir,
+                           const std::string &metalLibDir,
+                           const std::string &standaloneDir);
 
 #endif // TTMLIR_TOOLS_TTNN_STANDALONE_COMPILE_SO_HPP
