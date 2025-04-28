@@ -1866,19 +1866,34 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
   ::mlir::RankedTensorType weightType = getWeight().getType();
   ::mlir::RankedTensorType outputType = getOutput().getType();
 
-  // inputType can have any rank
-
-  // weightType must have rank of 2: (dictionary_size, embedding_size)
-  //
-  if (weightType.getRank() != 2) {
-    return emitOpError("Weight must be a 2D tensor");
+  // Input tensor must be at most 2D tensor.
+  if (inputType.getRank() > 2) {
+    return emitOpError("input must be at most a 2D tensor, got ")
+           << inputType.getRank() << "D ranked tensor";
   }
 
-  // outputType must have rank of inputType + and additional dimension of
-  // embedding_size
-  //
-  if (outputType.getRank() - inputType.getRank() != 1) {
-    return emitOpError("Output must have one dimension more than input");
+  // Weight tensor must be effectively 2D tensor. It means that it must have
+  // shape of (1, 1,..., 1, N, M) where N is the dictionary size and M is the
+  // embedding size.
+  if (weightType.getRank() < 2) {
+    return emitOpError("weight must be at least 2D tensor, got ")
+           << weightType.getRank() << "D ranked tensor";
+  }
+  if (std::any_of(weightType.getShape().begin(),
+                  weightType.getShape().end() - 2,
+                  [](int64_t dim) { return dim != 1; })) {
+    return emitOpError("weight must be effectively 2D tensor");
+  }
+
+  // Output tensor is expected to have the shape of (*inputTensorShape,
+  // embeddingSize).
+  int64_t embeddingSize = weightType.getDimSize(weightType.getRank() - 1);
+  llvm::SmallVector<int64_t, 3> expectedOutputShape(inputType.getShape());
+  expectedOutputShape.push_back(embeddingSize);
+
+  if (!llvm::equal(expectedOutputShape, outputType.getShape())) {
+    return emitOpError() << "expected output shape of (" << expectedOutputShape
+                         << ") but got (" << outputType.getShape() << ")";
   }
 
   return success();
@@ -3864,7 +3879,7 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 ::mlir::LogicalResult mlir::tt::ttir::ArgMaxOp::verify() {
   auto dimArg = getDimArg();
   if (dimArg && dimArg->size() > 1) {
-    return getOperation()->emitOpError()
+    return emitOpError()
            << "can only reduce one dimension; number of specified dimensions: "
            << dimArg->size() << ".";
   }

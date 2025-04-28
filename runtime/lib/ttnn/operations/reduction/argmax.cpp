@@ -19,7 +19,7 @@ runReductionArgMaxOp(::tt::target::ttnn::ReductionArgMaxOp const *op,
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
 
   ::ttnn::Tensor out = ::ttnn::argmax(in, op->dim(),
-                                      /*keepdim=*/false,
+                                      /*keepdim=*/op->keep_dim(),
                                       /*sub_core_grids=*/std::nullopt,
                                       /*use_multicore=*/op->use_multicore(),
                                       /*memory_config_arg=*/outputMemoryConfig,

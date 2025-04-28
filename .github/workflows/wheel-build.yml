@@ -5,7 +5,7 @@ on:
   workflow_call:
 
 jobs:
-  build-wheel:
+  build-ttmlir-wheel:
     timeout-minutes: 60
     name: Build ttmlir Python Wheel
     runs-on: tt-beta-ubuntu-2204-large
@@ -47,8 +47,93 @@ jobs:
           path: ${{ steps.strings.outputs.wheel-output-dir }}/*.whl
           if-no-files-found: error
 
-  test-wheel-install:
-    needs: build-wheel
+  build-pykernel-wheel:
+    timeout-minutes: 60
+    name: Build pykernel Python Wheel
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Maximize space
+        uses: tenstorrent/tt-github-actions/.github/actions/maximize_space@main
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set reusable strings
+        id: strings
+        shell: bash
+        run: |
+          echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
+          echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
+          echo "wheel-output-dir=$(pwd)/dist" >> "$GITHUB_OUTPUT"
+
+      - name: Git safe dir
+        run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
+
+      # Add some of John's Bash Dark Magic to Update requirements.txt if possible.
+      - name: Update ttmlir Requirement
+        shell: bash
+        run: |
+          URL=$(curl -s https://api.github.com/repos/tenstorrent/tt-forge/releases | jq -r 'map(select(.prerelease)) | first | .assets | map(select(.browser_download_url | contains("mlir"))) | .[].browser_download_url')
+          echo "ttmlir @ $URL" > python/pykernel/requirements.txt
+          echo "Updated requirements.txt with: $URL"
+
+      - name: Build pykernel wheel
+        shell: bash
+        run: |
+          source env/activate
+          pip install "pip<24"
+          mkdir -p ${{ steps.strings.outputs.wheel-output-dir }}
+          cd python
+          python -m pip wheel ./pykernel --wheel-dir ${{ steps.strings.outputs.wheel-output-dir }} --verbose
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pykernel-wheel
+          path: ${{ steps.strings.outputs.wheel-output-dir }}/*.whl
+          if-no-files-found: error
+
+
+  test-pykernel-wheel-install:
+    needs: build-pykernel-wheel
+    timeout-minutes: 30
+    name: Test pykernel Wheel Installation
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Git safe dir
+        run: git config --global --add safe.directory $(pwd)
+
+      - name: Download wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: pykernel-wheel
+          path: ./dist
+
+      - name: Test wheel installation
+        shell: bash
+        run: |
+          # Don't activate env since this will attempt to install in fresh venv
+          python3 -m venv whl_test
+          source whl_test/bin/activate
+          WHEEL_FILE=$(ls ./dist/pykernel-*.whl)
+          echo "Installing wheel: $WHEEL_FILE"
+          pip install $WHEEL_FILE
+
+          # Test the ttmlir installation
+          python -c "from ttmlir import ir; print('Imported ttmlir & Created CTX: ', ir.Context())"
+
+          # Test the pykernel installation
+          python -c "import pykernel; print('Imported pykernel:', pykernel)"
+
+  test-ttmlir-wheel-install:
+    needs: build-ttmlir-wheel
     timeout-minutes: 30
     name: Test ttmlir Wheel Installation
     runs-on: ubuntu-latest

@@ -759,6 +759,7 @@ def TTNN_ArgMaxOp : TTNN_Op<"argmax"> {
     Parameters:
       - `input`: The input tensor.
       - `dim`: Specifies the dimension along which the argmax is applied.
+      - `keep_dim`: If set to true, the output tensor will have the same number of dimensions as the input tensor.
       - `use_multicore`: Whether to use multiple cores or not.
 
     IR usage:
@@ -784,6 +785,7 @@ def TTNN_ArgMaxOp : TTNN_Op<"argmax"> {
 
   let arguments = (ins AnyRankedTensor:$input,
                        OptionalAttr<I32Attr>:$dim,
+                       DefaultValuedAttr<BoolAttr, "false">:$keep_dim,
                        BoolAttr:$use_multicore,
                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
