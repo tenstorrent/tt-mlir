@@ -4,6 +4,7 @@
 
 #include <numeric>
 
+#include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/types.h"
 
 #include <pybind11/functional.h>
@@ -33,7 +34,11 @@ PYBIND11_MODULE(_C, m) {
       .def("as_json", &tt::runtime::Binary::asJson)
       .def("store", &tt::runtime::Binary::store)
       .def("get_debug_info_golden", &::tt::runtime::Binary::getDebugInfoGolden,
-           py::return_value_policy::reference);
+           py::return_value_policy::reference)
+      .def(
+          "get_tensor_cache",
+          [](tt::runtime::Binary &bin) { return bin.getCache(); },
+          py::return_value_policy::reference);
   py::class_<tt::runtime::SystemDesc>(m, "SystemDesc")
       .def_property_readonly("version", &tt::runtime::SystemDesc::getVersion)
       .def_property_readonly("ttmlir_git_hash",
@@ -48,8 +53,9 @@ PYBIND11_MODULE(_C, m) {
     std::shared_ptr<void> *binary =
         static_cast<std::shared_ptr<void> *>(capsule.get_pointer());
     return tt::runtime::Binary(
-        tt::runtime::Flatbuffer(*binary)
-            .handle); // Dereference capsule, and then dereference shared_ptr*
+        tt::runtime::Flatbuffer(*binary).handle); // Dereference capsule,
+                                                  // and then dereference
+                                                  // shared_ptr*
   });
   m.def("load_system_desc_from_path", &tt::runtime::SystemDesc::loadFromPath);
 
@@ -129,4 +135,20 @@ PYBIND11_MODULE(_C, m) {
             false                      /* read only */
         );
       });
+
+  py::class_<tt::runtime::TensorCache,
+             std::shared_ptr<tt::runtime::TensorCache>>(m, "TensorCache")
+      .def(py::init<>())
+      .def("clear", &tt::runtime::TensorCache::clear)
+      .def("size", &tt::runtime::TensorCache::size)
+      .def("get_stats", &tt::runtime::TensorCache::getStats)
+      .def(
+          "remove_program",
+          [](tt::runtime::TensorCache &cache, const int meshId,
+             size_t programIndex) {
+            std::string outerKey =
+                tt::runtime::generateCacheOuterKey(meshId, programIndex);
+            cache.remove(outerKey);
+          },
+          "Remove cache entries for a specific device id and program index");
 }

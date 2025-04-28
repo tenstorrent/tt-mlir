@@ -12,6 +12,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/IR/Builders.h"
@@ -40,16 +41,6 @@ public:
     mlir::tt::registerDevice(module.get());
   }
 
-  // helper function
-  llvm::SmallVector<int64_t>
-  GetTensorShapeInTiles(const llvm::ArrayRef<int64_t> &tensorShape) {
-    llvm::SmallVector<int64_t> shapeInTiles;
-    for (const auto &dim : tensorShape) {
-      shapeInTiles.push_back(ttmlir::utils::alignUp(dim, 32L));
-    }
-    return shapeInTiles;
-  }
-
   static llvm::SmallVector<int64_t> GetPhysicalGridSize() {
     llvm::SmallVector<int64_t> grid = {gridShapeHwN300[0], gridShapeHwN300[1]};
     return grid;
@@ -62,21 +53,19 @@ public:
       const mlir::tt::ttnn::TensorMemoryLayout &tensorMemoryLayout,
       const llvm::ArrayRef<int64_t> &gridPhyCores = GetPhysicalGridSize()) {
 
-    // Usually tensors are of rank 2, but in case of MaxPool2D or Conv2D ops, it
-    // is 4. Anyway this tensor will be flattened to {1, 1, Y, X} shape.
-    assert(tensorShape.size() >= 2);
-    for (size_t i = 0; i < tensorShape.size() - 2; i++) {
-      assert(tensorShape[i] == 1);
+    auto tilePaddedShape =
+        mlir::tt::ttnn::utils::getTilePaddedShape(tensorShape);
+    size_t rank = tilePaddedShape.size();
+    auto physicalShape =
+        llvm::SmallVector<int64_t, 2>({1, tilePaddedShape[rank - 1]});
+    for (size_t i = 0; i < rank - 1; ++i) {
+      physicalShape[0] *= tilePaddedShape[i];
     }
-    int32_t tensorRank = tensorShape.size();
-    int64_t tensorSizeX = tensorShape[tensorRank - 1];
-    int64_t tensorSizeY = tensorShape[tensorRank - 2];
-
-    llvm::SmallVector<int64_t> tensorShapeTiles =
-        GetTensorShapeInTiles({tensorSizeY, tensorSizeX});
+    auto shapeInTiles = llvm::SmallVector<int64_t, 2>(
+        {physicalShape[0] / TILE_HEIGHT, physicalShape[1] / TILE_WIDTH});
 
     int64_t tensorTiles = 1;
-    for (const auto &dim : tensorShapeTiles) {
+    for (const auto &dim : physicalShape) {
       tensorTiles *= dim;
     }
 
@@ -86,9 +75,9 @@ public:
     case mlir::tt::ttnn::TensorMemoryLayout::HeightSharded:
       return {std::min(tensorTiles, gridPhyCores[0] * gridPhyCores[1]), 1};
     case mlir::tt::ttnn::TensorMemoryLayout::BlockSharded:
-      assert(tensorShapeTiles.size() == 2);
-      return {std::min(gridPhyCores[0], tensorShapeTiles[0]),
-              std::min(gridPhyCores[1], tensorShapeTiles[1])};
+      assert(shapeInTiles.size() == 2);
+      return {std::min(gridPhyCores[0], shapeInTiles[0]),
+              std::min(gridPhyCores[1], shapeInTiles[1])};
     default:
       return {gridPhyCores[0], gridPhyCores[1]};
     }
@@ -125,14 +114,27 @@ public:
       const llvm::ArrayRef<int64_t> &tensorShape,
       const mlir::tt::ttnn::BufferType &bufferType,
       const mlir::tt::ttnn::TensorMemoryLayout &tensorMemoryLayout,
-      const llvm::ArrayRef<int64_t> &gridShape = GetPhysicalGridSize()) {
+      const std::optional<llvm::SmallVector<int64_t>> &virtualGrid =
+          std::nullopt,
+      const llvm::SmallVector<int64_t> physicalGrid = GetPhysicalGridSize(),
+      const std::optional<mlir::FloatType> dtype = std::nullopt) {
+    const auto &virtualGridSelected =
+        virtualGrid.has_value()
+            ? virtualGrid.value()
+            : GetVirtualGridShape(tensorShape, tensorMemoryLayout);
+
+    auto memLayoutAttr = bufferType == mlir::tt::ttnn::BufferType::SystemMemory
+                             ? mlir::tt::ttnn::TensorMemoryLayoutAttr{}
+                             : mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
+                                   &context, tensorMemoryLayout);
+    const auto dtypeSelected =
+        dtype.has_value() ? dtype.value() : builder.getBF16Type();
+
     return mlir::tt::ttnn::TTNNLayoutAttr::get(
-        &context, tensorShape, builder.getBF16Type(), bufferType,
-        CreateGrid(&context, tensorMemoryLayout,
-                   GetVirtualGridShape(tensorShape, tensorMemoryLayout),
-                   GetPhysicalGridSize()),
-        mlir::tt::ttnn::TensorMemoryLayoutAttr::get(&context,
-                                                    tensorMemoryLayout));
+        &context, tensorShape, dtypeSelected, bufferType,
+        CreateGrid(&context, tensorMemoryLayout, virtualGridSelected,
+                   physicalGrid),
+        memLayoutAttr);
   }
 
   mlir::tt::GridAttr
@@ -177,6 +179,8 @@ public:
 
   static constexpr std::array<int64_t, 2> gridShapeHwN300 = {8, 8};
   static constexpr size_t workerCoresN300 = 64;
+  static constexpr int64_t TILE_HEIGHT = 32;
+  static constexpr int64_t TILE_WIDTH = 32;
 };
 
 #endif // UNITTESTS_OPMODEL_TTNN_OPMODELFIXTURE_H

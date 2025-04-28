@@ -18,6 +18,7 @@ from ..utils import (
     get_torch_inputs,
     get_runtime_tensor_from_torch,
     get_torch_output_container,
+    get_to_layout_inputs,
 )
 
 
@@ -26,6 +27,7 @@ def worker_fn(binary, torch_inputs, mesh_device, results):
     runtime_inputs = [
         get_runtime_tensor_from_torch(torch_input) for torch_input in torch_inputs
     ]
+    runtime_inputs = get_to_layout_inputs(mesh_device, runtime_inputs, binary, 0)
     torch_output = get_torch_output_container(program)
     runtime_output = ttrt.runtime.submit(mesh_device, binary.fbb, 0, runtime_inputs)
     output_host = ttrt.runtime.to_host(runtime_output[0], untilize=True)[0]

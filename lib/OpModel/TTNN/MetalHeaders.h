@@ -52,7 +52,7 @@
 #define FMT_HEADER_ONLY
 
 #include "tt-metalium/buffer.hpp"
-#include "tt-metalium/buffer_constants.hpp"
+#include "tt-metalium/buffer_types.hpp"
 #include "tt-metalium/core_coord.hpp"
 #include "tt-metalium/device_impl.hpp"
 #include "tt-metalium/host_api.hpp"
@@ -68,6 +68,7 @@ using IDevice = ::tt::tt_metal::IDevice;
 #include "ttnn/graph/graph_query_op_runtime.hpp"
 #include "ttnn/graph/graph_trace_utils.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
+#include "ttnn/operations/conv/conv2d/prepare_conv2d_weights.hpp"
 #include "ttnn/operations/copy.hpp"
 #include "ttnn/operations/core/core.hpp"
 #include "ttnn/operations/data_movement/reshape_view/reshape.hpp"

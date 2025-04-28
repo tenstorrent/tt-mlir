@@ -234,7 +234,7 @@ PYBIND11_MODULE(_C, m) {
         "Get the layout of the input tensor");
   m.def(
       "submit",
-      [](::tt::runtime::Device device, ::tt::runtime::Binary executable,
+      [](::tt::runtime::Device device, ::tt::runtime::Binary &executable,
          std::uint32_t programIndex, std::vector<::tt::runtime::Tensor> &inputs)
           -> std::vector<::tt::runtime::Tensor> {
         return ::tt::runtime::submit(device, executable, programIndex, inputs);

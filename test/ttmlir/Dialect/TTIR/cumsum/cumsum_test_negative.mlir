@@ -3,9 +3,9 @@
 
 module attributes {} {
   func.func public @test_moreh_cumsum_neg_dim(%arg0: tensor<1x32x128x128xbf16>) -> tensor<1x32x128x128xbf16> {
-    // CHECK: error: 'ttir.cumsum' op specified dimension should be between 0 and 3, but got: -2.
+    // CHECK: error: 'ttir.cumsum' op specified dimension should be between -4 and 3, but got: -6
     %0 = ttir.empty() : tensor<1x32x128x128xbf16>
-    %1 = "ttir.cumsum"(%arg0, %0) <{dim = -2 : i64}> : (tensor<1x32x128x128xbf16>, tensor<1x32x128x128xbf16>) -> tensor<1x32x128x128xbf16>
+    %1 = "ttir.cumsum"(%arg0, %0) <{dim = -6 : i64}> : (tensor<1x32x128x128xbf16>, tensor<1x32x128x128xbf16>) -> tensor<1x32x128x128xbf16>
     return %1 : tensor<1x32x128x128xbf16>
   }
 }
@@ -14,7 +14,7 @@ module attributes {} {
 
 module attributes {} {
   func.func public @test_moreh_cumsum_high_dim(%arg0: tensor<1x32x128xbf16>) -> tensor<1x32x128xbf16> {
-    // CHECK: error: 'ttir.cumsum' op specified dimension should be between 0 and 2, but got: 4.
+    // CHECK: error: 'ttir.cumsum' op specified dimension should be between -3 and 2, but got: 4
     %0 = ttir.empty() : tensor<1x32x128xbf16>
     %1 = "ttir.cumsum"(%arg0, %0) <{dim = 4 : i64}> : (tensor<1x32x128xbf16>, tensor<1x32x128xbf16>) -> tensor<1x32x128xbf16>
     return %1 : tensor<1x32x128xbf16>

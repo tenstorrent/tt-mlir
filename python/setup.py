@@ -85,7 +85,7 @@ date = (
     .decode("ascii")
     .strip()
 )
-version = "0.1." + date + "+dev." + short_hash
+version = "0.1." + date + ".dev0"
 
 # Only the ttmlir package relies on the CMake build process
 ttmlir_c = TTExtension("ttmlir")

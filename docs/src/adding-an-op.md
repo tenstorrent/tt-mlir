@@ -239,7 +239,7 @@ A few things to point out specifically regarding tt-mlir dialects:
 - `tt.system_desc`: This is a 1-1 mapping to the `SystemDesc` flatbuffer schema
   that is used to describe the system configuration.  This is a required
   attribute tagged on the top level module for all tt-mlir dialects.
-- Pass `--ttir-layout` is a prerequisite before running `convert-ttir-to-ttnn`.
+- Pass `--ttnn-layout` is a prerequisite before running `convert-ttir-to-ttnn`.
   This pass is responsible for converting the input tensors to device memory
   space and tile layout before lowering to TTNN.
 - This test is asserting that `ttir.matmul` converts to `ttnn.matmul`.

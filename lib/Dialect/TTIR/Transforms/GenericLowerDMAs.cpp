@@ -160,8 +160,7 @@ public:
                                ArrayRef<int64_t> shardShape) {
     auto [lbs, ubs, steps] = getLoopBounds(builder, loc, shardShape);
 
-    auto initTx = builder.create<ttir::NullTxOp>(dma.getLoc(),
-                                                 builder.getType<MemTxType>());
+    auto initTx = builder.create<ttir::NullTxOp>(dma.getLoc());
     scf::LoopNest loopNest = scf::buildLoopNest(
         builder, loc, lbs, ubs, steps, ValueRange(initTx),
         [&](OpBuilder &builder, Location loc, ValueRange iters,
@@ -207,10 +206,14 @@ public:
                          memrefShardShape, dmaIndexingMap, gridIndexingMap);
 
     DeviceAttr device = genericParent.getDevice();
+    std::pair<MemRefType, AffineMap> underlyingMemrefAndView =
+        mlir::cast<ttir::ViewOpInterface>(dma.getSrc().getDefiningOp())
+            .applyViews();
     // TODO(#1909) Once we have an allocation pass, we need to lookup the page
     // size instead of calculating it here.
     size_t pageSize = getMemRefShardSizeBytes(memref);
-    AffineMap memoryMap = device.getMemoryMap(memref, pageSize);
+    AffineMap memoryMap =
+        device.getMemoryMap(underlyingMemrefAndView, pageSize);
     size_t elemSizeBytes = getElementSizeBytes(memref);
     size_t coalescingFactor =
         calculateCoalescingFactor(memoryMap, memrefGridShape, memrefShardShape,

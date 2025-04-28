@@ -11,7 +11,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 
-#include <mlir/IR/BuiltinTypes.h>
+#include "mlir/IR/BuiltinTypes.h"
 #include <optional>
 
 namespace mlir::tt::ttnn::wa {
@@ -285,6 +285,10 @@ public:
 
   // Create workarounds for arange op.
   static TTNNOperandsWorkarounds createArangeOpOperandsWorkarounds();
+
+  // Create workarounds for reduction op operands.
+  static TTNNOperandsWorkarounds
+  createReductionOpOperandsWorkarounds(mlir::Operation *op);
 };
 
 } // namespace mlir::tt::ttnn::wa

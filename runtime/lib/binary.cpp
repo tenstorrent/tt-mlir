@@ -7,6 +7,7 @@
 #include "flatbuffers/idl.h"
 
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/Common/system_desc_bfbs_generated.h"
@@ -17,6 +18,28 @@
 #include "ttmlir/Target/TTNN/binary_bfbs_generated.h"
 
 namespace tt::runtime {
+
+Binary::Binary(Flatbuffer fb)
+    : Flatbuffer(fb), cache(std::make_shared<TensorCache>()) {}
+
+Binary::Binary(std::shared_ptr<void> handle)
+    : Flatbuffer(handle), cache(std::make_shared<TensorCache>()) {}
+
+Binary &Binary::operator=(Flatbuffer fb) {
+  this->handle = fb.handle;
+  if (!cache) {
+    cache = std::make_shared<TensorCache>();
+  }
+  return *this;
+}
+
+Binary &Binary::operator=(std::shared_ptr<void> handle) {
+  this->handle = handle;
+  if (!cache) {
+    cache = std::make_shared<TensorCache>();
+  }
+  return *this;
+}
 
 static std::string asJson(void const *fbb, uint8_t const *binarySchema,
                           size_t schemaSize) {

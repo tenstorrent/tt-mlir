@@ -5,6 +5,7 @@ endif()
 
 set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/include/tt/runtime/ttnn/operations/utils.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/cache/load_cached.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_gather.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/reduce_scatter.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/collective_permute.cpp

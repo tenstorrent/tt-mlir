@@ -6,3 +6,4 @@ wheel
 setuptools
 black
 pre-commit
+pydantic

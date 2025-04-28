@@ -67,10 +67,6 @@ static bool insideEnqueueProgramOpRegion(mlir::Operation *op) {
 }
 
 static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
-  if (tilizedCB.getPort() == scalarCB.getPort()) {
-    return "Input circular buffer port and output circular buffer "
-           "port must be different";
-  }
   if (mlir::isa<tt::TileType>(scalarCB.getMemref().getElementType())) {
     return "Input to TilizeOp or Output to UntilizeOp must have scalar "
            "element type";
@@ -140,5 +136,34 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
   }
   return success();
 }
+
+::mlir::LogicalResult CBReinterpretShapeOp::verify() {
+  auto inCBType = getInput().getType();
+  auto outCBType = getOutput().getType();
+  if (inCBType.getPort() != outCBType.getPort()) {
+    return emitOpError("input circular buffer port and output circular buffer "
+                       "port must be the same");
+  }
+
+  if (inCBType.getAddress() != outCBType.getAddress()) {
+    return emitOpError("input circular buffer address and output circular "
+                       "buffer address must be the same");
+  }
+
+  if (inCBType.getMemref().getElementType() !=
+      outCBType.getMemref().getElementType()) {
+    return emitOpError("input circular buffer element type and output "
+                       "circular buffer element type must be the same");
+  }
+
+  if (inCBType.getNumBuffers() != outCBType.getNumBuffers()) {
+    return emitOpError("input circular buffer number of buffers and output "
+                       "circular buffer number of buffers must be the same");
+  }
+
+  return success();
+}
+
+OpFoldResult GetCBOp::fold(FoldAdaptor) { return getCbIndexAttr(); }
 
 } // namespace mlir::tt::ttkernel

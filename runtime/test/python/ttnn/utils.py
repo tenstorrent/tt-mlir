@@ -118,3 +118,15 @@ def assert_pcc(x, y, threshold=0.99):
     combined = torch.stack([x.flatten(), y.flatten()])
     pcc = torch.corrcoef(combined)[0, 1].item()
     assert pcc >= threshold, f"Expected pcc {pcc} >= {threshold}"
+
+
+def get_to_layout_inputs(device, runtime_inputs, binary, program_index):
+    input_layouts = [
+        ttrt.runtime.get_layout(binary.fbb, program_index, i)
+        for i in range(len(runtime_inputs))
+    ]
+    runtime_inputs_with_layout = [
+        ttrt.runtime.to_layout(runtime_input, device, layout)
+        for runtime_input, layout in zip(runtime_inputs, input_layouts)
+    ]
+    return runtime_inputs_with_layout

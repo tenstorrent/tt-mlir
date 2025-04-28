@@ -9,28 +9,28 @@
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
-#include <llvm/ADT/DenseMap.h>
-#include <llvm/ADT/SmallVector.h>
-#include <llvm/ADT/StringRef.h>
-#include <llvm/Support/LogicalResult.h>
-#include <llvm/Support/raw_ostream.h>
-#include <mlir/Conversion/ArithToEmitC/ArithToEmitC.h>
-#include <mlir/Conversion/MemRefToEmitC/MemRefToEmitC.h>
-#include <mlir/Conversion/SCFToEmitC/SCFToEmitC.h>
-#include <mlir/Dialect/EmitC/IR/EmitC.h>
-#include <mlir/Dialect/Func/IR/FuncOps.h>
-#include <mlir/Dialect/MemRef/IR/MemRef.h>
-#include <mlir/Dialect/SCF/IR/SCF.h>
-#include <mlir/IR/Builders.h>
-#include <mlir/IR/BuiltinOps.h>
-#include <mlir/IR/IRMapping.h>
-#include <mlir/IR/Location.h>
-#include <mlir/IR/Operation.h>
-#include <mlir/IR/Value.h>
-#include <mlir/Pass/PassManager.h>
-#include <mlir/Support/LLVM.h>
-#include <mlir/Target/Cpp/CppEmitter.h>
-#include <mlir/Transforms/DialectConversion.h>
+#include "mlir/Conversion/ArithToEmitC/ArithToEmitC.h"
+#include "mlir/Conversion/MemRefToEmitC/MemRefToEmitC.h"
+#include "mlir/Conversion/SCFToEmitC/SCFToEmitC.h"
+#include "mlir/Dialect/EmitC/IR/EmitC.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/IRMapping.h"
+#include "mlir/IR/Location.h"
+#include "mlir/IR/Operation.h"
+#include "mlir/IR/Value.h"
+#include "mlir/Pass/PassManager.h"
+#include "mlir/Support/LLVM.h"
+#include "mlir/Target/Cpp/CppEmitter.h"
+#include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/Support/LogicalResult.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <cctype>
 #include <string>
@@ -119,20 +119,9 @@ emitc::OpaqueAttr convertCBPort(Builder &builder, ttkernel::CBPort port) {
   return nullptr;
 }
 
-// A no-op type converter:
-// (note that the trivial T->T conversion is necessary)
-namespace {
-class NullTypeConverter : public TypeConverter {
-public:
-  NullTypeConverter() {
-    addConversion([](Type type) { return type; });
-  }
-};
-} // namespace
-
 // Type converter used for TTKernel/TTMetal conversions:
 namespace {
-class TTKernelToEmitCTypeConverter : public NullTypeConverter {
+class TTKernelToEmitCTypeConverter : public TypeConverter {
 public:
   TTKernelToEmitCTypeConverter(MLIRContext *ctx) {
     addConversion([](Type type) { return type; });
@@ -580,133 +569,111 @@ public:
 
   void visit(func::FuncOp funcOp, GlobalArrayDefTable &globals) {
     // apply arith/scf/memref converters + replace NocTransactionsTableOp:
-    {
-      ConversionTarget target(*funcOp.getContext());
-      {
-        target.addLegalDialect<emitc::EmitCDialect>();
+    ConversionTarget target(*funcOp.getContext());
+    target.addLegalDialect<emitc::EmitCDialect>();
 
-        target.addIllegalDialect<arith::ArithDialect>();
-        target.addIllegalDialect<scf::SCFDialect>();
-        target.addIllegalDialect<memref::MemRefDialect>();
+    target.addIllegalDialect<arith::ArithDialect>();
+    target.addIllegalDialect<scf::SCFDialect>();
+    target.addIllegalDialect<memref::MemRefDialect>();
+    target.addIllegalDialect<ttkernel::TTKernelDialect>();
 
-        target.addIllegalOp<ttkernel::NocTransactionsTableOp>();
-      }
+    target.addLegalOp<func::ReturnOp>();
+    target.addIllegalOp<ttkernel::NocTransactionsTableOp>();
+    target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) -> bool {
+      // Converting func op (kernel main) will result it having 0
+      // arguments. At that point it becomes legal.
+      return op.getNumArguments() == 0;
+    });
 
-      NullTypeConverter typeConverter;
-      RewritePatternSet patterns(funcOp.getContext());
-      {
-        populateArithToEmitCPatterns(typeConverter, patterns);
+    TTKernelToEmitCTypeConverter typeConverter(funcOp.getContext());
+    RewritePatternSet patterns(funcOp.getContext());
+    populateArithToEmitCPatterns(typeConverter, patterns);
 
-        populateSCFToEmitCConversionPatterns(patterns, typeConverter);
+    populateSCFToEmitCConversionPatterns(patterns, typeConverter);
 
-        populateMemRefToEmitCTypeConversion(typeConverter);
-        populateMemRefToEmitCConversionPatterns(patterns, typeConverter);
+    populateMemRefToEmitCTypeConversion(typeConverter);
+    populateMemRefToEmitCConversionPatterns(patterns, typeConverter);
 
-        patterns.add<ConvertNocTransactionsTableOp>(
-            typeConverter, funcOp->getContext(), globals);
-      }
+    patterns.add<ConvertNocTransactionsTableOp>(typeConverter,
+                                                funcOp->getContext(), globals);
 
-      if (failed(applyPartialConversion(funcOp, target, std::move(patterns)))) {
-        signalPassFailure();
-        return;
-      }
-    }
-    // apply TTKernel/TTMetal converters:
-    {
-      TTKernelToEmitCTypeConverter typeConverter(funcOp.getContext());
-      RewritePatternSet patterns(funcOp.getContext());
-      ConversionTarget target(*funcOp.getContext());
-      target.addLegalDialect<emitc::EmitCDialect>();
-      target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) -> bool {
-        // Converting func op (kernel main) will result it having 0
-        // arguments. At that point it becomes legal.
-        return op.getNumArguments() == 0;
-      });
-      target.addLegalOp<func::ReturnOp>();
-      target.addIllegalDialect<ttkernel::TTKernelDialect>();
+    patterns.add<
+        TTMetalToEmitCFuncArgsRewriter, TTMetalToEmitCReturnRewriter,
+        TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosBaseOp>,
+        TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosSizeOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::GetArgValOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::CastToL1PtrOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::GetSemaphoreOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::NocSemaphoreSetOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::NocSemaphoreWaitMinOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::NocSemaphoreIncOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::NocSemaphoreWaitOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::NocSemaphoreSetMulticastOp>,
+        TTMetalToEmitCOpaqueRewriter<
+            ttkernel::NocSemaphoreSetMulticastLoopbackOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::CopyTileInitOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::RecipTileInitOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::RecipTileOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsAcquireOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsCommitOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsWaitOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsReleaseOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::PackTileOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::CBPushBackOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::CBPopFrontOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::CBReserveBackOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::CBWaitFrontOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::TilizeInitOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::UntilizeInitOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::TilizeBlockOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::UntilizeBlockOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::BinaryOpInitCommonOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::AddTilesInitOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::MulTilesInitOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::MulTilesInitFOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::MaxTilesInitOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::AddTilesOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::MulTilesOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::MaxTilesOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::ReduceInitOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::ReduceTileOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadTileOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOnePacketSetStateOp>,
+        TTMetalToEmitCOpaqueRewriter<
+            ttkernel::NocAsyncReadOnePacketWithStateOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadBarrierOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteTileOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteBarrierOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocMulticastAddrOp>,
+        TTMetalToEmitCOpaqueRewriter<
+            ttkernel::NocAsyncWriteMulticastOnePacketOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteMulticastOp>,
+        TTMetalToEmitCOpaqueRewriter<
+            ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::UnaryOpInitCommonOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::CopyTileOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::ExpTileInitOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::ExpTileOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::GetWritePtrOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::GetReadPtrOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::GetTileSizeOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::GetCompileArgValOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrFromBankIDOp>,
+        TTMetalToEmitCOpaqueRewriter<ttkernel::GetDataFormatOp>>(
+        typeConverter, funcOp.getContext());
 
-      patterns.add<
-          TTMetalToEmitCFuncArgsRewriter, TTMetalToEmitCReturnRewriter,
-          TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosBaseOp>,
-          TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosSizeOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::GetArgValOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::CastToL1PtrOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::GetSemaphoreOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::NocSemaphoreSetOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::NocSemaphoreWaitMinOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::NocSemaphoreIncOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::NocSemaphoreWaitOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::NocSemaphoreSetMulticastOp>,
-          TTMetalToEmitCOpaqueRewriter<
-              ttkernel::NocSemaphoreSetMulticastLoopbackOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::CopyTileInitOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::RecipTileInitOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::RecipTileOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsAcquireOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsCommitOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsWaitOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsReleaseOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::PackTileOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::CBPushBackOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::CBPopFrontOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::CBReserveBackOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::CBWaitFrontOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::TilizeInitOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::UntilizeInitOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::TilizeBlockOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::UntilizeBlockOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::BinaryOpInitCommonOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::AddTilesInitOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::MulTilesInitOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::MulTilesInitFOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::MaxTilesInitOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::AddTilesOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::MulTilesOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::MaxTilesOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::ReduceInitOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::ReduceTileOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadTileOp>,
-          TTMetalToEmitCOpaqueRewriter<
-              ttkernel::NocAsyncReadOnePacketSetStateOp>,
-          TTMetalToEmitCOpaqueRewriter<
-              ttkernel::NocAsyncReadOnePacketWithStateOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadBarrierOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteTileOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteBarrierOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocMulticastAddrOp>,
-          TTMetalToEmitCOpaqueRewriter<
-              ttkernel::NocAsyncWriteMulticastOnePacketOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteMulticastOp>,
-          TTMetalToEmitCOpaqueRewriter<
-              ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::UnaryOpInitCommonOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::CopyTileOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::ExpTileInitOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::ExpTileOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::GetWritePtrOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::GetReadPtrOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::GetTileSizeOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::GetCompileArgValOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrFromBankIDOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::GetDataFormatOp>>(
-          typeConverter, funcOp.getContext());
+    patterns.add<TTKernelStoreToL1OpToEmitCOpRewriter>(typeConverter,
+                                                       funcOp.getContext());
 
-      patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrXYOp>>(
-          typeConverter, funcOp.getContext(), "get_noc_addr");
+    patterns.add<TTKernelGetInterleavedAddrGenFastOpRewriter>(
+        typeConverter, funcOp.getContext());
 
-      patterns.add<TTKernelStoreToL1OpToEmitCOpRewriter>(typeConverter,
-                                                         funcOp.getContext());
-
-      patterns.add<TTKernelGetInterleavedAddrGenFastOpRewriter>(
-          typeConverter, funcOp.getContext());
-
-      if (failed(applyFullConversion(funcOp, target, std::move(patterns)))) {
-        signalPassFailure();
-        return;
-      }
+    if (failed(applyFullConversion(funcOp, target, std::move(patterns)))) {
+      signalPassFailure();
+      return;
     }
   }
 };

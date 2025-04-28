@@ -27,7 +27,7 @@ public:
   using OpRewritePattern<GenericOp>::OpRewritePattern;
 
   static bool isStream(Type ty) {
-    return mlir::isa<StreamLayoutAttr>(mlir::cast<MemRefType>(ty).getLayout());
+    return mlir::isa<ViewLayoutAttr>(mlir::cast<MemRefType>(ty).getLayout());
   }
 
   static bool compatibleDeviceGrid(DeviceAttr device, GridAttr grid) {
@@ -219,7 +219,7 @@ public:
 
   LogicalResult matchAndRewrite(GenericOp generic,
                                 PatternRewriter &rewriter) const final {
-    if (generic.getNumRegions() > 1) {
+    if (!generic.isComputeOnlyForm()) {
       // Already inserted, skip.
       return failure();
     }
