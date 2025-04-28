@@ -285,7 +285,8 @@ tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
 }
 
 static std::shared_ptr<void> translateModuleToFlatbuffer(
-    Operation *op, std::unordered_map<std::string, GoldenTensor> goldenMap) {
+    Operation *op, std::unordered_map<std::string, GoldenTensor> goldenMap,
+    std::unordered_map<std::string, CallbackTag> callbackMap) {
   ::flatbuffers::FlatBufferBuilder fbb;
   FlatbufferObjectCache cache(&fbb);
 
@@ -490,8 +491,10 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
 
 LogicalResult translateTTMetalToFlatbuffer(
     Operation *op, llvm::raw_ostream &os,
-    std::unordered_map<std::string, GoldenTensor> goldenMap) {
-  std::shared_ptr<void> data = translateModuleToFlatbuffer(op, goldenMap);
+    std::unordered_map<std::string, GoldenTensor> goldenMap,
+    std::unordered_map<std::string, CallbackTag> callbackMap) {
+  std::shared_ptr<void> data =
+      translateModuleToFlatbuffer(op, goldenMap, callbackMap);
   std::size_t size = ::flatbuffers::GetSizePrefixedBufferLength(
       static_cast<const uint8_t *>(data.get()));
   os.write(reinterpret_cast<char const *>(data.get()), size);

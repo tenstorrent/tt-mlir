@@ -285,6 +285,7 @@ def ttnn_to_flatbuffer(
     # Convert to flatbuffer file.
     # Take the output_file_name and prefix with the ttnn directory
     output_file_name = get_ttnn_path(output_file_name)
+    print(builder.get_golden_map())
     if module_log:
         ttnn_to_flatbuffer_file(
             module, output_file_name, builder.get_golden_map(), module_log

@@ -20,6 +20,8 @@
 NB_MAKE_OPAQUE(std::vector<std::pair<std::string, std::string>>);
 NB_MAKE_OPAQUE(mlir::tt::GoldenTensor);
 NB_MAKE_OPAQUE(std::unordered_map<std::string, mlir::tt::GoldenTensor>);
+NB_MAKE_OPAQUE(mlir::tt::CallbackTag);
+NB_MAKE_OPAQUE(std::unordered_map<std::string, mlir::tt::CallbackTag>);
 
 namespace mlir::tt::ttnn {
 void registerTTNNToFlatbuffer();
@@ -219,12 +221,16 @@ void populatePassesModule(nb::module_ &m) {
 
   nb::bind_map<std::unordered_map<std::string, mlir::tt::GoldenTensor>>(
       m, "GoldenMap");
+  nb::bind_map<std::unordered_map<std::string, mlir::tt::CallbackTag>>(
+      m, "CallbackMap");
 
   m.def(
       "ttnn_to_flatbuffer_file",
       [](MlirModule module, std::string &filepath,
          const std::unordered_map<std::string, mlir::tt::GoldenTensor>
              &goldenMap = {},
+         const std::unordered_map<std::string, mlir::tt::CallbackTag>
+             &callbackMap = {},
          const std::vector<std::pair<std::string, std::string>> &moduleCache =
              {}) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
@@ -248,7 +254,7 @@ void populatePassesModule(nb::module_ &m) {
         }
 
         if (mlir::failed(mlir::tt::ttnn::translateTTNNToFlatbuffer(
-                moduleOp, file, goldenMap, moduleCache))) {
+                moduleOp, file, goldenMap, callbackMap, moduleCache))) {
           throw std::runtime_error("Failed to write flatbuffer to file: " +
                                    filepath);
         }
@@ -256,6 +262,8 @@ void populatePassesModule(nb::module_ &m) {
       nb::arg("module"), nb::arg("filepath"),
       nb::arg("goldenMap") =
           std::unordered_map<std::string, mlir::tt::GoldenTensor>(),
+      nb::arg("callbackMap") =
+          std::unordered_map<std::string, mlir::tt::CallbackTag>(),
       nb::arg("moduleCache") =
           std::vector<std::pair<std::string, std::string>>());
 
@@ -360,6 +368,15 @@ void populatePassesModule(nb::module_ &m) {
       .def_rw("strides", &mlir::tt::GoldenTensor::strides)
       .def_rw("dtype", &mlir::tt::GoldenTensor::dtype)
       .def_rw("data", &mlir::tt::GoldenTensor::data);
+  nb::class_<mlir::tt::CallbackTag>(m, "CallbackTag")
+      .def("__init__",
+           [](mlir::tt::CallbackTag *self, std::string name, bool pre_op_tag,
+              bool post_op_tag) {
+             new (self) mlir::tt::CallbackTag(name, pre_op_tag, post_op_tag);
+           })
+      .def_rw("name", &mlir::tt::CallbackTag::name)
+      .def_rw("pre_op_tag", &mlir::tt::CallbackTag::pre_op_tag)
+      .def_rw("post_op_tag", &mlir::tt::CallbackTag::post_op_tag);
 
   // Supposedly no need for shared_ptr holder types anymore, have python take
   // ownership of ModuleLog

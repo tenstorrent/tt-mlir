@@ -125,6 +125,7 @@ union EltwiseUnaryOpParams {
 
 table EltwiseUnaryOp {
   type: EltwiseUnaryOpType;
+  pre_op_tag: bool;
   in: tt.target.ttnn.TensorRef;
   memory_config: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;

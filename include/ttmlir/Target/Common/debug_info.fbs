@@ -19,6 +19,21 @@ table GoldenInfo {
   golden_map: [GoldenKV];
 }
 
+table CallbackTag {
+  name: string;
+  pre_op_tag: bool;
+  post_op_tag: bool;
+}
+
+table CallbackKV {
+  key: string;
+  value: CallbackTag;
+}
+
+table CallbackInfo{
+  tag_map: [CallbackKV];
+}
+
 table MLIR {
   name: string;
   source: string;
@@ -30,4 +45,5 @@ table DebugInfo {
   cpp: string;
   mlir_stages: [MLIR];
   golden_info: GoldenInfo;
+  callback_tags: CallbackInfo;
 }

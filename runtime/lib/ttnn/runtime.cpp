@@ -779,6 +779,8 @@ std::string getOpLocInfo(OpContext opContextHandle) {
     break;
   }
   case ::tt::target::ttnn::OpType::EltwiseUnaryOp: {
+    std::cout << "Test Abs: "
+              << opContext.type_as_EltwiseUnaryOp()->pre_op_tag() << std::endl;
     tensorRef = opContext.type_as_EltwiseUnaryOp()->out();
     break;
   }

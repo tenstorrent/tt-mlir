@@ -37,6 +37,18 @@ struct GoldenTensor {
   GoldenTensor() = default;
 };
 
+struct CallbackTag {
+  std::string name;
+  bool pre_op_tag;
+  bool post_op_tag;
+
+  CallbackTag(std::string name, bool pre_op_tag, bool post_op_tag)
+      : name(name), pre_op_tag(pre_op_tag), post_op_tag(post_op_tag) {}
+
+  // Create an explicit empty constructor
+  CallbackTag() = default;
+};
+
 inline ::tt::target::OOBVal toFlatbuffer(FlatbufferObjectCache &,
                                          OOBVal oobVal) {
   switch (oobVal) {

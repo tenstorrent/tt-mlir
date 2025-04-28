@@ -81,6 +81,8 @@ ProgramExecutor::ProgramExecutor(
   std::vector<uint32_t> programInputIds;
   int inputIndex = 0;
   TensorPtrMap liveTensors;
+  for (auto *kv : *program->debug_info()->golden_info()->golden_map())
+    LOG_DEBUG("Golden info KV: ", kv->key());
   LOG_ASSERT(program->inputs()->size() == programInputs.size(),
              "Program input size mismatch: ", program->inputs()->size(),
              " != ", programInputs.size());
