@@ -12,7 +12,7 @@ from pykernel.types import *
 @ttkernel_noc_compile()
 def writer_unary(cb_in: CircularBuffer, cb_out: CircularBuffer, rt_args):
     # CHECK: module {
-    # CHECK: func.func @{{.*}}(%arg0: !ttkernel.cb<{{.*}}>, %arg1: !ttkernel.cb<{{.*}}>) {
+    # CHECK: func.func @{{.*}}(%arg0: !ttkernel.cb<{{.*}}>, %arg1: !ttkernel.cb<{{.*}}>) attributes {ttkernel.thread = #ttkernel.thread<noc>} {
     # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
     # CHECK: %[[DST_ADDR:.*]] = memref.alloca(){{.*}}
     # CHECK: %[[BANK_ID:.*]] = "ttkernel.get_arg_val"{{.*}}
