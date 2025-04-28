@@ -67,7 +67,7 @@ void createTTNNPipelineAnalysisPasses(
     optimizerOptions.maxLegalLayouts = options.maxLegalLayouts;
     optimizerOptions.rowMajorEnabled = options.rowMajorEnabled;
     pm.addPass(mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
-    pm.addPass(mlir::tt::ttnn::createTTNNOptimizeConv2d());
+    pm.addPass(mlir::tt::ttnn::createTTNNPrepareConv2dWeights());
   }
 }
 

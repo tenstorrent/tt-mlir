@@ -133,7 +133,7 @@ def TTNNModifySignaturesForDylib: Pass<"ttnn-modify-signatures-for-dylib", "::ml
   }];
 }
 
-def TTNNOptimizeConv2d : Pass<"ttnn-optimize-conv2d", "::mlir::ModuleOp"> {
+def TTNNPrepareConv2dWeights : Pass<"ttnn-prepare-conv2d-weights", "::mlir::ModuleOp"> {
   let summary = "Optimize Conv2d ops by inserting PrepareConv2dWeights before them";
   let description = [{
     This pass inserts a PrepareConv2dWeights op that preprocesses the weights used by Conv2d operations.

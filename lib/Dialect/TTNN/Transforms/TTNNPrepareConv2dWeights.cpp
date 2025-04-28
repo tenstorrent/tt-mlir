@@ -9,18 +9,18 @@
 #include "ttmlir/Utils.h"
 
 namespace mlir::tt::ttnn {
-#define GEN_PASS_DEF_TTNNOPTIMIZECONV2D
+#define GEN_PASS_DEF_TTNNPREPARECONV2DWEIGHTS
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
-class TTNNOptimizeConv2d
-    : public impl::TTNNOptimizeConv2dBase<TTNNOptimizeConv2d> {
+class TTNNPrepareConv2dWeights
+    : public impl::TTNNPrepareConv2dWeightsBase<TTNNPrepareConv2dWeights> {
 
 public:
-  using impl::TTNNOptimizeConv2dBase<
-      TTNNOptimizeConv2d>::TTNNOptimizeConv2dBase;
+  using impl::TTNNPrepareConv2dWeightsBase<
+      TTNNPrepareConv2dWeights>::TTNNPrepareConv2dWeightsBase;
 
   // Insert PrepareConv2dWeightsOp before every Conv2dOp that prepares weights
-  // for convolution. This is a prerequisite for constevaluation, which will
+  // for convolution. This is a prerequisite for const evaluation, which will
   // improve performance by eliminating the need for preprocessing the weights
   // on the host/device.
   void runOnOperation() final {
@@ -60,16 +60,16 @@ public:
 
       // Update only the weight operand since PrepareConv2dWeightsOp will change
       // the shape and layout of the weight
-      IRMapping mapper;
-      mapper.map(conv2dOp.getWeight(), prepareConv2dWeightsOp.getResult());
-
-      rewriter.replaceOp(conv2dOp,
-                         rewriter.clone(*conv2dOp.getOperation(), mapper));
+      rewriter.modifyOpInPlace(conv2dOp, [&]() {
+        conv2dOp.getWeightMutable().assign(prepareConv2dWeightsOp);
+      });
     });
   }
 
 private:
   ::mlir::RankedTensorType getPreparedWeightsType(ttnn::Conv2dOp conv2dOp) {
+    // We use graph capture to retrieve the output type of the PrepareConv2dOp
+    // for now until metal exposes an API.
     return op_model::ttnn::getPreparedConv2dWeightsOutputTensor(&conv2dOp);
   }
 };
