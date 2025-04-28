@@ -2,19 +2,18 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <assert.h>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 
 namespace fs = std::filesystem;
 
-std::string compile_cpp_to_so(const std::string &cpp_source,
-                              const std::string &tmp_path_dir,
-                              const std::string &metal_src_dir,
-                              const std::string &metal_lib_dir,
-                              const std::string &standalone_dir) {
-  fs::path directoryPath = fs::path(tmp_path_dir);
+std::string compileCppToSo(const std::string &cppSource,
+                           const std::string &tmpPathDir,
+                           const std::string &metalSrcDir,
+                           const std::string &metalLibDir,
+                           const std::string &standaloneDir) {
+  fs::path directoryPath = fs::path(tmpPathDir);
   fs::path filePath = directoryPath / "emitted.cpp";
 
   std::ofstream outFile(filePath);
@@ -24,14 +23,14 @@ std::string compile_cpp_to_so(const std::string &cpp_source,
     exit(1);
   }
 
-  outFile << cpp_source;
+  outFile << cppSource;
   outFile.close();
 
   std::cout << "Successfully wrote C++ code to: " << filePath << std::endl;
 
   // Compile the C++ code to a shared object.
   //
-  fs::path currDir = fs::path(standalone_dir);
+  fs::path currDir = fs::path(standaloneDir);
   fs::path pythonScriptPath = currDir / "ci_compile_dylib.py";
 
   // Check if the script exists
@@ -42,8 +41,8 @@ std::string compile_cpp_to_so(const std::string &cpp_source,
   }
 
   std::string command = "python " + pythonScriptPath.string() + " --file " +
-                        filePath.string() + " --metal-src-dir " +
-                        metal_src_dir + " --metal-lib-dir " + metal_lib_dir;
+                        filePath.string() + " --metal-src-dir " + metalSrcDir +
+                        " --metal-lib-dir " + metalLibDir;
 
   int result = std::system(command.c_str());
 

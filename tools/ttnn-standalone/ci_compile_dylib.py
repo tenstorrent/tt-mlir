@@ -229,7 +229,7 @@ def main():
                     cpp_file_path = os.path.join(dir_path, file)
                     cpp_files.append(cpp_file_path)
 
-    if len(cpp_files) == 0:
+    if not cpp_files:
         print("Error: No .cpp files found for compilation.")
         sys.exit(1)
 
