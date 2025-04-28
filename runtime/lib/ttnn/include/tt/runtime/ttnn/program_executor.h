@@ -41,8 +41,7 @@ public:
   /**
    * Executes pre and post operation callbacks if registered
    */
-  void runCallback(std::optional<debug::Hooks::CallbackFn> callback,
-                   Binary &executableHandle,
+  void runCallback(debug::Hooks::CallbackFn callback, Binary &executableHandle,
                    const ::tt::target::ttnn::Operation *opContext,
                    ProgramContext *programContext);
 
@@ -67,6 +66,7 @@ private:
   const ::tt::target::ttnn::Program *program;
   Binary executableHandle;
   std::unique_ptr<ProgramContext> context;
+  debug::GoldenEval goldenEval;
 
   /**
    * Executes a single operation

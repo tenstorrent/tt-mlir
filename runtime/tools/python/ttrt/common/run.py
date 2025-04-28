@@ -110,6 +110,13 @@ class Run:
             help="seed for random number generator",
         )
         Run.register_arg(
+            name="--golden-eval",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="pickup the kernels from disk (/tmp) instead of the flatbuffer",
+        )
+        Run.register_arg(
             name="--load-kernels-from-disk",
             type=bool,
             default=False,
@@ -436,7 +443,7 @@ class Run:
                 self.logging.warning(f"no binaries found to run - returning early")
                 return
 
-            debug_env = ttrt.runtime.DebugEnv.get(self["--load-kernels-from-disk"])
+            debug_env = ttrt.runtime.DebugEnv.get(self["--load-kernels-from-disk"], self["--golden-eval"])
             self.logging.debug(f"setting tt runtime debug env={debug_env}")
             workaround_env = ttrt.runtime.WorkaroundEnv.get(
                 not self["--disable-swap-binary-operands"],

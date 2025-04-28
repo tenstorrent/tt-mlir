@@ -313,19 +313,19 @@ PYBIND11_MODULE(_C, m) {
           "get",
           [](py::function pre_op_func, py::function post_op_func) {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-            tt::runtime::debug::Hooks::get(
+            auto &hooks = tt::runtime::debug::Hooks::get();
+            hooks.registerPreOperatorCallback(
                 [pre_op_func](tt::runtime::Binary Binary,
                               tt::runtime::CallbackContext programContext,
                               tt::runtime::OpContext opContext) {
                   pre_op_func(Binary, programContext, opContext);
-                },
+                });
+            hooks.registerPostOperatorCallback(
                 [post_op_func](tt::runtime::Binary Binary,
                                tt::runtime::CallbackContext programContext,
                                tt::runtime::OpContext opContext) {
                   post_op_func(Binary, programContext, opContext);
                 });
-#else
-            tt::runtime::debug::Hooks::get();
 #endif
           })
       .def("__str__", [](const tt::runtime::debug::Hooks &hooks) {
