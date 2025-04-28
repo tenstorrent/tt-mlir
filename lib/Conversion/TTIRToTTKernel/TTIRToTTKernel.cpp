@@ -115,7 +115,16 @@ public:
           op->getLoc(), i32(rewriter, op->getLoc(), 0),
           i32(rewriter, op->getLoc(), 1));
     } else if (mlir::isa<ttir::TileAddOp>(op)) {
+      assert(op->hasOneUse());
+      auto store = mlir::cast<memref::StoreOp>(*op->user_begin());
+      auto outCB = rewriter.getRemappedValue(store.getMemref());
+      rewriter.create<ttkernel::BinaryOpInitCommonOp>(
+          op->getLoc(), getCB(rewriter, operands[0]),
+          getCB(rewriter, operands[1]), outCB);
       auto dstIdx = index(rewriter, op->getLoc(), 0);
+      rewriter.create<ttkernel::AddTilesInitOp>(op->getLoc(),
+                                                getCB(rewriter, operands[0]),
+                                                getCB(rewriter, operands[1]));
       newOp = rewriter.create<ttkernel::AddTilesOp>(
           op->getLoc(), getCB(rewriter, operands[0]),
           getCB(rewriter, operands[1]), getLoadIndex(operands[0]),
