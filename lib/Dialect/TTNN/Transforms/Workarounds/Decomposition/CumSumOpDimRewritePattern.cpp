@@ -11,7 +11,6 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
-#include "ttmlir/Utils.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -58,7 +57,7 @@ CumSumOpDimRewritePattern::matchAndRewrite(ttnn::MorehCumSumOp srcOp,
                                    adaptedShape));
 
   auto adaptedCumSumOp = rewriter.create<mlir::tt::ttnn::MorehCumSumOp>(
-      srcOp->getLoc(), adaptedOutputType, adaptedInput, 0,
+      srcOp->getLoc(), adaptedOutputType, adaptedInput, /*dim=*/0,
       /*memory_config=*/nullptr);
 
   rewriter.replaceOpWithNewOp<ttnn::PermuteOp>(
