@@ -215,9 +215,11 @@ def test_matmul_1x2(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
             shard_shape=(1,),
             shard_dims=(-1,),
         )
+
     compile_to_flatbuffer(
         matmul_1x2, shapes, mesh_shape=mesh_shape, test_base=request.node.name
     )
+
 
 @pytest.mark.parametrize("shape", [(1, 256, 64, 256)])
 @pytest.mark.parametrize("mesh_shape", [(1, 2)])
@@ -242,6 +244,7 @@ def test_neg_1x2_dim_3(shape: Shape, mesh_shape: Tuple[int, int], request):
             shard_shape=(1, 1, 1, 2),
             shard_dims=(-1, 3),
         )
+
     compile_to_flatbuffer(
         neg_1x2_dim_3,
         [shape],
@@ -273,6 +276,7 @@ def test_neg_1x2_dim_1(shape: Shape, mesh_shape: Tuple[int, int], request):
             shard_shape=(1, 2, 1, 1),
             shard_dims=(-1, 1),
         )
+
     compile_to_flatbuffer(
         neg_1x2_dim_1,
         [shape],
@@ -312,6 +316,7 @@ def test_eltwise_multidevice(shapes: List[Shape], mesh_shape: Tuple[int, int], r
             shard_shape=(1, 2),
             shard_dims=(-1, 1),
         )
+
     compile_to_flatbuffer(
         eltwise_multidevice, shapes, mesh_shape=mesh_shape, test_base=request.node.name
     )

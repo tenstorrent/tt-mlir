@@ -230,6 +230,7 @@ def test_matmul_2x4(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
             shard_shape=(2, 1),
             shard_dims=(0, -1),
         )
+
     compile_to_flatbuffer(
         matmul_2x4,
         shapes,
@@ -274,6 +275,7 @@ def test_matmul_1x8(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
             shard_shape=(1,),
             shard_dims=(-1,),
         )
+
     compile_to_flatbuffer(
         matmul_1x8,
         shapes,
@@ -305,6 +307,7 @@ def test_neg_2x4(shape: Shape, mesh_shape: Tuple[int, int], request):
             shard_shape=(1, 2, 1, 4),
             shard_dims=(1, 3),
         )
+
     compile_to_flatbuffer(
         neg_2x4,
         [shape],
@@ -336,6 +339,7 @@ def test_neg_2x4_cluster_0(shape: Shape, mesh_shape: Tuple[int, int], request):
             shard_shape=(1, 2, 1, 1),
             shard_dims=(1, -1),
         )
+
     compile_to_flatbuffer(
         neg_2x4_cluster_0,
         [shape],
@@ -367,6 +371,7 @@ def test_neg_2x4_cluster_1(shape: Shape, mesh_shape: Tuple[int, int], request):
             shard_shape=(1, 1, 1, 4),
             shard_dims=(1, 3),
         )
+
     compile_to_flatbuffer(
         neg_2x4_cluster_1,
         [shape],
@@ -398,6 +403,7 @@ def test_neg_2x4_reversed_cluster(shape: Shape, mesh_shape: Tuple[int, int], req
             shard_shape=(1, 4, 1, 2),
             shard_dims=(3, 1),
         )
+
     compile_to_flatbuffer(
         neg_2x4_reversed_cluster,
         [shape],
@@ -429,6 +435,7 @@ def test_neg_2x4_reversed_cluster_0(shape: Shape, mesh_shape: Tuple[int, int], r
             shard_shape=(1, 1, 1, 2),
             shard_dims=(3, -1),
         )
+
     compile_to_flatbuffer(
         neg_2x4_reversed_cluster_0,
         [shape],
@@ -460,6 +467,7 @@ def test_neg_1x8_dim_3(shape: Shape, mesh_shape: Tuple[int, int], request):
             shard_shape=(1, 1, 1, 8),
             shard_dims=(-1, 3),
         )
+
     compile_to_flatbuffer(
         neg_1x8_dim_3,
         [shape],
@@ -491,6 +499,7 @@ def test_neg_1x8_dim_1(shape: Shape, mesh_shape: Tuple[int, int], request):
             shard_shape=(1, 8, 1, 1),
             shard_dims=(-1, 1),
         )
+
     compile_to_flatbuffer(
         neg_1x8_dim_1,
         [shape],
@@ -530,6 +539,7 @@ def test_eltwise_multidevice(shapes: List[Shape], mesh_shape: Tuple[int, int], r
             shard_shape=(2, 4),
             shard_dims=(0, 1),
         )
+
     compile_to_flatbuffer(
         eltwise_multidevice,
         shapes,
