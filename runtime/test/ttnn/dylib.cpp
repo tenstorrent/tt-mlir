@@ -93,10 +93,6 @@ runSoProgram(void *so, std::string func_name,
     ttnnOutputs = forwardFunc(ttnnInputs);
   }
 
-  // Make sure to close the dylib after use
-  //
-  dlclose(so);
-
   // Convert TTNN Tensors to Runtime Tensors
   //
   std::vector<::tt::runtime::Tensor> outputs;
