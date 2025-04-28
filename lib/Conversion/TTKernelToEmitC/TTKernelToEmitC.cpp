@@ -6,8 +6,6 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
-#include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
-#include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
 #include "mlir/Conversion/ArithToEmitC/ArithToEmitC.h"
 #include "mlir/Conversion/MemRefToEmitC/MemRefToEmitC.h"
@@ -26,15 +24,12 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Target/Cpp/CppEmitter.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include <cctype>
 #include <string>
-#include <unordered_map>
 
 using namespace mlir;
 using namespace tt;
@@ -465,14 +460,17 @@ public:
       ConvertTTKernelToEmitCPass>::ConvertTTKernelToEmitCBase;
 
   void runOnOperation() final {
-    auto wrapper = getOperation();
-
-    wrapper.walk([&, this](func::FuncOp funcOp) { visit(funcOp); });
+    ModuleOp moduleOp = getOperation();
+    moduleOp.walk([&](func::FuncOp funcOp) {
+      if (failed(visit(funcOp))) {
+        signalPassFailure();
+      }
+    });
   }
 
-  void visit(func::FuncOp funcOp) {
+  static LogicalResult visit(func::FuncOp funcOp) {
     if (!funcOp->hasAttr(ttkernel::ThreadTypeAttr::name)) {
-      return;
+      return success();
     }
 
     ConversionTarget target(*funcOp.getContext());
@@ -581,10 +579,7 @@ public:
     patterns.add<TTKernelGetInterleavedAddrGenFastOpRewriter>(
         typeConverter, funcOp.getContext());
 
-    if (failed(applyFullConversion(funcOp, target, std::move(patterns)))) {
-      signalPassFailure();
-      return;
-    }
+    return applyFullConversion(funcOp, target, std::move(patterns));
   }
 };
 } // namespace

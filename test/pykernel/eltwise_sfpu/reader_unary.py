@@ -12,7 +12,7 @@ from pykernel.types import *
 @ttkernel_noc_compile(verbose=True)
 def reader_unary(cb_in: CircularBuffer, cb_out: CircularBuffer, rt_args):
     # CHECK: module {
-    # CHECK: func.func @{{.*}}(%arg0: !ttkernel.cb<{{.*}}>, %arg1: !ttkernel.cb<{{.*}}>) {
+    # CHECK: func.func @{{.*}}(%arg0: !ttkernel.cb<{{.*}}>, %arg1: !ttkernel.cb<{{.*}}>) attributes {ttkernel.thread = #ttkernel.thread<noc>} {
     # CHECK: emitc.verbatim "// --- Python Function {{.*}}"
     # CHECK: emitc.verbatim "// src_addr: int = rt_args[0]"
     # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}

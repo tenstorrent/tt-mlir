@@ -6,7 +6,6 @@ add_mlir_conversion_library(TTMLIRTTIRToTTKernel
   TTMLIRConversionPassIncGen
 
   LINK_LIBS PUBLIC
-  MLIRTTIRAnalysis
   MLIRIR
   MLIRPass
   MLIRTTIRAnalysis
