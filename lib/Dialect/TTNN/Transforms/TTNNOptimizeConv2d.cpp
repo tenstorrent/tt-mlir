@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
+#include "ttmlir/Utils.h"
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNOPTIMIZECONV2D
@@ -43,8 +44,10 @@ public:
       rewriter.setInsertionPoint(conv2dOp);
       ttnn::PrepareConv2dWeightsOp prepareConv2dWeightsOp =
           rewriter.create<ttnn::PrepareConv2dWeightsOp>(
-              conv2dOp.getLoc(), getPreparedWeightsType(conv2dOp),
-              conv2dOp.getWeight(), inputMemConfigAttr,
+              ttmlir::utils::appendLocationSuffix(conv2dOp.getLoc(),
+                                                  "_prepare_conv2d"),
+              getPreparedWeightsType(conv2dOp), conv2dOp.getWeight(),
+              inputMemConfigAttr,
               rewriter.getAttr<ttnn::LayoutAttr>(inputLayoutAttr.getLayout()),
               rewriter.getStringAttr("OIHW"), conv2dOp.getInChannelsAttr(),
               conv2dOp.getOutChannelsAttr(), conv2dOp.getBatchSizeAttr(),
