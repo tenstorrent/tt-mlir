@@ -161,13 +161,13 @@ install(
     tools/ttnn-standalone/ttnn-precompiled.hpp
     tools/ttnn-standalone/ttnn-standalone.cpp
     tools/ttnn-standalone/workarounds.hpp
-  DESTINATION "${CMAKE_INSTALL_PREFIX}/tools/ttnn-standalone"
+  DESTINATION "tools/ttnn-standalone"
   COMPONENT TTNNStandalone
 )
 install(
   PROGRAMS
     tools/ttnn-standalone/run
-  DESTINATION "${CMAKE_INSTALL_PREFIX}/tools/ttnn-standalone"
+  DESTINATION "tools/ttnn-standalone"
   COMPONENT TTNNStandalone
 )
 
