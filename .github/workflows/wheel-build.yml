@@ -13,7 +13,7 @@ jobs:
   build-wheel:
     timeout-minutes: 60
     name: Build ttmlir Python Wheel
-    runs-on: ubuntu-latest
+    runs-on: tt-beta-ubuntu-2204-large
 
     steps:
       - name: Maximize space
