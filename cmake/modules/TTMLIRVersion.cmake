@@ -6,6 +6,22 @@ execute_process(
   OUTPUT_STRIP_TRAILING_WHITESPACE
 )
 
+# Check if tags exist and fetch from remote if they don't
+execute_process(
+  COMMAND git tag -l "v[0-9]*.[0-9]*"
+  WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+  OUTPUT_VARIABLE EXISTING_TAGS
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+
+if("${EXISTING_TAGS}" STREQUAL "")
+  message(STATUS "No version tags found locally. Fetching tags from upstream...")
+  execute_process(
+    COMMAND git fetch --tags upstream
+    WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+  )
+endif()
+
 # get the latest tag from git matching 'v<major>.<minor>' format
 # (note: matching a glob(7) pattern, not a regex)
 execute_process(
