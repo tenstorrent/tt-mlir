@@ -32,6 +32,11 @@ void *openSo(std::string path) {
   return handle;
 }
 
+void closeSo(void *handle) {
+  int ret = dlclose(handle);
+  assert(ret == 0);
+}
+
 std::vector<::tt::runtime::Tensor>
 runSoProgram(void *so, std::string func_name,
              std::vector<::tt::runtime::Tensor> inputs, Device device) {
