@@ -69,8 +69,6 @@ class OpMapping:
                     torch_args[v] = [x.value for x in ir_op.attributes[k]]
                 else:
                     torch_args[v] = ir_op.attributes[k].value
-            # if v == "dim":
-            #     torch_args[v] = torch_args[v][0]
 
         if ir_op.name == "ttir.constant":
             torch_args["dtype"] = ttir_dtype_maps[
@@ -126,7 +124,13 @@ def custom_constant(*args, **kwargs):
     return torch.tensor([data], *args, **kwargs)
 
 
-def custom_prod(x, dim, keepdim):
+def custom_reduce_and(x, dim=None, keepdim=False):
+    if dim is None:
+        return torch.all(x)
+    return torch.all(x, dim=dim, keepdim=keepdim)
+
+
+def custom_prod(x, dim=None, keepdim=False):
     if dim is None:
         return torch.prod(x)
     dim = reversed(sorted(dim))
@@ -208,6 +212,11 @@ ttir_to_torch_mapping = {
     "ttir.slice": OpMapping(
         custom_slice,
         {"begins": "begins", "ends": "ends", "step": "step"},
+        unpack_inputs=False,
+    ),
+    "ttir.reduce_and": OpMapping(
+        custom_reduce_and,
+        {"dim_arg": "dim", "keep_dim": "keepdim"},
         unpack_inputs=False,
     ),
 }
