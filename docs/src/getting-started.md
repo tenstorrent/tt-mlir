@@ -9,8 +9,9 @@ This page walks you through the steps required to set up tt-mlir for development
   * Docker (*recommended*) - [Using a Docker Image](#using-a-docker-image)
   * Manual - [Setting up the Environment Manually](#setting-up-the-environment-manually)
 * Built the runtime environment - [Building the tt-mlir Project](#building-the-tt-mlir-project)
-* Added pre-commit
-* Built the docs (*optional*)
+* Added additional dependencies - [Installing Additional Dependencies](#installing-additional-dependencies)
+* Added pre-commit - [Pre-commit](#pre-commit)
+* Built the docs (*optional*) - [Docs](#docs)
 
 After the project is running, you can do development work, run models, or set up additional projects that build on tt-mlir. Documentation links for the various options are presented at the end of this document.
 
