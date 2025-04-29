@@ -1,12 +1,15 @@
 add_mlir_dialect_library(MLIRTTNNAnalysis
-        LegalLayoutAnalysis.cpp
-        OpConfigAnalysis.cpp
-        MemoryLayoutAnalysis.cpp
-        L1ChainConfig.cpp
+        AllPossibleLayoutsAnalysis.cpp
+        BFInterleavedPolicy.cpp
         DFShardingPolicy.cpp
         GreedyL1InterleavedPolicy.cpp
-        BFInterleavedPolicy.cpp
+        L1ChainConfig.cpp
+        LegalLayoutAnalysis.cpp
+        MemoryLayoutAnalysis.cpp
+        OpConfigAnalysis.cpp
+        ScalarDataTypeAnalysis.cpp
         ShardSolver.cpp
+        TensorLayouts.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir
