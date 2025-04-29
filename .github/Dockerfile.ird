@@ -16,7 +16,8 @@ RUN apt-get update && apt-get install -y \
     vim \
     nano \
     tmux \
-    clangd
+    psmisc \
+    bash-completion
 
 # Create a directory for the toolchain and set permissions
 RUN mkdir -p $TTMLIR_TOOLCHAIN_DIR && \

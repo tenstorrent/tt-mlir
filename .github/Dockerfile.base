@@ -41,7 +41,8 @@ RUN wget https://apt.llvm.org/llvm.sh && \
     ./llvm.sh 17 && \
     apt install -y libc++-17-dev libc++abi-17-dev && \
     ln -s /usr/bin/clang-17 /usr/bin/clang && \
-    ln -s /usr/bin/clang++-17 /usr/bin/clang++
+    ln -s /usr/bin/clang++-17 /usr/bin/clang++ && \
+    ln -s /usr/bin/clangd-17 /usr/bin/clangd
 
 # Install python packages
 RUN pip install cmake
