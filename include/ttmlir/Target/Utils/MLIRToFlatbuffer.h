@@ -11,6 +11,7 @@
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
+#include "ttmlir/Utils.h"
 
 #include "flatbuffers/buffer.h"
 #include "llvm/ADT/STLForwardCompat.h"
@@ -463,6 +464,10 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttnn::CoreRangeAttr coreRangeAttr) {
 inline ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet>
 toFlatbuffer(FlatbufferObjectCache &cache,
              ttnn::CoreRangeSetAttr coreRangeSetAttr) {
+  if (!coreRangeSetAttr) {
+    return 0;
+  }
+
   return ::tt::target::ttnn::CreateCoreRangeSet(
       *cache.fbb, toFlatbuffer(cache, coreRangeSetAttr.getCoreRanges()));
 }
@@ -643,38 +648,47 @@ toFlatbuffer(FlatbufferObjectCache &cache,
           fusedActivation);
 }
 
-inline ::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>
-toFlatbuffer(FlatbufferObjectCache &cache,
-             ttnn::Conv2dConfigAttr conv2dConfigAttr) {
-  ::flatbuffers::Optional<::tt::target::ttnn::TensorMemoryLayout> shardLayout;
-  if (conv2dConfigAttr.getShardLayout()) {
-    shardLayout = toFlatbuffer(cache, conv2dConfigAttr.getShardLayout());
+inline ::flatbuffers::Offset<::flatbuffers::String>
+toFlatbuffer(FlatbufferObjectCache &cache, StringAttr strAttr) {
+  if (strAttr) {
+    return toFlatbuffer(cache, strAttr.getValue());
   }
-  // TODO(vkovacevic): Add support for coreGrid #2781
-  ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet> coreGrid;
 
-  ::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig> conv2dConfigDesc =
-      ::tt::target::ttnn::CreateConv2dConfig(
-          *cache.fbb, toFlatbuffer(cache, conv2dConfigAttr.getDtype()),
-          toFlatbuffer(cache, conv2dConfigAttr.getWeightsDtype()),
-          toFlatbuffer(cache, conv2dConfigAttr.getActivation().getValue()),
-          conv2dConfigAttr.getInputChannelsAlignment(),
-          conv2dConfigAttr.getDeallocateActivation(),
-          conv2dConfigAttr.getReallocateHaloOutput(),
-          conv2dConfigAttr.getActBlockHOverride(),
-          conv2dConfigAttr.getActBlockWDiv(),
-          conv2dConfigAttr.getReshardIfNotOptimal(),
-          conv2dConfigAttr.getOverrideShardingConfig(), shardLayout, coreGrid,
-          conv2dConfigAttr.getTransposeShards(),
-          toFlatbuffer(cache, conv2dConfigAttr.getOutputLayout()),
-          conv2dConfigAttr.getPreprocessWeightsOnDevice(),
-          conv2dConfigAttr.getAlwaysPreprocessWeights(),
-          conv2dConfigAttr.getEnableActDoubleBuffer(),
-          conv2dConfigAttr.getEnableWeightsDoubleBuffer(),
-          conv2dConfigAttr.getEnableSplitReader(),
-          conv2dConfigAttr.getEnableSubblockPadding());
+  return 0;
+}
 
-  return conv2dConfigDesc;
+inline ::flatbuffers::Optional<bool> toFlatbuffer(FlatbufferObjectCache &cache,
+                                                  BoolAttr attr) {
+  if (attr) {
+    return attr.getValue();
+  }
+
+  return ::flatbuffers::nullopt;
+}
+
+inline ::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>
+toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
+  return ::tt::target::ttnn::CreateConv2dConfig(
+      *cache.fbb, toFlatbuffer(cache, config.getDtype()),
+      toFlatbuffer(cache, config.getWeightsDtype()),
+      toFlatbuffer(cache, config.getActivation()),
+      toFlatbuffer(cache, config.getInputChannelsAlignment()),
+      toFlatbuffer(cache, config.getDeallocateActivation()),
+      toFlatbuffer(cache, config.getReallocateHaloOutput()),
+      toFlatbuffer(cache, config.getActBlockHOverride()),
+      toFlatbuffer(cache, config.getActBlockWDiv()),
+      toFlatbuffer(cache, config.getReshardIfNotOptimal()),
+      toFlatbuffer(cache, config.getOverrideShardingConfig()),
+      toFlatbuffer(cache, config.getShardLayout()),
+      toFlatbuffer(cache, config.getCoreGrid()),
+      toFlatbuffer(cache, config.getTransposeShards()),
+      toFlatbuffer(cache, config.getOutputLayout()),
+      toFlatbuffer(cache, config.getPreprocessWeightsOnDevice()),
+      toFlatbuffer(cache, config.getAlwaysPreprocessWeights()),
+      toFlatbuffer(cache, config.getEnableActDoubleBuffer()),
+      toFlatbuffer(cache, config.getEnableWeightsDoubleBuffer()),
+      toFlatbuffer(cache, config.getEnableSplitReader()),
+      toFlatbuffer(cache, config.getEnableSubblockPadding()));
 }
 
 } // namespace mlir::tt

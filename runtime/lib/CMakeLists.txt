@@ -34,6 +34,7 @@ if (TT_RUNTIME_ENABLE_PERF_TRACE)
 endif()
 
 target_link_directories(TTMLIRRuntime PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib)
+target_link_directories(TTMLIRRuntime PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib64)
 
 target_link_libraries(TTMLIRRuntime
   PRIVATE
@@ -60,6 +61,7 @@ if (TTMLIR_ENABLE_RUNTIME)
     "../include/tt/runtime/types.h"
     "../include/tt/runtime/utils.h"
     "../include/tt/runtime/workarounds.h"
+    "../include/tt/runtime/tensor_cache.h"
   )
   set_target_properties(TTMLIRRuntime PROPERTIES PUBLIC_HEADER "${TTMLIR_RUNTIME_PUBLIC_HEADERS}")
   install(TARGETS TTMLIRRuntime

@@ -300,9 +300,9 @@ uint64_t TTNNLayoutAttr::getShardSizeInBytes() const {
 // param collapseIntervals The intervals to collapse (i.e. {{0, -1}})
 // return The constructed TTNNLayoutAttr
 TTNNLayoutAttr TTNNLayoutAttr::withGrid(
-    ::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape, GridAttr grid,
+    ArrayRef<int64_t> tensorShape, GridAttr grid,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
-  return get(context, tensorShape, getElementType(), getBufferType(), grid,
+  return get(getContext(), tensorShape, getElementType(), getBufferType(), grid,
              getMemLayout(), getTensorMeshSharding(), collapseIntervals);
 }
 
@@ -317,11 +317,10 @@ TTNNLayoutAttr TTNNLayoutAttr::withGrid(
 // param collapseIntervals The intervals to collapse (i.e. {{0, -1}})
 // return The constructed TTNNLayoutAttr
 TTNNLayoutAttr TTNNLayoutAttr::withGrid(
-    ::mlir::MLIRContext *context, RankedTensorType ty, GridAttr grid,
+    RankedTensorType ty, GridAttr grid,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
   assert(ty);
-  return TTNNLayoutAttr::withGrid(context, ty.getShape(), grid,
-                                  collapseIntervals);
+  return TTNNLayoutAttr::withGrid(ty.getShape(), grid, collapseIntervals);
 }
 
 // Construct a new TTNNLayoutAttr
@@ -335,12 +334,11 @@ TTNNLayoutAttr TTNNLayoutAttr::withGrid(
 // param collapseIntervals The intervals to collapse (i.e. {{0, -1}})
 // return The new TTNNLayoutAttr with the given element type.
 TTNNLayoutAttr TTNNLayoutAttr::withElementType(
-    ::mlir::MLIRContext *context, Type elementType,
-    ArrayRef<int64_t> tensorShape,
+    Type elementType, ArrayRef<int64_t> tensorShape,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
-  return TTNNLayoutAttr::get(context, tensorShape, elementType, getBufferType(),
-                             getGrid(), getMemLayout(), getTensorMeshSharding(),
-                             collapseIntervals);
+  return TTNNLayoutAttr::get(getContext(), tensorShape, elementType,
+                             getBufferType(), getGrid(), getMemLayout(),
+                             getTensorMeshSharding(), collapseIntervals);
 }
 
 // Construct a new TTNNLayoutAttr
@@ -351,22 +349,21 @@ TTNNLayoutAttr TTNNLayoutAttr::withElementType(
 // param context The MLIR context.
 // param memorySpace The new memory space.
 // return The new TTNNLayoutAttr with the given memory space.
-TTNNLayoutAttr TTNNLayoutAttr::withBufferType(::mlir::MLIRContext *context,
-                                              BufferType memorySpace) {
+TTNNLayoutAttr TTNNLayoutAttr::withBufferType(BufferType memorySpace) {
   TensorMemoryLayoutAttr memLayoutAttr = getMemLayout();
   tt::GridAttr grid = getGrid();
 
   // For SystemMemory we need to clear memory layout and set grid to 1x1.
   if (memorySpace == BufferType::SystemMemory) {
     memLayoutAttr = TensorMemoryLayoutAttr{};
-    grid = tt::GridAttr::get(context, grid.getShape().size());
+    grid = tt::GridAttr::get(getContext(), grid.getShape().size());
   }
 
   // For DRAM we need to set memory layout to interleaved and set grid to 1x1.
   if (memorySpace == BufferType::DRAM) {
-    memLayoutAttr =
-        TensorMemoryLayoutAttr::get(context, TensorMemoryLayout::Interleaved);
-    grid = tt::GridAttr::get(context, grid.getShape().size());
+    memLayoutAttr = TensorMemoryLayoutAttr::get(
+        getContext(), TensorMemoryLayout::Interleaved);
+    grid = tt::GridAttr::get(getContext(), grid.getShape().size());
   }
 
   // For L1 we will inherit the memory layout if its set.
@@ -375,13 +372,13 @@ TTNNLayoutAttr TTNNLayoutAttr::withBufferType(::mlir::MLIRContext *context,
     memLayoutAttr = getMemLayout()
                         ? getMemLayout()
                         : TensorMemoryLayoutAttr::get(
-                              context, TensorMemoryLayout::Interleaved);
+                              getContext(), TensorMemoryLayout::Interleaved);
   }
 
   return TTNNLayoutAttr::get(
-      context, getLinear(), grid,
-      buildMemRef<BufferType, BufferTypeAttr>(context, getScalarShardShape(),
-                                              getElementType(), memorySpace),
+      getContext(), getLinear(), grid,
+      buildMemRef<BufferType, BufferTypeAttr>(
+          getContext(), getScalarShardShape(), getElementType(), memorySpace),
       memLayoutAttr, getTensorMeshSharding());
 }
 
@@ -394,13 +391,12 @@ TTNNLayoutAttr TTNNLayoutAttr::withBufferType(::mlir::MLIRContext *context,
 // param memLayoutAttr The new memory layout.
 // return The new TTNNLayoutAttr with the given memory layout.
 TTNNLayoutAttr
-TTNNLayoutAttr::withMemoryLayout(::mlir::MLIRContext *context,
-                                 TensorMemoryLayoutAttr memLayoutAttr) {
-  return TTNNLayoutAttr::get(
-      context, getLinear(), getGrid(),
-      buildMemRef<BufferType, BufferTypeAttr>(
-          context, getScalarShardShape(), getElementType(), getBufferType()),
-      memLayoutAttr, getTensorMeshSharding());
+TTNNLayoutAttr::withMemoryLayout(TensorMemoryLayoutAttr memLayoutAttr) {
+  return TTNNLayoutAttr::get(getContext(), getLinear(), getGrid(),
+                             buildMemRef<BufferType, BufferTypeAttr>(
+                                 getContext(), getScalarShardShape(),
+                                 getElementType(), getBufferType()),
+                             memLayoutAttr, getTensorMeshSharding());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -411,12 +407,11 @@ TTNNLayoutAttr::withMemoryLayout(::mlir::MLIRContext *context,
 // param context The MLIR context.
 // param memLayout The new memory layout.
 // return The new TTNNLayoutAttr with the given memory layout.
-TTNNLayoutAttr TTNNLayoutAttr::withMemoryLayout(::mlir::MLIRContext *context,
-                                                TensorMemoryLayout memLayout) {
+TTNNLayoutAttr TTNNLayoutAttr::withMemoryLayout(TensorMemoryLayout memLayout) {
 
   TensorMemoryLayoutAttr memLayoutAttr =
-      TensorMemoryLayoutAttr::get(context, memLayout);
-  return withMemoryLayout(context, memLayoutAttr);
+      TensorMemoryLayoutAttr::get(getContext(), memLayout);
+  return withMemoryLayout(memLayoutAttr);
 }
 
 // Construct a new TTNNLayoutAttr
@@ -428,12 +423,11 @@ TTNNLayoutAttr TTNNLayoutAttr::withMemoryLayout(::mlir::MLIRContext *context,
 // param shardShape The new shard shape.
 // return The new TTNNLayoutAttr with the given shard shape.
 TTNNLayoutAttr
-TTNNLayoutAttr::withShardShape(::mlir::MLIRContext *context,
-                               llvm::SmallVector<int64_t> shardShape) {
+TTNNLayoutAttr::withShardShape(llvm::SmallVector<int64_t> shardShape) {
   return TTNNLayoutAttr::get(
-      context, getLinear(), getGrid(),
+      getContext(), getLinear(), getGrid(),
       buildMemRef<BufferType, BufferTypeAttr>(
-          context, shardShape, getElementType(), getBufferType()),
+          getContext(), shardShape, getElementType(), getBufferType()),
       getMemLayout(), getTensorMeshSharding());
 }
 
@@ -445,13 +439,12 @@ TTNNLayoutAttr::withShardShape(::mlir::MLIRContext *context,
 // param context The MLIR context.
 // param tensorShape The new tensor shape.
 // return The new TTNNLayoutAttr with the given tensor shape.
-TTNNLayoutAttr TTNNLayoutAttr::withTensorShape(::mlir::MLIRContext *context,
-                                               ArrayRef<int64_t> tensorShape) {
+TTNNLayoutAttr TTNNLayoutAttr::withTensorShape(ArrayRef<int64_t> tensorShape) {
   // TODO(mrakita): This leaves default value of collapseIntervals parameter,
   // which might be different than the original value used to create the layout
   // attribute. This will work for now since we always use default value, but in
   // the future we would need to take this into account.
-  return TTNNLayoutAttr::get(context, tensorShape, getElementType(),
+  return TTNNLayoutAttr::get(getContext(), tensorShape, getElementType(),
                              getBufferType(), getGrid(), getMemLayout(),
                              getTensorMeshSharding());
 }
@@ -524,10 +517,9 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
 // param context The MLIR context.
 // param buffer type The new buffer type.
 // return The new MemoryConfigAttr with the given buffer type.
-MemoryConfigAttr MemoryConfigAttr::withBufferType(::mlir::MLIRContext *context,
-                                                  BufferType bufferType) {
-  return MemoryConfigAttr::get(context,
-                               BufferTypeAttr::get(context, bufferType),
+MemoryConfigAttr MemoryConfigAttr::withBufferType(BufferType bufferType) {
+  return MemoryConfigAttr::get(getContext(),
+                               BufferTypeAttr::get(getContext(), bufferType),
                                getShardSpec(), getTensorMemoryLayout());
 }
 
@@ -540,10 +532,10 @@ MemoryConfigAttr MemoryConfigAttr::withBufferType(::mlir::MLIRContext *context,
 // param memLayout The new memory layout.
 // return The new MemoryConfig with the given memory layout.
 MemoryConfigAttr
-MemoryConfigAttr::withMemoryLayout(::mlir::MLIRContext *context,
-                                   TensorMemoryLayout memLayout) {
-  return MemoryConfigAttr::get(context, getBufferType(), getShardSpec(),
-                               TensorMemoryLayoutAttr::get(context, memLayout));
+MemoryConfigAttr::withMemoryLayout(TensorMemoryLayout memLayout) {
+  return MemoryConfigAttr::get(
+      getContext(), getBufferType(), getShardSpec(),
+      TensorMemoryLayoutAttr::get(getContext(), memLayout));
 }
 
 // Verify memory config attribute
@@ -606,4 +598,89 @@ bool CoreRangeAttr::intersects(CoreRangeAttr other) const {
   }
 
   return ::llvm::success();
+}
+
+// MLIR attributes are immutable, so we can't just modify arbitrary param of
+// Conv2dConfigAttr. Instead iwe will use this struct to store the params and
+// build a new Conv2dConfigAttr.
+struct Conv2dConfigAttrParams {
+  mlir::tt::DataType dtype;
+  mlir::tt::DataType weightsDtype;
+  mlir::StringAttr activation;
+  uint32_t inputChannelsAlignment;
+  mlir::BoolAttr deallocateActivation;
+  mlir::BoolAttr reallocateHaloOutput;
+  uint32_t actBlockHOverride;
+  uint32_t actBlockWDiv;
+  mlir::BoolAttr reshardIfNotOptimal;
+  mlir::BoolAttr overrideShardingConfig;
+  TensorMemoryLayout shardLayout;
+  CoreRangeSetAttr coreGrid;
+  mlir::BoolAttr transposeShards;
+  Layout outputLayout;
+  mlir::BoolAttr preprocessWeightsOnDevice;
+  mlir::BoolAttr alwaysPreprocessWeights;
+  mlir::BoolAttr enableActDoubleBuffer;
+  mlir::BoolAttr enableWeightsDoubleBuffer;
+  mlir::BoolAttr enableSplitReader;
+  mlir::BoolAttr enableSubblockPadding;
+
+  Conv2dConfigAttrParams() = delete;
+
+  Conv2dConfigAttrParams(Conv2dConfigAttr attr) {
+    mlir::MLIRContext *ctx = attr.getContext();
+    auto getOrDefault = [ctx](mlir::BoolAttr attr) {
+      return attr ? attr : mlir::BoolAttr::get(ctx, false);
+    };
+
+    dtype = attr.getDtype().value_or(mlir::tt::DataType::BFloat16);
+    weightsDtype =
+        attr.getWeightsDtype().value_or(mlir::tt::DataType::BFloat16);
+    activation = attr.getActivation() ? attr.getActivation()
+                                      : mlir::StringAttr::get(ctx, "");
+    inputChannelsAlignment = attr.getInputChannelsAlignment().value_or(32);
+    deallocateActivation = getOrDefault(attr.getDeallocateActivation());
+    reallocateHaloOutput = getOrDefault(attr.getReallocateHaloOutput());
+    actBlockHOverride = attr.getActBlockHOverride().value_or(0);
+    actBlockWDiv = attr.getActBlockWDiv().value_or(1);
+    reshardIfNotOptimal = getOrDefault(attr.getReshardIfNotOptimal());
+    overrideShardingConfig = getOrDefault(attr.getOverrideShardingConfig());
+    shardLayout =
+        attr.getShardLayout().value_or(TensorMemoryLayout::HeightSharded);
+    coreGrid = attr.getCoreGrid() ? attr.getCoreGrid() : CoreRangeSetAttr{};
+    transposeShards = getOrDefault(attr.getTransposeShards());
+    outputLayout = attr.getOutputLayout().value_or(Layout::Tile);
+    preprocessWeightsOnDevice =
+        getOrDefault(attr.getPreprocessWeightsOnDevice());
+    alwaysPreprocessWeights = getOrDefault(attr.getAlwaysPreprocessWeights());
+    enableActDoubleBuffer = getOrDefault(attr.getEnableActDoubleBuffer());
+    enableWeightsDoubleBuffer =
+        getOrDefault(attr.getEnableWeightsDoubleBuffer());
+    enableSplitReader = getOrDefault(attr.getEnableSplitReader());
+    enableSubblockPadding = getOrDefault(attr.getEnableSubblockPadding());
+  }
+
+  Conv2dConfigAttr buildConv2dConfig(mlir::MLIRContext *ctx) const {
+    return Conv2dConfigAttr::get(
+        ctx, dtype, weightsDtype, activation, inputChannelsAlignment,
+        deallocateActivation, reallocateHaloOutput, actBlockHOverride,
+        actBlockWDiv, reshardIfNotOptimal, overrideShardingConfig, shardLayout,
+        coreGrid, transposeShards, outputLayout, preprocessWeightsOnDevice,
+        alwaysPreprocessWeights, enableActDoubleBuffer,
+        enableWeightsDoubleBuffer, enableSplitReader, enableSubblockPadding);
+  }
+};
+
+Conv2dConfigAttr Conv2dConfigAttr::get(::mlir::MLIRContext *context) {
+  return Conv2dConfigAttr::get(context, std::nullopt, std::nullopt, nullptr,
+                               std::nullopt, nullptr, nullptr, std::nullopt,
+                               std::nullopt, nullptr, nullptr, std::nullopt,
+                               nullptr, nullptr, std::nullopt, nullptr, nullptr,
+                               nullptr, nullptr, nullptr, nullptr);
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withActivation(StringRef activation) const {
+  Conv2dConfigAttrParams params(*this);
+  params.activation = StringAttr::get(getContext(), activation);
+  return params.buildConv2dConfig(getContext());
 }

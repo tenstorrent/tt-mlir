@@ -8,11 +8,16 @@
 #include "tt/runtime/detail/dylib.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/types.h"
 
 #include <atomic>
+#include <cstdint>
+#include <memory>
 #include <optional>
 #include <unordered_map>
+#include <variant>
+#include <vector>
 
 namespace tt::runtime::ttnn {
 using DeviceVariant = std::variant<std::reference_wrapper<::ttnn::IDevice>,
@@ -26,7 +31,11 @@ using TensorPtrMapIterator = typename TensorPtrMap::iterator;
 class TTNNTensorWrapper {
 public:
   TTNNTensorWrapper(const ::ttnn::Tensor &tensor, bool retain = false)
-      : tensor(tensor), retain(retain) {}
+      : tensor(tensor), retain(retain), version(getLatestVersion()) {}
+  TTNNTensorWrapper(const TTNNTensorWrapper &other)
+      : tensor(other.tensor),
+        retain(other.retain.load(std::memory_order_relaxed)),
+        version(other.version.load(std::memory_order_relaxed)) {}
 
   const ::ttnn::Tensor &getTensor() const { return tensor; }
   ::ttnn::Tensor &getTensor() { return tensor; }
@@ -34,12 +43,25 @@ public:
   bool shouldRetain() const { return retain.load(std::memory_order_relaxed); }
   void setRetain(bool val) { retain.store(val, std::memory_order_relaxed); }
 
+  uint64_t getVersion() const {
+    return version.load(std::memory_order_relaxed);
+  }
+  void updateVersion() {
+    version.store(getLatestVersion(), std::memory_order_relaxed);
+  }
+
 private:
   ::ttnn::Tensor tensor;
   // Whether the tensor should be retained during execution
   // Setting this to true will prohibit deallocate ops within
   // the program from deallocating the tensor
   std::atomic<bool> retain;
+  std::atomic<uint64_t> version;
+
+  static std::atomic<uint64_t> getLatestVersion() {
+    static std::atomic<uint64_t> latestVersion{0};
+    return latestVersion++;
+  }
 };
 
 struct LayoutDesc {
@@ -173,16 +195,19 @@ public:
                  const std::vector<uint32_t> &programOutputIds,
                  TensorPtrMap &&liveTensors,
                  common::DylibManager &&programDylibManager,
-                 ::ttnn::MeshDevice *parentMesh)
+                 ::ttnn::MeshDevice *parentMesh, const Binary &executableHandle,
+                 size_t programIndex = 0)
       : tensorPool(ProgramTensorPool(programInputIds, programOutputIds,
                                      std::move(liveTensors))),
-        dylibManager(std::move(programDylibManager)), parentMesh(parentMesh) {
+        dylibManager(std::move(programDylibManager)), parentMesh(parentMesh),
+        executableHandle(executableHandle), programIndex(programIndex) {
     LOG_ASSERT(parentMesh, "Parent mesh cannot be null");
   }
+
   ProgramContext(const ProgramContext &) = delete;
   ProgramContext &operator=(const ProgramContext &) = delete;
-  ProgramContext(ProgramContext &&) = default;
-  ProgramContext &operator=(ProgramContext &&) = default;
+  ProgramContext(ProgramContext &&) = delete;
+  ProgramContext &operator=(ProgramContext &&) = delete;
 
   //
   // Parent Mesh Operations
@@ -209,6 +234,9 @@ public:
 
   DeviceVariant getTargetDevice(uint32_t meshId);
 
+  //
+  // Dylib Manager Operation
+  //
   void *tryGetDylibHandle(const uint32_t dylibId) {
     return dylibManager.getHandle(dylibId);
   }
@@ -217,7 +245,22 @@ public:
   // Tensor Pool Operations
   //
   ProgramTensorPool &getTensorPool() { return tensorPool; }
+
   const ProgramTensorPool &getTensorPool() const { return tensorPool; }
+
+  //
+  // Executable Handle Operations
+  //
+  std::shared_ptr<TensorCache> getCache() {
+    return executableHandle.getCache();
+  }
+
+  Binary &getExecutableHandle() { return executableHandle; }
+
+  //
+  // Program Index getter
+  //
+  size_t getProgramIndex() const { return programIndex; }
 
 private:
   ProgramTensorPool tensorPool;
@@ -230,7 +273,14 @@ private:
   // Contains subMeshes of the parentMesh that are used by the program
   // Will be populated by GetDevice ops
   std::unordered_map<uint32_t, std::shared_ptr<::ttnn::MeshDevice>> subMeshes;
+
+  // The executable binary handle
+  Binary executableHandle;
+
+  // The index of the program within the binary
+  const size_t programIndex;
 };
+
 } // namespace tt::runtime::ttnn
 
 #endif

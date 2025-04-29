@@ -252,7 +252,8 @@ private:
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResultTypes()[1]));
     ttir::EmptyOp outputTensor = rewriter.create<ttir::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType(),
+        outputType.getEncoding());
 
     // Can't reuse the original dimensions attribute because it uses i64 type.
     mlir::ArrayAttr dimArg = rewriter.getI32ArrayAttr(
@@ -919,7 +920,8 @@ public:
     SmallVector<Value> outputsVec;
     for (uint32_t i = 0; i < srcOp.getResults().size(); i++) {
       ttir::EmptyOp outputTensor = rewriter.create<ttir::EmptyOp>(
-          srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+          srcOp.getLoc(), outputType.getShape(), outputType.getElementType(),
+          outputType.getEncoding());
       outputsVec.push_back(outputTensor);
     }
     ValueRange outputs = outputsVec;
@@ -1870,7 +1872,7 @@ public:
         auto fullToShardCustomCall =
             mlir::dyn_cast_if_present<mlir::stablehlo::CustomCallOp>(
                 *srcOp->user_begin());
-        if (!fullToShardCustomCall || !fullToShardCustomCall->hasOneUse()) {
+        if (!fullToShardCustomCall || !srcOp->hasOneUse()) {
           return failure();
         }
 

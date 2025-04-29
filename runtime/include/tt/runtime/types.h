@@ -147,7 +147,18 @@ struct SystemDesc : public Flatbuffer {
   ::tt::target::SystemDesc const *operator->() const { return get(); }
 };
 
+class TensorCache;
 struct Binary : public Flatbuffer {
+  Binary(Flatbuffer fb);
+  Binary(std::shared_ptr<void> handle);
+  Binary(const Binary &) = default;
+  Binary(Binary &&) = default;
+
+  Binary &operator=(const Binary &other) = default;
+  Binary &operator=(Binary &&other) = default;
+  Binary &operator=(Flatbuffer fb);
+  Binary &operator=(std::shared_ptr<void> handle);
+
   using Flatbuffer::Flatbuffer;
 
   static Binary loadFromPath(char const *path);
@@ -155,9 +166,19 @@ struct Binary : public Flatbuffer {
   std::vector<TensorDesc> getProgramInputs(std::uint32_t programIndex) const;
   std::vector<TensorDesc> getProgramOutputs(std::uint32_t programIndex) const;
   const ::tt::target::GoldenTensor *getDebugInfoGolden(std::string &loc) const;
+
+  // Get the tensor cache associated with this binary
+  std::shared_ptr<TensorCache> getCache() { return cache; }
+
+private:
+  // The tensor cache associated with this binary
+  std::shared_ptr<TensorCache> cache;
 };
 
 struct Device : public detail::RuntimeCheckedObjectImpl {
+  Device(std::shared_ptr<void> handle, DeviceRuntime runtime,
+         std::shared_ptr<TensorCache> tensorCache)
+      : detail::RuntimeCheckedObjectImpl(handle, runtime) {}
   using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
 };
 

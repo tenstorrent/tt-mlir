@@ -97,6 +97,9 @@ LICENSE @nsmithtt
 /lib/Dialect/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @jserbedzijaTT @jnie-TT @azecevicTT
 /test/ttmlir/Dialect/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
 
+# TTNN Utils
+/include/ttmlir/Dialect/TTNN/Utils/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @jserbedzijaTT @azecevicTT @odjuricicTT @rpavlovicTT
+
 # TTNN Optimizer
 /include/ttmlir/Dialect/TTNN/Analysis/ @odjuricicTT @rpavlovicTT @sdjordjevicTT
 /include/ttmlir/OpModel/ @arminaleTT @odjuricicTT @rpavlovicTT @sdjordjevicTT

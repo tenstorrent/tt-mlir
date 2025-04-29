@@ -64,7 +64,9 @@ runs:
       shell: bash
       run: |
         source env/activate
+        ccache -z
         cmake --build ${{ inputs.build-output-dir }}
+        ccache -s
 
     - name: Build ttrt
       shell: bash

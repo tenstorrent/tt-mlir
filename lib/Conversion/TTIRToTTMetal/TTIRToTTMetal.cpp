@@ -9,6 +9,9 @@
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 
+#include <cstdint>
+#include <utility>
+
 namespace mlir::tt::ttmetal {
 
 namespace {

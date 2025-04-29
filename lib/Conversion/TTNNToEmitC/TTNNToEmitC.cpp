@@ -399,6 +399,41 @@ public:
 };
 } // namespace
 
+// Eltwise Binary NG Composite op conversion pattern
+//
+// Currently, it has to insert nullopts for some parameters that are not
+// modelled in the dialect (memcfg).
+//
+namespace {
+template <typename SourceOp>
+class EltwiseBinaryNGCompositeOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      SourceOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = typename SourceOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(SourceOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getLhs()),
+        emitter.emit(srcOp.getRhs()),
+        emitter.emit(std::nullopt),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // Eltwise Ternary op conversion pattern
 //
 // Currently, it has to insert nullopts for some parameters that are not
@@ -780,7 +815,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getDim()),
-        /*keepdim=*/emitter.emit(false),
+        /*keepdim=*/emitter.emit(srcOp.getKeepDim()),
         /*sub_core_grids=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getUseMulticore()),
         emitter.emit(srcOp.getMemoryConfig()) |
@@ -911,6 +946,53 @@ public:
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getKernelSizeAttr()),
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getPaddingAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
+        emitter.emit(srcOp.getGroups()),
+        emitter.emit(srcOp.getBias()),
+        emitter.emit(std::nullopt) |
+            emitter.getConv2dConfig(srcOp.getInput(), srcOp.getWeight()),
+        /*compute_config=*/emitter.emit(std::nullopt),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// ConvTranspose2d op conversion pattern
+//
+namespace {
+class ConvTranspose2dOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::ConvTranspose2dOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::ttnn::ConvTranspose2dOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::ConvTranspose2dOp srcOp,
+                  tt::ttnn::ConvTranspose2dOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::ConvTranspose2dOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getWeight()),
+        emitter.emit(srcOp.getDevice()),
+        emitter.emit(srcOp.getInChannels()),
+        emitter.emit(srcOp.getOutChannels()),
+        emitter.emit(srcOp.getBatchSize()),
+        emitter.emit(srcOp.getInputHeight()),
+        emitter.emit(srcOp.getInputWidth()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getKernelSizeAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getPaddingAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getOutputPaddingAttr()),
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getGroups()),
         emitter.emit(srcOp.getBias()),
@@ -1605,6 +1687,131 @@ public:
 };
 } // namespace
 
+// LoadCached Op conversion pattern
+//
+// This is crude solution to use a static vector of results s.t. we only execute
+// the subgraphs once.  No support for tensor dirtying atm.
+//
+namespace {
+class LoadCachedOpConversionPattern
+    : public OpConversionPattern<tt::LoadCachedOp> {
+
+public:
+  using OpConversionPattern<tt::LoadCachedOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::LoadCachedOp srcOp, tt::LoadCachedOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Get the callee function
+    llvm::StringRef callee = srcOp.getCallee();
+
+    // Try to find if utility vec creation function is already defined in the
+    // module. If not, insert it.
+    tt::ttnn_to_emitc::utils::insertVecCreateFnIfNotExists(rewriter, srcOp);
+
+    // Create a tuple of all input tensors
+    auto tupleType = emitc::OpaqueType::get(rewriter.getContext(),
+                                            "::std::vector<::ttnn::Tensor>");
+
+    // Convert result types
+    SmallVector<Type> resultTypes;
+    for (auto type : srcOp.getResultTypes()) {
+      resultTypes.push_back(getTypeConverter()->convertType(type));
+    }
+
+    // Generate a unique name for our global variable
+    std::string globalVarName = "g_cached_result_" + callee.str();
+    FlatSymbolRefAttr globalSym =
+        SymbolRefAttr::get(rewriter.getContext(), globalVarName);
+
+    // Insert a global variable declaration before the current function
+    // This ensures it comes after the header include in the generated C++ code
+    auto funcOp = srcOp->getParentOfType<func::FuncOp>();
+    auto currentInsertionPoint = rewriter.saveInsertionPoint();
+    rewriter.setInsertionPoint(funcOp);
+
+    // Create the global variable using EmitC's GlobalOp
+    rewriter.create<emitc::GlobalOp>(
+        srcOp.getLoc(), StringAttr::get(rewriter.getContext(), globalVarName),
+        TypeAttr::get(tupleType),
+        /*initialValue=*/nullptr,
+        /*extern_specifier=*/UnitAttr(),
+        /*static_specifier=*/UnitAttr::get(rewriter.getContext()),
+        /*const_specifier=*/UnitAttr());
+
+    // Restore the insertion point to continue with the function
+    rewriter.restoreInsertionPoint(currentInsertionPoint);
+
+    // Create the function pointer type
+    auto funcPtrType = emitc::OpaqueType::get(
+        rewriter.getContext(), "::std::function<::std::vector<::ttnn::Tensor>(:"
+                               ":std::vector<::ttnn::Tensor>)>");
+    auto addressAttr =
+        emitc::OpaqueAttr::get(rewriter.getContext(), "&" + callee.str());
+    auto funcPtrValue = rewriter.create<emitc::ConstantOp>(
+        srcOp.getLoc(), funcPtrType, addressAttr);
+
+    auto tupleOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(), tupleType,
+        tt::ttnn_to_emitc::utils::kCreateVectorFunctionName, nullptr, nullptr,
+        adaptor.getInputs());
+    Value tupleValue = tupleOp.getResult(0);
+
+    // Get a reference to the global variable using GetGlobalOp
+    auto globalVar = rewriter.create<emitc::GetGlobalOp>(
+        srcOp.getLoc(), emitc::LValueType::get(tupleType), globalSym);
+
+    // Create a pointer type for the output parameter
+    auto ptrType = emitc::PointerType::get(rewriter.getContext(), tupleType);
+
+    // Get the address of the global variable
+    auto addressOfOp = rewriter.create<emitc::ApplyOp>(srcOp.getLoc(), ptrType,
+                                                       "&", globalVar);
+
+    // Call the wrapper function with the pointer
+    rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(), TypeRange{}, "ttnn::constEvalFuncWrapper",
+        ValueRange{funcPtrValue, tupleValue, addressOfOp}, ArrayAttr{});
+
+    // Load the value from the global variable
+    auto resultVar =
+        rewriter.create<emitc::LoadOp>(srcOp.getLoc(), tupleType, globalVar);
+
+    // Unpack the tuple result - extract each element from the tuple
+    SmallVector<Value> results;
+
+    for (unsigned i = 0; i < srcOp.getNumResults(); ++i) {
+      // Create index value
+      auto indexType = rewriter.getIndexType();
+      auto indexOp = rewriter.create<emitc::LiteralOp>(
+          srcOp.getLoc(), indexType, std::to_string(i));
+      Value indexVal = indexOp.getResult();
+
+      // Create LValue type for the tensor reference
+      auto lvalueType = emitc::LValueType::get(
+          emitc::OpaqueType::get(rewriter.getContext(), "::ttnn::Tensor"));
+
+      // Get reference to the i-th element in the static cache result
+      // Use the variable that references our global result
+      auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
+          srcOp.getLoc(), lvalueType, resultVar.getResult(), indexVal);
+
+      // Load the actual tensor value from the reference
+      auto loadOp = rewriter.create<emitc::LoadOp>(
+          srcOp.getLoc(),
+          emitc::OpaqueType::get(rewriter.getContext(), "::ttnn::Tensor"),
+          subscriptOp.getResult());
+      results.push_back(loadOp.getResult());
+    }
+
+    // Replace the original op with the extracted results
+    rewriter.replaceOp(srcOp, results);
+
+    return success();
+  }
+};
+} // namespace
+
 // Module Op conversion pattern
 //
 // This conversion pattern removes attributes from the ModuleOp. Previously,
@@ -1913,12 +2120,12 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            EltwiseBinaryOpConversionPattern<tt::ttnn::GreaterThanOp>,
            EltwiseBinaryOpConversionPattern<tt::ttnn::LessEqualOp>,
            EltwiseBinaryOpConversionPattern<tt::ttnn::LessThanOp>,
-           EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::MaximumOp>,
-           EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::MinimumOp>,
+           EltwiseBinaryNGCompositeOpConversionPattern<tt::ttnn::MaximumOp>,
+           EltwiseBinaryNGCompositeOpConversionPattern<tt::ttnn::MinimumOp>,
            EltwiseBinaryOpConversionPattern<tt::ttnn::DivideOp>,
            EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::ScatterOp>,
            EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::RemainderOp>,
-           EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::PowOp>,
+           EltwiseBinaryNGCompositeOpConversionPattern<tt::ttnn::PowOp>,
            EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::Atan2Op>>(
           typeConverter, ctx);
 
@@ -1964,8 +2171,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<PrepareConv2dWeightsOpConversionPattern>(typeConverter, ctx);
   patterns.add<Conv2dOpConversionPattern>(typeConverter, ctx);
-  patterns.add<DefaultOpConversionPattern<tt::ttnn::ConvTranspose2dOp>>(
-      typeConverter, ctx);
+  patterns.add<ConvTranspose2dOpConversionPattern>(typeConverter, ctx);
 
   // Other ops
   //
@@ -1995,6 +2201,10 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<GetTupleElementOpConversionPattern>(typeConverter, ctx);
   patterns.add<TupleOpConversionPattern>(typeConverter, ctx);
+
+  // LoadCached op
+  //
+  patterns.add<LoadCachedOpConversionPattern>(typeConverter, ctx);
 
   // Module op
   //

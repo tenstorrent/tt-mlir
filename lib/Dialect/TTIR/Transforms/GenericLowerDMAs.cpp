@@ -160,8 +160,7 @@ public:
                                ArrayRef<int64_t> shardShape) {
     auto [lbs, ubs, steps] = getLoopBounds(builder, loc, shardShape);
 
-    auto initTx = builder.create<ttir::NullTxOp>(dma.getLoc(),
-                                                 builder.getType<MemTxType>());
+    auto initTx = builder.create<ttir::NullTxOp>(dma.getLoc());
     scf::LoopNest loopNest = scf::buildLoopNest(
         builder, loc, lbs, ubs, steps, ValueRange(initTx),
         [&](OpBuilder &builder, Location loc, ValueRange iters,
@@ -186,12 +185,10 @@ public:
 
     AffineMap dmaIndexingMap = *dma.getSrcAffineMap();
     MemRefType memref = dma.getSrcMemRefType();
-    assert(memref.getRank() % 2 == 0 && "Only even rank memrefs are supported");
-    ArrayRef<int64_t> memrefShape = memref.getShape();
-    ArrayRef<int64_t> memrefGridShape =
-        memrefShape.take_front(memrefShape.size() / 2);
-    ArrayRef<int64_t> memrefShardShape =
-        memrefShape.drop_front(memrefShape.size() / 2);
+    DeviceLayoutInterface layout =
+        mlir::cast<DeviceLayoutInterface>(memref.getLayout());
+    ArrayRef<int64_t> memrefGridShape = layout.getGridShape(memref);
+    ArrayRef<int64_t> memrefShardShape = layout.getShardShape(memref);
 
     GenericOp genericParent = dma->getParentOfType<ttir::GenericOp>();
     unsigned outputOperandsIndex =
@@ -207,10 +204,15 @@ public:
                          memrefShardShape, dmaIndexingMap, gridIndexingMap);
 
     DeviceAttr device = genericParent.getDevice();
+    std::pair<MemRefType, AffineMap> underlyingMemrefAndView =
+        mlir::cast<ttir::ViewOpInterface>(dma.getSrc().getDefiningOp())
+            .applyViews();
     // TODO(#1909) Once we have an allocation pass, we need to lookup the page
     // size instead of calculating it here.
-    size_t pageSize = getMemRefShardSizeBytes(memref);
-    AffineMap memoryMap = device.getMemoryMap(memref, pageSize);
+    size_t pageSize = device.getMemrefSizeBytes(underlyingMemrefAndView.first,
+                                                /*pageSize=*/0);
+    AffineMap memoryMap =
+        device.getMemoryMap(underlyingMemrefAndView, pageSize);
     size_t elemSizeBytes = getElementSizeBytes(memref);
     size_t coalescingFactor =
         calculateCoalescingFactor(memoryMap, memrefGridShape, memrefShardShape,

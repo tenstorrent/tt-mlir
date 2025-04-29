@@ -15,3 +15,9 @@ MlirType ttmlirTTKernelCBTypeGet(MlirContext ctx, uint64_t address,
   return wrap(CBType::get(unwrap(ctx), symbolizeCBPort(port).value(), address,
                           mlir::cast<mlir::MemRefType>(unwrap(memrefType))));
 }
+
+MLIR_CAPI_EXPORTED MlirAttribute
+ttmlirTTKernelThreadTypeAttrGet(MlirContext ctx, uint32_t enumValue) {
+  return wrap(
+      ThreadTypeAttr::get(unwrap(ctx), static_cast<ThreadType>(enumValue)));
+}

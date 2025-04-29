@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
+#include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
 
 #include "llvm/ADT/DenseSet.h"
 
@@ -23,6 +24,7 @@ void L1ChainConfig::resolve() {
 }
 
 ShardSolver L1ChainConfig::resolveWithSolver(
+    const TensorTypeLayoutsMap *tensorTypePossibleLayouts,
     const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
     unsigned usableL1CacheSize,
     const llvm::DenseSet<Edge> &overrideReshardEdges) {
@@ -31,8 +33,9 @@ ShardSolver L1ChainConfig::resolveWithSolver(
   // Reconcile adjacent shard specs.
   // Generate reshard specs where needed.
   //
-  ShardSolver shardSolver(legalConfigs, opL1MemSpecs, l1ChainedOps,
-                          usableL1CacheSize, overrideReshardEdges);
+  ShardSolver shardSolver(tensorTypePossibleLayouts, legalConfigs, opL1MemSpecs,
+                          l1ChainedOps, usableL1CacheSize,
+                          overrideReshardEdges);
 
   state = shardSolver.resolve() ? L1ChainState::Resolved : L1ChainState::Failed;
 

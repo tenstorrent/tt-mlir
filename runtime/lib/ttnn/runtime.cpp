@@ -3,16 +3,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "Constants.h"
-#include "tt-metalium/small_vector.hpp"
+
 #include "tt/runtime/detail/common.h"
 #include "tt/runtime/detail/debug.h"
+#include "tt/runtime/detail/dylib.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/ttnn/program_executor.h"
 #include "tt/runtime/ttnn/types.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
 #include "ttmlir/Target/TTNN/Target.h"
+#include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Version.h"
 #include "ttnn/tensor/types.hpp"
 
@@ -122,44 +125,6 @@ static ::tt::runtime::Tensor toHostSingleTensor(::tt::runtime::Tensor tensor,
   return utils::createRuntimeTensorFromTTNN(hostTensor, shouldRetain);
 }
 
-static std::vector<::tt::runtime::Tensor>
-convertInputLayouts(Device deviceHandle, Binary executableHandle,
-                    std::uint32_t programIndex,
-                    std::vector<::tt::runtime::Tensor> &inputs) {
-  // Convert input tensors to the layout expected by the program
-  std::vector<::tt::runtime::Tensor> inputsWithLayout;
-  inputsWithLayout.reserve(inputs.size());
-  for (size_t i = 0; i < inputs.size(); i++) {
-    ::tt::runtime::Tensor &input = inputs[i];
-    Layout desiredLayout =
-        ::tt::runtime::ttnn::getLayout(executableHandle, programIndex, i);
-
-    const LayoutDesc tensorLayoutDesc = LayoutDesc::fromTensor(input);
-
-    const LayoutDesc &desiredlayoutDesc =
-        desiredLayout.as<LayoutDesc>(DeviceRuntime::TTNN);
-
-    // If the input tensor already has the correct layout
-    // reuse it and continue
-    if (tensorLayoutDesc == desiredlayoutDesc) {
-      inputsWithLayout.push_back(input);
-      continue;
-    }
-
-    // Convert the input tensor to the correct layout
-    // Deallocating the original tensor if it is not retained
-    ::tt::runtime::Tensor inputWithLayout = ::tt::runtime::ttnn::toLayout(
-        input, deviceHandle, desiredLayout, /*retain=*/false);
-    inputsWithLayout.push_back(inputWithLayout);
-
-    if (!::tt::runtime::ttnn::getTensorRetain(input)) {
-      ::tt::runtime::ttnn::deallocateTensor(input);
-    }
-  }
-
-  return inputsWithLayout;
-}
-
 static DeviceVariant getTargetDevice(::ttnn::MeshDevice &meshDevice) {
   if (meshDevice.num_devices() == 1) {
     return std::ref(*(meshDevice.get_device(::ttnn::MeshCoordinate(0, 0))));
@@ -178,13 +143,6 @@ createMemoryView(tt::tt_metal::detail::MemoryView const &memoryView) {
           memoryView.largest_contiguous_bytes_free_per_bank,
       .blockTable = memoryView.block_table,
   };
-}
-
-static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
-  bool isTTNN = ::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
-      binary.handle.get());
-  LOG_ASSERT(isTTNN, "Unsupported binary format");
-  return ::tt::target::ttnn::GetSizePrefixedTTNNBinary(binary.handle.get());
 }
 
 ::tt::runtime::Tensor
@@ -639,7 +597,7 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
   ::ttnn::MeshDevice &meshDevice =
       device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
 
-  const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
+  ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
       tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
 
   const ::ttnn::Tensor &ttnnTensor = tensorWrapper.getTensor();
@@ -654,7 +612,13 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
   LayoutConverter converter(tensorLayoutDesc, desiredLayoutDesc);
   ::ttnn::Tensor out = converter.convertTensorLayout(ttnnTensor, targetDevice);
 
-  return utils::createRuntimeTensorFromTTNN(out, shouldRetain);
+  ::tt::runtime::Tensor result =
+      utils::createRuntimeTensorFromTTNN(out, shouldRetain);
+
+  if (!shouldRetain) {
+    ::tt::runtime::ttnn::deallocateTensor(tensor);
+  }
+  return result;
 }
 
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
@@ -971,18 +935,29 @@ std::string getOpLocInfo(OpContext opContextHandle) {
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs) {
-  // Convert input tensors to the layout expected by the program
-  std::vector<::tt::runtime::Tensor> inputsWithLayout =
-      ::tt::runtime::ttnn::convertInputLayouts(deviceHandle, executableHandle,
-                                               programIndex, inputs);
 
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
 
   std::vector<::tt::runtime::Tensor> outputs = ::tt::runtime::ttnn::runProgram(
-      meshDevice, executableHandle, programIndex, inputsWithLayout);
+      meshDevice, executableHandle, programIndex, inputs);
 
   return outputs;
+}
+
+std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
+                               Binary executableHandle,
+                               std::uint32_t programIndex,
+                               std::vector<::tt::runtime::Tensor> &inputs) {
+  ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
+  ::tt::target::ttnn::Program const *program =
+      fbb.programs()->Get(programIndex);
+  ProgramExecutor executor(program, executableHandle, inputs, &meshDevice,
+                           programIndex);
+  executor.execute();
+  std::vector<::tt::runtime::Tensor> outputTensors =
+      executor.gatherOutputTensors();
+  return outputTensors;
 }
 
 } // namespace tt::runtime::ttnn

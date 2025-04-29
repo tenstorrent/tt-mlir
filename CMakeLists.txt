@@ -47,6 +47,19 @@ endif()
 
 add_compile_options(-Wall -Wextra -Wpedantic -Werror -Wno-unused-parameter --system-header-prefix=ENV{TTMLIR_TOOLCHAIN_DIR})
 
+set(CMAKE_LINKER_TYPE DEFAULT)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  execute_process(COMMAND ${CMAKE_CXX_COMPILER} --version OUTPUT_VARIABLE CLANG_VERSION_INFO ERROR_QUIET)
+  string(REGEX MATCH "version ([0-9]+)\\.[0-9]+" CLANG_VERSION "${CLANG_VERSION_INFO}")
+  set(LLD_EXECUTABLE "lld-${CMAKE_MATCH_1}")
+  set(LD_LLD_EXECUTABLE "ld.lld-${CMAKE_MATCH_1}")
+  find_program(LLD NAMES ${LLD_EXECUTABLE} ${LD_LLD_EXECUTABLE})
+  if(LLD)
+    message(STATUS "Using linker: ${LLD}")
+    set(CMAKE_LINKER_TYPE LLD)
+  endif()
+endif()
+
 include(TTMLIRBuildTypes)
 
 if(NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
@@ -99,12 +112,13 @@ include(TTMLIRPythonSitePackages)
 add_subdirectory(third_party)
 if (TTMLIR_ENABLE_STABLEHLO)
   set(STABLEHLO_BUILD_EMBEDDED ON)
+  set(STABLEHLO_ENABLE_BINDINGS_PYTHON ON)
   add_subdirectory(${TTMLIR_TOOLCHAIN_DIR}/src/shardy ${CMAKE_CURRENT_BINARY_DIR}/shardy EXCLUDE_FROM_ALL)
-  include_directories(${CMAKE_CURRENT_BINARY_DIR}/shardy)
-  include_directories(${TTMLIR_TOOLCHAIN_DIR}/src/shardy)
+  include_directories(SYSTEM ${CMAKE_CURRENT_BINARY_DIR}/shardy)
+  include_directories(SYSTEM ${TTMLIR_TOOLCHAIN_DIR}/src/shardy)
   add_subdirectory(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo ${CMAKE_CURRENT_BINARY_DIR}/stablehlo EXCLUDE_FROM_ALL)
-  include_directories(${CMAKE_CURRENT_BINARY_DIR}/stablehlo)
-  include_directories(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo)
+  include_directories(SYSTEM ${CMAKE_CURRENT_BINARY_DIR}/stablehlo)
+  include_directories(SYSTEM ${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo)
   install(DIRECTORY shardy ${CMAKE_CURRENT_BINARY_DIR}/shardy/shardy
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
     COMPONENT SharedLib

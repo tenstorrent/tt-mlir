@@ -5,8 +5,8 @@
 #ifndef TTMLIR_DIALECT_TTNN_UTILS_UTILS_H
 #define TTMLIR_DIALECT_TTNN_UTILS_UTILS_H
 
-#include <llvm/Support/CommandLine.h>
-#include <mlir/IR/Value.h>
+#include "mlir/IR/Value.h"
+#include "llvm/Support/CommandLine.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -45,6 +45,10 @@ createRankedTensorTypeWithBufferType(RankedTensorType tensorType,
 RankedTensorType
 createRankedTensorTypeWithMemoryLayout(RankedTensorType tensorType,
                                        ttnn::TensorMemoryLayout memoryLayout);
+
+// Helper method to create a RankedTensorType with the given grid.
+RankedTensorType createRankedTensorTypeWithGrid(RankedTensorType tensorType,
+                                                GridAttr grid);
 
 // Return the L1 memory usage of the output tensor of the given op.
 // Used within L1 interleaved policies.

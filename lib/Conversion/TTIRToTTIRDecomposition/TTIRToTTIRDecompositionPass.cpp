@@ -4,19 +4,19 @@
 
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include <mlir/Dialect/Func/IR/FuncOps.h>
-#include <mlir/Dialect/Tensor/IR/Tensor.h>
-#include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -62,9 +62,6 @@ struct TTIRToTTIRDecompositionPass
       return (static_cast<int64_t>(op.getArangeDimension()) == 0 &&
               shape.size() == 1);
     });
-
-    target.addDynamicallyLegalOp<ttir::ArgMaxOp>(
-        [&](ttir::ArgMaxOp op) { return op.getKeepDim(); });
 
     TypeConverter typeConverter;
     // All types map 1:1.

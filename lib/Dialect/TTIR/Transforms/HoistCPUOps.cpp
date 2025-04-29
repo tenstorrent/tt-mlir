@@ -88,7 +88,7 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
         auto emptyTensor = typeBuilder.create<mlir::tt::ttir::EmptyOp>(
             opToHoist->getLoc(), tensorType.getShape(), f32Type);
         auto converted = typeBuilder.create<mlir::tt::ttir::ToLayoutOp>(
-            opToHoist->getLoc(), f32TensorType, operand, emptyTensor);
+            opToHoist->getLoc(), operand, emptyTensor);
         convertedOperands.push_back(converted->getResult(0));
       } else {
         operandTypes.push_back(tensorType);
@@ -204,7 +204,7 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
             opToHoist->getLoc(), tensorType.getShape(),
             tensorType.getElementType());
         auto toOriginal = opBuilder.create<mlir::tt::ttir::ToLayoutOp>(
-            opToHoist->getLoc(), tensorType, callResult, converted);
+            opToHoist->getLoc(), callResult, converted);
         finalResults.push_back(toOriginal->getResult(0));
       } else {
         finalResults.push_back(callResult);

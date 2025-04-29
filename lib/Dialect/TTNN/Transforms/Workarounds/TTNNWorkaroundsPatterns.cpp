@@ -9,7 +9,9 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ArgMaxOpRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpDimRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpRankRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceOpsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RepeatOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
@@ -161,13 +163,10 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
   // Create the new output layout attribute with the updated tensor layout,
   // buffer type, memory layout and data type.
   TTNNLayoutAttr newOutputLayoutAttr =
-      opResultLayoutAttr
-          .withElementType(rewriter.getContext(), elementType,
-                           opResultType.getShape())
+      opResultLayoutAttr.withElementType(elementType, opResultType.getShape())
           .withBufferType(
-              rewriter.getContext(),
               outputWorkaroundResults.tensorBufferTypeResult.targetValue)
-          .withMemoryLayout(rewriter.getContext(), outputMemLayoutAttr);
+          .withMemoryLayout(outputMemLayoutAttr);
 
   // Create the new output result type with the updated data type and layout.
   RankedTensorType newOutputResultType =
@@ -211,14 +210,12 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
       // Check if the buffer type got updated.
       if (outputWorkaroundResults.tensorBufferTypeResult.isModified()) {
         currentMemoryConfig = currentMemoryConfig.withBufferType(
-            rewriter.getContext(),
             outputWorkaroundResults.tensorBufferTypeResult.targetValue);
       }
 
       // Check if the memory layout got updated.
       if (outputWorkaroundResults.tensorMemoryLayoutResult.isModified()) {
         currentMemoryConfig = currentMemoryConfig.withMemoryLayout(
-            rewriter.getContext(),
             outputWorkaroundResults.tensorMemoryLayoutResult.targetValue
                 .value());
       }
@@ -356,15 +353,30 @@ public:
     // TODO(hongseok): Restore dynamic dimension selection once the issue
     // (https://github.com/tenstorrent/tt-metal/issues/19433) is resolved.
     // Currently, dimension 3 must be used to produce correct outputs.
-    int32_t dimension = 3;
+    int32_t dimension =
+        std::min(3, static_cast<int32_t>(inputTypeShape.size() - 1));
+    // If the target dimension is not evenly divisible by the number of devices
+    // in the cluster, use the all-gather + local reduce breakdown approach.
+    if (inputTypeShape[dimension] % meshShape[clusterAxis] != 0) {
+      // Estimate memory usage of AllGather + LocalReduce breakdown and check if
+      // it exceeds the allowed memory limit. This breakdown requires
+      // significantly more memory than ReduceScatter + AllGather due to
+      // internal padding and temporary buffers. To avoid potential memory
+      // blowup, enforce a size constraint based on DRAM capacity.
+      if (exceedsAllGatherReduceMemLimit(getCurrentScopeSystemDesc(op),
+                                         inputType, meshShape[clusterAxis],
+                                         0.05)) {
+        return rewriteAsAllGatherLocalReduce(op, meshShape, rewriter);
+      }
+    }
 
     // TODO(wooseoklee): Once it supports two dimensional tensor
     // (https://github.com/tenstorrent/tt-metal/issues/15010), we can remove
     // this workaround solution.
     if (inputTypeShape.size() < 4) {
-      // We need to expand the current inputShape size to a tensor with rank=4.
-      // We do this by adding leading 1's to the inputShape to create a new
-      // shape with rank=4.
+      // We need to expand the current inputShape size to a tensor with
+      // rank=4. We do this by adding leading 1's to the inputShape to create
+      // a new shape with rank=4.
       uint32_t requiredOnesInput = 4 - inputTypeShape.size();
       llvm::SmallVector<int64_t> reshapedInputShape(requiredOnesInput, 1);
       reshapedInputShape.append(inputTypeShape);
@@ -380,13 +392,8 @@ public:
           loc, Type(reshapedInputType), op.getInput(), reshapedInputShapeAttr,
           /* memory_config */ nullptr);
 
-      // TODO(hongseok): Restore dynamic dimension selection once the issue
-      // (https://github.com/tenstorrent/tt-metal/issues/19433) is resolved.
-      // Currently, dimension 3 must be used to produce correct outputs.
-      if ((reshapedInputShape[dimension] % meshShape[clusterAxis]) != 0) {
-        return op.emitOpError()
-               << "Unable to lower all_reduce op using dimesion 3.";
-      }
+      // Determine new dimension since entire tensor shape got shifted.
+      dimension = dimension + requiredOnesInput;
 
       // Determine the shape of its input tensor. The new tensor
       // shape at the scatter_dim will be tensor_shape[scatter_dim] =
@@ -426,16 +433,9 @@ public:
           reshapedOutputShapeAttr, /* memory_config */ nullptr);
     } else {
       // TODO(wooseoklee): Once ttnn supports all_reduce op
-      // (https://github.com/tenstorrent/tt-metal/issues/13835), we can convert
-      // directly to ttnn.all_reduce.
+      // (https://github.com/tenstorrent/tt-metal/issues/13835), we can
+      // convert directly to ttnn.all_reduce.
 
-      // TODO(hongseok): Restore dynamic dimension selection once the issue
-      // (https://github.com/tenstorrent/tt-metal/issues/19433) is resolved.
-      // Currently, dimension 3 must be used to produce correct outputs.
-      if ((inputTypeShape[dimension] % meshShape[clusterAxis]) != 0) {
-        return op.emitOpError()
-               << "Unable to lower all_reduce op using dimesion 3.";
-      }
       // Determine the shape of its input tensor. The new tensor
       // shape at the scatter_dim will be tensor_shape[scatter_dim] =
       // original_tensor_shape / num_devices.
@@ -455,8 +455,116 @@ public:
           op, op.getType(), reduceScatterOp.getResult(), deviceValue, dimension,
           clusterAxis);
     }
-
     return success();
+  }
+
+private:
+  LogicalResult
+  rewriteAsAllGatherLocalReduce(ttnn::AllReduceOp op,
+                                ::llvm::ArrayRef<int64_t> meshShape,
+                                PatternRewriter &rewriter) const {
+    RankedTensorType inputType = op.getInput().getType();
+    Location loc = op.getLoc();
+    uint32_t clusterAxis = op.getClusterAxis();
+    Value deviceValue = op.getDevice();
+
+    // Use allGather + Reduce breakdown.
+    // Increase the rank of the current input shape by 1.
+    ArrayRef<int64_t> inputTypeShape = inputType.getShape();
+    llvm::SmallVector<int64_t> expandedInputShape = {1};
+    expandedInputShape.append(inputTypeShape.begin(), inputTypeShape.end());
+    ArrayAttr reshapedInputShapeAttr =
+        rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(
+            expandedInputShape.begin(), expandedInputShape.end()));
+    RankedTensorType reshapedInputType =
+        RankedTensorType::Builder(inputType).setShape(expandedInputShape);
+
+    ttnn::ReshapeOp leadingReshapeOp = rewriter.create<ttnn::ReshapeOp>(
+        loc, reshapedInputType, op.getInput(), reshapedInputShapeAttr,
+        /* memory_config */ nullptr);
+
+    // Create a new all gather op.
+    expandedInputShape[0] = meshShape[clusterAxis];
+    RankedTensorType allGatherOutputType =
+        RankedTensorType::Builder(reshapedInputType)
+            .setShape(expandedInputShape);
+    ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
+        loc, allGatherOutputType, leadingReshapeOp.getResult(), deviceValue, 0,
+        clusterAxis);
+    // Create a new reduce op.
+    ArrayAttr reduceDimAttr =
+        rewriter.getI32ArrayAttr(llvm::ArrayRef<int32_t>{0});
+    switch (op.getReduceType()) {
+    case ReduceType::Sum:
+      rewriter.replaceOpWithNewOp<ttnn::SumOp>(op, op.getType(), allGatherOp,
+                                               false, reduceDimAttr);
+      break;
+    case ReduceType::Mean:
+      rewriter.replaceOpWithNewOp<ttnn::MeanOp>(op, op.getType(), allGatherOp,
+                                                false, reduceDimAttr);
+      break;
+    case ReduceType::Max:
+      rewriter.replaceOpWithNewOp<ttnn::MaxOp>(op, op.getType(), allGatherOp,
+                                               false, reduceDimAttr);
+      break;
+    case ReduceType::Min:
+      rewriter.replaceOpWithNewOp<ttnn::MinOp>(op, op.getType(), allGatherOp,
+                                               false, reduceDimAttr);
+      break;
+    case ReduceType::Std:
+      return op.emitOpError() << "std is not supported";
+    case ReduceType::Var:
+      return op.emitOpError() << "var is not supported";
+    }
+    return success();
+  }
+  bool exceedsAllGatherReduceMemLimit(tt::SystemDescAttr systemDesc,
+                                      RankedTensorType inputType,
+                                      int64_t numOfDevicesInCluster,
+                                      float memoryLimitFactor = 0.05) const {
+    // Estimate additional memory required when using AllGather + LocalReduce,
+    // compared to the baseline ReduceScatter + AllGather breakdown.
+    //
+    // Let:
+    //   - a = size of input tensor
+    //   - N = number of devices in the cluster
+    //
+    // Memory usage estimation:
+    //   - ReduceScatter + AllGather ≈ (1 + 1/N) * a
+    //   - AllGather + LocalReduce ≈ (N + 2 * ceil_to_32_multiple(N)) * a
+    //
+    // The LocalReduce implementation allocates two extra padded buffers,
+    // hence the 2 * ceil_to_32_multiple(N) term.
+    //
+    // Since we cannot determine the actual available memory at runtime,
+    // we apply a conservative heuristic: if the *additional* memory required
+    // exceeds a fixed fraction of total DRAM size, we reject this breakdown.
+    auto chipDesc = systemDesc.getChipDescs()[0];
+    size_t dramCapacity =
+        chipDesc.getUsableDramChannelSize() * chipDesc.getNumDramChannels();
+    size_t inputTensorSize =
+        inputType.getNumElements() * inputType.getElementTypeBitWidth() / 8;
+
+    // Estimated memory usage for AllGather + LocalReduce
+    // tt-metal transpose the tensor and pad it to tile size. Refer to the
+    // issue: https://github.com/tenstorrent/tt-metal/issues/20540
+    int64_t paddedN = ((numOfDevicesInCluster + 31) / 32) * 32;
+    size_t memAllgatherLocalReduce =
+        (numOfDevicesInCluster + 2 * paddedN) * inputTensorSize;
+
+    // Estimated memory usage for ReduceScatter + AllGather
+    double memReduceScatterAllGather =
+        (1.0 + 1.0 / static_cast<double>(numOfDevicesInCluster)) *
+        inputTensorSize;
+
+    // Additional memory required
+    double overhead = static_cast<double>(memAllgatherLocalReduce) -
+                      memReduceScatterAllGather;
+
+    // Compare against memory limit threshold
+    double threshold = static_cast<double>(dramCapacity) * memoryLimitFactor;
+
+    return overhead <= threshold;
   }
 };
 
@@ -468,18 +576,20 @@ public:
   void runOnOperation() final {
     if (decompositionWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
-      patterns.add<TTNNAllReduceWorkarounds,
-                   workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
-                       ttnn::SumOp, /*keepDimUnsupported*/ false>,
-                   workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
-                       ttnn::MaxOp, /*keepDimUnsupported*/ false>,
-                   workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
-                       ttnn::MeanOp, /*keepDimUnsupported*/ false>,
-                   workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
-                       ttnn::MinOp, /*keepDimUnsupported*/ false>,
-                   workarounds::decomposition::CumSumOpRewritePattern,
-                   workarounds::decomposition::ArgMaxOpRewritePattern>(
-          &getContext());
+      patterns.add<
+          TTNNAllReduceWorkarounds,
+          workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
+              ttnn::SumOp, /*keepDimUnsupported*/ false>,
+          workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
+              ttnn::MaxOp, /*keepDimUnsupported*/ false>,
+          workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
+              ttnn::MeanOp, /*keepDimUnsupported*/ false>,
+          workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
+              ttnn::MinOp, /*keepDimUnsupported*/ false>,
+          workarounds::decomposition::CumSumOpDimRewritePattern,
+          workarounds::decomposition::CumSumOpRankRewritePattern,
+          workarounds::decomposition::EmbeddingOpSqueezeWeightRewritePattern,
+          workarounds::decomposition::ArgMaxOpRewritePattern>(&getContext());
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);

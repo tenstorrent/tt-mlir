@@ -5,14 +5,18 @@
 #include "ttmlir/Dialect/TTNN/Analysis/LegalLayoutAnalysis.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
+#include "ttmlir/Support/Logger.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/SmallVector.h"
+
+#include <algorithm>
 
 namespace mlir::tt::ttnn {
 
@@ -34,9 +38,9 @@ bool cantChangeOutputLayout(Operation *op) {
   return false;
 }
 
-void applyConv2dConfigOverrides(
-    Operation *op, const Conv2dConfigOverrideParams &conv2dConfigOverrides,
-    std::vector<OpConfig> &analysisResult) {
+void applyConv2dConfigOverrides(Operation *op,
+                                const Conv2dConfigOverrideParams &overrides,
+                                std::vector<OpConfig> &analysisResult) {
   // Apply conv2d config overrides to all legal (layout) configurations of
   // current op.
   // TODO(vkovacevic): Currently conv2d config overrides are applied without any
@@ -49,64 +53,65 @@ void applyConv2dConfigOverrides(
   // weights_bias_dtype`.
   //
   MLIRContext *context = op->getContext();
-  DataType newDtype = elementTypeToDataType(
+  auto getBoolAttr = [context](bool value) {
+    return BoolAttr::get(context, value);
+  };
+
+  DataType dtype = elementTypeToDataType(
       mlir::cast<RankedTensorType>(op->getOperand(0).getType())
           .getElementType());
-  DataType newWeightsDtype = elementTypeToDataType(
+  DataType weightsDtype = elementTypeToDataType(
       mlir::cast<RankedTensorType>(op->getOperand(1).getType())
           .getElementType());
 
-  StringAttr newActivation =
-      StringAttr::get(context, conv2dConfigOverrides.activation.value_or(""));
-  uint32_t newInputChannelsAlignment =
-      conv2dConfigOverrides.inputChannelsAlignment.value_or(32);
-  bool newDeallocateActivation =
-      conv2dConfigOverrides.deallocateActivation.value_or(false);
-  bool newReallocateHaloOutput =
-      conv2dConfigOverrides.reallocateHaloOutput.value_or(true);
-  uint32_t newActBlockHOverride =
-      conv2dConfigOverrides.actBlockHOverride.value_or(0);
-  uint32_t newActBlockWDiv = conv2dConfigOverrides.actBlockWDiv.value_or(1);
-  bool newReshardIfNotOptimal =
-      conv2dConfigOverrides.reshardIfNotOptimal.value_or(false);
-  bool newOverrideShardingConfig =
-      conv2dConfigOverrides.overrideShardingConfig.value_or(false);
-  ttnn::TensorMemoryLayoutAttr newShardLayout;
-  if (conv2dConfigOverrides.shardLayout.has_value()) {
-    newShardLayout = TensorMemoryLayoutAttr::get(
-        context, conv2dConfigOverrides.shardLayout.value());
+  StringAttr activation =
+      StringAttr::get(context, overrides.activation.value_or(""));
+  uint32_t inputChannelsAlignment =
+      overrides.inputChannelsAlignment.value_or(32);
+  BoolAttr deallocateActivation =
+      getBoolAttr(overrides.deallocateActivation.value_or(false));
+  BoolAttr reallocateHaloOutput =
+      getBoolAttr(overrides.reallocateHaloOutput.value_or(true));
+  uint32_t actBlockHOverride = overrides.actBlockHOverride.value_or(0);
+  uint32_t actBlockWDiv = overrides.actBlockWDiv.value_or(1);
+  BoolAttr reshardIfNotOptimal =
+      getBoolAttr(overrides.reshardIfNotOptimal.value_or(false));
+  BoolAttr overrideShardingConfig =
+      getBoolAttr(overrides.overrideShardingConfig.value_or(false));
+
+  std::optional<ttnn::TensorMemoryLayout> shardLayout;
+  if (overrides.shardLayout.has_value()) {
+    shardLayout = overrides.shardLayout;
   }
-  ttnn::CoreRangeSetAttr newCoreGrid =
-      conv2dConfigOverrides.coreGrid.value_or(ttnn::CoreRangeSetAttr());
-  bool newTransposeShards =
-      conv2dConfigOverrides.transposeShards.value_or(false);
-  Layout newOutputLayout =
-      conv2dConfigOverrides.outputLayout.value_or(Layout::Tile);
-  bool newPreprocessWeightsOnDevice =
-      conv2dConfigOverrides.preprocessWeightsOnDevice.value_or(false);
-  bool newAlwaysPreprocessWeights =
-      conv2dConfigOverrides.alwaysPreprocessWeights.value_or(false);
-  bool newEnableActDoubleBuffer =
-      conv2dConfigOverrides.enableActDoubleBuffer.value_or(false);
-  bool newEnableWeightsDoubleBuffer =
-      conv2dConfigOverrides.enableWeightsDoubleBuffer.value_or(false);
-  bool newEnableSplitReader =
-      conv2dConfigOverrides.enableSplitReader.value_or(false);
-  bool newEnableSubblockPadding =
-      conv2dConfigOverrides.enableSubblockPadding.value_or(false);
+
+  ttnn::CoreRangeSetAttr coreGrid =
+      overrides.coreGrid.value_or(ttnn::CoreRangeSetAttr());
+  BoolAttr transposeShards =
+      getBoolAttr(overrides.transposeShards.value_or(false));
+  Layout outputLayout = overrides.outputLayout.value_or(Layout::Tile);
+  BoolAttr preprocessWeightsOnDevice =
+      getBoolAttr(overrides.preprocessWeightsOnDevice.value_or(false));
+  BoolAttr alwaysPreprocessWeights =
+      getBoolAttr(overrides.alwaysPreprocessWeights.value_or(false));
+  BoolAttr enableActDoubleBuffer =
+      getBoolAttr(overrides.enableActDoubleBuffer.value_or(false));
+  BoolAttr enableWeightsDoubleBuffer =
+      getBoolAttr(overrides.enableWeightsDoubleBuffer.value_or(false));
+  BoolAttr enableSplitReader =
+      getBoolAttr(overrides.enableSplitReader.value_or(false));
+  BoolAttr enableSubblockPadding =
+      getBoolAttr(overrides.enableSubblockPadding.value_or(false));
 
   for (auto &opConfig : analysisResult) {
     assert(!opConfig.config &&
            "OpConfig should not have a config set before applying overrides");
     opConfig.config = Conv2dConfigAttr::get(
-        context, newDtype, newWeightsDtype, newActivation,
-        newInputChannelsAlignment, newDeallocateActivation,
-        newReallocateHaloOutput, newActBlockHOverride, newActBlockWDiv,
-        newReshardIfNotOptimal, newOverrideShardingConfig, newShardLayout,
-        newCoreGrid, newTransposeShards, newOutputLayout,
-        newPreprocessWeightsOnDevice, newAlwaysPreprocessWeights,
-        newEnableActDoubleBuffer, newEnableWeightsDoubleBuffer,
-        newEnableSplitReader, newEnableSubblockPadding);
+        context, dtype, weightsDtype, activation, inputChannelsAlignment,
+        deallocateActivation, reallocateHaloOutput, actBlockHOverride,
+        actBlockWDiv, reshardIfNotOptimal, overrideShardingConfig, shardLayout,
+        coreGrid, transposeShards, outputLayout, preprocessWeightsOnDevice,
+        alwaysPreprocessWeights, enableActDoubleBuffer,
+        enableWeightsDoubleBuffer, enableSplitReader, enableSubblockPadding);
   }
 }
 
@@ -251,8 +256,8 @@ void LegalLayoutAnalysis::analysisImplementation() {
         overrideIt != analysisInput.outputLayoutOverrides->end()) {
       override = overrideIt->getValue();
       if (override->dataType.has_value()) {
-        scalarElementType = {mlir::tt::dataTypeToElementType(
-            op->getContext(), override->dataType.value())};
+        scalarElementType = mlir::tt::dataTypeToElementType(
+            op->getContext(), override->dataType.value());
       }
     }
   }
@@ -264,15 +269,91 @@ void LegalLayoutAnalysis::analysisImplementation() {
     rowMajorAllowed = true;
   }
 
-  std::vector<TTNNLayoutAttr> generatedLayouts =
-      optimizer_utils::generateAllPossibleLayouts(
-          op->getContext(), tensorType, analysisInput.maxGrid,
-          scalarElementType,
-          /*onlyShardedLayouts=*/false, analysisInput.maxShardedConfigs,
-          rowMajorAllowed);
+  // Sharded layouts for row major and tile are kept separate so we can combine
+  // them equally, and avoid having only RM or Tile layouts
+  std::vector<TTNNLayoutAttr> shardedLayoutsRowMajor;
+  std::vector<TTNNLayoutAttr> shardedLayoutsTile;
+  std::vector<TTNNLayoutAttr> interleavedLayouts;
 
-  analysisResult.insert(analysisResult.end(), generatedLayouts.begin(),
-                        generatedLayouts.end());
+  // Find the entry for our tensor type and scalar type
+  auto scalarTypeIt = analysisInput.possibleLayouts->find(scalarElementType);
+  assert(scalarTypeIt != analysisInput.possibleLayouts->end() &&
+         "Scalar type not found in all possible layouts");
+
+  for (size_t pageLayoutIdx = 0;
+       pageLayoutIdx < static_cast<size_t>(TensorPageLayout::kNumValues);
+       ++pageLayoutIdx) {
+
+    if (!rowMajorAllowed &&
+        pageLayoutIdx == static_cast<size_t>(TensorPageLayout::RowMajor)) {
+      continue;
+    }
+
+    // Insert interleaved layouts for current data layout
+    const auto &interleavedLayoutsForDataLayout =
+        scalarTypeIt->second[pageLayoutIdx][getMemoryLayoutIndex(
+            TensorMemoryLayout::Interleaved)];
+
+    interleavedLayouts.insert(interleavedLayouts.end(),
+                              interleavedLayoutsForDataLayout.begin(),
+                              interleavedLayoutsForDataLayout.end());
+
+    // Insert sharded layouts for current data layout, block sharded will give
+    // us unified index for all sharded layouts
+    const std::vector<TTNNLayoutAttr> &shardedLayoutsForDataLayout =
+        getShardedLayoutsForPageLayout(pageLayoutIdx, scalarTypeIt->second);
+
+    if (pageLayoutIdx == getPageLayoutIndex(Layout::RowMajor)) {
+      shardedLayoutsRowMajor.insert(shardedLayoutsRowMajor.end(),
+                                    shardedLayoutsForDataLayout.begin(),
+                                    shardedLayoutsForDataLayout.end());
+    } else {
+      shardedLayoutsTile.insert(shardedLayoutsTile.end(),
+                                shardedLayoutsForDataLayout.begin(),
+                                shardedLayoutsForDataLayout.end());
+    }
+  }
+
+  // We will sort the layouts by grid volume, so we can take the largest ones
+  // first. Possibly, they are all sorted by grid volume already, but we will
+  // sort them again explicitly to be sure
+  std::sort(shardedLayoutsRowMajor.begin(), shardedLayoutsRowMajor.end(),
+            [](TTNNLayoutAttr a, TTNNLayoutAttr b) {
+              return a.getGrid().getGridVolume() > b.getGrid().getGridVolume();
+            });
+  std::sort(shardedLayoutsTile.begin(), shardedLayoutsTile.end(),
+            [](TTNNLayoutAttr a, TTNNLayoutAttr b) {
+              return a.getGrid().getGridVolume() > b.getGrid().getGridVolume();
+            });
+
+  // Let's take maxShardedConfigs/2 from both row major and tile collections,
+  // unless row major is not allowed, then we take all of the tile layouts
+  size_t maxShardedConfigs = rowMajorAllowed
+                                 ? (analysisInput.maxShardedConfigs / 2)
+                                 : analysisInput.maxShardedConfigs;
+
+  // If row major is not allowed, shardedLayoutsRowMajor vector will be empty,
+  // so we will only take tile layouts
+  shardedLayoutsRowMajor.resize(
+      std::min(maxShardedConfigs, shardedLayoutsRowMajor.size()));
+  shardedLayoutsTile.resize(
+      std::min(maxShardedConfigs, shardedLayoutsTile.size()));
+
+  std::vector<TTNNLayoutAttr> shardedLayouts;
+  shardedLayouts.insert(shardedLayouts.end(), shardedLayoutsRowMajor.begin(),
+                        shardedLayoutsRowMajor.end());
+  shardedLayouts.insert(shardedLayouts.end(), shardedLayoutsTile.begin(),
+                        shardedLayoutsTile.end());
+
+  std::sort(shardedLayouts.begin(), shardedLayouts.end(),
+            [](TTNNLayoutAttr a, TTNNLayoutAttr b) {
+              return a.getGrid().getGridVolume() > b.getGrid().getGridVolume();
+            });
+
+  analysisResult.insert(analysisResult.end(), interleavedLayouts.begin(),
+                        interleavedLayouts.end());
+  analysisResult.insert(analysisResult.end(), shardedLayouts.begin(),
+                        shardedLayouts.end());
 
   // Apply partial layout overrides. Remove layouts that conflict with at least
   // one overriden param.

@@ -5,7 +5,7 @@
 # RUN: %python %s | FileCheck %s
 # REQUIRES: pykernel
 
-from pykernel.pykernel_ast import *
+from pykernel.ast import *
 
 # NOTE: The FileCheck directives in this file use CHECK-LABEL to find function definitions
 # regardless of their order in the output. This makes the tests more robust against
