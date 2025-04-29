@@ -136,6 +136,12 @@ class TTIRBuilder:
         # id to golden map
         self.id_golden_map = {}
 
+        # operand to location map
+        self.operand_id_map: Dict[Operand, Location] = {}
+
+        # default callback tag
+        self.default_callback_tag = (True, True)
+
         # id to callback map
         self.id_callback_map = {}
 
@@ -233,14 +239,27 @@ class TTIRBuilder:
             )
         return golden_info
 
-    def get_loc(self) -> Location:
-        return self._loc
+    def set_default_callback(self, tag: Tuple[bool, bool]):
+        self.default_callback_tag = tag
 
     def get_callback_map(self) -> Dict:
-        return self.id_callback_map
+        callback_info = {}
+        for op, loc in self.operand_id_map.items():
+            if loc in self.id_callback_map:
+                callback_info[str(loc)] = CallbackTag(
+                    str(loc), *self.id_callback_map[loc]
+                )
+            else:
+                callback_info[str(loc)] = CallbackTag(
+                    str(loc), *self.default_callback_tag
+                )
+        return callback_info
 
-    def set_callback_kv(self, loc: string, tags: Tuple[bool, bool]):
-        self.id_callback_map[loc] = CallbackTag(loc, *tags)
+    def set_operand_callback_kv(self, op: Operand, tags: Tuple[bool, bool]):
+        self.id_callback_map[self.operand_id_map[op]] = tags
+
+    def get_operand_id_map(self) -> Dict:
+        return self.operand_id_map
 
     # set mesh_shape for multi-device environment
     def set_mesh_shape(self, mesh_shape: Tuple[int, int]):
@@ -608,7 +627,7 @@ class TTIRBuilder:
                 for attr_name in unit_attrs:
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
             self.id_golden_map[str(loc)] = golden
-            self.id_callback_map[str(loc)] = CallbackTag(str(loc), True, True)
+            self.operand_id_map[op] = str(loc)
             self._store_golden(op, golden)
             self._override_golden(output, golden)
             return op
