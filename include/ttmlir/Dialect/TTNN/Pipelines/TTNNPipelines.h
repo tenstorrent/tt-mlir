@@ -228,7 +228,7 @@ struct TTIRToTTNNBackendPipelineOptions
 
   // Option to specify the target bit width for quantized data types.
   Option<uint32_t> quantBitWidth{
-      *this, "quant-bit-width",
+      *this, "target-bit-width",
       llvm::cl::desc(
           "Target integer bit width for quantized types (8, 16, 32, 64). "
           "Set to enable quantized data type conversion pass. "

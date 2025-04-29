@@ -1,9 +1,9 @@
-// RUN: ttmlir-opt --ttir-quant-data-type-conversion="quant-bit-width=32" %s > %t.mlir
+// RUN: ttmlir-opt --ttir-quant-data-type-conversion="target-bit-width=32" %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir --check-prefix=CHECK-INT32
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %t.mlir > %t2.mlir
 
 // This checks that the whole backend pipeline works with int16 quantization as well.
-// RUN: ttmlir-opt --ttir-quant-data-type-conversion="quant-bit-width=16" %s > %t-int16.mlir
+// RUN: ttmlir-opt --ttir-quant-data-type-conversion="target-bit-width=16" %s > %t-int16.mlir
 // RUN: FileCheck %s --input-file=%t-int16.mlir --check-prefix=CHECK-INT16
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %t-int16.mlir > %t2-int16.mlir
 

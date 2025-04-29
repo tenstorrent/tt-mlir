@@ -496,10 +496,10 @@ def TTIRQuantDataTypeConversionPass : Pass<"ttir-quant-data-type-conversion", ":
     Output (with quant_bit_width=32):
       %0 = "ttir.quantize"(%arg0, %1) : (tensor<1x3x224x224xf32>, tensor<1x3x224x224x!quant.uniform<i32:f32, 1.000000e-01>>) -> tensor<1x3x224x224x!quant.uniform<i32:f32, 1.000000e-01>>
   }];
-  let dependentDialects = ["::mlir::tt::TTDialect", "::mlir::quant::QuantDialect"];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::quant::QuantDialect"];
 
   list<Option> options = [
-    Option<"targetBitWidth", "quant-bit-width", "uint32_t", "32", "Target integer bit width for quantized types (8, 16, 32, 64)">
+    Option<"targetBitWidth", "target-bit-width", "uint32_t", "32", "Target integer bit width for quantized types (8, 16, 32, 64)">
   ];
 }
 

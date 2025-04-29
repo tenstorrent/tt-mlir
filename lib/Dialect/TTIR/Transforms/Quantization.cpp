@@ -6,11 +6,12 @@
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
 
-#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Quant/IR/Quant.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/APInt.h"
 
 #include <limits>
 
@@ -36,26 +37,23 @@ static IntegerType getIntegerTypeFromBitWidth(MLIRContext *context,
   }
 }
 
-static std::optional<std::pair<int64_t, int64_t>>
+static mlir::FailureOr<std::pair<int64_t, int64_t>>
 getStorageTypeMinMax(IntegerType intType, Location loc) {
-  switch (intType.getWidth()) {
-  case 8:
-    return std::make_pair(std::numeric_limits<int8_t>::min(),
-                          std::numeric_limits<int8_t>::max());
-  case 16:
-    return std::make_pair(std::numeric_limits<int16_t>::min(),
-                          std::numeric_limits<int16_t>::max());
-  case 32:
-    return std::make_pair(std::numeric_limits<int32_t>::min(),
-                          std::numeric_limits<int32_t>::max());
-  case 64:
-    return std::make_pair(std::numeric_limits<int64_t>::min(),
-                          std::numeric_limits<int64_t>::max());
-  default:
-    emitError(loc,
-              "Invalid quantization bit width (must be 8, 16, 32, or 64). ");
-    return std::nullopt;
+  unsigned bitWidth = intType.getWidth();
+  bool isSigned = intType.isSigned();
+  if (bitWidth == 0 || bitWidth > 64) {
+    emitError(loc, "Quantized min/max bitwidth must be in (0, 64].");
+    return mlir::failure();
   }
+  int64_t min, max;
+  if (isSigned) {
+    min = llvm::APInt::getSignedMinValue(bitWidth).getSExtValue();
+    max = llvm::APInt::getSignedMaxValue(bitWidth).getSExtValue();
+  } else {
+    min = 0;
+    max = llvm::APInt::getMaxValue(bitWidth).getZExtValue();
+  }
+  return std::make_pair(min, max);
 }
 
 // Convert quantized type to use the target integer bit width.
@@ -63,24 +61,26 @@ static Type convertQuantizedType(quant::QuantizedType quantType,
                                  IntegerType targetIntType, Location loc,
                                  bool &conversionFailed) {
   // Use the target integer type's min and max values.
-  std::optional<std::pair<int64_t, int64_t>> storageTypeMinMax =
+  mlir::FailureOr<std::pair<int64_t, int64_t>> storageTypeMinMax =
       getStorageTypeMinMax(targetIntType, loc);
-  if (!storageTypeMinMax) {
+  if (mlir::failed(storageTypeMinMax)) {
     conversionFailed = true;
     return nullptr;
   }
-  int64_t storageTypeMin = storageTypeMinMax->first;
-  int64_t storageTypeMax = storageTypeMinMax->second;
+  auto [storageTypeMin, storageTypeMax] = *storageTypeMinMax;
 
   if (targetIntType.getWidth() <
       quantType.getStorageType().getIntOrFloatBitWidth()) {
-    emitError(loc, "Target integer type of width " +
-                       std::to_string(targetIntType.getWidth()) +
-                       " is smaller than quantized type of width " +
-                       std::to_string(
-                           quantType.getStorageType().getIntOrFloatBitWidth()) +
-                       ". Out of range.");
+    emitError(loc) << "Target integer type of width "
+                   << targetIntType.getWidth()
+                   << " is smaller than quantized type of width "
+                   << quantType.getStorageType().getIntOrFloatBitWidth()
+                   << ". Out of range.";
     conversionFailed = true;
+    return nullptr;
+  }
+
+  if (conversionFailed) {
     return nullptr;
   }
 
@@ -98,7 +98,7 @@ static Type convertQuantizedType(quant::QuantizedType quantType,
         perAxisType.getScales(), perAxisType.getZeroPoints(),
         perAxisType.getQuantizedDimension(), storageTypeMin, storageTypeMax);
   }
-  return quantType;
+  llvm_unreachable("Unknown quantized type");
 }
 
 class QuantDataTypeConverter : public TypeConverter {
@@ -115,26 +115,17 @@ public:
     addConversion([targetIntType, loc, &conversionFailed](
                       RankedTensorType type) -> std::optional<Type> {
       Type elementType = type.getElementType();
-      if (!mlir::isa<quant::QuantizedType>(elementType)) {
+      auto quantElementType = mlir::dyn_cast<quant::QuantizedType>(elementType);
+      if (!quantElementType) {
         return std::nullopt;
       }
-      quant::QuantizedType quantElementType =
-          mlir::cast<quant::QuantizedType>(elementType);
       Type newElementType = convertQuantizedType(
           quantElementType, targetIntType, loc, conversionFailed);
       if (!newElementType) {
         return std::nullopt;
       }
-      if (newElementType == elementType) {
-        return type;
-      }
       return RankedTensorType::get(type.getShape(), newElementType,
                                    type.getEncoding());
-    });
-
-    addConversion([targetIntType, loc, &conversionFailed](
-                      quant::QuantizedType type) -> std::optional<Type> {
-      return convertQuantizedType(type, targetIntType, loc, conversionFailed);
     });
   }
 };
@@ -169,12 +160,6 @@ struct TTIRQuantDataTypeConversionPass
       signalPassFailure();
       return;
     }
-  }
-
-  void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<TTIRDialect>();
-    registry.insert<TTDialect>();
-    registry.insert<quant::QuantDialect>();
   }
 };
 
