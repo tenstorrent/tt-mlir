@@ -662,12 +662,10 @@ public:
         ctArgSpecVector.push_back(
             rewriter.getAttr<ArgAttr>(ArgType::CBPort, arg.getArgNumber()));
       } else if (mlir::isa<ttir::SemaphoreType>(argType)) {
-        size_t currentRtArgIndex = rtArgSpecVector.size();
-        auto rtArgIndex = rewriter.create<arith::ConstantOp>(
-            op->getLoc(), rewriter.getI32Type(),
-            rewriter.getI32IntegerAttr(currentRtArgIndex));
-        auto semaphoreIndex = rewriter.create<GetArgValOp>(
-            op.getLoc(), rewriter.getI32Type(), rtArgIndex);
+        size_t rtArgIndex = rtArgSpecVector.size();
+        auto semaphoreIndex = rewriter.create<GetCompileArgValOp>(
+            op.getLoc(), rewriter.getI32Type(),
+            rewriter.getI32IntegerAttr(rtArgIndex));
         auto semaphore =
             rewriter.create<GetSemaphoreOp>(op.getLoc(), semaphoreIndex);
         signatureConverter.remapInput(arg.getArgNumber(), semaphore);
