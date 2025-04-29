@@ -37,7 +37,7 @@ jobs:
       - name: Build ttmlir Wheel (manylinux)
         uses: pypa/cibuildwheel@v2.23.2
         env:
-          IN_CIBW_ENV: ON
+          CIBW_ENVIRONMENT: "IN_CIBW_ENV=ON"
           # TODO(vprajapati): Use static tagged until merged with main to update latest tag
           CIBW_MANYLINUX_X86_64_IMAGE: ghcr.io/tenstorrent/tt-mlir/tt-mlir-manylinux-2-34:dt-35f2834c5f5d1cb68b599e12d7dae7751a73ff292364a80ee43f9adfb9b937ec
         with:
