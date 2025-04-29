@@ -35,8 +35,6 @@ PYBIND11_MODULE(_C, m) {
       .def("store", &tt::runtime::Binary::store)
       .def("get_debug_info_golden", &::tt::runtime::Binary::getDebugInfoGolden,
            py::return_value_policy::reference)
-      .def("get_program_tags", &::tt::runtime::Binary::getProgramTags,
-           py::return_value_policy::reference)
       .def("get_program_tag", &::tt::runtime::Binary::getProgramTag,
            py::return_value_policy::reference)
       .def(
@@ -158,32 +156,7 @@ PYBIND11_MODULE(_C, m) {
             assert(t != nullptr && t->post_op_tag() != nullptr);
             return t->post_op_tag();
           });
-  /*
-m.def(
-"get_module_tags",
-[](tt::runtime::Binary executableHandle, std::string loc_info) {
-const tt::runtime::Binary *fbb = tt::runtime::getBinary(executableHandle);
-if (!fbb || !fbb->programs() || fbb->programs()->size() == 0) {
-  throw std::runtime_error("Invalid binary or no programs found");
-}
 
-const tt::runtime::Program *program = fbb->programs()->Get(0);
-if (!program || !program->debug_info() ||
-!program->debug_info()->callback_info() ||
-    !program->debug_info()->callback_info()->callback_map()) {
-  throw std::runtime_error("Program has no callback information");
-}
-
-for (const ::tt::target::CallbackKV *kv :
-*program->debug_info()->callback_info()->callback_map()) { if (kv && kv->key()
-&& kv->value() && std::string(kv->key()->c_str()) == loc_info) { return
-std::make_pair(kv->value()->pre_op_tag(), kv->value()->post_op_tag());
-  }
-}
-return std::make_pair(false, false);
-},
-"Get the tags of a module's first program.");
-*/
   py::class_<tt::runtime::TensorCache,
              std::shared_ptr<tt::runtime::TensorCache>>(m, "TensorCache")
       .def(py::init<>())

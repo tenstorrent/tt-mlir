@@ -266,44 +266,6 @@ void populatePassesModule(nb::module_ &m) {
       nb::arg("moduleCache") =
           std::vector<std::pair<std::string, std::string>>());
 
-  /*
-m.def(
-"ttnn_to_flatbuffer_ptr",
-[](MlirModule module,
- const std::unordered_map<std::string, mlir::tt::GoldenTensor>
-     &goldenMap = {},
- const std::unordered_map<std::string, mlir::tt::CallbackTag>
-     &callbackMap = {},
- const std::vector<std::pair<std::string, std::string>> &moduleCache =
-     {}) {
-mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
-
-// Create a dialect registry and register all necessary dialects and
-// translations
-mlir::DialectRegistry registry;
-
-// Register all LLVM IR translations
-registerAllToLLVMIRTranslations(registry);
-
-// Apply the registry to the module's context
-moduleOp->getContext()->appendDialectRegistry(registry);
-
-std::shared_ptr<void> bufferptr = mlir::tt::ttnn::TTNNToFlatbuffer(
-  moduleOp, goldenMap, callbackMap, moduleCache)
-if (!bufferptr) {
-  throw std::runtime_error("Failed to write flatbuffer to bufferptr: " +
-                           filepath);
-return *bufferptr
-}
-},
-nb::arg("module"),
-nb::arg("goldenMap") =
-  std::unordered_map<std::string, mlir::tt::GoldenTensor>(),
-nb::arg("callbackMap") =
-  std::unordered_map<std::string, mlir::tt::CallbackTag>(),
-nb::arg("moduleCache") =
-  std::vector<std::pair<std::string, std::string>>());
-*/
   m.def("ttmetal_to_flatbuffer_file",
         [](MlirModule module, std::string &filepath,
            std::unordered_map<std::string, mlir::tt::GoldenTensor> goldenMap,

@@ -119,18 +119,6 @@ std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
   return outputs;
 }
 
-std::vector<const tt::target::CallbackTag *> getProgramTags(Flatbuffer binary) {
-  std::vector<const tt::target::CallbackTag *> tags;
-  auto const *programs = getBinary(binary)->programs();
-  for (auto const *program : *programs) {
-    for (const ::tt::target::CallbackKV *kv :
-         *program->debug_info()->callback_info()->callback_map()) {
-      tags.push_back(kv->value());
-    }
-  }
-  return tags;
-}
-
 const tt::target::CallbackTag *getProgramTag(Flatbuffer binary,
                                              std::string &loc) {
   auto const *programs = getBinary(binary)->programs();
@@ -243,11 +231,6 @@ const tt::target::CallbackTag *getProgramTag(Flatbuffer binary,
                                              std::string &loc) {
   LOG_WARNING("Program tag retrieval not enabled for metal yet!");
   return nullptr;
-}
-
-std::vector<const tt::target::CallbackTag *> getProgramTags(Flatbuffer binary) {
-  LOG_WARNING("Program tag retrieval not enabled for metal yet!");
-  return {};
 }
 
 } // namespace metal
@@ -441,20 +424,6 @@ const tt::target::CallbackTag *Binary::getProgramTag(std::string &loc) const {
   }
 
   LOG_FATAL("Unsupported binary format for obtaining program tag");
-}
-
-std::vector<const tt::target::CallbackTag *> Binary::getProgramTags() const {
-  if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
-          handle.get())) {
-    return ttnn::getProgramTags(*this);
-  }
-
-  if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
-          handle.get())) {
-    return metal::getProgramTags(*this);
-  }
-
-  LOG_FATAL("Unsupported binary format for obtaining program tags");
 }
 
 } // namespace tt::runtime
