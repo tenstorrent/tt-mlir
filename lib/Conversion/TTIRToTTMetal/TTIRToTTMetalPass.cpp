@@ -4,6 +4,7 @@
 
 #include "ttmlir/Conversion/TTIRToTTMetal/TTIRToTTMetal.h"
 
+#include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"

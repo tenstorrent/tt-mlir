@@ -5,6 +5,9 @@
 #ifndef TTMLIR_DIALECT_TTKERNEL_IR_TTKERNELOPSTYPES_H
 #define TTMLIR_DIALECT_TTKERNEL_IR_TTKERNELOPSTYPES_H
 
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
@@ -13,8 +16,6 @@
 
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h.inc"
-
-#include "ttmlir/Dialect/TTKernel/IR/TTKernelAttrInterfaces.h.inc"
 
 #define GET_ATTRDEF_CLASSES
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsAttrDefs.h.inc"
