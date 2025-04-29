@@ -1866,19 +1866,34 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
   ::mlir::RankedTensorType weightType = getWeight().getType();
   ::mlir::RankedTensorType outputType = getOutput().getType();
 
-  // inputType can have any rank
-
-  // weightType must have rank of 2: (dictionary_size, embedding_size)
-  //
-  if (weightType.getRank() != 2) {
-    return emitOpError("Weight must be a 2D tensor");
+  // Input tensor must be at most 2D tensor.
+  if (inputType.getRank() > 2) {
+    return emitOpError("input must be at most a 2D tensor, got ")
+           << inputType.getRank() << "D ranked tensor";
   }
 
-  // outputType must have rank of inputType + and additional dimension of
-  // embedding_size
-  //
-  if (outputType.getRank() - inputType.getRank() != 1) {
-    return emitOpError("Output must have one dimension more than input");
+  // Weight tensor must be effectively 2D tensor. It means that it must have
+  // shape of (1, 1,..., 1, N, M) where N is the dictionary size and M is the
+  // embedding size.
+  if (weightType.getRank() < 2) {
+    return emitOpError("weight must be at least 2D tensor, got ")
+           << weightType.getRank() << "D ranked tensor";
+  }
+  if (std::any_of(weightType.getShape().begin(),
+                  weightType.getShape().end() - 2,
+                  [](int64_t dim) { return dim != 1; })) {
+    return emitOpError("weight must be effectively 2D tensor");
+  }
+
+  // Output tensor is expected to have the shape of (*inputTensorShape,
+  // embeddingSize).
+  int64_t embeddingSize = weightType.getDimSize(weightType.getRank() - 1);
+  llvm::SmallVector<int64_t, 3> expectedOutputShape(inputType.getShape());
+  expectedOutputShape.push_back(embeddingSize);
+
+  if (!llvm::equal(expectedOutputShape, outputType.getShape())) {
+    return emitOpError() << "expected output shape of (" << expectedOutputShape
+                         << ") but got (" << outputType.getShape() << ")";
   }
 
   return success();
@@ -1921,7 +1936,6 @@ verifyLayoutOp(mlir::Operation *op, mlir::Type inputTensorOrMemrefTy,
                mlir::Type outputTensorOrMemrefTy, bool allowFormatChange,
                bool allowMemorySpaceChange, bool checkMemrefRank = false,
                bool checkMemrefGridShardForm = false,
-               bool checkMemrefGridShape = false,
                bool checkMemrefShardShape = false) {
   if (mlir::RankedTensorType inputTy =
           mlir::dyn_cast<mlir::RankedTensorType>(inputTensorOrMemrefTy)) {
@@ -1983,27 +1997,20 @@ verifyLayoutOp(mlir::Operation *op, mlir::Type inputTensorOrMemrefTy,
       return op->emitOpError("Input and output memref ranks must be the same");
     }
 
-    bool inputGridShardForm = inputTy.getShape().size() % 2 == 0;
-    if (checkMemrefGridShardForm && !inputGridShardForm) {
+    auto inputDeviceLayout =
+        mlir::dyn_cast<mlir::tt::DeviceLayoutInterface>(inputTy.getLayout());
+    if (checkMemrefGridShardForm && !inputDeviceLayout) {
       return op->emitOpError(
-          "Input memref must be in grid-shard form, i.e. have even rank, grid "
+          "input memref must have device layout, i.e. have even rank, grid "
           "shape followed by shard shape of equal rank, e.g. GxGxSxS");
     }
 
-    bool outputGridShardForm = outputTy.getShape().size() % 2 == 0;
-    if (checkMemrefGridShardForm && !outputGridShardForm) {
+    auto outputDeviceLayout =
+        mlir::dyn_cast<mlir::tt::DeviceLayoutInterface>(outputTy.getLayout());
+    if (checkMemrefGridShardForm && !outputDeviceLayout) {
       return op->emitOpError(
-          "Output memref must be in grid-shard form, i.e. have even rank, grid "
+          "output memref must have device layout, i.e. have even rank, grid "
           "shape followed by shard shape of equal rank, e.g. GxGxSxS");
-    }
-
-    llvm::ArrayRef<int64_t> inputGridShape =
-        inputTy.getShape().take_front(inputTy.getShape().size() / 2);
-    llvm::ArrayRef<int64_t> outputGridShape =
-        outputTy.getShape().take_front(outputTy.getShape().size() / 2);
-    if (checkMemrefGridShape && inputGridShape != outputGridShape) {
-      return op->emitOpError(
-          "Input and output memref grid shapes must be the same");
     }
 
     return mlir::success();
@@ -2182,7 +2189,6 @@ mlir::LogicalResult mlir::tt::ttir::StreamLayoutOp::verify() {
                      /*allowMemorySpaceChange*/ true,
                      /*checkMemrefRank*/ true,
                      /*checkMemrefGridShardForm */ true,
-                     /*checkMemrefGridShape*/ false,
                      /*checkMemrefShardShape*/ false);
   if (failed(inputStorageVerification)) {
     return inputStorageVerification;
@@ -2194,7 +2200,6 @@ mlir::LogicalResult mlir::tt::ttir::StreamLayoutOp::verify() {
                      /*allowMemorySpaceChange*/ true,
                      /*checkMemrefRank*/ true,
                      /*checkMemrefGridShardForm */ true,
-                     /*checkMemrefGridShape*/ false,
                      /*checkMemrefShardShape*/ true);
   if (failed(storageResultVerification)) {
     return storageResultVerification;
@@ -2210,6 +2215,16 @@ mlir::LogicalResult mlir::tt::ttir::StreamLayoutOp::verify() {
   }
 
   return success();
+}
+
+bool mlir::tt::ttir::StreamLayoutOp::bufferizesToMemoryRead(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+bool mlir::tt::ttir::StreamLayoutOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
 }
 
 mlir::LogicalResult mlir::tt::ttir::StreamLayoutOp::bufferize(
@@ -2237,6 +2252,13 @@ mlir::LogicalResult mlir::tt::ttir::StreamLayoutOp::bufferize(
       *maybeInput, *maybeStorage);
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this, result);
   return success();
+}
+
+mlir::bufferization::AliasingValueList
+mlir::tt::ttir::StreamLayoutOp::getAliasingValues(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  bufferization::AliasingValueList result;
+  return result;
 }
 
 mlir::FailureOr<mlir::BaseMemRefType>
@@ -3428,8 +3450,9 @@ verifyAffineShapes(llvm::function_ref<mlir::InFlightDiagnostic()> diagFn,
       // If the top level operand is a memref, the front half of its shape
       // is the grid shape, so we cut it off the back to get just the grid
       // shape.
-      assert(memref.getRank() % 2 == 0);
-      outputGridShape = memref.getShape().take_front(memref.getRank() / 2);
+      mlir::tt::DeviceLayoutInterface layout =
+          mlir::cast<mlir::tt::DeviceLayoutInterface>(memref.getLayout());
+      outputGridShape = layout.getGridShape(memref);
     }
     if (opGridShape != outputGridShape) {
       return emitOpError(
@@ -3511,8 +3534,9 @@ verifyAffineShapes(llvm::function_ref<mlir::InFlightDiagnostic()> diagFn,
         // If the top level operand is a memref, the front half of its shape
         // will include the grid shape, so we cut it off to get just the shard
         // shape.
-        assert(memref.getRank() % 2 == 0);
-        expectedShardShape = memref.getShape().take_back(memref.getRank() / 2);
+        mlir::tt::DeviceLayoutInterface layout =
+            mlir::cast<mlir::tt::DeviceLayoutInterface>(memref.getLayout());
+        expectedShardShape = layout.getShardShape(memref);
         isStream = mlir::isa<tt::ViewLayoutAttr>(memref.getLayout());
       }
 
@@ -3582,9 +3606,9 @@ mlir::tt::ttir::GenericOp::getOperandGridShapes() {
   for (auto operand : this->getOperands()) {
     auto memrefType = mlir::dyn_cast<MemRefType>(operand.getType());
     if (memrefType) {
-      assert(memrefType.getRank() % 2 == 0);
-      gridShapes.emplace_back(
-          memrefType.getShape().take_front(memrefType.getRank() / 2));
+      mlir::tt::DeviceLayoutInterface layout =
+          mlir::cast<mlir::tt::DeviceLayoutInterface>(memrefType.getLayout());
+      gridShapes.emplace_back(layout.getGridShape(memrefType));
     } else {
       auto tensorType = mlir::cast<RankedTensorType>(operand.getType());
       MetalLayoutAttr layout =
@@ -3847,7 +3871,7 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 ::mlir::LogicalResult mlir::tt::ttir::ArgMaxOp::verify() {
   auto dimArg = getDimArg();
   if (dimArg && dimArg->size() > 1) {
-    return getOperation()->emitOpError()
+    return emitOpError()
            << "can only reduce one dimension; number of specified dimensions: "
            << dimArg->size() << ".";
   }

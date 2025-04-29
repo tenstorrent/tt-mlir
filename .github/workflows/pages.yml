@@ -24,7 +24,7 @@ jobs:
       matrix:
         image: ["ubuntu-22-04"]
         build: [
-          {runs-on: builder, build_type: Release, enable_runtime: ON}
+          {runs-on: tt-beta-ubuntu-2204-large, build_type: Release, enable_runtime: ON}
         ]
 
     runs-on:

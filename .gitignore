@@ -1,5 +1,5 @@
 .local
-build
+**/build
 third_party/tt-metal
 .DS_STORE
 .vscode/*
@@ -35,3 +35,6 @@ test/lit.site.cfg.py
 
 # Obsidian editor files
 .obsidian/
+
+# Wheel Artifacts
+**/dist/

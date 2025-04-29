@@ -5,7 +5,7 @@
 # RUN: %python %s
 # REQUIRES: pykernel
 
-from pykernel.pykernel_ast import *
+from pykernel.ast import *
 from pykernel.types import *
 
 

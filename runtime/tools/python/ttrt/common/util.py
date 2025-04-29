@@ -2,15 +2,15 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import os
-import json
 import importlib.machinery
 import importlib.util
-from pkg_resources import get_distribution
+import json
+import os
 import shutil
+from pprint import pprint
 
 import torch
-
+from pkg_resources import get_distribution
 
 # environment tweaks
 if "LOGGER_LEVEL" not in os.environ:
@@ -20,7 +20,6 @@ if "TT_METAL_LOGGER_LEVEL" not in os.environ:
 
 
 def ttrt_datatype_to_torch_dtype(dtype) -> torch.dtype:
-
     """Converts a PyBound `::tt::target::DataType` into a `torch.dtype`.
 
     Currently, only `float32`, `uint32`, `uint16`, & `uint8` are supported for
@@ -641,8 +640,8 @@ class Binary(Flatbuffer):
     def __init__(self, logger, file_manager, file_path, capsule=None):
         super().__init__(logger, file_manager, file_path, capsule=capsule)
 
-        import ttrt.binary
         import torch
+        import ttrt.binary
 
         if not capsule:
             self.fbb = ttrt.binary.load_binary_from_path(file_path)
@@ -721,6 +720,15 @@ class Binary(Flatbuffer):
     def save(self, artifacts, query=None):
         artifacts.save_binary(self, query)
 
+    def print(self):
+        print(f"Flatbuffer {self.name}:")
+
+        for i, p in enumerate(self.programs):
+            print(f"\nProgram {i+1} operations:")
+            pprint(p.to_dict())
+
+        print()
+
     class Program:
         def __init__(self, index, program):
             self.index = index
@@ -761,6 +769,11 @@ class Binary(Flatbuffer):
                     ),
                 )
                 self.output_tensors.append(torch_tensor)
+
+        def to_dict(self) -> dict:
+            return {
+                i: op["debug_info"] for i, op in enumerate(self.program["operations"])
+            }
 
         @staticmethod
         def to_data_type(dtype):

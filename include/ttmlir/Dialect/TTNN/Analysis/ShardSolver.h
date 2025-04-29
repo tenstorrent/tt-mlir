@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemReconfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
+#include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "llvm/ADT/DenseSet.h"
@@ -283,6 +284,7 @@ private:
 
 public:
   ShardSolver(
+      const TensorTypeLayoutsMap *tensorTypePossibleLayouts,
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       const std::vector<OpL1MemSpec> &shardSpecs,
       const llvm::DenseSet<Operation *> &shardedOps,
@@ -301,6 +303,7 @@ public:
   bool earlyExit = false;
 
 private:
+  const TensorTypeLayoutsMap *tensorTypePossibleLayouts;
   const llvm::DenseMap<Operation *, std::vector<OpConfig>> *legalConfigs;
   const std::vector<OpL1MemSpec> *shardSpecs;
   const llvm::DenseSet<Operation *> *shardedOps;

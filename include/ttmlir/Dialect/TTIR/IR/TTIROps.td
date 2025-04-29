@@ -132,9 +132,8 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
             grid = mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding()).getGrid();
           } else {
             MemRefType memrefType = mlir::cast<MemRefType>(outputs[0].getType());
-            assert(memrefType.getRank() % 2 == 0 && "expected even rank");
-            ArrayRef<int64_t> gridShape = memrefType.getShape().take_front(memrefType.getRank() / 2);
-            grid = $_builder.getAttr<tt::GridAttr>(gridShape);
+            DeviceLayoutInterface layout = mlir::cast<DeviceLayoutInterface>(memrefType.getLayout());
+            grid = $_builder.getAttr<tt::GridAttr>(layout.getGridShape(memrefType));
           }
         }
         auto threads = $_builder.getArrayAttr($_builder.getAttr<ThreadAttr>(singleThreadType));
@@ -261,8 +260,15 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
     let hasCanonicalizer = 1;
 }
 
-def TTIR_StreamLayoutOp : TTIR_BufferizableOp<"stream_layout",
-  [ DeclareOpInterfaceMethods<OpAsmOpInterface , ["getAsmResultNames"]>
+def TTIR_StreamLayoutOp : TTIR_Op<"stream_layout",
+  [ Pure
+  , DeclareOpInterfaceMethods<OpAsmOpInterface , ["getAsmResultNames"]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
   , TTIR_ViewOpInterface
   ]> {
     let summary = "Stream Layout op.";

@@ -4,19 +4,23 @@
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TT/IR/Utils.h"
+#include "ttmlir/Dialect/TTNN/Analysis/AllPossibleLayoutsAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemReconfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/ScalarDataTypeAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
+#include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Analysis/Liveness.h"
@@ -27,6 +31,7 @@
 #include "mlir/IR/Value.h"
 #include "mlir/IR/Visitors.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/Support/Debug.h"
 
 namespace mlir::tt::ttnn {
 
@@ -180,12 +185,36 @@ public:
 
     // Get the max grid size from the system description.
     //
-    GridAttr max_grid = lookupDevice(moduleOp).getWorkerGrid();
+    GridAttr maxGrid = lookupDevice(moduleOp).getWorkerGrid();
 
     SystemDescAttr systemDesc = mlir::cast<tt::SystemDescAttr>(
         moduleOp->getAttr(tt::SystemDescAttr::name));
     ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
     llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
+
+    // Step 1: Run ScalarDataTypeAnalysis to collect all scalar types used in
+    // the graph
+    ScalarDataTypeAnalysis scalarDataTypeAnalysis =
+        getAnalysis<ScalarDataTypeAnalysis>();
+    scalarDataTypeAnalysis.init(
+        ScalarDataTypeAnalysisInput(&overrideOutputLayout));
+    auto scalarTypes = scalarDataTypeAnalysis.getResult();
+
+    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                 "ScalarDataTypeAnalysis found {0} unique scalar types",
+                 scalarTypes.size());
+
+    // Step 2: Run AllPossibleLayoutsAnalysis to generate layouts for all tensor
+    // types
+    mlir::tt::ttnn::AllPossibleLayoutsAnalysis allPossibleLayoutsAnalysis =
+        getAnalysis<mlir::tt::ttnn::AllPossibleLayoutsAnalysis>();
+    allPossibleLayoutsAnalysis.init(
+        mlir::tt::ttnn::AllPossibleLayoutsAnalysisInput(maxGrid, &scalarTypes,
+                                                        rowMajorEnabled));
+    TensorTypeLayoutsMap tensorTypePossibleLayouts =
+        allPossibleLayoutsAnalysis.getResult();
+
+    tracePossibleLayouts(tensorTypePossibleLayouts);
 
     moduleOp->walk([&](Operation *op) {
       if (op->getNumResults() == 0) {
@@ -202,11 +231,21 @@ public:
 
       RankedTensorType tensorType =
           mlir::cast<RankedTensorType>(op->getResult(0).getType());
+
+      // Get all possible layouts for this tensor type
+      // Use layouts from the global analysis instead of regenerating per-op
+      auto tensorLayouts = tensorTypePossibleLayouts.find(tensorType);
+      bool hasLayoutsForTensorType =
+          (tensorLayouts != tensorTypePossibleLayouts.end());
+
+      assert(hasLayoutsForTensorType && "No layouts found for tensor type");
+
+      // Run legal layout analysis to select the best layouts
       LegalLayoutAnalysis legalLayoutAnalysis =
           getChildAnalysis<LegalLayoutAnalysis>(op);
       legalLayoutAnalysis.init(LegalLayoutAnalysisInput(
-          chipDesc, max_grid, tensorType, maxLegalLayouts,
-          &overrideOutputLayout, &overrideConv2dConfig, rowMajorEnabled));
+          &tensorLayouts->getSecond(), maxLegalLayouts, &overrideOutputLayout,
+          &overrideConv2dConfig, rowMajorEnabled));
       legalConfigs[op] = legalLayoutAnalysis.getResult();
     });
 
@@ -224,8 +263,8 @@ public:
       MemoryLayoutAnalysis memoryLayoutAnalysis =
           getAnalysis<MemoryLayoutAnalysis>();
       memoryLayoutAnalysis.init(MemoryLayoutAnalysisInput(
-          legalConfigs, chipDesc.getUsableL1Size(), overrideReshardEdges,
-          memoryLayoutAnalysisPolicy));
+          &tensorTypePossibleLayouts, legalConfigs, chipDesc.getUsableL1Size(),
+          overrideReshardEdges, memoryLayoutAnalysisPolicy));
       legalConfigs = memoryLayoutAnalysis.getResult().legalConfigs;
       opSchedule = memoryLayoutAnalysis.getResult().schedule;
       memReconfigEntryMap =
@@ -502,6 +541,9 @@ private:
     // analysis.
     //
     for (const auto &[edge, memReconfigEntry] : memReconfigEntryMap) {
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "Processing mem reconfig edge: {}", edge);
+
       Operation *producerOp = edge.producerOp;
       Operation *consumerOp = edge.consumerOp;
 
@@ -556,7 +598,7 @@ private:
       // toLayoutOp, insert a toLayoutOp in between producerOp
       // and consumerOp.
       //
-      if (isa<ToLayoutOp>(producerOp)) {
+      if (isa_and_nonnull<ToLayoutOp>(producerOp)) {
         ToLayoutOp toLayoutOp = llvm::cast<ToLayoutOp>(producerOp);
         toLayoutOp.setMemoryConfigAttr(outputMemConfigAttr);
         toLayoutOp.getResult().setType(newTensorType);
@@ -577,12 +619,17 @@ private:
 
         consumerOp->setOperand(edge.operandIndex,
                                memoryReconfigOp->getResult(0));
+        TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                     "Inserted memory reconfig op: {}",
+                     mlir::cast<ToLayoutOp>(memoryReconfigOp));
       }
     }
   }
 
   void processSpillOps(const std::vector<Operation *> &spillToDramOps) {
     for (Operation *op : spillToDramOps) {
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "Processing spill op: {}",
+                   op->getName());
       RankedTensorType tensorType =
           mlir::cast<RankedTensorType>(op->getResult(0).getType());
       llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
@@ -617,11 +664,60 @@ private:
       Operation *toLayoutOp = builder.create<ToLayoutOp>(
           loc, newTensorType, op->getResult(0), newLayout, dataType,
           memConfigAttr, getOrCreateDeviceOpValue(op, builder));
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "Inserted spill to DRAM prevLayout: {}\nnewLayout: {}",
+                   layoutAttr, newLayout);
 
       for (auto &use : op->getResult(0).getUses()) {
         if (use.getOwner() != toLayoutOp) {
           use.getOwner()->setOperand(use.getOperandNumber(),
                                      toLayoutOp->getResult(0));
+        }
+      }
+    }
+  }
+
+  // Trace all possible layouts for debugging
+  static void
+  tracePossibleLayouts(const TensorTypeLayoutsMap &allPossibleLayouts) {
+    if (!llvm::DebugFlag || !isLogLevelEnabled(ttmlir::LogLevel::Trace)) {
+      return;
+    }
+    for (auto &[tensorType, layouts] : allPossibleLayouts) {
+      for (auto &[scalarType, layoutsByDataLayout] : layouts) {
+        for (size_t dataLayoutIdx = 0;
+             dataLayoutIdx < static_cast<size_t>(TensorPageLayout::kNumValues);
+             ++dataLayoutIdx) {
+          // Get data layout enum name for debugging
+          std::string dataLayoutName =
+              dataLayoutIdx == static_cast<size_t>(TensorPageLayout::Tiled)
+                  ? "Tiled"
+                  : "RowMajor";
+
+          TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "data layout {}",
+                       dataLayoutName);
+
+          for (size_t memLayoutIdx = 0;
+               memLayoutIdx <
+               static_cast<size_t>(TensorMemoryLayoutIndex::kNumValues);
+               ++memLayoutIdx) {
+            std::string memLayoutName =
+                memLayoutIdx == static_cast<size_t>(
+                                    TensorMemoryLayoutIndex::Interleaved)
+                    ? "Interleaved"
+                    : "Sharded";
+
+            auto &layouts = layoutsByDataLayout[dataLayoutIdx][memLayoutIdx];
+            for (const TTNNLayoutAttr &layout : layouts) {
+              (void)layout;
+              TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                           "Tensor type {0}, scalar type {1}, data layout "
+                           "{2}, memory layout "
+                           "{3} has layout {4}",
+                           tensorType, scalarType, dataLayoutName,
+                           memLayoutName, layout);
+            }
+          }
         }
       }
     }

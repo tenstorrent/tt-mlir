@@ -5,14 +5,14 @@
 #ifndef TTMLIR_TTMLIR_TTOPSTYPES_TD
 #define TTMLIR_TTMLIR_TTOPSTYPES_TD
 
-include "mlir/IR/AttrTypeBase.td"
-include "mlir/IR/EnumAttr.td"
-include "mlir/IR/BuiltinAttributeInterfaces.td"
-include "mlir/IR/BuiltinTypeInterfaces.td"
-include "mlir/IR/CommonTypeConstraints.td"
-
 include "ttmlir/Dialect/TT/IR/TTBase.td"
 include "ttmlir/Dialect/TT/IR/TTOpsEnums.td"
+include "ttmlir/Dialect/TT/IR/TTAttrInterfaces.td"
+
+include "mlir/IR/AttrTypeBase.td"
+include "mlir/IR/EnumAttr.td"
+include "mlir/IR/BuiltinTypeInterfaces.td"
+include "mlir/IR/CommonTypeConstraints.td"
 
 //===----------------------------------------------------------------------===//
 // TT attr definitions
@@ -224,7 +224,7 @@ def TT_SystemDescAttr : TT_Attr<"SystemDesc", "system_desc"> {
   }];
 }
 
-def TT_ViewLayoutAttr : TT_Attr<"ViewLayout", "view", [MemRefLayoutAttrInterface]> {
+def TT_ViewLayoutAttr : TT_Attr<"ViewLayout", "view", [TT_DeviceLayoutInterface]> {
   let summary = "View layout attribute in TT dialect";
   let description = [{
     Describes a view layout of a memref buffer.
@@ -250,7 +250,7 @@ def TT_ViewLayoutAttr : TT_Attr<"ViewLayout", "view", [MemRefLayoutAttrInterface
   }];
 }
 
-def TT_ShardLayoutAttr : TT_Attr<"ShardLayout", "shard", [MemRefLayoutAttrInterface]> {
+def TT_ShardLayoutAttr : TT_Attr<"ShardLayout", "shard", [TT_DeviceLayoutInterface]> {
   let summary = "Shard layout attribute in TT dialect";
   let description = [{
     Describes shard layout of a memref buffer.
