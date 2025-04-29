@@ -345,7 +345,7 @@ private:
 
 // Common implementation shared between passes
 namespace {
-// Deduplicate operations with TTDuplicateConstEvalTrait in a function; assume
+// Deduplicate operations with TTDuplicateConstEvalTrait in a function.  Assumes
 // any op with TTDuplicateConstEvalTrait is equivalent to the same op with the
 // same attrs.
 static void deduplicateSharedOps(func::FuncOp funcOp) {
@@ -356,37 +356,35 @@ static void deduplicateSharedOps(func::FuncOp funcOp) {
   // Collect operations that need to be erased
   SmallVector<Operation *, 8> opsToErase;
 
-  for (auto &block : funcOp.getBlocks()) {
-    for (auto &op : block) {
-      if (op.hasTrait<mlir::tt::Trait::TTDuplicateConstEvalTrait>()) {
-        // Create a key based on operation name and all attributes
-        StringRef opName = op.getName().getStringRef();
-        DictionaryAttr attrs = op.getAttrDictionary();
+  funcOp.walk([&](Operation *op) {
+    if (op->hasTrait<mlir::tt::Trait::TTDuplicateConstEvalTrait>()) {
+      // Create a key based on operation name and all attributes
+      StringRef opName = op->getName().getStringRef();
+      DictionaryAttr attrs = op->getAttrDictionary();
 
-        OpKey key = std::make_pair(opName, attrs);
+      OpKey key = std::make_pair(opName, attrs);
 
-        // If this is the first instance with these attributes, record it
-        auto [it, inserted] = sharedOps.insert({key, &op});
-        if (inserted) {
-          // This was the first instance with these attributes, no need to
-          // substite.
-          continue;
-        }
-
-        // This is a duplicate, replace its uses with the first instance.
-        Operation *firstOp = it->second;
-        // Replace all uses of this op's results with the first instance's
-        // results.
-        for (size_t i = 0; i < op.getNumResults(); ++i) {
-          op.getResult(i).replaceAllUsesWith(firstOp->getResult(i));
-        }
-
-        // Mark for later erasure to ensure we don't invalidate the block we're
-        // stepping through.
-        opsToErase.push_back(&op);
+      // If this is the first instance with these attributes, record it
+      auto [it, inserted] = sharedOps.insert({key, op});
+      if (inserted) {
+        // This was the first instance with these attributes, no need to
+        // substite.
+        return;
       }
+
+      // This is a duplicate, replace its uses with the first instance.
+      Operation *firstOp = it->second;
+      // Replace all uses of this op's results with the first instance's
+      // results.
+      for (size_t i = 0; i < op->getNumResults(); ++i) {
+        op->getResult(i).replaceAllUsesWith(firstOp->getResult(i));
+      }
+
+      // Mark for later erasure to ensure we don't invalidate the block we're
+      // stepping through.
+      opsToErase.push_back(op);
     }
-  }
+  });
 
   // Now erase all duplicate operations.
   for (Operation *op : opsToErase) {
@@ -394,50 +392,38 @@ static void deduplicateSharedOps(func::FuncOp funcOp) {
   }
 }
 
-// Helper to inline a const-eval function
+// Helper to inline a const-eval function.
 static void inlineConstEvalFunction(mlir::func::FuncOp funcOp,
                                     mlir::tt::LoadCachedOp callOp,
                                     OpBuilder &builder) {
   builder.setInsertionPoint(callOp);
-
-  // Map from func args to call operands
-  llvm::DenseMap<mlir::Value, mlir::Value> valueMap;
+  
+  // Use IRMapping to handle the mapping from original values to cloned values
+  mlir::IRMapping valueMapper;
+  
+  // Map function arguments to call operands
   for (size_t i = 0; i < funcOp.getNumArguments(); ++i) {
-    valueMap[funcOp.getArgument(i)] = callOp.getOperand(i);
+    valueMapper.map(funcOp.getArgument(i), callOp.getOperand(i));
   }
-
+  
   // Clone operations from const-eval function
   auto &funcBody = funcOp.getBody().front();
   for (auto &op : funcBody) {
-    // Skip the return operation
-    if (op.hasTrait<mlir::OpTrait::IsTerminator>()) {
+    // Skip the terminator operations
+    if (op.hasTrait<mlir::OpTrait::IsTerminator>())
       continue;
-    }
-
-    // Clone operation and update operands
-    auto *clonedOp = builder.clone(op);
-    for (size_t i = 0; i < clonedOp->getNumOperands(); ++i) {
-      auto originalOperand = op.getOperand(i);
-      auto it = valueMap.find(originalOperand);
-      if (it != valueMap.end()) {
-        clonedOp->setOperand(i, it->second);
-      }
-    }
-
-    // Update value mapping with results
-    for (size_t i = 0; i < clonedOp->getNumResults(); ++i) {
-      valueMap[op.getResult(i)] = clonedOp->getResult(i);
-    }
+      
+    // Clone the operation and update operands using the mapper
+    builder.clone(op, valueMapper);
   }
-
-  // Map return values to their cloned values
-  auto returnOp = dyn_cast<mlir::func::ReturnOp>(funcBody.back());
+  
+  // Get the return operation and map its values to the cloned values
+  auto returnOp = cast<mlir::func::ReturnOp>(funcBody.back());
   for (size_t i = 0; i < returnOp.getNumOperands(); ++i) {
-    auto returnVal = returnOp.getOperand(i);
-    auto mappedVal = valueMap[returnVal];
+    auto mappedVal = valueMapper.lookup(returnOp.getOperand(i));
     callOp.getResult(i).replaceAllUsesWith(mappedVal);
   }
-
+  
   // Erase the call operation
   callOp.erase();
 }

@@ -11,7 +11,9 @@ def ConstEvalHoistTransform: Pass<"const-eval-hoist-transform", "::mlir::ModuleO
   let summary = "Transform to hoist const-eval subgraph into separate func(s)";
   let description = [{
     Transform pass which runs an analysis pass to find const-eval subgraphs in an input
-    and hoist them into separate functions. This pass is dialect-agnostic, although ops with TT traits TTCreationOpTrait and TTDuplicateConstEvalTrait have special logic.  If this pass is run on IR which has already been const-eval'ed, it will first undo existing const-eval hoisting and then re-run.
+    and hoist them into separate functions.
+    This pass is dialect-agnostic, although ops with TT traits TTCreationOpTrait and TTDuplicateConstEvalTrait have special logic.
+    If this pass is run on IR which has already been const-eval'ed, it will first undo existing const-eval hoisting and then re-run.
 
     Example:
 
