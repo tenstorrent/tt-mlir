@@ -76,7 +76,7 @@ class OpMapping:
             torch_args["dtype"] = ttir_dtype_maps[
                 str(ir_op.attributes[0].attr.type.element_type)
             ]
-        
+
         if ir_op.name == "ttir.typecast":
             torch_args["dtype"] = ttir_dtype_maps[
                 str(ir_op.outputs[0].type.element_type)
@@ -125,6 +125,7 @@ def custom_constant(*args, **kwargs):
     kwargs.pop("data")
     return torch.tensor([data], *args, **kwargs)
 
+
 def custom_prod(x, dim, keepdim):
     if dim is None:
         return torch.prod(x)
@@ -132,6 +133,30 @@ def custom_prod(x, dim, keepdim):
     for d in dim:
         x = torch.prod(x, d, keepdim=keepdim)
     return x
+
+
+def custom_slice(x, begins=None, ends=None, step=None):
+    if begins is None and ends is None and step is None:
+        return x
+    if begins is None:
+        begins = [0] * len(x.shape)
+    if ends is None:
+        ends = list(x.shape)
+    if step is None:
+        step = [1] * len(x.shape)
+
+    tmp1 = list(zip(begins, ends, step))
+    slice = ""
+    for b, e, s in tmp1:
+        slice = slice + f"{b}:{e}:{s},"  # holy smokes this is ugly
+
+    slice = slice[:-1]
+    slice = "x[" + slice + "]"
+    print(f"Debugging slice: {slice}")
+    result = eval(slice)
+
+    print(f"Debugging slice result: {result.shape}, {result}")
+    return result
 
 
 ttir_to_torch_mapping = {
@@ -152,18 +177,19 @@ ttir_to_torch_mapping = {
     "ttir.ge": OpMapping(torch.ge),
     "ttir.gt": OpMapping(torch.gt),
     "ttir.le": OpMapping(torch.le),
+    "ttir.ne": OpMapping(torch.ne),
     "ttir.logical_and": OpMapping(torch.logical_and),
     "ttir.lt": OpMapping(torch.lt),
     "ttir.matmul": OpMapping(torch.matmul),
     "ttir.max": OpMapping(torch.max),
     "ttir.maximum": OpMapping(torch.maximum),
     "ttir.multiply": OpMapping(torch.multiply),
-    "ttir.cumsum": OpMapping(torch.cumsum, {"dim" : "dim"}, unpack_inputs=False),
+    "ttir.cumsum": OpMapping(torch.cumsum, {"dim": "dim"}, unpack_inputs=False),
     "ttir.permute": OpMapping(
         torch.permute, {"permutation": "dims"}, unpack_inputs=False
     ),
     "ttir.prod": OpMapping(
-       custom_prod, {"dim_arg": "dim", "keep_dim": "keepdim"}, unpack_inputs=False
+        custom_prod, {"dim_arg": "dim", "keep_dim": "keepdim"}, unpack_inputs=False
     ),
     "ttir.reshape": OpMapping(torch.reshape, {"shape": "shape"}, unpack_inputs=False),
     "ttir.rsqrt": OpMapping(torch.rsqrt, unpack_inputs=False),
@@ -173,8 +199,15 @@ ttir_to_torch_mapping = {
         torch.sum, {"dim_arg": "dim", "keep_dim": "keepdim"}, unpack_inputs=False
     ),
     "ttir.tanh": OpMapping(torch.tanh, unpack_inputs=False),
-    "ttir.typecast": OpMapping(custom_typecast, {"dtype": "dtype"}, unpack_inputs=False),
+    "ttir.typecast": OpMapping(
+        custom_typecast, {"dtype": "dtype"}, unpack_inputs=False
+    ),
     "ttir.where": OpMapping(custom_where),
     "ttir.concat": OpMapping(torch.concat, {"dim": "dim"}, unpack_inputs=False),
     "ttir.embedding": OpMapping(torch.nn.functional.embedding),
+    "ttir.slice": OpMapping(
+        custom_slice,
+        {"begins": "begins", "ends": "ends", "step": "step"},
+        unpack_inputs=False,
+    ),
 }
