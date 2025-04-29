@@ -591,6 +591,34 @@ def test_conv2d(
         groups=2,
     )
 
+@compile_to_flatbuffer(
+    [
+        (1, 32, 32, 64),
+        (64, 32, 3, 3),
+        (1, 1, 1, 64),
+        (1, 16, 28, 64),
+    ],
+    inputs_types=[torch.bfloat16, torch.bfloat16, torch.bfloat16, torch.bfloat16],
+    targets=["ttnn"],
+    argument_types_string="test_conv2d_consteval=input,parameter,parameter,parameter",
+)
+def test_conv2d_consteval(
+    in0: Operand, weight: Operand, bias: Operand, in1: Operand, builder: TTIRBuilder
+):
+    stride = DenseI32ArrayAttr.get([2, 1])
+    padding = DenseI32ArrayAttr.get([2, 1])
+    dilation = DenseI32ArrayAttr.get([2, 1])
+    return builder.conv2d(
+        in0,
+        weight,
+        bias,
+        in1,
+        stride=stride,
+        padding=padding,
+        dilation=dilation,
+        groups=2,
+    )
+
 
 @compile_to_flatbuffer(
     [
