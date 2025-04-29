@@ -861,6 +861,8 @@ def build_graph(module, perf_trace=None, memory_trace=None, golden_results=None)
             loc = parse_loc_string(row["LOC"])
             if not loc:
                 continue
+            # Force the full location here=,
+            loc = row["LOC"]
             if loc not in loc_to_perf:
                 loc_to_perf[loc] = 0
             loc_to_perf[loc] += row["DEVICE FW DURATION [ns]"]
@@ -1030,11 +1032,11 @@ def process_operations(
         operation = OpHandler(op)
 
         if (
-            operation.named_location in loc_to_perf
+            operation.full_location in loc_to_perf
             and operation.op.name not in EMPTY_OPS
         ):
             perf_node_data[operation.id] = node_data_builder.NodeDataResult(
-                loc_to_perf[operation.named_location]
+                loc_to_perf[operation.full_location]
             )
 
         if (
