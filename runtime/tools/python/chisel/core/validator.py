@@ -70,6 +70,8 @@ class Validator:
         last_ttir_result = None
         last_ttir_op = None
         # find if ttnn op doesn't have an output, just set None everywhere
+        if len(op_group.ttir) == 0:
+            return
         if len(ttnn_op.outputs) == 0 or ttnn_op.outputs[0].tt_data is None:
             validator_info = ValidatorInfo(
                 ttir_op=str(op_group.ttir[0].ir_op),
@@ -88,6 +90,7 @@ class Validator:
         max_pcc = 0.0
         min_abs_err = float("inf")
         # will be reworked
+
         for op in op_group.ttir[::-1]:
             if not op.outputs:
                 continue

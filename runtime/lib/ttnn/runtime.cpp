@@ -13,6 +13,7 @@
 #include "tt/runtime/ttnn/program_executor.h"
 #include "tt/runtime/ttnn/types.h"
 #include "tt/runtime/ttnn/utils.h"
+#include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
 #include "ttmlir/Target/TTNN/Target.h"
@@ -980,6 +981,11 @@ getOpInputTensorRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::FullOp: {
+    tensorRefs = {};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ConstantOp: {
+    tensorRefs = {opContext.type_as_ConstantOp()->out()};
     tensorRefs = {};
     break;
   }
