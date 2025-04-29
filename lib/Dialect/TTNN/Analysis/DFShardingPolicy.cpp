@@ -90,25 +90,16 @@ void DFShardingPolicy::run() {
           // bugs and incomplete implementation. This needs to be addressed in
           // the near future.
           //
-          // TODO(#2038): Remove this once this bug is fixed.
-          // TODO(#2042): And constraints are implemented.
-          if (llvm::isa<ttnn::ReshapeOp>(currentOp)) {
-            validForSharding = false;
-          }
-          // TODO(#2038): Remove this once this bug is fixed.
-          if (llvm::isa<ttnn::ConcatOp>(currentOp)) {
-            validForSharding = false;
-          }
-          // TODO(#2041): Remove once constraints are added for MeanOp.
-          if (llvm::isa<ttnn::MeanOp>(currentOp)) {
-            validForSharding = false;
-          }
-          // TODO(#2588): Blocked by graph capture issue.
-          if (llvm::isa<ttnn::Conv2dOp>(currentOp)) {
-            validForSharding = false;
-          }
-          // TODO(#2588): Blocked by graph capture issue.
-          if (llvm::isa<ttnn::MaxPool2dOp>(currentOp)) {
+          if (llvm::isa<
+                  // TODO(#2038): Remove this once this bug is fixed.
+                  // TODO(#2042): And constraints are implemented.
+                  ttnn::ReshapeOp,
+                  // TODO(#2038): Remove this once this bug is fixed.
+                  ttnn::ConcatOp,
+                  // TODO(#2041): Remove once constraints are added for MeanOp.
+                  ttnn::MeanOp,
+                  // TODO(#2588): Blocked by graph capture issue.
+                  ttnn::Conv2dOp, ttnn::MaxPool2dOp>(currentOp)) {
             validForSharding = false;
           }
 
