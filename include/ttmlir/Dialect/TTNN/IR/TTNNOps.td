@@ -389,7 +389,9 @@ def TTNN_RsqrtOp : TTNN_ElementwiseUnaryOp<"rsqrt"> {
     }];
 }
 
-def TTNN_SigmoidOp : TTNN_ElementwiseUnaryOp<"sigmoid"> {
+def TTNN_SigmoidOp : TTNN_ElementwiseUnaryOp<"sigmoid",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise sigmoid.";
     let description = [{
       Eltwise sigmoid operation.
