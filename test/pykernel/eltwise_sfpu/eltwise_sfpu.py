@@ -12,7 +12,7 @@ from pykernel.types import *
 @ttkernel_tensix_compile()
 def eltwise_sfpu(cb_in: CircularBuffer, cb_out: CircularBuffer):
     # CHECK: module {
-    # CHECK: func.func @{{.*}}(%arg0: !ttkernel.cb<{{.*}}>, %arg1: !ttkernel.cb<{{.*}}>) {
+    # CHECK: func.func @{{.*}}(%arg0: !ttkernel.cb<{{.*}}>, %arg1: !ttkernel.cb<{{.*}}>) attributes {ttkernel.thread = #ttkernel.thread<compute>} {
     # CHECK: {{.*}}"ttkernel.get_compile_time_arg_val"{{.*}}
     # CHECK: {{.*}}"ttkernel.get_compile_time_arg_val"{{.*}}
     per_core_block_cnt = get_compile_time_arg_val(int, 0)
