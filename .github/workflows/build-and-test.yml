@@ -534,5 +534,3 @@ jobs:
     needs:
       - build-image
     uses: ./.github/workflows/wheel-build.yml
-    with:
-      docker-image: ${{ needs.build-image.outputs.docker-image }}

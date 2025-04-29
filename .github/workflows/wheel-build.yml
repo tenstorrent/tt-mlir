@@ -3,20 +3,12 @@ name: Build ttmlir Wheel
 on:
   workflow_dispatch:
   workflow_call:
-    inputs:
-      docker-image:
-        description: 'Docker image to use for building the wheel'
-        required: true
-        type: string
 
 jobs:
   build-ttmlir-wheel:
     timeout-minutes: 60
     name: Build ttmlir Python Wheel
-    runs-on: ubuntu-latest
-    container:
-      # Use the provided docker image from workflow_call or build our own for direct triggers
-      image: ${{ !inputs.docker-image || 'ghcr.io/tenstorrent/tt-mlir/tt-mlir-ci-ubuntu-22-04:latest' }}
+    runs-on: tt-beta-ubuntu-2204-large
 
     steps:
       - name: Maximize space
@@ -37,13 +29,21 @@ jobs:
       - name: Git safe dir
         run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
 
-      - name: Build ttmlir wheel
-        shell: bash
-        run: |
-          source env/activate
-          mkdir -p ${{ steps.strings.outputs.wheel-output-dir }}
-          cd python
-          python -m pip wheel . --wheel-dir ${{ steps.strings.outputs.wheel-output-dir }} --verbose
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Build ttmlir Wheel (manylinux)
+        uses: pypa/cibuildwheel@v2.23.2
+        env:
+          CIBW_ENVIRONMENT: "IN_CIBW_ENV=ON"
+          # TODO(vprajapati): Use static tagged until merged with main to update latest tag
+          CIBW_MANYLINUX_X86_64_IMAGE: ghcr.io/tenstorrent/tt-mlir/tt-mlir-manylinux-2-34:dt-35f2834c5f5d1cb68b599e12d7dae7751a73ff292364a80ee43f9adfb9b937ec
+        with:
+          output-dir: ${{ steps.strings.outputs.wheel-output-dir }}
+          package-dir: ${{ steps.strings.outputs.work-dir }}/python
+          config-file: "${{ steps.strings.outputs.work-dir }}/python/pyproject.toml"
 
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v4
@@ -56,9 +56,6 @@ jobs:
     timeout-minutes: 60
     name: Build pykernel Python Wheel
     runs-on: ubuntu-latest
-    container:
-      # Use the provided docker image from workflow_call or build our own for direct triggers
-      image: ${{ !inputs.docker-image || 'ghcr.io/tenstorrent/tt-mlir/tt-mlir-ci-ubuntu-22-04:latest' }}
 
     steps:
       - name: Maximize space
@@ -78,6 +75,22 @@ jobs:
 
       - name: Git safe dir
         run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
+
+      - name: Install jq and curl
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq curl
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Required Packages to Build
+        shell: bash
+        run: |
+          python3.10 -m pip install wheel setuptools
 
       # Add some of John's Bash Dark Magic to Update requirements.txt if possible.
       - name: Update ttmlir Requirement
@@ -91,10 +104,9 @@ jobs:
         shell: bash
         run: |
           source env/activate
-          pip install "pip<24"
           mkdir -p ${{ steps.strings.outputs.wheel-output-dir }}
           cd python
-          python -m pip wheel ./pykernel --wheel-dir ${{ steps.strings.outputs.wheel-output-dir }} --verbose
+          python3.10 -m pip wheel ./pykernel --wheel-dir ${{ steps.strings.outputs.wheel-output-dir }} --verbose
 
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v4
@@ -109,9 +121,6 @@ jobs:
     timeout-minutes: 30
     name: Test pykernel Wheel Installation
     runs-on: ubuntu-latest
-    container:
-      # Use the provided docker image from workflow_call or build our own for direct triggers
-      image: ${{ !inputs.docker-image || 'ghcr.io/tenstorrent/tt-mlir/tt-mlir-ci-ubuntu-22-04:latest' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -120,6 +129,11 @@ jobs:
 
       - name: Git safe dir
         run: git config --global --add safe.directory $(pwd)
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
 
       - name: Download wheel
         uses: actions/download-artifact@v4
@@ -130,9 +144,6 @@ jobs:
       - name: Test wheel installation
         shell: bash
         run: |
-          # Don't activate env since this will attempt to install in fresh venv
-          python3 -m venv whl_test
-          source whl_test/bin/activate
           WHEEL_FILE=$(ls ./dist/pykernel-*.whl)
           echo "Installing wheel: $WHEEL_FILE"
           pip install $WHEEL_FILE
@@ -148,9 +159,6 @@ jobs:
     timeout-minutes: 30
     name: Test ttmlir Wheel Installation
     runs-on: ubuntu-latest
-    container:
-      # Use the provided docker image from workflow_call or build our own for direct triggers
-      image: ${{ !inputs.docker-image || 'ghcr.io/tenstorrent/tt-mlir/tt-mlir-ci-ubuntu-22-04:latest' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -159,6 +167,11 @@ jobs:
 
       - name: Git safe dir
         run: git config --global --add safe.directory $(pwd)
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
 
       - name: Download wheel
         uses: actions/download-artifact@v4
@@ -169,9 +182,6 @@ jobs:
       - name: Test wheel installation
         shell: bash
         run: |
-          # Don't activate env since this will attempt to install in fresh venv
-          python3 -m venv whl_test
-          source whl_test/bin/activate
           WHEEL_FILE=$(ls ./dist/ttmlir-*.whl)
           echo "Installing wheel: $WHEEL_FILE"
           pip install $WHEEL_FILE

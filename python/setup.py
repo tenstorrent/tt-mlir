@@ -12,6 +12,7 @@ import subprocess
 
 from setuptools import setup, Extension
 from setuptools.command.build_ext import build_ext
+from datetime import datetime
 
 
 class TTExtension(Extension):
@@ -31,6 +32,9 @@ class CMakeBuild(build_ext):
         if _dir.exists():
             shutil.rmtree(_dir)
 
+    def in_ci(self) -> bool:
+        return os.environ.get("IN_CIBW_ENV") == "ON"
+
     def build_(self, ext):
         build_lib = self.build_lib
         if not os.path.exists(build_lib):
@@ -44,7 +48,11 @@ class CMakeBuild(build_ext):
         build_dir = cwd.parent / "build"
 
         # Set it to install directly into the wheel, so there's no need to raise the directory for ttmlir python files
-        install_dir = extension_path.parent
+        install_dir = pathlib.Path(self.build_lib)
+
+        # Fix install dir if using cibuildwheel
+        if self.in_ci():
+            install_dir = cwd / "build" / install_dir.name
 
         cmake_args = [
             "-G",
@@ -55,12 +63,42 @@ class CMakeBuild(build_ext):
             "-DCMAKE_INSTALL_PREFIX=" + str(install_dir),
             "-DCMAKE_C_COMPILER=clang",
             "-DCMAKE_CXX_COMPILER=clang++",
-            # Add the Source Directory (root)
-            "-S",
-            str(cwd.parent),
         ]
 
-        self.spawn(["cmake", *cmake_args])
+        # Use LLD if in cibuildwheel
+        if self.in_ci():
+            cmake_args.extend(
+                [
+                    f"-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld",
+                    f"-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld",
+                    f"-DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld",
+                ]
+            )
+        # Otherwise, force the source to be set
+        else:
+            cmake_args.extend(["-S", str(cwd.parent)])
+
+        # Run source env/activate if in ci, otherwise onus is on dev
+        if self.in_ci():
+            subprocess.run(
+                " ".join(
+                    [
+                        "cd",
+                        str(cwd.parent),
+                        "&&",
+                        "source",
+                        "env/activate",
+                        "&&",
+                        "cmake",
+                        *cmake_args,
+                    ]
+                ),
+                shell=True,
+                check=True,
+            )
+        else:
+            self.spawn(["cmake", *cmake_args])
+
         self.spawn(["cmake", "--build", str(build_dir)])
 
         # Install the PythonWheel Component
@@ -72,19 +110,7 @@ class CMakeBuild(build_ext):
         self.rmdir(install_dir / "pykernel")
 
 
-# Compute a dynamic version from git, taken from tt-forge-fe
-short_hash = (
-    subprocess.check_output(["git", "rev-parse", "--short", "HEAD"])
-    .decode("ascii")
-    .strip()
-)
-date = (
-    subprocess.check_output(
-        ["git", "show", "-s", "--format=%cd", "--date=format:%y%m%d", "HEAD"]
-    )
-    .decode("ascii")
-    .strip()
-)
+date = datetime.now().strftime("%y.%m.%d")
 version = "0.1." + date + ".dev0"
 
 # Only the ttmlir package relies on the CMake build process
@@ -94,12 +120,9 @@ setup(
     name="ttmlir",
     version=version,
     install_requires=[],
-    # Include both pykernel and ttmlir as top-level packages
+    # Include ttmlir as top-level packages
     packages=["ttmlir"],
-    # Map the package names to their locations.
-    # "." will include files in the current source (not needed)
-    # We delete all of this during the build_ext step
-    package_dir={"ttmlir": "."},
+    package_dir={"ttmlir": ""},
     ext_modules=[ttmlir_c],
     cmdclass={"build_ext": CMakeBuild},
     zip_safe=False,
