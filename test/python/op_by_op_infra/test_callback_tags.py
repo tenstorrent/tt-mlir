@@ -4,80 +4,42 @@
 
 # RUN: SYSTEM_DESC_PATH=%system_desc_path% %python %s
 
-import inspect
 import pytest
 
-from ttmlir.test_utils import compile_as_mlir_module
-from ttmlir.ttir_builder import Operand, TTIRBuilder, Attribute, UnitAttr, TypeInfo
-from ttmlir.dialects import ttir
-from ttmlir.ir import *
-from ttmlir.passes import GoldenTensor, CallbackTag, DataType
-from ttrt.common.util import Binary
-from ttmlir.compile_and_run import ttir_to_ttnn, ttnn_to_flatbuffer
-from ttmlir.ir import Module
-import ttrt.binary  # import get_program_tag
-
-# from ttrt.binary import get_module_tags
+from ttmlir.test_utils import (
+    compile_as_mlir_module,
+    ttnn_to_flatbuffer,
+    ttir_to_ttnn,
+    compile_to_flatbuffer,
+)
+from ttmlir.ttir_builder import Operand, TTIRBuilder
+import ttrt.binary
 
 
+@pytest.mark.parametrize("key", ["add_op_0", None])
 @pytest.mark.parametrize(
     "tags",
-    [(True, True), (True, False), (False, False)],
+    [(False, True), (True, False)],
 )
-def test_callback_tags(tags):
+def test_callback_tags(tags, key):
     def test_simple_callback(in0: Operand, in1: Operand, builder: TTIRBuilder):
         result = builder.add(in0, in1)
-        print("Builder first loc: ", builder.get_loc())
-        builder.set_callback_kv(str(builder.get_loc()), tags)
+        loc_id = key if key else str(builder.get_loc())
+        builder.set_callback_kv(loc_id, tags)
+        return result
 
-    module, builder2 = compile_as_mlir_module(
+    module, builder = compile_as_mlir_module(
         test_simple_callback, [(64, 128), (64, 128)]
     )
-    # Should I run a pass? ttir_to_ttnn
-    buffer = ttnn_to_flatbuffer(module)
-    print("Builder second loc: ", builder2.get_loc())
+    module = ttir_to_ttnn(module)
+    ttnn_to_flatbuffer(module, builder, "test_callback_tags.ttnn")
 
-    # use get tags if you can get it to work, otherwise:
-    tag = ttrt.binary.get_program_tag(module, str(builder2.get(loc)))
-    print("TAG: ", tag, type(tag), tag.pre_op_tag, tag.post_op_tag, tag.name)
-    assert False, "test"
-    """
-    for (
-        op
-    ) in (
-        module
-    ):  # I think you have to write/pybind something for this, even get all tags from module
-        runtime_tags = ttrt.runtime.get_op_tags(fb.handle, 0, opContext)
-        runtime_tags = get_module_tags(fb.handle, builder2.get_loc())
-        print("Runtime_tags: ", runtime_tags, type(runtime_tags))
-        assert (
-            runtime_tags == tags
-        ), f"Callback tags are wrong, expected {tags}, got {runtime_tags}"
-    """
-
-
-"""
-if __name__ == "__main__":
-    import argparse, os
-
-    parser = argparse.ArgumentParser(description="Run TTIR Builder Op tests")
-    parser.add_argument(
-        "--path",
-        type=str,
-        help="Optional output path for the flatbuffer. Creates path if supplied path doesn't exist",
-    )
-    args = parser.parse_args()
-
-    if args.path and os.path.exists(args.path):
-        if not os.path.exists(args.path):
-            os.makedirs(args.path)
-        set_output_path(args.path)
-
-    test_functions = inspect.getmembers(
-        inspect.getmodule(inspect.currentframe()), inspect.isfunction
-    )
-
-    for function_name, func in test_functions:
-        if function_name.startswith("test_"):
-            func()
-    """
+    # Verify the callback tag was properly set
+    bin = ttrt.binary.load_binary_from_path("ttnn/test_callback_tags.ttnn")
+    loc_id = key if key else str(builder.get_loc())
+    fb_tag = bin.get_program_tag(loc_id)
+    assert fb_tag is not None, "Failed to retrieve callback tag"
+    assert (
+        fb_tag.pre_op_tag,
+        fb_tag.post_op_tag,
+    ) == tags, f"Expected tags {tags}, got {(fb_tag.pre_op_tag, fb_tag.post_op_tag)}"
