@@ -40,10 +40,14 @@ module @moreh_cumsum attributes {} {
   func.func @test_moreh_cumsum_dim2(%arg0: tensor<8x2x4x16xbf16>) -> tensor<8x2x4x16xbf16> {
     // CHECK-LABEL: func.func @test_moreh_cumsum_dim2
     %cst = stablehlo.constant dense<0.000000e+00> : tensor<bf16>
+    // CHECK: ttnn.permute
+    // CHECK-SAME: permutation = array<i64: 2, 1, 0, 3>
     // CHECK: ttnn.moreh_cumsum
-    // CHECK-SAME: dim = 2 : i64
-    // CHECK-SAME: tensor<8x2x4x16xbf16,
-    // CHECK-SAME: -> tensor<8x2x4x16xbf16,
+    // CHECK-SAME: dim = 0 : i64
+    // CHECK-SAME: tensor<4x2x8x16xbf16,
+    // CHECK-SAME: -> tensor<4x2x8x16xbf16,
+    // CHECK: ttnn.permute
+    // CHECK-SAME: permutation = array<i64: 2, 1, 0, 3>
     %0 = "stablehlo.reduce_window"(%arg0, %cst) <{padding = dense<[[0, 0], [0, 0], [3, 0], [0, 0]]> : tensor<4x2xi64>, window_dilations = array<i64: 1, 1, 1, 1>, window_dimensions = array<i64: 1, 1, 4, 1>, window_strides = array<i64: 1, 1, 1, 1>}> ({
     ^bb0(%arg1: tensor<bf16>, %arg2: tensor<bf16>):
       %1 = stablehlo.add %arg1, %arg2 : tensor<bf16>
@@ -55,10 +59,14 @@ module @moreh_cumsum attributes {} {
   func.func @test_moreh_cumsum_dim3(%arg0: tensor<8x2x4x16xbf16>) -> tensor<8x2x4x16xbf16> {
     // CHECK-LABEL: func.func @test_moreh_cumsum_dim3
     %cst = stablehlo.constant dense<0.000000e+00> : tensor<bf16>
+    // CHECK: ttnn.permute
+    // CHECK-SAME: permutation = array<i64: 3, 1, 2, 0>
     // CHECK: ttnn.moreh_cumsum
-    // CHECK-SAME: dim = 3 : i64
-    // CHECK-SAME: tensor<8x2x4x16xbf16,
-    // CHECK-SAME: -> tensor<8x2x4x16xbf16,
+    // CHECK-SAME: dim = 0 : i64
+    // CHECK-SAME: tensor<16x2x4x8xbf16,
+    // CHECK-SAME: -> tensor<16x2x4x8xbf16,
+    // CHECK: ttnn.permute
+    // CHECK-SAME: permutation = array<i64: 3, 1, 2, 0>
     %0 = "stablehlo.reduce_window"(%arg0, %cst) <{padding = dense<[[0, 0], [0, 0], [0, 0], [15, 0]]> : tensor<4x2xi64>, window_dilations = array<i64: 1, 1, 1, 1>, window_dimensions = array<i64: 1, 1, 1, 16>, window_strides = array<i64: 1, 1, 1, 1>}> ({
     ^bb0(%arg1: tensor<bf16>, %arg2: tensor<bf16>):
       %1 = stablehlo.add %arg1, %arg2 : tensor<bf16>
@@ -74,25 +82,14 @@ module @moreh_cumsum attributes {} {
     // CHECK-SAME: {shape = [1 : i32, 10 : i32, 1 : i32, 1 : i32]}
     // CHECK-SAME: tensor<1x10xui32
     // CHECK-SAME: -> tensor<1x10x1x1xui32
-    // CHECK: %[[ARG0:[0-9]+]] = "ttnn.typecast"(%[[RESHAPE]])
-    // CHECK-SAME: {dtype = #tt.supportedDataTypes<f32>}
-    // CHECK-SAME: tensor<1x10x1x1xui32
-    // CHECK-SAME: -> tensor<1x10x1x1xf32
-    // CHECK: %[[CUMSUM:[0-9]+]] = "ttnn.moreh_cumsum"(%[[ARG0]])
+    // CHECK: %[[CUMSUM:[0-9]+]] = "ttnn.moreh_cumsum"
     // CHECK-SAME: <{dim = 1 : i64}>
-    // CHECK-SAME: tensor<1x10x1x1xf32
-    // CHECK-SAME: -> tensor<1x10x1x1xf32
-    // CHECK: %[[TYPECAST:[0-9]+]] = "ttnn.typecast"(%[[CUMSUM]])
-    // CHECK-SAME: {dtype = #tt.supportedDataTypes<u32>}
-    // CHECK-SAME: tensor<1x10x1x1xf32
-    // CHECK-SAME: -> tensor<1x10x1x1xui32
-    // CHECK: %[[RESHAPE_FINAL:[0-9]+]] = "ttnn.reshape"(%[[TYPECAST]])
+    // CHECK-SAME: tensor<1x10x1x1xsi32
+    // CHECK-SAME: -> tensor<1x10x1x1xsi32
+    // CHECK: %[[RESHAPE_FINAL:[0-9]+]] = "ttnn.reshape"
     // CHECK-SAME: <{shape = [1 : i32, 10 : i32]}>
     // CHECK-SAME: tensor<1x10x1x1xui32
     // CHECK-SAME: -> tensor<1x10xui32
-    // CHECK: "ttnn.typecast"(%[[RESHAPE_FINAL]])
-    // CHECK-SAME: {dtype = #tt.supportedDataTypes<si32>}
-    // CHECK-SAME: tensor<1x10xsi32
     %0 = "stablehlo.reduce_window"(%arg0, %c) <{padding = dense<[[0, 0], [9, 0]]> : tensor<2x2xi64>, window_dilations = array<i64: 1, 1>, window_dimensions = array<i64: 1, 10>, window_strides = array<i64: 1, 1>}> ({
     ^bb0(%arg1: tensor<i64>, %arg2: tensor<i64>):
       %1 = stablehlo.add %arg1, %arg2 : tensor<i64>
