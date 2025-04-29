@@ -237,6 +237,16 @@ Set up lint so you can spot errors and stylistic issues before runtime.
 
 > [!NOTE] If your environment is already active, you do not need to run ```source env/activate``` again.
 
+In order for this to build correctly, the runtime must be enabled (if it is not enabled, you get an error message asking for tt-metal-download). Make sure your environment is active, and then do the following:
+
+1. Run the command to enable runtime:
+
+```bash
+cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-17 -DCMAKE_CXX_COMPILER=clang++-17 -DTTMLIR_ENABLE_RUNTIME=ON
+```
+
+2. Build clang-tidy:
+
 ```bash
 source env/activate
 cmake --build build -- clang-tidy
@@ -260,18 +270,36 @@ For more information visit [pre-commit](https://pre-commit.com/)
 
 ## Docs
 
+Docs built by doing the following:
+
+1. Make sure you have `mdbook` installed:
+
+```bash
+sudo snap install mdbook
+```
+
+2. Make sure Python can be found on the right path:
+
+```bash
+echo $TTMLIR_TOOLCHAIN_DIR
+```
+
+You should get a response that the path is ```/opt/ttmlir-toolchain```. If not, then run:
+
+```bash
+ln -s /opt/ttmlir-toolchain/venv/bin/python3 /opt/ttmlir-toolchain/venv/bin/python
+```
+
+3. Build the docs:
+
 ```bash
 source env/activate
 cmake --build build -- docs
 mdbook serve build/docs
 ```
-
-> - `mdbook` can be installed with the system's package manager.
-> - `mdbook serve` will by default create a local server at `http://localhost:3000`.
+> [!NOTE] `mdbook serve` will by default create a local server at `http://localhost:3000`.
 
 ## Common Build Errors
-
-If you get the following error, it means you need to install clang which you can do with `sudo apt install clang` on Ubuntu.
 
 ### tt-metal Update Failures
 
