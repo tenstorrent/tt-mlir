@@ -26,7 +26,8 @@ endif()
 
 # TT_METAL_HOME env variable needs to be set
 if(NOT DEFINED ENV{TT_METAL_HOME})
-    message(FATAL_ERROR "TT_METAL_HOME is not set")
+    message(WARNING "TT_METAL_HOME is not set in ttnn-standalone. Skipping build.")
+    return()
 endif()
 
 # Metal dir variables
@@ -113,6 +114,7 @@ set(COMPILE_DEFS
 
 add_executable(ttnn-standalone ttnn-standalone.cpp)
 set_property(TARGET ttnn-standalone PROPERTY CXX_STANDARD 20)
+set_property(TARGET ttnn-standalone PROPERTY EXCLUDE_FROM_ALL TRUE)
 
 target_include_directories(ttnn-standalone PRIVATE ${INCLUDE_DIRS})
 target_link_directories(ttnn-standalone PRIVATE ${LINK_DIRS})
@@ -133,6 +135,7 @@ if(NOT EXISTS "ttnn-dylib.cpp")
 endif()
 add_library(ttnn-dylib SHARED ttnn-dylib.cpp)
 set_property(TARGET ttnn-dylib PROPERTY CXX_STANDARD 20)
+set_property(TARGET ttnn-dylib PROPERTY EXCLUDE_FROM_ALL TRUE)
 
 target_include_directories(ttnn-dylib PRIVATE ${INCLUDE_DIRS})
 target_link_directories(ttnn-dylib PRIVATE ${LINK_DIRS})
@@ -142,7 +145,7 @@ target_compile_options(ttnn-dylib PRIVATE -mavx -mavx2)
 
 target_precompile_headers(ttnn-dylib PRIVATE ttnn-precompiled.hpp)
 
-# Install commands
+# Installation
 install(
   FILES
     ci_compile_dylib.py
