@@ -10,6 +10,7 @@ BASE_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-base-ubuntu-22-04
 CI_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-ci-ubuntu-22-04
 BASE_IRD_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-base-ird-ubuntu-22-04
 IRD_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-ird-ubuntu-22-04
+CIBW_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-manylinux-2-34
 
 # Compute the hash of the Dockerfile
 DOCKER_TAG=$(./.github/get-docker-tag.sh)
@@ -52,6 +53,7 @@ build_and_push $BASE_IMAGE_NAME .github/Dockerfile.base $ON_MAIN
 build_and_push $BASE_IRD_IMAGE_NAME .github/Dockerfile.ird $ON_MAIN base
 build_and_push $CI_IMAGE_NAME .github/Dockerfile.ci $ON_MAIN
 build_and_push $IRD_IMAGE_NAME .github/Dockerfile.ird $ON_MAIN ci
+build_and_push $CIBW_IMAGE_NAME .github/Dockerfile.cibuildwheel $ON_MAIN
 
 echo "All images built and pushed successfully"
 echo "CI_IMAGE_NAME:"

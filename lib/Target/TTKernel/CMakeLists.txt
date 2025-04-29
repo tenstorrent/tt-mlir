@@ -7,8 +7,5 @@ add_mlir_translation_library(TTKernelTargetCpp
 
     LINK_LIBS PUBLIC
     MLIRTTKernelDialect
-    TTMLIRTTKernelToEmitC
-    MLIRFuncToEmitC
-    MLIRSCFToEmitC
-    MLIRArithToEmitC
+    MLIRTTIRDialect
 )

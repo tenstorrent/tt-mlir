@@ -34,6 +34,7 @@ if (TT_RUNTIME_ENABLE_PERF_TRACE)
 endif()
 
 target_link_directories(TTMLIRRuntime PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib)
+target_link_directories(TTMLIRRuntime PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib64)
 
 target_link_libraries(TTMLIRRuntime
   PRIVATE
