@@ -107,6 +107,10 @@ void DFShardingPolicy::run() {
           if (llvm::isa<ttnn::Conv2dOp>(currentOp)) {
             validForSharding = false;
           }
+          // TODO(#2588): Blocked by graph capture issue.
+          if (llvm::isa<ttnn::MaxPool2dOp>(currentOp)) {
+            validForSharding = false;
+          }
 
           if (validForSharding) {
             // Fetch largest legal sharded L1 layouts for currentOp and nextOp.
