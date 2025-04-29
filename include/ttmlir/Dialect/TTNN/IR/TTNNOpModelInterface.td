@@ -21,7 +21,7 @@ def TTNN_OpModelInterface : OpInterface<"OpModel"> {
             }],
             /*retTy=*/"llvm::Expected<size_t>",
             /*methodName=*/"getOpRuntime",
-            /*args=*/(ins "const std::vector<TTNNLayoutAttr>&":$inputs, "const TTNNLayoutAttr&":$output),
+            /*args=*/(ins "const std::vector<TTNNLayoutAttr>&":$inputs, "const OpConfig&":$config),
             /*methodBody=*/"",
             /*defaultImplementation=*/"return llvm::createStringError(\"Not Implemented\");"
         >,
@@ -37,7 +37,7 @@ def TTNN_OpModelInterface : OpInterface<"OpModel"> {
             }],
             /*retTy=*/"llvm::Expected<std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>",
             /*methodName=*/"getOpConstraints",
-            /*args=*/(ins "const std::vector<TTNNLayoutAttr>&":$inputs, "const TTNNLayoutAttr&":$output),
+            /*args=*/(ins "const std::vector<TTNNLayoutAttr>&":$inputs, "const OpConfig&":$config),
             /*methodBody=*/"",
             /*defaultImplementation=*/"return llvm::createStringError(\"Not Implemented\");"
         >,

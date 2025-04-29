@@ -7,10 +7,12 @@
 
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
 #include "ttmlir/Conversion/Passes.h"
+#include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
 #include "ttmlir/RegisterAll.h"
 #include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include "ttmlir/Target/TTMetal/TTMetalToFlatbuffer.h"
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
+
 #include <cstdint>
 #include <nanobind/stl/bind_map.h>
 #include <nanobind/stl/bind_vector.h>
@@ -181,6 +183,37 @@ void populatePassesModule(nb::module_ &m) {
       },
       nb::arg("module"), nb::arg("options") = "");
 
+  m.def(
+      "stablehlo_to_ttir_pipeline",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        // Implicit nesting required to call the stablehlo.composite ->
+        // func.call conversion.
+        mlir::PassManager pm(moduleOp->getName(),
+                             mlir::PassManager::Nesting::Implicit);
+
+        mlir::DialectRegistry registry;
+        mlir::tt::registerAllDialects(registry);
+        mlir::tt::registerAllExtensions(registry);
+        mlir::MLIRContext *ctx = unwrap(mlirModuleGetContext(module));
+        ctx->appendDialectRegistry(registry);
+
+        const auto *pipeline =
+            mlir::PassPipelineInfo::lookup("stablehlo-to-ttir-pipeline");
+
+        std::function<mlir::LogicalResult(const llvm::Twine &)> err_handler =
+            [](const llvm::Twine &) { return mlir::failure(); };
+
+        if (mlir::failed(pipeline->addToPipeline(pm, options, err_handler))) {
+          throw std::runtime_error("Failed to add pipeline to pass manager");
+        }
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      nb::arg("module"), nb::arg("options") = "");
+
   // This binds the vector into an interfaceable object in python and also an
   // opaquely passed one into other functions.
   nb::bind_vector<std::vector<std::pair<std::string, std::string>>>(
@@ -247,21 +280,27 @@ void populatePassesModule(nb::module_ &m) {
 
   m.def(
       "ttkernel_to_cpp",
-      [](MlirModule module, bool isTensixKernel) {
+      [](MlirModule module) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
-        tt::ttkernel::ThreadType threadType =
-            isTensixKernel ? tt::ttkernel::ThreadType::Tensix
-                           : tt::ttkernel::ThreadType::Noc;
+
+        // Convert to EmitC
+        mlir::PassManager pm(moduleOp->getName());
+        pm.addPass(mlir::tt::createConvertTTKernelToEmitC());
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+
+        // Translate to C++
         std::string output;
         llvm::raw_string_ostream output_stream(output);
-        if (mlir::failed(mlir::tt::ttkernel::translateTTKernelToCpp(
-                moduleOp, output_stream, threadType))) {
+        if (mlir::failed(mlir::tt::ttkernel::translateTopLevelKernelsToCpp(
+                mlir::cast<ModuleOp>(moduleOp), output_stream))) {
           throw std::runtime_error("Failed to generate cpp");
         }
         output_stream.flush();
         return output;
       },
-      nb::arg("module"), nb::arg("isTensixKernel"));
+      nb::arg("module"));
 
   m.def(
       "pykernel_compile_pipeline",

@@ -63,9 +63,6 @@ struct TTIRToTTIRDecompositionPass
               shape.size() == 1);
     });
 
-    target.addDynamicallyLegalOp<ttir::ArgMaxOp>(
-        [&](ttir::ArgMaxOp op) { return op.getKeepDim(); });
-
     TypeConverter typeConverter;
     // All types map 1:1.
     typeConverter.addConversion([](Type type) { return type; });

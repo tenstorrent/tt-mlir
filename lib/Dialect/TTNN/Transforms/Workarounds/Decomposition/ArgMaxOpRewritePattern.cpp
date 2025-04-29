@@ -50,7 +50,7 @@ ArgMaxOpRewritePattern::matchAndRewrite(ttnn::ArgMaxOp srcOp,
   // output type.
   ttnn::TTNNLayoutAttr newOutputLayoutAttr =
       mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding())
-          .withTensorShape(rewriter.getContext(), argMaxOutputShape);
+          .withTensorShape(argMaxOutputShape);
   RankedTensorType newOutputType = RankedTensorType::get(
       argMaxOutputShape, outputType.getElementType(), newOutputLayoutAttr);
 
@@ -66,9 +66,8 @@ ArgMaxOpRewritePattern::matchAndRewrite(ttnn::ArgMaxOp srcOp,
   }
   // Create new ttnn.argmax op with updated input tensor, dimension, etc.
   ArgMaxOp argMaxOp = rewriter.create<mlir::tt::ttnn::ArgMaxOp>(
-      srcOp->getLoc(), newOutputType, preReshapeOp, dimAttr,
-      /*use_multicore=*/false, // Default tt-metal value.
-      /*memoryConfig=*/nullptr);
+      srcOp->getLoc(), newOutputType, preReshapeOp, dimAttr, srcOp.getKeepDim(),
+      /*use_multicore=*/false, /*memoryConfig=*/nullptr);
 
   // Create ttnn.reshape op after performing ttnn.argmax op.
   ReshapeOp postReshapeOp = ttir_to_ttnn::utils::generateReshape(

@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
+#include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/IR/Location.h"
@@ -60,8 +61,8 @@ RankedTensorType
 createRankedTensorTypeWithElementType(RankedTensorType tensorType,
                                       Type elementType) {
   TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
-  TTNNLayoutAttr newEncoding = oldEncoding.withElementType(
-      tensorType.getContext(), elementType, tensorType.getShape());
+  TTNNLayoutAttr newEncoding =
+      oldEncoding.withElementType(elementType, tensorType.getShape());
   Type newElementType = elementType;
   if (TileType tileType = dyn_cast<TileType>(elementType)) {
     newElementType = tileType.getElementType();
@@ -75,8 +76,7 @@ RankedTensorType
 createRankedTensorTypeWithBufferType(RankedTensorType tensorType,
                                      ttnn::BufferType bufferType) {
   TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
-  TTNNLayoutAttr newEncoding =
-      oldEncoding.withBufferType(tensorType.getContext(), bufferType);
+  TTNNLayoutAttr newEncoding = oldEncoding.withBufferType(bufferType);
   return createRankedTensorTypeWithEncoding(tensorType, newEncoding);
 }
 
@@ -85,8 +85,16 @@ RankedTensorType
 createRankedTensorTypeWithMemoryLayout(RankedTensorType tensorType,
                                        ttnn::TensorMemoryLayout memoryLayout) {
   TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
+  TTNNLayoutAttr newEncoding = oldEncoding.withMemoryLayout(memoryLayout);
+  return createRankedTensorTypeWithEncoding(tensorType, newEncoding);
+}
+
+// Helper method to create a RankedTensorType with the given grid.
+RankedTensorType createRankedTensorTypeWithGrid(RankedTensorType tensorType,
+                                                GridAttr grid) {
+  TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
   TTNNLayoutAttr newEncoding =
-      oldEncoding.withMemoryLayout(tensorType.getContext(), memoryLayout);
+      oldEncoding.withGrid(tensorType.getShape(), grid);
   return createRankedTensorTypeWithEncoding(tensorType, newEncoding);
 }
 

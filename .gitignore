@@ -1,5 +1,5 @@
 .local
-build
+**/build
 third_party/tt-metal
 .DS_STORE
 .vscode/*
@@ -10,6 +10,7 @@ cluster_descriptor.yaml
 tools/ttnn-standalone/ttnn-dylib.cpp
 
 CMakeUserPresets.json
+compile_commands.json
 
 # ttrt generated files
 ttrt-artifacts/*
@@ -35,3 +36,6 @@ test/lit.site.cfg.py
 
 # Obsidian editor files
 .obsidian/
+
+# Wheel Artifacts
+**/dist/

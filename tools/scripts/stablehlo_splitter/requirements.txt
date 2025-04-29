@@ -1,2 +1,0 @@
---find-links https://github.com/openxla/stablehlo/releases/expanded_assets/v1.0.0
-stablehlo

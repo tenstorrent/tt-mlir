@@ -8,6 +8,8 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TTNNAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
@@ -16,35 +18,35 @@
 namespace mlir::tt::ttnn {
 
 struct LegalLayoutAnalysisInput {
-  ChipDescAttr chipDesc;
-  GridAttr maxGrid;
-  RankedTensorType tensorType;
-  int64_t maxShardedConfigs;
+  TensorTypeLayoutsForScalarType *possibleLayouts;
+  uint64_t maxShardedConfigs;
   llvm::StringMap<OutputLayoutOverrideParams> *outputLayoutOverrides;
   llvm::StringMap<Conv2dConfigOverrideParams> *conv2dConfigOverrides;
   bool rowMajorEnabled;
 
   LegalLayoutAnalysisInput()
-      : chipDesc(nullptr), maxGrid(nullptr), tensorType(nullptr),
-        outputLayoutOverrides(nullptr), conv2dConfigOverrides(nullptr) {}
+      : possibleLayouts(nullptr), maxShardedConfigs(0),
+        outputLayoutOverrides(nullptr), conv2dConfigOverrides(nullptr),
+        rowMajorEnabled(false) {}
 
   LegalLayoutAnalysisInput(
-      ChipDescAttr chipDesc, GridAttr maxGrid, RankedTensorType tensorType,
-      int64_t maxShardedConfigs,
+      TensorTypeLayoutsForScalarType *tensorTypePossibleLayouts,
+      uint64_t maxShardedConfigs,
       llvm::StringMap<OutputLayoutOverrideParams> *outputLayoutOverrides,
       llvm::StringMap<Conv2dConfigOverrideParams> *conv2dConfigOverrides,
       bool rowMajorEnabled)
-      : chipDesc(chipDesc), maxGrid(maxGrid), tensorType(tensorType),
+      : possibleLayouts(tensorTypePossibleLayouts),
         maxShardedConfigs(maxShardedConfigs),
         outputLayoutOverrides(outputLayoutOverrides),
         conv2dConfigOverrides(conv2dConfigOverrides),
         rowMajorEnabled(rowMajorEnabled) {}
 
   bool operator==(const LegalLayoutAnalysisInput &rhs) const {
-    return chipDesc == rhs.chipDesc && maxGrid == rhs.maxGrid &&
-           tensorType == rhs.tensorType &&
+    return possibleLayouts == rhs.possibleLayouts &&
+           maxShardedConfigs == rhs.maxShardedConfigs &&
            outputLayoutOverrides == rhs.outputLayoutOverrides &&
-           conv2dConfigOverrides == rhs.conv2dConfigOverrides;
+           conv2dConfigOverrides == rhs.conv2dConfigOverrides &&
+           rowMajorEnabled == rhs.rowMajorEnabled;
   }
 
   bool operator!=(const LegalLayoutAnalysisInput &rhs) const {
