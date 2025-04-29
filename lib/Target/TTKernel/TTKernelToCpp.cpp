@@ -132,7 +132,8 @@ LogicalResult translateKernelFuncToCpp(func::FuncOp entry,
 
   ThreadType threadType =
       entry->getAttrOfType<ThreadTypeAttr>(ThreadTypeAttr::name).getValue();
-  auto kernelModule = cloneEntryIntoStandaloneModule(entry, threadType);
+  FailureOr<mlir::ModuleOp> kernelModule =
+      cloneEntryIntoStandaloneModule(entry, threadType);
   if (failed(kernelModule)) {
     return failure();
   }

@@ -191,6 +191,8 @@ public:
   LogicalResult
   matchAndRewrite(func::FuncOp op, func::FuncOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    assert(op.getCallableRegion());
+    assert(op.getCallableRegion()->hasOneBlock());
     Block *block = &op.getCallableRegion()->front();
     auto blockArgs = block->getArguments();
     if (blockArgs.empty()) {

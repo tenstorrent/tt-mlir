@@ -336,13 +336,6 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
         std::vector<::flatbuffers::Offset<::tt::target::metal::KernelDesc>>
             kernels;
 
-        // llvm::SmallVector<std::string> cppKernels(
-        //     enqueueProgramOp->getNumRegions());
-        // llvm::LogicalResult success =
-        //     emitEnqueueProgramOpRegionsAsCpp(enqueueProgramOp, cppKernels);
-        // assert(success.succeeded() &&
-        //        "failed to emit enqueue program op regions as cpp");
-
         // TODO(jdesousa #2960): This code is commented to allow for compilation
         // after the new TTMetal lowering flow was implemented. This needs to be
         // replaced with lowering for new enqueue program semantics.
