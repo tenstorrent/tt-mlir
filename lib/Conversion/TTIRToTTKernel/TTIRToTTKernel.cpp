@@ -306,6 +306,13 @@ public:
     return std::make_tuple(gridY, gridX, offset);
   }
 
+  static Value castCBTypeAsAddress(OpBuilder &rewriter, Location loc,
+                                   Value cb) {
+    return rewriter
+        .create<UnrealizedConversionCastOp>(loc, rewriter.getI32Type(), cb)
+        ->getResult(0);
+  }
+
   LogicalResult
   matchAndRewrite(ttir::DMAOp op, ttir::DMAOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
@@ -421,10 +428,7 @@ public:
           op.getLoc(), rewriter.getI32Type(), dstOffset);
 
       auto dstAddrAsInt =
-          rewriter
-              .create<UnrealizedConversionCastOp>(
-                  op.getLoc(), rewriter.getI32Type(), adaptor.getDst())
-              ->getResult(0);
+          castCBTypeAsAddress(rewriter, op->getLoc(), adaptor.getDst());
       auto dstAddr = rewriter.create<arith::AddIOp>(op.getLoc(), dstOffsetInt,
                                                     dstAddrAsInt);
 
@@ -462,10 +466,7 @@ public:
               op.getNumElems() * getElementSizeBytes(op.getSrcMemRefType()));
 
       auto srcAddrAsInt =
-          rewriter
-              .create<UnrealizedConversionCastOp>(
-                  op.getLoc(), rewriter.getI32Type(), adaptor.getSrc())
-              ->getResult(0);
+          castCBTypeAsAddress(rewriter, op->getLoc(), adaptor.getSrc());
       auto srcAddr = rewriter.create<arith::AddIOp>(op.getLoc(), srcOffsetInt,
                                                     srcAddrAsInt);
 
