@@ -397,33 +397,33 @@ static void inlineConstEvalFunction(mlir::func::FuncOp funcOp,
                                     mlir::tt::LoadCachedOp callOp,
                                     OpBuilder &builder) {
   builder.setInsertionPoint(callOp);
-  
+
   // Use IRMapping to handle the mapping from original values to cloned values
   mlir::IRMapping valueMapper;
-  
+
   // Map function arguments to call operands
   for (size_t i = 0; i < funcOp.getNumArguments(); ++i) {
     valueMapper.map(funcOp.getArgument(i), callOp.getOperand(i));
   }
-  
+
   // Clone operations from const-eval function
   auto &funcBody = funcOp.getBody().front();
   for (auto &op : funcBody) {
     // Skip the terminator operations
     if (op.hasTrait<mlir::OpTrait::IsTerminator>())
       continue;
-      
+
     // Clone the operation and update operands using the mapper
     builder.clone(op, valueMapper);
   }
-  
+
   // Get the return operation and map its values to the cloned values
   auto returnOp = cast<mlir::func::ReturnOp>(funcBody.back());
   for (size_t i = 0; i < returnOp.getNumOperands(); ++i) {
     auto mappedVal = valueMapper.lookup(returnOp.getOperand(i));
     callOp.getResult(i).replaceAllUsesWith(mappedVal);
   }
-  
+
   // Erase the call operation
   callOp.erase();
 }
