@@ -12,14 +12,6 @@ add_library(${LIB_NAME} STATIC ${SOURCES})
 
 message(STATUS "TTMLIR_ENABLE_OPMODEL[${TTMLIR_ENABLE_OPMODEL}]")
 if (TTMLIR_ENABLE_OPMODEL)
-    # Building op model library will invoke building tt-metal; and it requires TT_METAL_HOME and ARCH_NAME environment variables to be set.
-    if("$ENV{TT_METAL_HOME}" STREQUAL "")
-        message(FATAL_ERROR "TT_METAL_HOME is not set")
-    endif()
-    if("$ENV{ARCH_NAME}" STREQUAL "")
-        message(FATAL_ERROR "ARCH_NAME is not set")
-    endif()
-
     # Link to tt-metal libs and include directories
     target_include_directories(${LIB_NAME} SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
     set(TTNN_LIBS TTMETAL_LIBRARY DEVICE_LIBRARY TTNN_LIBRARY)
@@ -28,9 +20,6 @@ if (TTMLIR_ENABLE_OPMODEL)
     endif()
     target_link_libraries(${LIB_NAME} PUBLIC ${TTNN_LIBS})
     target_compile_definitions(${LIB_NAME} PUBLIC TTMLIR_ENABLE_OPMODEL)
-
-    set_target_properties(${LIB_NAME} PROPERTIES INSTALL_RPATH "$ORIGIN")
-    set_target_properties(${LIB_NAME} PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
 else()
     # link stubs implementation when op model library is disabled
     message(WARNING "TTNNOpModelLib is disabled. The optimizer will not achieve optimal performance.")
