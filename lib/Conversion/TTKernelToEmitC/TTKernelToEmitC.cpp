@@ -535,6 +535,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulTilesInitFOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MaxTilesInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AddTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MaxTilesOp>,
