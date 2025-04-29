@@ -799,6 +799,9 @@ class Run:
                                     raise Exception(
                                         "Failed: TTRT and EmitC outputs do not match! program_index={program_index}, loop={loop}"
                                     )
+                            self.logging.info(
+                                f"EmitC tensors match for {bin.file_path}"
+                            )
 
                         if self["--identity"]:
                             self.logging.debug(
@@ -926,6 +929,9 @@ class Run:
                     bin.test_result = result
                 finally:
                     ttrt.runtime.close_mesh_device(device)
+
+                    if self["--emitc"]:
+                        ttrt.runtime.testing.close_so(emitc_dylib_handle)
 
         self.logging.debug(f"executing ttnn binaries")
         _execute(self.ttnn_binaries)

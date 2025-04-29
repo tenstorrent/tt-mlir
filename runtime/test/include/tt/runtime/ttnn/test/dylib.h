@@ -10,6 +10,7 @@
 namespace tt::runtime::ttnn::test {
 
 void *openSo(std::string path);
+void closeSo(void *handle);
 std::vector<Tensor> runSoProgram(void *so, std::string func_name,
                                  std::vector<Tensor> inputs, Device device);
 bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs);
