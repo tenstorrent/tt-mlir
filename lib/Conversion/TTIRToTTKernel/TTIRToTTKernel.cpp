@@ -557,9 +557,17 @@ public:
   matchAndRewrite(ttir::GetGlobalOperandOp op,
                   ttir::GetGlobalOperandOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    func::FuncOp entry = op->getParentOfType<func::FuncOp>();
+    auto arg =
+        rewriter.getAttr<ArgAttr>(ArgType::BufferAddress, op.getOperandIndex());
+    size_t argIndex;
+    rewriter.modifyOpInPlace(entry, [&]() {
+      argIndex = ArgSpecAttr::appendCompileTimeArg(entry, arg);
+    });
+
     rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
-        op, rewriter.getI32Type(),
-        i32(rewriter, op->getLoc(), op.getOperandIndex()));
+        op, rewriter.getI32Type(), argIndex);
+
     return success();
   }
 };
@@ -604,7 +612,9 @@ class TTIRKernelFunctionArgsRewriter
 public:
   using OpConversionPattern<func::FuncOp>::OpConversionPattern;
 
-  static void convertFunctionAttrs(Builder &builder, func::FuncOp op) {
+  static void convertFunctionAttrs(Builder &builder, func::FuncOp op,
+                                   ArrayRef<ArgAttr> rtArgs,
+                                   ArrayRef<ArgAttr> ctArgs) {
     ttir::ThreadAttr threadAttr =
         op->getAttrOfType<ttir::ThreadAttr>(ttir::ThreadAttr::name);
     op->removeAttr(ttir::ThreadAttr::name);
@@ -621,6 +631,7 @@ public:
     }
     op->setAttr(ThreadTypeAttr::name,
                 builder.getAttr<ThreadTypeAttr>(threadType));
+    ArgSpecAttr::setArgSpec(op, builder.getAttr<ArgSpecAttr>(rtArgs, ctArgs));
   }
 
   LogicalResult
@@ -635,21 +646,43 @@ public:
     auto blockArgs = block->getArguments();
     assert(!blockArgs.empty());
 
+    SmallVector<ArgAttr> rtArgSpecVector;
+    SmallVector<ArgAttr> ctArgSpecVector;
+    size_t currentSemaphoreIndex = 0;
     TypeConverter::SignatureConversion signatureConverter(op.getNumArguments());
     OpBuilder::InsertionGuard funcInsertionGuard(rewriter);
     rewriter.setInsertionPointToStart(block);
     for (auto arg : blockArgs) {
-      auto cb = rewriter.create<GetCBOp>(
-          op.getLoc(), getTypeConverter()->convertType(arg.getType()),
-          rewriter.getI32IntegerAttr(arg.getArgNumber()));
-      signatureConverter.remapInput(arg.getArgNumber(), cb);
+      Type argType = getTypeConverter()->convertType(arg.getType());
+      if (mlir::isa<CBType>(argType)) {
+        auto cb = rewriter.create<GetCompileArgValOp>(
+            op.getLoc(), getTypeConverter()->convertType(arg.getType()),
+            rewriter.getI32IntegerAttr(arg.getArgNumber()));
+        signatureConverter.remapInput(arg.getArgNumber(), cb);
+        ctArgSpecVector.push_back(
+            rewriter.getAttr<ArgAttr>(ArgType::CBPort, arg.getArgNumber()));
+      } else if (mlir::isa<ttir::SemaphoreType>(argType)) {
+        size_t currentRtArgIndex = rtArgSpecVector.size();
+        auto rtArgIndex = rewriter.create<arith::ConstantOp>(
+            op->getLoc(), rewriter.getI32Type(),
+            rewriter.getI32IntegerAttr(currentRtArgIndex));
+        auto semaphoreIndex = rewriter.create<GetArgValOp>(
+            op.getLoc(), rewriter.getI32Type(), rtArgIndex);
+        auto semaphore =
+            rewriter.create<GetSemaphoreOp>(op.getLoc(), semaphoreIndex);
+        signatureConverter.remapInput(arg.getArgNumber(), semaphore);
+        rtArgSpecVector.push_back(rewriter.getAttr<ArgAttr>(
+            ArgType::Semaphore, currentSemaphoreIndex++));
+      } else {
+        llvm_unreachable("unexpected block argument type");
+      }
     }
 
     rewriter.applySignatureConversion(block, signatureConverter,
                                       getTypeConverter());
     rewriter.modifyOpInPlace(op, [&]() {
       op.setType(rewriter.getFunctionType(TypeRange(), TypeRange()));
-      convertFunctionAttrs(rewriter, op);
+      convertFunctionAttrs(rewriter, op, rtArgSpecVector, ctArgSpecVector);
     });
     return success();
   }

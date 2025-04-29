@@ -15,6 +15,8 @@
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h.inc"
 
+#include "ttmlir/Dialect/TTMetal/IR/TTMetalAttrInterfaces.h.inc"
+
 #define GET_ATTRDEF_CLASSES
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsAttrDefs.h.inc"
 
