@@ -2,12 +2,13 @@
 
 This page walks you through the steps required to set up tt-mlir for development and running models. When you complete the information here you will have:
 
-* Configured your hardware
-* Installed the required system dependencies
-* Created an environment using one of two methods
-  * Manual
-  * Docker (*recommended*)
-* Built the runtime environment
+* Configured your hardware - [Hardware Setup](#hardware-setup)
+* Installed the required system dependencies - [System Dependencies](#system-dependencies)
+* Clone the tt-mlir repo - [Clone the tt-mlir Repo](#clone-the-tt-mlir-repo)
+* Created an environment using one of two methods - [Environment Setup](#environment-setup)
+  * Docker (*recommended*) - [Using a Docker Image](#using-a-docker-image)
+  * Manual - [Setting up the Environment Manually](#setting-up-the-environment-manually)
+* Built the runtime environment - [Building the tt-mlir Project](#building-the-tt-mlir-project)
 * Added pre-commit
 * Built the docs (*optional*)
 
@@ -25,38 +26,80 @@ The tt-mlir project has the following system dependencies:
 * Ubuntu 22.04 OS
 * Clang 17
 * Ninja
-* CMake 3.20
+* CMake 3.20 or higher
 * Python 3.10
 
 > [!NOTE] The installation instructions use Ubuntu 22.04.
 
-1. On Ubuntu 22.04, install Clang 17, Ninja, and update the version of CMake to 3.20, which is the minimum required for this project.
+1. On Ubuntu 22.04, start by refreshing the list of available software packages and their versions from the system's package repositories:
 
 ```bash
-sudo apt update
-sudo apt upgrade
+sudo apt-get update
+sudo apt-get upgrade -y
+```
 
-sudo apt install clang-17
-sudo apt install ninja-build
+When you receive a screen telling you there is a pending kernel upgrade, press **return** for each screen.
 
+2. Next, install Clang 17. In this step you retrieve what you need for installation, install, and then set the paths for clang and clang++:
+
+```bash
+wget https://apt.llvm.org/llvm.sh
+chmod u+x llvm.sh
+sudo ./llvm.sh 17
+sudo apt install -y libc++-17-dev libc++abi-17-dev
+sudo ln -s /usr/bin/clang-17 /usr/bin/clang
+sudo ln -s /usr/bin/clang++-17 /usr/bin/clang++
+```
+
+When you receive a screen telling you there is a pending kernel upgrade, press **return** for each screen.
+
+3. Install or update the version of CMake to 3.20, which is the minimum required for this project:
+
+> [!NOTE] If you do not have CMake installed on your system, you do not need to run the command ```sudo apt remove cmake -y```.
+
+> [!NOTE] If you do not have pip3 installed, you can install it with ```sudo apt install python3-pip```.
+
+```bash
 sudo apt remove cmake -y
 pip3 install cmake --upgrade
 hash -r
 ```
 
-2. Ensure CMake can be found in the path pip installed it to. For example, `PATH=$PATH:$HOME/.local/bin`
+4. You may get a message that says CMake is not added to PATH. If so, to correct it, run the following command:
 
-3. Run the following command to check that the CMake version is later than 3.20:
+```bash
+export PATH="$PATH:/home/ubuntu/.local/bin"
+```
+
+Next, you need to save and reload, or you can source your configuration file:
+
+```bash
+source ~/.bashrc  # Or .zshrc
+```
+
+5. Run the following command to check that the CMake version is 3.2.0 or later:
 
 ```bash
 cmake --version
 ```
 
-4. Install Ninja with the following command:
+6. Install Ninja with the following command:
 
 ```bash
 sudo apt install ninja-build
 ```
+
+You should now have the required dependencies installed, and can move on to setting up your environment.
+
+## Clone the tt-mlir Repo
+
+1. Clone the tt-mlir repo using your preferred method. In this walkthrough, the following command is used:
+
+```bash
+git clone https://github.com/tenstorrent/tt-mlir.git
+```
+
+2. Navigate into the **tt-mlir** folder.
 
 ## Environment Setup
 
@@ -68,50 +111,109 @@ Please see [Docker Notes](docker-notes.md#using-the-docker-image) for more infor
 
 Once you have the docker image running and you are logged into the container, you should be ready to build.
 
-### Building the Environment Manually
+### Setting up the Environment Manually
 
-You only need to build this once, it builds llvm, flatbuffers, and a Python virtual environment.
+This section explains how to manually build the environment so you can use tt-mlir. Make sure you are in the **tt-mlir** folder. Do the following:
+
+1. Create a directory for the tt-mlir toolchain and set ownership over the directory:
+
+```bash
+sudo mkdir -p /opt/ttmlir-toolchain
+sudo chown -R ubuntu /opt/ttmlir-toolchain
+```
+
+2. Set the path to the toolchain:
+
+```bash
+export TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain/
+```
+
+3. To successfully create a virtual environment, you need python3.10-venv for this project. It is recommended to use the **system installation of python3** for the virtual environment. Install it if you do not already have it with the following command:
+
+```bash
+sudo apt install python3-venv
+```
+
+When you receive a screen telling you there is a pending kernel upgrade, press **return** for each screen.
+
+4. You only need to build this once, it builds llvm, flatbuffers, and a Python virtual environment. You can specify the build type by using `-DLLVM_BUILD_TYPE=*`. The default is `MinSizeRel`, and available options are listed [here](https://llvm.org/docs/CMake.html#frequently-used-cmake-variables).
+
+Please ensure that you do not already have an environment (venv) activated before running the following commands:
 
 ```bash
 source env/activate
-cmake -B env/build env
+cmake -B env/build env  *** made it to here *** broken
 cmake --build env/build
 ```
 
-> - Use `-DLLVM_BUILD_TYPE=*` to specify the build type of LLVM. The default is `MinSizeRel`, available options are listed [here](https://llvm.org/docs/CMake.html#frequently-used-cmake-variables).
-> - It is recommended to use the **system installation of python3** for the virtual environment.
->   Please ensure that you do not already have a venv activated before running the above command.
-> - Please ensure the directory `/opt/ttmlir-toolchain` exist and its
->   owner is the current user, i.e. the one that executes the above `cmake` commands.
->   The commands create it and assign the proper ownership are:
->     ```bash
->     sudo mkdir -p /opt/ttmlir-toolchain
->     sudo chown -R $USER /opt/ttmlir-toolchain
->     ```
+> [!NOTE] When running ```source env/activate``` this time, it will not show that the environment is
+> on.
 
+>[!NOTE] The last command takes time to run, so give it time to complete.
 
-## Build
+#### Building the tt-mlir Project
+
+In this step, you build the tt-mlir project.
 
 ```bash
 source env/activate
 cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-17 -DCMAKE_CXX_COMPILER=clang++-17
 cmake --build build
 ```
+You have now configured the basics for working with tt-mlir. For best results, please see the next two sections:
+* Installing Additional Dependencies
+* Flags You May Want to Add When You Build the tt-mlir Project
 
-> - To enable the ttnn/metal runtime add `-DTTMLIR_ENABLE_RUNTIME=ON`
-> - Clang 17 is the minimum required version when enabling the runtime.
-> - To enable the ttnn/metal perf runtime add `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`
-> - To accelerate the builds with ccache use `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`
-> - To accelerate builds further, if python bindings aren't needed, `-DTTMLIR_ENABLE_BINDINGS_PYTHON=OFF`. For some reason the python bindings link step is very slow.
-> - TTNN build is automatically integrated / handled by tt-mlir cmake build system.  For debugging and further information regarding the TTNN backend build step, please refer to [TTNN Documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html).
-> - The runtime build  step depends on the `ARCH_NAME` environment variable, which is set in the `env/activate` script.
->   If you want to build the runtime for a different architecture, please set `ARCH_NAME` to the desired value
->   (one of `grayskull`, `wormhole_b0`, or `blackhole`).
->   Please note that the runtime is built only if `TTMLIR_ENABLE_RUNTIME=ON`.
-> - In addition to `ARCH_NAME`, the runtime build depends on `TT_METAL_HOME` variable,
->   which is also set in `env/activate` script.
->   For more information, please refer to
->   [TT-NN and TT-Metailium installation documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html#step-4-install-and-start-using-tt-nn-and-tt-metalium).
+#### Installing Additional Dependencies
+
+Deactivate your environment if it is running. The command in this section adds any packages that were missed, and includes doxygen if you want to build them for reference. To add the additional packages, run the following command:
+
+```bash
+sudo apt-get install -y \
+    software-properties-common \
+    build-essential \
+    python3-dev \
+    python3-venv \
+    python3-pip \
+    git \
+    libhwloc-dev \
+    pandoc \
+    libtbb-dev \
+    libcapstone-dev \
+    pkg-config \
+    linux-tools-generic \
+    ninja-build \
+    wget \
+    libgtest-dev \
+    cmake \
+    ccache \
+    doxygen \
+    graphviz \
+    patchelf \
+    libyaml-cpp-dev \
+    libboost-all-dev \
+    curl \
+    jq \
+    sudo \
+    gh \
+    lcov
+```
+
+#### Flags You May Want to Add When You Build the tt-mlir Project
+
+You can add different flags to your build. Here are some options to consider:
+
+* To enable the ttnn/metal runtime add `-DTTMLIR_ENABLE_RUNTIME=ON`. Clang 17 is the minimum required version when enabling the runtime.
+* To enable the ttnn/metal perf runtime add `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`.
+* To accelerate the builds with ccache use `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`.
+* If Python bindings aren't required for your project, you can accelerate builds further with the command `-DTTMLIR_ENABLE_BINDINGS_PYTHON=OFF`.
+* The TTNN build is automatically integrated / handled by the tt-mlir cmake build system.  For debugging and further information regarding the TTNN backend build step, please refer to [TTNN Documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html).
+* If you want to build the runtime for a different architecture, please set `ARCH_NAME` to the desired value:
+  * `grayskull` - this product is at End of Life
+  * `wormhole_b0`
+  * `blackhole`
+* The runtime build step depends on the `ARCH_NAME` environment variable, which is set in the `env/activate` script. Please note that the runtime is built only if `TTMLIR_ENABLE_RUNTIME=ON`.
+* In addition to `ARCH_NAME`, the runtime build depends on `TT_METAL_HOME` variable, which is also set in `env/activate` script. For more information, please refer to [TT-NN and TT-Metailium installation documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html#step-4-install-and-start-using-tt-nn-and-tt-metalium).
 
 | OS | Offline Compiler Only | Runtime Enabled Build | Runtime + Perf Enabled Build |
 |----|-----------------------|-----------------------| -----------------------------|
@@ -119,14 +221,21 @@ cmake --build build
 | Ubuntu 20.04  | ✅ | ❌ | ❌ |
 | MacOS         | ✅ | ❌ | ❌ |
 
-## Test
+#### Test the Build
+
+Use this step to check your build. Do the following:
 
 ```bash
 source env/activate
 cmake --build build -- check-ttmlir
 ```
 
+> [!NOTE] If your environment is already active, you do not need to run ```source env/activate``` again.
+
 ## Lint
+Set up lint so you can spot errors and stylistic issues before runtime.
+
+> [!NOTE] If your environment is already active, you do not need to run ```source env/activate``` again.
 
 ```bash
 source env/activate
@@ -160,50 +269,7 @@ mdbook serve build/docs
 > - `mdbook` can be installed with the system's package manager.
 > - `mdbook serve` will by default create a local server at `http://localhost:3000`.
 
-**Note:** If you want to build the docs on MacOS, there are two extra dependencies:
-- [doxygen](https://www.doxygen.nl/)
-- [graphviz](https://graphviz.org/)
-
-Both can be installed using Homebrew by running the following commands:
-
-```bash
-brew install doxygen
-brew install graphviz
-```
-
 ## Common Build Errors
-
-### `TTMLIRPythonCAPI target requires changing an RPATH`
-
-```
-CMake Error at /opt/ttmlir-toolchain/lib/cmake/llvm/AddLLVM.cmake:594 (add_library):
-  The install of the TTMLIRPythonCAPI target requires changing an RPATH from
-  the build tree, but this is not supported with the Ninja generator unless
-  on an ELF-based or XCOFF-based platform.  The
-  CMAKE_BUILD_WITH_INSTALL_RPATH variable may be set to avoid this relinking
-  step.
-```
-
-If you get the above error, it means you tried to build with an old version of cmake or ninja and there is a stale file. To fix this, `rm -rf` your build directory, install a newer version of cmake/ninja, and then rebuild. If you installed ninja via `sudo apt install ninja-build`, it might still be not up-to-date (v1.10.0). You may use ninja in the python virtual environment, or install it via `pip3 install -U ninja`, either way the version `1.11.1.git.kitware.jobserver-1` should work.
-
-### `clang++ is not a full path and was not found in the PATH`
-
-```
-CMake Error at CMakeLists.txt:2 (project):
-  The CMAKE_CXX_COMPILER:
-    clang++
-  is not a full path and was not found in the PATH.
-  Tell CMake where to find the compiler by setting either the environment
-  variable "CXX" or the CMake cache entry CMAKE_CXX_COMPILER to the full path
-  to the compiler, or to the compiler name if it is in the PATH.
-CMake Error at CMakeLists.txt:2 (project):
-  The CMAKE_C_COMPILER:
-    clang
-  is not a full path and was not found in the PATH.
-  Tell CMake where to find the compiler by setting either the environment
-  variable "CC" or the CMake cache entry CMAKE_C_COMPILER to the full path to
-  the compiler, or to the compiler name if it is in the PATH.
-```
 
 If you get the following error, it means you need to install clang which you can do with `sudo apt install clang` on Ubuntu.
 
@@ -228,35 +294,3 @@ Then retry your build command. If the error persists, you may also need to:
 1. Remove the build directory: `rm -rf build`
 2. Run CMake commands again.
 3. Run the above.
-
-## Common Runtime Errors
-
-### Debugging python on macOS
-
-When debugging python on macOS via lldb you may see an error like:
-```
-(lldb) r
-error: process exited with status -1 (attach failed (Not allowed to attach to process.  Look in the console messages (Console.app), near the debugserver entries, when the attach failed.  The subsystem that denied t
-he attach permission will likely have logged an informative message about why it was denied.))
-```
-
-For preinstalled macOS binaries you must manually codesign with debug entitlements.
-
-Create file `debuggee-entitlement.xml`:
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-        <key>com.apple.security.cs.disable-library-validation</key>
-        <true/>
-        <key>com.apple.security.get-task-allow</key>
-        <true/>
-</dict>
-</plist>
-```
-
-Sign the binary:
-```bash
-sudo codesign -f -s - --entitlements debuggee-entitlement.xml /opt/ttmlir-toolchain/venv/bin/python
-```
