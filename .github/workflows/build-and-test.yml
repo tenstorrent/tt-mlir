@@ -137,10 +137,10 @@ jobs:
           # {runs-on: tg,     name: "run",  suite: "run",             image: "speedy", type: "ttrt",    path: "Silicon", ttrt_flags: "--non-zero --disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
           # {runs-on: tg,     name: "perf", suite: "perf",            image: "tracy",  type: "ttrt",    path: "Silicon/TTNN/tg/perf", ttrt_flags: "--disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
           {runs-on: n150,   name: "perf", suite: "perf",              image: "tracy",  type: "pytest",  path: "runtime/tools/python/test", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n150,   name: "run",  suite: "builder",           image: "tracy",  type: "e2e",  path: "test/python/golden/test_ttir_ops.py", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true, container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n150,   name: "run",  suite: "builder",           image: "tracy",  type: "e2e",  path: "test/python/golden/test_ttir_models.py", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true, container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n150,   name: "run",  suite: "builder",           image: "tracy",  type: "e2e",  path: "test/python/golden/test_ttir_ops.py", flags: "-m \"run_error or fails_golden\"", run-ttrt: false, container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n150,   name: "run",  suite: "builder",           image: "tracy",  type: "e2e",  path: "test/python/golden/test_ttir_models.py", flags: "-m \"run_error or fails_golden\"", run-ttrt: false, container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "run",  suite: "op_golden",         image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_ops.py", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true, container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "run",  suite: "model_golden",      image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_models.py", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true, container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "run",  suite: "op_compile",        image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_ops.py", flags: "-m \"run_error or fails_golden\"", run-ttrt: false, container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "run",  suite: "model_compile",     image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_models.py", flags: "-m \"run_error or fails_golden\"", run-ttrt: false, container-options: "--device /dev/tenstorrent/0"},
           # Although these runtime tests are device agnostic, they depend on n150 compiled mlir artifacts
           # Therefore running these tests on n150 specifically
           {runs-on: n150,   name: "run",  suite: "ttnn_runtime",      image: "speedy", type: "pytest",  path: "runtime/test/python/ttnn/device_agnostic", container-options: "--device /dev/tenstorrent/0"},
@@ -277,9 +277,8 @@ jobs:
           echo "Unit test report copied"
         fi
 
-      # TODO make this run the flatbuffers if `run_fbs` is set
     - name: Builder Tests
-      if: matrix.build.suite == 'builder'
+      if: matrix.build.type == 'builder'
       shell: bash
       run: |
         source env/activate
