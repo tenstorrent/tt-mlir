@@ -4,28 +4,6 @@ project(ttnn-standalone CXX)
 set(CMAKE_CXX_STANDARD 20 CACHE STRING "C++ standard to conform to")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Install commands
-install(
-  FILES
-    ci_compile_dylib.py
-    CMakeLists.txt
-    compile_so.cpp
-    compile_so.hpp
-    README.md
-    ttnn-precompiled.hpp
-    ttnn-standalone.cpp
-    workarounds.hpp
-  DESTINATION "tools/ttnn-standalone"
-  COMPONENT TTNNStandalone
-)
-
-install(
-  PROGRAMS
-    run
-  DESTINATION "tools/ttnn-standalone"
-  COMPONENT TTNNStandalone
-)
-
 # set(CMAKE_VERBOSE_MAKEFILE on)
 
 if(DEFINED ENV{CONFIG})
