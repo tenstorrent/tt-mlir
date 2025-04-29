@@ -39,12 +39,18 @@ public:
                   const size_t programIndex = 0);
 
   /**
+   * Returns pre and post operation tags for a given operation
+   */
+  std::pair<bool, bool>
+  getOpTags(const ::tt::target::ttnn::Operation *opContext);
+
+  /**
    * Executes pre and post operation callbacks if registered
    */
   void runCallback(std::optional<debug::Hooks::CallbackFn> callback,
                    Binary &executableHandle,
                    const ::tt::target::ttnn::Operation *opContext,
-                   ProgramContext *programContext);
+                   ProgramContext *programContext, bool tag);
 
   /**
    * Executes all operations in the program

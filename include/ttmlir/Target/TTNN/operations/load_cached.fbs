@@ -8,5 +8,4 @@ table LoadCachedOp {
   callee_name: string;
   program_idx: uint32;
   outputs: [tt.target.ttnn.TensorRef];
-  pre_op_tag: bool;
 }

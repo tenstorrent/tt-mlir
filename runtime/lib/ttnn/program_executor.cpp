@@ -81,8 +81,6 @@ ProgramExecutor::ProgramExecutor(
   std::vector<uint32_t> programInputIds;
   int inputIndex = 0;
   TensorPtrMap liveTensors;
-  for (auto *kv : *program->debug_info()->golden_info()->golden_map())
-    LOG_DEBUG("Golden info KV: ", kv->key());
   LOG_ASSERT(program->inputs()->size() == programInputs.size(),
              "Program input size mismatch: ", program->inputs()->size(),
              " != ", programInputs.size());
@@ -104,11 +102,24 @@ ProgramExecutor::ProgramExecutor(
       programIndex);
 }
 
+std::pair<bool, bool>
+ProgramExecutor::getOpTags(const ::tt::target::ttnn::Operation *op) {
+  for (const ::tt::target::CallbackKV *callbackKV :
+       *program->debug_info()->callback_info()->callback_map()) {
+    if (std::string(callbackKV->key()->c_str()) == op->loc_info()->c_str()) {
+      return std::make_pair(callbackKV->value()->pre_op_tag(),
+                            callbackKV->value()->post_op_tag());
+    }
+  }
+  LOG_WARNING("No tags found for operation ", op->loc_info()->c_str());
+  return std::make_pair(false, false);
+}
+
 void ProgramExecutor::runCallback(
     std::optional<debug::Hooks::CallbackFn> callback, Binary &executableHandle,
     const ::tt::target::ttnn::Operation *opContext,
-    ProgramContext *programContext) {
-  if (callback) {
+    ProgramContext *programContext, bool tag) {
+  if (callback && tag) {
     std::shared_ptr<void> programContextPtr =
         ::tt::runtime::utils::unsafe_borrow_shared(programContext);
     std::shared_ptr<void> opContextPtr =
@@ -122,14 +133,15 @@ void ProgramExecutor::runCallback(
 
 void ProgramExecutor::execute() {
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
+    auto [pre_op_tag, post_op_tag] = getOpTags(op);
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
     tracyLogOpLocation(op);
     runCallback(debug::Hooks::get().getPreOperatorCallback(), executableHandle,
-                op, context.get());
+                op, context.get(), pre_op_tag);
     runOperation(op);
     runCallback(debug::Hooks::get().getPostOperatorCallback(), executableHandle,
-                op, context.get());
+                op, context.get(), post_op_tag);
     dumpPerfCountersIfNeeded(context->getParentMesh());
   }
 }

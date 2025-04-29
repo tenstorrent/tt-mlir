@@ -31,7 +31,7 @@ table CallbackKV {
 }
 
 table CallbackInfo{
-  tag_map: [CallbackKV];
+  callback_map: [CallbackKV];
 }
 
 table MLIR {
@@ -45,5 +45,5 @@ table DebugInfo {
   cpp: string;
   mlir_stages: [MLIR];
   golden_info: GoldenInfo;
-  callback_tags: CallbackInfo;
+  callback_info: CallbackInfo;
 }

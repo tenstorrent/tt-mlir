@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Union, Tuple, Callable, Dict, Any
 from ttmlir.ir import *
 from ttmlir.dialects import ttir, tt, tensor, quant
-from ttmlir.passes import GoldenTensor, DataType
+from ttmlir.passes import GoldenTensor, DataType, CallbackTag
 import torch
 import array
 from enum import Enum, auto
@@ -136,6 +136,9 @@ class TTIRBuilder:
         # id to golden map
         self.id_golden_map = {}
 
+        # id to callback map
+        self.id_callback_map = {}
+
         # mesh_shape for multi-device
         self.mesh_shape = ()
 
@@ -229,6 +232,15 @@ class TTIRBuilder:
                 golden_tensor.tensor.numel() * golden_tensor.tensor.dtype.itemsize,
             )
         return golden_info
+
+    def get_loc(self) -> string:
+        return self._loc
+
+    def get_callback_map(self) -> Dict:
+        return self.id_callback_map
+
+    def set_callback_kv(self, loc: string, tags: Tuple[bool, bool]):
+        self.id_callback_map[loc] = CallbackTag(loc, *tags)
 
     # set mesh_shape for multi-device environment
     def set_mesh_shape(self, mesh_shape: Tuple[int, int]):
@@ -596,6 +608,7 @@ class TTIRBuilder:
                 for attr_name in unit_attrs:
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
             self.id_golden_map[str(loc)] = golden
+            self.id_callback_map[str(loc)] = CallbackTag(str(loc), True, True)
             self._store_golden(op, golden)
             self._override_golden(output, golden)
             return op

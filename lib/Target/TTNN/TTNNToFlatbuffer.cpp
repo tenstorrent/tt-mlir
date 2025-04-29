@@ -1228,8 +1228,7 @@ createEltwiseQuantizationOp(FlatbufferObjectCache &cache,
 
 template <typename EltwiseUnaryOp>
 ::flatbuffers::Offset<::tt::target::ttnn::EltwiseUnaryOp>
-createEltwiseUnaryOp(FlatbufferObjectCache &cache, EltwiseUnaryOp op,
-                     bool preOpTag = true) {
+createEltwiseUnaryOp(FlatbufferObjectCache &cache, EltwiseUnaryOp op) {
 
   ::tt::target::ttnn::EltwiseUnaryOpType type;
   ::tt::target::ttnn::EltwiseUnaryOpParams paramsType =
@@ -1303,7 +1302,7 @@ createEltwiseUnaryOp(FlatbufferObjectCache &cache, EltwiseUnaryOp op,
       cache.getOrCreate(result, tensorValueToFlatbuffer, kHostAllocatedSize);
 
   return ::tt::target::ttnn::CreateEltwiseUnaryOp(
-      *cache.fbb, type, preOpTag, in, memoryConfig, out, paramsType, params);
+      *cache.fbb, type, in, memoryConfig, out, paramsType, params);
 }
 
 template <typename EltwiseUnaryCompositeOp>
@@ -1632,7 +1631,7 @@ createDeallocateOp(FlatbufferObjectCache &cache, DeallocateOp op) {
 
 ::flatbuffers::Offset<::tt::target::ttnn::LoadCachedOp>
 createOp(FlatbufferObjectCache &cache, tt::LoadCachedOp op,
-         const llvm::StringMap<uint32_t> &programIndexMap, bool preOpTag) {
+         const llvm::StringMap<uint32_t> &programIndexMap) {
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> ins;
   for (auto input : op.getInputs()) {
     ins.push_back(cache.at<::tt::target::ttnn::TensorRef>(
@@ -1653,14 +1652,12 @@ createOp(FlatbufferObjectCache &cache, tt::LoadCachedOp op,
 
   // Create the LoadCachedOp with indices instead of inputs
   return ::tt::target::ttnn::CreateLoadCachedOpDirect(
-      *cache.fbb, &ins, op.getCallee().str().c_str(), programIdx, &outputs,
-      preOpTag); // preOpTag
+      *cache.fbb, &ins, op.getCallee().str().c_str(), programIdx, &outputs);
 }
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   const llvm::StringMap<uint32_t> &programIndexMap,
-                  bool preOpTag, std::string const &debugString,
-                  std::string const &locInfo) { // preOpTag
+                  std::string const &debugString, std::string const &locInfo) {
   if (auto getDeviceOp = dyn_cast<GetDeviceOp>(op); getDeviceOp) {
     return createOperation(cache, createOp(cache, getDeviceOp), debugString,
                            locInfo);
@@ -1831,7 +1828,7 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            debugString, locInfo);
   }
   if (auto absOp = dyn_cast<AbsOp>(op); absOp) {
-    return createOperation(cache, createEltwiseUnaryOp(cache, absOp, true),
+    return createOperation(cache, createEltwiseUnaryOp(cache, absOp),
                            debugString, locInfo);
   }
   if (auto floorOp = dyn_cast<FloorOp>(op); floorOp) {
@@ -2088,7 +2085,7 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto loadCachedOp = dyn_cast<tt::LoadCachedOp>(op); loadCachedOp) {
     return createOperation(cache,
-                           createOp(cache, loadCachedOp, programIndexMap, true),
+                           createOp(cache, loadCachedOp, programIndexMap),
                            debugString, locInfo);
   }
 
@@ -2098,8 +2095,7 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
 std::shared_ptr<void> ttnnToFlatbuffer(
     Operation *op,
     const std::unordered_map<std::string, GoldenTensor> &goldenMap,
-    const std::unordered_map<std::string, ::tt::target::CallbackTag>
-        &callbackMap,
+    const std::unordered_map<std::string, CallbackTag> &callbackMap,
     const std::vector<std::pair<std::string, std::string>> &moduleCache) {
   ModuleOp rootModule = dyn_cast<ModuleOp>(op);
   assert(rootModule && "Expected ModuleOp as top level operation");
@@ -2220,7 +2216,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
     Program<::tt::target::ttnn::Operation> program =
         funcOpToProgram<::tt::target::ttnn::Operation>(
             cache, func, emitTTNNOperation, tensorValueToFlatbuffer,
-            programIdxMap); // preOpTag
+            programIdxMap);
     programs.push_back(::tt::target::ttnn::CreateProgramDirect(
         fbb, program.name, &program.inputs, &program.outputs, &program.ops,
         &dylibs, debugInfo));
@@ -2258,8 +2254,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
 LogicalResult translateTTNNToFlatbuffer(
     Operation *op, llvm::raw_ostream &os,
     const std::unordered_map<std::string, GoldenTensor> &goldenMap,
-    const std::unordered_map<std::string, ::tt::target::CallbackTag>
-        &callbackMap,
+    const std::unordered_map<std::string, CallbackTag> &callbackMap,
     const std::vector<std::pair<std::string, std::string>> &moduleCache) {
   std::shared_ptr<void> data =
       ttnnToFlatbuffer(op, goldenMap, callbackMap, moduleCache);

@@ -710,6 +710,28 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   return std::string(opContext.loc_info()->c_str());
 }
 
+std::pair<bool, bool> getOpTags(Binary executableHandle,
+                                std::uint32_t programIndex,
+                                OpContext opContextHandle) {
+  const ::tt::target::ttnn::TTNNBinary &fbb = *getBinary(executableHandle);
+  LOG_ASSERT(programIndex < fbb.programs()->size(), "Invalid program index");
+  const ::tt::target::ttnn::Program *program =
+      fbb.programs()->Get(programIndex);
+  auto const &opContext =
+      opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
+
+  for (const ::tt::target::CallbackKV *callbackKV :
+       *program->debug_info()->callback_info()->callback_map()) {
+    if (std::string(callbackKV->key()->c_str()) ==
+        opContext.loc_info()->c_str()) {
+      return std::make_pair(callbackKV->value()->pre_op_tag(),
+                            callbackKV->value()->post_op_tag());
+    }
+  }
+  LOG_WARNING("No tags found for operation ", opContext.loc_info()->c_str());
+  return std::make_pair(false, false);
+}
+
 ::tt::runtime::Tensor getOpOutputTensor(OpContext opContextHandle,
                                         CallbackContext programContextHandle) {
   auto const &programContext =
@@ -779,8 +801,6 @@ std::string getOpLocInfo(OpContext opContextHandle) {
     break;
   }
   case ::tt::target::ttnn::OpType::EltwiseUnaryOp: {
-    std::cout << "Test Abs: "
-              << opContext.type_as_EltwiseUnaryOp()->pre_op_tag() << std::endl;
     tensorRef = opContext.type_as_EltwiseUnaryOp()->out();
     break;
   }

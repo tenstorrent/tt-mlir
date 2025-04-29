@@ -410,6 +410,14 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   return "";
 }
 
+std::pair<bool, bool> getOpTags(Binary executableHandle,
+                                std::uint32_t programIndex,
+                                OpContext opContextHandle) {
+  // Not implemented
+  LOG_WARNING("obtaining op tags for metal runtime not implemented");
+  return std::make_pair(false, false);
+}
+
 Tensor getOpOutputTensor(OpContext opContextHandle,
                          CallbackContext programContextHandle) {
   // Not implemented

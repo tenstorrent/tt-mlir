@@ -136,6 +136,50 @@ PYBIND11_MODULE(_C, m) {
         );
       });
 
+  py::class_<tt::target::CallbackTag>(m, "CallbackTag", py::buffer_protocol())
+      .def_property_readonly(
+          "name",
+          [](tt::target::CallbackTag const *t) -> std::string {
+            assert(t != nullptr && t->name() != nullptr);
+            return t->name()->str();
+          })
+      .def_property_readonly("pre_op_tag",
+                             [](tt::target::CallbackTag const *t) -> bool {
+                               assert(t != nullptr &&
+                                      t->pre_op_tag() != nullptr);
+                               return t->pre_op_tag();
+                             })
+      .def_property_readonly(
+          "post_op_tag", [](tt::target::CallbackTag const *t) -> bool {
+            assert(t != nullptr && t->post_op_tag() != nullptr);
+            return t->post_op_tag();
+          });
+  /*
+m.def(
+"get_module_tags",
+[](tt::runtime::Binary executableHandle, std::string loc_info) {
+const tt::runtime::Binary *fbb = tt::runtime::getBinary(executableHandle);
+if (!fbb || !fbb->programs() || fbb->programs()->size() == 0) {
+  throw std::runtime_error("Invalid binary or no programs found");
+}
+
+const tt::runtime::Program *program = fbb->programs()->Get(0);
+if (!program || !program->debug_info() ||
+!program->debug_info()->callback_info() ||
+    !program->debug_info()->callback_info()->callback_map()) {
+  throw std::runtime_error("Program has no callback information");
+}
+
+for (const ::tt::target::CallbackKV *kv :
+*program->debug_info()->callback_info()->callback_map()) { if (kv && kv->key()
+&& kv->value() && std::string(kv->key()->c_str()) == loc_info) { return
+std::make_pair(kv->value()->pre_op_tag(), kv->value()->post_op_tag());
+  }
+}
+return std::make_pair(false, false);
+},
+"Get the tags of a module's first program.");
+*/
   py::class_<tt::runtime::TensorCache,
              std::shared_ptr<tt::runtime::TensorCache>>(m, "TensorCache")
       .def(py::init<>())

@@ -285,13 +285,21 @@ def ttnn_to_flatbuffer(
     # Convert to flatbuffer file.
     # Take the output_file_name and prefix with the ttnn directory
     output_file_name = get_ttnn_path(output_file_name)
-    print(builder.get_golden_map())
     if module_log:
         ttnn_to_flatbuffer_file(
-            module, output_file_name, builder.get_golden_map(), module_log
+            module,
+            output_file_name,
+            builder.get_golden_map(),
+            builder.get_callback_map(),
+            module_log,
         )
     else:
-        ttnn_to_flatbuffer_file(module, output_file_name, builder.get_golden_map())
+        ttnn_to_flatbuffer_file(
+            module,
+            output_file_name,
+            builder.get_golden_map(),
+            builder.get_callback_map(),
+        )
 
     print("`ttnn_to_flatbuffer_file` passed successfully.")
 
@@ -309,7 +317,9 @@ def ttmetal_to_flatbuffer(
     # Convert to flatbuffer file.
     # Take the output_file_name and prefix with ttm directory
     output_file_name = get_ttmetal_path(output_file_name)
-    ttmetal_to_flatbuffer_file(module, output_file_name, builder.get_golden_map())
+    ttmetal_to_flatbuffer_file(
+        module, output_file_name, builder.get_golden_map(), builder.get_callback_map()
+    )
 
     print("`ttmetal_to_flatbuffer_file` passed successfully.")
 
