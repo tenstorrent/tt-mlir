@@ -7,7 +7,7 @@
 import inspect
 import pytest
 
-from ttmlir.test_utils import compile_as_module
+from ttmlir.test_utils import compile_as_mlir_module
 from ttmlir.ttir_builder import Operand, TTIRBuilder, Attribute, UnitAttr, TypeInfo
 from ttmlir.dialects import ttir
 from ttmlir.ir import *
@@ -15,38 +15,48 @@ from ttmlir.passes import GoldenTensor, CallbackTag, DataType
 from ttrt.common.util import Binary
 from ttmlir.compile_and_run import ttir_to_ttnn, ttnn_to_flatbuffer
 from ttmlir.ir import Module
-from ttrt.binary import get_module_tags
+import ttrt.binary  # import get_program_tag
+
+# from ttrt.binary import get_module_tags
 
 
 @pytest.mark.parametrize(
     "tags",
     [(True, True), (True, False), (False, False)],
 )
-def test_callback_tags():
+def test_callback_tags(tags):
     def test_simple_callback(in0: Operand, in1: Operand, builder: TTIRBuilder):
         result = builder.add(in0, in1)
         print("Builder first loc: ", builder.get_loc())
-        builder.set_callback_kv(builder.get_loc(), tags)
+        builder.set_callback_kv(str(builder.get_loc()), tags)
 
     module, builder2 = compile_as_mlir_module(
         test_simple_callback, [(64, 128), (64, 128)]
     )
+    # Should I run a pass? ttir_to_ttnn
     buffer = ttnn_to_flatbuffer(module)
     print("Builder second loc: ", builder2.get_loc())
 
+    # use get tags if you can get it to work, otherwise:
+    tag = ttrt.binary.get_program_tag(module, str(builder2.get(loc)))
+    print("TAG: ", tag, type(tag), tag.pre_op_tag, tag.post_op_tag, tag.name)
+    assert False, "test"
+    """
     for (
         op
     ) in (
         module
     ):  # I think you have to write/pybind something for this, even get all tags from module
-        # runtime_tags = ttrt.runtime.get_op_tags(fb.handle, 0, opContext)
+        runtime_tags = ttrt.runtime.get_op_tags(fb.handle, 0, opContext)
         runtime_tags = get_module_tags(fb.handle, builder2.get_loc())
         print("Runtime_tags: ", runtime_tags, type(runtime_tags))
         assert (
             runtime_tags == tags
         ), f"Callback tags are wrong, expected {tags}, got {runtime_tags}"
+    """
 
 
+"""
 if __name__ == "__main__":
     import argparse, os
 
@@ -70,3 +80,4 @@ if __name__ == "__main__":
     for function_name, func in test_functions:
         if function_name.startswith("test_"):
             func()
+    """

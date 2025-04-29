@@ -40,7 +40,6 @@ try:
         WorkaroundEnv,
         get_op_loc_info,
         get_op_tags,
-        get_module_tags,
         unregister_hooks,
     )
 except ModuleNotFoundError:

@@ -233,7 +233,7 @@ class TTIRBuilder:
             )
         return golden_info
 
-    def get_loc(self) -> string:
+    def get_loc(self) -> Location:
         return self._loc
 
     def get_callback_map(self) -> Dict:

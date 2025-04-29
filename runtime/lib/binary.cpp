@@ -119,6 +119,32 @@ std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
   return outputs;
 }
 
+std::vector<const tt::target::CallbackTag *>
+getProgramTags(Flatbuffer binary, std::uint32_t programIndex) {
+  std::vector<const tt::target::CallbackTag *> tags;
+  auto const *program = getBinary(binary)->programs()->Get(programIndex);
+  for (const ::tt::target::CallbackKV *kv :
+       *program->debug_info()->callback_info()->callback_map()) {
+    tags.push_back(kv->value());
+  }
+  return tags;
+}
+
+const tt::target::CallbackTag *getProgramTag(Flatbuffer binary,
+                                             std::string &loc) {
+  auto const *programs = getBinary(binary)->programs();
+  for (auto const *program : *programs) {
+    for (const ::tt::target::CallbackKV *kv :
+         *program->debug_info()->callback_info()->callback_map()) {
+      if (std::string(kv->key()->c_str()) == loc) {
+        return kv->value();
+      }
+    }
+  }
+  LOG_WARNING("Callback information not found");
+  return nullptr;
+}
+
 const ::tt::target::GoldenTensor *getDebugInfoGolden(Flatbuffer binary,
                                                      std::string &loc) {
   auto const *programs = getBinary(binary)->programs();

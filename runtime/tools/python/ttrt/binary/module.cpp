@@ -35,6 +35,10 @@ PYBIND11_MODULE(_C, m) {
       .def("store", &tt::runtime::Binary::store)
       .def("get_debug_info_golden", &::tt::runtime::Binary::getDebugInfoGolden,
            py::return_value_policy::reference)
+      .def("get_program_tags", &::tt::runtime::Binary::getProgramTags,
+           py::return_value_policy::reference)
+      .def("get_program_tag", &::tt::runtime::Binary::getProgramTag,
+           py::return_value_policy::reference)
       .def(
           "get_tensor_cache",
           [](tt::runtime::Binary &bin) { return bin.getCache(); },
