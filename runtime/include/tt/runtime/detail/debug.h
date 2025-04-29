@@ -45,7 +45,6 @@ inline std::ostream &operator<<(std::ostream &os, Env const &env) {
 struct Hooks {
   using CallbackFn = std::function<void(Binary, CallbackContext, OpContext)>;
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  static std::unordered_map<std::string, Hooks> config;
   static Hooks const &
   get(std::optional<CallbackFn> preOperatorCallback = std::nullopt,
       std::optional<CallbackFn> postOperatorCallback = std::nullopt);
@@ -69,7 +68,7 @@ struct Hooks {
 #endif
   }
 
-  void unregisterHooks() {
+  void unregisterHooks() const {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     preOperatorCallback = std::nullopt;
     postOperatorCallback = std::nullopt;

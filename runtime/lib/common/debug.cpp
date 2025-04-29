@@ -4,13 +4,10 @@
 
 #include "tt/runtime/detail/debug.h"
 #include <set>
-#include <unordered_map>
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
 
 namespace tt::runtime::debug {
-
-std::unordered_map<std::string, Hooks> Hooks::config;
 
 Env const &Env::get(bool loadKernelsFromDisk) {
   static Env config(loadKernelsFromDisk);
