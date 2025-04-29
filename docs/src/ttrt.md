@@ -364,10 +364,15 @@ op_golden_tensor = binary.get_debug_info_golden(loc) : get the golden tensor fro
 op_output_tensor = ttrt.runtime.get_op_output_tensor(opContext, programContext) : get the currently running output tensor from device as list of float32
 ```
 
-5. A potential application for this callback function is implementing a golden callback. TTRT achieves this by first storing the golden data within the flatbuffer binary. See `python/Passes.cpp` - specifically `ttnn_to_flatbuffer_file` function for an example. This is used by `python/test_infra/ttir_builder.py` to construct flatbuffers with embedded golden data. You can store input/output/intermediate data within the flatbuffer. The choice of the map `key` for inputs/outputs is left to the golden implementor. The intermediate tensor key is derived from loc data for ttrt. External users can implement their own key/value logic. See `runtime/tools/python/ttrt/common/golden.py` for how ttrt implement the golden callback function.
+5. By default, callback functions run on all ops. TTNN stores a `CallbackMap` within the flatbuffer binary that maps a `key` for each op to a `CallbackTag` which stores boolean values `pre_op_tag` and `post_op_tag`. See `python/Passes.cpp` - specifically `ttnn_to_flatbuffer_file` function - for an example on how these tags are constructed. See `python/test_infra/ttir_builder.py` for an example on implementation, it contains support for setting these tags.
+```bash
+builder.set_callback_kv(key, (True, False))
+```
+
+6. A potential application for this callback function is implementing a golden callback. TTRT achieves this by first storing the golden data within the flatbuffer binary. See `python/Passes.cpp` - specifically `ttnn_to_flatbuffer_file` function for an example. This is used by `python/test_infra/ttir_builder.py` to construct flatbuffers with embedded golden data. You can store input/output/intermediate data within the flatbuffer. The choice of the map `key` for inputs/outputs is left to the golden implementor. The intermediate tensor key is derived from loc data for ttrt. External users can implement their own key/value logic. See `runtime/tools/python/ttrt/common/callback.py` for how ttrt implement the golden callback function.
 ```bash
 std::unordered_map<std::string, mlir::tt::GoldenTensor> goldenMap
-mlir::tt::ttnn::translateTTNNToFlatbuffer(moduleOp, file, goldenMap)
+mlir::tt::ttnn::translateTTNNToFlatbuffer(moduleOp, file, goldenMap, callbackMap)
 ```
 
 Note: ttrt is not needed to implement this callback feature. It aims to provide an example of how this callback feature can be implemented for golden application.

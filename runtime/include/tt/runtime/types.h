@@ -166,7 +166,7 @@ struct Binary : public Flatbuffer {
   std::vector<TensorDesc> getProgramInputs(std::uint32_t programIndex) const;
   std::vector<TensorDesc> getProgramOutputs(std::uint32_t programIndex) const;
   const ::tt::target::GoldenTensor *getDebugInfoGolden(std::string &loc) const;
-  const tt::target::CallbackTag *getProgramTag(std::string &loc) const;
+  const tt::target::CallbackTag *getTagByName(std::string &loc) const;
 
   // Get the tensor cache associated with this binary
   std::shared_ptr<TensorCache> getCache() { return cache; }

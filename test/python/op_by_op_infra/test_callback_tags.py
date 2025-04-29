@@ -37,7 +37,7 @@ def test_callback_tags(tags, key):
     # Verify the callback tag was properly set
     bin = ttrt.binary.load_binary_from_path("ttnn/test_callback_tags.ttnn")
     loc_id = key if key else str(builder.get_loc())
-    fb_tag = bin.get_program_tag(loc_id)
+    fb_tag = bin.get_tag_by_name(loc_id)
     assert fb_tag is not None, "Failed to retrieve callback tag"
     assert (
         fb_tag.pre_op_tag,
