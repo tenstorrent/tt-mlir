@@ -93,7 +93,13 @@ inline std::string backtrace_to_string(int size = 64, int skip = 2,
 #define LOGGER_TYPES                                                           \
   X(Always)                                                                    \
   X(RuntimeTTNN)                                                               \
-  X(RuntimeTTMetal)
+  X(RuntimeTTMetal)                                                            \
+  X(RuntimeTTMetalBufferCreation)                                              \
+  X(RuntimeTTMetalCircularBufferCreation)                                      \
+  X(RuntimeTTMetalKernel)                                                      \
+  X(RuntimeTTMetalKernelArg)                                                   \
+  X(RuntimeTTMetalKernelSource)                                                \
+  X(RuntimeTTMetalCommand)
 
 enum LogType : uint32_t {
 #define X(a) Log##a,
@@ -307,6 +313,12 @@ tt_throw_(const char *file, int line, const char *assert_type,
   trace_message_ss << reset_text_attrs << std::flush;
   log_fatal_(args..., trace_message_ss.str());
   Logger::get().flush();
+#if defined(TT_RUNTIME_DEBUG) && (TT_RUNTIME_DEBUG == 1)
+  const char *abort_on_error = std::getenv("TTMLIR_RUNTIME_ABORT_ON_ERROR");
+  if (abort_on_error && abort_on_error[0] == '1') {
+    abort();
+  }
+#endif
   throw std::runtime_error("Fatal error");
 }
 
@@ -394,5 +406,106 @@ tt_throw_(const char *file, int line, const char *assert_type,
 #endif
 
 #pragma clang diagnostic pop
+
+// Helper pretty printers.
+namespace tt::runtime::logger {
+
+template <typename T, typename Data>
+struct Tag {
+  static constexpr std::string_view tag() { return T::tag(); }
+  static constexpr std::string_view open() { return T::open(); }
+  static constexpr std::string_view close() { return T::close(); }
+  static constexpr std::ios_base::fmtflags fmtflags() { return T::fmtflags(); }
+
+  Tag(Data d) : data(d) {}
+
+  Data data;
+};
+
+template <typename T, typename Data>
+std::ostream &operator<<(std::ostream &os, const Tag<T, Data> &t) {
+  os << t.tag() << t.open();
+  auto flags = os.setf(t.fmtflags());
+  os << t.data;
+  os.flags(flags);
+  os << t.close();
+  return os;
+}
+
+template <typename T>
+struct HexTag {
+  static constexpr std::string_view tag() { return T::tag(); }
+  static constexpr std::string_view open() { return "[0x"; }
+  static constexpr std::string_view close() { return "]"; }
+  static constexpr std::ios_base::fmtflags fmtflags() {
+    return std::ios_base::hex;
+  }
+};
+
+template <typename T>
+struct IntegerTag {
+  static constexpr std::string_view tag() { return T::tag(); }
+  static constexpr std::string_view open() { return "["; }
+  static constexpr std::string_view close() { return "]"; }
+  static constexpr std::ios_base::fmtflags fmtflags() {
+    return std::ios_base::dec;
+  }
+};
+
+struct AddressTag : HexTag<AddressTag> {
+  static constexpr std::string_view tag() { return "address"; }
+};
+
+struct AlignTag : HexTag<AlignTag> {
+  static constexpr std::string_view tag() { return "align"; }
+};
+
+struct BufferTag : IntegerTag<BufferTag> {
+  static constexpr std::string_view tag() { return "buffer"; }
+};
+
+struct PortTag : IntegerTag<PortTag> {
+  static constexpr std::string_view tag() { return "port"; }
+};
+
+struct TensorTag : IntegerTag<TensorTag> {
+  static constexpr std::string_view tag() { return "tensor"; }
+};
+
+struct SizeTag : IntegerTag<SizeTag> {
+  static constexpr std::string_view tag() { return "size"; }
+};
+
+template <typename IntType>
+auto Address(IntType address) {
+  return Tag<AddressTag, IntType>(address);
+}
+
+template <typename IntType>
+auto Size(IntType size) {
+  return Tag<SizeTag, IntType>(size);
+}
+
+template <typename IntType>
+auto Align(IntType align) {
+  return Tag<AlignTag, IntType>(align);
+}
+
+template <typename IntType>
+auto Buffer(IntType buffer) {
+  return Tag<BufferTag, IntType>(buffer);
+}
+
+template <typename IntType>
+auto Port(IntType buffer) {
+  return Tag<PortTag, IntType>(buffer);
+}
+
+template <typename IntType>
+auto Tensor(IntType tensor) {
+  return Tag<TensorTag, IntType>(tensor);
+}
+
+} // namespace tt::runtime::logger
 
 #endif // TT_RUNTIME_DETAIL_LOGGER_H

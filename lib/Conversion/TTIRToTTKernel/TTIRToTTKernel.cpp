@@ -132,6 +132,7 @@ public:
       auto numTiles =
           i32(rewriter, op->getLoc(),
               mlir::cast<ttkernel::CBType>(dst.getType()).getNumTiles());
+      rewriter.create<ttkernel::TilizeInitOp>(op->getLoc(), src, numTiles, dst);
       newOp = rewriter.create<ttkernel::TilizeBlockOp>(op->getLoc(), src,
                                                        numTiles, dst);
     } else if (mlir::isa<ttir::TileUntilizeBlockOp>(op)) {
@@ -141,6 +142,7 @@ public:
       auto numTiles =
           i32(rewriter, op->getLoc(),
               mlir::cast<ttkernel::CBType>(src.getType()).getNumTiles());
+      rewriter.create<ttkernel::UntilizeInitOp>(op->getLoc(), src, dst);
       newOp = rewriter.create<ttkernel::UntilizeBlockOp>(op->getLoc(), src,
                                                          numTiles, dst);
     } else {
@@ -187,12 +189,13 @@ public:
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-
+    auto device = lookupDevice(op);
     for (Value input : adaptor.getValues()) {
       auto cb = mlir::dyn_cast<ttkernel::CBType>(input.getType());
       assert(cb && "Expected CB input type to await/yield, failing.");
       auto memref = cb.getMemref();
-      auto numPages = i32(rewriter, op->getLoc(), memref.getNumElements());
+      auto cbNumPages = device.getMemrefCBNumPages(memref);
+      auto numPages = i32(rewriter, op->getLoc(), cbNumPages);
       Block *block = op->getBlock();
       if (mlir::isa<ttir::AwaitOp>(op)) {
         rewriter.create<ttkernel::CBWaitFrontOp>(op.getLoc(), input, numPages);
