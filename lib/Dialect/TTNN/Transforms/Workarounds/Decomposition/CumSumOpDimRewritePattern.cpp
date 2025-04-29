@@ -36,10 +36,8 @@ CumSumOpDimRewritePattern::matchAndRewrite(ttnn::MorehCumSumOp srcOp,
   RankedTensorType adaptedInputType =
       RankedTensorType::Builder(srcOp.getInput().getType())
           .setShape(adaptedShape)
-          .setEncoding(
-              mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding())
-                  .withTensorShape(inputType.getEncoding().getContext(),
-                                   adaptedShape));
+          .setEncoding(mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding())
+                           .withTensorShape(adaptedShape));
 
   auto adaptedInput = rewriter.create<ttnn::PermuteOp>(
       srcOp.getLoc(), adaptedInputType, srcOp.getInput(),
@@ -53,8 +51,7 @@ CumSumOpDimRewritePattern::matchAndRewrite(ttnn::MorehCumSumOp srcOp,
           .setShape(adaptedShape)
           .setEncoding(
               mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding())
-                  .withTensorShape(outputType.getEncoding().getContext(),
-                                   adaptedShape));
+                  .withTensorShape(adaptedShape));
 
   auto adaptedCumSumOp = rewriter.create<mlir::tt::ttnn::MorehCumSumOp>(
       srcOp->getLoc(), adaptedOutputType, adaptedInput, /*dim=*/0,
