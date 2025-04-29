@@ -118,7 +118,7 @@ public:
       assert(op->hasOneUse());
       auto store = mlir::cast<memref::StoreOp>(*op->user_begin());
       auto outCB = rewriter.getRemappedValue(store.getMemref());
-      rewriter.create<ttkernel::BinaryOpInitCommonOp>(
+      initOp = rewriter.create<ttkernel::BinaryOpInitCommonOp>(
           op->getLoc(), getCB(rewriter, operands[0]),
           getCB(rewriter, operands[1]), outCB);
       auto dstIdx = index(rewriter, op->getLoc(), 0);
