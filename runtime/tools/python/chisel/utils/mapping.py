@@ -59,19 +59,27 @@ class OpMapping:
         for k, v in self.arg_map.items():
             if k in ir_op.attributes:
                 if isinstance(ir_op.attributes[k], ttmlir.ir.DenseElementsAttr):
-                    torch_args[v] = resolve_dense_attr(ir_op.attributes[k]).value
+                    val = resolve_dense_attr(ir_op.attributes[k])
+                    if hasattr(val, "value"):
+                        val = val.value
+                    torch_args[v] = val
                 elif isinstance(ir_op.attributes[k], ttmlir.ir.DenseI64ArrayAttr):
                     torch_args[v] = [x for x in ir_op.attributes[k]]
                 elif isinstance(ir_op.attributes[k], ttmlir.ir.ArrayAttr):
                     torch_args[v] = [x.value for x in ir_op.attributes[k]]
                 else:
                     torch_args[v] = ir_op.attributes[k].value
-            if v == "dim":
-                torch_args[v] = torch_args[v][0]
+            # if v == "dim":
+            #     torch_args[v] = torch_args[v][0]
 
         if ir_op.name == "ttir.constant":
             torch_args["dtype"] = ttir_dtype_maps[
                 str(ir_op.attributes[0].attr.type.element_type)
+            ]
+        
+        if ir_op.name == "ttir.typecast":
+            torch_args["dtype"] = ttir_dtype_maps[
+                str(ir_op.outputs[0].type.element_type)
             ]
 
         if not self.unpack_inputs:
@@ -117,6 +125,14 @@ def custom_constant(*args, **kwargs):
     kwargs.pop("data")
     return torch.tensor([data], *args, **kwargs)
 
+def custom_prod(x, dim, keepdim):
+    if dim is None:
+        return torch.prod(x)
+    dim = reversed(sorted(dim))
+    for d in dim:
+        x = torch.prod(x, d, keepdim=keepdim)
+    return x
+
 
 ttir_to_torch_mapping = {
     # do nothing
@@ -132,6 +148,7 @@ ttir_to_torch_mapping = {
     "ttir.constant": OpMapping(custom_constant, {"value": "data"}),
     "ttir.div": OpMapping(torch.div),
     "ttir.exp": OpMapping(torch.exp, unpack_inputs=False),
+    "ttir.pow": OpMapping(torch.pow),
     "ttir.ge": OpMapping(torch.ge),
     "ttir.gt": OpMapping(torch.gt),
     "ttir.le": OpMapping(torch.le),
@@ -141,11 +158,12 @@ ttir_to_torch_mapping = {
     "ttir.max": OpMapping(torch.max),
     "ttir.maximum": OpMapping(torch.maximum),
     "ttir.multiply": OpMapping(torch.multiply),
+    "ttir.cumsum": OpMapping(torch.cumsum, {"dim" : "dim"}, unpack_inputs=False),
     "ttir.permute": OpMapping(
         torch.permute, {"permutation": "dims"}, unpack_inputs=False
     ),
     "ttir.prod": OpMapping(
-        torch.prod, {"dim_arg": "dim", "keep_dim": "keepdim"}, unpack_inputs=False
+       custom_prod, {"dim_arg": "dim", "keep_dim": "keepdim"}, unpack_inputs=False
     ),
     "ttir.reshape": OpMapping(torch.reshape, {"shape": "shape"}, unpack_inputs=False),
     "ttir.rsqrt": OpMapping(torch.rsqrt, unpack_inputs=False),
@@ -155,7 +173,7 @@ ttir_to_torch_mapping = {
         torch.sum, {"dim_arg": "dim", "keep_dim": "keepdim"}, unpack_inputs=False
     ),
     "ttir.tanh": OpMapping(torch.tanh, unpack_inputs=False),
-    "ttir.typecast": OpMapping(custom_typecast, {"dtype": "dtype"}),
+    "ttir.typecast": OpMapping(custom_typecast, {"dtype": "dtype"}, unpack_inputs=False),
     "ttir.where": OpMapping(custom_where),
     "ttir.concat": OpMapping(torch.concat, {"dim": "dim"}, unpack_inputs=False),
     "ttir.embedding": OpMapping(torch.nn.functional.embedding),

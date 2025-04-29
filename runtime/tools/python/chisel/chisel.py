@@ -15,6 +15,8 @@ from core.validator import Validator
 from core.value import TensorStatus
 from core.ttir_executor import TTIRExecutor
 
+from utils.mapping import ttir_dtype_maps
+
 from ttmlir.ir import Context, Module
 from ttmlir.dialects import ttir, ttnn
 
@@ -81,6 +83,29 @@ class ChiselContext:
         self.ttnn_op_idx = 0
 
         self.pcc_data = []
+
+    def generate_inputs(self):
+        mlir_inputs = self.ttir_module.body.operations[0].type.inputs
+        arg_attrs = self.ttir_module.body.operations[0].arg_attrs
+        self.tensor_inputs = {}
+        for i, input in enumerate(mlir_inputs):
+            attrs = arg_attrs[i]
+            # ttir_name_attr = attrs["ttir.name"]
+            # if ttir_name_attr is None:
+            #     raise ValueError(f"No 'ttir.name' attribute found for input {i}")
+            
+            # ttir_name = ttir_name_attr.value  # this is the string value
+            data_format = input.element_type.__str__()
+            dtype = ttir_dtype_maps[data_format]
+            shape = input.shape
+            name = f"%arg{i}"
+            # Check it dtype is int
+            if dtype in [torch.bool, torch.int8, torch.int16, torch.int32, torch.int64]:
+                tensor = torch.ones(shape, dtype=dtype)
+            else:
+                tensor = torch.randn(shape, dtype=dtype)
+            self.tensor_inputs[name] = tensor
+        self.ttir_executor.tensor_pool.update(self.tensor_inputs)
 
     def load_irs(self):
         logger.debug("Opening ttnn...")
@@ -271,45 +296,46 @@ def main():
     )
     args = parser.parse_args()
 
-    inputs_specs = [
-        ((1, 6), np.int32),
-        ((1, 6), np.int32),
-        ((128,), np.float32),
-        ((128,), np.float32),
-        ((512, 128), np.float32),
-        ((2, 128), np.float32),
-        ((30000, 128), np.float32),
-        ((768,), np.float32),
-        ((768,), np.float32),
-        ((768,), np.float32),
-        ((768, 768), np.float32),
-        ((768,), np.float32),
-        ((768, 768), np.float32),
-        ((768,), np.float32),
-        ((768, 768), np.float32),
-        ((768,), np.float32),
-        ((768, 768), np.float32),
-        ((3072,), np.float32),
-        ((768, 3072), np.float32),
-        ((768,), np.float32),
-        ((3072, 768), np.float32),
-        ((768,), np.float32),
-        ((768,), np.float32),
-        ((768,), np.float32),
-        ((128, 768), np.float32),
-        ((128,), np.float32),
-        ((128,), np.float32),
-        ((30000,), np.float32),
-        ((128,), np.float32),
-        ((768, 128), np.float32),
-        ((1, 6), np.int32),
-    ]
-    arrays_file = args.inputs_path
-    create_and_save_arrays(inputs_specs, arrays_file)
-    inputs = load_tensor_list(arrays_file)
+    # inputs_specs = [
+    #     ((1, 6), np.int32),
+    #     ((1, 6), np.int32),
+    #     ((128,), np.float32),
+    #     ((128,), np.float32),
+    #     ((512, 128), np.float32),
+    #     ((2, 128), np.float32),
+    #     ((30000, 128), np.float32),
+    #     ((768,), np.float32),
+    #     ((768,), np.float32),
+    #     ((768,), np.float32),
+    #     ((768, 768), np.float32),
+    #     ((768,), np.float32),
+    #     ((768, 768), np.float32),
+    #     ((768,), np.float32),
+    #     ((768, 768), np.float32),
+    #     ((768,), np.float32),
+    #     ((768, 768), np.float32),
+    #     ((3072,), np.float32),
+    #     ((768, 3072), np.float32),
+    #     ((768,), np.float32),
+    #     ((3072, 768), np.float32),
+    #     ((768,), np.float32),
+    #     ((768,), np.float32),
+    #     ((768,), np.float32),
+    #     ((128, 768), np.float32),
+    #     ((128,), np.float32),
+    #     ((128,), np.float32),
+    #     ((30000,), np.float32),
+    #     ((128,), np.float32),
+    #     ((768, 128), np.float32),
+    #     ((1, 6), np.int32),
+    # ]
+    # arrays_file = args.inputs_path
+    # create_and_save_arrays(inputs_specs, arrays_file)
+    # inputs = load_tensor_list(arrays_file)
 
     chisel_context = ChiselContext(args)
-    chisel_context.set_inputs(inputs)
+    # chisel_context.set_inputs(inputs)
+    chisel_context.generate_inputs()
     chisel_context.run()
 
     logger.debug(chisel_context.pcc_data)
