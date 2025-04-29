@@ -26,7 +26,8 @@ endif()
 
 # TT_METAL_HOME env variable needs to be set
 if(NOT DEFINED ENV{TT_METAL_HOME})
-    message(FATAL_ERROR "TT_METAL_HOME is not set")
+    message(WARNING "TT_METAL_HOME is not set in ttnn-standalone. Skipping build.")
+    return()
 endif()
 
 # Metal dir variables
