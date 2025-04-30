@@ -2022,10 +2022,11 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getRunningMean()),
         emitter.emit(srcOp.getRunningVar()),
-        emitter.emit(srcOp.getWeight()),
-        emitter.emit(srcOp.getBias()),
         emitter.emit(srcOp.getTraining()),
         emitter.emit(srcOp.getEpsilon()),
+        emitter.emit(/* momentum= */ 0.1),
+        emitter.emit(srcOp.getWeight()),
+        emitter.emit(srcOp.getBias()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 
