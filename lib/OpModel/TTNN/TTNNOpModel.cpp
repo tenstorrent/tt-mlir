@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "TTNNOpModel.h"
+#include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
