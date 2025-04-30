@@ -39,6 +39,7 @@ RUN mkdir -p $TTMLIR_TOOLCHAIN_DIR && mkdir -p /build
 RUN git clone --depth 1 https://github.com/tenstorrent/tt-mlir.git /build/tt-mlir
 
 RUN cd /build/tt-mlir && \
+    ./env/init_venv.sh && \
     source env/activate && \
     cmake -B env/build env && \
     cmake --build env/build

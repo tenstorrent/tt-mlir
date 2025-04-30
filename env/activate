@@ -8,7 +8,14 @@ if [ -z "${TTMLIR_VENV_DIR}" ]; then
   export TTMLIR_VENV_DIR="${TTMLIR_TOOLCHAIN_DIR}/venv"
 fi
 
-[ -f $TTMLIR_VENV_DIR/bin/activate ] && source $TTMLIR_VENV_DIR/bin/activate
+if [ -f $TTMLIR_VENV_DIR/bin/activate ]; then
+  source $TTMLIR_VENV_DIR/bin/activate
+elif [ -z "${_ENV_BUILD_VENV_SH_SUPPRESS_WARNING}" ]; then
+  echo "WARNING: venv not found - ${TTMLIR_VENV_DIR}/bin/activate"
+  echo "  tt-mlir might not be fully/correctly configured, have you run? ./env/init_venv.sh"
+  echo "  For more information refer to: https://docs.tenstorrent.com/tt-mlir/getting-started.html"
+fi
+
 export TTMLIR_ENV_ACTIVATED=1
 export PATH="$(pwd)/${BUILD_DIR:=build}/bin:$TTMLIR_TOOLCHAIN_DIR/bin:$TTMLIR_TOOLCHAIN_DIR/venv/bin:$PATH"
 export TT_METAL_HOME="$(pwd)/third_party/tt-metal/src/tt-metal"

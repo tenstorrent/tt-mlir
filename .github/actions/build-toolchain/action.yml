@@ -28,6 +28,7 @@ runs:
       if: steps.cache-toolchain.outputs.cache-hit != 'true'
       shell: bash
       run: |
+        ./env/init_venv.sh
         source env/activate
         cmake -B env/build env
         cmake --build env/build
