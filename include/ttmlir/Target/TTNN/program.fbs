@@ -70,8 +70,7 @@ union OpType {
   // ANCHOR_END: adding_an_op_matmul_fbs_op_type
   MorehCumSumOp,
   SoftmaxOp,
-  AvgPool2dOp,
-  MaxPool2dOp,
+  Pool2dOp,
   UpsampleOp,
   ReductionArgMaxOp,
   ReductionOp,

@@ -22,6 +22,7 @@
 #include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/binary_generated.h"
+#include "ttmlir/Target/TTNN/operations/pool_generated.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/TTNN/utils.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
@@ -1568,8 +1569,17 @@ createSliceOp(FlatbufferObjectCache &cache, SliceOp op) {
                                            step);
 }
 
-::flatbuffers::Offset<::tt::target::ttnn::AvgPool2dOp>
-createAvgPool2dOp(FlatbufferObjectCache &cache, AvgPool2dOp op) {
+template <typename Pool2dOp>
+::flatbuffers::Offset<::tt::target::ttnn::Pool2dOp>
+createPool2dOp(FlatbufferObjectCache &cache, Pool2dOp op) {
+  ::tt::target::ttnn::Pool2dOpType type;
+  if constexpr (std::is_same_v<Pool2dOp, AvgPool2dOp>) {
+    type = ::tt::target::ttnn::Pool2dOpType::AvgPool2d;
+  } else if constexpr (std::is_same_v<Pool2dOp, MaxPool2dOp>) {
+    type = ::tt::target::ttnn::Pool2dOpType::MaxPool2d;
+  } else {
+    llvm_unreachable("unhandled EltwiseUnaryOp");
+  }
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
@@ -1584,30 +1594,8 @@ createAvgPool2dOp(FlatbufferObjectCache &cache, AvgPool2dOp op) {
   ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> dilation =
       toFlatbuffer(cache, op.getDilation());
 
-  return ::tt::target::ttnn::CreateAvgPool2dOp(
-      *cache.fbb, in, out, op.getBatchSize(), op.getInputHeight(),
-      op.getInputWidth(), op.getChannels(), kernelSize, stride, padding,
-      dilation, op.getCeilMode());
-}
-
-::flatbuffers::Offset<::tt::target::ttnn::MaxPool2dOp>
-createMaxPool2dOp(FlatbufferObjectCache &cache, MaxPool2dOp op) {
-  auto in = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getInput()));
-  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
-                               kHostAllocatedSize);
-
-  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> kernelSize =
-      toFlatbuffer(cache, op.getKernelSize());
-  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> stride =
-      toFlatbuffer(cache, op.getStride());
-  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> padding =
-      toFlatbuffer(cache, op.getPadding());
-  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> dilation =
-      toFlatbuffer(cache, op.getDilation());
-
-  return ::tt::target::ttnn::CreateMaxPool2dOp(
-      *cache.fbb, in, out, op.getBatchSize(), op.getInputHeight(),
+  return ::tt::target::ttnn::CreatePool2dOp(
+      *cache.fbb, type, in, out, op.getBatchSize(), op.getInputHeight(),
       op.getInputWidth(), op.getChannels(), kernelSize, stride, padding,
       dilation, op.getCeilMode());
 }
@@ -2071,11 +2059,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            locInfo);
   }
   if (auto avg_pool2dOp = dyn_cast<AvgPool2dOp>(op); avg_pool2dOp) {
-    return createOperation(cache, createAvgPool2dOp(cache, avg_pool2dOp),
+    return createOperation(cache, createPool2dOp(cache, avg_pool2dOp),
                            debugString, locInfo);
   }
   if (auto max_pool2dOp = dyn_cast<MaxPool2dOp>(op); max_pool2dOp) {
-    return createOperation(cache, createMaxPool2dOp(cache, max_pool2dOp),
+    return createOperation(cache, createPool2dOp(cache, max_pool2dOp),
                            debugString, locInfo);
   }
   if (auto deallocateOp = dyn_cast<DeallocateOp>(op); deallocateOp) {
