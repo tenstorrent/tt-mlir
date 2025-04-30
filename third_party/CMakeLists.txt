@@ -188,4 +188,6 @@ else() # TTMLIR_ENABLE_RUNTIME
   add_library(TTNN_LIBRARY INTERFACE)
   add_library(TTMETAL_LIBRARY INTERFACE)
   add_library(DEVICE_LIBRARY INTERFACE)
+  add_library(tt-metal-download INTERFACE EXCLUDE_FROM_ALL)
+  add_library(tt-metal-configure INTERFACE EXCLUDE_FROM_ALL)
 endif() # TTMLIR_ENABLE_RUNTIME
