@@ -2,7 +2,7 @@
 
 This page walks you through the steps required to set up tt-mlir. After the project is running, you can do development work, run models, or set up additional projects that build on tt-mlir.
 
-> [! NOTE] If you have a build issue, you can file a bug [here](https://github.com/tenstorrent/tt-mlir/issues).
+> **NOTE:** If you have a build issue, you can file a bug [here](https://github.com/tenstorrent/tt-mlir/issues).
 
 ## Prerequisites
 
@@ -64,7 +64,7 @@ cmake -B env/build env
 cmake --build env/build
 ```
 
->[!NOTE] The last command takes time to run, so give it time to complete.
+> **NOTE:** The last command takes time to run, so give it time to complete.
 
 #### Building the tt-mlir Project
 
@@ -145,7 +145,7 @@ source env/activate
 cmake --build build -- docs
 mdbook serve build/docs
 ```
-> [!NOTE] `mdbook serve` will by default create a local server at `http://localhost:3000`.
+> **NOTE:** `mdbook serve` will by default create a local server at `http://localhost:3000`.
 
 ## Common Build Errors
 
