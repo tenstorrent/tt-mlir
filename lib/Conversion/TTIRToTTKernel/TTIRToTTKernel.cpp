@@ -134,12 +134,12 @@ public:
       initOp = rewriter.create<ttkernel::MatmulInitOp>(
           op->getLoc(), getCB(rewriter, operands[0]),
           getCB(rewriter, operands[1]), getCB(rewriter, operands[2]),
-          i32(rewriter, op->getLoc(), 0) /* transpose */);
+          /* transpose */ i32(rewriter, op->getLoc(), 0));
       newOp = rewriter.create<ttkernel::MatmulTilesOp>(
           op->getLoc(), getCB(rewriter, operands[0]),
           getCB(rewriter, operands[1]), getLoadIndex(operands[0]),
           getLoadIndex(operands[1]), dstIdx,
-          i32(rewriter, op->getLoc(), 0) /* transpose */);
+          /* transpose */ i32(rewriter, op->getLoc(), 0));
     } else if (mlir::isa<ttir::TileTilizeBlockOp>(op)) {
       assert(operands.size() == 2);
       Value src = operands[0];
