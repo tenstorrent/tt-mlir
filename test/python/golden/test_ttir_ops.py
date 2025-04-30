@@ -485,14 +485,15 @@ def test_conv2d(
     )
 
 
-@pytest.mark.skip("IntegerAttr type mismatch, see issue #2683")
 @pytest.mark.parametrize(
     "shapes",
     [
-        (1, 32, 32, 64),
-        (64, 32, 3, 3),
-        (1, 1, 1, 64),
-        (1, 16, 28, 64),
+        [
+            (1, 32, 32, 64),
+            (64, 32, 3, 3),
+            (1, 1, 1, 64),
+            (1, 16, 28, 64),
+        ]
     ],
 )
 @pytest.mark.parametrize("_stride", [[2, 1]])
@@ -500,12 +501,16 @@ def test_conv2d(
 @pytest.mark.parametrize("_padding", [[2, 1]])
 @pytest.mark.parametrize("groups", [2])
 def test_conv2d_consteval(
-        shapes: List[Shape], _stride: List[int], _padding: List[int], _dilation: List[int], groups: int,
-        request
+    shapes: List[Shape],
+    _stride: List[int],
+    _padding: List[int],
+    _dilation: List[int],
+    groups: int,
+    request,
 ):
     def conv2d_consteval(
         in0: Operand, weight: Operand, bias: Operand, in1: Operand, builder: TTIRBuilder
-        ):
+    ):
         stride = DenseI32ArrayAttr.get(_stride)
         padding = DenseI32ArrayAttr.get(_padding)
         dilation = DenseI32ArrayAttr.get(_dilation)
@@ -519,11 +524,16 @@ def test_conv2d_consteval(
             dilation=dilation,
             groups=groups,
         )
-    compile_to_flatbuffer(conv2d_consteval, shapes,
-                          argument_types_string="test_conv2d_consteval=input,parameter,parameter,parameter",
-                          test_base=request.node.name)
+
+    compile_to_flatbuffer(
+        conv2d_consteval,
+        shapes,
+        argument_types_string="conv2d_consteval=input,parameter,parameter,parameter",
+        test_base=request.node.name,
+    )
 
 
+@pytest.mark.skip("IntegerAttr type mismatch, see issue #2683")
 @pytest.mark.parametrize(
     "shapes",
     [
