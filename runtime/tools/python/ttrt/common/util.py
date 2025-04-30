@@ -687,7 +687,7 @@ class Binary(Flatbuffer):
 
                 # Log the detailed diff
                 diff_text = "\n".join(diff)
-                error_msg = f"system desc for device did not match flatbuffer: {self.file_path} - skipping this test\nDiff details:\n{diff_text}"
+                error_msg = f"system desc for device did not match flatbuffer: {self.file_path}\nDiff details:\n{diff_text}"
 
                 # You might want to log this before raising the exception
                 # logger.error(error_msg)  # Uncomment and add proper logger if available
