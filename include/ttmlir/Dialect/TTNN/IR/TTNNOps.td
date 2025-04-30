@@ -1368,6 +1368,48 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d"> {
     }];
 }
 
+def TTNN_AvgPool2dOp : TTNN_Op<"avg_pool2d"> {
+  let summary = "Applies a 2D average pooling over an input signal composed of several input planes.";
+  let description = [{
+    It is a downsampling operation to reduce the spatial dimensions (height and width) of a input tensor by computing averages with in a window.
+
+    Example:
+      // 3x3 input tensor
+      input: [[1, 2, 3],
+              [4, 5, 6],
+              [7, 8, 9]]
+      kernel_height: 2
+      kernel_width: 2
+      stride_height: 1
+      stride_width: 1
+      dilation_height: 1
+      dilation_width: 1
+      output: [[3, 4],
+               [6, 7]]
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       UI32Attr:$batch_size,
+                       UI32Attr:$input_height,
+                       UI32Attr:$input_width,
+                       UI32Attr:$channels,
+                       DenseI32ArrayAttr:$kernel_size,
+                       DenseI32ArrayAttr:$stride,
+                       DenseI32ArrayAttr:$padding,
+                       DenseI32ArrayAttr:$dilation,
+                       BoolAttr:$ceil_mode);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createPool2DOpOperandsWorkarounds();
+    }
+  }];
+
+  let hasVerifier = 1;
+}
+
 def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d",
       [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
       > {
@@ -1391,7 +1433,7 @@ def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d",
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        return wa::TTNNOperandsWorkaroundsFactory::createMaxPool2DOpOperandsWorkarounds();
+        return wa::TTNNOperandsWorkaroundsFactory::createPool2DOpOperandsWorkarounds();
       }
     }];
 

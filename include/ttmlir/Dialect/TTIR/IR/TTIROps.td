@@ -1546,6 +1546,46 @@ def TTIR_PoolingOp : TTIR_NamedOp<"pooling", [AttrSizedOperandSegments]> {
   let hasVerifier = 1;
 }
 
+def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d"> {
+  let summary = "Applies a 2D average pooling over an input signal composed of several input planes.";
+  let description = [{
+    It is a downsampling operation to reduce the spatial dimensions (height and width) of a input tensor by computing averages with in a window.
+
+    Example:
+      // 3x3 input tensor
+      input: [[1, 2, 3],
+              [4, 5, 6],
+              [7, 8, 9]]
+      kernel_height: 2
+      kernel_width: 2
+      stride_height: 1
+      stride_width: 1
+      dilation_height: 1
+      dilation_width: 1
+      output: [[3, 4],
+               [6, 7]]
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$output,
+                       SI32Attr:$kernel_height,
+                       SI32Attr:$kernel_width,
+                       SI32Attr:$stride_height,
+                       SI32Attr:$stride_width,
+                       SI32Attr:$dilation_height,
+                       SI32Attr:$dilation_width,
+                       BoolAttr:$ceil_mode,
+                       SI32Attr:$padding_left,
+                       SI32Attr:$padding_right,
+                       SI32Attr:$padding_top,
+                       SI32Attr:$padding_bottom,
+                       DefaultValuedAttr<TTIR_FlattenedCompatInfoAttr, "nullptr">:$flattened_compat_info);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d"> {
     let summary = "Applies a 2D max pooling over an input signal composed of several input planes.";
     let description = [{

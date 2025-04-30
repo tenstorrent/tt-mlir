@@ -48,6 +48,7 @@
 #include "operations/matmul/matmul.h"
 #include "operations/moreh/moreh_cumsum.h"
 #include "operations/normalization/softmax.h"
+#include "operations/pool/avgpool2d.h"
 #include "operations/pool/maxpool2d.h"
 #include "operations/pool/upsample.h"
 #include "operations/reduction/argmax.h"
@@ -282,6 +283,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::DeallocateOp: {
     return operations::deletion::run(op->type_as_DeallocateOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::AvgPool2dOp: {
+    return operations::pool::run(op->type_as_AvgPool2dOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::MaxPool2dOp: {
     return operations::pool::run(op->type_as_MaxPool2dOp(), getContext());

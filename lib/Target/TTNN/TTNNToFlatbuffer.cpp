@@ -1568,6 +1568,28 @@ createSliceOp(FlatbufferObjectCache &cache, SliceOp op) {
                                            step);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::AvgPool2dOp>
+createAvgPool2dOp(FlatbufferObjectCache &cache, AvgPool2dOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                               kHostAllocatedSize);
+
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> kernelSize =
+      toFlatbuffer(cache, op.getKernelSize());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> stride =
+      toFlatbuffer(cache, op.getStride());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> padding =
+      toFlatbuffer(cache, op.getPadding());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> dilation =
+      toFlatbuffer(cache, op.getDilation());
+
+  return ::tt::target::ttnn::CreateAvgPool2dOp(
+      *cache.fbb, in, out, op.getBatchSize(), op.getInputHeight(),
+      op.getInputWidth(), op.getChannels(), kernelSize, stride, padding,
+      dilation, op.getCeilMode());
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::MaxPool2dOp>
 createMaxPool2dOp(FlatbufferObjectCache &cache, MaxPool2dOp op) {
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
@@ -2047,6 +2069,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto sliceOp = dyn_cast<SliceOp>(op); sliceOp) {
     return createOperation(cache, createSliceOp(cache, sliceOp), debugString,
                            locInfo);
+  }
+  if (auto avg_pool2dOp = dyn_cast<AvgPool2dOp>(op); avg_pool2dOp) {
+    return createOperation(cache, createAvgPool2dOp(cache, avg_pool2dOp),
+                           debugString, locInfo);
   }
   if (auto max_pool2dOp = dyn_cast<MaxPool2dOp>(op); max_pool2dOp) {
     return createOperation(cache, createMaxPool2dOp(cache, max_pool2dOp),

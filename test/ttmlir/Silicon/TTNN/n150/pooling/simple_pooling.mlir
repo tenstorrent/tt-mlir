@@ -2,7 +2,8 @@
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 module attributes {} {
-  func.func @forward(%arg0: tensor<1x32x128x128xf32>) -> tensor<1x32x64x64xf32> {
+  func.func @test_maxpool2d(%arg0: tensor<1x32x128x128xf32>) -> tensor<1x32x64x64xf32> {
+    // CHECK-LABEL: @test_maxpool2d
     %0 = ttir.empty() : tensor<1x32x64x64xf32>
     // CHECK: "ttnn.permute"
     // CHECK-SAME: permutation = array<i64: 0, 2, 3, 1>

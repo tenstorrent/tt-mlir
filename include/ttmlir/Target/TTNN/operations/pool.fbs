@@ -3,6 +3,20 @@ include "ttmlir/Target/TTNN/types.fbs";
 
 namespace tt.target.ttnn;
 
+table AvgPool2dOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  batch_size: uint32;
+  input_height: uint32;
+  input_width: uint32;
+  channels: uint32;
+  kernel_size: [int32];
+  stride: [int32];
+  padding: [int32];
+  dilation: [int32];
+  ceil_mode: bool;
+}
+
 table MaxPool2dOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
