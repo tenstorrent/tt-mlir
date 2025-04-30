@@ -862,8 +862,8 @@ std::string getOpLocInfo(OpContext opContextHandle) {
     tensorRef = opContext.type_as_ConvTranspose2dOp()->out();
     break;
   }
-  case ::tt::target::ttnn::OpType::MaxPool2dOp: {
-    tensorRef = opContext.type_as_MaxPool2dOp()->out();
+  case ::tt::target::ttnn::OpType::Pool2dOp: {
+    tensorRef = opContext.type_as_Pool2dOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::AllGatherOp: {

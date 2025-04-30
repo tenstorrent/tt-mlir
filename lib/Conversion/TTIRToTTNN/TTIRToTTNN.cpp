@@ -1146,26 +1146,32 @@ private:
 } // namespace
 
 namespace {
-class MaxPool2dOpConversionPattern
-    : public OpConversionPattern<ttir::MaxPool2dOp> {
+template <typename TTIROpTy, typename TTNNOpTy>
+class Pooling2dOpConversionPattern : public OpConversionPattern<TTIROpTy> {
 public:
-  using OpConversionPattern<ttir::MaxPool2dOp>::OpConversionPattern;
+  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
+  using OpAdaptor = typename TTIROpTy::Adaptor;
 
   LogicalResult
-  matchAndRewrite(ttir::MaxPool2dOp op, OpAdaptor adaptor,
+  matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     if (!adaptor.getFlattenedCompatInfo()) {
       return rewriter.notifyMatchFailure(
-          op,
-          "TTNN only supports flattened input tensors for MaxPool2dOp. Please "
-          "run the FlattenSlidingWindow pass before lowering to TTNN.");
+          op, "TTNN only supports flattened input tensors for " +
+                  op.getOperationName() +
+                  ". Please "
+                  "run the FlattenSlidingWindow pass before lowering to TTNN.");
     }
-    assert(adaptor.getPaddingBottom() == adaptor.getPaddingTop() &&
-           "TTNN max_pool2d does not support padding top/bottom/left/right "
-           "separately");
-    assert(adaptor.getPaddingLeft() == adaptor.getPaddingRight() &&
-           "TTNN max_pool2d does not support padding top/bottom/left/right "
-           "separately");
+    if (adaptor.getPaddingBottom() != adaptor.getPaddingTop()) {
+      return rewriter.notifyMatchFailure(
+          op, op.getOperationName() +
+                  "does not support asymmetric padding for top/bottom.");
+    }
+    if (adaptor.getPaddingLeft() != adaptor.getPaddingRight()) {
+      return rewriter.notifyMatchFailure(
+          op, op.getOperationName() +
+                  "does not support asymmetric padding for left/right.");
+    }
 
     auto batchSize = adaptor.getFlattenedCompatInfo().getBatchSize();
     constexpr unsigned int CHANNEL_DIM = 3;
@@ -1185,7 +1191,7 @@ public:
     DenseI32ArrayAttr dilationAttr = rewriter.getDenseI32ArrayAttr(
         {adaptor.getDilationHeight(), adaptor.getDilationWidth()});
 
-    rewriter.replaceOpWithNewOp<ttnn::MaxPool2dOp>(
+    rewriter.replaceOpWithNewOp<TTNNOpTy>(
         op, this->getTypeConverter()->convertType(op.getResult().getType()),
         adaptor.getInput(), batchSize,
         adaptor.getFlattenedCompatInfo().getInputHeight(),
@@ -1681,6 +1687,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::AtanOp, ttnn::AtanOp>,
            ElementwiseOpConversionPattern<ttir::Atan2Op, ttnn::Atan2Op>,
            ElementwiseOpConversionPattern<ttir::PowOp, ttnn::PowOp>,
+           Pooling2dOpConversionPattern<ttir::MaxPool2dOp, ttnn::MaxPool2dOp>,
+           Pooling2dOpConversionPattern<ttir::AvgPool2dOp, ttnn::AvgPool2dOp>,
            ReductionOpConversionPattern<ttir::SumOp, ttnn::SumOp>,
            ReductionOpConversionPattern<ttir::MeanOp, ttnn::MeanOp>,
            ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,
@@ -1710,7 +1718,6 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            MatmulOpConversionPattern,
            Conv2dOpConversionPattern,
            ConvTranspose2dOpConversionPattern,
-           MaxPool2dOpConversionPattern,
            SubtractOpConversionPattern,
            MeshShardOpConversionPattern,
            AllReduceOpConversionPattern,
