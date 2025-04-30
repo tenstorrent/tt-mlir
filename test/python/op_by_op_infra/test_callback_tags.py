@@ -20,18 +20,18 @@ import ttrt.binary
     "default_tags",
     [(False, True), None],
 )
-@pytest.mark.parametrize(
-    "unique_tags",
-    [(True, False), (False, False)],
-)
-def test_callback_tags(default_tags, unique_tags):
+@pytest.mark.parametrize("pre_op_tag", [True, False])
+@pytest.mark.parametrize("post_op_tag", [True, False])
+def test_callback_tags(default_tags, pre_op_tag, post_op_tag):
     def test_simple_callback(in0: Operand, in1: Operand, builder: TTIRBuilder):
         add_1 = builder.add(in0, in1)
         add_2 = builder.add(in0, add_1)
         add_3 = builder.add(add_1, add_2)
         if default_tags:
-            builder.set_default_callback(default_tags)
-        builder.set_operand_callback_kv(add_2, unique_tags)
+            builder.set_default_pre_op_callback_tag(default_tags[0])
+            builder.set_default_post_op_callback_tag(default_tags[1])
+        builder.set_operand_pre_op_callback_tag(add_1, pre_op_tag)
+        builder.set_operand_post_op_callback_tag(add_2, post_op_tag)
         return add_3
 
     module, builder = compile_as_mlir_module(

@@ -140,7 +140,7 @@ class TTIRBuilder:
         self.operand_id_map: Dict[Operand, Location] = {}
 
         # default callback tag
-        self.default_callback_tag = (True, True)
+        self.default_callback_tag = (False, False)
 
         # id to callback map
         self.id_callback_map = {}
@@ -239,8 +239,11 @@ class TTIRBuilder:
             )
         return golden_info
 
-    def set_default_callback(self, tag: Tuple[bool, bool]):
-        self.default_callback_tag = tag
+    def set_default_pre_op_callback_tag(self, tag: bool):
+        self.default_callback_tag = (tag, self.default_callback_tag[1])
+
+    def set_default_post_op_callback_tag(self, tag: bool):
+        self.default_callback_tag = (self.default_callback_tag[0], tag)
 
     def get_callback_map(self) -> Dict:
         callback_info = {}
@@ -255,8 +258,29 @@ class TTIRBuilder:
                 )
         return callback_info
 
-    def set_operand_callback_kv(self, op: Operand, tags: Tuple[bool, bool]):
-        self.id_callback_map[self.operand_id_map[op]] = tags
+    def set_operand_pre_op_callback_tag(self, op: Operand, tag: bool):
+        if self.operand_id_map[op] in self.id_callback_map:
+            self.id_callback_map[self.operand_id_map[op]] = (
+                tag,
+                self.id_callback_map[self.operand_id_map[op]][1],
+            )
+        else:
+            self.id_callback_map[self.operand_id_map[op]] = (
+                tag,
+                self.default_callback_tag[1],
+            )
+
+    def set_operand_post_op_callback_tag(self, op: Operand, tag: bool):
+        if self.operand_id_map[op] in self.id_callback_map:
+            self.id_callback_map[self.operand_id_map[op]] = (
+                self.id_callback_map[self.operand_id_map[op]][0],
+                tag,
+            )
+        else:
+            self.id_callback_map[self.operand_id_map[op]] = (
+                self.default_callback_tag[0],
+                tag,
+            )
 
     def get_operand_id_map(self) -> Dict:
         return self.operand_id_map
