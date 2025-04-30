@@ -334,7 +334,7 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
         debugger(callback_runtime_config, binary, program_context, op_context)
 
     if callback_runtime_config.save_intermediate_tensors:
-        save_intermediates(program_context, op_context)
+        callback_runtime_config.save_intermediates(program_context, op_context)
 
 
 def post_op_get_callback_fn(callback_runtime_config):

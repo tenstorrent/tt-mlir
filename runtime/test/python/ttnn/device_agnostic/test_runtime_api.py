@@ -252,6 +252,7 @@ def test_get_system_desc(runtime, dispatch_core_type, with_device):
 def pre_op_callback(callback_runtime_config, binary, program_context, op_context):
     # Testing apis in pre op callback function
 
+    callback_runtime_config.save_intermediates(program_context, op_context)
     intermeds = callback_runtime_config.intermediates
     in_tensor_ids = ttrt.runtime.get_input_tensor_ids(program_context)
     out_tensor_ids = ttrt.runtime.get_output_tensor_ids(program_context)
@@ -277,6 +278,7 @@ def pre_op_get_callback_fn(callback_runtime_config):
 def post_op_callback(callback_runtime_config, binary, program_context, op_context):
     # Testing apis in post op callback function
 
+    callback_runtime_config.save_intermediates(program_context, op_context)
     intermeds = callback_runtime_config.intermediates
     in_tensor_ids = ttrt.runtime.get_input_tensor_ids(program_context)
     out_tensor_ids = ttrt.runtime.get_output_tensor_ids(program_context)
@@ -323,10 +325,10 @@ def test_callback_apis(
         runtime_inputs_with_layouts = get_to_layout_inputs(
             parent_mesh, runtime_inputs, helper.binary, 0
         )
-
         # Set up pre and post op callback hooks
-        pre_op_callback_runtime_config = CallbackRuntimeConfig(parent_mesh)
-        post_op_callback_runtime_config = CallbackRuntimeConfig(parent_mesh)
+        callback_config = [parent_mesh, "", 0.99, 1e-08, 1e-05, False, True]
+        pre_op_callback_runtime_config = CallbackRuntimeConfig(*callback_config)
+        post_op_callback_runtime_config = CallbackRuntimeConfig(*callback_config)
         callback_env = ttrt.runtime.DebugHooks.get(
             pre_op_get_callback_fn(pre_op_callback_runtime_config),
             post_op_get_callback_fn(post_op_callback_runtime_config),
