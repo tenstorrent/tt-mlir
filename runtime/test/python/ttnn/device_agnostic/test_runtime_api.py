@@ -252,7 +252,6 @@ def test_get_system_desc(runtime, dispatch_core_type, with_device):
 def pre_op_callback(callback_runtime_config, binary, program_context, op_context):
     # Testing apis in pre op callback function
 
-    callback_runtime_config.save_intermediates(program_context, op_context)
     intermeds = callback_runtime_config.intermediates
     in_tensor_ids = ttrt.runtime.get_input_tensor_ids(program_context)
     out_tensor_ids = ttrt.runtime.get_output_tensor_ids(program_context)
@@ -278,7 +277,6 @@ def pre_op_get_callback_fn(callback_runtime_config):
 def post_op_callback(callback_runtime_config, binary, program_context, op_context):
     # Testing apis in post op callback function
 
-    callback_runtime_config.save_intermediates(program_context, op_context)
     intermeds = callback_runtime_config.intermediates
     in_tensor_ids = ttrt.runtime.get_input_tensor_ids(program_context)
     out_tensor_ids = ttrt.runtime.get_output_tensor_ids(program_context)
