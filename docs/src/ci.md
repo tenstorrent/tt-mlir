@@ -76,6 +76,7 @@ Specify the type of test run. Currently supported:
 - __pytest__ - run python tests using pytest
 - __ttrt__ - run tests using ttrt tool
 - __unit__ - run unit tests
+- __builder__ - run builder tests and execute generated flatbuffers iff `run-ttrt` flag is set
 
 #### flags (optional)
 Additional flags may be used when running tests. These are passed to ttrt or pytest as an additional parameter.
