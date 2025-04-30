@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Utils.h"
 
 #include "llvm/Support/MathExtras.h"
@@ -78,8 +79,14 @@ void mlir::tt::ttir::TileMatmulBlockOp::getEffects(
 // DMAOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttir::DMAOp::verify() {
-  MemRefType srcType = getSrc().getType();
-  MemRefType dstType = getDst().getType();
+  if (mlir::isa<RankedTensorType>(getSrc().getType()) ||
+      mlir::isa<RankedTensorType>(getDst().getType())) {
+    // TODO: support tensor DMA
+    return success();
+  }
+
+  MemRefType srcType = getSrcMemRefType();
+  MemRefType dstType = getDstMemRefType();
   if (srcType.getElementType() != dstType.getElementType()) {
     return emitOpError(
         "MemRef operands to DMA must have the same element type");
@@ -107,6 +114,13 @@ void mlir::tt::ttir::TileMatmulBlockOp::getEffects(
 
   if (!getMcastShape().empty() && getMcastStartIndex().empty()) {
     return emitOpError("mcast shape requires mcast start index");
+  }
+
+  //
+  // Skip below verification steps for lowered DMA.
+  //
+  if (isLowered()) {
+    return success();
   }
 
   int64_t srcIndices = getSrcAffineMap() ? getSrcAffineMap()->getNumResults()
@@ -155,6 +169,12 @@ int64_t mlir::tt::ttir::DMAOp::getNumElems() {
   return ttmlir::utils::volume(txShape);
 }
 
+size_t mlir::tt::ttir::DMAOp::getSizeBytes() {
+  auto elementSizeBytes =
+      getElementSizeBytes(getSrcMemRefType().getElementType());
+  return getNumElems() * elementSizeBytes;
+}
+
 void mlir::tt::ttir::DMAOp::getAsmResultNames(
     function_ref<void(Value, StringRef)> setNameFn) {
   setNameFn(getResult(), "tx");
@@ -170,6 +190,64 @@ void mlir::tt::ttir::DMAOp::getEffects(
   effects.emplace_back(mlir::MemoryEffects::Write::get(), &getDstMutable(),
                        0 /*stage*/, true /*effectOnFullRegion*/,
                        mlir::SideEffects::DefaultResource::get());
+}
+
+bool mlir::tt::ttir::DMAOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getSrc();
+}
+
+bool mlir::tt::ttir::DMAOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getDst();
+}
+
+mlir::LogicalResult mlir::tt::ttir::DMAOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options) {
+  Value src = nullptr;
+  if (isSrcRemote()) {
+    auto maybeSrc = mlir::bufferization::getBuffer(rewriter, getSrc(), options);
+    if (failed(maybeSrc)) {
+      return maybeSrc;
+    }
+    src = *maybeSrc;
+  } else {
+    src = getSrc();
+  }
+
+  Value dst = nullptr;
+  if (isDstRemote()) {
+    auto maybeDst = mlir::bufferization::getBuffer(rewriter, getDst(), options);
+    if (failed(maybeDst)) {
+      return maybeDst;
+    }
+    dst = *maybeDst;
+  } else {
+    dst = getDst();
+  }
+
+  ::llvm::SmallVector<mlir::Value> invocationStack;
+  mlir::bufferization::replaceOpWithNewBufferizedOp<mlir::tt::ttir::DMAOp>(
+      rewriter, *this, getResult().getType(), src, getSrcAffineMapAttr(),
+      getSrcIndices(), dst, getDstAffineMapAttr(), getDstIndices(),
+      getOptNumElemsAttr(), getMcastStartIndex(), getMcastShape());
+
+  return mlir::success();
+}
+
+mlir::bufferization::AliasingValueList mlir::tt::ttir::DMAOp::getAliasingValues(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  bufferization::AliasingValueList result;
+  return result;
+}
+
+mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::DMAOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
+  return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
+      .getBufferType(/*isView=*/true);
 }
 
 void mlir::tt::ttir::IterIndexOp::getAsmResultNames(
@@ -196,7 +274,7 @@ void mlir::tt::ttir::CoreIndexOp::getAsmResultNames(
 //===----------------------------------------------------------------------===//
 
 mlir::OpFoldResult mlir::tt::ttir::CoreIndexOp::fold(FoldAdaptor adaptor) {
-  return getDimAttr();
+  return adaptor.getDimAttr();
 }
 
 void mlir::tt::ttir::CoreIndexOp::inferResultRanges(

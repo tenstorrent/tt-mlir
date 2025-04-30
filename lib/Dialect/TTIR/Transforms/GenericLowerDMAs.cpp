@@ -6,6 +6,8 @@
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -248,12 +250,13 @@ public:
 
   LogicalResult matchAndRewrite(DMAOp dma,
                                 PatternRewriter &rewriter) const final {
-    if (dma.isAffine() || dma.isFullyIndexed()) {
+    if (dma.isAffine() || dma.isLowered()) {
       // Lower to affine first.
-      // Or if it's already fully indexed, nothing to do.
+      // Or if it's already fully lowered, nothing to do.
       return failure();
     }
 
+    // Fully index the memrefs.
     SmallVector<Value> srcIndices(dma.getSrcIndices());
     SmallVector<Value> dstIndices(dma.getDstIndices());
     Value zero = rewriter.create<arith::ConstantOp>(
@@ -266,6 +269,18 @@ public:
            static_cast<size_t>(dma.getDstMemRefType().getRank())) {
       dstIndices.push_back(zero);
     }
+
+    DeviceAttr device = lookupDevice(dma);
+    AffineMap srcMemoryMap =
+        getMemoryMap(device, dma.getSrc(), dma.isSrcRemote());
+    AffineMap dstMemoryMap =
+        getMemoryMap(device, dma.getDst(), dma.isDstRemote());
+
+    srcIndices = applyMap(rewriter, dma.getLoc(), srcMemoryMap, srcIndices,
+                          dma.isSrcRemote());
+    dstIndices = applyMap(rewriter, dma.getLoc(), dstMemoryMap, dstIndices,
+                          dma.isDstRemote());
+
     rewriter.replaceOpWithNewOp<ttir::DMAOp>(
         dma, dma.getResult().getType(), dma.getSrc(), nullptr, srcIndices,
         dma.getDst(), nullptr, dstIndices,
@@ -273,6 +288,67 @@ public:
         dma.getMcastShape());
 
     return success();
+  }
+
+  static AffineMap getMemoryMap(DeviceAttr device, Value input, bool isRemote) {
+    if (isRemote) {
+      std::pair<MemRefType, AffineMap> srcUnderlyingMemrefAndView =
+          mlir::tt::ttir::applyViews(input.getDefiningOp());
+      // TODO(#1909) Once we have an allocation pass, we need to lookup the page
+      // size instead of calculating it here.
+      size_t srcPageSize =
+          device.getMemrefSizeBytes(srcUnderlyingMemrefAndView.first,
+                                    /*pageSize=*/0);
+      return device.getMemoryMap(srcUnderlyingMemrefAndView, srcPageSize);
+    } else {
+      MemRefType inputType = mlir::cast<MemRefType>(input.getType());
+      return canonicalStridedMap(device.getContext(), inputType.getShape(),
+                                 inputType.getElementType(),
+                                 inputType.getLayout().getAffineMap());
+    }
+  }
+
+  static SmallVector<Value> applyMap(PatternRewriter &rewriter, Location loc,
+                                     AffineMap map, ValueRange index,
+                                     bool isRemote) {
+    auto affineApply = [&](AffineMap map, ValueRange index) {
+      return rewriter.create<affine::AffineApplyOp>(loc, map, index);
+    };
+
+    if (isRemote) {
+      assert(map.getNumResults() == 4);
+      // Break the map into respective gridY, gridX, offset "single result"
+      // parts. AffineApply only supports single result affine maps.
+      map = map.dropResults(0); // Drop the device index.
+      auto gridY = map.dropResults({1, 2});
+      auto gridX = map.dropResults({0, 2});
+      auto offset = map.dropResults({0, 1});
+      return {affineApply(gridY, index), affineApply(gridX, index),
+              affineApply(offset, index)};
+    } else {
+      assert(map.getNumResults() == 1);
+      return {affineApply(map, index)};
+    }
+  }
+
+  static AffineMap canonicalStridedMap(MLIRContext *context,
+                                       ArrayRef<int64_t> shape,
+                                       Type elementType, AffineMap map) {
+    assert(map.isIdentity() && "Only identity maps are supported for now.");
+    auto tileType = mlir::dyn_cast<TileType>(elementType);
+    int64_t elementSizeBytes = tileType
+                                   ? tileType.getSizeBytes()
+                                   : elementType.getIntOrFloatBitWidth() / 8;
+    int64_t currentStride = elementSizeBytes;
+    int64_t rank = shape.size();
+    mlir::AffineExpr strideExpr = getAffineConstantExpr(0, context);
+    for (int64_t i = rank - 1; i >= 0; i--) {
+      mlir::AffineExpr dim = getAffineDimExpr(i, context);
+      mlir::AffineExpr stride = getAffineConstantExpr(currentStride, context);
+      strideExpr = dim * stride + strideExpr;
+      currentStride *= shape[i];
+    }
+    return mlir::AffineMap::get(shape.size(), 0, strideExpr, context);
   }
 };
 } // namespace
@@ -289,6 +365,7 @@ public:
     patterns.add<TTIRGenericLowerAffineDMAsRewritePattern,
                  TTIRGenericLowerToFullyIndexedDMARewritePattern>(
         &getContext());
+    populateAffineToStdConversionPatterns(patterns);
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
     }

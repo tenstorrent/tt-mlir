@@ -68,6 +68,54 @@ mlir::tt::ttir::detail::verifyGenericParent(mlir::Operation *op) {
                    "TTIR Generic Ops must be inside a generic region");
 }
 
+static mlir::AffineMap reblockViewWorkaround(mlir::MemRefType inputMemref,
+                                             mlir::MemRefType resultMemref) {
+  assert(inputMemref.getRank() == resultMemref.getRank());
+  auto ctx = inputMemref.getContext();
+  int64_t rank = inputMemref.getRank();
+  auto inputLayout =
+      mlir::cast<mlir::tt::DeviceLayoutInterface>(inputMemref.getLayout());
+  auto resultLayout =
+      mlir::cast<mlir::tt::DeviceLayoutInterface>(resultMemref.getLayout());
+  mlir::ArrayRef<int64_t> inputGridShape =
+      inputLayout.getGridShape(inputMemref);
+  mlir::ArrayRef<int64_t> inputShardShape =
+      inputLayout.getShardShape(inputMemref);
+  mlir::ArrayRef<int64_t> resultGridShape =
+      resultLayout.getGridShape(resultMemref);
+  mlir::ArrayRef<int64_t> resultShardShape =
+      resultLayout.getShardShape(resultMemref);
+  mlir::SmallVector<mlir::AffineExpr> mapExprs(rank);
+
+  // Canonicalize.
+  for (size_t i = 0; i < resultGridShape.size(); i++) {
+    auto dG = getAffineDimExpr(i, ctx);
+    mapExprs[i] = dG.floorDiv(resultGridShape[i]);
+  }
+  for (size_t i = 0; i < resultGridShape.size(); i++) {
+    size_t j = i + resultGridShape.size();
+    auto dG = getAffineDimExpr(i, ctx);
+    auto dS = getAffineDimExpr(j, ctx);
+    mapExprs[j] = dG * resultShardShape[i] + dS;
+  }
+  auto resultToCanonical = mlir::AffineMap::get(rank, 0, mapExprs, ctx);
+
+  // Uncanonicalize.
+  for (size_t i = 0; i < inputGridShape.size(); i++) {
+    size_t j = i + inputGridShape.size();
+    auto dS = getAffineDimExpr(j, ctx);
+    mapExprs[i] = dS.floorDiv(inputShardShape[i]);
+  }
+  for (size_t i = 0; i < inputGridShape.size(); i++) {
+    size_t j = i + inputGridShape.size();
+    auto dS = getAffineDimExpr(j, ctx);
+    mapExprs[j] = dS % inputShardShape[i];
+  }
+  auto canonicalToInput = mlir::AffineMap::get(rank, 0, mapExprs, ctx);
+
+  return canonicalToInput.compose(resultToCanonical);
+}
+
 std::pair<mlir::MemRefType, mlir::AffineMap>
 mlir::tt::ttir::applyViews(mlir::Operation *op) {
   auto viewOp = mlir::dyn_cast<ttir::ViewOpInterface>(op);
@@ -82,12 +130,14 @@ mlir::tt::ttir::applyViews(mlir::Operation *op) {
   Value input = viewOp.getInput();
   auto inputMemref = mlir::cast<mlir::MemRefType>(input.getType());
   while (mlir::isa<tt::ViewLayoutAttr>(inputMemref.getLayout())) {
+    assert(false);
     map = inputMemref.getLayout().getAffineMap().compose(map);
     viewOp = mlir::cast<ttir::ViewOpInterface>(input.getDefiningOp());
     input = viewOp.getInput();
     inputMemref = mlir::cast<mlir::MemRefType>(input.getType());
   }
+  auto reblockMap = reblockViewWorkaround(inputMemref, resultMemref);
   assert(mlir::isa<tt::ShardLayoutAttr>(inputMemref.getLayout()) &&
          "Expected ShardLayoutAttr");
-  return std::make_pair(inputMemref, map);
+  return std::make_pair(inputMemref, reblockMap.compose(map));
 }
