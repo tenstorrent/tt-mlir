@@ -223,6 +223,8 @@ inline DataType elementTypeToDataType(Type elementType) {
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h.inc"
 
+namespace mlir::tt {
+
 mlir::AffineMap collapsedLinearAffineMap(
     mlir::MLIRContext *context, llvm::ArrayRef<int64_t> shape,
     llvm::ArrayRef<int64_t> gridShape,
@@ -246,5 +248,13 @@ mlir::MemRefType buildMemRef(mlir::MLIRContext *context,
       mlir::AffineMap::getMultiDimIdentityMap(scalarShardShape.size(), context),
       TAttr::get(context, memorySpace));
 }
+
+inline uint64_t getElementSizeBytes(mlir::Type elementType) {
+  TileType tileType = mlir::dyn_cast<TileType>(elementType);
+  return tileType ? tileType.getSizeBytes()
+                  : elementType.getIntOrFloatBitWidth() / 8;
+}
+
+} // namespace mlir::tt
 
 #endif

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tt/runtime/ttnn/utils.h"
+#include "tt/runtime/detail/common.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/ttnn/debug_apis.h"
 #include "tt/runtime/ttnn/types.h"
@@ -193,21 +194,6 @@ inferLayoutFromTileShape(const ::tt::target::ttnn::TensorRef *tensorRef) {
   return ::ttnn::Layout::TILE;
 }
 
-CoreRangeSet
-toCoreRangeSet(const ::flatbuffers::Vector<const ::tt::target::Dim2dRange *>
-                   *coreRangeSet) {
-  std::set<CoreRange> coreRanges;
-  for (const ::tt::target::Dim2dRange *coreRange : *coreRangeSet) {
-    CoreCoord start(coreRange->loc().x(), coreRange->loc().y());
-    // End is inclusive
-    CoreCoord end(coreRange->loc().x() + coreRange->size().x() - 1,
-                  coreRange->loc().y() + coreRange->size().y() - 1);
-
-    coreRanges.emplace(start, end);
-  }
-  return CoreRangeSet(coreRanges);
-}
-
 CoreCoord toTTNNCoreCoord(const ::tt::target::ttnn::CoreCoord &coreCoord) {
   return CoreCoord(coreCoord.x(), coreCoord.y());
 }
@@ -267,7 +253,7 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
 
     const ::flatbuffers::Vector<const tt::target::Dim2dRange *>
         *targetCoreRangeSet = memcfg->shard_spec()->grid();
-    CoreRangeSet ttnnCoreRangeSet = toCoreRangeSet(targetCoreRangeSet);
+    CoreRangeSet ttnnCoreRangeSet = common::toCoreRangeSet(targetCoreRangeSet);
     metalShardSpec =
         ::tt::tt_metal::ShardSpec(ttnnCoreRangeSet, ttnnShardShape,
                                   ::tt::tt_metal::ShardOrientation::ROW_MAJOR);
