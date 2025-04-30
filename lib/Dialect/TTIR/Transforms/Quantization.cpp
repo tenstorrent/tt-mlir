@@ -57,15 +57,14 @@ getStorageTypeMinMax(IntegerType intType, Location loc) {
 }
 
 // Convert quantized type to use the target integer bit width.
-static Type convertQuantizedType(quant::QuantizedType quantType,
-                                 IntegerType targetIntType, Location loc,
-                                 bool &conversionFailed) {
+static mlir::FailureOr<Type>
+convertQuantizedType(quant::QuantizedType quantType, IntegerType targetIntType,
+                     Location loc) {
   // Use the target integer type's min and max values.
   mlir::FailureOr<std::pair<int64_t, int64_t>> storageTypeMinMax =
       getStorageTypeMinMax(targetIntType, loc);
   if (mlir::failed(storageTypeMinMax)) {
-    conversionFailed = true;
-    return nullptr;
+    return mlir::failure();
   }
   auto [storageTypeMin, storageTypeMax] = *storageTypeMinMax;
 
@@ -76,12 +75,7 @@ static Type convertQuantizedType(quant::QuantizedType quantType,
                    << " is smaller than quantized type of width "
                    << quantType.getStorageType().getIntOrFloatBitWidth()
                    << ". Out of range.";
-    conversionFailed = true;
-    return nullptr;
-  }
-
-  if (conversionFailed) {
-    return nullptr;
+    return mlir::failure();
   }
 
   if (quant::UniformQuantizedType uniformType =
@@ -98,36 +92,38 @@ static Type convertQuantizedType(quant::QuantizedType quantType,
         perAxisType.getScales(), perAxisType.getZeroPoints(),
         perAxisType.getQuantizedDimension(), storageTypeMin, storageTypeMax);
   }
-  llvm_unreachable("Unknown quantized type");
+  return mlir::failure();
 }
 
 class QuantDataTypeConverter : public TypeConverter {
 private:
   IntegerType targetIntType;
   Location loc;
+  bool conversionFailed = false;
 
 public:
-  QuantDataTypeConverter(IntegerType targetIntType, Location loc,
-                         bool &conversionFailed)
+  QuantDataTypeConverter(IntegerType targetIntType, Location loc)
       : targetIntType(targetIntType), loc(loc) {
     addConversion([](Type type) -> Type { return type; });
 
-    addConversion([targetIntType, loc, &conversionFailed](
-                      RankedTensorType type) -> std::optional<Type> {
+    addConversion([this](RankedTensorType type) -> std::optional<Type> {
       Type elementType = type.getElementType();
       auto quantElementType = mlir::dyn_cast<quant::QuantizedType>(elementType);
       if (!quantElementType) {
         return std::nullopt;
       }
-      Type newElementType = convertQuantizedType(
-          quantElementType, targetIntType, loc, conversionFailed);
-      if (!newElementType) {
+      mlir::FailureOr<Type> result = convertQuantizedType(
+          quantElementType, this->targetIntType, this->loc);
+      if (mlir::failed(result)) {
+        this->conversionFailed = true;
         return std::nullopt;
       }
-      return RankedTensorType::get(type.getShape(), newElementType,
+      return RankedTensorType::get(type.getShape(), *result,
                                    type.getEncoding());
     });
   }
+
+  bool hasConversionFailed() const { return conversionFailed; }
 };
 
 struct TTIRQuantDataTypeConversionPass
@@ -151,12 +147,10 @@ struct TTIRQuantDataTypeConversionPass
       return;
     }
     RewritePatternSet patterns(context);
-    bool conversionFailed = false;
-    QuantDataTypeConverter converter(targetIntType, getOperation()->getLoc(),
-                                     conversionFailed);
+    QuantDataTypeConverter converter(targetIntType, getOperation()->getLoc());
     patterns.add<UniformTypeRewriter>(converter, context);
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))) ||
-        conversionFailed) {
+        converter.hasConversionFailed()) {
       signalPassFailure();
       return;
     }
