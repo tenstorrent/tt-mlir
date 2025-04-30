@@ -9,8 +9,10 @@ namespace tt::runtime::debug {
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
 
-Env const &Env::get(bool loadKernelsFromDisk) {
-  static Env config(loadKernelsFromDisk);
+Env const &Env::get(bool dumpKernelsToDisk, bool loadKernelsFromDisk,
+                    bool deviceAddressValidation, bool blockingCQ) {
+  static Env config(dumpKernelsToDisk, loadKernelsFromDisk,
+                    deviceAddressValidation, blockingCQ);
   return config;
 }
 

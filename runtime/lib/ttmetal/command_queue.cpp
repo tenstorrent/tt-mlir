@@ -312,9 +312,8 @@ createKernelConfig(::tt::target::metal::KernelSource const *kernelSource) {
 
     for (auto mode : *unpackToDestModeVec) {
       switch (mode) {
-      case tt::target::metal::UnpackToDestMode::UnpackToDestFp32: {
-        computeConfig.unpack_to_dest_mode.push_back(
-            UnpackToDestMode::UnpackToDestFp32);
+      case tt::target::metal::UnpackToDestMode::Fp32: {
+        computeConfig.unpack_to_dest_mode.push_back(UnpackToDestMode::Fp32);
         break;
       }
       case tt::target::metal::UnpackToDestMode::Default: {

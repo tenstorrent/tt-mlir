@@ -6,9 +6,32 @@ include "ttmlir/Target/TTMetal/types.fbs";
 
 namespace tt.target.metal;
 
+///////////////////////////////
+// TODO(#3127): Commonize TensorRef and types somehow with TTNN
+// These are needed for compatibility with ttrt which inspects this info from the binary
+table MemoryDesc {
+  data_type: DataType;
+}
+
+table LayoutDesc {
+  memory_desc: MemoryDesc;
+}
+
+table TensorDesc {
+  shape: [int];
+  mesh_shape: [int32];
+  layout: LayoutDesc;
+}
+
+table TensorRef {
+  size: uint64;
+  desc: TensorDesc;
+}
+///////////////////////////////
+
 table DeviceProgram {
-  inputs: [TensorRef];
-  outputs: [TensorRef];
+  inputs: [BufferRef];
+  outputs: [BufferRef];
   command_queues: [CommandQueue];
 }
 

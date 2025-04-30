@@ -19,16 +19,32 @@
 
 namespace tt::runtime::ttmetal {
 
-Tensor createTensor(std::shared_ptr<void> data,
-                    std::vector<std::uint32_t> const &shape,
-                    std::vector<std::uint32_t> const &stride,
-                    std::uint32_t itemsize, ::tt::target::DataType dataType);
+using DeviceBuffer = std::shared_ptr<::tt::tt_metal::Buffer>;
+using MetalTensor = std::variant<TensorDesc, DeviceBuffer>;
 
-inline Tensor createTensor(std::shared_ptr<void> data, TensorDesc const &desc) {
-  return createTensor(data, desc.shape, desc.stride, desc.itemsize,
-                      desc.dataType);
+Tensor createBorrowedHostTensor(std::shared_ptr<void> data,
+                                TensorDesc const &desc);
+
+inline Tensor createOwnedHostTensor(void const *data, TensorDesc const &desc) {
+  std::shared_ptr<void> owned = utils::malloc_shared(desc.size());
+  std::memcpy(owned.get(), data, desc.size());
+  return ttmetal::createBorrowedHostTensor(owned, desc);
 }
 
+inline Tensor createOwnedHostTensor(std::shared_ptr<void> data,
+                                    TensorDesc const &desc) {
+  return ttmetal::createOwnedHostTensor(data.get(), desc);
+}
+
+inline Tensor createBorrowedHostTensor(void *data, TensorDesc const &desc) {
+  return ttmetal::createBorrowedHostTensor(utils::unsafe_borrow_shared(data),
+                                           desc);
+}
+
+Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
+                 std::uint32_t inputIndex);
+Tensor toLayout(Tensor tensor, Device device, Layout layout,
+                std::optional<bool> retain);
 bool isTensorAllocated(Tensor tensor);
 tt::target::DataType getTensorDataType(Tensor tensor);
 std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor tensor);
@@ -70,9 +86,17 @@ void wait(Tensor tensor);
 
 void wait(std::vector<Tensor> const &tensors);
 
-Event submit(Device deviceHandle, Binary executableHandle,
-             std::uint32_t programIndex, std::vector<Tensor> const &inputs,
-             std::vector<Tensor> const &outputs);
+std::vector<Tensor> toHost(Tensor tensor, bool untilize);
+
+void memcpy(void *dst, Tensor src);
+
+void memcpy(Tensor dst, Tensor src);
+
+void deallocateTensor(Tensor &tensor, bool force);
+
+std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
+                           std::uint32_t programIndex,
+                           std::vector<Tensor> &inputs);
 
 std::string getOpDebugString(OpContext opContextHandle);
 
@@ -80,103 +104,6 @@ std::string getOpLocInfo(OpContext opContextHandle);
 
 Tensor getOpOutputTensor(OpContext opContextHandle,
                          CallbackContext programContextHandle);
-
-using InputBuffer =
-    std::tuple<std::uint32_t, std::shared_ptr<::tt::tt_metal::Buffer>,
-               std::shared_ptr<::tt::tt_metal::Event>>;
-
-using OutputBuffer =
-    std::tuple<std::uint32_t, std::shared_ptr<::tt::tt_metal::Buffer>>;
-
-std::shared_ptr<::tt::tt_metal::Event>
-executeCommandQueue(::tt::tt_metal::IDevice *device,
-                    ::tt::target::metal::CommandQueue const *cq,
-                    std::size_t cq_id, std::vector<InputBuffer> const &inputs,
-                    std::vector<OutputBuffer> const &outputs);
-
-// Utils
-
-inline CoreRangeSet toCoreRangeSet(
-    ::flatbuffers::Vector<tt::target::Dim2dRange const *> const *coreRangeSet) {
-  std::set<CoreRange> coreRanges;
-  for (::tt::target::Dim2dRange const *coreRange : *coreRangeSet) {
-    CoreCoord start(coreRange->loc().x(), coreRange->loc().y());
-    // End is inclusive
-    CoreCoord end(coreRange->loc().x() + coreRange->size().x() - 1,
-                  coreRange->loc().y() + coreRange->size().y() - 1);
-    coreRanges.emplace(start, end);
-  }
-  return CoreRangeSet(coreRanges);
-}
-
-#pragma clang diagnostic push
-// Needed to construct ShardedBufferConfig
-#pragma clang diagnostic ignored "-Wc++20-designator"
-
-inline std::shared_ptr<::tt::tt_metal::Buffer>
-createBufferFromTensorRef(::tt::tt_metal::IDevice *device,
-                          ::tt::target::metal::TensorRef const *tensorRef) {
-  ::tt::target::metal::TensorDesc const *tensorDesc = tensorRef->desc();
-  ::tt::target::metal::LayoutDesc const *layout = tensorDesc->layout();
-  ::tt::target::metal::MemoryDesc const *memoryDesc = layout->memory_desc();
-  CoreRangeSet coreRangeSet = toCoreRangeSet(layout->core_range_set());
-  auto shardRank = memoryDesc->shape()->size();
-  ::tt::target::Dim2d const *tile_shape = memoryDesc->tile_shape();
-  std::array<uint32_t, 2> shardShape;
-  shardShape[1] = memoryDesc->shape()->Get(shardRank - 1) * tile_shape->x();
-  shardShape[0] = tile_shape->y();
-  for (unsigned i = 0; i < shardRank - 1; ++i) {
-    shardShape[0] *= layout->memory_desc()->shape()->Get(i);
-  }
-  ::tt::tt_metal::ShardSpec shardSpec(coreRangeSet, shardShape);
-  std::array<uint32_t, 2> pageShape = {static_cast<uint32_t>(tile_shape->y()),
-                                       shardShape[1]};
-
-  auto tensorRank = tensorDesc->shape()->size();
-  auto innerDim = tensorDesc->shape()->Get(tensorRank - 1);
-  assert(tensorDesc->shape()->size() >= 2);
-
-  uint32_t outerElements = 1;
-  for (size_t i = 0; i < tensorRank - 1; i++) {
-    outerElements *= tensorDesc->shape()->Get(i);
-  }
-
-  assert(outerElements % pageShape[0] == 0);
-  assert(innerDim % pageShape[1] == 0);
-
-  std::array<uint32_t, 2> tensorShape = {
-      outerElements / pageShape[0],
-      innerDim / pageShape[1],
-  };
-
-  ::tt::tt_metal::ShardSpecBuffer shardSpecBuffer(shardSpec, pageShape,
-                                                  tensorShape);
-  assert(memoryDesc->memory_space() == ::tt::target::MemorySpace::DeviceDRAM ||
-         memoryDesc->memory_space() == ::tt::target::MemorySpace::DeviceL1);
-  ::tt::tt_metal::BufferType bufferType =
-      memoryDesc->memory_space() == ::tt::target::MemorySpace::DeviceDRAM
-          ? ::tt::tt_metal::BufferType::DRAM
-          : ::tt::tt_metal::BufferType::L1;
-
-  tt::target::DataType dataType = memoryDesc->data_type();
-  uint64_t itemSize = ::tt::runtime::utils::dataTypeElementSize(dataType);
-  uint64_t pageSize = pageShape[0] * pageShape[1] * itemSize;
-  uint64_t size = tensorShape[0] * tensorShape[1] * pageSize;
-  auto shardedBufferConfig = ::tt::tt_metal::ShardedBufferConfig{
-      .device = device,
-      .size = size,
-      .page_size = pageSize,
-      .buffer_type = bufferType,
-      .buffer_layout = ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED,
-      .shard_parameters = shardSpecBuffer};
-
-  assert(tensorRef->address());
-  std::shared_ptr<::tt::tt_metal::Buffer> buffer =
-      ::tt::tt_metal::CreateBuffer(shardedBufferConfig, tensorRef->address());
-
-  return buffer;
-}
-#pragma clang diagnostic pop
 
 } // namespace tt::runtime::ttmetal
 
