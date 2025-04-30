@@ -2027,6 +2027,7 @@ public:
         emitter.emit(/* momentum= */ 0.1),
         emitter.emit(srcOp.getWeight()),
         emitter.emit(srcOp.getBias()),
+        emitter.emit(/* output= */ std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 
