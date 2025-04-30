@@ -2,7 +2,7 @@
 
 This page walks you through the steps required to set up tt-mlir. After the project is running, you can do development work, run models, or set up additional projects that build on tt-mlir.
 
-[!NOTE] If you have a build issue, you can file a bug [here](https://github.com/tenstorrent/tt-mlir/issues).
+> [! NOTE] If you have a build issue, you can file a bug [here](https://github.com/tenstorrent/tt-mlir/issues).
 
 ## Prerequisites
 
