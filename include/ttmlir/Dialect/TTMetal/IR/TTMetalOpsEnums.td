@@ -23,13 +23,13 @@ def TTMetal_MathFidelity : I32EnumAttr<"MathFidelity", "TT MathFidelity",
   let cppNamespace = "::mlir::tt::ttmetal";
 }
 
-def TTMetal_UnpackToDestFp32 : I32EnumAttrCase<"UnpackToDestFp32", 0, "unpack_to_dest_fp32">;
-def TTMetal_Default : I32EnumAttrCase<"Default", 1, "default">;
+def TTMetal_UnpackToDestFp32 : I32EnumAttrCase<"Fp32", 0, "fp32">;
+def TTMetal_UnpackToDestDefault : I32EnumAttrCase<"Default", 1, "default">;
 
 def TTMetal_UnpackToDestMode : I32EnumAttr<"UnpackToDestMode", "TT UnpackToDestMode",
                            [
                             TTMetal_UnpackToDestFp32,
-                            TTMetal_Default,
+                            TTMetal_UnpackToDestDefault,
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttmetal";

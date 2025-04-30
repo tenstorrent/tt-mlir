@@ -129,7 +129,7 @@ toFlatbuffer(llvm::ArrayRef<ttmetal::UnpackToDestMode> unpackToDestModes) {
 
   for (auto mode : unpackToDestModes) {
     switch (mode) {
-    case ttmetal::UnpackToDestMode::UnpackToDestFp32:
+    case ttmetal::UnpackToDestMode::Fp32:
       result.push_back(::tt::target::metal::UnpackToDestMode::UnpackToDestFp32);
       break;
     case ttmetal::UnpackToDestMode::Default:

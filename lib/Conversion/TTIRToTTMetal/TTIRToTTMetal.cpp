@@ -22,7 +22,7 @@ public:
   using OpConversionPattern<ttir::GenericOp>::OpConversionPattern;
 
   static KernelArgsAttr evalKernelArgsFromSpec(Builder &builder,
-                                               SymbolTable const &symbolTable,
+                                               const SymbolTable &symbolTable,
                                                SymbolRefAttr kernelSymbol) {
     auto kernelFunc =
         symbolTable.lookup<func::FuncOp>(kernelSymbol.getRootReference());
@@ -45,7 +45,7 @@ public:
   static ArrayAttr
   convertThreadsToKernelConfigs(Builder &builder, ArrayAttr threads,
                                 GridAttr opGrid,
-                                SymbolTable const &symbolTable) {
+                                const SymbolTable &symbolTable) {
     SmallVector<Attribute> kernelConfigs;
     uint32_t nocIndex = 0;
     auto coreRange = builder.getAttr<ttmetal::CoreRangeAttr>(opGrid);

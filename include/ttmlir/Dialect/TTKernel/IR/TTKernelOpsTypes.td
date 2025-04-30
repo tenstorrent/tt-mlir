@@ -137,7 +137,9 @@ def TTKernel_ArgSpecAttr : TTKernel_Attr<"ArgSpec", "arg_spec"> {
 
   let extraClassDeclaration = [{
     static ArgSpecAttr setArgSpec(func::FuncOp func, ArgSpecAttr argSpec);
+    // Returns the appended argument index.
     static size_t appendCompileTimeArg(func::FuncOp func, ArgAttr arg);
+    // Returns the appended argument index.
     static size_t appendRuntimeArg(func::FuncOp func, ArgAttr arg);
   }];
 }

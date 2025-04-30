@@ -38,15 +38,17 @@ def TTMetal_CoreRangeAttr : TTMetal_Attr<"CoreRange", "core_range"> {
       static CoreRangeAttr get(::mlir::MLIRContext *context, ::mlir::tt::GridAttr grid, SmallVector<int64_t> offset = {0, 0})
       {
         assert(grid.getShape().size() == 2 && "Grid shape must be 2D for now");
-        return CoreRangeAttr::get(context, {0, 0}, grid.getShape());
+        return CoreRangeAttr::get(context, offset, grid.getShape());
       }
   }];
 }
 
 def TTMetal_KernelArgAttr : TTMetal_Attr<"KernelArg", "kernel_arg"> {
-  let summary = "TTMetal kernel argument attribute";
+  let summary = "TTMetal kernel argument attribute.";
   let description = [{
-    TTMetal kernel argument attribute
+    Holds a kernel argument binding info, comprised of:
+      - type: the type of the argument to be bound.
+      - operand_index: the index of the operand to the top level enqueue_program to query this argument from.
   }];
 
   let parameters = (ins "ttkernel::ArgType":$type, "size_t":$operand_index);
@@ -54,9 +56,9 @@ def TTMetal_KernelArgAttr : TTMetal_Attr<"KernelArg", "kernel_arg"> {
 }
 
 def TTMetal_KernelArgsAttr : TTMetal_Attr<"KernelArgs", "kernel_args"> {
-  let summary = "TTMetal kernel arguments attribute";
+  let summary = "TTMetal kernel arguments attribute.";
   let description = [{
-    TTMetal kernel arguments attribute
+    Holds two lists of kernel arguments, one for runtime and one for compile time.
   }];
 
   let parameters = (ins OptionalArrayRefParameter<"KernelArgAttr">:$rt_args,
@@ -66,9 +68,9 @@ def TTMetal_KernelArgsAttr : TTMetal_Attr<"KernelArgs", "kernel_args"> {
 
 
 def TTMetal_ComputeConfigAttr: TTMetal_Attr<"ComputeConfig", "compute_config", [TTMetal_KernelConfigInterface]> {
-  let summary = "TT ComputeConfig attribute";
+  let summary = "TTMetal ComputeConfig attribute.";
   let description = [{
-    TT compute_desc attribute
+    Structure for configuring compute kernels.
   }];
   let parameters = (ins "SymbolRefAttr":$kernel_symbol,
                         "CoreRangeAttr":$core_range,
@@ -99,9 +101,9 @@ def TTMetal_ComputeConfigAttr: TTMetal_Attr<"ComputeConfig", "compute_config", [
 }
 
 def TTMetal_NocConfigAttr: TTMetal_Attr<"NocConfig", "noc_config", [TTMetal_KernelConfigInterface]> {
-  let summary = "TT NocConfig attribute";
+  let summary = "TTMetal NocConfig attribute.";
   let description = [{
-    TT noc_config attribute
+    Structure for configuring noc kernels.
   }];
   let parameters = (ins "SymbolRefAttr":$kernel_symbol,
                         "CoreRangeAttr":$core_range,
@@ -114,9 +116,9 @@ def TTMetal_NocConfigAttr: TTMetal_Attr<"NocConfig", "noc_config", [TTMetal_Kern
 }
 
 def TTMetal_EthernetConfigAttr: TTMetal_Attr<"EthernetConfig", "ethernet_config", [TTMetal_KernelConfigInterface]> {
-  let summary = "TT EthernetConfig attribute";
+  let summary = "TTMetal EthernetConfig attribute.";
   let description = [{
-    TT ethernet_config attribute
+    Structure for configuring ethernet kernels.
   }];
   let parameters = (ins "SymbolRefAttr":$kernel_symbol,
                         "CoreRangeAttr":$core_range,

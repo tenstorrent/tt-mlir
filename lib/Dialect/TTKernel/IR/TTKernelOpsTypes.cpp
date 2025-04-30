@@ -24,7 +24,7 @@ ArgSpecAttr mlir::tt::ttkernel::ArgSpecAttr::setArgSpec(func::FuncOp op,
 }
 
 static std::pair<SmallVector<ArgAttr>, SmallVector<ArgAttr>>
-getOrCreateArgSpec(mlir::func::FuncOp op, bool isCompileTime) {
+getOrCreateArgSpec(mlir::func::FuncOp op) {
   SmallVector<ArgAttr> rtArgSpecVector;
   SmallVector<ArgAttr> ctArgSpecVector;
   if (auto argSpec = op->getAttrOfType<ArgSpecAttr>(ArgSpecAttr::name)) {
@@ -35,8 +35,7 @@ getOrCreateArgSpec(mlir::func::FuncOp op, bool isCompileTime) {
 }
 
 static size_t appendArgImpl(func::FuncOp op, ArgAttr arg, bool isCompileTime) {
-  auto [rtArgSpecVector, ctArgSpecVector] =
-      getOrCreateArgSpec(op, isCompileTime);
+  auto [rtArgSpecVector, ctArgSpecVector] = getOrCreateArgSpec(op);
   auto &argSpecVector = isCompileTime ? ctArgSpecVector : rtArgSpecVector;
   size_t nextIndex = argSpecVector.size();
   argSpecVector.push_back(arg);

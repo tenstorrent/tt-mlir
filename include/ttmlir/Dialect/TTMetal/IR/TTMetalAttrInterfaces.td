@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_TTMLIR_DIALECT_TTMETAL_TTMETALATTRINTERFACES_TD
-#define TTMLIR_TTMLIR_DIALECT_TTMETAL_TTMETALATTRINTERFACES_TD
+#ifndef TTMLIR_TTMLIR_DIALECT_TTMETAL_IR_TTMETALATTRINTERFACES_TD
+#define TTMLIR_TTMLIR_DIALECT_TTMETAL_IR_TTMETALATTRINTERFACES_TD
 
 include "mlir/IR/Interfaces.td"
 include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsEnums.td"
@@ -25,12 +25,6 @@ def TTMetal_KernelConfigInterface: AttrInterface<"KernelConfigInterface"> {
     InterfaceMethod<
       "Get the thread type for this KernelConfig",
       "mlir::tt::ttkernel::ThreadType", "getThreadType", (ins)
-    >,
-    InterfaceMethod<
-      "Query the thread type for this KernelConfig",
-      "bool", "isThreadType", (ins "mlir::tt::ttkernel::ThreadType":$threadType),
-      /*methodBody=*/"",
-      /*defaultImplementation=*/"return $_attr.getThreadType() == threadType;"
     >,
     InterfaceMethod<
       "Get the core ranges KernelConfig",
