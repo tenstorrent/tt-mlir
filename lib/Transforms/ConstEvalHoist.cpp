@@ -410,8 +410,9 @@ static void inlineConstEvalFunction(mlir::func::FuncOp funcOp,
   auto &funcBody = funcOp.getBody().front();
   for (auto &op : funcBody) {
     // Skip the terminator operations
-    if (op.hasTrait<mlir::OpTrait::IsTerminator>())
+    if (op.hasTrait<mlir::OpTrait::IsTerminator>()) {
       continue;
+    }
 
     // Clone the operation and update operands using the mapper
     builder.clone(op, valueMapper);
