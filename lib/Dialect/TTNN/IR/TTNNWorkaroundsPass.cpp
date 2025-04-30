@@ -89,15 +89,16 @@ TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(Operation *op) {
 // Factory methods to create a set of workarounds for specific operations
 ///////////////////////////////////////////////////////////////////////////////
 
-// Factory method to create a set of workarounds for max pool 2d operation
-// operands. The max pool 2d operation can accept input in both row-major and
-// tile layout, but the output of the operation is strictly in row-major layout.
-// In order to keep the output consistent with the input, the row-major
-// workaround is applied to both the input and output operands.
-// The input and output operands are expected to use the bf16 data type, so the
-// bf16 workaround is applied to both the input and output operands.
+// Factory method to create a set of workarounds for 2d pooling operations
+// (avg_pool2d and max_pool2d) operands. The 2d pooling operation can accept
+// input in both row-major and tile layout, but the output of the operation is
+// strictly in row-major layout. In order to keep the output consistent with the
+// input, the row-major workaround is applied to both the input and output
+// operands. The input and output operands are expected to use the bf16 data
+// type, so the bf16 workaround is applied to both the input and output
+// operands.
 TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createMaxPool2DOpOperandsWorkarounds() {
+TTNNOperandsWorkaroundsFactory::createPool2DOpOperandsWorkarounds() {
   wa::TTNNOperandWorkarounds rowMajorLayoutBF16Workaround;
   rowMajorLayoutBF16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
   rowMajorLayoutBF16Workaround.tensorDataTypeWorkaround = DataType::BFloat16;

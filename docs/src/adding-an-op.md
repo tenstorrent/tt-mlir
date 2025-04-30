@@ -23,7 +23,7 @@ This guide will cover the following steps:
   - [7. Add runtime support for the Op](#7-add-runtime-support-for-the-op)
     - [`runtime/lib/ttnn/operations/matmul/matmul.cpp`](#runtimelibttnnoperationsmatmulmatmulcpp)
     - [`runtime/lib/ttnn/operations/CMakeLists.txt`](#runtimelibttnnoperationscmakeliststxt)
-    - [`runtime/lib/ttnn/program.cpp`](#runtimelibttnnprogramcpp)
+    - [`runtime/lib/ttnn/program_executor.cpp`](#runtimelibttnnprogramcpp)
   - [8. Add a silicon unit test for the Op](#8-add-a-silicon-unit-test-for-the-op)
     - [`test/ttmlir/Silicon/TTNN/matmul/simple_matmul.mlir`](#testttmlirsiliconttnnmatmulsimple_matmulmlir)
   - [9. Add an EmitC test for the Op](#9-add-an-emitc-test-for-the-op)
@@ -364,7 +364,7 @@ A couple things to note from above:
 - Some operations may belong to a larger set of operations. For example, any eltwise unary operations can
   be added in `runtime/lib/ttnn/operations/eltwise/unary.cpp` directly without needing to create a new file.
 
-If a new file is created for the op, we need to add a new source to `runtime/lib/ttnn/operations/CMakeLists.txt` and a new case to `runtime/lib/ttnn/program.cpp`.
+If a new file is created for the op, we need to add a new source to `runtime/lib/ttnn/operations/CMakeLists.txt` and a new case to `runtime/lib/ttnn/program_executor.cpp`.
 
 To update `runtime/lib/ttnn/operations/CMakeLists.txt`, include the path to the source file in `TTNN_OPS_SRCS`:
 
@@ -373,11 +373,11 @@ To update `runtime/lib/ttnn/operations/CMakeLists.txt`, include the path to the 
 {{#include ../../../runtime/lib/ttnn/operations/CMakeLists.txt:adding_an_op_matmul_runtime_cmake}}
 ```
 
-To update `runtime/lib/ttnn/program.cpp`, add a new case to the `runOperation` method of `ProgramExecutor`:
+To update `runtime/lib/ttnn/program_executor.cpp`, add a new case to the `runOperation` method of `ProgramExecutor`:
 
-#### `runtime/lib/ttnn/program.cpp`
+#### `runtime/lib/ttnn/program_executor.cpp`
 ```cpp
-{{#include ../../../runtime/lib/ttnn/program.cpp:adding_an_op_matmul_runtime_program}}
+{{#include ../../../runtime/lib/ttnn/program_executor.cpp:adding_an_op_matmul_runtime_program}}
 ```
 
 We can test our changes with `ttrt` (don't forget to rebuild `ttrt`):

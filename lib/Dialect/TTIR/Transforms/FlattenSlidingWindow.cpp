@@ -80,13 +80,15 @@ public:
 } // namespace
 
 namespace {
-class ConvertToMaxPool2dFlattenedCompatOpConversionPattern
-    : public OpConversionPattern<ttir::MaxPool2dOp> {
+template <typename Pooling2dOp>
+class Pooling2dFlattenedCompatOpConversionPattern
+    : public OpConversionPattern<Pooling2dOp> {
 public:
-  using OpConversionPattern<ttir::MaxPool2dOp>::OpConversionPattern;
+  using OpConversionPattern<Pooling2dOp>::OpConversionPattern;
+  using Adaptor = typename Pooling2dOp::Adaptor;
 
   LogicalResult
-  matchAndRewrite(ttir::MaxPool2dOp op, OpAdaptor adaptor,
+  matchAndRewrite(Pooling2dOp op, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto inputType = op.getInput().getType();
     auto outputType = op.getResult().getType();
@@ -95,10 +97,10 @@ public:
         op.getInput(), getNHWFlattenedType(inputType), rewriter);
 
     auto flattenedCompatInfoAttr = ttir::FlattenedCompatInfoAttr::get(
-        getContext(), inputType.getDimSize(0), inputType.getDimSize(1),
-        inputType.getDimSize(2));
+        inputType.getContext(), inputType.getDimSize(0),
+        inputType.getDimSize(1), inputType.getDimSize(2));
 
-    auto newPool = ttir::utils::createDPSOp<ttir::MaxPool2dOp>(
+    auto newPool = ttir::utils::createDPSOp<Pooling2dOp>(
         rewriter, op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
         adaptor.getKernelHeight(), adaptor.getKernelWidth(),
         adaptor.getStrideHeight(), adaptor.getStrideWidth(),
@@ -128,7 +130,8 @@ public:
     typeConverter.addConversion([](Type type) { return type; });
     conversionPatterns
         .add<ConvertToFlattenedConv2dPattern,
-             ConvertToMaxPool2dFlattenedCompatOpConversionPattern>(
+             Pooling2dFlattenedCompatOpConversionPattern<ttir::MaxPool2dOp>,
+             Pooling2dFlattenedCompatOpConversionPattern<ttir::AvgPool2dOp>>(
             typeConverter, &getContext());
     FrozenRewritePatternSet conversionPatternSet(std::move(conversionPatterns));
 
@@ -140,6 +143,9 @@ public:
       return op.getFlattenedCompatInfo() != nullptr;
     });
     target.addDynamicallyLegalOp<ttir::MaxPool2dOp>([&](ttir::MaxPool2dOp op) {
+      return op.getFlattenedCompatInfo() != nullptr;
+    });
+    target.addDynamicallyLegalOp<ttir::AvgPool2dOp>([&](ttir::AvgPool2dOp op) {
       return op.getFlattenedCompatInfo() != nullptr;
     });
 
