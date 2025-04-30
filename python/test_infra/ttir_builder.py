@@ -694,9 +694,7 @@ class TTIRBuilder:
     # TTIR top level named ops
     # class TTIR_ElementwiseTernaryOp
 
-    def where(
-        self, in0: Operand, in1: Operand, in2: Operand, operandSegmentSizes=List[int]
-    ) -> OpView:
+    def where(self, in0: Operand, in1: Operand, in2: Operand) -> OpView:
         return self.op_proxy(
             torch.where,
             ttir.WhereOp,
