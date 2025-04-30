@@ -343,7 +343,7 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
   mlir::Type inputElementType = inputType.getElementType();
   TTNNOperandWorkarounds typeWorkaround = TTNNOperandWorkarounds();
   if(predicateElementType.isInteger() || inputElementType.isInteger()) {
-    typeWorkaround = TTNNOperandWorkarounds(DataType::BFLOAT16);
+    typeWorkaround = TTNNOperandWorkarounds(DataType::BFloat16);
   } else {
     if (predicateElementType != inputElementType) {
       typeWorkaround =
