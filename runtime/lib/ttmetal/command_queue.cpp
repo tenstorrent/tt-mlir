@@ -169,7 +169,7 @@ kernelSourceTypeString(::tt::target::metal::KernelSource const *kernelSource) {
     }
     }
   }
-  case ::tt::target::metal::KernelConfig::TensixConfig: {
+  case ::tt::target::metal::KernelConfig::ComputeConfig: {
     return "tensix";
   }
   }
@@ -280,9 +280,9 @@ createKernelConfig(::tt::target::metal::KernelSource const *kernelSource) {
     return ethernetConfig;
   }
 
-  case ::tt::target::metal::KernelConfig::TensixConfig: {
+  case ::tt::target::metal::KernelConfig::ComputeConfig: {
     ::tt::tt_metal::ComputeConfig computeConfig;
-    switch (kernelSource->config_as_TensixConfig()->math_fidelity()) {
+    switch (kernelSource->config_as_ComputeConfig()->math_fidelity()) {
     case tt::target::MathFidelity::HiFi4: {
       computeConfig.math_fidelity = MathFidelity::HiFi4;
       break;
@@ -302,12 +302,12 @@ createKernelConfig(::tt::target::metal::KernelSource const *kernelSource) {
     }
 
     computeConfig.fp32_dest_acc_en =
-        kernelSource->config_as_TensixConfig()->fp32_dest_acc_en();
+        kernelSource->config_as_ComputeConfig()->fp32_dest_acc_en();
     computeConfig.math_approx_mode =
-        kernelSource->config_as_TensixConfig()->math_approx_mode();
+        kernelSource->config_as_ComputeConfig()->math_approx_mode();
 
     auto const *unpackToDestModeVec =
-        kernelSource->config_as_TensixConfig()->unpack_to_dest_mode();
+        kernelSource->config_as_ComputeConfig()->unpack_to_dest_mode();
     computeConfig.unpack_to_dest_mode.reserve(unpackToDestModeVec->size());
 
     for (auto mode : *unpackToDestModeVec) {
