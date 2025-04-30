@@ -11,28 +11,27 @@ namespace mlir::tt::ttnn {
 
 struct OpConfig {
   // Desired output layout for the op.
-  //
   TTNNLayoutAttr outputLayout;
 
-  // Op specific configuration. E.g. Conv2dConfigAttr for Conv2dOp.
-  //
-  Attribute config;
+  // E.g. Conv2dConfigAttr for Conv2dOp.
+  Attribute opSpecificAttr;
 
   OpConfig() = default;
   OpConfig(TTNNLayoutAttr outputLayout) : outputLayout(outputLayout) {}
-  OpConfig(TTNNLayoutAttr outputLayout, Attribute config)
-      : outputLayout(outputLayout), config(config) {}
+  OpConfig(TTNNLayoutAttr outputLayout, Attribute opSpecificAttr)
+      : outputLayout(outputLayout), opSpecificAttr(opSpecificAttr) {}
 
   bool operator==(const OpConfig &other) const {
-    return outputLayout == other.outputLayout && config == other.config;
+    return outputLayout == other.outputLayout &&
+           opSpecificAttr == other.opSpecificAttr;
   }
 
   void dump() const {
     if (outputLayout) {
       outputLayout.dump();
     }
-    if (config) {
-      config.dump();
+    if (opSpecificAttr) {
+      opSpecificAttr.dump();
     }
   }
 };
