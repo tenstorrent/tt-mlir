@@ -143,7 +143,7 @@ private:
     output.bufferType = outputMemoryConfig.getBufferType().getValue();
 
     input.layoutEnum = inputLayoutAttr.getLayout();
-    output.layoutEnum = op.getLayout();
+    output.layoutEnum = outputLayoutAttr.getLayout();
 
     input.dataType = inputLayoutAttr.getDataType();
     assert(op.getDtype().has_value());
