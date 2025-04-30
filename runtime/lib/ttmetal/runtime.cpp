@@ -410,11 +410,69 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   return "";
 }
 
-Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle) {
+std::vector<std::uint32_t>
+getInputTensorIds(CallbackContext programContextHandle) {
+  LOG_WARNING("getInputTensorIds not implemented for metal runtime");
+  return {};
+}
+
+std::vector<std::uint32_t>
+getOutputTensorIds(CallbackContext programContextHandle) {
+  LOG_WARNING("getOutputTensorIds not implemented for metal runtime");
+  return {};
+}
+
+std::vector<::tt::runtime::Tensor>
+getInputTensors(CallbackContext programContextHandle) {
+  LOG_WARNING("getInputTensors not implemented for metal runtime");
+  return {};
+}
+
+std::vector<::tt::runtime::Tensor>
+getOutputTensors(CallbackContext programContextHandle) {
+  LOG_WARNING("getOutputTensors not implemented for metal runtime");
+  return {};
+}
+
+std::vector<std::uint32_t>
+getIntermediateInputTensorIds(OpContext opContextHandle) {
+  LOG_WARNING(
+      "getIntermediateInputTensorIds not implemented for metal runtime");
+  return {};
+}
+
+std::uint32_t getIntermediateOutputTensorId(OpContext opContextHandle) {
+  LOG_WARNING(
+      "getIntermediateOutputTensorId not implemented for metal runtime");
+  return 0;
+}
+
+std::vector<Tensor>
+getIntermediateInputTensors(OpContext opContextHandle,
+                            CallbackContext programContextHandle) {
   // Not implemented
-  LOG_WARNING("obtaining op output tensor for metal runtime not implemented");
+  LOG_WARNING("obtaining op input tensors for metal runtime not implemented");
+  std::vector<Tensor> results;
+  results.push_back(createNullTensor());
+  return results;
+}
+
+Tensor getIntermediateOutputTensor(OpContext opContextHandle,
+                                   CallbackContext programContextHandle) {
+  LOG_WARNING("getIntermediateOutputTensor not implemented for metal runtime");
   return createNullTensor();
+}
+
+Tensor getTensor(CallbackContext programContextHandle,
+                 std::uint32_t global_id) {
+  LOG_WARNING("getTensor not implemented for metal runtime");
+  return createNullTensor();
+}
+
+bool isTensorLive(CallbackContext programContextHandle,
+                  std::uint32_t global_id) {
+  LOG_WARNING("isTensorLive not implemented for metal runtime");
+  return false;
 }
 
 std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor tensor) {

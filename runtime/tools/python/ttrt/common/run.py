@@ -235,6 +235,13 @@ class Run:
             choices=None,
             help="flatbuffer binary file",
         )
+        Run.register_arg(
+            name="--save-intermediate-tensors",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="Save all intermediate tensors produced by runtime.",
+        )
 
     def __init__(self, args={}, logger=None, artifacts=None):
         for name, attributes in Run.registered_args.items():
@@ -470,6 +477,7 @@ class Run:
                         self["--atol"],
                         self["--rtol"],
                         self["--save-golden-tensors"],
+                        self["--save-intermediate-tensors"],
                         self.logging,
                         not self["--disable-golden"],
                         self["--memory"],
@@ -482,6 +490,7 @@ class Run:
                         self["--atol"],
                         self["--rtol"],
                         self["--save-golden-tensors"],
+                        self["--save-intermediate-tensors"],
                         self.logging,
                         not self["--disable-golden"],
                         self["--memory"],

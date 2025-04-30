@@ -268,21 +268,94 @@ PYBIND11_MODULE(_C, m) {
         ::tt::runtime::wait(tensors);
       },
       py::arg("tensors"));
+  m.def("get_op_debug_str", &tt::runtime::getOpDebugString,
+        "Get the debug string of the op");
+  m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,
+        "Get the location information for an op.");
+  m.def("get_input_tensor_ids", &tt::runtime::getInputTensorIds,
+        "Get the input tensor ids.");
+  m.def("get_output_tensor_ids", &tt::runtime::getOutputTensorIds,
+        "Get the output tensor ids.");
   m.def(
-      "get_op_output_tensor",
+      "get_input_tensors",
+      [](tt::runtime::CallbackContext &programContextHandle) {
+        std::vector<tt::runtime::Tensor> tensors =
+            tt::runtime::getInputTensors(programContextHandle);
+        std::vector<std::optional<tt::runtime::Tensor>> results;
+        for (tt::runtime::Tensor tensor : tensors) {
+          std::optional<tt::runtime::Tensor> result =
+              tensor.handle.get() == nullptr
+                  ? std::nullopt
+                  : std::optional<tt::runtime::Tensor>(tensor);
+          results.push_back(result);
+        }
+        return results;
+      },
+      "Get all live input tensors.");
+  m.def(
+      "get_output_tensors",
+      [](tt::runtime::CallbackContext &programContextHandle) {
+        std::vector<tt::runtime::Tensor> tensors =
+            tt::runtime::getOutputTensors(programContextHandle);
+        std::vector<std::optional<tt::runtime::Tensor>> results;
+        for (tt::runtime::Tensor tensor : tensors) {
+          std::optional<tt::runtime::Tensor> result =
+              tensor.handle.get() == nullptr
+                  ? std::nullopt
+                  : std::optional<tt::runtime::Tensor>(tensor);
+          results.push_back(result);
+        }
+        return results;
+      },
+      "Get all live final output tensors");
+  m.def("get_intermediate_input_tensor_ids",
+        &tt::runtime::getIntermediateInputTensorIds,
+        "Get the intermediate input tensor ids of an op.");
+  m.def("get_intermediate_output_tensor_id",
+        &tt::runtime::getIntermediateOutputTensorId,
+        "Get the intermediate output tensor id of an op.");
+  m.def(
+      "get_intermediate_input_tensors",
       [](tt::runtime::OpContext &opContextHandle,
          tt::runtime::CallbackContext &programContextHandle) {
-        tt::runtime::Tensor tensor = tt::runtime::getOpOutputTensor(
+        std::vector<tt::runtime::Tensor> tensors =
+            tt::runtime::getIntermediateInputTensors(opContextHandle,
+                                                     programContextHandle);
+        std::vector<std::optional<tt::runtime::Tensor>> results;
+        for (tt::runtime::Tensor tensor : tensors) {
+          std::optional<tt::runtime::Tensor> result =
+              tensor.handle.get() == nullptr
+                  ? std::nullopt
+                  : std::optional<tt::runtime::Tensor>(tensor);
+          results.push_back(result);
+        }
+        return results;
+      },
+      "Get the intermediate input tensors of an op.");
+  m.def(
+      "get_intermediate_output_tensor",
+      [](tt::runtime::OpContext &opContextHandle,
+         tt::runtime::CallbackContext &programContextHandle) {
+        tt::runtime::Tensor tensor = tt::runtime::getIntermediateOutputTensor(
             opContextHandle, programContextHandle);
         return tensor.handle.get() == nullptr
                    ? std::nullopt
                    : std::optional<tt::runtime::Tensor>(tensor);
       },
-      "Get the output tensor of the op");
-  m.def("get_op_debug_str", &tt::runtime::getOpDebugString,
-        "Get the debug string of the op");
-  m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,
-        "Get the location info of the op");
+      "Get the intermediate output tensor of an op");
+  m.def(
+      "get_tensor",
+      [](tt::runtime::CallbackContext &programContextHandle,
+         std::uint32_t global_id) {
+        tt::runtime::Tensor tensor =
+            tt::runtime::getTensor(programContextHandle, global_id);
+        return tensor.handle.get() == nullptr
+                   ? std::nullopt
+                   : std::optional<tt::runtime::Tensor>(tensor);
+      },
+      "Get a tensor by its ID");
+  m.def("is_tensor_live", &tt::runtime::isTensorLive,
+        "Check if a tensor is live.");
   m.def(
       "memcpy",
       [](std::uintptr_t dst, ::tt::runtime::Tensor src) {

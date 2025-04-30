@@ -163,12 +163,22 @@ public:
                               const ::ttnn::Tensor &ttnnTensor,
                               bool retain = false);
 
+  std::vector<::tt::runtime::Tensor> gatherInputTensors();
+
   std::vector<::tt::runtime::Tensor> gatherOutputTensors();
 
   TensorPtrMapIterator erase(const ::tt::target::ttnn::TensorRef *tensorRef);
 
   bool contains(const ::tt::target::ttnn::TensorRef *tensorRef) const {
     return liveTensors.contains(tensorRef->global_id());
+  }
+
+  bool containsId(std::uint32_t global_id) {
+    return liveTensors.contains(global_id);
+  }
+
+  bool containsId(std::uint32_t global_id) const {
+    return liveTensors.contains(global_id);
   }
 
   const std::vector<std::uint32_t> &getProgramInputIds() const {
@@ -179,14 +189,14 @@ public:
     return programOutputIds;
   }
 
+  const ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId) const;
+  ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId);
+
 private:
   std::vector<std::uint32_t> programInputIds;
   std::vector<std::uint32_t> programOutputIds;
   TensorMap intermedTensors;
   TensorPtrMap liveTensors;
-
-  const ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId) const;
-  ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId);
 };
 
 class ProgramContext {
