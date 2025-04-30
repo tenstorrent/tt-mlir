@@ -506,7 +506,7 @@ def TTIR_IterIndexOp : TTIR_IndexOp<"iter_index"> {
     }];
 }
 
-def TTIR_CoreIndexOp : TTIR_IndexOp<"core_index", [ConstantLike]> {
+def TTIR_CoreIndexOp : TTIR_IndexOp<"core_index"> {
     let summary = "Core Index op.";
     let description = [{
       Return the index of this core's coordinate inside the generic op's grid dimension.

@@ -196,7 +196,7 @@ void mlir::tt::ttir::CoreIndexOp::getAsmResultNames(
 //===----------------------------------------------------------------------===//
 
 mlir::OpFoldResult mlir::tt::ttir::CoreIndexOp::fold(FoldAdaptor adaptor) {
-  return getDimAttr();
+  return adaptor.getDimAttr();
 }
 
 void mlir::tt::ttir::CoreIndexOp::inferResultRanges(
