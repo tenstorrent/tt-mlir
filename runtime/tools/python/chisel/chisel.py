@@ -29,6 +29,7 @@ from ttrt.runtime import (
     get_op_input_tensors,
     get_op_output_tensor,
     get_op_debug_str,
+    DataType,
 )
 
 logging.basicConfig(level=logging.DEBUG)
@@ -84,6 +85,8 @@ class ChiselContext:
 
         self.pcc_data = []
 
+        self.should_skip = set()
+
     def generate_inputs(self):
         mlir_inputs = self.ttir_module.body.operations[0].type.inputs
         arg_attrs = self.ttir_module.body.operations[0].arg_attrs
@@ -100,10 +103,7 @@ class ChiselContext:
             shape = input.shape
             name = f"%arg{i}"
             # Check it dtype is int
-            if dtype in [torch.bool, torch.int8, torch.int16, torch.int32, torch.int64]:
-                tensor = torch.ones(shape, dtype=dtype)
-            else:
-                tensor = torch.randn(shape, dtype=dtype)
+            tensor = torch.ones(shape, dtype=dtype) * (i+1)
             self.tensor_inputs[name] = tensor
         self.ttir_executor.tensor_pool.update(self.tensor_inputs)
 
@@ -159,9 +159,14 @@ class ChiselContext:
                 op_input: TensorValue = self.current_ttnn_op.inputs[i]
                 op_input.tensor_ref = tensor_in
                 input_name = op_input.name
-                if input_name not in self.tensor_inputs:
+                if input_name not in self.tensor_inputs and input_name not in self.should_skip:
                     continue
-                input_tensor = self.tensor_inputs[input_name]
+                if input_name in self.tensor_inputs:
+                    input_tensor = self.tensor_inputs[input_name]
+                if input_name in self.should_skip:
+                    # print(self.should_skip)
+                    # import pdb; pdb.set_trace()
+                    input_tensor = self.ttir_executor.tensor_pool[self.validator.ttnn2ttir_tensor[input_name]]
                 if op_input.status != TensorStatus.NOT_INITIALIZED:
                     continue
                 logger.debug(
@@ -204,10 +209,16 @@ class ChiselContext:
                 logger.debug(f"***RUNNING TTIR*** {group.ttir}")
                 for op in group.ttir:
                     self.ttir_manager.populate_op(op)
-                    self.ttir_executor.execute_op(op)
+                    self.ttir_executor.execute_op(op, programContext)
                 group.computed_ttir = True
             self.validator.validate(self.current_ttnn_op, target_group)
             self.validator.export_csv("pcc_data.csv")
+
+            if self.current_ttnn_op.name == "ttnn.add":
+                # check for dtype of the output tensor
+                if  tensor_out.tensor.get_dtype() in [DataType.Int32]:
+                    self.should_skip.add(self.current_ttnn_op.outputs[0].name)
+
             self.ttnn_op_idx += 1
             return tensor_out
 

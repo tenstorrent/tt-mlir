@@ -24,6 +24,8 @@ class Validator:
         self.pcc_data = {}
         self._first_export = True
         self._exported_count = 0
+        self.ttir2ttnn_map = {}
+        self.ttnn2ttir_tensor = {}
 
     def validate(self, ttnn_op, op_group, intermediate=False):
         if op_group.line_no not in self.pcc_data:
@@ -102,6 +104,9 @@ class Validator:
             abs_err = compute_abs_err(last_ttir_result, last_ttnn_result)
             if pcc is None:
                 continue
+            # import pdb; pdb.set_trace()
+            self.ttir2ttnn_map[str(op.ir_op.result.get_name())] = str(ttnn_op.ir_op.result.get_name())
+            self.ttnn2ttir_tensor[str(ttnn_op.ir_op.result.get_name())] = str(op.ir_op.result.get_name())
             pccs.append(
                 ValidatorInfo(
                     ttir_op=str(op.ir_op),
@@ -115,6 +120,8 @@ class Validator:
             max_pcc = max(max_pcc, pcc)
             min_abs_err = min(min_abs_err, abs_err)
 
+        self.ttir2ttnn_map[str(op.ir_op.result.get_name())] = str(ttnn_op.ir_op.result.get_name())
+        self.ttnn2ttir_tensor[str(ttnn_op.ir_op.result.get_name())] = str(op.ir_op.result.get_name())
         validator_info = ValidatorInfo(
             ttir_op=str(op.ir_op),
             ttnn_op=str(ttnn_op.ir_op),

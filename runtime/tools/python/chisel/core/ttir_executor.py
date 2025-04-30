@@ -9,7 +9,7 @@ class TTIRExecutor:
     def __init__(self):
         self.tensor_pool = {}
 
-    def execute_op(self, op):
+    def execute_op(self, op, programContext):
         pprint(f"Executing op: {op.name}")
 
         if op.name not in ttir_to_torch_mapping:
@@ -39,7 +39,7 @@ class TTIRExecutor:
                 continue
             tensor_name = getattr(op.ir_op, attr_name).get_name()
             if len(op.outputs) > 0:
-                op.outputs[0].set_cpu_data(op_result)
+                op.outputs[0].set_cpu_data(op_result, programContext)
                 pprint(
                     f"Output shape: {tensor_name} = {op_result.shape if op_result is not None else None}"
                 )
