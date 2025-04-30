@@ -8,6 +8,9 @@
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/Utils.h"
 
+#define TTMLIR_ENABLE_OPMODEL
+#include "../lib/OpModel/TTNN/SingletonDeviceContext.h"
+
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNPREPARECONV2DWEIGHTS
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
@@ -64,6 +67,8 @@ public:
         conv2dOp.getWeightMutable().assign(prepareConv2dWeightsOp);
       });
     });
+
+    mlir::tt::op_model::ttnn::SingletonDeviceContext::closeInstance();
   }
 
 private:
