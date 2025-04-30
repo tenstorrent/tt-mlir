@@ -47,6 +47,7 @@
 #include "operations/layout/typecast.h"
 #include "operations/matmul/matmul.h"
 #include "operations/moreh/moreh_cumsum.h"
+#include "operations/normalization/batch_norm.h"
 #include "operations/normalization/softmax.h"
 #include "operations/pool/pool2d.h"
 #include "operations/pool/upsample.h"
@@ -326,6 +327,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::LoadCachedOp: {
     return operations::cache::run(op->type_as_LoadCachedOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::BatchNormOp: {
+    return operations::batch_norm::run(op->type_as_BatchNormOp(), getContext());
   }
   default: {
     LOG_FATAL("Unsupported operation type: ",

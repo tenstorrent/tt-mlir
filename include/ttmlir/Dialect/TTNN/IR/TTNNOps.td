@@ -1442,6 +1442,25 @@ def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d",
 
     let hasVerifier = 1;
 }
+def TTNN_BatchNormOp : TTNN_Op<"batch_norm"> {
+    let summary = "Batch normalization op.";
+    let description = [{
+      Batch normalization operation over each channel on input tensor.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$running_mean,
+                         AnyRankedTensor:$running_var,
+                         AnyRankedTensor:$weight,
+                         AnyRankedTensor:$bias,
+                         BoolAttr:$training,
+                         F32Attr:$epsilon,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
 
 def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar", [HasMemoryConfigTrait,
       DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]

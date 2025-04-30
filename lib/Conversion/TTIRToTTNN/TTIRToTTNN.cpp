@@ -894,6 +894,38 @@ public:
 };
 } // namespace
 
+namespace {
+class BatchNormOpConversionPattern
+    : public OpConversionPattern<ttir::BatchNormOp> {
+public:
+  using OpConversionPattern<ttir::BatchNormOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::BatchNormOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Check if the operand is a 4-dimensional tensor
+    if (mlir::cast<RankedTensorType>(adaptor.getOperand().getType())
+            .getRank() != 4) {
+      return rewriter.notifyMatchFailure(
+          op, "Operand must be a 4-dimensional tensor");
+    }
+
+    // We only support exluded_dimension=1 for ttnn::batch_norm
+    if (adaptor.getDimension() != 1) {
+      return rewriter.notifyMatchFailure(op, "We can only exclude dimension 1");
+    }
+
+    rewriter.replaceOpWithNewOp<ttnn::BatchNormOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getOperand(), adaptor.getMean(), adaptor.getVariance(),
+        adaptor.getScale(), adaptor.getOffset(),
+        /* training= */ adaptor.getTraining(), adaptor.getEpsilon(),
+        /*memoryConfig*/ nullptr);
+    return success();
+  }
+};
+} // namespace
+
 // ANCHOR: adding_an_op_matmul_op_rewriter
 namespace {
 class MatmulOpConversionPattern : public OpConversionPattern<ttir::MatmulOp> {
@@ -1705,6 +1737,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            UnsqueezeOpConversionPattern,
            ConstantOpConversionPattern,
            LinearOpConversionPattern,
+           BatchNormOpConversionPattern,
            MatmulOpConversionPattern,
            Conv2dOpConversionPattern,
            ConvTranspose2dOpConversionPattern,
