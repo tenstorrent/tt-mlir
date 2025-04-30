@@ -42,12 +42,12 @@ torch_dtype_mapping = {
 class TensorValue:
     def __init__(self, name, tensor_ref=None):
         self.name = name
-
         self.tensor_ref = tensor_ref
         self.current_data: Optional[np.ndarray] = None
         self._tt_data: Optional[np.ndarray] = None
         self._cpu_data: Optional[torch.Tensor] = None
         self.status = TensorStatus.NOT_INITIALIZED
+        self.should_skip_tt_data = False
 
     def set_device_data(self, data: np.ndarray, program_context):
         # TODO: handle bfloat16
@@ -104,14 +104,28 @@ class TensorValue:
             self.status = TensorStatus.TT_SYNCED
         return self._tt_data
 
-    def set_cpu_data(self, data: torch.Tensor):
+    def set_cpu_data(self, data: torch.Tensor, program_context):
         self.current_data = data
         self._cpu_data = data
         self.status = TensorStatus.CPU_OVERWRITTEN
+        # import pdb; pdb.set_trace()
+        if self.should_skip_tt_data:
+            self.skip_tt_data(program_context)
 
     @property
     def cpu_data(self):
         return self._cpu_data
+
+    def skip_tt_data(self, program_context):
+        # check if there is cpu data
+        if self._cpu_data is None:
+            print("No cpu data found for tensor")
+            # import pdb; pdb.set_trace()
+            self.should_skip_tt_data = True
+            return
+
+        self.set_device_data(self._cpu_data, program_context)
+
 
     def __repr__(self) -> str:
         return f"TensorValue({self.name=})"
