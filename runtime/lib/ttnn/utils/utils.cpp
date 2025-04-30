@@ -261,8 +261,6 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
 
     const ::flatbuffers::Vector<const tt::target::Dim2dRange *>
         *targetCoreRangeSet = memcfg->shard_spec()->grid();
-    LOG_ASSERT(targetCoreRangeSet->size() == 1,
-               "Currently only single core range/grid is supported");
     CoreRangeSet ttnnCoreRangeSet = toCoreRangeSet(targetCoreRangeSet);
     metalShardSpec =
         ::tt::tt_metal::ShardSpec(ttnnCoreRangeSet, ttnnShardShape,

@@ -12,6 +12,8 @@
 
 #include "ttmlir/Dialect/TT/IR/TTOpsEnums.h.inc"
 
+#include <numeric>
+
 namespace mlir::tt {
 struct PhysGridResultIdx {
   enum : int64_t {
@@ -212,6 +214,8 @@ inline DataType elementTypeToDataType(Type elementType) {
   llvm_unreachable("Unsupported element type.");
 }
 } // namespace mlir::tt
+
+#include "ttmlir/Dialect/TT/IR/TTAttrInterfaces.h.inc"
 
 #define GET_ATTRDEF_CLASSES
 #include "ttmlir/Dialect/TT/IR/TTOpsAttrDefs.h.inc"

@@ -436,7 +436,7 @@ def TTIRFlattenSlidingWindow: Pass<"ttir-flatten-sliding-window", "::mlir::Modul
   let summary = "Flatten sliding window ops.";
   let description = [{
     This is a compatibility pass for converting to the TTNN dialect.
-    This pass walks through the graph and flattens sliding window ops (ttir.conv2d, ttir.max_pool2d).
+    This pass walks through the graph and flattens sliding window ops (ttir.conv2d, ttir.max_pool2d, ttir.avg_pool2d).
 
     Example:
       Before:

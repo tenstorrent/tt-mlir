@@ -178,11 +178,11 @@ TEST_F(OpModelBase, SqrtOpInterface) {
   auto input = createEmptyTensor(tensorShape);
   auto outputType = createRankedTensorType(tensorShape);
 
-  auto relu = builder.create<SqrtOp>(builder.getUnknownLoc(), outputType,
+  auto sqrt = builder.create<SqrtOp>(builder.getUnknownLoc(), outputType,
                                      ::mlir::ValueRange{input});
 
   // test SqrtOp interface
-  auto constraintsExp = getOpConstraints(relu.getOperation());
+  auto constraintsExp = getOpConstraints(sqrt.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
@@ -194,7 +194,38 @@ TEST_F(OpModelBase, SqrtOpInterface) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
-  auto runtimeExp = getOpRuntime(relu.getOperation());
+  auto runtimeExp = getOpRuntime(sqrt.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, SigmoidOpInterface) {
+  // create SigmoidOp
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+
+  auto input = createEmptyTensor(tensorShape);
+  auto outputType = createRankedTensorType(tensorShape);
+
+  auto sigmoid = builder.create<SigmoidOp>(builder.getUnknownLoc(), outputType,
+                                           ::mlir::ValueRange{input});
+
+  // test SigmoidOp interface
+  auto constraintsExp = getOpConstraints(sigmoid.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 8192);
+    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(outputSize, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(sigmoid.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {

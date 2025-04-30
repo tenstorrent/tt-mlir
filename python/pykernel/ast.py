@@ -10,8 +10,6 @@ from ttmlir.ir import *
 from ttmlir.dialects import tt, ttkernel, func, scf, arith, memref, emitc
 from ttmlir.passes import ttkernel_to_cpp, pykernel_compile_pipeline
 
-# ttmlir-translate --ttkernel-to-cpp-noc
-
 
 def get_supported_nodes():
     return [
@@ -109,7 +107,8 @@ class TTKernelCompiler(ast.NodeVisitor):
         "get_interleaved_addr_gen_fast": ttkernel.get_interleaved_addr_gen_fast,
     }
 
-    def __init__(self, name, *args, **kwargs):
+    def __init__(self, name, kernel_type=None, *args, **kwargs):
+        assert kernel_type in [None, "noc", "compute"], "Invalid kernel type"
         self.name = name
         self.ctx = Context()
         self.cursor = Location.unknown(self.ctx)
@@ -118,6 +117,7 @@ class TTKernelCompiler(ast.NodeVisitor):
         self.func_entry = None
         self.symbol_tables = []
         self.supported_nodes = get_supported_nodes()
+        self.kernel_type = kernel_type
 
         self.cb_args = args
         self.rt_args = None
@@ -229,6 +229,10 @@ class TTKernelCompiler(ast.NodeVisitor):
 
         func_sym_table = {}
         self.func_entry = func.FuncOp(name=node.name, type=(arg_types, []))
+        if self.kernel_type:
+            self.func_entry.attributes[
+                ttkernel.ir.ThreadTypeAttr.name
+            ] = ttkernel.ir.ThreadTypeAttr.get(self.ctx, self.kernel_type)
         func_bb = self.func_entry.add_entry_block()
         for i in range(len(func_bb.arguments)):
             func_sym_table[node.args.args[i].arg] = func_bb.arguments[i]
@@ -334,7 +338,7 @@ class TTKernelCompiler(ast.NodeVisitor):
             emitc.verbatim(comment)
 
         for_op = scf.ForOp(lower_bound, upper_bound, step)
-        with (InsertionPoint(for_op.body)), Location.unknown():
+        with InsertionPoint(for_op.body), Location.unknown():
             self.symbol_tables.append({})
 
             # Add the iterator into the symbol_table
@@ -907,7 +911,7 @@ def ttkernel_compile(kernel_type=None, verbose: bool = False, optimize: bool = T
                 kwargs["source_code"] = source_code
                 kwargs["verbose"] = True
             m = ast.parse(inspect.getsource(f))
-            b = TTKernelCompiler(f.__name__, *args, **kwargs)
+            b = TTKernelCompiler(f.__name__, kernel_type, *args, **kwargs)
             print(ast.dump(m, indent=4) + "\n")
             b.visit(m)
 
@@ -921,9 +925,7 @@ def ttkernel_compile(kernel_type=None, verbose: bool = False, optimize: bool = T
                 print("---- Optimized PyKernel Module ----", b.module, sep="\n\n")
 
             if kernel_type:
-                assert kernel_type in ["noc", "tensix"], "Invalid kernel type"
-                is_tensix_kernel = kernel_type == "tensix"
-                kernel_string = ttkernel_to_cpp(b.module, is_tensix_kernel)
+                kernel_string = ttkernel_to_cpp(b.module)
                 return kernel_string
 
         return _wrapper
@@ -932,7 +934,7 @@ def ttkernel_compile(kernel_type=None, verbose: bool = False, optimize: bool = T
 
 
 def ttkernel_tensix_compile(verbose: bool = False, optimize: bool = True):
-    return ttkernel_compile(kernel_type="tensix", verbose=verbose, optimize=optimize)
+    return ttkernel_compile(kernel_type="compute", verbose=verbose, optimize=optimize)
 
 
 def ttkernel_noc_compile(verbose: bool = False, optimize: bool = True):

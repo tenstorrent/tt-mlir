@@ -214,8 +214,8 @@ private:
 // Workaround factory class that creates workarounds for ops.
 class TTNNOperandsWorkaroundsFactory {
 public:
-  // Create workarounds for max_pool2d op operands.
-  static TTNNOperandsWorkarounds createMaxPool2DOpOperandsWorkarounds();
+  // Create workarounds for pooling 2d ops (max_pool2d, avg_pool2d) operands.
+  static TTNNOperandsWorkarounds createPool2DOpOperandsWorkarounds();
 
   // Create workarounds for embedding op operands.
   static TTNNOperandsWorkarounds createEmbeddingOpOperandsWorkarounds();
@@ -225,10 +225,6 @@ public:
 
   // Create workarounds for upsample op operands.
   static TTNNOperandsWorkarounds createUpsampleOpOperandsWorkarounds();
-
-  // Create workarounds for cumulative sum op operands.
-  static TTNNOperandsWorkarounds
-  createCumSumOpOperandsWorkarounds(RankedTensorType inputType);
 
   // Create workarounds for full op operands.
   static TTNNOperandsWorkarounds

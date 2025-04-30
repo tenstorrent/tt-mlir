@@ -68,10 +68,9 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
   // Create the new encoding for the output tensor type.
   TTNNLayoutAttr toLayoutOpResultEncoding =
       inputLayoutAttr
-          .withElementType(rewriter.getContext(), elementType,
-                           inputToLayoutOpType.getShape())
-          .withBufferType(rewriter.getContext(), targetTensorBufferType)
-          .withMemoryLayout(rewriter.getContext(), outputMemLayoutAttr);
+          .withElementType(elementType, inputToLayoutOpType.getShape())
+          .withBufferType(targetTensorBufferType)
+          .withMemoryLayout(outputMemLayoutAttr);
 
   // Create the output result type with the new data type and encoding.
   RankedTensorType toLayoutOpResultType =
