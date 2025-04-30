@@ -5,6 +5,7 @@
 #ifndef TT_RUNTIME_TTNN_TYPES_H
 #define TT_RUNTIME_TTNN_TYPES_H
 
+#include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/dylib.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"

@@ -100,22 +100,36 @@ ProgramExecutor::ProgramExecutor(
       programInputIds, programOutputIds, std::move(liveTensors),
       common::DylibManager(program->dylibs()), meshDevice, executableHandle,
       programIndex);
+
+  if (debug::Env::get().goldenEval) {
+    char const *prePipeline = nullptr;
+    for (auto const *mlirStage : *program->debug_info()->mlir_stages()) {
+      if (mlirStage->name()->string_view() == "PRE-PIPELINE") {
+        prePipeline = mlirStage->source()->c_str();
+        break;
+      }
+    }
+    if (prePipeline) {
+      goldenEval.initialize(prePipeline, programInputs);
+    } else {
+      LOG_WARNING("Failed to initialize golden eval: could not find "
+                  "PRE-PIPELINE stage");
+    }
+  }
 }
 
 void ProgramExecutor::runCallback(
-    std::optional<debug::Hooks::CallbackFn> callback, Binary &executableHandle,
+    debug::Hooks::CallbackFn callback, Binary &executableHandle,
     const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
-  if (callback) {
-    std::shared_ptr<void> programContextPtr =
-        ::tt::runtime::utils::unsafe_borrow_shared(programContext);
-    std::shared_ptr<void> opContextPtr =
-        ::tt::runtime::utils::unsafe_borrow_shared(
-            const_cast<::tt::target::ttnn::Operation *>(opContext));
-    (*callback)(executableHandle,
-                CallbackContext(programContextPtr, DeviceRuntime::TTNN),
-                OpContext(opContextPtr, DeviceRuntime::TTNN));
-  }
+  std::shared_ptr<void> programContextPtr =
+      ::tt::runtime::utils::unsafe_borrow_shared(programContext);
+  std::shared_ptr<void> opContextPtr =
+      ::tt::runtime::utils::unsafe_borrow_shared(
+          const_cast<::tt::target::ttnn::Operation *>(opContext));
+  callback(executableHandle,
+           CallbackContext(programContextPtr, DeviceRuntime::TTNN),
+           OpContext(opContextPtr, DeviceRuntime::TTNN));
 }
 
 void ProgramExecutor::execute() {
@@ -123,11 +137,15 @@ void ProgramExecutor::execute() {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
     tracyLogOpLocation(op);
-    runCallback(debug::Hooks::get().getPreOperatorCallback(), executableHandle,
-                op, context.get());
+    for (auto const &[handle, callback] :
+         debug::Hooks::get().getPreOperatorCallbacks()) {
+      runCallback(callback, executableHandle, op, context.get());
+    }
     runOperation(op);
-    runCallback(debug::Hooks::get().getPostOperatorCallback(), executableHandle,
-                op, context.get());
+    for (auto const &[handle, callback] :
+         debug::Hooks::get().getPostOperatorCallbacks()) {
+      runCallback(callback, executableHandle, op, context.get());
+    }
     dumpPerfCountersIfNeeded(context->getParentMesh());
   }
 }

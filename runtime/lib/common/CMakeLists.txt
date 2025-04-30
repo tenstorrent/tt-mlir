@@ -49,13 +49,20 @@ target_include_directories(TTRuntimeSysDesc SYSTEM PUBLIC "$<BUILD_INTERFACE:${T
 add_dependencies(TTRuntimeSysDesc tt-metal FBS_GENERATION)
 target_link_libraries(TTRuntimeSysDesc PUBLIC coverage_config)
 
+find_package(Python3 COMPONENTS Development REQUIRED)
+
 add_library(TTRuntimeDebug STATIC debug.cpp)
 set_property(TARGET TTRuntimeDebug PROPERTY CXX_STANDARD 20)
 target_include_directories(TTRuntimeDebug
   PUBLIC
     ${PROJECT_SOURCE_DIR}/runtime/include
 )
-target_link_libraries(TTRuntimeDebug PUBLIC coverage_config)
+target_include_directories(TTRuntimeDebug
+  SYSTEM PUBLIC
+    ${TTMLIR_PYTHON_SITE_PACKAGES}/pybind11/include
+    ${Python3_INCLUDE_DIRS}
+)
+target_link_libraries(TTRuntimeDebug PUBLIC coverage_config ${Python3_LIBRARIES})
 
 add_library(TTRuntimeDylibs STATIC dylib.cpp)
 set_property(TARGET TTRuntimeDylibs PROPERTY CXX_STANDARD 20)
