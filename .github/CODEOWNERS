@@ -5,11 +5,11 @@
 LICENSE @nsmithtt
 
 # CI
-/.github/ @vmilosevic @jmcgrathTT @nsumrakTT
+/.github/ @tenstorrent/forge-developers-mlir-devops
 
 # Build
-*.cmake @nsmithtt @mtopalovicTT @vwellsTT
-*.txt @nsmithtt @mtopalovicTT  @vwellsTT
+*.cmake @tenstorrent/forge-developers-mlir-build
+*.txt @tenstorrent/forge-developers-mlir-build
 
 # Docs
 *.md @nsmithtt @sdjordjevicTT
@@ -36,31 +36,31 @@ LICENSE @nsmithtt
 /test/ttmlir/Conversion/TTIRToLinalg/ @vwellsTT @ctodTT @nsmithTT
 
 # Tosa Conversion
-/include/ttmlir/Conversion/TosaToTTIR/ @mrakitaTT @sgligorijevicTT @sdjukicTT
-/lib/Conversion/TosaToTTIR/ @mrakitaTT @sgligorijevicTT @sdjukicTT
-/test/ttmlir/Conversion/TosaToTTIR/ @mrakitaTT @sgligorijevicTT @sdjukicTT
+/include/ttmlir/Conversion/TosaToTTIR/ @tenstorrent/forge-developers-mlir-stablehlo
+/lib/Conversion/TosaToTTIR/ @tenstorrent/forge-developers-mlir-stablehlo
+/test/ttmlir/Conversion/TosaToTTIR/ @tenstorrent/forge-developers-mlir-stablehlo
 
 # TTNN Conversions
-/include/ttmlir/Conversion/TTIRToTTIRDecomposition/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
-/include/ttmlir/Conversion/TTIRToTTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @jserbedzijaTT @jnie-TT @azecevicTT
-/include/ttmlir/Conversion/TTNNToEmitC/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
-/lib/Conversion/TTIRToTTIRDecomposition/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
-/lib/Conversion/TTIRToTTNN/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
-/lib/Conversion/TTNNToEmitC/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
-/test/ttmlir/Conversion/TTIRToTTIRDecomposition/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
-/test/ttmlir/Conversion/TTIRToTTNN/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
-/test/ttmlir/Conversion/TTNNToEmitC/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
-/test/ttmlir/EmitC/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
+/include/ttmlir/Conversion/TTIRToTTIRDecomposition/ @tenstorrent/forge-developers-mlir-core
+/include/ttmlir/Conversion/TTIRToTTNN/ @tenstorrent/forge-developers-mlir-core
+/include/ttmlir/Conversion/TTNNToEmitC/ @tenstorrent/forge-developers-mlir-core
+/lib/Conversion/TTIRToTTIRDecomposition/ @tenstorrent/forge-developers-mlir-core
+/lib/Conversion/TTIRToTTNN/ @tenstorrent/forge-developers-mlir-core
+/lib/Conversion/TTNNToEmitC/ @tenstorrent/forge-developers-mlir-core
+/test/ttmlir/Conversion/TTIRToTTIRDecomposition/ @tenstorrent/forge-developers-mlir-core
+/test/ttmlir/Conversion/TTIRToTTNN/ @tenstorrent/forge-developers-mlir-core
+/test/ttmlir/Conversion/TTNNToEmitC/ @tenstorrent/forge-developers-mlir-core
+/test/ttmlir/EmitC/ @tenstorrent/forge-developers-mlir-core
 
 # Metal Conversions
-/include/ttmlir/Conversion/TTIRToTTIRGeneric/ @nsmithtt @vroubtsovTT
-/lib/Conversion/TTIRToTTIRGeneric/ @nsmithtt @vroubtsovTT
-/test/ttmlir/Conversion/TTIRToTTIRGeneric/ @nsmithtt @vroubtsovTT
-/include/ttmlir/Conversion/TTIRToTTMetal/ @nsmithtt @vroubtsovTT
-/include/ttmlir/Conversion/TTKernelToEmitC/ @nsmithtt @vroubtsovTT
-/lib/Conversion/TTIRToTTMetal/ @nsmithtt @vroubtsovTT
-/lib/Conversion/TTKernelToEmitC/ @nsmithtt @vroubtsovTT
-/test/ttmlir/Conversion/TTKernelToEmitC/ @nsmithtt @vroubtsovTT
+/include/ttmlir/Conversion/TTIRToTTIRGeneric/ @tenstorrent/forge-developers-mlir-d2m
+/lib/Conversion/TTIRToTTIRGeneric/ @tenstorrent/forge-developers-mlir-d2m
+/test/ttmlir/Conversion/TTIRToTTIRGeneric/ @tenstorrent/forge-developers-mlir-d2m
+/include/ttmlir/Conversion/TTIRToTTMetal/ @tenstorrent/forge-developers-mlir-d2m
+/include/ttmlir/Conversion/TTKernelToEmitC/ @tenstorrent/forge-developers-mlir-d2m
+/lib/Conversion/TTIRToTTMetal/ @tenstorrent/forge-developers-mlir-d2m
+/lib/Conversion/TTKernelToEmitC/ @tenstorrent/forge-developers-mlir-d2m
+/test/ttmlir/Conversion/TTKernelToEmitC/ @tenstorrent/forge-developers-mlir-d2m
 
 # LLVM Dialect
 /include/ttmlir/Dialect/LLVM/ @vwellsTT @mtopalovicTT
@@ -68,24 +68,24 @@ LICENSE @nsmithtt
 /test/ttmlir/Dialect/LLVM/ @vwellsTT @mtopalovicTT
 
 # TT Dialect
-/include/ttmlir/Dialect/TT/ @sdjordjevicTT @nsmithtt @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
-/lib/Dialect/TT/ @sdjordjevicTT @nsmithtt @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
-/test/ttmlir/Dialect/TT/ @sdjordjevicTT @nsmithtt @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
+/include/ttmlir/Dialect/TT/ @tenstorrent/forge-developers-mlir-core @nsmithtt @mrakitaTT
+/lib/Dialect/TT/ @tenstorrent/forge-developers-mlir-core @nsmithtt @mrakitaTT
+/test/ttmlir/Dialect/TT/ @tenstorrent/forge-developers-mlir-core @nsmithtt @mrakitaTT
 
 # TTIR Dialect
-/include/ttmlir/Dialect/TTIR/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
-/lib/Dialect/TTIR/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
-/test/ttmlir/Dialect/TTIR/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
+/include/ttmlir/Dialect/TTIR/ @tenstorrent/forge-developers-mlir-core @mrakitaTT
+/lib/Dialect/TTIR/ @tenstorrent/forge-developers-mlir-core @mrakitaTT
+/test/ttmlir/Dialect/TTIR/ @tenstorrent/forge-developers-mlir-core @mrakitaTT
 
 # Metal Dialects
-/include/ttmlir/Dialect/TTIR/IR/TTIRGeneric* @nsmithtt @vroubtsovTT
-/include/ttmlir/Dialect/TTKernel/ @nsmithtt @vroubtsovTT
-/include/ttmlir/Dialect/TTMetal/ @nsmithtt @vroubtsovTT
-/lib/Dialect/TTIR/Transforms/ @nsmithtt @vroubtsovTT
-/lib/Dialect/TTKernel/ @nsmithtt @vroubtsovTT
-/lib/Dialect/TTMetal/ @nsmithtt @vroubtsovTT
-/test/ttmlir/Dialect/TTKernel/ @nsmithtt @vroubtsovTT
-/test/ttmlir/Dialect/TTMetal/ @nsmithtt @vroubtsovTT
+/include/ttmlir/Dialect/TTIR/IR/TTIRGeneric* @tenstorrent/forge-developers-mlir-d2m
+/include/ttmlir/Dialect/TTKernel/ @tenstorrent/forge-developers-mlir-d2m
+/include/ttmlir/Dialect/TTMetal/ @tenstorrent/forge-developers-mlir-d2m
+/lib/Dialect/TTIR/Transforms/ @tenstorrent/forge-developers-mlir-d2m
+/lib/Dialect/TTKernel/ @tenstorrent/forge-developers-mlir-d2m
+/lib/Dialect/TTMetal/ @tenstorrent/forge-developers-mlir-d2m
+/test/ttmlir/Dialect/TTKernel/ @tenstorrent/forge-developers-mlir-d2m
+/test/ttmlir/Dialect/TTMetal/ @tenstorrent/forge-developers-mlir-d2m
 
 # TTIR Erase Inverse Ops Optimization Pass
 /include/ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/ @LPanosTT @azecevicTT
@@ -93,52 +93,52 @@ LICENSE @nsmithtt
 /test/ttmlir/Dialect/TTIR/erase_inverse_ops/ @LPanosTT @azecevicTT
 
 # TTNN Dialects
-/include/ttmlir/Dialect/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
-/lib/Dialect/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @jserbedzijaTT @jnie-TT @azecevicTT
-/test/ttmlir/Dialect/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
+/include/ttmlir/Dialect/TTNN/ @tenstorrent/forge-developers-mlir-core
+/lib/Dialect/TTNN/ @tenstorrent/forge-developers-mlir-core
+/test/ttmlir/Dialect/TTNN/ @tenstorrent/forge-developers-mlir-core
 
 # TTNN Utils
-/include/ttmlir/Dialect/TTNN/Utils/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @jserbedzijaTT @azecevicTT @odjuricicTT @rpavlovicTT
+/include/ttmlir/Dialect/TTNN/Utils/ @tenstorrent/forge-developers-mlir-core @rpavlovicTT
 
 # TTNN Optimizer
-/include/ttmlir/Dialect/TTNN/Analysis/ @odjuricicTT @rpavlovicTT @sdjordjevicTT
-/include/ttmlir/OpModel/ @arminaleTT @odjuricicTT @rpavlovicTT @sdjordjevicTT
-/include/ttmlir/Scheduler/ @odjuricicTT @rpavlovicTT @sdjordjevicTT
-/lib/Dialect/TTNN/Analysis/ @odjuricicTT @rpavlovicTT @sdjordjevicTT
-/lib/OpModel/ @arminaleTT @odjuricicTT @rpavlovicTT
-/lib/Scheduler/ @odjuricicTT @rpavlovicTT @sdjordjevicTT
-/test/ttmlir/Dialect/TTNN/optimizer/ @odjuricicTT @rpavlovicTT @sdjordjevicTT
-/test/ttmlir/Silicon/TTNN/**/optimizer/ @odjuricicTT @rpavlovicTT @sdjordjevicTT
-/test/unittests/Optimizer @odjuricicTT @rpavlovicTT @sdjordjevicTT
-/test/unittests/OpModel @arminaleTT @odjuricicTT @rpavlovicTT
-/test/unittests/TestScheduler/ @odjuricicTT @rpavlovicTT @sdjordjevicTT
+/include/ttmlir/Dialect/TTNN/Analysis/ @tenstorrent/forge-developers-mlir-optimizer
+/include/ttmlir/OpModel/ @tenstorrent/forge-developers-mlir-optimizer @arminaleTT
+/include/ttmlir/Scheduler/ @tenstorrent/forge-developers-mlir-optimizer
+/lib/Dialect/TTNN/Analysis/ @tenstorrent/forge-developers-mlir-optimizer
+/lib/OpModel/ @tenstorrent/forge-developers-mlir-optimizer @arminaleTT
+/lib/Scheduler/ @tenstorrent/forge-developers-mlir-optimizer
+/test/ttmlir/Dialect/TTNN/optimizer/ @tenstorrent/forge-developers-mlir-optimizer
+/test/ttmlir/Silicon/TTNN/**/optimizer/ @tenstorrent/forge-developers-mlir-optimizer
+/test/unittests/Optimizer @tenstorrent/forge-developers-mlir-optimizer
+/test/unittests/OpModel @tenstorrent/forge-developers-mlir-optimizer @arminaleTT
+/test/unittests/TestScheduler/ @tenstorrent/forge-developers-mlir-optimizer
 
 # LLVM Target
 /include/ttmlir/Target/LLVM/ @vwellsTT @mtopalovicTT
 /lib/Target/LLVM/ @vwellsTT @mtopalovicTT
 
 # Metal Target
-/include/ttmlir/Target/TTKernel/ @nsmithtt @vroubtsovTT
-/include/ttmlir/Target/TTMetal/ @nsmithtt @vroubtsovTT
-/lib/Target/TTKernel/ @nsmithtt @vroubtsovTT
-/lib/Target/TTMetal/ @nsmithtt @vroubtsovTT
+/include/ttmlir/Target/TTKernel/ @tenstorrent/forge-developers-mlir-d2m
+/include/ttmlir/Target/TTMetal/ @tenstorrent/forge-developers-mlir-d2m
+/lib/Target/TTKernel/ @tenstorrent/forge-developers-mlir-d2m
+/lib/Target/TTMetal/ @tenstorrent/forge-developers-mlir-d2m
 
 # TTNN Target
-/include/ttmlir/Target/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
-/lib/Target/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
+/include/ttmlir/Target/TTNN/ @tenstorrent/forge-developers-mlir-core
+/lib/Target/TTNN/ @tenstorrent/forge-developers-mlir-core
 
 # Runtime
-/runtime/ @jnie-TT @kmabeeTT @AleksKnezevic @pilkicTT
+/runtime/ @tenstorrent/forge-developers-mlir-runtime
 /runtime/tools/ @tapspatel @ctodTT
 
 # TTIRBuilder
 /python/test_infra @ctodTT @tapspatel
 
 # tt-explorer
-/tools/explorer/ @tapspatel @odjuricicTT @vprajapati-tt @vcanicTT
+/tools/explorer/ @tenstorrent/forge-developers-mlir-explorer
 
 # ttnn-standalone
-/tools/ttnn-standalone @svuckovicTT @mtopalovicTT @sdjordjevicTT @azecevicTT @jserbedzijaTT
+/tools/ttnn-standalone @tenstorrent/forge-developers-mlir-core
 
 # Scripts
 /tools/scripts/ @nsmithtt @ddilbazTT
