@@ -1451,10 +1451,10 @@ def TTNN_BatchNormOp : TTNN_Op<"batch_norm"> {
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$running_mean,
                          AnyRankedTensor:$running_var,
-                         AnyRankedTensor:$weight,
-                         AnyRankedTensor:$bias,
                          BoolAttr:$training,
                          F32Attr:$epsilon,
+                         AnyRankedTensor:$weight,
+                         AnyRankedTensor:$bias,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);

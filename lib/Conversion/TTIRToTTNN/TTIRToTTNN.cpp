@@ -918,8 +918,8 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::BatchNormOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getOperand(), adaptor.getMean(), adaptor.getVariance(),
-        adaptor.getScale(), adaptor.getOffset(),
         /* training= */ adaptor.getTraining(), adaptor.getEpsilon(),
+        adaptor.getScale(), adaptor.getOffset(),
         /*memoryConfig*/ nullptr);
     return success();
   }
