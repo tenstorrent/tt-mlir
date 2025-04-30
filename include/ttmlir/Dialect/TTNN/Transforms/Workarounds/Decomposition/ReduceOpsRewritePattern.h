@@ -78,7 +78,7 @@ private:
 
     TTNNLayoutAttr newOutputLayoutAttr =
         mlir::cast<TTNNLayoutAttr>(outputType.getEncoding())
-            .withTensorShape(rewriter.getContext(), outputShapeVec);
+            .withTensorShape(outputShapeVec);
 
     RankedTensorType newOutputType = RankedTensorType::get(
         outputShapeVec, outputType.getElementType(), newOutputLayoutAttr);

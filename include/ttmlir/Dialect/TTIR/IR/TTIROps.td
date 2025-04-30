@@ -63,14 +63,6 @@ class TTIR_BufferizableOp<string mnemonic, list<Trait> traits = []> :
         return result;
       }
 
-      FailureOr<mlir::BaseMemRefType> $cppClass::getBufferType(
-          Value value, const bufferization::BufferizationOptions &,
-          SmallVector<mlir::Value> &) {
-        auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-        return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
-            .getBufferType();
-      }
-
       void $cppClass::getEffects(
           SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
               &effects) {
@@ -140,9 +132,8 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
             grid = mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding()).getGrid();
           } else {
             MemRefType memrefType = mlir::cast<MemRefType>(outputs[0].getType());
-            assert(memrefType.getRank() % 2 == 0 && "expected even rank");
-            ArrayRef<int64_t> gridShape = memrefType.getShape().take_front(memrefType.getRank() / 2);
-            grid = $_builder.getAttr<tt::GridAttr>(gridShape);
+            DeviceLayoutInterface layout = mlir::cast<DeviceLayoutInterface>(memrefType.getLayout());
+            grid = $_builder.getAttr<tt::GridAttr>(layout.getGridShape(memrefType));
           }
         }
         auto threads = $_builder.getArrayAttr($_builder.getAttr<ThreadAttr>(singleThreadType));
@@ -269,8 +260,17 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
     let hasCanonicalizer = 1;
 }
 
-def TTIR_StreamLayoutOp : TTIR_BufferizableOp<"stream_layout",
-  [DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>]> {
+def TTIR_StreamLayoutOp : TTIR_Op<"stream_layout",
+  [ Pure
+  , DeclareOpInterfaceMethods<OpAsmOpInterface , ["getAsmResultNames"]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  , TTIR_ViewOpInterface
+  ]> {
     let summary = "Stream Layout op.";
     let description = [{
       StreamLayout operation used to form a stream between remote and local memory spaces. Note that this op has
@@ -288,7 +288,7 @@ def TTIR_StreamLayoutOp : TTIR_BufferizableOp<"stream_layout",
       ```llvm
       %input = memref.alloc() {alignment = 64 : i64} : memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>
       %storage = memref.alloc() {alignment = 64 : i64} : memref<2x4x1x1x!tt.tile<32x32, f32>, #l1_>
-      %stream = "ttir.stream_layout"(%input, %storage) : (memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, memref<2x4x1x1x!tt.tile<32x32, f32>, #l1_>) -> memref<2x4x4x6x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3)>, #l1_>
+      %stream = "ttir.stream_layout"(%input, %storage) : (memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, memref<2x4x1x1x!tt.tile<32x32, f32>, #l1_>) -> memref<2x4x4x6x!tt.tile<32x32, f32>, #tt.view<map(4)>, #l1_>
       ```
     }];
 
@@ -314,6 +314,7 @@ def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
                                                        , "getAliasingValues"
                                                        , "getBufferType"
                                                        ]>
+  , TTIR_ViewOpInterface
   ]> {
     let summary = "View Layout op.";
     let description = [{

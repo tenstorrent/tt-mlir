@@ -350,12 +350,12 @@ def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
     %alloc_1 = memref.alloc() {address = 41984 : i64, alignment = 16 : i64} : memref<1x8x1x1x!tt.tile<32x32, f32>, #tt.shard<4096x4096>, #l1_>
     %alloc_2 = memref.alloc() {address = 46080 : i64, alignment = 16 : i64} : memref<1x5x1x5x!tt.tile<32x32, f32>, #tt.shard<20480x4096>, #l1_>
     %stream = "ttir.stream_layout"(%alloc, %alloc_2) : (memref<1x5x1x5x!tt.tile<32x32, f32>, #tt.shard<20480x4096>, #l1_>, memref<1x5x1x5x!tt.tile<32x32, f32>, #tt.shard<20480x4096>, #l1_>)
-     -> memref<1x5x1x5x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, #l1_>
+     -> memref<1x5x1x5x!tt.tile<32x32, f32>, #tt.view<map(4)>, #l1_>
     %alloc_3 = memref.alloc() {address = 66560 : i64, alignment = 16 : i64} : memref<5x8x5x1x!tt.tile<32x32, f32>, #tt.shard<4096x4096>, #l1_>
     %stream_4 = "ttir.stream_layout"(%alloc_0, %alloc_3) : (memref<5x8x5x1x!tt.tile<32x32, f32>, #tt.shard<4096x4096>, #l1_>, memref<5x8x5x1x!tt.tile<32x32, f32>, #tt.shard<4096x4096>, #l1_>)
-     -> memref<5x8x5x1x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, #l1_>
+     -> memref<5x8x5x1x!tt.tile<32x32, f32>, #tt.view<map(4)>, #l1_>
     ttir.generic {grid = #tt.grid<1x8>, indexing_maps = [#map, #map1, #map2], iterator_types = [#parallel, #parallel, #reduction], ...}
-        ins(%stream, %stream_4 : memref<1x5x1x5x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, #l1_>, memref<5x8x5x1x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, #l1_>)
+        ins(%stream, %stream_4 : memref<1x5x1x5x!tt.tile<32x32, f32>, #tt.view<map(4)>, #l1_>, memref<5x8x5x1x!tt.tile<32x32, f32>, #tt.view<map(4)>, #l1_>)
         outs(%alloc_1 : memref<1x8x1x1x!tt.tile<32x32, f32>, #tt.shard<4096x4096>, #l1_>)  {
       ...
     }

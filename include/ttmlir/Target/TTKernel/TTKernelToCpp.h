@@ -9,12 +9,27 @@
 #include "mlir/Support/LogicalResult.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/Support/LogicalResult.h"
+
 namespace mlir::tt::ttkernel {
 
-// Translates a TTKernel operation to C++ and writes it to the given
-// stream.
-LogicalResult translateTTKernelToCpp(Operation *op, llvm::raw_ostream &os,
-                                     const ThreadType &threadType);
+// Translates a top level TTKernel func op (already converted to EmitC) to C++
+// and writes it to the given stream.
+LogicalResult translateKernelFuncToCpp(func::FuncOp entry,
+                                       llvm::raw_ostream &os);
+
+// Translates a top level TTKernel func op (already converted to EmitC) to C++
+// for the given symbol name and writes it to the given stream.
+LogicalResult translateTopLevelKernelToCpp(ModuleOp moduleOp,
+                                           llvm::raw_ostream &os,
+                                           StringRef symbolName);
+
+// Walks over all top level TTKernel func ops (already converted to EmitC) in
+// the given module and writes them to the given stream.
+LogicalResult translateTopLevelKernelsToCpp(ModuleOp moduleOp,
+                                            llvm::raw_ostream &os);
 
 } // namespace mlir::tt::ttkernel
 

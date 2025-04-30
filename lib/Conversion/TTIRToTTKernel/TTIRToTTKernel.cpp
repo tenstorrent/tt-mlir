@@ -270,32 +270,24 @@ public:
                     : elementType.getIntOrFloatBitWidth() / 8;
   }
 
-  static int64_t getMemrefSizeBytes(MemRefType memref) {
+  static int64_t getLocalMemrefSizeBytes(MemRefType memref) {
     return getElementSizeBytes(memref) * memref.getNumElements();
   }
 
   // For use on REMOTE memrefs
-  static size_t getMemrefShardSizeBytes(MemRefType memref) {
-    ArrayRef<int64_t> memrefShardShape =
-        memref.getShape().drop_front(memref.getRank() / 2);
-    return std::accumulate(memrefShardShape.begin(), memrefShardShape.end(),
-                           getElementSizeBytes(memref),
-                           std::multiplies<int64_t>());
-  }
-
-  // For use on REMOTE memrefs
   static size_t getMemrefShardNumElems(MemRefType memref) {
-    ArrayRef<int64_t> memrefShardShape =
-        memref.getShape().drop_front(memref.getRank() / 2);
-    return std::accumulate(memrefShardShape.begin(), memrefShardShape.end(), 1,
-                           std::multiplies<int64_t>());
+    DeviceLayoutInterface layout =
+        mlir::cast<DeviceLayoutInterface>(memref.getLayout());
+    return layout.getShardNumElements(memref);
   }
 
   static std::tuple<AffineMap, AffineMap, AffineMap>
-  getIndividualResultMaps(MemRefType memref, tt::DeviceAttr device,
+  getIndividualResultMaps(Operation *op, tt::DeviceAttr device,
                           OpBuilder &builder) {
-    size_t pageSize = getMemrefShardSizeBytes(memref);
-    AffineMap memoryMap = device.getMemoryMap(memref, pageSize, 0)
+    std::pair<MemRefType, AffineMap> memrefAndView = ttir::applyViews(op);
+    size_t pageSize =
+        device.getMemrefSizeBytes(memrefAndView.first, /*pageSize=*/0);
+    AffineMap memoryMap = device.getMemoryMap(memrefAndView, pageSize, 0)
                               .dropResult(0); // drop the device index
     assert(memoryMap.getNumResults() == 3);
     auto gridY = memoryMap.dropResults({1, 2});
@@ -343,8 +335,8 @@ public:
       Value dstL1Start = rewriter.create<ttkernel::GetWritePtrOp>(
           op.getLoc(), adaptor.getDst());
 
-      Value transferSize =
-          i32(rewriter, op->getLoc(), getMemrefSizeBytes(srcCb.getMemref()));
+      Value transferSize = i32(rewriter, op->getLoc(),
+                               getLocalMemrefSizeBytes(srcCb.getMemref()));
       if (op.isMcast()) {
         // Multicast lowering
         // Get virtual start coordinates from DMA op logical coordinates
@@ -409,7 +401,8 @@ public:
       // coordinates
       AffineMap dstGridYMap, dstGridXMap, dstOffsetMap;
       std::tie(dstGridYMap, dstGridXMap, dstOffsetMap) =
-          getIndividualResultMaps(op.getDstMemRefType(), device, rewriter);
+          getIndividualResultMaps(op.getDst().getDefiningOp(), device,
+                                  rewriter);
 
       auto dstGridY = applyMap(dstGridYMap, op.getDstIndices());
       auto dstGridX = applyMap(dstGridXMap, op.getDstIndices());
@@ -438,7 +431,8 @@ public:
       // coordinates
       AffineMap srcGridYMap, srcGridXMap, srcOffsetMap;
       std::tie(srcGridYMap, srcGridXMap, srcOffsetMap) =
-          getIndividualResultMaps(op.getSrcMemRefType(), device, rewriter);
+          getIndividualResultMaps(op.getSrc().getDefiningOp(), device,
+                                  rewriter);
 
       auto srcGridY = applyMap(srcGridYMap, op.getSrcIndices());
       auto srcGridX = applyMap(srcGridXMap, op.getSrcIndices());
@@ -617,7 +611,7 @@ public:
     ThreadType threadType;
     switch (threadAttr.getThreadType()) {
     case ttir::ThreadType::Compute: {
-      threadType = ThreadType::Tensix;
+      threadType = ThreadType::Compute;
       break;
     }
     case ttir::ThreadType::Datamovement: {

@@ -407,7 +407,9 @@ public:
         if (!retShardingAttr) {
           continue;
         }
-        if (mlir::isa<mlir::sdy::ManualComputationOp>(ret.getDefiningOp())) {
+
+        if (mlir::isa_and_present<mlir::sdy::ManualComputationOp>(
+                ret.getDefiningOp())) {
           continue;
         }
 
@@ -474,11 +476,12 @@ analyzeSingleOpAndFixWrongTensorAnnotation(mlir::tt::MeshesAttr meshes,
                   argType.getEncoding())) {
         // If pre-existing TensorMeshShardingAttr is different from the
         // expected one, then fail.
-        if (argTensorMeshShardingAttr != tensorMeshShardingAttr) {
+        if (argTensorMeshShardingAttr.getName() !=
+            tensorMeshShardingAttr.getName()) {
           srcOp->emitError()
               << "Inconsistency found in TensorMeshShardingAttr : expected ("
-              << tensorMeshShardingAttr << ") and current ("
-              << argTensorMeshShardingAttr << ") are different.";
+              << tensorMeshShardingAttr.getName() << ") and current ("
+              << argTensorMeshShardingAttr.getName() << ") are different.";
         }
         continue;
       }

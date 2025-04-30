@@ -25,8 +25,8 @@ class TTKernel_Attr<string name, string attrMnemonic, list<Trait> traits = [],
   let attrName = "ttkernel." # attrMnemonic;
 }
 
-def TTKernel_TensixConfigAttr: TTKernel_Attr<"TensixConfig", "tensix_config", [TTKernel_KernelConfigInterface]> {
-  let summary = "TT TensixConfig attribute";
+def TTKernel_ComputeConfigAttr: TTKernel_Attr<"ComputeConfig", "compute_config", [TTKernel_KernelConfigInterface]> {
+  let summary = "TT ComputeConfig attribute";
   let description = [{
     TT compute_desc attribute
   }];
@@ -37,11 +37,11 @@ def TTKernel_TensixConfigAttr: TTKernel_Attr<"TensixConfig", "tensix_config", [T
   let assemblyFormat =  "`<` $math_fidelity`,` $fp32_dest_acc_en`,` $math_approx_mode`,` `[` $unpack_to_dest_mode `]` `>`";
 
   let extraClassDeclaration = [{
-    static TensixConfigAttr get(::mlir::MLIRContext *context){
-      return TensixConfigAttr::get(context, MathFidelity::HiFi4, false, false, {UnpackToDestMode::Default});
+    static ComputeConfigAttr get(::mlir::MLIRContext *context){
+      return ComputeConfigAttr::get(context, MathFidelity::HiFi4, false, false, {UnpackToDestMode::Default});
     };
 
-    ThreadType getThreadType() const { return ThreadType::Tensix; }
+    ThreadType getThreadType() const { return ThreadType::Compute; }
   }];
 }
 
@@ -70,7 +70,7 @@ def TTKernel_EthernetConfigAttr: TTKernel_Attr<"EthernetConfig", "ethernet_confi
   }];
 }
 
-def TTKernel_KernelConfigAttr : AnyAttrOf<[TTKernel_TensixConfigAttr, TTKernel_NocConfigAttr, TTKernel_EthernetConfigAttr]>;
+def TTKernel_KernelConfigAttr : AnyAttrOf<[TTKernel_ComputeConfigAttr, TTKernel_NocConfigAttr, TTKernel_EthernetConfigAttr]>;
 
 def TTKernel_KernelConfigArrayAttr : TypedArrayAttrBase<TTKernel_KernelConfigAttr, "">;
 
@@ -157,7 +157,7 @@ def TTKernel_InterleavedAddrGenFast : TTKernel_Type<"InterleavedAddrGenFast", "i
 }
 
 def TTKernel_DataFormat : TTKernel_Type<"DataFormat", "DataFormat"> {
-    let summary = "TTKernel tensix data format type";
+    let summary = "TTKernel compute data format type";
     let description = "Data format type in TTKernel dialect";
 }
 

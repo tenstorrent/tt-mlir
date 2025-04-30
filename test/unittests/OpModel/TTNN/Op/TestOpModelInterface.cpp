@@ -5,6 +5,7 @@
 #include "OpModelFixture.h"
 #include "SingletonDeviceContext.h"
 
+#include "TTNNOpModel.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -48,8 +49,14 @@ public:
       if (!operand || !mlir::isa<RankedTensorType>(operand.getType())) {
         continue;
       }
-      auto inputShape =
-          mlir::cast<RankedTensorType>(operand.getType()).getShape();
+      auto operandType = mlir::cast<RankedTensorType>(operand.getType());
+      if (operandType.getEncoding()) {
+        inputs.push_back(mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
+            operandType.getEncoding()));
+        continue;
+      }
+
+      auto inputShape = operandType.getShape();
       auto inputLayout = CreateTiledLayout(inputShape, BufferType::L1,
                                            TensorMemoryLayout::Interleaved);
       inputs.push_back(inputLayout);
@@ -80,15 +87,26 @@ public:
     return DeviceAttr::get(&context, workerGrid, map4, map4, {1}, {0});
   }
 
-  mlir::RankedTensorType createRankedTensorType(llvm::ArrayRef<int64_t> shape) {
-    Type elementType = builder.getBF16Type();
+  mlir::RankedTensorType
+  createRankedTensorType(llvm::ArrayRef<int64_t> shape,
+                         mlir::Type elementType = nullptr,
+                         TTNNLayoutAttr layout = nullptr) {
+    if (!elementType) {
+      elementType = builder.getBF16Type();
+    }
     RankedTensorType rankedTensorType =
-        RankedTensorType::get(shape, elementType);
+        RankedTensorType::get(shape, elementType, layout);
     return rankedTensorType;
   }
 
-  mlir::Value createEmptyTensor(llvm::ArrayRef<int64_t> tensorShape) {
-    RankedTensorType rankedTensorType = createRankedTensorType(tensorShape);
+  mlir::Value createEmptyTensor(llvm::ArrayRef<int64_t> tensorShape,
+                                mlir::Type elementType = nullptr,
+                                TTNNLayoutAttr layout = nullptr) {
+    if (!elementType) {
+      elementType = builder.getBF16Type();
+    }
+    RankedTensorType rankedTensorType =
+        createRankedTensorType(tensorShape, elementType, layout);
     return builder.create<OnesOp>(builder.getUnknownLoc(), rankedTensorType,
                                   ShapeAttr::get(&context, tensorShape),
                                   nullptr, nullptr, nullptr, nullptr);
@@ -138,8 +156,8 @@ TEST_F(OpModelBase, ReluOpInterfaceNullOutput) {
 
   // test ReluOp interface
   OpModel backend = dyn_cast<OpModel>(relu.getOperation());
-  auto constraintsExp =
-      backend.getOpConstraints(getInputLayouts(relu), nullptr);
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(relu), OpConfig(/*outputLayout=*/nullptr));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
@@ -160,11 +178,11 @@ TEST_F(OpModelBase, SqrtOpInterface) {
   auto input = createEmptyTensor(tensorShape);
   auto outputType = createRankedTensorType(tensorShape);
 
-  auto relu = builder.create<SqrtOp>(builder.getUnknownLoc(), outputType,
+  auto sqrt = builder.create<SqrtOp>(builder.getUnknownLoc(), outputType,
                                      ::mlir::ValueRange{input});
 
   // test SqrtOp interface
-  auto constraintsExp = getOpConstraints(relu.getOperation());
+  auto constraintsExp = getOpConstraints(sqrt.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
@@ -176,7 +194,38 @@ TEST_F(OpModelBase, SqrtOpInterface) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
-  auto runtimeExp = getOpRuntime(relu.getOperation());
+  auto runtimeExp = getOpRuntime(sqrt.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, SigmoidOpInterface) {
+  // create SigmoidOp
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+
+  auto input = createEmptyTensor(tensorShape);
+  auto outputType = createRankedTensorType(tensorShape);
+
+  auto sigmoid = builder.create<SigmoidOp>(builder.getUnknownLoc(), outputType,
+                                           ::mlir::ValueRange{input});
+
+  // test SigmoidOp interface
+  auto constraintsExp = getOpConstraints(sigmoid.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 8192);
+    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(outputSize, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(sigmoid.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
@@ -264,7 +313,8 @@ TEST_F(OpModelBase, AddOpInterfaceNullOutput) {
 
   // test AddOp interface
   OpModel backend = dyn_cast<OpModel>(add.getOperation());
-  auto constraintsExp = backend.getOpConstraints(getInputLayouts(add), nullptr);
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(add), OpConfig(/*outputLayout=*/nullptr));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
@@ -360,8 +410,8 @@ TEST_F(OpModelBase, MatmulOpInterfaceNullOutput) {
 
   // test MatmulOp interface
   OpModel backend = dyn_cast<OpModel>(matmul.getOperation());
-  auto constraintsExp =
-      backend.getOpConstraints(getInputLayouts(matmul), nullptr);
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(matmul), OpConfig(/*outputLayout=*/nullptr));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
@@ -579,11 +629,15 @@ TEST_F(OpModelBase, typecastOp) {
 TEST_F(OpModelBase, Conv2dInterface) {
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
-  llvm::SmallVector<int64_t> weightShape = {1, 1, 1568, 64};
+  llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
   llvm::SmallVector<int64_t> outputShape = {1, 1, 12544, 64};
 
   auto input = createEmptyTensor(inputShape);
-  auto weight = createEmptyTensor(weightShape);
+  Type weightElementType = builder.getBF16Type();
+  auto weightLayout = mlir::tt::ttnn::TTNNLayoutAttr::get(
+      &context, weightShape, weightElementType,
+      mlir::tt::ttnn::BufferType::SystemMemory, GridAttr::get(&context, 2));
+  auto weight = createEmptyTensor(weightShape, weightElementType, weightLayout);
   auto outputType = createRankedTensorType(outputShape);
 
   GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
@@ -592,10 +646,24 @@ TEST_F(OpModelBase, Conv2dInterface) {
       ttnn::MeshOffsetAttr::get(builder.getContext(), 0, 0));
 
   Conv2dOp conv2d = builder.create<Conv2dOp>(
-      builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
-      64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
-      llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
-      llvm::ArrayRef<int32_t>({1, 1}), 1, nullptr);
+      builder.getUnknownLoc(),         // Location
+      outputType,                      // Output type
+      input,                           // Input tensor
+      weight,                          // Weight tensor
+      nullptr,                         // Bias tensor (optional)
+      deviceOp,                        // Device operation
+      3,                               // Input channels
+      64,                              // Output channels
+      1,                               // Batch size
+      224,                             // Input height
+      224,                             // Input width
+      llvm::ArrayRef<int32_t>({7, 7}), // Kernel size [H, W]
+      llvm::ArrayRef<int32_t>({2, 2}), // Stride [H, W]
+      llvm::ArrayRef<int32_t>({3, 3}), // Padding [H, W]
+      llvm::ArrayRef<int32_t>({1, 1}), // Dilation [H, W]
+      1,                               // Groups
+      nullptr                          // Conv2dConfig (optional)
+  );
 
   // Device hangs otherwise.
   mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
@@ -624,11 +692,126 @@ TEST_F(OpModelBase, Conv2dInterface) {
 TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
-  llvm::SmallVector<int64_t> weightShape = {1, 1, 1568, 64};
+  llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
   llvm::SmallVector<int64_t> outputShape = {1, 1, 12544, 64};
 
   auto input = createEmptyTensor(inputShape);
-  auto weight = createEmptyTensor(weightShape);
+  Type weightElementType = builder.getBF16Type();
+  auto weightLayout = mlir::tt::ttnn::TTNNLayoutAttr::get(
+      &context, weightShape, weightElementType,
+      mlir::tt::ttnn::BufferType::SystemMemory, GridAttr::get(&context, 2));
+  auto weight = createEmptyTensor(weightShape, weightElementType, weightLayout);
+  auto outputType = createRankedTensorType(outputShape);
+
+  GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
+      builder.getUnknownLoc(), builder.getType<DeviceType>(),
+      ttnn::MeshShapeAttr::get(builder.getContext(), 1, 1),
+      ttnn::MeshOffsetAttr::get(builder.getContext(), 0, 0));
+
+  Conv2dOp conv2d = builder.create<Conv2dOp>(
+      builder.getUnknownLoc(),         // Location
+      outputType,                      // Output type
+      input,                           // Input tensor
+      weight,                          // Weight tensor
+      nullptr,                         // Bias tensor (optional)
+      deviceOp,                        // Device operation
+      3,                               // Input channels
+      64,                              // Output channels
+      1,                               // Batch size
+      224,                             // Input height
+      224,                             // Input width
+      llvm::ArrayRef<int32_t>({7, 7}), // Kernel size [H, W]
+      llvm::ArrayRef<int32_t>({2, 2}), // Stride [H, W]
+      llvm::ArrayRef<int32_t>({3, 3}), // Padding [H, W]
+      llvm::ArrayRef<int32_t>({1, 1}), // Dilation [H, W]
+      1,                               // Groups
+      nullptr                          // Conv2dConfig (optional)
+  );
+
+  // Device hangs otherwise.
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  // test Conv2dOp interface
+  OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(conv2d), OpConfig(/*outputLayout=*/nullptr));
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 229440);
+  EXPECT_EQ(peakSize, 190568);
+  EXPECT_EQ(outputSize, 28672);
+
+  ASSERT_TRUE(outputLayout);
+  EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
+  EXPECT_TRUE(outputLayout.hasShardedL1TensorMemoryLayout());
+  EXPECT_EQ(outputLayout.getMemLayout().getValue(),
+            TensorMemoryLayout::HeightSharded);
+}
+
+TEST_F(OpModelBase, PrepareConv2dWeightsOutput) {
+  // create Conv2dOp
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
+  llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
+  llvm::SmallVector<int64_t> outputShape = {1, 1, 12544, 64};
+
+  Type elemetType = builder.getBF16Type();
+
+  auto inputLayout = mlir::tt::ttnn::TTNNLayoutAttr::get(
+      &context, inputShape, elemetType, mlir::tt::ttnn::BufferType::DRAM,
+      GridAttr::get(&context, 2),
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
+  auto input = createEmptyTensor(inputShape, elemetType, inputLayout);
+
+  auto weightLayout = mlir::tt::ttnn::TTNNLayoutAttr::get(
+      &context, weightShape, elemetType,
+      mlir::tt::ttnn::BufferType::SystemMemory, GridAttr::get(&context, 2));
+  auto weight = createEmptyTensor(weightShape, elemetType, weightLayout);
+
+  auto outputType = createRankedTensorType(outputShape);
+
+  GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
+      builder.getUnknownLoc(), builder.getType<DeviceType>(),
+      ttnn::MeshShapeAttr::get(builder.getContext(), 1, 1),
+      ttnn::MeshOffsetAttr::get(builder.getContext(), 0, 0));
+
+  Conv2dOp conv2d = builder.create<Conv2dOp>(
+      builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
+      64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
+      llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
+      llvm::ArrayRef<int32_t>({1, 1}), 1, nullptr);
+
+  auto preparedWeightOutput =
+      mlir::tt::op_model::ttnn::getPreparedConv2dWeightsOutputTensor(&conv2d);
+
+  auto preparedShape = preparedWeightOutput.getShape();
+  llvm::SmallVector<int64_t> expectedShape = {1, 1, 147, 64};
+
+  EXPECT_EQ(preparedShape.size(), expectedShape.size());
+  for (size_t i = 0; i < preparedShape.size(); i++) {
+    EXPECT_EQ(preparedShape[i], expectedShape[i]);
+  }
+}
+
+TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
+  // create Conv2dOp
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
+  llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
+  llvm::SmallVector<int64_t> outputShape = {1, 1, 12544, 64};
+
+  Type elemetType = builder.getBF16Type();
+
+  auto inputLayout = mlir::tt::ttnn::TTNNLayoutAttr::get(
+      &context, inputShape, elemetType, mlir::tt::ttnn::BufferType::DRAM,
+      GridAttr::get(&context, 2),
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
+  auto input = createEmptyTensor(inputShape, elemetType, inputLayout);
+
+  auto weightLayout = mlir::tt::ttnn::TTNNLayoutAttr::get(
+      &context, weightShape, elemetType,
+      mlir::tt::ttnn::BufferType::SystemMemory, GridAttr::get(&context, 2));
+  auto weight = createEmptyTensor(weightShape, elemetType, weightLayout);
+
   auto outputType = createRankedTensorType(outputShape);
 
   GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
@@ -645,22 +828,89 @@ TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
   // Device hangs otherwise.
   mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
-  // test Conv2dOp interface
-  OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
-  auto constraintsExp =
-      backend.getOpConstraints(getInputLayouts(conv2d), nullptr);
-  ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
-      constraintsExp.get();
-  EXPECT_EQ(cbSize, 229440);
-  EXPECT_EQ(peakSize, 190568);
-  EXPECT_EQ(outputSize, 28672);
+  // Will fail due to assertion at
+  // tt-metal/ttnn/cpp/ttnn/operations/conv/conv2d/conv2d_utils.cpp:156 "Conv2d
+  // supports Height, Block or Width Sharded Layouts but got
+  // TensorMemoryLayout::INTERLEAVED"
+  auto badConvConfig = Conv2dConfigAttr::get(
+      &context, /*dtype=*/DataType::BFloat16,
+      /*weights_dtype=*/DataType::BFloat16,
+      /*activation=*/StringAttr::get(&context, ""),
+      /*input_channels_alignment=*/32,
+      /*deallocate_activation=*/BoolAttr::get(&context, false),
+      /*reallocate_halo_output=*/BoolAttr::get(&context, true),
+      /*act_block_h_override=*/0, /*act_block_w_div=*/1,
+      /*reshard_if_not_optimal=*/BoolAttr::get(&context, false),
+      /*override_sharding_config=*/BoolAttr::get(&context, false),
+      /*shard_layout=*/TensorMemoryLayout::Interleaved,
+      /*core_grid=*/ttnn::CoreRangeSetAttr(),
+      /*transpose_shards=*/BoolAttr::get(&context, false),
+      /*output_layout=*/Layout::Tile,
+      /*preprocess_weights_on_device=*/BoolAttr::get(&context, false),
+      /*always_preprocess_weights=*/BoolAttr::get(&context, false),
+      /*enable_act_double_buffer=*/BoolAttr::get(&context, false),
+      /*enable_weights_double_buffer=*/BoolAttr::get(&context, false),
+      /*enable_split_reader=*/BoolAttr::get(&context, false),
+      /*enable_subblock_padding=*/BoolAttr::get(&context, false));
 
-  ASSERT_TRUE(outputLayout);
-  EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
-  EXPECT_TRUE(outputLayout.hasShardedL1TensorMemoryLayout());
-  EXPECT_EQ(outputLayout.getMemLayout().getValue(),
-            TensorMemoryLayout::HeightSharded);
+  OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(conv2d),
+      OpConfig(getOutputLayout(conv2d), badConvConfig));
+  ASSERT_FALSE(static_cast<bool>(constraintsExp));
+  llvm::consumeError(constraintsExp.takeError());
+
+  // Device hangs otherwise.
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp =
+      backend.getOpRuntime(getInputLayouts(conv2d),
+                           OpConfig(getOutputLayout(conv2d), badConvConfig));
+  ASSERT_FALSE(static_cast<bool>(runtimeExp));
+  llvm::consumeError(runtimeExp.takeError());
+
+  // Device hangs otherwise.
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  auto goodConvConfig = Conv2dConfigAttr::get(
+      &context, /*dtype=*/DataType::BFloat16,
+      /*weights_dtype=*/DataType::BFloat16,
+      /*activation=*/StringAttr::get(&context, ""),
+      /*input_channels_alignment=*/32,
+      /*deallocate_activation=*/BoolAttr::get(&context, false),
+      /*reallocate_halo_output=*/BoolAttr::get(&context, true),
+      /*act_block_h_override=*/0, /*act_block_w_div=*/1,
+      /*reshard_if_not_optimal=*/BoolAttr::get(&context, false),
+      /*override_sharding_config=*/BoolAttr::get(&context, false),
+      /*shard_layout=*/std::nullopt,
+      /*core_grid=*/ttnn::CoreRangeSetAttr(),
+      /*transpose_shards=*/BoolAttr::get(&context, false),
+      /*output_layout=*/Layout::Tile,
+      /*preprocess_weights_on_device=*/BoolAttr::get(&context, false),
+      /*always_preprocess_weights=*/BoolAttr::get(&context, false),
+      /*enable_act_double_buffer=*/BoolAttr::get(&context, true),
+      /*enable_weights_double_buffer=*/BoolAttr::get(&context, true),
+      /*enable_split_reader=*/BoolAttr::get(&context, false),
+      /*enable_subblock_padding=*/BoolAttr::get(&context, false));
+
+  constraintsExp = backend.getOpConstraints(
+      getInputLayouts(conv2d),
+      OpConfig(getOutputLayout(conv2d), goodConvConfig));
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cb_size, peak_size, output_size, outputLayout] =
+      constraintsExp.get();
+  EXPECT_EQ(cb_size, 69696);
+  EXPECT_EQ(peak_size, 88400);
+  EXPECT_EQ(output_size, 26624);
+
+  // Device hangs otherwise.
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  runtimeExp =
+      backend.getOpRuntime(getInputLayouts(conv2d),
+                           OpConfig(getOutputLayout(conv2d), goodConvConfig));
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(runtimeExp.get(), 0);
 }
 
 TEST_F(OpModelBase, maxPool2DOp) {

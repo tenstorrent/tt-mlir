@@ -226,10 +226,6 @@ public:
   // Create workarounds for upsample op operands.
   static TTNNOperandsWorkarounds createUpsampleOpOperandsWorkarounds();
 
-  // Create workarounds for cumulative sum op operands.
-  static TTNNOperandsWorkarounds
-  createCumSumOpOperandsWorkarounds(RankedTensorType inputType);
-
   // Create workarounds for full op operands.
   static TTNNOperandsWorkarounds
   createFullOpOperandsWorkarounds(RankedTensorType outputType);
@@ -285,6 +281,10 @@ public:
 
   // Create workarounds for arange op.
   static TTNNOperandsWorkarounds createArangeOpOperandsWorkarounds();
+
+  // Create workarounds for reduction op operands.
+  static TTNNOperandsWorkarounds
+  createReductionOpOperandsWorkarounds(mlir::Operation *op);
 };
 
 } // namespace mlir::tt::ttnn::wa
