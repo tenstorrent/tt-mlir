@@ -1,8 +1,8 @@
 # Getting Started
 
-This page walks you through the steps required to set up tt-mlir for development and running models.
+This page walks you through the steps required to set up tt-mlir. After the project is running, you can do development work, run models, or set up additional projects that build on tt-mlir.
 
-After the project is running, you can do development work, run models, or set up additional projects that build on tt-mlir.
+[!NOTE] If you have a build issue, you can file a bug [here](https://github.com/tenstorrent/tt-mlir/issues).
 
 ## Prerequisites
 
@@ -18,28 +18,27 @@ The tt-mlir project has the following system dependencies:
 * Ninja
 * CMake 3.20 or higher
 * Python 3.10
+* python3.10-venv
 
-> [!NOTE] The installation instructions use Ubuntu 22.04.
-
-1. Install Clang 17 and Ninja:
+Install Clang 17, Ninja, CMake, and python3.10-venv:
 
 ```bash
 sudo apt install clang-17
 sudo apt install ninja-build
-```
-
-2. Install or update the version of CMake to 3.20, which is the minimum required for this project:
-
-```bash
 sudo apt remove cmake -y
 pip3 install cmake --upgrade
+sudo apt install python3-venv
 ```
 
 You should now have the required dependencies installed.
 
 ### Clone the tt-mlir Repo
 
-1. Clone the tt-mlir repo using your preferred method.
+1. Clone the tt-mlir repo:
+
+```bash
+git clone https://github.com/tenstorrent/tt-mlir.git
+```
 
 2. Navigate into the **tt-mlir** folder.
 
@@ -78,8 +77,6 @@ cmake --build build
 ```
 You have now configured tt-mlir.
 
-#### Flags You May Want to Add When You Build the tt-mlir Project
-
 You can add different flags to your build. Here are some options to consider:
 
 * To enable the ttnn/metal runtime add `-DTTMLIR_ENABLE_RUNTIME=ON`. Clang 17 is the minimum required version when enabling the runtime.
@@ -112,15 +109,7 @@ cmake --build build -- check-ttmlir
 ## Lint
 Set up lint so you can spot errors and stylistic issues before runtime.
 
-In order for this to build correctly, the runtime must be enabled (if it is not enabled, you get an error message asking for tt-metal-download). Make sure your environment is active, and then do the following:
-
-1. Run the command to enable runtime:
-
-```bash
-cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-17 -DCMAKE_CXX_COMPILER=clang++-17 -DTTMLIR_ENABLE_RUNTIME=ON
-```
-
-2. Build clang-tidy:
+In order for this to build correctly, the runtime must be enabled (if it is not enabled, you get an error message asking for tt-metal-download). Make sure your environment is active, and then do the following to build clang-tidy:
 
 ```bash
 source env/activate
@@ -147,7 +136,7 @@ For more information visit [pre-commit](https://pre-commit.com/)
 
 Build the documentation by doing the following:
 
-1. Make sure you have `mdbook` installed:
+1. Make sure you have `mdbook` and `doxygen` installed.
 
 2. Build the docs:
 
@@ -203,12 +192,10 @@ You will have to resolve the conflicts manually
 
 This error occurs during CMake's ExternalProject update of tt-metal. The build system tries to apply changes using Git's stash mechanism, but fails due to conflicts. This can happen even if you haven't manually modified any files, as the build process itself may leave behind artifacts or partial changes from previous builds.
 
-To resolve, clean up the tt-metal directory:
+To resolve, run the following command:
 
 ```bash
-cd third_party/tt-metal/src/tt-metal
-git reset --hard HEAD  # Reset any tracked file modifications
-git clean -fd         # Remove all untracked files and directories
+rm -rf third_party/tt-metal
 ```
 
 Then retry your build command. If the error persists, you may need to do the following:
