@@ -1511,4 +1511,75 @@ llvm::Expected<size_t> MaxPool2DInterface::getOpRuntime(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+//===----------------------------------------------------------------------===//
+// ClampScalar
+//===----------------------------------------------------------------------===//
+llvm::Expected<
+    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+ClampScalarInterface::getOpConstraints(
+    GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout, llvm::APFloat min,
+    llvm::APFloat max, llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::IDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // Convert float
+  float minVal = min.convertToFloat();
+  float maxVal = max.convertToFloat();
+
+  // Prepare io specs
+  const auto specs = detail::convertToTensorSpec(
+      device, std::make_tuple(inputShape, inputLayout));
+
+  // Create query closure
+  auto clampScalarQuery = [=]() {
+    const auto [inputSpec] = specs;
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::clamp, device, inputSpec, minVal, maxVal,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints("ClampScalarInterface",
+                                     inputLayout.getContext(), deviceGrid,
+                                     clampScalarQuery);
+#else
+  return std::make_tuple(0, 0, 0, nullptr);
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> ClampScalarInterface::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout, llvm::APFloat min,
+    llvm::APFloat max, llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::IDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // Convert float
+  float minVal = min.convertToFloat();
+  float maxVal = max.convertToFloat();
+
+  // Prepare io specs
+  const auto specs = detail::convertToTensorSpec(
+      device, std::make_tuple(inputShape, inputLayout));
+
+  // Create query closure
+  auto clampScalarQuery = [=]() {
+    const auto [inputSpec] = specs;
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::clamp, device, inputSpec, minVal, maxVal,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime("ClampScalarInterface", clampScalarQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
 } // namespace mlir::tt::op_model::ttnn
