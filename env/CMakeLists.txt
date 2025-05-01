@@ -9,15 +9,26 @@ set(LLVM_BUILD_TYPE MinSizeRel CACHE STRING "Build type for LLVM")
 
 include(ExternalProject)
 
-if (NOT DEFINED ENV{TTMLIR_TOOLCHAIN_DIR})
-    message(FATAL_ERROR "Please set TTMLIR_TOOLCHAIN_DIR to the directory where the toolchain will be installed")
-else()
-    set(TTMLIR_TOOLCHAIN_DIR $ENV{TTMLIR_TOOLCHAIN_DIR})
+set(ENV{_ACTIVATE_ECHO_TOOLCHAIN_DIR_AND_EXIT} "1")
+execute_process(
+    COMMAND bash activate
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    OUTPUT_VARIABLE TTMLIR_TOOLCHAIN_DIR
+    RESULT_VARIABLE ACTIVATE_RESULT
+)
+
+if (ACTIVATE_RESULT)
+    message(FATAL_ERROR "Failed to get toolchain environment")
 endif()
+
+set(ENV{TTMLIR_TOOLCHAIN_DIR} "${TTMLIR_TOOLCHAIN_DIR}")
+message(STATUS "TTMLIR_TOOLCHAIN_DIR: ${TTMLIR_TOOLCHAIN_DIR}")
 
 if (NOT EXISTS "${TTMLIR_TOOLCHAIN_DIR}")
     message( FATAL_ERROR "The directory ${TTMLIR_TOOLCHAIN_DIR} does not exist. Please create it before running this script.\n  sudo mkdir -p ${TTMLIR_TOOLCHAIN_DIR}\n  sudo chown -R $ENV{USER} ${TTMLIR_TOOLCHAIN_DIR}")
 endif()
+
+add_custom_target(python-venv ALL COMMAND TTMLIR_TOOLCHAIN=${TTMLIR_TOOLCHAIN_DIR} ENV_DIR=${CMAKE_CURRENT_SOURCE_DIR} bash ${CMAKE_CURRENT_SOURCE_DIR}/init_venv.sh)
 
 ExternalProject_Add(
     flatbuffers
@@ -31,6 +42,7 @@ ExternalProject_Add(
     GIT_TAG ${FLATBUFFERS_VERSION}
     GIT_REMOTE_UPDATE_STRATEGY CHECKOUT
     UPDATE_DISCONNECTED ON
+    DEPENDS python-venv
 )
 
 # -DMLIR_ENABLE_EXPENSIVE_PATTERN_API_CHECKS=ON set if debug
@@ -59,6 +71,7 @@ ExternalProject_Add(
     GIT_PROGRESS OFF
     GIT_REMOTE_UPDATE_STRATEGY CHECKOUT
     UPDATE_DISCONNECTED ON
+    DEPENDS python-venv
 )
 
 ExternalProject_Add(stablehlo

@@ -5,7 +5,7 @@
 
 set -e
 
-export _ENV_BUILD_VENV_SH_SUPPRESS_WARNING=1
+export _ACTIVATE_SUPPRESS_INIT_WARNING=1
 ENV_DIR=${ENV_DIR:-$(git rev-parse --show-toplevel)/env}
 TTMLIR_PYTHON_VERSION="${TTMLIR_PYTHON_VERSION:-python3.10}"
 

@@ -32,10 +32,9 @@ should now be ready to build.
 You only need to build this once, it builds llvm, flatbuffers and a python virtual environment.
 
 ```bash
-./env/init_venv.sh
-source env/activate
 cmake -B env/build env
 cmake --build env/build
+source env/activate
 ```
 
 > - Use `-DLLVM_BUILD_TYPE=*` to specify the build type of LLVM. The default is `MinSizeRel`, available options are listed [here](https://llvm.org/docs/CMake.html#frequently-used-cmake-variables).

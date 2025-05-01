@@ -50,7 +50,5 @@ WORKDIR $BUILD_DIR/$PROJECT_NAME
 # Show last commit
 RUN git log -1
 
-RUN ./env/init_venv.sh && \
-    source env/activate && \
-    cmake -B env/build env && \
+RUN cmake -B env/build env && \
     cmake --build env/build
