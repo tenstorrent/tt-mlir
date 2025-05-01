@@ -454,11 +454,7 @@ class TTIRBuilder:
         with self._ctx, self._loc:
             return RankedTensorType.get(shape, dtype, encoding)
 
-    def empty(
-        self,
-        shape: Shape,
-        data_type: Optional[Type] = None,
-    ) -> OpView:
+    def empty(self, shape: Shape, data_type: Optional[Type] = None) -> OpView:
         """Convenience wrapper constructing `ttir.EmptyOp`."""
         dtype = data_type if data_type is not None else self._default_dtype
         with self._ctx, self._loc:
@@ -640,7 +636,12 @@ class TTIRBuilder:
 
     # TTIR top level ops
 
-    def get_dimension_size(self, in0: Operand, dimension: int = 0) -> OpView:
+    def get_dimension_size(
+        self,
+        in0: Operand,
+        dimension: int = 0,
+        unit_attrs: dict = None,
+    ) -> OpView:
         golden_dim = [self._get_golden_tensor(in0).size(dimension)]
         return self.op_proxy(
             torch.tensor,
@@ -651,6 +652,7 @@ class TTIRBuilder:
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
             organize_golden_args=lambda i: 0,
             output_type=self.get_type_from_torch_dtype(torch.int32),
+            unit_attrs=unit_attrs,
         )
 
     def dot_general(
@@ -929,7 +931,11 @@ class TTIRBuilder:
     # class TTIR_ReductionOp
 
     def argmax(
-        self, in0: Operand, dim_arg: List[int], keep_dim: bool = False
+        self,
+        in0: Operand,
+        dim_arg: List[int],
+        keep_dim: bool = False,
+        unit_attrs: dict = None,
     ) -> OpView:
         return self.op_proxy(
             torch.argmax,
@@ -943,7 +949,11 @@ class TTIRBuilder:
         )
 
     def sum(
-        self, in0: Operand, dim_arg: List[int] = [0], keep_dim: bool = True
+        self,
+        in0: Operand,
+        dim_arg: List[int] = [0],
+        keep_dim: bool = True,
+        unit_attrs: dict = None,
     ) -> OpView:
         return self.op_proxy(
             torch.sum,
@@ -956,7 +966,11 @@ class TTIRBuilder:
         )
 
     def mean(
-        self, in0: Operand, dim_arg: List[int] = [0], keep_dim: bool = True
+        self,
+        in0: Operand,
+        dim_arg: List[int] = [0],
+        keep_dim: bool = True,
+        unit_attrs: dict = None,
     ) -> OpView:
         return self.op_proxy(
             torch.mean,
@@ -968,7 +982,13 @@ class TTIRBuilder:
             unit_attrs=unit_attrs,
         )
 
-    def max(self, in0: Operand, dim_arg: int = None, keep_dim: bool = True) -> OpView:
+    def max(
+        self,
+        in0: Operand,
+        dim_arg: int = None,
+        keep_dim: bool = True,
+        unit_attrs: dict = None,
+    ) -> OpView:
         # Handle ttir and golden function arguments for edge cases
         golden_kwargs = {}
         ttir_kwargs = {"keep_dim": keep_dim}
@@ -990,7 +1010,13 @@ class TTIRBuilder:
             unit_attrs=unit_attrs,
         )
 
-    def min(self, in0: Operand, dim_arg: int = None, keep_dim: bool = True) -> OpView:
+    def min(
+        self,
+        in0: Operand,
+        dim_arg: int = None,
+        keep_dim: bool = True,
+        unit_attrs: dict = None,
+    ) -> OpView:
         # Handle ttir and golden function arguments for edge cases
         golden_kwargs = {}
         ttir_kwargs = {"keep_dim": keep_dim}
@@ -1014,7 +1040,11 @@ class TTIRBuilder:
 
     # NOTE: Not useable. Boolean tensors are not supported by the runtime. Issue #1775
     def reduce_and(
-        self, in0: Operand, keep_dim: bool = True, dim_args: Optional[List] = None
+        self,
+        in0: Operand,
+        keep_dim: bool = True,
+        dim_args: Optional[List] = None,
+        unit_attrs: dict = None,
     ) -> OpView:
         return self.op_proxy(
             torch.all,
@@ -1028,7 +1058,11 @@ class TTIRBuilder:
 
     # NOTE: Not useable. Boolean tensors are not supported by the runtime. Issue #1775
     def reduce_or(
-        self, in0: Operand, keep_dim: bool = True, dim_args: Optional[List] = None
+        self,
+        in0: Operand,
+        keep_dim: bool = True,
+        dim_args: Optional[List] = None,
+        unit_attrs: dict = None,
     ) -> OpView:
         return self.op_proxy(
             torch.any,
@@ -1040,7 +1074,13 @@ class TTIRBuilder:
             unit_attrs=unit_attrs,
         )
 
-    def prod(self, in0: Operand, dim_arg: List[int], keep_dim: bool = False) -> OpView:
+    def prod(
+        self,
+        in0: Operand,
+        dim_arg: List[int],
+        keep_dim: bool = False,
+        unit_attrs: dict = None,
+    ) -> OpView:
         g_kwargs = {}
         if len(dim_arg) == 1:
             g_kwargs["dim"] = dim_arg[0]
@@ -1071,7 +1111,9 @@ class TTIRBuilder:
             unit_attrs=unit_attrs,
         )
 
-    def cumsum(self, in0: Operand, in1: Operand, dim: int) -> OpView:
+    def cumsum(
+        self, in0: Operand, in1: Operand, dim: int, unit_attrs: dict = None
+    ) -> OpView:
         return self.op_proxy(
             torch.cumsum,
             ttir.CumSumOp,

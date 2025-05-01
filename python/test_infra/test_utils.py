@@ -165,13 +165,17 @@ def compile_as_mlir_module(
                 # Randomly generate golden tensors for function inputs.
                 for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
                     builder.generate_input_golden(operand, dtype, index)
-                return test_fn(
-                    *inputs,
-                    builder=builder,
-                    unit_attrs={"should_hoist": UnitAttr.get(builder._ctx)}
-                    if cpu_hoist
-                    else None,
-                )
+                if cpu_hoist:
+                    return test_fn(
+                        *inputs,
+                        builder=builder,
+                        unit_attrs={"should_hoist": UnitAttr.get(builder._ctx)},
+                    )
+                else:
+                    return test_fn(
+                        *inputs,
+                        builder=builder,
+                    )
 
         print(f"`{test_fn.__name__}` sucessfully transformed into a MLIR module.")
 
