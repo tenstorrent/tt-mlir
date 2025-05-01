@@ -51,7 +51,7 @@ jobs:
     - pre-commit
     - spdx
     - build-and-test
-    runs-on: Ubuntu-latest
+    runs-on: ubuntu-latest
     steps:
     - name: Check if the needed jobs succeeded or failed
       uses: re-actors/alls-green@release/v1
