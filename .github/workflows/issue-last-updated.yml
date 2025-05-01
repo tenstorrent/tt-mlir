@@ -8,12 +8,18 @@ on:
     types: [created, edited, deleted]
 
 
-env:
-  GITHUB_TOKEN: ${{ secrets.ISSUE_TOKEN }}
+permissions:
+  contents: read
+  issues: write
+  repository-projects: write
 
 
 jobs:
   update_project_date:
+    permissions:
+      contents: read
+      issues: write
+      repository-projects: write
     runs-on: ubuntu-latest
     steps:
       - name: Set Environment Variables
@@ -26,7 +32,7 @@ jobs:
         id: get_issue_id
         run: |
           issue_number=${{ github.event.issue.number }}
-          issue_details=$(curl -H "Authorization: Bearer ${{ secrets.ISSUE_TOKEN }}" -s "https://api.github.com/repos/${{ github.repository }}/issues/$issue_number")
+          issue_details=$(curl -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -s "https://api.github.com/repos/${{ github.repository }}/issues/$issue_number")
           issue_id=$(echo "$issue_details" | jq -r '.node_id')
           echo "issue_id=$issue_id" >> $GITHUB_ENV
 
@@ -40,10 +46,10 @@ jobs:
 
 
           # Define the GraphQL query as a string
-          QUERY='query($projectId: ID!, $cursor: String) {
+          QUERY='query($projectId: ID!) {
             node(id: $projectId) {
               ... on ProjectV2 {
-                items(first: 100, after: $cursor) {
+                items(first: 100) {
                   nodes {
                     id
                     content {
@@ -67,12 +73,12 @@ jobs:
             JSON_PAYLOAD=$(jq -n \
               --arg query "$QUERY" \
               --arg projectId "${{ env.project_id }}" \
-              --arg cursor "$CURSOR" \
-              '{ query: $query, variables: { projectId: $projectId, cursor: $cursor }}')
+              --arg after "$CURSOR" \
+              '{ query: $query, variables: { projectId: $projectId, after: $after }}')
 
 
             # Make the GraphQL request
-            RESPONSE=$(curl -s -X POST -H "Authorization: Bearer $GITHUB_TOKEN" \
+            RESPONSE=$(curl -s -X POST -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
                                  -H "Content-Type: application/json" \
                                  -d "$JSON_PAYLOAD" \
                                  https://api.github.com/graphql)
@@ -124,7 +130,7 @@ jobs:
       - name: Update Project Field
         run: |
           current_date=$(date +%Y-%m-%d)
-          curl -H "Authorization: Bearer ${{ secrets.ISSUE_TOKEN }}" \
+          curl -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
                -H "Content-Type: application/json" \
                -d "{ \"query\": \"mutation { updateProjectV2ItemFieldValue(input: { projectId: \\\"${{ env.project_id }}\\\", itemId: \\\"${{ env.ITEM_ID }}\\\", fieldId: \\\"${{ env.field_id }}\\\", value: { date: \\\"$current_date\\\" } }) { clientMutationId } }\" }" \
                -X POST \
