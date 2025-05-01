@@ -98,7 +98,6 @@ module {
   // CHECK: = "ttnn.zeros"(%{{.*}})
   // CHECK: = "ttnn.add"(%{{.*}}, %{{.*}})
   // CHECK: = "ttnn.add"(%{{.*}}, %{{.*}})
-  // CHECK: = "ttnn.multiply"(%{{.*}}, %{{.*}})
 
   // CHECK: func.func @forward_reuse_zeros(
   func.func @forward_reuse_zeros(%arg0: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<input>}, %arg1: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<parameter>}, %arg3: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<constant>}) -> tensor<32x32xbf16> {
@@ -115,13 +114,21 @@ module {
     // CHECK: = "ttnn.multiply"(%{{.*}}, %{{.*}})
     %8 = "ttir.multiply"(%2, %6, %7) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     %9 = ttir.empty() : tensor<32x32xbf16>
+    // CHECK: = "ttnn.multiply"(%{{.*}}, %{{.*}})
     %10 = "ttir.multiply"(%4, %8, %9) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     return %10 : tensor<32x32xbf16>
   }
 
 
+  // CHECK-LABEL: func.func @forward_reuse_constant_merge_const_eval_0
+  // CHECK: = "ttnn.get_device"
+  // CHECK: = "ttnn.full"(%{{.*}})
+  // CHECK: = "ttnn.add"(%{{.*}}, %{{.*}})
+  // CHECK: = "ttnn.add"(%{{.*}}, %{{.*}})
+  // CHECK: = "ttnn.multiply"(%{{.*}}, %{{.*}})
+
   func.func @forward_reuse_constant_merge(%arg0: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<input>}, %arg1: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<parameter>}, %arg3: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<constant>}) -> tensor<32x32xbf16> {
-    // CHECK: = tt.load_cached(@forward_reuse_zeros_const_eval_0, [%arg1, %arg2])
+    // CHECK: = tt.load_cached(@forward_reuse_constant_merge_const_eval_0, [%arg1, %arg2])
     %0 = "ttir.constant"() <{value = dense<1.111e+00> : tensor<32x32xbf16>}> : () -> tensor<32x32xbf16>
     %1 = ttir.empty() : tensor<32x32xbf16>
     // CHECK: = "ttnn.add"(%arg0, %{{.*}})
