@@ -1389,8 +1389,8 @@ private:
         mlir::cast<RankedTensorType>(this->getTypeConverter()->convertType(
             srcOp->getResults()[0].getType()));
 
-    ttir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
-                                               adaptor.getOperands());
+    ttir::utils::replaceOpWithNewDPSOp<DestOp>(
+        rewriter, srcOp, outputType, adaptor.getLhs(), adaptor.getRhs());
 
     return success();
   }

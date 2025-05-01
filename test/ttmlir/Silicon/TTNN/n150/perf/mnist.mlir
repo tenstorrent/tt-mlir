@@ -10,16 +10,16 @@ module @"tt-forge-graph" attributes {} {
     %1 = "ttir.matmul"(%arg0, %arg4, %0) : (tensor<1x784xf32>, tensor<784x256xf32>, tensor<1x256xf32>) -> tensor<1x256xf32> loc(#loc8)
     %2 = ttir.empty() : tensor<1x256xf32> loc(#loc9)
     // CHECK: = "ttnn.add" -> tensor<1x256xf32, #[[LAYOUT_10]]>
-    %3 = "ttir.add"(%1, %arg3, %2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x256xf32>, tensor<1x256xf32>, tensor<1x256xf32>) -> tensor<1x256xf32> loc(#loc9)
+    %3 = "ttir.add"(%1, %arg3, %2) : (tensor<1x256xf32>, tensor<1x256xf32>, tensor<1x256xf32>) -> tensor<1x256xf32> loc(#loc9)
     %4 = ttir.empty() : tensor<1x256xf32> loc(#loc10)
     // CHECK: = "ttnn.relu" -> tensor<1x256xf32, #[[LAYOUT_10]]>
-    %5 = "ttir.relu"(%3, %4) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x256xf32>, tensor<1x256xf32>) -> tensor<1x256xf32> loc(#loc10)
+    %5 = "ttir.relu"(%3, %4) : (tensor<1x256xf32>, tensor<1x256xf32>) -> tensor<1x256xf32> loc(#loc10)
     %6 = ttir.empty() : tensor<1x10xf32> loc(#loc11)
     // CHECK: = "ttnn.matmul" -> tensor<1x10xf32, #[[LAYOUT_11]]>
     %7 = "ttir.matmul"(%5, %arg2, %6) : (tensor<1x256xf32>, tensor<256x10xf32>, tensor<1x10xf32>) -> tensor<1x10xf32> loc(#loc11)
     %8 = ttir.empty() : tensor<1x10xf32> loc(#loc12)
     // CHECK: = "ttnn.add" -> tensor<1x10xf32, #[[LAYOUT_11]]>
-    %9 = "ttir.add"(%7, %arg1, %8) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x10xf32>, tensor<1x10xf32>, tensor<1x10xf32>) -> tensor<1x10xf32> loc(#loc12)
+    %9 = "ttir.add"(%7, %arg1, %8) : (tensor<1x10xf32>, tensor<1x10xf32>, tensor<1x10xf32>) -> tensor<1x10xf32> loc(#loc12)
     %10 = ttir.empty() : tensor<1x10xf32> loc(#loc13)
     %11 = "ttir.softmax"(%9, %10) <{dimension = 1 : si32}> : (tensor<1x10xf32>, tensor<1x10xf32>) -> tensor<1x10xf32> loc(#loc13)
     return %11 : tensor<1x10xf32> loc(#loc7)

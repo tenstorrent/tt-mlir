@@ -7,7 +7,7 @@ module attributes {} {
     // CHECK: = "ttir.alloc"
     // CHECK-NOT: = ttir.empty() : tensor<64x128xf32>
     %0 = ttir.empty() : tensor<64x128xf32, #layout>
-    %1 = "ttir.multiply"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout>) -> tensor<64x128xf32, #layout>
+    %1 = "ttir.multiply"(%arg0, %arg1, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout>) -> tensor<64x128xf32, #layout>
     return %1 : tensor<64x128xf32, #layout>
   }
 }

@@ -13,31 +13,31 @@ module attributes {} {
     // CHECK: #[[LAYOUT_7:.*]] = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 32 + d1, d2), <4x4>, memref<1x1x!tt.tile<32x32, f32>, #l1_>, <interleaved>>
     %0 = ttir.empty() : tensor<1x32x32xf32> loc(#loc5)
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<1x32x32xf32, #[[LAYOUT_3]]>
-    %1 = "ttir.add"(%arg1, %arg2, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc5)
+    %1 = "ttir.add"(%arg1, %arg2, %0) : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc5)
     %2 = ttir.empty() : tensor<1x32x32xf32> loc(#loc6)
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<1x32x32xf32, #[[LAYOUT_1]]>
-    %3 = "ttir.add"(%1, %arg0, %2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc6)
+    %3 = "ttir.add"(%1, %arg0, %2) : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc6)
     %4 = ttir.empty() : tensor<1x32x32xf32> loc(#loc7)
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<1x32x32xf32, #[[LAYOUT_3]]>
-    %5 = "ttir.add"(%arg2, %arg1, %4) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc7)
+    %5 = "ttir.add"(%arg2, %arg1, %4) : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc7)
     %6 = ttir.empty() : tensor<1x32x32xf32>
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<1x32x32xbf16, #[[LAYOUT_4]]>
-    %7 = "ttir.add"(%arg1, %5, %6) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc8)
+    %7 = "ttir.add"(%arg1, %5, %6) : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc8)
     %8 = ttir.empty() : tensor<1x32x32xf32>
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<1x32x32xf32, #[[LAYOUT_1]]>
-    %9 = "ttir.add"(%arg1, %7, %8) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc9)
+    %9 = "ttir.add"(%arg1, %7, %8) : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc9)
     %10 = ttir.empty() : tensor<1x32x32xf32>
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<1x32x32xf32, #[[LAYOUT_5]]>
-    %11 = "ttir.add"(%arg1, %9, %10) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc10)
+    %11 = "ttir.add"(%arg1, %9, %10) : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc10)
     %12 = ttir.empty() : tensor<1x32x32xf32>
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<1x32x32xbf16, #[[LAYOUT_6]]>
-    %13 = "ttir.add"(%arg1, %11, %12) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc11)
+    %13 = "ttir.add"(%arg1, %11, %12) : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc11)
     %14 = ttir.empty() : tensor<1x32x32xf32>
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<1x32x32xf32, #[[LAYOUT_7]]>
-    %15 = "ttir.add"(%arg1, %13, %14) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc12)
+    %15 = "ttir.add"(%arg1, %13, %14) : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc12)
     %16 = ttir.empty() : tensor<1x32x32xf32>
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<1x32x32xf32, #[[LAYOUT_2]]>
-    %17 = "ttir.add"(%arg1, %15, %16) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc13)
+    %17 = "ttir.add"(%arg1, %15, %16) : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc13)
     // CHECK: return %[[R0:.*]], %[[R1:.*]] : tensor<1x32x32xf32, #[[LAYOUT_1]]>, tensor<1x32x32xf32, #[[LAYOUT_2]]>
     return %3, %17 : tensor<1x32x32xf32>, tensor<1x32x32xf32> loc(#loc4)
   } loc(#loc)

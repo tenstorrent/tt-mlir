@@ -412,16 +412,12 @@ class TTIR_NamedOp<string mnemonic, list<Trait> traits = []> :
     TTIR_DPSOp<mnemonic, [Pure] # traits>;
 
 class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_NamedOp<mnemonic, [AttrSizedOperandSegments, TTIR_Broadcastable] # traits> {
+    TTIR_NamedOp<mnemonic, [TTIR_Broadcastable] # traits> {
 
     let description = [{
       Base class for elementwise operations. Elementwise operations can take inputs with different shape,
       as long as the input tensors are broadcastable to the same shape.
     }];
-
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
-                         Variadic<AnyRankedTensor>:$outputs);
-    let results = (outs Variadic<AnyRankedTensor>:$results);
 }
 
 class TTIR_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
@@ -431,12 +427,19 @@ class TTIR_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
       Eltwise ternary op.
     }];
 
+    let arguments = (ins AnyRankedTensor:$first,
+                         AnyRankedTensor:$second,
+                         AnyRankedTensor:$third,
+                         AnyRankedTensor:$output);
+
+    let results = (outs AnyRankedTensor:$result);
+
     let builders =
     [
-      OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third, "Value": $out),
+      OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third, "Value": $output),
       [{
-        build($_builder, $_state, {out.getType()}, {first, second, third}, out);
-      }]>
+        build($_builder, $_state, output.getType(), first, second, third, output);
+      }]>,
     ];
 }
 
@@ -454,12 +457,17 @@ class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
       Eltwise unary op.
     }];
 
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output);
+
+    let results = (outs AnyRankedTensor:$result);
+
     let builders =
     [
-      OpBuilder<(ins "Value": $in, "Value": $out),
+      OpBuilder<(ins "Value": $input, "Value": $output),
       [{
-        build($_builder, $_state, {out.getType()}, in, out);
-      }]>
+        build($_builder, $_state, output.getType(), input, output);
+      }]>,
     ];
 }
 
@@ -684,16 +692,16 @@ class TTIR_ElementwiseUnaryWithFloatParameterOp<string mnemonic, list<Trait> tra
       Eltwise unary op with the float parameter.
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
-                         Variadic<AnyRankedTensor>:$outputs,
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
                          F32Attr:$parameter);
 
     let builders =
     [
-      OpBuilder<(ins "Value": $in, "Value": $out, "FloatAttr":$parameter),
+      OpBuilder<(ins "Value": $input, "Value": $output, "FloatAttr": $parameter),
       [{
-        build($_builder, $_state, {out.getType()}, {in}, {out}, parameter);
-      }]>
+        build($_builder, $_state, output.getType(), input, output, parameter);
+      }]>,
     ];
 }
 
@@ -727,16 +735,18 @@ class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
       Eltwise binary op.
     }];
 
+    let arguments = (ins AnyRankedTensor:$lhs,
+                         AnyRankedTensor:$rhs,
+                         AnyRankedTensor:$output);
+
+    let results = (outs AnyRankedTensor:$result);
+
     let builders =
     [
-      OpBuilder<(ins "Value": $lhs, "Value": $rhs, "Value": $out),
+      OpBuilder<(ins "Value": $lhs, "Value": $rhs, "Value": $output),
       [{
-        build($_builder, $_state, {out.getType()}, {lhs, rhs}, out);
+        build($_builder, $_state, output.getType(), lhs, rhs, output);
       }]>,
-      OpBuilder<(ins "Type":$outputType, "Value": $lhs, "Value": $rhs, "Value": $out),
-      [{
-        build($_builder, $_state, {outputType}, {lhs, rhs}, out);
-      }]>
     ];
 }
 

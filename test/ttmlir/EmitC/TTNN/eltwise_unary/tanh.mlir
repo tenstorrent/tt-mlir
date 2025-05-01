@@ -5,6 +5,6 @@
 
 func.func @tanh(%arg0: tensor<64x128xbf16>) -> tensor<64x128xbf16> {
   %0 = ttir.empty() : tensor<64x128xbf16>
-  %1 = "ttir.tanh"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
+  %1 = "ttir.tanh"(%arg0, %0) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
   return %1 : tensor<64x128xbf16>
 }

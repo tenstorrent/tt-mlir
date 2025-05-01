@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "OpModelFixture.h"
-#include "SingletonDeviceContext.h"
 
-#include "TTNNOpModel.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
+#include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 
 #include "mlir/IR/AffineExpr.h"
 #include "llvm/ADT/SmallVector.h"

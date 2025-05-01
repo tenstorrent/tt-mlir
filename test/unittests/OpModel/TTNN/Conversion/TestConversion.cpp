@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "Conversion.hpp"
 #include "OpModelFixture.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/OpModel/TTNN/Conversion.h"
 
 #include "llvm/ADT/SmallVector.h"
 #include "gtest/gtest.h"

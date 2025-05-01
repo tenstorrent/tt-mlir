@@ -4,22 +4,18 @@
 
 #include "ttmlir/Conversion/TTIRToLinalg/TTIRToLinalg.h"
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/Attributes.h"
-#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "ttmlir/Utils.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/Casting.h"
-#include "llvm/Support/ErrorHandling.h"
 
 #include <cstdint>
 
@@ -115,23 +111,25 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
 
-    // First, compute broadcasted shape from operands.
-    SmallVector<Value, 2> inputs = adaptor.getInputs();
-    assert(inputs.size() == 2 &&
-           "Binary element-wise operations must have 2 inputs!");
-    ArrayRef<int64_t> input0Shape =
-        dyn_cast<RankedTensorType>(inputs[0].getType()).getShape();
-    ArrayRef<int64_t> input1Shape =
-        dyn_cast<RankedTensorType>(inputs[1].getType()).getShape();
+    RankedTensorType lhsType =
+        cast<RankedTensorType>(adaptor.getLhs().getType());
+    RankedTensorType rhsType =
+        cast<RankedTensorType>(adaptor.getRhs().getType());
 
-    SmallVector<int64_t, 4> broadcastedShape;
-    if (!OpTrait::util::getBroadcastedShape(input0Shape, input1Shape,
+    // First, compute broadcasted shape from operands.
+
+    ArrayRef<int64_t> lhsShape = lhsType.getShape();
+    ArrayRef<int64_t> rhsShape = rhsType.getShape();
+
+    SmallVector<int64_t> broadcastedShape;
+    if (!OpTrait::util::getBroadcastedShape(lhsShape, rhsShape,
                                             broadcastedShape)) {
       return rewriter.notifyMatchFailure(op, "Operands are not broadcastable!");
     }
 
     // Rewrite inputs to target dims with broadcast and collapse shape ops, as
     // needed.
+    SmallVector<Value, 2> inputs{adaptor.getLhs(), adaptor.getRhs()};
     SmallVector<Value, 2> broadcastedInputs;
     for (Value input : inputs) {
       auto inputRankedTensorType = dyn_cast<RankedTensorType>(input.getType());
@@ -177,8 +175,11 @@ public:
                                                       resultTypes))) {
       return failure();
     }
+
+    static_assert(ttir::utils::has_dps_trait_v<TTIROpTy>);
+    auto outputs = adaptor.getOperands().take_back(op.getNumDpsInits());
     rewriter.replaceOpWithNewOp<LinalgOpTy>(op, resultTypes, broadcastedInputs,
-                                            adaptor.getOutputs());
+                                            outputs);
     return success();
   }
 };
@@ -202,8 +203,10 @@ public:
       return failure();
     }
 
-    rewriter.replaceOpWithNewOp<LinAlgOpTy>(
-        op, resultTypes, adaptor.getInputs(), adaptor.getOutputs());
+    static_assert(ttir::utils::has_dps_trait_v<TTIROpTy>);
+    auto inputs = adaptor.getOperands().drop_back(op.getNumDpsInits());
+    auto outputs = adaptor.getOperands().take_back(op.getNumDpsInits());
+    rewriter.replaceOpWithNewOp<LinAlgOpTy>(op, resultTypes, inputs, outputs);
     return success();
   }
 };

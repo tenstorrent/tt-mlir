@@ -2,17 +2,17 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "TTNNOpModel.h"
+#include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
-#include "Conversion.hpp"
-#include "MetalHeaders.h"
-#include "SingletonDeviceContext.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TT/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/OpModel/TTNN/Conversion.h"
+#include "ttmlir/OpModel/TTNN/MetalHeaders.h"
+#include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/Support/Logger.h"
 
 #include "mlir/IR/AttrTypeSubElements.h"

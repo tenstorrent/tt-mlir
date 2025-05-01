@@ -57,12 +57,11 @@ void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
   // x ^ x == 0
   patterns.add(
       +[](mlir::tt::ttir::BitwiseXorOp op, mlir::PatternRewriter &rewriter) {
-        if (op.getInputs()[0] != op.getInputs()[1]) {
+        if (op.getLhs() != op.getRhs()) {
           return mlir::failure();
         }
 
-        mlir::RankedTensorType tensorType =
-            mlir::cast<mlir::RankedTensorType>(op.getInputs()[0].getType());
+        mlir::RankedTensorType tensorType = op.getResult().getType();
         auto elementType = tensorType.getElementType();
         Attribute zeroAttr;
         if (mlir::isa<mlir::FloatType>(elementType)) {
@@ -1785,47 +1784,27 @@ mlir::OpFoldResult mlir::tt::ttir::TransposeOp::fold(FoldAdaptor adaptor) {
 //===----------------------------------------------------------------------===//
 
 // TypecastOp folder
-::llvm::LogicalResult mlir::tt::ttir::TypecastOp::fold(
-    FoldAdaptor adaptor,
-    ::llvm::SmallVectorImpl<::mlir::OpFoldResult> &results) {
-
-  if (getType(0) == getInputs()[0].getType()) {
-    results.push_back(getInputs()[0]);
-    return llvm::success();
+mlir::OpFoldResult mlir::tt::ttir::TypecastOp::fold(FoldAdaptor adaptor) {
+  if (getType() == getInput().getType()) {
+    return getInput();
   }
-  return llvm::failure();
+  return {};
 }
 
 // TypecastOp canonicalization method
 ::llvm::LogicalResult
 mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
                                          ::mlir::PatternRewriter &rewriter) {
-  // Fold two consecutive typecast ops into a single one
-  ::mlir::tt::ttir::TypecastOp previousTypecastOp =
-      op.getInputs()[0].getDefiningOp<mlir::tt::ttir::TypecastOp>();
+  // Fold two consecutive typecast ops into a single one.
+  ::mlir::tt::ttir::TypecastOp producerOp =
+      op.getInput().getDefiningOp<mlir::tt::ttir::TypecastOp>();
 
-  if (!previousTypecastOp) {
+  if (!producerOp) {
     return mlir::failure();
   }
 
-  // Check if the previous cast op has only one use. We can only fold if the
-  // previous op has single use.
-  if (!previousTypecastOp->hasOneUse()) {
-    return mlir::failure();
-  }
-
-  // Replace the previous op with the merged TypecastOp.
-  mlir::tt::ttir::TypecastOp foldedTypecastOp =
-      ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::TypecastOp>(
-          rewriter, previousTypecastOp,
-          mlir::cast<mlir::RankedTensorType>(op.getType(0)),
-          previousTypecastOp.getInputs());
-
-  // Replace all uses of the current op with the merged TypecastOp.
-  rewriter.replaceAllUsesWith(op->getResult(0), foldedTypecastOp->getResult(0));
-
-  // Erase the current op.
-  rewriter.eraseOp(op);
+  ttir::utils::replaceOpWithNewDPSOp<ttir::TypecastOp>(
+      rewriter, op, op.getType(), producerOp.getInput());
 
   return mlir::success();
 }
