@@ -977,4 +977,46 @@ TEST_F(OpModelBase, maxPool2DOp) {
   }
 }
 
+TEST_F(OpModelBase, clampScalarOp) {
+  // Create ClampScalarOp with flattened input tensor
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+
+  auto input = createEmptyTensor(tensorShape);
+  auto outputType = createRankedTensorType(tensorShape);
+
+  // Input params
+  float minVal = 0.0f;
+  float maxVal = 5.0f;
+
+  // Convert float values to APFloat objects
+  llvm::APFloat minValAPF(minVal);
+  llvm::APFloat maxValAPF(maxVal);
+
+  ClampScalarOp clampScalarOp = builder.create<ClampScalarOp>(
+      builder.getUnknownLoc(), outputType, input, minValAPF, maxValAPF);
+  clampScalarOp->setAttr(DeviceAttr::name, getFakeDeviceAttr());
+
+  op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  auto constraintsExp = getOpConstraints(clampScalarOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GT(peakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp = getOpRuntime(clampScalarOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 } // namespace mlir::tt::ttnn
