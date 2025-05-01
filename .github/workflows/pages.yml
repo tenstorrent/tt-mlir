@@ -28,7 +28,6 @@ jobs:
         ]
 
     runs-on:
-      - in-service
       - ${{ matrix.build.runs-on }}
 
     container:
