@@ -51,6 +51,32 @@ def TTIROpInterface : OpInterface<"TTIROp"> {
       /*methodBody=*/"",
       /*defaultImplementation=*/"return false;"
     >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Get all input operands for this operation.
+      }],
+      /*retTy=*/"::mlir::OperandRange",
+      /*methodName=*/"getInputs",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        auto numOutputs = $_op.getNumDpsInits();
+        return $_op->getOperands().drop_back(numOutputs);
+      }]
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Get the output operand for this operation.
+      }],
+      /*retTy=*/"::mlir::OperandRange",
+      /*methodName=*/"getOutputs",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        auto numOutputs = $_op.getNumDpsInits();
+        return $_op->getOperands().take_back(numOutputs);
+      }]
+    >,
   ];
 }
 

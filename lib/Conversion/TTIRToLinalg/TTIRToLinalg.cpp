@@ -208,8 +208,8 @@ public:
     }
 
     static_assert(ttir::utils::has_dps_trait_v<TTIROpTy>);
-    auto inputs = adaptor.getOperands().drop_back(op.getNumDpsInits());
-    auto outputs = adaptor.getOperands().take_back(op.getNumDpsInits());
+    auto inputs = adaptor.getInputs();
+    auto outputs = adaptor.getOutputs();
     rewriter.replaceOpWithNewOp<LinAlgOpTy>(op, resultTypes, inputs, outputs);
     return success();
   }
@@ -507,12 +507,11 @@ public:
     Value trueValue = inputs[1];
     Value falseValue = inputs[2];
 
-    // Use getOutputs()[0] instead of getOutput()
-    Value output = adaptor.getOutputs()[0];
+    Value output = adaptor.getOutput();
 
     // Get the result type
     auto resultType = dyn_cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(op.getResult(0).getType()));
+        this->getTypeConverter()->convertType(op.getResult().getType()));
     if (!resultType)
       return failure();
 
@@ -1034,7 +1033,7 @@ public:
     Location loc = op.getLoc();
 
     // First, compute broadcasted shape from operands.
-    SmallVector<Value, 2> inputs = adaptor.getInputs();
+    auto inputs = adaptor.getInputs();
     assert(inputs.size() == 2 &&
            "Binary element-wise operations must have 2 inputs!");
     ArrayRef<int64_t> input0Shape =
@@ -1110,7 +1109,7 @@ public:
         broadcastedShape.size(), utils::IteratorType::parallel);
 
     auto genericOp = rewriter.create<linalg::GenericOp>(
-        loc, resultTypes, broadcastedInputs, adaptor.getOutputs(),
+        loc, resultTypes, broadcastedInputs, adaptor.getOutput(),
         indexingMapsArray, iteratorTypes);
 
     // Create the body of the generic op
@@ -1157,18 +1156,12 @@ public:
     Location loc = op.getLoc();
 
     // Get the inputs and outputs
-    SmallVector<Value, 2> inputs = adaptor.getInputs();
-    assert(inputs.size() == 1 && "Sigmoid should have exactly 1 input");
-    Value input = inputs[0];
-
-    // Get outputs
-    SmallVector<Value, 1> outputs = adaptor.getOutputs();
-    assert(outputs.size() == 1 && "Sigmoid should have exactly 1 output");
-    Value output = outputs[0];
+    Value input = adaptor.getInput();
+    Value output = adaptor.getOutput();
 
     // Get result type
     auto resultType = llvm::cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(op.getResult(0).getType()));
+        this->getTypeConverter()->convertType(op.getResult().getType()));
     if (!resultType)
       return failure();
 
@@ -1232,18 +1225,12 @@ public:
     Location loc = op.getLoc();
 
     // Get the inputs and outputs
-    SmallVector<Value, 2> inputs = adaptor.getInputs();
-    assert(inputs.size() == 1 && "Trig op should have exactly 1 input");
-    Value input = inputs[0];
-
-    // Get outputs
-    SmallVector<Value, 1> outputs = adaptor.getOutputs();
-    assert(outputs.size() == 1 && "Trig op should have exactly 1 output");
-    Value output = outputs[0];
+    Value input = adaptor.getInput();
+    Value output = adaptor.getOutput();
 
     // Get result type
     auto resultType = llvm::cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(op.getResult(0).getType()));
+        this->getTypeConverter()->convertType(op.getResult().getType()));
     if (!resultType)
       return failure();
 
@@ -1292,19 +1279,12 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
 
-    // Get the inputs and outputs
-    SmallVector<Value, 2> inputs = adaptor.getInputs();
-    assert(inputs.size() == 1 && "LogicalNot should have exactly 1 input");
-    Value input = inputs[0];
-
-    // Get outputs
-    SmallVector<Value, 1> outputs = adaptor.getOutputs();
-    assert(outputs.size() == 1 && "LogicalNot should have exactly 1 output");
-    Value output = outputs[0];
+    Value input = adaptor.getInput();
+    Value output = adaptor.getOutput();
 
     // Get result type
     auto resultType = llvm::cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(op.getResult(0).getType()));
+        this->getTypeConverter()->convertType(op.getResult().getType()));
     if (!resultType)
       return failure();
 
