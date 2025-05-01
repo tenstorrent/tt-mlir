@@ -1,7 +1,6 @@
 add_mlir_dialect(TTMetalOps ttmetal)
 add_mlir_doc(TTMetalBase TTMetalDialect src/autogen/md/Dialect/ -gen-dialect-doc)
 add_mlir_doc(TTMetalOps TTMetalOp src/autogen/md/Dialect/ -gen-op-doc)
-add_mlir_doc(TTMetalOpsBaseAttrs TTMetalBaseAttrs src/autogen/md/Dialect/ -gen-attrdef-doc)
 add_mlir_doc(TTMetalOpsAttrs TTMetalAttrs src/autogen/md/Dialect/ -gen-attrdef-doc)
 
 set(LLVM_TARGET_DEFINITIONS TTMetalAttrInterfaces.td)
