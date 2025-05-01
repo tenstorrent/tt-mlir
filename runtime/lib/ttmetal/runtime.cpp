@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <optional>
 #include <variant>
 
 #include "tracy/Tracy.hpp"
@@ -9,6 +10,7 @@
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttmetal.h"
 #include "tt/runtime/runtime.h"
+#include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTMetal/Target.h"
 #include "ttmlir/Version.h"
@@ -31,9 +33,9 @@ static ::tt::target::metal::TTMetalBinary const *getBinary(Flatbuffer binary) {
   return ::tt::target::metal::GetSizePrefixedTTMetalBinary(binary.handle.get());
 }
 
-static Tensor createNullTensor() {
-  return Tensor(nullptr, nullptr, DeviceRuntime::TTMetal);
-}
+// static Tensor createNullTensor() {
+//   return Tensor(nullptr, nullptr, DeviceRuntime::TTMetal);
+// }
 
 static tt::runtime::MemoryView
 createMemoryView(tt::tt_metal::detail::MemoryView const &memoryView) {
@@ -410,11 +412,20 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   return "";
 }
 
-Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle) {
+std::unique_ptr<CallbackTensorBase>
+getOpOutputTensor(OpContext opContextHandle,
+                  CallbackContext programContextHandle) {
   // Not implemented
   LOG_WARNING("obtaining op output tensor for metal runtime not implemented");
-  return createNullTensor();
+  return std::make_unique<CallbackTensor>(CallbackTensor());
+}
+
+std::vector<std::unique_ptr<CallbackTensorBase>>
+getOpInputTensors(OpContext opContextHandle,
+                  CallbackContext programContextHandle) {
+  // Not implemented
+  LOG_WARNING("obtaining op input tensor for metal runtime not implemented");
+  return {};
 }
 
 std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor tensor) {
