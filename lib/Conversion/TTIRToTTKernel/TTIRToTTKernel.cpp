@@ -317,6 +317,12 @@ public:
 
   static Value castCBTypeAsAddress(OpBuilder &rewriter, Location loc,
                                    Value cb) {
+    // This is required because we blanket convert Memrefs into CBs with a type
+    // converter, however there are actually two paths a memref can take:
+    // 1. It can be a CBType, which is the case for local memrefs
+    // 2. It can represent remote data, which we need to lower to a compile time
+    // address (I32 type)
+    // More information on ticket #3172
     return rewriter
         .create<UnrealizedConversionCastOp>(loc, rewriter.getI32Type(), cb)
         ->getResult(0);
