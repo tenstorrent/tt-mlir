@@ -64,7 +64,7 @@ def get_test_files(paths):
 
 def GET_TTNN_TEST():
     for test in get_test_files(TEST_LOAD_MODEL_PATHS):
-        if test.endswith("test_mnist.ttnn"):
+        if test.endswith("test_mnist[ttnn-28x28_digits-f32].ttnn"):
             return test
     return None
 
@@ -240,6 +240,10 @@ def test_execute_and_check_memory_data_exists():
     assert "display_type" in str(result)
 
 
+# TODO: figure out if this should be deleted, or adapted with new tests
+@pytest.mark.skip(
+    "This is now handled by tests under `test/python/golden/test_ttir_models.py`"
+)
 def test_execute_and_check_accuracy_data_exists():
     # Get the test_mnist path
     test_mnist_path = GET_TTNN_TEST()

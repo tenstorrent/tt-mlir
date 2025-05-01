@@ -137,6 +137,10 @@ jobs:
           # {runs-on: tg,     name: "run",  suite: "run",             image: "speedy", type: "ttrt",    path: "Silicon", ttrt_flags: "--non-zero --disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
           # {runs-on: tg,     name: "perf", suite: "perf",            image: "tracy",  type: "ttrt",    path: "Silicon/TTNN/tg/perf", ttrt_flags: "--disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
           {runs-on: n150,   name: "perf", suite: "perf",              image: "tracy",  type: "pytest",  path: "runtime/tools/python/test", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "run",  suite: "op_golden",         image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_ops.py", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true, container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "run",  suite: "model_golden",      image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_models.py", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true, container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "run",  suite: "op_compile",        image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_ops.py", flags: "-m \"run_error or fails_golden\"", run-ttrt: false, container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "run",  suite: "model_compile",     image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_models.py", flags: "-m \"run_error or fails_golden\"", run-ttrt: false, container-options: "--device /dev/tenstorrent/0"},
           # Although these runtime tests are device agnostic, they depend on n150 compiled mlir artifacts
           # Therefore running these tests on n150 specifically
           {runs-on: n150,   name: "run",  suite: "ttnn_runtime",      image: "speedy", type: "pytest",  path: "runtime/test/python/ttnn/device_agnostic", container-options: "--device /dev/tenstorrent/0"},
@@ -146,7 +150,7 @@ jobs:
           {runs-on: n300,   name: "run",  suite: "multidevice",       image: "speedy", type: "golden",  path: "ccl_test/n300", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: llmbox, name: "run",  suite: "multidevice",       image: "speedy", type: "golden",  path: "ccl_test/llmbox", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
         ]
-    name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ matrix.build.suite }},${{ matrix.build.type}})"
+    name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ matrix.build.suite }},${{ matrix.build.type }},${{ strategy.job-index }})"
 
     runs-on:
       - in-service
@@ -171,7 +175,7 @@ jobs:
       id: fetch-job-id
       uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
       with:
-        job_name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ matrix.build.suite }},${{ matrix.build.type}})"
+        job_name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ matrix.build.suite }},${{ matrix.build.type }},${{ strategy.job-index }})"
 
     - name: Set reusable strings
       id: strings
@@ -272,6 +276,17 @@ jobs:
           cp build/test/report.xml ${{ steps.strings.outputs.test_report_path }}
           echo "Unit test report copied"
         fi
+
+    - name: Builder Tests
+      if: matrix.build.type == 'builder'
+      shell: bash
+      run: |
+        source env/activate
+        pytest ${{ matrix.build.path }} ${{ matrix.build.flags }} -v --junit-xml=${{ steps.strings.outputs.test_report_path }}
+        if [[ "${{ matrix.build.run-ttrt }}" == "true" ]]; then
+          ttrt run ttnn/
+        fi
+
 
     - name: Generate EmitC tests
       shell: bash
