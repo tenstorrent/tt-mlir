@@ -11,8 +11,9 @@ def ConstEvalHoistTransform: Pass<"const-eval-hoist-transform", "::mlir::ModuleO
   let summary = "Transform to hoist const-eval subgraph into separate func(s)";
   let description = [{
     Transform pass which runs an analysis pass to find const-eval subgraphs in an input
-    and hoist them into separate functions. This pass is dialect-agnostic and works with
-    any dialect that implements the ConstEvalHoistingInterface.
+    and hoist them into separate functions.
+    This pass is dialect-agnostic, although ops with TT traits TTCreationOpTrait and TTDuplicateConstEvalTrait have special logic.
+    If this pass is run on IR which has already been const-eval'ed, it will first undo existing const-eval hoisting and then re-run.
 
     Example:
 
@@ -42,6 +43,16 @@ def ConstEvalHoistTransform: Pass<"const-eval-hoist-transform", "::mlir::ModuleO
       return %1 : tensor<32x32xbf16>
     }
 
+  }];
+
+  let dependentDialects = ["::mlir::tt::TTDialect"];
+}
+
+def UndoConstEvalTransform : Pass<"undo-const-eval", "mlir::ModuleOp"> {
+  let summary = "Undo const-eval hoisting by inlining const-eval functions";
+  let description = [{
+    This pass inlines all functions marked with the "const_eval" attribute,
+    effectively undoing the transformations performed by ConstEvalHoistTransform.
   }];
 
   let dependentDialects = ["::mlir::tt::TTDialect"];

@@ -685,24 +685,26 @@ mlir::tt::ttnn::ToDTypeOp::canonicalize(ToDTypeOp op,
 }
 
 //===----------------------------------------------------------------------===//
-// MaxPool2dOp
+// Common verifier for 2d pooling ops
 //===----------------------------------------------------------------------===//
+static mlir::LogicalResult
+verifyPoolingOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
+                mlir::RankedTensorType inputType,
+                llvm::ArrayRef<int32_t> kernelSize, int32_t inputHeight,
+                int32_t inputWidth, int32_t batchSize, int32_t channels,
+                llvm::StringRef opName) {
+  ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
 
-// MaxPool2dOp verification
-::mlir::LogicalResult mlir::tt::ttnn::MaxPool2dOp::verify() {
-  ::mlir::RankedTensorType inputType = getInput().getType();
-  ::llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
-
-  if (getKernelSize()[0] > getInputHeight()) {
-    return emitOpError() << "Kernel height " << getKernelSize()[0]
-                         << " is greater than input height " << getInputHeight()
-                         << ". This MaxPool2d configuration is invalid.";
+  if (kernelSize[0] > inputHeight) {
+    return emitOpError() << "Kernel height " << kernelSize[0]
+                         << " is greater than input height " << inputHeight
+                         << ". This " << opName << " configuration is invalid.";
   }
 
-  if (getKernelSize()[1] > getInputWidth()) {
-    return emitOpError() << "Kernel width " << getKernelSize()[1]
-                         << " is greater than input width " << getInputWidth()
-                         << ". This MaxPool2d configuration is invalid.";
+  if (kernelSize[1] > inputWidth) {
+    return emitOpError() << "Kernel width " << kernelSize[1]
+                         << " is greater than input width " << inputWidth
+                         << ". This " << opName << " configuration is invalid.";
   }
 
   if (inputType.getRank() != 4) {
@@ -712,30 +714,53 @@ mlir::tt::ttnn::ToDTypeOp::canonicalize(ToDTypeOp op,
   }
 
   if (inputShape[0] != 1 || inputShape[1] != 1) {
-    return emitOpError() << "Maxpool input must be in the form (1, 1, N*H*W, "
+    return emitOpError() << opName
+                         << " input must be in the form (1, 1, N*H*W, "
                             "C). Received shape ("
                          << inputShape << ").";
   }
 
-  if (inputShape[2] != getBatchSize() * getInputHeight() * getInputWidth()) {
-    return emitOpError() << "Maxpool shape (" << inputShape
+  if (inputShape[2] != batchSize * inputHeight * inputWidth) {
+    return emitOpError() << opName << " shape (" << inputShape
                          << ") at dim -2 must be equal to N*H*W. However the "
                             "attributes given are N="
-                         << getBatchSize() << ", H=" << getInputHeight()
-                         << ", W=" << getInputWidth() << ". " << getBatchSize()
-                         << "*" << getInputHeight() << "*" << getInputWidth()
+                         << batchSize << ", H=" << inputHeight
+                         << ", W=" << inputWidth << ". " << batchSize << "*"
+                         << inputHeight << "*" << inputWidth
                          << " != " << inputShape[2] << ".";
   }
 
-  if (inputShape[3] != getChannels()) {
-    return emitOpError() << "Maxpool shape (" << inputShape
+  if (inputShape[3] != channels) {
+    return emitOpError() << opName << " shape (" << inputShape
                          << ") at dim -3 must be equal to C. However the "
                             "attribute given is C="
-                         << getChannels() << ". " << inputShape[3]
-                         << " != " << getChannels();
+                         << channels << ". " << inputShape[3]
+                         << " != " << channels;
   }
 
-  return success();
+  return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
+// AvgPool2dOp
+//===----------------------------------------------------------------------===//
+
+// AvgPool2dOp verification
+::mlir::LogicalResult mlir::tt::ttnn::AvgPool2dOp::verify() {
+  return verifyPoolingOp([&]() { return emitOpError(); }, getInput().getType(),
+                         getKernelSize(), getInputHeight(), getInputWidth(),
+                         getBatchSize(), getChannels(), getOperationName());
+}
+
+//===----------------------------------------------------------------------===//
+// MaxPool2dOp
+//===----------------------------------------------------------------------===//
+
+// MaxPool2dOp verification
+::mlir::LogicalResult mlir::tt::ttnn::MaxPool2dOp::verify() {
+  return verifyPoolingOp([&]() { return emitOpError(); }, getInput().getType(),
+                         getKernelSize(), getInputHeight(), getInputWidth(),
+                         getBatchSize(), getChannels(), getOperationName());
 }
 
 //===----------------------------------------------------------------------===//

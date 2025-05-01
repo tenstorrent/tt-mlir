@@ -92,7 +92,10 @@ class TTKernelCompiler(ast.NodeVisitor):
         "pack_tile": ttkernel.pack_tile,
         "copy_tile": ttkernel.copy_tile,
         "add_tiles": ttkernel.add_tiles,
-        "get_compile_time_arg_val": ttkernel.get_compile_time_arg_val,
+        "get_compile_time_arg_val": (
+            ttkernel.get_compile_time_arg_val,
+            [True, True],
+        ),  # True for arg as attribute
         "get_write_ptr": ttkernel.get_write_ptr,
         "get_read_ptr": ttkernel.get_read_ptr,
         "get_tile_size": ttkernel.get_tile_size,
@@ -531,8 +534,13 @@ class TTKernelCompiler(ast.NodeVisitor):
             node.func.id in self.ttkernel_fn_map
         ), f"Function {node.func.id} not supported"
         func = self.ttkernel_fn_map[node.func.id]
+        args_as_attr = [False] * len(node.args)
+        if type(func) is tuple:
+            func, args_as_attr = func
         func_args = []
-        for arg in node.args:
+        assert len(node.args) == len(args_as_attr)
+        for arg, as_attr in zip(node.args, args_as_attr):
+            arg._ttkernel_as_attr = as_attr
             func_arg = self.visit(arg)
             if not func_arg:
                 raise ValueError(f"Function argument not found for {node.func.id}")
@@ -877,10 +885,12 @@ class TTKernelCompiler(ast.NodeVisitor):
 
     # Literals
     def visit_Constant(self, node):
+        as_attr = getattr(node, "_ttkernel_as_attr", False)
+        op_constructor = IntegerAttr.get if as_attr else arith.ConstantOp
         if isinstance(node.value, bool):
-            return arith.ConstantOp(IntegerType.get_signless(1, self.ctx), node.value)
+            return op_constructor(IntegerType.get_signless(1, self.ctx), node.value)
         elif isinstance(node.value, int):
-            return arith.ConstantOp(IntegerType.get_signless(32, self.ctx), node.value)
+            return op_constructor(IntegerType.get_signless(32, self.ctx), node.value)
         else:
             raise NotImplementedError(
                 f"constant type {type(node.value).__name__} not implemented"

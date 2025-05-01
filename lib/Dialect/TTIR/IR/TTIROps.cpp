@@ -938,25 +938,25 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// MaxPool2dOp
+// Common verifier for pooling ops
 //===----------------------------------------------------------------------===//
-
-// MaxPool2dOp verification
-::mlir::LogicalResult mlir::tt::ttir::MaxPool2dOp::verify() {
-  ::mlir::RankedTensorType inputType = getInput().getType();
-  ArrayRef<int64_t> inputShape = inputType.getShape();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
-  ArrayRef<int64_t> outputShape = outputType.getShape();
+static mlir::LogicalResult verifyPoolingOp(
+    llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
+    mlir::RankedTensorType inputType, mlir::RankedTensorType outputType,
+    mlir::tt::ttir::FlattenedCompatInfoAttr flattenInfo, int32_t kernelHeight,
+    int32_t kernelWidth, llvm::StringRef opName) {
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
 
   if (inputType.getRank() != 4) {
     return emitOpError()
-           << "Input tensor rank must be 4. Recieved input with rank "
+           << "Input tensor rank must be 4. Received input with rank "
            << inputType.getRank() << ". Shape: (" << inputShape << ").";
   }
 
   if (outputType.getRank() != 4) {
     return emitOpError()
-           << "Output tensor rank must be 4. Recieved output with rank "
+           << "Output tensor rank must be 4. Received output with rank "
            << outputType.getRank() << ". Shape: (" << outputShape << ").";
   }
 
@@ -969,10 +969,10 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
   int64_t inputWidth = inputType.getDimSize(WIDTH_DIM);
   int64_t inChannels = inputType.getDimSize(CHANNEL_DIM);
   int64_t outChannels = outputType.getDimSize(CHANNEL_DIM);
-  if (getFlattenedCompatInfo()) {
-    auto batchSize = getFlattenedCompatInfo().getBatchSize();
-    inputHeight = getFlattenedCompatInfo().getInputHeight();
-    inputWidth = getFlattenedCompatInfo().getInputWidth();
+  if (flattenInfo) {
+    auto batchSize = flattenInfo.getBatchSize();
+    inputHeight = flattenInfo.getInputHeight();
+    inputWidth = flattenInfo.getInputWidth();
 
     if (inputType.getDimSize(2) != batchSize * inputHeight * inputWidth) {
       return emitOpError() << "Expected dim 2 of the input tensor to have size "
@@ -981,7 +981,7 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
     }
   }
 
-  if (!getFlattenedCompatInfo() &&
+  if (!flattenInfo &&
       inputType.getDimSize(BATCH_DIM) != outputType.getDimSize(BATCH_DIM)) {
     return emitOpError()
            << "Batch size from the input tensor ("
@@ -1008,25 +1008,49 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
                          << ").";
   }
 
-  if (getKernelHeight() > inputHeight) {
-    return emitOpError() << "Kernel height " << getKernelHeight()
+  if (kernelHeight > inputHeight) {
+    return emitOpError() << "Kernel height " << kernelHeight
                          << " is greater than input height " << inputHeight
-                         << (getFlattenedCompatInfo()
+                         << (flattenInfo
                                  ? " (as defined in flattened_compat_info)"
                                  : "")
-                         << ". This MaxPool2d configuration is invalid.";
+                         << ". This " << opName << " configuration is invalid.";
   }
 
-  if (getKernelWidth() > inputWidth) {
-    return emitOpError() << "Kernel width " << getKernelWidth()
+  if (kernelWidth > inputWidth) {
+    return emitOpError() << "Kernel width " << kernelWidth
                          << " is greater than input width " << inputWidth
-                         << (getFlattenedCompatInfo()
+                         << (flattenInfo
                                  ? " (as defined in flattened_compat_info)"
                                  : "")
-                         << ". This MaxPool2d configuration is invalid.";
+                         << ". This " << opName << " configuration is invalid.";
   }
 
-  return success();
+  return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
+// AvgPool2dOp
+//===----------------------------------------------------------------------===//
+
+// AvgPool2dOp verification
+::mlir::LogicalResult mlir::tt::ttir::AvgPool2dOp::verify() {
+  return verifyPoolingOp([&]() { return emitOpError(); }, getInput().getType(),
+                         getOutput().getType(), getFlattenedCompatInfo(),
+                         getKernelHeight(), getKernelWidth(),
+                         getOperationName());
+}
+
+//===----------------------------------------------------------------------===//
+// MaxPool2dOp
+//===----------------------------------------------------------------------===//
+
+// MaxPool2dOp verification
+::mlir::LogicalResult mlir::tt::ttir::MaxPool2dOp::verify() {
+  return verifyPoolingOp([&]() { return emitOpError(); }, getInput().getType(),
+                         getOutput().getType(), getFlattenedCompatInfo(),
+                         getKernelHeight(), getKernelWidth(),
+                         getOperationName());
 }
 
 //===----------------------------------------------------------------------===//

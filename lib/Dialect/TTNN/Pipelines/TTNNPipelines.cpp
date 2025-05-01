@@ -89,6 +89,11 @@ void createTTNNPipelineWorkaroundPass(
   TTNNWorkaroundsOptions workaroundOptions{
       options.layoutWorkaroundsEnabled, options.decompositionWorkaroundsEnabled,
       options.repeatFoldingWorkaroundEnabled};
+
+  // Optimizer solves layout constraints using graph capture.
+  if (options.optimizerPassEnabled) {
+    workaroundOptions.layoutWorkaroundsEnabled = false;
+  }
   pm.addPass(createTTNNWorkarounds(workaroundOptions));
   pm.addPass(mlir::createCanonicalizerPass());
 }
@@ -173,6 +178,11 @@ void createTTIRToTTNNBackendPipeline(
     devicePm.addPass(transforms::createConstEvalHoistTransform());
   }
   createTTNNPipelineAnalysisPasses(devicePm, options);
+  // We need to re-run const-eval to pick up const prepare conv2d weight ops
+  // split during the analysis passes.
+  if (options.enableConstEval) {
+    devicePm.addPass(transforms::createConstEvalHoistTransform());
+  }
   createTTNNPipelineLayoutDecompositionPass(devicePm, options);
   createTTNNPipelineDeallocPass(devicePm, options);
 

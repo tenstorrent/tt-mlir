@@ -175,7 +175,9 @@ struct TTIRToTTNNBackendPipelineOptions
   //
   Option<bool> layoutWorkaroundsEnabled{
       *this, "enable-layout-workaround-pass",
-      llvm::cl::desc("Enable layout workaround pass."), llvm::cl::init(true)};
+      llvm::cl::desc("Enable layout workaround pass. Always false when "
+                     "optimizer pass is enabled."),
+      llvm::cl::init(true)};
 
   Option<bool> decompositionWorkaroundsEnabled{
       *this, "enable-decomposition-workaround-pass",
