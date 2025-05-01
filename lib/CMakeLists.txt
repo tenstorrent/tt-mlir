@@ -60,6 +60,7 @@ target_link_libraries(TTMLIRCompiler PRIVATE
 target_link_libraries(TTMLIRCompiler PUBLIC coverage_config)
 
 target_link_directories(TTMLIRCompiler PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib)
+target_link_directories(TTMLIRCompiler PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib64)
 
 install(TARGETS TTMLIRCompiler DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR} COMPONENT SharedLib)
 

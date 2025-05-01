@@ -50,7 +50,7 @@ set(TTNN_OPS_SRCS
   # ANCHOR_END: adding_an_op_matmul_runtime_cmake
   ${CMAKE_CURRENT_SOURCE_DIR}/moreh/moreh_cumsum.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/softmax.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/pool/maxpool2d.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/pool/pool2d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/pool/upsample.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/argmax.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/prod.cpp

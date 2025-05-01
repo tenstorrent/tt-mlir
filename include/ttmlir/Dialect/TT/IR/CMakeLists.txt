@@ -4,6 +4,12 @@ add_mlir_doc(TTOps TTOp src/autogen/md/Dialect/ -gen-op-doc)
 add_mlir_doc(TTOpsTypes TTAttr src/autogen/md/Dialect/ -gen-attrdef-doc)
 add_mlir_doc(TTOpsTypes TTType src/autogen/md/Dialect/ -gen-typedef-doc)
 
+set(LLVM_TARGET_DEFINITIONS TTAttrInterfaces.td)
+mlir_tablegen(TTAttrInterfaces.h.inc -gen-attr-interface-decls)
+mlir_tablegen(TTAttrInterfaces.cpp.inc -gen-attr-interface-defs)
+add_public_tablegen_target(TTAttrInterfacesIncGen)
+add_dependencies(mlir-headers TTAttrInterfacesIncGen)
+
 set(LLVM_TARGET_DEFINITIONS TTOps.td)
 mlir_tablegen(TTOpsAttrDefs.h.inc -gen-attrdef-decls)
 mlir_tablegen(TTOpsAttrDefs.cpp.inc -gen-attrdef-defs)

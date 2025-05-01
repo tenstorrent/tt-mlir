@@ -7,10 +7,12 @@
 
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
 #include "ttmlir/Conversion/Passes.h"
+#include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
 #include "ttmlir/RegisterAll.h"
 #include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include "ttmlir/Target/TTMetal/TTMetalToFlatbuffer.h"
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
+
 #include <cstdint>
 #include <nanobind/stl/bind_map.h>
 #include <nanobind/stl/bind_vector.h>
@@ -286,21 +288,27 @@ void populatePassesModule(nb::module_ &m) {
 
   m.def(
       "ttkernel_to_cpp",
-      [](MlirModule module, bool isTensixKernel) {
+      [](MlirModule module) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
-        tt::ttkernel::ThreadType threadType =
-            isTensixKernel ? tt::ttkernel::ThreadType::Tensix
-                           : tt::ttkernel::ThreadType::Noc;
+
+        // Convert to EmitC
+        mlir::PassManager pm(moduleOp->getName());
+        pm.addPass(mlir::tt::createConvertTTKernelToEmitC());
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+
+        // Translate to C++
         std::string output;
         llvm::raw_string_ostream output_stream(output);
-        if (mlir::failed(mlir::tt::ttkernel::translateTTKernelToCpp(
-                moduleOp, output_stream, threadType))) {
+        if (mlir::failed(mlir::tt::ttkernel::translateTopLevelKernelsToCpp(
+                mlir::cast<ModuleOp>(moduleOp), output_stream))) {
           throw std::runtime_error("Failed to generate cpp");
         }
         output_stream.flush();
         return output;
       },
-      nb::arg("module"), nb::arg("isTensixKernel"));
+      nb::arg("module"));
 
   m.def(
       "pykernel_compile_pipeline",

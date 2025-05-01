@@ -9,7 +9,8 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ArgMaxOpRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpDimRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpRankRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceOpsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RepeatOpRewritePattern.h"
@@ -162,13 +163,10 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
   // Create the new output layout attribute with the updated tensor layout,
   // buffer type, memory layout and data type.
   TTNNLayoutAttr newOutputLayoutAttr =
-      opResultLayoutAttr
-          .withElementType(rewriter.getContext(), elementType,
-                           opResultType.getShape())
+      opResultLayoutAttr.withElementType(elementType, opResultType.getShape())
           .withBufferType(
-              rewriter.getContext(),
               outputWorkaroundResults.tensorBufferTypeResult.targetValue)
-          .withMemoryLayout(rewriter.getContext(), outputMemLayoutAttr);
+          .withMemoryLayout(outputMemLayoutAttr);
 
   // Create the new output result type with the updated data type and layout.
   RankedTensorType newOutputResultType =
@@ -212,14 +210,12 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
       // Check if the buffer type got updated.
       if (outputWorkaroundResults.tensorBufferTypeResult.isModified()) {
         currentMemoryConfig = currentMemoryConfig.withBufferType(
-            rewriter.getContext(),
             outputWorkaroundResults.tensorBufferTypeResult.targetValue);
       }
 
       // Check if the memory layout got updated.
       if (outputWorkaroundResults.tensorMemoryLayoutResult.isModified()) {
         currentMemoryConfig = currentMemoryConfig.withMemoryLayout(
-            rewriter.getContext(),
             outputWorkaroundResults.tensorMemoryLayoutResult.targetValue
                 .value());
       }
@@ -590,10 +586,10 @@ public:
               ttnn::MeanOp, /*keepDimUnsupported*/ false>,
           workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
               ttnn::MinOp, /*keepDimUnsupported*/ false>,
-          workarounds::decomposition::CumSumOpRewritePattern,
-          workarounds::decomposition::ArgMaxOpRewritePattern,
-          workarounds::decomposition::EmbeddingOpSqueezeWeightRewritePattern>(
-          &getContext());
+          workarounds::decomposition::CumSumOpDimRewritePattern,
+          workarounds::decomposition::CumSumOpRankRewritePattern,
+          workarounds::decomposition::EmbeddingOpSqueezeWeightRewritePattern,
+          workarounds::decomposition::ArgMaxOpRewritePattern>(&getContext());
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);

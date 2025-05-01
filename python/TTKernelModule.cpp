@@ -29,5 +29,26 @@ void populateTTKernelModule(nb::module_ &m) {
                      return std::vector<int64_t>(cb.getShape());
                    })
       .def_prop_ro("memref", &tt::ttkernel::CBType::getMemref);
+
+  tt_attribute_class<tt::ttkernel::ThreadTypeAttr>(m, "ThreadTypeAttr")
+      .def_prop_ro_static("name",
+                          [](nb::handle /*unused*/) {
+                            return std::string(
+                                tt::ttkernel::ThreadTypeAttr::name);
+                          })
+      .def_static("get", [](MlirContext ctx, std::string threadTypeStr) {
+        tt::ttkernel::ThreadType threadType;
+        if (threadTypeStr == "compute") {
+          threadType = tt::ttkernel::ThreadType::Compute;
+        } else if (threadTypeStr == "noc") {
+          threadType = tt::ttkernel::ThreadType::Noc;
+        } else {
+          throw std::runtime_error("Unknown thread type " + threadTypeStr);
+        }
+
+        return ttmlirTTKernelThreadTypeAttrGet(
+            ctx, static_cast<std::underlying_type_t<tt::ttkernel::ThreadType>>(
+                     threadType));
+      });
 }
 } // namespace mlir::ttmlir::python

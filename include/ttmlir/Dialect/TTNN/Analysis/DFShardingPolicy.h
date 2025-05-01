@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysisPolicy.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
+#include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -20,18 +21,22 @@ namespace mlir::tt::ttnn {
 //
 class DFShardingPolicy : public MemoryLayoutAnalysisPolicy {
 private:
+  const TensorTypeLayoutsMap *tensorTypePossibleLayouts;
   llvm::DenseSet<Edge> overrideReshardEdges;
+
   void pickOpShardConfigs(ShardSolver &shardSolver,
                           const L1ChainConfig &l1ChainConfig);
 
 public:
   DFShardingPolicy(
       Operation *rootOp, std::vector<L1ChainConfig> &l1ChainConfigs,
+      const TensorTypeLayoutsMap *tensorTypePossibleLayouts,
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> &schedule,
       unsigned usableL1CacheSize)
       : MemoryLayoutAnalysisPolicy(rootOp, l1ChainConfigs, legalConfigs,
                                    schedule, usableL1CacheSize),
+        tensorTypePossibleLayouts(tensorTypePossibleLayouts),
         overrideReshardEdges() {}
 
   void run() final;

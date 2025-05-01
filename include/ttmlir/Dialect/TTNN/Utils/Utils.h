@@ -46,6 +46,10 @@ RankedTensorType
 createRankedTensorTypeWithMemoryLayout(RankedTensorType tensorType,
                                        ttnn::TensorMemoryLayout memoryLayout);
 
+// Helper method to create a RankedTensorType with the given grid.
+RankedTensorType createRankedTensorTypeWithGrid(RankedTensorType tensorType,
+                                                GridAttr grid);
+
 // Return the L1 memory usage of the output tensor of the given op.
 // Used within L1 interleaved policies.
 //

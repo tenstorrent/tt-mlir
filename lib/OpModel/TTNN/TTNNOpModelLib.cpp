@@ -627,6 +627,76 @@ SqrtOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 }
 
 //===----------------------------------------------------------------------===//
+// SigmoidOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<
+    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+SigmoidOpInterface::getOpConstraints(
+    GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::IDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // Prepare io specs
+  const auto specs = detail::convertToTensorSpec(
+      device, std::make_tuple(inputShape, inputLayout));
+
+  // Add default parameters
+  int32_t vectorMode =
+      static_cast<int32_t>(::ttnn::operations::unary::VecMode::RC);
+  bool approximateMode = false;
+
+  // Create query closure
+  auto query = [=]() {
+    const auto [inputSpec] = specs;
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::sigmoid, device, inputSpec, vectorMode, approximateMode,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints(
+      "SigmoidOpInterface", inputLayout.getContext(), deviceGrid, query);
+#else
+  return std::make_tuple(0, 0, 0, nullptr);
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+SigmoidOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                                 llvm::ArrayRef<int64_t> outputShape,
+                                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::IDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // Prepare io specs
+  const auto specs = detail::convertToTensorSpec(
+      device, std::make_tuple(inputShape, inputLayout));
+
+  // Add default parameters
+  int32_t vectorMode =
+      static_cast<int32_t>(::ttnn::operations::unary::VecMode::RC);
+  bool approximateMode = false;
+
+  // Create query closure
+  auto query = [=]() {
+    const auto [inputSpec] = specs;
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::sigmoid, device, inputSpec, vectorMode, approximateMode,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime("SigmoidOpInterface", query);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // AddOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<

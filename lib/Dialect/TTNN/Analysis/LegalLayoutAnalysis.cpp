@@ -5,14 +5,18 @@
 #include "ttmlir/Dialect/TTNN/Analysis/LegalLayoutAnalysis.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
+#include "ttmlir/Support/Logger.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/SmallVector.h"
+
+#include <algorithm>
 
 namespace mlir::tt::ttnn {
 
@@ -99,9 +103,9 @@ void applyConv2dConfigOverrides(Operation *op,
       getBoolAttr(overrides.enableSubblockPadding.value_or(false));
 
   for (auto &opConfig : analysisResult) {
-    assert(!opConfig.config &&
+    assert(!opConfig.opSpecificAttr &&
            "OpConfig should not have a config set before applying overrides");
-    opConfig.config = Conv2dConfigAttr::get(
+    opConfig.opSpecificAttr = Conv2dConfigAttr::get(
         context, dtype, weightsDtype, activation, inputChannelsAlignment,
         deallocateActivation, reallocateHaloOutput, actBlockHOverride,
         actBlockWDiv, reshardIfNotOptimal, overrideShardingConfig, shardLayout,
@@ -252,8 +256,8 @@ void LegalLayoutAnalysis::analysisImplementation() {
         overrideIt != analysisInput.outputLayoutOverrides->end()) {
       override = overrideIt->getValue();
       if (override->dataType.has_value()) {
-        scalarElementType = {mlir::tt::dataTypeToElementType(
-            op->getContext(), override->dataType.value())};
+        scalarElementType = mlir::tt::dataTypeToElementType(
+            op->getContext(), override->dataType.value());
       }
     }
   }
@@ -265,15 +269,91 @@ void LegalLayoutAnalysis::analysisImplementation() {
     rowMajorAllowed = true;
   }
 
-  std::vector<TTNNLayoutAttr> generatedLayouts =
-      optimizer_utils::generateAllPossibleLayouts(
-          op->getContext(), tensorType, analysisInput.maxGrid,
-          scalarElementType,
-          /*onlyShardedLayouts=*/false, analysisInput.maxShardedConfigs,
-          rowMajorAllowed);
+  // Sharded layouts for row major and tile are kept separate so we can combine
+  // them equally, and avoid having only RM or Tile layouts
+  std::vector<TTNNLayoutAttr> shardedLayoutsRowMajor;
+  std::vector<TTNNLayoutAttr> shardedLayoutsTile;
+  std::vector<TTNNLayoutAttr> interleavedLayouts;
 
-  analysisResult.insert(analysisResult.end(), generatedLayouts.begin(),
-                        generatedLayouts.end());
+  // Find the entry for our tensor type and scalar type
+  auto scalarTypeIt = analysisInput.possibleLayouts->find(scalarElementType);
+  assert(scalarTypeIt != analysisInput.possibleLayouts->end() &&
+         "Scalar type not found in all possible layouts");
+
+  for (size_t pageLayoutIdx = 0;
+       pageLayoutIdx < static_cast<size_t>(TensorPageLayout::kNumValues);
+       ++pageLayoutIdx) {
+
+    if (!rowMajorAllowed &&
+        pageLayoutIdx == static_cast<size_t>(TensorPageLayout::RowMajor)) {
+      continue;
+    }
+
+    // Insert interleaved layouts for current data layout
+    const auto &interleavedLayoutsForDataLayout =
+        scalarTypeIt->second[pageLayoutIdx][getMemoryLayoutIndex(
+            TensorMemoryLayout::Interleaved)];
+
+    interleavedLayouts.insert(interleavedLayouts.end(),
+                              interleavedLayoutsForDataLayout.begin(),
+                              interleavedLayoutsForDataLayout.end());
+
+    // Insert sharded layouts for current data layout, block sharded will give
+    // us unified index for all sharded layouts
+    const std::vector<TTNNLayoutAttr> &shardedLayoutsForDataLayout =
+        getShardedLayoutsForPageLayout(pageLayoutIdx, scalarTypeIt->second);
+
+    if (pageLayoutIdx == getPageLayoutIndex(Layout::RowMajor)) {
+      shardedLayoutsRowMajor.insert(shardedLayoutsRowMajor.end(),
+                                    shardedLayoutsForDataLayout.begin(),
+                                    shardedLayoutsForDataLayout.end());
+    } else {
+      shardedLayoutsTile.insert(shardedLayoutsTile.end(),
+                                shardedLayoutsForDataLayout.begin(),
+                                shardedLayoutsForDataLayout.end());
+    }
+  }
+
+  // We will sort the layouts by grid volume, so we can take the largest ones
+  // first. Possibly, they are all sorted by grid volume already, but we will
+  // sort them again explicitly to be sure
+  std::sort(shardedLayoutsRowMajor.begin(), shardedLayoutsRowMajor.end(),
+            [](TTNNLayoutAttr a, TTNNLayoutAttr b) {
+              return a.getGrid().getGridVolume() > b.getGrid().getGridVolume();
+            });
+  std::sort(shardedLayoutsTile.begin(), shardedLayoutsTile.end(),
+            [](TTNNLayoutAttr a, TTNNLayoutAttr b) {
+              return a.getGrid().getGridVolume() > b.getGrid().getGridVolume();
+            });
+
+  // Let's take maxShardedConfigs/2 from both row major and tile collections,
+  // unless row major is not allowed, then we take all of the tile layouts
+  size_t maxShardedConfigs = rowMajorAllowed
+                                 ? (analysisInput.maxShardedConfigs / 2)
+                                 : analysisInput.maxShardedConfigs;
+
+  // If row major is not allowed, shardedLayoutsRowMajor vector will be empty,
+  // so we will only take tile layouts
+  shardedLayoutsRowMajor.resize(
+      std::min(maxShardedConfigs, shardedLayoutsRowMajor.size()));
+  shardedLayoutsTile.resize(
+      std::min(maxShardedConfigs, shardedLayoutsTile.size()));
+
+  std::vector<TTNNLayoutAttr> shardedLayouts;
+  shardedLayouts.insert(shardedLayouts.end(), shardedLayoutsRowMajor.begin(),
+                        shardedLayoutsRowMajor.end());
+  shardedLayouts.insert(shardedLayouts.end(), shardedLayoutsTile.begin(),
+                        shardedLayoutsTile.end());
+
+  std::sort(shardedLayouts.begin(), shardedLayouts.end(),
+            [](TTNNLayoutAttr a, TTNNLayoutAttr b) {
+              return a.getGrid().getGridVolume() > b.getGrid().getGridVolume();
+            });
+
+  analysisResult.insert(analysisResult.end(), interleavedLayouts.begin(),
+                        interleavedLayouts.end());
+  analysisResult.insert(analysisResult.end(), shardedLayouts.begin(),
+                        shardedLayouts.end());
 
   // Apply partial layout overrides. Remove layouts that conflict with at least
   // one overriden param.

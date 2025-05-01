@@ -23,7 +23,7 @@ ttnn::ReshapeOp generateReshape(mlir::TypedValue<mlir::RankedTensorType> input,
   ttnn::TTNNLayoutAttr inputLayoutAttr =
       mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
   ttnn::TTNNLayoutAttr outputLayoutAttr =
-      inputLayoutAttr.withTensorShape(rewriter.getContext(), newShape);
+      inputLayoutAttr.withTensorShape(newShape);
 
   // Create a new output type for reshape operation with new shape and new
   // output layout.

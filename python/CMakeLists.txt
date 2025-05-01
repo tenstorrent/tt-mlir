@@ -174,17 +174,6 @@ declare_mlir_python_sources(TTMLIRPythonTestInfra.Main
     ttir_builder.py
 )
 
-if(TTMLIR_ENABLE_PYKERNEL)
-  declare_mlir_python_sources(TTPykernelSources)
-
-  declare_mlir_python_sources(TTPykernelSources.Main
-    ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/pykernel"
-    SOURCES
-      pykernel_ast.py
-      types.py
-  )
-endif()
-
 ################################################################################
 # Generate packages and shared library
 ################################################################################
