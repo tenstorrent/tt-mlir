@@ -83,7 +83,7 @@ In this step, you build the tt-mlir project:
 
 ```bash
 source env/activate
-cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-14 -DCMAKE_CXX_COMPILER=clang++-14
+cmake -G Ninja -B build
 cmake --build build
 ```
 You have now configured tt-mlir.
