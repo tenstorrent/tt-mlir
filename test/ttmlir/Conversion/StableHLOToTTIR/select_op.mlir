@@ -6,7 +6,7 @@ module @jit_eltwise_select attributes {} {
     %1 = stablehlo.select %0, %arg0, %arg1 : (tensor<13x37xi1>, tensor<13x37xf32>, tensor<13x37xf32>) -> tensor<13x37xf32>
     // CHECK: %[[EMPTY:[0-9]+]] = ttir.empty()
     // CHECK: %[[VAL1:[0-9]+]] = "ttir.eq"
-    // CHECK: %[[SELECT:[0-9]+]] = "ttir.where"(%[[VAL1:[0-9]+]], %arg0, %arg1, %[[EMPTY:[0-9]+]]) <{operandSegmentSizes = array<i32: 3, 1>}> : (tensor<13x37xi1>, tensor<13x37xf32>, tensor<13x37xf32>, tensor<13x37xf32>) -> tensor<13x37xf32>
+    // CHECK: %[[SELECT:[0-9]+]] = "ttir.where"(%[[VAL1:[0-9]+]], %arg0, %arg1, %[[EMPTY:[0-9]+]]) : (tensor<13x37xi1>, tensor<13x37xf32>, tensor<13x37xf32>, tensor<13x37xf32>) -> tensor<13x37xf32>
     return %1 : tensor<13x37xf32>
   }
 }

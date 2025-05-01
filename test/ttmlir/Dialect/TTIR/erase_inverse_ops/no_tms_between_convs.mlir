@@ -20,13 +20,13 @@ module {
     %11 = tensor.empty() : tensor<1x128x28x28xbf16>
     %12 = "ttir.broadcast"(%arg3, %11) <{broadcast_dimensions = array<i64: 1, 1, 28, 28>}> : (tensor<1x128x1x1xbf16>, tensor<1x128x28x28xbf16>) -> tensor<1x128x28x28xbf16>
     %13 = tensor.empty() : tensor<1x128x28x28xbf16>
-    %14 = "ttir.multiply"(%10, %12, %13) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x128x28x28xbf16>, tensor<1x128x28x28xbf16>, tensor<1x128x28x28xbf16>) -> tensor<1x128x28x28xbf16>
+    %14 = "ttir.multiply"(%10, %12, %13) : (tensor<1x128x28x28xbf16>, tensor<1x128x28x28xbf16>, tensor<1x128x28x28xbf16>) -> tensor<1x128x28x28xbf16>
     %15 = tensor.empty() : tensor<1x128x28x28xbf16>
     %16 = "ttir.broadcast"(%arg4, %15) <{broadcast_dimensions = array<i64: 1, 1, 28, 28>}> : (tensor<1x128x1x1xbf16>, tensor<1x128x28x28xbf16>) -> tensor<1x128x28x28xbf16>
     %17 = tensor.empty() : tensor<1x128x28x28xbf16>
-    %18 = "ttir.add"(%14, %16, %17) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x128x28x28xbf16>, tensor<1x128x28x28xbf16>, tensor<1x128x28x28xbf16>) -> tensor<1x128x28x28xbf16>
+    %18 = "ttir.add"(%14, %16, %17) : (tensor<1x128x28x28xbf16>, tensor<1x128x28x28xbf16>, tensor<1x128x28x28xbf16>) -> tensor<1x128x28x28xbf16>
     %19 = tensor.empty() : tensor<1x128x28x28xbf16>
-    %20 = "ttir.maximum"(%18, %0, %19) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x128x28x28xbf16>, tensor<1x128x28x28xbf16>, tensor<1x128x28x28xbf16>) -> tensor<1x128x28x28xbf16>
+    %20 = "ttir.maximum"(%18, %0, %19) : (tensor<1x128x28x28xbf16>, tensor<1x128x28x28xbf16>, tensor<1x128x28x28xbf16>) -> tensor<1x128x28x28xbf16>
     %21 = tensor.empty() : tensor<1x128x28x28xbf16>
     %22 = tensor.empty() : tensor<1x28x28x128xbf16>
     %23 = "ttir.permute"(%20, %22) <{permutation = array<i64: 0, 2, 3, 1>}> : (tensor<1x128x28x28xbf16>, tensor<1x28x28x128xbf16>) -> tensor<1x28x28x128xbf16>
@@ -42,7 +42,7 @@ module {
     %33 = tensor.empty() : tensor<1x128x28x28xbf16>
     %34 = "ttir.broadcast"(%32, %33) <{broadcast_dimensions = array<i64: 1, 1, 28, 28>}> : (tensor<1x128x1x1xbf16>, tensor<1x128x28x28xbf16>) -> tensor<1x128x28x28xbf16>
     %35 = tensor.empty() : tensor<1x128x28x28xbf16>
-    %36 = "ttir.add"(%30, %34, %35) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x128x28x28xbf16>, tensor<1x128x28x28xbf16>, tensor<1x128x28x28xbf16>) -> tensor<1x128x28x28xbf16>
+    %36 = "ttir.add"(%30, %34, %35) : (tensor<1x128x28x28xbf16>, tensor<1x128x28x28xbf16>, tensor<1x128x28x28xbf16>) -> tensor<1x128x28x28xbf16>
     return %36 : tensor<1x128x28x28xbf16>
   }
 }

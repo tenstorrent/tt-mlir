@@ -695,7 +695,7 @@ private:
         matmulResultShape, Float32Type::get(op.getContext()));
 
     return ttir::utils::createDPSOp<ttir::MatmulOp>(
-        rewriter, op->getLoc(), matmulResultType, typecastOp.getResult(0),
+        rewriter, op->getLoc(), matmulResultType, typecastOp.getResult(),
         constantOp);
   }
 
