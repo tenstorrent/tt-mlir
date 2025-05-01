@@ -245,6 +245,10 @@ private:
     // Add creation ops to the subgraph as well
     for (Operation *creationOp : creationOps) {
       opToSubgraphMap[creationOp] = targetSubgraphId;
+      // Also map the creation op's results
+      for (auto result : creationOp->getResults()) {
+        valueToSubgraphMap[result] = targetSubgraphId;
+      }
     }
 
     // Store input parameters for this subgraph
