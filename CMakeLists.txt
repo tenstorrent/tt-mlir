@@ -1,4 +1,12 @@
 cmake_minimum_required(VERSION 3.20.0)
+
+if(NOT DEFINED CMAKE_C_COMPILER)
+  set(CMAKE_C_COMPILER clang CACHE STRING "C Compiler" FORCE)
+endif()
+if(NOT DEFINED CMAKE_CXX_COMPILER)
+  set(CMAKE_CXX_COMPILER clang++ CACHE STRING "C++ Compiler" FORCE)
+endif()
+
 project(tt-mlir LANGUAGES CXX C)
 
 if (NOT DEFINED ENV{TTMLIR_ENV_ACTIVATED})

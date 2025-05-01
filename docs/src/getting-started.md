@@ -1,6 +1,13 @@
-# Building
+# Getting Started
 
-These are the steps required to get the TT-MLIR project running on your machine
+These are the steps required to get the TT-MLIR project running on your machine.
+
+## Getting the Source Code
+
+```bash
+git clone https://github.com/tenstorrent/tt-mlir.git
+cd tt-mlir
+```
 
 ## Prerequisites
 
@@ -25,9 +32,9 @@ should now be ready to build.
 You only need to build this once, it builds llvm, flatbuffers and a python virtual environment.
 
 ```bash
-source env/activate
 cmake -B env/build env
 cmake --build env/build
+source env/activate
 ```
 
 > - Use `-DLLVM_BUILD_TYPE=*` to specify the build type of LLVM. The default is `MinSizeRel`, available options are listed [here](https://llvm.org/docs/CMake.html#frequently-used-cmake-variables).
@@ -46,7 +53,7 @@ cmake --build env/build
 
 ```bash
 source env/activate
-cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-17 -DCMAKE_CXX_COMPILER=clang++-17
+cmake -G Ninja -B build
 cmake --build build
 ```
 
@@ -133,35 +140,19 @@ On Ubuntu 22.04 we need to install clang, ninja, and to update the version of cm
 sudo apt update
 sudo apt upgrade
 
-sudo apt install clang-17
-sudo apt install ninja-build
-
-sudo apt remove cmake -y
-pip3 install cmake --upgrade
-hash -r
+sudo apt install git clang cmake ninja-build pip python3.10-venv
 ```
 
-> Ensure cmake can by found in this path pip installed it to. E.g. `PATH=$PATH:$HOME/.local/bin`
-
-Then run the following command to see the cmake version which should be later than 3.20
-
-```bash
-cmake --version
-```
-
-We also need to install Ninja which can be done with the following command
-
-```bash
-sudo apt install ninja-build
-```
+If you intend to build with runtime enabled, you also need to install tt-metal
+dependencies which can be found
+[here](https://docs.tenstorrent.com/tt-metal/latest/ttnn/ttnn/installing.html#install-system-level-dependencies).
 
 ### MacOS
 
 On MacOS we need to install the latest version of [cmake](https://cmake.org/), and [ninja](https://ninja-build.org/) which can be done using Homebrew with (Docs for installing Homebrew: https://brew.sh).
 
 ```bash
-brew install cmake
-brew install ninja
+brew install cmake ninja
 ```
 
 ## Common Build Errors
