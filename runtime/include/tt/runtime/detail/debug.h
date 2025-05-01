@@ -42,6 +42,35 @@ inline std::ostream &operator<<(std::ostream &os, Env const &env) {
   return os;
 }
 
+struct PerfEnv {
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+  static PerfEnv const &
+#else
+  constexpr static PerfEnv
+#endif
+  get(std::uint32_t dumpDeviceRate = 1000)
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+      ;
+#else
+  {
+    return PerfEnv(1000);
+  }
+#endif
+
+  std::uint32_t dumpDeviceRate;
+
+private:
+  constexpr PerfEnv(std::uint32_t dumpDeviceRate)
+      : dumpDeviceRate(dumpDeviceRate) {}
+};
+
+inline std::ostream &operator<<(std::ostream &os, PerfEnv const &perfEnv) {
+  os << "debug::PerfEnv{\n"
+     << "\t" << "dumpDeviceRate: " << perfEnv.dumpDeviceRate << "\n"
+     << "}";
+  return os;
+}
+
 struct Hooks {
   using CallbackFn = std::function<void(Binary, CallbackContext, OpContext)>;
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
