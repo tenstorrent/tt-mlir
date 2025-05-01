@@ -50,9 +50,24 @@ Once you have the docker image running and you are logged into the container, yo
 
 ### Setting up the Environment Manually
 
-This section explains how to manually build the environment so you can use tt-mlir. Make sure you are in the **tt-mlir** folder. You only need to build this once, it builds llvm, flatbuffers, and a Python virtual environment. You can specify the build type by using `-DLLVM_BUILD_TYPE=*`. The default is `MinSizeRel`, and available options are listed [here](https://llvm.org/docs/CMake.html#frequently-used-cmake-variables).
+This section explains how to manually build the environment so you can use tt-mlir. You only need to build this once, it builds llvm, flatbuffers, and a Python virtual environment. You can specify the build type by using `-DLLVM_BUILD_TYPE=*`. The default is `MinSizeRel`, and available options are listed [here](https://llvm.org/docs/CMake.html#frequently-used-cmake-variables).
 
-Please ensure that you do not already have an environment (venv) activated before running the following commands:
+1. Navigate into the **tt-mlir** folder.
+
+2. Create a directory for the tt-mlir toolchain and set ownership over the directory:
+
+```bash
+sudo mkdir -p /opt/ttmlir-toolchain
+sudo chown -R ubuntu /opt/ttmlir-toolchain
+```
+
+3. Set the path to the toolchain:
+
+```bash
+export TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain/
+```
+
+4. Please ensure that you do not already have an environment (venv) activated before running the following commands:
 
 ```bash
 source env/activate
