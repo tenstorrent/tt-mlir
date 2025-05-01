@@ -4,9 +4,9 @@
 
 #include "OpModelFixture.h"
 
-#include "SingletonDeviceContext.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 
 #include "llvm/ADT/SmallVector.h"
