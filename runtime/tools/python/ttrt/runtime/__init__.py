@@ -40,6 +40,7 @@ try:
         deallocate_tensor,
         WorkaroundEnv,
         get_op_loc_info,
+        get_op_tags,
         unregister_hooks,
     )
 except ModuleNotFoundError:

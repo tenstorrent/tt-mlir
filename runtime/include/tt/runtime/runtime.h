@@ -180,6 +180,10 @@ std::string getOpDebugString(OpContext opContextHandle);
 
 std::string getOpLocInfo(OpContext opContextHandle);
 
+std::pair<bool, bool> getOpTags(Binary executableHandle,
+                                std::uint32_t programIndex,
+                                OpContext opContextHandle);
+
 Tensor getOpOutputTensor(OpContext opContextHandle,
                          CallbackContext programContextHandle);
 

@@ -58,8 +58,8 @@ def parse_flatbuffer_file(fb_path, at_pass=None, program=0):
     return None
 
 
-def golden_map_from_flatbuffer(fb_path, program=0):
-    # Get the golden_map from flatbuffer corresponding to the Program # provided
+def maps_from_flatbuffer(fb_path, program=0):
+    # Get the golden_map and callback_map from flatbuffer corresponding to the Program # provided
     if not TTRT_INSTALLED:
         logging.error(
             "TTRT is not installed in Python Environment, unable to parse Flatbuffer."
@@ -83,10 +83,14 @@ def golden_map_from_flatbuffer(fb_path, program=0):
     if "golden_info" not in debug_info:
         logging.error("Flatbuffer does not contain Golden Data.")
         return []
+    if "callback_info" not in debug_info:
+        logging.error("Flatbuffer does not contain Callback Data.")
+        return []
 
     golden_map = debug_info["golden_info"]["golden_map"]
+    callback_map = debug_info["callback_info"]["callback_map"]
 
-    return golden_map
+    return golden_map, callback_map
 
 
 def to_dataclass(obj: dict, dc_name: str = "tempClass"):

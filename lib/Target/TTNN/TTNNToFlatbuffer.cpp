@@ -2109,6 +2109,7 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
 std::shared_ptr<void> ttnnToFlatbuffer(
     Operation *op,
     const std::unordered_map<std::string, GoldenTensor> &goldenMap,
+    const std::unordered_map<std::string, CallbackTag> &callbackMap,
     const std::vector<std::pair<std::string, std::string>> &moduleCache) {
   ModuleOp rootModule = dyn_cast<ModuleOp>(op);
   assert(rootModule && "Expected ModuleOp as top level operation");
@@ -2174,6 +2175,35 @@ std::shared_ptr<void> ttnnToFlatbuffer(
     goldenKVList.push_back(goldenKV);
   }
 
+  // creating a temporary callback map to get around callbackMap being const
+  std::unordered_map<std::string, CallbackTag> tempCallbackMap;
+  for (const auto &[key, value] : callbackMap) {
+    tempCallbackMap.insert({key, value});
+  }
+  // Default an empty callback map to true tags
+  if (callbackMap.empty()) {
+    auto funcOps = module.getOps<func::FuncOp>();
+    for (auto entry : funcOps) {
+      entry.getBody().walk([&](mlir::Operation *op) {
+        std::string locInfo = getOpLocInfo(op);
+        CallbackTag tag(locInfo, false, true);
+        tempCallbackMap[locInfo] = tag;
+      });
+    }
+  }
+
+  // Construct callback list
+  std::vector<::flatbuffers::Offset<::tt::target::CallbackKV>> callbackKVList;
+  callbackKVList.reserve(callbackMap.size());
+
+  for (const auto &[key, value] : tempCallbackMap) {
+    auto callbackTag = ::tt::target::CreateCallbackTagDirect(
+        fbb, value.name.c_str(), value.pre_op_tag, value.post_op_tag);
+    auto callbackKV =
+        ::tt::target::CreateCallbackKVDirect(fbb, key.c_str(), callbackTag);
+    callbackKVList.push_back(callbackKV);
+  }
+
   // Load the ModuleCache if present and populate DebugInfo
   std::vector<::flatbuffers::Offset<::tt::target::MLIR>> moduleCacheList;
   moduleCacheList.reserve(moduleCache.size());
@@ -2186,8 +2216,10 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   }
 
   auto goldenInfo = ::tt::target::CreateGoldenInfoDirect(fbb, &goldenKVList);
+  auto callbackInfo =
+      ::tt::target::CreateCallbackInfoDirect(fbb, &callbackKVList);
   auto debugInfo = ::tt::target::CreateDebugInfoDirect(
-      fbb, mlir, cpp.c_str(), &moduleCacheList, goldenInfo);
+      fbb, mlir, cpp.c_str(), &moduleCacheList, goldenInfo, callbackInfo);
 
   size_t programIdx = 0;
   llvm::StringMap<uint32_t> programIdxMap;
@@ -2254,8 +2286,10 @@ std::shared_ptr<void> ttnnToFlatbuffer(
 LogicalResult translateTTNNToFlatbuffer(
     Operation *op, llvm::raw_ostream &os,
     const std::unordered_map<std::string, GoldenTensor> &goldenMap,
+    const std::unordered_map<std::string, CallbackTag> &callbackMap,
     const std::vector<std::pair<std::string, std::string>> &moduleCache) {
-  std::shared_ptr<void> data = ttnnToFlatbuffer(op, goldenMap, moduleCache);
+  std::shared_ptr<void> data =
+      ttnnToFlatbuffer(op, goldenMap, callbackMap, moduleCache);
   std::size_t size = ::flatbuffers::GetSizePrefixedBufferLength(
       static_cast<const uint8_t *>(data.get()));
   os.write(reinterpret_cast<char const *>(data.get()), size);

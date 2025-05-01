@@ -257,13 +257,13 @@ class ModelRunner:
 
         ############################## Translate #################################
 
-        # Need this flatbuffer file to inherit the golden data
+        # Need this flatbuffer file to inherit the golden and callbackdata
         if FLATBUFFER:
-            golden_map = utils.golden_map_from_flatbuffer(model_path)
+            golden_map, callback_map = utils.maps_from_flatbuffer(model_path)
             # need to parse this golden_map
             kept_alive_data_arrs = []
             rendered_golden_map = {}
-
+            rendered_callback_map = {}
             for entry in golden_map:
                 data = entry["value"]
                 # Turn this into a Torch Tensor to easily format it for the GoldenMap
@@ -271,6 +271,7 @@ class ModelRunner:
                 # We will need to render this data as a buffer reference for the GoldenTensor constructor
                 import array
 
+                # print("Entry: ", entry, data)
                 # B is unsigned char in the array library
                 # This will parse the data as a 1D Buffer of uint8_t, exactly the pointer type expected
                 data_arr = array.array("B", data["data"])
@@ -283,6 +284,17 @@ class ModelRunner:
                     data_arr.buffer_info()[0],
                     data_arr.buffer_info()[1],
                 )
+            for entry in callback_map:
+                loc = entry["value"]
+                # Turn this into a Callback to easily format it for the GoldenMap
+                # We will need to render this data as a buffer reference for the GoldenTensor constructor
+                import array
+
+                rendered_callback_map[entry["key"]] = passes.CallbackTag(
+                    loc["name"],
+                    loc["pre_op_tag"],
+                    loc["post_op_tag"],
+                )
 
             # Get module from file
             with open(ttnn_ir_file, "r") as f:
@@ -294,7 +306,10 @@ class ModelRunner:
             try:
                 if golden_map:
                     passes.ttnn_to_flatbuffer_file(
-                        ttnn_module, flatbuffer_file, rendered_golden_map
+                        ttnn_module,
+                        flatbuffer_file,
+                        rendered_golden_map,
+                        rendered_callback_map,
                     )
                 else:
                     passes.ttnn_to_flatbuffer_file(ttnn_module, flatbuffer_file)
@@ -310,6 +325,7 @@ class ModelRunner:
                 "-o",
                 flatbuffer_file,
             ]
+            golden_map, callback_map = utils.maps_from_flatbuffer(flatbuffer_file)
 
             translate_process = self.run_in_subprocess(to_flatbuffer_command)
             if translate_process.returncode != 0:
@@ -359,7 +375,7 @@ class ModelRunner:
             "Total device duration: ", perf["DEVICE FW DURATION [ns]"].sum(), "ns"
         )
 
-        # TTNN_IR_FILE from flatbuffer is still relevant since model_path is the FB with golden data and it will rented optimized_model_path instead
+        # TTNN_IR_FILE from flatbuffer is still relevant since model_path is the FB with golden and callback data and it will rented optimized_model_path instead
         state.optimized_model_path = ttnn_ir_file
         self.progress = 100
 

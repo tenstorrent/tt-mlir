@@ -35,6 +35,8 @@ PYBIND11_MODULE(_C, m) {
       .def("store", &tt::runtime::Binary::store)
       .def("get_debug_info_golden", &::tt::runtime::Binary::getDebugInfoGolden,
            py::return_value_policy::reference)
+      .def("get_tag_by_name", &::tt::runtime::Binary::getTagByName,
+           py::return_value_policy::reference)
       .def(
           "get_tensor_cache",
           [](tt::runtime::Binary &bin) { return bin.getCache(); },
@@ -135,6 +137,25 @@ PYBIND11_MODULE(_C, m) {
             false                      /* read only */
         );
       });
+
+  py::class_<tt::target::CallbackTag>(m, "CallbackTag", py::buffer_protocol())
+      .def_property_readonly(
+          "name",
+          [](tt::target::CallbackTag const *t) -> std::string {
+            assert(t != nullptr && t->name() != nullptr);
+            return t->name()->str();
+          })
+      .def_property_readonly("pre_op_tag",
+                             [](tt::target::CallbackTag const *t) -> bool {
+                               assert(t != nullptr &&
+                                      t->pre_op_tag() != nullptr);
+                               return t->pre_op_tag();
+                             })
+      .def_property_readonly(
+          "post_op_tag", [](tt::target::CallbackTag const *t) -> bool {
+            assert(t != nullptr && t->post_op_tag() != nullptr);
+            return t->post_op_tag();
+          });
 
   py::class_<tt::runtime::TensorCache,
              std::shared_ptr<tt::runtime::TensorCache>>(m, "TensorCache")

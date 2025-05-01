@@ -119,6 +119,21 @@ std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
   return outputs;
 }
 
+const tt::target::CallbackTag *getTagByName(Flatbuffer binary,
+                                            std::string &loc) {
+  auto const *programs = getBinary(binary)->programs();
+  for (auto const *program : *programs) {
+    for (const ::tt::target::CallbackKV *kv :
+         *program->debug_info()->callback_info()->callback_map()) {
+      if (std::string(kv->key()->c_str()) == loc) {
+        return kv->value();
+      }
+    }
+  }
+  LOG_WARNING("Callback information not found");
+  return nullptr;
+}
+
 const ::tt::target::GoldenTensor *getDebugInfoGolden(Flatbuffer binary,
                                                      std::string &loc) {
   auto const *programs = getBinary(binary)->programs();
@@ -209,6 +224,12 @@ std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
 const ::tt::target::GoldenTensor *getDebugInfoGolden(Flatbuffer binary,
                                                      std::string &loc) {
   LOG_WARNING("Debug golden information not enabled for metal yet!");
+  return nullptr;
+}
+
+const tt::target::CallbackTag *getTagByName(Flatbuffer binary,
+                                            std::string &loc) {
+  LOG_WARNING("Program tag retrieval not enabled for metal yet!");
   return nullptr;
 }
 
@@ -389,6 +410,20 @@ Binary::getDebugInfoGolden(std::string &loc) const {
   }
 
   LOG_FATAL("Unsupported binary format for obtaining golden information");
+}
+
+const tt::target::CallbackTag *Binary::getTagByName(std::string &loc) const {
+  if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
+          handle.get())) {
+    return ttnn::getTagByName(*this, loc);
+  }
+
+  if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
+          handle.get())) {
+    return metal::getTagByName(*this, loc);
+  }
+
+  LOG_FATAL("Unsupported binary format for obtaining program tag");
 }
 
 } // namespace tt::runtime

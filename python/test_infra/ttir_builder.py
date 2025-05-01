@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Union, Tuple, Callable, Dict, Any
 from ttmlir.ir import *
 from ttmlir.dialects import ttir, tt, tensor, quant
-from ttmlir.passes import GoldenTensor, DataType
+from ttmlir.passes import GoldenTensor, DataType, CallbackTag
 import torch
 import array
 from enum import Enum, auto
@@ -136,6 +136,15 @@ class TTIRBuilder:
         # id to golden map
         self.id_golden_map = {}
 
+        # operand to location map
+        self.operand_id_map: Dict[Operand, Location] = {}
+
+        # default callback tag
+        self.default_callback_tag = (False, False)
+
+        # id to callback map
+        self.id_callback_map = {}
+
         # mesh_shape for multi-device
         self.mesh_shape = ()
 
@@ -229,6 +238,52 @@ class TTIRBuilder:
                 golden_tensor.tensor.numel() * golden_tensor.tensor.dtype.itemsize,
             )
         return golden_info
+
+    def set_default_pre_op_callback_tag(self, tag: bool):
+        self.default_callback_tag = (tag, self.default_callback_tag[1])
+
+    def set_default_post_op_callback_tag(self, tag: bool):
+        self.default_callback_tag = (self.default_callback_tag[0], tag)
+
+    def get_callback_map(self) -> Dict:
+        callback_info = {}
+        for op, loc in self.operand_id_map.items():
+            if loc in self.id_callback_map:
+                callback_info[str(loc)] = CallbackTag(
+                    str(loc), *self.id_callback_map[loc]
+                )
+            else:
+                callback_info[str(loc)] = CallbackTag(
+                    str(loc), *self.default_callback_tag
+                )
+        return callback_info
+
+    def set_operand_pre_op_callback_tag(self, op: Operand, tag: bool):
+        if self.operand_id_map[op] in self.id_callback_map:
+            self.id_callback_map[self.operand_id_map[op]] = (
+                tag,
+                self.id_callback_map[self.operand_id_map[op]][1],
+            )
+        else:
+            self.id_callback_map[self.operand_id_map[op]] = (
+                tag,
+                self.default_callback_tag[1],
+            )
+
+    def set_operand_post_op_callback_tag(self, op: Operand, tag: bool):
+        if self.operand_id_map[op] in self.id_callback_map:
+            self.id_callback_map[self.operand_id_map[op]] = (
+                self.id_callback_map[self.operand_id_map[op]][0],
+                tag,
+            )
+        else:
+            self.id_callback_map[self.operand_id_map[op]] = (
+                self.default_callback_tag[0],
+                tag,
+            )
+
+    def get_operand_id_map(self) -> Dict:
+        return self.operand_id_map
 
     # set mesh_shape for multi-device environment
     def set_mesh_shape(self, mesh_shape: Tuple[int, int]):
@@ -596,6 +651,7 @@ class TTIRBuilder:
                 for attr_name in unit_attrs:
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
             self.id_golden_map[str(loc)] = golden
+            self.operand_id_map[op] = str(loc)
             self._store_golden(op, golden)
             self._override_golden(output, golden)
             return op

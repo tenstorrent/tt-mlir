@@ -33,6 +33,8 @@ def test_mnist(
     relu_3 = builder.relu(add_2)
     matmul_5 = builder.matmul(relu_3, in3)
     add_6 = builder.add(matmul_5, in4)
+    builder.set_default_pre_op_callback_tag(False)
+    builder.set_default_post_op_callback_tag(True)
     return builder.softmax(add_6, dimension=1)
 
 
@@ -134,7 +136,8 @@ def test_llama_attention(
     output111 = builder.reshape(output109, (12, 3200))
     output113 = builder.matmul(output111, arg14)
     output115 = builder.unsqueeze(output113, 0)
-
+    builder.set_default_pre_op_callback_tag(False)
+    builder.set_default_post_op_callback_tag(True)
     return output115
 
 

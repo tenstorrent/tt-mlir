@@ -711,6 +711,24 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   throw std::runtime_error("runtime is not enabled");
 }
 
+std::pair<bool, bool> getOpTags(Binary executableHandle,
+                                std::uint32_t programIndex,
+                                OpContext opContextHandle) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::getOpTags(executableHandle, programIndex,
+                                          opContextHandle);
+  }
+#endif
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::getOpTags(executableHandle, programIndex,
+                                             opContextHandle);
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
 Tensor getOpOutputTensor(OpContext opContextHandle,
                          CallbackContext programContextHandle) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
