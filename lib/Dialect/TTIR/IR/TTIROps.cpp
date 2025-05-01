@@ -936,14 +936,6 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
   return success();
 }
 
-::mlir::OperandRange mlir::tt::ttir::PoolingOp::getInputs() {
-  return this->getOperation()->getOperands().drop_back(getNumResults());
-}
-
-::mlir::OperandRange mlir::tt::ttir::PoolingOp::getOutputs() {
-  return this->getOperation()->getOperands().take_back(getNumResults());
-}
-
 //===----------------------------------------------------------------------===//
 // Common verifier for pooling ops
 //===----------------------------------------------------------------------===//
@@ -2277,14 +2269,6 @@ mlir::tt::ttir::StreamLayoutOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     ::llvm::SmallVector<mlir::Value> &) {
   return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/true);
-}
-
-mlir::OperandRange mlir::tt::ttir::StreamLayoutOp::getInputs() {
-  return {getInput()};
-}
-
-mlir::OperandRange mlir::tt::ttir::StreamLayoutOp::getOutputs() {
-  return {getStorage()};
 }
 
 //===----------------------------------------------------------------------===//
@@ -3749,16 +3733,6 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::GenericOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     ::llvm::SmallVector<mlir::Value> &) {
   return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false);
-}
-
-mlir::OperandRange mlir::tt::ttir::GenericOp::getInputs() {
-  // Use the existing operand getter but with a different name to avoid conflict
-  return this->getOperation()->getOperands().drop_back(getNumResults());
-}
-
-mlir::OperandRange mlir::tt::ttir::GenericOp::getOutputs() {
-  // Use the existing result getter but access it differently
-  return this->getOperation()->getOperands().take_back(getNumResults());
 }
 
 //===----------------------------------------------------------------------===//

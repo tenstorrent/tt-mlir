@@ -541,6 +541,7 @@ private:
     // Run the analysis to identify const-eval subgraphs
     ConstEvalAnalyze analyzer(&funcOp);
     ConstEvalAnalysisResults analysisResults = analyzer.getAnalysisResults();
+
     llvm::SmallVector<ConstEvalSubgraph, 4> subgraphs =
         std::move(analysisResults.subgraphs);
     llvm::SmallVector<Operation *, 1> sharedOps =

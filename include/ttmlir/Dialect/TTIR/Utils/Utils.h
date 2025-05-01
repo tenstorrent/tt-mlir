@@ -239,6 +239,24 @@ mlir::LogicalResult broadcastValue(mlir::PatternRewriter &rewriter,
                                    mlir::Value &output, mlir::Location loc,
                                    bool frontUnsqueeze);
 
+// Get inputs by dropping the last `numDpsInits` operands
+template <typename AdaptorT>
+mlir::ValueRange getInputsFromAdaptor(AdaptorT adaptor, unsigned numDpsInits) {
+  const auto operands = adaptor.getOperands();
+  assert(operands.size() >= numDpsInits &&
+         "not enough operands for numDpsInits");
+  return operands.drop_back(numDpsInits);
+}
+
+// Get outputs by taking the last `numDpsInits` operands
+template <typename AdaptorT>
+mlir::ValueRange getOutputsFromAdaptor(AdaptorT adaptor, unsigned numDpsInits) {
+  const auto operands = adaptor.getOperands();
+  assert(operands.size() >= numDpsInits &&
+         "not enough operands for numDpsInits");
+  return operands.take_back(numDpsInits);
+}
+
 } // namespace mlir::tt::ttir::utils
 
 #endif // TTMLIR_DIALECT_TTIR_UTILS_UTILS_H

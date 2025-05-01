@@ -12,7 +12,7 @@ module attributes {} {
     // CHECK:   linalg.yield {{.*}} : i1
     // CHECK: } -> tensor<64x128xi1>
 
-    %1 = "ttir.eq"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<64x128xi32>, tensor<64x128xi32>, tensor<64x128xi1>) -> tensor<64x128xi1>
+    %1 = "ttir.eq"(%arg0, %arg1, %0) : (tensor<64x128xi32>, tensor<64x128xi32>, tensor<64x128xi1>) -> tensor<64x128xi1>
 
     return %1 : tensor<64x128xi1>
   }
@@ -28,7 +28,7 @@ module attributes {} {
     // CHECK:   linalg.yield {{.*}} : i1
     // CHECK: } -> tensor<64x128xi1>
 
-    %1 = "ttir.eq"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xi1>) -> tensor<64x128xi1>
+    %1 = "ttir.eq"(%arg0, %arg1, %0) : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xi1>) -> tensor<64x128xi1>
 
     return %1 : tensor<64x128xi1>
   }
@@ -44,7 +44,7 @@ module attributes {} {
     // CHECK:   linalg.yield {{.*}} : i1
     // CHECK: } -> tensor<64x128xi1>
 
-    %1 = "ttir.gt"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<64x128xi32>, tensor<64x128xi32>, tensor<64x128xi1>) -> tensor<64x128xi1>
+    %1 = "ttir.gt"(%arg0, %arg1, %0) : (tensor<64x128xi32>, tensor<64x128xi32>, tensor<64x128xi1>) -> tensor<64x128xi1>
 
     return %1 : tensor<64x128xi1>
   }
@@ -60,7 +60,7 @@ module attributes {} {
     // CHECK:   linalg.yield {{.*}} : i1
     // CHECK: } -> tensor<64x128xi1>
 
-    %1 = "ttir.ge"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xi1>) -> tensor<64x128xi1>
+    %1 = "ttir.ge"(%arg0, %arg1, %0) : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xi1>) -> tensor<64x128xi1>
 
     return %1 : tensor<64x128xi1>
   }
