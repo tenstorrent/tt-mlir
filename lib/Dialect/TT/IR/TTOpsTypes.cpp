@@ -1119,6 +1119,11 @@ size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType, size_t pageSize,
   auto tileType = mlir::dyn_cast<TileType>(elementType);
   int64_t elementSizeBytes = tileType ? tileType.getSizeBytes()
                                       : elementType.getIntOrFloatBitWidth() / 8;
+  size_t alignSize =
+      tileType
+          ? tileType.getSizeBytes()
+          : TileType::get(elementType.getContext(), elementType).getSizeBytes();
+
   ShardLayoutAttr layout =
       mlir::dyn_cast<ShardLayoutAttr>(memrefType.getLayout());
   assert(
@@ -1127,9 +1132,12 @@ size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType, size_t pageSize,
   bool isLocalMemref = (layout == nullptr);
   auto shardShape =
       isLocalMemref ? memrefType.getShape() : layout.getShardShape(memrefType);
-  return static_cast<size_t>(ttmlir::utils::volume(
-      shardShape,
-      elementSizeBytes * (includeBuffers ? layout.getBuffers() : 1)));
+
+  return ttmlir::utils::alignUp(
+      static_cast<size_t>(ttmlir::utils::volume(
+          shardShape,
+          elementSizeBytes * (includeBuffers ? layout.getBuffers() : 1))),
+      alignSize);
 }
 
 size_t DeviceAttr::getMemrefCBPageSizeBytes(MemRefType memrefType) const {
