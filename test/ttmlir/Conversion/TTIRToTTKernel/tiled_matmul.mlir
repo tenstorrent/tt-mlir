@@ -73,6 +73,7 @@ module {
           // CHECK: "ttkernel.copy_tile_init"
           // CHECK: "ttkernel.copy_tile"
           %8 = memref.load %collapse_shape_1[%7] : memref<4x!tt.tile<32x32, f32>, #l1_>
+          // CHECK: "ttkernel.mm_init"
           // CHECK: "ttkernel.matmul_tiles"
           // CHECK: "ttkernel.tile_regs_commit"
           %9 = "ttir.tile_matmul"(%2, %5, %8) : (!tt.tile<32x32, f32>, !tt.tile<32x32, f32>, !tt.tile<32x32, f32>) -> !tt.tile<32x32, f32>

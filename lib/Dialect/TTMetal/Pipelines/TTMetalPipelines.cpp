@@ -75,6 +75,7 @@ void createTTIRToTTMetalBackendPipeline(
   createOptimizationPasses(pm);
   pm.addPass(ttir::createTTIRGenericRegionsToFuncs());
   pm.addPass(tt::createConvertTTIRToTTKernelPass());
+  pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(ttkernel::createTTKernelControlDstSection());
   createOptimizationPasses(pm);
   pm.addPass(createConvertTTIRToTTMetalPass());
