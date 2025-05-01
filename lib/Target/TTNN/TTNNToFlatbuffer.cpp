@@ -2161,10 +2161,28 @@ std::shared_ptr<void> ttnnToFlatbuffer(
     goldenKVList.push_back(goldenKV);
   }
 
+  // creating a temporary callback map to get around callbackMap being const
+  std::unordered_map<std::string, CallbackTag> tempCallbackMap;
+  for (const auto &[key, value] : callbackMap) {
+    tempCallbackMap.insert({key, value});
+  }
+  // Default an empty callback map to true tags
+  if (callbackMap.empty()) {
+    auto funcOps = module.getOps<func::FuncOp>();
+    for (auto entry : funcOps) {
+      entry.getBody().walk([&](mlir::Operation *op) {
+        std::string locInfo = getOpLocInfo(op);
+        CallbackTag tag(locInfo, false, true);
+        tempCallbackMap[locInfo] = tag;
+      });
+    }
+  }
+
+  // Construct callback list
   std::vector<::flatbuffers::Offset<::tt::target::CallbackKV>> callbackKVList;
   callbackKVList.reserve(callbackMap.size());
 
-  for (const auto &[key, value] : callbackMap) {
+  for (const auto &[key, value] : tempCallbackMap) {
     auto callbackTag = ::tt::target::CreateCallbackTagDirect(
         fbb, value.name.c_str(), value.pre_op_tag, value.post_op_tag);
     auto callbackKV =
