@@ -1,4 +1,4 @@
-# Getting Started
+# Build
 
 This page walks you through the steps required to set up tt-mlir. After the project is running, you can do development work, run models, or set up additional projects that build on tt-mlir.
 
@@ -14,13 +14,13 @@ Use this guide to set up your hardware - [Hardware Setup](https://docs.tenstorre
 
 The tt-mlir project has the following system dependencies:
 * Ubuntu 22.04 OS
-* Clang 17
+* Clang 14
 * Ninja
 * CMake 3.20 or higher
 * Python 3.10
 * python3.10-venv
 
-Install Clang 17, Ninja, CMake, and python3.10-venv:
+Install Clang 14, Ninja, CMake, and python3.10-venv:
 
 ```bash
 sudo apt install git clang cmake ninja-build pip python3.10-venv
@@ -83,7 +83,7 @@ In this step, you build the tt-mlir project:
 
 ```bash
 source env/activate
-cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-17 -DCMAKE_CXX_COMPILER=clang++-17
+cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-14 -DCMAKE_CXX_COMPILER=clang++-14
 cmake --build build
 ```
 You have now configured tt-mlir.
