@@ -23,11 +23,7 @@ The tt-mlir project has the following system dependencies:
 Install Clang 17, Ninja, CMake, and python3.10-venv:
 
 ```bash
-sudo apt install clang-17
-sudo apt install ninja-build
-sudo apt remove cmake -y
-pip3 install cmake --upgrade
-sudo apt install python3-venv
+sudo apt install git clang cmake ninja-build pip python3.10-venv
 ```
 
 You should now have the required dependencies installed.
