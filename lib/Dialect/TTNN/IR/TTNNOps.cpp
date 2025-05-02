@@ -323,6 +323,22 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
   return success();
 }
 
+// Get number of output channels.
+int64_t mlir::tt::ttnn::Conv2dOp::getOutputChannelSize() {
+  RankedTensorType weightTy = getWeight().getType();
+  return weightTy.getShape()[0];
+}
+
+// Verify that bias dimensions are compatible with conv2d operation.
+bool mlir::tt::ttnn::Conv2dOp::isBiasCompatible(llvm::ArrayRef<int64_t> bias) {
+  return bias[0] == 1 && bias[1] == 1 && bias[2] == 1 &&
+         bias[3] == getOutputChannelSize();
+}
+
+//===----------------------------------------------------------------------===//
+// Quantize Ops
+//===----------------------------------------------------------------------===//
+
 static ::mlir::LogicalResult verifyQuantizeOpCommon(
     llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
     ::mlir::RankedTensorType inputType, ::mlir::RankedTensorType outputType,

@@ -142,4 +142,10 @@ def TTNNPrepareConv2dWeights : Pass<"ttnn-prepare-conv2d-weights", "::mlir::Modu
   }];
 }
 
+def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
+{
+  let summary = "TTNN fusing pass.";
+  let description = "This pass tries to fuse operations together with goal to reduce the number of operations in the graph.";
+}
+
 #endif

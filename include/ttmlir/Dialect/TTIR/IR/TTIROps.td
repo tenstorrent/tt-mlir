@@ -1417,7 +1417,7 @@ def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d"> {
     let extraClassDeclaration = [{
       // Get number of output channels
       int64_t getOutputChannelSize();
-      bool verifyBias(llvm::ArrayRef<int64_t> biasDims);
+      bool isBiasCompatible(llvm::ArrayRef<int64_t> biasDims);
       MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
     }];
 

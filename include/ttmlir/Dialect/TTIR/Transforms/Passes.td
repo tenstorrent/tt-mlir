@@ -503,5 +503,10 @@ def TTIRQuantDataTypeConversionPass : Pass<"ttir-quant-data-type-conversion", ":
   ];
 }
 
+def TTIRFusing: Pass<"ttir-fusing", "::mlir::ModuleOp">
+{
+  let summary = "TTIR fusing pass.";
+  let description = "This pass tries to fuse operations together with goal to reduce the number of operations in the graph.";
+}
 
 #endif

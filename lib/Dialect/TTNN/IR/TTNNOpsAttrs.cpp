@@ -684,3 +684,7 @@ Conv2dConfigAttr Conv2dConfigAttr::withActivation(StringRef activation) const {
   params.activation = StringAttr::get(getContext(), activation);
   return params.buildConv2dConfig(getContext());
 }
+
+bool Conv2dConfigAttr::hasActivation() const {
+  return getActivation() != nullptr && getActivation().getValue() != "";
+}

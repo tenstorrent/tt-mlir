@@ -35,6 +35,7 @@ void createTTNNPipelineTTIRPasses(
 
   pm.addPass(mlir::tt::createTTPopulateArgumentTypes(options.argumentTypeMap));
   pm.addPass(mlir::createCanonicalizerPass());
+  pm.addPass(mlir::tt::ttir::createTTIRFusing());
   pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
   pm.addPass(mlir::createCanonicalizerPass());
 
@@ -45,7 +46,7 @@ void createTTNNPipelineTTIRPasses(
   // Flattening sliding window ops for compatibility with conversion to TTNN
   pm.addPass(mlir::tt::ttir::createTTIRFlattenSlidingWindow());
 
-  // Add pass to erase inverse ops. This is disabled by default
+  // Add pass to erase inverse ops. This is enabled by default
   // while the pass is experimental.
   if (options.eraseInverseOpsEnabled) {
     pm.addPass(mlir::tt::ttir::createTTIREraseInverseOps());
@@ -136,6 +137,7 @@ void createTTIRToTTNNBackendPipeline(
   devicePm.addPass(ttir::createTTIRQuantDataTypeConversionPass(quantOptions));
 
   createTTNNPipelineLoweringPasses(devicePm, options);
+  devicePm.addPass(tt::ttnn::createTTNNFusing());
   createTTNNPipelineWorkaroundPass(devicePm, options);
   if (options.enableConstEval) {
     devicePm.addPass(transforms::createConstEvalHoistTransform());
