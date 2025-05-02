@@ -49,8 +49,6 @@ PYBIND11_MODULE(_C, m) {
       .def_readwrite("mesh_offset", &tt::runtime::MeshDeviceOptions::meshOffset)
       .def_readwrite("device_ids", &tt::runtime::MeshDeviceOptions::deviceIds)
       .def_readwrite("num_hw_cqs", &tt::runtime::MeshDeviceOptions::numHWCQs)
-      .def_readwrite("enable_async_ttnn",
-                     &tt::runtime::MeshDeviceOptions::enableAsyncTTNN)
       .def_readwrite("enable_program_cache",
                      &tt::runtime::MeshDeviceOptions::enableProgramCache)
       .def_property(
