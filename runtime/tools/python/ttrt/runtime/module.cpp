@@ -270,17 +270,34 @@ PYBIND11_MODULE(_C, m) {
         ::tt::runtime::wait(tensors);
       },
       py::arg("tensors"));
+
   m.def(
-      "get_op_output_tensor",
+      "get_intermediate_output_tensor",
       [](tt::runtime::OpContext &opContextHandle,
          tt::runtime::CallbackContext &programContextHandle) {
-        tt::runtime::Tensor tensor = tt::runtime::getOpOutputTensor(
+        tt::runtime::Tensor tensor = tt::runtime::getIntermediateOutputTensor(
             opContextHandle, programContextHandle);
         return tensor.handle.get() == nullptr
                    ? std::nullopt
                    : std::optional<tt::runtime::Tensor>(tensor);
       },
       "Get the output tensor of the op");
+  m.def(
+      "get_intermediate_input_tensors",
+      [](tt::runtime::OpContext &opContextHandle,
+         tt::runtime::CallbackContext &programContextHandle) {
+        std::vector<tt::runtime::Tensor> tensors =
+            tt::runtime::getIntermediateInputTensors(opContextHandle,
+                                                     programContextHandle);
+        std::vector<std::optional<tt::runtime::Tensor>> results;
+        for (tt::runtime::Tensor tensor : tensors) {
+          results.push_back(tensor.handle.get() == nullptr
+                                ? std::nullopt
+                                : std::optional<tt::runtime::Tensor>(tensor));
+        }
+        return results;
+      },
+      "Get the input tensors of the op");
   m.def("get_op_debug_str", &tt::runtime::getOpDebugString,
         "Get the debug string of the op");
   m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,

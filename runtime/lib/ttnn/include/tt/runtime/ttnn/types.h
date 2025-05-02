@@ -10,6 +10,7 @@
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/types.h"
+#include <iostream>
 
 #include <atomic>
 #include <cstdint>
@@ -168,6 +169,9 @@ public:
   TensorPtrMapIterator erase(const ::tt::target::ttnn::TensorRef *tensorRef);
 
   bool contains(const ::tt::target::ttnn::TensorRef *tensorRef) const {
+    for (const auto &entry : liveTensors) {
+      std::cout << "Tensor id: " << entry.first << std::endl;
+    }
     return liveTensors.contains(tensorRef->global_id());
   }
 

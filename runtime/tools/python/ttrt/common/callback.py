@@ -127,8 +127,14 @@ def golden(callback_runtime_config, binary, program_context, op_context):
         logging.debug("Golden tensor is None - skipping golden comparison")
         return
 
-    op_output_tensor = ttrt.runtime.get_op_output_tensor(op_context, program_context)
-
+    op_output_tensor = ttrt.runtime.get_intermediate_output_tensor(
+        op_context, program_context
+    )
+    print("op_output_tensor", op_output_tensor)
+    op_input_tensors = ttrt.runtime.get_intermediate_input_tensors(
+        op_context, program_context
+    )
+    print("op_input_tensors", op_input_tensors)
     if op_output_tensor is None:
         logging.debug("Output tensor is empty - skipping golden comparison")
         return
@@ -221,42 +227,43 @@ def memory(callback_runtime_config, binary, program_context, op_context):
     loc = ttrt.runtime.get_op_loc_info(op_context)
     debug_str = ttrt.runtime.get_op_debug_str(op_context)
     device_id = 0
-
+    logging.debug("executing memory dump")
     memory_views = device.get_memory_view(device_id)
     dram_memory_view = memory_views[ttrt.runtime.MemoryBufferType.DRAM]
     l1_memory_view = memory_views[ttrt.runtime.MemoryBufferType.L1]
     l1_small_memory_view = memory_views[ttrt.runtime.MemoryBufferType.L1_SMALL]
     trace_memory_view = memory_views[ttrt.runtime.MemoryBufferType.TRACE]
-
+    logging.debug("executing memory dump")
     op_memory_report = {}
     op_memory_report["loc"] = loc
     op_memory_report["debug_str"] = debug_str
-
+    logging.debug("executing memory dump4")
     dram_op_device_memory_report = {}
     dram_op_device_memory_report["device_" + str(device_id)] = create_memory_dictionary(
         dram_memory_view
     )
-
+    logging.debug("executing memory dump")
     l1_op_device_memory_report = {}
     l1_op_device_memory_report["device_" + str(device_id)] = create_memory_dictionary(
         l1_memory_view
     )
-
+    logging.debug("executing memory dump6")
     l1_small_op_device_memory_report = {}
     l1_small_op_device_memory_report[
         "device_" + str(device_id)
     ] = create_memory_dictionary(l1_small_memory_view)
-
+    logging.debug("executing memory dump")
     trace_op_device_memory_report = {}
     trace_op_device_memory_report[
         "device_" + str(device_id)
     ] = create_memory_dictionary(trace_memory_view)
+    logging.debug("executing memory dump")
 
     op_memory_report["dram"] = dram_op_device_memory_report
     op_memory_report["l1"] = l1_op_device_memory_report
     op_memory_report["l1_small"] = l1_small_op_device_memory_report
     op_memory_report["trace"] = trace_op_device_memory_report
-
+    logging.debug("executing memory dump7")
     callback_runtime_config.memory_report[
         callback_runtime_config.callback_counter()
     ] = op_memory_report
