@@ -14,26 +14,22 @@ namespace mlir::tt::ttir {
 
 namespace {
 // Check if we can fuse conv2d followed by add into conv2d with bias.
-class TTIRConv2dWithBias : public mlir::OpRewritePattern<Conv2dOp> {
-  using mlir::OpRewritePattern<Conv2dOp>::OpRewritePattern;
+class TTIRConv2dWithBias : public mlir::OpRewritePattern<AddOp> {
+  using mlir::OpRewritePattern<AddOp>::OpRewritePattern;
 
 public:
   mlir::LogicalResult
-  matchAndRewrite(Conv2dOp srcOp, mlir::PatternRewriter &rewriter) const final {
-    if (!isFusable(srcOp)) {
+  matchAndRewrite(AddOp srcOp, mlir::PatternRewriter &rewriter) const final {
+    auto components = getConv2dAndBias(srcOp);
+    if (!components) {
       return mlir::failure();
     }
 
-    // Get the other operand of the add op.
-    mlir::OpOperand *nonConvOperand = getBiasOperand(srcOp);
-    mlir::Value newBias = nonConvOperand->get();
-
-    // Modify conv2d in place to add bias.
-    rewriter.modifyOpInPlace(srcOp,
-                             [&]() { srcOp.getBiasMutable().assign(newBias); });
-
-    // Replace add op uses with conv2d.
-    rewriter.replaceAllOpUsesWith(nonConvOperand->getOwner(), srcOp);
+    auto conv2dOp = components->first;
+    auto bias = components->second;
+    rewriter.modifyOpInPlace(conv2dOp,
+                             [&]() { conv2dOp.getBiasMutable().assign(bias); });
+    rewriter.replaceAllOpUsesWith(srcOp, conv2dOp);
 
     // The original conv2d op will be removed by DCE since it's no longer
     // used.
@@ -41,57 +37,27 @@ public:
   }
 
 private:
-  bool isFusable(Conv2dOp srcOp) const {
-    // If bias already exists on Conv2d we cannot fuse.
-    if (srcOp.getBias()) {
-      return false;
-    }
-
-    // If conv2d has more than one use we cannot fuse.
-    // If it's only user is not AddOp we cannot fuse.
-    if (!srcOp.getResult().hasOneUse() ||
-        !ttmlir::utils::allUsersOfType<AddOp>(srcOp)) {
-      return false;
-    }
-
-    // If we have this IR:
-    // %bias = empty()
-    // %conv2d_without_bias = conv2d(%input, %weight)
-    // %result = add(%conv2d_without_bias, %bias)
-    // we want to get shape of %bias and check if it is compatible with conv2d.
-    OpOperand *nonConvOperand = getBiasOperand(srcOp);
-    mlir::Operation *otherOperation = nonConvOperand->get().getDefiningOp();
-    mlir::RankedTensorType nonConvType =
-        mlir::cast<mlir::RankedTensorType>(nonConvOperand->get().getType());
-
-    // If nonConvOperand is not defined by an operation, its a block argument
-    // and we can fuse if bias is compatible with its shape.
-    if (otherOperation == nullptr) {
-      return srcOp.isBiasCompatible(nonConvType.getShape());
-    }
-
-    // If we have this IR:
-    // %0 = conv2d()
-    // %1 = empty()
-    // %2 = add(%0, %1)
-    // We cannot fuse since %1 comes after conv2d. In this simple case
-    // we can move empty above covn2d, but in general case it would
-    // require more complex analysis.
-    if (!otherOperation->isBeforeInBlock(srcOp)) {
-      return false;
-    }
-
-    return srcOp.isBiasCompatible(nonConvType.getShape());
+  bool isFusable(ttir::Conv2dOp conv2dOp,
+                 mlir::TypedValue<mlir::RankedTensorType> bias) const {
+    return conv2dOp && !conv2dOp.getBias() && conv2dOp->hasOneUse() &&
+           conv2dOp.isBiasCompatible(bias.getType().getShape()) &&
+           (!bias.getDefiningOp() ||
+            bias.getDefiningOp()->isBeforeInBlock(conv2dOp));
   }
 
-  OpOperand *getBiasOperand(Conv2dOp srcOp) const {
-    assert(srcOp.getResult().hasOneUse() &&
-           "To fuse conv2d with add, conv2d must have only one use.");
-    auto addOp = mlir::cast<AddOp>(*srcOp.getResult().getUsers().begin());
-    auto otherOperands = ttmlir::utils::getOtherOperands(addOp, srcOp);
-    assert(otherOperands.size() == 1 &&
-           "AddOp must have exactly one other operand.");
-    return otherOperands.front();
+  std::optional<std::pair<ttir::Conv2dOp, mlir::Value>>
+  getConv2dAndBias(AddOp srcOp) const {
+    auto lhs = srcOp.getLhs();
+    auto rhs = srcOp.getRhs();
+    auto lhsConv2dOp = lhs.getDefiningOp<ttir::Conv2dOp>();
+    auto rhsConv2dOp = rhs.getDefiningOp<ttir::Conv2dOp>();
+    if (isFusable(lhsConv2dOp, rhs)) {
+      return std::make_pair(lhsConv2dOp, rhs);
+    }
+    if (isFusable(rhsConv2dOp, lhs)) {
+      return std::make_pair(rhsConv2dOp, lhs);
+    }
+    return std::nullopt;
   }
 };
 
