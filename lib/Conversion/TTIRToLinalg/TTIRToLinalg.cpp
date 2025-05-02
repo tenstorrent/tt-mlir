@@ -65,7 +65,7 @@ static SmallVector<int64_t, 2> getBroadcastDims(ArrayRef<int64_t> inputShape,
 // 3], then we need to collapse the first dimension of input tensor to [4, 3].
 // This function calculates the dimensions to collapse. In case above, we will
 // return [[0], [1, 2]].
-SmallVector<SmallVector<int64_t, 2>, 2>
+static SmallVector<SmallVector<int64_t, 2>, 2>
 getCollapseDims(ArrayRef<int64_t> inputShape, ArrayRef<int64_t> targetShape) {
   // Calculate the size difference.
   const size_t sizeDiff = targetShape.size() - inputShape.size();
@@ -209,9 +209,9 @@ public:
 
     static_assert(ttir::utils::has_dps_trait_v<TTIROpTy>);
     auto inputs =
-        ttir::utils::getInputsFromAdaptor(adaptor, op.getNumDpsInits());
+        ttir::utils::getDpsInputsFromAdaptor(adaptor, op.getNumDpsInits());
     auto outputs =
-        ttir::utils::getOutputsFromAdaptor(adaptor, op.getNumDpsInits());
+        ttir::utils::getDpsOutputsFromAdaptor(adaptor, op.getNumDpsInits());
     rewriter.replaceOpWithNewOp<LinAlgOpTy>(op, resultTypes, inputs, outputs);
     return success();
   }
@@ -237,15 +237,10 @@ public:
       permutation[i] = i;
     }
 
-    auto dim0 = op.getDim0();
-    auto dim1 = op.getDim1();
-
-    if (dim0 < 0) {
-      dim0 = permSize + dim0;
-    }
-    if (dim1 < 0) {
-      dim1 = permSize + dim1;
-    }
+    const int64_t dim0 =
+        (op.getDim0() < 0) ? op.getDim0() + permSize : op.getDim0();
+    const int64_t dim1 =
+        (op.getDim1() < 0) ? op.getDim1() + permSize : op.getDim1();
 
     permutation[dim1] = dim0;
     permutation[dim0] = dim1;
@@ -310,8 +305,9 @@ public:
     auto inputType = dyn_cast<RankedTensorType>(input.getType());
     auto outputType = dyn_cast<RankedTensorType>(adaptor.getOutput().getType());
 
-    if (!inputType || !outputType)
+    if (!inputType || !outputType) {
       return failure();
+    }
 
     // Calculate broadcast dimensions
     SmallVector<int64_t> broadcastDims =
@@ -365,7 +361,7 @@ public:
   matchAndRewrite(ttir::PermuteOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     Value input = adaptor.getInput();
-    auto permutation = op.getPermutation();
+    llvm::ArrayRef<int64_t> permutation = op.getPermutation();
 
     rewriter.replaceOpWithNewOp<linalg::TransposeOp>(
         op, input, adaptor.getOutput(), permutation);
@@ -386,29 +382,27 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     Value input = adaptor.getInput();
     auto inputType = dyn_cast<RankedTensorType>(input.getType());
-
-    if (!inputType)
-      return failure();
+    assert(inputType && "Input must be a ranked tensor type");
 
     // Convert begins, ends, and steps to the format expected by
     // tensor.extract_slice
     SmallVector<OpFoldResult> offsets, sizes, strides;
 
     // Extract the actual integer values from the attributes
-    auto begins = op.getBegins();
-    auto ends = op.getEnds();
-    auto steps = op.getStep();
+    ArrayAttr begins = op.getBegins();
+    ArrayAttr ends = op.getEnds();
+    ArrayAttr steps = op.getStep();
 
     // Make sure all arrays have the same size
-    if (begins.size() != ends.size() || begins.size() != steps.size())
-      return failure();
+    assert(begins.size() == ends.size() && begins.size() == steps.size() &&
+           "Invalid slice attributes");
 
     for (unsigned i = 0; i < begins.size(); ++i) {
       // Convert attribute to actual integer values using proper attribute
       // casting
-      int32_t beginVal = llvm::cast<IntegerAttr>(begins[i]).getInt();
-      int32_t endVal = llvm::cast<IntegerAttr>(ends[i]).getInt();
-      int32_t stepVal = llvm::cast<IntegerAttr>(steps[i]).getInt();
+      const int32_t beginVal = llvm::cast<IntegerAttr>(begins[i]).getInt();
+      const int32_t endVal = llvm::cast<IntegerAttr>(ends[i]).getInt();
+      const int32_t stepVal = llvm::cast<IntegerAttr>(steps[i]).getInt();
 
       offsets.push_back(rewriter.getI64IntegerAttr(beginVal));
 
@@ -422,11 +416,9 @@ public:
       strides.push_back(rewriter.getI64IntegerAttr(stepVal));
     }
 
-    // Get the result type
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    if (!resultType)
-      return failure();
+    assert(resultType && "Result type must be a ranked tensor type");
 
     rewriter.replaceOpWithNewOp<tensor::ExtractSliceOp>(
         op, resultType, input, offsets, sizes, strides);
@@ -447,8 +439,9 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     // Get the dimension to concatenate along
     int64_t dim = op.getDim();
+    static_assert(ttir::utils::has_dps_trait_v<ttir::ConcatOp>);
     auto inputs =
-        ttir::utils::getInputsFromAdaptor(adaptor, op.getNumDpsInits());
+        ttir::utils::getDpsInputsFromAdaptor(adaptor, op.getNumDpsInits());
 
     // Create a tensor.empty for the result
     auto resultType = dyn_cast<RankedTensorType>(

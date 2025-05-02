@@ -241,7 +241,8 @@ mlir::LogicalResult broadcastValue(mlir::PatternRewriter &rewriter,
 
 // Get inputs by dropping the last `numDpsInits` operands
 template <typename AdaptorT>
-mlir::ValueRange getInputsFromAdaptor(AdaptorT adaptor, unsigned numDpsInits) {
+mlir::ValueRange getDpsInputsFromAdaptor(AdaptorT adaptor,
+                                         unsigned numDpsInits) {
   const auto operands = adaptor.getOperands();
   assert(operands.size() >= numDpsInits &&
          "not enough operands for numDpsInits");
@@ -250,7 +251,8 @@ mlir::ValueRange getInputsFromAdaptor(AdaptorT adaptor, unsigned numDpsInits) {
 
 // Get outputs by taking the last `numDpsInits` operands
 template <typename AdaptorT>
-mlir::ValueRange getOutputsFromAdaptor(AdaptorT adaptor, unsigned numDpsInits) {
+mlir::ValueRange getDpsOutputsFromAdaptor(AdaptorT adaptor,
+                                          unsigned numDpsInits) {
   const auto operands = adaptor.getOperands();
   assert(operands.size() >= numDpsInits &&
          "not enough operands for numDpsInits");
