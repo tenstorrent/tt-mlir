@@ -105,7 +105,7 @@ module {
 
     // Extra use of the reduction result prevents fusion.
     %2 = ttir.empty() : tensor<32x128xf32>
-    %3 = "ttir.add"(%1, %1, %2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<32x128xf32>, tensor<32x128xf32>, tensor<32x128xf32>) -> tensor<32x128xf32>
+    %3 = "ttir.add"(%1, %1, %2) : (tensor<32x128xf32>, tensor<32x128xf32>, tensor<32x128xf32>) -> tensor<32x128xf32>
 
     %4 = ttir.empty() : tensor<32x1x128xf32>
     %5 = "ttir.reshape"(%3, %4) {shape = [32 : i32, 1 : i32, 128 : i32]} : (tensor<32x128xf32>, tensor<32x1x128xf32>) -> tensor<32x1x128xf32>
@@ -114,7 +114,7 @@ module {
     %7 = "ttir.reshape"(%1, %6) {shape = [32 : i32, 1 : i32, 128 : i32]} : (tensor<32x128xf32>, tensor<32x1x128xf32>) -> tensor<32x1x128xf32>
 
     %8 = ttir.empty() : tensor<32x1x128xf32>
-    %9 = "ttir.add"(%5, %7, %8) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<32x1x128xf32>, tensor<32x1x128xf32>, tensor<32x1x128xf32>) -> tensor<32x1x128xf32>
+    %9 = "ttir.add"(%5, %7, %8) : (tensor<32x1x128xf32>, tensor<32x1x128xf32>, tensor<32x1x128xf32>) -> tensor<32x1x128xf32>
 
     return %9 : tensor<32x1x128xf32>
   }

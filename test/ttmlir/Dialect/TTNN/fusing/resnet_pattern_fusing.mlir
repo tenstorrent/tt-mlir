@@ -13,11 +13,11 @@ module {
     // CHECK-NOT: "ttnn.multiply"
     // CHECK-NOT: "ttnn.add"
     // CHECK-NOT: "ttnn.relu"
-    %3 = "ttir.multiply"(%1, %arg5, %2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x56x56x64xf32>, tensor<1x1x1x64xf32>, tensor<1x56x56x64xf32>) -> tensor<1x56x56x64xf32>
+    %3 = "ttir.multiply"(%1, %arg5, %2) : (tensor<1x56x56x64xf32>, tensor<1x1x1x64xf32>, tensor<1x56x56x64xf32>) -> tensor<1x56x56x64xf32>
     %4 = ttir.empty() : tensor<1x56x56x64xf32>
-    %5 = "ttir.add"(%3, %arg6, %4) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x56x56x64xf32>, tensor<1x1x1x64xf32>, tensor<1x56x56x64xf32>) -> tensor<1x56x56x64xf32>
+    %5 = "ttir.add"(%3, %arg6, %4) : (tensor<1x56x56x64xf32>, tensor<1x1x1x64xf32>, tensor<1x56x56x64xf32>) -> tensor<1x56x56x64xf32>
     %6 = ttir.empty() : tensor<1x56x56x64xf32>
-    %7 = "ttir.relu"(%5, %6) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x56x56x64xf32>, tensor<1x56x56x64xf32>) -> tensor<1x56x56x64xf32>
+    %7 = "ttir.relu"(%5, %6) : (tensor<1x56x56x64xf32>, tensor<1x56x56x64xf32>) -> tensor<1x56x56x64xf32>
     return %7 : tensor<1x56x56x64xf32>
   }
 }

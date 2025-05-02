@@ -19,7 +19,7 @@ module {
               groups = 1: i32
             }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
     %2 = ttir.empty() : tensor<1x30x30x64xbf16>
-    %4 = "ttir.multiply"(%1, %arg2, %2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+    %4 = "ttir.multiply"(%1, %arg2, %2) : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
 
     // CHECK: return %[[CONV]]
     return %4: tensor<1x30x30x64xbf16>
@@ -41,11 +41,11 @@ module {
               groups = 1: i32
             }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
     %2 = ttir.empty() : tensor<1x30x30x64xbf16>
-    %4 = "ttir.multiply"(%1, %arg2, %2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+    %4 = "ttir.multiply"(%1, %arg2, %2) : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
     %5 = ttir.empty() : tensor<1x30x30x64xbf16>
-    %6 = "ttir.multiply"(%1, %arg2, %5) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+    %6 = "ttir.multiply"(%1, %arg2, %5) : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
     %7 = ttir.empty() : tensor<1x30x30x64xbf16>
-    %8 = "ttir.add"(%6, %4, %7) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x30x30x64xbf16>, tensor<1x30x30x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+    %8 = "ttir.add"(%6, %4, %7) : (tensor<1x30x30x64xbf16>, tensor<1x30x30x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
     return %8: tensor<1x30x30x64xbf16>
   }
 
@@ -63,7 +63,7 @@ module {
               groups = 1: i32
             }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
     %2 = ttir.empty() : tensor<1x30x30x64xbf16>
-    %4 = "ttir.multiply"(%1, %arg2, %2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x30x30x64xbf16>, tensor<1x1x30x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+    %4 = "ttir.multiply"(%1, %arg2, %2) : (tensor<1x30x30x64xbf16>, tensor<1x1x30x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
     return %4: tensor<1x30x30x64xbf16>
   }
 
@@ -81,7 +81,7 @@ module {
               groups = 1: i32
             }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
     %2 = ttir.empty() : tensor<1x30x30x64xbf16>
-    %4 = "ttir.multiply"(%1, %arg2, %2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+    %4 = "ttir.multiply"(%1, %arg2, %2) : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
     return %4: tensor<1x30x30x64xbf16>
   }
 
@@ -102,11 +102,11 @@ module {
               groups = 1: i32
             }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
     %2 = ttir.empty() : tensor<1x30x30x64xbf16>
-    %4 = "ttir.multiply"(%1, %arg2, %2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+    %4 = "ttir.multiply"(%1, %arg2, %2) : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
 
     // CHECK: "ttir.multiply"
     %5 = ttir.empty() : tensor<1x30x30x64xbf16>
-    %6 = "ttir.multiply"(%4, %arg2, %5) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+    %6 = "ttir.multiply"(%4, %arg2, %5) : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
     return %6: tensor<1x30x30x64xbf16>
   }
 }
