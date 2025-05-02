@@ -408,7 +408,9 @@ kernelConfigToFlatbuffer(FlatbufferObjectCache &cache,
 }
 
 static std::shared_ptr<void> translateModuleToFlatbuffer(
-    Operation *op, std::unordered_map<std::string, GoldenTensor> goldenMap) {
+    Operation *op,
+    const std::unordered_map<std::string, GoldenTensor> &goldenMap,
+    const std::vector<std::pair<std::string, std::string>> &moduleCache) {
   flatbuffers::FlatBufferBuilder fbb;
   FlatbufferObjectCache cache(&fbb);
 
@@ -542,8 +544,13 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
             target::metal::CreateDeviceProgramDirect(
                 fbb, &cqBuilder.inputs, &cqBuilder.outputs, &commandQueues),
         };
+
+    flatbuffers::Offset<target::DebugInfo> debugInfo =
+        debugInfoToFlatbuffer(fbb, "ttmetal", module, goldenMap, moduleCache);
+
     programs.push_back(target::metal::CreateProgramDirect(
-        fbb, cqBuilder.name, &tensorInputs, &tensorOutputs, &devicePrograms));
+        fbb, cqBuilder.name, &tensorInputs, &tensorOutputs, &devicePrograms,
+        debugInfo));
   });
 
   auto binary = target::metal::CreateTTMetalBinaryDirect(
@@ -566,8 +573,10 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
 
 LogicalResult translateTTMetalToFlatbuffer(
     Operation *op, llvm::raw_ostream &os,
-    std::unordered_map<std::string, GoldenTensor> goldenMap) {
-  std::shared_ptr<void> data = translateModuleToFlatbuffer(op, goldenMap);
+    const std::unordered_map<std::string, GoldenTensor> &goldenMap,
+    const std::vector<std::pair<std::string, std::string>> &moduleCache) {
+  std::shared_ptr<void> data =
+      translateModuleToFlatbuffer(op, goldenMap, moduleCache);
   std::size_t size = flatbuffers::GetSizePrefixedBufferLength(
       static_cast<const uint8_t *>(data.get()));
   os.write(reinterpret_cast<char const *>(data.get()), size);

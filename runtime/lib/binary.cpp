@@ -127,7 +127,6 @@ const ::tt::target::GoldenTensor *getDebugInfoGolden(Flatbuffer binary,
          *program->debug_info()->golden_info()->golden_map()) {
       if (std::string(goldenKV->key()->c_str()) == loc) {
         return goldenKV->value();
-        ;
       }
     }
   }
@@ -203,7 +202,17 @@ std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
 
 const ::tt::target::GoldenTensor *getDebugInfoGolden(Flatbuffer binary,
                                                      std::string &loc) {
-  LOG_WARNING("Debug golden information not enabled for metal yet!");
+  auto const *programs = getBinary(binary)->programs();
+  for (auto const *program : *programs) {
+    for (const ::tt::target::GoldenKV *goldenKV :
+         *program->debug_info()->golden_info()->golden_map()) {
+      if (std::string(goldenKV->key()->c_str()) == loc) {
+        return goldenKV->value();
+      }
+    }
+  }
+
+  LOG_WARNING("Golden information not found");
   return nullptr;
 }
 

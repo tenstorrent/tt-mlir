@@ -2123,13 +2123,15 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   auto systemDesc =
       toFlatbuffer(cache, mlir::cast<tt::SystemDescAttr>(
                               module->getAttr(tt::SystemDescAttr::name)));
-  // Always get debug info for top-level module.
-  auto mlir = toDebugInfo(fbb, "ttnn", rootModule);
 
   std::string cpp;
   llvm::raw_string_ostream os(cpp);
   auto result = mlir::tt::ttnn::emitTTNNAsCpp(module, os);
   (void)result;
+
+  flatbuffers::Offset<::tt::target::DebugInfo> debugInfo =
+      debugInfoToFlatbuffer(fbb, "ttnn", rootModule, goldenMap, moduleCache,
+                            cpp.c_str());
 
   // Handle dylib creation and packaging, if needed.
   // Currently, we only have 1 CPUModuleOp and 1 top-level ModuleOp; we use a
@@ -2151,33 +2153,6 @@ std::shared_ptr<void> ttnnToFlatbuffer(
           ::tt::target::CreateDynamicLib(fbb, 0, rawFileVector));
     }
   }
-
-  std::vector<::flatbuffers::Offset<::tt::target::GoldenKV>> goldenKVList;
-  goldenKVList.reserve(goldenMap.size());
-
-  for (const auto &[key, value] : goldenMap) {
-    auto goldenTensor = ::tt::target::CreateGoldenTensorDirect(
-        fbb, value.name.c_str(), &value.shape, &value.strides, value.dtype,
-        &value.data);
-    auto goldenKV =
-        ::tt::target::CreateGoldenKVDirect(fbb, key.c_str(), goldenTensor);
-    goldenKVList.push_back(goldenKV);
-  }
-
-  // Load the ModuleCache if present and populate DebugInfo
-  std::vector<::flatbuffers::Offset<::tt::target::MLIR>> moduleCacheList;
-  moduleCacheList.reserve(moduleCache.size());
-
-  for (const auto &item : moduleCache) {
-    // Here the Name is the Pass Name and Source is the IR itself
-    auto moduleCacheItem = ::tt::target::CreateMLIRDirect(
-        fbb, item.first.c_str(), item.second.c_str());
-    moduleCacheList.push_back(moduleCacheItem);
-  }
-
-  auto goldenInfo = ::tt::target::CreateGoldenInfoDirect(fbb, &goldenKVList);
-  auto debugInfo = ::tt::target::CreateDebugInfoDirect(
-      fbb, mlir, cpp.c_str(), &moduleCacheList, goldenInfo);
 
   size_t programIdx = 0;
   llvm::StringMap<uint32_t> programIdxMap;

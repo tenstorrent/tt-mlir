@@ -6,7 +6,7 @@ import pytest
 import torch
 from typing import Callable, List
 
-from ttmlir.test_utils import compile_to_flatbuffer
+from ttmlir.test_utils import compile_to_flatbuffer, Marks, shape_str
 from ttmlir.ttir_builder import Operand, TTIRBuilder, UnitAttr, Shape, TypeInfo
 from ttmlir.dialects import ttir
 from ttmlir.ir import (
@@ -1053,34 +1053,46 @@ def test_unary_ops(
     )
 
 
-@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 @pytest.mark.parametrize(
     "test_fn",
     [
         add,
-        multiply,
-        subtract,
-        pytest.param(eq, marks=pytest.mark.fails_golden),
-        pytest.param(ne, marks=pytest.mark.fails_golden),
-        pytest.param(le, marks=pytest.mark.fails_golden),
-        pytest.param(lt, marks=pytest.mark.fails_golden),
-        pytest.param(ge, marks=pytest.mark.fails_golden),
-        pytest.param(gt, marks=pytest.mark.fails_golden),
-        div,
-        remainder,
-        maximum,
-        minimum,
-        pow,
-        matmul,
-        hoisted_add,
-        logical_and,
-        logical_or,
-        pytest.param(logical_xor, marks=pytest.mark.fails_golden),
+        multiply | Marks(pytest.mark.skip_target("ttmetal")),
+        subtract | Marks(pytest.mark.skip_target("ttmetal")),
+        eq | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
+        ne | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
+        le | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
+        lt | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
+        ge | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
+        gt | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
+        div | Marks(pytest.mark.skip_target("ttmetal")),
+        remainder | Marks(pytest.mark.skip_target("ttmetal")),
+        maximum | Marks(pytest.mark.skip_target("ttmetal")),
+        minimum | Marks(pytest.mark.skip_target("ttmetal")),
+        pow | Marks(pytest.mark.skip_target("ttmetal")),
+        matmul | Marks(pytest.mark.skip_target("ttmetal")),
+        hoisted_add | Marks(pytest.mark.skip_target("ttmetal")),
+        logical_and | Marks(pytest.mark.skip_target("ttmetal")),
+        logical_or | Marks(pytest.mark.skip_target("ttmetal")),
+        logical_xor
+        | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
     ],
 )
-def test_binary_ops(test_fn: Callable, shape: Shape, dtype: torch.dtype, request):
-    """NOTE: this function is _only_ for binary ops that take the same shape arguments"""
+def test_binary_ops(
+    test_fn: Callable,
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+):
+    # NOTE: this function is _only_ for binary ops that take the same shape arguments
+    device_grid_shape = None
+    # Workaround for ttmetal, only support 1x1 grid atm
+    if target == "ttmetal":
+        device_grid_shape = (1, 1)
     compile_to_flatbuffer(
         test_fn,
         [shape, shape],
@@ -1088,6 +1100,8 @@ def test_binary_ops(test_fn: Callable, shape: Shape, dtype: torch.dtype, request
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        device_grid_shape=device_grid_shape,
+        target=target,
     )
 
 
