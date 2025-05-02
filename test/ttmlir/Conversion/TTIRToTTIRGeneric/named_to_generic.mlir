@@ -30,7 +30,12 @@ module {
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: ttir.tile_log
     %3 = "ttir.log"(%2, %out) : (!ttype, !ttype) -> !ttype
-    return %3: !ttype
+    // named elementwise op, sin:
+    // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: ttir.tile_sin
+    %4 = "ttir.sin"(%2, %out) : (!ttype, !ttype) -> !ttype
+    return %4: !ttype
   }
 
   // CHECK-LABEL: func @named_reductions_R

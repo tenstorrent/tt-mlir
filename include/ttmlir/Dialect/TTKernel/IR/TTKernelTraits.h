@@ -21,6 +21,18 @@ template <typename ConcreteType>
 class TTKernelInitOpTrait
     : public mlir::OpTrait::TraitBase<ConcreteType, TTKernelInitOpTrait> {};
 
+template <typename ConcreteType>
+class TTKernelUnaryOpTrait
+    : public mlir::OpTrait::TraitBase<ConcreteType, TTKernelUnaryOpTrait> {};
+
+template <typename ConcreteType>
+class TTKernelBinaryOpTrait
+    : public mlir::OpTrait::TraitBase<ConcreteType, TTKernelBinaryOpTrait> {};
+
+template <typename ConcreteType>
+class TTKernelTernaryOpTrait
+    : public mlir::OpTrait::TraitBase<ConcreteType, TTKernelTernaryOpTrait> {};
+
 } // namespace mlir::tt::ttkernel
 
 #endif

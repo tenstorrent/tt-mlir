@@ -248,6 +248,22 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @sin_tile_init
+    func.func @sin_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "sin_tile_init"()
+      "ttkernel.sin_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @sin_tile
+    func.func @sin_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: emitc.call_opaque "sin_tile"(%[[DST0_INDEX]])
+      "ttkernel.sin_tile"(%dst0_index) : (i32) -> ()
+      return
+    }
+
   } // module
 
   //===----------------------------------------------------------------------===//

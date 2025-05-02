@@ -626,6 +626,7 @@ void populateTTIRToTTIRGenericPatterns(MLIRContext *ctx,
     TTIRNamedElementwiseRewriter<ttir::MultiplyOp,  ttir::TileMulOp>,
     TTIRNamedElementwiseRewriter<ttir::ExpOp,       ttir::TileExpOp>,
     TTIRNamedElementwiseRewriter<ttir::LogOp,       ttir::TileLogOp>,
+    TTIRNamedElementwiseRewriter<ttir::SinOp,       ttir::TileSinOp>,
     // Reductions.
     TTIRNamedReductionRewriter<ttir::SumOp,         ttir::TileReduceSumOp>,
     TTIRNamedReductionRewriter<ttir::MaxOp,         ttir::TileReduceMaxOp>
