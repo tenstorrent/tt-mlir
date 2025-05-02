@@ -73,11 +73,54 @@ module @jit_concat attributes {} {
     return %0 : tensor<32x32x32x96xf32>
   }
 
-  func.func public @test_concat_5(%arg0: tensor<1x53xi64>, %arg1: tensor<1x1xi64>) -> tensor<1x54xi64> {
-    // CHECK-LABEL: func.func public @test_concat_5
-    // CHECK: %[[CONCAT:[0-9]+]] = "ttnn.concat"
+  func.func public @test_concat_datatype_workaround(%arg0: tensor<2x53xi64>, %arg1: tensor<2x1xi64>) -> tensor<2x54xi64> {
+    // CHECK-LABEL: func.func public @test_concat_datatype_workaround
+    // CHECK: %[[ARG0:[0-9]+]] = "ttnn.typecast"
+    // CHECK-SAME: dtype = #tt.supportedDataTypes<bf16>
+    // CHECK-SAME: tensor<2x53xsi32
+    // CHECK-SAME: -> tensor<2x53xbf16
+    // CHECK: %[[ARG1:[0-9]+]] = "ttnn.typecast"
+    // CHECK-SAME: dtype = #tt.supportedDataTypes<bf16>
+    // CHECK-SAME: tensor<2x1xsi32
+    // CHECK-SAME: -> tensor<2x1xbf16
+    // CHECK: %[[CONCAT:[0-9]+]] = "ttnn.concat"(%[[ARG0]], %[[ARG1]])
     // CHECK-SAME: dim = 1 : si32
-    %0 = stablehlo.concatenate %arg0, %arg1, dim = 1 : (tensor<1x53xi64>, tensor<1x1xi64>) -> tensor<1x54xi64>
-    return %0 : tensor<1x54xi64>
+    // CHECK-SAME: tensor<2x53xbf16
+    // CHECK-SAME: tensor<2x1xbf16
+    // CHECK-SAME: -> tensor<2x54xbf16
+    %0 = stablehlo.concatenate %arg0, %arg1, dim = 1 : (tensor<2x53xi64>, tensor<2x1xi64>) -> tensor<2x54xi64>
+    // CHECK: "ttnn.typecast"(%[[CONCAT]])
+    // CHECK-SAME: dtype = #tt.supportedDataTypes<si32>
+    // CHECK-SAME: tensor<2x54xbf16
+    // CHECK-SAME: -> tensor<2x54xsi32
+    return %0 : tensor<2x54xi64>
+  }
+
+  func.func public @test_concat_reshape_workaround(%arg0: tensor<1x53xf32>, %arg1: tensor<1x1xf32>, %arg2: tensor<1x1xf32>) -> tensor<1x55xf32> {
+    // CHECK-LABEL: @test_concat_reshape_workaround
+    // CHECK: %[[ARG0:[0-9]+]] = "ttnn.reshape"(%arg0)
+    // CHECK-SAME: <{shape = [1 : i32, 53 : i32, 1 : i32]}>
+    // CHECK-SAME: tensor<1x53xf32,
+    // CHECK-SAME: -> tensor<1x53x1xf32,
+    // CHECK: %[[ARG1:[0-9]+]] = "ttnn.reshape"(%arg1)
+    // CHECK-SAME: <{shape = [1 : i32, 1 : i32, 1 : i32]}>
+    // CHECK-SAME: tensor<1x1xf32,
+    // CHECK-SAME: -> tensor<1x1x1xf32,
+    // CHECK: %[[ARG2:[0-9]+]] = "ttnn.reshape"(%arg2)
+    // CHECK-SAME: <{shape = [1 : i32, 1 : i32, 1 : i32]}>
+    // CHECK-SAME: tensor<1x1xf32,
+    // CHECK-SAME: -> tensor<1x1x1xf32,
+    // CHECK: %3 = "ttnn.concat"(%[[ARG0]], %[[ARG1]], %[[ARG2]])
+    // CHECK-SAME: {dim = 1 : si32}
+    // CHECK-SAME: tensor<1x53x1xf32,
+    // CHECK-SAME: tensor<1x1x1xf32,
+    // CHECK-SAME: tensor<1x1x1xf32,
+    // CHECK-SAME: -> tensor<1x55x1xf32,
+    %0 = stablehlo.concatenate %arg0, %arg1, %arg2, dim = 1 : (tensor<1x53xf32>, tensor<1x1xf32>, tensor<1x1xf32>) -> tensor<1x55xf32>
+    // CHECK: %4 = "ttnn.reshape"(%3)
+    // CHECK-SAME: {shape = [1 : i32, 55 : i32]}
+    // CHECK-SAME: tensor<1x55x1xf32,
+    // CHECK-SAME: -> tensor<1x55xf32,
+    return %0 : tensor<1x55xf32>
   }
 }
