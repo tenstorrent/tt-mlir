@@ -704,16 +704,16 @@ public:
         signatureConverter.remapInput(arg.getArgNumber(), cb);
         ctArgSpecVector.push_back(
             rewriter.getAttr<ArgAttr>(ArgType::CBPort, arg.getArgNumber()));
-      } else if (mlir::isa<ttkernel::SemaphoreType>(argType)) {
-        size_t rtArgIndex = rtArgSpecVector.size();
+      } else if (mlir::isa<SemaphoreType>(argType)) {
+        size_t ctArgIndex = ctArgSpecVector.size();
         auto semaphoreIndex = rewriter.create<GetCompileArgValOp>(
             op.getLoc(), rewriter.getI32Type(),
-            rewriter.getI32IntegerAttr(rtArgIndex));
+            rewriter.getI32IntegerAttr(ctArgIndex));
         auto semaphore =
             rewriter.create<GetSemaphoreOp>(op.getLoc(), semaphoreIndex);
         signatureConverter.remapInput(arg.getArgNumber(),
                                       semaphore.getResult());
-        rtArgSpecVector.push_back(rewriter.getAttr<ArgAttr>(
+        ctArgSpecVector.push_back(rewriter.getAttr<ArgAttr>(
             ArgType::Semaphore, currentSemaphoreIndex++));
       } else {
         llvm_unreachable("unexpected block argument type");

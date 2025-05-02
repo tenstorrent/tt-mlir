@@ -127,7 +127,8 @@ public:
       return Builder(ctx).getType<emitc::OpaqueType>("::tt::CB");
     });
     addConversion([ctx](mlir::tt::ttkernel::SemaphoreType type) -> Type {
-      return Builder(ctx).getType<mlir::tt::ttkernel::L1AddrType>();
+      // Convert semaphore to an address type. (i32)
+      return Builder(ctx).getI32Type();
     });
     addConversion([ctx](mlir::tt::ttkernel::L1AddrType type) -> Type {
       return Builder(ctx).getI32Type();
