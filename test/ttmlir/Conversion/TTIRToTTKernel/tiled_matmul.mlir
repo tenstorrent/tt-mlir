@@ -24,6 +24,9 @@ module {
         %tx = ttir.dma %1 [%c0, %arg7, %c0, %c0], %arg0 [%c0, %c0] : (memref<8x8x1x3x!tt.tile<32x32, f32>, #tt.shard<12288x4096>, #l1_>, memref<1x3x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
         // CHECK: "ttkernel.noc_async_read_barrier"
         ttir.dma_wait %tx
+        // CHECK: %{{[0-9]+}} = "ttkernel.reinterpret_cast<volatile tt_l1_ptr uint32_t*>"
+        // CHECK: "ttkernel.noc_semaphore_wait"
+        // CHECK: "ttkernel.noc_semaphore_set"
         ttir.semaphore_wait %arg3, %c7 reset %c0
         // CHECK: %{{[0-9]+}} = "ttkernel.get_read_ptr"
         // CHECK: %{{[0-9]+}} = "ttkernel.get_write_ptr"
@@ -32,9 +35,17 @@ module {
         %tx_0 = ttir.dma %arg0 [%c0, %c0], %arg0 [%c0, %c0] core[%core0, %c0] mcast[%c1, %c8] : (memref<1x3x!tt.tile<32x32, f32>, #l1_>, memref<1x3x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
         // CHECK: "ttkernel.noc_async_write_barrier"
         ttir.dma_wait %tx_0
+        // CHECK: %{{[0-9]+}} = "ttkernel.reinterpret_cast<volatile tt_l1_ptr uint32_t*>"
+        // CHECK: "ttkernel.noc_semaphore_set"
+        // CHECK: "ttkernel.noc_semaphore_set_multicast"
         ttir.semaphore_set %arg4, %c1, core[%core0, %c0] mcast[%c1, %c8]
       } else {
+        // CHECK: %{{[0-9]+}} = "ttkernel.get_noc_addr"
+        // CHECK: "ttkernel.noc_semaphore_inc"
         ttir.semaphore_inc %arg3, %c1, core[%core0, %c0]
+        // CHECK: %{{[0-9]+}} = "ttkernel.reinterpret_cast<volatile tt_l1_ptr uint32_t*>"
+        // CHECK: "ttkernel.noc_semaphore_wait"
+        // CHECK: "ttkernel.noc_semaphore_set"
         ttir.semaphore_wait %arg4, %c1 reset %c0
       }
       // CHECK: "ttkernel.cb_push_back"
