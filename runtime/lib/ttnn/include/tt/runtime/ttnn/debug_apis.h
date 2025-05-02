@@ -62,8 +62,6 @@ inline std::string toString(const ::ttnn::StorageType &storageType) {
     return "DEVICE";
   case ::ttnn::StorageType::MULTI_DEVICE_HOST:
     return "MULTI_DEVICE_HOST";
-  case ::ttnn::StorageType::MULTI_DEVICE:
-    return "MULTI_DEVICE";
   }
 }
 
