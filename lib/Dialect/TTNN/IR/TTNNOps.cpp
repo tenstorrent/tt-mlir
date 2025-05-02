@@ -330,7 +330,7 @@ int64_t mlir::tt::ttnn::Conv2dOp::getOutputChannelSize() {
 }
 
 // Verify that bias dimensions are compatible with conv2d operation.
-bool mlir::tt::ttnn::Conv2dOp::verifyBias(llvm::ArrayRef<int64_t> bias) {
+bool mlir::tt::ttnn::Conv2dOp::isBiasCompatible(llvm::ArrayRef<int64_t> bias) {
   return bias[0] == 1 && bias[1] == 1 && bias[2] == 1 &&
          bias[3] == getOutputChannelSize();
 }

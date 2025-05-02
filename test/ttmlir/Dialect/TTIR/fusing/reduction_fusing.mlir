@@ -4,8 +4,8 @@
 module {
   // CHECK-LABEL: func.func @sum_reshape_fusion
   func.func @sum_reshape_fusion(%arg0: tensor<32x64x128xf32>) -> tensor<32x1x128xf32> {
-    // CHECK-NOT: ttir.reshape
     // CHECK: %[[RESULT:.*]] = "ttir.sum"(%arg0, %{{.*}}) <{dim_arg = [1 : i32], keep_dim = true}> : (tensor<32x64x128xf32>, tensor<32x1x128xf32>) -> tensor<32x1x128xf32>
+    // CHECK-NOT: ttir.reshape
     // CHECK: return %[[RESULT]]
 
     %0 = ttir.empty() : tensor<32x128xf32>
@@ -22,8 +22,8 @@ module {
 module {
   // CHECK-LABEL: func.func @mean_reshape_fusion
   func.func @mean_reshape_fusion(%arg0: tensor<32x64x128xf32>) -> tensor<32x64x1xf32> {
-    // CHECK-NOT: ttir.reshape
     // CHECK: %[[RESULT:.*]] = "ttir.mean"(%arg0, %{{.*}}) <{dim_arg = [2 : i32], keep_dim = true}> : (tensor<32x64x128xf32>, tensor<32x64x1xf32>) -> tensor<32x64x1xf32>
+    // CHECK-NOT: ttir.reshape
     // CHECK: return %[[RESULT]]
 
     %0 = ttir.empty() : tensor<32x64xf32>
@@ -40,8 +40,8 @@ module {
 module {
   // CHECK-LABEL: func.func @max_reshape_fusion
   func.func @max_reshape_fusion(%arg0: tensor<32x64x128xf32>) -> tensor<1x64x128xf32> {
-    // CHECK-NOT: ttir.reshape
     // CHECK: %[[RESULT:.*]] = "ttir.max"(%arg0, %{{.*}}) <{dim_arg = [0 : i32], keep_dim = true}> : (tensor<32x64x128xf32>, tensor<1x64x128xf32>) -> tensor<1x64x128xf32>
+    // CHECK-NOT: ttir.reshape
     // CHECK: return %[[RESULT]]
 
     %0 = ttir.empty() : tensor<64x128xf32>
@@ -58,8 +58,8 @@ module {
 module {
   // CHECK-LABEL: func.func @multi_dim_reduction_reshape_fusion
   func.func @multi_dim_reduction_reshape_fusion(%arg0: tensor<32x64x128xf32>) -> tensor<32x1x1xf32> {
-    // CHECK-NOT: ttir.reshape
     // CHECK: %[[RESULT:.*]] = "ttir.sum"(%arg0, %{{.*}}) <{dim_arg = [1 : i32, 2 : i32], keep_dim = true}> : (tensor<32x64x128xf32>, tensor<32x1x1xf32>) -> tensor<32x1x1xf32>
+    // CHECK-NOT: ttir.reshape
     // CHECK: return %[[RESULT]]
 
     %0 = ttir.empty() : tensor<32xf32>

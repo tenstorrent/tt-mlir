@@ -23,7 +23,8 @@ public:
       return failure();
     }
 
-    auto [reluOp, reluInput] = getReluOpAndReluInput(srcOp);
+    ReluOp reluOp = getReluOp(srcOp);
+    Value reluInput = reluOp.getInput();
 
     mlir::StringAttr activation = rewriter.getStringAttr("relu");
     Conv2dConfigAttr conv2dConfigAttr =
@@ -43,21 +44,17 @@ public:
   }
 
 private:
-  std::pair<ReluOp, mlir::Value> getReluOpAndReluInput(Conv2dOp srcOp) const {
-    assert((ttmlir::utils::allUsers<ReshapeOp, ReluOp>(srcOp)) &&
+  ReluOp getReluOp(Conv2dOp srcOp) const {
+    assert((ttmlir::utils::allUsersOfType<ReshapeOp, ReluOp>(srcOp)) &&
            "Conv2d should have either Relu or Reshape as user.");
 
-    if (ttmlir::utils::allUsers<ReluOp>(srcOp)) {
-      return {mlir::cast<ReluOp>(*srcOp.getResult().getUsers().begin()),
-              srcOp.getResult()};
+    if (ttmlir::utils::allUsersOfType<ReluOp>(srcOp)) {
+      return mlir::cast<ReluOp>(*srcOp.getResult().getUsers().begin());
     }
 
     ReshapeOp reshapeOp =
         mlir::cast<ReshapeOp>(*srcOp.getResult().getUsers().begin());
-    ReluOp reluOp =
-        mlir::cast<ReluOp>(*reshapeOp.getResult().getUsers().begin());
-
-    return {reluOp, reshapeOp.getResult()};
+    return mlir::cast<ReluOp>(*reshapeOp.getResult().getUsers().begin());
   }
 
   bool isFusable(Conv2dOp srcOp) const {
@@ -71,13 +68,13 @@ private:
     }
 
     // Conv2d only user is ReLU so we can fuse.
-    if (ttmlir::utils::allUsers<ReluOp>(srcOp)) {
+    if (ttmlir::utils::allUsersOfType<ReluOp>(srcOp)) {
       return true;
     }
 
     // Since window flattening will add rehape after conv we need to check
     // if there is reshape right after conv2d.
-    if (!ttmlir::utils::allUsers<ReshapeOp>(srcOp)) {
+    if (!ttmlir::utils::allUsersOfType<ReshapeOp>(srcOp)) {
       return false;
     }
 
@@ -87,7 +84,7 @@ private:
     // If we want to fuse relu to conv we need to make sure that reshape
     // has only one user and that user is relu.
     return reshapeOp.getResult().hasOneUse() &&
-           ttmlir::utils::allUsers<ReluOp>(reshapeOp);
+           ttmlir::utils::allUsersOfType<ReluOp>(reshapeOp);
   }
 };
 

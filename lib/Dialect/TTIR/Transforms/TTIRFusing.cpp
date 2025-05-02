@@ -43,22 +43,22 @@ public:
 private:
   bool isFusable(Conv2dOp srcOp) const {
     // If bias already exists on Conv2d we cannot fuse.
-    if (srcOp.getBias().getImpl()) {
+    if (srcOp.getBias()) {
       return false;
     }
 
     // If conv2d has more than one use we cannot fuse.
     // If it's only user is not AddOp we cannot fuse.
     if (!srcOp.getResult().hasOneUse() ||
-        !ttmlir::utils::allUsers<AddOp>(srcOp)) {
+        !ttmlir::utils::allUsersOfType<AddOp>(srcOp)) {
       return false;
     }
 
     // If we have this IR:
-    // %0 = empty()
-    // %1 = conv2d()
-    // %2 = add(%1, %0)
-    // we want to get type of %0 and check if it is compatible with conv2d bias.
+    // %bias = empty()
+    // %conv2d_without_bias = conv2d(%input, %weight)
+    // %result = add(%conv2d_without_bias, %bias)
+    // we want to get shape of %bias and check if it is compatible with conv2d.
     OpOperand *nonConvOperand = getBiasOperand(srcOp);
     mlir::Operation *otherOperation = nonConvOperand->get().getDefiningOp();
     mlir::RankedTensorType nonConvType =
@@ -67,7 +67,7 @@ private:
     // If nonConvOperand is not defined by an operation, its a block argument
     // and we can fuse if bias is compatible with its shape.
     if (otherOperation == nullptr) {
-      return srcOp.verifyBias(nonConvType.getShape());
+      return srcOp.isBiasCompatible(nonConvType.getShape());
     }
 
     // If we have this IR:
@@ -81,12 +81,16 @@ private:
       return false;
     }
 
-    return srcOp.verifyBias(nonConvType.getShape());
+    return srcOp.isBiasCompatible(nonConvType.getShape());
   }
 
   OpOperand *getBiasOperand(Conv2dOp srcOp) const {
+    assert(srcOp.getResult().hasOneUse() &&
+           "To fuse conv2d with add, conv2d must have only one use.");
     auto addOp = mlir::cast<AddOp>(*srcOp.getResult().getUsers().begin());
     auto otherOperands = ttmlir::utils::getOtherOperands(addOp, srcOp);
+    assert(otherOperands.size() == 1 &&
+           "AddOp must have exactly one other operand.");
     return otherOperands.front();
   }
 };
@@ -102,78 +106,73 @@ class ReductionWithReshapePattern
 
 public:
   mlir::LogicalResult
-  matchAndRewrite(ReductionOpTy srcOp,
+  matchAndRewrite(ReductionOpTy reductionOp,
                   mlir::PatternRewriter &rewriter) const final {
     // Check if the reduction op has exactly one use and it's a reshape op.
-    if (!srcOp.getResult().hasOneUse() ||
-        !ttmlir::utils::allUsers<ReshapeOp>(srcOp)) {
+    if (!isFusable(reductionOp)) {
       return mlir::failure();
     }
 
     // Get the reshape op that follows the reduction op.
     auto reshapeOp =
-        mlir::cast<ReshapeOp>(*srcOp.getResult().getUsers().begin());
+        mlir::cast<ReshapeOp>(*reductionOp.getResult().getUsers().begin());
 
-    // If the reduction already has keep_dim=true, there's nothing to fuse.
-    if (srcOp.getKeepDim()) {
-      return mlir::failure();
+    // Replce old reduction with new reduction with keep_dim=true.
+    utils::replaceOpWithNewDPSOp<ReductionOpTy>(
+        rewriter, reductionOp, reshapeOp.getResult().getType(),
+        reductionOp.getInput(), /*keep_dim=*/rewriter.getBoolAttr(true),
+        reductionOp.getDimArgAttr());
+
+    // Reshape will be folded into the new reduction op.
+    return mlir::success();
+  }
+
+private:
+  bool isFusable(ReductionOpTy reductionOp) const {
+    // Reduction should only have one use and that use should be a reshape op.
+    if (!reductionOp.getResult().hasOneUse() ||
+        !ttmlir::utils::allUsersOfType<ReshapeOp>(reductionOp)) {
+      return false;
     }
 
+    // If keep dim is already set, we cannot fuse.
+    if (reductionOp.getKeepDim()) {
+      return false;
+    }
+
+    ReshapeOp reshapeOp =
+        mlir::cast<ReshapeOp>(*reductionOp.getResult().getUsers().begin());
+
     // Get the input and output shapes.
-    ArrayRef<int64_t> inputShape = srcOp.getInput().getType().getShape();
+    ArrayRef<int64_t> inputShape = reductionOp.getInput().getType().getShape();
     ArrayRef<int64_t> reshapeOutputShape =
         reshapeOp.getResult().getType().getShape();
 
-    // Check if the reshape is simply adding back dimensions that were reduced.
-    // For this, the reshape output shape should have the same rank as the input
-    // shape.
+    // Reshape output shape should have the same rank as the input shape.
     if (reshapeOutputShape.size() != inputShape.size()) {
-      return mlir::failure();
+      return false;
     }
 
-    // Get the reduction dimensions.
-    llvm::BitVector reduceDimsMask(inputShape.size(), false);
-    if (!srcOp.getDimArg()) {
-      // If no dimensions are specified, all dimensions are reduced.
-      reduceDimsMask.set();
+    // Calculate the expected shape after reduction with keep_dim=true.
+    llvm::SmallVector<int64_t> expectedShape(inputShape);
+
+    if (!reductionOp.getDimArg()) {
+      // If no dimensions are specified, all dimensions are reduced to 1.
+      expectedShape = llvm::SmallVector<int64_t>(inputShape.size(), 1);
     } else {
-      mlir::ArrayAttr reduceDims = *srcOp.getDimArg();
+      // Only specified dimensions are reduced to 1.
+      mlir::ArrayAttr reduceDims = *reductionOp.getDimArg();
       for (mlir::Attribute reduceDim : reduceDims) {
         int64_t reduceDimInt =
             mlir::cast<mlir::IntegerAttr>(reduceDim).getInt();
-        // Handle negative indices
+        // Handle negative indices.
         reduceDimInt = (reduceDimInt + inputShape.size()) % inputShape.size();
-        reduceDimsMask.set(reduceDimInt);
+        expectedShape[reduceDimInt] = 1;
       }
     }
 
-    // Check if the reshape output shape has 1s in the reduced dimensions and
-    // matches the original shape in the non-reduced dimensions.
-    for (size_t i = 0; i < inputShape.size(); ++i) {
-      if (reduceDimsMask[i]) {
-        // Reduced dimension should be 1 in the reshape output.
-        if (reshapeOutputShape[i] != 1) {
-          return mlir::failure();
-        }
-      } else {
-        // Non-reduced dimension should match the original input shape.
-        if (reshapeOutputShape[i] != inputShape[i]) {
-          return mlir::failure();
-        }
-      }
-    }
-
-    // Create a new reduction op with keep_dim=true.
-    auto newReductionOp = utils::createDPSOp<ReductionOpTy>(
-        rewriter, srcOp.getLoc(), reshapeOp.getResult().getType(),
-        srcOp.getInput(), rewriter.getBoolAttr(true), srcOp.getDimArgAttr());
-
-    // Replace the reshape op with the result of the new reduction op.
-    rewriter.replaceOp(reshapeOp, newReductionOp.getResult());
-
-    // The original reduction op will be removed by DCE since it's no longer
-    // used.
-    return mlir::success();
+    // Check if the reshape output matches the expected shape.
+    return expectedShape == reshapeOutputShape;
   }
 };
 
@@ -187,34 +186,34 @@ class SoftmaxFusionPattern : public mlir::OpRewritePattern<DivOp> {
   using mlir::OpRewritePattern<DivOp>::OpRewritePattern;
 
 public:
-  // Pattern: div(exp(x), broadcast(sum(exp(x), keep_dim=true)))
+  // Pattern: div(exp(x), broadcast(sum(exp(x), keep_dim=true))).
   mlir::LogicalResult
-  matchAndRewrite(DivOp srcOp, mlir::PatternRewriter &rewriter) const final {
+  matchAndRewrite(DivOp divOp, mlir::PatternRewriter &rewriter) const final {
 
-    // Get the numerator (exp) and denominator (broadcast)
-    mlir::Value numerator = srcOp.getInputs()[0];
-    mlir::Value denominator = srcOp.getInputs()[1];
+    // Get the numerator (exp) and denominator (broadcast).
+    mlir::Value numerator = divOp.getLhs();
+    mlir::Value denominator = divOp.getRhs();
 
-    // Check that the numerator is an exp operation
+    // Check that the numerator is an exp operation.
     auto expOp = numerator.getDefiningOp<ExpOp>();
     if (!expOp) {
       return mlir::failure();
     }
 
-    // Check that the denominator is a broadcast operation
+    // Check that the denominator is a broadcast operation.
     auto broadcastOp = denominator.getDefiningOp<BroadcastOp>();
     if (!broadcastOp) {
       return mlir::failure();
     }
 
-    // Check that the broadcast input is a sum operation with keep_dim=true
+    // Check that the broadcast input is a sum operation with keep_dim=true.
     auto sumOp = broadcastOp.getInput().getDefiningOp<SumOp>();
     if (!sumOp || !sumOp.getKeepDim()) {
       return mlir::failure();
     }
 
-    // Check that the sum input is the same exp operation as the numerator
-    if (sumOp.getInput() != expOp.getResult(0)) {
+    // Check that the sum input is the same exp operation as the numerator.
+    if (sumOp.getInput() != expOp.getResult()) {
       return mlir::failure();
     }
 
@@ -222,35 +221,32 @@ public:
     // - exp should have exactly 2 users (sum and div)
     // - sum should have exactly 1 user (broadcast)
     // - broadcast should have exactly 1 user (div)
-    if (ttmlir::utils::countUsers(expOp.getResult(0)) != 2 ||
+    if (ttmlir::utils::countUsers(expOp.getResult()) != 2 ||
         !sumOp.getResult().hasOneUse() ||
         !broadcastOp.getResult().hasOneUse()) {
       return mlir::failure();
     }
 
-    // Get the reduction dimension from the sum operation
+    // Get the reduction dimension from the sum operation.
     if (!sumOp.getDimArg()) {
       // If no dimensions are specified, all dimensions are reduced, which is
-      // not what we want for softmax
+      // not what we want for softmax.
       return mlir::failure();
     }
 
     mlir::ArrayAttr reduceDims = *sumOp.getDimArg();
     if (reduceDims.size() != 1) {
-      // Softmax reduces along a single dimension
+      // Softmax reduces along a single dimension.
       return mlir::failure();
     }
 
     int64_t reduceDim = mlir::cast<mlir::IntegerAttr>(reduceDims[0]).getInt();
 
-    // Create a new softmax operation
-    auto softmaxOp = utils::createDPSOp<SoftmaxOp>(
-        rewriter, srcOp.getLoc(),
-        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType()),
-        expOp.getInputs()[0], reduceDim);
-
-    // Replace the div operation with the softmax operation
-    rewriter.replaceOp(srcOp, softmaxOp.getResult());
+    // Replace div op with new softmax op.
+    utils::replaceOpWithNewDPSOp<SoftmaxOp>(
+        rewriter, divOp,
+        mlir::cast<RankedTensorType>(divOp.getResult().getType()),
+        expOp.getInput(), reduceDim);
 
     return mlir::success();
   }
@@ -279,24 +275,25 @@ public:
   mlir::LogicalResult
   matchAndRewrite(Conv2dOp convOp,
                   mlir::PatternRewriter &rewriter) const final {
-    // Check if this pattern is applicable
+    // Check if this pattern is applicable.
     if (!isCommutable(convOp)) {
       return mlir::failure();
     }
 
-    // Get the scale factor from the multiply operation
+    // Get the scale factor from the multiply operation.
     OpOperand *scaleOperand = getScaleOperand(convOp);
     Value scaleValue = scaleOperand->get();
 
-    // Get the convolution weight
+    // Get the convolution weight.
     Value weightValue = convOp.getWeight();
 
-    // Create a reshaped scale factor suitable for multiplying with weights
-    Value reshapedScale = createReshapedScale(rewriter, convOp, scaleValue);
+    // Create a reshaped scale factor suitable for multiplying with weights.
+    Value reshapedScale =
+        createReshapedScale(rewriter, convOp.getLoc(), scaleValue);
 
-    // Create pre-multiplied weights
-    Value scaledWeights =
-        createScaledWeights(rewriter, convOp, weightValue, reshapedScale);
+    // Create pre-multiplied weights.
+    Value scaledWeights = createScaledWeights(rewriter, convOp.getLoc(),
+                                              weightValue, reshapedScale);
 
     // Modify conv2d in place to add scaled weights.
     rewriter.modifyOpInPlace(
@@ -310,100 +307,106 @@ public:
 
 private:
   bool isCommutable(Conv2dOp convOp) const {
-    // Convolution must have exactly one use and it must be a multiply operation
+    // Convolution must have exactly one use and it must be a multiply
+    // operation.
     if (!convOp.getResult().hasOneUse() ||
-        !ttmlir::utils::allUsers<MultiplyOp>(convOp)) {
+        !ttmlir::utils::allUsersOfType<MultiplyOp>(convOp)) {
       return false;
     }
 
-    // Get the function containing this operation
+    // Get the function containing this operation.
     mlir::func::FuncOp funcOp = convOp->getParentOfType<mlir::func::FuncOp>();
 
-    // Get all constant parameters in the function
+    // Get all constant parameters in the function.
     SmallPtrSet<BlockArgument, 4> constParams =
         ttmlir::utils::populateConstParams(funcOp);
 
-    // Both the weight and scale must be constants
+    // Both the weight and scale must be constants.
     if (!isConstant(convOp.getWeight(), constParams) ||
         !isConstant(getScaleOperand(convOp)->get(), constParams)) {
       return false;
     }
 
-    // The scale must have the correct shape (1,1,1,out_channels)
+    // The scale must have the correct shape (1,1,1,out_channels).
     return hasValidScaleShape(convOp, getScaleOperand(convOp));
   }
 
-  /// Check if a value is a constant parameter
+  /// Check if a value is a constant parameter.
   bool isConstant(mlir::Value value,
                   const SmallPtrSet<BlockArgument, 4> &constParams) const {
     if (auto blockArg = mlir::dyn_cast<BlockArgument>(value)) {
       return constParams.contains(blockArg);
     }
+    // TODO(milant): Check for TT_CreationOpTrait after issue #3180 lands.
     return false;
   }
 
-  /// Check if the scale has the correct shape (1,1,1,out_channels)
+  /// Check if the scale has the correct shape (1,1,1,out_channels).
   bool hasValidScaleShape(Conv2dOp convOp, OpOperand *scaleOperand) const {
     int64_t outChannels = convOp.getOutputChannelSize();
     RankedTensorType scaleType =
         mlir::cast<RankedTensorType>(scaleOperand->get().getType());
 
-    // Scale must be a 4D tensor
+    // Scale must be a 4D tensor.
     if (scaleType.getRank() != 4) {
       return false;
     }
 
-    // Scale must have shape (1,1,1,out_channels)
+    // Scale must have shape (1,1,1,out_channels).
     return scaleType.getDimSize(0) == 1 && scaleType.getDimSize(1) == 1 &&
            scaleType.getDimSize(2) == 1 &&
            scaleType.getDimSize(3) == outChannels;
   }
 
-  /// Get the scale operand from the multiply operation
+  /// Get the scale operand from the multiply operation.
   OpOperand *getScaleOperand(Conv2dOp convOp) const {
+    assert(convOp.getResult().hasOneUse() &&
+           "Conv2d must have only one use to get scale operand.");
     MultiplyOp multiplyOp =
         mlir::cast<MultiplyOp>(*convOp.getResult().getUsers().begin());
-    return ttmlir::utils::getOtherOperands(multiplyOp, convOp).front();
+    auto otherOperands = ttmlir::utils::getOtherOperands(multiplyOp, convOp);
+    assert(otherOperands.size() == 1 &&
+           "MultiplyOp must have exactly one other operand.");
+    return otherOperands.front();
   }
 
-  /// Create a reshaped scale factor suitable for multiplying with weights
-  Value createReshapedScale(mlir::PatternRewriter &rewriter, Conv2dOp convOp,
+  /// Create a reshaped scale factor suitable for multiplying with weights.
+  Value createReshapedScale(mlir::PatternRewriter &rewriter, Location loc,
                             Value scaleValue) const {
-    // Get the scale's type
+    // Get the scale's type.
     RankedTensorType scaleType =
         mlir::cast<RankedTensorType>(scaleValue.getType());
 
-    // Create a new shape (out_channels,1,1,1) from (1,1,1,out_channels)
+    // Create a new shape (out_channels,1,1,1) from (1,1,1,out_channels).
     llvm::SmallVector<int64_t> newShape(scaleType.getShape());
-    std::swap(newShape[0], newShape[3]); // Swap first and last dimensions
-
-    // Convert to int32 for the reshape operation
+    // Swap first and last dimensions.
+    assert(newShape.size() == 4 &&
+           "Scale tensor must have 4 dimensions for reshaping.");
+    std::swap(newShape[0], newShape[3]);
+    // Convert to int32 for the reshape operation.
     llvm::SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
 
-    // Create and return the reshape operation
+    // Create and return the reshape operation.
     return ttir::utils::createDPSOp<ttir::ReshapeOp>(
-               rewriter, convOp.getLoc(), newShape, scaleType.getElementType(),
-               scaleType.getEncoding(), scaleValue,
-               rewriter.getI32ArrayAttr(newShapeI32))
-        .getResult();
+        rewriter, loc, newShape, scaleType.getElementType(),
+        scaleType.getEncoding(), scaleValue,
+        rewriter.getI32ArrayAttr(newShapeI32));
   }
 
-  /// Create pre-multiplied weights
-  Value createScaledWeights(mlir::PatternRewriter &rewriter, Conv2dOp convOp,
+  /// Create pre-multiplied weights.
+  Value createScaledWeights(mlir::PatternRewriter &rewriter, Location loc,
                             Value weightValue, Value reshapedScale) const {
-    // Create a multiplication of the weights by the reshaped scale
+    // Create a multiplication of the weights by the reshaped scale.
     return utils::createDPSOp<MultiplyOp>(
-               rewriter, convOp.getLoc(),
-               mlir::cast<RankedTensorType>(weightValue.getType()), weightValue,
-               reshapedScale)
-        .getResult(0);
+        rewriter, loc, mlir::cast<RankedTensorType>(weightValue.getType()),
+        weightValue, reshapedScale);
   }
 
-  /// Create a new convolution with the scaled weights
+  /// Create a new convolution with the scaled weights.
   Conv2dOp createConvWithScaledWeights(mlir::PatternRewriter &rewriter,
                                        Conv2dOp originalConv,
                                        Value scaledWeights) const {
-    // Create a new convolution operation with the scaled weights
+    // Create a new convolution operation with the scaled weights.
     return utils::createDPSOp<Conv2dOp>(
         rewriter, originalConv.getLoc(), originalConv.getResult().getType(),
         originalConv.getInput(), scaledWeights, originalConv.getBias(),
@@ -420,7 +423,7 @@ public:
     RewritePatternSet patterns(&getContext());
     patterns.add<TTIRConv2dWithBias>(&getContext());
 
-    // Add patterns for each reduction op type
+    // Add patterns for each reduction op type.
     patterns.add<ReductionWithReshapePattern<SumOp>>(&getContext());
     patterns.add<ReductionWithReshapePattern<MeanOp>>(&getContext());
     patterns.add<ReductionWithReshapePattern<MaxOp>>(&getContext());
@@ -429,6 +432,7 @@ public:
     patterns.add<ReductionWithReshapePattern<ReduceAndOp>>(&getContext());
     patterns.add<ReductionWithReshapePattern<ReduceOrOp>>(&getContext());
     patterns.add<ReductionWithReshapePattern<ArgMaxOp>>(&getContext());
+
     patterns.add<SoftmaxFusionPattern>(&getContext());
     patterns.add<Conv2dWithMultiply>(&getContext());
 

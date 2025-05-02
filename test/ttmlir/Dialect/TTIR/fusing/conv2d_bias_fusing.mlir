@@ -10,6 +10,7 @@ module {
     // CHECK-SAME: groups = 1
     // CHECK-SAME: padding = 0
     // CHECK-SAME: stride = 1
+    // CHECK-NOT: "ttir.add"
     // CHECK-NEXT: return %[[CONV]]
     %1 = "ttir.conv2d"(%arg0, %arg1, %0)
             <{
@@ -35,6 +36,7 @@ module {
     // CHECK-SAME: padding = 0
     // CHECK-SAME: stride = 1
     // CHECK-SAME: tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x30x30x64xbf16>
+    // CHECK: "ttir.add"
     %1 = "ttir.conv2d"(%arg0, %arg1, %0)
             <{
               stride = 1: i32,
@@ -42,15 +44,11 @@ module {
               dilation = 1: i32,
               groups = 1: i32
             }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
-    // CHECK-NEXT: ttir.empty
     %2 = ttir.empty() : tensor<1x30x30x64xbf16>
-    // CHECK-NEXT: ttir.empty
     // This bias comes after conv2d so we cannot fuse. Ideally we can check if this only use of bias
     // and commute it before conv2d. For now we will cover this simple case.
     %3 = ttir.empty() : tensor<1x1x1x64xbf16>
-    // CHECK-NEXT: %[[ADD:.*]] = "ttir.add"
     %4 = "ttir.add"(%1, %3, %2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
-    // CHECK-NEXT: return %[[ADD]]
     return %4: tensor<1x30x30x64xbf16>
   }
 }
@@ -117,7 +115,7 @@ module {
   }
 }
 
-// Check that we cannot fuse because add because second argument to add next to conv is not suitable for bias.
+// Check that we cannot fuse add because second argument to add next to conv is not suitable for bias.
 module {
   // CHECK-LABEL: func.func @conv2d_not_suitable_for_bias
   func.func @conv2d_not_suitable_for_bias(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>) -> tensor<1x30x30x64xbf16> {

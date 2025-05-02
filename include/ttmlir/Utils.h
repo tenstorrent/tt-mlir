@@ -417,9 +417,9 @@ static mlir::Region *getRegionWithParentOfType(mlir::Operation *op) {
 
 // Check if all users of srcOp are of UserOps types.
 template <typename... UserOps>
-inline bool allUsers(mlir::Operation *srcOp) {
+inline bool allUsersOfType(mlir::Operation *srcOp) {
   auto check = [](mlir::Operation *op) { return mlir::isa<UserOps...>(op); };
-  return all_of(srcOp->getResult(0).getUsers(), check);
+  return llvm::all_of(srcOp->getResult(0).getUsers(), check);
 }
 
 // Count the number of users of a value.
@@ -434,12 +434,10 @@ inline llvm::SmallVector<mlir::OpOperand *>
 getOtherOperands(mlir::Operation *currentOp,
                  mlir::Operation *currentOpOperand) {
   llvm::SmallVector<mlir::OpOperand *> operands;
+  auto dpsOp = mlir::dyn_cast<mlir::DestinationStyleOpInterface>(currentOp);
   for (auto &opOperand : currentOp->getOpOperands()) {
-    if (auto dpsUserOp =
-            mlir::dyn_cast<mlir::DestinationStyleOpInterface>(currentOp)) {
-      if (dpsUserOp.isDpsInit(&opOperand)) {
-        continue;
-      }
+    if (dpsOp && dpsOp.isDpsInit(&opOperand)) {
+      continue;
     }
 
     if (mlir::Operation *op = opOperand.get().getDefiningOp()) {
@@ -464,10 +462,10 @@ populateConstParams(mlir::func::FuncOp funcOp) {
 
   for (auto arg : funcOp.getArguments()) {
     if (auto typeAttr = funcOp.getArgAttrOfType<mlir::tt::ArgumentTypeAttr>(
-            arg.getArgNumber(), "tt.argument_type")) {
-      auto attrValue = typeAttr.getValue();
-      if (attrValue == mlir::tt::ArgumentType::Parameter ||
-          attrValue == mlir::tt::ArgumentType::Constant) {
+            arg.getArgNumber(), mlir::tt::ArgumentTypeAttr::name)) {
+      auto argTypeValue = typeAttr.getValue();
+      if (argTypeValue == mlir::tt::ArgumentType::Parameter ||
+          argTypeValue == mlir::tt::ArgumentType::Constant) {
         constParams.insert(arg);
       }
     }
