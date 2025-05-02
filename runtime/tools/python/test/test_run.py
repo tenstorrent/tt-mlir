@@ -301,11 +301,10 @@ def test_enable_async_ttnn_run():
         "--result-file"
     ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     custom_args["binary"] = BINARY_FILE_PATH
-    custom_args["--enable-async-ttnn"] = True
     run_instance = API.Run(args=custom_args)
     run_instance()
 
 
 def test_enable_async_ttnn_cmd_run():
-    command = f"ttrt run {BINARY_FILE_PATH} --enable-async-ttnn --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    command = f"ttrt run {BINARY_FILE_PATH} --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     sub_process_command(command)

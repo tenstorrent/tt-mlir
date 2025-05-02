@@ -25,7 +25,7 @@ from ..utils import (
 from .constants import FLATBUFFER_BASE_PATH
 
 
-def verify_to_layout_deallocation(helper: Helper, retain_flags, storage, enable_async):
+def verify_to_layout_deallocation(helper: Helper, retain_flags, storage):
     """Test memory deallocation behavior after to_layout operation"""
     num_devices = ttrt.runtime.get_num_available_devices()
     assert num_devices > 1, "Test requires at least 2 devices to enable async mode"
@@ -54,7 +54,7 @@ def verify_to_layout_deallocation(helper: Helper, retain_flags, storage, enable_
         retain_flags if storage != Storage.Borrowed else [True] * len(retain_flags)
     )
 
-    with DeviceContext(mesh_shape=[1, 2], enable_async=enable_async) as parent_mesh:
+    with DeviceContext(mesh_shape=[1, 2]) as parent_mesh:
         # Apply retain flags to original inputs
         for i, retain_flag in enumerate(retain_flags):
             runtime_inputs[i].set_retain(retain_flag)
@@ -69,7 +69,7 @@ def verify_to_layout_deallocation(helper: Helper, retain_flags, storage, enable_
             ), f"After to_layout: Retain flag and tensor allocation mismatch ({should_retain[i]} != {runtime_input.is_allocated()} at idx: {i})"
 
 
-def verify_submit_deallocation(helper: Helper, retain_flags, storage, enable_async):
+def verify_submit_deallocation(helper: Helper, retain_flags, storage):
     """Test memory deallocation behavior after submit operation"""
     num_devices = ttrt.runtime.get_num_available_devices()
     assert num_devices > 1, "Test requires at least 2 devices to enable async mode"
@@ -93,7 +93,7 @@ def verify_submit_deallocation(helper: Helper, retain_flags, storage, enable_asy
         runtime_inputs
     ), "Mismatch in retain flags and runtime inputs size"
 
-    with DeviceContext(mesh_shape=[1, 2], enable_async=enable_async) as parent_mesh:
+    with DeviceContext(mesh_shape=[1, 2]) as parent_mesh:
         # First, get the laid-out inputs - we don't care about retain flags for original inputs here
         runtime_inputs_with_layouts = get_to_layout_inputs(
             parent_mesh, runtime_inputs, helper.binary, 0
@@ -123,46 +123,36 @@ def verify_submit_deallocation(helper: Helper, retain_flags, storage, enable_asy
 
 
 @pytest.mark.parametrize("storage", [Storage.Borrowed, Storage.Owned, Storage.Device])
-@pytest.mark.parametrize("enable_async", [False, True])
 @pytest.mark.parametrize(
     "retain_flags",
     [[True, False], [False, True], [True, True], [False, False]],
     ids=lambda x: str(x),
 )
-def test_to_layout_deallocation(
-    helper: Helper, request, storage, enable_async, retain_flags
-):
+def test_to_layout_deallocation(helper: Helper, request, storage, retain_flags):
     """Test that to_layout correctly deallocates input tensors based on retain flags"""
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "add.mlir.tmp.ttnn")
     assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
     helper.initialize(request.node.name, binary_path)
     helper.check_constraints()
 
-    verify_to_layout_deallocation(
-        helper, retain_flags=retain_flags, storage=storage, enable_async=enable_async
-    )
+    verify_to_layout_deallocation(helper, retain_flags=retain_flags, storage=storage)
 
     helper.teardown()
 
 
 @pytest.mark.parametrize("storage", [Storage.Borrowed, Storage.Owned, Storage.Device])
-@pytest.mark.parametrize("enable_async", [False, True])
 @pytest.mark.parametrize(
     "retain_flags",
     [[True, False], [False, True], [True, True], [False, False]],
     ids=lambda x: str(x),
 )
-def test_submit_deallocation(
-    helper: Helper, request, storage, enable_async, retain_flags
-):
+def test_submit_deallocation(helper: Helper, request, storage, retain_flags):
     """Test that submit correctly deallocates input tensors based on retain flags"""
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "add.mlir.tmp.ttnn")
     assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
     helper.initialize(request.node.name, binary_path)
     helper.check_constraints()
 
-    verify_submit_deallocation(
-        helper, retain_flags=retain_flags, storage=storage, enable_async=enable_async
-    )
+    verify_submit_deallocation(helper, retain_flags=retain_flags, storage=storage)
 
     helper.teardown()

@@ -104,6 +104,9 @@ def test_compile(ttnn_module_str: str):
     assert result.dialect == ModuleDialect.TTNN
 
 
+@pytest.mark.skip(
+    "hardcoded system desc mismatch: https://github.com/tenstorrent/tt-mlir/issues/3191"
+)
 def test_execute(ttnn_module_str: str):
     ex = MLIRModuleExecutor()
     result: ExecutionResult = ex.execute(ttnn_module_str)

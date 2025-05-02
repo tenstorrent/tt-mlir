@@ -391,7 +391,6 @@ Device openMeshDevice(const std::vector<uint32_t> &meshShape,
       meshConfig, l1SmallSize, DEFAULT_TRACE_REGION_SIZE, options.numHWCQs,
       dispatchCoreTypeValue);
 
-  meshDevice->enable_async(options.enableAsyncTTNN);
   if (options.enableProgramCache) {
     meshDevice->enable_program_cache();
   }

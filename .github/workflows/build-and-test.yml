@@ -52,7 +52,7 @@ jobs:
           {runs-on: ubuntu-latest, enable_perf: ON, enable_emitc: ON, enable_runtime_debug: ON, enable_explorer: ON, name: "tracy"},
         ]
 
-    name: Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})
+    name: Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})
     runs-on: ${{ matrix.build.runs-on }}
 
     container:
@@ -72,7 +72,7 @@ jobs:
       id: fetch-job-id
       uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
       with:
-        job_name: "Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})"
+        job_name: "Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})"
 
     - name: Set reusable strings
       id: strings
@@ -129,7 +129,6 @@ jobs:
           {runs-on: n150,   name: "run",  suite: "op_model",          image: "speedy", type: "ttrt",    path: "Silicon/TTNN/n150/optimizer", flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150,   name: "run",  suite: "runtime_debug",     image: "tracy",  type: "ttrt",    path: "Silicon", flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n300,   name: "run",  suite: "run",               image: "speedy", type: "ttrt",    path: "Silicon", flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n300,   name: "run",  suite: "async",             image: "speedy", type: "ttrt",    path: "Silicon/TTNN", flags: "--non-zero --enable-async-ttnn", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n300,   name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",    path: "Silicon/TTNN/n300/perf", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: llmbox, name: "run",  suite: "run",               image: "speedy", type: "ttrt",    path: "Silicon", flags: "--non-zero", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
           {runs-on: llmbox, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",    path: "Silicon/TTNN/llmbox/perf", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
