@@ -487,7 +487,7 @@ LogicalResult translateTTMetalToFlatbuffer(
   std::shared_ptr<void> data = translateModuleToFlatbuffer(op, goldenMap);
   std::size_t size = ::flatbuffers::GetSizePrefixedBufferLength(
       static_cast<const uint8_t *>(data.get()));
-  os.write(reinterpret_cast<char const *>(data.get()), size);
+  os.write(reinterpret_cast<const char *>(data.get()), size);
   return success();
 }
 

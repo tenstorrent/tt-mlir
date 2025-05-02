@@ -234,13 +234,13 @@ toFlatbuffer(FlatbufferObjectCache &cache,
   // Create a Flatbuffer Dim2d struct for each type of core.
   std::vector<::tt::target::Dim2d> dramCores, ethCores, ethInactiveCores;
 
-  for (auto const &coreCoord : chipPhysicalHelperCores.getDram()) {
+  for (const auto &coreCoord : chipPhysicalHelperCores.getDram()) {
     dramCores.emplace_back(coreCoord.getY(), coreCoord.getX());
   }
-  for (auto const &coreCoord : chipPhysicalHelperCores.getEth()) {
+  for (const auto &coreCoord : chipPhysicalHelperCores.getEth()) {
     ethCores.emplace_back(coreCoord.getY(), coreCoord.getX());
   }
-  for (auto const &coreCoord : chipPhysicalHelperCores.getEthInactive()) {
+  for (const auto &coreCoord : chipPhysicalHelperCores.getEthInactive()) {
     ethInactiveCores.emplace_back(coreCoord.getY(), coreCoord.getX());
   }
 
@@ -280,7 +280,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, const std::optional<T> &optValue) {
 }
 
 template <typename T, std::enable_if_t<IsNativeFlatbufferTypeV<T>, int> = 0>
-flatbuffers::Offset<flatbuffers::Vector<ToFlatbufferReturnType<T> const *>>
+flatbuffers::Offset<flatbuffers::Vector<const ToFlatbufferReturnType<T> *>>
 toFlatbuffer(FlatbufferObjectCache &cache, ::llvm::ArrayRef<T> arr) {
   static_assert(std::is_trivially_copyable_v<ToFlatbufferReturnType<T>>);
   ToFlatbufferReturnType<T> *buf;
@@ -432,7 +432,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, ElementsAttr elementsAttr) {
 }
 
 inline flatbuffers::Offset<::tt::target::MLIR>
-toDebugInfo(::flatbuffers::FlatBufferBuilder &fbb, std::string const &name,
+toDebugInfo(::flatbuffers::FlatBufferBuilder &fbb, const std::string &name,
             ModuleOp module) {
   std::string source;
   llvm::raw_string_ostream os(source);

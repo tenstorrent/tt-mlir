@@ -52,16 +52,16 @@ namespace tt::runtime::ttnn {
 // Creates host tensor with owned storage (the buffer of the tensor is on the
 // host and its allocation/deallocation is owned by this tensor instance).
 ::tt::runtime::Tensor
-createOwnedHostTensor(void const *data, std::vector<std::uint32_t> const &shape,
-                      std::vector<std::uint32_t> const &stride,
+createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
+                      const std::vector<std::uint32_t> &stride,
                       std::uint32_t itemsize, ::tt::target::DataType dataType);
 
 // Creates host tensor with borrowed storage (the buffer of the tensor is on the
 // host and it was borrowed from an external buffer which is responsible for its
 // allocation/deallocation).
 ::tt::runtime::Tensor
-createBorrowedHostTensor(void *data, std::vector<std::uint32_t> const &shape,
-                         std::vector<std::uint32_t> const &stride,
+createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
+                         const std::vector<std::uint32_t> &stride,
                          std::uint32_t itemsize,
                          ::tt::target::DataType dataType);
 
@@ -69,43 +69,43 @@ createBorrowedHostTensor(void *data, std::vector<std::uint32_t> const &shape,
 // are on the host and their allocation/deallocation is owned by this tensor
 // instance).
 ::tt::runtime::Tensor createMultiDeviceHostTensor(
-    std::vector<void const *> const &data,
-    std::vector<std::uint32_t> const &shape,
-    std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
+    const std::vector<const void *> &data,
+    const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
-    std::unordered_map<std::string, std::string> const &strategy);
+    const std::unordered_map<std::string, std::string> &strategy);
 
 // Creates multi-device host tensor from already existing host tensor shards.
 // Tensor shards can be host tensors with either owned or borrowed storage.
 ::tt::runtime::Tensor createMultiDeviceHostTensor(
-    std::vector<::tt::runtime::Tensor> const &tensorShards,
-    std::unordered_map<std::string, std::string> const &strategy);
+    const std::vector<::tt::runtime::Tensor> &tensorShards,
+    const std::unordered_map<std::string, std::string> &strategy);
 
 ::tt::runtime::Tensor createEmptyTensor(
-    Device device, Layout layout, std::vector<std::uint32_t> const &shape,
-    std::vector<std::uint32_t> const &stride, std::uint32_t itemsize);
+    Device device, Layout layout, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize);
 
-inline ::tt::runtime::Tensor createOwnedHostTensor(void const *data,
-                                                   TensorDesc const &desc) {
+inline ::tt::runtime::Tensor createOwnedHostTensor(const void *data,
+                                                   const TensorDesc &desc) {
   return ::tt::runtime::ttnn::createOwnedHostTensor(
       data, desc.shape, desc.stride, desc.itemsize, desc.dataType);
 }
 
 inline ::tt::runtime::Tensor createBorrowedHostTensor(void *data,
-                                                      TensorDesc const &desc) {
+                                                      const TensorDesc &desc) {
   return ::tt::runtime::ttnn::createBorrowedHostTensor(
       data, desc.shape, desc.stride, desc.itemsize, desc.dataType);
 }
 
 inline ::tt::runtime::Tensor createMultiDeviceHostTensor(
-    std::vector<void const *> const &data, TensorDesc const &desc,
-    std::unordered_map<std::string, std::string> const &strategy) {
+    const std::vector<const void *> &data, const TensorDesc &desc,
+    const std::unordered_map<std::string, std::string> &strategy) {
   return ::tt::runtime::ttnn::createMultiDeviceHostTensor(
       data, desc.shape, desc.stride, desc.itemsize, desc.dataType, strategy);
 }
 
 inline ::tt::runtime::Tensor createEmptyTensor(Device device, Layout layout,
-                                               TensorDesc const &desc) {
+                                               const TensorDesc &desc) {
   return ::tt::runtime::ttnn::createEmptyTensor(device, layout, desc.shape,
                                                 desc.stride, desc.itemsize);
 }
@@ -149,7 +149,7 @@ void wait(Event event);
 
 void wait(::tt::runtime::Tensor tensor);
 
-void wait(std::vector<::tt::runtime::Tensor> const &tensors);
+void wait(const std::vector<::tt::runtime::Tensor> &tensors);
 
 std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
                                           bool untilize = false);

@@ -242,7 +242,7 @@ namespace {
 class TTIRDMARewriter : public OpConversionPattern<ttir::DMAOp> {
 public:
   TTIRDMARewriter(TypeConverter &typeConverter, MLIRContext *context,
-                  ttir::AssociatedDMAWaits const *associatedDMAWaits)
+                  const ttir::AssociatedDMAWaits *associatedDMAWaits)
       : OpConversionPattern<ttir::DMAOp>(typeConverter, context),
         associatedDMAWaits(associatedDMAWaits) {}
 
@@ -519,7 +519,7 @@ public:
   }
 
 private:
-  ttir::AssociatedDMAWaits const *associatedDMAWaits;
+  const ttir::AssociatedDMAWaits *associatedDMAWaits;
 };
 } // namespace
 
@@ -736,7 +736,7 @@ namespace mlir::tt {
 
 void populateTTIRToTTKernelPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
-    ttir::AssociatedDMAWaits const &associatedDMAWaits) {
+    const ttir::AssociatedDMAWaits &associatedDMAWaits) {
   patterns.add<ttkernel::TTIRKernelFunctionArgsRewriter,
                ttkernel::TTIRComputeOpsRewriter, ttkernel::MemrefStoreRewriter,
                ttkernel::TTIRAwaitYieldRewriter<ttir::AwaitOp>,

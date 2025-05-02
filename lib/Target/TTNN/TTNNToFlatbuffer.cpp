@@ -318,7 +318,7 @@ tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
 template <typename OpT>
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 createOperation(FlatbufferObjectCache &cache, ::flatbuffers::Offset<OpT> op,
-                std::string const &debugString, std::string const &locInfo) {
+                const std::string &debugString, const std::string &locInfo) {
   return CreateOperationDirect(
       *cache.fbb, ::tt::target::ttnn::OpTypeTraits<OpT>::enum_value, op.Union(),
       debugString.c_str(), locInfo.c_str());
@@ -1657,7 +1657,7 @@ createOp(FlatbufferObjectCache &cache, tt::LoadCachedOp op,
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   const llvm::StringMap<uint32_t> &programIndexMap,
-                  std::string const &debugString, std::string const &locInfo) {
+                  const std::string &debugString, const std::string &locInfo) {
   if (auto getDeviceOp = dyn_cast<GetDeviceOp>(op); getDeviceOp) {
     return createOperation(cache, createOp(cache, getDeviceOp), debugString,
                            locInfo);
@@ -2248,7 +2248,7 @@ LogicalResult translateTTNNToFlatbuffer(
   std::shared_ptr<void> data = ttnnToFlatbuffer(op, goldenMap, moduleCache);
   std::size_t size = ::flatbuffers::GetSizePrefixedBufferLength(
       static_cast<const uint8_t *>(data.get()));
-  os.write(reinterpret_cast<char const *>(data.get()), size);
+  os.write(reinterpret_cast<const char *>(data.get()), size);
   return success();
 }
 } // namespace mlir::tt::ttnn

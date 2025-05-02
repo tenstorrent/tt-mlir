@@ -33,7 +33,7 @@ static GridAttr getOptimalGrid(PatternRewriter &rewriter,
 
 static RankedTensorType calculateOptimalLayoutForTensorType(
     PatternRewriter &rewriter, Value tensor,
-    SmallVector<int64_t> const &workerGridShape) {
+    const SmallVector<int64_t> &workerGridShape) {
   RankedTensorType resultType = mlir::cast<RankedTensorType>(tensor.getType());
   auto resultEncoding =
       mlir::cast_if_present<MetalLayoutAttr>(resultType.getEncoding());

@@ -36,7 +36,7 @@ T alignDown(T ptr, T alignment) {
 }
 
 template <typename Vector, typename Fn>
-inline void sample(Vector const &shape, Fn fn) {
+inline void sample(const Vector &shape, Fn fn) {
   llvm::SmallVector<std::int64_t, 8> strides(shape.size());
   std::int64_t stride = 1;
   for (std::int64_t i = shape.size() - 1; i >= 0; --i) {

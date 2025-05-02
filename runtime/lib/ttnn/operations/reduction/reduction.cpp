@@ -11,7 +11,7 @@
 
 namespace tt::runtime::ttnn::operations::reduction {
 static void runReductionOp(
-    ::tt::target::ttnn::ReductionOp const *op, ProgramTensorPool &tensorPool,
+    const ::tt::target::ttnn::ReductionOp *op, ProgramTensorPool &tensorPool,
     const std::function<::ttnn::Tensor(
         const ::ttnn::Tensor &,
         const std::optional<std::variant<int, ::ttnn::SmallVector<int>>> &,

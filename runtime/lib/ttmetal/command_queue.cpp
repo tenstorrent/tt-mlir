@@ -27,32 +27,32 @@ struct CQExecutor {
   std::unordered_map<std::uint32_t, std::shared_ptr<::tt::tt_metal::Event>>
       events;
   ::tt::tt_metal::CommandQueue *cq;
-  char const *currentProgramName;
+  const char *currentProgramName;
 
   CQExecutor(::tt::tt_metal::IDevice *device, std::size_t cq_id,
-             std::vector<InputBuffer> const &inputs,
-             std::vector<OutputBuffer> const &outputs);
+             const std::vector<InputBuffer> &inputs,
+             const std::vector<OutputBuffer> &outputs);
 
   std::shared_ptr<::tt::tt_metal::Event>
-  execute(::tt::target::metal::CommandQueue const *commandQueue);
-  void execute(::tt::target::metal::Command const *command);
-  void execute(::tt::target::metal::EnqueueProgramCommand const *command,
-               char const *debugInfo);
-  void execute(::tt::target::metal::EnqueueWriteBufferCommand const *command);
-  void execute(::tt::target::metal::EnqueueReadBufferCommand const *command);
-  void execute(::tt::target::metal::CreateBufferCommand const *command);
-  void execute(::tt::target::metal::DeallocateBufferCommand const *command);
-  void execute(::tt::target::metal::CreateEventCommand const *command);
-  void execute(::tt::target::metal::EnqueueRecordEventCommand const *command);
-  void execute(::tt::target::metal::EnqueueWaitForEventCommand const *command);
-  void execute(::tt::target::metal::EventSynchronizeCommand const *command);
-  void execute(::tt::target::metal::EventQueryCommand const *command);
-  void execute(::tt::target::metal::FinishCommand const *command);
+  execute(const ::tt::target::metal::CommandQueue *commandQueue);
+  void execute(const ::tt::target::metal::Command *command);
+  void execute(const ::tt::target::metal::EnqueueProgramCommand *command,
+               const char *debugInfo);
+  void execute(const ::tt::target::metal::EnqueueWriteBufferCommand *command);
+  void execute(const ::tt::target::metal::EnqueueReadBufferCommand *command);
+  void execute(const ::tt::target::metal::CreateBufferCommand *command);
+  void execute(const ::tt::target::metal::DeallocateBufferCommand *command);
+  void execute(const ::tt::target::metal::CreateEventCommand *command);
+  void execute(const ::tt::target::metal::EnqueueRecordEventCommand *command);
+  void execute(const ::tt::target::metal::EnqueueWaitForEventCommand *command);
+  void execute(const ::tt::target::metal::EventSynchronizeCommand *command);
+  void execute(const ::tt::target::metal::EventQueryCommand *command);
+  void execute(const ::tt::target::metal::FinishCommand *command);
 };
 
 CQExecutor::CQExecutor(::tt::tt_metal::IDevice *device, std::size_t cq_id,
-                       std::vector<InputBuffer> const &inputs,
-                       std::vector<OutputBuffer> const &outputs)
+                       const std::vector<InputBuffer> &inputs,
+                       const std::vector<OutputBuffer> &outputs)
     : device(device) {
   for (std::size_t i = 0; i < inputs.size(); ++i) {
     auto [global_id, buffer, event] = inputs[i];
@@ -71,15 +71,15 @@ CQExecutor::CQExecutor(::tt::tt_metal::IDevice *device, std::size_t cq_id,
 }
 
 std::shared_ptr<::tt::tt_metal::Event>
-CQExecutor::execute(::tt::target::metal::CommandQueue const *commandQueue) {
+CQExecutor::execute(const ::tt::target::metal::CommandQueue *commandQueue) {
   currentProgramName = commandQueue->name()->c_str();
 
-  for (auto const &event : initEvents) {
+  for (const auto &event : initEvents) {
     ::tt::tt_metal::EnqueueWaitForEvent(*cq, event);
   }
   initEvents.clear();
 
-  for (::tt::target::metal::Command const *command :
+  for (const ::tt::target::metal::Command *command :
        *commandQueue->commands()) {
     execute(command);
   }
@@ -90,7 +90,7 @@ CQExecutor::execute(::tt::target::metal::CommandQueue const *commandQueue) {
   return event;
 }
 
-void CQExecutor::execute(::tt::target::metal::Command const *command) {
+void CQExecutor::execute(const ::tt::target::metal::Command *command) {
   switch (command->type_type()) {
   case ::tt::target::metal::CommandType::EnqueueProgramCommand: {
     execute(command->type_as_EnqueueProgramCommand(),
@@ -143,8 +143,8 @@ void CQExecutor::execute(::tt::target::metal::Command const *command) {
   }
 }
 
-static char const *
-kernelSourceTypeString(::tt::target::metal::KernelSource const *kernelSource) {
+static const char *
+kernelSourceTypeString(const ::tt::target::metal::KernelSource *kernelSource) {
   switch (kernelSource->config_type()) {
   case ::tt::target::metal::KernelConfig::NONE: {
     break;
@@ -176,7 +176,7 @@ kernelSourceTypeString(::tt::target::metal::KernelSource const *kernelSource) {
   return "unknown";
 }
 
-static std::string parseLocFromDebugInfo(char const *programDebugInfo) {
+static std::string parseLocFromDebugInfo(const char *programDebugInfo) {
   if (!programDebugInfo) {
     static int gUnknownId = 0;
     return std::string("%unknown") + std::to_string(gUnknownId++);
@@ -209,10 +209,10 @@ static std::string coreRangeToString(const CoreRangeSet &coreRanges) {
 }
 
 static std::string createKernelFilePath(
-    char const *currentProgramName, char const *programDebugInfo,
+    const char *currentProgramName, const char *programDebugInfo,
     const CoreRangeSet &coreRangeSet,
-    ::tt::target::metal::KernelSource const *kernelSource,
-    char const *prefix = "/tmp/ttmlir_", char const *extention = ".cpp") {
+    const ::tt::target::metal::KernelSource *kernelSource,
+    const char *prefix = "/tmp/ttmlir_", const char *extention = ".cpp") {
   std::string path(prefix);
   path += currentProgramName;
   path += "_";
@@ -227,7 +227,7 @@ static std::string createKernelFilePath(
   return path;
 }
 
-static void writeFile(std::string const &fileName, char const *data,
+static void writeFile(const std::string &fileName, const char *data,
                       std::size_t size) {
   if (debug::Env::get().loadKernelsFromDisk) {
     std::ifstream file(fileName);
@@ -242,7 +242,7 @@ static void writeFile(std::string const &fileName, char const *data,
 static std::variant<::tt::tt_metal::DataMovementConfig,
                     ::tt::tt_metal::ComputeConfig,
                     ::tt::tt_metal::EthernetConfig>
-createKernelConfig(::tt::target::metal::KernelSource const *kernelSource) {
+createKernelConfig(const ::tt::target::metal::KernelSource *kernelSource) {
   switch (kernelSource->config_type()) {
   case ::tt::target::metal::KernelConfig::NocConfig: {
     switch (kernelSource->config_as_NocConfig()->noc_index()) {
@@ -306,7 +306,7 @@ createKernelConfig(::tt::target::metal::KernelSource const *kernelSource) {
     computeConfig.math_approx_mode =
         kernelSource->config_as_ComputeConfig()->math_approx_mode();
 
-    auto const *unpackToDestModeVec =
+    const auto *unpackToDestModeVec =
         kernelSource->config_as_ComputeConfig()->unpack_to_dest_mode();
     computeConfig.unpack_to_dest_mode.reserve(unpackToDestModeVec->size());
 
@@ -367,10 +367,9 @@ static CoreType toCoreType(::tt::target::metal::CoreType coreType) {
 }
 
 static ::tt::tt_metal::CircularBufferConfig createCircularBufferConfig(
-    ::tt::target::metal::CBRef const *cbRef,
-    std::unordered_map<std::uint32_t,
-                       std::shared_ptr<::tt::tt_metal::Buffer>> const
-        &buffers) {
+    const ::tt::target::metal::CBRef *cbRef,
+    const std::unordered_map<
+        std::uint32_t, std::shared_ptr<::tt::tt_metal::Buffer>> &buffers) {
   std::uint32_t totalSize =
       cbRef->desc()->memory_desc()->size() * cbRef->desc()->num_buffers();
   ::tt::DataFormat dataFormat =
@@ -391,13 +390,12 @@ static ::tt::tt_metal::CircularBufferConfig createCircularBufferConfig(
 // Process various types of runtime args if present and call Metal APIs.
 static void processRuntimeArgs(
     ::tt::tt_metal::Program &program,
-    ::tt::target::metal::KernelDesc const *kernelDesc,
+    const ::tt::target::metal::KernelDesc *kernelDesc,
     ::tt::tt_metal::KernelHandle &handle, CoreRangeSet &coreRange,
     const ::flatbuffers::Vector<
         ::flatbuffers::Offset<tt::target::metal::TensorRef>> *operands,
-    std::unordered_map<std::uint32_t,
-                       std::shared_ptr<::tt::tt_metal::Buffer>> const
-        &buffers) {
+    const std::unordered_map<
+        std::uint32_t, std::shared_ptr<::tt::tt_metal::Buffer>> &buffers) {
 
   using SemaphoreAddr = ::tt::target::metal::RuntimeArgSemaphoreAddress;
   using TensorAddr = ::tt::target::metal::RuntimeArgTensorAddress;
@@ -441,16 +439,16 @@ static void processRuntimeArgs(
 }
 
 void CQExecutor::execute(
-    ::tt::target::metal::EnqueueProgramCommand const *command,
-    char const *debugInfo) {
+    const ::tt::target::metal::EnqueueProgramCommand *command,
+    const char *debugInfo) {
 
   ZoneScopedN("EnqueueProgramCommand");
   ::tt::tt_metal::Program program = ::tt::tt_metal::CreateProgram();
 
   std::unordered_set<uint32_t> createdCBs;
-  for (::tt::target::metal::KernelDesc const *kernelDesc :
+  for (const ::tt::target::metal::KernelDesc *kernelDesc :
        *command->program()->kernels()) {
-    ::tt::target::metal::KernelSource const *kernelSource =
+    const ::tt::target::metal::KernelSource *kernelSource =
         kernelDesc->kernel_as_KernelSource();
     LOG_ASSERT(kernelSource, "Only source kernels supported for now");
     CoreRangeSet coreRangeSet = toCoreRangeSet(kernelDesc->core_range_set());
@@ -467,7 +465,7 @@ void CQExecutor::execute(
     ::tt::tt_metal::KernelHandle handle =
         ::tt::tt_metal::CreateKernel(program, fileName, coreRangeSet, config);
 
-    for (::tt::target::metal::CBRef const *cbRef : *kernelDesc->cbs()) {
+    for (const ::tt::target::metal::CBRef *cbRef : *kernelDesc->cbs()) {
       if (createdCBs.count(cbRef->desc()->port())) {
         // Since kernels may share the same CB, we only need to create it once.
         continue;
@@ -500,19 +498,19 @@ void CQExecutor::execute(
 }
 
 void CQExecutor::execute(
-    ::tt::target::metal::EnqueueWriteBufferCommand const *command) {
+    const ::tt::target::metal::EnqueueWriteBufferCommand *command) {
   ZoneScopedN("EnqueueWriteBufferCommand");
   LOG_FATAL("Unsupported EnqueueWriteBufferCommand");
 }
 
 void CQExecutor::execute(
-    ::tt::target::metal::EnqueueReadBufferCommand const *command) {
+    const ::tt::target::metal::EnqueueReadBufferCommand *command) {
   ZoneScopedN("EnqueueReadBufferCommand");
   LOG_FATAL("Unsupported EnqueueReadBufferCommand");
 }
 
 void CQExecutor::execute(
-    ::tt::target::metal::CreateBufferCommand const *command) {
+    const ::tt::target::metal::CreateBufferCommand *command) {
   ZoneScopedN("CreateBufferCommand");
   if (buffers.find(command->ref()->global_id()) == buffers.end()) {
     buffers[command->ref()->global_id()] =
@@ -521,7 +519,7 @@ void CQExecutor::execute(
 }
 
 void CQExecutor::execute(
-    ::tt::target::metal::DeallocateBufferCommand const *command) {
+    const ::tt::target::metal::DeallocateBufferCommand *command) {
   ZoneScopedN("DeallocateBufferCommand");
   auto iter = buffers.find(command->ref()->global_id());
   LOG_ASSERT(iter != buffers.end(), "Buffer not allocated");
@@ -531,7 +529,7 @@ void CQExecutor::execute(
 }
 
 void CQExecutor::execute(
-    ::tt::target::metal::CreateEventCommand const *command) {
+    const ::tt::target::metal::CreateEventCommand *command) {
   ZoneScopedN("CreateEventCommand");
   LOG_ASSERT(!events.contains(command->ref()->global_id()));
   events[command->ref()->global_id()] =
@@ -539,28 +537,28 @@ void CQExecutor::execute(
 }
 
 void CQExecutor::execute(
-    ::tt::target::metal::EnqueueRecordEventCommand const *command) {
+    const ::tt::target::metal::EnqueueRecordEventCommand *command) {
   ZoneScopedN("EnqueueRecordEventCommand");
   auto event = events.at(command->ref()->global_id());
   ::tt::tt_metal::EnqueueRecordEvent(*cq, event);
 }
 
 void CQExecutor::execute(
-    ::tt::target::metal::EnqueueWaitForEventCommand const *command) {
+    const ::tt::target::metal::EnqueueWaitForEventCommand *command) {
   ZoneScopedN("EnqueueWaitForEventCommand");
   auto event = events.at(command->ref()->global_id());
   ::tt::tt_metal::EnqueueWaitForEvent(*cq, event);
 }
 
 void CQExecutor::execute(
-    ::tt::target::metal::EventSynchronizeCommand const *command) {
+    const ::tt::target::metal::EventSynchronizeCommand *command) {
   ZoneScopedN("EventSynchronizeCommand");
   auto event = events.at(command->ref()->global_id());
   ::tt::tt_metal::EventSynchronize(event);
 }
 
 void CQExecutor::execute(
-    ::tt::target::metal::EventQueryCommand const *command) {
+    const ::tt::target::metal::EventQueryCommand *command) {
   ZoneScopedN("EventQueryCommand");
   auto event = events.at(command->ref()->global_id());
   (void)::tt::tt_metal::EventQuery(
@@ -568,16 +566,16 @@ void CQExecutor::execute(
               // something with the result
 }
 
-void CQExecutor::execute(::tt::target::metal::FinishCommand const *) {
+void CQExecutor::execute(const ::tt::target::metal::FinishCommand *) {
   ZoneScopedN("FinishCommand");
   ::tt::tt_metal::Finish(*cq);
 }
 
 std::shared_ptr<::tt::tt_metal::Event>
 executeCommandQueue(::tt::tt_metal::IDevice *device,
-                    ::tt::target::metal::CommandQueue const *commandQueue,
-                    std::size_t cq_id, std::vector<InputBuffer> const &inputs,
-                    std::vector<OutputBuffer> const &outputs) {
+                    const ::tt::target::metal::CommandQueue *commandQueue,
+                    std::size_t cq_id, const std::vector<InputBuffer> &inputs,
+                    const std::vector<OutputBuffer> &outputs) {
 
   ZoneScoped;
   std::string zoneName = "executeCommandQueue_cq_" + std::to_string(cq_id);

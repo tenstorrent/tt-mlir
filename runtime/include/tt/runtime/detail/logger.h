@@ -153,7 +153,7 @@ public:
   }
 
   template <typename... Args>
-  void log_level_type(Level level, LogType type, Args const &...args) {
+  void log_level_type(Level level, LogType type, const Args &...args) {
     if (log_level_enabled(level) && log_type_enabled(type)) {
 #if defined(UTILS_LOGGER_PYTHON_OSTREAM_REDIRECT) &&                           \
     (UTILS_LOGGER_PYTHON_OSTREAM_REDIRECT == 1)
@@ -238,66 +238,66 @@ private:
 };
 
 template <typename... Args>
-inline void log_debug_(LogType type, Args const &...args) {
+inline void log_debug_(LogType type, const Args &...args) {
   Logger::get().log_level_type(Logger::Level::Debug, type, args...);
 }
 
 template <typename... Args>
-inline void log_debug_(Args const &...args) {
+inline void log_debug_(const Args &...args) {
   log_debug_(LogAlways, args...);
 }
 
 template <typename... Args>
 inline void log_trace_(LogType type, const std::string &src_info,
-                       Args const &...args) {
+                       const Args &...args) {
   Logger::get().log_level_type(Logger::Level::Trace, type, src_info, " - ",
                                args...);
 }
 
 template <typename... Args>
-inline void log_info_(LogType type, Args const &...args) {
+inline void log_info_(LogType type, const Args &...args) {
   Logger::get().log_level_type(Logger::Level::Info, type, args...);
 }
 
 template <typename... Args>
-inline void log_info_(Args const &...args) {
+inline void log_info_(const Args &...args) {
   log_info_(LogAlways, args...);
 }
 
 template <typename... Args>
-inline void log_warning_(LogType type, Args const &...args) {
+inline void log_warning_(LogType type, const Args &...args) {
   Logger::get().log_level_type(Logger::Level::Warning, type, args...);
 }
 
 template <typename... Args>
-inline void log_warning_(Args const &...args) {
+inline void log_warning_(const Args &...args) {
   log_warning_(LogAlways, args...);
 }
 
 template <typename... Args>
-inline void log_error_(LogType type, Args const &...args) {
+inline void log_error_(LogType type, const Args &...args) {
   Logger::get().log_level_type(Logger::Level::Error, type, args...);
 }
 
 template <typename... Args>
-inline void log_error_(Args const &...args) {
+inline void log_error_(const Args &...args) {
   log_error_(LogAlways, args...);
 }
 
 template <typename... Args>
-inline void log_fatal_(LogType type, Args const &...args) {
+inline void log_fatal_(LogType type, const Args &...args) {
   Logger::get().log_level_type(Logger::Level::Fatal, type, args...);
 }
 
 template <typename... Args>
-inline void log_fatal_(Args const &...args) {
+inline void log_fatal_(const Args &...args) {
   log_fatal_(LogAlways, args...);
 }
 
 template <typename... Args>
 [[noreturn]] inline void
 tt_throw_(const char *file, int line, const char *assert_type,
-          const char *condition_str, Args const &...args) {
+          const char *condition_str, const Args &...args) {
   std::stringstream trace_message_ss = {};
   trace_message_ss << "\n";
   trace_message_ss << bold << assert_type << " @ " << file << ":" << line

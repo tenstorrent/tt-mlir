@@ -57,8 +57,8 @@ struct ObjectImpl {
     return *static_cast<T *>(handle.get());
   }
   template <typename T>
-  T const &as() const {
-    return *static_cast<T const *>(handle.get());
+  const T &as() const {
+    return *static_cast<const T *>(handle.get());
   }
 };
 
@@ -86,9 +86,9 @@ struct RuntimeCheckedObjectImpl {
   }
 
   template <typename T>
-  T const &as(DeviceRuntime expectedRuntime) const {
+  const T &as(DeviceRuntime expectedRuntime) const {
     assertMatchesRuntime(expectedRuntime);
-    return *static_cast<T const *>(handle.get());
+    return *static_cast<const T *>(handle.get());
   }
 
   template <typename T>
@@ -129,9 +129,9 @@ struct MeshDeviceOptions {
 struct Flatbuffer : public detail::ObjectImpl {
   using detail::ObjectImpl::ObjectImpl;
 
-  static Flatbuffer loadFromPath(char const *path);
+  static Flatbuffer loadFromPath(const char *path);
 
-  void store(char const *path) const;
+  void store(const char *path) const;
   std::string_view getFileIdentifier() const;
   std::string getVersion() const;
   std::string_view getTTMLIRGitHash() const;
@@ -141,13 +141,13 @@ struct Flatbuffer : public detail::ObjectImpl {
 struct SystemDesc : public Flatbuffer {
   using Flatbuffer::Flatbuffer;
 
-  static SystemDesc loadFromPath(char const *path);
+  static SystemDesc loadFromPath(const char *path);
 
-  ::tt::target::SystemDesc const *get() const {
+  const ::tt::target::SystemDesc *get() const {
     return ::tt::target::GetSizePrefixedSystemDescRoot(handle.get())
         ->system_desc();
   }
-  ::tt::target::SystemDesc const *operator->() const { return get(); }
+  const ::tt::target::SystemDesc *operator->() const { return get(); }
 };
 
 class TensorCache;
@@ -164,7 +164,7 @@ struct Binary : public Flatbuffer {
 
   using Flatbuffer::Flatbuffer;
 
-  static Binary loadFromPath(char const *path);
+  static Binary loadFromPath(const char *path);
 
   std::vector<TensorDesc> getProgramInputs(std::uint32_t programIndex) const;
   std::vector<TensorDesc> getProgramOutputs(std::uint32_t programIndex) const;
