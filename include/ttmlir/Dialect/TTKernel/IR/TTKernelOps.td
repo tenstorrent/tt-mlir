@@ -501,7 +501,7 @@ def TTKernel_GetSemaphoreOp : TTKernel_Op<"get_semaphore"> {
       Get L1 addr of the semaphore with specified semaphore id
     }];
 
-    let arguments = (ins I32:$semaphore);
+    let arguments = (ins TTKernel_Semaphore:$semaphore);
     let results = (outs TTKernel_L1Addr:$sem_addr);
 }
 
