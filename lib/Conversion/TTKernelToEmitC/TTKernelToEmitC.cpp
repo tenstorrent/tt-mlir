@@ -126,6 +126,9 @@ public:
     addConversion([ctx](mlir::tt::ttkernel::CBType type) -> Type {
       return Builder(ctx).getType<emitc::OpaqueType>("::tt::CB");
     });
+    addConversion([ctx](mlir::tt::ttkernel::SemaphoreType type) -> Type {
+      return Builder(ctx).getType<mlir::tt::ttkernel::L1AddrType>();
+    });
     addConversion([ctx](mlir::tt::ttkernel::L1AddrType type) -> Type {
       return Builder(ctx).getI32Type();
     });
