@@ -35,25 +35,6 @@ enable_runtime_tests = os.environ.get("TTMLIR_ENABLE_RUNTIME_TESTS", "OFF") == "
 enable_perf = os.environ.get("TT_RUNTIME_ENABLE_PERF_TRACE", "OFF") == "ON"
 debug_runtime = os.environ.get("TT_RUNTIME_DEBUG", "OFF") == "ON"
 
-ext_modules = [
-    Pybind11Extension(
-        "ttrt.binary._C",
-        ["ttrt/binary/module.cpp"],
-        include_dirs=[
-            f"{toolchain}/include",
-            f"{src_dir}/runtime/include",
-            f"{ttmlir_build_dir}/include",
-            f"{ttmlir_build_dir}/include/ttmlir/Target/Common",
-        ],
-        libraries=["TTBinary", "flatbuffers"],
-        library_dirs=[
-            f"{ttmlir_build_dir}/runtime/lib",
-            f"{toolchain}/lib",
-        ],
-        define_macros=[("VERSION_INFO", __version__)],
-    ),
-]
-
 dylibs = []
 runlibs = []
 perflibs = []
@@ -220,7 +201,7 @@ if enable_runtime:
     metallibs += extra_files_ttnn
     metallibs += extra_files_tests
 
-    ext_modules.append(
+    ext_modules = [
         Pybind11Extension(
             "ttrt.runtime._C",
             ["ttrt/runtime/module.cpp"],
@@ -232,6 +213,7 @@ if enable_runtime:
                 f"{ttmlir_build_dir}/include/ttmlir/Target/Common",
             ],
             libraries=[
+                "TTBinary",
                 "TTMLIRRuntime",
                 "flatbuffers",
             ]
@@ -247,14 +229,14 @@ if enable_runtime:
                 ("TTMLIR_ENABLE_RUNTIME_TESTS", "1" if enable_runtime_tests else "0"),
             ],
         )
-    )
+    ]
 
 dylibs += ["libTTMLIRRuntime.so"]
 dylibs += runlibs
 dylibs += perflibs
 dylibs += metallibs
 
-packages = ["ttrt", "ttrt.common", "ttrt.binary", "ttrt.runtime"]
+packages = ["ttrt", "ttrt.common", "ttrt.runtime"]
 package_dir = {}
 if enable_perf:
     install_requires += ["loguru"]

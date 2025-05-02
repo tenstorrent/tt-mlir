@@ -2,11 +2,9 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from ._C import (
-    Binary,
-)
 import json
 import re
+from ttrt.runtime import Binary
 
 
 def as_dict(bin: Binary):

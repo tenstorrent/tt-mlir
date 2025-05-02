@@ -360,7 +360,7 @@ def preOpGolden(binary, programContext, opContext):
 4. Each of these parameters has certain APIs exposed which can be called within the callback function
 ```bash
 op_debug_str = ttrt.runtime.get_op_debug_str(opContext) : get the op debug str (ie you can parse this string to get the location of the op which is used as the key when indexing the golden tensors stored in the flatbuffer)
-op_golden_tensor = binary.get_debug_info_golden(loc) : get the golden tensor from the binary as list of float32
+op_golden_tensor = ttrt.runtime.get_debug_info_golden(binary, loc) : get the golden tensor from the binary as list of float32
 op_output_tensor = ttrt.runtime.get_op_output_tensor(opContext, programContext) : get the currently running output tensor from device as list of float32
 ```
 
