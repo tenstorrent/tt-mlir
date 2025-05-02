@@ -165,17 +165,7 @@ def compile_as_mlir_module(
                 # Randomly generate golden tensors for function inputs.
                 for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
                     builder.generate_input_golden(operand, dtype, index)
-                if cpu_hoist:
-                    return test_fn(
-                        *inputs,
-                        builder=builder,
-                        unit_attrs={"should_hoist": UnitAttr.get(builder._ctx)},
-                    )
-                else:
-                    return test_fn(
-                        *inputs,
-                        builder=builder,
-                    )
+                return test_fn(*inputs, builder=builder)
 
         print(f"`{test_fn.__name__}` sucessfully transformed into a MLIR module.")
 
@@ -349,13 +339,20 @@ def compile_to_flatbuffer(
     fn: Callable,
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
+<<<<<<< HEAD
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
+=======
+>>>>>>> 3bdd2afd8 (adapt to Collin's changes)
     test_base: str = "test",
     output_root: str = ".",
     target: str = "ttnn",
     mesh_shape: Optional[Tuple[int, int]] = None,
     module_dump: bool = True,
     argument_types_string: Optional[str] = None,
+<<<<<<< HEAD
+=======
+    system_desc_path: Optional[str] = None,
+>>>>>>> 3bdd2afd8 (adapt to Collin's changes)
 ):
     """
     Compiles a TTIRBuilder function `fn` to TTIR MLIR -> TT{Metal,NN} MLIR -> Flatbuffer
@@ -400,7 +397,10 @@ def compile_to_flatbuffer(
 
     module_dump: bool
         Set to `True` to print out generated TTIR MLIR module.
+<<<<<<< HEAD
 
+=======
+>>>>>>> 3bdd2afd8 (adapt to Collin's changes)
     """
 
     if inputs_types is not None:
