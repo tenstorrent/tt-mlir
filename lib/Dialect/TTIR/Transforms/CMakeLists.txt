@@ -14,6 +14,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         Bufferization.cpp
         ElementTypeNormalization.cpp
         LowerToLayout.cpp
+        Quantization.cpp
         Transforms.cpp
 
         ADDITIONAL_HEADER_DIRS
