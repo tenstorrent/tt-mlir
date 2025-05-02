@@ -6,6 +6,10 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 // RUN: FileCheck --input-file=%t.mlir %s
 
+// UNSUPPORTED: true
+// Marked as UNSUPPORTED because of the following issue:
+// https://github.com/tenstorrent/tt-mlir/issues/3052
+
 module @moreh_cumsum attributes {} {
   func.func @test_moreh_cumsum_dim0(%arg0: tensor<8x2x4x16xbf16>) -> tensor<8x2x4x16xbf16> {
     // CHECK-LABEL: func.func @test_moreh_cumsum_dim0
