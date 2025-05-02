@@ -36,6 +36,43 @@ static Value index(OpBuilder &rewriter, Location loc, int64_t value) {
       .getResult();
 }
 
+static std::pair<Value, Value>
+getVirtualCoordsFromLogicalCoords(PatternRewriter &rewriter, Location loc,
+                                  ChipDescAttr chipDesc,
+                                  ValueRange dstCoreIndex) {
+  std::pair<Value, Value> nocCoords;
+  auto offset = chipDesc.getCoordTranslationOffsets();
+  nocCoords.first =
+      rewriter
+          .create<arith::AddIOp>(dstCoreIndex[0].getLoc(), dstCoreIndex[0],
+                                 index(rewriter, loc, offset[0]))
+          .getResult();
+  nocCoords.second =
+      rewriter
+          .create<arith::AddIOp>(dstCoreIndex[1].getLoc(), dstCoreIndex[1],
+                                 index(rewriter, loc, offset[1]))
+          .getResult();
+  return nocCoords;
+}
+
+static std::pair<Value, Value> getMcastEndCoords(PatternRewriter &rewriter,
+                                                 Location loc, Value &nocStartY,
+                                                 Value &nocStartX,
+                                                 OperandRange mcastShape) {
+  std::pair<Value, Value> nocEndCoords;
+  nocEndCoords.first = rewriter.create<arith::SubIOp>(
+      nocStartY.getLoc(),
+      rewriter.create<arith::AddIOp>(nocStartY.getLoc(), nocStartY,
+                                     mcastShape[0]),
+      index(rewriter, loc, 1));
+  nocEndCoords.second = rewriter.create<arith::SubIOp>(
+      nocStartX.getLoc(),
+      rewriter.create<arith::AddIOp>(nocStartX.getLoc(), nocStartX,
+                                     mcastShape[1]),
+      index(rewriter, loc, 1));
+  return nocEndCoords;
+}
+
 } // namespace
 
 namespace {
@@ -245,42 +282,6 @@ public:
                   ttir::AssociatedDMAWaits const *associatedDMAWaits)
       : OpConversionPattern<ttir::DMAOp>(typeConverter, context),
         associatedDMAWaits(associatedDMAWaits) {}
-
-  static std::pair<Value, Value>
-  getVirtualCoordsFromLogicalCoords(PatternRewriter &rewriter, Location loc,
-                                    ChipDescAttr chipDesc,
-                                    ValueRange dstCoreIndex) {
-    std::pair<Value, Value> nocCoords;
-    auto offset = chipDesc.getCoordTranslationOffsets();
-    nocCoords.first =
-        rewriter
-            .create<arith::AddIOp>(dstCoreIndex[0].getLoc(), dstCoreIndex[0],
-                                   index(rewriter, loc, offset[0]))
-            .getResult();
-    nocCoords.second =
-        rewriter
-            .create<arith::AddIOp>(dstCoreIndex[1].getLoc(), dstCoreIndex[1],
-                                   index(rewriter, loc, offset[1]))
-            .getResult();
-    return nocCoords;
-  }
-
-  static std::pair<Value, Value>
-  getMcastEndCoords(PatternRewriter &rewriter, Location loc, Value &nocStartY,
-                    Value &nocStartX, OperandRange mcastShape) {
-    std::pair<Value, Value> nocEndCoords;
-    nocEndCoords.first = rewriter.create<arith::SubIOp>(
-        nocStartY.getLoc(),
-        rewriter.create<arith::AddIOp>(nocStartY.getLoc(), nocStartY,
-                                       mcastShape[0]),
-        index(rewriter, loc, 1));
-    nocEndCoords.second = rewriter.create<arith::SubIOp>(
-        nocStartX.getLoc(),
-        rewriter.create<arith::AddIOp>(nocStartX.getLoc(), nocStartX,
-                                       mcastShape[1]),
-        index(rewriter, loc, 1));
-    return nocEndCoords;
-  }
 
   static size_t getElementSizeBytes(MemRefType memref) {
     mlir::Type elementType = memref.getElementType();
@@ -771,7 +772,7 @@ public:
                   "ttir.semaphore_set to single remote core is illegal.");
         return failure();
       }
-      auto [virtY, virtX] = TTIRDMARewriter::getVirtualCoordsFromLogicalCoords(
+      auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, op.getLoc(), chipDesc, op.getDstCoreIndex());
       auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
           op.getLoc(), virtX, virtY, semaphoreAddr);
@@ -783,9 +784,9 @@ public:
         return failure();
       }
 
-      auto [virtY, virtX] = TTIRDMARewriter::getVirtualCoordsFromLogicalCoords(
+      auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, op.getLoc(), chipDesc, op.getDstCoreIndex());
-      auto [mcastEndY, mcastEndX] = TTIRDMARewriter::getMcastEndCoords(
+      auto [mcastEndY, mcastEndX] = getMcastEndCoords(
           rewriter, op.getLoc(), virtY, virtX, op.getMcastShape());
       Value numDestsIdx = rewriter.create<arith::MulIOp>(
           op.getLoc(), op.getMcastShape()[0], op.getMcastShape()[1]);
