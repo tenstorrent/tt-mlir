@@ -949,8 +949,8 @@ public:
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getGroups()),
         emitter.emit(srcOp.getBias()),
-        emitter.emit(std::nullopt) |
-            emitter.getConv2dConfig(srcOp.getInput(), srcOp.getWeight()),
+        emitter.emit(
+            std::nullopt), // remove conv2dconfig to test failure for ffe
         /*compute_config=*/emitter.emit(std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
