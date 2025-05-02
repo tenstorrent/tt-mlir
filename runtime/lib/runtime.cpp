@@ -233,7 +233,7 @@ Tensor createTensor(std::shared_ptr<void> data,
   LOG_FATAL("runtime is not enabled");
 }
 
-Tensor createOwnedMultiDeviceHostTensor(
+Tensor createMultiDeviceHostTensor(
     std::vector<void const *> const &data,
     std::vector<std::uint32_t> const &shape,
     std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
@@ -244,7 +244,7 @@ Tensor createOwnedMultiDeviceHostTensor(
   LOG_ASSERT(itemsize > 0);
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::createOwnedMultiDeviceHostTensor(
+    return ::tt::runtime::ttnn::createMultiDeviceHostTensor(
         data, shape, stride, itemsize, dataType, strategy);
   }
 #endif
@@ -509,8 +509,8 @@ void closeMeshDevice(Device parentMesh) {
 }
 
 Device createSubMeshDevice(
-    Device parentMesh, const std::pair<uint32_t, uint32_t> &meshShape,
-    const std::optional<const std::pair<uint32_t, uint32_t>> &meshOffset) {
+    Device parentMesh, const std::vector<uint32_t> &meshShape,
+    const std::optional<const std::vector<uint32_t>> &meshOffset) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
     return ::tt::runtime::ttnn::createSubMeshDevice(parentMesh, meshShape,
@@ -537,6 +537,22 @@ void releaseSubMeshDevice(Device subMesh) {
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
     return ::tt::runtime::ttmetal::releaseSubMeshDevice(subMesh);
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
+void reshapeMeshDevice(Device meshDevice,
+                       const std::vector<uint32_t> &meshShape) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::reshapeMeshDevice(meshDevice, meshShape);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::reshapeMeshDevice(meshDevice, meshShape);
   }
 #endif
   LOG_FATAL("runtime is not enabled");

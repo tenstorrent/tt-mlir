@@ -20,8 +20,8 @@
 #include <vector>
 
 namespace tt::runtime::ttnn {
-using DeviceVariant = std::variant<std::reference_wrapper<::ttnn::IDevice>,
-                                   std::reference_wrapper<::ttnn::MeshDevice>>;
+using OptionalMeshDeviceRef =
+    std::optional<std::reference_wrapper<::ttnn::MeshDevice>>;
 using TensorMap = std::unordered_map<uint32_t, ::tt::runtime::Tensor>;
 using TensorPtrMap = std::unordered_map<uint32_t, ::tt::runtime::Tensor *>;
 using TensorPtrMapIterator = typename TensorPtrMap::iterator;
@@ -32,10 +32,11 @@ class TTNNTensorWrapper {
 public:
   TTNNTensorWrapper(const ::ttnn::Tensor &tensor, bool retain = false)
       : tensor(tensor), retain(retain), version(getLatestVersion()) {}
-  TTNNTensorWrapper(const TTNNTensorWrapper &other)
-      : tensor(other.tensor),
-        retain(other.retain.load(std::memory_order_relaxed)),
-        version(other.version.load(std::memory_order_relaxed)) {}
+
+  TTNNTensorWrapper(const TTNNTensorWrapper &other) = delete;
+  TTNNTensorWrapper &operator=(const TTNNTensorWrapper &other) = delete;
+  TTNNTensorWrapper(TTNNTensorWrapper &&other) = delete;
+  TTNNTensorWrapper &operator=(TTNNTensorWrapper &&other) = delete;
 
   const ::ttnn::Tensor &getTensor() const { return tensor; }
   ::ttnn::Tensor &getTensor() { return tensor; }
@@ -96,32 +97,31 @@ public:
 
   LayoutConverter(const LayoutDesc &inputDesc, const LayoutDesc &outputDesc);
   ::ttnn::Tensor convertTensorLayout(const ::ttnn::Tensor &input,
-                                     std::optional<DeviceVariant> targetDevice);
+                                     OptionalMeshDeviceRef targetDevice);
 
 private:
   ::ttnn::Tensor toLayoutIfNeeded(const ::ttnn::Tensor &input);
   ::ttnn::Tensor typecastIfNeeded(const ::ttnn::Tensor &input);
   ::ttnn::Tensor toDeviceIfNeeded(const ::ttnn::Tensor &input,
-                                  std::optional<DeviceVariant> targetDevice,
+                                  OptionalMeshDeviceRef targetDevice,
                                   bool force = false);
   ::ttnn::Tensor toMemoryConfigIfNeeded(const ::ttnn::Tensor &input);
   ::ttnn::Tensor fromDeviceIfNeeded(const ::ttnn::Tensor &input);
 
   ::ttnn::Tensor
   handleHostInputNoLayoutNoTypecast(const ::ttnn::Tensor &input,
-                                    std::optional<DeviceVariant> targetDevice);
+                                    OptionalMeshDeviceRef targetDevice);
   ::ttnn::Tensor
   handleHostInputLayoutNoTypecast(const ::ttnn::Tensor &input,
-                                  std::optional<DeviceVariant> targetDevice);
+                                  OptionalMeshDeviceRef targetDevice);
   ::ttnn::Tensor
   handleHostInputNoLayoutTypecast(const ::ttnn::Tensor &input,
-                                  std::optional<DeviceVariant> targetDevice);
+                                  OptionalMeshDeviceRef targetDevice);
   ::ttnn::Tensor
   handleHostInputLayoutTypecast(const ::ttnn::Tensor &input,
-                                std::optional<DeviceVariant> targetDevice);
-  ::ttnn::Tensor
-  convertHostTensorLayout(const ::ttnn::Tensor &input,
-                          std::optional<DeviceVariant> targetDevice);
+                                OptionalMeshDeviceRef targetDevice);
+  ::ttnn::Tensor convertHostTensorLayout(const ::ttnn::Tensor &input,
+                                         OptionalMeshDeviceRef targetDevice);
 
   ::ttnn::Tensor
   handleDeviceInputNoLayoutNoTypecast(const ::ttnn::Tensor &input);
@@ -195,13 +195,13 @@ public:
                  const std::vector<uint32_t> &programOutputIds,
                  TensorPtrMap &&liveTensors,
                  common::DylibManager &&programDylibManager,
-                 ::ttnn::MeshDevice *parentMesh, const Binary &executableHandle,
-                 size_t programIndex = 0)
+                 std::shared_ptr<::ttnn::MeshDevice> meshDevice,
+                 const Binary &executableHandle, size_t programIndex = 0)
       : tensorPool(ProgramTensorPool(programInputIds, programOutputIds,
                                      std::move(liveTensors))),
-        dylibManager(std::move(programDylibManager)), parentMesh(parentMesh),
+        dylibManager(std::move(programDylibManager)), meshDevice(meshDevice),
         executableHandle(executableHandle), programIndex(programIndex) {
-    LOG_ASSERT(parentMesh, "Parent mesh cannot be null");
+    LOG_ASSERT(meshDevice, "Submesh cannot be null");
   }
 
   ProgramContext(const ProgramContext &) = delete;
@@ -210,29 +210,17 @@ public:
   ProgramContext &operator=(ProgramContext &&) = delete;
 
   //
-  // Parent Mesh Operations
-  //
-  ::ttnn::MeshDevice &getParentMesh() { return *parentMesh; }
-
-  const ::ttnn::MeshDevice &getParentMesh() const { return *parentMesh; }
-
-  size_t parentMeshSize() const { return parentMesh->num_devices(); }
-
-  //
   // Sub Mesh Operations
   //
-  void addSubMesh(uint32_t meshId, std::shared_ptr<::ttnn::MeshDevice> subMesh);
 
-  ::ttnn::MeshDevice &getSubMesh(uint32_t meshId);
+  ::ttnn::MeshDevice &getMeshDevice() { return *meshDevice; }
+  std::shared_ptr<::ttnn::MeshDevice> getMeshDevicePtr() { return meshDevice; }
 
-  size_t subMeshSize(uint32_t meshId) const;
+  size_t meshDeviceSize() const { return meshDevice->num_devices(); }
 
-  ::ttnn::IDevice &getDeviceFromSubMesh(uint32_t meshId, int physicalDeviceId);
-
-  ::ttnn::IDevice &getDeviceIndexFromSubMesh(
-      uint32_t meshId, ::tt::tt_metal::distributed::MeshCoordinate meshCoords);
-
-  DeviceVariant getTargetDevice(uint32_t meshId);
+  const ::ttnn::MeshShape &meshDeviceShape() const {
+    return meshDevice->shape();
+  }
 
   //
   // Dylib Manager Operation
@@ -266,13 +254,8 @@ private:
   ProgramTensorPool tensorPool;
 
   common::DylibManager dylibManager;
-  // Contains all devices borrowed from the user that are available to the
-  // program
-  ::ttnn::MeshDevice *parentMesh = nullptr;
 
-  // Contains subMeshes of the parentMesh that are used by the program
-  // Will be populated by GetDevice ops
-  std::unordered_map<uint32_t, std::shared_ptr<::ttnn::MeshDevice>> subMeshes;
+  std::shared_ptr<::ttnn::MeshDevice> meshDevice;
 
   // The executable binary handle
   Binary executableHandle;

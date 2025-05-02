@@ -22,14 +22,10 @@ void run(const ::tt::target::ttnn::ToDeviceOp *op, ProgramContext &context) {
   std::optional<::ttnn::MemoryConfig> memoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
 
-  DeviceVariant targetDevice =
-      context.getTargetDevice(op->device()->global_id());
-  ::ttnn::Tensor out = std::visit(
-      [&](auto &&targetDevice) -> ::ttnn::Tensor {
-        return ::ttnn::to_device(inputTensor, &(targetDevice.get()),
-                                 memoryConfig);
-      },
-      targetDevice);
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
+
+  ::ttnn::Tensor out =
+      ::ttnn::to_device(inputTensor, &targetDevice, memoryConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

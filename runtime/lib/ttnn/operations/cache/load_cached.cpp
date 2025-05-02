@@ -22,7 +22,7 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   LOG_ASSERT(cache, "Cache must be enabled to support const-eval ops.");
 
   // Get the device ID from the parent mesh
-  const int deviceId = context.getParentMesh().id();
+  const int deviceId = context.getMeshDevice().id();
   const std::string cacheKey =
       generateCacheOuterKey(deviceId, context.getProgramIndex());
   const std::string &constEvalFuncname = op->callee_name()->str();
@@ -31,7 +31,7 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   inputVersions.reserve(op->inputs()->size());
   // Extract versions for each input tensor.
   for (const auto *input : *op->inputs()) {
-    ::tt::runtime::ttnn::TTNNTensorWrapper runtimeInput =
+    const ::tt::runtime::ttnn::TTNNTensorWrapper &runtimeInput =
         context.getTensorPool().getTTNNTensorWrapperAndValidate(input);
     inputVersions.push_back(runtimeInput.getVersion());
   }
@@ -71,7 +71,7 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   ::tt::target::ttnn::Program const *subProgram =
       fbb.programs()->Get(programIndex);
   ProgramExecutor exec(subProgram, context.getExecutableHandle(), inputs,
-                       &context.getParentMesh(), programIndex);
+                       context.getMeshDevicePtr(), programIndex);
   exec.execute();
   LOG_DEBUG("executed sub-func: ", constEvalFuncname);
   std::vector<Tensor> outputs = exec.gatherOutputTensors();

@@ -13,20 +13,9 @@ namespace tt::runtime::ttnn::operations::context {
 using ::tt::tt_metal::distributed::MeshCoordinate;
 using ::tt::tt_metal::distributed::MeshShape;
 
-static std::shared_ptr<::ttnn::MeshDevice>
-createSubMeshDevice(::ttnn::MeshDevice &parentMesh,
-                    const ::tt::target::Dim2d *subMeshShape,
-                    const ::tt::target::Dim2d *subMeshOffset) {
-  // Carve out a submesh from the parentMesh
-  MeshShape meshShape(subMeshShape->y(), subMeshShape->x());
-  MeshCoordinate meshOffset(subMeshOffset->y(), subMeshOffset->x());
-  return parentMesh.create_submesh(meshShape, meshOffset);
-}
-
 void run(const ::tt::target::ttnn::GetDeviceOp *op, ProgramContext &context) {
-  ::ttnn::MeshDevice &meshDevice = context.getParentMesh();
+  ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
   const ::tt::target::Dim2d *subMeshShape = op->mesh();
-  const ::tt::target::Dim2d *subMeshOffset = op->offset();
 
   // Re-map mesh if subMeshShape cannot be a submesh of current shape
   MeshShape meshShape = meshDevice.shape();
@@ -36,8 +25,5 @@ void run(const ::tt::target::ttnn::GetDeviceOp *op, ProgramContext &context) {
     LOG_INFO("remapped mesh device shape [", meshDevice.shape()[0], ", ",
              meshDevice.shape()[1], "]");
   }
-  std::shared_ptr<::ttnn::MeshDevice> subMesh =
-      createSubMeshDevice(meshDevice, subMeshShape, subMeshOffset);
-  context.addSubMesh(op->out()->global_id(), subMesh);
 }
 } // namespace tt::runtime::ttnn::operations::context

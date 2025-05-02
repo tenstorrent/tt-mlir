@@ -25,6 +25,7 @@ try:
         close_mesh_device,
         create_sub_mesh_device,
         release_sub_mesh_device,
+        reshape_mesh_device,
         submit,
         create_tensor,
         create_owned_tensor,

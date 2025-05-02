@@ -19,9 +19,8 @@ void run(const ::tt::target::ttnn::AllGatherOp *op, ProgramContext &context) {
   int32_t allGatherDim = op->all_gather_dim();
   uint32_t clusterAxis = op->cluster_axis();
   uint32_t numLinks = op->num_links();
-  LOG_ASSERT(
-      input.storage_type() == ::ttnn::StorageType::MULTI_DEVICE,
-      "Input of all_gather must be MULTIDEVICE. id:", op->in()->global_id());
+  LOG_ASSERT(input.storage_type() == ::ttnn::StorageType::DEVICE,
+             "Input of all_gather must be DEVICE. id:", op->in()->global_id());
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
@@ -29,8 +28,7 @@ void run(const ::tt::target::ttnn::AllGatherOp *op, ProgramContext &context) {
   LOG_ASSERT(outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
-  ::ttnn::MeshDevice &meshDevice =
-      context.getSubMesh(op->device()->global_id());
+  ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
   ::ttnn::Tensor out =
       ::ttnn::all_gather(input, allGatherDim, clusterAxis, meshDevice, numLinks,
                          outputMemoryConfig, std::nullopt, std::nullopt,

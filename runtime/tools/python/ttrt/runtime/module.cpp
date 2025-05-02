@@ -208,7 +208,7 @@ PYBIND11_MODULE(_C, m) {
                        [](std::uintptr_t ptr) {
                          return reinterpret_cast<void const *>(ptr);
                        });
-        return tt::runtime::createOwnedMultiDeviceHostTensor(
+        return tt::runtime::createMultiDeviceHostTensor(
             data, shape, stride, itemsize, dataType, strategy);
       },
       "Create a multi-device host tensor with owned memory");
@@ -224,6 +224,8 @@ PYBIND11_MODULE(_C, m) {
         "Open a sub mesh of devices from a parent mesh");
   m.def("release_sub_mesh_device", &tt::runtime::releaseSubMeshDevice,
         py::arg("sub_mesh"), "Release a sub mesh device from the parent");
+  m.def("reshape_mesh_device", &tt::runtime::reshapeMeshDevice,
+        py::arg("mesh_device"), py::arg("mesh_shape"), "Reshape a mesh device");
   m.def("to_host", &tt::runtime::toHost, py::arg("tensor"),
         py::arg("untilize") = false, "Copy the tensor to the host");
   m.def("to_layout", &tt::runtime::toLayout, py::arg("tensor"),
