@@ -153,6 +153,9 @@ def test_split_compile_split_and_execute_ttir_module(ttir_module_str: str):
         assert result.execution_phase == expected_results[i]
 
 
+@pytest.mark.skip(
+    "hardcoded system desc mismatch: https://github.com/tenstorrent/tt-mlir/issues/3191"
+)
 def test_split_and_execute_ttnn_module(ttnn_module_str: str):
     results = split_and_execute(ttnn_module_str)
 
@@ -167,6 +170,9 @@ def test_split_and_execute_ttnn_module(ttnn_module_str: str):
         assert result.execution_phase == expected_results[i]
 
 
+@pytest.mark.skip(
+    "hardcoded system desc mismatch: https://github.com/tenstorrent/tt-mlir/issues/3191"
+)
 def test2_compile_split_and_execute_ttnn_module(ttnn_module_str: str):
     results = compile_split_and_execute(ttnn_module_str)
 
@@ -181,6 +187,9 @@ def test2_compile_split_and_execute_ttnn_module(ttnn_module_str: str):
         assert result.execution_phase == expected_results[i]
 
 
+@pytest.mark.skip(
+    "hardcoded system desc mismatch: https://github.com/tenstorrent/tt-mlir/issues/3191"
+)
 def test_split_compile_split_and_execute_ttnn_module(ttnn_module_str: str):
     results = split_compile_split_and_execute(ttnn_module_str)
 
