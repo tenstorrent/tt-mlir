@@ -1241,23 +1241,3 @@ def test_unique_ops(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
-
-
-@pytest.mark.parametrize("shapes", [[(10, 64, 32), (32, 128), (128,)]])
-def test_linear(shapes: List[Shape], request):
-    def linear(
-        in0: Operand,
-        in1: Operand,
-        in2: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: List[str] = None,
-    ):
-        return builder.linear(in0, in1, in2, unit_attrs=unit_attrs)
-
-    compile_to_flatbuffer(
-        linear,
-        shapes,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )

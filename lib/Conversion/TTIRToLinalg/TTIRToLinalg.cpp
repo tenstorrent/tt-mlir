@@ -340,8 +340,7 @@ public:
     // Get the result type
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    if (!resultType)
-      return failure();
+    assert(resultType && "Result type must be a ranked tensor type.");
 
     rewriter.replaceOpWithNewOp<tensor::ReshapeOp>(op, resultType, input,
                                                    output);
@@ -382,7 +381,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     Value input = adaptor.getInput();
     auto inputType = dyn_cast<RankedTensorType>(input.getType());
-    assert(inputType && "Input must be a ranked tensor type");
+    assert(inputType && "Input must be a ranked tensor type.");
 
     // Convert begins, ends, and steps to the format expected by
     // tensor.extract_slice
@@ -395,7 +394,7 @@ public:
 
     // Make sure all arrays have the same size
     assert(begins.size() == ends.size() && begins.size() == steps.size() &&
-           "Invalid slice attributes");
+           "Invalid slice attributes.");
 
     for (unsigned i = 0; i < begins.size(); ++i) {
       // Convert attribute to actual integer values using proper attribute
@@ -418,7 +417,7 @@ public:
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type");
+    assert(resultType && "Result type must be a ranked tensor type.");
 
     rewriter.replaceOpWithNewOp<tensor::ExtractSliceOp>(
         op, resultType, input, offsets, sizes, strides);
@@ -446,8 +445,7 @@ public:
     // Create a tensor.empty for the result
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    if (!resultType)
-      return failure();
+    assert(resultType && "Result type must be a ranked tensor type.");
 
     auto emptyTensor = rewriter.create<tensor::EmptyOp>(
         op.getLoc(), resultType.getShape(), resultType.getElementType());
@@ -458,11 +456,11 @@ public:
 
     for (auto input : inputs) {
       auto inputType = dyn_cast<RankedTensorType>(input.getType());
-      if (!inputType)
-        return failure();
+      assert(inputType && "Input must be a ranked tensor type.")
 
-      // Calculate offsets, sizes, and strides for this input
-      SmallVector<OpFoldResult> offsets, sizes, strides;
+          // Calculate offsets, sizes, and strides for this input
+          SmallVector<OpFoldResult>
+              offsets, sizes, strides;
       for (unsigned i = 0; i < inputType.getRank(); ++i) {
         if (i == dim) {
           offsets.push_back(rewriter.getI64IntegerAttr(offset));
@@ -501,8 +499,7 @@ public:
     // Get the result type
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    if (!resultType)
-      return failure();
+    assert(resultType && "Result type must be a ranked tensor type.");
 
     // Create a new constant op with the converted type
     auto newConstant =
