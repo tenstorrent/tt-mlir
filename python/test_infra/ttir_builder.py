@@ -205,9 +205,9 @@ class TTIRBuilder:
         Generates random tensor of `dtype`s of `input`s shape, assigns it to a golden,
         and maps `input` to that golden.
         """
-        self.id_golden_map[f"input_{index}"] = self.generate_and_store_random_golden(
-            operand, dtype
-        )
+        golden = self.generate_and_store_random_golden(operand, dtype)
+        self.id_golden_map[f"input_{index}"] = golden
+        return golden
 
     def get_golden_map(self) -> Dict:
         golden_info = {}
