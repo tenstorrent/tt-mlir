@@ -54,6 +54,10 @@ private:
 
     ReshapeOp reshapeOp =
         mlir::cast<ReshapeOp>(*srcOp.getResult().getUsers().begin());
+
+    assert(reshapeOp.getResult().hasOneUse() &&
+           ttmlir::utils::allUsersOfType<ReluOp>(reshapeOp) &&
+           "Reshape should have only one user and that user should be relu.");
     return mlir::cast<ReluOp>(*reshapeOp.getResult().getUsers().begin());
   }
 

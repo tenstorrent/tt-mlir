@@ -187,6 +187,7 @@ public:
     // - exp should have exactly 2 users (sum and div)
     // - sum should have exactly 1 user (broadcast)
     // - broadcast should have exactly 1 user (div)
+    // TODO(milant): Relax requirements for fusing #3183.
     if (ttmlir::utils::countUsers(expOp.getResult()) != 2 ||
         !sumOp.getResult().hasOneUse() ||
         !broadcastOp.getResult().hasOneUse()) {
@@ -209,10 +210,9 @@ public:
     int64_t reduceDim = mlir::cast<mlir::IntegerAttr>(reduceDims[0]).getInt();
 
     // Replace div op with new softmax op.
-    utils::replaceOpWithNewDPSOp<SoftmaxOp>(
-        rewriter, divOp,
-        mlir::cast<RankedTensorType>(divOp.getResult().getType()),
-        expOp.getInput(), reduceDim);
+    utils::replaceOpWithNewDPSOp<SoftmaxOp>(rewriter, divOp,
+                                            divOp.getResult().getType(),
+                                            expOp.getInput(), reduceDim);
 
     return mlir::success();
   }
