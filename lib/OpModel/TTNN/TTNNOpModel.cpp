@@ -261,10 +261,10 @@ createOwnedStorage(std::uint32_t numElements,
   switch (dataType) {
   case ::tt::tt_metal::DataType::FLOAT32:
     return ::tt::tt_metal::OwnedStorage(
-        ::tt::tt_metal::owned_buffer::create<float>(numElements));
+        ::tt::tt_metal::host_buffer::create<float>(numElements));
   case ::tt::tt_metal::DataType::BFLOAT16:
     return ::tt::tt_metal::OwnedStorage(
-        ::tt::tt_metal::owned_buffer::create<bfloat16>(numElements));
+        ::tt::tt_metal::host_buffer::create<bfloat16>(numElements));
   default:
     llvm::report_fatal_error("Unsupported data type");
   }

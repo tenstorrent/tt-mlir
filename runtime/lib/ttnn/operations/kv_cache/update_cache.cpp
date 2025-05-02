@@ -28,7 +28,7 @@ void run(const ::tt::target::ttnn::UpdateCacheOp *op, ProgramContext &context) {
         std::get<tt_metal::MultiDeviceHostStorage>(storage);
     const auto &buffer = multiDeviceHostStorage.get_buffer(0);
     const auto &buf =
-        std::get<tt_metal::owned_buffer::Buffer<uint32_t>>(buffer);
+        std::get<tt_metal::host_buffer::Buffer<uint32_t>>(buffer);
     uint32_t upIdx = *buf.begin();
 
     ::ttnn::update_cache(cache, input, upIdx, op->batch_offset(), std::nullopt);

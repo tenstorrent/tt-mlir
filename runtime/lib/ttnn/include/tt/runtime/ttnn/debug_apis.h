@@ -54,14 +54,14 @@ inline std::string toString(const ::ttnn::DataType &dtype) {
 
 inline std::string toString(const ::ttnn::StorageType &storageType) {
   switch (storageType) {
-  case ::ttnn::StorageType::BORROWED:
-    return "BORROWED";
-  case ::ttnn::StorageType::OWNED:
-    return "OWNED";
+  case ::ttnn::StorageType::HOST:
+    return "HOST";
   case ::ttnn::StorageType::DEVICE:
     return "DEVICE";
   case ::ttnn::StorageType::MULTI_DEVICE_HOST:
     return "MULTI_DEVICE_HOST";
+  default:
+    return "UNKNOWN";
   }
 }
 

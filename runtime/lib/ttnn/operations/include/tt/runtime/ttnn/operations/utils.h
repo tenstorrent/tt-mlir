@@ -51,7 +51,7 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *memcfg);
 template <typename T>
 static ::tt::tt_metal::OwnedBuffer createBuffer(const uint32_t size) {
   if constexpr (tt::runtime::ttnn::utils::IsHostTypeV<T>) {
-    return tt::tt_metal::owned_buffer::create<T>(size);
+    return tt::tt_metal::host_buffer::create<T>(size);
   }
 
   LOG_FATAL("Unsupported data type");

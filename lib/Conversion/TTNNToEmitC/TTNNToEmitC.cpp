@@ -1496,7 +1496,7 @@ public:
                                            "::tt::tt_metal::OwnedBuffer");
 
     auto bufferOp = rewriter.create<emitc::CallOpaqueOp>(
-        srcOp.getLoc(), bufferTy, "::tt::tt_metal::owned_buffer::create",
+        srcOp.getLoc(), bufferTy, "::tt::tt_metal::host_buffer::create",
         nullptr, rewriter.getArrayAttr({templateTypeAttr}),
         ValueRange{volumeOp.getResult(0)});
 

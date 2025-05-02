@@ -100,8 +100,8 @@ using NativeDTypeT = typename NativeDType<DataType>::type;
 
 template <typename T>
 constexpr bool IsHostTypeV =
-    std::is_constructible_v<::tt::tt_metal::OwnedBuffer,
-                            ::tt::tt_metal::owned_buffer::Buffer<T>>;
+    std::is_constructible_v<::tt::tt_metal::HostBuffer,
+                            std::vector<T>>;
 
 constexpr size_t DTypeMinV = static_cast<size_t>(tt::target::DataType::MIN);
 constexpr size_t DTypeMaxV = static_cast<size_t>(tt::target::DataType::MAX);

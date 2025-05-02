@@ -23,72 +23,71 @@
 namespace tt::runtime::ttnn {
 
 using ::tt::runtime::DeviceRuntime;
-using ::tt::tt_metal::BorrowedStorage;
 using ::tt::tt_metal::DistributedTensorConfig;
-using ::tt::tt_metal::OwnedStorage;
+using ::tt::tt_metal::HostBuffer;
+using ::tt::tt_metal::MemoryPin;
 using ::tt::tt_metal::raise_unsupported_storage;
 
 template <typename ElementType>
-static OwnedStorage createOwnedStorage(ElementType const *ptr,
-                                       std::uint32_t numElements) {
-  ::tt::tt_metal::owned_buffer::Buffer<ElementType> buffer;
+static HostBuffer createHostBuffer(ElementType const *ptr,
+                                  std::uint32_t numElements) {
   if (ptr != nullptr) {
     auto data = std::vector<ElementType>(ptr, ptr + numElements);
-    buffer = ::tt::tt_metal::owned_buffer::create<ElementType>(std::move(data));
+    return ::tt::tt_metal::host_buffer::create<ElementType>(std::move(data));
   } else {
-    buffer = ::tt::tt_metal::owned_buffer::create<ElementType>(numElements);
+    std::vector<ElementType> data(numElements);
+    return ::tt::tt_metal::host_buffer::create<ElementType>(std::move(data));
   }
-  return OwnedStorage(std::move(buffer));
 }
 
 template <typename ElementType>
-static BorrowedStorage createBorrowedStorage(ElementType *ptr,
-                                             std::uint32_t numElements) {
+static HostBuffer createBorrowedHostBuffer(ElementType *ptr,
+                                          std::uint32_t numElements) {
   LOG_ASSERT(ptr != nullptr, "Cannot create borrowed storage from nullptr");
-  return BorrowedStorage(
-      ::tt::tt_metal::borrowed_buffer::Buffer<ElementType>(ptr, numElements),
-      [] {}, [] {});
+  tt::stl::Span<ElementType> span(ptr, numElements);
+  MemoryPin pin([] {}, [] {});
+  return HostBuffer(span, std::move(pin));
 }
 
-static OwnedStorage createOwnedStorage(void const *ptr,
-                                       std::uint32_t numElements,
-                                       ::tt::target::DataType dataType) {
+static HostBuffer createHostBuffer(void const *ptr,
+                                  std::uint32_t numElements,
+                                  ::tt::target::DataType dataType) {
   switch (dataType) {
   case ::tt::target::DataType::Float32:
-    return createOwnedStorage(static_cast<float const *>(ptr), numElements);
+    return createHostBuffer(static_cast<float const *>(ptr), numElements);
   case ::tt::target::DataType::BFloat16:
-    return createOwnedStorage(static_cast<bfloat16 const *>(ptr), numElements);
+    return createHostBuffer(static_cast<bfloat16 const *>(ptr), numElements);
   case ::tt::target::DataType::UInt32:
-    return createOwnedStorage(static_cast<uint32_t const *>(ptr), numElements);
+    return createHostBuffer(static_cast<uint32_t const *>(ptr), numElements);
   case ::tt::target::DataType::UInt16:
-    return createOwnedStorage(static_cast<uint16_t const *>(ptr), numElements);
+    return createHostBuffer(static_cast<uint16_t const *>(ptr), numElements);
   case ::tt::target::DataType::UInt8:
-    return createOwnedStorage(static_cast<uint8_t const *>(ptr), numElements);
+    return createHostBuffer(static_cast<uint8_t const *>(ptr), numElements);
   case ::tt::target::DataType::Int32:
-    return createOwnedStorage(static_cast<int32_t const *>(ptr), numElements);
+    return createHostBuffer(static_cast<int32_t const *>(ptr), numElements);
   default:
-    LOG_FATAL("Unsupported data type");
+    raise_unsupported_storage(dataType);
   }
 }
 
-static BorrowedStorage createBorrowedStorage(void *ptr,
-                                             std::uint32_t numElements,
-                                             ::tt::target::DataType dataType) {
+static HostBuffer createBorrowedHostBuffer(void *ptr,
+                                          std::uint32_t numElements,
+                                          ::tt::target::DataType dataType) {
   switch (dataType) {
   case ::tt::target::DataType::Float32:
-    return createBorrowedStorage(static_cast<float *>(ptr), numElements);
+    return createBorrowedHostBuffer(static_cast<float *>(ptr), numElements);
   case ::tt::target::DataType::BFloat16:
-    return createBorrowedStorage(static_cast<bfloat16 *>(ptr), numElements);
+    return createBorrowedHostBuffer(static_cast<bfloat16 *>(ptr), numElements);
   case ::tt::target::DataType::UInt32:
-    return createBorrowedStorage(static_cast<uint32_t *>(ptr), numElements);
+    return createBorrowedHostBuffer(static_cast<uint32_t *>(ptr), numElements);
   case ::tt::target::DataType::UInt16:
-    return createBorrowedStorage(static_cast<uint16_t *>(ptr), numElements);
+    return createBorrowedHostBuffer(static_cast<uint16_t *>(ptr), numElements);
   case ::tt::target::DataType::UInt8:
-    return createBorrowedStorage(static_cast<uint8_t *>(ptr), numElements);
+    return createBorrowedHostBuffer(static_cast<uint8_t *>(ptr), numElements);
   case ::tt::target::DataType::Int32:
-    return createBorrowedStorage(static_cast<int32_t *>(ptr), numElements);
+    return createBorrowedHostBuffer(static_cast<int32_t *>(ptr), numElements);
   default:
-    LOG_FATAL("Unsupported data type");
+    raise_unsupported_storage(dataType);
   }
 }
 
@@ -96,11 +95,11 @@ static ::ttnn::Tensor
 createOwnedTTNNTensor(void const *data, std::vector<std::uint32_t> const &shape,
                       std::vector<std::uint32_t> const &stride,
                       std::uint32_t itemsize, ::tt::target::DataType dataType) {
-  std::uint32_t numElements = shape[0] * stride[0];
-
-  return ::ttnn::Tensor(createOwnedStorage(data, numElements, dataType),
-                        ::ttnn::Shape(shape), utils::toTTNNDataType(dataType),
-                        ::ttnn::Layout::ROW_MAJOR);
+  auto numElements = std::accumulate(shape.begin(), shape.end(), 1,
+                                     std::multiplies<std::uint32_t>());
+  auto buffer = createHostBuffer(data, numElements, dataType);
+  return ::ttnn::Tensor::from_host_buffer(std::move(buffer), ::utils::toTTNNDataType(dataType),
+                        shape, stride);
 }
 
 static ::tt::runtime::Tensor createNullTensor() {
@@ -153,13 +152,12 @@ createBorrowedHostTensor(void *data, std::vector<std::uint32_t> const &shape,
                          std::vector<std::uint32_t> const &stride,
                          std::uint32_t itemsize,
                          ::tt::target::DataType dataType) {
-  std::uint32_t numElements = shape[0] * stride[0];
-
-  ::ttnn::Tensor tensor(createBorrowedStorage(data, numElements, dataType),
-                        ::ttnn::Shape(shape), utils::toTTNNDataType(dataType),
-                        ::ttnn::Layout::ROW_MAJOR);
-
-  return utils::createRuntimeTensorFromTTNN(tensor);
+  auto numElements = std::accumulate(shape.begin(), shape.end(), 1,
+                                     std::multiplies<std::uint32_t>());
+  auto buffer = createBorrowedHostBuffer(data, numElements, dataType);
+  return utils::createRuntimeTensorFromTTNN(
+      ::ttnn::Tensor::from_host_buffer(std::move(buffer), utils::toTTNNDataType(dataType),
+                        shape, stride));
 }
 
 ::tt::runtime::Tensor createMultiDeviceHostTensor(

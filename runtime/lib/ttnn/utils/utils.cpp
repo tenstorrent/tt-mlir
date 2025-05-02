@@ -15,7 +15,7 @@ using ::tt::runtime::DeviceRuntime;
 template <typename T>
 static void *
 getDataPtrFromOwnedBuffer(const ::tt::tt_metal::OwnedBuffer &ownedBuffer) {
-  auto buffer = ::tt::tt_metal::owned_buffer::get_as<T>(ownedBuffer);
+  auto buffer = ::tt::tt_metal::host_buffer::get_as<T>(ownedBuffer);
   return reinterpret_cast<void *>(buffer.data());
 }
 
