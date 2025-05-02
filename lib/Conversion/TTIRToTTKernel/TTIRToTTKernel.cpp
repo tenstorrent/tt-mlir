@@ -705,14 +705,15 @@ public:
         signatureConverter.remapInput(arg.getArgNumber(), cb);
         ctArgSpecVector.push_back(
             rewriter.getAttr<ArgAttr>(ArgType::CBPort, arg.getArgNumber()));
-      } else if (mlir::isa<ttir::SemaphoreType>(argType)) {
+      } else if (mlir::isa<ttkernel::SemaphoreType>(argType)) {
         size_t rtArgIndex = rtArgSpecVector.size();
         auto semaphoreIndex = rewriter.create<GetCompileArgValOp>(
             op.getLoc(), rewriter.getI32Type(),
             rewriter.getI32IntegerAttr(rtArgIndex));
         auto semaphore =
             rewriter.create<GetSemaphoreOp>(op.getLoc(), semaphoreIndex);
-        signatureConverter.remapInput(arg.getArgNumber(), semaphore);
+        signatureConverter.remapInput(arg.getArgNumber(),
+                                      semaphore.getResult());
         rtArgSpecVector.push_back(rewriter.getAttr<ArgAttr>(
             ArgType::Semaphore, currentSemaphoreIndex++));
       } else {
@@ -737,14 +738,6 @@ class TTIRSemaphoreUpdateRewriter : public OpConversionPattern<T> {
 public:
   using OpConversionPattern<T>::OpConversionPattern;
 
-  static Value castSemaphoreAsAddress(OpBuilder &rewriter, Location loc,
-                                      Value semaphore) {
-    return rewriter
-        .create<UnrealizedConversionCastOp>(
-            loc, rewriter.getType<ttkernel::L1AddrType>(), semaphore)
-        ->getResult(0);
-  }
-
   LogicalResult
   matchAndRewrite(T op, typename T::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
@@ -757,9 +750,7 @@ public:
     auto chipDesc = chipDescs[chipDescIndices[chipIds[0]]];
 
     Value value = op.getValue();
-
-    Value semaphoreAddr =
-        castSemaphoreAsAddress(rewriter, op->getLoc(), adaptor.getSemaphore());
+    Value semaphoreAddr = adaptor.getSemaphore();
 
     if (op.getDstCoreIndex().empty()) {
       if (mlir::isa<ttir::SemaphoreIncOp>(op)) {
@@ -821,24 +812,15 @@ public:
 namespace {
 class TTIRSemaphoreWaitRewriter
     : public OpConversionPattern<ttir::SemaphoreWaitOp> {
-  using OpConversionPattern<ttir::SemaphoreWaitOp>::OpConversionPattern;
-
 public:
-  static Value castSemaphoreAsAddress(OpBuilder &rewriter, Location loc,
-                                      Value semaphore) {
-    return rewriter
-        .create<UnrealizedConversionCastOp>(
-            loc, rewriter.getType<ttkernel::L1AddrType>(), semaphore)
-        ->getResult(0);
-  }
+  using OpConversionPattern<ttir::SemaphoreWaitOp>::OpConversionPattern;
 
   LogicalResult
   matchAndRewrite(ttir::SemaphoreWaitOp op,
                   ttir::SemaphoreWaitOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
 
-    Value semaphoreAddr =
-        castSemaphoreAsAddress(rewriter, op->getLoc(), adaptor.getSemaphore());
+    Value semaphoreAddr = adaptor.getSemaphore();
     auto semaphorePtr =
         rewriter.create<ttkernel::CastToL1PtrOp>(op.getLoc(), semaphoreAddr);
 
