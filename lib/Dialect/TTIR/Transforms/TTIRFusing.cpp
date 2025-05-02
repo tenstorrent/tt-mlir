@@ -218,8 +218,8 @@ public:
   }
 };
 
-class Conv2dWithMultiply : public mlir::OpRewritePattern<Conv2dOp> {
-  using mlir::OpRewritePattern<Conv2dOp>::OpRewritePattern;
+class Conv2dWithMultiply : public mlir::OpRewritePattern<MultiplyOp> {
+  using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
 
 public:
   /// Pattern: conv2d(input, weight) * scale
@@ -239,111 +239,92 @@ public:
   ///   %scaled_weight = multiply(%weight, %reshaped_scale)
   ///   %result = conv2d(%input, %scaled_weight)
   mlir::LogicalResult
-  matchAndRewrite(Conv2dOp convOp,
+  matchAndRewrite(MultiplyOp multiplyOp,
                   mlir::PatternRewriter &rewriter) const final {
     // Check if this pattern is applicable.
-    if (!isCommutable(convOp)) {
+    auto components = getConv2dAndScale(multiplyOp);
+    if (!components) {
       return mlir::failure();
     }
 
-    // Get the scale factor from the multiply operation.
-    OpOperand *scaleOperand = getScaleOperand(convOp);
-    Value scaleValue = scaleOperand->get();
+    Conv2dOp conv2dOp = components->first;
+    Value scaleValue = components->second;
 
-    // Get the convolution weight.
-    Value weightValue = convOp.getWeight();
+    // Insert before conv2d op.
+    rewriter.setInsertionPoint(conv2dOp);
 
-    // Create a reshaped scale factor suitable for multiplying with weights.
+    // Reshape scale to match weight dimensions and pre-multiply weights.
     Value reshapedScale =
-        createReshapedScale(rewriter, convOp.getLoc(), scaleValue);
+        createReshapedScale(rewriter, conv2dOp.getLoc(), scaleValue);
+    Value scaledWeights = createScaledWeights(
+        rewriter, conv2dOp.getLoc(), conv2dOp.getWeight(), reshapedScale);
 
-    // Create pre-multiplied weights.
-    Value scaledWeights = createScaledWeights(rewriter, convOp.getLoc(),
-                                              weightValue, reshapedScale);
-
-    // Modify conv2d in place to add scaled weights.
+    // Update conv2d to use scaled weights and replace multiply operation
     rewriter.modifyOpInPlace(
-        convOp, [&]() { convOp.getWeightMutable().assign(scaledWeights); });
-
-    // Replace the multiply operation uses with conv2d.
-    rewriter.replaceAllOpUsesWith(scaleOperand->getOwner(), convOp);
+        conv2dOp, [&]() { conv2dOp.getWeightMutable().assign(scaledWeights); });
+    rewriter.replaceAllOpUsesWith(multiplyOp, conv2dOp);
 
     return mlir::success();
   }
 
 private:
-  bool isCommutable(Conv2dOp convOp) const {
-    // Convolution must have exactly one use and it must be a multiply
-    // operation.
-    if (!convOp.getResult().hasOneUse() ||
-        !ttmlir::utils::allUsersOfType<MultiplyOp>(convOp)) {
+  static std::optional<std::pair<Conv2dOp, mlir::Value>>
+  getConv2dAndScale(MultiplyOp multiplyOp) {
+    auto lhs = multiplyOp.getLhs();
+    auto rhs = multiplyOp.getRhs();
+    Conv2dOp lhsConv2d = lhs.getDefiningOp<Conv2dOp>();
+    Conv2dOp rhsConv2d = rhs.getDefiningOp<Conv2dOp>();
+    if (isCommutable(lhsConv2d, rhs)) {
+      return std::make_pair(lhsConv2d, rhs);
+    }
+    if (isCommutable(rhsConv2d, lhs)) {
+      return std::make_pair(rhsConv2d, lhs);
+    }
+    return std::nullopt;
+  }
+
+  // We can commute only if both scale and weight are constant.
+  static bool isCommutable(Conv2dOp conv2dOp,
+                           mlir::TypedValue<RankedTensorType> scale) {
+    // Conv2d should only have one use and that use should be a multiply op.
+    if (!conv2dOp || !conv2dOp.getResult().hasOneUse()) {
       return false;
     }
 
-    // Get the function containing this operation.
-    mlir::func::FuncOp funcOp = convOp->getParentOfType<mlir::func::FuncOp>();
-
-    // Get all constant parameters in the function.
-    SmallPtrSet<BlockArgument, 4> constParams =
+    mlir::func::FuncOp funcOp = conv2dOp->getParentOfType<mlir::func::FuncOp>();
+    llvm::SmallPtrSet<BlockArgument, 4> constParams =
         ttmlir::utils::populateConstParams(funcOp);
+    auto isConstant = [&constParams](mlir::Value value) {
+      if (auto blockArg = mlir::dyn_cast<BlockArgument>(value)) {
+        return constParams.contains(blockArg);
+      }
 
-    // Both the weight and scale must be constants.
-    if (!isConstant(convOp.getWeight(), constParams) ||
-        !isConstant(getScaleOperand(convOp)->get(), constParams)) {
+      // TODO(milant): Check for TT_CreationOpTrait after issue #3180 lands.
+      return false;
+    };
+
+    // Both scale and weight must be constant.
+    if (!isConstant(scale) || !isConstant(conv2dOp.getWeight())) {
       return false;
     }
 
-    // The scale must have the correct shape (1,1,1,out_channels).
-    return hasValidScaleShape(convOp, getScaleOperand(convOp));
+    return hasValidScaleShape(conv2dOp, scale.getType());
   }
 
-  /// Check if a value is a constant parameter.
-  bool isConstant(mlir::Value value,
-                  const SmallPtrSet<BlockArgument, 4> &constParams) const {
-    if (auto blockArg = mlir::dyn_cast<BlockArgument>(value)) {
-      return constParams.contains(blockArg);
-    }
-    // TODO(milant): Check for TT_CreationOpTrait after issue #3180 lands.
-    return false;
+  // Scale must have rank 4 and shape (1, 1, 1, out_channels).
+  static bool hasValidScaleShape(Conv2dOp convOp, RankedTensorType scaleType) {
+    return scaleType.getRank() == 4 && scaleType.getDimSize(0) == 1 &&
+           scaleType.getDimSize(1) == 1 && scaleType.getDimSize(2) == 1 &&
+           scaleType.getDimSize(3) == convOp.getOutputChannelSize();
   }
 
-  /// Check if the scale has the correct shape (1,1,1,out_channels).
-  bool hasValidScaleShape(Conv2dOp convOp, OpOperand *scaleOperand) const {
-    int64_t outChannels = convOp.getOutputChannelSize();
-    RankedTensorType scaleType =
-        mlir::cast<RankedTensorType>(scaleOperand->get().getType());
-
-    // Scale must be a 4D tensor.
-    if (scaleType.getRank() != 4) {
-      return false;
-    }
-
-    // Scale must have shape (1,1,1,out_channels).
-    return scaleType.getDimSize(0) == 1 && scaleType.getDimSize(1) == 1 &&
-           scaleType.getDimSize(2) == 1 &&
-           scaleType.getDimSize(3) == outChannels;
-  }
-
-  /// Get the scale operand from the multiply operation.
-  OpOperand *getScaleOperand(Conv2dOp convOp) const {
-    assert(convOp.getResult().hasOneUse() &&
-           "Conv2d must have only one use to get scale operand.");
-    MultiplyOp multiplyOp =
-        mlir::cast<MultiplyOp>(*convOp.getResult().getUsers().begin());
-    auto otherOperands = ttmlir::utils::getOtherOperands(multiplyOp, convOp);
-    assert(otherOperands.size() == 1 &&
-           "MultiplyOp must have exactly one other operand.");
-    return otherOperands.front();
-  }
-
-  /// Create a reshaped scale factor suitable for multiplying with weights.
-  Value createReshapedScale(mlir::PatternRewriter &rewriter, Location loc,
-                            Value scaleValue) const {
+  static Value createReshapedScale(mlir::PatternRewriter &rewriter,
+                                   Location loc, Value scaleValue) {
     // Get the scale's type.
     RankedTensorType scaleType =
         mlir::cast<RankedTensorType>(scaleValue.getType());
 
-    // Create a new shape (out_channels,1,1,1) from (1,1,1,out_channels).
+    // Create a new shape (out_channels, 1, 1, 1) from (1, 1, 1, out_channels).
     llvm::SmallVector<int64_t> newShape(scaleType.getShape());
     // Swap first and last dimensions.
     assert(newShape.size() == 4 &&
@@ -360,25 +341,13 @@ private:
   }
 
   /// Create pre-multiplied weights.
-  Value createScaledWeights(mlir::PatternRewriter &rewriter, Location loc,
-                            Value weightValue, Value reshapedScale) const {
+  static Value createScaledWeights(mlir::PatternRewriter &rewriter,
+                                   Location loc, Value weightValue,
+                                   Value reshapedScale) {
     // Create a multiplication of the weights by the reshaped scale.
     return utils::createDPSOp<MultiplyOp>(
         rewriter, loc, mlir::cast<RankedTensorType>(weightValue.getType()),
         weightValue, reshapedScale);
-  }
-
-  /// Create a new convolution with the scaled weights.
-  Conv2dOp createConvWithScaledWeights(mlir::PatternRewriter &rewriter,
-                                       Conv2dOp originalConv,
-                                       Value scaledWeights) const {
-    // Create a new convolution operation with the scaled weights.
-    return utils::createDPSOp<Conv2dOp>(
-        rewriter, originalConv.getLoc(), originalConv.getResult().getType(),
-        originalConv.getInput(), scaledWeights, originalConv.getBias(),
-        originalConv.getStride(), originalConv.getPadding(),
-        originalConv.getDilation(), originalConv.getGroupsAttr(),
-        originalConv.getFlattenedCompatInfo());
   }
 };
 
