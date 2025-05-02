@@ -339,20 +339,13 @@ def compile_to_flatbuffer(
     fn: Callable,
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
-<<<<<<< HEAD
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
-=======
->>>>>>> 3bdd2afd8 (adapt to Collin's changes)
     test_base: str = "test",
     output_root: str = ".",
     target: str = "ttnn",
     mesh_shape: Optional[Tuple[int, int]] = None,
     module_dump: bool = True,
     argument_types_string: Optional[str] = None,
-<<<<<<< HEAD
-=======
-    system_desc_path: Optional[str] = None,
->>>>>>> 3bdd2afd8 (adapt to Collin's changes)
 ):
     """
     Compiles a TTIRBuilder function `fn` to TTIR MLIR -> TT{Metal,NN} MLIR -> Flatbuffer
@@ -397,10 +390,6 @@ def compile_to_flatbuffer(
 
     module_dump: bool
         Set to `True` to print out generated TTIR MLIR module.
-<<<<<<< HEAD
-
-=======
->>>>>>> 3bdd2afd8 (adapt to Collin's changes)
     """
 
     if inputs_types is not None:

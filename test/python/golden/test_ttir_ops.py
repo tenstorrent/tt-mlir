@@ -1029,29 +1029,51 @@ cpu_hoistable_binary_ops = [
 ]
 
 # Create hoisted versions of operations by currying the unit_attrs parameter
-def create_hoisted_op(op_func):
+def create_hoisted_op(op_func, name):
     """Create a hoisted version of an operation by adding the should_hoist unit attribute"""
 
     def hoisted_op(in0, builder, **kwargs):
         # For unary ops
         return op_func(in0, builder, unit_attrs=["should_hoist"], **kwargs)
 
+    # Set the name for better test identification
+    hoisted_op.__name__ = f"hoisted_{name}"
     return hoisted_op
 
 
-def create_hoisted_binary_op(op_func):
+def create_hoisted_binary_op(op_func, name):
     """Create a hoisted version of a binary operation by adding the should_hoist unit attribute"""
 
     def hoisted_op(in0, in1, builder, **kwargs):
         # For binary ops
         return op_func(in0, in1, builder, unit_attrs=["should_hoist"], **kwargs)
 
+    # Set the name for better test identification
+    hoisted_op.__name__ = f"hoisted_{name}"
     return hoisted_op
 
 
-# Create hoisted versions of all hoistable operations
-hoisted_unary_ops = [create_hoisted_op(op) for op in cpu_hoistable_unary_ops]
-hoisted_binary_ops = [create_hoisted_binary_op(op) for op in cpu_hoistable_binary_ops]
+# Create hoisted versions of all hoistable operations with proper names
+hoisted_unary_ops = [
+    create_hoisted_op(exp, "exp"),
+    create_hoisted_op(log, "log"),
+    create_hoisted_op(sqrt, "sqrt"),
+    create_hoisted_op(rsqrt, "rsqrt"),
+    create_hoisted_op(abs, "abs"),
+    create_hoisted_op(ceil, "ceil"),
+    create_hoisted_op(floor, "floor"),
+    create_hoisted_op(tanh, "tanh"),
+    create_hoisted_op(reciprocal, "reciprocal"),
+    create_hoisted_op(neg, "neg"),
+]
+
+hoisted_binary_ops = [
+    create_hoisted_binary_op(add, "add"),
+    create_hoisted_binary_op(multiply, "multiply"),
+    create_hoisted_binary_op(subtract, "subtract"),
+    create_hoisted_binary_op(div, "div"),
+    create_hoisted_binary_op(pow, "pow"),
+]
 
 
 @pytest.mark.parametrize("shape", [(128, 128)])

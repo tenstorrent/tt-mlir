@@ -636,7 +636,9 @@ class TTIRBuilder:
 
     # TTIR top level ops
 
-    def get_dimension_size(self, in0: Operand, dimension: int = 0) -> OpView:
+    def get_dimension_size(
+        self, in0: Operand, dimension: int = 0, unit_attrs: List[str] = None
+    ) -> OpView:
         golden_dim = [self._get_golden_tensor(in0).size(dimension)]
         return self.op_proxy(
             torch.tensor,
@@ -647,6 +649,7 @@ class TTIRBuilder:
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
             organize_golden_args=lambda i: 0,
             output_type=self.get_type_from_torch_dtype(torch.int32),
+            unit_attrs=unit_attrs,
         )
 
     def dot_general(
@@ -800,7 +803,9 @@ class TTIRBuilder:
 
     # class TTIR_ElementwiseUnaryWithFloatParameterOp
 
-    def leaky_relu(self, in0: Operand, parameter: float = 0.01) -> OpView:
+    def leaky_relu(
+        self, in0: Operand, parameter: float = 0.01, unit_attrs: List[str] = None
+    ) -> OpView:
         # TODO: reconcile this naming mismatch
         ttir_kwargs = {"parameter": parameter}
         golden_kwargs = {"negative_slope": parameter}
@@ -810,62 +815,135 @@ class TTIRBuilder:
             [in0],
             golden_kwargs=golden_kwargs,
             ttir_kwargs=ttir_kwargs,
+            unit_attrs=unit_attrs,
         )
 
     # class TTIR_ElementwiseBinaryOp
 
-    def eq(self, in0: Operand, in1: Operand) -> OpView:
-        return self.eltwise_proxy(torch.eq, ttir.EqualOp, [in0, in1])
+    def eq(self, in0: Operand, in1: Operand, unit_attrs: List[str] = None) -> OpView:
+        return self.op_proxy(
+            torch.eq,
+            ttir.EqualOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+        )
 
-    def ne(self, in0: Operand, in1: Operand) -> OpView:
-        return self.eltwise_proxy(torch.ne, ttir.NotEqualOp, [in0, in1])
+    def ne(self, in0: Operand, in1: Operand, unit_attrs: List[str] = None) -> OpView:
+        return self.op_proxy(
+            torch.ne,
+            ttir.NotEqualOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+        )
 
-    def ge(self, in0: Operand, in1: Operand) -> OpView:
-        return self.eltwise_proxy(torch.ge, ttir.GreaterEqualOp, [in0, in1])
+    def ge(self, in0: Operand, in1: Operand, unit_attrs: List[str] = None) -> OpView:
+        return self.op_proxy(
+            torch.ge,
+            ttir.GreaterEqualOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+        )
 
-    def gt(self, in0: Operand, in1: Operand) -> OpView:
-        return self.eltwise_proxy(torch.gt, ttir.GreaterThanOp, [in0, in1])
+    def gt(self, in0: Operand, in1: Operand, unit_attrs: List[str] = None) -> OpView:
+        return self.op_proxy(
+            torch.gt,
+            ttir.GreaterThanOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+        )
 
-    def le(self, in0: Operand, in1: Operand) -> OpView:
-        return self.eltwise_proxy(torch.le, ttir.LessEqualOp, [in0, in1])
+    def le(self, in0: Operand, in1: Operand, unit_attrs: List[str] = None) -> OpView:
+        return self.op_proxy(
+            torch.le,
+            ttir.LessEqualOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+        )
 
-    def lt(self, in0: Operand, in1: Operand) -> OpView:
-        return self.eltwise_proxy(torch.lt, ttir.LessThanOp, [in0, in1])
+    def lt(self, in0: Operand, in1: Operand, unit_attrs: List[str] = None) -> OpView:
+        return self.op_proxy(
+            torch.lt,
+            ttir.LessThanOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+        )
 
-    def logical_and(self, in0: Operand, in1: Operand) -> OpView:
-        return self.eltwise_proxy(torch.logical_and, ttir.LogicalAndOp, [in0, in1])
+    def logical_and(
+        self, in0: Operand, in1: Operand, unit_attrs: List[str] = None
+    ) -> OpView:
+        return self.eltwise_proxy(
+            torch.logical_and, ttir.LogicalAndOp, [in0, in1], unit_attrs=unit_attrs
+        )
 
-    def logical_or(self, in0: Operand, in1: Operand) -> OpView:
-        return self.eltwise_proxy(torch.logical_or, ttir.LogicalOrOp, [in0, in1])
+    def logical_or(
+        self, in0: Operand, in1: Operand, unit_attrs: List[str] = None
+    ) -> OpView:
+        return self.eltwise_proxy(
+            torch.logical_or, ttir.LogicalOrOp, [in0, in1], unit_attrs=unit_attrs
+        )
 
-    def logical_xor(self, in0: Operand, in1: Operand) -> OpView:
-        return self.eltwise_proxy(torch.logical_xor, ttir.LogicalXorOp, [in0, in1])
+    def logical_xor(
+        self, in0: Operand, in1: Operand, unit_attrs: List[str] = None
+    ) -> OpView:
+        return self.eltwise_proxy(
+            torch.logical_xor, ttir.LogicalXorOp, [in0, in1], unit_attrs=unit_attrs
+        )
 
-    def bitwise_and(self, in0: Operand, in1: Operand) -> OpView:
-        return self.eltwise_proxy(torch.bitwise_and, ttir.BitwiseAndOp, [in0, in1])
+    def bitwise_and(
+        self, in0: Operand, in1: Operand, unit_attrs: List[str] = None
+    ) -> OpView:
+        return self.eltwise_proxy(
+            torch.bitwise_and, ttir.BitwiseAndOp, [in0, in1], unit_attrs=unit_attrs
+        )
 
-    def bitwise_or(self, in0: Operand, in1: Operand) -> OpView:
-        return self.eltwise_proxy(torch.bitwise_or, ttir.BitwiseOrOp, [in0, in1])
+    def bitwise_or(
+        self, in0: Operand, in1: Operand, unit_attrs: List[str] = None
+    ) -> OpView:
+        return self.eltwise_proxy(
+            torch.bitwise_or, ttir.BitwiseOrOp, [in0, in1], unit_attrs=unit_attrs
+        )
 
-    def bitwise_xor(self, in0: Operand, in1: Operand) -> OpView:
-        return self.eltwise_proxy(torch.bitwise_xor, ttir.BitwiseXorOp, [in0, in1])
+    def bitwise_xor(
+        self, in0: Operand, in1: Operand, unit_attrs: List[str] = None
+    ) -> OpView:
+        return self.eltwise_proxy(
+            torch.bitwise_xor, ttir.BitwiseXorOp, [in0, in1], unit_attrs=unit_attrs
+        )
 
-    def minimum(self, in0: Operand, in1: Operand) -> OpView:
-        return self.eltwise_proxy(torch.minimum, ttir.MinimumOp, [in0, in1])
+    def minimum(
+        self, in0: Operand, in1: Operand, unit_attrs: List[str] = None
+    ) -> OpView:
+        return self.eltwise_proxy(
+            torch.minimum, ttir.MinimumOp, [in0, in1], unit_attrs=unit_attrs
+        )
 
-    def subtract(self, in0: Operand, in1: Operand) -> OpView:
-        return self.eltwise_proxy(torch.subtract, ttir.SubtractOp, [in0, in1])
+    def subtract(
+        self, in0: Operand, in1: Operand, unit_attrs: List[str] = None
+    ) -> OpView:
+        return self.eltwise_proxy(
+            torch.subtract, ttir.SubtractOp, [in0, in1], unit_attrs=unit_attrs
+        )
 
-    def remainder(self, in0: Operand, in1: Operand) -> OpView:
-        return self.eltwise_proxy(torch.remainder, ttir.RemainderOp, [in0, in1])
+    def remainder(
+        self, in0: Operand, in1: Operand, unit_attrs: List[str] = None
+    ) -> OpView:
+        return self.eltwise_proxy(
+            torch.remainder, ttir.RemainderOp, [in0, in1], unit_attrs=unit_attrs
+        )
 
-    def pow(self, in0: Operand, in1: Operand) -> OpView:
-        return self.eltwise_proxy(torch.pow, ttir.PowOp, [in0, in1])
+    def pow(self, in0: Operand, in1: Operand, unit_attrs: List[str] = None) -> OpView:
+        return self.eltwise_proxy(
+            torch.pow, ttir.PowOp, [in0, in1], unit_attrs=unit_attrs
+        )
 
     # class TTIR_ReductionOp
 
     def argmax(
-        self, in0: Operand, dim_arg: List[int], keep_dim: bool = False
+        self,
+        in0: Operand,
+        dim_arg: List[int],
+        keep_dim: bool = False,
+        unit_attrs: List[str] = None,
     ) -> OpView:
         return self.op_proxy(
             torch.argmax,
@@ -875,10 +953,15 @@ class TTIRBuilder:
             ttir_kwargs={"dim_arg": dim_arg, "keep_dim": keep_dim},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             output_type=IntegerType.get_signless(32, self._ctx),
+            unit_attrs=unit_attrs,
         )
 
     def sum(
-        self, in0: Operand, dim_arg: List[int] = [0], keep_dim: bool = True
+        self,
+        in0: Operand,
+        dim_arg: List[int] = [0],
+        keep_dim: bool = True,
+        unit_attrs: List[str] = None,
     ) -> OpView:
         return self.op_proxy(
             torch.sum,
@@ -887,10 +970,15 @@ class TTIRBuilder:
             golden_kwargs={"dim": dim_arg, "keepdim": keep_dim},
             ttir_kwargs={"dim_arg": dim_arg, "keep_dim": keep_dim},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+            unit_attrs=unit_attrs,
         )
 
     def mean(
-        self, in0: Operand, dim_arg: List[int] = [0], keep_dim: bool = True
+        self,
+        in0: Operand,
+        dim_arg: List[int] = [0],
+        keep_dim: bool = True,
+        unit_attrs: List[str] = None,
     ) -> OpView:
         return self.op_proxy(
             torch.mean,
@@ -899,9 +987,16 @@ class TTIRBuilder:
             golden_kwargs={"dim": dim_arg, "keepdim": keep_dim},
             ttir_kwargs={"dim_arg": dim_arg, "keep_dim": keep_dim},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+            unit_attrs=unit_attrs,
         )
 
-    def max(self, in0: Operand, dim_arg: int = None, keep_dim: bool = True) -> OpView:
+    def max(
+        self,
+        in0: Operand,
+        dim_arg: int = None,
+        keep_dim: bool = True,
+        unit_attrs: List[str] = None,
+    ) -> OpView:
         # Handle ttir and golden function arguments for edge cases
         golden_kwargs = {}
         ttir_kwargs = {"keep_dim": keep_dim}
@@ -920,9 +1015,16 @@ class TTIRBuilder:
             ttir_kwargs=ttir_kwargs,
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             output_shape=output_shape,
+            unit_attrs=unit_attrs,
         )
 
-    def min(self, in0: Operand, dim_arg: int = None, keep_dim: bool = True) -> OpView:
+    def min(
+        self,
+        in0: Operand,
+        dim_arg: int = None,
+        keep_dim: bool = True,
+        unit_attrs: List[str] = None,
+    ) -> OpView:
         # Handle ttir and golden function arguments for edge cases
         golden_kwargs = {}
         ttir_kwargs = {"keep_dim": keep_dim}
@@ -941,11 +1043,16 @@ class TTIRBuilder:
             ttir_kwargs=ttir_kwargs,
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             output_shape=output_shape,
+            unit_attrs=unit_attrs,
         )
 
     # NOTE: Not useable. Boolean tensors are not supported by the runtime. Issue #1775
     def reduce_and(
-        self, in0: Operand, keep_dim: bool = True, dim_args: Optional[List] = None
+        self,
+        in0: Operand,
+        keep_dim: bool = True,
+        dim_args: Optional[List] = None,
+        unit_attrs: List[str] = None,
     ) -> OpView:
         return self.op_proxy(
             torch.all,
@@ -954,11 +1061,16 @@ class TTIRBuilder:
             golden_kwargs={"dim": tuple(dim_args), "keepdim": keep_dim},
             ttir_kwargs={"dim_arg": dim_args, "keep_dim": keep_dim},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+            unit_attrs=unit_attrs,
         )
 
     # NOTE: Not useable. Boolean tensors are not supported by the runtime. Issue #1775
     def reduce_or(
-        self, in0: Operand, keep_dim: bool = True, dim_args: Optional[List] = None
+        self,
+        in0: Operand,
+        keep_dim: bool = True,
+        dim_args: Optional[List] = None,
+        unit_attrs: List[str] = None,
     ) -> OpView:
         return self.op_proxy(
             torch.any,
@@ -967,9 +1079,16 @@ class TTIRBuilder:
             golden_kwargs={"dim": tuple(dim_args)},
             ttir_kwargs={"dim_arg": dim_args, "keep_dim": keep_dim},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+            unit_attrs=unit_attrs,
         )
 
-    def prod(self, in0: Operand, dim_arg: List[int], keep_dim: bool = False) -> OpView:
+    def prod(
+        self,
+        in0: Operand,
+        dim_arg: List[int],
+        keep_dim: bool = False,
+        unit_attrs: List[str] = None,
+    ) -> OpView:
         g_kwargs = {}
         if len(dim_arg) == 1:
             g_kwargs["dim"] = dim_arg[0]
@@ -984,9 +1103,12 @@ class TTIRBuilder:
             golden_kwargs=g_kwargs,
             ttir_kwargs={"keep_dim": keep_dim, "dim_arg": dim_arg},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+            unit_attrs=unit_attrs,
         )
 
-    def embedding(self, in0: Operand, in1: Operand) -> OpView:
+    def embedding(
+        self, in0: Operand, in1: Operand, unit_attrs: List[str] = None
+    ) -> OpView:
         embedding = torch.nn.Embedding.from_pretrained(self._get_golden_tensor(in1))
         return self.op_proxy(
             embedding,
@@ -996,9 +1118,12 @@ class TTIRBuilder:
             organize_golden_args=lambda i: (
                 torch.ones(self._get_golden_tensor(i[0]).size(), dtype=torch.long),
             ),
+            unit_attrs=unit_attrs,
         )
 
-    def cumsum(self, in0: Operand, in1: Operand, dim: int) -> OpView:
+    def cumsum(
+        self, in0: Operand, in1: Operand, dim: int, unit_attrs: List[str] = None
+    ) -> OpView:
         return self.op_proxy(
             torch.cumsum,
             ttir.CumSumOp,
@@ -1007,9 +1132,12 @@ class TTIRBuilder:
             ttir_kwargs={"dim": dim, "output": in1},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
             organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
+            unit_attrs=unit_attrs,
         )
 
-    def softmax(self, in0: Operand, dimension: int = 1) -> OpView:
+    def softmax(
+        self, in0: Operand, dimension: int = 1, unit_attrs: List[str] = None
+    ) -> OpView:
         return self.op_proxy(
             # torch.softmax,
             torch.nn.functional.softmax,
@@ -1022,9 +1150,12 @@ class TTIRBuilder:
                 o,
                 dimension,
             ),
+            unit_attrs=unit_attrs,
         )
 
-    def transpose(self, in0: Operand, dim0: int = 0, dim1: int = 1) -> OpView:
+    def transpose(
+        self, in0: Operand, dim0: int = 0, dim1: int = 1, unit_attrs: List[str] = None
+    ) -> OpView:
         kwargs = {"dim0": dim0, "dim1": dim1}
         return self.op_proxy(
             torch.transpose,
@@ -1033,9 +1164,12 @@ class TTIRBuilder:
             golden_kwargs=kwargs,
             ttir_kwargs=kwargs,
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+            unit_attrs=unit_attrs,
         )
 
-    def concat(self, ins: List[Operand], dim: int = 0) -> OpView:
+    def concat(
+        self, ins: List[Operand], dim: int = 0, unit_attrs: List[str] = None
+    ) -> OpView:
         kwargs = {"dim": dim}
         return self.op_proxy(
             torch.concat,
@@ -1048,9 +1182,12 @@ class TTIRBuilder:
                 tuple([self._get_golden_tensor(i_i) for i_i in i]),
             ),
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i, o),
+            unit_attrs=unit_attrs,
         )
 
-    def repeat(self, in0: Operand, dims: List[int]) -> OpView:
+    def repeat(
+        self, in0: Operand, dims: List[int], unit_attrs: List[str] = None
+    ) -> OpView:
         return self.op_proxy(
             torch.Tensor.repeat,
             ttir.RepeatOp,
@@ -1058,10 +1195,16 @@ class TTIRBuilder:
             golden_kwargs={"repeats": dims},
             ttir_kwargs={"repeat_dimensions": dims},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+            unit_attrs=unit_attrs,
         )
 
     def repeat_interleave(
-        self, in0: Operand, in1: Operand, repeats: int, dim: int
+        self,
+        in0: Operand,
+        in1: Operand,
+        repeats: int,
+        dim: int,
+        unit_attrs: List[str] = None,
     ) -> OpView:
         return self.op_proxy(
             torch.repeat_interleave,
@@ -1074,9 +1217,16 @@ class TTIRBuilder:
             output_type=self.get_type_from_torch_dtype(
                 self._get_golden_tensor(in1).dtype
             ),
+            unit_attrs=unit_attrs,
         )
 
-    def fill_cache(self, in0: Operand, in1: Operand, batch_offset: int = 0) -> OpView:
+    def fill_cache(
+        self,
+        in0: Operand,
+        in1: Operand,
+        batch_offset: int = 0,
+        unit_attrs: List[str] = None,
+    ) -> OpView:
         cache_tensor = self._get_golden_tensor(in0)
         input_tensor = self._get_golden_tensor(in1)
         a = torch.Tensor.repeat(
@@ -1092,10 +1242,16 @@ class TTIRBuilder:
             ttir_kwargs={"batch_offset": batch_offset},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
             organize_golden_args=lambda i: 0,
+            unit_attrs=unit_attrs,
         )
 
     def update_cache(
-        self, in0: Operand, in1: Operand, in2: Operand, batch_offset: int = 0
+        self,
+        in0: Operand,
+        in1: Operand,
+        in2: Operand,
+        batch_offset: int = 0,
+        unit_attrs: List[str] = None,
     ) -> OpView:
         cache = self._get_golden_tensor(in0)
         input_tensor = self._get_golden_tensor(in1)
@@ -1111,10 +1267,15 @@ class TTIRBuilder:
             ttir_kwargs={"batch_offset": batch_offset},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], i[2]),
             organize_golden_args=lambda i: 0,
+            unit_attrs=unit_attrs,
         )
 
     def broadcast(
-        self, in0: Operand, in1: Operand, broadcast_dimensions: List[int]
+        self,
+        in0: Operand,
+        in1: Operand,
+        broadcast_dimensions: List[int],
+        unit_attrs: List[str] = None,
     ) -> OpView:
         return self.op_proxy(
             torch.broadcast_to,
@@ -1123,6 +1284,7 @@ class TTIRBuilder:
             golden_kwargs={"size": self.get_shape(in1)},
             ttir_kwargs={"broadcast_dimensions": broadcast_dimensions},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+            unit_attrs=unit_attrs,
         )
 
     def conv2d(
@@ -1135,6 +1297,7 @@ class TTIRBuilder:
         padding: Union[int, List[int]],
         dilation: Union[int, List[int]],
         groups: int,
+        unit_attrs: List[str] = None,
     ) -> OpView:
         if not bias:
             bias = None
@@ -1155,6 +1318,7 @@ class TTIRBuilder:
                 "groups": groups,
             },
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], o),
+            unit_attrs=unit_attrs,
         )
 
     def conv2d_golden_function(
@@ -1202,6 +1366,7 @@ class TTIRBuilder:
         output_padding: Union[int, List[int]],
         dilation: Union[int, List[int]],
         groups: int,
+        unit_attrs: List[str] = None,
     ) -> OpView:
         if not bias:
             bias = None
@@ -1225,6 +1390,7 @@ class TTIRBuilder:
                 "bias": bias,
             },
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], o),
+            unit_attrs=unit_attrs,
         )
 
     def conv_transpose2d_golden_function(
@@ -1278,6 +1444,7 @@ class TTIRBuilder:
         padding_right: int,
         padding_top: int,
         padding_bottom: int,
+        unit_attrs: List[str] = None,
     ) -> OpView:
         return self.op_proxy(
             self.max_pool2d_golden_function,
@@ -1304,6 +1471,7 @@ class TTIRBuilder:
                 "padding_bottom": padding_bottom,
             },
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+            unit_attrs=unit_attrs,
         )
 
     def max_pool2d_golden_function(
@@ -1329,7 +1497,9 @@ class TTIRBuilder:
         result = result.transpose(-3, -2).transpose(-2, -1)
         return result
 
-    def reshape(self, in0: Operand, shape: Shape) -> OpView:
+    def reshape(
+        self, in0: Operand, shape: Shape, unit_attrs: List[str] = None
+    ) -> OpView:
         kwargs = {"shape": shape}
         return self.op_proxy(
             torch.reshape,
@@ -1338,9 +1508,17 @@ class TTIRBuilder:
             ttir_kwargs=kwargs,
             golden_kwargs=kwargs,
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+            unit_attrs=unit_attrs,
         )
 
-    def pad(self, in0: Operand, in1: Operand, padding: List[int], value: int) -> OpView:
+    def pad(
+        self,
+        in0: Operand,
+        in1: Operand,
+        padding: List[int],
+        value: int,
+        unit_attrs: List[str] = None,
+    ) -> OpView:
         # Reformatting padding dimensions for golden tensor:
         golden_padding = []
         for i in range(len(padding) // 2):
@@ -1354,6 +1532,7 @@ class TTIRBuilder:
             ttir_kwargs={"padding": padding, "value": value},
             organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
+            unit_attrs=unit_attrs,
         )
 
     def select(
@@ -1363,6 +1542,7 @@ class TTIRBuilder:
         begin: int = 0,
         length: int = 2,
         stride: Optional[int] = None,
+        unit_attrs: List[str] = None,
     ) -> OpView:
         end = begin + length - 1
         index = torch.tensor([begin, end])
@@ -1381,10 +1561,17 @@ class TTIRBuilder:
                 "stride": stride,
             },
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+            unit_attrs=unit_attrs,
         )
 
     def index(
-        self, in0: Operand, dim: int = 0, begin: int = 0, end: int = 3, step: int = 1
+        self,
+        in0: Operand,
+        dim: int = 0,
+        begin: int = 0,
+        end: int = 3,
+        step: int = 1,
+        unit_attrs: List[str] = None,
     ) -> OpView:
         index = torch.tensor([begin, end, step])
         return self.op_proxy(
@@ -1394,9 +1581,12 @@ class TTIRBuilder:
             golden_kwargs={"dim": dim, "index": index},
             ttir_kwargs={"dim": dim, "begin": begin, "end": end, "step": step},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+            unit_attrs=unit_attrs,
         )
 
-    def squeeze(self, in0: Operand, dim: Optional[int] = 0) -> OpView:
+    def squeeze(
+        self, in0: Operand, dim: Optional[int] = 0, unit_attrs: List[str] = None
+    ) -> OpView:
         kwargs = {"dim": dim}
         return self.op_proxy(
             torch.squeeze,
@@ -1405,9 +1595,12 @@ class TTIRBuilder:
             golden_kwargs=kwargs,
             ttir_kwargs=kwargs,
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+            unit_attrs=unit_attrs,
         )
 
-    def unsqueeze(self, in0: Operand, dim: Optional[int] = 0) -> OpView:
+    def unsqueeze(
+        self, in0: Operand, dim: Optional[int] = 0, unit_attrs: List[str] = None
+    ) -> OpView:
         kwargs = {"dim": dim}
         return self.op_proxy(
             torch.unsqueeze,
@@ -1416,6 +1609,7 @@ class TTIRBuilder:
             golden_kwargs=kwargs,
             ttir_kwargs=kwargs,
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+            unit_attrs=unit_attrs,
         )
 
     def clamp_scalar(
@@ -1423,6 +1617,7 @@ class TTIRBuilder:
         in0: Operand,
         min_arg: Optional[float] = None,
         max_arg: Optional[float] = None,
+        unit_attrs: List[str] = None,
     ) -> OpView:
         kwargs = {"min": min_arg, "max": max_arg}
         return self.op_proxy(
@@ -1432,6 +1627,7 @@ class TTIRBuilder:
             ttir_kwargs=kwargs,
             golden_kwargs=kwargs,
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+            unit_attrs=unit_attrs,
         )
 
     def clamp_tensor(
@@ -1440,6 +1636,7 @@ class TTIRBuilder:
         in1: Operand,
         in2: Operand,
         in3: Operand,
+        unit_attrs: List[str] = None,
     ) -> OpView:
         return self.op_proxy(
             torch.clamp,
@@ -1459,13 +1656,12 @@ class TTIRBuilder:
                 i[3],
             ),
             organize_golden_args=lambda i: 0,
+            unit_attrs=unit_attrs,
         )
 
-<<<<<<< HEAD
-    def zeros(self, shape: Shape, data_type: Optional[Type] = None, unit_attrs: dict = None) -> OpView:
-=======
-    def zeros(self, shape: Shape, data_type: Optional[Type] = None) -> OpView:
->>>>>>> 3bdd2afd8 (adapt to Collin's changes)
+    def zeros(
+        self, shape: Shape, data_type: Optional[Type] = None, unit_attrs: dict = None
+    ) -> OpView:
         output = self.ranked_tensor_type(shape)
         dtype = data_type if data_type is not None else self._default_dtype
         return self.op_proxy(
@@ -1476,13 +1672,10 @@ class TTIRBuilder:
             ttir_kwargs={"result": output, "shape": shape},
             organize_ttir_args=lambda i, o, shape: 0,
             output_type=dtype,
+            unit_attrs=unit_attrs,
         )
 
-<<<<<<< HEAD
     def ones(self, shape: Shape, unit_attrs: dict = None) -> OpView:
-=======
-    def ones(self, shape: Shape) -> OpView:
->>>>>>> 3bdd2afd8 (adapt to Collin's changes)
         output = self.ranked_tensor_type(shape)
         return self.op_proxy(
             torch.ones,
@@ -1491,9 +1684,12 @@ class TTIRBuilder:
             golden_kwargs={"size": shape},
             ttir_kwargs={"result": output, "shape": shape},
             organize_ttir_args=lambda i, o, shape: 0,
+            unit_attrs=unit_attrs,
         )
 
-    def reverse(self, in0: Operand, dims: List[int]) -> OpView:
+    def reverse(
+        self, in0: Operand, dims: List[int], unit_attrs: List[str] = None
+    ) -> OpView:
         return self.op_proxy(
             torch.flip,
             ttir.ReverseOp,
@@ -1501,6 +1697,7 @@ class TTIRBuilder:
             golden_kwargs={"dims": dims},
             ttir_kwargs={"dimensions": dims},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+            unit_attrs=unit_attrs,
         )
 
     def linear(
@@ -1510,6 +1707,7 @@ class TTIRBuilder:
         bias: Optional[Operand] = None,
         transpose_a: bool = False,
         transpose_b: bool = False,
+        unit_attrs: List[str] = None,
     ) -> OpView:
         kwargs = {"transpose_a": transpose_a, "transpose_b": transpose_b, "bias": bias}
         return self.op_proxy(
@@ -1519,6 +1717,7 @@ class TTIRBuilder:
             golden_kwargs=kwargs,
             ttir_kwargs=kwargs,
             organize_ttir_args=lambda i, o, shape: (self._get_type(o), i[0], i[1], o),
+            unit_attrs=unit_attrs,
         )
 
     def linear_golden_function(
@@ -1558,12 +1757,16 @@ class TTIRBuilder:
             torch.matmul,
             ttir.MatmulOp,
             inputs,
-            unit_attrs=unit_attrs,
             organize_ttir_args=lambda i, o, shape: (self._get_type(o), i[0], i[1], o),
+            unit_attrs=unit_attrs,
         )
 
     def permute(
-        self, in0: Operand, in1: Operand, permutation: DenseI64ArrayAttr
+        self,
+        in0: Operand,
+        in1: Operand,
+        permutation: DenseI64ArrayAttr,
+        unit_attrs: List[str] = None,
     ) -> OpView:
         return self.op_proxy(
             torch.permute,
@@ -1573,6 +1776,7 @@ class TTIRBuilder:
             ttir_kwargs={"permutation": permutation},
             organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
             organize_ttir_args=lambda i, o, _: (self._get_type(i[1]), i[0], i[1]),
+            unit_attrs=unit_attrs,
         )
 
     def upsample2d(
@@ -1581,6 +1785,7 @@ class TTIRBuilder:
         in1: Operand,
         scale_factor: Union[SI32Attr, DenseI32ArrayAttr],
         mode: str = "nearest",
+        unit_attrs: List[str] = None,
     ) -> OpView:
         golden_scale_factor = (
             tuple(scale_factor) if not isinstance(scale_factor, int) else scale_factor
@@ -1593,14 +1798,17 @@ class TTIRBuilder:
             ttir_kwargs={"scale_factor": scale_factor, "mode": mode},
             organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
             organize_ttir_args=lambda i, o, _: (self._get_type(i[1]), i[0], i[1]),
+            unit_attrs=unit_attrs,
         )
 
     def arange(
-<<<<<<< HEAD
-        self, result: Operand, start: int, end: int, step: int, arange_dimension: int, unit_attrs: dict = None
-=======
-        self, result: Operand, start: int, end: int, step: int, arange_dimension: int
->>>>>>> 3bdd2afd8 (adapt to Collin's changes)
+        self,
+        result: Operand,
+        start: int,
+        end: int,
+        step: int,
+        arange_dimension: int,
+        unit_attrs: List[str] = None,
     ) -> OpView:
         single_dim_tensor = torch.arange(
             start=start, end=end, step=step, dtype=self._get_golden_tensor(result).dtype
@@ -1630,55 +1838,64 @@ class TTIRBuilder:
             output_type=self.get_type_from_torch_dtype(
                 self._get_golden_tensor(result).dtype
             ),
+            unit_attrs=unit_attrs,
         )
 
     # TTIR top level generic ops
     # class TTIR_GenericElementwiseUnaryOp
 
     def exp(self, in0: Operand, unit_attrs: List[str] = None) -> OpView:
-        return self.eltwise_proxy(torch.exp, ttir.ExpOp, [in0], unit_attrs)
+        return self.eltwise_proxy(torch.exp, ttir.ExpOp, [in0], unit_attrs=unit_attrs)
 
     # class TTIR_GenericElementwiseBinaryOp
 
     def add(self, in0: Operand, in1: Operand, unit_attrs: List[str] = None) -> OpView:
-        return self.op_proxy(
+        return self.eltwise_proxy(
             torch.add,
             ttir.AddOp,
             [in0, in1],
             unit_attrs=unit_attrs,
-            use_zeros=True,
         )
 
     def multiply(
         self, in0: Operand, in1: Operand, unit_attrs: List[str] = None
     ) -> OpView:
-        return self.op_proxy(
+        return self.eltwise_proxy(
             torch.multiply,
             ttir.MultiplyOp,
             [in0, in1],
             unit_attrs=unit_attrs,
-            use_zeros=True,
         )
 
     def subtract(
         self, in0: Operand, in1: Operand, unit_attrs: List[str] = None
     ) -> OpView:
-        return self.op_proxy(
+        return self.eltwise_proxy(
             torch.sub,
             ttir.SubtractOp,
             [in0, in1],
             unit_attrs=unit_attrs,
-            use_zeros=True,
         )
 
-    def div(self, in0: Operand, in1: Operand) -> OpView:
-        return self.eltwise_proxy(torch.div, ttir.DivOp, [in0, in1])
+    def div(self, in0: Operand, in1: Operand, unit_attrs: List[str] = None) -> OpView:
+        return self.eltwise_proxy(
+            torch.div, ttir.DivOp, [in0, in1], unit_attrs=unit_attrs
+        )
 
-    def maximum(self, in0: Operand, in1: Operand) -> OpView:
-        return self.eltwise_proxy(torch.maximum, ttir.MaximumOp, [in0, in1])
+    def maximum(
+        self, in0: Operand, in1: Operand, unit_attrs: List[str] = None
+    ) -> OpView:
+        return self.eltwise_proxy(
+            torch.maximum, ttir.MaximumOp, [in0, in1], unit_attrs=unit_attrs
+        )
 
     def quantize(
-        self, in0: Operand, scale: float, zero_point: int, dtype: torch.dtype
+        self,
+        in0: Operand,
+        scale: float,
+        zero_point: int,
+        dtype: torch.dtype,
+        unit_attrs: List[str] = None,
     ) -> OpView:
         golden_kwargs = {"scale": scale, "zero_point": zero_point, "dtype": dtype}
         return self.op_proxy(
@@ -1696,10 +1913,16 @@ class TTIRBuilder:
             output_type=self.get_type_from_torch_dtype(
                 TypeInfo(dtype=dtype, scale=scale, zero_point=zero_point)
             ),
+            unit_attrs=unit_attrs,
         )
 
     def dequantize(
-        self, in0: Operand, scale: float, zero_point: int, dtype: torch.dtype
+        self,
+        in0: Operand,
+        scale: float,
+        zero_point: int,
+        dtype: torch.dtype,
+        unit_attrs: List[str] = None,
     ) -> OpView:
         return self.op_proxy(
             torch.dequantize,
@@ -1711,10 +1934,16 @@ class TTIRBuilder:
                 o,
             ),
             output_type=self.get_type_from_torch_dtype(dtype=dtype),
+            unit_attrs=unit_attrs,
         )
 
     def requantize(
-        self, in0: Operand, scale: float, zero_point: int, dtype: torch.dtype
+        self,
+        in0: Operand,
+        scale: float,
+        zero_point: int,
+        dtype: torch.dtype,
+        unit_attrs: List[str] = None,
     ) -> OpView:
         golden_kwargs = {"scale": scale, "zero_point": zero_point, "dtype": dtype}
         return self.op_proxy(
@@ -1732,6 +1961,7 @@ class TTIRBuilder:
             output_type=self.get_type_from_torch_dtype(
                 TypeInfo(dtype=dtype, scale=scale, zero_point=zero_point)
             ),
+            unit_attrs=unit_attrs,
         )
 
     # CCL ops
