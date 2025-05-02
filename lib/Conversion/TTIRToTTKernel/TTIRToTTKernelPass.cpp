@@ -75,7 +75,7 @@ struct ConvertTTIRToTTKernel
           memref.getContext(), ttkernel::symbolizeCBPort(0).value(), 0, memref);
     });
     typeConverter.addConversion([](ttir::SemaphoreType semaphore) {
-      return ttkernel::SemaphoreType::get(semaphore.getContext(), 0);
+      return ttkernel::SemaphoreType::get(semaphore.getContext());
     });
     // typeConverter.addConversion([](ttkernel::SemaphoreType semaphore) {
     //   return ttkernel::L1AddrType::get(semaphore.getContext());
