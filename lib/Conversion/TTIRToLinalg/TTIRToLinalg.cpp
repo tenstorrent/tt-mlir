@@ -456,11 +456,10 @@ public:
 
     for (auto input : inputs) {
       auto inputType = dyn_cast<RankedTensorType>(input.getType());
-      assert(inputType && "Input must be a ranked tensor type.")
+      assert(inputType && "Input must be a ranked tensor type.");
 
-          // Calculate offsets, sizes, and strides for this input
-          SmallVector<OpFoldResult>
-              offsets, sizes, strides;
+      // Calculate offsets, sizes, and strides for this input
+      SmallVector<OpFoldResult> offsets, sizes, strides;
       for (unsigned i = 0; i < inputType.getRank(); ++i) {
         if (i == dim) {
           offsets.push_back(rewriter.getI64IntegerAttr(offset));
