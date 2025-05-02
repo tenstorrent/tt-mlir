@@ -53,13 +53,10 @@ class Helper:
 
 
 class DeviceContext:
-    def __init__(
-        self, mesh_shape, mesh_offset=None, enable_async=None, enable_program_cache=None
-    ):
+    def __init__(self, mesh_shape, mesh_offset=None, enable_program_cache=None):
         options = ttrt.runtime.MeshDeviceOptions()
         if mesh_offset is not None:
             options.mesh_offset = mesh_offset
-        options.enable_async_ttnn = enable_async
         options.enable_program_cache = enable_program_cache
         self.device = ttrt.runtime.open_mesh_device(mesh_shape, options)
 

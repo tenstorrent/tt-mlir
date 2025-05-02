@@ -53,7 +53,7 @@ def test_eltwise_binary_add_data_parallel(helper: Helper, request):
     ]
     assert len(batched_tensors) == 2
 
-    with DeviceContext(mesh_shape=[1, 2], enable_async=True) as parent_mesh:
+    with DeviceContext(mesh_shape=[1, 2]) as parent_mesh:
         threads = []
         results = []
         submeshes = []
