@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/Utils.h"
 
@@ -64,6 +65,14 @@ public:
         conv2dOp.getWeightMutable().assign(prepareConv2dWeightsOp);
       });
     });
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+    // Explicitly close device, leaving it open causes issues in frontend
+    // runtime.
+    // This will be removed once we switch to virtual device:
+    // https://github.com/tenstorrent/tt-metal/issues/14000
+    mlir::tt::op_model::ttnn::SingletonDeviceContext::closeInstance();
+#endif
   }
 
 private:

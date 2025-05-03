@@ -28,6 +28,7 @@ class SingletonDeviceContext {
 public:
   static SingletonDeviceContext &getInstance();
   static void resetInstance();
+  static void closeInstance();
 
   ::tt::tt_metal::IDevice *getDevice() { return m_device; }
 
@@ -41,7 +42,8 @@ private:
 
   ::tt::tt_metal::IDevice *m_device;
 
-  void resetDevice(const size_t trace_region_size = DEFAULT_TRACE_REGION_SIZE);
+  void openDevice(const size_t trace_region_size = DEFAULT_TRACE_REGION_SIZE);
+  void closeDevice();
 };
 } // namespace mlir::tt::op_model::ttnn
 
