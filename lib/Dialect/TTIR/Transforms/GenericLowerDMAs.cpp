@@ -299,9 +299,10 @@ public:
                                     /*pageSize=*/0);
       return device.getMemoryMap(srcUnderlyingMemrefAndView, srcPageSize);
     } else {
-      return canonicalStridedMap(
-          device.getContext(),
-          mlir::cast<MemRefType>(input.getType()).getShape());
+      MemRefType inputType = mlir::cast<MemRefType>(input.getType());
+      return canonicalStridedMap(device.getContext(), inputType.getShape(),
+                                 inputType.getElementType(),
+                                 inputType.getLayout().getAffineMap());
     }
   }
 
@@ -326,12 +327,25 @@ public:
       return {affineApply(map, index)};
     }
   }
-  
+
   static AffineMap canonicalStridedMap(MLIRContext *context,
-                                       ArrayRef<int64_t> shape) {
-    return mlir::AffineMap::get(
-        shape.size(), 0, mlir::makeCanonicalStridedLayoutExpr(shape, context),
-        context);
+                                       ArrayRef<int64_t> shape,
+                                       Type elementType, AffineMap map) {
+    assert(map.isIdentity() && "Only identity maps are supported for now.");
+    auto tileType = mlir::dyn_cast<TileType>(elementType);
+    int64_t elementSizeBytes = tileType
+                                   ? tileType.getSizeBytes()
+                                   : elementType.getIntOrFloatBitWidth() / 8;
+    int64_t currentStride = elementSizeBytes;
+    int64_t rank = shape.size();
+    mlir::AffineExpr strideExpr = getAffineConstantExpr(0, context);
+    for (int64_t i = rank - 1; i >= 0; i--) {
+      mlir::AffineExpr dim = getAffineDimExpr(i, context);
+      mlir::AffineExpr stride = getAffineConstantExpr(currentStride, context);
+      strideExpr = dim * stride + strideExpr;
+      currentStride *= shape[i];
+    }
+    return mlir::AffineMap::get(shape.size(), 0, strideExpr, context);
   }
 };
 } // namespace
