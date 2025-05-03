@@ -4,9 +4,10 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
+#include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::ttir {
@@ -17,7 +18,10 @@ namespace {
 class ElementTypeConverter : public TypeConverter {
 public:
   ElementTypeConverter() {
-    addConversion([](RankedTensorType type) -> std::optional<RankedTensorType> {
+    addConversion(
+        [](quant::QuantizedType type) -> quant::QuantizedType { return type; });
+
+    addConversion([](RankedTensorType type) -> RankedTensorType {
       Type elementType = type.getElementType();
 
       // Skip quantized types - don't modify them.
@@ -27,12 +31,59 @@ public:
 
       elementType = mlir::tt::ttcore::toTTMLIRSupportedDataType(elementType);
       if (!elementType) {
-        return {};
+        return nullptr;
       }
 
       return RankedTensorType::get(type.getShape(), elementType,
                                    type.getEncoding());
     });
+
+    auto addUnrealizedCast = [](OpBuilder &builder, Type type,
+                                ValueRange inputs, Location loc) -> Value {
+      RankedTensorType rankedType = cast<RankedTensorType>(type);
+      return ttir::utils::createDPSOp<ttir::TypecastOp>(builder, loc,
+                                                        rankedType, inputs);
+    };
+
+    addSourceMaterialization(addUnrealizedCast);
+    addTargetMaterialization(addUnrealizedCast);
+  }
+};
+
+class UniformConversion : public ConversionPattern {
+public:
+  UniformConversion(const TypeConverter &converter, MLIRContext *ctx,
+                    PatternBenefit benefit = 1)
+      : ConversionPattern(converter, MatchAnyOpTypeTag(), benefit, ctx) {}
+
+  LogicalResult
+  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const final {
+    // Remap original operands to converted operands
+    IRMapping mapping;
+    mapping.map(op->getOperands(), operands);
+
+    // Clone the original operation with the new operands
+    Operation *newOp = rewriter.clone(*op, mapping);
+
+    // Convert the result types using the type converter
+    SmallVector<Type> convertedTypes;
+    if (failed(getTypeConverter()->convertTypes(op->getResultTypes(),
+                                                convertedTypes))) {
+      return op->emitOpError("failed to convert result types");
+    }
+
+    // Update result types in-place on the new operation
+    rewriter.modifyOpInPlace(newOp, [&]() {
+      for (auto [newResult, newType] :
+           llvm::zip(newOp->getResults(), convertedTypes)) {
+        newResult.setType(newType);
+      }
+    });
+
+    // Replace the old op with the new one
+    rewriter.replaceOp(op, newOp);
+    return success();
   }
 };
 
@@ -44,8 +95,9 @@ class ConstantOpAttrRewriter : public OpRewritePattern<tt::ttir::ConstantOp> {
 public:
   using OpRewritePattern<tt::ttir::ConstantOp>::OpRewritePattern;
 
-  ConstantOpAttrRewriter(const TypeConverter &converter, MLIRContext *ctx)
-      : OpRewritePattern(ctx), converter(converter) {}
+  ConstantOpAttrRewriter(const TypeConverter &converter, MLIRContext *ctx,
+                         PatternBenefit benefit = 1)
+      : OpRewritePattern(ctx, benefit), converter(converter) {}
 
   LogicalResult matchAndRewrite(tt::ttir::ConstantOp op,
                                 PatternRewriter &rewriter) const override {
@@ -135,57 +187,45 @@ struct ElementTypeNormalization
       ElementTypeNormalization>::ElementTypeNormalizationBase;
 
   void runOnOperation() final {
-    // Check that all types are supported by TTMLIR.
-    if (!checkSupportedTypes()) {
-      signalPassFailure();
-      return;
+    {
+      mlir::ConversionTarget target(getContext());
+      target.markUnknownOpDynamicallyLegal([this](Operation *op) {
+        if (!isa<TTIRDialect>(op->getDialect())) {
+          return true;
+        }
+        if (llvm::all_of(op->getResultTypes(), [this](Type type) {
+              return this->converter.isLegal(type);
+            })) {
+          return true;
+        }
+        return false;
+      });
+
+      RewritePatternSet patterns(&getContext());
+      patterns.add<UniformConversion>(converter, &getContext());
+
+      // Apply full conversion
+      //
+      if (failed(applyFullConversion(getOperation(), target,
+                                     std::move(patterns)))) {
+        signalPassFailure();
+        return;
+      }
     }
 
-    RewritePatternSet patterns(&getContext());
-    patterns.add<UniformTypeRewriter>(converter, &getContext());
-    patterns.add<ConstantOpAttrRewriter>(converter, &getContext());
-    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
-      signalPassFailure();
-      return;
+    {
+      RewritePatternSet patterns(&getContext());
+      patterns.add<ConstantOpAttrRewriter>(converter, &getContext(),
+                                           /*benefit=*/1);
+      if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
+        signalPassFailure();
+        return;
+      }
     }
   }
 
 private:
   ElementTypeConverter converter;
-
-  bool isLegal(Type type) const {
-    return converter.convertType(type) != nullptr;
-  }
-
-  bool isLegal(Operation *op) const {
-    auto isTypeLegal = [this](Type type) { return isLegal(type); };
-
-    // Special handling for function signature
-    if (auto funcOp = llvm::dyn_cast<func::FuncOp>(op)) {
-      return llvm::all_of(funcOp.getArgumentTypes(), isTypeLegal) &&
-             llvm::all_of(funcOp.getResultTypes(), isTypeLegal);
-    }
-
-    // Default case: check operand and result types
-    return llvm::all_of(op->getOperandTypes(), isTypeLegal) &&
-           llvm::all_of(op->getResultTypes(), isTypeLegal);
-  }
-
-  // Check that all operations in module are using supported types.
-  bool checkSupportedTypes() {
-    ModuleOp moduleOp = getOperation();
-    WalkResult walkResult =
-        moduleOp->walk<WalkOrder::PreOrder>([&](Operation *op) {
-          if (!isLegal(op)) {
-            op->emitOpError("Unsupported type.");
-            return WalkResult::interrupt();
-          }
-
-          return WalkResult::advance();
-        });
-
-    return !walkResult.wasInterrupted();
-  }
 };
 } // namespace
 
