@@ -159,6 +159,11 @@ private:
   }
 
   void processOp(Operation *op) {
+    // Skip terminator ops.
+    if (op->hasTrait<mlir::OpTrait::IsTerminator>()) {
+      return;
+    }
+
     // Skip creation ops, they have special handling.
     if (isCreationOp(op)) {
       return;
