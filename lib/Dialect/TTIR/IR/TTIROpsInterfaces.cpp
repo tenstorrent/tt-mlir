@@ -102,13 +102,14 @@ static mlir::AffineMap reblockViewWorkaround(mlir::MemRefType inputMemref,
 
   // Uncanonicalize.
   for (size_t i = 0; i < inputGridShape.size(); i++) {
-    auto dS = getAffineDimExpr(i + inputGridShape.size(), ctx);
+    size_t j = i + inputGridShape.size();
+    auto dS = getAffineDimExpr(j, ctx);
     mapExprs[i] = dS.floorDiv(inputShardShape[i]);
   }
   for (size_t i = 0; i < inputGridShape.size(); i++) {
-    size_t j = i + resultGridShape.size();
+    size_t j = i + inputGridShape.size();
     auto dS = getAffineDimExpr(j, ctx);
-    mapExprs[j] = dS % inputGridShape[i];
+    mapExprs[j] = dS % inputShardShape[i];
   }
   auto canonicalToInput = mlir::AffineMap::get(rank, 0, mapExprs, ctx);
 
@@ -142,6 +143,7 @@ a . b . c . d
 
 std::pair<mlir::MemRefType, mlir::AffineMap>
 mlir::tt::ttir::applyViews(mlir::Operation *op) {
+  // op->dump();
   auto viewOp = mlir::dyn_cast<ttir::ViewOpInterface>(op);
   auto resultMemref = mlir::cast<mlir::MemRefType>(op->getResult(0).getType());
   if (!viewOp) {

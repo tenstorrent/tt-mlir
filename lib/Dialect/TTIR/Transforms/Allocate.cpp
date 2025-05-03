@@ -118,7 +118,7 @@ class TTIRAllocateStreams final : public OpRewritePattern<ttir::GenericOp> {
     // A view_layout signals that an op wants to take a view of an
     // operand, possibly to switch to a different core grid shape.
     if (mlir::isa_and_nonnull<ttir::ViewLayoutOp>(definingOp)) {
-      return true;
+      return false;
     }
 
     // No stream (NOC ops) will be needed if 'operand' is already

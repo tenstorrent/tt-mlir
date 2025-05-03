@@ -109,6 +109,13 @@ void mlir::tt::ttir::TileMatmulBlockOp::getEffects(
     return emitOpError("mcast shape requires mcast start index");
   }
 
+  //
+  // Skip below verification steps for lowered DMA.
+  //
+  if (isLowered()) {
+    return success();
+  }
+
   int64_t srcIndices = getSrcAffineMap() ? getSrcAffineMap()->getNumResults()
                                          : getSrcIndices().size();
   int64_t dstIndices = getDstAffineMap() ? getDstAffineMap()->getNumResults()

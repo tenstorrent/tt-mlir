@@ -61,9 +61,7 @@ public:
 
     rewriter.replaceOpWithNewOp<GenericOp>(
         op, view, op.getOutput(),
-        [&](OpBuilder &builder, Location loc, ValueRange blockArgs) {
-          builder.create<YieldOp>(loc, blockArgs[0]);
-        });
+        [&](OpBuilder &, Location, ValueRange) { /*nop*/ });
 
     return success();
   }

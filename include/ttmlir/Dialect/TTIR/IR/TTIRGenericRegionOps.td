@@ -335,11 +335,9 @@ def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
       }
       bool isDstRemote() { return !isDstLocal(); }
       bool isMcast() { return !getMcastShape().empty(); }
-      bool isAffine() { return getSrcAffineMap() || getDstAffineMap(); }
-      bool isFullyIndexed() {
-        return static_cast<int64_t>(getSrcIndices().size()) == getSrcMemRefType().getRank() &&
-               static_cast<int64_t>(getDstIndices().size()) == getDstMemRefType().getRank() &&
-               getOptNumElems();
+      bool isAffine() { return (getSrcAffineMap() || getDstAffineMap()) && getSrcIndices().empty() && getDstIndices().empty(); }
+      bool isLowered() {
+        return bool(getOptNumElems());
       }
     }];
 }

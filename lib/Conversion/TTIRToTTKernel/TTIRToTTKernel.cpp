@@ -9,7 +9,6 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIRTraits.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 
-#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/MLIRContext.h"
@@ -248,7 +247,7 @@ public:
         associatedDMAWaits(associatedDMAWaits) {}
 
   static std::pair<Value, Value>
-  getVirtualCoordsFromLogicalCoords(PatternRewriter &rewriter, Location loc,
+  getVirtualCoordsFromLogicalCoords(OpBuilder &rewriter, Location loc,
                                     ChipDescAttr chipDesc,
                                     ValueRange dstCoreIndex) {
     std::pair<Value, Value> nocCoords;
@@ -302,14 +301,8 @@ public:
   }
 
   static std::tuple<AffineMap, AffineMap, AffineMap>
-  getIndividualResultMaps(Operation *op, tt::DeviceAttr device,
-                          OpBuilder &builder) {
-    std::pair<MemRefType, AffineMap> memrefAndView = ttir::applyViews(op);
-    size_t pageSize =
-        device.getMemrefSizeBytes(memrefAndView.first, /*pageSize=*/0);
-    AffineMap memoryMap = device.getMemoryMap(memrefAndView, pageSize, 0)
-                              .dropResult(0); // drop the device index
-    assert(memoryMap.getNumResults() == 3);
+  getIndividualResultMaps(AffineMap memoryMap) {
+    memoryMap = memoryMap.dropResults(0); // Drop the device index.
     auto gridY = memoryMap.dropResults({1, 2});
     auto gridX = memoryMap.dropResults({0, 2});
     auto offset = memoryMap.dropResults({0, 1});
@@ -329,9 +322,37 @@ public:
         ->getResult(0);
   }
 
+  static Value buildNocAddress(OpBuilder &rewriter, Location loc,
+                               Value baseAddr, ValueRange index,
+                               ChipDescAttr chipDesc) {
+    assert(index.size() == 3);
+    auto gridY = index[0];
+    auto gridX = index[1];
+    auto offset = index[2];
+    auto offsetInt =
+        rewriter.create<arith::IndexCastOp>(loc, rewriter.getI32Type(), offset);
+    auto addr = rewriter.create<arith::AddIOp>(loc, baseAddr, offsetInt);
+    // Translate the src coordinates to virtual coordinates.
+    auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
+        rewriter, loc, chipDesc, ValueRange{gridY, gridX});
+    return rewriter.create<ttkernel::GetNocAddrOp>(loc, virtX, virtY, addr);
+  }
+
+  static Value buildL1Address(OpBuilder &rewriter, Location loc, Value baseAddr,
+                              ValueRange index) {
+    auto dstOffset = rewriter.create<arith::IndexCastOp>(
+        loc, rewriter.getI32Type(), index[0]);
+    return rewriter.create<arith::AddIOp>(loc, baseAddr, dstOffset);
+  }
+
   LogicalResult
   matchAndRewrite(ttir::DMAOp op, ttir::DMAOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    if (!op.isLowered()) {
+      return rewriter.notifyMatchFailure(
+          op, "Unsupported DMA form that is not lowered.");
+    }
+
     auto device = lookupDevice(op);
     auto systemDesc = getCurrentScopeSystemDesc(op);
     auto chipIds = device.getChipIds();
@@ -348,12 +369,6 @@ public:
                                op.getDst().getType().getMemorySpace())
                                .getValue()) &&
            "Expected src and dst memory spaces to be L1, failing.");
-
-    auto applyMap = [&](AffineMap map, ValueRange index) {
-      auto apply =
-          rewriter.create<affine::AffineApplyOp>(op.getLoc(), map, index);
-      return apply;
-    };
 
     bool isRead = false;
     if (op.isSrcLocal() && op.isDstLocal()) {
@@ -418,10 +433,8 @@ public:
                                                    nocAddr, transferSize);
       }
     } else if (op.isSrcLocal() && op.isDstRemote()) {
+      assert(op.getDstIndices().size() == 3);
       // Local to Remote write
-      if (!op.getOptNumElems()) {
-        op.setOptNumElems(getMemrefShardNumElems(op.getDst().getType()));
-      }
       auto transferSize =
           i32(rewriter, op->getLoc(),
               op.getNumElems() * getElementSizeBytes(op.getDstMemRefType()));
@@ -430,16 +443,9 @@ public:
       Value srcL1Start = rewriter.create<ttkernel::GetReadPtrOp>(
           op.getLoc(), adaptor.getSrc());
 
-      // Use the affine mapping from the dst memref to get the dst address and
-      // coordinates
-      AffineMap dstGridYMap, dstGridXMap, dstOffsetMap;
-      std::tie(dstGridYMap, dstGridXMap, dstOffsetMap) =
-          getIndividualResultMaps(op.getDst().getDefiningOp(), device,
-                                  rewriter);
-
-      auto dstGridY = applyMap(dstGridYMap, op.getDstIndices());
-      auto dstGridX = applyMap(dstGridXMap, op.getDstIndices());
-      auto dstOffset = applyMap(dstOffsetMap, op.getDstIndices());
+      auto dstGridY = op.getDstIndices()[0];
+      auto dstGridX = op.getDstIndices()[1];
+      auto dstOffset = op.getDstIndices()[2];
       auto dstOffsetInt = rewriter.create<arith::IndexCastOp>(
           op.getLoc(), rewriter.getI32Type(), dstOffset);
 
@@ -456,43 +462,22 @@ public:
       rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Start,
                                                  nocAddr, transferSize);
     } else if (op.isSrcRemote() && op.isDstLocal()) {
-      // Remote to Local read
-      if (!op.getOptNumElems()) {
-        op.setOptNumElems(getMemrefShardNumElems(op.getSrc().getType()));
-      }
+      auto srcBaseAddr =
+          castCBTypeAsAddress(rewriter, op->getLoc(), adaptor.getSrc());
+      auto srcNocAddr = buildNocAddress(rewriter, op.getLoc(), srcBaseAddr,
+                                        op.getSrcIndices(), chipDesc);
 
-      // Use the cb addr as the write address since it is local
-      Value dstL1Start = rewriter.create<ttkernel::GetWritePtrOp>(
+      // Use the cb addr as the write address since it is local.
+      Value dstBaseAddr = rewriter.create<ttkernel::GetWritePtrOp>(
           op.getLoc(), adaptor.getDst());
+      auto dstL1Addr = buildL1Address(rewriter, op.getLoc(), dstBaseAddr,
+                                      op.getDstIndices());
 
-      // Use the affine mapping from the src memref to get the src address and
-      // coordinates
-      AffineMap srcGridYMap, srcGridXMap, srcOffsetMap;
-      std::tie(srcGridYMap, srcGridXMap, srcOffsetMap) =
-          getIndividualResultMaps(op.getSrc().getDefiningOp(), device,
-                                  rewriter);
-
-      auto srcGridY = applyMap(srcGridYMap, op.getSrcIndices());
-      auto srcGridX = applyMap(srcGridXMap, op.getSrcIndices());
-      auto srcOffset = applyMap(srcOffsetMap, op.getSrcIndices());
-      auto srcOffsetInt = rewriter.create<arith::IndexCastOp>(
-          op.getLoc(), rewriter.getI32Type(), srcOffset);
       auto size =
           i32(rewriter, op->getLoc(),
               op.getNumElems() * getElementSizeBytes(op.getSrcMemRefType()));
-
-      auto srcAddrAsInt =
-          castCBTypeAsAddress(rewriter, op->getLoc(), adaptor.getSrc());
-      auto srcAddr = rewriter.create<arith::AddIOp>(op.getLoc(), srcOffsetInt,
-                                                    srcAddrAsInt);
-
-      // Translate the src coordinates to virtual coordinates
-      auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
-          rewriter, op.getLoc(), chipDesc, ValueRange{srcGridY, srcGridX});
-      auto srcNocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
-          op.getLoc(), virtX, virtY, srcAddr);
       rewriter.create<ttkernel::NocAsyncReadOp>(op.getLoc(), srcNocAddr,
-                                                dstL1Start, size);
+                                                dstL1Addr, size);
       isRead = true;
     } else {
       emitError(op.getLoc(), "Unsupported DMA Configuration");

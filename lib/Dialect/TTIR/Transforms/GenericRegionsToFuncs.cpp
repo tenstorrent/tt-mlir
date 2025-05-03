@@ -38,7 +38,7 @@ static void rewriteOperand(OpBuilder &builder, DMAOp dma, OpOperand &dmaOperand,
   }
   Operation *globalOperand =
       builder.create<GetGlobalOperandOp>(dma.getLoc(), memref, operandIndex);
-  if (!affineMapView.isIdentity()) {
+  if (false && !affineMapView.isIdentity()) {
     globalOperand = builder.create<ViewLayoutOp>(
         dma.getLoc(),
         mlir::MemRefType::get(memref.getShape(), memref.getElementType(),
