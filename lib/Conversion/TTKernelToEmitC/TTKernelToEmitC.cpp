@@ -338,6 +338,50 @@ public:
 } // namespace
 
 namespace {
+class TTKernelToEmitCDPrintRewriter
+    : public OpConversionPattern<ttkernel::DPrintOp> {
+public:
+  using OpConversionPattern<ttkernel::DPrintOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttkernel::DPrintOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto ostreamType = rewriter.getType<emitc::OpaqueType>("auto&&");
+
+    auto lshift = [&](Value lhs, Value rhs) {
+      return rewriter
+          .create<emitc::BitwiseLeftShiftOp>(op.getLoc(), ostreamType, lhs, rhs)
+          .getResult();
+    };
+
+    auto stringlit = [&](StringRef str) {
+      return rewriter
+          .create<emitc::LiteralOp>(op.getLoc(), ostreamType,
+                                    (Twine("\"") + str + "\"").str())
+          .getResult();
+    };
+
+    Value stream =
+        rewriter.create<emitc::LiteralOp>(op.getLoc(), ostreamType, "DPRINT")
+            .getResult();
+    auto [fmt, rest] = op.getFmt().split("{}");
+    for (Value operand : adaptor.getArgv()) {
+      stream = lshift(stream, stringlit(fmt));
+      stream = lshift(stream, operand);
+      std::tie(fmt, rest) = rest.split("{}");
+    }
+
+    if (!fmt.empty()) {
+      stream = lshift(stream, stringlit(fmt));
+    }
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 template <typename Op, typename Adaptor = typename Op::Adaptor>
 class TTKernelMacroOpToEmitCOpRewriter : public OpConversionPattern<Op> {
 public:
@@ -504,7 +548,7 @@ public:
 
     patterns.add<
         TTKernelToEmitCFuncArgsRewriter,
-        TTKernelToEmitCGetCompileArgValRewriter,
+        TTKernelToEmitCGetCompileArgValRewriter, TTKernelToEmitCDPrintRewriter,
         TTKernelToEmitCPassthroughRewriter<ttkernel::CBReinterpretShapeOp>,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosBaseOp>,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosSizeOp>,

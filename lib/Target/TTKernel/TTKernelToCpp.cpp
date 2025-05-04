@@ -27,10 +27,19 @@ namespace mlir::tt::ttkernel {
 namespace {
 class ScopedModuleHelper {
 public:
-  ScopedModuleHelper(OpBuilder *builder, Location loc, ThreadType threadType)
+  ScopedModuleHelper(OpBuilder *builder, Location loc, ThreadType threadType,
+                     StringRef originalSymbolName = "")
       : builder(builder), loc(loc), threadType(threadType) {
+    if (!originalSymbolName.empty()) {
+      emitComment(builder, originalSymbolName);
+    }
     builder->create<emitc::IncludeOp>(loc, "cstdint",
                                       /*isStandard=*/true);
+    builder->create<emitc::IncludeOp>(loc, "debug/dprint.h",
+                                      /*isStandard=*/false);
+    builder->create<emitc::VerbatimOp>(
+        loc, "template <> uint8_t DebugPrintTypeToId<size_t>() { return "
+             "DPrintUINT32; }");
     if (threadType == ThreadType::Noc) {
 
       builder->create<emitc::IncludeOp>(loc, "dataflow_api.h",
@@ -90,6 +99,10 @@ public:
     }
   }
 
+  void emitComment(OpBuilder *builder, StringRef str) {
+    builder->create<emitc::VerbatimOp>(loc, (Twine("// ") + str).str());
+  }
+
 private:
   OpBuilder *builder;
   Location loc;
@@ -112,7 +125,8 @@ cloneEntryIntoStandaloneModule(func::FuncOp origEntry, ThreadType threadType) {
 
   Region *kernelMainRegion;
   {
-    ScopedModuleHelper threadConfigHelper(&builder, loc, threadType);
+    ScopedModuleHelper threadConfigHelper(&builder, loc, threadType,
+                                          origEntry.getName());
 
     // Clone 'region' into a new func op nested inside 'moduleWrapper':
     auto kernelMain = builder.create<func::FuncOp>(
