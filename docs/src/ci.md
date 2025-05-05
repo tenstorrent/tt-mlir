@@ -31,7 +31,6 @@ Example:
 
 ```yaml
  {runs-on: n150,   name: "run",  suite: "runtime_debug",     image: "tracy",  type: "ttrt",    path: "Silicon", flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
- {runs-on: n300,   name: "run",  suite: "async",             image: "speedy", type: "ttrt",    path: "Silicon/TTNN", flags: "--non-zero --enable-async-ttnn", container-options: "--device /dev/tenstorrent/0"},
  {runs-on: llmbox, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",    path: "Silicon/TTNN/llmbox/perf", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
  {runs-on: n150,   name: "perf", suite: "explorer",          image: "tracy",  type: "pytest",  path: "tools/explorer/test/run_tests.py", container-options: "--device /dev/tenstorrent/0"},
 ```

@@ -669,6 +669,7 @@ public:
 
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
     registry.insert<mlir::tt::ttir::TTIRDialect>();
+    registry.insert<mlir::tt::ttnn::TTNNDialect>();
     registry.insert<mlir::tt::TTDialect>();
     registry.insert<mlir::func::FuncDialect>();
   }

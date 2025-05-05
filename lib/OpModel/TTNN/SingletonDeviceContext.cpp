@@ -17,29 +17,31 @@ namespace mlir::tt::op_model::ttnn {
 static constexpr size_t opModelDefaultTraceRegionSize = 200000;
 
 SingletonDeviceContext::SingletonDeviceContext(const size_t traceRegionSize) {
-  resetDevice(traceRegionSize);
+  openDevice(traceRegionSize);
 }
 
-SingletonDeviceContext::~SingletonDeviceContext() {
-  ::tt::tt_metal::CloseDevice(m_device);
-}
+SingletonDeviceContext::~SingletonDeviceContext() { closeDevice(); }
 
 SingletonDeviceContext &SingletonDeviceContext::getInstance() {
   static SingletonDeviceContext instance =
       SingletonDeviceContext(opModelDefaultTraceRegionSize);
+  assert(instance.m_device != nullptr);
   return instance;
 }
 
 void SingletonDeviceContext::resetInstance() {
   SingletonDeviceContext &instance = getInstance();
-  instance.resetDevice(opModelDefaultTraceRegionSize);
+  instance.closeDevice();
+  instance.openDevice(opModelDefaultTraceRegionSize);
 }
 
-void SingletonDeviceContext::resetDevice(const size_t traceRegionSize) {
-  if (m_device) {
-    ::tt::tt_metal::CloseDevice(m_device);
-  }
+void SingletonDeviceContext::closeInstance() {
+  SingletonDeviceContext &instance = getInstance();
+  instance.closeDevice();
+}
 
+void SingletonDeviceContext::openDevice(const size_t traceRegionSize) {
+  assert(m_device == nullptr);
   // todo: this replicates logic in runtime/include/tt/runtime/detail/common.h,
   // move to shared location
   size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
@@ -51,6 +53,13 @@ void SingletonDeviceContext::resetDevice(const size_t traceRegionSize) {
       0, /* num_hw_cqs = */ 1,
       /* l1_small_size = */ ::tt::constants::L1_SMALL_SIZE,
       /* trace_region_size = */ traceRegionSize, dispatchCoreType);
+}
+
+void SingletonDeviceContext::closeDevice() {
+  if (m_device) {
+    ::tt::tt_metal::CloseDevice(m_device);
+    m_device = nullptr;
+  }
 }
 
 } // namespace mlir::tt::op_model::ttnn

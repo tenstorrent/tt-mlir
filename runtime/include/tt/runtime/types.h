@@ -120,7 +120,6 @@ struct MeshDeviceOptions {
   std::vector<uint32_t> meshOffset{0, 0};
   std::vector<int> deviceIds{};
   size_t numHWCQs = 1;
-  bool enableAsyncTTNN = false;
   bool enableProgramCache = false;
   std::optional<size_t> l1SmallSize = std::nullopt;
   std::optional<DispatchCoreType> dispatchCoreType = std::nullopt;

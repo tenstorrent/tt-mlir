@@ -91,7 +91,7 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
         iterator_types = [#parallel, #parallel],     // Iterator types for the input/output tensors. See linalg.generic
         threads = [#ttir.thread<compute>],           // Thread types for the regions.
         operandSegmentSizes = array<i32: 2, 1>       // Sizes of the operand segments, i.e. 2 inputs and 1 output.
-      ({
+      }> ({
       ^bb0(%arg2: memref<64x128xf32, #l1_>,
            %arg3: memref<64x128xf32, #l1_>,
            %arg4: memref<64x128xf32, #l1_>):
@@ -1417,7 +1417,7 @@ def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d"> {
     let extraClassDeclaration = [{
       // Get number of output channels
       int64_t getOutputChannelSize();
-      bool verifyBias(llvm::ArrayRef<int64_t> biasDims);
+      bool isBiasCompatible(llvm::ArrayRef<int64_t> biasDims);
       MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
     }];
 
