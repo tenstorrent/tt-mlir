@@ -12,7 +12,6 @@ import ttrt.library_tweaks
 
 ttrt.library_tweaks.set_tt_metal_home()
 
-import ttrt.binary
 from ttrt.common.api import API
 from importlib.metadata import version
 

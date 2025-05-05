@@ -58,10 +58,10 @@ config.system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
 system_desc = None
 if config.system_desc_path:
     try:
-        import ttrt
+        import ttrt.runtime
 
-        system_desc = ttrt.binary.as_dict(
-            ttrt.binary.load_system_desc_from_path(config.system_desc_path)
+        system_desc = ttrt.runtime.as_dict(
+            ttrt.runtime.load_system_desc_from_path(config.system_desc_path)
         )["system_desc"]
         config.available_features.add(system_desc["chip_descs"][0]["arch"])
     except ImportError:

@@ -17,7 +17,6 @@ import shutil
 import atexit
 
 from ttrt.common.util import *
-import ttrt.binary
 
 
 class Read:
@@ -421,12 +420,12 @@ class Read:
 
     def system_desc(self, *binaries):
         return self._operate_on_binary(
-            binaries, lambda binary: ttrt.binary.as_dict(binary.fbb)["system_desc"]
+            binaries, lambda binary: ttrt.runtime.as_dict(binary.fbb)["system_desc"]
         )
 
     def mlir(self, *binaries):
         def _get_mlir(binary):
-            bin_dict = ttrt.binary.as_dict(binary.fbb)
+            bin_dict = ttrt.runtime.as_dict(binary.fbb)
             results = []
             for program in bin_dict["programs"]:
                 if "debug_info" not in program:
@@ -447,7 +446,7 @@ class Read:
 
     def cpp(self, *binaries):
         def _get_cpp(binary):
-            bin_dict = ttrt.binary.as_dict(binary.fbb)
+            bin_dict = ttrt.runtime.as_dict(binary.fbb)
             results = []
             for program in bin_dict["programs"]:
                 if "debug_info" not in program:
@@ -465,7 +464,7 @@ class Read:
             binaries,
             lambda binary: [
                 {program["name"]: program["inputs"]}
-                for program in ttrt.binary.as_dict(binary.fbb)["programs"]
+                for program in ttrt.runtime.as_dict(binary.fbb)["programs"]
             ],
         )
 
@@ -474,13 +473,13 @@ class Read:
             binaries,
             lambda binary: [
                 {program["name"]: program["outputs"]}
-                for program in ttrt.binary.as_dict(binary.fbb)["programs"]
+                for program in ttrt.runtime.as_dict(binary.fbb)["programs"]
             ],
         )
 
     def op_stats(self, *binaries):
         return self._operate_on_binary(
-            binaries, lambda binary: ttrt.binary.stats.collect_op_stats(binary.fbb)
+            binaries, lambda binary: ttrt.runtime.stats.collect_op_stats(binary.fbb)
         )
 
     @staticmethod
