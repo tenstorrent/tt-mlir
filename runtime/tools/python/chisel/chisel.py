@@ -92,6 +92,11 @@ class ChiselContext:
         arg_attrs = self.ttir_module.body.operations[0].arg_attrs
         self.tensor_inputs = {}
         for i, input in enumerate(mlir_inputs):
+            # check if exsitst input_dir/tensors/i.pt
+            if os.path.exists(self.input_dir / f"tensors/{i}.pt"):
+                tensor = torch.load(self.input_dir / f"tensors/{i}.pt")
+                self.tensor_inputs[f"%arg{i}"] = tensor
+                continue
             attrs = arg_attrs[i]
             # ttir_name_attr = attrs["ttir.name"]
             # if ttir_name_attr is None:
