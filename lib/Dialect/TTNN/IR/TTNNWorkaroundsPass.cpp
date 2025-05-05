@@ -344,11 +344,9 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
   TTNNOperandWorkarounds typeWorkaround = TTNNOperandWorkarounds();
   if(predicateElementType.isInteger() || inputElementType.isInteger()) {
     typeWorkaround = TTNNOperandWorkarounds(DataType::BFloat16);
-  } else {
-    if (predicateElementType != inputElementType) {
+  } else if (predicateElementType != inputElementType) {
       typeWorkaround =
           TTNNOperandWorkarounds(elementTypeToDataType(inputElementType));
-      }
   }
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
