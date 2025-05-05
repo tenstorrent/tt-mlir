@@ -1596,6 +1596,89 @@ public:
 };
 } // namespace
 
+// Current stableHLO::BatchNormInference accepts the mean, variance,
+// scale, and offset as 1D tensors. This pattern reshapes them to 4D
+// tensors with every dim except second is 1.
+namespace {
+struct BatchNormPattern : public OpConversionPattern<ttir::BatchNormOp> {
+public:
+  using OpConversionPattern<ttir::BatchNormOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::BatchNormOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    auto meanType = mlir::cast<RankedTensorType>(adaptor.getMean().getType());
+    if (meanType.getRank() != 1) {
+      return rewriter.notifyMatchFailure(
+          op, "BatchNormInferenceOp mean must be 1D tensor");
+    }
+    ttir::ReshapeOp reshapeMean =
+        reshapeTo4DTensor(rewriter, op, adaptor.getMean());
+
+    auto varType =
+        mlir::cast<RankedTensorType>(adaptor.getVariance().getType());
+    if (varType.getRank() != 1) {
+      return rewriter.notifyMatchFailure(
+          op, "BatchNormInferenceOp var must be 1D tensor");
+    }
+    ttir::ReshapeOp reshapeVariance =
+        reshapeTo4DTensor(rewriter, op, adaptor.getVariance());
+
+    auto weightType =
+        mlir::cast<RankedTensorType>(adaptor.getScale().getType());
+    if (weightType.getRank() != 1) {
+      return rewriter.notifyMatchFailure(
+          op, "BatchNormInferenceOp weight must be 1D tensor");
+    }
+    ttir::ReshapeOp reshapeScale =
+        reshapeTo4DTensor(rewriter, op, adaptor.getScale());
+
+    auto biasType = mlir::cast<RankedTensorType>(adaptor.getOffset().getType());
+    if (biasType.getRank() != 1) {
+      return rewriter.notifyMatchFailure(
+          op, "BatchNormInferenceOp bias must be 1D tensor");
+    }
+    ttir::ReshapeOp reshapeOffset =
+        reshapeTo4DTensor(rewriter, op, adaptor.getOffset());
+
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(op.getResult().getType()));
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::BatchNormOp>(
+        op, outputType, adaptor.getOperand(), reshapeScale, reshapeOffset,
+        reshapeMean, reshapeVariance, adaptor.getEpsilonAttr(),
+        adaptor.getDimensionAttr(), rewriter.getBoolAttr(adaptor.getTraining()),
+        adaptor.getOutput());
+
+    return success();
+  }
+
+private:
+  ttir::ReshapeOp reshapeTo4DTensor(PatternRewriter &rewriter,
+                                    ttir::BatchNormOp &op,
+                                    mlir::Value batchNormInput) const {
+    auto inputType =
+        mlir::cast<mlir::RankedTensorType>(batchNormInput.getType());
+    auto newShape =
+        llvm::SmallVector<int64_t>{1, inputType.getDimSize(0), 1, 1};
+    return createReshapeOp(rewriter, op.getLoc(), batchNormInput, newShape);
+  }
+
+  ttir::ReshapeOp createReshapeOp(PatternRewriter &rewriter, Location loc,
+                                  Value input,
+                                  ::llvm::ArrayRef<int64_t> targetShape) const {
+    auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
+    auto shapeAttr =
+        rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(targetShape));
+
+    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, loc, targetShape, inputType.getElementType(),
+        inputType.getEncoding(), input, shapeAttr);
+  }
+};
+} // namespace
+
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter) {
@@ -1609,6 +1692,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<DotGeneralToMatmulConversionPattern>(typeConverter, ctx);
   patterns.add<ReductionAndPattern>(typeConverter, ctx);
   patterns.add<ReductionOrPattern>(typeConverter, ctx);
+  patterns.add<BatchNormPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

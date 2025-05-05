@@ -967,6 +967,38 @@ def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum"> {
     }];
 }
 
+def TTIR_BatchNormOp : TTIR_DPSOp<"batch_norm"> {
+  let summary = "BatchNormInference operation";
+  let description = [{
+    Normalizes the `operand` tensor across all dimensions except for the
+    `feature_index` dimension and puts the result in the `output` tensor.
+
+    Example:
+    ```mlir
+    "ttir.batch_norm"(%operand, %scale, %offset, %mean, %variance, epsilon = dense<f32>, feature_index = dense<i64>, %out) {
+    } : (tensor<2x2x2xf64>, tensor<2xf64>, tensor<2xf64>, tensor<2xf64>, tensor<2xf64>, dense<f32>, dense<i64>, tensor<2x2x2xf64>) -> tensor<2x2x2xf64>
+    ```
+  }];
+
+  let arguments = (ins AnyRankedTensor:$operand,
+                       AnyRankedTensor:$scale,
+                       AnyRankedTensor:$offset,
+                       AnyRankedTensor:$mean,
+                       AnyRankedTensor:$variance,
+                       F32Attr:$epsilon,
+                       I32Attr:$dimension,
+                       BoolAttr:$training,
+                       AnyRankedTensor:$output);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+  }];
+
+  let hasVerifier = 1;
+}
+
 class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
     TTIR_NamedOp<mnemonic, traits> {
 

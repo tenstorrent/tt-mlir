@@ -755,6 +755,40 @@ createOp(FlatbufferObjectCache &cache, PermuteOp op) {
       output);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::BatchNormOp>
+createOp(FlatbufferObjectCache &cache, BatchNormOp op) {
+  flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
+      cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(op.getInput()));
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> runningMean =
+      cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(op.getRunningMean()));
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> runningVar =
+      cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(op.getRunningVar()));
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> weight =
+      cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(op.getWeight()));
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> bias =
+      cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(op.getBias()));
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> output =
+      cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                        kHostAllocatedSize);
+
+  std::vector<::tt::target::Dim2dRange> coreRangeSet =
+      getTensorValueCoreRangeSet(cache, op.getResult());
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
+      op.getMemoryConfig()
+          ? toFlatbuffer(cache, *op.getMemoryConfig())
+          : 0;
+
+  return ::tt::target::ttnn::CreateBatchNormOp(
+      *cache.fbb, input, runningMean, runningVar, op.getTraining(),
+      op.getEpsilon().convertToFloat(), weight, bias, memoryConfig, output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::UpsampleOp>
 createOp(FlatbufferObjectCache &cache, UpsampleOp op) {
   flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
@@ -1867,6 +1901,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto upsampleOp = dyn_cast<UpsampleOp>(op); upsampleOp) {
     return createOperation(cache, createOp(cache, upsampleOp), debugString,
+                           locInfo);
+  }
+  if (auto batchNormOp = dyn_cast<BatchNormOp>(op); batchNormOp) {
+    return createOperation(cache, createOp(cache, batchNormOp), debugString,
                            locInfo);
   }
   if (auto constantOp = dyn_cast<ConstantOp>(op); constantOp) {

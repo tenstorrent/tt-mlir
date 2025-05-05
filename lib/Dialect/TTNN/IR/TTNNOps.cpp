@@ -1902,6 +1902,22 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// BatchNormOp
+//===----------------------------------------------------------------------===//
+
+// SoftmaxOp verification
+::mlir::LogicalResult mlir::tt::ttnn::BatchNormOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+
+  // Verify that all inputs have dimension 4.
+  if (inputType.getRank() != 4) {
+    return emitOpError("Input tensor must have rank 4");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // AllGatherOp
 //===----------------------------------------------------------------------===//
 
