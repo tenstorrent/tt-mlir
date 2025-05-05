@@ -2,19 +2,17 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# RUN: SYSTEM_DESC_PATH=%system_desc_path% %python %s
-
-import inspect
-
-from ttmlir.test_utils import compile_to_flatbuffer
-from ttmlir.ttir_builder import Operand, TTIRBuilder, Shape
 import torch
 import pytest
+
 from typing import List, Tuple
+from ttmlir.test_utils import compile_to_flatbuffer
+from ttmlir.ttir_builder import Operand, TTIRBuilder, Shape
 
 pytestmark = pytest.mark.n300
 
 
+# utility functions to increase readability
 def get_input_tensors_from_builder(args: List, builder: TTIRBuilder):
     input_tensors = []
     for arg in args:
@@ -68,6 +66,8 @@ def shard_to_full_replicate(input, builder):
     )
 
 
+# llama attention with 1x2 mesh
+# PCC drop observed near output83 — under investigation
 @pytest.mark.fails_golden
 @pytest.mark.parametrize(
     "shapes",
@@ -124,11 +124,11 @@ def test_llama_attention_1x2_tp(
         arg13: torch.Tensor,
         arg14: torch.Tensor,
     ):
-        output1 = torch.squeeze(arg0, dim=0)
-        output3 = torch.matmul(output1, arg11)
-        output5 = torch.reshape(output3, shape=(1, 128, 32, 128))
-        output7 = torch.transpose(output5, dim0=-3, dim1=-2)
-        output9 = torch.unsqueeze(arg2, dim=1)
+        output1 = torch.squeeze(arg0, dim=0)  # [128, 4096]
+        output3 = torch.matmul(output1, arg11)  # [128, 4096]
+        output5 = torch.reshape(output3, shape=(1, 128, 32, 128))  # [1, 128, 32, 128]
+        output7 = torch.transpose(output5, dim0=-3, dim1=-2)  # [1, 32, 128, 128]
+        output9 = torch.unsqueeze(arg2, dim=1)  # [1, 1, 128]
         output11 = torch.matmul(arg3, output9)  # [1, 64, 128]
         output13 = torch.transpose(output11, dim0=-2, dim1=-1)  # [1, 128, 64]
         output15 = torch.concat((output13, output13), dim=-1)  # [1, 128, 128]
@@ -245,7 +245,12 @@ def test_llama_attention_1x2_tp(
             cluster_axis=1,
         )  # [1, 64, 128]
         output13 = builder.transpose(output11, -2, -1)  # [1, 128, 64]
-        output15 = output13  # output = output15 = builder.concat([output13, output13], -1) => concat itself. ignore it. concat and shard makes identical result
+        # output15 = builder.concat([output13, output13], -1)
+        # Concatenating output13 with itself along dim ‑1 would still give each device
+        # the same data, because output13 was already all‑gathered. After sharding,
+        # the concat changes nothing, so we skip it and just keep the variable name
+        # to match the numbering in the golden function.
+        output15 = output13
         output17 = builder.cos(output15)  # [1, 128, 64]
         output19 = builder.unsqueeze(output17, 1)  # [1, 1, 128, 64]
         output21 = builder.multiply(output7, output19)  # [1, 32, 128, 64]
@@ -319,11 +324,11 @@ def test_llama_attention_1x2_tp(
         output77 = builder.squeeze(output75, 0)  # [32, 128, 64]
         output79 = builder.transpose(output77, -2, -1)  # [32, 64, 128]
 
-        output47 = shard_to_full_device(output47, builder, 2)
-        output79 = shard_to_full_device(output79, builder, 1)
-        output47 = full_to_shard_replicate(output47, builder)
-        output79 = full_to_shard_device(output79, builder, 2)
         # Use weight sharding to avoid PCC drop
+        output47 = shard_to_full_device(output47, builder, 2)  # [32, 128, 128]
+        output79 = shard_to_full_device(output79, builder, 1)  # [32, 128, 128]
+        output47 = full_to_shard_replicate(output47, builder)  # [32, 128, 128]
+        output79 = full_to_shard_device(output79, builder, 2)  # [32, 128, 64]
         output81 = builder.matmul(output47, output79)  # [32, 128, 64]
         output83 = builder.unsqueeze(output81, 0)  # [1, 32, 128, 64]
 
@@ -382,6 +387,13 @@ def test_llama_attention_1x2_tp(
     )
 
 
+# On a 1×2 mesh the full Llama‑attention test loses PCC near the op that
+# makes `output83`. The error seems to grow as tensors move through the
+# model and may come from a backend precision issue. We split the test
+# into Part 1 and Part 2 and give Part 2 a new input tensor; now each part
+# matches the golden result.
+
+# llama attention part 1 with 1x2
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -526,7 +538,12 @@ def test_llama_attention_1x2_tp_part1(
             cluster_axis=1,
         )  # [1, 64, 128]
         output13 = builder.transpose(output11, -2, -1)  # [1, 128, 64]
-        output15 = output13  # output = output15 = builder.concat([output13, output13], -1) => concat itself. ignore it. concat and shard makes identical result
+        # output15 = builder.concat([output13, output13], -1)
+        # Concatenating output13 with itself along dim ‑1 would still give each device
+        # the same data, because output13 was already all‑gathered. After sharding,
+        # the concat changes nothing, so we skip it and just keep the variable name
+        # to match the numbering in the golden function.
+        output15 = output13
         output17 = builder.cos(output15)  # [1, 128, 64]
         output19 = builder.unsqueeze(output17, 1)  # [1, 1, 128, 64]
         output21 = builder.multiply(output7, output19)  # [1, 32, 128, 64]
@@ -600,11 +617,11 @@ def test_llama_attention_1x2_tp_part1(
         output77 = builder.squeeze(output75, 0)  # [32, 128, 64]
         output79 = builder.transpose(output77, -2, -1)  # [32, 64, 128]
 
-        output47 = shard_to_full_device(output47, builder, 2)
-        output79 = shard_to_full_device(output79, builder, 1)
-        output47 = full_to_shard_replicate(output47, builder)
-        output79 = full_to_shard_device(output79, builder, 2)
         # Use weight sharding to avoid PCC drop
+        output47 = shard_to_full_device(output47, builder, 2)  # [32, 128, 128]
+        output79 = shard_to_full_device(output79, builder, 1)  # [32, 128, 128]
+        output47 = full_to_shard_replicate(output47, builder)  # [32, 128, 128]
+        output79 = full_to_shard_device(output79, builder, 2)  # [32, 128, 64]
         output81 = builder.matmul(output47, output79)  # [32, 128, 64]
         output83 = builder.unsqueeze(output81, 0)  # [1, 32, 128, 64]
         output83 = shard_to_full_device(output83, builder, 3)
@@ -630,6 +647,7 @@ def test_llama_attention_1x2_tp_part1(
     )
 
 
+# llama attention part 2 with 1x2
 @pytest.mark.parametrize(
     "shapes",
     [
