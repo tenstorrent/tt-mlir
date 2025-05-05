@@ -40,7 +40,7 @@ std::string compileCppToSo(const std::string &cppSource,
     exit(1);
   }
 
-  std::string command = "python " + pythonScriptPath.string() + " --file " +
+  std::string command = "python3 " + pythonScriptPath.string() + " --file " +
                         filePath.string() + " --metal-src-dir " + metalSrcDir +
                         " --metal-lib-dir " + metalLibDir;
 
