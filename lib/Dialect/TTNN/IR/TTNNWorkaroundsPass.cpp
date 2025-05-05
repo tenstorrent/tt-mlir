@@ -342,11 +342,11 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
       mlir::cast<RankedTensorType>(inputs.back().getType());
   mlir::Type inputElementType = inputType.getElementType();
   TTNNOperandWorkarounds typeWorkaround = TTNNOperandWorkarounds();
-  if(predicateElementType.isInteger() || inputElementType.isInteger()) {
+  if (predicateElementType.isInteger() || inputElementType.isInteger()) {
     typeWorkaround = TTNNOperandWorkarounds(DataType::Float32);
   } else if (predicateElementType != inputElementType) {
-      typeWorkaround =
-          TTNNOperandWorkarounds(elementTypeToDataType(inputElementType));
+    typeWorkaround =
+        TTNNOperandWorkarounds(elementTypeToDataType(inputElementType));
   }
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
