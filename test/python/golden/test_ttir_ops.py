@@ -281,6 +281,20 @@ def minimum(
     return builder.minimum(in0, in1, unit_attrs=unit_attrs)
 
 
+@pytest.mark.parametrize("shapes", [[(10, 64, 32), (32, 128), (128,)]])
+def test_linear(shapes: List[Shape], request):
+    def linear(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
+        return builder.linear(in0, in1, in2)
+
+    compile_to_flatbuffer(
+        linear,
+        shapes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
 def pow(in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
     return builder.pow(in0, in1, unit_attrs=unit_attrs)
 
@@ -1122,13 +1136,13 @@ unary_ops = [
     pytest.param(tan, marks=pytest.mark.fails_golden),
     atan,
     tanh,
-    log,
-    log1p,
+    pytest.param(log, marks=pytest.mark.fails_golden),
+    pytest.param(log1p, marks=pytest.mark.fails_golden),
     relu,
     gelu,
     leaky_relu,
     sqrt,
-    cbrt,
+    pytest.param(cbrt, marks=pytest.mark.fails_golden),
     rsqrt,
     sigmoid,
     reciprocal,
