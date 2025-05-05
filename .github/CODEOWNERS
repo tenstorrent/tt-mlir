@@ -23,12 +23,12 @@ LICENSE @nsmithtt
 /python/pykernel/ @vtangTT @xanderchin
 
 # StableHLO Conversion
-/include/ttmlir/Conversion/ArithToStableHLO/ @mrakitaTT @mmanzoorTT @wooseokTT @azecevicTT
-/include/ttmlir/Conversion/StableHLOToTTIR/ @mrakitaTT @mmanzoorTT @wooseokTT @azecevicTT
-/lib/Conversion/StableHLOToTTIR/ @mrakitaTT @mmanzoorTT @wooseokTT @azecevicTT
-/test/ttmlir/Conversion/ArithToStableHLO/ @mrakitaTT @mmanzoorTT @wooseokTT @azecevicTT
-/test/ttmlir/Conversion/StableHLOToTTIR/ @mrakitaTT @mmanzoorTT @wooseokTT @azecevicTT
-/test/ttmlir/Silicon/StableHLO/ @mrakitaTT @mmanzoorTT @wooseokTT @azecevicTT
+/include/ttmlir/Conversion/ArithToStableHLO/ @tenstorrent/forge-developers-mlir-stablehlo
+/include/ttmlir/Conversion/StableHLOToTTIR/ @tenstorrent/forge-developers-mlir-stablehlo
+/lib/Conversion/StableHLOToTTIR/ @tenstorrent/forge-developers-mlir-stablehlo
+/test/ttmlir/Conversion/ArithToStableHLO/ @tenstorrent/forge-developers-mlir-stablehlo
+/test/ttmlir/Conversion/StableHLOToTTIR/ @tenstorrent/forge-developers-mlir-stablehlo
+/test/ttmlir/Silicon/StableHLO/ @tenstorrent/forge-developers-mlir-stablehlo
 
 # Linalg Conversion
 /include/ttmlir/Conversion/TTIRToLinalg/ @vwellsTT @ctodTT @nsmithTT
@@ -36,9 +36,9 @@ LICENSE @nsmithtt
 /test/ttmlir/Conversion/TTIRToLinalg/ @vwellsTT @ctodTT @nsmithTT
 
 # Tosa Conversion
-/include/ttmlir/Conversion/TosaToTTIR/ @tenstorrent/forge-developers-mlir-stablehlo
-/lib/Conversion/TosaToTTIR/ @tenstorrent/forge-developers-mlir-stablehlo
-/test/ttmlir/Conversion/TosaToTTIR/ @tenstorrent/forge-developers-mlir-stablehlo
+/include/ttmlir/Conversion/TosaToTTIR/ @mrakitaTT @sgligorijevicTT @sdjukicTT
+/lib/Conversion/TosaToTTIR/ @mrakitaTT @sgligorijevicTT @sdjukicTT
+/test/ttmlir/Conversion/TosaToTTIR/ @mrakitaTT @sgligorijevicTT @sdjukicTT
 
 # TTNN Conversions
 /include/ttmlir/Conversion/TTIRToTTIRDecomposition/ @tenstorrent/forge-developers-mlir-core
