@@ -217,8 +217,8 @@ std::pair<::tt::target::metal::RuntimeArg, ::flatbuffers::Offset<void>>
 toFlatbuffer(FlatbufferObjectCache &cache, ttkernel::SemaphoreType sem) {
   auto runtimeArgType =
       ::tt::target::metal::RuntimeArg::RuntimeArgSemaphoreAddress;
-  auto semAddr = ::tt::target::metal::CreateRuntimeArgSemaphoreAddress(
-      *cache.fbb, sem.getInitialValue());
+  auto semAddr =
+      ::tt::target::metal::CreateRuntimeArgSemaphoreAddress(*cache.fbb);
   return std::make_pair(runtimeArgType, semAddr.Union());
 }
 
