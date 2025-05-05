@@ -328,7 +328,7 @@ TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds() {
 // tt-metal issue to track mixed data types ops bug.
 // https://github.com/tenstorrent/tt-metal/issues/17998
 // Where also does not work with int32
-// so we also force everything to bfloat16 in that case
+// so we also force everything to float32 in that case
 // https://github.com/tenstorrent/tt-mlir/issues/3154
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
@@ -343,7 +343,7 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
   mlir::Type inputElementType = inputType.getElementType();
   TTNNOperandWorkarounds typeWorkaround = TTNNOperandWorkarounds();
   if(predicateElementType.isInteger() || inputElementType.isInteger()) {
-    typeWorkaround = TTNNOperandWorkarounds(DataType::BFloat16);
+    typeWorkaround = TTNNOperandWorkarounds(DataType::Float32);
   } else if (predicateElementType != inputElementType) {
       typeWorkaround =
           TTNNOperandWorkarounds(elementTypeToDataType(inputElementType));
