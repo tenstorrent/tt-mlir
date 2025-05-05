@@ -74,6 +74,7 @@ class OpMapping:
             torch_args["dtype"] = ttir_dtype_maps[
                 str(ir_op.attributes[0].attr.type.element_type)
             ]
+            torch_args["shape"] = ir_op.attributes[0].attr.type.shape
 
         if ir_op.name == "ttir.typecast":
             torch_args["dtype"] = ttir_dtype_maps[
@@ -121,7 +122,12 @@ def custom_typecast(x, dtype=None):
 def custom_constant(*args, **kwargs):
     data = kwargs["data"]
     kwargs.pop("data")
-    return torch.tensor([data], *args, **kwargs)
+    shape = kwargs.get("shape", None)
+
+    res = torch.tensor([data])
+    if shape is not None:
+        res = res.reshape(shape)
+    return res
 
 
 def custom_reduce_and(x, dim=None, keepdim=False):
@@ -136,6 +142,16 @@ def custom_prod(x, dim=None, keepdim=False):
     dim = reversed(sorted(dim))
     for d in dim:
         x = torch.prod(x, d, keepdim=keepdim)
+    return x
+
+
+def custom_max(x, dim=None, keepdim=False):
+    if dim is None:
+        values, _ = torch.max(x)
+        return values
+    dim = reversed(sorted(dim))
+    for d in dim:
+        x, _ = torch.max(x, d, keepdim=keepdim)
     return x
 
 
@@ -185,7 +201,9 @@ ttir_to_torch_mapping = {
     "ttir.logical_and": OpMapping(torch.logical_and),
     "ttir.lt": OpMapping(torch.lt),
     "ttir.matmul": OpMapping(torch.matmul),
-    "ttir.max": OpMapping(torch.max),
+    "ttir.max": OpMapping(
+        custom_max, {"dim_arg": "dim", "keep_dim": "keepdim"}, unpack_inputs=False
+    ),
     "ttir.maximum": OpMapping(torch.maximum),
     "ttir.multiply": OpMapping(torch.multiply),
     "ttir.cumsum": OpMapping(torch.cumsum, {"dim": "dim"}, unpack_inputs=False),
