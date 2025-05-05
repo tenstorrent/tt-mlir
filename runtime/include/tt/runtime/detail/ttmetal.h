@@ -20,11 +20,11 @@
 namespace tt::runtime::ttmetal {
 
 Tensor createTensor(std::shared_ptr<void> data,
-                    std::vector<std::uint32_t> const &shape,
-                    std::vector<std::uint32_t> const &stride,
+                    const std::vector<std::uint32_t> &shape,
+                    const std::vector<std::uint32_t> &stride,
                     std::uint32_t itemsize, ::tt::target::DataType dataType);
 
-inline Tensor createTensor(std::shared_ptr<void> data, TensorDesc const &desc) {
+inline Tensor createTensor(std::shared_ptr<void> data, const TensorDesc &desc) {
   return createTensor(data, desc.shape, desc.stride, desc.itemsize,
                       desc.dataType);
 }
@@ -68,11 +68,11 @@ void wait(Event event);
 
 void wait(Tensor tensor);
 
-void wait(std::vector<Tensor> const &tensors);
+void wait(const std::vector<Tensor> &tensors);
 
 Event submit(Device deviceHandle, Binary executableHandle,
-             std::uint32_t programIndex, std::vector<Tensor> const &inputs,
-             std::vector<Tensor> const &outputs);
+             std::uint32_t programIndex, const std::vector<Tensor> &inputs,
+             const std::vector<Tensor> &outputs);
 
 std::string getOpDebugString(OpContext opContextHandle);
 
@@ -90,16 +90,16 @@ using OutputBuffer =
 
 std::shared_ptr<::tt::tt_metal::Event>
 executeCommandQueue(::tt::tt_metal::IDevice *device,
-                    ::tt::target::metal::CommandQueue const *cq,
-                    std::size_t cq_id, std::vector<InputBuffer> const &inputs,
-                    std::vector<OutputBuffer> const &outputs);
+                    const ::tt::target::metal::CommandQueue *cq,
+                    std::size_t cq_id, const std::vector<InputBuffer> &inputs,
+                    const std::vector<OutputBuffer> &outputs);
 
 // Utils
 
 inline CoreRangeSet toCoreRangeSet(
-    ::flatbuffers::Vector<tt::target::Dim2dRange const *> const *coreRangeSet) {
+    const ::flatbuffers::Vector<const tt::target::Dim2dRange *> *coreRangeSet) {
   std::set<CoreRange> coreRanges;
-  for (::tt::target::Dim2dRange const *coreRange : *coreRangeSet) {
+  for (const ::tt::target::Dim2dRange *coreRange : *coreRangeSet) {
     CoreCoord start(coreRange->loc().x(), coreRange->loc().y());
     // End is inclusive
     CoreCoord end(coreRange->loc().x() + coreRange->size().x() - 1,
@@ -115,13 +115,13 @@ inline CoreRangeSet toCoreRangeSet(
 
 inline std::shared_ptr<::tt::tt_metal::Buffer>
 createBufferFromTensorRef(::tt::tt_metal::IDevice *device,
-                          ::tt::target::metal::TensorRef const *tensorRef) {
-  ::tt::target::metal::TensorDesc const *tensorDesc = tensorRef->desc();
-  ::tt::target::metal::LayoutDesc const *layout = tensorDesc->layout();
-  ::tt::target::metal::MemoryDesc const *memoryDesc = layout->memory_desc();
+                          const ::tt::target::metal::TensorRef *tensorRef) {
+  const ::tt::target::metal::TensorDesc *tensorDesc = tensorRef->desc();
+  const ::tt::target::metal::LayoutDesc *layout = tensorDesc->layout();
+  const ::tt::target::metal::MemoryDesc *memoryDesc = layout->memory_desc();
   CoreRangeSet coreRangeSet = toCoreRangeSet(layout->core_range_set());
   auto shardRank = memoryDesc->shape()->size();
-  ::tt::target::Dim2d const *tile_shape = memoryDesc->tile_shape();
+  const ::tt::target::Dim2d *tile_shape = memoryDesc->tile_shape();
   std::array<uint32_t, 2> shardShape;
   shardShape[1] = memoryDesc->shape()->Get(shardRank - 1) * tile_shape->x();
   shardShape[0] = tile_shape->y();

@@ -104,7 +104,7 @@ protected:
   // Convert from ttir enum to equivalent linalg enum.
   static SmallVector<mlir::utils::IteratorType>
   iteratorTypeTTIRToLinalg(mlir::OpBuilder &builder,
-                           SmallVector<mlir::Attribute> const &iterators) {
+                           const SmallVector<mlir::Attribute> &iterators) {
     auto parallel = tt::IteratorTypeAttr::get(builder.getContext(),
                                               tt::IteratorType::Parallel);
     auto reduction = tt::IteratorTypeAttr::get(builder.getContext(),
@@ -174,15 +174,15 @@ private:
         toLayoutOperands(rewriter, adaptor, op.getDpsInits().size(),
                          deviceGridRank, /*tiled*/ true);
 
-    std::size_t const numInputs = inputs.size();
-    std::size_t const numOutputs = outputs.size();
-    std::size_t const numOperands = (numInputs + numOutputs);
+    const std::size_t numInputs = inputs.size();
+    const std::size_t numOutputs = outputs.size();
+    const std::size_t numOperands = (numInputs + numOutputs);
 
     assert(numOperands == op->getNumOperands());
 
     tt::GridAttr grid = tt::GridAttr::get(ctx, expectedInputGridShape());
 
-    std::size_t const rank = grid.getShape().size();
+    const std::size_t rank = grid.getShape().size();
 
     SmallVector<mlir::AffineMap> indexingMaps =
         getAffineMapsArray(rewriter, numOperands, rank);
@@ -285,16 +285,16 @@ private:
     auto [inputs, outputs] = toLayoutOperands(
         rewriter, {newInputs, origOutputs}, deviceGridRank, /*tiled*/ true);
 
-    std::size_t const numInputs = inputs.size();
-    std::size_t const numOutputs = outputs.size();
-    std::size_t const numOperands = (numInputs + numOutputs);
+    const std::size_t numInputs = inputs.size();
+    const std::size_t numOutputs = outputs.size();
+    const std::size_t numOperands = (numInputs + numOutputs);
 
     // minus 1 for the scaler operand
     assert((numOperands - 1) == op->getNumOperands());
 
     tt::GridAttr grid = tt::GridAttr::get(ctx, expectedInputGridShape());
 
-    std::size_t const rank = grid.getShape().size();
+    const std::size_t rank = grid.getShape().size();
 
     SmallVector<mlir::AffineMap> indexingMaps =
         getAffineMapsArray(rewriter, op, numOperands, rank);

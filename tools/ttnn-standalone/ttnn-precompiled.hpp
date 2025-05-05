@@ -69,8 +69,8 @@ private:
   ~DeviceGetter() { ttnn::close_device(*device); }
 
 public:
-  DeviceGetter(DeviceGetter const &) = delete;
-  void operator=(DeviceGetter const &) = delete;
+  DeviceGetter(const DeviceGetter &) = delete;
+  void operator=(const DeviceGetter &) = delete;
 
   ttnn::IDevice *device;
 };

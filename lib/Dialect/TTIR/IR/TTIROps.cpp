@@ -3376,7 +3376,7 @@ static mlir::LogicalResult
 verifyAffineShapes(llvm::function_ref<mlir::InFlightDiagnostic()> diagFn,
                    mlir::ArrayRef<mlir::AffineMap> indexingMaps,
                    mlir::ArrayRef<mlir::SmallVector<int64_t>> shapes,
-                   char const *shapeName) {
+                   const char *shapeName) {
   assert(indexingMaps.size() == shapes.size());
 
   auto compareCompatibleDims =

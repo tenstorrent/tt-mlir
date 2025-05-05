@@ -81,9 +81,9 @@ void populateTTModule(nb::module_ &m) {
              return layout;
            })
       .def("wrapped",
-           [](tt::MetalLayoutAttr const &self) { return wrap(self); })
+           [](const tt::MetalLayoutAttr &self) { return wrap(self); })
       .def_prop_ro("stride",
-                   [](tt::MetalLayoutAttr const &self,
+                   [](const tt::MetalLayoutAttr &self,
                       std::vector<int64_t> logicalShape) {
                      auto stride = self.getStride(logicalShape);
                      return std::vector<std::int64_t>(stride.begin(),
@@ -114,7 +114,7 @@ void populateTTModule(nb::module_ &m) {
                     return wrap(tt::GridAttr::get(unwrap(ctx), shape));
                   })
       .def_prop_ro("shape",
-                   [](tt::GridAttr const &ga) { return ga.getShape().vec(); });
+                   [](const tt::GridAttr &ga) { return ga.getShape().vec(); });
 
   tt_attribute_class<tt::ChipCapabilityAttr>(m, "ChipCapabilityAttr")
       .def_static(
@@ -394,7 +394,7 @@ void populateTTModule(nb::module_ &m) {
                         unwrap(l1Map), unwrap(dramMap), meshShape, chipIds));
                   })
       .def("unwrap",
-           [](MlirAttribute const &self) {
+           [](const MlirAttribute &self) {
              return mlir::cast<tt::DeviceAttr>(unwrap(self));
            })
       .def_prop_ro("grid_attr", &tt::DeviceAttr::getWorkerGrid)
@@ -404,8 +404,8 @@ void populateTTModule(nb::module_ &m) {
                    [](tt::DeviceAttr self) { return wrap(self.getDramMap()); })
       .def_prop_ro(
           "mesh_shape",
-          [](tt::DeviceAttr const &self) { return self.getMeshShape().vec(); })
-      .def_prop_ro("chip_ids", [](tt::DeviceAttr const &self) {
+          [](const tt::DeviceAttr &self) { return self.getMeshShape().vec(); })
+      .def_prop_ro("chip_ids", [](const tt::DeviceAttr &self) {
         return self.getChipIds().vec();
       });
 
@@ -421,7 +421,7 @@ void populateTTModule(nb::module_ &m) {
                    [](tt::TileType self) {
                      return static_cast<uint32_t>(self.getDataType());
                    })
-      .def_prop_ro("shape", [](tt::TileType const &tile) {
+      .def_prop_ro("shape", [](const tt::TileType &tile) {
         return std::vector<int64_t>({tile.getHeight(), tile.getWidth()});
       });
 }

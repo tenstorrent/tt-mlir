@@ -36,6 +36,38 @@ static Value index(OpBuilder &rewriter, Location loc, int64_t value) {
       .getResult();
 }
 
+static std::pair<Value, Value>
+getVirtualCoordsFromLogicalCoords(PatternRewriter &rewriter, Location loc,
+                                  ChipDescAttr chipDesc,
+                                  ValueRange dstCoreIndex) {
+  auto offset = chipDesc.getCoordTranslationOffsets();
+
+  return {rewriter
+              .create<arith::AddIOp>(dstCoreIndex[0].getLoc(), dstCoreIndex[0],
+                                     index(rewriter, loc, offset[0]))
+              .getResult(),
+          rewriter
+              .create<arith::AddIOp>(dstCoreIndex[1].getLoc(), dstCoreIndex[1],
+                                     index(rewriter, loc, offset[1]))
+              .getResult()};
+}
+
+static std::pair<Value, Value> getMcastEndCoords(PatternRewriter &rewriter,
+                                                 Location loc, Value &nocStartY,
+                                                 Value &nocStartX,
+                                                 OperandRange mcastShape) {
+  return {rewriter.create<arith::SubIOp>(
+              nocStartY.getLoc(),
+              rewriter.create<arith::AddIOp>(nocStartY.getLoc(), nocStartY,
+                                             mcastShape[0]),
+              index(rewriter, loc, 1)),
+          rewriter.create<arith::SubIOp>(
+              nocStartX.getLoc(),
+              rewriter.create<arith::AddIOp>(nocStartX.getLoc(), nocStartX,
+                                             mcastShape[1]),
+              index(rewriter, loc, 1))};
+}
+
 } // namespace
 
 namespace {
@@ -242,45 +274,9 @@ namespace {
 class TTIRDMARewriter : public OpConversionPattern<ttir::DMAOp> {
 public:
   TTIRDMARewriter(TypeConverter &typeConverter, MLIRContext *context,
-                  ttir::AssociatedDMAWaits const *associatedDMAWaits)
+                  const ttir::AssociatedDMAWaits *associatedDMAWaits)
       : OpConversionPattern<ttir::DMAOp>(typeConverter, context),
         associatedDMAWaits(associatedDMAWaits) {}
-
-  static std::pair<Value, Value>
-  getVirtualCoordsFromLogicalCoords(PatternRewriter &rewriter, Location loc,
-                                    ChipDescAttr chipDesc,
-                                    ValueRange dstCoreIndex) {
-    std::pair<Value, Value> nocCoords;
-    auto offset = chipDesc.getCoordTranslationOffsets();
-    nocCoords.first =
-        rewriter
-            .create<arith::AddIOp>(dstCoreIndex[0].getLoc(), dstCoreIndex[0],
-                                   index(rewriter, loc, offset[0]))
-            .getResult();
-    nocCoords.second =
-        rewriter
-            .create<arith::AddIOp>(dstCoreIndex[1].getLoc(), dstCoreIndex[1],
-                                   index(rewriter, loc, offset[1]))
-            .getResult();
-    return nocCoords;
-  }
-
-  static std::pair<Value, Value>
-  getMcastEndCoords(PatternRewriter &rewriter, Location loc, Value &nocStartY,
-                    Value &nocStartX, OperandRange mcastShape) {
-    std::pair<Value, Value> nocEndCoords;
-    nocEndCoords.first = rewriter.create<arith::SubIOp>(
-        nocStartY.getLoc(),
-        rewriter.create<arith::AddIOp>(nocStartY.getLoc(), nocStartY,
-                                       mcastShape[0]),
-        index(rewriter, loc, 1));
-    nocEndCoords.second = rewriter.create<arith::SubIOp>(
-        nocStartX.getLoc(),
-        rewriter.create<arith::AddIOp>(nocStartX.getLoc(), nocStartX,
-                                       mcastShape[1]),
-        index(rewriter, loc, 1));
-    return nocEndCoords;
-  }
 
   static size_t getElementSizeBytes(MemRefType memref) {
     mlir::Type elementType = memref.getElementType();
@@ -519,7 +515,7 @@ public:
   }
 
 private:
-  ttir::AssociatedDMAWaits const *associatedDMAWaits;
+  const ttir::AssociatedDMAWaits *associatedDMAWaits;
 };
 } // namespace
 
@@ -704,15 +700,16 @@ public:
         signatureConverter.remapInput(arg.getArgNumber(), cb);
         ctArgSpecVector.push_back(
             rewriter.getAttr<ArgAttr>(ArgType::CBPort, arg.getArgNumber()));
-      } else if (mlir::isa<ttir::SemaphoreType>(argType)) {
-        size_t rtArgIndex = rtArgSpecVector.size();
+      } else if (mlir::isa<SemaphoreType>(argType)) {
+        size_t ctArgIndex = ctArgSpecVector.size();
         auto semaphoreIndex = rewriter.create<GetCompileArgValOp>(
             op.getLoc(), rewriter.getI32Type(),
-            rewriter.getI32IntegerAttr(rtArgIndex));
+            rewriter.getI32IntegerAttr(ctArgIndex));
         auto semaphore =
             rewriter.create<GetSemaphoreOp>(op.getLoc(), semaphoreIndex);
-        signatureConverter.remapInput(arg.getArgNumber(), semaphore);
-        rtArgSpecVector.push_back(rewriter.getAttr<ArgAttr>(
+        signatureConverter.remapInput(arg.getArgNumber(),
+                                      semaphore.getResult());
+        ctArgSpecVector.push_back(rewriter.getAttr<ArgAttr>(
             ArgType::Semaphore, currentSemaphoreIndex++));
       } else {
         llvm_unreachable("unexpected block argument type");
@@ -730,21 +727,123 @@ public:
 };
 } // namespace
 
+namespace {
+template <typename ConcreteOp>
+class TTIRSemaphoreUpdateRewriter : public OpConversionPattern<ConcreteOp> {
+public:
+  using OpConversionPattern<ConcreteOp>::OpConversionPattern;
+
+  static_assert(std::is_same_v<ConcreteOp, ttir::SemaphoreSetOp> ||
+                    std::is_same_v<ConcreteOp, ttir::SemaphoreIncOp>,
+                "Expected SemaphoreSet or SemaphoreInc op passed to "
+                "TTIRSemaphoreUpdateRewriter.");
+
+  LogicalResult
+  matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto device = lookupDevice(op);
+    auto systemDesc = getCurrentScopeSystemDesc(op);
+    auto chipIds = device.getChipIds();
+    auto chipDescs = systemDesc.getChipDescs();
+    auto chipDescIndices = systemDesc.getChipDescIndices();
+    assert(chipIds.size() == 1);
+    auto chipDesc = chipDescs[chipDescIndices[chipIds[0]]];
+
+    Value value = op.getValue();
+    Value semaphoreAddr = adaptor.getSemaphore();
+
+    if (op.getDstCoreIndex().empty()) {
+      assert(!mlir::isa<ttir::SemaphoreIncOp>(op) &&
+             "ttir.semaphore_inc to local core is illegal.");
+
+      // Local semaphore set
+      auto semaphorePtr =
+          rewriter.create<ttkernel::CastToL1PtrOp>(op.getLoc(), semaphoreAddr);
+
+      rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreSetOp>(op, semaphorePtr,
+                                                               value);
+    } else if (op.getMcastShape().empty()) {
+      assert(!mlir::isa<ttir::SemaphoreSetOp>(op) &&
+             "ttir.semaphore_set to single remote core is illegal.");
+      auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
+          rewriter, op.getLoc(), chipDesc, op.getDstCoreIndex());
+      auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
+          op.getLoc(), virtX, virtY, semaphoreAddr);
+      rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreIncOp>(op, nocAddr,
+                                                               value, nullptr);
+    } else {
+      assert(!mlir::isa<ttir::SemaphoreIncOp>(op) &&
+             "ttir.semaphore_inc multicast is illegal.");
+
+      auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
+          rewriter, op.getLoc(), chipDesc, op.getDstCoreIndex());
+      auto [mcastEndY, mcastEndX] = getMcastEndCoords(
+          rewriter, op.getLoc(), virtY, virtX, op.getMcastShape());
+      Value numDestsIdx = rewriter.create<arith::MulIOp>(
+          op.getLoc(), op.getMcastShape()[0], op.getMcastShape()[1]);
+      Value numDests = rewriter.create<arith::IndexCastOp>(
+          op.getLoc(), rewriter.getI32Type(), numDestsIdx);
+      auto mcastAddr = rewriter.create<ttkernel::GetNocMulticastAddrOp>(
+          op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, semaphoreAddr,
+          nullptr);
+
+      auto semaphorePtr =
+          rewriter.create<ttkernel::CastToL1PtrOp>(op.getLoc(), semaphoreAddr);
+      rewriter.create<ttkernel::NocSemaphoreSetOp>(op.getLoc(), semaphorePtr,
+                                                   value);
+      rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreSetMulticastOp>(
+          op, semaphoreAddr, mcastAddr, numDests, nullptr, nullptr);
+    }
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class TTIRSemaphoreWaitRewriter
+    : public OpConversionPattern<ttir::SemaphoreWaitOp> {
+public:
+  using OpConversionPattern<ttir::SemaphoreWaitOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SemaphoreWaitOp op,
+                  ttir::SemaphoreWaitOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+
+    Value semaphoreAddr = adaptor.getSemaphore();
+    auto semaphorePtr =
+        rewriter.create<ttkernel::CastToL1PtrOp>(op.getLoc(), semaphoreAddr);
+
+    rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreWaitOp>(op, semaphorePtr,
+                                                              op.getValue());
+    if (op.getResetValue()) {
+      rewriter.create<ttkernel::NocSemaphoreSetOp>(op.getLoc(), semaphorePtr,
+                                                   op.getResetValue());
+    }
+
+    return success();
+  }
+};
+} // namespace
+
 } // namespace mlir::tt::ttkernel
 
 namespace mlir::tt {
 
 void populateTTIRToTTKernelPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
-    ttir::AssociatedDMAWaits const &associatedDMAWaits) {
+    const ttir::AssociatedDMAWaits &associatedDMAWaits) {
   patterns.add<ttkernel::TTIRKernelFunctionArgsRewriter,
                ttkernel::TTIRComputeOpsRewriter, ttkernel::MemrefStoreRewriter,
                ttkernel::TTIRAwaitYieldRewriter<ttir::AwaitOp>,
                ttkernel::TTIRAwaitYieldRewriter<ttir::YieldOp>,
                ttkernel::TTIRDMAWaitRewriter, ttkernel::TTIRCoreIndexRewriter,
                ttkernel::TTIRGetGlobalOperandRewriter,
-               ttkernel::TTIRNullTxRewriter, ttkernel::MemRefCollapseRewriter>(
-      typeConverter, ctx);
+               ttkernel::TTIRNullTxRewriter, ttkernel::MemRefCollapseRewriter,
+               ttkernel::TTIRSemaphoreUpdateRewriter<ttir::SemaphoreSetOp>,
+               ttkernel::TTIRSemaphoreUpdateRewriter<ttir::SemaphoreIncOp>,
+               ttkernel::TTIRSemaphoreWaitRewriter>(typeConverter, ctx);
 
   patterns.add<ttkernel::TTIRDMARewriter>(typeConverter, ctx,
                                           &associatedDMAWaits);
