@@ -19,7 +19,7 @@ add_dependencies(TTRuntimeTTNNTestLib TTRuntimeTTNNUtils FBS_GENERATION)
 target_link_libraries(TTRuntimeTTNNTestLib PUBLIC TTRuntimeTTNNUtils)
 
 set(TTMLIR_RUNTIME_TEST_PUBLIC_HEADERS
-  "../include/tt/runtime/ttnn/test/dylib.h"
+  "dylib.h"
 )
 set_target_properties(TTRuntimeTTNNTestLib PROPERTIES PUBLIC_HEADER "${TTMLIR_RUNTIME_TEST_PUBLIC_HEADERS}")
 install(TARGETS TTRuntimeTTNNTestLib
