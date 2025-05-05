@@ -342,36 +342,31 @@ public:
   LogicalResult
   matchAndRewrite(ttkernel::DPrintOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto ostreamType = rewriter.getType<emitc::OpaqueType>("auto&&");
-
-    auto lshift = [&](Value lhs, Value rhs) {
-      return rewriter
-          .create<emitc::BitwiseLeftShiftOp>(op.getLoc(), ostreamType, lhs, rhs)
-          .getResult();
-    };
-
     auto stringlit = [&](StringRef str) {
       return rewriter
-          .create<emitc::LiteralOp>(op.getLoc(), ostreamType,
-                                    (Twine("\"") + str + "\"").str())
+          .create<emitc::LiteralOp>(
+              op.getLoc(), rewriter.getType<emitc::OpaqueType>("const char[]"),
+              (Twine("\"") + str + "\"").str())
           .getResult();
     };
 
-    Value stream =
-        rewriter.create<emitc::LiteralOp>(op.getLoc(), ostreamType, "DPRINT")
-            .getResult();
-    auto [fmt, rest] = op.getFmt().split("{}");
-    for (Value operand : adaptor.getArgv()) {
-      stream = lshift(stream, stringlit(fmt));
-      stream = lshift(stream, operand);
-      std::tie(fmt, rest) = rest.split("{}");
-    }
+    auto operandsIter = adaptor.getOperands().begin();
+    auto operandsEnd = adaptor.getOperands().end();
+    StringRef rest, fmt = op.getFmt();
+    SmallVector<Value> vargs;
+    do {
+      std::tie(fmt, rest) = fmt.split("{}");
+      if (!fmt.empty()) {
+        vargs.push_back(stringlit(fmt));
+      }
+      if (operandsIter != operandsEnd) {
+        vargs.push_back(*operandsIter++);
+      }
+      fmt = rest;
+    } while (!fmt.empty());
 
-    if (!fmt.empty()) {
-      stream = lshift(stream, stringlit(fmt));
-    }
-
-    rewriter.eraseOp(op);
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, TypeRange(), "ttmlir::dprint", nullptr, nullptr, vargs);
     return success();
   }
 };
