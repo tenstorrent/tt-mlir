@@ -70,7 +70,7 @@ def get_ttrt_metal_home_path():
     return tt_metal_home
 
 
-def get_atol_rtol_pcc(golden, calculated):
+def get_atol_rtol_pcc(golden, calculated, logging):
     import numpy as np
     import torch
 
