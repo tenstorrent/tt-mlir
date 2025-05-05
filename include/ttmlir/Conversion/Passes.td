@@ -122,7 +122,7 @@ def ConvertTTIRToLinalg: Pass<"convert-ttir-to-linalg", "::mlir::ModuleOp"> {
         %arg1: tensor<32x1xf32>,
         %arg2: tensor<32x32xf32>
       ) -> tensor<32x32xf32> {
-        %1 = "ttir.add"(%arg0, %arg1, %arg2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<32x32xf32>, tensor<32x1xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+        %1 = "ttir.add"(%arg0, %arg1, %arg2) : (tensor<32x32xf32>, tensor<32x1xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
         return %1 : tensor<32x32xf32>
       }
     Output:
