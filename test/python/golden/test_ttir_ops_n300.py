@@ -58,7 +58,6 @@ def pseudo_golden_all_reduce(input_tensor: torch.Tensor):
     return output_tensor
 
 
-@pytest.mark.skip(reason="TODO: fatal python error")
 @pytest.mark.parametrize("shape", [(1, 1, 128, 512)])
 @pytest.mark.parametrize("mesh_shape", [(1, 2)])
 def test_all_reduce(shape: Shape, mesh_shape: Tuple[int, int], request):
