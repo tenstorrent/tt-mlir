@@ -296,7 +296,7 @@ createNewMeshDevice(size_t numDevices,
       1, static_cast<uint32_t>(numDevices)};
 
   ::tt::tt_metal::DispatchCoreType type =
-      tt::runtime::common::getDispatchCoreType(dispatchCoreType);
+      ::tt::tt_metal::DispatchCoreType::WORKER;
 
   return ::tt::tt_metal::distributed::MeshDevice::create(
       ::tt::tt_metal::distributed::MeshDeviceConfig(meshShape),
