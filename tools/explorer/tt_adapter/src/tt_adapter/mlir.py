@@ -846,7 +846,9 @@ FILTERED_OPS = [
 ]
 
 
-def build_graph(module_path: str, module, perf_trace=None, memory_trace=None, golden_results=None):
+def build_graph(
+    module_path: str, module, perf_trace=None, memory_trace=None, golden_results=None
+):
     graph_id = Path(module_path).name
     output_connections = defaultdict(int)
     graph = graph_builder.Graph(id=graph_id)
