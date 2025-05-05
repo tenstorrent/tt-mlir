@@ -90,8 +90,10 @@ def gelu(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
 @pytest.mark.parametrize("shape", [(64, 128)])
 @pytest.mark.parametrize("max_arg,min_arg", [(3.0, 2.0)])
 def test_clamp_scalar(shape: Shape, max_arg: float, min_arg: float, request):
-    def clamp_scalar(in0: Operand, builder: TTIRBuilder):
-        return builder.clamp_scalar(in0, max_arg=max_arg, min_arg=min_arg)
+    def clamp_scalar(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
+        return builder.clamp_scalar(
+            in0, max_arg=max_arg, min_arg=min_arg, unit_attrs=unit_attrs
+        )
 
     compile_to_flatbuffer(
         clamp_scalar,
@@ -107,7 +109,7 @@ def test_clamp_tensor(shapes: List[Shape], request):
     def clamp_tensor(
         in0: Operand, in1: Operand, in2: Operand, in3: Operand, builder: TTIRBuilder
     ):
-        return builder.clamp_tensor(in0, in1, in2, in3)
+        return builder.clamp_tensor(in0, in1, in2, in3, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
         clamp_tensor,
@@ -164,7 +166,9 @@ def test_dot_general(
     contract_dims_rhs: List[int],
     request,
 ):
-    def dot_general(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    def dot_general(
+        in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
+    ):
         return builder.dot_general(
             in0,
             in1,
@@ -172,6 +176,7 @@ def test_dot_general(
             contract_dims_lhs,
             batch_dims_rhs,
             contract_dims_rhs,
+            unit_attrs=unit_attrs,
         )
 
     compile_to_flatbuffer(
@@ -283,8 +288,14 @@ def minimum(
 
 @pytest.mark.parametrize("shapes", [[(10, 64, 32), (32, 128), (128,)]])
 def test_linear(shapes: List[Shape], request):
-    def linear(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
-        return builder.linear(in0, in1, in2)
+    def linear(
+        in0: Operand,
+        in1: Operand,
+        in2: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: List[str] = None,
+    ):
+        return builder.linear(in0, in1, in2, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
         linear,
@@ -321,12 +332,12 @@ def min(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
     return builder.min(in0, unit_attrs=unit_attrs)
 
 
-def reshape(in0: Operand, builder: TTIRBuilder):
-    return builder.reshape(in0, [2048])
+def reshape(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
+    return builder.reshape(in0, [2048], unit_attrs=unit_attrs)
 
 
-def transpose(in0: Operand, builder: TTIRBuilder):
-    return builder.transpose(in0)
+def transpose(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
+    return builder.transpose(in0, unit_attrs=unit_attrs)
 
 
 @pytest.mark.fails_golden
@@ -334,8 +345,8 @@ def transpose(in0: Operand, builder: TTIRBuilder):
 @pytest.mark.parametrize("dim_arg", [0])
 @pytest.mark.parametrize("keep_dim", [False])
 def test_prod(shape: Shape, dim_arg: int, keep_dim: bool, request):
-    def prod(in0: Operand, builder: TTIRBuilder):
-        return builder.prod(in0, [dim_arg], keep_dim)
+    def prod(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
+        return builder.prod(in0, [dim_arg], keep_dim, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
         prod,
@@ -346,8 +357,14 @@ def test_prod(shape: Shape, dim_arg: int, keep_dim: bool, request):
     )
 
 
-def where(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
-    return builder.where(in0, in1, in2)
+def where(
+    in0: Operand,
+    in1: Operand,
+    in2: Operand,
+    builder: TTIRBuilder,
+    unit_attrs: List[str] = None,
+):
+    return builder.where(in0, in1, in2, unit_attrs=unit_attrs)
 
 
 @pytest.mark.parametrize(
@@ -362,8 +379,14 @@ def where(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
 )
 @pytest.mark.parametrize("dim", [0])
 def test_concat(shapes: List[Shape], dim: int, request):
-    def concat(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
-        return builder.concat([in0, in1, in2], dim=dim)
+    def concat(
+        in0: Operand,
+        in1: Operand,
+        in2: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: List[str] = None,
+    ):
+        return builder.concat([in0, in1, in2], dim=dim, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
         concat,
@@ -380,8 +403,8 @@ def test_concat(shapes: List[Shape], dim: int, request):
 @pytest.mark.parametrize("shape", [(1, 128, 128, 1)])
 @pytest.mark.parametrize("dim", [0])
 def test_squeeze(shape: Shape, dim: int, request):
-    def squeeze(in0: Operand, builder: TTIRBuilder):
-        return builder.squeeze(in0, dim)
+    def squeeze(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
+        return builder.squeeze(in0, dim, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
         squeeze,
@@ -398,8 +421,8 @@ def test_squeeze(shape: Shape, dim: int, request):
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dim", [0])
 def test_unsqueeze(shape: Shape, dim: int, request):
-    def unsqueeze(in0: Operand, builder: TTIRBuilder):
-        return builder.unsqueeze(in0, dim)
+    def unsqueeze(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
+        return builder.unsqueeze(in0, dim, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
         unsqueeze,
@@ -414,8 +437,8 @@ def test_unsqueeze(shape: Shape, dim: int, request):
 @pytest.mark.parametrize("shape", [(1, 32, 32)])
 @pytest.mark.parametrize("dims", [[32, 1, 1]])
 def test_repeat(shape: Shape, dims: List[int], request):
-    def repeat(in0: Operand, builder: TTIRBuilder):
-        return builder.repeat(in0, dims=dims)
+    def repeat(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
+        return builder.repeat(in0, dims=dims, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
         repeat,
@@ -435,8 +458,12 @@ def test_repeat(shape: Shape, dims: List[int], request):
 @pytest.mark.parametrize("dim", [0])
 @pytest.mark.parametrize("repeats", [1])
 def test_repeat_interleave(shapes: List[Shape], repeats: int, dim: int, request):
-    def repeat_interleave(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        return builder.repeat_interleave(in0, in1, repeats=repeats, dim=dim)
+    def repeat_interleave(
+        in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
+    ):
+        return builder.repeat_interleave(
+            in0, in1, repeats=repeats, dim=dim, unit_attrs=unit_attrs
+        )
 
     compile_to_flatbuffer(
         repeat_interleave,
@@ -450,8 +477,12 @@ def test_repeat_interleave(shapes: List[Shape], repeats: int, dim: int, request)
 @pytest.mark.parametrize("shapes", [[(1, 1, 32), (1, 16, 32)]])
 @pytest.mark.parametrize("broadcast_dimensions", [[1, 16, 1]])
 def test_broadcast(shapes: List[Shape], broadcast_dimensions: List[int], request):
-    def broadcast(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        return builder.broadcast(in0, in1, broadcast_dimensions=broadcast_dimensions)
+    def broadcast(
+        in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
+    ):
+        return builder.broadcast(
+            in0, in1, broadcast_dimensions=broadcast_dimensions, unit_attrs=unit_attrs
+        )
 
     compile_to_flatbuffer(
         broadcast,
@@ -488,7 +519,12 @@ def test_conv2d(
     request,
 ):
     def conv2d(
-        in0: Operand, weight: Operand, bias: Operand, in1: Operand, builder: TTIRBuilder
+        in0: Operand,
+        weight: Operand,
+        bias: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: List[str] = None,
     ):
         return builder.conv2d(
             in0,
@@ -499,6 +535,7 @@ def test_conv2d(
             padding=padding,
             dilation=dilation,
             groups=groups,
+            unit_attrs=unit_attrs,
         )
 
     compile_to_flatbuffer(
@@ -535,7 +572,12 @@ def test_conv2d_consteval(
     request,
 ):
     def conv2d_consteval(
-        in0: Operand, weight: Operand, bias: Operand, in1: Operand, builder: TTIRBuilder
+        in0: Operand,
+        weight: Operand,
+        bias: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: List[str] = None,
     ):
         stride = DenseI32ArrayAttr.get(_stride)
         padding = DenseI32ArrayAttr.get(_padding)
@@ -549,6 +591,7 @@ def test_conv2d_consteval(
             padding=padding,
             dilation=dilation,
             groups=groups,
+            unit_attrs=unit_attrs,
         )
 
     compile_to_flatbuffer(
@@ -586,7 +629,12 @@ def test_conv_transpose2d(
     request,
 ):
     def conv_transpose2d(
-        in0: Operand, weight: Operand, bias: Operand, in1: Operand, builder: TTIRBuilder
+        in0: Operand,
+        weight: Operand,
+        bias: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: List[str] = None,
     ):
         return builder.conv_transpose2d(
             in0,
@@ -598,6 +646,7 @@ def test_conv_transpose2d(
             output_padding=output_padding,
             dilation=dilation,
             groups=groups,
+            unit_attrs=unit_attrs,
         )
 
     compile_to_flatbuffer(
@@ -633,7 +682,9 @@ def test_max_pool2d(
     padding_bottom: int,
     request,
 ):
-    def max_pool2d(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    def max_pool2d(
+        in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
+    ):
         return builder.max_pool2d(
             in0,
             in1,
@@ -648,6 +699,7 @@ def test_max_pool2d(
             padding_right=padding_right,
             padding_top=padding_top,
             padding_bottom=padding_bottom,
+            unit_attrs=unit_attrs,
         )
 
     compile_to_flatbuffer(
@@ -665,8 +717,12 @@ def test_max_pool2d(
 @pytest.mark.parametrize("padding", [[0, 1, 2, 3, 4, 5, 6, 7]])
 @pytest.mark.parametrize("value", [0])
 def test_pad(shapes: List[Shape], padding: List[int], value: int, request):
-    def pad(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        return builder.pad(in0, in1, padding=padding, value=value)
+    def pad(
+        in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
+    ):
+        return builder.pad(
+            in0, in1, padding=padding, value=value, unit_attrs=unit_attrs
+        )
 
     compile_to_flatbuffer(
         pad,
@@ -681,8 +737,10 @@ def test_pad(shapes: List[Shape], padding: List[int], value: int, request):
 @pytest.mark.parametrize("shape", [(32, 64)])
 @pytest.mark.parametrize("dim,begin,end,step", [(0, 0, 3, 1)])
 def test_index(shape: Shape, dim: int, begin: int, end: int, step: int, request):
-    def index(in0: Operand, builder: TTIRBuilder):
-        return builder.index(in0, dim=dim, begin=begin, end=end, step=step)
+    def index(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
+        return builder.index(
+            in0, dim=dim, begin=begin, end=end, step=step, unit_attrs=unit_attrs
+        )
 
     compile_to_flatbuffer(
         index,
@@ -697,8 +755,10 @@ def test_index(shape: Shape, dim: int, begin: int, end: int, step: int, request)
 @pytest.mark.parametrize("shape", [(4, 4)])
 @pytest.mark.parametrize("dim,begin,length", [(1, 2, 2)])
 def test_select(shape: Shape, dim: int, begin: int, length: int, request):
-    def select(in0: Operand, builder: TTIRBuilder):
-        return builder.select(in0, dim=dim, begin=begin, length=length)
+    def select(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
+        return builder.select(
+            in0, dim=dim, begin=begin, length=length, unit_attrs=unit_attrs
+        )
 
     compile_to_flatbuffer(
         select,
@@ -712,8 +772,8 @@ def test_select(shape: Shape, dim: int, begin: int, length: int, request):
 # TODO: these three nullary tensor creation ops can probably be combined in some way
 @pytest.mark.parametrize("shape", [(128, 128)], ids=["128x128"])
 def test_zeros(shape: Shape, request):
-    def zeros(builder: TTIRBuilder):
-        return builder.zeros(shape)
+    def zeros(builder: TTIRBuilder, unit_attrs: List[str] = None):
+        return builder.zeros(shape, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
         zeros,
@@ -726,8 +786,8 @@ def test_zeros(shape: Shape, request):
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=["128x128"])
 def test_ones(shape: Shape, request):
-    def ones(builder: TTIRBuilder):
-        return builder.ones(shape)
+    def ones(builder: TTIRBuilder, unit_attrs: List[str] = None):
+        return builder.ones(shape, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
         ones,
@@ -740,8 +800,8 @@ def test_ones(shape: Shape, request):
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=["128x128"])
 def test_empty(shape: Shape, request):
-    def empty(builder: TTIRBuilder):
-        return builder.empty(shape)
+    def empty(builder: TTIRBuilder, unit_attrs: List[str] = None):
+        return builder.empty(shape, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
         empty,
@@ -756,8 +816,8 @@ def test_empty(shape: Shape, request):
 @pytest.mark.parametrize("shapes", [[(128, 128)]])
 @pytest.mark.parametrize("dim", [0, 1])
 def test_argmax(shapes, dim, request):
-    def argmax(in0: Operand, builder: TTIRBuilder):
-        return builder.argmax(in0, [dim])
+    def argmax(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
+        return builder.argmax(in0, [dim], unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
         argmax,
@@ -772,8 +832,8 @@ def test_argmax(shapes, dim, request):
 @pytest.mark.parametrize("shape", [(64, 64)])
 @pytest.mark.parametrize("dims", [[0, 1]])
 def test_reverse(shape: Shape, dims: List[int], request):
-    def reverse(in0: Operand, builder: TTIRBuilder):
-        return builder.reverse(in0, dims=dims)
+    def reverse(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
+        return builder.reverse(in0, dims=dims, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
         reverse,
@@ -790,8 +850,8 @@ def test_reverse(shape: Shape, dims: List[int], request):
 @pytest.mark.parametrize("shape", [(4, 4)])
 @pytest.mark.parametrize("dim_args", [[0, 1]])
 def test_reduce_and(shape: Shape, dim_args: List[int], request):
-    def reduce_and(in0: Operand, builder: TTIRBuilder):
-        return builder.reduce_and(in0, dim_args=dim_args)
+    def reduce_and(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
+        return builder.reduce_and(in0, dim_args=dim_args, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
         reduce_and,
@@ -809,8 +869,8 @@ def test_reduce_and(shape: Shape, dim_args: List[int], request):
 @pytest.mark.parametrize("shape", [(4, 4)])
 @pytest.mark.parametrize("dim_args", [[0, 1]])
 def test_reduce_or(shape: Shape, dim_args: List[int], request):
-    def reduce_or(in0: Operand, builder: TTIRBuilder):
-        return builder.reduce_or(in0, dim_args=dim_args)
+    def reduce_or(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
+        return builder.reduce_or(in0, dim_args=dim_args, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
         reduce_or,
@@ -825,8 +885,15 @@ def test_reduce_or(shape: Shape, dim_args: List[int], request):
 @pytest.mark.parametrize("shapes", [[(2, 3, 4), (3, 4, 2)]])
 @pytest.mark.parametrize("permutation", [[1, 2, 0]])
 def test_permute(shapes: List[Shape], permutation: List[int], request):
-    def permute(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        return builder.permute(in0, in1, permutation=DenseI64ArrayAttr.get(permutation))
+    def permute(
+        in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
+    ):
+        return builder.permute(
+            in0,
+            in1,
+            permutation=DenseI64ArrayAttr.get(permutation),
+            unit_attrs=unit_attrs,
+        )
 
     compile_to_flatbuffer(
         permute,
@@ -841,9 +908,14 @@ def test_permute(shapes: List[Shape], permutation: List[int], request):
 @pytest.mark.parametrize("shapes", [[(10, 64, 32, 3), (10, 128, 128, 3)]])
 @pytest.mark.parametrize("scale_factor", [[2, 4]])
 def test_upsample2d(shapes: List[Shape], scale_factor: List[int], request):
-    def upsample2d(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    def upsample2d(
+        in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
+    ):
         return builder.upsample2d(
-            in0, in1, scale_factor=DenseI32ArrayAttr.get(scale_factor)
+            in0,
+            in1,
+            scale_factor=DenseI32ArrayAttr.get(scale_factor),
+            unit_attrs=unit_attrs,
         )
 
     compile_to_flatbuffer(
@@ -857,8 +929,8 @@ def test_upsample2d(shapes: List[Shape], scale_factor: List[int], request):
 
 @pytest.mark.parametrize("shape,start,end,step,dim", [((5,), 0, 5, 1, 0)])
 def test_arange(shape: Shape, start: int, end: int, step: int, dim: int, request):
-    def arange(in0: Operand, builder: TTIRBuilder):
-        return builder.arange(in0, start, end, step, dim)
+    def arange(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
+        return builder.arange(in0, start, end, step, dim, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
         arange,
@@ -873,8 +945,10 @@ def test_arange(shape: Shape, start: int, end: int, step: int, dim: int, request
 @pytest.mark.parametrize("shape", [(32, 32)])
 @pytest.mark.parametrize("from_type,to_type", [(torch.uint32, torch.uint16)])
 def test_typecast(shape: Shape, from_type: torch.dtype, to_type: torch.dtype, request):
-    def typecast(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        return builder.typecast(in0, in1)
+    def typecast(
+        in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
+    ):
+        return builder.typecast(in0, in1, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
         typecast,
@@ -888,8 +962,10 @@ def test_typecast(shape: Shape, from_type: torch.dtype, to_type: torch.dtype, re
 @pytest.mark.parametrize("shapes", [[(4, 4, 128, 128), (4, 4, 128, 128)]])
 @pytest.mark.parametrize("dim", [1])
 def test_cumsum(shapes: List[Shape], dim: int, request):
-    def cumsum(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        return builder.cumsum(in0, in1, dim=dim)
+    def cumsum(
+        in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
+    ):
+        return builder.cumsum(in0, in1, dim=dim, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
         cumsum,
@@ -907,8 +983,10 @@ def prod(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
 @pytest.mark.fails_golden
 @pytest.mark.parametrize("shapes", [[(1, 32, 64, 512), (1, 32, 3, 512)]])
 def test_fill_cache(shapes: List[Shape], request):
-    def fill_cache(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        return builder.fill_cache(in0, in1)
+    def fill_cache(
+        in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
+    ):
+        return builder.fill_cache(in0, in1, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
         fill_cache,
@@ -922,8 +1000,8 @@ def test_fill_cache(shapes: List[Shape], request):
 @pytest.mark.parametrize("shape", [(512, 1024)])
 @pytest.mark.parametrize("dimension", [-1])
 def test_softmax(shape: Shape, dimension: int, request):
-    def softmax(in0: Operand, builder: TTIRBuilder):
-        return builder.softmax(in0, dimension=dimension)
+    def softmax(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
+        return builder.softmax(in0, dimension=dimension, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(softmax, [shape], test_base=request.node.name)
 
@@ -932,8 +1010,14 @@ def test_softmax(shape: Shape, dimension: int, request):
 @pytest.mark.parametrize("shapes", [[(1, 32, 64, 512), (1, 32, 1, 512), (1,)]])
 @pytest.mark.parametrize("dtypes", [[torch.bfloat16, torch.bfloat16, torch.int32]])
 def test_update_cache(shapes: List[Shape], dtypes: List[torch.dtype], request):
-    def update_cache(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
-        return builder.update_cache(in0, in1, in2)
+    def update_cache(
+        in0: Operand,
+        in1: Operand,
+        in2: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: List[str] = None,
+    ):
+        return builder.update_cache(in0, in1, in2, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
         update_cache,
@@ -945,8 +1029,10 @@ def test_update_cache(shapes: List[Shape], dtypes: List[torch.dtype], request):
     )
 
 
-def embedding(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    return builder.embedding(in0, in1)
+def embedding(
+    in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
+):
+    return builder.embedding(in0, in1, unit_attrs=unit_attrs)
 
 
 @pytest.mark.parametrize("shape", [(128, 128)])
@@ -956,8 +1042,8 @@ def embedding(in0: Operand, in1: Operand, builder: TTIRBuilder):
 def test_quantize(
     shape: Shape, scale: float, zero_point: int, dtype: torch.dtype, request
 ):
-    def quantize(in0: Operand, builder: TTIRBuilder):
-        return builder.quantize(in0, scale, zero_point, dtype)
+    def quantize(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
+        return builder.quantize(in0, scale, zero_point, dtype, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
         quantize,
@@ -981,8 +1067,8 @@ def test_dequantize(
     dtype: torch.dtype,
     request,
 ):
-    def dequantize(in0: Operand, builder: TTIRBuilder):
-        return builder.dequantize(in0, scale, zero_point, dtype)
+    def dequantize(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
+        return builder.dequantize(in0, scale, zero_point, dtype, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
         dequantize,
@@ -1007,8 +1093,8 @@ def test_requantize(
     dtype: torch.dtype,
     request,
 ):
-    def requantize(in0: Operand, builder: TTIRBuilder):
-        return builder.requantize(in0, scale, zero_point, dtype)
+    def requantize(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
+        return builder.requantize(in0, scale, zero_point, dtype, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
         requantize,
@@ -1041,6 +1127,7 @@ cpu_hoistable_binary_ops = [
     div,
     pow,
 ]
+
 
 # Create hoisted versions of operations by currying the unit_attrs parameter
 def create_hoisted_op(op_func, name):
