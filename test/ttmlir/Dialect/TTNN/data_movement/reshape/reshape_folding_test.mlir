@@ -7,6 +7,6 @@ module @reshape_test {
     %1 = "ttir.reshape"(%arg0, %0) <{shape = [1 : i32]}> : (tensor<1xi32>, tensor<1xi32>) -> tensor<1xi32>
     // CHECK-NOT: = "ttnn.reshape"
     return %1 : tensor<1xi32>
-    // CHECK: return %arg0 : tensor<1xsi32, #{{.*}}>
+    // CHECK: return %arg0 : tensor<1xi32, #{{.*}}>
   }
 }
