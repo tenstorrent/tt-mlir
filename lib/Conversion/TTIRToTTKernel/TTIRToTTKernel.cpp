@@ -335,6 +335,8 @@ public:
     // Translate the src coordinates to virtual coordinates.
     auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
         rewriter, loc, chipDesc, ValueRange{gridY, gridX});
+    rewriter.create<ttkernel::DPrintOp>(loc, "virtY {} virtX {} addr {}\\n",
+                                        virtY, virtX, addr);
     return rewriter.create<ttkernel::GetNocAddrOp>(loc, virtX, virtY, addr);
   }
 
@@ -363,10 +365,10 @@ public:
 
     // TODO(jdesousa): Temporary L1 assertion until DRAM is supported
     assert(isL1MemorySpace(mlir::cast<MemorySpaceAttr>(
-                               op.getSrc().getType().getMemorySpace())
+                               op.getSrcMemRefType().getMemorySpace())
                                .getValue()) &&
            isL1MemorySpace(mlir::cast<MemorySpaceAttr>(
-                               op.getDst().getType().getMemorySpace())
+                               op.getDstMemRefType().getMemorySpace())
                                .getValue()) &&
            "Expected src and dst memory spaces to be L1, failing.");
 

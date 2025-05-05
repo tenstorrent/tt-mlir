@@ -11,6 +11,7 @@ include "ttmlir/Dialect/TTIR/IR/TTIRBase.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.td"
 
+include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.td"
 include "mlir/IR/OpAsmInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferIntRangeInterface.td"
@@ -196,6 +197,12 @@ def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
   [ AttrSizedOperandSegments
   , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
   ]> {
     let summary = "TTIR DMA Op";
     let description = [{
@@ -248,8 +255,8 @@ def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
       - src and dst cannot both be remote
     }];
 
-    let arguments = (ins AnyNon0RankedMemRef:$src, OptionalAttr<AffineMapAttr>:$srcAffineMap, Variadic<Index>:$srcIndices,
-                         AnyNon0RankedMemRef:$dst, OptionalAttr<AffineMapAttr>:$dstAffineMap, Variadic<Index>:$dstIndices,
+    let arguments = (ins AnyRankedTensorOrMemRef:$src, OptionalAttr<AffineMapAttr>:$srcAffineMap, Variadic<Index>:$srcIndices,
+                         AnyRankedTensorOrMemRef:$dst, OptionalAttr<AffineMapAttr>:$dstAffineMap, Variadic<Index>:$dstIndices,
                          OptionalAttr<I64Attr>:$optNumElems, Variadic<Index>:$mcastStartIndex, Variadic<Index>:$mcastShape);
     let results = (outs TTIR_MemTx:$result);
 
