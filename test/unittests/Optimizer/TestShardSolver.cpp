@@ -221,11 +221,11 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
 
   // Create custom checkShardCompatible function.
   //
-  std::function<bool(mlir::Value, TTNNLayoutAttr const &, mlir::Operation *,
-                     OpConfig const &)>
+  std::function<bool(mlir::Value, const TTNNLayoutAttr &, mlir::Operation *,
+                     const OpConfig &)>
       checkShardCompatible =
-          [](mlir::Value producerOperand, TTNNLayoutAttr const &producerLayout,
-             mlir::Operation *consumerOp, OpConfig const &consumerConfig) {
+          [](mlir::Value producerOperand, const TTNNLayoutAttr &producerLayout,
+             mlir::Operation *consumerOp, const OpConfig &consumerConfig) {
             // Interleaved to sharded is always supported.
             //
             if (producerLayout.hasInterleavedDRAMTensorMemoryLayout()) {

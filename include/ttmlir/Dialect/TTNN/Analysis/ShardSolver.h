@@ -49,7 +49,7 @@ public:
   struct RemainingConfigAttrs {
     class Iterator {
       std::uint64_t i = 0;
-      std::vector<OpConfig> const *p = nullptr;
+      const std::vector<OpConfig> *p = nullptr;
       Bitset mask = 0;
 
     private:
@@ -73,7 +73,7 @@ public:
       using pointer = const OpConfig *;
       using reference = const OpConfig &;
 
-      Iterator(std::vector<OpConfig> const *p, const Bitset &mask,
+      Iterator(const std::vector<OpConfig> *p, const Bitset &mask,
                std::uint64_t i = 0)
           : i(i), p(p), mask(mask) {
         nextValid();
@@ -100,7 +100,7 @@ public:
       std::uint64_t index() const { return i; }
     };
 
-    RemainingConfigAttrs(std::vector<OpConfig> const &p, const Bitset &mask)
+    RemainingConfigAttrs(const std::vector<OpConfig> &p, const Bitset &mask)
         : p(&p), mask(mask) {}
 
     Iterator begin() const { return Iterator(p, mask); }
@@ -109,7 +109,7 @@ public:
     }
     size_t size() const { return mask.count(); }
 
-    std::vector<OpConfig> const *p = nullptr;
+    const std::vector<OpConfig> *p = nullptr;
     Bitset mask = 0;
   };
 
@@ -173,7 +173,7 @@ private:
 
     PathSet(BitsetId producerSetId, BitsetId consumerSetId,
             Operation *producerOperation, Operation *consumerOperation,
-            Paths const &paths)
+            const Paths &paths)
         : producerSetId(producerSetId), consumerSetId(consumerSetId),
           producerOperation(producerOperation),
           consumerOperation(consumerOperation), paths(paths) {}
@@ -190,7 +190,7 @@ private:
       Bitset consumer = bitsets[consumerSetId];
 
       for (size_t i = 0; i < paths.size(); i++) {
-        Path const &path = paths[i];
+        const Path &path = paths[i];
         if (consumer[path.consumerId] and producer[path.producerId]) {
           validProducerSet.set(path.producerId);
           validConsumerSet.set(path.consumerId);
@@ -221,7 +221,7 @@ private:
       Bitset producer = bitsets[producerSetId];
       Bitset consumer = bitsets[consumerSetId];
       for (size_t i = 0; i < paths.size(); i++) {
-        Path const &path = paths[i];
+        const Path &path = paths[i];
         if (consumer[path.consumerId] and producer[path.producerId]) {
           validProducerSet.set(path.producerId);
           validConsumerSet.set(path.consumerId);
@@ -269,7 +269,7 @@ private:
                     bool invokedBySet = false);
 
   Bitset *getBitset(Operation *op);
-  Bitset const *getBitset(Operation *op) const;
+  const Bitset *getBitset(Operation *op) const;
   Bitset *getOrInsertBitset(Operation *op, const Bitset &init);
 
   bool resolveStep();
@@ -279,8 +279,8 @@ private:
 
   bool preprocessFirstOp();
   llvm::Expected<bool> checkShardCompatible(
-      Value producerOperand, TTNNLayoutAttr const &producerLayout,
-      Operation *consumerOp, OpConfig const &consumerConfig) const;
+      Value producerOperand, const TTNNLayoutAttr &producerLayout,
+      Operation *consumerOp, const OpConfig &consumerConfig) const;
 
 public:
   ShardSolver(
@@ -294,7 +294,7 @@ public:
                          OpConfig)>
           customCheckShardCompatible = nullptr);
   RemainingConfigAttrs at(Operation *operation) const;
-  void set(Operation *operation, OpConfig const &config);
+  void set(Operation *operation, const OpConfig &config);
   bool supportsInterleavedInputShardedOutput(Operation *op,
                                              OpConfig outputConfig);
   llvm::DenseMap<Operation *, SmallVector<float, 64>> produceMaxCoreUsage();

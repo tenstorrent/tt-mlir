@@ -165,8 +165,8 @@ PYBIND11_MODULE(_C, m) {
         "Get the current system descriptor");
   m.def(
       "create_tensor",
-      [](std::uintptr_t ptr, std::vector<std::uint32_t> const &shape,
-         std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
+      [](std::uintptr_t ptr, const std::vector<std::uint32_t> &shape,
+         const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
          ::tt::target::DataType dataType) {
         return tt::runtime::createTensor(
             ::tt::runtime::utils::unsafe_borrow_shared(
@@ -176,19 +176,19 @@ PYBIND11_MODULE(_C, m) {
       "Create a host tensor with borrowed memory");
   m.def(
       "create_owned_tensor",
-      [](std::uintptr_t ptr, std::vector<std::uint32_t> const &shape,
-         std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
+      [](std::uintptr_t ptr, const std::vector<std::uint32_t> &shape,
+         const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
          ::tt::target::DataType dataType) {
         return tt::runtime::createOwnedHostTensor(
-            reinterpret_cast<void const *>(ptr), shape, stride, itemsize,
+            reinterpret_cast<const void *>(ptr), shape, stride, itemsize,
             dataType);
       },
       "Create a tensor with owned memory");
   m.def(
       "create_empty_tensor",
       [](::tt::runtime::Device device, ::tt::runtime::Layout layout,
-         std::vector<std::uint32_t> const &shape,
-         std::vector<std::uint32_t> const &stride, std::uint32_t itemsize) {
+         const std::vector<std::uint32_t> &shape,
+         const std::vector<std::uint32_t> &stride, std::uint32_t itemsize) {
         return tt::runtime::createEmptyTensor(device, layout, shape, stride,
                                               itemsize);
       },
@@ -196,15 +196,15 @@ PYBIND11_MODULE(_C, m) {
   m.def(
       "create_multi_device_tensor",
       [](std::vector<std::uintptr_t> &ptrs,
-         std::vector<std::uint32_t> const &shape,
-         std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
+         const std::vector<std::uint32_t> &shape,
+         const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
          ::tt::target::DataType dataType,
-         std::unordered_map<std::string, std::string> const &strategy) {
-        std::vector<void const *> data;
+         const std::unordered_map<std::string, std::string> &strategy) {
+        std::vector<const void *> data;
         data.reserve(ptrs.size());
         std::transform(ptrs.begin(), ptrs.end(), std::back_inserter(data),
                        [](std::uintptr_t ptr) {
-                         return reinterpret_cast<void const *>(ptr);
+                         return reinterpret_cast<const void *>(ptr);
                        });
         return tt::runtime::createMultiDeviceHostTensor(
             data, shape, stride, itemsize, dataType, strategy);

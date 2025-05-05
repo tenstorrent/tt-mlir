@@ -96,7 +96,7 @@ bool ShardSolver::resolveStep() {
 
     Operation *consumerOp = shardSpec.op;
     Bitset *consumerBitset = getOrInsertBitset(consumerOp, kBitsetAll);
-    std::vector<OpConfig> const &consumerConfigs = getLegalConfigs(consumerOp);
+    const std::vector<OpConfig> &consumerConfigs = getLegalConfigs(consumerOp);
 
     for (Edge edge : operandOpEdges[consumerOp]) {
 
@@ -110,7 +110,7 @@ bool ShardSolver::resolveStep() {
 
       Operation *producerOp = edge.producerOp;
       Bitset *producerBitset = getOrInsertBitset(producerOp, kBitsetAll);
-      std::vector<OpConfig> const &producerConfigs =
+      const std::vector<OpConfig> &producerConfigs =
           getLegalConfigs(producerOp);
 
       assert(not(consumerConfigs.empty() && producerConfigs.empty()));
@@ -286,7 +286,7 @@ bool ShardSolver::preprocessFirstOp() {
   }
 
   Bitset *firstOpBitset = getOrInsertBitset(firstOp, kBitsetAll);
-  std::vector<OpConfig> const &firstOpConfigs = getLegalConfigs(firstOp);
+  const std::vector<OpConfig> &firstOpConfigs = getLegalConfigs(firstOp);
 
   bool hasValidConfig = false;
   for (size_t i = 0; i < firstOpConfigs.size(); ++i) {
@@ -336,7 +336,7 @@ bool ShardSolver::insertReshard(const Edge &edge) {
   Bitset *consumerBitset = getOrInsertBitset(consumerOp, kBitsetAll);
   *consumerBitset = kBitsetNone;
 
-  std::vector<OpConfig> const &consumerConfigs = getLegalConfigs(consumerOp);
+  const std::vector<OpConfig> &consumerConfigs = getLegalConfigs(consumerOp);
   std::vector<OpConfig> producerConfigs;
 
   auto inputTensor = mlir::cast<RankedTensorType>(
@@ -639,7 +639,7 @@ ShardSolver::Bitset *ShardSolver::getBitset(Operation *op) {
   return &bitsets[bitsetIds.at(op)];
 }
 
-ShardSolver::Bitset const *ShardSolver::getBitset(Operation *op) const {
+const ShardSolver::Bitset *ShardSolver::getBitset(Operation *op) const {
   return &bitsets[bitsetIds.at(op)];
 }
 
@@ -681,7 +681,7 @@ ShardSolver::RemainingConfigAttrs ShardSolver::at(Operation *op) const {
   return configs;
 }
 
-void ShardSolver::set(Operation *op, OpConfig const &config) {
+void ShardSolver::set(Operation *op, const OpConfig &config) {
   assert(selectedOpConfig.count(op) == 0);
 
   selectedOpConfig[op] = config;
@@ -728,8 +728,8 @@ void ShardSolver::set(Operation *op, OpConfig const &config) {
 }
 
 llvm::Expected<bool> ShardSolver::checkShardCompatible(
-    Value producerOperand, TTNNLayoutAttr const &producerLayout,
-    Operation *consumerOp, OpConfig const &consumerConfig) const {
+    Value producerOperand, const TTNNLayoutAttr &producerLayout,
+    Operation *consumerOp, const OpConfig &consumerConfig) const {
 
   // Custom(test) hook for shard compatibility check.
   //
@@ -918,14 +918,14 @@ ShardSolver::produceMaxCoreUsage() {
   for (auto shardSpec = shardSpecs->rbegin(); shardSpec != shardSpecs->rend();
        ++shardSpec) {
     Operation *op = shardSpec->op;
-    std::vector<OpConfig> const &configs = getLegalConfigs(op);
+    const std::vector<OpConfig> &configs = getLegalConfigs(op);
     assert(!configs.empty());
 
     // Find the config that leads to the max core usage.
     // Start with grid volume of current op.
     //
     for (size_t i = 0; i < configs.size(); ++i) {
-      OpConfig const &config = configs[i];
+      const OpConfig &config = configs[i];
       uint64_t coreUsage = config.outputLayout.getGrid().getGridVolume();
       accCoreUsage[op].push_back(coreUsage);
     }
@@ -941,7 +941,7 @@ ShardSolver::produceMaxCoreUsage() {
       size_t consumerInChainOperandSize =
           getOperandPathSetsPts(consumerOp).size();
       uint64_t consumerCoreUsage = 0;
-      for (auto const &path : paths) {
+      for (const auto &path : paths) {
         assert(bitsets[bitsetIds[op]].test(path.producerId));
         assert(bitsets[bitsetIds[consumerOp]].test(path.consumerId));
         consumerCoreUsage = accCoreUsage[consumerOp][path.consumerId];

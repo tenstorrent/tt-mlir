@@ -175,18 +175,18 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
   fbb.read(static_cast<char *>(buffer.get()), size);
 
   // Read relevant information from binary
-  auto const *binarySystemDesc =
+  const auto *binarySystemDesc =
       ::tt::target::GetSizePrefixedSystemDescRoot(buffer.get())->system_desc();
-  auto const *binaryCpuDesc = binarySystemDesc->cpu_descs();
-  auto const *binaryChipDesc = binarySystemDesc->chip_descs();
-  auto const *binaryChipDescIndices = binarySystemDesc->chip_desc_indices();
-  auto const *chipCapabilities = binarySystemDesc->chip_capabilities();
-  auto const *binaryChipCoords = binarySystemDesc->chip_coords();
-  auto const *chipChannelConnections = binarySystemDesc->chip_channels();
+  const auto *binaryCpuDesc = binarySystemDesc->cpu_descs();
+  const auto *binaryChipDesc = binarySystemDesc->chip_descs();
+  const auto *binaryChipDescIndices = binarySystemDesc->chip_desc_indices();
+  const auto *chipCapabilities = binarySystemDesc->chip_capabilities();
+  const auto *binaryChipCoords = binarySystemDesc->chip_coords();
+  const auto *chipChannelConnections = binarySystemDesc->chip_channels();
 
   // Acquire cpu descs
   std::vector<tt::CPUDescAttr> cpuDescList;
-  for (auto const *element : *binaryCpuDesc) {
+  for (const auto *element : *binaryCpuDesc) {
     static_assert(llvm::to_underlying(::mlir::tt::CPURole::Device) ==
                   llvm::to_underlying(::tt::target::CPURole::Device));
     static_assert(llvm::to_underlying(::mlir::tt::CPURole::Host) ==
@@ -201,20 +201,20 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
 
   // Acquire chip descs
   std::vector<tt::ChipDescAttr> chipDescList;
-  for (auto const *element : *binaryChipDesc) {
+  for (const auto *element : *binaryChipDesc) {
     std::vector<tt::CoreCoordAttr> dramCores, ethCores, ethInactiveCores;
-    auto const *physicalHelperCores = element->physical_helper_cores();
+    const auto *physicalHelperCores = element->physical_helper_cores();
 
     // Populate all vecrors with CoreCoordAttr instances
-    for (auto const &core : *physicalHelperCores->dram()) {
+    for (const auto &core : *physicalHelperCores->dram()) {
       dramCores.emplace_back(
           tt::CoreCoordAttr::get(context, core->y(), core->x()));
     }
-    for (auto const &core : *physicalHelperCores->eth()) {
+    for (const auto &core : *physicalHelperCores->eth()) {
       ethCores.emplace_back(
           tt::CoreCoordAttr::get(context, core->y(), core->x()));
     }
-    for (auto const &core : *physicalHelperCores->eth_inactive()) {
+    for (const auto &core : *physicalHelperCores->eth_inactive()) {
       ethInactiveCores.emplace_back(
           tt::CoreCoordAttr::get(context, core->y(), core->x()));
     }
@@ -298,7 +298,7 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
 
     SmallVector<tt::TileSizeAttr> supportedTileSizesAttr;
 
-    for (auto const *it : *(element->supported_tile_sizes())) {
+    for (const auto *it : *(element->supported_tile_sizes())) {
       supportedTileSizesAttr.push_back(
           tt::TileSizeAttr::get(context, it->y(), it->x()));
     }
@@ -340,14 +340,14 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
 
   // Acquire chip coordinates
   std::vector<tt::ChipCoordAttr> chipCoordinateList;
-  for (auto const *element : *binaryChipCoords) {
+  for (const auto *element : *binaryChipCoords) {
     auto chipCoordinateAttr = tt::ChipCoordAttr::get(
         context, element->rack(), element->shelf(), element->y(), element->x());
     chipCoordinateList.push_back(chipCoordinateAttr);
   }
 
   std::vector<tt::ChipChannelAttr> chipChannelList;
-  for (auto const *element : *chipChannelConnections) {
+  for (const auto *element : *chipChannelConnections) {
     std::vector<int64_t> ethernetCoreCoord0Vec = {
         element->ethernet_core_coord0().y(),
         element->ethernet_core_coord0().x()};

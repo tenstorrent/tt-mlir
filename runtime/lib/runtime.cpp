@@ -135,9 +135,9 @@ getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
   LOG_FATAL("runtime is not enabled");
 }
 
-Tensor createOwnedHostTensor(void const *data,
-                             std::vector<std::uint32_t> const &shape,
-                             std::vector<std::uint32_t> const &stride,
+Tensor createOwnedHostTensor(const void *data,
+                             const std::vector<std::uint32_t> &shape,
+                             const std::vector<std::uint32_t> &stride,
                              std::uint32_t itemsize,
                              ::tt::target::DataType dataType) {
   LOG_ASSERT(!shape.empty());
@@ -161,8 +161,8 @@ Tensor createOwnedHostTensor(void const *data,
 // TODO(mrakita): Deprecated, will be removed after frontends uplift.
 // https://github.com/tenstorrent/tt-mlir/issues/2757
 Tensor createOwnedTensor(std::shared_ptr<void> data,
-                         std::vector<std::uint32_t> const &shape,
-                         std::vector<std::uint32_t> const &stride,
+                         const std::vector<std::uint32_t> &shape,
+                         const std::vector<std::uint32_t> &stride,
                          std::uint32_t itemsize,
                          ::tt::target::DataType dataType) {
   LOG_ASSERT(!shape.empty());
@@ -184,8 +184,8 @@ Tensor createOwnedTensor(std::shared_ptr<void> data,
 }
 
 Tensor createBorrowedHostTensor(void *data,
-                                std::vector<std::uint32_t> const &shape,
-                                std::vector<std::uint32_t> const &stride,
+                                const std::vector<std::uint32_t> &shape,
+                                const std::vector<std::uint32_t> &stride,
                                 std::uint32_t itemsize,
                                 ::tt::target::DataType dataType) {
   LOG_ASSERT(!shape.empty());
@@ -211,8 +211,8 @@ Tensor createBorrowedHostTensor(void *data,
 // if it can also use the new `createBorrowedHostTensor` function.
 // https://github.com/tenstorrent/tt-mlir/issues/2757
 Tensor createTensor(std::shared_ptr<void> data,
-                    std::vector<std::uint32_t> const &shape,
-                    std::vector<std::uint32_t> const &stride,
+                    const std::vector<std::uint32_t> &shape,
+                    const std::vector<std::uint32_t> &stride,
                     std::uint32_t itemsize, ::tt::target::DataType dataType) {
   LOG_ASSERT(!shape.empty());
   LOG_ASSERT(!stride.empty());
@@ -234,11 +234,11 @@ Tensor createTensor(std::shared_ptr<void> data,
 }
 
 Tensor createMultiDeviceHostTensor(
-    std::vector<void const *> const &data,
-    std::vector<std::uint32_t> const &shape,
-    std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
+    const std::vector<const void *> &data,
+    const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
-    std::unordered_map<std::string, std::string> const &strategy) {
+    const std::unordered_map<std::string, std::string> &strategy) {
   LOG_ASSERT(!shape.empty());
   LOG_ASSERT(!stride.empty());
   LOG_ASSERT(itemsize > 0);
@@ -258,8 +258,8 @@ Tensor createMultiDeviceHostTensor(
 }
 
 Tensor createMultiDeviceHostTensor(
-    std::vector<Tensor> const &tensorShards,
-    std::unordered_map<std::string, std::string> const &strategy) {
+    const std::vector<Tensor> &tensorShards,
+    const std::unordered_map<std::string, std::string> &strategy) {
   LOG_ASSERT(!tensorShards.empty());
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
@@ -277,8 +277,8 @@ Tensor createMultiDeviceHostTensor(
 }
 
 Tensor createEmptyTensor(Device device, Layout layout,
-                         std::vector<std::uint32_t> const &shape,
-                         std::vector<std::uint32_t> const &stride,
+                         const std::vector<std::uint32_t> &shape,
+                         const std::vector<std::uint32_t> &stride,
                          std::uint32_t itemsize) {
   LOG_ASSERT(!shape.empty());
   LOG_ASSERT(!stride.empty());
@@ -589,7 +589,7 @@ void wait(Tensor tensor) {
   LOG_FATAL("runtime is not enabled");
 }
 
-void wait(std::vector<Tensor> const &tensors) {
+void wait(const std::vector<Tensor> &tensors) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
     return ::tt::runtime::ttnn::wait(tensors);
@@ -765,8 +765,8 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
 
 Event submit(Device deviceHandle, Binary executableHandle,
              std::uint32_t programIndex,
-             std::vector<Tensor> const &inputHandles,
-             std::vector<Tensor> const &outputHandles) {
+             const std::vector<Tensor> &inputHandles,
+             const std::vector<Tensor> &outputHandles) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
     LOG_FATAL("This submit API is deprecated for TTNN. Please switch to the "

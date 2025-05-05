@@ -11,7 +11,7 @@
 
 namespace tt::runtime::ttnn::operations::reduction {
 static void
-runReductionArgMaxOp(::tt::target::ttnn::ReductionArgMaxOp const *op,
+runReductionArgMaxOp(const ::tt::target::ttnn::ReductionArgMaxOp *op,
                      ProgramTensorPool &tensorPool) {
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 

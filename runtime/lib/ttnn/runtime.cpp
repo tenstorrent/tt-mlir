@@ -29,7 +29,7 @@ using ::tt::tt_metal::OwnedStorage;
 using ::tt::tt_metal::raise_unsupported_storage;
 
 template <typename ElementType>
-static OwnedStorage createOwnedStorage(ElementType const *ptr,
+static OwnedStorage createOwnedStorage(const ElementType *ptr,
                                        std::uint32_t numElements) {
   ::tt::tt_metal::owned_buffer::Buffer<ElementType> buffer;
   if (ptr != nullptr) {
@@ -50,22 +50,22 @@ static BorrowedStorage createBorrowedStorage(ElementType *ptr,
       [] {}, [] {});
 }
 
-static OwnedStorage createOwnedStorage(void const *ptr,
+static OwnedStorage createOwnedStorage(const void *ptr,
                                        std::uint32_t numElements,
                                        ::tt::target::DataType dataType) {
   switch (dataType) {
   case ::tt::target::DataType::Float32:
-    return createOwnedStorage(static_cast<float const *>(ptr), numElements);
+    return createOwnedStorage(static_cast<const float *>(ptr), numElements);
   case ::tt::target::DataType::BFloat16:
-    return createOwnedStorage(static_cast<bfloat16 const *>(ptr), numElements);
+    return createOwnedStorage(static_cast<const bfloat16 *>(ptr), numElements);
   case ::tt::target::DataType::UInt32:
-    return createOwnedStorage(static_cast<uint32_t const *>(ptr), numElements);
+    return createOwnedStorage(static_cast<const uint32_t *>(ptr), numElements);
   case ::tt::target::DataType::UInt16:
-    return createOwnedStorage(static_cast<uint16_t const *>(ptr), numElements);
+    return createOwnedStorage(static_cast<const uint16_t *>(ptr), numElements);
   case ::tt::target::DataType::UInt8:
-    return createOwnedStorage(static_cast<uint8_t const *>(ptr), numElements);
+    return createOwnedStorage(static_cast<const uint8_t *>(ptr), numElements);
   case ::tt::target::DataType::Int32:
-    return createOwnedStorage(static_cast<int32_t const *>(ptr), numElements);
+    return createOwnedStorage(static_cast<const int32_t *>(ptr), numElements);
   default:
     LOG_FATAL("Unsupported data type");
   }
@@ -93,8 +93,8 @@ static BorrowedStorage createBorrowedStorage(void *ptr,
 }
 
 static ::ttnn::Tensor
-createOwnedTTNNTensor(void const *data, std::vector<std::uint32_t> const &shape,
-                      std::vector<std::uint32_t> const &stride,
+createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
+                      const std::vector<std::uint32_t> &stride,
                       std::uint32_t itemsize, ::tt::target::DataType dataType) {
   std::uint32_t numElements = shape[0] * stride[0];
 
@@ -127,7 +127,7 @@ static ::tt::runtime::Tensor toHostSingleTensor(::tt::runtime::Tensor tensor,
 }
 
 static tt::runtime::MemoryView
-createMemoryView(tt::tt_metal::detail::MemoryView const &memoryView) {
+createMemoryView(const tt::tt_metal::detail::MemoryView &memoryView) {
   return tt::runtime::MemoryView{
       .numBanks = memoryView.num_banks,
       .totalBytesPerBank = memoryView.total_bytes_per_bank,
@@ -140,8 +140,8 @@ createMemoryView(tt::tt_metal::detail::MemoryView const &memoryView) {
 }
 
 ::tt::runtime::Tensor
-createOwnedHostTensor(void const *data, std::vector<std::uint32_t> const &shape,
-                      std::vector<std::uint32_t> const &stride,
+createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
+                      const std::vector<std::uint32_t> &stride,
                       std::uint32_t itemsize, ::tt::target::DataType dataType) {
 
   return utils::createRuntimeTensorFromTTNN(
@@ -149,8 +149,8 @@ createOwnedHostTensor(void const *data, std::vector<std::uint32_t> const &shape,
 }
 
 ::tt::runtime::Tensor
-createBorrowedHostTensor(void *data, std::vector<std::uint32_t> const &shape,
-                         std::vector<std::uint32_t> const &stride,
+createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
+                         const std::vector<std::uint32_t> &stride,
                          std::uint32_t itemsize,
                          ::tt::target::DataType dataType) {
   std::uint32_t numElements = shape[0] * stride[0];
@@ -163,8 +163,8 @@ createBorrowedHostTensor(void *data, std::vector<std::uint32_t> const &shape,
 }
 
 ::tt::runtime::Tensor createMultiDeviceHostTensor(
-    std::vector<::tt::runtime::Tensor> const &tensorShards,
-    std::unordered_map<std::string, std::string> const &strategy) {
+    const std::vector<::tt::runtime::Tensor> &tensorShards,
+    const std::unordered_map<std::string, std::string> &strategy) {
   std::vector<::ttnn::Tensor> ttnnTensorShards;
   ttnnTensorShards.reserve(tensorShards.size());
   std::transform(tensorShards.begin(), tensorShards.end(),
@@ -186,15 +186,15 @@ createBorrowedHostTensor(void *data, std::vector<std::uint32_t> const &shape,
 }
 
 ::tt::runtime::Tensor createMultiDeviceHostTensor(
-    std::vector<void const *> const &data,
-    std::vector<std::uint32_t> const &shape,
-    std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
+    const std::vector<const void *> &data,
+    const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
-    std::unordered_map<std::string, std::string> const &strategy) {
+    const std::unordered_map<std::string, std::string> &strategy) {
   std::vector<::tt::runtime::Tensor> tensorShards;
   tensorShards.reserve(data.size());
   std::transform(data.begin(), data.end(), std::back_inserter(tensorShards),
-                 [&](void const *dataShard) -> ::tt::runtime::Tensor {
+                 [&](const void *dataShard) -> ::tt::runtime::Tensor {
                    return createOwnedHostTensor(dataShard, shape, stride,
                                                 itemsize, dataType);
                  });
@@ -202,8 +202,8 @@ createBorrowedHostTensor(void *data, std::vector<std::uint32_t> const &shape,
 }
 
 ::tt::runtime::Tensor createEmptyTensor(
-    Device device, Layout layout, std::vector<std::uint32_t> const &shape,
-    std::vector<std::uint32_t> const &stride, std::uint32_t itemsize) {
+    Device device, Layout layout, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize) {
   const LayoutDesc &layoutDesc = layout.as<LayoutDesc>(DeviceRuntime::TTNN);
   if (layoutDesc.isOnHost()) {
     ::ttnn::Tensor tensor =
@@ -520,7 +520,7 @@ void wait(::tt::runtime::Tensor tensor) {
   ::tt::runtime::ttnn::wait(tensor.event);
 }
 
-void wait(std::vector<::tt::runtime::Tensor> const &tensors) {
+void wait(const std::vector<::tt::runtime::Tensor> &tensors) {
   for (const ::tt::runtime::Tensor &tensor : tensors) {
     ::tt::runtime::ttnn::wait(tensor);
   }
@@ -650,23 +650,23 @@ void deallocateTensor(::tt::runtime::Tensor &tensor, bool force) {
 }
 
 std::string getOpDebugString(OpContext opContextHandle) {
-  auto const &opContext =
+  const auto &opContext =
       opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
   return std::string(opContext.debug_info()->c_str());
 }
 
 std::string getOpLocInfo(OpContext opContextHandle) {
-  auto const &opContext =
+  const auto &opContext =
       opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
   return std::string(opContext.loc_info()->c_str());
 }
 
 ::tt::runtime::Tensor getOpOutputTensor(OpContext opContextHandle,
                                         CallbackContext programContextHandle) {
-  auto const &programContext =
+  const auto &programContext =
       programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
           DeviceRuntime::TTNN);
-  auto const &opContext =
+  const auto &opContext =
       opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
   const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
   std::optional<const ::tt::target::ttnn::TensorRef *> tensorRef = std::nullopt;
@@ -900,8 +900,8 @@ std::vector<Tensor> runProgram(std::shared_ptr<::ttnn::MeshDevice> meshDevice,
                                Binary executableHandle,
                                std::uint32_t programIndex,
                                std::vector<::tt::runtime::Tensor> &inputs) {
-  ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
-  ::tt::target::ttnn::Program const *program =
+  const ::tt::target::ttnn::TTNNBinary &fbb = *getBinary(executableHandle);
+  const ::tt::target::ttnn::Program *program =
       fbb.programs()->Get(programIndex);
   ProgramExecutor executor(program, executableHandle, inputs,
                            std::move(meshDevice), programIndex);

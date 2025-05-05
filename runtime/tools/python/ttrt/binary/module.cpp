@@ -65,24 +65,24 @@ PYBIND11_MODULE(_C, m) {
   py::class_<tt::target::GoldenTensor>(m, "GoldenTensor", py::buffer_protocol())
       .def_property_readonly(
           "name",
-          [](::tt::target::GoldenTensor const *t) -> std::string {
+          [](const ::tt::target::GoldenTensor *t) -> std::string {
             assert(t != nullptr && t->name() != nullptr);
             return t->name()->str();
           })
       .def_property_readonly(
           "shape",
-          [](::tt::target::GoldenTensor const *t) -> std::vector<int> {
+          [](const ::tt::target::GoldenTensor *t) -> std::vector<int> {
             assert(t != nullptr && t->shape() != nullptr);
             return std::vector<int>(t->shape()->begin(), t->shape()->end());
           })
       .def_property_readonly(
           "stride",
-          [](::tt::target::GoldenTensor const *t) -> std::vector<int> {
+          [](const ::tt::target::GoldenTensor *t) -> std::vector<int> {
             assert(t != nullptr && t->stride() != nullptr);
             return std::vector<int>(t->stride()->begin(), t->stride()->end());
           })
       .def_property_readonly("dtype", &::tt::target::GoldenTensor::dtype)
-      .def_buffer([](tt::target::GoldenTensor const *t) -> py::buffer_info {
+      .def_buffer([](const tt::target::GoldenTensor *t) -> py::buffer_info {
         assert(t != nullptr && t->data() != nullptr && t->shape() != nullptr &&
                t->stride() != nullptr);
 

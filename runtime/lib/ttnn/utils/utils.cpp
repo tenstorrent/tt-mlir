@@ -197,7 +197,7 @@ CoreRangeSet
 toCoreRangeSet(const ::flatbuffers::Vector<const ::tt::target::Dim2dRange *>
                    *coreRangeSet) {
   std::set<CoreRange> coreRanges;
-  for (::tt::target::Dim2dRange const *coreRange : *coreRangeSet) {
+  for (const ::tt::target::Dim2dRange *coreRange : *coreRangeSet) {
     CoreCoord start(coreRange->loc().x(), coreRange->loc().y());
     // End is inclusive
     CoreCoord end(coreRange->loc().x() + coreRange->size().x() - 1,
