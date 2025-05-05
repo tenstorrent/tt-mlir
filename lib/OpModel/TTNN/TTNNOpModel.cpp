@@ -136,40 +136,6 @@ llvm::Expected<size_t> getOpRuntime(std::string_view name, Callable &callable) {
 } // namespace operation
 
 namespace detail {
-
-/**
- * @brief Checks if the shard bounding box fits within the available grid size.
- *
- * This function verifies whether the shard bounding box specified in the
- * memory configuration fits within the range of device worker cores. If the
- * memory configuration is sharded and the shard bounding box exceeds the
- * available grid size, it throws a runtime error.
- *
- * @param computeGridSize The compute grid size.
- * @param memoryConfig The memory configuration which may specify a shard.
- *
- * @throws std::runtime_error If the shard bounding box is larger than the
- * available grid size.
- */
-void checkGrid(const ::tt::tt_metal::CoreCoord &computeGridSize,
-               const ::tt::tt_metal::MemoryConfig &memoryConfig) {
-  if (memoryConfig.is_sharded()) {
-    ::tt::tt_metal::CoreRange shardBoundingBox =
-        memoryConfig.shard_spec.value().grid.bounding_box();
-    ::tt::tt_metal::CoreRangeSet deviceWorkerCores{::tt::tt_metal::CoreRange{
-        ::tt::tt_metal::CoreCoord{0, 0},
-        ::tt::tt_metal::CoreCoord{computeGridSize.x - 1,
-                                  computeGridSize.y - 1}}};
-    if (deviceWorkerCores.contains(shardBoundingBox) == false) {
-      throw std::runtime_error(
-          "Selected shard is larger than available grid "
-          "size. Compute Grid Size: " +
-          computeGridSize.str() +
-          ", selected bounding box: " + shardBoundingBox.str());
-    }
-  }
-}
-
 /**
  * @brief Checks the validity of the compute grid size.
  *
@@ -199,27 +165,21 @@ void checkGrid(const ::tt::tt_metal::CoreCoord &computeGridSize,
 }
 
 /**
- * @brief Convenience wrapper to convert tuples of {shape, layout} into
- * TensorSpec. Validates worker grid size
+ * @brief Convenience wrapper to create and validate a tensor spec
  *
  * @param device Pointer to an open device to obtain the compute grid size
- * @param args 2-tuples of shape and layout
  */
-template <typename... Args,
-          typename = std::enable_if_t<
-              (std::is_same_v<std::decay_t<Args>,
-                              std::tuple<::llvm::ArrayRef<int64_t>,
-                                         ::mlir::tt::ttnn::TTNNLayoutAttr>> &&
-               ...)>>
-auto convertToTensorSpec(::tt::tt_metal::IDevice *device, Args &&...args) {
-  auto transformArg = [device](auto &&arg) {
-    const ::ttnn::TensorSpec spec =
-        conversion::getTensorSpec(std::get<0>(arg), std::get<1>(arg));
-    detail::checkGrid(device->compute_with_storage_grid_size(),
-                      spec.memory_config());
+llvm::Expected<::ttnn::TensorSpec>
+convertToTensorSpec(::tt::tt_metal::IDevice *device,
+                    ::llvm::ArrayRef<int64_t> shape,
+                    ::mlir::tt::ttnn::TTNNLayoutAttr layout) {
+  const ::ttnn::TensorSpec spec = conversion::getTensorSpec(shape, layout);
+  if (conversion::validateTensorSpec(
+          spec, device->compute_with_storage_grid_size())) {
     return spec;
-  };
-  return std::make_tuple(transformArg(std::forward<Args>(args))...);
+  }
+
+  return llvm::createStringError("Invalid TensorSpec");
 }
 
 /**
@@ -319,9 +279,13 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
 
   ::tt::tt_metal::IDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
-  // Prepare io specs
-  const auto inputSpec = std::get<0>(detail::convertToTensorSpec(
-      device, std::make_tuple(inputShape, inputLayout)));
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
       conv2dConfigConverted = conversion::getConv2dConfig(conv2dConfig);
@@ -441,13 +405,15 @@ getEltwiseUnaryOpConstraints(std::string_view opName, OpSymbol opSymbol,
   ::tt::tt_metal::IDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Prepare io specs
-  const auto specs = detail::convertToTensorSpec(
-      device, std::make_tuple(inputShape, inputLayout));
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Create query closure
   auto query = [=]() {
-    const auto [inputSpec] = specs;
     return ::ttnn::graph::query_op_constraints(
         opSymbol, device, inputSpec,
         detail::getNullableMemoryConfig(outputLayout));
@@ -467,13 +433,15 @@ getEltwiseUnaryOpRuntime(std::string_view opName, OpSymbol opSymbol,
   ::tt::tt_metal::IDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Prepare io specs
-  const auto specs = detail::convertToTensorSpec(
-      device, std::make_tuple(inputShape, inputLayout));
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Create query closure
   auto query = [=]() {
-    const auto [inputSpec] = specs;
     return ::ttnn::graph::query_op_runtime(
         opSymbol, device, inputSpec,
         detail::getNullableMemoryConfig(outputLayout));
@@ -501,23 +469,36 @@ getEltwiseBinaryOpConstraints(std::string_view opName, OpSymbol opSymbol,
                               mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
   ::tt::tt_metal::IDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
-  const auto inputSpecs = detail::convertToTensorSpec(
-      device, std::make_tuple(inputShapeA, inputLayoutA),
-      std::make_tuple(inputShapeB, inputLayoutB));
+
+  auto inputSpecAExp =
+      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA);
+  if (!inputSpecAExp) {
+    return inputSpecAExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpecA = inputSpecAExp.get();
+
+  auto inputSpecBExp =
+      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB);
+  if (!inputSpecBExp) {
+    return inputSpecBExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
 
   std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt;
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig = std::nullopt;
   if (outputLayout) {
-    auto [outputSpec] = detail::convertToTensorSpec(
-        device, std::make_tuple(outputShape, outputLayout));
+    auto outputSpecExp =
+        detail::convertToTensorSpec(device, outputShape, outputLayout);
+    if (!outputSpecExp) {
+      return outputSpecExp.takeError();
+    }
+    ::ttnn::TensorSpec outputSpec = outputSpecExp.get();
     outputDType = outputSpec.data_type();
     outputMemoryConfig = outputSpec.memory_config();
   }
 
   // Create query closure
   auto query = [=]() {
-    const auto [inputSpecA, inputSpecB] = inputSpecs;
-
     return ::ttnn::graph::query_op_constraints(opSymbol, device, inputSpecA,
                                                inputSpecB, outputDType,
                                                outputMemoryConfig);
@@ -538,21 +519,35 @@ getEltwiseBinaryOpRuntime(std::string_view opName, OpSymbol opSymbol,
                           mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
   ::tt::tt_metal::IDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
-  const auto inputSpecs = detail::convertToTensorSpec(
-      device, std::make_tuple(inputShapeA, inputLayoutA),
-      std::make_tuple(inputShapeB, inputLayoutB));
+
+  auto inputSpecAExp =
+      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA);
+  if (!inputSpecAExp) {
+    return inputSpecAExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpecA = inputSpecAExp.get();
+
+  auto inputSpecBExp =
+      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB);
+  if (!inputSpecBExp) {
+    return inputSpecBExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
 
   std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt;
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig = std::nullopt;
   if (outputLayout) {
-    auto [outputSpec] = detail::convertToTensorSpec(
-        device, std::make_tuple(outputShape, outputLayout));
+    auto outputSpecExp =
+        detail::convertToTensorSpec(device, outputShape, outputLayout);
+    if (!outputSpecExp) {
+      return outputSpecExp.takeError();
+    }
+    ::ttnn::TensorSpec outputSpec = outputSpecExp.get();
     outputDType = outputSpec.data_type();
     outputMemoryConfig = outputSpec.memory_config();
   }
   // Create query closure
   auto query = [=]() {
-    const auto [inputSpecA, inputSpecB] = inputSpecs;
     return ::ttnn::graph::query_op_runtime(opSymbol, device, inputSpecA,
                                            inputSpecB, outputDType,
                                            outputMemoryConfig);
@@ -640,9 +635,12 @@ SigmoidOpInterface::getOpConstraints(
   ::tt::tt_metal::IDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Prepare io specs
-  const auto specs = detail::convertToTensorSpec(
-      device, std::make_tuple(inputShape, inputLayout));
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Add default parameters
   int32_t vectorMode =
@@ -651,7 +649,6 @@ SigmoidOpInterface::getOpConstraints(
 
   // Create query closure
   auto query = [=]() {
-    const auto [inputSpec] = specs;
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::sigmoid, device, inputSpec, vectorMode, approximateMode,
         detail::getNullableMemoryConfig(outputLayout));
@@ -673,9 +670,12 @@ SigmoidOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   ::tt::tt_metal::IDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Prepare io specs
-  const auto specs = detail::convertToTensorSpec(
-      device, std::make_tuple(inputShape, inputLayout));
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Add default parameters
   int32_t vectorMode =
@@ -684,7 +684,6 @@ SigmoidOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 
   // Create query closure
   auto query = [=]() {
-    const auto [inputSpec] = specs;
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::sigmoid, device, inputSpec, vectorMode, approximateMode,
         detail::getNullableMemoryConfig(outputLayout));
@@ -747,9 +746,12 @@ SoftmaxOpInterface::getOpConstraints(
   ::tt::tt_metal::IDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Prepare io specs
-  const auto inputSpec = std::get<0>(detail::convertToTensorSpec(
-      device, std::make_tuple(inputShape, inputLayout)));
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Create query closure
   auto softmaxOpQuery = [=]() {
@@ -776,13 +778,15 @@ SoftmaxOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   ::tt::tt_metal::IDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Prepare io specs
-  const auto specs = detail::convertToTensorSpec(
-      device, std::make_tuple(inputShape, inputLayout));
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Create query closure
   auto softmaxOpQuery = [=]() {
-    const auto [inputSpec] = specs;
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::softmax, device, inputSpec, dimArg,
         detail::getNullableMemoryConfig(outputLayout));
@@ -809,9 +813,12 @@ MeanOpInterface::getOpConstraints(GridAttr deviceGrid,
   ::tt::tt_metal::IDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Prepare io specs
-  const auto specs = detail::convertToTensorSpec(
-      device, std::make_tuple(inputShape, inputLayout));
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   std::optional<::ttnn::SmallVector<int>> dimArgConverted;
   if (dimArg) {
@@ -823,7 +830,6 @@ MeanOpInterface::getOpConstraints(GridAttr deviceGrid,
 
   // Create query closure
   auto meanOpQuery = [=]() {
-    const auto [inputSpec] = specs;
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::mean, device, inputSpec, dimArgConverted, keepDim,
         detail::getNullableMemoryConfig(outputLayout));
@@ -846,9 +852,12 @@ MeanOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   ::tt::tt_metal::IDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Prepare io specs
-  auto specs = detail::convertToTensorSpec(
-      device, std::make_tuple(inputShape, inputLayout));
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   std::optional<::ttnn::SmallVector<int>> dimArgConverted;
   if (dimArg) {
@@ -860,7 +869,6 @@ MeanOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 
   // Create query closure
   auto meanOpQuery = [=]() {
-    auto [inputSpec] = specs;
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::mean, device, inputSpec, dimArgConverted, keepDim,
         detail::getNullableMemoryConfig(outputLayout));
@@ -886,13 +894,15 @@ ReshapeOpInterface::getOpConstraints(
   ::tt::tt_metal::IDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Prepare io specs
-  const auto specs = detail::convertToTensorSpec(
-      device, std::make_tuple(inputShape, inputLayout));
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Create query closure
   auto reshapeOpQuery = [=]() {
-    const auto [inputSpec] = specs;
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::reshape, device, inputSpec, conversion::getShape(outputShape),
         detail::getNullableMemoryConfig(outputLayout));
@@ -915,13 +925,15 @@ ReshapeOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   ::tt::tt_metal::IDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Prepare io specs
-  const auto specs = detail::convertToTensorSpec(
-      device, std::make_tuple(inputShape, inputLayout));
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Create query closure
   auto reshapeOpQuery = [=]() {
-    const auto [inputSpec] = specs;
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::reshape, device, inputSpec, conversion::getShape(outputShape),
         detail::getNullableMemoryConfig(outputLayout));
@@ -947,13 +959,15 @@ TypecastOpInterface::getOpConstraints(
   ::tt::tt_metal::IDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Prepare io specs
-  const auto specs = detail::convertToTensorSpec(
-      device, std::make_tuple(inputShape, inputLayout));
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Create query closure
   auto typecastOpQuery = [=]() {
-    const auto [inputSpec] = specs;
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::typecast, device, inputSpec,
         conversion::getDataType(dtype.getValue()),
@@ -978,13 +992,15 @@ TypecastOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   ::tt::tt_metal::IDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Prepare io specs
-  const auto specs = detail::convertToTensorSpec(
-      device, std::make_tuple(inputShape, inputLayout));
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Create query closure
   auto typecastOpQuery = [=]() {
-    const auto [inputSpec] = specs;
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::typecast, device, inputSpec,
         conversion::getDataType(dtype.getValue()),
@@ -1011,9 +1027,12 @@ ToLayoutOpInterface::getOpConstraints(
   ::tt::tt_metal::IDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Prepare io specs
-  const auto specs = detail::convertToTensorSpec(
-      device, std::make_tuple(inputShape, inputLayout));
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   std::optional<::tt::tt_metal::DataType> dtype;
   if (outputDtype) {
@@ -1024,7 +1043,6 @@ ToLayoutOpInterface::getOpConstraints(
 
   // Create query closure
   auto toLayoutOpQuery = [=]() {
-    const auto [inputSpec] = specs;
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::to_layout, device, inputSpec,
         conversion::getPageLayout(outputLayout.getLayout()), dtype,
@@ -1049,9 +1067,12 @@ ToLayoutOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   ::tt::tt_metal::IDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Prepare io specs
-  const auto specs = detail::convertToTensorSpec(
-      device, std::make_tuple(inputShape, inputLayout));
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   std::optional<::tt::tt_metal::DataType> dtype;
   if (outputDtype) {
@@ -1062,7 +1083,6 @@ ToLayoutOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 
   // Create query closure
   auto toLayoutOpQuery = [=]() {
-    const auto [inputSpec] = specs;
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::to_layout, device, inputSpec,
         conversion::getPageLayout(outputLayout.getLayout()), dtype,
@@ -1089,13 +1109,15 @@ TransposeOpInterface::getOpConstraints(
   ::tt::tt_metal::IDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Prepare io specs
-  const auto specs = detail::convertToTensorSpec(
-      device, std::make_tuple(inputShape, inputLayout));
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Create query closure
   auto transposeOpQuery = [=]() {
-    const auto [inputSpec] = specs;
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::transpose, device, inputSpec, dim0, dim1,
         detail::getNullableMemoryConfig(outputLayout));
@@ -1117,13 +1139,15 @@ llvm::Expected<size_t> TransposeOpInterface::getOpRuntime(
   ::tt::tt_metal::IDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Prepare io specs
-  const auto specs = detail::convertToTensorSpec(
-      device, std::make_tuple(inputShape, inputLayout));
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Create query closure
   auto transposeOpQuery = [=]() {
-    const auto [inputSpec] = specs;
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::transpose, device, inputSpec, dim0, dim1,
         detail::getNullableMemoryConfig(outputLayout));
@@ -1152,23 +1176,35 @@ MatmulOpInterface::getOpConstraints(GridAttr deviceGrid,
   ::tt::tt_metal::IDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Prepare io specs
-  const auto specs = detail::convertToTensorSpec(
-      device, std::make_tuple(inputShapeA, inputLayoutA),
-      std::make_tuple(inputShapeB, inputLayoutB));
+  auto inputSpecAExp =
+      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA);
+  if (!inputSpecAExp) {
+    return inputSpecAExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpecA = inputSpecAExp.get();
+
+  auto inputSpecBExp =
+      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB);
+  if (!inputSpecBExp) {
+    return inputSpecBExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
 
   std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt;
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig = std::nullopt;
   if (outputLayout) {
-    auto [outputSpec] = detail::convertToTensorSpec(
-        device, std::make_tuple(outputShape, outputLayout));
+    auto outputSpecExp =
+        detail::convertToTensorSpec(device, outputShape, outputLayout);
+    if (!outputSpecExp) {
+      return outputSpecExp.takeError();
+    }
+    ::ttnn::TensorSpec outputSpec = outputSpecExp.get();
     outputDType = outputSpec.data_type();
     outputMemoryConfig = outputSpec.memory_config();
   }
 
   // Create query closure
   auto matmulOpQuery = [=]() {
-    const auto [inputSpecA, inputSpecB] = specs;
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::matmul, device, inputSpecA, inputSpecB, transposeA, transposeB,
         outputMemoryConfig, outputDType);
@@ -1194,23 +1230,35 @@ MatmulOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
   ::tt::tt_metal::IDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Prepare io specs
-  const auto specs = detail::convertToTensorSpec(
-      device, std::make_tuple(inputShapeA, inputLayoutA),
-      std::make_tuple(inputShapeB, inputLayoutB));
+  auto inputSpecAExp =
+      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA);
+  if (!inputSpecAExp) {
+    return inputSpecAExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpecA = inputSpecAExp.get();
+
+  auto inputSpecBExp =
+      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB);
+  if (!inputSpecBExp) {
+    return inputSpecBExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
 
   std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt;
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig = std::nullopt;
   if (outputLayout) {
-    auto [outputSpec] = detail::convertToTensorSpec(
-        device, std::make_tuple(outputShape, outputLayout));
+    auto outputSpecExp =
+        detail::convertToTensorSpec(device, outputShape, outputLayout);
+    if (!outputSpecExp) {
+      return outputSpecExp.takeError();
+    }
+    ::ttnn::TensorSpec outputSpec = outputSpecExp.get();
     outputDType = outputSpec.data_type();
     outputMemoryConfig = outputSpec.memory_config();
   }
 
   // Create query closure
   auto matmulOpQuery = [=]() {
-    const auto [inputSpecA, inputSpecB] = specs;
     return ::ttnn::graph::query_op_runtime(::ttnn::matmul, device, inputSpecA,
                                            inputSpecB, transposeA, transposeB,
                                            outputMemoryConfig, outputDType);
@@ -1292,9 +1340,12 @@ Conv2dOpInterface::getOpConstraints(
   ::tt::tt_metal::IDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Prepare io specs
-  const auto inputSpec = std::get<0>(detail::convertToTensorSpec(
-      device, std::make_tuple(inputShape, inputLayout)));
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   std::optional<::tt::tt_metal::Tensor> biasTensor;
   if (biasShape && biasLayout) {
@@ -1372,9 +1423,12 @@ llvm::Expected<size_t> Conv2dOpInterface::getOpRuntime(
   ::tt::tt_metal::IDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Prepare io specs
-  const auto inputSpec = std::get<0>(detail::convertToTensorSpec(
-      device, std::make_tuple(inputShape, inputLayout)));
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   std::optional<::tt::tt_metal::Tensor> biasTensor;
   if (biasShape && biasLayout) {
@@ -1441,13 +1495,15 @@ MaxPool2DInterface::getOpConstraints(
 
   uint32_t inputChannelsU = static_cast<uint32_t>(inputChannels);
 
-  // Prepare io specs
-  const auto specs = detail::convertToTensorSpec(
-      device, std::make_tuple(inputShape, inputLayout));
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Create query closure
   auto maxPool2DQuery = [=]() {
-    const auto [inputSpec] = specs;
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::max_pool2d, device, inputSpec, batchSizeU, inputHeightU,
         inputWidthU, inputChannelsU,
@@ -1487,13 +1543,15 @@ llvm::Expected<size_t> MaxPool2DInterface::getOpRuntime(
 
   uint32_t inputChannelsU = static_cast<uint32_t>(inputChannels);
 
-  // prepare io specs
-  const auto specs = detail::convertToTensorSpec(
-      device, std::make_tuple(inputShape, inputLayout));
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Create query closure
   auto maxPool2DQuery = [=]() {
-    const auto [inputSpec] = specs;
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::max_pool2d, device, inputSpec, batchSizeU, inputHeightU,
         inputWidthU, inputChannelsU,
@@ -1530,13 +1588,15 @@ ClampScalarInterface::getOpConstraints(
   float minVal = min.convertToFloat();
   float maxVal = max.convertToFloat();
 
-  // Prepare io specs
-  const auto specs = detail::convertToTensorSpec(
-      device, std::make_tuple(inputShape, inputLayout));
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Create query closure
   auto clampScalarQuery = [=]() {
-    const auto [inputSpec] = specs;
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::clamp, device, inputSpec, minVal, maxVal,
         detail::getNullableMemoryConfig(outputLayout));
@@ -1564,13 +1624,15 @@ llvm::Expected<size_t> ClampScalarInterface::getOpRuntime(
   float minVal = min.convertToFloat();
   float maxVal = max.convertToFloat();
 
-  // Prepare io specs
-  const auto specs = detail::convertToTensorSpec(
-      device, std::make_tuple(inputShape, inputLayout));
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Create query closure
   auto clampScalarQuery = [=]() {
-    const auto [inputSpec] = specs;
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::clamp, device, inputSpec, minVal, maxVal,
         detail::getNullableMemoryConfig(outputLayout));
