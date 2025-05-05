@@ -56,6 +56,9 @@ runs:
             return 1
           fi
 
+          unzip -o "${DOWNLOAD_PATH}/${ARTIFACT_NAME}.zip" -d "${DOWNLOAD_PATH}"
+          rm "${DOWNLOAD_PATH}/${ARTIFACT_NAME}.zip"
+
           # Check if we need to untar
           for file in "${DOWNLOAD_PATH}"/*.tar*; do
             if [ -f "$file" ]; then

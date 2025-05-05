@@ -117,6 +117,9 @@ jobs:
       with:
         create-symlink: true
         key: ${{ matrix.build.name }}-${{ env.SDK_VERSION }}
+      env:
+        CCACHE_NOHASHDIR: true
+        CCACHE_BASEDIR: ${{ steps.strings.outputs.work-dir }}
 
     - name: Run tt-mlir build
       uses: ./.github/actions/build-tt-mlir-action
