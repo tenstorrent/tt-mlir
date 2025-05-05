@@ -734,13 +734,18 @@ public:
 } // namespace
 
 namespace {
-template <typename T>
-class TTIRSemaphoreUpdateRewriter : public OpConversionPattern<T> {
+template <typename ConcreteOp>
+class TTIRSemaphoreUpdateRewriter : public OpConversionPattern<ConcreteOp> {
 public:
-  using OpConversionPattern<T>::OpConversionPattern;
+  using OpConversionPattern<ConcreteOp>::OpConversionPattern;
+
+  static_assert(std::is_same_v<ConcreteOp, ttir::SemaphoreSetOp> ||
+                    std::is_same_v<ConcreteOp, ttir::SemaphoreIncOp>,
+                "Expected SemaphoreSet or SemaphoreInc op passed to "
+                "TTIRSemaphoreUpdateRewriter.");
 
   LogicalResult
-  matchAndRewrite(T op, typename T::Adaptor adaptor,
+  matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     auto device = lookupDevice(op);
     auto systemDesc = getCurrentScopeSystemDesc(op);
@@ -754,10 +759,8 @@ public:
     Value semaphoreAddr = adaptor.getSemaphore();
 
     if (op.getDstCoreIndex().empty()) {
-      if (mlir::isa<ttir::SemaphoreIncOp>(op)) {
-        emitError(op.getLoc(), "ttir.semaphore_inc to local core is illegal.");
-        return failure();
-      }
+      assert(!mlir::isa<ttir::SemaphoreIncOp>(op) &&
+             "ttir.semaphore_inc to local core is illegal.");
 
       // Local semaphore set
       auto semaphorePtr =
@@ -768,11 +771,8 @@ public:
             op, semaphorePtr, value);
       }
     } else if (op.getMcastShape().empty()) {
-      if (mlir::isa<ttir::SemaphoreSetOp>(op)) {
-        emitError(op.getLoc(),
-                  "ttir.semaphore_set to single remote core is illegal.");
-        return failure();
-      }
+      assert(!mlir::isa<ttir::SemaphoreSetOp>(op) &&
+             "ttir.semaphore_set to single remote core is illegal.");
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, op.getLoc(), chipDesc, op.getDstCoreIndex());
       auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
@@ -780,10 +780,8 @@ public:
       rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreIncOp>(op, nocAddr,
                                                                value, nullptr);
     } else {
-      if (mlir::isa<ttir::SemaphoreIncOp>(op)) {
-        emitError(op.getLoc(), "ttir.semaphore_inc multicast is illegal.");
-        return failure();
-      }
+      assert(!mlir::isa<ttir::SemaphoreIncOp>(op) &&
+             "ttir.semaphore_inc multicast is illegal.");
 
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, op.getLoc(), chipDesc, op.getDstCoreIndex());
