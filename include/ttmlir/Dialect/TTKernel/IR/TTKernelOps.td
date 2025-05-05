@@ -620,7 +620,8 @@ def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val"> {
     let results = (outs TTKernel_ArgResultType:$arg_val);
 }
 
-def TTKernel_GetCompileArgValOp : TTKernel_Op<"get_compile_time_arg_val"> {
+def TTKernel_GetCompileArgValOp : TTKernel_Op<"get_compile_time_arg_val",
+                                              [Pure]> {
     let summary = "Get compile-time arg value.";
     let description = [{
       Get compile-time argument value at specified index.
