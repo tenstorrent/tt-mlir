@@ -279,7 +279,7 @@ public:
     }
 
     rewriter.replaceOpWithNewOp<TTNNOpTy>(
-        op, resultTypes[0], adaptor.getInputs()[0], adaptor.getInputs()[1],
+        op, resultTypes[0], adaptor.getLhs(), adaptor.getRhs(),
         rewriter.getBoolAttr(false) /*use_legacy*/);
     return success();
   }
