@@ -454,11 +454,7 @@ class TTIRBuilder:
         with self._ctx, self._loc:
             return RankedTensorType.get(shape, dtype, encoding)
 
-    def empty(
-        self,
-        shape: Shape,
-        data_type: Optional[Type] = None,
-    ) -> OpView:
+    def empty(self, shape: Shape, data_type: Optional[Type] = None) -> OpView:
         """Convenience wrapper constructing `ttir.EmptyOp`."""
         dtype = data_type if data_type is not None else self._default_dtype
         with self._ctx, self._loc:
@@ -660,6 +656,7 @@ class TTIRBuilder:
         contract_dims_lhs: List[int],
         batch_dims_rhs: List[int],
         contract_dims_rhs: List[int],
+        unit_attrs: List[str] = None,
     ) -> OpView:
         # Configure inputs for golden function
         lhs_dims = contract_dims_lhs + batch_dims_lhs
@@ -693,12 +690,15 @@ class TTIRBuilder:
             output_type=self.get_type_from_torch_dtype(
                 self._get_golden_tensor(in0).dtype
             ),
+            unit_attrs=unit_attrs,
         )
 
     # TTIR top level named ops
     # class TTIR_ElementwiseTernaryOp
 
-    def where(self, in0: Operand, in1: Operand, in2: Operand) -> OpView:
+    def where(
+        self, in0: Operand, in1: Operand, in2: Operand, unit_attrs: List[str] = None
+    ) -> OpView:
         return self.op_proxy(
             torch.where,
             ttir.WhereOp,
@@ -708,6 +708,7 @@ class TTIRBuilder:
                 self._get_golden_tensor(i[1]),
                 self._get_golden_tensor(i[2]),
             ),
+            unit_attrs=unit_attrs,
         )
 
     # class TTIR_ElementwiseUnaryOp
@@ -782,7 +783,9 @@ class TTIRBuilder:
     def sqrt(self, in0: Operand, unit_attrs: List[str] = None) -> OpView:
         return self.eltwise_proxy(torch.sqrt, ttir.SqrtOp, [in0], unit_attrs)
 
-    def typecast(self, in0: Operand, out: Operand) -> OpView:
+    def typecast(
+        self, in0: Operand, out: Operand, unit_attrs: List[str] = None
+    ) -> OpView:
         output_type = self.get_type_from_torch_dtype(self._get_golden_tensor(out).dtype)
         return self.op_proxy(
             torch.Tensor.type,
@@ -790,6 +793,7 @@ class TTIRBuilder:
             [in0],
             golden_kwargs={"dtype": self._get_golden_tensor(out).type()},
             output_type=output_type,
+            unit_attrs=unit_attrs,
         )
 
     def log(self, in0: Operand, unit_attrs: List[str] = None) -> OpView:

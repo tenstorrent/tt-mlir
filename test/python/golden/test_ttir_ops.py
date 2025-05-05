@@ -5,6 +5,7 @@
 import pytest
 import torch
 from typing import Callable, List
+from functools import partial
 
 from ttmlir.test_utils import compile_to_flatbuffer
 from ttmlir.ttir_builder import Operand, TTIRBuilder, UnitAttr, Shape, TypeInfo
@@ -107,7 +108,12 @@ def test_clamp_scalar(shape: Shape, max_arg: float, min_arg: float, request):
 @pytest.mark.parametrize("shapes", [[(32, 64), (32, 64), (32, 64), (32, 64)]])
 def test_clamp_tensor(shapes: List[Shape], request):
     def clamp_tensor(
-        in0: Operand, in1: Operand, in2: Operand, in3: Operand, builder: TTIRBuilder
+        in0: Operand,
+        in1: Operand,
+        in2: Operand,
+        in3: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: List[str] = None,
     ):
         return builder.clamp_tensor(in0, in1, in2, in3, unit_attrs=unit_attrs)
 
@@ -333,7 +339,15 @@ def min(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
 
 
 def reshape(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
-    return builder.reshape(in0, [2048], unit_attrs=unit_attrs)
+    # Calculate total elements in the input tensor
+    input_shape = builder.get_shape(in0)
+    total_elements = 1
+    for dim in input_shape:
+        total_elements *= dim
+
+    # Reshape to a 1D tensor with all elements
+    new_shape = [int(total_elements)]  # This must be a list of integers
+    return builder.reshape(in0, new_shape, unit_attrs=unit_attrs)
 
 
 def transpose(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
@@ -367,6 +381,50 @@ def where(
     return builder.where(in0, in1, in2, unit_attrs=unit_attrs)
 
 
+def broadcast(
+    in0: Operand,
+    in1: Operand,
+    builder: TTIRBuilder,
+    broadcast_dimensions: List[int] = None,
+    unit_attrs: List[str] = None,
+):
+    return builder.broadcast(
+        in0, in1, broadcast_dimensions=broadcast_dimensions, unit_attrs=unit_attrs
+    )
+
+
+def concat(
+    in0: Operand,
+    in1: Operand,
+    in2: Operand,
+    dim: int,
+    builder: TTIRBuilder,
+    unit_attrs: List[str] = None,
+):
+    return builder.concat([in0, in1, in2], dim=dim, unit_attrs=unit_attrs)
+
+
+@pytest.mark.parametrize("shapes", [[(1, 1, 32), (1, 16, 32)]])
+@pytest.mark.parametrize("broadcast_dimensions", [[1, 16, 1]])
+def test_broadcast(shapes: List[Shape], broadcast_dimensions: List[int], request):
+    # Create a wrapper function that captures broadcast_dimensions
+    def broadcast_wrapper(
+        in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
+    ):
+        return broadcast(in0, in1, builder, broadcast_dimensions, unit_attrs)
+
+    # Set the name for better test identification
+    broadcast_wrapper.__name__ = "broadcast"
+
+    compile_to_flatbuffer(
+        broadcast_wrapper,
+        shapes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -379,17 +437,21 @@ def where(
 )
 @pytest.mark.parametrize("dim", [0])
 def test_concat(shapes: List[Shape], dim: int, request):
-    def concat(
+    # Create a wrapper function that captures dim
+    def concat_wrapper(
         in0: Operand,
         in1: Operand,
         in2: Operand,
         builder: TTIRBuilder,
         unit_attrs: List[str] = None,
     ):
-        return builder.concat([in0, in1, in2], dim=dim, unit_attrs=unit_attrs)
+        return concat(in0, in1, in2, dim, builder, unit_attrs)
+
+    # Set the name for better test identification
+    concat_wrapper.__name__ = "concat"
 
     compile_to_flatbuffer(
-        concat,
+        concat_wrapper,
         shapes,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
@@ -452,7 +514,10 @@ def test_repeat(shape: Shape, dims: List[int], request):
 @pytest.mark.parametrize(
     "shapes",
     [
-        [(1, 8, 1, 12, 64), (1, 8, 1, 12, 64)],
+        [
+            (1, 8, 1, 12, 64),
+            (1, 8, 1, 12, 64),
+        ]
     ],
 )
 @pytest.mark.parametrize("dim", [0])
@@ -474,18 +539,33 @@ def test_repeat_interleave(shapes: List[Shape], repeats: int, dim: int, request)
     )
 
 
-@pytest.mark.parametrize("shapes", [[(1, 1, 32), (1, 16, 32)]])
-@pytest.mark.parametrize("broadcast_dimensions", [[1, 16, 1]])
-def test_broadcast(shapes: List[Shape], broadcast_dimensions: List[int], request):
-    def broadcast(
-        in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [
+            (64, 128),
+            (32, 128),
+            (16, 128),
+        ]
+    ],
+)
+@pytest.mark.parametrize("dim", [0])
+def test_concat(shapes: List[Shape], dim: int, request):
+    # Create a wrapper function that captures dim
+    def concat_wrapper(
+        in0: Operand,
+        in1: Operand,
+        in2: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: List[str] = None,
     ):
-        return builder.broadcast(
-            in0, in1, broadcast_dimensions=broadcast_dimensions, unit_attrs=unit_attrs
-        )
+        return concat(in0, in1, in2, dim, builder, unit_attrs)
+
+    # Set the name for better test identification
+    concat_wrapper.__name__ = "concat"
 
     compile_to_flatbuffer(
-        broadcast,
+        concat_wrapper,
         shapes,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
@@ -800,8 +880,8 @@ def test_ones(shape: Shape, request):
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=["128x128"])
 def test_empty(shape: Shape, request):
-    def empty(builder: TTIRBuilder, unit_attrs: List[str] = None):
-        return builder.empty(shape, unit_attrs=unit_attrs)
+    def empty(builder: TTIRBuilder):
+        return builder.empty(shape)
 
     compile_to_flatbuffer(
         empty,
@@ -882,21 +962,35 @@ def test_reduce_or(shape: Shape, dim_args: List[int], request):
     )
 
 
+def permute(
+    in0: Operand,
+    in1: Operand,
+    builder: TTIRBuilder,
+    permutation: List[int],
+    unit_attrs: List[str] = None,
+):
+    return builder.permute(
+        in0,
+        in1,
+        permutation=DenseI64ArrayAttr.get(permutation),
+        unit_attrs=unit_attrs,
+    )
+
+
 @pytest.mark.parametrize("shapes", [[(2, 3, 4), (3, 4, 2)]])
 @pytest.mark.parametrize("permutation", [[1, 2, 0]])
 def test_permute(shapes: List[Shape], permutation: List[int], request):
-    def permute(
+    # Create a wrapper function that captures permutation
+    def permute_wrapper(
         in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
     ):
-        return builder.permute(
-            in0,
-            in1,
-            permutation=DenseI64ArrayAttr.get(permutation),
-            unit_attrs=unit_attrs,
-        )
+        return permute(in0, in1, builder, permutation, unit_attrs)
+
+    # Set the name for better test identification
+    permute_wrapper.__name__ = "permute"
 
     compile_to_flatbuffer(
-        permute,
+        permute_wrapper,
         shapes,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
@@ -997,13 +1091,34 @@ def test_fill_cache(shapes: List[Shape], request):
     )
 
 
+def softmax(
+    in0: Operand,
+    builder: TTIRBuilder,
+    dimension: int = -1,
+    unit_attrs: List[str] = None,
+):
+    return builder.softmax(in0, dimension=dimension, unit_attrs=unit_attrs)
+
+
 @pytest.mark.parametrize("shape", [(512, 1024)])
 @pytest.mark.parametrize("dimension", [-1])
 def test_softmax(shape: Shape, dimension: int, request):
-    def softmax(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
-        return builder.softmax(in0, dimension=dimension, unit_attrs=unit_attrs)
+    # Create a wrapper function that captures dimension
+    def softmax_wrapper(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
+    ):
+        return softmax(in0, builder, dimension, unit_attrs)
 
-    compile_to_flatbuffer(softmax, [shape], test_base=request.node.name)
+    # Set the name for better test identification
+    softmax_wrapper.__name__ = "softmax"
+
+    compile_to_flatbuffer(
+        softmax_wrapper,
+        [shape],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
 
 
 @pytest.mark.run_error
@@ -1106,32 +1221,9 @@ def test_requantize(
     )
 
 
-# Define operations that support CPU hoisting
-cpu_hoistable_unary_ops = [
-    exp,
-    log,
-    sqrt,
-    rsqrt,
-    abs,
-    ceil,
-    floor,
-    tanh,
-    reciprocal,
-    neg,
-]
-
-cpu_hoistable_binary_ops = [
-    add,
-    multiply,
-    subtract,
-    div,
-    pow,
-]
-
-
 # Create hoisted versions of operations by currying the unit_attrs parameter
-def create_hoisted_op(op_func, name):
-    """Create a hoisted version of an operation by adding the should_hoist unit attribute"""
+def create_hoisted_unary_op(op_func, name):
+    """Create a hoisted version of a unary operation by adding the should_hoist unit attribute"""
 
     def hoisted_op(in0, builder, **kwargs):
         # For unary ops
@@ -1146,26 +1238,103 @@ def create_hoisted_binary_op(op_func, name):
     """Create a hoisted version of a binary operation by adding the should_hoist unit attribute"""
 
     def hoisted_op(in0, in1, builder, **kwargs):
-        # For binary ops
         return op_func(in0, in1, builder, unit_attrs=["should_hoist"], **kwargs)
 
-    # Set the name for better test identification
+    hoisted_op.__name__ = f"hoisted_{name}"
+    return hoisted_op
+
+
+def create_hoisted_broadcast_op(op_func, name):
+    """Create a hoisted version of the broadcast operation"""
+
+    def hoisted_op(in0, in1, builder, **kwargs):
+        # Default broadcast dimensions for the hoisted version
+        # Tests will need to use appropriate dimensions for their specific tensors
+        default_broadcast_dimensions = [1, 1, 1]
+        return op_func(
+            in0,
+            in1,
+            builder,
+            broadcast_dimensions=default_broadcast_dimensions,
+            unit_attrs=["should_hoist"],
+            **kwargs,
+        )
+
+    hoisted_op.__name__ = f"hoisted_{name}"
+    return hoisted_op
+
+
+def create_hoisted_permute_op(op_func, name):
+    """Create a hoisted version of the permute operation that calculates appropriate permutation dimensions"""
+
+    def hoisted_op(in0, in1, builder, **kwargs):
+        # Calculate appropriate permutation based on input dimensions
+        input_shape = builder.get_shape(in0)
+        ndims = len(input_shape)
+
+        # Create a simple permutation that reverses the dimensions
+        # This is guaranteed to be valid for any tensor
+        permutation = list(range(ndims))
+        permutation.reverse()
+
+        return op_func(
+            in0, in1, builder, permutation, unit_attrs=["should_hoist"], **kwargs
+        )
+
+    hoisted_op.__name__ = f"hoisted_{name}"
+    return hoisted_op
+
+
+def create_hoisted_softmax_op(op_func, name):
+    """Create a hoisted version of the softmax operation"""
+
+    def hoisted_op(in0, builder, **kwargs):
+        # Default dimension for the hoisted version (last dimension)
+        default_dimension = -1
+        return op_func(
+            in0,
+            builder,
+            dimension=default_dimension,
+            unit_attrs=["should_hoist"],
+            **kwargs,
+        )
+
+    hoisted_op.__name__ = f"hoisted_{name}"
+    return hoisted_op
+
+
+def create_hoisted_concat_op(op_func, name):
+    """Create a hoisted version of the concat operation"""
+
+    def hoisted_op(in0, in1, in2, builder, **kwargs):
+        # Default dimension for the hoisted version (dimension 0)
+        default_dim = 0
+        return op_func(
+            in0, in1, in2, default_dim, builder, unit_attrs=["should_hoist"], **kwargs
+        )
+
     hoisted_op.__name__ = f"hoisted_{name}"
     return hoisted_op
 
 
 # Create hoisted versions of all hoistable operations with proper names
 hoisted_unary_ops = [
-    create_hoisted_op(exp, "exp"),
-    create_hoisted_op(log, "log"),
-    create_hoisted_op(sqrt, "sqrt"),
-    create_hoisted_op(rsqrt, "rsqrt"),
-    create_hoisted_op(abs, "abs"),
-    create_hoisted_op(ceil, "ceil"),
-    create_hoisted_op(floor, "floor"),
-    create_hoisted_op(tanh, "tanh"),
-    create_hoisted_op(reciprocal, "reciprocal"),
-    create_hoisted_op(neg, "neg"),
+    create_hoisted_unary_op(exp, "exp"),
+    create_hoisted_unary_op(log, "log"),
+    create_hoisted_unary_op(sqrt, "sqrt"),
+    create_hoisted_unary_op(rsqrt, "rsqrt"),
+    create_hoisted_unary_op(abs, "abs"),
+    create_hoisted_unary_op(ceil, "ceil"),
+    create_hoisted_unary_op(floor, "floor"),
+    create_hoisted_unary_op(tanh, "tanh"),
+    create_hoisted_unary_op(reciprocal, "reciprocal"),
+    create_hoisted_unary_op(neg, "neg"),
+    create_hoisted_softmax_op(softmax, "softmax"),
+    pytest.param(
+        create_hoisted_unary_op(reshape, "reshape"),
+        marks=pytest.mark.xfail(reason="Reshape not compiling properly"),
+    ),
+    create_hoisted_unary_op(transpose, "transpose"),
 ]
 
 hoisted_binary_ops = [
@@ -1174,6 +1343,12 @@ hoisted_binary_ops = [
     create_hoisted_binary_op(subtract, "subtract"),
     create_hoisted_binary_op(div, "div"),
     create_hoisted_binary_op(pow, "pow"),
+    create_hoisted_broadcast_op(broadcast, "broadcast"),
+    create_hoisted_permute_op(permute, "permute"),
+]
+
+hoisted_ternary_ops = [
+    create_hoisted_concat_op(concat, "concat"),
 ]
 
 
