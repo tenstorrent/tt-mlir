@@ -4,3 +4,7 @@ add_subdirectory(ttmlir-translate)
 if (TTMLIR_ENABLE_EXPLORER)
   add_subdirectory(explorer)
 endif()
+
+if (TTMLIR_ENABLE_PYKERNEL)
+  add_subdirectory(pykernel)
+endif()
