@@ -34,7 +34,10 @@ void *openSo(std::string path) {
 
 void closeSo(void *handle) {
   int ret = dlclose(handle);
-  assert(ret == 0);
+
+  if (ret != 0) {
+    exit(ret);
+  }
 }
 
 std::vector<::tt::runtime::Tensor>
