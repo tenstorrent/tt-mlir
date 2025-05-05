@@ -40,37 +40,32 @@ static std::pair<Value, Value>
 getVirtualCoordsFromLogicalCoords(PatternRewriter &rewriter, Location loc,
                                   ChipDescAttr chipDesc,
                                   ValueRange dstCoreIndex) {
-  std::pair<Value, Value> nocCoords;
   auto offset = chipDesc.getCoordTranslationOffsets();
-  nocCoords.first =
-      rewriter
-          .create<arith::AddIOp>(dstCoreIndex[0].getLoc(), dstCoreIndex[0],
-                                 index(rewriter, loc, offset[0]))
-          .getResult();
-  nocCoords.second =
-      rewriter
-          .create<arith::AddIOp>(dstCoreIndex[1].getLoc(), dstCoreIndex[1],
-                                 index(rewriter, loc, offset[1]))
-          .getResult();
-  return nocCoords;
+
+  return {rewriter
+              .create<arith::AddIOp>(dstCoreIndex[0].getLoc(), dstCoreIndex[0],
+                                     index(rewriter, loc, offset[0]))
+              .getResult(),
+          rewriter
+              .create<arith::AddIOp>(dstCoreIndex[1].getLoc(), dstCoreIndex[1],
+                                     index(rewriter, loc, offset[1]))
+              .getResult()};
 }
 
 static std::pair<Value, Value> getMcastEndCoords(PatternRewriter &rewriter,
                                                  Location loc, Value &nocStartY,
                                                  Value &nocStartX,
                                                  OperandRange mcastShape) {
-  std::pair<Value, Value> nocEndCoords;
-  nocEndCoords.first = rewriter.create<arith::SubIOp>(
-      nocStartY.getLoc(),
-      rewriter.create<arith::AddIOp>(nocStartY.getLoc(), nocStartY,
-                                     mcastShape[0]),
-      index(rewriter, loc, 1));
-  nocEndCoords.second = rewriter.create<arith::SubIOp>(
-      nocStartX.getLoc(),
-      rewriter.create<arith::AddIOp>(nocStartX.getLoc(), nocStartX,
-                                     mcastShape[1]),
-      index(rewriter, loc, 1));
-  return nocEndCoords;
+  return {rewriter.create<arith::SubIOp>(
+              nocStartY.getLoc(),
+              rewriter.create<arith::AddIOp>(nocStartY.getLoc(), nocStartY,
+                                             mcastShape[0]),
+              index(rewriter, loc, 1)),
+          rewriter.create<arith::SubIOp>(
+              nocStartX.getLoc(),
+              rewriter.create<arith::AddIOp>(nocStartX.getLoc(), nocStartX,
+                                             mcastShape[1]),
+              index(rewriter, loc, 1))};
 }
 
 } // namespace
