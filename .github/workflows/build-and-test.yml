@@ -216,17 +216,11 @@ jobs:
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
 
     - name: Use install artifacts
-      uses: actions/download-artifact@v4
+      uses: ./.github/actions/download-artifact
       with:
         name: install-artifacts-${{ matrix.build.image }}
         path: ${{ steps.strings.outputs.install-output-dir }}
-
-    # This is needed to preserve file permissions
-    # https://github.com/actions/upload-artifact?tab=readme-ov-file#permission-loss
-    - name: 'Untar install directory'
-      shell: bash
-      working-directory: ${{ steps.strings.outputs.install-output-dir }}
-      run: tar xf artifact.tar
+        github_token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Remove existing whls files
       shell: bash
@@ -249,17 +243,12 @@ jobs:
         fi
 
     - name: Download Build Artifacts
-      uses: actions/download-artifact@v4
+      uses: ./.github/actions/download-artifact
       if: ${{ matrix.build.type }} == "unit" || ${{ matrix.build.suite }} == "explorer"
       with:
         name: build-artifacts-${{ matrix.build.image }}
         path: ${{ steps.strings.outputs.build-output-dir }}
-
-    - name: 'Untar build directory'
-      if: ${{ matrix.build.type }} == "unit" || ${{ matrix.build.suite }} == "explorer"
-      shell: bash
-      working-directory: ${{ steps.strings.outputs.build-output-dir }}
-      run: tar xf artifact.tar
+        github_token: ${{ secrets.GITHUB_TOKEN }}
 
     # TG galaxy doesn't have support for dispatch on eth cores - thus need to disable it
     - name: Generate system descriptor

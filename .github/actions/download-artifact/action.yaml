@@ -1,0 +1,86 @@
+name: Download Artifact
+
+inputs:
+  name:
+    description: 'Name of the artifact to download'
+    required: true
+  path:
+    description: 'Path where to download the artifact'
+    required: true
+  repository:
+    description: 'Repository from which to download the artifact (format: owner/repo)'
+    required: false
+    default: ${{ github.repository }}
+  retry_count:
+    description: 'Number of times to retry download if it fails'
+    required: false
+    default: '3'
+  retry_wait:
+    description: 'Time to wait between retries in seconds'
+    required: false
+    default: '10'
+  github_token:
+    description: 'GitHub token used for authentication'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Download and extract artifact
+      shell: bash
+      env:
+        ARTIFACT_NAME: ${{ inputs.name }}
+        DOWNLOAD_PATH: ${{ inputs.path }}
+        REPOSITORY: ${{ inputs.repository }}
+        RETRY_COUNT: ${{ inputs.retry_count }}
+        RETRY_WAIT: ${{ inputs.retry_wait }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+      run: |
+        set -e
+
+        # Make sure download dir is empty and exists
+        rm -rf "${DOWNLOAD_PATH}"
+        mkdir -p "${DOWNLOAD_PATH}"
+
+        # Function to download artifact
+        download_artifact() {
+          echo "Downloading artifact ${ARTIFACT_NAME} from ${REPOSITORY}..."
+
+          gh run download --name "${ARTIFACT_NAME}" -R "${REPOSITORY}" -D "${DOWNLOAD_PATH}"
+          if [ $? -ne 0 ]; then
+            echo "Error: Failed to download artifact."
+            return 1
+          fi
+
+          # Check if we need to untar
+          for file in "${DOWNLOAD_PATH}"/*.tar*; do
+            if [ -f "$file" ]; then
+              echo "Extracting tar file: $file"
+              tar -xf "$file" -C "${DOWNLOAD_PATH}"
+              rm "$file"
+            fi
+          done
+
+          return 0
+        }
+
+        # Retry logic
+        success=false
+        for attempt in $(seq 1 ${RETRY_COUNT}); do
+          echo "Attempt $attempt of ${RETRY_COUNT}..."
+
+          if download_artifact; then
+            success=true
+            break
+          else
+            echo "Download failed. Retrying in ${RETRY_WAIT} seconds..."
+            sleep ${RETRY_WAIT}
+          fi
+        done
+
+        if [ "$success" = false ]; then
+          echo "Failed to download artifact after ${RETRY_COUNT} attempts."
+          exit 1
+        fi
+
+        echo "Artifact downloaded and extracted successfully to ${DOWNLOAD_PATH}"
