@@ -132,7 +132,9 @@ void dprint(Arg &&arg, ArgV&&... argv) {
   }
 
   template <typename OpT>
-  bool hasOp(llvm::function_ref<bool(OpT)> predicate = [](OpT) { return true; }) {
+  bool hasOp(llvm::function_ref<bool(OpT)> predicate = [](OpT) {
+    return true;
+  }) {
     bool found = false;
     region->walk([&](OpT op) {
       if (predicate(op)) {
