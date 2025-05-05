@@ -102,7 +102,7 @@ def pseudo_golden_reduce_scatter(
 
 
 @pytest.mark.parametrize("shape", [(1, 1, 8192, 512)])
-@pytest.mark.parametrize("mesh_shape", [(2, 4)])
+@pytest.mark.parametrize("mesh_shape", [(1, 2)])
 def test_reduce_scatter(shape: Shape, mesh_shape: Tuple[int, int], request):
     def reduce_scatter(in0: Operand, builder: TTIRBuilder):
         input = builder._get_golden_tensor(in0)
