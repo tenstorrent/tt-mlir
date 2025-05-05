@@ -35,6 +35,7 @@ runs:
         RETRY_COUNT: ${{ inputs.retry_count }}
         RETRY_WAIT: ${{ inputs.retry_wait }}
         GITHUB_TOKEN: ${{ inputs.github_token }}
+        RUN_ID: ${{ github.run_id }}
       run: |
         set -e
 
@@ -47,7 +48,7 @@ runs:
           echo "Downloading artifact ${ARTIFACT_NAME} from ${REPOSITORY}..."
 
           curl -H "Authorization: token ${GITHUB_TOKEN}" -L \
-          "https://api.github.com/repos/${REPOSITORY}/actions/artifacts" | \
+          "https://api.github.com/repos/${REPOSITORY}/actions/runs/${RUN_ID}/artifacts" | \
           jq -r ".artifacts[] | select(.name==\"${ARTIFACT_NAME}\") | .archive_download_url" | \
           xargs -I {} curl -H "Authorization: token ${GITHUB_TOKEN}" -L {} --output "${DOWNLOAD_PATH}/${ARTIFACT_NAME}.zip"
 
