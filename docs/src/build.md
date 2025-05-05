@@ -1,6 +1,6 @@
 # Build
 
-This page walks you through the steps required to set up tt-mlir. After the project is running, you can do development work, run models, or set up additional projects that build on tt-mlir.
+This page walks you through the steps required to set up tt-mlir. This is specifically if you want to develop and contribute to the repo, or if you are setting up to use [tt-xla](https://github.com/tenstorrent/tt-xla).
 
 > **NOTE:** If you have a build issue, you can file a bug [here](https://github.com/tenstorrent/tt-mlir/issues).
 
@@ -13,13 +13,16 @@ Use this guide to set up your hardware - [Hardware Setup](https://docs.tenstorre
 ### System Dependencies
 
 The tt-mlir project has the following system dependencies:
-* Ubuntu 22.04 OS
+* Ubuntu 22.04 OS or Mac OS
 * Clang 14
 * Ninja
 * CMake 3.20 or higher
 * Python 3.10
 * python3.10-venv
 
+> **NOTE:** The runtime does not work on Mac OS.
+
+#### Ubuntu
 Install Clang 14, Ninja, CMake, and python3.10-venv:
 
 ```bash
@@ -27,6 +30,19 @@ sudo apt install git clang cmake ninja-build pip python3.10-venv
 ```
 
 You should now have the required dependencies installed.
+
+> **NOTE:** If you intend to build with runtime enabled
+> (`-DTTMLIR_ENABLE_RUNTIME=ON`), you also need to install tt-metal
+> dependencies which can be found
+> [here](https://docs.tenstorrent.com/tt-metal/latest/ttnn/ttnn/installing.
+> html#install-system-level-dependencies).
+
+#### Mac OS
+On MacOS we need to install the latest version of [cmake](https://cmake.org/), and [ninja](https://ninja-build.org/) which can be done using Homebrew with (Docs for installing Homebrew: https://brew.sh).
+
+```bash
+brew install cmake ninja
+```
 
 ### Clone the tt-mlir Repo
 
@@ -95,12 +111,7 @@ You can add different flags to your build. Here are some options to consider:
 * To accelerate the builds with ccache use `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`.
 * If Python bindings aren't required for your project, you can accelerate builds further with the command `-DTTMLIR_ENABLE_BINDINGS_PYTHON=OFF`.
 * The TTNN build is automatically integrated / handled by the tt-mlir cmake build system.  For debugging and further information regarding the TTNN backend build step, please refer to [TTNN Documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html).
-* If you want to build the runtime for a different architecture, please set `ARCH_NAME` to the desired value:
-  * `grayskull` - this product is at End of Life
-  * `wormhole_b0`
-  * `blackhole`
-* The runtime build step depends on the `ARCH_NAME` environment variable, which is set in the `env/activate` script. Please note that the runtime is built only if `TTMLIR_ENABLE_RUNTIME=ON`.
-* In addition to `ARCH_NAME`, the runtime build depends on `TT_METAL_HOME` variable, which is also set in `env/activate` script. For more information, please refer to [TT-NN and TT-Metailium installation documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html#step-4-install-and-start-using-tt-nn-and-tt-metalium).
+* The runtime build depends on the `TT_METAL_HOME` variable, which is also set in `env/activate` script. For more information, please refer to [TT-NN and TT-Metailium installation documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html#step-4-install-and-start-using-tt-nn-and-tt-metalium).
 
 | OS | Offline Compiler Only | Runtime Enabled Build | Runtime + Perf Enabled Build |
 |----|-----------------------|-----------------------| -----------------------------|
@@ -118,9 +129,7 @@ cmake --build build -- check-ttmlir
 ```
 
 ## Lint
-Set up lint so you can spot errors and stylistic issues before runtime.
-
-In order for this to build correctly, the runtime must be enabled (if it is not enabled, you get an error message asking for tt-metal-download). Make sure your environment is active, and then do the following to build clang-tidy:
+Set up lint so you can spot errors and stylistic issues before runtime:
 
 ```bash
 source env/activate
@@ -193,6 +202,38 @@ CMake Error at CMakeLists.txt:2 (project):
 ```
 
 If you get the following error, it means you need to install clang which you can do with `sudo apt install clang` on Ubuntu.
+
+## Common Runtime Errors
+
+### Debugging Python on Mac OS
+
+When debugging python on macOS via lldb you may see an error like:
+```
+(lldb) r
+error: process exited with status -1 (attach failed (Not allowed to attach to process.  Look in the console messages (Console.app), near the debugserver entries, when the attach failed.  The subsystem that denied t
+he attach permission will likely have logged an informative message about why it was denied.))
+```
+
+For preinstalled macOS binaries you must manually codesign with debug entitlements.
+
+Create file `debuggee-entitlement.xml`:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+        <key>com.apple.security.cs.disable-library-validation</key>
+        <true/>
+        <key>com.apple.security.get-task-allow</key>
+        <true/>
+</dict>
+</plist>
+```
+
+Sign the binary:
+```bash
+sudo codesign -f -s - --entitlements debuggee-entitlement.xml /opt/ttmlir-toolchain/venv/bin/python
+```
 
 ### tt-metal Update Failures
 
