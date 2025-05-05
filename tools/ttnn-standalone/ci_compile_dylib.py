@@ -210,10 +210,13 @@ def main():
     else:
         # If not even build_dir is provided, use default test path in tt-mlir
         if not build_dir:
-            build_dir = os.path.join(
-                get_standalone_dir(),
-                "../../build",
-            )
+            if not "TT_MLIR_HOME" in os.environ:
+                print(
+                    "Tried building tests from default path - TT_MLIR_HOME env not found, exiting!"
+                )
+                sys.exit(1)
+            build_dir = os.path.join(os.environ["TT_MLIR_HOME"], "build")
+            print(f"Building tt-mlir tests in {build_dir}")
 
         test_path = get_emitc_tests_path(build_dir)
 
