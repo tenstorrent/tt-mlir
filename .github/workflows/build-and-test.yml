@@ -164,14 +164,16 @@ jobs:
           {runs-on: n150,   name: "run",  suite: "model_golden",      image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_models.py", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true, container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150,   name: "run",  suite: "op_compile",        image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_ops.py", flags: "-m \"run_error or fails_golden\"", run-ttrt: false, container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150,   name: "run",  suite: "model_compile",     image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_models.py", flags: "-m \"run_error or fails_golden\"", run-ttrt: false, container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n300,   name: "run",  suite: "op_golden",         image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_ops_n300.py", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true, container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n300,   name: "run",  suite: "op_compile",        image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_ops_n300.py", flags: "-m \"run_error or fails_golden\"", run-ttrt: false, container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: llmbox,   name: "run",  suite: "op_golden",         image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_ops_llmbox.py", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true, container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: llmbox,   name: "run",  suite: "op_compile",        image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_ops_llmbox.py", flags: "-m \"run_error or fails_golden\"", run-ttrt: false, container-options: "--device /dev/tenstorrent/0"},
           # Although these runtime tests are device agnostic, they depend on n150 compiled mlir artifacts
           # Therefore running these tests on n150 specifically
           {runs-on: n150,   name: "run",  suite: "ttnn_runtime",      image: "speedy", type: "pytest",  path: "runtime/test/python/ttnn/device_agnostic", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150,   name: "perf", suite: "explorer",          image: "tracy",  type: "pytest",  path: "tools/explorer/test/run_tests.py", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150,   name: "run",  suite: "op_by_op_infra",    image: "tracy",  type: "pytest",  path: "test/python/op_by_op_infra",            container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n300,   name: "run",  suite: "ttnn_runtime",      image: "speedy", type: "pytest",  path: "runtime/test/python/ttnn/multi_device", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n300,   name: "run",  suite: "multidevice",       image: "speedy", type: "golden",  path: "ccl_test/n300", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: llmbox, name: "run",  suite: "multidevice",       image: "speedy", type: "golden",  path: "ccl_test/llmbox", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
         ]
     name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ matrix.build.suite }},${{ matrix.build.type }},${{ strategy.job-index }})"
 
@@ -351,13 +353,6 @@ jobs:
         export TT_EXPLORER_GENERATED_MLIR_TEST_DIRS=${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/perf,${{ steps.strings.outputs.build-output-dir }}/test/python/golden/ttnn
         export TT_EXPLORER_GENERATED_TTNN_TEST_DIRS=${{ steps.strings.outputs.build-output-dir }}/test/python/golden/ttnn
         pytest -ssv ${{ matrix.build.path }} ${{ matrix.build.flags }} --junit-xml=${{ steps.strings.outputs.test_report_path }}
-
-    - name: Run golden tests
-      if: matrix.build.type == 'golden'
-      shell: bash
-      run: |
-        source env/activate
-        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/python/golden/${{ matrix.build.path }}
 
     - name: Collect and Upload Perf Reports
       if: matrix.build.name == 'perf'
