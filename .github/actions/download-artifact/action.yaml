@@ -46,7 +46,11 @@ runs:
         download_artifact() {
           echo "Downloading artifact ${ARTIFACT_NAME} from ${REPOSITORY}..."
 
-          gh run download --name "${ARTIFACT_NAME}" -R "${REPOSITORY}" -D "${DOWNLOAD_PATH}"
+          curl -H "Authorization: token ${GITHUB_TOKEN}" -L \
+          "https://api.github.com/repos/${REPOSITORY}/actions/artifacts" | \
+          jq -r ".artifacts[] | select(.name==\"${ARTIFACT_NAME}\") | .archive_download_url" | \
+          xargs -I {} curl -H "Authorization: token ${GITHUB_TOKEN}" -L {} --output "${DOWNLOAD_PATH}/${ARTIFACT_NAME}.zip"
+
           if [ $? -ne 0 ]; then
             echo "Error: Failed to download artifact."
             return 1
