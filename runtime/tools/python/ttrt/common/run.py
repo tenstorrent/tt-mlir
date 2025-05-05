@@ -938,10 +938,10 @@ class Run:
                 finally:
                     ttrt.runtime.reshape_mesh_device(device, mesh_shape)
 
-            ttrt.runtime.close_mesh_device(device)
-
                     if self["--emitc"]:
                         ttrt.runtime.testing.close_so(emitc_dylib_handle)
+
+            ttrt.runtime.close_mesh_device(device)
 
         self.logging.debug(f"executing ttnn binaries")
         _execute(self.ttnn_binaries)
