@@ -20,7 +20,7 @@ LICENSE @nsmithtt
 /include/ttmlir-c/ @ctodTT @tapspatel @vprajapati-tt @vcanicTT
 /lib/CAPI/ @ctodTT @tapspatel @vprajapati-tt @vcanicTT
 /python/ @ctodTT @tapspatel @vprajapati-tt @vcanicTT
-/python/pykernel/ @vtangTT @xanderchin
+/python/pykernel/ @xanderchin @vprajapati-tt
 
 # StableHLO Conversion
 /include/ttmlir/Conversion/ArithToStableHLO/ @tenstorrent/forge-developers-mlir-stablehlo
