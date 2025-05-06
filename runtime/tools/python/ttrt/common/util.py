@@ -751,14 +751,38 @@ class Binary(Flatbuffer):
                     )
                     self.input_tensors.append(reshaped)
             else:
-                for i in self.program["inputs"]:
-                    torch_tensor = init_fn(
-                        i["desc"]["shape"],
-                        dtype=Binary.Program.from_data_type(
-                            i["desc"]["layout"]["memory_desc"]["data_type"]
-                        ),
-                    )
-                    self.input_tensors.append(torch_tensor)
+                # for i in self.program["inputs"]:
+                #     torch_tensor = init_fn(
+                #         i["desc"]["shape"],
+                #         dtype=Binary.Program.from_data_type(
+                #             i["desc"]["layout"]["memory_desc"]["data_type"]
+                #         ),
+                #     )
+                #     self.input_tensors.append(torch_tensor)
+                import torch
+
+                a = torch.ones(
+                    self.program["inputs"][0]["desc"]["shape"],
+                    dtype=Binary.Program.from_data_type(
+                        self.program["inputs"][0]["desc"]["layout"]["memory_desc"][
+                            "data_type"
+                        ]
+                    ),
+                )
+                a[:, : self.program["inputs"][0]["desc"]["shape"][1] // 2] = 3
+                self.input_tensors.append(a)
+
+                b = torch.zeros(
+                    self.program["inputs"][1]["desc"]["shape"],
+                    dtype=Binary.Program.from_data_type(
+                        self.program["inputs"][1]["desc"]["layout"]["memory_desc"][
+                            "data_type"
+                        ]
+                    ),
+                )
+                b[self.program["inputs"][1]["desc"]["shape"][0] // 2 :] = 2
+                # b = torch.arange(self.program["inputs"][1]["desc"]["shape"][0], dtype=Binary.Program.from_data_type(self.program["inputs"][1]["desc"]["layout"]["memory_desc"]["data_type"])).unsqueeze(1).expand(self.program["inputs"][1]["desc"]["shape"][0], self.program["inputs"][1]["desc"]["shape"][1])
+                self.input_tensors.append(b)
 
         def populate_outputs(self, init_fn):
             for i in self.program["outputs"]:

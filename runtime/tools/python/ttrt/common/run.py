@@ -831,12 +831,19 @@ class Run:
                         self.logging.debug(f"input tensors for program={program_index}")
                         for tensor in program.input_tensors:
                             self.logging.debug(f"{tensor}\n")
+                            self.logging.debug(f"shape={tensor.shape}\n")
+
+                        self.logging.debug(
+                            f"torch output for program={program.input_tensors[0] @ program.input_tensors[1]}"
+                        )
 
                         self.logging.debug(
                             f"output tensors for program={program_index}"
                         )
+                        # torch.set_printoptions(linewidth=1024, threshold=1024)
                         for tensor in program.output_tensors:
                             self.logging.debug(f"{tensor}\n")
+                            self.logging.debug(f"shape={tensor.shape}\n")
 
                         device.deallocate_buffers()
 
@@ -1045,7 +1052,7 @@ class Run:
         return run_parser
 
     class TorchInitializer:
-        init_fns = sorted(["randn", "arange", "zeros", "ones"])
+        init_fns = sorted(["randn", "arange", "zeros", "ones", "identity", "custom"])
 
         @staticmethod
         def get_initilizer(name):
@@ -1092,3 +1099,17 @@ class Run:
             import torch
 
             return torch.ones(shape, dtype=dtype)
+
+        @staticmethod
+        def identity(shape, dtype):
+            import torch
+
+            return torch.eye(shape[0], shape[1], dtype=dtype)
+
+        @staticmethod
+        def custom(shape, dtype):
+            import torch
+
+            z = torch.zeros(shape, dtype=dtype)
+            z[:, : shape[1] // 2] = 1
+            return z
