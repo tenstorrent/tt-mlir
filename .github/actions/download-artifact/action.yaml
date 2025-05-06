@@ -5,7 +5,7 @@ inputs:
     description: 'Name of the artifact to download'
     required: true
   path:
-    description: 'Path where to download the artifact'
+    description: 'Relative path where to download the artifact'
     required: true
   repository:
     description: 'Repository from which to download the artifact (format: owner/repo)'
@@ -40,8 +40,8 @@ runs:
         set -e
 
         # Make sure download dir is empty and exists
-        rm -rf "${DOWNLOAD_PATH}"
-        mkdir -p "${DOWNLOAD_PATH}"
+        rm -rf "./${DOWNLOAD_PATH}"
+        mkdir -p "./${DOWNLOAD_PATH}"
 
         # Function to download artifact
         download_artifact() {
@@ -50,21 +50,21 @@ runs:
           curl -H "Authorization: token ${GITHUB_TOKEN}" -L \
           "https://api.github.com/repos/${REPOSITORY}/actions/runs/${RUN_ID}/artifacts" | \
           jq -r ".artifacts[] | select(.name==\"${ARTIFACT_NAME}\") | .archive_download_url" | \
-          xargs -I {} curl -H "Authorization: token ${GITHUB_TOKEN}" -L {} --output "${DOWNLOAD_PATH}/${ARTIFACT_NAME}.zip"
+          xargs -I {} curl -H "Authorization: token ${GITHUB_TOKEN}" -L {} --output "./${DOWNLOAD_PATH}/${ARTIFACT_NAME}.zip"
 
           if [ $? -ne 0 ]; then
             echo "Error: Failed to download artifact."
             return 1
           fi
 
-          unzip -o "${DOWNLOAD_PATH}/${ARTIFACT_NAME}.zip" -d "${DOWNLOAD_PATH}"
-          rm "${DOWNLOAD_PATH}/${ARTIFACT_NAME}.zip"
+          unzip -o "./${DOWNLOAD_PATH}/${ARTIFACT_NAME}.zip" -d "./${DOWNLOAD_PATH}"
+          rm "./${DOWNLOAD_PATH}/${ARTIFACT_NAME}.zip"
 
           # Check if we need to untar
-          for file in "${DOWNLOAD_PATH}"/*.tar*; do
+          for file in "./${DOWNLOAD_PATH}"/*.tar*; do
             if [ -f "$file" ]; then
               echo "Extracting tar file: $file"
-              tar -xf "$file" -C "${DOWNLOAD_PATH}"
+              tar -xf "$file" -C "./${DOWNLOAD_PATH}"
               rm "$file"
             fi
           done
