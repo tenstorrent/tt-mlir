@@ -685,6 +685,18 @@ Conv2dConfigAttr Conv2dConfigAttr::withActivation(StringRef activation) const {
   return params.buildConv2dConfig(getContext());
 }
 
+Conv2dConfigAttr Conv2dConfigAttr::withDtype(DataType dtype) const {
+  Conv2dConfigAttrParams params(*this);
+  params.dtype = dtype;
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withWeightsDtype(DataType dtype) const {
+  Conv2dConfigAttrParams params(*this);
+  params.weightsDtype = dtype;
+  return params.buildConv2dConfig(getContext());
+}
+
 bool Conv2dConfigAttr::hasActivation() const {
   return getActivation() != nullptr && getActivation().getValue() != "";
 }

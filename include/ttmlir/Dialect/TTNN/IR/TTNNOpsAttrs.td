@@ -406,6 +406,8 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
 
   let extraClassDeclaration = [{
     Conv2dConfigAttr withActivation(StringRef activation) const;
+    Conv2dConfigAttr withDtype(DataType dtype) const;
+    Conv2dConfigAttr withWeightsDtype(DataType dtype) const;
     bool hasActivation() const;
   }];
 
