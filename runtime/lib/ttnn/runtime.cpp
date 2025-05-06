@@ -151,13 +151,6 @@ void CallbackTensor::updateTensor(CallbackContext programContext) {
   tensorPool.insertTTNNTensorAndValidate(tensorRef, srcTensor);
 }
 
-static DeviceVariant getTargetDevice(::ttnn::MeshDevice &meshDevice) {
-  if (meshDevice.num_devices() == 1) {
-    return std::ref(*(meshDevice.get_device(::ttnn::MeshCoordinate(0, 0))));
-  }
-  return std::ref(meshDevice);
-}
-
 static tt::runtime::MemoryView
 createMemoryView(const tt::tt_metal::detail::MemoryView &memoryView) {
   return tt::runtime::MemoryView{
@@ -1119,10 +1112,6 @@ getOpInputTensorRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::ConvTranspose2dOp: {
     tensorRefs = {opContext.type_as_ConvTranspose2dOp()->input()};
-    break;
-  }
-  case ::tt::target::ttnn::OpType::MaxPool2dOp: {
-    tensorRefs = {opContext.type_as_MaxPool2dOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
