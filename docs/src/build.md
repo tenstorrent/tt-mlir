@@ -15,7 +15,7 @@ Use this guide to set up your hardware - [Hardware Setup](https://docs.tenstorre
 
 The tt-mlir project has the following system dependencies:
 * Ubuntu 22.04 OS or Mac OS
-* Clang 14
+* Clang <= 18
 * Ninja
 * CMake 3.20 or higher
 * Python 3.10
