@@ -131,12 +131,7 @@ public:
   static_assert(FPUOp::template hasTrait<TTKernelFPUOpTrait>(),
                 "FPUOp must have TTKernelFPUOpTrait");
 
-  static constexpr bool is_unary_op =
-      FPUOp::template hasTrait<TTKernelUnaryOpTrait>();
-  static constexpr bool is_binary_op =
-      FPUOp::template hasTrait<TTKernelBinaryOpTrait>();
-  static constexpr bool is_ternary_op =
-      FPUOp::template hasTrait<TTKernelTernaryOpTrait>();
+  static constexpr int arity = FPUOp::arity;
 
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
@@ -145,15 +140,15 @@ public:
     auto outCB = rewriter.getRemappedValue(store.getMemref());
 
     assert(op->hasOneUse());
-    if constexpr (is_unary_op) {
+    if constexpr (arity == 1) {
       assert(op->getNumOperands() == 1u);
-    } else if constexpr (is_binary_op) {
+    } else if constexpr (arity == 2) {
       assert(op->getNumOperands() == 2u);
       rewriter.create<ttkernel::BinaryOpInitCommonOp>(
-          op->getLoc(), getCB(rewriter, op.getOperand(0)),
-          getCB(rewriter, op.getOperand(1)), outCB);
+          op->getLoc(), getCB(rewriter, adaptor.getLhs()),
+          getCB(rewriter, adaptor.getRhs()), outCB);
     } else {
-      static_assert(is_ternary_op && !ttmlir::utils::always_false<ConcreteOp>(),
+      static_assert(arity == 3 && !ttmlir::utils::always_false<ConcreteOp>(),
                     "FPUOp must be unary, binary or ternary");
       assert(op->getNumOperands() == 3u);
     }
@@ -202,12 +197,9 @@ public:
   static_assert(SFPUOp::template hasTrait<TTKernelSFPUOpTrait>(),
                 "SFPUOp must have TTKernelSFPUOpTrait");
 
-  static constexpr bool is_unary_op =
-      SFPUOp::template hasTrait<TTKernelUnaryOpTrait>();
-  static constexpr bool is_binary_op =
-      SFPUOp::template hasTrait<TTKernelBinaryOpTrait>();
+  static constexpr int arity = SFPUOp::arity;
 
-  static_assert(is_unary_op || is_binary_op,
+  static_assert(arity == 1 || arity == 2,
                 "Only unary and binary SFPUOps are supported");
 
   LogicalResult
@@ -228,19 +220,10 @@ public:
     }
 
     rewriter.setInsertionPoint(initOp == nullptr ? newOp : initOp);
-    if constexpr (is_unary_op) {
+    for (int i = 0; i < arity; i++) {
       lowerLoadToCopyTile(
-          adaptor.getInput().template getDefiningOp<memref::LoadOp>(), true,
-          rewriter);
-    } else if constexpr (is_binary_op) {
-      lowerLoadToCopyTile(
-          adaptor.getLhs().template getDefiningOp<memref::LoadOp>(), true,
-          rewriter);
-      lowerLoadToCopyTile(
-          adaptor.getRhs().template getDefiningOp<memref::LoadOp>(), true,
-          rewriter);
-    } else {
-      return llvm::failure();
+          adaptor.getOperands()[i].template getDefiningOp<memref::LoadOp>(),
+          true, rewriter);
     }
 
     rewriter.eraseOp(op);
