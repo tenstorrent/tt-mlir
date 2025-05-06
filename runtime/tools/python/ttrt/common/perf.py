@@ -503,6 +503,8 @@ class Perf:
                     process_ops(None, None, False)
 
                     # Add post-processing steps to insert location data into the ops_perf data file
+                    host_duration_times_ms = {}
+
                     with open(profiler_csv_file_path, "r") as perf_file:
                         perf_reader = csv.DictReader(perf_file)
                         headers = list(perf_reader.fieldnames) + ["LOC"]
@@ -513,26 +515,32 @@ class Perf:
                     ) as message_file:
                         message_reader = csv.reader(message_file, delimiter=";")
                         ops_index = 0
-                        prev = None
                         for message in message_reader:
                             message = message[0]  # Don't need timestamp information
-                            if message.startswith("`"):
-                                # This is a TTNN Message
-                                # The location data is now in the previous message
-                                # The order of data is maintained in perf_data so as the messages are received, they update the id last encountered.
-                                # Now that we have a new message, we can update the location data from the previous message
-                                if prev:
-                                    # Get the location data from the previous message and add it as new data for the perf_data (as a new col)
-                                    if len(perf_data) > ops_index:
-                                        perf_data[ops_index]["LOC"] = prev
-                                        ops_index += 1
-                            else:
-                                prev = message
+                            if message.startswith(
+                                "TTMLIR_OP_LOCATION"
+                            ) and ops_index < len(perf_data):
+                                # ex encoding: TTMLIR_OP_LOCATION,loc("ttnn.mlir":10:9);6774849666
+                                location = message.split(",")[1].split(";")[0]
+
+                                # Add the location 'n' number of devices times
+                                num_devices = len(self.query.device_ids)
+
+                                for i in range(num_devices):
+                                    perf_data[ops_index]["LOC"] = location
+                                    ops_index += 1
+                            elif message.startswith("TTMLIR_OP_DURATION"):
+                                # ex encoding: TTMLIR_OP_DURATION,loc("ttnn.mlir":9:14),583;6757345806
+                                location = message.split(",")[1].split(";")[0]
+                                time_milliseconds = message.split(",")[2].split(";")[0]
+                                host_duration_times_ms[location] = time_milliseconds
+
                         perf_writer = csv.DictWriter(perf_file, fieldnames=headers)
                         perf_writer.writeheader()
                         for row in perf_data:
                             perf_writer.writerow(row)
 
+                    bin.set_host_duration_times(host_duration_times_ms)
                     self.file_manager.copy_file(
                         perf_folder_path,
                         profiler_csv_file_path,
@@ -591,6 +599,8 @@ class Perf:
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
                     "program_index": self["--program-index"],
+                    "host_duration_times_milliseconds": bin.host_duration_times_ms,
+                    "total_host_duration": bin.total_host_duration_ms,
                 }
                 self.results.add_result(test_result)
                 self.logging.info(f"PASS: test case={bin.file_path}")
@@ -606,6 +616,8 @@ class Perf:
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
                     "program_index": self["--program-index"],
+                    "host_duration_times_milliseconds": bin.host_duration_times_ms,
+                    "total_host_duration": bin.total_host_duration_ms,
                 }
                 self.results.add_result(test_result)
                 self.logging.info(f"PASS: test case={bin.file_path}")
