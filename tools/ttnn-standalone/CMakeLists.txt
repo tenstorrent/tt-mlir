@@ -6,6 +6,28 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # set(CMAKE_VERBOSE_MAKEFILE on)
 
+# Installation
+install(
+  FILES
+    ci_compile_dylib.py
+    CMakeLists.txt
+    compile_so.cpp
+    compile_so.hpp
+    README.md
+    ttnn-precompiled.hpp
+    ttnn-standalone.cpp
+    workarounds.hpp
+  DESTINATION "tools/ttnn-standalone"
+  COMPONENT TTNNStandalone
+)
+
+install(
+  PROGRAMS
+    run
+  DESTINATION "tools/ttnn-standalone"
+  COMPONENT TTNNStandalone
+)
+
 if(DEFINED ENV{CONFIG})
     message(STATUS "CONFIG is set, CMAKE_BUILD_TYPE being set to $ENV{CONFIG}")
     set(CMAKE_BUILD_TYPE $ENV{CONFIG})
@@ -144,25 +166,3 @@ set_target_properties(ttnn-dylib PROPERTIES PUBLIC_HEADER ttnn-dylib.h)
 target_compile_options(ttnn-dylib PRIVATE -mavx -mavx2)
 
 target_precompile_headers(ttnn-dylib PRIVATE ttnn-precompiled.hpp)
-
-# Installation
-install(
-  FILES
-    ci_compile_dylib.py
-    CMakeLists.txt
-    compile_so.cpp
-    compile_so.hpp
-    README.md
-    ttnn-precompiled.hpp
-    ttnn-standalone.cpp
-    workarounds.hpp
-  DESTINATION "tools/ttnn-standalone"
-  COMPONENT TTNNStandalone
-)
-
-install(
-  PROGRAMS
-    run
-  DESTINATION "tools/ttnn-standalone"
-  COMPONENT TTNNStandalone
-)
