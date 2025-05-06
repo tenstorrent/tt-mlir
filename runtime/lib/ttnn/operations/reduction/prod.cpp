@@ -10,7 +10,7 @@
 #include "tt/runtime/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::reduction {
-static void runReductionProdOp(::tt::target::ttnn::ReductionProdOp const *op,
+static void runReductionProdOp(const ::tt::target::ttnn::ReductionProdOp *op,
                                ProgramTensorPool &tensorPool) {
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =

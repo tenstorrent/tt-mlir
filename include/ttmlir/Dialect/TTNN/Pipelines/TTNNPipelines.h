@@ -198,6 +198,10 @@ struct TTIRToTTNNBackendPipelineOptions
       *this, "enable-erase-inverse-ops-pass",
       llvm::cl::desc("Enable erase inverse ops pass."), llvm::cl::init(true)};
 
+  Option<bool> enableFusing{*this, "enable-fusing-pass",
+                            llvm::cl::desc("Enable fusing pass."),
+                            llvm::cl::init(false)};
+
   Option<tt::TTArgumentTypeMap, tt::ArgumentTypeMapParser> argumentTypeMap{
       *this, tt::OptionNames::argumentTypes,
       llvm::cl::desc(

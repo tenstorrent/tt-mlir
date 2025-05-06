@@ -35,7 +35,9 @@ void createTTNNPipelineTTIRPasses(
 
   pm.addPass(mlir::tt::createTTPopulateArgumentTypes(options.argumentTypeMap));
   pm.addPass(mlir::createCanonicalizerPass());
-  pm.addPass(mlir::tt::ttir::createTTIRFusing());
+  if (options.enableFusing) {
+    pm.addPass(mlir::tt::ttir::createTTIRFusing());
+  }
   pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
   pm.addPass(mlir::createCanonicalizerPass());
 
@@ -137,7 +139,9 @@ void createTTIRToTTNNBackendPipeline(
   devicePm.addPass(ttir::createTTIRQuantDataTypeConversionPass(quantOptions));
 
   createTTNNPipelineLoweringPasses(devicePm, options);
-  devicePm.addPass(tt::ttnn::createTTNNFusing());
+  if (options.enableFusing) {
+    devicePm.addPass(tt::ttnn::createTTNNFusing());
+  }
   createTTNNPipelineWorkaroundPass(devicePm, options);
   if (options.enableConstEval) {
     devicePm.addPass(transforms::createConstEvalHoistTransform());

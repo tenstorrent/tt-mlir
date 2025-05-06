@@ -37,7 +37,7 @@ struct PhysicalCoreCoord {
     return (*const_cast<PhysicalCoreCoord *>(this))[i];
   }
 
-  bool operator==(PhysicalCoreCoord const &other) const {
+  bool operator==(const PhysicalCoreCoord &other) const {
     return d == other.d && y == other.y && x == other.x;
   }
 

@@ -328,6 +328,9 @@ TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds() {
 // type does not match with input.
 // tt-metal issue to track mixed data types ops bug.
 // https://github.com/tenstorrent/tt-metal/issues/17998
+// Where also does not work with int32
+// so we also force everything to float32 in that case
+// https://github.com/tenstorrent/tt-mlir/issues/3154
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
     mlir::Operation::operand_range inputs) {
@@ -339,10 +342,13 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
   mlir::RankedTensorType inputType =
       mlir::cast<RankedTensorType>(inputs.back().getType());
   mlir::Type inputElementType = inputType.getElementType();
-  TTNNOperandWorkarounds typeWorkaround =
-      predicateElementType != inputElementType
-          ? TTNNOperandWorkarounds(elementTypeToDataType(inputElementType))
-          : TTNNOperandWorkarounds();
+  TTNNOperandWorkarounds typeWorkaround = TTNNOperandWorkarounds();
+  if (predicateElementType.isInteger() || inputElementType.isInteger()) {
+    typeWorkaround = TTNNOperandWorkarounds(DataType::Float32);
+  } else if (predicateElementType != inputElementType) {
+    typeWorkaround =
+        TTNNOperandWorkarounds(elementTypeToDataType(inputElementType));
+  }
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(typeWorkaround)

@@ -16,7 +16,7 @@
 
 namespace tt::runtime::ttnn {
 
-inline ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
+inline const ::tt::target::ttnn::TTNNBinary *getBinary(Flatbuffer binary) {
   bool isTTNN = ::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
       binary.handle.get());
   LOG_ASSERT(isTTNN, "Unsupported binary format");

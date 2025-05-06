@@ -217,8 +217,8 @@ std::pair<::tt::target::metal::RuntimeArg, ::flatbuffers::Offset<void>>
 toFlatbuffer(FlatbufferObjectCache &cache, ttkernel::SemaphoreType sem) {
   auto runtimeArgType =
       ::tt::target::metal::RuntimeArg::RuntimeArgSemaphoreAddress;
-  auto semAddr = ::tt::target::metal::CreateRuntimeArgSemaphoreAddress(
-      *cache.fbb, sem.getInitialValue());
+  auto semAddr =
+      ::tt::target::metal::CreateRuntimeArgSemaphoreAddress(*cache.fbb);
   return std::make_pair(runtimeArgType, semAddr.Union());
 }
 
@@ -487,7 +487,7 @@ LogicalResult translateTTMetalToFlatbuffer(
   std::shared_ptr<void> data = translateModuleToFlatbuffer(op, goldenMap);
   std::size_t size = ::flatbuffers::GetSizePrefixedBufferLength(
       static_cast<const uint8_t *>(data.get()));
-  os.write(reinterpret_cast<char const *>(data.get()), size);
+  os.write(reinterpret_cast<const char *>(data.get()), size);
   return success();
 }
 

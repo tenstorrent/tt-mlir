@@ -13,7 +13,7 @@
 #include "operations/ccl/mesh_shard_impl.h"
 #include "operations/ccl/reduce_scatter/reduce_scatter.hpp"
 #include "operations/conv/conv2d/conv2d.hpp"
-#include "operations/conv/conv2d/prepare_conv2d_weights.cpp"
+#include "operations/conv/conv2d/prepare_conv2d_weights.hpp"
 #include "operations/conv/conv_transpose2d/conv_transpose2d.hpp"
 #include "operations/copy.hpp"
 #include "operations/core/core.hpp"
@@ -66,13 +66,10 @@ public:
   }
 
 private:
-  ~DeviceGetter() { ttnn::close_device(*device); }
+  DeviceGetter() = default;
 
-public:
-  DeviceGetter(DeviceGetter const &) = delete;
-  void operator=(DeviceGetter const &) = delete;
-
-  ttnn::IDevice *device;
+  DeviceGetter(const DeviceGetter &) = delete;
+  DeviceGetter &operator=(const DeviceGetter &) = delete;
 };
 
 // Wrapper to abstract const-eval logic out of runtime funcs to keep them
