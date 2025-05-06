@@ -2,22 +2,15 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tt/runtime/ttnn/utils.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/ttnn/debug_apis.h"
-#include "tt/runtime/ttnn/types.h"
+#include "tt/runtime/detail/ttnn/debug_apis.h"
+#include "tt/runtime/detail/ttnn/types.h"
 #include "tt/runtime/workarounds.h"
 
 namespace tt::runtime::ttnn::utils {
 
 using ::tt::runtime::DeviceRuntime;
-
-template <typename T>
-static void *
-getDataPtrFromOwnedBuffer(const ::tt::tt_metal::OwnedBuffer &ownedBuffer) {
-  auto buffer = ::tt::tt_metal::owned_buffer::get_as<T>(ownedBuffer);
-  return reinterpret_cast<void *>(buffer.data());
-}
 
 // TODO (bug #701)
 // Currently the memory layout/location in flatbuffer is incorrect
@@ -25,16 +18,14 @@ getDataPtrFromOwnedBuffer(const ::tt::tt_metal::OwnedBuffer &ownedBuffer) {
 // directly from the TTNN tensor. Ideally, we should be able to get all of this
 // info directly from the flatbuffer using the "inSystemMemory" API below
 bool isOnHost(const ::ttnn::StorageType &storageType) {
-  return storageType == ::ttnn::StorageType::BORROWED ||
-         storageType == ::ttnn::StorageType::OWNED ||
+  return storageType == ::ttnn::StorageType::HOST ||
          storageType == ::ttnn::StorageType::MULTI_DEVICE_HOST;
 }
 
 bool inSystemMemory(const ::tt::target::ttnn::TensorRef *tensorRef) {
   const ::tt::target::ttnn::StorageType storageType =
       tensorRef->desc()->layout()->memory_desc()->storage_type();
-  return (storageType == ::tt::target::ttnn::StorageType::Borrowed) ||
-         (storageType == ::tt::target::ttnn::StorageType::Owned) ||
+  return (storageType == ::tt::target::ttnn::StorageType::Host) ||
          (storageType == ::tt::target::ttnn::StorageType::MultiDeviceHost);
 }
 
@@ -55,6 +46,14 @@ bool isSharded(
              ::tt::target::ttnn::TensorMemoryLayout::WidthSharded ||
          tensorMemoryLayout ==
              ::tt::target::ttnn::TensorMemoryLayout::BlockSharded;
+}
+
+const ::tt::target::ttnn::TTNNBinary *
+getBinary(::tt::runtime::Flatbuffer binary) {
+  bool isTTNN = ::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
+      binary.handle.get());
+  LOG_ASSERT(isTTNN, "Unsupported binary format");
+  return ::tt::target::ttnn::GetSizePrefixedTTNNBinary(binary.handle.get());
 }
 
 ::ttnn::operations::reduction::ReduceType getReduceType(uint32_t reduceType) {
@@ -171,12 +170,10 @@ bool isSharded(
 ::ttnn::StorageType
 toTTNNStorageType(::tt::target::ttnn::StorageType storageType) {
   switch (storageType) {
-  case ::tt::target::ttnn::StorageType::Owned:
-    return ::ttnn::StorageType::OWNED;
+  case ::tt::target::ttnn::StorageType::Host:
+    return ::ttnn::StorageType::HOST;
   case ::tt::target::ttnn::StorageType::Device:
     return ::ttnn::StorageType::DEVICE;
-  case ::tt::target::ttnn::StorageType::Borrowed:
-    return ::ttnn::StorageType::BORROWED;
   case ::tt::target::ttnn::StorageType::MultiDeviceHost:
     return ::ttnn::StorageType::MULTI_DEVICE_HOST;
   }
@@ -294,36 +291,14 @@ void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
   void *dataPtr = std::visit(
       [&tensor](auto &&storage) -> void * {
         using T = std::decay_t<decltype(storage)>;
-        if constexpr (::tt::tt_metal::OwnedOrBorrowedStorage<T>) {
-          return ::tt::tt_metal::get_raw_host_data_ptr(tensor);
+        if constexpr (std::is_same_v<T, ::tt::tt_metal::HostStorage>) {
+          ::tt::tt_metal::HostBuffer hostBuffer = storage.get_buffer();
+          return static_cast<void *>(hostBuffer.view_bytes().data());
         } else if constexpr (std::is_same_v<
                                  T, ::tt::tt_metal::MultiDeviceHostStorage>) {
           LOG_ASSERT(storage.num_buffers() == 1);
-          const ::tt::tt_metal::OwnedBuffer &ownedBuffer =
-              storage.get_buffer(0);
-          switch (tensor.get_dtype()) {
-          case ::ttnn::DataType::BFLOAT16:
-            return getDataPtrFromOwnedBuffer<bfloat16>(ownedBuffer);
-          case ::ttnn::DataType::FLOAT32:
-            return getDataPtrFromOwnedBuffer<float>(ownedBuffer);
-          case ::ttnn::DataType::INT32:
-            return getDataPtrFromOwnedBuffer<int32_t>(ownedBuffer);
-          case ::ttnn::DataType::UINT32:
-            return getDataPtrFromOwnedBuffer<uint32_t>(ownedBuffer);
-          case ::ttnn::DataType::BFLOAT8_B:
-            return getDataPtrFromOwnedBuffer<uint32_t>(ownedBuffer);
-          case ::ttnn::DataType::BFLOAT4_B:
-            return getDataPtrFromOwnedBuffer<uint32_t>(ownedBuffer);
-          case ::ttnn::DataType::UINT16:
-            return getDataPtrFromOwnedBuffer<uint16_t>(ownedBuffer);
-          case ::ttnn::DataType::UINT8:
-            return getDataPtrFromOwnedBuffer<uint8_t>(ownedBuffer);
-          default: {
-            LOG_FATAL("Unsupported data type ",
-                      debug::toString(tensor.get_dtype()));
-            return nullptr;
-          }
-          }
+          ::tt::tt_metal::HostBuffer hostBuffer = storage.get_buffer(0);
+          return static_cast<void *>(hostBuffer.view_bytes().data());
         } else {
           LOG_FATAL("Unsupported storage type ",
                     debug::toString(tensor.storage_type()));
@@ -332,6 +307,15 @@ void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
       },
       tensor.get_storage());
   return dataPtr;
+}
+
+::ttnn::TensorSpec createTensorSpec(const ::ttnn::Shape &shape,
+                                    const ::ttnn::DataType &dataType,
+                                    const ::ttnn::Layout &layout,
+                                    const ::ttnn::MemoryConfig &memoryConfig) {
+  ::ttnn::TensorSpec tensorSpec(
+      shape, tt::tt_metal::TensorLayout(dataType, layout, memoryConfig));
+  return tensorSpec;
 }
 
 } // namespace tt::runtime::ttnn::utils

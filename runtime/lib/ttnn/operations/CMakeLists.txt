@@ -4,7 +4,7 @@ if (NOT TTNN_RUNTIME_ENABLED)
 endif()
 
 set(TTNN_OPS_SRCS
-  ${CMAKE_CURRENT_SOURCE_DIR}/include/tt/runtime/ttnn/operations/utils.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/utils/utils.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/cache/load_cached.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_gather.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/reduce_scatter.cpp
@@ -17,7 +17,6 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv_transpose2d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/empty.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/full_with.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/creation/construct_tensor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/full.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/cpu/cpu.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/concat.cpp
@@ -70,8 +69,6 @@ target_include_directories(TTRuntimeTTNNOps PRIVATE
 )
 target_include_directories(TTRuntimeTTNNOps PUBLIC
   ${PROJECT_SOURCE_DIR}/runtime/include
-  ${PROJECT_SOURCE_DIR}/runtime/lib/ttnn/include
-  ${PROJECT_SOURCE_DIR}/runtime/lib/ttnn/operations/include
   ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
 )
 

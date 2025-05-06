@@ -4,8 +4,8 @@
 
 #include "operations/conv/prepare_conv2d_weights.h"
 
-#include "tt/runtime/ttnn/operations/utils.h"
-#include "tt/runtime/ttnn/utils.h"
+#include "tt/runtime/detail/ttnn/operations/utils.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 
 #include "ttnn/operations/conv/conv2d/prepare_conv2d_weights.hpp"
 
@@ -49,7 +49,7 @@ void run(const ::tt::target::ttnn::PrepareConv2dWeightsOp *op,
       op->weights_format()->str(), op->in_channels(), op->out_channels(),
       op->batch_size(), op->input_height(), op->input_width(), kernelSize,
       stride, padding, dilation, op->has_bias(), op->groups(), &targetDevice,
-      conv2dConfig, std::nullopt);
+      conv2dConfig, std::nullopt, std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

@@ -4,7 +4,7 @@
 
 #include "operations/data_movement/repeat.h"
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
 
 namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::RepeatOp *op, ProgramContext &context) {

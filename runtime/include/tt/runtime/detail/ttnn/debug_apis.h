@@ -2,18 +2,17 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TT_RUNTIME_TTNN_DEBUG_APIS_H
-#define TT_RUNTIME_TTNN_DEBUG_APIS_H
+#ifndef TT_RUNTIME_DETAIL_TTNN_DEBUG_APIS_H
+#define TT_RUNTIME_DETAIL_TTNN_DEBUG_APIS_H
 
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
 #include "ttmlir/Target/TTNN/Target.h"
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-#define RUNTIME_DEBUG_MAYBE_CONST_INLINE
+#define RUNTIME_DEBUG_MAYBE_INLINE
 #else
-#define RUNTIME_DEBUG_MAYBE_CONST_INLINE                                       \
-  inline __attribute__((always_inline, const))
+#define RUNTIME_DEBUG_MAYBE_INLINE inline __attribute__((always_inline))
 #endif
 
 namespace tt::runtime::ttnn::debug {
@@ -54,10 +53,8 @@ inline std::string toString(const ::ttnn::DataType &dtype) {
 
 inline std::string toString(const ::ttnn::StorageType &storageType) {
   switch (storageType) {
-  case ::ttnn::StorageType::BORROWED:
-    return "BORROWED";
-  case ::ttnn::StorageType::OWNED:
-    return "OWNED";
+  case ::ttnn::StorageType::HOST:
+    return "HOST";
   case ::ttnn::StorageType::DEVICE:
     return "DEVICE";
   case ::ttnn::StorageType::MULTI_DEVICE_HOST:
@@ -65,7 +62,7 @@ inline std::string toString(const ::ttnn::StorageType &storageType) {
   }
 }
 
-RUNTIME_DEBUG_MAYBE_CONST_INLINE void
+RUNTIME_DEBUG_MAYBE_INLINE void
 checkTensorRefMatchesTTNNTensor(const ::tt::target::ttnn::TensorRef *tensorRef,
                                 const ::ttnn::Tensor &ttnnTensor)
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
@@ -75,8 +72,8 @@ checkTensorRefMatchesTTNNTensor(const ::tt::target::ttnn::TensorRef *tensorRef,
 }
 #endif
 
-#undef RUNTIME_DEBUG_MAYBE_CONST_INLINE
+#undef RUNTIME_DEBUG_MAYBE_INLINE
 
 } // namespace tt::runtime::ttnn::debug
 
-#endif // TT_RUNTIME_TTNN_DEBUG_APIS_H
+#endif // TT_RUNTIME_DETAIL_TTNN_DEBUG_APIS_H

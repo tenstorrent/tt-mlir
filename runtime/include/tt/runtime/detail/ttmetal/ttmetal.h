@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TT_RUNTIME_DETAIL_TTMETAL_H
-#define TT_RUNTIME_DETAIL_TTMETAL_H
+#ifndef TT_RUNTIME_DETAIL_TTMETAL_TTMETAL_H
+#define TT_RUNTIME_DETAIL_TTMETAL_TTMETAL_H
 
 #define FMT_HEADER_ONLY
 #include "tt-metalium/circular_buffer.hpp"

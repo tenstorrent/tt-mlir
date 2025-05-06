@@ -9,11 +9,11 @@
 #include "ttmlir/Version.h"
 
 #if defined(TT_RUNTIME_ENABLE_TTNN)
-#include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
-#include "tt/runtime/detail/ttmetal.h"
+#include "tt/runtime/detail/ttmetal/ttmetal.h"
 #endif
 
 namespace tt::runtime {
@@ -135,54 +135,6 @@ getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
   LOG_FATAL("runtime is not enabled");
 }
 
-Tensor createOwnedHostTensor(const void *data,
-                             const std::vector<std::uint32_t> &shape,
-                             const std::vector<std::uint32_t> &stride,
-                             std::uint32_t itemsize,
-                             ::tt::target::DataType dataType) {
-  LOG_ASSERT(!shape.empty());
-  LOG_ASSERT(!stride.empty());
-  LOG_ASSERT(itemsize > 0);
-#if defined(TT_RUNTIME_ENABLE_TTNN)
-  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::createOwnedHostTensor(data, shape, stride,
-                                                      itemsize, dataType);
-  }
-#endif
-
-#if defined(TT_RUNTIME_ENABLE_TTMETAL)
-  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    LOG_FATAL("TT Metal runtime does not support creating owned tensors");
-  }
-#endif
-  LOG_FATAL("runtime is not enabled");
-}
-
-// TODO(mrakita): Deprecated, will be removed after frontends uplift.
-// https://github.com/tenstorrent/tt-mlir/issues/2757
-Tensor createOwnedTensor(std::shared_ptr<void> data,
-                         const std::vector<std::uint32_t> &shape,
-                         const std::vector<std::uint32_t> &stride,
-                         std::uint32_t itemsize,
-                         ::tt::target::DataType dataType) {
-  LOG_ASSERT(!shape.empty());
-  LOG_ASSERT(!stride.empty());
-  LOG_ASSERT(itemsize > 0);
-#if defined(TT_RUNTIME_ENABLE_TTNN)
-  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::createOwnedHostTensor(data.get(), shape, stride,
-                                                      itemsize, dataType);
-  }
-#endif
-
-#if defined(TT_RUNTIME_ENABLE_TTMETAL)
-  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    LOG_FATAL("TT Metal runtime does not support creating owned tensors");
-  }
-#endif
-  LOG_FATAL("runtime is not enabled");
-}
-
 Tensor createBorrowedHostTensor(void *data,
                                 const std::vector<std::uint32_t> &shape,
                                 const std::vector<std::uint32_t> &stride,
@@ -202,6 +154,29 @@ Tensor createBorrowedHostTensor(void *data,
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
     LOG_FATAL("TT Metal runtime does not support creating borrowed host tensor "
               "from direct pointer to data");
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
+Tensor createOwnedHostTensor(const void *data,
+                             const std::vector<std::uint32_t> &shape,
+                             const std::vector<std::uint32_t> &stride,
+                             std::uint32_t itemsize,
+                             ::tt::target::DataType dataType) {
+  LOG_ASSERT(!shape.empty());
+  LOG_ASSERT(!stride.empty());
+  LOG_ASSERT(itemsize > 0);
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::createOwnedHostTensor(data, shape, stride,
+                                                      itemsize, dataType);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    LOG_FATAL("TT Metal runtime does not support creating owned tensors");
   }
 #endif
   LOG_FATAL("runtime is not enabled");
