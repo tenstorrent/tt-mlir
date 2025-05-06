@@ -120,6 +120,13 @@ class Perf:
             help="enable program cache in ttnn runtime",
         )
         Perf.register_arg(
+            name="--emitc",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="toggles emitc testing",
+        )
+        Perf.register_arg(
             name="binary",
             type=str,
             default="",
@@ -416,6 +423,9 @@ class Perf:
 
                     if self["--enable-program-cache"]:
                         command_options += " --enable-program-cache "
+
+                    if self["--emitc"]:
+                        command_options += " --emitc "
 
                     ttrt_executable_path = shutil.which("ttrt")
                     test_command = (
