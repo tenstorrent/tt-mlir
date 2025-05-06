@@ -786,7 +786,8 @@ createOp(FlatbufferObjectCache &cache, BatchNormOp op) {
 
   return ::tt::target::ttnn::CreateBatchNormOp(
       *cache.fbb, input, runningMean, runningVar, op.getTraining(),
-      op.getEpsilon().convertToFloat(), weight, bias, memoryConfig, output);
+      op.getEpsilon().convertToFloat(), op.getMomentum().convertToFloat(),
+      weight, bias, memoryConfig, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::UpsampleOp>

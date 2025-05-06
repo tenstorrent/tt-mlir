@@ -898,10 +898,12 @@ public:
       return rewriter.notifyMatchFailure(op, "We can only exclude dimension 1");
     }
 
+    mlir::APFloat defaultMomentum(0.1f);
+
     rewriter.replaceOpWithNewOp<ttnn::BatchNormOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getOperand(), adaptor.getMean(), adaptor.getVariance(),
-        /* training= */ adaptor.getTraining(), adaptor.getEpsilon(),
+        adaptor.getTraining(), adaptor.getEpsilon(), defaultMomentum,
         adaptor.getScale(), adaptor.getOffset(),
         /*memoryConfig*/ nullptr);
     return success();

@@ -1972,7 +1972,7 @@ public:
         emitter.emit(srcOp.getRunningVar()),
         emitter.emit(srcOp.getTraining()),
         emitter.emit(srcOp.getEpsilon()),
-        emitter.emit(/* momentum= */ 0.1),
+        emitter.emit(srcOp.getMomentum()),
         emitter.emit(srcOp.getWeight()),
         emitter.emit(srcOp.getBias()),
         emitter.emit(/* output= */ std::nullopt),

@@ -19,10 +19,11 @@ void run(const ::tt::target::ttnn::BatchNormOp *op, ProgramContext &context) {
 
   bool training = op->training();
   float epsilon = op->epsilon();
+  float momentum = op->momentum();
 
   ::ttnn::Tensor output =
       ::ttnn::batch_norm(input, runningMean, runningVar, training, epsilon,
-                         /* momentum = */ 0.1, weight, bias);
+                         momentum, weight, bias);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
