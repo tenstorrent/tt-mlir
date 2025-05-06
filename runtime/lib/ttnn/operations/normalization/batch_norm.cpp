@@ -10,9 +10,9 @@ void run(const ::tt::target::ttnn::BatchNormOp *op, ProgramContext &context) {
 
   ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->input());
 
-  ::ttnn::Tensor &running_mean =
+  ::ttnn::Tensor &runningMean =
       tensorPool.getTTNNTensorAndValidate(op->running_mean());
-  ::ttnn::Tensor &running_var =
+  ::ttnn::Tensor &runningVar =
       tensorPool.getTTNNTensorAndValidate(op->running_var());
   ::ttnn::Tensor &weight = tensorPool.getTTNNTensorAndValidate(op->weight());
   ::ttnn::Tensor &bias = tensorPool.getTTNNTensorAndValidate(op->bias());
@@ -21,7 +21,7 @@ void run(const ::tt::target::ttnn::BatchNormOp *op, ProgramContext &context) {
   float epsilon = op->epsilon();
 
   ::ttnn::Tensor output =
-      ::ttnn::batch_norm(input, running_mean, running_var, training, epsilon,
+      ::ttnn::batch_norm(input, runningMean, runningVar, training, epsilon,
                          /* momentum = */ 0.1, weight, bias);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
