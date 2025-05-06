@@ -418,7 +418,7 @@ static std::optional<DataType> binaryOpDTypeWorkaround(mlir::Operation *op,
       // if (lhsType.getShape() != rhsType.getShape()) {
       //   return DataType::BFloat16;
       // }
-      // return {};
+      return {};
     }
     return DataType::BFloat16;
   }
