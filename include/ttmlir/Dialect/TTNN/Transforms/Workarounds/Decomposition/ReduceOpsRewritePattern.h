@@ -132,10 +132,6 @@ public:
 
   LogicalResult matchAndRewrite(ReduceOp srcOp,
                                 PatternRewriter &rewriter) const override {
-    if (!isWorkaroundRequired(srcOp)) {
-      return failure();
-    }
-
     RankedTensorType inputType =
         mlir::cast<RankedTensorType>(srcOp.getInput().getType());
     auto reductionDims = getReduceDims(srcOp.getDimArg());
