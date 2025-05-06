@@ -335,9 +335,9 @@ private:
 
     // Create and return the reshape operation.
     return ttir::utils::createDPSOp<ttir::ReshapeOp>(
-        rewriter, loc, newShape, scaleType.getElementType(),
-        scaleType.getEncoding(), scaleValue,
-        rewriter.getI32ArrayAttr(newShapeI32));
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshape"),
+        newShape, scaleType.getElementType(), scaleType.getEncoding(),
+        scaleValue, rewriter.getI32ArrayAttr(newShapeI32));
   }
 
   /// Create pre-multiplied weights.
@@ -346,8 +346,9 @@ private:
                                    Value reshapedScale) {
     // Create a multiplication of the weights by the reshaped scale.
     return utils::createDPSOp<MultiplyOp>(
-        rewriter, loc, mlir::cast<RankedTensorType>(weightValue.getType()),
-        weightValue, reshapedScale);
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_multiply"),
+        mlir::cast<RankedTensorType>(weightValue.getType()), weightValue,
+        reshapedScale);
   }
 };
 
