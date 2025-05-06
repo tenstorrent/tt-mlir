@@ -43,11 +43,6 @@ static void runEltwiseBinaryOp(
              "Memory config must exist for device tensors");
 
   std::optional<bool> useLegacy = op->use_legacy();
-  if (useLegacy.has_value()) {
-    std::cout << "useLegacy value: " << useLegacy.value() << std::endl;
-  } else {
-    std::cout << "useLegacy is not set" << std::endl;
-  }
 
   ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputDataType, outputMemoryConfig,
                               std::nullopt, {}, {}, {}, useLegacy);
