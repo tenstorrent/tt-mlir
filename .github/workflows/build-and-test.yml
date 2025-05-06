@@ -222,7 +222,7 @@ jobs:
       uses: ./.github/actions/download-artifact
       with:
         name: install-artifacts-${{ matrix.build.image }}
-        path: ${{ steps.strings.outputs.install-output-dir }}
+        path: install
         github_token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Remove existing whls files
@@ -250,7 +250,7 @@ jobs:
       if: ${{ matrix.build.type }} == "unit" || ${{ matrix.build.suite }} == "explorer"
       with:
         name: build-artifacts-${{ matrix.build.image }}
-        path: ${{ steps.strings.outputs.build-output-dir }}
+        path: build
         github_token: ${{ secrets.GITHUB_TOKEN }}
 
     # TG galaxy doesn't have support for dispatch on eth cores - thus need to disable it
