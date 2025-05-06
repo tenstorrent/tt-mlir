@@ -361,7 +361,7 @@ Device openMeshDevice(const std::vector<uint32_t> &meshShape,
   size_t l1SmallSize =
       options.l1SmallSize.value_or(::tt::constants::L1_SMALL_SIZE);
   ::tt::tt_metal::DispatchCoreType dispatchCoreTypeValue =
-      tt::runtime::common::getDispatchCoreType(options.dispatchCoreType);
+      ::tt::tt_metal::DispatchCoreType::WORKER;
 
   ::ttnn::MeshDeviceConfig meshConfig(shape, offset, options.deviceIds);
 
