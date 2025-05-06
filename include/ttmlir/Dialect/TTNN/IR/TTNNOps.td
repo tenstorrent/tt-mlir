@@ -1432,20 +1432,20 @@ def TTNN_MaxPool2dOp : TTNN_PoolingOp<"max_pool2d",
     }];
 }
 
-def TTNN_BatchNormOp : TTNN_Op<"batch_norm"> {
+def TTNN_BatchNormOp : TTNN_Op<"batch_norm", [AttrSizedOperandSegments]> {
     let summary = "Batch normalization op.";
     let description = [{
       Batch normalization operation over each channel on input tensor.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$running_mean,
-                         AnyRankedTensor:$running_var,
-                         BoolAttr:$training,
-                         F32Attr:$epsilon,
-                         F32Attr:$momentum,
-                         AnyRankedTensor:$weight,
-                         AnyRankedTensor:$bias,
+                         Optional<AnyRankedTensor>:$running_mean,
+                         Optional<AnyRankedTensor>:$running_var,
+                         DefaultValuedAttr<BoolAttr, "false">:$training,
+                         DefaultValuedAttr<F32Attr, "1e-05">:$epsilon,
+                         DefaultValuedAttr<F32Attr, "0.1">:$momentum,
+                         Optional<AnyRankedTensor>:$weight,
+                         Optional<AnyRankedTensor>:$bias,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
