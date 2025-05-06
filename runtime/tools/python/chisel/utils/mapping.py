@@ -242,4 +242,5 @@ ttir_to_torch_mapping = {
         {"dim_arg": "dim", "keep_dim": "keepdim"},
         unpack_inputs=False,
     ),
+    "ttir.neg": OpMapping(torch.neg),
 }
