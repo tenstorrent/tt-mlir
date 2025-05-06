@@ -338,6 +338,45 @@ public:
 } // namespace
 
 namespace {
+class TTKernelToEmitCDPrintRewriter
+    : public OpConversionPattern<ttkernel::DPrintOp> {
+public:
+  using OpConversionPattern<ttkernel::DPrintOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttkernel::DPrintOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto stringlit = [&](StringRef str) {
+      return rewriter
+          .create<emitc::LiteralOp>(
+              op.getLoc(), rewriter.getType<emitc::OpaqueType>("const char[]"),
+              (Twine("\"") + str + "\"").str())
+          .getResult();
+    };
+
+    auto operandsIter = adaptor.getOperands().begin();
+    auto operandsEnd = adaptor.getOperands().end();
+    StringRef rest, fmt = op.getFmt();
+    SmallVector<Value> vargs;
+    do {
+      std::tie(fmt, rest) = fmt.split("{}");
+      if (!fmt.empty()) {
+        vargs.push_back(stringlit(fmt));
+      }
+      if (operandsIter != operandsEnd) {
+        vargs.push_back(*operandsIter++);
+      }
+      fmt = rest;
+    } while (!fmt.empty());
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, TypeRange(), "ttmlir::dprint", nullptr, nullptr, vargs);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 template <typename Op, typename Adaptor = typename Op::Adaptor>
 class TTKernelMacroOpToEmitCOpRewriter : public OpConversionPattern<Op> {
 public:
@@ -504,7 +543,7 @@ public:
 
     patterns.add<
         TTKernelToEmitCFuncArgsRewriter,
-        TTKernelToEmitCGetCompileArgValRewriter,
+        TTKernelToEmitCGetCompileArgValRewriter, TTKernelToEmitCDPrintRewriter,
         TTKernelToEmitCPassthroughRewriter<ttkernel::CBReinterpretShapeOp>,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosBaseOp>,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosSizeOp>,
