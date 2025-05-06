@@ -156,7 +156,7 @@ def golden(callback_runtime_config, binary, program_context, op_context):
         return
 
     _, _, cal_pcc, output_str = get_atol_rtol_pcc(
-        golden_tensor_torch, output_tensor_torch
+        golden_tensor_torch, output_tensor_torch, logging
     )
 
     logging.debug(f"PCC={cal_pcc}")

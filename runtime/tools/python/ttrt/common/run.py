@@ -727,7 +727,9 @@ class Run:
                                                 f"Failed: program-level output doesn't match golden shape! golden_shape={golden_tensor_torch.shape}, output_shape={output_tensor_torch.shape}"
                                             )
                                         _, _, cal_pcc, _ = get_atol_rtol_pcc(
-                                            golden_tensor_torch, output_tensor_torch
+                                            golden_tensor_torch,
+                                            output_tensor_torch,
+                                            self.logging,
                                         )
                                         if (
                                             cal_pcc
