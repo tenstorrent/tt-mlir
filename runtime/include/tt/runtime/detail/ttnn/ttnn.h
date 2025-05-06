@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TT_RUNTIME_DETAIL_TTNN_H
-#define TT_RUNTIME_DETAIL_TTNN_H
+#ifndef TT_RUNTIME_DETAIL_TTNN_TTNN_H
+#define TT_RUNTIME_DETAIL_TTNN_TTNN_H
 
 #define FMT_HEADER_ONLY
 #include "hostdevcommon/common_values.hpp"
@@ -39,7 +39,7 @@
 #include "ttnn/operations/reduction/generic/generic_reductions.hpp"
 #include "ttnn/operations/reduction/prod/prod.hpp"
 #include "ttnn/tensor/host_buffer/functions.hpp"
-#include "ttnn/tensor/host_buffer/owned_buffer.hpp"
+#include "ttnn/tensor/host_buffer/host_buffer.hpp"
 #include "ttnn/tensor/shape/shape.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
@@ -49,13 +49,6 @@
 
 namespace tt::runtime::ttnn {
 
-// Creates host tensor with owned storage (the buffer of the tensor is on the
-// host and its allocation/deallocation is owned by this tensor instance).
-::tt::runtime::Tensor
-createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
-                      const std::vector<std::uint32_t> &stride,
-                      std::uint32_t itemsize, ::tt::target::DataType dataType);
-
 // Creates host tensor with borrowed storage (the buffer of the tensor is on the
 // host and it was borrowed from an external buffer which is responsible for its
 // allocation/deallocation).
@@ -64,6 +57,13 @@ createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
                          const std::vector<std::uint32_t> &stride,
                          std::uint32_t itemsize,
                          ::tt::target::DataType dataType);
+
+// Creates host tensor with owned storage (the buffer of the tensor is on the
+// host and its allocation/deallocation is owned by this tensor instance).
+::tt::runtime::Tensor
+createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
+                      const std::vector<std::uint32_t> &stride,
+                      std::uint32_t itemsize, ::tt::target::DataType dataType);
 
 // Creates multi-device host tensor with owned storage (buffers of the tensor
 // are on the host and their allocation/deallocation is owned by this tensor

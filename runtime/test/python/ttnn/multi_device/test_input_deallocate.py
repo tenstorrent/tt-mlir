@@ -50,9 +50,7 @@ def verify_to_layout_deallocation(helper: Helper, retain_flags, storage):
     ), "Mismatch in retain flags and runtime inputs size"
 
     # Setup retention expectations based on storage type
-    should_retain = (
-        retain_flags if storage != Storage.Borrowed else [True] * len(retain_flags)
-    )
+    should_retain = retain_flags
 
     with DeviceContext(mesh_shape=[1, 2]) as parent_mesh:
         # Apply retain flags to original inputs

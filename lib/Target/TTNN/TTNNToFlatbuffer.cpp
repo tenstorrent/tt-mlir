@@ -223,7 +223,7 @@ memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
                       : ::tt::target::ttnn::StorageType::Device;
   } else {
     storageType = bufferType == ttnn::BufferType::SystemMemory
-                      ? ::tt::target::ttnn::StorageType::Owned
+                      ? ::tt::target::ttnn::StorageType::Host
                       : ::tt::target::ttnn::StorageType::Device;
   }
 
@@ -544,21 +544,6 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
   return ::tt::target::ttnn::CreateEmptyOp(
       *cache.fbb, cache.fbb->CreateVector<int64_t>(shape), dtype, layout,
       cache.at<::tt::target::DeviceRef>(device), memoryConfig,
-      cache.getOrCreate(output, tensorValueToFlatbuffer, kHostAllocatedSize));
-}
-
-::flatbuffers::Offset<::tt::target::ttnn::ConstructTensorOp>
-createOp(FlatbufferObjectCache &cache, ConstructTensorOp op) {
-  ::llvm::ArrayRef<int64_t> shape = op.getShape().getShape();
-  ::tt::target::DataType dtype =
-      ::tt::mlir::ttnn::utils::toTargetDataType(op.getDtype());
-  ::tt::target::TensorLayout layout =
-      ::tt::mlir::ttnn::utils::toTargetTensorLayout(op.getLayout());
-
-  auto output = op.getResult();
-
-  return ::tt::target::ttnn::CreateConstructTensorOp(
-      *cache.fbb, cache.fbb->CreateVector<int64_t>(shape), dtype, layout,
       cache.getOrCreate(output, tensorValueToFlatbuffer, kHostAllocatedSize));
 }
 
@@ -1690,11 +1675,6 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto emptyOp = dyn_cast<EmptyOp>(op); emptyOp) {
     return createOperation(cache, createOp(cache, emptyOp), debugString,
                            locInfo);
-  }
-  if (auto constructTensorOp = dyn_cast<ConstructTensorOp>(op);
-      constructTensorOp) {
-    return createOperation(cache, createOp(cache, constructTensorOp),
-                           debugString, locInfo);
   }
   if (auto fullOp = dyn_cast<FullOp>(op); fullOp) {
     return createOperation(cache, createOp(cache, fullOp), debugString,

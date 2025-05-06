@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
-#include "tt/runtime/ttnn/operations/utils.h"
+#include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/ttnn/utils.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/workarounds.h"
 
 namespace tt::runtime::ttnn::operations::utils {
@@ -344,6 +344,53 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
   }
 
   return conv2dConfig;
+}
+
+template <typename T>
+static ::ttnn::Tensor
+toTTNNTensorImpl(const ::flatbuffers::Vector<uint8_t> *data,
+                 const ::ttnn::Shape &shape, const ::ttnn::DataType &dataType) {
+  std::uint64_t numElements = shape.volume();
+  size_t elementSize = sizeof(T);
+  LOG_ASSERT(numElements * elementSize == data->size(), "Invalid data size");
+  std::vector<T> dataVec(numElements);
+  for (size_t i = 0; i < numElements; i++) {
+    if constexpr (std::is_same_v<T, bfloat16>) {
+      dataVec[i] = bfloat16(
+          ::flatbuffers::IndirectHelper<uint16_t>::Read(data->data(), i));
+    } else {
+      dataVec[i] = ::flatbuffers::IndirectHelper<T>::Read(data->data(), i);
+    }
+  }
+  return ::tt::runtime::ttnn::utils::createTTNNTensor<T>(dataVec.data(), shape,
+                                                         dataType);
+}
+
+::ttnn::Tensor toTTNNTensor(const ::flatbuffers::Vector<uint8_t> *data,
+                            const ::ttnn::Shape &shape,
+                            const ::ttnn::DataType &dataType) {
+  switch (dataType) {
+  case ::ttnn::DataType::FLOAT32: {
+    return toTTNNTensorImpl<float>(data, shape, dataType);
+  }
+  case ::ttnn::DataType::BFLOAT16: {
+    return toTTNNTensorImpl<bfloat16>(data, shape, dataType);
+  }
+  case ::ttnn::DataType::UINT32: {
+    return toTTNNTensorImpl<uint32_t>(data, shape, dataType);
+  }
+  case ::ttnn::DataType::UINT16: {
+    return toTTNNTensorImpl<uint16_t>(data, shape, dataType);
+  }
+  case ::ttnn::DataType::UINT8: {
+    return toTTNNTensorImpl<uint8_t>(data, shape, dataType);
+  }
+  case ::ttnn::DataType::INT32: {
+    return toTTNNTensorImpl<int32_t>(data, shape, dataType);
+  }
+  default:
+    LOG_FATAL("Unsupported data type");
+  }
 }
 
 } // namespace tt::runtime::ttnn::operations::utils

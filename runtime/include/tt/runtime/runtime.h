@@ -49,30 +49,23 @@ std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc(
     std::optional<DispatchCoreType> dispatchCoreType = std::nullopt,
     std::optional<Device> meshDevice = std::nullopt);
 
-// Creates host tensor with owned storage (the buffer of the tensor is on the
-// host and its allocation/deallocation is owned by this tensor instance).
-Tensor createOwnedHostTensor(const void *data,
-                             const std::vector<std::uint32_t> &shape,
-                             const std::vector<std::uint32_t> &stride,
-                             std::uint32_t itemsize,
-                             ::tt::target::DataType dataType);
-
-// TODO(mrakita): Deprecated, will be removed after frontends uplift.
-// https://github.com/tenstorrent/tt-mlir/issues/2757
-Tensor createOwnedTensor(std::shared_ptr<void> data,
-                         const std::vector<std::uint32_t> &shape,
-                         const std::vector<std::uint32_t> &stride,
-                         std::uint32_t itemsize,
-                         ::tt::target::DataType dataType);
-
-// Creates host tensor with borrowed storage (the buffer of the tensor is on the
-// host and it was borrowed from an external buffer which is responsible for its
-// allocation/deallocation).
+// Creates host tensor with a view of the input data (the buffer of the tensor
+// is on the host and it was borrowed from an external buffer which is
+// responsible for its allocation/deallocation).
 Tensor createBorrowedHostTensor(void *data,
                                 const std::vector<std::uint32_t> &shape,
                                 const std::vector<std::uint32_t> &stride,
                                 std::uint32_t itemsize,
                                 ::tt::target::DataType dataType);
+
+// Creates host tensor with a owned copy of the data (the buffer of the tensor
+// is on the host and its allocation/deallocation is owned by this tensor
+// instance).
+Tensor createOwnedHostTensor(const void *data,
+                             const std::vector<std::uint32_t> &shape,
+                             const std::vector<std::uint32_t> &stride,
+                             std::uint32_t itemsize,
+                             ::tt::target::DataType dataType);
 
 // TODO(mrakita): Should be deprecated but D2M path is using this, investigate
 // if it can also use the new `createBorrowedHostTensor` function.
@@ -104,14 +97,14 @@ Tensor createEmptyTensor(Device device, Layout layout,
                          const std::vector<std::uint32_t> &stride,
                          std::uint32_t itemsize);
 
-inline Tensor createOwnedHostTensor(const void *data, const TensorDesc &desc) {
-  return ::tt::runtime::createOwnedHostTensor(data, desc.shape, desc.stride,
-                                              desc.itemsize, desc.dataType);
-}
-
 inline Tensor createBorrowedHostTensor(void *data, const TensorDesc &desc) {
   return ::tt::runtime::createBorrowedHostTensor(data, desc.shape, desc.stride,
                                                  desc.itemsize, desc.dataType);
+}
+
+inline Tensor createOwnedHostTensor(const void *data, const TensorDesc &desc) {
+  return ::tt::runtime::createOwnedHostTensor(data, desc.shape, desc.stride,
+                                              desc.itemsize, desc.dataType);
 }
 
 inline Tensor createMultiDeviceHostTensor(
