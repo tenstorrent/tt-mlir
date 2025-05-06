@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tt/runtime/ttnn/operations/utils.h"
+#include "tt/runtime/detail/ttnn/operations/utils.h"
 
 #include "operations/ccl/mesh_shard.h"
 #include "operations/ccl/mesh_shard_impl.h"

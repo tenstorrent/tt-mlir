@@ -2,12 +2,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tt/runtime/ttnn/test/dylib.h"
+#include "tt/runtime/detail/ttnn/test/dylib.h"
 
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/ttnn/types.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/runtime.h"
-#include "tt/runtime/ttnn/types.h"
-#include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/types.h"
 
 #include <dlfcn.h>

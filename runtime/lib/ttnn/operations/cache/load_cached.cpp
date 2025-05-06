@@ -5,11 +5,11 @@
 #include "operations/cache/load_cached.h"
 
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/ttnn/program_executor.h"
+#include "tt/runtime/detail/ttnn/types.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/tensor_cache.h"
-#include "tt/runtime/ttnn/program_executor.h"
-#include "tt/runtime/ttnn/types.h"
 #include "tt/runtime/types.h"
-
 #include <string_view>
 #include <vector>
 
@@ -67,7 +67,7 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   // Execute the function
   const size_t programIndex = op->program_idx();
   const ::tt::target::ttnn::TTNNBinary &fbb =
-      *getBinary(context.getExecutableHandle());
+      *::tt::runtime::ttnn::utils::getBinary(context.getExecutableHandle());
   const ::tt::target::ttnn::Program *subProgram =
       fbb.programs()->Get(programIndex);
   ProgramExecutor exec(subProgram, context.getExecutableHandle(), inputs,

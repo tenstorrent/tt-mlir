@@ -4,14 +4,15 @@
 
 #include "operations/conv/conv2d.h"
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
 
-#include "tt/runtime/ttnn/operations/utils.h"
-#include "tt/runtime/ttnn/utils.h"
+#include "tt/runtime/detail/ttnn/operations/utils.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttnn/types.hpp"
 
 namespace tt::runtime::ttnn::operations::conv {
+using ::ttnn::operations::conv::conv2d::ResultWithOptions;
 void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &input =
@@ -56,11 +57,15 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  ::ttnn::Tensor out = std::get<0>(::ttnn::conv2d(
+  ResultWithOptions result = ::ttnn::conv2d(
       input, weight, &targetDevice, op->in_channels(), op->out_channels(),
       op->batch_size(), op->input_height(), op->input_width(), kernelSize,
       stride, padding, dilation, op->groups(), bias, conv2dConfig,
-      computeConfig, outputMemoryConfig, std::nullopt));
+      computeConfig, outputMemoryConfig, std::nullopt);
+
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result));
+
+  ::ttnn::Tensor out = std::get<::ttnn::Tensor>(result);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

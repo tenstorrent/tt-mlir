@@ -6,9 +6,9 @@
 #error "TT_RUNTIME_DEBUG must be defined and set"
 #endif
 
-#include "tt/runtime/ttnn/debug_apis.h"
+#include "tt/runtime/detail/ttnn/debug_apis.h"
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/ttnn/utils.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::debug {
 

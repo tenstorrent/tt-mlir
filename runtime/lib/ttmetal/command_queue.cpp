@@ -8,7 +8,7 @@
 
 #include "tracy/Tracy.hpp"
 #include "tt/runtime/detail/debug.h"
-#include "tt/runtime/detail/ttmetal.h"
+#include "tt/runtime/detail/ttmetal/ttmetal.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
 

@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tt/runtime/ttnn/program_executor.h"
+#include "tt/runtime/detail/ttnn/program_executor.h"
 
 #include "operations/cache/load_cached.h"
 #include "operations/ccl/all_gather.h"
@@ -16,7 +16,6 @@
 #include "operations/cpu/cpu.h"
 #include "operations/creation/arange.h"
 #include "operations/creation/constant.h"
-#include "operations/creation/construct_tensor.h"
 #include "operations/creation/empty.h"
 #include "operations/creation/full.h"
 #include "operations/creation/full_with.h"
@@ -54,7 +53,7 @@
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
 #include "tt/runtime/detail/debug.h"
-#include "tt/runtime/ttnn/types.h"
+#include "tt/runtime/detail/ttnn/types.h"
 #include "tt/runtime/utils.h"
 
 #ifdef TT_RUNTIME_ENABLE_PERF_TRACE
@@ -181,10 +180,6 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::EmptyOp: {
     return operations::creation::run(op->type_as_EmptyOp(), getContext());
-  }
-  case ::tt::target::ttnn::OpType::ConstructTensorOp: {
-    return operations::creation::run(op->type_as_ConstructTensorOp(),
-                                     getContext());
   }
   case ::tt::target::ttnn::OpType::NamedFullOp: {
     return operations::creation::run(op->type_as_NamedFullOp(), getContext());

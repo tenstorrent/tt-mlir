@@ -2,26 +2,19 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TT_RUNTIME_TTNN_PROGRAM_EXECUTOR_H
-#define TT_RUNTIME_TTNN_PROGRAM_EXECUTOR_H
+#ifndef TT_RUNTIME_DETAIL_TTNN_PROGRAM_EXECUTOR_H
+#define TT_RUNTIME_DETAIL_TTNN_PROGRAM_EXECUTOR_H
 
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/dylib.h"
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/ttnn/types.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/tensor_cache.h"
-#include "tt/runtime/ttnn/types.h"
-#include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 
 namespace tt::runtime::ttnn {
-
-inline const ::tt::target::ttnn::TTNNBinary *getBinary(Flatbuffer binary) {
-  bool isTTNN = ::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
-      binary.handle.get());
-  LOG_ASSERT(isTTNN, "Unsupported binary format");
-  return ::tt::target::ttnn::GetSizePrefixedTTNNBinary(binary.handle.get());
-}
 
 class ProgramContext; // Forward declaration
 
