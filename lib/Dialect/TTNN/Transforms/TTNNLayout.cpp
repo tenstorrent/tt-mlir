@@ -237,6 +237,25 @@ static bool changeLayoutToHost(DestinationStyleOpInterface &op,
   return false;
 }
 
+static bool changeLayoutToDeviceTiled(DestinationStyleOpInterface &op,
+                                      OpOperand &operand,
+                                      PatternRewriter &rewriter,
+                                      bool isDPSResult) {
+  Location newLoc = appendInputSuffix(op.getLoc(), operand.getOperandNumber());
+  std::optional<Value> layout = createToLayoutOp(
+      rewriter, newLoc, operand.get(), BufferType::DRAM, true /* tiled */);
+  if (layout.has_value()) {
+    rewriter.modifyOpInPlace(op, [&]() {
+      op->setOperand(operand.getOperandNumber(), *layout);
+      if (isDPSResult) {
+        op->getResult(0).setType(layout->getType());
+      }
+    });
+    return true;
+  }
+  return false;
+}
+
 // Updates the layout of the operands of a TTIR ops which have DPS operands.
 // This function rewrites the operands and result to have the correct layout
 // with respect to operand constraints.
@@ -269,6 +288,12 @@ public:
         // https://github.com/tenstorrent/tt-mlir/issues/1528).
         if (operand.getOperandNumber() == 1) {
           modified = changeLayoutToHost(op, operand, rewriter, isDPSResult);
+        }
+
+        // Bias must be on device on tile for conv2d
+        if (operand.getOperandNumber() == 2) {
+          modified =
+              changeLayoutToDeviceTiled(op, operand, rewriter, isDPSResult);
         }
         continue;
       }
@@ -465,13 +490,13 @@ private:
     SmallVector<Type> inputTypes;
     SmallVector<Type> outputTypes(funcOp.getResultTypes());
     for (BlockArgument &arg : entryBlock.getArguments()) {
-      if (!mlir::isa<RankedTensorType>(arg.getType()) ||
-          !shouldForceInputSystemMemory(arg)) {
-        inputTypes.push_back(arg.getType());
-        continue;
-      }
+      // if (!mlir::isa<RankedTensorType>(arg.getType()) ||
+      //     !shouldForceInputSystemMemory(arg)) {
+      //   inputTypes.push_back(arg.getType());
+      //   continue;
+      // }
       RankedTensorType ty = mlir::cast<RankedTensorType>(arg.getType());
-      RankedTensorType newType = toSystemMemoryType(funcOp.getContext(), ty);
+      RankedTensorType newType = toDeviceRowMajor(funcOp.getContext(), ty);
 
       inputTypes.push_back(newType);
       modified = arg.getType() != newType;
@@ -538,13 +563,22 @@ private:
     return newType;
   }
 
+  RankedTensorType toDeviceRowMajor(MLIRContext *ctx,
+                                    RankedTensorType ty) const {
+    TTNNLayoutAttr newLayout = createLayoutAttr(
+        ctx, deviceGrid, ty, BufferType::DRAM, false /* isTiledOpt */);
+    auto newType =
+        RankedTensorType::get(ty.getShape(), ty.getElementType(), newLayout);
+    return newType;
+  }
+
   bool shouldForceInputSystemMemory(BlockArgument arg) const {
     for (Operation *user : arg.getUsers()) {
       if (shouldMeshShardOpForceSystemMemory(user)) {
         return true;
       }
-      // For the weight input of the conv2d op, it specifically needs to be on
-      // host (issue https://github.com/tenstorrent/tt-mlir/issues/1528).
+      // For the weight input of the conv2d op, it specifically needs to be
+      // on host (issue https://github.com/tenstorrent/tt-mlir/issues/1528).
       if ((mlir::isa<ttir::Conv2dOp, ttir::ConvTranspose2dOp>(user)) &&
           user->getOperand(1) == arg) {
         return true;
