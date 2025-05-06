@@ -91,13 +91,18 @@ void DFShardingPolicy::run() {
           // the near future.
           //
           if (llvm::isa<
+                  // TODO(#3242): Re-enable once we are able to query backend
+                  // for matmul.
+                  ttnn::MatmulOp,
                   // TODO(#2038): Remove this once this bug is fixed.
                   // TODO(#2042): And constraints are implemented.
                   ttnn::ReshapeOp,
                   // TODO(#2038): Remove this once this bug is fixed.
                   ttnn::ConcatOp,
                   // TODO(#2041): Remove once constraints are added for MeanOp.
-                  ttnn::MeanOp,
+                  // TODO(#2084): Remove once constraints are added for all
+                  // Llama ops.
+                  ttnn::MeanOp, ttnn::SinOp, ttnn::CosOp, ttnn::ReciprocalOp,
                   // TODO(#2588): Blocked by graph capture issue.
                   ttnn::Conv2dOp, ttnn::MaxPool2dOp>(currentOp)) {
             validForSharding = false;

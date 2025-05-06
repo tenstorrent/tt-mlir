@@ -4,6 +4,7 @@
 
 #include <gtest/gtest.h>
 
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TT/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
@@ -17,9 +18,9 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Value.h"
-#include "mlir/IR/ValueRange.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Error.h"
 
 using namespace mlir::tt::ttnn;
 
@@ -221,28 +222,53 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
 
   // Create custom checkShardCompatible function.
   //
-  std::function<bool(mlir::Value, const TTNNLayoutAttr &, mlir::Operation *,
-                     const OpConfig &)>
+  std::function<llvm::Expected<TTNNLayoutAttr>(
+      mlir::Value, const TTNNLayoutAttr &, mlir::Operation *, const OpConfig &)>
       checkShardCompatible =
-          [](mlir::Value producerOperand, const TTNNLayoutAttr &producerLayout,
-             mlir::Operation *consumerOp, const OpConfig &consumerConfig) {
-            // Interleaved to sharded is always supported.
-            //
-            if (producerLayout.hasInterleavedDRAMTensorMemoryLayout()) {
-              return true;
-            }
+          [&legalConfigs](
+              mlir::Value producerOperand, const TTNNLayoutAttr &producerLayout,
+              mlir::Operation *consumerOp, const OpConfig &consumerConfig)
+      -> llvm::Expected<TTNNLayoutAttr> {
+    // Interleaved to sharded is always supported.
+    //
+    if (producerLayout.hasInterleavedDRAMTensorMemoryLayout()) {
+      return consumerConfig.outputLayout;
+    }
 
-            // Simple shard compat assumption. Try to keep same shard layout.
-            //
-            if (producerLayout.getMemLayout() !=
-                consumerConfig.outputLayout.getMemLayout()) {
-              return false;
-            }
+    if (!consumerConfig.outputLayout) {
+      // ShardSolver invokes this function with consumerConfig.outputLayout
+      // being null, so we need to find the correct config among the
+      // consumer legal configs. To do this, we will match the producer
+      // layout with the consumer legal configs.
+      auto *producerOp = producerOperand.getDefiningOp();
+      assert(producerOp && "Producer op not found");
+      // find which order is producerLaoyut among producer legal configs
+      auto &producerConfigs = legalConfigs[producerOp];
+      auto producerLayoutIndex =
+          std::find(producerConfigs.begin(), producerConfigs.end(),
+                    OpConfig(producerLayout));
+      assert(producerLayoutIndex != producerConfigs.end() &&
+             "Producer layout not found");
 
-            return true;
-          };
+      return legalConfigs[consumerOp]
+                         [producerLayoutIndex - producerConfigs.begin()]
+                             .outputLayout;
+    }
 
-  ShardSolver shardSolver(/*tensorTypePossibleLayouts*/ nullptr, legalConfigs,
+    // Simple shard compat assumption. Try to keep same shard layout.
+    //
+    if (producerLayout.getMemLayout() !=
+        consumerConfig.outputLayout.getMemLayout()) {
+      return llvm::createStringError("Output layout does not match");
+    }
+
+    return consumerConfig.outputLayout;
+  };
+
+  // tensorPossibleLayouts can be null since we expect ShardSolver won't need
+  // them because custom checkShardCompatible function will handle all the
+  // checks.
+  ShardSolver shardSolver(/*tensorTypePossibleLayouts=*/nullptr, legalConfigs,
                           opL1MemSpecs, l1ChainedOps, usableL1CacheSize,
                           overrideReshardEdges, checkShardCompatible);
 

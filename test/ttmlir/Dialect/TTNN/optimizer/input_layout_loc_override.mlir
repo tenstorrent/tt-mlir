@@ -1,3 +1,4 @@
+// REQUIRES: opmodel
 // RUN: ttmlir-opt --mlir-print-debuginfo --ttir-to-ttnn-backend-pipeline="enable-optimizer=true memory-layout-analysis-enabled=true override-output-layout=matmul_1_in_1_layout=1x1:l1:interleaved:tile:bf16" %s | FileCheck %s
 #loc = loc("Matmul":4294967295:0)
 // CHECK-DAG: #[[LOC_MATMUL_IN0:.*]] = loc("matmul_1_in_0_layout"(#loc3))

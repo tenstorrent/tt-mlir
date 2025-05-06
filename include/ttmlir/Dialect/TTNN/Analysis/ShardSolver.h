@@ -278,7 +278,16 @@ private:
                            Operation *ignoreOp = nullptr);
 
   bool preprocessFirstOp();
-  llvm::Expected<bool> checkShardCompatible(
+
+  // Performs backend check to see if producer tensor is compatible with
+  // consumer op. Backend may or
+  // may not respect consumer config. Backend returns actual output tensor
+  // layout that is being created for the given producer tensor. This function
+  // will return error if producer and consumer are not compatible. Also, it
+  // will return an error if provided consumer config is not the same as actual
+  // consumer layout. Otherwise, it will return TTNNLayoutAttr with actual
+  // consumer layout.
+  llvm::Expected<TTNNLayoutAttr> checkShardCompatible(
       Value producerOperand, const TTNNLayoutAttr &producerLayout,
       Operation *consumerOp, const OpConfig &consumerConfig) const;
 
@@ -290,8 +299,8 @@ public:
       const llvm::DenseSet<Operation *> &shardedOps,
       const unsigned usableL1CacheSize,
       const llvm::DenseSet<Edge> &overrideReshardEdges,
-      std::function<bool(mlir::Value, TTNNLayoutAttr, mlir::Operation *,
-                         OpConfig)>
+      std::function<llvm::Expected<TTNNLayoutAttr>(Value, TTNNLayoutAttr,
+                                                   Operation *, OpConfig)>
           customCheckShardCompatible = nullptr);
   RemainingConfigAttrs at(Operation *operation) const;
   void set(Operation *operation, const OpConfig &config);
@@ -328,7 +337,8 @@ private:
   // Edges indicated for resharding.
   llvm::DenseSet<Edge> memReconfigEdges;
 
-  std::function<bool(mlir::Value, TTNNLayoutAttr, mlir::Operation *, OpConfig)>
+  std::function<llvm::Expected<TTNNLayoutAttr>(mlir::Value, TTNNLayoutAttr,
+                                               mlir::Operation *, OpConfig)>
       customCheckShardCompatible;
 };
 
