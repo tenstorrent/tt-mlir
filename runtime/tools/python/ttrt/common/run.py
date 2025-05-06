@@ -222,6 +222,13 @@ class Run:
             help="Verify tensor cache statistics. Format: 'hits:N,misses:M'",
         )
         Run.register_arg(
+            name="--enable-program-cache",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="enable program cache in ttnn runtime",
+        )
+        Run.register_arg(
             name="binary",
             type=str,
             default="",
@@ -450,6 +457,7 @@ class Run:
             mesh_shape = [1, len(self.query.device_ids)]
             mesh_options = ttrt.runtime.MeshDeviceOptions()
             mesh_options.dispatch_core_type = dispatch_core_type
+            mesh_options.enable_program_cache = self["--enable-program-cache"]
             device = ttrt.runtime.open_mesh_device(mesh_shape, mesh_options)
 
             for bin in binaries:
