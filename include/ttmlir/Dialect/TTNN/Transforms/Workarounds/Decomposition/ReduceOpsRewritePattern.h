@@ -13,6 +13,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include <cmath>
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
@@ -121,6 +122,71 @@ private:
     }
 
     return false;
+  }
+};
+
+template <typename ReduceOp>
+class ReduceOpsPadInputRewritePattern : public OpRewritePattern<ReduceOp> {
+public:
+  using OpRewritePattern<ReduceOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ReduceOp srcOp,
+                                PatternRewriter &rewriter) const override {
+    if (!isWorkaroundRequired(srcOp)) {
+      return failure();
+    }
+
+    RankedTensorType inputType =
+        mlir::cast<RankedTensorType>(srcOp.getInput().getType());
+    auto reductionDims = getReduceDims(srcOp.getDimArg());
+    if (reductionDims.size() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "only one dim is supported"); // TODO: Expand this to support
+                                        // multiple dims. This is just for
+                                        // initial implementation only.
+    }
+    auto reductionDim = reductionDims[0];
+
+    auto shape = inputType.getShape();
+    auto paddingArray = llvm::SmallVector<int32_t>();
+    paddingArray.resize(2 * shape.size(), 0);
+
+    auto paddingDimSize = shape[reductionDim];
+    auto desiredDimSize = (paddingDimSize + 31) / 32 * 32;
+    auto paddingSize = desiredDimSize - paddingDimSize;
+    if (paddingSize <= 0) {
+      return rewriter.notifyMatchFailure(srcOp, "padding size is negative");
+    }
+    paddingArray[2 * reductionDim + 1] = paddingSize;
+
+    float paddingValue;
+    if constexpr (std::is_same_v<ReduceOp, mlir::tt::ttnn::MaxOp>) {
+      paddingValue = std::numeric_limits<float>::lowest();
+    } else if constexpr (std::is_same_v<ReduceOp, mlir::tt::ttnn::MinOp>) {
+      paddingValue = std::numeric_limits<float>::max();
+    } else {
+      return rewriter.notifyMatchFailure(srcOp, "unsupported reduce op type");
+    }
+
+    auto newShape = llvm::SmallVector<int64_t>(shape.begin(), shape.end());
+    newShape[reductionDim] = desiredDimSize;
+    auto resultType = RankedTensorType::get(
+        newShape, inputType.getElementType(), inputType.getEncoding());
+
+    auto PadOp = rewriter.create<mlir::tt::ttnn::PadOp>(
+        srcOp.getLoc(), resultType, srcOp.getInput(),
+        rewriter.getDenseI32ArrayAttr(paddingArray),
+        rewriter.getFloatAttr(rewriter.getF32Type(), APFloat(paddingValue)),
+        /* use_multicore */ rewriter.getBoolAttr(true),
+        /* memory_config*/ nullptr);
+
+    rewriter.replaceOpWithNewOp<ReduceOp>(
+        srcOp, srcOp.getResult().getType(), PadOp.getResult(),
+        rewriter.getBoolAttr(srcOp.getKeepDim()),
+        srcOp.getDimArg().value_or(nullptr));
+
+    return success();
   }
 };
 } // namespace mlir::tt::ttnn::workarounds::decomposition
