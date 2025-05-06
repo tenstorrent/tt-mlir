@@ -179,7 +179,8 @@ convertToTensorSpec(::tt::tt_metal::IDevice *device,
     return spec;
   }
 
-  return llvm::createStringError("Invalid TensorSpec");
+  return llvm::createStringError(
+      "Unable to create TensorSpec out of given shape and layout");
 }
 
 /**
