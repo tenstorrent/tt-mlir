@@ -157,4 +157,14 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
   return success();
 }
 
+::mlir::LogicalResult DPrintOp::verify() {
+  StringRef fmt = getFmt();
+  size_t numFormatSpecifiers = fmt.count("{}");
+  if (numFormatSpecifiers != getOperands().size()) {
+    return emitOpError("number of format specifiers must match number of "
+                       "operands");
+  }
+  return success();
+}
+
 } // namespace mlir::tt::ttkernel

@@ -826,4 +826,33 @@ def TTKernel_CBReinterpretShapeOp : TTKernel_Op<"cb_reinterpret_shape"> {
     let hasVerifier = 1;
 }
 
+def TTKernel_DPrintOp : TTKernel_Op<"dprint", [MemoryEffects<[MemRead, MemWrite]>]> {
+    let summary = "Print to output stream from kernel.";
+    let description = [{
+      std::format style format string:
+      ```c++
+      rewriter.create<ttkernel::DPrintOp>(loc, "nocY={} nocX={} addr={}\\n",
+                                        nocY, nocX, addr);
+      ```
+      ```mlir
+      ttkernel.dprint("virtY {} virtX {} addr {}\\n", %14, %15, %13) : (index, index, i32)
+      ```
+      Notes:
+        - Only trivial format specifier currently supported, i.e. `{}`.
+        - Must double escape newline character or other special characters.
+    }];
+    let arguments = (ins StrAttr:$fmt, Variadic<AnyType>:$argv);
+
+    let hasVerifier = 1;
+
+    let assemblyFormat = "`(` $fmt `,` $argv `)` attr-dict `:` `(` type($argv) `)`";
+
+    let extraClassDeclaration = [{
+      template <typename... Args>
+      static void build(::mlir::OpBuilder &odsBuilder, ::mlir::OperationState &odsState, const char* fmt, Args &&...argv) {
+        return build(odsBuilder, odsState, StringRef(fmt), ValueRange{std::forward<Args>(argv)...});
+      }
+    }];
+}
+
 #endif
