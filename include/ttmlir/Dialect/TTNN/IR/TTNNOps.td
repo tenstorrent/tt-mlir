@@ -1454,6 +1454,7 @@ def TTNN_BatchNormOp : TTNN_Op<"batch_norm"> {
                          AnyRankedTensor:$running_var,
                          BoolAttr:$training,
                          F32Attr:$epsilon,
+                         F32Attr:$momentum,
                          AnyRankedTensor:$weight,
                          AnyRankedTensor:$bias,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);

@@ -258,6 +258,7 @@ table BatchNormOp {
   running_var: tt.target.ttnn.TensorRef;
   training: bool;
   epsilon: float;
+  momentum: float;
   weight: tt.target.ttnn.TensorRef;
   bias: tt.target.ttnn.TensorRef;
   memory_config: tt.target.ttnn.MemoryConfig;
