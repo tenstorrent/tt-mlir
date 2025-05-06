@@ -655,6 +655,9 @@ class Binary(Flatbuffer):
             program = Binary.Program(i, self.fbb_dict["programs"][i])
             self.programs.append(program)
 
+        self.host_duration_times_ms = {}
+        self.total_host_duration_ms = ""
+
     def check_system_desc(self, query):
         import ttrt.binary
 
@@ -728,6 +731,15 @@ class Binary(Flatbuffer):
             pprint(p.to_dict())
 
         print()
+
+    def set_host_duration_times(self, host_duration_times_ms):
+        self.host_duration_times_ms = host_duration_times_ms
+
+        if len(self.host_duration_times_ms) != 0:
+            sum = 0
+            for loc, duration in self.host_duration_times_ms.items():
+                sum = sum + int(duration)
+            self.total_host_duration_ms = str(sum)
 
     class Program:
         def __init__(self, index, program):

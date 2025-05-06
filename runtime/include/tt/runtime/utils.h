@@ -55,6 +55,25 @@ inline std::vector<uint32_t> calculateStride(const std::vector<T> &shape) {
   return stride;
 }
 
+/*
+Tracy message type determines the encoding that will get generated in the tracy
+logs.
+*/
+enum TracyMessageType {
+  OP_LOCATION,
+  OP_DURATION,
+};
+
+inline std::string
+convertTracyMessageTypeToString(TracyMessageType messageType) {
+  switch (messageType) {
+  case TracyMessageType::OP_LOCATION:
+    return "TTMLIR_OP_LOCATION";
+  case TracyMessageType::OP_DURATION:
+    return "TTMLIR_OP_DURATION";
+  }
+}
+
 } // namespace tt::runtime::utils
 
 #endif

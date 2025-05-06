@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <chrono>
+
 #include "tt/runtime/ttnn/program_executor.h"
 
 #include "operations/cache/load_cached.h"
@@ -67,7 +69,23 @@ using LogType = ::tt::runtime::logger::LogType;
 
 static void tracyLogOpLocation(const ::tt::target::ttnn::Operation *op) {
 #ifdef TT_RUNTIME_ENABLE_PERF_TRACE
-  TracyMessage(op->loc_info()->c_str(), op->loc_info()->size());
+  std::string messageType(::tt::runtime::utils::convertTracyMessageTypeToString(
+      tt::runtime::utils::TracyMessageType::OP_LOCATION));
+  std::string messageBody = std::string(op->loc_info()->c_str());
+  std::string message(messageType + "," + messageBody);
+  TracyMessage(message.c_str(), message.size());
+#endif
+}
+
+static void tracyLogOpDuration(const ::tt::target::ttnn::Operation *op,
+                               std::chrono::milliseconds &elapsed_ms) {
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
+  std::string messageType(::tt::runtime::utils::convertTracyMessageTypeToString(
+      tt::runtime::utils::TracyMessageType::OP_DURATION));
+  std::string messageBody = std::string(op->loc_info()->c_str()) + "," +
+                            std::to_string(elapsed_ms.count());
+  std::string message(messageType + "," + messageBody);
+  TracyMessage(message.c_str(), message.size());
 #endif
 }
 
@@ -127,7 +145,20 @@ void ProgramExecutor::execute() {
     tracyLogOpLocation(op);
     runCallback(debug::Hooks::get().getPreOperatorCallback(), executableHandle,
                 op, context.get());
+
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
+    auto start = std::chrono::high_resolution_clock::now();
+#endif
+
     runOperation(op);
+
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
+    auto end = std::chrono::high_resolution_clock::now();
+    auto elapsed_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+#endif
+
+    tracyLogOpDuration(op, elapsed_ms);
     runCallback(debug::Hooks::get().getPostOperatorCallback(), executableHandle,
                 op, context.get());
     dumpPerfCountersIfNeeded(context->getMeshDevice());
