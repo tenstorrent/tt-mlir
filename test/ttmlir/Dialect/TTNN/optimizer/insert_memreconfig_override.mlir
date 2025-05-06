@@ -1,3 +1,4 @@
+// REQUIRES: opmodel
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-optimizer=true memory-layout-analysis-enabled=true memreconfig-enabled=true insert-memreconfig=add_2=0 override-output-layout=add_1=1x1:dram:interleaved:row_major:f32" %s | FileCheck %s
 #loc = loc("test_ops.py:17_0_0":0:0)
 module attributes {} {
