@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
 
 #include "ttmlir/Conversion/Passes.h"
+#include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
 #include "ttmlir/Dialect/TT/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
@@ -52,6 +53,8 @@ void createTTIRToTTMetalBackendPipeline(
     registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
   }
   pm.addPass(tt::createTTRegisterDevicePass(registerDeviceOptions));
+  pm.addPass(tt::createTTIRToTTIRDecompositionPass());
+  pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(tt::createTTIRToTTIRGenericPass());
   pm.addPass(mlir::createCanonicalizerPass());
   ttir::TTIROptimizeTensorLayoutOptions optimizeTensorLayoutOptions;
