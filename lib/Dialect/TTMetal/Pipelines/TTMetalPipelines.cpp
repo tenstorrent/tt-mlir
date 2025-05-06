@@ -52,8 +52,6 @@ void createTTIRToTTMetalBackendPipeline(
     registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
   }
   pm.addPass(tt::createTTRegisterDevicePass(registerDeviceOptions));
-  // hoist tagged ops
-  // split
   pm.addPass(tt::createTTIRToTTIRGenericPass());
   pm.addPass(mlir::createCanonicalizerPass());
   ttir::TTIROptimizeTensorLayoutOptions optimizeTensorLayoutOptions;
