@@ -374,12 +374,12 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 
   for (auto tensorType : {inputType, outputType}) {
     auto elemType = tensorType.getElementType();
-    // Verify that the scales size matches the axis size for per-axis
-    // quantization on both input and output types. This aligns with the
-    // runtime's behavior.
     if (auto quantPerAxisType =
             mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
                 elemType)) {
+      // Verify that the scales size matches the axis size for per-axis
+      // quantization on both input and output types. This aligns with the
+      // runtime's behavior.
       int64_t axis = quantPerAxisType.getQuantizedDimension();
       auto shape = tensorType.getShape();
       auto scales = quantPerAxisType.getScales();
@@ -389,26 +389,8 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
                << ") does not match the size of the quantized axis ("
                << shape[axis] << ")";
       }
-    }
-    // Verify that the zero point is in the range of the storage type
-    // (per-tensor). This aligns with the frontends' behavior.
-    if (auto quantType =
-            mlir::dyn_cast<mlir::quant::UniformQuantizedType>(elemType)) {
-      int64_t zp = quantType.getZeroPoint();
-      int64_t min = quantType.getStorageTypeMin();
-      int64_t max = quantType.getStorageTypeMax();
-      if (zp < min || zp > max) {
-        return emitOpError() << "Zero point " << zp
-                             << " is out of the range for storage type "
-                             << quantType.getStorageType();
-      }
-    }
-
-    // Verify that the zero point is in the range of the storage type
-    // (per-axis). This aligns with the frontends' behavior.
-    if (auto quantPerAxisType =
-            mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
-                elemType)) {
+      // Verify that the zero point is in the range of the storage type.
+      // This aligns with the frontends' behavior.
       llvm::ArrayRef<int64_t> zps = quantPerAxisType.getZeroPoints();
       int64_t min = quantPerAxisType.getStorageTypeMin();
       int64_t max = quantPerAxisType.getStorageTypeMax();
@@ -419,6 +401,19 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
                                << " is out of the range for storage type "
                                << quantPerAxisType.getStorageType();
         }
+      }
+    }
+    if (auto quantType =
+            mlir::dyn_cast<mlir::quant::UniformQuantizedType>(elemType)) {
+      // Verify that the zero point is in the range of the storage type
+      // (per-tensor). This aligns with the frontends' behavior.
+      int64_t zp = quantType.getZeroPoint();
+      int64_t min = quantType.getStorageTypeMin();
+      int64_t max = quantType.getStorageTypeMax();
+      if (zp < min || zp > max) {
+        return emitOpError() << "Zero point " << zp
+                             << " is out of the range for storage type "
+                             << quantType.getStorageType();
       }
     }
   }
