@@ -85,13 +85,13 @@ set(TTMETAL_BUILD_TYPE "Release")
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
   set(TTMETAL_BUILD_TYPE "Debug")
 endif()
-ExternalProject_Add(
-  tt-metal
-  PREFIX ${TTMLIR_SOURCE_DIR}/third_party/tt-metal
-  CMAKE_ARGS
-    -DCMAKE_INSTALL_MESSAGE=LAZY
-  CMAKE_GENERATOR Ninja
-  CMAKE_ARGS
+
+CPMAddPackage(
+  NAME              tt-metal
+  VERSION           ${TT_METAL_VERSION}
+  GIT_TAG           ${TT_METAL_VERSION}
+  GITHUB_REPOSITORY tenstorrent/tt-metal
+  OPTIONS
     -DCMAKE_BUILD_TYPE=${TTMETAL_BUILD_TYPE}
     -DCMAKE_INSTALL_PREFIX=${METAL_INSTALL_PREFIX}
     -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
@@ -103,17 +103,37 @@ ExternalProject_Add(
     -DCMAKE_DISABLE_PRECOMPILE_HEADERS=${TTMETAL_DISABLE_PRECOMPILE_HEADERS}
     -DENABLE_TRACY=${TT_RUNTIME_ENABLE_PERF_TRACE}
     -DENABLE_LIBCXX=OFF
-  GIT_REPOSITORY https://github.com/tenstorrent/tt-metal.git
-  GIT_TAG ${TT_METAL_VERSION}
-  GIT_PROGRESS OFF
-  BUILD_BYPRODUCTS ${TTNN_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH} ${TRACY_LIBRARY_PATH} ${DEVICE_LIBRARY_PATH}
 )
 
-ExternalProject_Add_StepTargets(tt-metal download configure)
-set_target_properties(tt-metal-download PROPERTIES EXCLUDE_FROM_ALL TRUE)
-set_target_properties(tt-metal-configure PROPERTIES EXCLUDE_FROM_ALL TRUE)
-
-set_target_properties(tt-metal PROPERTIES EXCLUDE_FROM_ALL TRUE)
+#ExternalProject_Add(
+#  tt-metal
+#  PREFIX ${TTMLIR_SOURCE_DIR}/third_party/tt-metal
+#  CMAKE_ARGS
+#    -DCMAKE_INSTALL_MESSAGE=LAZY
+#  CMAKE_GENERATOR Ninja
+#  CMAKE_ARGS
+#    -DCMAKE_BUILD_TYPE=${TTMETAL_BUILD_TYPE}
+#    -DCMAKE_INSTALL_PREFIX=${METAL_INSTALL_PREFIX}
+#    -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+#    -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+#    -DCMAKE_CXX_COMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}
+#    -DCMAKE_LINKER_TYPE=${CMAKE_LINKER_TYPE}
+#    -DCPM_SOURCE_CACHE=${CPM_SOURCE_CACHE}
+#    -DENABLE_CCACHE=${TTMETAL_ENABLE_CCACHE}
+#    -DCMAKE_DISABLE_PRECOMPILE_HEADERS=${TTMETAL_DISABLE_PRECOMPILE_HEADERS}
+#    -DENABLE_TRACY=${TT_RUNTIME_ENABLE_PERF_TRACE}
+#    -DENABLE_LIBCXX=OFF
+#  GIT_REPOSITORY https://github.com/tenstorrent/tt-metal.git
+#  GIT_TAG ${TT_METAL_VERSION}
+#  GIT_PROGRESS OFF
+#  BUILD_BYPRODUCTS ${TTNN_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH} ${TRACY_LIBRARY_PATH} ${DEVICE_LIBRARY_PATH}
+#)
+#
+#ExternalProject_Add_StepTargets(tt-metal download configure)
+#set_target_properties(tt-metal-download PROPERTIES EXCLUDE_FROM_ALL TRUE)
+#set_target_properties(tt-metal-configure PROPERTIES EXCLUDE_FROM_ALL TRUE)
+#
+#set_target_properties(tt-metal PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 # When installing, copy all needed files (for runtime) from `tt-metal` repo to the install directory.
 # EXCLUDE_FROM_ALL is used to avoid installing these files when installing the default component.

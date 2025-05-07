@@ -117,6 +117,7 @@ link_directories(${LLVM_BUILD_LIBRARY_DIR})
 add_definitions(${LLVM_DEFINITIONS})
 include(TTMLIRPythonSitePackages)
 
+include(cmake/modules/CPM.cmake)
 add_subdirectory(third_party)
 if (TTMLIR_ENABLE_STABLEHLO)
   set(STABLEHLO_BUILD_EMBEDDED ON)
