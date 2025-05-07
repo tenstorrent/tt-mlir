@@ -24,7 +24,6 @@ namespace tt::runtime::ttnn {
 
 using ::tt::runtime::DeviceRuntime;
 using ::tt::tt_metal::DistributedTensorConfig;
-using ::tt::tt_metal::raise_unsupported_storage;
 
 static tt::runtime::MemoryView
 createMemoryView(const tt::tt_metal::detail::MemoryView &memoryView) {
