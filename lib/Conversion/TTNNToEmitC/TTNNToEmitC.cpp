@@ -1450,7 +1450,7 @@ public:
         emitter.emit(srcOp.getDtype()),
         emitter.emit(srcOp.getLayout()),
         emitter.template emit<
-            ::ttnn::operations::creation::detail::OptionalAnyDevice>(
+            ::ttnn::operations::creation::detail::OptionalMeshDevice>(
             srcOp.getDevice()),
         emitter.emit(srcOp.getMemoryConfig()) |
             emitter.getMemoryConfig(srcOp.getResult()),

@@ -34,7 +34,9 @@ struct SmallVector {
   using value_type = T;
 };
 
-struct AnyDevice;
+namespace distributed {
+struct MeshDevice;
+}
 struct IDevice;
 
 struct Tensor;
@@ -55,7 +57,8 @@ enum class VecMode {
 } // namespace unary
 
 namespace creation::detail {
-struct OptionalAnyDevice;
+using OptionalMeshDevice =
+    std::optional<std::reference_wrapper<distributed::MeshDevice>>;
 } // namespace creation::detail
 
 namespace conv::conv2d {
@@ -163,8 +166,8 @@ struct TypeName<std::variant<Types...>> {
 };
 
 template <>
-struct TypeName<::ttnn::AnyDevice> {
-  inline static const std::string value = "::ttnn::AnyDevice";
+struct TypeName<::ttnn::distributed::MeshDevice> {
+  inline static const std::string value = "::ttnn::distributed::MeshDevice";
 };
 
 template <>
@@ -173,9 +176,9 @@ struct TypeName<::ttnn::IDevice> {
 };
 
 template <>
-struct TypeName<::ttnn::operations::creation::detail::OptionalAnyDevice> {
+struct TypeName<::ttnn::operations::creation::detail::OptionalMeshDevice> {
   inline static const std::string value =
-      "::ttnn::operations::creation::detail::OptionalAnyDevice";
+      "::ttnn::operations::creation::detail::OptionalMeshDevice";
 };
 
 template <>
@@ -871,9 +874,9 @@ public:
   // Handles conversion of DeviceType objects to:
   // - ::ttnn::IDevice*
   // - ::ttnn::IDevice
-  // - ::ttnn::AnyDevice
-  // - ::ttnn::operations::creation::detail::OptionalAnyDevice
-  //    - converts to ::ttnn::AnyDevice, see comment below
+  // - ::ttnn::distributed::MeshDevice
+  // - ::ttnn::operations::creation::detail::OptionalMeshDevice
+  //    - converts to ::ttnn::distributed::MeshDevice, see comment below
   //
   // Will return `std::nullopt` if DeviceType is null
   //
@@ -892,22 +895,24 @@ public:
       return rewriter.getIndexAttr(index);
     } else if constexpr (std::is_same_v<TargetTy,
                                         ::ttnn::operations::creation::detail::
-                                            OptionalAnyDevice> ||
-                         std::is_same_v<TargetTy, ::ttnn::AnyDevice>) {
-      // Whether the desired target type is OptionalAnyDevice or AnyDevice, we
-      // can convert to AnyDevice in both scenarios, as there's an implicit
-      // constructor OptionalAnyDevice(AnyDevice).
+                                            OptionalMeshDevice> ||
+                         std::is_same_v<TargetTy,
+                                        ::ttnn::distributed::MeshDevice>) {
+      // Whether the desired target type is OptionalMeshDevice or MeshDevice, we
+      // can convert to MeshDevice in both scenarios, as there's an implicit
+      // constructor for OptionalMeshDevice from MeshDevice.
 
       unsigned index = getOperandIndex(device);
       mlir::Value deviceValueFromOperandsList = adaptor.getOperands()[index];
 
-      emitc::CallOpaqueOp anyDeviceOp = rewriter.create<emitc::CallOpaqueOp>(
+      emitc::CallOpaqueOp meshDeviceOp = rewriter.create<emitc::CallOpaqueOp>(
           op.getLoc(),
           emitc::OpaqueType::get(rewriter.getContext(),
-                                 TypeNameV<::ttnn::AnyDevice>),
-          TypeNameV<::ttnn::AnyDevice>, deviceValueFromOperandsList);
+                                 TypeNameV<::ttnn::distributed::MeshDevice>),
+          TypeNameV<::ttnn::distributed::MeshDevice>,
+          deviceValueFromOperandsList);
 
-      operands.push_back(anyDeviceOp->getResult(0));
+      operands.push_back(meshDeviceOp->getResult(0));
       return rewriter.getIndexAttr(operands.size() - 1);
     } else {
       llvm_unreachable("Unknown TargetTy");
