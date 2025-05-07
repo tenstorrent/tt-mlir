@@ -4,14 +4,14 @@
 
 #include "ttnn-precompiled.hpp"
 ttnn::Tensor add(ttnn::Tensor v1, ttnn::Tensor v2) {
-  ttnn::IDevice* v3 = ttnn::DeviceGetter::getInstance();
+  ttnn::distributed::MeshDevice* v3 = ttnn::DeviceGetter::getInstance();
   ttnn::MemoryConfig v4 = ttnn::MemoryConfig(ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM);
   ttnn::Tensor v5 = ttnn::to_device(v1, v3, v4);
-  ttnn::Tensor v6 = ttnn::to_layout(v5, ttnn::Layout::TILE, std::nullopt, std::nullopt, static_cast<::ttnn::IDevice *>(nullptr));
+  ttnn::Tensor v6 = ttnn::to_layout(v5, ttnn::Layout::TILE, std::nullopt, std::nullopt, static_cast<::ttnn::distributed::MeshDevice *>(nullptr));
   ttnn::deallocate(v5, false);
   ttnn::MemoryConfig v7 = ttnn::MemoryConfig(ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM);
   ttnn::Tensor v8 = ttnn::to_device(v2, v3, v7);
-  ttnn::Tensor v9 = ttnn::to_layout(v8, ttnn::Layout::TILE, std::nullopt, std::nullopt, static_cast<::ttnn::IDevice *>(nullptr));
+  ttnn::Tensor v9 = ttnn::to_layout(v8, ttnn::Layout::TILE, std::nullopt, std::nullopt, static_cast<::ttnn::distributed::MeshDevice *>(nullptr));
   ttnn::deallocate(v8, false);
   ttnn::Shape v10 = ttnn::Shape({32, 32});
   ttnn::MemoryConfig v11 = ttnn::MemoryConfig(ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM);
@@ -21,7 +21,7 @@ ttnn::Tensor add(ttnn::Tensor v1, ttnn::Tensor v2) {
   ttnn::deallocate(v6, false);
   ttnn::Tensor v14 = ttnn::from_device(v13);
   ttnn::deallocate(v12, false);
-  ttnn::Tensor v15 = ttnn::to_layout(v14, ttnn::Layout::ROW_MAJOR, std::nullopt, std::nullopt, static_cast<::ttnn::IDevice *>(nullptr));
+  ttnn::Tensor v15 = ttnn::to_layout(v14, ttnn::Layout::ROW_MAJOR, std::nullopt, std::nullopt, static_cast<::ttnn::distributed::MeshDevice *>(nullptr));
   ttnn::deallocate(v14, false);
   return v15;
 }

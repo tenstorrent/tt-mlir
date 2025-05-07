@@ -39,7 +39,7 @@ public:
     addConversion([](Type type) { return type; });
     addConversion([ctx](tt::ttnn::DeviceType type) -> emitc::PointerType {
       return emitc::PointerType::get(
-          emitc::OpaqueType::get(ctx, "ttnn::IDevice"));
+          emitc::OpaqueType::get(ctx, "ttnn::MeshDevice"));
     });
     addConversion([ctx](mlir::TensorType type) -> emitc::OpaqueType {
       return emitc::OpaqueType::get(ctx,

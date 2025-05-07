@@ -44,8 +44,8 @@ static ::tt::target::Arch toFlatbuffer(::tt::ARCH arch) {
   LOG_FATAL("Unsupported arch");
 }
 
-static std::vector<::tt::target::ChipChannel>
-getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
+static std::vector<::tt::target::ChipChannel> getAllDeviceConnections(
+    const std::vector<::tt::tt_metal::distributed::MeshDevice *> &devices) {
   std::set<std::tuple<chip_id_t, CoreCoord, chip_id_t, CoreCoord>>
       connectionSet;
 
@@ -59,7 +59,7 @@ getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
     connectionSet.emplace(deviceId0, ethCoreCoord0, deviceId1, ethCoreCoord1);
   };
 
-  for (const ::tt::tt_metal::IDevice *device : devices) {
+  for (const ::tt::tt_metal::distributed::MeshDevice *device : devices) {
     std::unordered_set<CoreCoord> activeEthernetCores =
         device->get_active_ethernet_cores(true);
     for (const CoreCoord &ethernetCore : activeEthernetCores) {
@@ -94,8 +94,9 @@ static void sort(std::vector<::tt::target::Dim2d> &vec) {
 
 // Gather physical helper cores by type for the device using metal device APIs
 static flatbuffers::Offset<::tt::target::ChipPhysicalHelperCores>
-createChipPhysicalHelperCores(const ::tt::tt_metal::IDevice *device,
-                              flatbuffers::FlatBufferBuilder &fbb) {
+createChipPhysicalHelperCores(
+    const ::tt::tt_metal::distributed::MeshDevice *device,
+    flatbuffers::FlatBufferBuilder &fbb) {
 
   std::vector<::tt::target::Dim2d> dramCores, ethCores, ethInactiveCores;
 
@@ -125,8 +126,8 @@ createChipPhysicalHelperCores(const ::tt::tt_metal::IDevice *device,
       fbb.CreateVectorOfStructs(ethInactiveCores));
 }
 
-::tt::target::Dim2d
-getCoordinateTranslationOffsets(const ::tt::tt_metal::IDevice *device) {
+::tt::target::Dim2d getCoordinateTranslationOffsets(
+    const ::tt::tt_metal::distributed::MeshDevice *device) {
   const CoreCoord workerNWCorner =
       device->worker_core_from_logical_core({0, 0});
   const CoreCoord workerNWCornerTranslated =
@@ -138,8 +139,8 @@ getCoordinateTranslationOffsets(const ::tt::tt_metal::IDevice *device) {
 // Calculate the end of the DRAM region that is not usable by compiler.  This
 // upper region of memory is where kernel programs get allocated to.  This
 // function intends to estimate some conservative max number.
-static std::uint32_t
-calculateDRAMUnreservedEnd(const ::tt::tt_metal::IDevice *device) {
+static std::uint32_t calculateDRAMUnreservedEnd(
+    const ::tt::tt_metal::distributed::MeshDevice *device) {
   CoreCoord deviceGridSize = device->logical_grid_size();
   CoreCoord dramGridSize = device->dram_grid_size();
   std::uint32_t totalCores = deviceGridSize.x * deviceGridSize.y +
@@ -166,10 +167,11 @@ calculateDRAMUnreservedEnd(const ::tt::tt_metal::IDevice *device) {
 
 static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
     const ::tt::tt_metal::distributed::MeshDevice &meshDevice) {
-  std::vector<::tt::tt_metal::IDevice *> devices = meshDevice.get_devices();
+  // Note: get_devices() returns IDevice*, but we're transitioning to
+  // MeshDevice* This will need to be updated when the API changes
+  auto devices = meshDevice.get_devices();
   std::sort(devices.begin(), devices.end(),
-            [](const ::tt::tt_metal::IDevice *a,
-               const ::tt::tt_metal::IDevice *b) { return a->id() < b->id(); });
+            [](const auto *a, const auto *b) { return a->id() < b->id(); });
 
   std::vector<::flatbuffers::Offset<tt::target::ChipDesc>> chipDescs;
   std::vector<uint32_t> chipDescIndices;
@@ -182,7 +184,7 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
 
   std::uint32_t pcieAlignment = ::tt::tt_metal::hal::get_pcie_alignment();
 
-  for (const ::tt::tt_metal::IDevice *device : devices) {
+  for (const auto *device : devices) {
     size_t l1UnreservedBase =
         device->allocator()->get_base_allocator_addr(HalMemType::L1);
     size_t dramUnreservedBase =

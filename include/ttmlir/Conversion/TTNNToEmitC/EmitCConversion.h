@@ -35,7 +35,9 @@ struct SmallVector {
 };
 
 struct AnyDevice;
-struct IDevice;
+namespace distributed {
+class MeshDevice;
+} // namespace distributed
 
 struct Tensor;
 
@@ -168,8 +170,8 @@ struct TypeName<::ttnn::AnyDevice> {
 };
 
 template <>
-struct TypeName<::ttnn::IDevice> {
-  inline static const std::string value = "::ttnn::IDevice";
+struct TypeName<::ttnn::distributed::MeshDevice> {
+  inline static const std::string value = "::ttnn::distributed::MeshDevice";
 };
 
 template <>
@@ -869,23 +871,23 @@ public:
   }
 
   // Handles conversion of DeviceType objects to:
-  // - ::ttnn::IDevice*
-  // - ::ttnn::IDevice
+  // - ::ttnn::distributed::MeshDevice*
+  // - ::ttnn::distributed::MeshDevice
   // - ::ttnn::AnyDevice
   // - ::ttnn::operations::creation::detail::OptionalAnyDevice
   //    - converts to ::ttnn::AnyDevice, see comment below
   //
   // Will return `std::nullopt` if DeviceType is null
   //
-  template <typename TargetTy = ::ttnn::IDevice *>
+  template <typename TargetTy = ::ttnn::distributed::MeshDevice *>
   mlir::Attribute
   emit(::mlir::TypedValue<::mlir::tt::ttnn::DeviceType> device) {
     if (!device) {
       return emit(std::nullopt);
     }
 
-    if constexpr (std::is_same_v<TargetTy, ::ttnn::IDevice *> ||
-                  std::is_same_v<TargetTy, ::ttnn::IDevice>) {
+    if constexpr (std::is_same_v<TargetTy, ::ttnn::distributed::MeshDevice *> ||
+                  std::is_same_v<TargetTy, ::ttnn::distributed::MeshDevice>) {
       unsigned index = getOperandIndex(device);
       operands.push_back(adaptor.getOperands()[index]);
 
