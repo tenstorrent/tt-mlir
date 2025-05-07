@@ -239,7 +239,6 @@ mlir::LogicalResult broadcastValue(mlir::PatternRewriter &rewriter,
                                    mlir::Value &output, mlir::Location loc,
                                    bool frontUnsqueeze);
 
-// Get inputs by dropping the last `numDpsInits` operands
 template <typename AdaptorT>
 mlir::ValueRange getDpsInputsFromAdaptor(AdaptorT adaptor,
                                          unsigned numDpsInits) {
@@ -249,7 +248,6 @@ mlir::ValueRange getDpsInputsFromAdaptor(AdaptorT adaptor,
   return operands.drop_back(numDpsInits);
 }
 
-// Get outputs by taking the last `numDpsInits` operands
 template <typename AdaptorT>
 mlir::ValueRange getDpsOutputsFromAdaptor(AdaptorT adaptor,
                                           unsigned numDpsInits) {
