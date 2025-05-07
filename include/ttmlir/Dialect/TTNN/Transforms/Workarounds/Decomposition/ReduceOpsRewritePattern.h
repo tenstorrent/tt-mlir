@@ -141,6 +141,9 @@ public:
 
     constexpr int tileSize = 32;
     for (auto dim : reductionDims) {
+      if (dim < 0) {
+        dim += shape.size();
+      }
       auto padded_size = (shape[dim] + tileSize - 1) / tileSize * tileSize;
       newShape[dim] = padded_size;
       paddingArray[2 * dim + 1] = padded_size - shape[dim];
