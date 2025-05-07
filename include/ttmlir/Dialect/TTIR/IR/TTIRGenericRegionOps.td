@@ -91,6 +91,16 @@ def TTIR_TileLogOp : TTIR_GenericRegionComputeOp<"tile_log"> {
     let results = (outs TT_Tile:$result);
 }
 
+def TTIR_TileSinOp : TTIR_GenericRegionComputeOp<"tile_sin"> {
+    let summary = "TTIR Tile Sin Op";
+    let description = [{
+        The `tile_sin` operation computes the sine function of each element in the input tile.
+    }];
+
+    let arguments = (ins TT_Tile:$input);
+    let results = (outs TT_Tile:$result);
+}
+
 def TTIR_TileMaximumOp : TTIR_GenericRegionComputeOp<"tile_maximum">{
     let summary = "TTIR Tile Maximum Op";
     let description = [{
