@@ -587,7 +587,6 @@ public:
               ttnn::MeanOp, /*keepDimUnsupported*/ false>,
           workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
               ttnn::MinOp, /*keepDimUnsupported*/ false>,
-          workarounds::decomposition::ConcatOpReshapeRewritePattern,
           workarounds::decomposition::CumSumOpDimRewritePattern,
           workarounds::decomposition::CumSumOpRankRewritePattern,
           workarounds::decomposition::EmbeddingOpSqueezeWeightRewritePattern,
