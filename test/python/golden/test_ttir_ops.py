@@ -5,7 +5,6 @@
 import pytest
 import torch
 from typing import Callable, List
-from functools import partial
 
 from ttmlir.test_utils import compile_to_flatbuffer
 from ttmlir.ttir_builder import Operand, TTIRBuilder, UnitAttr, Shape, TypeInfo
