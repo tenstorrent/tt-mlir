@@ -145,6 +145,9 @@ public:
       newShape[dim] = padded_size;
       paddingArray[2 * dim + 1] = padded_size - shape[dim];
     }
+    if (llvm::all_of(paddingArray, [](int32_t i) { return i == 0; })) {
+      return failure();
+    }
 
     auto resultType = RankedTensorType::get(
         newShape, inputType.getElementType(), inputType.getEncoding());
