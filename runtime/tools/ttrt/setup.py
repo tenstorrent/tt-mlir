@@ -80,19 +80,19 @@ if enable_runtime:
 
     shutil.copy(
         f"{ttmlir_build_dir}/runtime/lib/libTTMLIRRuntime.so",
-        f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime",
+        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime",
     )
 
     for dylib in runlibs:
         shutil.copy(
             f"{metaldir}/lib/{dylib}",
-            f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime",
+            f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime",
         )
         command = [
             "patchelf",
             "--set-rpath",
             "$ORIGIN",
-            f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime/{dylib}",
+            f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime/{dylib}",
         ]
 
         try:
@@ -109,7 +109,7 @@ if enable_runtime:
     for dylib in perflibs:
         shutil.copy(
             f"{metaldir}/tools/profiler/bin/{dylib}",
-            f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime",
+            f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime",
         )
         shutil.copy(
             f"{metaldir}/tools/profiler/bin/{dylib}",
@@ -174,7 +174,7 @@ if enable_runtime:
     # copy metal dir folder
     shutil.copytree(
         f"{ttmetalhome}/tt_metal",
-        f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime/tt_metal",
+        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime/tt_metal",
         dirs_exist_ok=True,
         ignore=tt_metal_ignore_folders,
     )
@@ -182,14 +182,14 @@ if enable_runtime:
     # copy runtime dir folder
     shutil.copytree(
         f"{ttmetalhome}/runtime",
-        f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime/runtime",
+        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime/runtime",
         dirs_exist_ok=True,
     )
 
     # copy kernels
     shutil.copytree(
         f"{ttmetalhome}/ttnn",
-        f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime/ttnn",
+        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime/ttnn",
         dirs_exist_ok=True,
     )
 
@@ -203,16 +203,16 @@ if enable_runtime:
         return paths
 
     extra_files_tt_metal = package_files(
-        f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime/tt_metal/"
+        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime/tt_metal/"
     )
     extra_files_runtime = package_files(
-        f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime/runtime/"
+        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime/runtime/"
     )
     extra_files_ttnn = package_files(
-        f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime/ttnn/"
+        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime/ttnn/"
     )
     extra_files_tests = package_files(
-        f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime/tests/"
+        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime/tests/"
     )
 
     metallibs += extra_files_tt_metal
