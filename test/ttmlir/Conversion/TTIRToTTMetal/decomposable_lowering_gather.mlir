@@ -1,8 +1,10 @@
 // RUN: ttmlir-opt --ttir-to-ttmetal-backend-pipeline %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 // UNSUPPORTED: true
+// Full lowering requires:
+//   Embedding: https://github.com/tenstorrent/tt-mlir/issues/3024
 
-module attributes {} {
+module {
   func.func @test_gather(%operand: tensor<32x32xf32>, %start_indices: tensor<4x32xi32>) -> tensor<4x32x32xf32> {
     %0 = ttir.empty() : tensor<4x32x32xf32>
     // CHECK-NOT: ttir.gather

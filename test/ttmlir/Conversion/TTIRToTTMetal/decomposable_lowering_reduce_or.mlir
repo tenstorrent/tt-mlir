@@ -1,6 +1,8 @@
 // RUN: ttmlir-opt --ttir-to-ttmetal-backend-pipeline %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 // UNSUPPORTED: true
+// Full lowering requires:
+//   Sum: https://github.com/tenstorrent/tt-mlir/issues/3018
 
 module {
   func.func @test_reduce_or_2d(%arg0: tensor<32x32xbf16>) -> tensor<32x1xbf16> {

@@ -1,5 +1,8 @@
 // RUN: ttmlir-opt --ttir-to-ttmetal-backend-pipeline %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
+// Higher-dimension tests requires:
+//   Permute: https://github.com/tenstorrent/tt-mlir/issues/3025
+//   Reshape: https://github.com/tenstorrent/tt-mlir/issues/3027
 
 module {
   func.func @test_dot_general_2d_2d(%arg0: tensor<64x32xf32>, %arg1: tensor<32x128xf32>) -> tensor<64x128xf32> {
