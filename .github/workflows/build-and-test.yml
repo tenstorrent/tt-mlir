@@ -34,12 +34,13 @@ jobs:
     runs-on:
       - builder
     outputs:
+      docker-image-harbor: ${{ steps.build.outputs.docker-image-harbor }}
       docker-image: ${{ steps.build.outputs.docker-image }}
     steps:
 
       - name: Fix permissions
         shell: bash
-        run: sudo chown ubuntu:ubuntu -R $(pwd)
+        run: sudo chown ubuntu:ubuntu -R $(pwd) || true
 
       - uses: actions/checkout@v4
         with:
@@ -61,6 +62,7 @@ jobs:
           .github/build-docker-images.sh | tee docker.log
           DOCKER_CI_IMAGE=$(tail -n 1 docker.log)
           echo "DOCKER_CI_IMAGE $DOCKER_CI_IMAGE"
+          echo "docker-image-harbor=harbor.ci.tenstorrent.net/$DOCKER_CI_IMAGE" >> "$GITHUB_OUTPUT"
           echo "docker-image=$DOCKER_CI_IMAGE" >> "$GITHUB_OUTPUT"
 
   # Build tt-mlir images
@@ -176,11 +178,10 @@ jobs:
     name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ matrix.build.suite }},${{ matrix.build.type }},${{ strategy.job-index }})"
 
     runs-on:
-      - in-service
       - ${{ matrix.build.runs-on }}
 
     container:
-      image: ${{ needs.build-image.outputs.docker-image }}
+      image: ${{ matrix.build.container }}
       options: ${{ matrix.build.container-options }}
       volumes:
         - /dev/hugepages:/dev/hugepages
