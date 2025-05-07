@@ -44,7 +44,7 @@ void createStableHLOToTTIRPipeline(
   }
   pm.addPass(mlir::createInlinerPass());
   pm.addPass(createConvertStableHLOToTTIRPass());
-  pm.addPass(createTTIRTensorAnnotationCleanupPass());
+  pm.addPass(createTTIRMultideviceTensorAnnotationCleanupPass());
 }
 #endif
 

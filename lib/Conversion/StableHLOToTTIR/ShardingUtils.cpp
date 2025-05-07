@@ -488,16 +488,20 @@ void MeshSharding::extractMeshShardingFromTensorMeshShardingAttr(
   shardDirection = direction;
 
   auto axes = tensorMeshShardingAttr.getTensorMeshShardingAxis();
-  shardShape.resize(axes.size());
   shardDims.resize(meshShape.size(), -1);
+  if (axes.empty()) {
+    shardType = mlir::tt::MeshShardType::Replicate;
+    return;
+  }
+
+  shardShape.resize(axes.size());
+  shardType = mlir::tt::MeshShardType::Devices;
   for (auto [dim, axis] : llvm::enumerate(axes)) {
     shardShape[dim] = axis.getShardShape();
     for (auto deviceDim : axis.getAxes()) {
       shardDims[deviceDim] = dim;
     }
   }
-
-  shardType = mlir::tt::MeshShardType::Devices;
 }
 
 FailureOr<std::unordered_map<std::string, std::string>>

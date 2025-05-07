@@ -430,16 +430,21 @@ module @jit_matmul_shardy_automatic_test2 attributes {mhlo.num_partitions = 8 : 
 // torchax - reshape
 module @jit_reshape attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
   sdy.mesh @mesh = <["x"=1, "batch"=8]>
-  func.func public @main(%arg0: tensor<1024x2x32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"batch"}, {}, {}, {}]>}) -> (tensor<2048x1024xf32> {jax.result_info = ""}) {
-    %0 = stablehlo.reshape %arg0 : (tensor<1024x2x32x32xf32>) -> tensor<2048x1024xf32>
+  func.func public @main(%arg0: tensor<1024x2x32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"batch"}, {}, {}, {}]>}) -> (tensor<2048x1024xf32> {jax.result_info = "", sdy.sharding = #sdy.sharding<@mesh, [{"batch"}, {}]>}) {
+    %0 = stablehlo.reshape %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"batch"}, {}]>]>} : (tensor<1024x2x32x32xf32>) -> tensor<2048x1024xf32>
     return %0 : tensor<2048x1024xf32>
   }
 }
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 0>
-// CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
+// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 8, 1, 1, 1>
-// CHECK-SAME: shard_type = #tt.shard_type<devices>
+// CHECK-SAME: shard_type = #tt.shard_type<identity>
+// CHECK: "ttir.mesh_shard"
+// CHECK-SAME: shard_dims = array<i64: -1, 0>
+// CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
+// CHECK-SAME: shard_shape = array<i64: 8, 1>
+// CHECK-SAME: shard_type = #tt.shard_type<identity>
 
 // -----
 
@@ -451,16 +456,26 @@ module @jit__unnamed_wrapped_function_ attributes {mhlo.num_partitions = 8 : i32
     %0 = stablehlo.transpose %arg0, dims = [1, 0] : (tensor<1024x1024xf32>) -> tensor<1024x1024xf32>
     %1 = stablehlo.broadcast_in_dim %cst, dims = [] : (tensor<f32>) -> tensor<1024xf32>
     %2 = stablehlo.multiply %arg1, %1 : tensor<1024xf32>
-    %3 = stablehlo.dot_general %arg2, %0, contracting_dims = [1] x [0] : (tensor<1024x1024xf32>, tensor<1024x1024xf32>) -> tensor<1024x1024xf32>
-    %4 = stablehlo.broadcast_in_dim %cst, dims = [] : (tensor<f32>) -> tensor<1024x1024xf32>
-    %5 = stablehlo.multiply %4, %3 : tensor<1024x1024xf32>
+    %3 = stablehlo.dot_general %arg2, %0, contracting_dims = [1] x [0] {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"batch"}, {}]>]>} : (tensor<1024x1024xf32>, tensor<1024x1024xf32>) -> tensor<1024x1024xf32>
+    %4 = stablehlo.broadcast_in_dim %cst, dims = [] {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"batch"}, {}]>]>} : (tensor<f32>) -> tensor<1024x1024xf32>
+    %5 = stablehlo.multiply %4, %3 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"batch"}, {}]>]>} : tensor<1024x1024xf32>
     %6 = stablehlo.reshape %2 : (tensor<1024xf32>) -> tensor<1x1024xf32>
-    %7 = stablehlo.broadcast_in_dim %6, dims = [0, 1] : (tensor<1x1024xf32>) -> tensor<1024x1024xf32>
-    %8 = stablehlo.add %7, %5 : tensor<1024x1024xf32>
+    %7 = stablehlo.broadcast_in_dim %6, dims = [0, 1] {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"batch"}, {}]>]>} : (tensor<1x1024xf32>) -> tensor<1024x1024xf32>
+    %8 = stablehlo.add %7, %5 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"batch"}, {}]>]>} : tensor<1024x1024xf32>
     return %arg0, %arg1, %8 : tensor<1024x1024xf32>, tensor<1024xf32>, tensor<1024x1024xf32>
   }
 }
+// CHECK: "ttir.mesh_shard"
+// CHECK-SAME: shard_dims = array<i64: -1, 0>
+// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_shape = array<i64: 8, 1>
+// CHECK-SAME: shard_type = #tt.shard_type<identity>
 // CHECK: "ttir.dot_general"
-// CHECK-SAME: tensor<1024x1024xf32, #tt.mesh_sharding<"mesh", [ 8(1),  1]>>
-// CHECK-SAME: tensor<1024x1024xf32, #tt.mesh_sharding<"mesh", [ 8(1),  1]>>
-// CHECK-SAME: tensor<1024x1024xf32, #tt.mesh_sharding<"mesh", [ 8(1),  1]>>
+// CHECK-SAME: tensor<128x1024xf32, #tt.mesh_sharding<"mesh">>
+// CHECK-SAME: tensor<1024x1024xf32, #tt.mesh_sharding<"mesh">>
+// CHECK-SAME: tensor<128x1024xf32, #tt.mesh_sharding<"mesh">>
+// CHECK: "ttir.mesh_shard"
+// CHECK-SAME: shard_dims = array<i64: -1, 0>
+// CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
+// CHECK-SAME: shard_shape = array<i64: 8, 1>
+// CHECK-SAME: shard_type = #tt.shard_type<identity>
