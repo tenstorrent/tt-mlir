@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "1a9bf1ab81550daf2031b928e7152aabf1396260")
+set(TT_METAL_VERSION "33cbd50ba338b2ea784582d8cad7a3e19884b9db")
 
 set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
 
