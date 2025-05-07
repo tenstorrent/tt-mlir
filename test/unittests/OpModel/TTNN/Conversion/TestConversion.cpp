@@ -631,10 +631,12 @@ TEST_F(Conversion, TensorSpecToLayout) {
   for (mlir::tt::ttnn::TTNNLayoutAttr originalLayout : layouts) {
     const auto tensorSpec = mlir::tt::op_model::ttnn::conversion::getTensorSpec(
         tensorShape, originalLayout);
+    EXPECT_TRUE(mlir::tt::op_model::ttnn::conversion::validateTensorSpec(
+        tensorSpec, {8, 8}));
+
     const auto reconvertedLayout =
         mlir::tt::op_model::ttnn::conversion::getLayoutAttrFromTensorSpec(
             &context, tensorSpec, /*deviceGrid=*/{8, 8});
-
     ExpectLayoutsEQ(originalLayout, reconvertedLayout);
   }
 }
@@ -713,5 +715,7 @@ TEST_F(Conversion, TensorSpecToLayoutReversed) {
             mlir::tt::op_model::ttnn::conversion::getShape(tensorShape),
             layout);
     EXPECT_EQ(reconvertedTensorSpec, originalTensorSpec);
+    EXPECT_TRUE(mlir::tt::op_model::ttnn::conversion::validateTensorSpec(
+        reconvertedTensorSpec, {8, 8}));
   }
 }

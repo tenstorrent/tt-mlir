@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 # Utility library for parsing MLIR
+import logging
 import re
 from pathlib import Path
 from collections import defaultdict
@@ -857,6 +858,8 @@ def build_graph(
     # Track operands already added to graph to avoid duplicates
     operands_in_graph = set()
 
+    # Use "full" locations for all below to prevent conflicts / unsupported with unnamed graphs.
+
     # Prepare perf data for color overlay
     perf_node_data = {}
     loc_to_perf = {}
@@ -865,6 +868,8 @@ def build_graph(
             loc = parse_loc_string(row["LOC"])
             if not loc:
                 continue
+            # Force the full location here=,
+            loc = row["LOC"]
             if loc not in loc_to_perf:
                 loc_to_perf[loc] = 0
             loc_to_perf[loc] += row["DEVICE FW DURATION [ns]"]
@@ -872,7 +877,7 @@ def build_graph(
     memory_data = {}
     if memory_trace is not None:
         for node in memory_trace:
-            loc = parse_loc_string(memory_trace[node]["loc"])
+            loc = memory_trace[node]["loc"]
             memory_data[loc] = {}
             memory_data[loc]["dram"] = round(
                 memory_trace[node]["dram"]["device_0"]["total_bytes_allocated_per_bank"]
@@ -896,11 +901,14 @@ def build_graph(
     loc_to_accuracy = {}
     if golden_results is not None:
         for loc, res in golden_results.items():
-            loc = parse_loc_string(loc)
-            assert loc not in loc_to_accuracy
-            if loc:
-                # Store the full result here, just need to parse the loc accordingly
-                loc_to_accuracy[loc] = res
+            _loc = parse_loc_string(loc)
+            if not _loc:
+                continue
+            if loc in loc_to_accuracy:
+                logging.error("Double locations presented in golden_results")
+                raise IndexError("Double locations present in golden_results")
+            # Store the full result here, just need to parse the loc accordingly
+            loc_to_accuracy[loc] = res
 
     module_op = OpHandler(module.operation)
     module_attrs = module_op.get_attributes()
@@ -1034,29 +1042,29 @@ def process_operations(
         operation = OpHandler(op)
 
         if (
-            operation.named_location in loc_to_perf
+            operation.full_location in loc_to_perf
             and operation.op.name not in EMPTY_OPS
         ):
             perf_node_data[operation.id] = node_data_builder.NodeDataResult(
-                loc_to_perf[operation.named_location]
+                loc_to_perf[operation.full_location]
             )
 
         if (
-            operation.named_location in loc_to_accuracy
+            operation.full_location in loc_to_accuracy
             and operation.op.name not in EMPTY_OPS
         ):
             accuracy_node_data[operation.id] = node_data_builder.NodeDataResult(
-                loc_to_accuracy[operation.named_location]["actual_pcc"]
-                - loc_to_accuracy[operation.named_location]["expected_pcc"]
+                loc_to_accuracy[operation.full_location]["actual_pcc"]
+                - loc_to_accuracy[operation.full_location]["expected_pcc"]
             )
 
         extra_attrs = []
-        if memory_data and operation.named_location in memory_data:
+        if memory_data and operation.full_location in memory_data:
             extra_attrs.append(
                 utils.add_to_dataclass(
                     graph_builder.KeyValue(
                         key="dram_memory",
-                        value=str(memory_data[operation.named_location]["dram"]),
+                        value=str(memory_data[operation.full_location]["dram"]),
                     ),
                     "display_type",
                     "memory",
@@ -1066,7 +1074,7 @@ def process_operations(
                 utils.add_to_dataclass(
                     graph_builder.KeyValue(
                         key="l1_memory",
-                        value=str(memory_data[operation.named_location]["l1"]),
+                        value=str(memory_data[operation.full_location]["l1"]),
                     ),
                     "display_type",
                     "memory",
@@ -1076,7 +1084,7 @@ def process_operations(
                 utils.add_to_dataclass(
                     graph_builder.KeyValue(
                         key="l1_small_memory",
-                        value=str(memory_data[operation.named_location]["l1_small"]),
+                        value=str(memory_data[operation.full_location]["l1_small"]),
                     ),
                     "display_type",
                     "memory",

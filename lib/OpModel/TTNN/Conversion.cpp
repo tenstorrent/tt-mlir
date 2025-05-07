@@ -226,6 +226,34 @@ getTensorLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
   return ::ttnn::TensorSpec(getShape(shape), getTensorLayout(layout));
 }
 
+bool validateTensorSpec(const ::ttnn::TensorSpec &tensorSpec,
+                        const ::tt::tt_metal::CoreCoord &computeGridSize) {
+  // Check the shard bounding box
+  auto memoryConfig = tensorSpec.memory_config();
+  if (memoryConfig.is_sharded()) {
+    ::tt::tt_metal::CoreRange shardBoundingBox =
+        memoryConfig.shard_spec.value().grid.bounding_box();
+    ::tt::tt_metal::CoreRangeSet deviceWorkerCores{::tt::tt_metal::CoreRange{
+        ::tt::tt_metal::CoreCoord{0, 0},
+        ::tt::tt_metal::CoreCoord{computeGridSize.x - 1,
+                                  computeGridSize.y - 1}}};
+    if (!deviceWorkerCores.contains(shardBoundingBox)) {
+      return false;
+    }
+  }
+
+  // Check attributes required for allocation
+  // May call TT_THROW or TT_FATAL for malformed TensorSpecs
+  try {
+    tensorSpec.compute_packed_buffer_size_bytes();
+    tensorSpec.compute_page_size_bytes();
+    tensorSpec.compute_shard_spec_buffer();
+  } catch (const std::exception &e) {
+    return false;
+  }
+  return true;
+}
+
 ::ttnn::SmallVector<int>
 convertLLVMSmallVecToTTNNSmallVec(const ::llvm::ArrayRef<int64_t> vec) {
   return ::ttnn::SmallVector<int>(vec.begin(), vec.end());
