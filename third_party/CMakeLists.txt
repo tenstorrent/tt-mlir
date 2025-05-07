@@ -2,6 +2,10 @@ include(ExternalProject)
 
 set(TT_METAL_VERSION "1a9bf1ab81550daf2031b928e7152aabf1396260")
 
+file(GLOB XTENSOR_INCLUDE_DIRS "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/xtensor/*/include")
+file(GLOB XTENSOR_BLAS_INCLUDE_DIRS "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/xtensor-blas/*/include")
+file(GLOB XTL_INCLUDE_DIRS "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/xtl/*/include")
+
 set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
 
 if ("$ENV{ARCH_NAME}" STREQUAL "grayskull")
@@ -51,9 +55,9 @@ set(TTMETAL_INCLUDE_DIRS
   ${CPM_SOURCE_CACHE}/magic_enum/4d76fe0a5b27a0e62d6c15976d02b33c54207096/include
   ${CPM_SOURCE_CACHE}/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
   ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
-  ${CPM_SOURCE_CACHE}/xtensor/c46fa4d34d719a7efc5f310a89f10bdf1e167ebc/include
-  ${CPM_SOURCE_CACHE}/xtensor-blas/0047541801f16eb7eefdacfdf251c5f06c8f10d0/include
-  ${CPM_SOURCE_CACHE}/xtl/47c2dd39d2d18cfa94b1db25e7dace936e428f78/include
+  ${XTENSOR_INCLUDE_DIRS}
+  ${XTENSOR_BLAS_INCLUDE_DIRS}
+  ${XTL_INCLUDE_DIRS}
   PARENT_SCOPE
 )
 
