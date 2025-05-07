@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --convert-ttnn-to-emitc %s | FileCheck %s
+// RUN: ttmlir-opt --tt-register-device="system-desc-path=%system_desc_path%" --convert-ttnn-to-emitc %s | FileCheck %s
 
 #system_memory = #ttnn.buffer_type<system_memory>
 #ttnn_layout = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1344 + d1 * 56 + d2, d3), <1x1>, memref<17472x42xbf16, #system_memory>>

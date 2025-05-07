@@ -83,9 +83,9 @@ public:
       //
       ttnn::BufferTypeAttr bufferTypeAttr = ttnn::BufferTypeAttr::get(
           op.getContext(), layoutAttr.getBufferType());
-      ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
-          op.getContext(), bufferTypeAttr, layoutAttr.getMemLayout(),
-          ttnn::ShardSpecAttr());
+      ttnn::MemoryConfigAttr memoryConfigAttr =
+          ttnn::MemoryConfigAttr::get(op.getContext(), bufferTypeAttr,
+                                      layoutAttr.getMemLayout(), std::nullopt);
 
       // Replace op
       //
@@ -150,7 +150,7 @@ public:
         memLayout ? ttnn::MemoryConfigAttr::get(
                         op.getContext(),
                         ttnn::BufferTypeAttr::get(op.getContext(), bufferType),
-                        memLayout, ttnn::ShardSpecAttr())
+                        memLayout, std::nullopt)
                   : nullptr;
 
     rewriter.replaceOpWithNewOp<TTNNType>(
@@ -207,7 +207,7 @@ public:
     ttnn::MemoryConfigAttr outputMemConfigAttr = ttnn::MemoryConfigAttr::get(
         rewriter.getContext(),
         ttnn::BufferTypeAttr::get(rewriter.getContext(), outputBufferType),
-        outputLayoutAttr.getMemLayout(), ttnn::ShardSpecAttr());
+        outputLayoutAttr.getMemLayout(), std::nullopt);
 
     rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
         op, this->getTypeConverter()->convertType(result), adaptor.getInput(),
@@ -389,7 +389,7 @@ public:
 
     ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
         op.getContext(), ttnn::BufferTypeAttr::get(op.getContext(), bufferType),
-        memLayout, ttnn::ShardSpecAttr());
+        memLayout, std::nullopt);
 
     rewriter.replaceOpWithNewOp<ttnn::EmbeddingBackwardOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
@@ -736,7 +736,7 @@ public:
           op.getContext(),
           ttnn::BufferTypeAttr::get(op.getContext(),
                                     layoutAttr.getBufferType()),
-          layoutAttr.getMemLayout(), ttnn::ShardSpecAttr());
+          layoutAttr.getMemLayout(), std::nullopt);
     }
     rewriter.replaceOpWithNewOp<ttnn::PadOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
@@ -1378,7 +1378,7 @@ public:
     ttnn::MemoryConfigAttr memConfigAttr =
         rewriter.getAttr<ttnn::MemoryConfigAttr>(
             rewriter.getAttr<ttnn::BufferTypeAttr>(layoutAttr.getBufferType()),
-            layoutAttr.getMemLayout(), ttnn::ShardSpecAttr());
+            layoutAttr.getMemLayout(), std::nullopt);
 
     rewriter.replaceOpWithNewOp<ttnn::ArangeOp>(
         op, outputType, adaptor.getStart(), adaptor.getEnd(), adaptor.getStep(),

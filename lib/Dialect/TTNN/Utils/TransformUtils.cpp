@@ -89,7 +89,6 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
       ttnn::BufferTypeAttr::get(rewriter.getContext(), targetTensorBufferType),
       outputMemLayoutAttr,
       utils::createShardSpecIfNeeded(
-          rewriter.getContext(),
           mlir::cast<TTNNLayoutAttr>(toLayoutOpResultType.getEncoding()),
           deviceAttr.getWorkerGrid()));
 

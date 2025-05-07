@@ -17,6 +17,7 @@
 #include "flatbuffers/buffer.h"
 #include "llvm/ADT/STLForwardCompat.h"
 
+#include <optional>
 #include <type_traits>
 
 namespace mlir::tt {
@@ -787,7 +788,7 @@ toFlatbuffer(FlatbufferObjectCache &cache,
   if (memoryConfigAttr.getShardSpec()) {
     assert(tensorMemoryLayoutAttr && mlir::tt::ttnn::isShardedMemoryLayout(
                                          tensorMemoryLayoutAttr.getValue()));
-    shardSpec = toFlatbuffer(cache, memoryConfigAttr.getShardSpec());
+    shardSpec = toFlatbuffer(cache, *memoryConfigAttr.getShardSpec());
   }
   ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
       ::tt::target::ttnn::CreateMemoryConfig(*cache.fbb, tensorMemoryLayout,
@@ -829,7 +830,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
                       : ::tt::target::ttnn::StorageType::Device;
   } else {
     storageType = bufferType == ttnn::BufferType::SystemMemory
-                      ? ::tt::target::ttnn::StorageType::Owned
+                      ? ::tt::target::ttnn::StorageType::Host
                       : ::tt::target::ttnn::StorageType::Device;
   }
 
@@ -839,7 +840,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
   if (bufferType != ttnn::BufferType::SystemMemory) {
     ::mlir::MLIRContext *ctx = memref.getContext();
     auto bufferTypeAttr = ttnn::BufferTypeAttr::get(ctx, bufferType);
-    auto shardSpecAttr = ttnn::ShardSpecAttr();
+    std::optional<mlir::tt::ttnn::ShardSpecAttr> shardSpecAttr = std::nullopt;
     if (isShardedMemoryLayout(memLayoutAttr.getValue())) {
       llvm::SmallVector<int64_t> shape(memref.getShape().begin(),
                                        memref.getShape().end());

@@ -571,7 +571,7 @@ MemoryConfigAttr::withMemoryLayout(TensorMemoryLayout memLayout) {
 ::llvm::LogicalResult MemoryConfigAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     BufferTypeAttr bufferType, TensorMemoryLayoutAttr tensorMemoryLayout,
-    ShardSpecAttr shardSpec) {
+    std::optional<ShardSpecAttr> shardSpec) {
   // Verify buffer type and memory layout
   if (failed(verifyBufferAndMemoryLayout(emitError, bufferType.getValue(),
                                          tensorMemoryLayout))) {
@@ -579,8 +579,12 @@ MemoryConfigAttr::withMemoryLayout(TensorMemoryLayout memLayout) {
   }
 
   // Verify sharding
-  return verifySharding(emitError, bufferType.getValue(), tensorMemoryLayout,
-                        shardSpec);
+  if (shardSpec) {
+    return verifySharding(emitError, bufferType.getValue(), tensorMemoryLayout,
+                          *shardSpec);
+  }
+
+  return ::llvm::success();
 }
 
 bool CoreRangeAttr::intersects(CoreRangeAttr other) const {
@@ -735,7 +739,8 @@ CoreRangeSetAttr ShardSpecAttr::getCoreRangeSet(mlir::MLIRContext *context,
     const auto &[loc, size] = locsize2d;
     coreRangeSet.push_back(
         CoreRangeAttr::get(context, CoreCoordAttr::get(context, loc[0], loc[1]),
-                           CoreCoordAttr::get(context, size[0], size[1])));
+                           CoreCoordAttr::get(context, loc[0] + size[0] - 1,
+                                              loc[1] + size[1] - 1)));
   }
 
   return CoreRangeSetAttr::get(context, coreRangeSet);

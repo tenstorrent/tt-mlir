@@ -70,14 +70,14 @@ public:
     }
 
     if (memoryConfigAttr.getShardSpec()) {
-      if (memoryConfigAttr.getShardSpec().getShape() !=
+      if (memoryConfigAttr.getShardSpec()->getShape() !=
           ShapeAttr::get(op->getContext(),
                          outputLayoutAttr.getScalarShardShape())) {
         return op->emitOpError()
                << "Output tensor scalar shard shape ("
                << outputLayoutAttr.getScalarShardShape()
                << ") must match memory config shard spec shape ("
-               << memoryConfigAttr.getShardSpec().getShape().getShape() << ")";
+               << memoryConfigAttr.getShardSpec()->getShape().getShape() << ")";
       }
     }
 

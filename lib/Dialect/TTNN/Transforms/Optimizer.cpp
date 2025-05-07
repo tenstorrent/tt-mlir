@@ -376,8 +376,7 @@ public:
                 op->getContext(),
                 BufferTypeAttr::get(op->getContext(), bufferType),
                 tensorMemoryLayoutAttr,
-                utils::createShardSpecIfNeeded(op->getContext(), layoutAttr,
-                                               maxGrid)));
+                utils::createShardSpecIfNeeded(layoutAttr, maxGrid)));
           }
           // TODO(mtopalovic): Temp workaround for generic ToLayoutOp. Allign
           // MemoryConfigAttr with layout attribute of its output tensor. This
@@ -396,8 +395,7 @@ public:
                 op->getContext(),
                 ttnn::BufferTypeAttr::get(op->getContext(), bufferType),
                 tensorMemoryLayoutAttr,
-                utils::createShardSpecIfNeeded(op->getContext(), layoutAttr,
-                                               maxGrid)));
+                utils::createShardSpecIfNeeded(layoutAttr, maxGrid)));
           }
 
           // Set specific Conv2d Op configuration if it is exists.
@@ -593,8 +591,7 @@ private:
           BufferTypeAttr::get(consumerOp->getContext(),
                               producerOpLayout.getBufferType()),
           producerOpLayout.getMemLayout(),
-          utils::createShardSpecIfNeeded(consumerOp->getContext(),
-                                         producerOpLayout, deviceGrid));
+          utils::createShardSpecIfNeeded(producerOpLayout, deviceGrid));
 
       // If producerOp is a toLayoutOp, adjust its output layout(update
       // inplace) to reflect consumerOp's output layout. If producerOp is not a
@@ -658,8 +655,7 @@ private:
           op->getContext(),
           BufferTypeAttr::get(op->getContext(), BufferType::DRAM),
           dramLayout.getMemLayout(),
-          utils::createShardSpecIfNeeded(op->getContext(), dramLayout,
-                                         deviceGrid));
+          utils::createShardSpecIfNeeded(dramLayout, deviceGrid));
 
       builder.setInsertionPointAfter(op);
       Location loc =

@@ -270,8 +270,6 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
 
     const tt::target::ttnn::CoreRangeSet *targetCoreRangeSet =
         memcfg->shard_spec()->core_range_set();
-    LOG_ASSERT(targetCoreRangeSet->core_ranges()->size() == 1,
-               "Currently only single core range/grid is supported");
     CoreRangeSet ttnnCoreRangeSet = toTTNNCoreRangeSet(*targetCoreRangeSet);
     ::ttnn::types::ShardOrientation ttnnShardOrientation =
         toTTNNShardOrientation(memcfg->shard_spec()->orientation());

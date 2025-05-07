@@ -8,6 +8,7 @@
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include <optional>
 
 using namespace mlir::tt::ttnn;
 
@@ -136,13 +137,17 @@ MlirAttribute ttmlirTTNNShardSpecAttrGet(MlirContext ctx,
       mlir::cast<ShapeAttr>(unwrap(physicalShardShapeAttr))));
 }
 
-MlirAttribute ttmlirTTNNMemoryConfigAttrGet(
-    MlirContext ctx, MlirAttribute tensorMemoryLayoutAttr,
-    MlirAttribute bufferTypeAttr, MlirAttribute shardSpecAttr) {
+MlirAttribute
+ttmlirTTNNMemoryConfigAttrGet(MlirContext ctx, MlirAttribute bufferTypeAttr,
+                              MlirAttribute tensorMemoryLayoutAttr,
+                              MlirAttribute shardSpecAttr) {
   return wrap(MemoryConfigAttr::get(
       unwrap(ctx), mlir::cast<BufferTypeAttr>(unwrap(bufferTypeAttr)),
       mlir::cast<TensorMemoryLayoutAttr>(unwrap(tensorMemoryLayoutAttr)),
-      mlir::cast<ShardSpecAttr>(unwrap(shardSpecAttr))));
+      mlirAttributeIsNull(shardSpecAttr)
+          ? std::nullopt
+          : std::optional<mlir::tt::ttnn::ShardSpecAttr>(
+                mlir::cast<ShardSpecAttr>(unwrap(shardSpecAttr)))));
 }
 
 MlirAttribute ttmlirTTNNShapeAttrGet(MlirContext ctx, int64_t *shape,
