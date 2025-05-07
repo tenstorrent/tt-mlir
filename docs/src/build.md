@@ -1,9 +1,8 @@
 # Build
 
-This page walks you through the steps required to set up tt-mlir. This is specifically if you want to develop and contribute to the repo, or if you are setting up to use [tt-xla](https://github.com/tenstorrent/tt-xla).
+This page walks you through the steps required to set up tt-mlir. This is specifically if you want to develop and contribute to the repo.
 
-> **NOTE:** If you have a build issue, you can file a bug [here](https://github.com/
-> tenstorrent/tt-mlir/issues).
+> **NOTE:** If you have a build issue, you can file a bug [here](https://github.com/tenstorrent/tt-mlir/issues).
 
 ## Prerequisites
 
@@ -13,18 +12,16 @@ Use this guide to set up your hardware - [Hardware Setup](https://docs.tenstorre
 
 ### System Dependencies
 
-The tt-mlir project has the following system dependencies:
+You can use tt-mlir with Ubuntu or Mac OS, however the runtime does not work on Mac OS. tt-mlir project has the following system dependencies:
 * Ubuntu 22.04 OS or Mac OS
-* Clang <= 18
+* Clang >= 14 & <= 18
 * Ninja
 * CMake 3.20 or higher
 * Python 3.10
 * python3.10-venv
 
-> **NOTE:** The runtime does not work on Mac OS.
-
 #### Ubuntu
-Install Clang 14, Ninja, CMake, and python3.10-venv:
+Install Clang, Ninja, CMake, and python3.10-venv:
 
 ```bash
 sudo apt install git clang cmake ninja-build pip python3.10-venv
@@ -67,24 +64,19 @@ Once you have the docker image running and you are logged into the container, yo
 
 ### Setting up the Environment Manually
 
-This section explains how to manually build the environment so you can use tt-mlir. You only need to build this once, it builds llvm, flatbuffers, and a Python virtual environment. You can specify the build type by using `-DLLVM_BUILD_TYPE=*`. The default is `MinSizeRel`, and available options are listed [here](https://llvm.org/docs/CMake.html#frequently-used-cmake-variables).
+This section explains how to manually build the environment so you can use tt-mlir. You only need to build this once, it builds llvm, flatbuffers, and a Python virtual environment. You can specify the LLVM build type by using `-DLLVM_BUILD_TYPE=*`. The default is `MinSizeRel`, and available options are listed [here](https://llvm.org/docs/CMake.html#frequently-used-cmake-variables).
 
 1. Navigate into the **tt-mlir** folder.
 
-2. Create a directory for the tt-mlir toolchain and set ownership over the directory:
-
-```bash
-sudo mkdir -p /opt/ttmlir-toolchain
-sudo chown -R ubuntu /opt/ttmlir-toolchain
-```
-
-3. Set the path to the toolchain:
+2. The environment gets installed into a toolchain directory, which is by default set to `/opt/ttmlir-toolchain`, but can be overrideen by setting (and persisting in your environment) the environment variable `TTMLIR_TOOLCHAIN_DIR`. You need to manually create the toolchain directory as follows:
 
 ```bash
 export TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain/
+sudo mkdir -p /opt/ttmlir-toolchain
+sudo chown -R $USER /opt/ttmlir-toolchain
 ```
 
-4. Please ensure that you do not already have an environment (venv) activated before running the following commands:
+3. Please ensure that you do not already have an environment (venv) activated before running the following commands:
 
 ```bash
 source env/activate
@@ -99,9 +91,9 @@ cmake --build env/build
 In this step, you build the tt-mlir project:
 
 ```bash
-source env/activate
 cmake -G Ninja -B build
 cmake --build build
+source env/activate
 ```
 You have now configured tt-mlir.
 
