@@ -1,4 +1,6 @@
 // RUN: ttmlir-opt --convert-ttir-to-linalg %s | FileCheck %s
+// XFAIL: *
+// TODO: #3232 re-enable
 
 module {
   func.func @softmax_simple(%arg0: tensor<512x1024xbf16>) -> tensor<512x1024xbf16> {

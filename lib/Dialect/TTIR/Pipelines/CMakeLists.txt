@@ -13,6 +13,7 @@ add_mlir_dialect_library(MLIRTTIRPipelines
   MLIRBufferizationToMemRef
   MLIRControlFlowToLLVM
   MLIRFuncToLLVM
+  MLIRMathToLLVM
   MLIRMemRefToLLVM
   MLIRMemRefTransforms
   MLIRReconcileUnrealizedCasts
