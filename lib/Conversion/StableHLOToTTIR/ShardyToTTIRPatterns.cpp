@@ -362,7 +362,7 @@ public:
     }
 
     // Before erasing MeshOp, visit public functions and properly handle
-    // argument and return sharding attributes that are not used or defined by
+    // argument/op/return sharding attributes that are not used or defined by
     // ManualComputationOp, respectively. Ones that are refered by
     // ManualComputationOp are properly handled by
     // ShardyToTTIRManualComputationOpConversionPattern.
@@ -429,6 +429,48 @@ public:
             meshSharding.getTensorMeshShardingAttr(rewriter),
             mlir::sdy::kShardingAttr);
       }
+
+      // Translate per-op result sdyShardings to TensorMeshShardingAttrs.
+      funcOp->walk<mlir::WalkOrder::PostOrder, mlir::ReverseIterator>(
+          [&](mlir::Operation *srcOp) {
+            if (mlir::isa<mlir::func::ReturnOp, mlir::func::FuncOp,
+                          mlir::sdy::ManualComputationOp>(srcOp)) {
+              return mlir::WalkResult::skip();
+            }
+            for (auto result : srcOp->getResults()) {
+              auto sdyShardingAttr = mlir::sdy::getSharding(result);
+              if (!sdyShardingAttr) {
+                continue;
+              }
+              mlir::tt::sharding_utils::MeshSharding meshSharding;
+              auto error = meshSharding.convertSdyShardingToMeshSharding(
+                  sdyShardingAttr, sdyMesh,
+                  mlir::tt::MeshShardDirection::FullToShard);
+              if (auto e = error.takeError()) {
+                llvm_unreachable(llvm::toString(std::move(e)).c_str());
+              }
+              auto tensorMeshShardingAttr =
+                  meshSharding.getTensorMeshShardingAttr(rewriter);
+              auto resultType =
+                  mlir::cast<mlir::RankedTensorType>(result.getType());
+              auto resultTensorMeshShardingAttr =
+                  mlir::dyn_cast_if_present<mlir::tt::TensorMeshShardingAttr>(
+                      resultType.getEncoding());
+              if (resultTensorMeshShardingAttr &&
+                  tensorMeshShardingAttr != resultTensorMeshShardingAttr) {
+                llvm_unreachable(
+                    "Operation mlir::sdy::Sharding should match its value "
+                    "with arg/ret sharding.");
+              }
+              mlir::Type elementType = resultType.getElementType();
+              llvm::ArrayRef<int64_t> shape = resultType.getShape();
+              rewriter.modifyOpInPlace(funcOp, [&]() {
+                result.setType(mlir::RankedTensorType::get(
+                    shape, elementType, tensorMeshShardingAttr));
+              });
+            }
+            return mlir::WalkResult::advance();
+          });
       return mlir::WalkResult::advance();
     });
 
@@ -453,88 +495,457 @@ void populateShardyToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
 namespace mlir::tt {
 
-// Check matching of input and result tensor annotations and fix if there is any
-// issue.
-llvm::LogicalResult
-analyzeSingleOpAndFixWrongTensorAnnotation(mlir::tt::MeshesAttr meshes,
-                                           mlir::Operation *srcOp,
-                                           mlir::OpBuilder &builder) {
-  if (srcOp->getNumResults() == 0 || srcOp->getNumOperands() == 0) {
-    return llvm::success();
+static bool checkIfArgIsFuncArg(mlir::func::FuncOp funcOp, mlir::Value arg) {
+  for (auto funcArg : funcOp.getArguments()) {
+    if (arg == funcArg) {
+      return true;
+    }
+  }
+  return false;
+}
+
+llvm::LogicalResult insertMissingMeshShardOps(mlir::OpBuilder &builder,
+                                              mlir::func::FuncOp &funcOp,
+                                              mlir::tt::MeshesAttr meshes,
+                                              bool multiDeviceFix = false) {
+
+  mlir::Operation *funcReturnOp = funcOp.getBody().front().getTerminator();
+  builder.setInsertionPoint(funcReturnOp);
+
+  for (auto [retIdx, ret] : llvm::enumerate(funcReturnOp->getOperands())) {
+    auto retType = mlir::cast<mlir::RankedTensorType>(ret.getType());
+    auto retTensorMeshShardingAttr =
+        mlir::dyn_cast_if_present<mlir::tt::TensorMeshShardingAttr>(
+            retType.getEncoding());
+    if (!retTensorMeshShardingAttr) {
+      continue;
+    }
+    if (mlir::isa_and_present<mlir::tt::ttir::MeshShardOp>(
+            ret.getDefiningOp()) ||
+        checkIfArgIsFuncArg(funcOp, ret)) {
+      continue;
+    }
+
+    mlir::tt::sharding_utils::MeshSharding meshSharding;
+    meshSharding.extractMeshShardingFromTensorMeshShardingAttr(
+        meshes.getMesh(retTensorMeshShardingAttr.getName().str()),
+        retTensorMeshShardingAttr, mlir::tt::MeshShardDirection::ShardToFull);
+
+    if (meshSharding.getShardType() != mlir::tt::MeshShardType::Devices) {
+      continue;
+    }
+
+    auto meshShardOp =
+        mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::MeshShardOp>(
+            builder, funcReturnOp->getLoc(), retType, ret,
+            mlir::tt::MeshShardType::Identity, meshSharding.getShardDirection(),
+            meshSharding.getShardShape(), meshSharding.getShardDims());
+
+    funcReturnOp->replaceUsesOfWith(ret, meshShardOp.getResult());
   }
 
-  auto resultType =
-      mlir::cast<mlir::RankedTensorType>(srcOp->getResult(0).getType());
-  if (auto tensorMeshShardingAttr =
+  auto isMultiDeviceResult = [&](mlir::Operation *srcOp) -> bool {
+    if (srcOp->getNumResults()) {
+      auto resultType =
+          mlir::cast<mlir::RankedTensorType>(srcOp->getResult(0).getType());
+      auto tensorMeshShardingAttr =
           mlir::dyn_cast_if_present<mlir::tt::TensorMeshShardingAttr>(
-              resultType.getEncoding())) {
-    // Result is multi device tensor and thus expects args to be multi device
-    // tensors. If args are not multi device tensor, propagate the missing
-    // TensorMeshShardingAttr to args.
-    for (auto arg : srcOp->getOperands()) {
+              resultType.getEncoding());
+      if (tensorMeshShardingAttr) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  for (auto arg : funcOp.getArguments()) {
+    auto argType = mlir::cast<mlir::RankedTensorType>(arg.getType());
+    auto argTensorMeshShardingAttr =
+        mlir::dyn_cast_if_present<mlir::tt::TensorMeshShardingAttr>(
+            argType.getEncoding());
+    if (!argTensorMeshShardingAttr) {
+      continue;
+    }
+    if (llvm::any_of(arg.getUsers(), [&](mlir::Operation *user) {
+          return mlir::isa<mlir::tt::ttir::MeshShardOp>(*user);
+        })) {
+      continue;
+    }
+
+    auto userOp = arg.getUsers().begin();
+    builder.setInsertionPoint(*userOp);
+
+    mlir::tt::sharding_utils::MeshSharding meshSharding;
+    meshSharding.extractMeshShardingFromTensorMeshShardingAttr(
+        meshes.getMesh(argTensorMeshShardingAttr.getName().str()),
+        argTensorMeshShardingAttr, mlir::tt::MeshShardDirection::FullToShard);
+    // replicate mesh sharding doesn't require conversion or shape change
+    if (meshSharding.getShardType() != mlir::tt::MeshShardType::Devices) {
+      continue;
+    }
+
+    if (multiDeviceFix && !isMultiDeviceResult(*userOp)) {
+      // Insert the conversion of multi- to single-device tensor.
+      auto newResultType = mlir::RankedTensorType::get(
+          argType.getShape(), argType.getElementType());
+      auto meshShardOp =
+          mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::MeshShardOp>(
+              builder, userOp->getLoc(), newResultType, arg,
+              meshSharding.getShardType(),
+              mlir::tt::MeshShardDirection::ShardToFull,
+              meshSharding.getShardShape(), meshSharding.getShardDims());
+      userOp->replaceUsesOfWith(arg, meshShardOp.getResult());
+    } else {
+      // Insert identity mesh shard op.
+      auto meshShardOp =
+          mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::MeshShardOp>(
+              builder, userOp->getLoc(), argType, arg,
+              mlir::tt::MeshShardType::Identity,
+              meshSharding.getShardDirection(), meshSharding.getShardShape(),
+              meshSharding.getShardDims());
+      userOp->replaceUsesOfWith(arg, meshShardOp.getResult());
+    }
+  }
+
+  return llvm::success();
+}
+
+// Adjust TensorMeshShardingAttr for the non-elementwise, positional operations
+// that requires non-linear shape-to-shape relationship between the output and
+// the inputs.
+mlir::tt::TensorMeshShardingAttr adjustOpSepcificTensorMeshShardingAttr(
+    mlir::OpBuilder &builder, mlir::Operation *srcOp, const size_t argIdx,
+    const mlir::RankedTensorType argType,
+    mlir::tt::TensorMeshShardingAttr argTensorMeshShardingAttr,
+    const mlir::RankedTensorType resultType,
+    mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr) {
+
+  auto tensorMeshShardingAttrAxes =
+      tensorMeshShardingAttr.getTensorMeshShardingAxis();
+  // Propagate current result tensorMeshShardingAttr if there is no
+  // TensorMeshShardingAtteAxes or Op is DestinationPassingStyle and argIdx is
+  // the last one.
+  if (tensorMeshShardingAttrAxes.empty() ||
+      (mlir::isa<mlir::DestinationStyleOpInterface>(srcOp) &&
+       argIdx == srcOp->getNumOperands() - 1)) {
+    return tensorMeshShardingAttr;
+  }
+
+  llvm::ArrayRef<int64_t> inputShape = argType.getShape();
+  llvm::ArrayRef<int64_t> resultShape = resultType.getShape();
+  auto unitTensorMeshShardingAxisAttr = TensorMeshShardingAxisAttr::get(
+      srcOp->getContext(), 1, llvm::ArrayRef<int64_t>());
+  llvm::SmallVector<TensorMeshShardingAxisAttr>
+      updatedTensorMeshShardingAttrAxes;
+
+  if (mlir::isa<mlir::tt::ttir::ArgMaxOp>(srcOp) ||
+      mlir::isa<mlir::tt::ttir::SumOp>(srcOp) ||
+      mlir::isa<mlir::tt::ttir::MeanOp>(srcOp) ||
+      mlir::isa<mlir::tt::ttir::MaxOp>(srcOp) ||
+      mlir::isa<mlir::tt::ttir::MinOp>(srcOp) ||
+      mlir::isa<mlir::tt::ttir::ProdOp>(srcOp) ||
+      mlir::isa<mlir::tt::ttir::ReduceAndOp>(srcOp) ||
+      mlir::isa<mlir::tt::ttir::ReduceOrOp>(srcOp)) {
+    for (auto [idx, is] : llvm::enumerate(inputShape)) {
+      if (idx < resultShape.size() && is == resultShape[idx]) {
+        updatedTensorMeshShardingAttrAxes.push_back(
+            tensorMeshShardingAttrAxes[idx]);
+      } else {
+        updatedTensorMeshShardingAttrAxes.push_back(
+            unitTensorMeshShardingAxisAttr);
+      }
+    }
+  } else if (auto reshapeOp =
+                 mlir::dyn_cast<mlir::tt::ttir::ReshapeOp>(srcOp)) {
+    if (argTensorMeshShardingAttr) {
+      return argTensorMeshShardingAttr;
+    }
+    for (auto [idx, is] : llvm::enumerate(inputShape)) {
+      if (idx < resultShape.size() && is == resultShape[idx]) {
+        updatedTensorMeshShardingAttrAxes.push_back(
+            tensorMeshShardingAttrAxes[idx]);
+      } else {
+        updatedTensorMeshShardingAttrAxes.push_back(
+            unitTensorMeshShardingAxisAttr);
+      }
+    }
+  } else if (auto broadcastOp =
+                 mlir::dyn_cast<mlir::tt::ttir::BroadcastOp>(srcOp)) {
+    llvm::ArrayRef<int64_t> broadcastDimensions =
+        broadcastOp.getBroadcastDimensions();
+    for (auto [idx, args] : llvm::enumerate(llvm::zip_equal(
+             inputShape, broadcastDimensions, tensorMeshShardingAttrAxes))) {
+      auto [s, d, axis] = args;
+      if (d == 1 && s != 1) {
+        updatedTensorMeshShardingAttrAxes.push_back(axis);
+      } else {
+        updatedTensorMeshShardingAttrAxes.push_back(
+            unitTensorMeshShardingAxisAttr);
+      }
+    }
+  } else if (auto permuteOp =
+                 mlir::dyn_cast<mlir::tt::ttir::PermuteOp>(srcOp)) {
+    llvm::ArrayRef<int64_t> permutation = permuteOp.getPermutation();
+    updatedTensorMeshShardingAttrAxes.reserve(permutation.size());
+    for (auto p : permutation) {
+      updatedTensorMeshShardingAttrAxes.push_back(
+          tensorMeshShardingAttrAxes[p]);
+    }
+  } else if (auto dotGeneralOp =
+                 mlir::dyn_cast<mlir::tt::ttir::DotGeneralOp>(srcOp)) {
+    auto contractingDimensions = (argIdx == 0)
+                                     ? dotGeneralOp.getContractDimsLhs()
+                                     : dotGeneralOp.getContractDimsRhs();
+    updatedTensorMeshShardingAttrAxes.assign(tensorMeshShardingAttrAxes.begin(),
+                                             tensorMeshShardingAttrAxes.end());
+    for (auto d : contractingDimensions) {
+      updatedTensorMeshShardingAttrAxes[d] = unitTensorMeshShardingAxisAttr;
+    }
+  } else if (mlir::isa<mlir::tt::ttir::ConvolutionOp, mlir::tt::ttir::Conv2dOp,
+                       mlir::tt::ttir::ConvTranspose2dOp>(srcOp)) {
+    // weight has no direct relationship with output
+    if (argIdx == 1) {
+      return argTensorMeshShardingAttr;
+    }
+  }
+
+  if (!updatedTensorMeshShardingAttrAxes.empty()) {
+    if (std::all_of(updatedTensorMeshShardingAttrAxes.begin(),
+                    updatedTensorMeshShardingAttrAxes.end(),
+                    [](TensorMeshShardingAxisAttr axis) {
+                      return axis.getShardShape() == 1;
+                    })) {
+      updatedTensorMeshShardingAttrAxes.clear();
+    }
+    tensorMeshShardingAttr = TensorMeshShardingAttr::get(
+        srcOp->getContext(), tensorMeshShardingAttr.getName(),
+        updatedTensorMeshShardingAttrAxes);
+  }
+
+  return tensorMeshShardingAttr;
+}
+
+// Adjust tensor annotations of args given a multi-device result tensor
+// annotation.
+llvm::LogicalResult
+adjustMultiDeviceTensorAnnotations(mlir::OpBuilder &builder,
+                                   mlir::func::FuncOp &funcOp) {
+  auto adjustPerOpMultiDeviceTensorAnnotations =
+      [&](mlir::OpBuilder &builder,
+          mlir::Operation *srcOp) -> llvm::LogicalResult {
+    if (srcOp->getNumOperands() == 0 || srcOp->getNumResults() == 0) {
+      return llvm::success();
+    }
+
+    auto resultType =
+        mlir::cast<mlir::RankedTensorType>(srcOp->getResult(0).getType());
+    auto resultTensorMeshShardingAttr =
+        mlir::dyn_cast_if_present<mlir::tt::TensorMeshShardingAttr>(
+            resultType.getEncoding());
+    for (auto [argIdx, arg] : llvm::enumerate(srcOp->getOperands())) {
       auto argType = mlir::cast<mlir::RankedTensorType>(arg.getType());
-      if (auto argTensorMeshShardingAttr =
-              mlir::dyn_cast_if_present<mlir::tt::TensorMeshShardingAttr>(
-                  argType.getEncoding())) {
-        // If pre-existing TensorMeshShardingAttr is different from the
-        // expected one, then fail.
+      auto argTensorMeshShardingAttr =
+          mlir::dyn_cast_if_present<mlir::tt::TensorMeshShardingAttr>(
+              argType.getEncoding());
+
+      if (!resultTensorMeshShardingAttr) {
+        if (!argTensorMeshShardingAttr) {
+          // Pass this arg if both arg and result are single device tensors.
+          continue;
+        } else {
+          // Fail if arg is multi device tensor while result is single device
+          // tensor. This should not happen.
+          srcOp->emitError()
+              << "Inconsistency found in TensorMeshShardingAttr : "
+                 "result is single device tensor while arg is "
+                 "multi device tensor.";
+          return llvm::failure();
+        }
+      }
+
+      // Check matching of mesh if both arg and result are multi-device tensors.
+      if (argTensorMeshShardingAttr && resultTensorMeshShardingAttr) {
         if (argTensorMeshShardingAttr.getName() !=
-            tensorMeshShardingAttr.getName()) {
+            resultTensorMeshShardingAttr.getName()) {
           srcOp->emitError()
               << "Inconsistency found in TensorMeshShardingAttr : expected ("
-              << tensorMeshShardingAttr.getName() << ") and current ("
+              << resultTensorMeshShardingAttr.getName() << ") and current ("
               << argTensorMeshShardingAttr.getName() << ") are different.";
+          return llvm::failure();
         }
+      }
+
+      if (checkIfArgIsFuncArg(funcOp, arg)) {
         continue;
       }
-      mlir::Type elementType = argType.getElementType();
-      llvm::ArrayRef<int64_t> shape = argType.getShape();
-      arg.setType(mlir::RankedTensorType::get(shape, elementType,
-                                              tensorMeshShardingAttr));
+
+      arg.setType(mlir::RankedTensorType::get(
+          argType.getShape(), argType.getElementType(),
+          adjustOpSepcificTensorMeshShardingAttr(
+              builder, srcOp, argIdx, argType, argTensorMeshShardingAttr,
+              resultType, resultTensorMeshShardingAttr)));
     }
-  } else {
-    // Result is single device tensor and thus expects args to be single
-    // device tensors. If we find inconsistency due to one of the args with
-    // multi-device tensor, insert MeshShardOp before the op and change the
-    // tensor to single device tensor.
-    for (auto arg : srcOp->getOperands()) {
-      auto argType = mlir::cast<mlir::RankedTensorType>(arg.getType());
-      if (auto argTensorMeshShardingAttr =
-              mlir::dyn_cast_if_present<mlir::tt::TensorMeshShardingAttr>(
-                  argType.getEncoding())) {
-        mlir::tt::sharding_utils::MeshSharding meshSharding;
-        meshSharding.extractMeshShardingFromTensorMeshShardingAttr(
-            meshes.getMesh(argTensorMeshShardingAttr.getName().str()),
-            argTensorMeshShardingAttr,
-            mlir::tt::MeshShardDirection::ShardToFull);
+    // llvm::outs() << "++++++++++++++++++++++++++++++++++\n";
+    // srcOp->dump();
+    // llvm::outs() << "++++++++++++++++++++++++++++++++++\n";
 
-        mlir::Type elementType = argType.getElementType();
-        llvm::ArrayRef<int64_t> shape = argType.getShape();
+    return llvm::success();
+  };
 
-        builder.setInsertionPoint(srcOp);
+  funcOp->walk<mlir::WalkOrder::PostOrder, mlir::ReverseIterator>(
+      [&](mlir::Operation *op) {
+        // Skip ReturnOp, FuncOp, and MeshShardOp and visit the other ops
+        // to adjust per-op tensor annotations from back to front.
+        if (mlir::isa<mlir::func::ReturnOp, mlir::func::FuncOp,
+                      mlir::tt::ttir::MeshShardOp>(op)) {
+          return mlir::WalkResult::skip();
+        }
+        if (failed(adjustPerOpMultiDeviceTensorAnnotations(builder, op))) {
+          return mlir::WalkResult::interrupt();
+        }
+        return mlir::WalkResult::advance();
+      });
 
-        auto meshShardOp =
-            mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::MeshShardOp>(
-                builder, srcOp->getLoc(),
-                mlir::RankedTensorType::get(shape, elementType), arg,
-                meshSharding.getShardType(), meshSharding.getShardDirection(),
-                meshSharding.getShardShape(), meshSharding.getShardDims());
+  return llvm::success();
+}
 
-        srcOp->replaceUsesOfWith(arg, meshShardOp.getResult());
+// Last step is to clear all TensorMeshShardingAttr axes from the tensors
+// in the graph and adjust the shape accordingly. This step allows us to
+// maintain the SPMD style shape of all tensors. All tensors except args and
+// returns of functions/meshShardOps are not supposed to have
+// TensorMeshShardingAttrAxes.
+llvm::LogicalResult
+removeTensorMeshShardingAttrAxes(mlir::OpBuilder &builder,
+                                 mlir::func::FuncOp &funcOp) {
+  auto updateShapeAndClearTensorShardingAttrAxes =
+      [](mlir::Operation *srcOp, mlir::RankedTensorType argType,
+         bool includeEncoding = true) -> mlir::RankedTensorType {
+    auto argTensorMeshShardingAttr =
+        mlir::dyn_cast_if_present<mlir::tt::TensorMeshShardingAttr>(
+            argType.getEncoding());
+    if (!argTensorMeshShardingAttr) {
+      return argType;
+    }
+    auto argTensorMeshShardingAttrAxes =
+        argTensorMeshShardingAttr.getTensorMeshShardingAxis();
+    if (argTensorMeshShardingAttrAxes.empty()) {
+      return argType;
+    }
+
+    // This multi-device tensor has TensorMeshShardingAttrAxes, so adjust shape.
+    llvm::SmallVector<int64_t> argShape(argType.getShape().begin(),
+                                        argType.getShape().end());
+    for (auto [idx, axis] : llvm::enumerate(argTensorMeshShardingAttrAxes)) {
+      if (argShape[idx] != 1) {
+        argShape[idx] = argShape[idx] / axis.getShardShape();
       }
     }
-  }
+    // New argType with adjusted shape and without TensorMeshShardingAttrAxes.
+    return mlir::RankedTensorType::get(
+        argShape, argType.getElementType(),
+        ((includeEncoding)
+             ? TensorMeshShardingAttr::get(srcOp->getContext(),
+                                           argTensorMeshShardingAttr.getName())
+             : nullptr));
+  };
+
+  // Some ops needs to adjust attirbutes if the output size has changed.
+  // Current ops are BroadcastOp and ReshapeOp, but it can be extended as we
+  // test more graphs with various ops.
+  auto adjustOpAttribute = [](mlir::OpBuilder &builder,
+                              mlir::Operation *srcOp) {
+    if (auto broadcastOp = mlir::dyn_cast<mlir::tt::ttir::BroadcastOp>(srcOp)) {
+      llvm::ArrayRef<int64_t> broadcastDimensions =
+          broadcastOp.getBroadcastDimensions();
+      auto resultShape =
+          mlir::cast<mlir::RankedTensorType>(srcOp->getResult(0).getType())
+              .getShape();
+      llvm::SmallVector<int64_t> updatedBroadcastDimensions;
+      for (auto [d, s] : llvm::zip_equal(broadcastDimensions, resultShape)) {
+        if (d == 1) {
+          updatedBroadcastDimensions.push_back(1);
+        } else {
+          updatedBroadcastDimensions.push_back(s);
+        }
+      }
+      broadcastOp.setBroadcastDimensions(updatedBroadcastDimensions);
+    } else if (auto reshapeOp =
+                   mlir::dyn_cast<mlir::tt::ttir::ReshapeOp>(srcOp)) {
+      auto resultShape =
+          mlir::cast<mlir::RankedTensorType>(srcOp->getResult(0).getType())
+              .getShape();
+      llvm::SmallVector<int32_t> reshape(resultShape.begin(),
+                                         resultShape.end());
+      auto reshapeDimAttr = builder.getI32ArrayAttr(reshape);
+      reshapeOp.setShapeAttr(reshapeDimAttr);
+    }
+  };
+
+  funcOp->walk<mlir::WalkOrder::PostOrder, mlir::ReverseIterator>(
+      [&](mlir::Operation *srcOp) {
+        // Skip ReturnOp as we are not supposed to change the shape of
+        // inputs/outputs of a graph.
+        if (mlir::isa<mlir::func::ReturnOp, mlir::func::FuncOp>(srcOp)) {
+          return mlir::WalkResult::skip();
+        }
+        for (auto [argIdx, arg] : llvm::enumerate(srcOp->getOperands())) {
+          if (auto meshShardOp =
+                  mlir::dyn_cast<mlir::tt::ttir::MeshShardOp>(srcOp)) {
+            auto shardDirection = meshShardOp.getShardDirection();
+            if ((shardDirection == mlir::tt::MeshShardDirection::ShardToFull &&
+                 argIdx == 1) ||
+                (shardDirection == mlir::tt::MeshShardDirection::FullToShard &&
+                 argIdx == 0)) {
+              continue;
+            }
+          }
+          if (checkIfArgIsFuncArg(funcOp, arg)) {
+            continue;
+          }
+          auto updatedType = updateShapeAndClearTensorShardingAttrAxes(
+              srcOp, mlir::cast<mlir::RankedTensorType>(arg.getType()));
+          if (arg.getType() != updatedType) {
+            // update arg shape and clear TensorMeshShardingAttr axes.
+            arg.setType(updatedType);
+            // adjust op attributes if needed
+            adjustOpAttribute(builder, srcOp);
+          }
+        }
+        // During the conversion of stablehlo to ttir, some constants may have
+        // sharding axes with full shape. Thus, we need to remove the sharding
+        // axes and adjust the shape.
+        if (auto constantOp =
+                mlir::dyn_cast<mlir::tt::ttir::ConstantOp>(srcOp)) {
+          auto constantElementsAttr = constantOp.getValue();
+          if (!constantElementsAttr.isSplat()) {
+            // Unable to apply sharding to non-splat constants.
+            // Do not throw error here as this will cause some issue when
+            // validating the graph.
+            return mlir::WalkResult::advance();
+          }
+          auto constantElementsAttrType = mlir::cast<mlir::RankedTensorType>(
+              constantElementsAttr.getType());
+          Attribute constantValue =
+              constantElementsAttr.getSplatValue<Attribute>();
+          auto updatedType = updateShapeAndClearTensorShardingAttrAxes(
+              srcOp, constantElementsAttrType, false);
+          if (constantElementsAttrType != updatedType) {
+            constantOp.setValueAttr(
+                mlir::SplatElementsAttr::get(updatedType, constantValue));
+          }
+        }
+        return mlir::WalkResult::advance();
+      });
+
   return llvm::success();
 }
 
 // This pass is to clean up the tensor annotations in the module.
-// In particular, we find two use cases:
-// 1. Single device tensor op has multi device tensor argument in a single op.
-// In this case, we need to insert MeshShardOp before the op and change the
-// tensor to single device tensor.
-// 2. Multi device tensor ops have missing multi device tensor annotation in
-// case of automatic parallelism with pre-sharded inputs and outputs. In this
-// case, we need to add missing TensorMeshShardingAttr.
+// 1. Insert missing MeshShardOp for args/rets.
+// 2. Propagate tensor shardings from back to front and fix unmatched
+// TensorMeshShardingAttr between args and output in a single op.
+// 3. Remove TensorMeshShardingAttrAxes and adjust shape of all intermediate
+// tensors.
 class TTIRTensorAnnotationCleanupPass
     : public mlir::PassWrapper<TTIRTensorAnnotationCleanupPass,
                                mlir::OperationPass<mlir::ModuleOp>> {
@@ -548,34 +959,65 @@ public:
     auto meshes = moduleOp->getAttrOfType<mlir::tt::MeshesAttr>(
         mlir::tt::MeshesAttr::name);
 
-    // We regard a module without meshes as a module only containing single
-    // device tensors. Thus, skip this pass.
-    if (!meshes) {
+    auto checkIfSingleDeviceMeshes = [](mlir::tt::MeshesAttr meshes) -> bool {
+      // Single device mesh is determined if the module has no meshes or has
+      // only a single device mesh shape (e.g., 1x1).
+      if (!meshes) {
+        return true;
+      }
+      for (auto mesh : meshes.getMeshes()) {
+        auto meshShape = mesh.getShape();
+        if (std::any_of(meshShape.begin(), meshShape.end(),
+                        [](int64_t dim) { return dim != 1; })) {
+          return false;
+        }
+      }
+      return true;
+    };
+
+    if (checkIfSingleDeviceMeshes(meshes)) {
       return;
     }
 
-    // Visit all functions and analyze each op from backward in order to
-    // determine either single or multidevcie computation context.
-    for (auto funcOp : moduleOp.getOps<mlir::func::FuncOp>()) {
-      llvm::SmallVector<mlir::Operation *> orderedOps;
-      funcOp->walk<mlir::WalkOrder::PostOrder, mlir::ReverseIterator>(
-          [&](mlir::Operation *op) {
-            // ReturnOp is the root of this analysis and thus shouldn't be
-            // touched. MeshShardOps are ones that convert single to multi
-            // device tensor or vice versa, so do not need to be analyzed.
-            if (mlir::isa<mlir::func::ReturnOp, mlir::tt::ttir::MeshShardOp>(
-                    op)) {
-              return mlir::WalkResult::skip();
-            }
-            orderedOps.push_back(op);
-            return mlir::WalkResult::advance();
-          });
+    auto checkIfMeshShardOpExists = [](mlir::func::FuncOp funcOp) -> bool {
+      bool foundMeshShardOp = false;
+      funcOp.walk([&](mlir::tt::ttir::MeshShardOp op) {
+        foundMeshShardOp = true;
+        return mlir::WalkResult::interrupt();
+      });
+      return foundMeshShardOp;
+    };
 
-      for (mlir::Operation *op : orderedOps) {
-        if (failed(analyzeSingleOpAndFixWrongTensorAnnotation(meshes, op,
-                                                              builder))) {
-          signalPassFailure();
-        }
+    // Visit all functions (pretty much single function due to inliner pass)
+    // and performs either (1) adding missing meshShardOp for formally sharded
+    // graph or (2) performing fully sharding propagation and adjustment for
+    // non-sharded graph with automatic parallelism.
+    for (auto funcOp : moduleOp.getOps<mlir::func::FuncOp>()) {
+      bool isPreShardedWithShardMap = checkIfMeshShardOpExists(funcOp);
+      if (failed(insertMissingMeshShardOps(builder, funcOp, meshes,
+                                           isPreShardedWithShardMap))) {
+        signalPassFailure();
+      }
+      if (isPreShardedWithShardMap) {
+        // (1) Skip if the function is pre-sharded with shard map.
+        continue;
+      }
+
+      // (2) Propagate tensor shardings from back to front and fix unmatched
+      // TensorMeshShardingAttr between args and output in a single op.
+      if (failed(adjustMultiDeviceTensorAnnotations(builder, funcOp))) {
+        signalPassFailure();
+      }
+
+      // Lastly, adjust shape and clear up tensor annotations in a graph.
+      // e.g., A full shape with TensorMeshShardingAttrAxes,
+      // tensor<1024x1024xf32, #tt.mesh_sharding<"mesh", [ 8(1), 1]>>,
+      // becomes a sharded shape without TensorMeshShardingAttrAxes,
+      // tensor<128x1024xf32, #tt.mesh_sharding<"mesh">>.
+      // Note that we allows a full shape with TensorMeshShardingAttrAxes in
+      // both args/rets of functions and meshShardOps.
+      if (failed(removeTensorMeshShardingAttrAxes(builder, funcOp))) {
+        signalPassFailure();
       }
     }
   }
