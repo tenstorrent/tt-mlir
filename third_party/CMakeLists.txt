@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "1a9bf1ab81550daf2031b928e7152aabf1396260")
+set(TT_METAL_VERSION "74fbcad94c93f9ab63445f4b15319a92b656dfd7")
 
 file(GLOB XTENSOR_INCLUDE_DIRS "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/xtensor/*/include")
 file(GLOB XTENSOR_BLAS_INCLUDE_DIRS "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/xtensor-blas/*/include")
