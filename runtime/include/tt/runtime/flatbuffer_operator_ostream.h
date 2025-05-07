@@ -18,7 +18,7 @@
 
 #include "flatbuffers/idl.h"
 
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/logger.h"
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
 #include "ttmlir/Target/TTMetal/binary_bfbs_generated.h"

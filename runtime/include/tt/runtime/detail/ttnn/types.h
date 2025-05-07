@@ -6,7 +6,7 @@
 #define TT_RUNTIME_DETAIL_TTNN_TYPES_H
 
 #include "tt/runtime/detail/dylib.h"
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/logger.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/types.h"

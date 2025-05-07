@@ -4,7 +4,7 @@
 
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/detail/common.h"
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/logger.h"
 #include "tt/runtime/detail/ttnn/debug_apis.h"
 #include "tt/runtime/detail/ttnn/types.h"
 #include "tt/runtime/workarounds.h"

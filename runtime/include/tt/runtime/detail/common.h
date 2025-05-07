@@ -10,7 +10,7 @@
 #define FMT_HEADER_ONLY
 #include "tt-metalium/host_api.hpp"
 
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/logger.h"
 #include "tt/runtime/types.h"
 
 namespace tt::runtime::common {

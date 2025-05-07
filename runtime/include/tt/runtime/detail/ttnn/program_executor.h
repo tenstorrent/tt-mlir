@@ -7,7 +7,7 @@
 
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/dylib.h"
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/logger.h"
 #include "tt/runtime/detail/ttnn/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/tensor_cache.h"

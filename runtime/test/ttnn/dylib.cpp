@@ -4,7 +4,7 @@
 
 #include "tt/runtime/detail/ttnn/test/dylib.h"
 
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/logger.h"
 #include "tt/runtime/detail/ttnn/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/runtime.h"

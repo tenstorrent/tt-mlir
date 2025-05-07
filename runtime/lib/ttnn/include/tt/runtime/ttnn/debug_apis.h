@@ -2,17 +2,18 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TT_RUNTIME_DETAIL_TTNN_DEBUG_APIS_H
-#define TT_RUNTIME_DETAIL_TTNN_DEBUG_APIS_H
+#ifndef TT_RUNTIME_TTNN_DEBUG_APIS_H
+#define TT_RUNTIME_TTNN_DEBUG_APIS_H
 
 #include "tt/runtime/logger.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
+#include "tt/runtime/detail/ttnn.h"
 #include "ttmlir/Target/TTNN/Target.h"
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-#define RUNTIME_DEBUG_MAYBE_INLINE
+#define RUNTIME_DEBUG_MAYBE_CONST_INLINE
 #else
-#define RUNTIME_DEBUG_MAYBE_INLINE inline __attribute__((always_inline))
+#define RUNTIME_DEBUG_MAYBE_CONST_INLINE                                       \
+  inline __attribute__((always_inline, const))
 #endif
 
 namespace tt::runtime::ttnn::debug {
@@ -62,7 +63,7 @@ inline std::string toString(const ::ttnn::StorageType &storageType) {
   }
 }
 
-RUNTIME_DEBUG_MAYBE_INLINE void
+RUNTIME_DEBUG_MAYBE_CONST_INLINE void
 checkTensorRefMatchesTTNNTensor(const ::tt::target::ttnn::TensorRef *tensorRef,
                                 const ::ttnn::Tensor &ttnnTensor)
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
@@ -72,8 +73,8 @@ checkTensorRefMatchesTTNNTensor(const ::tt::target::ttnn::TensorRef *tensorRef,
 }
 #endif
 
-#undef RUNTIME_DEBUG_MAYBE_INLINE
+#undef RUNTIME_DEBUG_MAYBE_CONST_INLINE
 
 } // namespace tt::runtime::ttnn::debug
 
-#endif // TT_RUNTIME_DETAIL_TTNN_DEBUG_APIS_H
+#endif // TT_RUNTIME_TTNN_DEBUG_APIS_H

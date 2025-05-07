@@ -4,7 +4,7 @@
 
 #include "tt/runtime/detail/dylib.h"
 
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/logger.h"
 
 namespace tt::runtime::common {
 

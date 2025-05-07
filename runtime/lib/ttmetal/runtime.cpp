@@ -6,7 +6,7 @@
 
 #include "tracy/Tracy.hpp"
 #include "tt/runtime/detail/common.h"
-#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/logger.h"
 #include "tt/runtime/detail/ttmetal/ttmetal.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
