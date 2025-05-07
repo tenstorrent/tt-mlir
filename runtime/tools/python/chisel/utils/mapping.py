@@ -243,4 +243,5 @@ ttir_to_torch_mapping = {
         unpack_inputs=False,
     ),
     "ttir.neg": OpMapping(torch.neg),
+    "ttir.abs": OpMapping(torch.abs),
 }
