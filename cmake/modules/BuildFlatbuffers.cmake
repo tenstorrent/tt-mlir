@@ -24,6 +24,7 @@ foreach(FILE ${sources})
     ARGS --cpp --cpp-std c++17
     ARGS --scoped-enums --warnings-as-errors
     ARGS --keep-prefix
+    ARGS --gen-name-strings
     ARGS -o "${CMAKE_CURRENT_BINARY_DIR}/${FILE_DIR}/" "${FILE}"
     DEPENDS ${FILE} ${deps} ${sources}
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})

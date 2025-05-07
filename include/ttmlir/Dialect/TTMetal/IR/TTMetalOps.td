@@ -60,10 +60,8 @@ def TTMetal_CreateBufferOp : TTMetal_Op<"create_buffer", [MemoryEffects<[MemAllo
       Create buffer operation
     }];
 
-    let arguments = (ins I64Attr:$address, I64Attr:$size, TT_MemorySpaceAttr:$memory_space);
+    let arguments = (ins I64Attr:$address);
     let results = (outs AnyNon0RankedMemRef:$result);
-
-    let hasVerifier = 1;
 }
 
 def TTMetal_DeallocateBufferOp : TTMetal_Op<"deallocate_buffer", [MemoryEffects<[MemFree]>]> {

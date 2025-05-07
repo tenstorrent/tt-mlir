@@ -45,10 +45,6 @@ toTTNNStorageType(::tt::target::ttnn::StorageType storageType);
 ::ttnn::Layout
 inferLayoutFromTileShape(const ::tt::target::ttnn::TensorRef *tensorRef);
 
-CoreRangeSet
-toCoreRangeSet(const ::flatbuffers::Vector<const ::tt::target::Dim2dRange *>
-                   *coreRangeSet);
-
 CoreCoord toTTNNCoreCoord(const ::tt::target::ttnn::CoreCoord &coreCoord);
 
 CoreRange toTTNNCoreRange(const tt::target::ttnn::CoreRange &coreRange);

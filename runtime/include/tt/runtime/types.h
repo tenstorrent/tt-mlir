@@ -105,6 +105,14 @@ struct TensorDesc {
   std::vector<std::uint32_t> stride;
   std::uint32_t itemsize;
   ::tt::target::DataType dataType;
+
+  TensorDesc() = default;
+  TensorDesc(const std::vector<std::uint32_t> &shape,
+             const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+             ::tt::target::DataType dataType)
+      : shape(shape), stride(stride), itemsize(itemsize), dataType(dataType) {}
+
+  std::uint32_t size() const { return shape[0] * stride[0] * itemsize; }
 };
 
 struct MemoryView {

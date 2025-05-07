@@ -183,10 +183,6 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
                            std::vector<Tensor> &inputs);
 
-Event submit(Device deviceHandle, Binary executableHandle,
-             std::uint32_t programIndex, const std::vector<Tensor> &inputs,
-             const std::vector<Tensor> &outputs);
-
 } // namespace tt::runtime
 
 #endif
