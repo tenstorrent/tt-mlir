@@ -250,7 +250,8 @@ public:
     }
 
     static_assert(ttir::utils::has_dps_trait_v<TTIROpTy>);
-    auto inputs = adaptor.getOperands().drop_back(op.getNumDpsInits());
+    auto inputs =
+        ttir::utils::getDpsInputsFromAdaptor(adaptor, op.getNumDpsInits());
     rewriter.replaceOpWithNewOp<TTNNOpTy>(op, resultTypes, inputs);
     return success();
   }

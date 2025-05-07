@@ -390,7 +390,6 @@ def compile_to_flatbuffer(
 
     module_dump: bool
         Set to `True` to print out generated TTIR MLIR module.
-
     """
 
     if inputs_types is not None:
