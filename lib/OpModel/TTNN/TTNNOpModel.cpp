@@ -216,16 +216,20 @@ bool isLayoutLegalForTensorShape(llvm::ArrayRef<int64_t> tensorShape,
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
-static ::tt::tt_metal::OwnedStorage
-createOwnedStorage(std::uint32_t numElements,
-                   ::tt::tt_metal::DataType dataType) {
+static ::tt::tt_metal::HostStorage
+createHostStorage(std::uint32_t numElements,
+                  ::tt::tt_metal::DataType dataType) {
   switch (dataType) {
-  case ::tt::tt_metal::DataType::FLOAT32:
-    return ::tt::tt_metal::OwnedStorage(
-        ::tt::tt_metal::owned_buffer::create<float>(numElements));
-  case ::tt::tt_metal::DataType::BFLOAT16:
-    return ::tt::tt_metal::OwnedStorage(
-        ::tt::tt_metal::owned_buffer::create<bfloat16>(numElements));
+  case ::tt::tt_metal::DataType::FLOAT32: {
+    std::vector<float> data(numElements);
+    return ::tt::tt_metal::HostStorage(
+        ::tt::tt_metal::host_buffer::create<float>(data));
+  }
+  case ::tt::tt_metal::DataType::BFLOAT16: {
+    std::vector<bfloat16> data(numElements);
+    return ::tt::tt_metal::HostStorage(
+        ::tt::tt_metal::host_buffer::create<bfloat16>(data));
+  }
   default:
     llvm::report_fatal_error("Unsupported data type");
   }
@@ -242,7 +246,7 @@ createMetalHostTensor(llvm::ArrayRef<int64_t> shape,
   }
 
   auto metalDataType = conversion::getDataType(dataType);
-  auto storage = createOwnedStorage(volume, metalDataType);
+  auto storage = createHostStorage(volume, metalDataType);
   auto metalShape = conversion::getShape(shape);
   return ::tt::tt_metal::Tensor(storage, metalShape, metalDataType,
                                 ::tt::tt_metal::Layout::ROW_MAJOR);
@@ -314,7 +318,7 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
-        hasBias, groups, device, localConfig, std::nullopt);
+        hasBias, groups, device, localConfig, std::nullopt, std::nullopt);
   };
 
   auto output = operation::executeConstraintQuery(prepareConv2dWeightsOpQuery);

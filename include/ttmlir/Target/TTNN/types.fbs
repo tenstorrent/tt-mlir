@@ -11,9 +11,8 @@ enum TensorMemoryLayout: ushort {
 }
 
 enum StorageType: ushort {
-    Owned,
+    Host,
     Device,
-    Borrowed,
     MultiDeviceHost,
 }
 

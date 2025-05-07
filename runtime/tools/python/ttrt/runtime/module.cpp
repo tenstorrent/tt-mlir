@@ -9,8 +9,8 @@
 #include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
 #if defined(TTMLIR_ENABLE_RUNTIME_TESTS) && TTMLIR_ENABLE_RUNTIME_TESTS == 1
-#include "tt/runtime/ttnn/test/dylib.h"
-#include "tt/runtime/ttnn/test/utils.h"
+#include "tt/runtime/detail/ttnn/test/dylib.h"
+#include "tt/runtime/detail/ttnn/test/utils.h"
 #endif
 
 #include <pybind11/functional.h>
@@ -243,19 +243,6 @@ PYBIND11_MODULE(_C, m) {
       py::arg("inputs"),
       "Submit a ttnn binary for execution, returns a vector of output tensors."
       "The input tensors will be moved and consumed.");
-  m.def(
-      "submit",
-      [](::tt::runtime::Device device, ::tt::runtime::Binary executable,
-         std::uint32_t programIndex,
-         const std::vector<::tt::runtime::Tensor> &inputs,
-         const std::vector<::tt::runtime::Tensor> &outputs)
-          -> ::tt::runtime::Event {
-        return ::tt::runtime::submit(device, executable, programIndex, inputs,
-                                     outputs);
-      },
-      py::arg("device"), py::arg("executable"), py::arg("program_index"),
-      py::arg("inputs"), py::arg("outputs"),
-      "Submit a ttmetal binary for execution. returns event wrapper");
   m.def(
       "wait", [](::tt::runtime::Event event) { ::tt::runtime::wait(event); },
       py::arg("event"));

@@ -51,9 +51,9 @@ public:
       newEltwiseOperands.push_back(newTM);
     }
 
-    newEltwiseOperands.push_back(
-        rewriter.create<ttir::EmptyOp>(op->getLoc(), newEltwiseType.getShape(),
-                                       newEltwiseType.getElementType()));
+    newEltwiseOperands.push_back(rewriter.create<ttir::EmptyOp>(
+        op->getLoc(), newEltwiseType.getShape(),
+        newEltwiseType.getElementType(), newEltwiseType.getEncoding()));
 
     Operation *newEltwise = rewriter.create(
         op->getLoc(), rewriter.getStringAttr(op->getName().getStringRef()),

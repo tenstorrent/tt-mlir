@@ -4,9 +4,9 @@
 
 #include "operations/data_movement/reshape.h"
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
 
-#include "tt/runtime/ttnn/utils.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::ReshapeOp *op, ProgramContext &context) {

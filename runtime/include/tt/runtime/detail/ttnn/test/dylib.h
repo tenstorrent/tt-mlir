@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TT_RUNTIME_TEST_DYLIB_H
-#define TT_RUNTIME_TEST_DYLIB_H
+#ifndef TT_RUNTIME_DETAIL_TTNN_TEST_DYLIB_H
+#define TT_RUNTIME_DETAIL_TTNN_TEST_DYLIB_H
 
 #include "tt/runtime/types.h"
 
@@ -15,4 +15,4 @@ std::vector<Tensor> runSoProgram(void *so, std::string func_name,
 bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs);
 } // namespace tt::runtime::ttnn::test
 
-#endif // TT_RUNTIME_TEST_DYLIB_H
+#endif // TT_RUNTIME_DETAIL_TTNN_TEST_DYLIB_H

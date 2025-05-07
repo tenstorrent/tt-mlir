@@ -113,6 +113,20 @@ class Perf:
             help="Ignore check for Major/Minor/Patch between flatbuffer and TTRT, use at your own risk.",
         )
         Perf.register_arg(
+            name="--enable-program-cache",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="enable program cache in ttnn runtime",
+        )
+        Perf.register_arg(
+            name="--emitc",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="toggles emitc testing",
+        )
+        Perf.register_arg(
             name="binary",
             type=str,
             default="",
@@ -406,6 +420,12 @@ class Perf:
 
                     if self["--disable-golden"]:
                         command_options += " --disable-golden "
+
+                    if self["--enable-program-cache"]:
+                        command_options += " --enable-program-cache "
+
+                    if self["--emitc"]:
+                        command_options += " --emitc "
 
                     ttrt_executable_path = shutil.which("ttrt")
                     test_command = (

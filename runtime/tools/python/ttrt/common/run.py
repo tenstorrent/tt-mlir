@@ -110,11 +110,32 @@ class Run:
             help="seed for random number generator",
         )
         Run.register_arg(
+            name="--dump-kernels-to-disk",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="dump the kernels to disk (/tmp) as they are being executed",
+        )
+        Run.register_arg(
             name="--load-kernels-from-disk",
             type=bool,
             default=False,
             choices=[True, False],
-            help="pickup the kernels from disk (/tmp) instead of the flatbuffer",
+            help="pickup the kernels from disk (/tmp) instead of the flatbuffer, must have previously run with --dump-kernels-to-disk",
+        )
+        Run.register_arg(
+            name="--disable-device-address-validation",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="validate device addresses are in legal ranges",
+        )
+        Run.register_arg(
+            name="--blocking-cq",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="enable blocking CQ mode device execution",
         )
         Run.register_arg(
             name="--disable-swap-binary-operands",
@@ -220,6 +241,13 @@ class Run:
             default="",
             choices=None,
             help="Verify tensor cache statistics. Format: 'hits:N,misses:M'",
+        )
+        Run.register_arg(
+            name="--enable-program-cache",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="enable program cache in ttnn runtime",
         )
         Run.register_arg(
             name="binary",
@@ -429,7 +457,12 @@ class Run:
                 self.logging.warning(f"no binaries found to run - returning early")
                 return
 
-            debug_env = ttrt.runtime.DebugEnv.get(self["--load-kernels-from-disk"])
+            debug_env = ttrt.runtime.DebugEnv.get(
+                self["--dump-kernels-to-disk"],
+                self["--load-kernels-from-disk"],
+                not self["--disable-device-address-validation"],
+                self["--blocking-cq"],
+            )
             self.logging.debug(f"setting tt runtime debug env={debug_env}")
             workaround_env = ttrt.runtime.WorkaroundEnv.get(
                 not self["--disable-swap-binary-operands"],
@@ -450,6 +483,7 @@ class Run:
             mesh_shape = [1, len(self.query.device_ids)]
             mesh_options = ttrt.runtime.MeshDeviceOptions()
             mesh_options.dispatch_core_type = dispatch_core_type
+            mesh_options.enable_program_cache = self["--enable-program-cache"]
             device = ttrt.runtime.open_mesh_device(mesh_shape, mesh_options)
 
             for bin in binaries:
@@ -664,83 +698,68 @@ class Run:
                                             f"Cannot dirty input tensor {input_idx}, only {len(inputs)} inputs available"
                                         )
 
-                            if current_runtime == ttrt.runtime.DeviceRuntime.TTMetal:
-                                event = ttrt.runtime.submit(
-                                    device,
-                                    bin.fbb,
-                                    program_index,
-                                    inputs,
-                                    outputs,
+                            runtime_outputs = ttrt.runtime.submit(
+                                device,
+                                bin.fbb,
+                                program_index,
+                                inputs,
+                            )
+                            if self["--check-cache-stats"]:
+                                # Log cache stats after execution
+                                cache_stats = bin.fbb.get_tensor_cache().get_stats()
+                                hits = cache_stats.get("hits", 0)
+                                misses = cache_stats.get("misses", 0)
+                                self.logging.debug(
+                                    f"Tensor cache stats: hits={hits}, misses={misses}"
                                 )
 
-                            elif current_runtime == ttrt.runtime.DeviceRuntime.TTNN:
-                                runtime_outputs = ttrt.runtime.submit(
-                                    device,
-                                    bin.fbb,
-                                    program_index,
-                                    inputs,
+                            ttrt.runtime.wait(runtime_outputs)
+                            for i, runtime_output_tensor in enumerate(runtime_outputs):
+                                output_host = ttrt.runtime.to_host(
+                                    runtime_output_tensor, untilize=True
+                                )[0]
+                                ttrt.runtime.memcpy(
+                                    outputs[i],
+                                    output_host,
                                 )
-                                if self["--check-cache-stats"]:
-                                    # Log cache stats after execution
-                                    cache_stats = bin.fbb.get_tensor_cache().get_stats()
-                                    hits = cache_stats.get("hits", 0)
-                                    misses = cache_stats.get("misses", 0)
-                                    self.logging.debug(
-                                        f"Tensor cache stats: hits={hits}, misses={misses}"
-                                    )
+                                ttrt.runtime.deallocate_tensor(
+                                    runtime_output_tensor, force=True
+                                )
 
-                                ttrt.runtime.wait(runtime_outputs)
-                                for i, runtime_output_tensor in enumerate(
-                                    runtime_outputs
+                                # compare program level golden.
+                                if (not self["--disable-golden"]) and (
+                                    i < len(golden_outputs_torch)
                                 ):
-                                    output_host = ttrt.runtime.to_host(
-                                        runtime_output_tensor, untilize=True
-                                    )[0]
-                                    ttrt.runtime.memcpy(
-                                        outputs[i],
-                                        output_host,
+                                    self.logging.debug(
+                                        f"executing program level golden comparison for output_{i}"
                                     )
-                                    ttrt.runtime.deallocate_tensor(
-                                        runtime_output_tensor, force=True
-                                    )
-
-                                    # compare program level golden.
-                                    if (not self["--disable-golden"]) and (
-                                        i < len(golden_outputs_torch)
+                                    output_tensor = outputs[i]
+                                    output_tensor_torch = torch.frombuffer(
+                                        bytearray(output_tensor.get_data_buffer()),
+                                        dtype=ttrt_datatype_to_torch_dtype(
+                                            output_tensor.get_dtype()
+                                        ),
+                                    ).reshape(output_tensor.get_shape())
+                                    golden_tensor_torch = golden_outputs_torch[i]
+                                    if (
+                                        golden_tensor_torch.shape
+                                        != output_tensor_torch.shape
                                     ):
-                                        self.logging.debug(
-                                            f"executing program level golden comparison for output_{i}"
+                                        raise Exception(
+                                            f"Failed: program-level output doesn't match golden shape! golden_shape={golden_tensor_torch.shape}, output_shape={output_tensor_torch.shape}"
                                         )
-                                        output_tensor = outputs[i]
-                                        output_tensor_torch = torch.frombuffer(
-                                            bytearray(output_tensor.get_data_buffer()),
-                                            dtype=ttrt_datatype_to_torch_dtype(
-                                                output_tensor.get_dtype()
-                                            ),
-                                        ).reshape(output_tensor.get_shape())
-                                        golden_tensor_torch = golden_outputs_torch[i]
-                                        if (
-                                            golden_tensor_torch.shape
-                                            != output_tensor_torch.shape
-                                        ):
-                                            raise Exception(
-                                                f"Failed: program-level output doesn't match golden shape! golden_shape={golden_tensor_torch.shape}, output_shape={output_tensor_torch.shape}"
-                                            )
-                                        _, _, cal_pcc, _ = get_atol_rtol_pcc(
-                                            golden_tensor_torch,
-                                            output_tensor_torch,
-                                            self.logging,
+                                    _, _, cal_pcc, _ = get_atol_rtol_pcc(
+                                        golden_tensor_torch,
+                                        output_tensor_torch,
+                                        self.logging,
+                                    )
+                                    if cal_pcc < post_op_callback_runtime_config.pcc:
+                                        raise PCCErrorException(
+                                            f"Failed: prgram-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={post_op_callback_runtime_config.pcc}"
                                         )
-                                        if (
-                                            cal_pcc
-                                            < post_op_callback_runtime_config.pcc
-                                        ):
-                                            raise PCCErrorException(
-                                                f"Failed: prgram-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={post_op_callback_runtime_config.pcc}"
-                                            )
-                                        self.logging.debug(
-                                            f"Program level golden for output_{idx} matched. pcc={cal_pcc}"
-                                        )
+                                    self.logging.debug(
+                                        f"Program level golden for output_{idx} matched. pcc={cal_pcc}"
+                                    )
 
                             self.logging.debug(
                                 f"finished loop={loop+1}/{self['--loops']} for binary={bin.file_path}"

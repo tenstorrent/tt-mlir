@@ -160,7 +160,7 @@ bool LegalLayoutAnalysis::applyOverrides() {
   }
 
   if (layoutOverride.memoryLayout == Layout::Tile) {
-    elementType = TileType::get(op->getContext(), elementType);
+    elementType = TileType::get(elementType);
   }
 
   analysisResult.push_back(TTNNLayoutAttr::get(

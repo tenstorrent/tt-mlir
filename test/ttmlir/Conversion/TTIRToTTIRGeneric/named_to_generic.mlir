@@ -30,7 +30,17 @@ module {
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: ttir.tile_log
     %3 = "ttir.log"(%2, %out) : (!ttype, !ttype) -> !ttype
-    return %3: !ttype
+    // named elementwise op, binary:
+    // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: ttir.tile_maximum
+    %4 = "ttir.maximum"(%2, %3, %out) : (!ttype, !ttype, !ttype) -> !ttype
+    // named elementwise op, unary:
+    // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: ttir.tile_sin
+    %5 = "ttir.sin"(%4, %out) : (!ttype, !ttype) -> !ttype
+    return %5: !ttype
   }
 
   // CHECK-LABEL: func @named_reductions_R
