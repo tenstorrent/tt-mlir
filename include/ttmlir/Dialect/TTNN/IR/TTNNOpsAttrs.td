@@ -147,7 +147,26 @@ def TTNN_ShardModeAttr : EnumAttr<TTNN_Dialect, TTNN_ShardMode, "shard_mode"> {
 def TTNN_ShardSpecAttr : TTNN_Attr<"ShardSpec", "shard_spec"> {
   let summary = "TTNN ShardSpec attribute";
   let description = [{
-    TTNN ShardSpec attribute
+    The `ShardSpecAttr` defines how a tensor is sharded across multiple cores in the Tenstorrent hardware.
+
+    This attribute specifies:
+    - Which cores the tensor is distributed across (via CoreRangeSet)
+    - The shape of each shard
+    - The orientation of the sharding (row_major, column_major, etc.)
+    - The sharding mode (physical, logical)
+    - The physical shard shape that is only present if the sharding mode isn't physical
+
+    ShardSpec is used within MemoryConfigAttr to specify sharding information for tensors
+    stored in L1 memory with sharded memory layouts (block_sharded, width_sharded, or height_sharded).
+
+    Example:
+    ```mlir
+    #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0,0), (7, 0)>]>, <32x128>, <row_major>, <physical>>
+    #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0,0), (7, 0)>]>, <32x128>, <row_major>, <logical>, <32x128>>
+    ```
+
+    This attribute is optional in the MemoryConfigAttr and should only be present
+    when the tensor memory layout is one of the sharded layouts.
   }];
 
   let parameters = (ins "CoreRangeSetAttr": $coreRangeSet,
@@ -180,14 +199,28 @@ def TTNN_ShardSpecAttr : TTNN_Attr<"ShardSpec", "shard_spec"> {
 def TTNN_MemoryConfigAttr : TTNN_Attr<"MemoryConfig", "memory_config"> {
   let summary = "TTNN MemoryConfig attribute";
   let description = [{
-    TTNN memory config attribute
+    The `MemoryConfigAttr` defines how a tensor is stored in memory on Tenstorrent hardware.
+
+    This attribute specifies:
+    - `bufferType` - specifies which memory type to use (L1, DRAM, System Memory).
+    - `tensorMemoryLayout` - defines how the tensor is laid out in memory (interleaved, single_bank, block_sharded, width_sharded, height_sharded)
+    - `shardSpec` - optional parameter is only used with sharded memory layouts and defines how the tensor is distributed across multiple cores.
+
+    Examples:
+    ```mlir
+    // Simple interleaved memory in DRAM
+    #ttnn.memory_config<#dram, <interleaved>>
+
+    // L1 memory with block sharding across cores
+    #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0,0), (7, 0)>]>, <32x128>, <row_major>, <physical>>>
+    ```
   }];
 
-  let parameters = (ins "BufferTypeAttr":$bufferType,
-                    OptionalParameter<"TensorMemoryLayoutAttr">:$tensorMemoryLayout,
-                    OptionalParameter<"ShardSpecAttr">:$shardSpec);
+  let parameters = (ins OptionalParameter<"TensorMemoryLayoutAttr">:$tensorMemoryLayout,
+                    "BufferTypeAttr":$bufferType,
+                    OptionalParameter<"std::optional<ShardSpecAttr>">:$shardSpec);
 
-  let assemblyFormat = "`<` params `>`";
+  let assemblyFormat = "`<` $bufferType (`,` $tensorMemoryLayout^ )? (`,` $shardSpec^ )? `>`";
 
   let extraClassDeclaration = [{
     llvm::ArrayRef<int64_t> getShardShape(bool convertTileToScalar = true) const;

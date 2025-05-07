@@ -8,6 +8,8 @@
 #include "ttmlir-c/TTNNAttrs.h"
 
 #include <nanobind/stl/optional.h>
+#include <optional>
+
 namespace mlir::ttmlir::python {
 void populateTTNNModule(nb::module_ &m) {
 
@@ -71,18 +73,16 @@ void populateTTNNModule(nb::module_ &m) {
       });
 
   tt_attribute_class<tt::ttnn::MemoryConfigAttr>(m, "MemoryConfigAttr")
-      .def_static("get",
-                  [](MlirContext ctx,
-                     tt::ttnn::TensorMemoryLayoutAttr tensorMemoryLayoutAttr,
-                     tt::ttnn::BufferTypeAttr bufferTypeAttr,
-                     tt::ttnn::ShardSpecAttr shardSpecAttr) {
-                    return wrap(tt::ttnn::MemoryConfigAttr::get(
-                        unwrap(ctx), bufferTypeAttr, tensorMemoryLayoutAttr,
-                        shardSpecAttr));
-                  })
+      .def_static(
+          "get",
+          [](MlirContext ctx, MlirAttribute tensorMemoryLayoutAttr,
+             MlirAttribute bufferTypeAttr, MlirAttribute shardSpecAttr) {
+            return ttmlirTTNNMemoryConfigAttrGet(ctx, tensorMemoryLayoutAttr,
+                                                 bufferTypeAttr, shardSpecAttr);
+          })
+      .def_prop_ro("buffer_type", &tt::ttnn::MemoryConfigAttr::getBufferType)
       .def_prop_ro("tensor_memory_layout",
                    &tt::ttnn::MemoryConfigAttr::getTensorMemoryLayout)
-      .def_prop_ro("buffer_type", &tt::ttnn::MemoryConfigAttr::getBufferType)
       .def_prop_ro("shard_spec", &tt::ttnn::MemoryConfigAttr::getShardSpec);
 
   tt_attribute_class<tt::ttnn::ShapeAttr>(m, "ShapeAttr")

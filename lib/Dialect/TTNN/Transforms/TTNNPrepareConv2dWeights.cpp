@@ -37,11 +37,10 @@ public:
           mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
       ttnn::MemoryConfigAttr inputMemConfigAttr =
           rewriter.getAttr<ttnn::MemoryConfigAttr>(
+              inputLayoutAttr.getMemLayout(),
               rewriter.getAttr<ttnn::BufferTypeAttr>(
                   inputLayoutAttr.getBufferType()),
-              inputLayoutAttr.getMemLayout(),
-              utils::createShardSpecIfNeeded(rewriter.getContext(),
-                                             inputLayoutAttr, deviceGrid));
+              utils::createShardSpecIfNeeded(inputLayoutAttr, deviceGrid));
 
       rewriter.setInsertionPoint(conv2dOp);
       ttnn::PrepareConv2dWeightsOp prepareConv2dWeightsOp =

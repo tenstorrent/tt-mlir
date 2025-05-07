@@ -69,8 +69,8 @@ getMemoryConfigAttr(::mlir::tt::ttnn::TTNNLayoutAttr layoutAttr,
       ttnn::BufferTypeAttr::get(ctx, layoutAttr.getBufferType());
 
   ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
-      ctx, bufferTypeAttr, layoutAttr.getMemLayout(),
-      utils::createShardSpecIfNeeded(ctx, layoutAttr, deviceGrid));
+      ctx, layoutAttr.getMemLayout(), bufferTypeAttr,
+      utils::createShardSpecIfNeeded(layoutAttr, deviceGrid));
   return memoryConfigAttr;
 }
 

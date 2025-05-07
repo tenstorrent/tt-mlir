@@ -85,11 +85,9 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
 
   // Create the output memory config attribute.
   ttnn::MemoryConfigAttr outputMemConfigAttr = ttnn::MemoryConfigAttr::get(
-      rewriter.getContext(),
+      rewriter.getContext(), outputMemLayoutAttr,
       ttnn::BufferTypeAttr::get(rewriter.getContext(), targetTensorBufferType),
-      outputMemLayoutAttr,
       utils::createShardSpecIfNeeded(
-          rewriter.getContext(),
           mlir::cast<TTNNLayoutAttr>(toLayoutOpResultType.getEncoding()),
           deviceAttr.getWorkerGrid()));
 

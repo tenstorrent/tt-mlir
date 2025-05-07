@@ -101,8 +101,8 @@ llvm::LogicalResult verifyBufferAndMemoryLayout(
 llvm::LogicalResult
 verifySharding(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
                BufferType bufferType, TensorMemoryLayoutAttr memLayoutAttr,
-               ShardSpecAttr shardSpec) {
-  if (shardSpec) {
+               std::optional<ShardSpecAttr> shardSpec) {
+  if (shardSpec && *shardSpec) {
     if (bufferType != BufferType::L1) {
       return emitError() << "Sharding is only valid for L1 buffer type";
     }
@@ -547,9 +547,9 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
 // param buffer type The new buffer type.
 // return The new MemoryConfigAttr with the given buffer type.
 MemoryConfigAttr MemoryConfigAttr::withBufferType(BufferType bufferType) {
-  return MemoryConfigAttr::get(getContext(),
+  return MemoryConfigAttr::get(getContext(), getTensorMemoryLayout(),
                                BufferTypeAttr::get(getContext(), bufferType),
-                               getTensorMemoryLayout(), getShardSpec());
+                               getShardSpec());
 }
 
 // Construct a new MemoryConfig
@@ -563,24 +563,23 @@ MemoryConfigAttr MemoryConfigAttr::withBufferType(BufferType bufferType) {
 MemoryConfigAttr
 MemoryConfigAttr::withMemoryLayout(TensorMemoryLayout memLayout) {
   return MemoryConfigAttr::get(
-      getContext(), getBufferType(),
-      TensorMemoryLayoutAttr::get(getContext(), memLayout), getShardSpec());
+      getContext(), TensorMemoryLayoutAttr::get(getContext(), memLayout),
+      getBufferType(), getShardSpec());
 }
 
 // Verify memory config attribute
 ::llvm::LogicalResult MemoryConfigAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-    BufferTypeAttr bufferType, TensorMemoryLayoutAttr tensorMemoryLayout,
-    ShardSpecAttr shardSpec) {
-  // Verify buffer type and memory layout
-  if (failed(verifyBufferAndMemoryLayout(emitError, bufferType.getValue(),
-                                         tensorMemoryLayout))) {
-    return ::llvm::failure();
-  }
-
-  // Verify sharding
-  return verifySharding(emitError, bufferType.getValue(), tensorMemoryLayout,
-                        shardSpec);
+    TensorMemoryLayoutAttr tensorMemoryLayout, BufferTypeAttr bufferType,
+    std::optional<ShardSpecAttr> shardSpec) {
+  // Verify buffer type, memory layout and sharding
+  return ::llvm::success(verifyBufferAndMemoryLayout(emitError,
+                                                     bufferType.getValue(),
+                                                     tensorMemoryLayout)
+                             .succeeded() &&
+                         verifySharding(emitError, bufferType.getValue(),
+                                        tensorMemoryLayout, shardSpec)
+                             .succeeded());
 }
 
 bool CoreRangeAttr::intersects(CoreRangeAttr other) const {
@@ -839,16 +838,17 @@ CoreRangeSetAttr ShardSpecAttr::getCoreRangeSet(mlir::MLIRContext *context,
                                                 GridAttr shardGrid,
                                                 GridAttr deviceGrid) {
   llvm::SmallVector<CoreRangeAttr> coreRangeSet;
-  auto mapping = (shardGrid.getMapping().isEmpty() == true)
-                     ? deviceGrid.getMapping()
-                     : shardGrid.getMapping();
+  AffineMap mapping = (shardGrid.getMapping().isEmpty() == true)
+                          ? deviceGrid.getMapping()
+                          : shardGrid.getMapping();
 
   for (const auto &locsize2d :
        mlir::tt::utils::toCoreRangeSet(shardGrid.getShape(), mapping)) {
     const auto &[loc, size] = locsize2d;
     coreRangeSet.push_back(
         CoreRangeAttr::get(context, CoreCoordAttr::get(context, loc[0], loc[1]),
-                           CoreCoordAttr::get(context, size[0], size[1])));
+                           CoreCoordAttr::get(context, loc[0] + size[0] - 1,
+                                              loc[1] + size[1] - 1)));
   }
 
   return CoreRangeSetAttr::get(context, coreRangeSet);

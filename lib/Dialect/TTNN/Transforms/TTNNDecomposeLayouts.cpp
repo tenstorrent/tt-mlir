@@ -62,20 +62,12 @@ private:
     llvm::SmallVector<int64_t> shardShape;
 
     ttnn::MemoryConfigAttr createMemoryConfigAttr(MLIRContext *context) const {
-      ttnn::ShardSpecAttr shardSpecAttr = ttnn::ShardSpecAttr();
-      if (tensorMemoryLayout &&
-          isShardedMemoryLayout(tensorMemoryLayout.getValue())) {
-        shardSpecAttr = ttnn::ShardSpecAttr::get(
-            context, ttnn::ShapeAttr::get(context, shardShape), shardGrid,
-            deviceGrid);
-      }
       return ttnn::MemoryConfigAttr::get(
-          context, ttnn::BufferTypeAttr::get(context, bufferType),
-          tensorMemoryLayout,
+          context, tensorMemoryLayout,
+          ttnn::BufferTypeAttr::get(context, bufferType),
           utils::createShardSpecIfNeeded(
-              context, tensorMemoryLayout,
-              ttnn::ShapeAttr::get(context, shardShape), shardGrid,
-              deviceGrid));
+              tensorMemoryLayout, ttnn::ShapeAttr::get(context, shardShape),
+              shardGrid, deviceGrid));
     }
     bool isL1Sharded() const {
       return isShardedMemoryLayout(tensorMemoryLayout.getValue());

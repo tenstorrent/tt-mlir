@@ -186,7 +186,7 @@ public:
 
     // Get the max grid size from the system description.
     //
-    GridAttr maxGrid = lookupDevice(moduleOp).getWorkerGrid();
+    GridAttr deviceGrid = lookupDevice(moduleOp).getWorkerGrid();
 
     SystemDescAttr systemDesc = mlir::cast<tt::SystemDescAttr>(
         moduleOp->getAttr(tt::SystemDescAttr::name));
@@ -210,8 +210,8 @@ public:
     mlir::tt::ttnn::AllPossibleLayoutsAnalysis allPossibleLayoutsAnalysis =
         getAnalysis<mlir::tt::ttnn::AllPossibleLayoutsAnalysis>();
     allPossibleLayoutsAnalysis.init(
-        mlir::tt::ttnn::AllPossibleLayoutsAnalysisInput(maxGrid, &scalarTypes,
-                                                        rowMajorEnabled));
+        mlir::tt::ttnn::AllPossibleLayoutsAnalysisInput(
+            deviceGrid, &scalarTypes, rowMajorEnabled));
     TensorTypeLayoutsMap tensorTypePossibleLayouts =
         allPossibleLayoutsAnalysis.getResult();
 
@@ -385,11 +385,9 @@ public:
             }
 
             emptyOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
-                op->getContext(),
+                op->getContext(), tensorMemoryLayoutAttr,
                 BufferTypeAttr::get(op->getContext(), bufferType),
-                tensorMemoryLayoutAttr,
-                utils::createShardSpecIfNeeded(op->getContext(), layoutAttr,
-                                               maxGrid)));
+                utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
           }
           // TODO(mtopalovic): Temp workaround for generic ToLayoutOp. Allign
           // MemoryConfigAttr with layout attribute of its output tensor. This
@@ -405,11 +403,9 @@ public:
             //
             ttnn::ToLayoutOp toLayoutOp = llvm::cast<ttnn::ToLayoutOp>(op);
             toLayoutOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
-                op->getContext(),
+                op->getContext(), tensorMemoryLayoutAttr,
                 ttnn::BufferTypeAttr::get(op->getContext(), bufferType),
-                tensorMemoryLayoutAttr,
-                utils::createShardSpecIfNeeded(op->getContext(), layoutAttr,
-                                               maxGrid)));
+                utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
           }
 
           // Set specific Conv2d Op configuration if it is exists.
@@ -425,10 +421,10 @@ public:
       });
 
       if (memReconfigEnabled) {
-        processMemReconfigEdges(memReconfigEntryMap, maxGrid);
+        processMemReconfigEdges(memReconfigEntryMap, deviceGrid);
       }
 
-      processSpillOps(spillToDramOps, maxGrid);
+      processSpillOps(spillToDramOps, deviceGrid);
 
       // Update the function type to reflect the updated return operation's
       // result types.
@@ -601,12 +597,10 @@ private:
           producerOpLayout);
 
       MemoryConfigAttr outputMemConfigAttr = MemoryConfigAttr::get(
-          consumerOp->getContext(),
+          consumerOp->getContext(), producerOpLayout.getMemLayout(),
           BufferTypeAttr::get(consumerOp->getContext(),
                               producerOpLayout.getBufferType()),
-          producerOpLayout.getMemLayout(),
-          utils::createShardSpecIfNeeded(consumerOp->getContext(),
-                                         producerOpLayout, deviceGrid));
+          utils::createShardSpecIfNeeded(producerOpLayout, deviceGrid));
 
       // If producerOp is a toLayoutOp, adjust its output layout(update
       // inplace) to reflect consumerOp's output layout. If producerOp is not a
@@ -666,11 +660,9 @@ private:
           LayoutAttr::get(op->getContext(), dramLayout.getLayout());
 
       MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(
-          op->getContext(),
+          op->getContext(), dramLayout.getMemLayout(),
           BufferTypeAttr::get(op->getContext(), BufferType::DRAM),
-          dramLayout.getMemLayout(),
-          utils::createShardSpecIfNeeded(op->getContext(), dramLayout,
-                                         deviceGrid));
+          utils::createShardSpecIfNeeded(dramLayout, deviceGrid));
 
       builder.setInsertionPointAfter(op);
       Location loc =

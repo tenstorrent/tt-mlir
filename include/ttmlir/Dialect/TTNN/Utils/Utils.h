@@ -73,15 +73,14 @@ void irToFile(mlir::Operation *op, std::string filename);
 llvm::SmallVector<int64_t> getTilePaddedShape(llvm::ArrayRef<int64_t> shape);
 
 // Helper method to create a ShardSpecAttr if needed.
-ShardSpecAttr createShardSpecIfNeeded(MLIRContext *context,
-                                      TTNNLayoutAttr layout,
-                                      GridAttr deviceGrid);
+std::optional<ShardSpecAttr> createShardSpecIfNeeded(TTNNLayoutAttr layout,
+                                                     GridAttr deviceGrid);
 
 // Helper method to create a ShardSpecAttr if needed.
-ShardSpecAttr createShardSpecIfNeeded(MLIRContext *context,
-                                      TensorMemoryLayoutAttr tensorMemoryLayout,
-                                      ShapeAttr shardShape, GridAttr shardGrid,
-                                      GridAttr deviceGrid);
+std::optional<ShardSpecAttr>
+createShardSpecIfNeeded(TensorMemoryLayoutAttr tensorMemoryLayout,
+                        ShapeAttr shardShape, GridAttr shardGrid,
+                        GridAttr deviceGrid);
 
 } // namespace mlir::tt::ttnn::utils
 

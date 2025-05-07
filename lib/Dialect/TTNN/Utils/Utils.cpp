@@ -12,6 +12,7 @@
 #include "mlir/IR/Location.h"
 #include "mlir/IR/Value.h"
 #include "llvm/Support/Casting.h"
+#include <optional>
 
 namespace mlir::tt::ttnn::utils {
 // Map TT::MemorySpace to TTNN::BufferType
@@ -159,28 +160,29 @@ llvm::SmallVector<int64_t> getTilePaddedShape(llvm::ArrayRef<int64_t> shape) {
 }
 
 // Helper method to create a ShardSpecAttr if needed.
-ShardSpecAttr createShardSpecIfNeeded(MLIRContext *context,
-                                      TTNNLayoutAttr layout,
-                                      GridAttr deviceGrid) {
-  ShardSpecAttr shardSpecAttr = ShardSpecAttr();
-  TensorMemoryLayoutAttr tensorMemoryLayout = layout.getMemLayout();
+std::optional<ShardSpecAttr> createShardSpecIfNeeded(TTNNLayoutAttr layoutAttr,
+                                                     GridAttr deviceGridAttr) {
+  std::optional<ShardSpecAttr> shardSpecAttr = std::nullopt;
+  TensorMemoryLayoutAttr tensorMemoryLayout = layoutAttr.getMemLayout();
   if (tensorMemoryLayout &&
       isShardedMemoryLayout(tensorMemoryLayout.getValue())) {
-    shardSpecAttr = ShardSpecAttr::get(context, layout, deviceGrid);
+    shardSpecAttr =
+        ShardSpecAttr::get(layoutAttr.getContext(), layoutAttr, deviceGridAttr);
   }
   return shardSpecAttr;
 }
 
 // Helper method to create a ShardSpecAttr if needed.
-ShardSpecAttr createShardSpecIfNeeded(MLIRContext *context,
-                                      TensorMemoryLayoutAttr tensorMemoryLayout,
-                                      ShapeAttr shardShape, GridAttr shardGrid,
-                                      GridAttr deviceGrid) {
-  ShardSpecAttr shardSpecAttr = ShardSpecAttr();
-  if (tensorMemoryLayout &&
-      isShardedMemoryLayout(tensorMemoryLayout.getValue())) {
+std::optional<ShardSpecAttr>
+createShardSpecIfNeeded(TensorMemoryLayoutAttr tensorMemoryLayoutAttr,
+                        ShapeAttr shardShapeAttr, GridAttr shardGridAttr,
+                        GridAttr deviceGridAttr) {
+  std::optional<ShardSpecAttr> shardSpecAttr = std::nullopt;
+  if (tensorMemoryLayoutAttr &&
+      isShardedMemoryLayout(tensorMemoryLayoutAttr.getValue())) {
     shardSpecAttr =
-        ShardSpecAttr::get(context, shardShape, shardGrid, deviceGrid);
+        ShardSpecAttr::get(tensorMemoryLayoutAttr.getContext(), shardShapeAttr,
+                           shardGridAttr, deviceGridAttr);
   }
   return shardSpecAttr;
 }

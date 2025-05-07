@@ -113,7 +113,7 @@ module attributes {} {
         // CHECK-SAME: layout = #ttnn.layout<row_major>
         // CHECK-NEXT: return %[[TO_LAYOUT_OP]]
         %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-        %1 = "ttnn.to_layout"(%arg0, %0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#dram, <<64x128>>, <interleaved>>}> : (tensor<64x128xbf16, #ttnn_layout_host_tile_bf16>, !ttnn.device) -> tensor<64x128xbf16, #ttnn_layout_device_rm_bf16>
+        %1 = "ttnn.to_layout"(%arg0, %0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<64x128xbf16, #ttnn_layout_host_tile_bf16>, !ttnn.device) -> tensor<64x128xbf16, #ttnn_layout_device_rm_bf16>
         return %1 : tensor<64x128xbf16, #ttnn_layout_device_rm_bf16>
     }
 
