@@ -68,7 +68,8 @@ mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
     llvm::SmallVector<std::int64_t> gridShape = {10, 13};
 
     // Physical-to-translated coordinate translation offsets
-    llvm::SmallVector<std::int64_t> coordTranslationOffsets = {18, 18}; // TODO what is this for BH?
+    llvm::SmallVector<std::int64_t> coordTranslationOffsets = {
+        18, 18}; // TODO what is this for BH?
 
     // Populate a placeholder for supported tile sizes.
     llvm::SmallVector<DataTypeAttr> supported_data_types = {
@@ -139,9 +140,9 @@ mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
       chipDescs.push_back(ChipDescAttr::get(
           context, ArchAttr::get(context, Arch::Blackhole), gridShape,
           coordTranslationOffsets, l1Size, numDramChannels, dramChannelSize,
-          nocL1AddressAlignBytes, pcieAddressAlignBytes, nocDRAMAddressAlignBytes,
-          l1UnreservedBase, eriscL1UnreservedBase, dramUnreservedBase,
-          dramUnreservedEnd,
+          nocL1AddressAlignBytes, pcieAddressAlignBytes,
+          nocDRAMAddressAlignBytes, l1UnreservedBase, eriscL1UnreservedBase,
+          dramUnreservedBase, dramUnreservedEnd,
           ChipPhysicalHelperCoresAttr::get(context, dramCores, {}, {}),
           supported_data_types, supported_tile_sizes, numCBs, numComputeThreads,
           numDatamovementThreads));
