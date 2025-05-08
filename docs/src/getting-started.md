@@ -250,5 +250,3 @@ Sign the binary:
 ```bash
 sudo codesign -f -s - --entitlements debuggee-entitlement.xml /opt/ttmlir-toolchain/venv/bin/python
 ```
-
-
