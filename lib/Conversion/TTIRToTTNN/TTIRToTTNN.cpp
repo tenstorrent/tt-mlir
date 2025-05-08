@@ -1628,27 +1628,15 @@ public:
   LogicalResult
   matchAndRewrite(OpTy op, typename OpTy::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    mlir::quant::QuantizedType elementType = getQuantizedElementType(op);
-    if (!elementType) {
-      return failure();
-    }
-
-    auto [scale, zeroPoint] =
-        getScaleAndZeroPoint(elementType, rewriter, op.getLoc(),
-                             ttnn::utils::getOrInsertDevice(rewriter, op));
-    if (!scale) {
-      return rewriter.notifyMatchFailure(
-          op, "Failed to extract scale and zero point from quantized type.");
-    }
-
-    IntegerAttr axisAttr = getAxis(elementType, rewriter);
     DataTypeAttr outputDataType =
         getDataType(op.getResult(), rewriter, this->getTypeConverter());
 
     rewriter.replaceOpWithNewOp<TTNNOpTy>(
         op, this->getTypeConverter()->convertType(op.getResult().getType()),
-        adaptor.getInput(), scale, zeroPoint, axisAttr, outputDataType,
-        ttnn::MemoryConfigAttr());
+        adaptor.getInput(), op.getScale(), op.getZeroPoint(),
+        op.getAxis() ? rewriter.getI32IntegerAttr(*op.getAxis())
+                     : mlir::IntegerAttr(),
+        outputDataType, ttnn::MemoryConfigAttr());
     return success();
   }
 
@@ -1657,7 +1645,7 @@ protected:
 };
 
 class QuantizeOpConversionPattern
-    : public QuantizationOpConversionPatternBase<ttir::QuantizeOp,
+    : public QuantizationOpConversionPatternBase<ttir::QuantizeUnrolledOp,
                                                  ttnn::QuantizeOp> {
 public:
   using QuantizationOpConversionPatternBase::
@@ -1665,7 +1653,7 @@ public:
 
 protected:
   mlir::quant::QuantizedType
-  getQuantizedElementType(ttir::QuantizeOp op) const override {
+  getQuantizedElementType(ttir::QuantizeUnrolledOp op) const override {
     mlir::RankedTensorType outputType = op.getOutput().getType();
     return mlir::dyn_cast<mlir::quant::QuantizedType>(
         outputType.getElementType());
@@ -1673,7 +1661,7 @@ protected:
 };
 
 class DequantizeOpConversionPattern
-    : public QuantizationOpConversionPatternBase<ttir::DequantizeOp,
+    : public QuantizationOpConversionPatternBase<ttir::DequantizeUnrolledOp,
                                                  ttnn::DequantizeOp> {
 public:
   using QuantizationOpConversionPatternBase::
@@ -1681,7 +1669,7 @@ public:
 
 protected:
   mlir::quant::QuantizedType
-  getQuantizedElementType(ttir::DequantizeOp op) const override {
+  getQuantizedElementType(ttir::DequantizeUnrolledOp op) const override {
     mlir::RankedTensorType inputType = op.getInput().getType();
     return mlir::dyn_cast<mlir::quant::QuantizedType>(
         inputType.getElementType());
