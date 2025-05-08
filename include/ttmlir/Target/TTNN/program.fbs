@@ -27,6 +27,7 @@ namespace tt.target.ttnn;
 union OpType {
   AllGatherOp,
   CollectivePermuteOp,
+  AllToAllOp,
   MeshShardOp,
   ReduceScatterOp,
   GetDeviceOp,

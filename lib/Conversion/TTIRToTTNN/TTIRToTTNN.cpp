@@ -1422,8 +1422,8 @@ private:
     if (layoutAttr.isTiled()) {
       ttnnLayoutEnum = ttnn::Layout::Tile;
     }
-    DataTypeAttr dTypeAttr =
-        DataTypeAttr::get(rewriter.getContext(), layoutAttr.getDataType());
+    ttcore::DataTypeAttr dTypeAttr = ttcore::DataTypeAttr::get(
+        rewriter.getContext(), layoutAttr.getDataType());
     ttnn::LayoutAttr tensorLayoutAttr =
         ttnn::LayoutAttr::get(rewriter.getContext(), ttnnLayoutEnum);
     ttnn::BufferTypeAttr bufferTypeAttr = ttnn::BufferTypeAttr::get(
@@ -1480,6 +1480,21 @@ public:
 
     llvm::SmallVector<Value> reorgBuffers(devicesInGroup); // Initially empty
 
+    // auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    auto deviceDesc = ttcore::lookupDevice(op);
+    ::llvm::ArrayRef<int64_t> meshShape = deviceDesc.getMeshShape();
+
+    auto id2coord = [&](size_t id) {
+      llvm::SmallVector<int64_t> coord(meshShape.size(), 0);
+      for (size_t d = 0; d < meshShape.size(); d++) {
+        coord[d] = id % meshShape[d];
+        id /= meshShape[d];
+      }
+      ttnn::MeshCoordinateAttr coordAttr =
+          ttnn::MeshCoordinateAttr::get(op.getContext(), coord);
+      return coordAttr;
+    };
+
     for (size_t gIdx = 0; gIdx < deviceIds.size(); gIdx += devicesInGroup) {
       for (size_t idx = 0; idx < devicesInGroup; idx++) {
         auto &senderId = deviceIds[gIdx + idx];
@@ -1487,7 +1502,7 @@ public:
           auto &receiverId = deviceIds[gIdx + sIdx];
           reorgBuffers[idx] = rewriter.create<ttnn::PointToPointOp>(
               loc, sliceOpResults[idx].getType(), sliceOpResults[sIdx],
-              senderId, receiverId, reorgBuffers[idx]);
+              id2coord(senderId), id2coord(receiverId), reorgBuffers[idx]);
         }
       }
     }

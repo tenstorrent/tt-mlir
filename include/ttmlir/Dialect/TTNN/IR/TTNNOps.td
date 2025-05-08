@@ -1945,6 +1945,33 @@ def TTNN_CollectivePermuteOp: TTNN_Op<"collective_permute"> {
     let hasFolder = 1;
 }
 
+def TTNN_AllToAllOp: TTNN_Op<"all_to_all"> {
+    let summary = "All to All operation.";
+    let description = [{
+      The all_to_all operation redistributes slices of a tensor across a cluster of devices. It splits each local tensor along split_dimension, sends
+      the resulting slices to other devices along cluster_axis, and then concatenates the received slices along concat_dimension.
+
+      Example:
+        For a 1×2 mesh and a local input of shape [8, 4]:
+          - split_dimension = 1
+          - concat_dimension = 0
+          - cluster_axis = 1
+
+        Each device splits its [8, 4] tensor into two [8, 2] slices. After the exchange, each device concatenates the two received [8, 2] slices
+        into a [16, 2] output tensor.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         TTNN_Device:$device,
+                         SI32Attr:$split_dim,
+                         SI32Attr:$concat_dim,
+                         UI32Attr:$cluster_axis);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
     let summary = "Mesh shard op.";
     let description = [{
