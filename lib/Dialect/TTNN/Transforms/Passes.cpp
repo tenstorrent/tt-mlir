@@ -163,12 +163,12 @@ public:
     //
     SmallVector<func::FuncOp, 1> forwardFuncOps;
     block->walk([&](func::FuncOp funcOp) {
-      // Rename the function to be prefixed with an underscore. This is done to
-      // avoid name conflicts with the input generator functions and the `main`
-      // function.
+      // Rename the function if it's named `main` to `_main`. This is done to
+      // avoid name conflicts.
       //
-      rewriter.modifyOpInPlace(
-          funcOp, [&]() { funcOp.setSymName("_" + funcOp.getName().str()); });
+      if (funcOp.getName() == "main") {
+        rewriter.modifyOpInPlace(funcOp, [&]() { funcOp.setSymName("_main"); });
+      }
 
       if (!funcOp->getUses().empty()) {
         mlir::WalkResult::skip();
@@ -182,7 +182,7 @@ public:
     for (mlir::func::FuncOp forwardFuncOp : forwardFuncOps) {
       rewriter.setInsertionPointToEnd(block);
       inputGenFuncOps.emplace_back(createInputGeneratorFunction(
-          rewriter, moduleOp.getLoc(), forwardFuncOp));
+          rewriter, forwardFuncOp.getLoc(), forwardFuncOp));
     }
 
     // Create a main function to call input generators and forward funcs.
@@ -253,11 +253,12 @@ private:
     // Create a new function that will generate the input tensors.
     //
     std::string inputGenFuncName =
-        "create_inputs_for" + forwardFuncOp.getName().str();
+        "create_inputs_for_" + forwardFuncOp.getName().str();
 
     // Create the function type.
     //
-    auto returnTypes = forwardFuncOp.getFunctionType().getInputs();
+    llvm::ArrayRef<mlir::Type> returnTypes =
+        forwardFuncOp.getFunctionType().getInputs();
     FunctionType functionType = mlir::FunctionType::get(ctx, {}, returnTypes);
 
     // Create the function.
@@ -286,6 +287,8 @@ private:
   // Currently only supports generating tensors of ones.
   // TODO(azecevic): Support generating other types of tensors that has a
   // `TT_CreationOpTrait`.
+  // https://github.com/tenstorrent/tt-mlir/issues/3261
+  //
   static mlir::Value generateTensor(IRRewriter &rewriter, Location loc,
                                     Type type) {
     MLIRContext *ctx = rewriter.getContext();

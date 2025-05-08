@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttnn-precompiled.hpp"
-::ttnn::Tensor _add(::ttnn::Tensor v1, ::ttnn::Tensor v2) {
+::ttnn::Tensor add(::ttnn::Tensor v1, ::ttnn::Tensor v2) {
   ::ttnn::Tensor v3 = ttnn::add(v1, v2, ::std::nullopt, ::ttnn::MemoryConfig {.memory_layout = ::ttnn::TensorMemoryLayout::INTERLEAVED, .buffer_type = ::ttnn::BufferType::DRAM});
   ttnn::deallocate(v2, false);
   ttnn::deallocate(v1, false);
@@ -23,7 +23,7 @@ int32_t main() {
   ::ttnn::Tensor v1;
   ::ttnn::Tensor v2;
   std::tie(v1, v2) = create_inputs_for_add();
-  ::ttnn::Tensor v3 = _add(v1, v2);
+  ::ttnn::Tensor v3 = add(v1, v2);
   int32_t v4 = 0;
   return v4;
 }
