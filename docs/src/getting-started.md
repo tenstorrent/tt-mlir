@@ -79,9 +79,9 @@ sudo chown -R $USER /opt/ttmlir-toolchain
 3. Please ensure that you do not already have an environment (venv) activated before running the following commands:
 
 ```bash
-source env/activate
 cmake -B env/build env
 cmake --build env/build
+source env/activate
 ```
 
 > **NOTE:** The last command takes time to run, so give it time to complete.
@@ -196,6 +196,29 @@ CMake Error at CMakeLists.txt:2 (project):
 
 If you get the following error, it means you need to install clang which you can do with `sudo apt install clang` on Ubuntu.
 
+### tt-metal Update Failures
+
+```
+Failed to unstash changes in: '/path/to/tt-metal/src/tt-metal'
+You will have to resolve the conflicts manually
+```
+
+This error occurs during CMake's ExternalProject update of tt-metal. The build system tries to apply changes using Git's stash mechanism, but fails due to conflicts. This can happen even if you haven't manually modified any files, as the build process itself may leave behind artifacts or partial changes from previous builds.
+
+To resolve, run the following command:
+
+```bash
+rm -rf third_party/tt-metal
+```
+
+Then retry your build command. If the error persists, you may need to do the following:
+
+1. Remove the build directory: `rm -rf build`
+
+2. Run CMake commands again.
+
+3. Run the above.
+
 ## Common Runtime Errors
 
 ### Debugging Python on Mac OS
@@ -228,25 +251,4 @@ Sign the binary:
 sudo codesign -f -s - --entitlements debuggee-entitlement.xml /opt/ttmlir-toolchain/venv/bin/python
 ```
 
-### tt-metal Update Failures
 
-```
-Failed to unstash changes in: '/path/to/tt-metal/src/tt-metal'
-You will have to resolve the conflicts manually
-```
-
-This error occurs during CMake's ExternalProject update of tt-metal. The build system tries to apply changes using Git's stash mechanism, but fails due to conflicts. This can happen even if you haven't manually modified any files, as the build process itself may leave behind artifacts or partial changes from previous builds.
-
-To resolve, run the following command:
-
-```bash
-rm -rf third_party/tt-metal
-```
-
-Then retry your build command. If the error persists, you may need to do the following:
-
-1. Remove the build directory: `rm -rf build`
-
-2. Run CMake commands again.
-
-3. Run the above.
