@@ -125,7 +125,7 @@ const ::tt::target::GoldenTensor *getDebugInfoGolden(Flatbuffer binary,
   for (const auto *program : *programs) {
     for (const ::tt::target::GoldenKV *goldenKV :
          *program->debug_info()->golden_info()->golden_map()) {
-      if (std::string(goldenKV->key()->c_str()) == loc) {
+      if (loc == goldenKV->key()->c_str()) {
         return goldenKV->value();
       }
     }
@@ -206,7 +206,7 @@ const ::tt::target::GoldenTensor *getDebugInfoGolden(Flatbuffer binary,
   for (const auto *program : *programs) {
     for (const ::tt::target::GoldenKV *goldenKV :
          *program->debug_info()->golden_info()->golden_map()) {
-      if (std::string(goldenKV->key()->c_str()) == loc) {
+      if (loc == goldenKV->key()->c_str()) {
         return goldenKV->value();
       }
     }
