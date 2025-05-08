@@ -45,7 +45,7 @@ func.func public @test_reduce_max_requires_pad(%arg0: tensor<128x30xf32, #ttnn_l
   // CHECK-LABEL: @test_reduce_max_requires_pad
   // CHECK: "ttnn.pad"
   // CHECK-SAME: padding = array<i32: 0, 0, 0, 2>
-  // CHECK-SAME: value = -3.40282347E+38
+  // CHECK-SAME: value = 0xFF800000
   // CHECK: "ttnn.max"
   // CHECK-SAME: tensor<128x32xf32
   // CHECK-SAME: -> tensor<128xf32

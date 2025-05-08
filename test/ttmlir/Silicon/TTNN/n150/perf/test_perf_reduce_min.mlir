@@ -8,6 +8,9 @@ module {
   func.func public @reduce_min_not_keep_dim(%arg0: tensor<128x10x32x4xf32>) -> tensor<128x32x4xf32> {
     // CHECK-LABEL: func.func public @reduce_min_not_keep_dim
     %0 = ttir.empty() : tensor<128x32x4xf32>
+    // CHECK: "ttnn.pad"
+    // CHECK-SAME: tensor<128x10x32x4xf32,
+    // CHECK-SAME: -> tensor<128x32x32x4xf32,
     // CHECK: "ttnn.min"
     // CHECK-SAME: dim_arg = [1 : i32]
     // CHECK-SAME: keep_dim = false
