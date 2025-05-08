@@ -4,46 +4,46 @@ if (NOT TTNN_RUNTIME_ENABLED)
 endif()
 
 set(TTNN_OPS_SRCS
-  ${CMAKE_CURRENT_SOURCE_DIR}/utils/utils.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/cache/load_cached.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_gather.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/reduce_scatter.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/collective_permute.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/mesh_shard.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/conv/prepare_conv2d_weights.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/reduce_scatter.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/context/get_device.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv2d.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv_transpose2d.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/conv/prepare_conv2d_weights.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/cpu/cpu.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/arange.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/constant.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv_transpose2d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/empty.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/creation/full_with.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/full.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/cpu/cpu.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/creation/full_with.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/concat.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/pad.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/permute.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/reshape.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/repeat.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/repeat_interleave.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/reshape.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/slice.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/transpose.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/pad.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/deletion/deallocate.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/binary/binary.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/binary/binary_composite.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/quantization/quantization.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/ternary/where.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/unary/unary.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/unary/unary_composite.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/ternary/where.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/quantization/quantization.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/embedding/embedding.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/embedding/embedding_backward.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/kv_cache/fill_cache.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/kv_cache/update_cache.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/embedding/embedding_backward.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_device.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/from_device.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_layout.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_device.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_dtype.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/layout/typecast.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_layout.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_memory_config.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/layout/typecast.cpp
   # ANCHOR: adding_an_op_matmul_runtime_cmake
   ${CMAKE_CURRENT_SOURCE_DIR}/matmul/matmul.cpp
   # ANCHOR_END: adding_an_op_matmul_runtime_cmake
@@ -54,7 +54,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/argmax.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/prod.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/reduction.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/context/get_device.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/utils/utils.cpp
 )
 
 add_library(TTRuntimeTTNNOps

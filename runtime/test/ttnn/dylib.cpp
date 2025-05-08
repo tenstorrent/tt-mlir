@@ -2,17 +2,17 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tt/runtime/detail/ttnn/test/dylib.h"
-
+#include "tt/runtime/test/ttnn/dylib.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/types.h"
+#include "tt/runtime/utils.h"
 
 #include <dlfcn.h>
 
-namespace tt::runtime::ttnn::test {
+namespace tt::runtime::test::ttnn {
 
 static constexpr const char *POTENTIAL_MANGLING_ADDITIONS[] = {
     "",
@@ -104,7 +104,8 @@ runSoProgram(void *so, std::string func_name,
   //
   std::vector<::tt::runtime::Tensor> outputs;
   for (::ttnn::Tensor &output : ttnnOutputs) {
-    outputs.push_back(utils::createRuntimeTensorFromTTNN(output));
+    outputs.push_back(
+        ::tt::runtime::ttnn::utils::createRuntimeTensorFromTTNN(output));
   }
 
   return outputs;
@@ -135,17 +136,11 @@ static SupportedTypes getValueForDType(::ttnn::DataType dtype, void *data) {
 
 static std::string toString(SupportedTypes &v) {
   return std::visit(
-      [](const auto &val) {
-        using T = std::decay_t<decltype(val)>;
-        if constexpr (std::is_same_v<T, uint8_t> ||
-                      std::is_same_v<T, uint16_t>) {
-          // Print uint8_t and uint16_t as an integer.
-          return std::to_string(static_cast<int>(val));
-        } else if constexpr (std::is_same_v<T, bfloat16>) {
-          return std::to_string(val.to_float());
-        } else {
-          return std::to_string(val);
-        }
+      ::tt::runtime::utils::overloaded{
+          [](uint8_t v) { return std::to_string(static_cast<int>(v)); },
+          [](uint16_t v) { return std::to_string(static_cast<int>(v)); },
+          [](bfloat16 v) { return std::to_string(v.to_float()); },
+          [](auto &&v) { return std::to_string(v); },
       },
       v);
 }
@@ -155,9 +150,8 @@ static std::string toString(SupportedTypes &v) {
 //
 static bool areEqual(const SupportedTypes &lhs, const SupportedTypes &rhs) {
   size_t size = std::visit(
-      [&](const auto &val) {
-        using T = std::decay_t<decltype(val)>;
-        return sizeof(T);
+      ::tt::runtime::utils::overloaded{
+          [](auto &&val) { return sizeof(val); },
       },
       lhs);
   for (size_t i = 0; i < size; i++) {
@@ -263,4 +257,4 @@ bool compareOuts(std::vector<::tt::runtime::Tensor> &lhs,
 
   return true;
 }
-} // namespace tt::runtime::ttnn::test
+} // namespace tt::runtime::test::ttnn

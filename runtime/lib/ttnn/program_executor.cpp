@@ -70,11 +70,21 @@ static void tracyLogOpLocation(const ::tt::target::ttnn::Operation *op) {
 #endif
 }
 
+static const ::tt::target::ttnn::Program *
+getProgram(const Binary &executableHandle, std::uint32_t programIndex) {
+  const ::tt::target::ttnn::TTNNBinary &fbb =
+      *utils::getBinary(executableHandle);
+  const ::tt::target::ttnn::Program *program =
+      fbb.programs()->Get(programIndex);
+  return program;
+}
+
 ProgramExecutor::ProgramExecutor(
-    const ::tt::target::ttnn::Program *program, const Binary &executableHandle,
+    const Binary &executableHandle,
     std::vector<::tt::runtime::Tensor> &programInputs,
     std::shared_ptr<::ttnn::MeshDevice> meshDevice, const size_t programIndex)
-    : program(program), executableHandle(executableHandle) {
+    : program(getProgram(executableHandle, programIndex)),
+      executableHandle(executableHandle) {
   LOG_ASSERT(program, "Program must be provided for execution");
 
   std::vector<uint32_t> programInputIds;

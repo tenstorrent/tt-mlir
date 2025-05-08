@@ -26,8 +26,8 @@ Tensor createBorrowedHostTensor(std::shared_ptr<void> data,
                                 const TensorDesc &desc);
 
 inline Tensor createOwnedHostTensor(const void *data, const TensorDesc &desc) {
-  std::shared_ptr<void> owned = utils::malloc_shared(desc.size());
-  std::memcpy(owned.get(), data, desc.size());
+  std::shared_ptr<void> owned = utils::malloc_shared(desc.sizeBytes());
+  std::memcpy(owned.get(), data, desc.sizeBytes());
   return ttmetal::createBorrowedHostTensor(owned, desc);
 }
 
