@@ -131,13 +131,6 @@ module {
       return
     }
 
-    // CHECK-LABEL: func @mul_tiles_init_f
-    func.func @mul_tiles_init_f() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: emitc.call_opaque "mul_tiles_init_f"()
-      "ttkernel.mul_tiles_init_f"() : () -> ()
-      return
-    }
-
     // CHECK-LABEL: func @mul_tiles
     func.func @mul_tiles(%cb0: !cb0_tiles, %cb1: !cb1_tiles) -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB0:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
