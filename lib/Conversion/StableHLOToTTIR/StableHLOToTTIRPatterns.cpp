@@ -810,6 +810,16 @@ public:
     auto dimNums = adaptor.getDimensionNumbers();
     uint64_t numSpatialDims = dimNums.getInputSpatialDimensions().size();
 
+    bool isTransposed = false;
+    if (dimNums.getKernelInputFeatureDimension() != 0 &&
+        dimNums.getKernelOutputFeatureDimension() != 1 &&
+        dimNums.getInputSpatialDimensions() !=
+            dimNums.getKernelSpatialDimensions() &&
+        dimNums.getOutputSpatialDimensions() !=
+            dimNums.getKernelSpatialDimensions()) {
+      isTransposed = true;
+    }
+
     // These are the defaults intended by stablehlo when the attrs are not
     // populated
     DenseI64ArrayAttr windowStridesAttr =
@@ -853,7 +863,8 @@ public:
             dimNums.getOutputBatchDimension(),
             dimNums.getOutputFeatureDimension(),
             dimNums.getOutputSpatialDimensions()),
-        adaptor.getFeatureGroupCountAttr(), adaptor.getBatchGroupCountAttr());
+        adaptor.getFeatureGroupCountAttr(), adaptor.getBatchGroupCountAttr(),
+        rewriter.getBoolAttr(isTransposed));
 
     return success();
   }
