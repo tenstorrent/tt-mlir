@@ -39,10 +39,9 @@ func.func @main(%arg0: tensor<128xf32>, %arg1: tensor<128xf32>) -> tensor<784x12
 
 module {
   func.func @main(%arg0: tensor<1x16x32xf32>, %arg1: tensor<1x1x32xf32>) -> tensor<1x16x32xf32> {
-    // CHECK: [[VAL0:%[0-9]+]] = "ttnn.repeat"
-    // CHECK-SAME: repeat_dims = #ttnn.shape<1x16x1>
-    // CHECK: %{{[0-9]+}} = "ttnn.multiply"(%arg0, %{{[0-9]+}})
-    // CHECK: %{{[0-9]+}} = "ttnn.maximum"([[VAL0]], %{{[0-9]+}})
+    // CHECK-NOT: "ttnn.repeat"
+    // CHECK: %{{[0-9]+}} = "ttnn.multiply"(%arg0, %arg1)
+    // CHECK: %{{[0-9]+}} = "ttnn.maximum"(%arg1, %{{[0-9]+}})
     %0 = ttir.empty() : tensor<1x16x32xf32>
     %1 = "ttir.broadcast"(%arg1, %0) <{broadcast_dimensions = array<i64: 1, 16, 1>}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
     %2 = ttir.empty() : tensor<1x16x32xf32>

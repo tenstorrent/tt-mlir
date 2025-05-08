@@ -22,6 +22,7 @@
 #include "llvm/Support/Error.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <iostream>
 #include <utility>
 #include <vector>
 
@@ -251,8 +252,12 @@ bool ShardSolver::resolveStep() {
 
 bool ShardSolver::supportsInterleavedInputShardedOutput(Operation *op,
                                                         OpConfig outputConfig) {
+  std::cout << "USAO USAO USAO" << std::endl;
+  op->getOperand(0).dump();
+  op->dump();
   TTNNLayoutAttr inputLayout = mlir::cast<TTNNLayoutAttr>(
       mlir::cast<RankedTensorType>(op->getOperand(0).getType()).getEncoding());
+  std::cout << "USAO1 USAO USAO" << std::endl;
 
   TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                "Checking if interleaved to sharded is possible for op : {}",

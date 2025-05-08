@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -67,6 +68,42 @@ public:
           op->getOperand(0).getDefiningOp<ttir::BroadcastOp>();
       ttir::BroadcastOp broadcastOp1 =
           op->getOperand(1).getDefiningOp<ttir::BroadcastOp>();
+
+      if (broadcastOp0 && broadcastOp1) {
+        auto originalOutputType = op->getResult(0).getType();
+        rewriter.modifyOpInPlace(op, [&]() {
+          op->setOperand(0, broadcastOp0.getInput());
+          op->setOperand(1, broadcastOp1.getInput());
+
+          if (broadcastOp0.getBroadcastDimensions() ==
+              broadcastOp1.getBroadcastDimensions()) {
+            auto initTensor = rewriter.create<ttir::EmptyOp>(
+                op->getLoc(), broadcastOp0.getInput().getType().getShape(),
+                broadcastOp0.getInput().getType().getElementType());
+            op->setOperand(2, initTensor.getResult());
+
+            op->getResult(0).setType(broadcastOp0.getInput().getType());
+          }
+        });
+
+        if (broadcastOp0.getBroadcastDimensions() ==
+            broadcastOp1.getBroadcastDimensions()) {
+          ::llvm::ArrayRef<int64_t> broadcastDims =
+              broadcastOp0.getBroadcastDimensions();
+          rewriter.setInsertionPointAfter(op);
+          auto newBroadcastOp = ttir::utils::createDPSOp<ttir::BroadcastOp>(
+              rewriter, op->getLoc(),
+              mlir::cast<RankedTensorType>(originalOutputType),
+              op->getResult(0), broadcastDims);
+
+          rewriter.replaceAllUsesExcept(
+              op->getResult(0), newBroadcastOp.getResult(), newBroadcastOp);
+          return mlir::success();
+        }
+
+        return mlir::success();
+      }
+
       if (broadcastOp0) {
         Operation *newOp = rewriter.clone(*op);
         newOp->setOperand(0, broadcastOp0.getInput());

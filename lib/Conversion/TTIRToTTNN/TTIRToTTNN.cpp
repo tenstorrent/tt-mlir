@@ -29,6 +29,7 @@
 #include "llvm/Support/Casting.h"
 
 #include <cstdint>
+#include <iostream>
 #include <optional>
 
 using namespace mlir;
@@ -1242,15 +1243,14 @@ public:
 
     bool hasBroadcastedOperand = lhsType.getShape() != rhsType.getShape();
     hasBroadcastedOperand |=
-    adaptor.getLhs().getDefiningOp() &&
-        isa<ttir::BroadcastOp>(adaptor.getLhs().getDefiningOp());
+        adaptor.getLhs().getDefiningOp() &&
+        isa<ttnn::RepeatOp>(adaptor.getLhs().getDefiningOp());
     hasBroadcastedOperand |=
-    adaptor.getRhs().getDefiningOp() &&
-        isa<ttir::BroadcastOp>(adaptor.getRhs().getDefiningOp());
+        adaptor.getRhs().getDefiningOp() &&
+        isa<ttnn::RepeatOp>(adaptor.getRhs().getDefiningOp());
     if (!hasBroadcastedOperand) {
-      rewriter.replaceOpWithNewOp<ttnn::SubtractOp>(srcOp, outputType,
-                                                        adaptor.getLhs(),
-                                                        adaptor.getRhs());
+      rewriter.replaceOpWithNewOp<ttnn::SubtractOp>(
+          srcOp, outputType, adaptor.getLhs(), adaptor.getRhs());
 
       // Broadcast for rhs operand require the operation to be commutative to
       // allow switching the order of operands. To allow this conversion, the
