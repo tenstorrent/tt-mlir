@@ -177,6 +177,14 @@ public:
           op->getLoc(), getCB(rewriter, adaptor.getLhs()),
           getCB(rewriter, adaptor.getRhs()), getLoadIndex(adaptor.getLhs()),
           getLoadIndex(adaptor.getRhs()), dstIdx);
+    } else if constexpr (std::is_same_v<ConcreteOp, ttir::TileMulOp>) {
+      rewriter.create<ttkernel::MulTilesInitOp>(
+          op->getLoc(), getCB(rewriter, adaptor.getLhs()),
+          getCB(rewriter, adaptor.getRhs()));
+      rewriter.create<ttkernel::MulTilesOp>(
+          op->getLoc(), getCB(rewriter, adaptor.getLhs()),
+          getCB(rewriter, adaptor.getRhs()), getLoadIndex(adaptor.getLhs()),
+          getLoadIndex(adaptor.getRhs()), dstIdx);
     } else if constexpr (std::is_same_v<ConcreteOp, ttir::TileMatmulOp>) {
       auto insertionPoint = rewriter.getInsertionPoint();
       auto cbA = getCB(rewriter, adaptor.getA());
@@ -211,7 +219,7 @@ public:
 
 namespace {
 
-template <typename ConcreteOp, typename SFPUOp>
+template <typename ConcreteOp, typename InitOp, typename SFPUOp>
 class TTIRSFPUOpsRewriter : public OpConversionPattern<ConcreteOp> {
 public:
   using OpConversionPattern<ConcreteOp>::OpConversionPattern;
@@ -229,15 +237,28 @@ public:
     Operation *newOp = nullptr;
     Operation *initOp = nullptr;
 
-    if constexpr (std::is_same_v<ConcreteOp, ttir::TileMaximumOp>) {
-      initOp = rewriter.create<ttkernel::MaxTilesInitOp>(op->getLoc());
-      newOp = rewriter.create<ttkernel::MaxTilesOp>(
-          op->getLoc(), i32(rewriter, op->getLoc(), 0),
-          i32(rewriter, op->getLoc(), 1));
-    } else if constexpr (std::is_same_v<ConcreteOp, ttir::TileSinOp>) {
-      initOp = rewriter.create<ttkernel::SinTileInitOp>(op->getLoc());
-      newOp = rewriter.create<ttkernel::SinTileOp>(
-          op->getLoc(), i32(rewriter, op->getLoc(), 0));
+    auto load =
+        mlir::cast<memref::LoadOp>((*op->operand_begin()).getDefiningOp());
+    auto inCB = rewriter.getRemappedValue(load.getMemref());
+    auto store = mlir::cast<memref::StoreOp>(*op->user_begin());
+    auto outCB = rewriter.getRemappedValue(store.getMemref());
+    auto inCBDefiningOp = inCB.getDefiningOp();
+    auto outCBDefiningOp = outCB.getDefiningOp();
+    auto lastDefiningOp = inCBDefiningOp->isBeforeInBlock(outCBDefiningOp)
+                              ? outCBDefiningOp
+                              : inCBDefiningOp;
+    rewriter.setInsertionPointAfter(lastDefiningOp);
+    rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), inCB, outCB);
+
+    if constexpr (arity == 1) {
+      initOp = rewriter.create<InitOp>(op->getLoc());
+      newOp =
+          rewriter.create<SFPUOp>(op->getLoc(), i32(rewriter, op->getLoc(), 0));
+    } else {
+      initOp = rewriter.create<InitOp>(op->getLoc());
+      newOp =
+          rewriter.create<SFPUOp>(op->getLoc(), i32(rewriter, op->getLoc(), 0),
+                                  i32(rewriter, op->getLoc(), 1));
     }
 
     rewriter.setInsertionPoint(initOp == nullptr ? newOp : initOp);
@@ -923,11 +944,14 @@ void populateTTIRToTTKernelPatterns(
 
       // Elementwise FPU.
       ttkernel::TTIRFPUOpsRewriter<ttir::TileAddOp,      ttkernel::AddTilesOp>,
+      ttkernel::TTIRFPUOpsRewriter<ttir::TileMulOp,      ttkernel::MulTilesOp>,
       ttkernel::TTIRFPUOpsRewriter<ttir::TileMatmulOp,   ttkernel::MatmulTilesOp>,
 
       // Elementwise SFPU.
-      ttkernel::TTIRSFPUOpsRewriter<ttir::TileMaximumOp, ttkernel::MaxTilesOp>,
-      ttkernel::TTIRSFPUOpsRewriter<ttir::TileSinOp,     ttkernel::SinTileOp>,
+      ttkernel::TTIRSFPUOpsRewriter<ttir::TileDivOp,     ttkernel::DivBinaryTilesInitOp, ttkernel::DivBinaryTilesOp>,
+      ttkernel::TTIRSFPUOpsRewriter<ttir::TileMaximumOp, ttkernel::MaxTilesInitOp,       ttkernel::MaxTilesOp>,
+      ttkernel::TTIRSFPUOpsRewriter<ttir::TileExpOp,     ttkernel::ExpTileInitOp,        ttkernel::ExpTileOp>,
+      ttkernel::TTIRSFPUOpsRewriter<ttir::TileSinOp,     ttkernel::SinTileInitOp,        ttkernel::SinTileOp>,
 
       ttkernel::TTIRTilizeUntilizeRewriter,
       ttkernel::MemrefStoreRewriter,

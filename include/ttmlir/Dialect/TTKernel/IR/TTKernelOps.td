@@ -112,6 +112,16 @@ def TTKernel_CopyTileOp : TTKernel_Op<"copy_tile"> {
 // TTKernel FPU operations
 //===----------------------------------------------------------------------===//
 
+def TTKernel_UnaryOpInitCommonOp : TTKernel_InitOp<"unary_op_init_common"> {
+    let summary = "Initialization function for unary operations.";
+    let description = [{
+      This operation initializes all necessary components for unary operations,
+      including unpacking, packing, and math configurations.
+    }];
+
+    let arguments = (ins TTKernel_CB:$icb, TTKernel_CB:$ocb);
+}
+
 def TTKernel_BinaryOpInitCommonOp : TTKernel_InitOp<"binary_op_init_common"> {
     let summary = "Init function for all binary ops";
     let description = [{
@@ -186,13 +196,6 @@ def TTKernel_MulTilesInitOp : TTKernel_InitOp<"mul_tiles_init"> {
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb);
 }
 
-def TTKernel_MulTilesInitFOp : TTKernel_InitOp<"mul_tiles_init_f"> {
-    let summary = "Short init function. Init for math only.";
-    let description = [{
-      Must be run before mul_tiles.
-    }];
-}
-
 def TTKernel_MulTilesOp : TTKernel_FPUOp<"mul_tiles", [TTKernel_BinaryOpTrait]> {
     let summary = "Mul operation";
     let description = [{
@@ -203,55 +206,6 @@ def TTKernel_MulTilesOp : TTKernel_FPUOp<"mul_tiles", [TTKernel_BinaryOpTrait]> 
     }];
 
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, IndexLike:$in0_tile_index, IndexLike:$in1_tile_index, IndexLike:$dst_index);
-}
-
-def TTKernel_UnaryOpInitCommonOp : TTKernel_InitOp<"unary_op_init_common"> {
-    let summary = "Initialization function for unary operations.";
-    let description = [{
-      This operation initializes all necessary components for unary operations,
-      including unpacking, packing, and math configurations.
-    }];
-
-    let arguments = (ins TTKernel_CB:$icb, TTKernel_CB:$ocb);
-}
-
-def TTKernel_ExpTileInitOp : TTKernel_InitOp<"exp_tile_init"> {
-    let summary = "Short init function which configures compute unit for execution of exp_tile.";
-    let description = [{
-      Must be run before exp_tile.
-    }];
-}
-
-def TTKernel_ExpTileOp : TTKernel_FPUOp<"exp_tile", [TTKernel_UnaryOpTrait]> {
-    let summary = "Exp operation";
-    let description = [{
-      Performs element-wise computation of exponential on each element of a tile
-      in DST register at index tile_index. The DST register buffer must be in
-      acquired state via *tile_regs_acquire* call. This call is blocking and is only
-      available on the compute engine.
-    }];
-
-    let arguments = (ins IndexLike:$tile_index);
-}
-
-def TTKernel_RecipTileInitOp : TTKernel_InitOp<"recip_tile_init"> {
-    let summary = "Init function for recip_tile operation. Refer to documentation for any init function.";
-    let description = [{
-      Must be called before recip_tile function.
-    }];
-}
-
-def TTKernel_RecipTileOp : TTKernel_FPUOp<"recip_tile", [TTKernel_UnaryOpTrait]> {
-    let summary = "Recip tile in the DST at specified index.";
-    let description = [{
-      Performs element-wise computation of the reciprocal on each element of a tile
-      in DST register at index tile_index. The DST register buffer must be in
-      acquired state via *tile_regs_acquire* call. This call is blocking and is only
-      available on the compute engine.
-      Only works for Float32, Float16_b, Bfp8_b data formats for full accuracy.
-    }];
-
-    let arguments = (ins IndexLike:$tile_index);
 }
 
 def TTKernel_ReduceInitOp : TTKernel_InitOp<"reduce_init"> {
@@ -295,6 +249,16 @@ def TTKernel_ReduceTileOp : TTKernel_FPUOp<"reduce_tile", [TTKernel_BinaryOpTrai
 // TTKernel SFPU operations
 //===----------------------------------------------------------------------===//
 
+def TTKernel_InitSFPUOp : TTKernel_InitOp<"init_sfpu"> {
+    let summary = "Initialization function for SFPU operations.";
+    let description = [{
+      This operation initializes all necessary components for SFPU operations,
+      including unpacking, packing, and math configurations.
+    }];
+
+    let arguments = (ins TTKernel_CB:$icb, TTKernel_CB:$ocb);
+}
+
 def TTKernel_MaxTilesInitOp : TTKernel_InitOp<"max_tile_init"> {
     let summary = "Short init function";
     let description = [{
@@ -314,6 +278,66 @@ def TTKernel_MaxTilesOp : TTKernel_SFPUOp<"max_tile", [TTKernel_BinaryOpTrait]> 
     }];
 
     let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index);
+}
+
+def TTKernel_DivBinaryTilesInitOp : TTKernel_InitOp<"div_binary_tile_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before div_binary_tile.
+    }];
+
+    let arguments = (ins);
+}
+
+def TTKernel_DivBinaryTilesOp : TTKernel_SFPUOp<"div_binary_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Divide operation between two tiles";
+    let description = [{
+      Performs element-wise computation of division operation
+      DST[dst0_index] <- DST[dst0_index] / DST[dst1_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index);
+}
+
+def TTKernel_RecipTileInitOp : TTKernel_InitOp<"recip_tile_init"> {
+    let summary = "Init function for recip_tile operation. Refer to documentation for any init function.";
+    let description = [{
+      Must be called before recip_tile function.
+    }];
+}
+
+def TTKernel_RecipTileOp : TTKernel_SFPUOp<"recip_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Recip tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise computation of the reciprocal on each element of a tile
+      in DST register at index tile_index. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call. This call is blocking and is only
+      available on the compute engine.
+      Only works for Float32, Float16_b, Bfp8_b data formats for full accuracy.
+    }];
+
+    let arguments = (ins IndexLike:$tile_index);
+}
+
+def TTKernel_ExpTileInitOp : TTKernel_InitOp<"exp_tile_init"> {
+    let summary = "Short init function which configures compute unit for execution of exp_tile.";
+    let description = [{
+      Must be run before exp_tile.
+    }];
+}
+
+def TTKernel_ExpTileOp : TTKernel_SFPUOp<"exp_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Exp operation";
+    let description = [{
+      Performs element-wise computation of exponential on each element of a tile
+      in DST register at index tile_index. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call. This call is blocking and is only
+      available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$tile_index);
 }
 
 def TTKernel_SinTileInitOp : TTKernel_InitOp<"sin_tile_init"> {
