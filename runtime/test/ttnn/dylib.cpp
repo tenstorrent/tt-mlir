@@ -32,6 +32,14 @@ void *openSo(std::string path) {
   return handle;
 }
 
+void closeSo(void *handle) {
+  int ret = dlclose(handle);
+
+  if (ret != 0) {
+    exit(ret);
+  }
+}
+
 std::vector<::tt::runtime::Tensor>
 runSoProgram(void *so, std::string func_name,
              std::vector<::tt::runtime::Tensor> inputs, Device device) {
@@ -80,6 +88,7 @@ runSoProgram(void *so, std::string func_name,
     dlclose(so);
     LOG_FATAL("Failed to load symbol: ", dlsym_error);
   }
+
   // Call program/function
   //
   std::vector<::ttnn::Tensor> ttnnOutputs;

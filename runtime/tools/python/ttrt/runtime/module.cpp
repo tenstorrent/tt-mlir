@@ -352,7 +352,9 @@ PYBIND11_MODULE(_C, m) {
               &tt::runtime::ttnn::test::isProgramCacheEnabled,
               py::arg("device"), "Check if program cache is enabled");
   testing.def("open_so", &tt::runtime::ttnn::test::openSo, py::arg("path"),
-              "Open a shared object file");
+              "Open a shared object");
+  testing.def("close_so", &tt::runtime::ttnn::test::closeSo, py::arg("handle"),
+              "Close a shared object");
   testing.def("run_so_program", &tt::runtime::ttnn::test::runSoProgram,
               py::arg("so"), py::arg("func_name"), py::arg("inputs"),
               py::arg("device"), "Run a program from a shared object file");
