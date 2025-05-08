@@ -7,37 +7,46 @@
 #include "tracy/Tracy.hpp"
 #include "tt/runtime/detail/common.h"
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/detail/ttmetal.h"
+#include "tt/runtime/detail/ttmetal/ttmetal.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTMetal/Target.h"
 #include "ttmlir/Version.h"
 
-namespace tt::runtime::ttmetal {
-using ::tt::runtime::DeviceRuntime;
-constexpr inline std::size_t kHostBufferCommandQueueId = 0;
-using Events = std::vector<std::shared_ptr<::tt::tt_metal::Event>>;
-using DeviceList = std::vector<::tt::tt_metal::IDevice *>;
-using MetalTensor =
-    std::variant<TensorDesc, std::shared_ptr<::tt::tt_metal::Buffer>>;
+#include "executor.h"
 
-static const ::tt::target::metal::TTMetalBinary *getBinary(Flatbuffer binary) {
-  bool isTTMetal =
-      ::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
-          binary.handle.get());
+namespace tt::runtime::ttmetal {
+
+namespace target = ::tt::target;
+namespace tt_metal = ::tt::tt_metal;
+
+static const target::metal::TTMetalBinary *getBinary(Flatbuffer binary) {
+  bool isTTMetal = target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
+      binary.handle.get());
   if (!isTTMetal) {
     LOG_FATAL("Unsupported binary format");
   }
-  return ::tt::target::metal::GetSizePrefixedTTMetalBinary(binary.handle.get());
+  return target::metal::GetSizePrefixedTTMetalBinary(binary.handle.get());
+}
+
+Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
+                 std::uint32_t inputIndex) {
+  // TODO(#3126): Implement toLayout for metal runtime
+  return Layout(nullptr, DeviceRuntime::TTMetal);
+}
+
+Tensor toLayout(Tensor tensor, Device, Layout, std::optional<bool>) {
+  // TODO(#3126): Implement toLayout for metal runtime
+  return tensor;
 }
 
 static Tensor createNullTensor() {
   return Tensor(nullptr, nullptr, DeviceRuntime::TTMetal);
 }
 
-static tt::runtime::MemoryView
-createMemoryView(const tt::tt_metal::detail::MemoryView &memoryView) {
-  return tt::runtime::MemoryView{
+static MemoryView
+createMemoryView(const tt_metal::detail::MemoryView &memoryView) {
+  return MemoryView{
       .numBanks = memoryView.num_banks,
       .totalBytesPerBank = memoryView.total_bytes_per_bank,
       .totalBytesAllocatedPerBank = memoryView.total_bytes_allocated_per_bank,
@@ -48,15 +57,8 @@ createMemoryView(const tt::tt_metal::detail::MemoryView &memoryView) {
   };
 }
 
-Tensor createTensor(std::shared_ptr<void> data,
-                    const std::vector<std::uint32_t> &shape,
-                    const std::vector<std::uint32_t> &stride,
-                    std::uint32_t itemsize, ::tt::target::DataType dataType) {
-  TensorDesc desc;
-  desc.shape = shape;
-  desc.stride = stride;
-  desc.itemsize = itemsize;
-  desc.dataType = dataType;
+Tensor createBorrowedHostTensor(std::shared_ptr<void> data,
+                                const TensorDesc &desc) {
   std::shared_ptr<MetalTensor> tensor = std::make_shared<MetalTensor>(desc);
   return Tensor(static_pointer_cast<void>(tensor), data,
                 DeviceRuntime::TTMetal);
@@ -66,19 +68,18 @@ bool isTensorAllocated(Tensor tensor) {
   LOG_FATAL("isTensorAllocated not implemented for metal runtime");
 }
 
-tt::target::DataType getTensorDataType(Tensor tensor) {
+target::DataType getTensorDataType(Tensor tensor) {
   const MetalTensor &metalTensor =
       tensor.as<MetalTensor>(DeviceRuntime::TTMetal);
-  if (std::holds_alternative<TensorDesc>(metalTensor)) {
-    TensorDesc desc = std::get<TensorDesc>(metalTensor);
-    return desc.dataType;
-  }
-  if (std::holds_alternative<std::shared_ptr<::tt::tt_metal::Buffer>>(
-          metalTensor)) {
-    LOG_FATAL("Datatype mapping from buffer not supported yet.");
-  }
-  LOG_ASSERT(false, "Unsupported tensor type");
-  return ::tt::target::DataType::Float32;
+  return std::visit(
+      utils::overloaded{
+          [&](const TensorDesc &desc) { return desc.dataType; },
+          [&](const DeviceBuffer &buffer) {
+            LOG_FATAL("Datatype mapping from buffer not supported yet.");
+            return target::DataType::Float32;
+          },
+      },
+      metalTensor);
 }
 
 bool getTensorRetain(Tensor tensor) {
@@ -89,27 +90,25 @@ void setTensorRetain(Tensor tensor, bool retain) {
   LOG_FATAL("setTensorRetain not implemented for metal runtime");
 }
 
-size_t getNumAvailableDevices() {
-  return ::tt::tt_metal::GetNumAvailableDevices();
-}
+size_t getNumAvailableDevices() { return tt_metal::GetNumAvailableDevices(); }
 
 Device openMeshDevice(const std::vector<uint32_t> &meshShape,
                       const MeshDeviceOptions &options) {
   LOG_ASSERT(meshShape.size() == 2, "Mesh shape must be 2D for now");
-  ::tt::tt_metal::distributed::MeshShape shape(meshShape);
+  tt_metal::distributed::MeshShape shape(meshShape);
 
   LOG_ASSERT(options.meshOffset.size() == 2, "Mesh offset must be 2D for now");
-  ::tt::tt_metal::distributed::MeshCoordinate offset(options.meshOffset);
+  tt_metal::distributed::MeshCoordinate offset(options.meshOffset);
 
   size_t l1SmallSize = options.l1SmallSize.value_or(DEFAULT_L1_SMALL_SIZE);
-  ::tt::tt_metal::DispatchCoreType dispatchCoreType =
-      tt::runtime::common::getDispatchCoreType(options.dispatchCoreType);
+  tt_metal::DispatchCoreType dispatchCoreType =
+      common::getDispatchCoreType(options.dispatchCoreType);
 
-  ::tt::tt_metal::distributed::MeshDeviceConfig meshConfig(shape, offset,
-                                                           options.deviceIds);
+  tt_metal::distributed::MeshDeviceConfig meshConfig(shape, offset,
+                                                     options.deviceIds);
 
-  std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevice =
-      ::tt::tt_metal::distributed::MeshDevice::create(
+  std::shared_ptr<tt_metal::distributed::MeshDevice> meshDevice =
+      tt_metal::distributed::MeshDevice::create(
           meshConfig, l1SmallSize, DEFAULT_TRACE_REGION_SIZE, options.numHWCQs,
           dispatchCoreType);
 
@@ -122,9 +121,8 @@ Device openMeshDevice(const std::vector<uint32_t> &meshShape,
 }
 
 void closeMeshDevice(Device parentMesh) {
-  ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
-      parentMesh.as<::tt::tt_metal::distributed::MeshDevice>(
-          DeviceRuntime::TTMetal);
+  tt_metal::distributed::MeshDevice &metalMeshDevice =
+      parentMesh.as<tt_metal::distributed::MeshDevice>(DeviceRuntime::TTMetal);
 
   LOG_ASSERT(metalMeshDevice.is_parent_mesh(),
              "Mesh device must be a parent mesh");
@@ -135,8 +133,8 @@ void closeMeshDevice(Device parentMesh) {
   }
 
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
-  for (::tt::tt_metal::IDevice *ttmetalDevice : metalMeshDevice.get_devices()) {
-    ::tt::tt_metal::detail::DumpDeviceProfileResults(ttmetalDevice);
+  for (tt_metal::IDevice *ttmetalDevice : metalMeshDevice.get_devices()) {
+    tt_metal::detail::DumpDeviceProfileResults(ttmetalDevice);
   }
 #endif
   metalMeshDevice.close();
@@ -145,24 +143,22 @@ void closeMeshDevice(Device parentMesh) {
 Device createSubMeshDevice(
     Device parentMesh, const std::vector<uint32_t> &meshShape,
     const std::optional<const std::vector<uint32_t>> &meshOffset) {
-  ::tt::tt_metal::distributed::MeshDevice &parentMeshDevice =
-      parentMesh.as<::tt::tt_metal::distributed::MeshDevice>(
-          DeviceRuntime::TTMetal);
+  tt_metal::distributed::MeshDevice &parentMeshDevice =
+      parentMesh.as<tt_metal::distributed::MeshDevice>(DeviceRuntime::TTMetal);
   LOG_ASSERT(parentMeshDevice.is_parent_mesh(),
              "Mesh device must be a parent mesh");
   LOG_ASSERT(meshShape.size() == 2, "Mesh shape must be 2D for now");
-  ::tt::tt_metal::distributed::MeshShape shape{meshShape[0], meshShape[1]};
+  tt_metal::distributed::MeshShape shape{meshShape[0], meshShape[1]};
 
-  std::optional<::tt::tt_metal::distributed::MeshCoordinate> offset =
-      std::nullopt;
+  std::optional<tt_metal::distributed::MeshCoordinate> offset = std::nullopt;
   if (meshOffset.has_value()) {
     LOG_ASSERT(meshOffset.value().size() == 2,
                "Mesh offset must be 2D for now");
-    offset = ::tt::tt_metal::distributed::MeshCoordinate{meshOffset.value()[0],
-                                                         meshOffset.value()[1]};
+    offset = tt_metal::distributed::MeshCoordinate{meshOffset.value()[0],
+                                                   meshOffset.value()[1]};
   }
 
-  std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> subMeshDevice =
+  std::shared_ptr<tt_metal::distributed::MeshDevice> subMeshDevice =
       parentMeshDevice.create_submesh(shape, offset);
 
   return Device(std::static_pointer_cast<void>(subMeshDevice),
@@ -170,9 +166,8 @@ Device createSubMeshDevice(
 }
 
 void releaseSubMeshDevice(Device subMesh) {
-  ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
-      subMesh.as<::tt::tt_metal::distributed::MeshDevice>(
-          DeviceRuntime::TTMetal);
+  tt_metal::distributed::MeshDevice &metalMeshDevice =
+      subMesh.as<tt_metal::distributed::MeshDevice>(DeviceRuntime::TTMetal);
 
   LOG_ASSERT(!metalMeshDevice.is_parent_mesh(),
              "Mesh device must be a submesh");
@@ -192,59 +187,56 @@ void reshapeMeshDevice(Device meshDevice,
 }
 
 void deallocateBuffers(Device deviceHandle) {
-  ::tt::tt_metal::distributed::MeshDevice &meshDevice =
-      deviceHandle.as<::tt::tt_metal::distributed::MeshDevice>(
+  tt_metal::distributed::MeshDevice &meshDevice =
+      deviceHandle.as<tt_metal::distributed::MeshDevice>(
           DeviceRuntime::TTMetal);
 
-  for (::tt::tt_metal::IDevice *device : meshDevice.get_devices()) {
+  for (tt_metal::IDevice *device : meshDevice.get_devices()) {
     device->allocator()->deallocate_buffers();
   }
 }
 
 void dumpMemoryReport(Device deviceHandle) {
-  ::tt::tt_metal::distributed::MeshDevice &meshDevice =
-      deviceHandle.as<::tt::tt_metal::distributed::MeshDevice>(
+  tt_metal::distributed::MeshDevice &meshDevice =
+      deviceHandle.as<tt_metal::distributed::MeshDevice>(
           DeviceRuntime::TTMetal);
 
-  for (::tt::tt_metal::IDevice *device : meshDevice.get_devices()) {
-    ::tt::tt_metal::detail::DumpDeviceMemoryState(device);
+  for (tt_metal::IDevice *device : meshDevice.get_devices()) {
+    tt_metal::detail::DumpDeviceMemoryState(device);
   }
 }
 
-std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
+std::unordered_map<MemoryBufferType, MemoryView>
 getMemoryView(Device deviceHandle, int deviceID) {
-  std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
-      memoryMap;
-  ::tt::tt_metal::distributed::MeshDevice &meshDevice =
-      deviceHandle.as<::tt::tt_metal::distributed::MeshDevice>(
+  std::unordered_map<MemoryBufferType, MemoryView> memoryMap;
+  tt_metal::distributed::MeshDevice &meshDevice =
+      deviceHandle.as<tt_metal::distributed::MeshDevice>(
           DeviceRuntime::TTMetal);
 
   auto *device = meshDevice.get_device(deviceID);
 
-  auto dramMemoryView = ::tt::tt_metal::detail::GetMemoryView(
-      device, tt::tt_metal::BufferType::DRAM);
-  auto l1MemoryView = ::tt::tt_metal::detail::GetMemoryView(
-      device, tt::tt_metal::BufferType::L1);
-  auto l1SmallMemoryView = ::tt::tt_metal::detail::GetMemoryView(
-      device, tt::tt_metal::BufferType::L1_SMALL);
-  auto traceMemoryView = ::tt::tt_metal::detail::GetMemoryView(
-      device, tt::tt_metal::BufferType::TRACE);
+  auto dramMemoryView =
+      tt_metal::detail::GetMemoryView(device, tt_metal::BufferType::DRAM);
+  auto l1MemoryView =
+      tt_metal::detail::GetMemoryView(device, tt_metal::BufferType::L1);
+  auto l1SmallMemoryView =
+      tt_metal::detail::GetMemoryView(device, tt_metal::BufferType::L1_SMALL);
+  auto traceMemoryView =
+      tt_metal::detail::GetMemoryView(device, tt_metal::BufferType::TRACE);
 
-  memoryMap[tt::runtime::MemoryBufferType::DRAM] =
-      createMemoryView(dramMemoryView);
-  memoryMap[tt::runtime::MemoryBufferType::L1] = createMemoryView(l1MemoryView);
-  memoryMap[tt::runtime::MemoryBufferType::L1_SMALL] =
-      createMemoryView(l1SmallMemoryView);
-  memoryMap[tt::runtime::MemoryBufferType::TRACE] =
-      createMemoryView(traceMemoryView);
+  memoryMap[MemoryBufferType::DRAM] = createMemoryView(dramMemoryView);
+  memoryMap[MemoryBufferType::L1] = createMemoryView(l1MemoryView);
+  memoryMap[MemoryBufferType::L1_SMALL] = createMemoryView(l1SmallMemoryView);
+  memoryMap[MemoryBufferType::TRACE] = createMemoryView(traceMemoryView);
 
   return memoryMap;
 }
 
 void wait(Event event) {
-  Events events = event.as<Events>(DeviceRuntime::TTMetal);
-  for (auto e : events) {
-    ::tt::tt_metal::EventSynchronize(e);
+  std::shared_ptr<tt_metal::Event> eventPtr =
+      event.asSharedPtr<tt_metal::Event>(DeviceRuntime::TTMetal);
+  if (eventPtr) {
+    tt_metal::EventSynchronize(eventPtr);
   }
 }
 
@@ -256,157 +248,83 @@ void wait(const std::vector<Tensor> &tensors) {
   }
 }
 
-static std::pair<std::shared_ptr<::tt::tt_metal::Buffer>,
-                 std::shared_ptr<::tt::tt_metal::Event>>
-prepareInput(::tt::tt_metal::IDevice *device, const MetalTensor &metalTensor,
-             void *data, const ::tt::target::metal::TensorRef *tensorRef) {
-  if (std::holds_alternative<TensorDesc>(metalTensor)) {
-    // todo assert that tensorDesc matches hostTensorDesc
-    std::shared_ptr<::tt::tt_metal::Buffer> buffer =
-        createBufferFromTensorRef(device, tensorRef);
-    auto event = std::make_shared<::tt::tt_metal::Event>();
-    ::tt::tt_metal::CommandQueue &cq =
-        device->command_queue(kHostBufferCommandQueueId);
-    const bool blocking = false;
-    ::tt::tt_metal::EnqueueWriteBuffer(cq, buffer, data, blocking);
-    ::tt::tt_metal::EnqueueRecordEvent(cq, event);
-    return std::make_pair(buffer, event);
-  }
-
-  if (std::holds_alternative<std::shared_ptr<::tt::tt_metal::Buffer>>(
-          metalTensor)) {
-    std::shared_ptr<::tt::tt_metal::Buffer> buffer =
-        std::get<std::shared_ptr<::tt::tt_metal::Buffer>>(metalTensor);
-    LOG_FATAL("Input from buffer not supported yet");
-  }
-  LOG_ASSERT(false, "Unsupported tensor type");
-  return std::make_pair(nullptr, nullptr);
+std::vector<Tensor> toHost(Tensor tensor, bool untilize) {
+  ::tt::runtime::ttmetal::wait(tensor);
+  std::visit(utils::overloaded{
+                 [&](const TensorDesc &) { /* no-op */ },
+                 [&](const DeviceBuffer &) {
+                   LOG_FATAL("toHost not yet implemented for device buffer");
+                 },
+             },
+             tensor.as<MetalTensor>(DeviceRuntime::TTMetal));
+  return {tensor};
 }
 
-static std::shared_ptr<::tt::tt_metal::Buffer>
-prepareOutput(::tt::tt_metal::IDevice *device, const MetalTensor *metalTensor,
-              const ::tt::target::metal::TensorRef *tensorRef) {
-  LOG_ASSERT(metalTensor != nullptr);
-  if (const TensorDesc *hostTensorDesc = std::get_if<TensorDesc>(metalTensor);
-      hostTensorDesc) {
-    return createBufferFromTensorRef(device, tensorRef);
-  }
-
-  if (const std::shared_ptr<::tt::tt_metal::Buffer> *buffer =
-          std::get_if<std::shared_ptr<::tt::tt_metal::Buffer>>(metalTensor);
-      buffer) {
-    return *buffer;
-  }
-  LOG_ASSERT(false, "Unsupported tensor type");
-  return nullptr;
+void memcpy(void *dst, Tensor src) {
+  const auto &metalSrc = src.as<MetalTensor>(DeviceRuntime::TTMetal);
+  LOG_ASSERT(std::holds_alternative<TensorDesc>(metalSrc),
+             "Only TensorDesc supported for now");
+  const auto &hostSrc = std::get<TensorDesc>(metalSrc);
+  std::memcpy(dst, src.data.get(), hostSrc.size());
 }
 
-Events maybeCopyHostOutputs(::tt::tt_metal::IDevice *device,
-                            const std::vector<Tensor> &outputHandles,
-                            std::vector<OutputBuffer> submitOutputs,
-                            Events submitEvents) {
-  Events copyEvents;
-  int i = 0;
-  for (const Tensor &outputHandle : outputHandles) {
-    if (const TensorDesc *hostTensor = std::get_if<TensorDesc>(
-            &outputHandle.as<MetalTensor>(DeviceRuntime::TTMetal));
-        hostTensor) {
-      ::tt::tt_metal::CommandQueue &cq =
-          device->command_queue(kHostBufferCommandQueueId);
-      for (auto submitEvent : submitEvents) {
-        ::tt::tt_metal::EnqueueWaitForEvent(cq, submitEvent);
-      }
-      submitEvents.clear();
-      auto event = std::make_shared<::tt::tt_metal::Event>();
-      const bool blocking = false;
-      auto [global_id, buffer] = submitOutputs[i];
-      ::tt::tt_metal::EnqueueReadBuffer(cq, buffer, outputHandle.data.get(),
-                                        blocking);
-      ::tt::tt_metal::EnqueueRecordEvent(cq, event);
-      copyEvents.push_back(event);
-    }
-    ++i;
-  }
-  return copyEvents;
+void memcpy(Tensor dst, Tensor src) {
+  auto &metalDst = dst.as<MetalTensor>(DeviceRuntime::TTMetal);
+  const auto &metalSrc = src.as<MetalTensor>(DeviceRuntime::TTMetal);
+  LOG_ASSERT(std::holds_alternative<TensorDesc>(metalDst),
+             "Only TensorDesc supported for now");
+  LOG_ASSERT(std::holds_alternative<TensorDesc>(metalSrc),
+             "Only TensorDesc supported for now");
+  auto &hostDst = std::get<TensorDesc>(metalDst);
+  const auto &hostSrc = std::get<TensorDesc>(metalSrc);
+  LOG_ASSERT(hostDst.size() == hostSrc.size(), "Tensor size mismatch");
+  LOG_ASSERT(hostDst.dataType == hostSrc.dataType, "Tensor data type mismatch");
+  return ::tt::runtime::ttmetal::memcpy(dst.data.get(), src);
 }
 
-Event submit(Device deviceHandle, Binary executableHandle,
-             std::uint32_t programIndex,
-             const std::vector<Tensor> &inputHandles,
-             const std::vector<Tensor> &outputHandles) {
-  const ::tt::target::metal::TTMetalBinary &fbb = *getBinary(executableHandle);
-  const ::tt::target::metal::Program *program =
-      fbb.programs()->Get(programIndex);
-  ::tt::tt_metal::distributed::MeshDevice &meshDevice =
-      deviceHandle.as<::tt::tt_metal::distributed::MeshDevice>(
+void deallocateTensor(Tensor &tensor, bool) {
+  std::visit(
+      utils::overloaded{
+          [&](const TensorDesc &) { /* no-op */ },
+          [&](const DeviceBuffer &) {
+            LOG_FATAL("deallocateTensor not yet implemented for device buffer");
+          },
+      },
+      tensor.as<MetalTensor>(DeviceRuntime::TTMetal));
+}
+
+std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
+                           std::uint32_t programIndex,
+                           std::vector<Tensor> &inputs) {
+  const target::metal::TTMetalBinary &fbb = *getBinary(executableHandle);
+  const target::metal::Program *program = fbb.programs()->Get(programIndex);
+  tt_metal::distributed::MeshDevice &meshDevice =
+      deviceHandle.as<tt_metal::distributed::MeshDevice>(
           DeviceRuntime::TTMetal);
-  DeviceList allDevices = meshDevice.get_devices();
+  std::vector<tt_metal::IDevice *> allDevices = meshDevice.get_devices();
   LOG_ASSERT(allDevices.size() > 0, "Unexpected empty device mesh");
-  DeviceList deviceList = {allDevices[0]};
+  std::vector<tt_metal::IDevice *> deviceList = {allDevices[0]};
   LOG_ASSERT(deviceList.size() == 1, "Only one device is supported for now");
-  std::shared_ptr<Events> events = std::make_shared<Events>();
   LOG_ASSERT(program->device_programs()->size() == deviceList.size(),
              "Device programs size mismatch");
+
+  std::vector<Tensor> outputs;
   for (std::size_t i = 0; i < program->device_programs()->size(); ++i) {
-    ::tt::tt_metal::IDevice *device = deviceList[i];
+    tt_metal::IDevice *device = deviceList[i];
 
     ZoneScoped;
     std::string zoneName = "submit_" + std::string(program->name()->c_str()) +
                            "_device_" + std::to_string(device->id());
     ZoneName(zoneName.c_str(), zoneName.size());
 
-    const ::tt::target::metal::DeviceProgram *deviceProgram =
-        program->device_programs()->Get(i);
-    Events deviceEvents;
-
-    std::vector<InputBuffer> inputs;
-    inputs.reserve(inputHandles.size());
-    LOG_ASSERT(inputHandles.size() == deviceProgram->inputs()->size(),
-               "Input size mismatch");
-    for (unsigned i = 0; i < inputHandles.size(); ++i) {
-      const ::tt::target::metal::TensorRef *tensorRef =
-          deviceProgram->inputs()->Get(i);
-      auto [buffer, event] = prepareInput(
-          device, inputHandles[i].as<MetalTensor>(DeviceRuntime::TTMetal),
-          inputHandles[i].data.get(), tensorRef);
-      inputs.emplace_back(deviceProgram->inputs()->Get(i)->global_id(), buffer,
-                          event);
-    }
-
-    std::vector<OutputBuffer> outputs;
-    outputs.reserve(outputHandles.size());
-    LOG_ASSERT(outputHandles.size() == deviceProgram->outputs()->size(),
-               "Output size mismatch");
-    for (unsigned i = 0; i < outputHandles.size(); ++i) {
-      const ::tt::target::metal::TensorRef *tensorRef =
-          deviceProgram->outputs()->Get(i);
-      std::shared_ptr<::tt::tt_metal::Buffer> buffer = prepareOutput(
-          device, &outputHandles[i].as<MetalTensor>(DeviceRuntime::TTMetal),
-          tensorRef);
-      outputs.emplace_back(deviceProgram->outputs()->Get(i)->global_id(),
-                           buffer);
-    }
-
-    std::size_t cq_id = 0;
-    for (const ::tt::target::metal::CommandQueue *cq :
-         *deviceProgram->command_queues()) {
-      FrameMark;
-      deviceEvents.push_back(
-          executeCommandQueue(device, cq, cq_id, inputs, outputs));
-      ++cq_id;
-      FrameMark;
-    }
-
-    Events copyEvents =
-        maybeCopyHostOutputs(device, outputHandles, outputs, deviceEvents);
-    if (!copyEvents.empty()) {
-      std::swap(deviceEvents, copyEvents);
-    }
-
-    events->insert(events->end(), deviceEvents.begin(), deviceEvents.end());
+    LOG_ASSERT(outputs.empty(), "Multi-device outputs not supported");
+    outputs = executeDeviceProgram(device, program->device_programs()->Get(i),
+                                   inputs);
+    LOG_ASSERT(outputs.size() == program->outputs()->size(),
+               "Outputs size mismatch");
   }
 
-  return Event(static_pointer_cast<void>(events), DeviceRuntime::TTMetal);
+  return outputs;
 }
 
 std::string getOpDebugString(OpContext opContextHandle) {
@@ -428,32 +346,32 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
   return createNullTensor();
 }
 
-std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor tensor) {
+std::vector<std::byte> getTensorDataBuffer(Tensor tensor) {
   LOG_WARNING("getDataBuffer not implemented for metal runtime");
   return {};
 }
 
-std::vector<std::uint32_t> getTensorShape(::tt::runtime::Tensor tensor) {
+std::vector<std::uint32_t> getTensorShape(Tensor tensor) {
   LOG_WARNING("getShape not implemented for metal runtime");
   return {};
 }
 
-std::vector<std::uint32_t> getTensorStride(::tt::runtime::Tensor tensor) {
+std::vector<std::uint32_t> getTensorStride(Tensor tensor) {
   LOG_WARNING("getStride not implemented for metal runtime");
   return {};
 }
 
-std::uint32_t getTensorElementSize(::tt::runtime::Tensor tensor) {
+std::uint32_t getTensorElementSize(Tensor tensor) {
   LOG_WARNING("getElementSize not implemented for metal runtime");
   return 0;
 }
 
-std::uint32_t getTensorVolume(::tt::runtime::Tensor tensor) {
+std::uint32_t getTensorVolume(Tensor tensor) {
   LOG_WARNING("getVolume not implemented for metal runtime");
   return 0;
 }
 
-TensorDesc getTensorDesc(::tt::runtime::Tensor tensor) {
+TensorDesc getTensorDesc(Tensor tensor) {
   LOG_WARNING("getTensorDesc not implemented for metal runtime");
   return {};
 }

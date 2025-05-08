@@ -5,7 +5,7 @@
 #include "operations/layout/to_dtype.h"
 #include "tt/runtime/detail/logger.h"
 
-#include "tt/runtime/ttnn/utils.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::layout {
 void run(const ::tt::target::ttnn::ToDTypeOp *op, ProgramContext &context) {

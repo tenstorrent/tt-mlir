@@ -16,6 +16,23 @@ execute_process(
 
 if("${EXISTING_TAGS}" STREQUAL "")
   message(STATUS "No version tags found locally. Fetching tags from upstream...")
+
+  # Check if 'upstream' is set
+  execute_process(
+    COMMAND git remote
+    WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+    OUTPUT_VARIABLE REMOTES
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+
+  # Add 'upstream' if not already present
+  if(NOT "${REMOTES}" MATCHES "upstream")
+    execute_process(
+      COMMAND git remote add upstream https://github.com/tenstorrent/tt-mlir.git
+      WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+    )
+  endif()
+
   execute_process(
     COMMAND git fetch --tags upstream
     WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}

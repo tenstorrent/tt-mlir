@@ -2,11 +2,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TT_RUNTIME_TTNN_UTILS_H
-#define TT_RUNTIME_TTNN_UTILS_H
+#ifndef TT_RUNTIME_DETAIL_TTNN_UTILS_H
+#define TT_RUNTIME_DETAIL_TTNN_UTILS_H
 
 #include "flatbuffers/vector.h"
-#include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
 #include "ttmlir/Target/Common/types_generated.h"
 #include "ttmlir/Target/TTNN/Target.h"
 
@@ -22,6 +22,9 @@ bool isValidTileShape(const ::tt::target::Dim2d *shape);
 
 bool isSharded(
     const ::tt::target::ttnn::TensorMemoryLayout &tensorMemoryLayout);
+
+const ::tt::target::ttnn::TTNNBinary *
+getBinary(::tt::runtime::Flatbuffer binary);
 
 ::ttnn::operations::reduction::ReduceType getReduceType(uint32_t reduceType);
 
@@ -42,10 +45,6 @@ toTTNNStorageType(::tt::target::ttnn::StorageType storageType);
 ::ttnn::Layout
 inferLayoutFromTileShape(const ::tt::target::ttnn::TensorRef *tensorRef);
 
-CoreRangeSet
-toCoreRangeSet(const ::flatbuffers::Vector<const ::tt::target::Dim2dRange *>
-                   *coreRangeSet);
-
 CoreCoord toTTNNCoreCoord(const ::tt::target::ttnn::CoreCoord &coreCoord);
 
 CoreRange toTTNNCoreRange(const tt::target::ttnn::CoreRange &coreRange);
@@ -64,48 +63,27 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg);
 
 void *getRawHostDataPtr(const ::ttnn::Tensor &tensor);
 
-// Translates a flatbuffer DataType to the native (C++) type.
-template <::tt::target::DataType DataType>
-struct NativeDType {
-  using type = std::monostate;
-};
-template <>
-struct NativeDType<::tt::target::DataType::Float32> {
-  using type = float;
-};
-template <>
-struct NativeDType<::tt::target::DataType::BFloat16> {
-  using type = bfloat16;
-};
-template <>
-struct NativeDType<::tt::target::DataType::UInt32> {
-  using type = uint32_t;
-};
-template <>
-struct NativeDType<::tt::target::DataType::UInt16> {
-  using type = uint16_t;
-};
-template <>
-struct NativeDType<::tt::target::DataType::UInt8> {
-  using type = uint8_t;
-};
-
-template <>
-struct NativeDType<::tt::target::DataType::Int32> {
-  using type = int32_t;
-};
-
-template <::tt::target::DataType DataType>
-using NativeDTypeT = typename NativeDType<DataType>::type;
+::ttnn::TensorSpec createTensorSpec(
+    const ::ttnn::Shape &shape, const ::ttnn::DataType &dataType,
+    const ::ttnn::Layout &layout = ::ttnn::Layout::ROW_MAJOR,
+    const ::ttnn::MemoryConfig &memoryConfig = ::ttnn::DRAM_MEMORY_CONFIG);
 
 template <typename T>
-constexpr bool IsHostTypeV =
-    std::is_constructible_v<::tt::tt_metal::OwnedBuffer,
-                            ::tt::tt_metal::owned_buffer::Buffer<T>>;
-
-constexpr size_t DTypeMinV = static_cast<size_t>(tt::target::DataType::MIN);
-constexpr size_t DTypeMaxV = static_cast<size_t>(tt::target::DataType::MAX);
-constexpr size_t DTypeCountV = DTypeMaxV - DTypeMinV + 1;
+inline ::ttnn::Tensor createTTNNTensor(const void *rawData,
+                                       const ::ttnn::Shape &shape,
+                                       const ::ttnn::DataType &dataType) {
+  std::uint64_t numElements = shape.volume();
+  ::ttnn::TensorSpec tensorSpec = createTensorSpec(shape, dataType);
+  if (rawData != nullptr) {
+    const T *typedData = static_cast<const T *>(rawData);
+    ::tt::stl::Span<const T> data(typedData, typedData + numElements);
+    ::ttnn::Tensor tensor = ::ttnn::Tensor::from_span(data, tensorSpec);
+    return tensor;
+  }
+  std::vector<T> data(numElements);
+  ::ttnn::Tensor tensor = ::ttnn::Tensor::from_vector(data, tensorSpec);
+  return tensor;
+}
 
 } // namespace tt::runtime::ttnn::utils
 

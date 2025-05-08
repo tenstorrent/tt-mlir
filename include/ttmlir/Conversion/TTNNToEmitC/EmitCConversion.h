@@ -156,6 +156,12 @@ struct TypeName<std::tuple<Types...>> {
       "::std::tuple<" + JoinTypeNamesV<Types...> + ">";
 };
 
+template <typename... Types>
+struct TypeName<std::variant<Types...>> {
+  inline static const std::string value =
+      "::std::variant<" + JoinTypeNamesV<Types...> + ">";
+};
+
 template <>
 struct TypeName<::ttnn::AnyDevice> {
   inline static const std::string value = "::ttnn::AnyDevice";
@@ -918,9 +924,16 @@ public:
     // element of the tuple.
     if constexpr (std::is_same_v<TTNNOp, tt::ttnn::Conv2dOp> ||
                   std::is_same_v<TTNNOp, tt::ttnn::ConvTranspose2dOp>) {
-      using ReturnTy =
-          std::tuple<::ttnn::Tensor, uint32_t, uint32_t, ::ttnn::Tensor,
-                     std::optional<::ttnn::Tensor>>;
+      using OutputHeight = std::uint32_t;
+      using OutputWidth = std::uint32_t;
+      using ReturnTy = std::variant<
+          ::ttnn::Tensor,
+          std::tuple<::ttnn::Tensor, std::tuple<OutputHeight, OutputWidth>>,
+          std::tuple<::ttnn::Tensor,
+                     std::tuple<::ttnn::Tensor, std::optional<::ttnn::Tensor>>>,
+          std::tuple<
+              ::ttnn::Tensor, std::tuple<OutputHeight, OutputWidth>,
+              std::tuple<::ttnn::Tensor, std::optional<::ttnn::Tensor>>>>;
 
       auto opResult = rewriter.create<emitc::CallOpaqueOp>(
           op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),

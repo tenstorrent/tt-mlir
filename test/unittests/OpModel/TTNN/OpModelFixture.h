@@ -103,7 +103,7 @@ public:
     const auto dtypeSelected =
         dtype.has_value() ? dtype.value() : builder.getBF16Type();
     return mlir::tt::ttnn::TTNNLayoutAttr::get(
-        &context, tensorShape, mlir::tt::TileType::get(&context, dtypeSelected),
+        &context, tensorShape, mlir::tt::TileType::get(dtypeSelected),
         bufferType,
         CreateGrid(&context, tensorMemoryLayout, virtualGridSelected,
                    physicalGrid),

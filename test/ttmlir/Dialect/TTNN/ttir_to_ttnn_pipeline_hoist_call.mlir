@@ -15,7 +15,7 @@ module {
     // CHECK: %{{.*}} = "ttnn.from_device"(%{{.*}}) : (tensor<[[DIMS:.*]], #{{.*}}>) -> tensor<[[DIMS]], #{{.*}}>
     // CHECK: %{{.*}} = call @hoisted_ttir_add_64x128_64x128_64x128_func_decl(%{{.*}}, %{{.*}}, %{{.*}})
     %3 = "ttir.add"(%arg0, %1, %2) {should_hoist} : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
-    // CHECK: %{{.*}} = "ttnn.construct_tensor"
+    // CHECK: %{{.*}} = "ttnn.zeros"
     %4 = ttir.empty() : tensor<64x128xf32>
     // CHECK: %{{.*}} = call @hoisted_ttir_add_64x128_64x128_64x128_func_decl(%{{.*}}, %{{.*}}, %{{.*}})
     %5 = "ttir.add"(%arg0, %3, %4) {should_hoist} : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>

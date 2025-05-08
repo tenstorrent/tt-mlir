@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tt/runtime/ttnn/types.h"
-#include "tt/runtime/ttnn/debug_apis.h"
-#include "tt/runtime/ttnn/utils.h"
+#include "tt/runtime/detail/ttnn/types.h"
+#include "tt/runtime/detail/ttnn/debug_apis.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 
 namespace tt::runtime::ttnn {
 
@@ -37,8 +37,7 @@ LayoutDesc::LayoutDesc(const ::ttnn::StorageType &storageType,
       memoryConfig(memoryConfig) {}
 
 bool LayoutDesc::isOnHost() const {
-  return (storageType == ::ttnn::StorageType::OWNED) ||
-         (storageType == ::ttnn::StorageType::BORROWED) ||
+  return (storageType == ::ttnn::StorageType::HOST) ||
          (storageType == ::ttnn::StorageType::MULTI_DEVICE_HOST);
 }
 
