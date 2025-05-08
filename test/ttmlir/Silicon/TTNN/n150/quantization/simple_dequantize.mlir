@@ -50,8 +50,8 @@ module {
     %4 = "ttir.dequantize_unrolled"(%arg0, %1, %2, %3) <{axis = 0 : i32}> : (tensor<3x3x7x7x!quant.uniform<i32:f32:0, {2.000000e-02,1.000000e-02,5.000000e-03}>>, tensor<3xf32>, tensor<3xi32>, tensor<3x3x7x7xf32>) -> tensor<3x3x7x7xf32>
     return %4 : tensor<3x3x7x7xf32>
   }
-  func.func @dequantize_per_axis_scale_per_channel_zp(%arg0: tensor<3x3x7x7x!quant.uniform<i32:f32:0, {2.000000e-02:10,1.000000e-02:20,5.000000e-03:30}>>) -> tensor<3x3x7x7xf32> {
-    // CHECK-LABEL: func.func @dequantize_per_axis_scale_per_channel_zp(
+  func.func @dequantize_per_axis_scale_per_axis_zp(%arg0: tensor<3x3x7x7x!quant.uniform<i32:f32:0, {2.000000e-02:10,1.000000e-02:20,5.000000e-03:30}>>) -> tensor<3x3x7x7xf32> {
+    // CHECK-LABEL: func.func @dequantize_per_axis_scale_per_axis_zp(
     %0 = ttir.empty() : tensor<3x3x7x7xf32>
     // CHECK: "ttnn.get_device"
     // CHECK: "ttnn.constant"
