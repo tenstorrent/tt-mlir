@@ -133,6 +133,19 @@ private:
   bool lastTileDimReplicate = false;
 };
 
+inline mlir::sdy::MeshAttr adjustSdyMeshAttr(mlir::Operation *srcOp,
+                                             mlir::sdy::MeshAttr sdyMesh) {
+  if (sdyMesh.getAxes().size() == 1) {
+    // 1D (N) mesh is always extended to 2D (1, N) mesh.
+    sdyMesh = mlir::sdy::MeshAttr::get(
+        srcOp->getContext(),
+        llvm::ArrayRef<mlir::sdy::MeshAxisAttr>(
+            {mlir::sdy::MeshAxisAttr::get(srcOp->getContext(), "unit", 1),
+             sdyMesh.getAxes().front()}));
+  }
+  return sdyMesh;
+}
+
 inline mlir::RankedTensorType addTensorMeshShardingAttrToRankedTensorType(
     mlir::RankedTensorType type,
     mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr) {
@@ -194,8 +207,10 @@ bool checkAndRemoveFuncArgSharding(
     if (argShardingAttr == shardingAttr) {
       rewriter.modifyOpInPlace(funcOp, [&]() {
         funcOp.removeArgAttr(argIdx, argShardingStrRef);
-        addTensorMeshShardingAttrToFunctionArg(funcOp, argIdx,
-                                               tensorMeshShardingAttr);
+        if (tensorMeshShardingAttr) {
+          addTensorMeshShardingAttrToFunctionArg(funcOp, argIdx,
+                                                 tensorMeshShardingAttr);
+        }
       });
       return true;
     }
@@ -219,8 +234,10 @@ bool checkAndRemoveFuncReturnSharding(
         funcOp.removeResultAttr(
             retIdx,
             mlir::StringAttr::get(funcOp->getContext(), retShardingStrRef));
-        addTensorMeshShardingAttrToFunctionRet(funcOp, retIdx,
-                                               tensorMeshShardingAttr);
+        if (tensorMeshShardingAttr) {
+          addTensorMeshShardingAttrToFunctionRet(funcOp, retIdx,
+                                                 tensorMeshShardingAttr);
+        }
       });
       return true;
     }

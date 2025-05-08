@@ -197,7 +197,9 @@ public:
     // ManualComputationOp include one mesh for all in/out shardings, so we can
     // pick up first sharding and get mesh info.
     mlir::sdy::TensorShardingAttr firstSharding = *shardings.begin();
-    mlir::sdy::MeshAttr targetMesh = firstSharding.getMesh(symbolTable);
+    mlir::sdy::MeshAttr targetMesh =
+        mlir::tt::sharding_utils::adjustSdyMeshAttr(
+            srcOp, firstSharding.getMesh(symbolTable));
     if (!targetMesh) {
       llvm_unreachable(
           "mlir::sdy::TensorShardingAttr requires mesh definition.");
@@ -348,16 +350,16 @@ public:
     }
 
     mlir::StringAttr meshName = srcOp.getSymNameAttr();
+    mlir::sdy::MeshAttr sdyMesh =
+        mlir::tt::sharding_utils::adjustSdyMeshAttr(srcOp, srcOp.getMesh());
     llvm::SmallVector<int64_t> meshShape;
-    mlir::sdy::MeshAttr sdyMesh = srcOp.getMesh();
-    for (auto meshAxisAttr : sdyMesh.getAxes()) {
-      meshShape.push_back(meshAxisAttr.getSize());
+    if (!sdyMesh.empty()) {
+      for (auto meshAxisAttr : sdyMesh.getAxes()) {
+        meshShape.push_back(meshAxisAttr.getSize());
+      }
+      mlir::tt::utils::addMeshToModuleAttribute(rewriter, module, meshName,
+                                                meshShape);
     }
-    if (meshShape.size() < 2) {
-      llvm_unreachable("1d hardware mesh is not supported.");
-    }
-    mlir::tt::utils::addMeshToModuleAttribute(rewriter, module, meshName,
-                                              meshShape);
 
     // Before erasing MeshOp, visit public functions and properly handle
     // argument and return sharding attributes that are not used or defined by

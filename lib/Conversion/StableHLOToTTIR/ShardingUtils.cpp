@@ -357,6 +357,11 @@ MeshSharding::parseSdySharding(mlir::sdy::TensorShardingAttr sdySharding,
 llvm::Expected<bool> MeshSharding::convertSdyShardingToMeshSharding(
     sdy::TensorShardingAttr sdySharding, sdy::MeshAttr meshAttr,
     tt::MeshShardDirection direction) {
+  // Empty meshAttr indicates single device, so no need to convert.
+  meshShape.clear();
+  if (meshAttr.empty()) {
+    return true;
+  }
 
   shardDirection = direction;
   meshName = sdySharding.getMeshName();
@@ -427,6 +432,11 @@ bool MeshSharding::checkAndUpdateShardyRetSharding(
 // Get TensorMeshShardingAttr given MeshSharding info.
 mlir::tt::TensorMeshShardingAttr
 MeshSharding::getTensorMeshShardingAttr(mlir::PatternRewriter &rewriter) {
+  // Empty meshShape indicates single device, so no TEnsorMeshShardingAttr needs
+  // to be created.
+  if (meshShape.empty()) {
+    return nullptr;
+  }
   MLIRContext *context = rewriter.getContext();
   auto meshNameStrAttr = mlir::StringAttr::get(context, meshName);
   llvm::SmallVector<llvm::SmallVector<int64_t>> tensorAxes(
