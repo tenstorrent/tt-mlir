@@ -403,7 +403,7 @@ const ::tt::runtime::Tensor &ProgramTensorPool::getRuntimeTensorAndValidate(
           .as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
           .getTensor();
   DEBUG_ASSERT(ttnnTensor.is_allocated());
-  // debug::checkTensorRefMatchesTTNNTensor(tensorRef, ttnnTensor);
+  debug::checkTensorRefMatchesTTNNTensor(tensorRef, ttnnTensor);
   return runtimeTensor;
 }
 
@@ -452,7 +452,7 @@ ProgramTensorPool::insertTTNNTensorAndValidate(
   LOG_ASSERT(tensorRef != nullptr, "tensorRef should not be null");
   std::uint32_t globalId = tensorRef->global_id();
   DEBUG_ASSERT(ttnnTensor.is_allocated());
-  // debug::checkTensorRefMatchesTTNNTensor(tensorRef, ttnnTensor);
+  debug::checkTensorRefMatchesTTNNTensor(tensorRef, ttnnTensor);
 
   ::tt::runtime::Tensor runtimeTensor =
       utils::createRuntimeTensorFromTTNN(ttnnTensor, retain);
