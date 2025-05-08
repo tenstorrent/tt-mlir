@@ -3,9 +3,6 @@
 // RUN: ttmlir-opt --ttnn-modify-signatures-for-dylib --convert-ttnn-to-emitc %t.mlir > %t2.mlir
 // RUN: ttmlir-translate --mlir-to-cpp %t2.mlir > %basename_t.cpp
 
-// UNSUPPORTED: true
-// Marked as UNSUPPORTED because of segfault: https://github.com/tenstorrent/tt-mlir/issues/3266
-
 #dram = #ttnn.buffer_type<dram>
 #system_memory = #ttnn.buffer_type<system_memory>
 #ttnn_layout = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 192 + d1 * 3 + d2, d3), <1x1>, memref<12288x3xbf16, #system_memory>>

@@ -69,7 +69,7 @@ runSoProgram(void *so, std::string func_name,
   // Get function from the shared object
   //
   using ForwardFunctionWithDevice = std::vector<::ttnn::Tensor> (*)(
-      std::vector<::ttnn::Tensor>, ::ttnn::IDevice *);
+      std::vector<::ttnn::Tensor>, ::ttnn::MeshDevice *);
   using ForwardFunctionNoDevice =
       std::vector<::ttnn::Tensor> (*)(std::vector<::ttnn::Tensor>);
 
@@ -92,7 +92,7 @@ runSoProgram(void *so, std::string func_name,
   // Call program/function
   //
   std::vector<::ttnn::Tensor> ttnnOutputs;
-  if (mangledName.find("IDevice") != std::string::npos) {
+  if (mangledName.find("MeshDevice") != std::string::npos) {
     auto forwardFunc = reinterpret_cast<ForwardFunctionWithDevice>(symbol);
     ttnnOutputs = forwardFunc(ttnnInputs, &ttnnMeshDevice);
   } else {
