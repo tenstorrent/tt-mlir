@@ -48,7 +48,6 @@ def settings_to_overrides(settings, artifacts_dir):
         for op_id, overrides in settings["overrides"].items():
             output_layout_override = optimizer_overrides.OutputLayoutOverrideParams()
             conv2d_config_override = optimizer_overrides.Conv2dConfigOverrideParams()
-            op_loc = overrides["named_location"]
             for attr in overrides["attributes"]:
                 match attr["key"]:
                     case "data_type":
@@ -140,7 +139,7 @@ def settings_to_overrides(settings, artifacts_dir):
                         raise ValueError(f"Invalid override attribute: {attr['key']}")
             if not output_layout_override.empty():
                 override_handler.add_output_layout_override(
-                    op_loc, output_layout_override
+                    op_id, output_layout_override
                 )
             if not conv2d_config_override.empty():
                 override_handler.add_conv2d_config_override(
