@@ -810,6 +810,21 @@ public:
     auto dimNums = adaptor.getDimensionNumbers();
     uint64_t numSpatialDims = dimNums.getInputSpatialDimensions().size();
 
+    bool isTransposed = false;
+    // [TODO](mmanzoor) Verify the implementation of transposed convolution for
+    // tt-xla. https://github.com/tenstorrent/tt-mlir/issues/3293
+    // Determine if the stablehlo.convolution op represents a regular or
+    // transposed convolution, based on Torch-MLIR lowering patterns.
+    // https://github.com/llvm/torch-mlir/blob/main/lib/Conversion/TorchToStablehlo/Linear.cpp
+    if (dimNums.getKernelInputFeatureDimension() != 0 &&
+        dimNums.getKernelOutputFeatureDimension() != 1 &&
+        dimNums.getInputSpatialDimensions() !=
+            dimNums.getKernelSpatialDimensions() &&
+        dimNums.getOutputSpatialDimensions() !=
+            dimNums.getKernelSpatialDimensions()) {
+      isTransposed = true;
+    }
+
     // These are the defaults intended by stablehlo when the attrs are not
     // populated
     DenseI64ArrayAttr windowStridesAttr =
@@ -853,7 +868,8 @@ public:
             dimNums.getOutputBatchDimension(),
             dimNums.getOutputFeatureDimension(),
             dimNums.getOutputSpatialDimensions()),
-        adaptor.getFeatureGroupCountAttr(), adaptor.getBatchGroupCountAttr());
+        adaptor.getFeatureGroupCountAttr(), adaptor.getBatchGroupCountAttr(),
+        rewriter.getBoolAttr(isTransposed));
 
     return success();
   }

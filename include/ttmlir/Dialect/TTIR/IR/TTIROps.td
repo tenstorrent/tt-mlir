@@ -1499,7 +1499,6 @@ def TTIR_ConvolutionOp : TTIR_NamedOp<"convolution"> {
     AnyRankedTensor:$weight,
     Optional<AnyRankedTensor>:$bias,
     AnyRankedTensor:$output,
-
     DenseI64ArrayAttr:$window_strides,
     DenseI64ArrayAttr:$padding,
     DenseI64ArrayAttr:$input_dilation,
@@ -1507,7 +1506,8 @@ def TTIR_ConvolutionOp : TTIR_NamedOp<"convolution"> {
     DenseBoolArrayAttr:$window_reversal,
     TTIR_ConvolutionLayoutAttr:$convolution_layout,
     ConfinedAttr<I64Attr, [IntPositive]>:$feature_group_count,
-    ConfinedAttr<I64Attr, [IntPositive]>:$batch_group_count
+    ConfinedAttr<I64Attr, [IntPositive]>:$batch_group_count,
+    DefaultValuedAttr<BoolAttr, "false">:$is_transposed
   );
 
   let results = (outs AnyRankedTensor);

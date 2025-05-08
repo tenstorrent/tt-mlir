@@ -289,7 +289,8 @@ public:
             convolutionLayout.getOutputBatchDimension(),
             convolutionLayout.getOutputFeatureDimension(),
             conv2dOutputSpatialDimensions),
-        adaptor.getFeatureGroupCountAttr(), adaptor.getBatchGroupCountAttr());
+        adaptor.getFeatureGroupCountAttr(), adaptor.getBatchGroupCountAttr(),
+        op.getIsTransposedAttr());
 
     ttir::ReshapeOp reshapeOutput =
         createReshapeOp(rewriter, op.getLoc(), new2dConvolutionOp, outputShape);
@@ -355,6 +356,13 @@ public:
       SPATIAL_DIM_HEIGHT,
       SPATIAL_DIM_WIDTH,
   };
+  // IOHW; for conv_transpose2d
+  static inline const std::vector<int64_t> conv2dTransposeKernelLayout = {
+      ConvolutionKernelDimension::INPUT_FEATURES,
+      ConvolutionKernelDimension::OUTPUT_FEATURES,
+      SPATIAL_DIM_HEIGHT,
+      SPATIAL_DIM_WIDTH,
+  };
 
   LogicalResult
   matchAndRewrite(ttir::ConvolutionOp op, OpAdaptor adaptor,
@@ -362,6 +370,8 @@ public:
     if (!(isSupportedConv(op) && isNDimensional(op, NUM_SPATIAL_DIMS))) {
       return failure();
     }
+
+    bool isTransposed = op.getIsTransposed();
 
     auto strideAttr = rewriter.getDenseI32ArrayAttr({
         static_cast<int32_t>(adaptor.getWindowStrides()[SPATIAL_DIM_HEIGHT]),
@@ -408,21 +418,73 @@ public:
         rewriter, op.getLoc(), permuteOutputShape, inputType.getElementType(),
         inputType.getEncoding(), adaptor.getInput(), permutation);
 
-    auto weightType =
-        mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
-    auto kernelPermutation =
-        generateConvKernelPermutation(op, conv2dKernelLayout);
+    auto weight = adaptor.getWeight();
+    // TTNN api handles reversing weights internally for transposed convolution.
+    // So ttir.reverse op is ignored and its input is used as weight.
+    if (isTransposed &&
+        isa<mlir::tt::ttir::ReverseOp>(weight.getDefiningOp())) {
+      weight = weight.getDefiningOp()->getOperand(0);
+    }
+    auto weightType = mlir::cast<RankedTensorType>(weight.getType());
+    auto kernelPermutation = generateConvKernelPermutation(
+        op, isTransposed ? conv2dTransposeKernelLayout : conv2dKernelLayout);
     auto weightOutputShape = ::ttmlir::utils::applyPermutation(
-        mlir::cast<RankedTensorType>(adaptor.getWeight().getType()).getShape(),
+        mlir::cast<RankedTensorType>(weight.getType()).getShape(),
         kernelPermutation);
-    auto weight = ttir::utils::createDPSOp<ttir::PermuteOp>(
+    weight = ttir::utils::createDPSOp<ttir::PermuteOp>(
         rewriter, op.getLoc(), weightOutputShape, weightType.getElementType(),
-        weightType.getEncoding(), adaptor.getWeight(), kernelPermutation);
+        weightType.getEncoding(), weight, kernelPermutation);
 
-    ttir::Conv2dOp newConv = ttir::utils::createDPSOp<ttir::Conv2dOp>(
-        rewriter, op.getLoc(), outputType, Value(input), Value(weight),
-        adaptor.getBias(), strideAttr, paddingAttr, dilationAttr, groupsAttr,
-        /*flattenedCompatInfo=*/nullptr);
+    mlir::Value newConv;
+    if (isTransposed) {
+      // [TODO](mmanzoor) Verify the implementation of transposed convolution
+      // for tt-xla. https://github.com/tenstorrent/tt-mlir/issues/3293
+      // stablehlo.convolution/ttir.convolution op doesn't have output_padding
+      // attribute. So Torch-MLIR adds output_padding with padding attribute for
+      // transposed convolution during lowering.
+      // https://github.com/llvm/torch-mlir/blob/main/lib/Conversion/TorchToStablehlo/Linear.cpp
+      auto outputPaddingAttr = rewriter.getDenseI32ArrayAttr(
+          {static_cast<int32_t>(paddingMatrix[SPATIAL_DIM_HEIGHT][1] -
+                                paddingMatrix[SPATIAL_DIM_HEIGHT][0]),
+           static_cast<int32_t>(paddingMatrix[SPATIAL_DIM_WIDTH][1] -
+                                paddingMatrix[SPATIAL_DIM_WIDTH][0])});
+      // Recomputing padding attribute based on Torch-MLIR lowering of
+      // conv_transposed2d op.
+      // https://github.com/llvm/torch-mlir/blob/main/lib/Conversion/TorchToStablehlo/Linear.cpp
+      paddingAttr = rewriter.getDenseI32ArrayAttr({
+          static_cast<int32_t>(
+              (weightType.getShape()[SPATIAL_DIM_HEIGHT] - 1) *
+                  adaptor.getWeightDilation()[SPATIAL_DIM_HEIGHT] -
+              paddingMatrix[SPATIAL_DIM_HEIGHT][0]),
+          static_cast<int32_t>(
+              (weightType.getShape()[SPATIAL_DIM_HEIGHT] - 1) *
+                  adaptor.getWeightDilation()[SPATIAL_DIM_HEIGHT] -
+              paddingMatrix[SPATIAL_DIM_HEIGHT][0]),
+          static_cast<int32_t>(
+              (weightType.getShape()[SPATIAL_DIM_WIDTH] - 1) *
+                  adaptor.getWeightDilation()[SPATIAL_DIM_WIDTH] -
+              paddingMatrix[SPATIAL_DIM_WIDTH][0]),
+          static_cast<int32_t>(
+              (weightType.getShape()[SPATIAL_DIM_WIDTH] - 1) *
+                  adaptor.getWeightDilation()[SPATIAL_DIM_WIDTH] -
+              paddingMatrix[SPATIAL_DIM_WIDTH][0]),
+      });
+      // Input dilation (lhs dilation) is used for stride for transposed
+      // convolution.
+      auto inputDilationAttr = rewriter.getDenseI32ArrayAttr({
+          static_cast<int32_t>(adaptor.getInputDilation()[SPATIAL_DIM_HEIGHT]),
+          static_cast<int32_t>(adaptor.getInputDilation()[SPATIAL_DIM_WIDTH]),
+      });
+      newConv = ttir::utils::createDPSOp<ttir::ConvTranspose2dOp>(
+          rewriter, op->getLoc(), outputType, Value(input), Value(weight),
+          adaptor.getBias(), inputDilationAttr, paddingAttr, outputPaddingAttr,
+          dilationAttr, groupsAttr);
+    } else {
+      newConv = ttir::utils::createDPSOp<ttir::Conv2dOp>(
+          rewriter, op.getLoc(), outputType, Value(input), Value(weight),
+          adaptor.getBias(), strideAttr, paddingAttr, dilationAttr, groupsAttr,
+          /*flattenedCompatInfo=*/nullptr);
+    }
 
     // Applying the inverse of permutation to the output will restore the
     // tensor to the original layout.
