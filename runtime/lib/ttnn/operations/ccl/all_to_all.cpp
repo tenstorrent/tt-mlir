@@ -2,101 +2,107 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "operations/ccl/collective_permute.h"
+#include "operations/ccl/all_to_all.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/utils.h"
-#include "ttnn/operations/ccl/ccl_host_types.hpp"
+#include "ttnn/operations/data_movement/slice/slice.hpp"
 
 /*
-Currently, TTNN does not support collective permute as a first class API.
-Nor do they have send/recv point to point communication support.
-Therefore, this algorithm uses the host as a fallback to do the mapping.
-The collective permute operation takes a list of source_target_pairs that define
-how tensor shards currently living in a src device should move to the dest
-device. For example, for a 1x2 mesh system, you could have [0, 1], [1, 0]
-source_target_pairs list. This indicates that the device shard living in device
-0 should move to device 1, and the device shard living in device 1 should move
-to device 0. In the situation where you have incomplete devices as the 'dest',
-those devices will acquire a device shard with all values set to 0
+TTNN does not yet expose an All-to-All collective as a first-class API,
+and there is no point-to-point send/recv either.  To achieve the same
+effect we fall back to the host:
+1. Each device slices its local tensor shard.
+2. The slices are copied to the host.
+3. The host rearranges the slices so every device gets the piece it needs
+   (a manual All-to-All shuffle).
+4. The rearranged slices are copied back to the devices and concatenated.
 */
 namespace tt::runtime::ttnn::operations::ccl {
 void run(const ::tt::target::ttnn::AllToAllOp *op, ProgramContext &context) {
-  // ToDo : implement your idea
-  // ProgramTensorPool &tensorPool = context.getTensorPool();
+  ProgramTensorPool &tensorPool = context.getTensorPool();
+  const ::ttnn::Tensor &inputTensor =
+      tensorPool.getTTNNTensorAndValidate(op->in());
 
-  // const ::ttnn::Tensor &input =
-  // tensorPool.getTTNNTensorAndValidate(op->in());
-  // ::ttnn::MeshDevice *meshDevice = input.mesh_device();
-  // LOG_ASSERT(meshDevice != nullptr, "Tensor must belong to a mesh device");
+  ::ttnn::MeshDevice *meshDevice = inputTensor.mesh_device();
+  LOG_ASSERT(meshDevice != nullptr, "Tensor must belong to a mesh device");
 
-  // const auto *fbSourceTargetPairs = op->source_target_pairs();
-  // std::vector<int64_t> sourceTargetPairs(fbSourceTargetPairs->begin(),
-  //                                        fbSourceTargetPairs->end());
+  const int32_t splitDim = op->split_dim();
+  const int32_t concatDim = op->concat_dim();
+  const uint32_t splitCount = op->split_count();
+  const uint32_t clusterAxis = op->cluster_axis();
 
-  // LOG_ASSERT(sourceTargetPairs.size() % 2 == 0,
-  //            "Expected sourceTargetPairs to have size multiple of 2");
-  // LOG_ASSERT(input.storage_type() == ::ttnn::StorageType::DEVICE,
-  //            "Input of collective_permute must be device storage. id:",
-  //            op->in()->global_id());
+  const auto meshShape = meshDevice->shape();
+  const auto inputShape = inputTensor.logical_shape();
+  LOG_ASSERT(inputShape[splitDim] % splitCount == 0,
+             "Input dimension along splitDim must be divisible by splitCount");
 
-  // // Get list of individual per-device tensors. It should be returned in
-  // logical
-  // // id order.
-  // std::vector<::ttnn::Tensor> hostTensors =
-  //     ::ttnn::distributed::get_device_tensors(::ttnn::from_device(input));
+  const uint32_t splitSize = inputShape[splitDim] / splitCount;
 
-  // // Iterate through sourceTargetPairs and for each pair, get the source
-  // tensor
-  // // from the map and convert to device storage with dest device.
-  // std::vector<bool> foundDestDevices(hostTensors.size(), false);
-  // std::vector<::ttnn::Tensor> newHostTensors(hostTensors.size(),
-  //                                            ::ttnn::Tensor());
+  // 1. Slice the input tensor on-device and materialize per-device host copies.
+  //    slicedTensorsMulti[sliceIdx][device_idx]
+  std::vector<std::vector<::ttnn::Tensor>> slicedTensorsMulti(splitCount);
 
-  // for (size_t i = 0; i < sourceTargetPairs.size(); i += 2) {
-  //   int64_t src = sourceTargetPairs[i];
-  //   int64_t dest = sourceTargetPairs[i + 1];
+  for (uint32_t sliceIdx = 0; sliceIdx < splitCount; ++sliceIdx) {
+    auto begins = ::ttnn::SmallVector<int32_t>(inputShape.rank(), 0);
+    auto ends =
+        ::ttnn::SmallVector<int32_t>(inputShape.cbegin(), inputShape.cend());
+    auto steps = ::ttnn::SmallVector<int32_t>(inputShape.rank(), 1);
 
-  //   LOG_ASSERT((src < static_cast<int64_t>(hostTensors.size()) && src >= 0),
-  //              "Source device id is out of bounds!");
-  //   LOG_ASSERT((dest < static_cast<int64_t>(hostTensors.size()) && dest >=
-  //   0),
-  //              "Destination device id is out of bounds!");
+    begins[splitDim] = sliceIdx * splitSize;
+    ends[splitDim] = (sliceIdx + 1) * splitSize;
 
-  //   auto &srcHostTensor = hostTensors[src];
+    ::ttnn::Tensor slice_device =
+        ::ttnn::slice(inputTensor, begins, ends, steps); // device
+    slicedTensorsMulti[sliceIdx] = ::ttnn::distributed::get_device_tensors(
+        ::ttnn::from_device(slice_device)); // host view
+  }
 
-  //   newHostTensors[dest] = srcHostTensor;
-  //   foundDestDevices[dest] = true;
-  // }
+  // 2. Transpose shards across devices inside each cluster.
+  //    gatheredTensorsSharded[sliceIdx][device_idx]
+  std::vector<std::vector<::ttnn::Tensor>> gatheredTensorsSharded(
+      splitCount, std::vector<::ttnn::Tensor>(meshDevice->num_devices()));
 
-  // // Loop through all the devices that did not participate in the swaping and
-  // // set their tensor device shard values to 0.
-  // for (size_t i = 0; i < foundDestDevices.size(); i++) {
-  //   if (foundDestDevices[i]) {
-  //     continue;
-  //   }
+  // (clusterId, DevId in the cluster) -> flat device index
+  const auto clusterToDevIdx = [&](uint32_t clusterId,
+                                   uint32_t innerDevId) -> uint32_t {
+    uint32_t index;
+    if (clusterAxis == 0) {
+      index = innerDevId * meshShape[1] + clusterId;
+    } else {
+      index = clusterId * meshShape[1] + innerDevId;
+    }
+    return index;
+  };
 
-  //   auto &srcHostTensor = hostTensors[i];
+  for (uint32_t clusterId = 0; clusterId < meshShape[1 - clusterAxis];
+       ++clusterId) {
+    for (uint32_t srcRank = 0; srcRank < splitCount; ++srcRank) {
+      const uint32_t srcDev = clusterToDevIdx(clusterId, srcRank);
+      for (uint32_t sliceIdx = 0; sliceIdx < splitCount; ++sliceIdx) {
+        const uint32_t dstDev = clusterToDevIdx(clusterId, sliceIdx);
+        gatheredTensorsSharded[srcRank][dstDev] =
+            slicedTensorsMulti[sliceIdx][srcDev];
+      }
+    }
+  }
 
-  //   // We need to memset this tensor value to 0 based on collective permute
-  //   // operation semantics
-  //   void *dstPtr =
-  //   ::tt::runtime::ttnn::utils::getRawHostDataPtr(srcHostTensor); size_t size
-  //   = srcHostTensor.volume() * srcHostTensor.element_size();
-  //   std::memset(dstPtr, 0, size);
+  // 3. Aggregate per-device shards back into device tensors and move them onto
+  // the mesh.
+  std::vector<::ttnn::Tensor> gatheredTensorsMulti(splitCount);
+  for (uint32_t sliceIdx = 0; sliceIdx < splitCount; ++sliceIdx) {
+    ::ttnn::Tensor shardedTensor = ::ttnn::distributed::aggregate_as_tensor(
+        gatheredTensorsSharded[sliceIdx],
+        inputTensor.distributed_tensor_config());
 
-  //   newHostTensors[i] = srcHostTensor;
-  //   foundDestDevices[i] = true;
-  // }
+    gatheredTensorsMulti[sliceIdx] = ::ttnn::to_device(
+        shardedTensor, meshDevice, inputTensor.memory_config());
+  }
 
-  // // Combine all host tensor shards into a single host tensor with
-  // // multi device host storage.
-  // ::ttnn::Tensor out = ::ttnn::distributed::aggregate_as_tensor(
-  //     newHostTensors,
-  //     ::ttnn::distributed::get_distributed_tensor_config_from_tensor(input));
+  // 4. Concatenate along the requested dimension and register output.
+  ::ttnn::Tensor output = ::ttnn::concat(gatheredTensorsMulti, concatDim);
 
-  // out = ::ttnn::to_device(out, meshDevice, input.memory_config());
-  // tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 } // namespace tt::runtime::ttnn::operations::ccl
