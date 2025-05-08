@@ -39,6 +39,7 @@ int32_t main() {
   ttnn::Tensor v2;
   std::tie(v1, v2) = createInputsFor_add();
   ttnn::Tensor v3 = add(v1, v2);
+  tt::tt_metal::detail::DumpDeviceProfileResults(ttnn::DeviceGetter::getInstance());
   int32_t v4 = 0;
   return v4;
 }

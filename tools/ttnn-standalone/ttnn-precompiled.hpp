@@ -62,7 +62,7 @@ public:
     static std::shared_ptr<ttnn::MeshDevice> instance =
         ::ttnn::MeshDevice::create_unit_mesh(0);
 
-    return instance.get();
+    return instance.get()->get_device(0);
   }
 
 private:
