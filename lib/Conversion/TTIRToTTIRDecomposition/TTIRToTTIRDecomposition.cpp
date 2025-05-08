@@ -1538,6 +1538,7 @@ public:
 };
 } // namespace
 
+// Utility function to get scale and zero point for quantized types.
 static std::pair<mlir::Value, mlir::Value>
 getScaleAndZeroPoint(mlir::quant::QuantizedType elementType,
                      ConversionPatternRewriter &rewriter, mlir::Location loc) {
@@ -1597,6 +1598,7 @@ getScaleAndZeroPoint(mlir::quant::QuantizedType elementType,
   return {nullptr, nullptr};
 }
 
+// Utility function to get axis for quantized types.
 static IntegerAttr getAxis(mlir::quant::QuantizedType elementType,
                            ConversionPatternRewriter &rewriter) {
   IntegerAttr axis;
