@@ -20,8 +20,9 @@ def parse_loc_string(loc_str):
     This can be replaced by ttmlir.ir.Module.parse, but requires some further work to extract the actual location object from the module.
     """
     match = re.match(r'^loc\("([^"]+)"', loc_str)
-    assert match, f"Failed to parse location string: {loc_str}"
-    return match.group(1)
+    # https://github.com/tenstorrent/tt-mlir/issues/3255
+    # assert match, f"Failed to parse location string: {loc_str}"
+    return match.group(1) if match else None
 
 
 class AttrHandler:
@@ -944,7 +945,8 @@ def build_graph(
 
     # Check if all perf locations match some graph node
     for loc in loc_to_perf.keys():
-        assert loc in processed_locs, f"Perf location {loc} not found in graph nodes"
+        pass  # https://github.com/tenstorrent/tt-mlir/issues/3255
+        # assert loc in processed_locs, f"Perf location {loc} not found in graph nodes"
 
     # Add Overlay Data if it exists
     overlays = {}
