@@ -1371,7 +1371,8 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::AllToAllOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), device, adaptor.getSplitDim(),
-        adaptor.getConcatDim(), adaptor.getClusterAxis());
+        adaptor.getConcatDim(), adaptor.getSplitCount(),
+        adaptor.getClusterAxis());
 
     return success();
   }
