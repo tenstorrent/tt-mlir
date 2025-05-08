@@ -138,7 +138,7 @@ def TTNNPrepareConv2dWeights : Pass<"ttnn-prepare-conv2d-weights", "::mlir::Modu
   let description = [{
     This pass inserts a PrepareConv2dWeights operation before each Conv2d op which preprocess the weights used by Conv2d operations.
     The PrepareConv2dWeights op can be then const-evaled, leading to improved performance. In order to use this pass,
-    the project must be built with the op model library by setting -DTTMLIR_ENABLE_OP_MODEL=ON during the build process.
+    the project must be built with the op model library by setting -DTTMLIR_ENABLE_OPMODEL=ON during the build process.
   }];
 }
 
