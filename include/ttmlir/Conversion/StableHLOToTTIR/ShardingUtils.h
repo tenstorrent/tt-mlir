@@ -133,6 +133,19 @@ private:
   bool lastTileDimReplicate = false;
 };
 
+inline mlir::sdy::MeshAttr adjustSdyMeshAttr(mlir::Operation *srcOp,
+                                             mlir::sdy::MeshAttr sdyMesh) {
+  if (sdyMesh.getAxes().size() == 1) {
+    // 1D (N) mesh is always extended to 2D (1, N) mesh.
+    sdyMesh = mlir::sdy::MeshAttr::get(
+        srcOp->getContext(),
+        llvm::ArrayRef<mlir::sdy::MeshAxisAttr>(
+            {mlir::sdy::MeshAxisAttr::get(srcOp->getContext(), "unit", 1),
+             sdyMesh.getAxes().front()}));
+  }
+  return sdyMesh;
+}
+
 inline mlir::RankedTensorType addTensorMeshShardingAttrToRankedTensorType(
     mlir::RankedTensorType type,
     mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr) {
@@ -189,20 +202,24 @@ bool checkAndRemoveFuncArgSharding(
     AttrType shardingAttr,
     mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr,
     llvm::StringRef argShardingStrRef) {
-  if (auto argShardingAttr =
-          funcOp.getArgAttrOfType<AttrType>(argIdx, argShardingStrRef)) {
-    if (argShardingAttr == shardingAttr) {
-      rewriter.modifyOpInPlace(funcOp, [&]() {
-        funcOp.removeArgAttr(argIdx, argShardingStrRef);
-        addTensorMeshShardingAttrToFunctionArg(funcOp, argIdx,
-                                               tensorMeshShardingAttr);
-      });
-      return true;
-    }
+  auto argShardingAttr =
+      funcOp.getArgAttrOfType<AttrType>(argIdx, argShardingStrRef);
+  if (!argShardingAttr) {
+    return false;
+  }
+  if (argShardingAttr != shardingAttr) {
     llvm_unreachable("MeshSharding operation and function argument shardings "
                      "are different.");
   }
-  return false;
+  rewriter.modifyOpInPlace(funcOp, [&]() {
+    funcOp.removeArgAttr(argIdx, argShardingStrRef);
+    if (tensorMeshShardingAttr) {
+      addTensorMeshShardingAttrToFunctionArg(funcOp, argIdx,
+                                             tensorMeshShardingAttr);
+    }
+  });
+
+  return true;
 }
 
 // Remove ret sharding and return true if it is found, otherwise return false.
@@ -212,22 +229,24 @@ bool checkAndRemoveFuncReturnSharding(
     AttrType shardingAttr,
     mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr,
     llvm::StringRef retShardingStrRef) {
-  if (auto retShardingAttr =
-          funcOp.getResultAttrOfType<AttrType>(retIdx, retShardingStrRef)) {
-    if (retShardingAttr == shardingAttr) {
-      rewriter.modifyOpInPlace(funcOp, [&]() {
-        funcOp.removeResultAttr(
-            retIdx,
-            mlir::StringAttr::get(funcOp->getContext(), retShardingStrRef));
-        addTensorMeshShardingAttrToFunctionRet(funcOp, retIdx,
-                                               tensorMeshShardingAttr);
-      });
-      return true;
-    }
+  auto retShardingAttr =
+      funcOp.getResultAttrOfType<AttrType>(retIdx, retShardingStrRef);
+  if (!retShardingAttr) {
+    return false;
+  }
+  if (retShardingAttr != shardingAttr) {
     llvm_unreachable("MeshSharding operation and function return shardings "
                      "are different.");
   }
-  return false;
+  rewriter.modifyOpInPlace(funcOp, [&]() {
+    funcOp.removeResultAttr(
+        retIdx, mlir::StringAttr::get(funcOp->getContext(), retShardingStrRef));
+    if (tensorMeshShardingAttr) {
+      addTensorMeshShardingAttrToFunctionRet(funcOp, retIdx,
+                                             tensorMeshShardingAttr);
+    }
+  });
+  return true;
 }
 
 // Sharding related string definitions from open-xla
