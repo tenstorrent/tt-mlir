@@ -1483,131 +1483,6 @@ public:
 };
 } // namespace
 
-// Utility function to get scale and zero point for quantized types.
-static std::pair<mlir::Value, mlir::Value>
-getScaleAndZeroPoint(mlir::quant::QuantizedType elementType,
-                     ConversionPatternRewriter &rewriter, mlir::Location loc,
-                     mlir::Value device) {
-
-  // Create TTNNLayoutAttr for new ops created (for scale and zero point).
-  MLIRContext *ctx = rewriter.getContext();
-  mlir::tt::GridAttr grid = mlir::tt::GridAttr::get(ctx, 2);
-  mlir::tt::ttnn::BufferType bufferType = mlir::tt::ttnn::BufferType::DRAM;
-  mlir::tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr =
-      mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
-          ctx, mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
-
-  auto makeTileType = [&](mlir::Type elemType) -> mlir::tt::TileType {
-    return mlir::tt::TileType::get(
-        ctx, elemType,
-        {mlir::tt::ttnn::TILE_HEIGHT, mlir::tt::ttnn::TILE_WIDTH});
-  };
-
-  auto makeLayoutAttr =
-      [&](ArrayRef<int64_t> shape,
-          mlir::Type elemType) -> mlir::tt::ttnn::TTNNLayoutAttr {
-    return mlir::tt::ttnn::TTNNLayoutAttr::get(
-        ctx, shape, makeTileType(elemType), bufferType, grid, memLayoutAttr);
-  };
-
-  // Per-tensor quantization.
-  if (auto quantPerTensorType =
-          mlir::dyn_cast<mlir::quant::UniformQuantizedType>(elementType)) {
-    // Create ttnn::ConstantOp for scale.
-    float scaleValue = quantPerTensorType.getScale();
-
-    mlir::tt::ttnn::TTNNLayoutAttr layoutAttr =
-        makeLayoutAttr({1}, rewriter.getF32Type());
-    mlir::RankedTensorType scaleType =
-        mlir::RankedTensorType::get({1}, rewriter.getF32Type(), layoutAttr);
-    mlir::DenseFPElementsAttr scaleDenseAttr =
-        mlir::DenseFPElementsAttr::get(scaleType, scaleValue);
-    ttnn::ConstantOp scaleConstant =
-        rewriter.create<ttnn::ConstantOp>(loc, scaleType, scaleDenseAttr);
-
-    // Create ttnn::ConstantOp for zero point.
-    int32_t zeroPoint = static_cast<int32_t>(quantPerTensorType.getZeroPoint());
-    mlir::tt::ttnn::TTNNLayoutAttr zeroLayoutAttr =
-        makeLayoutAttr({1}, rewriter.getI32Type());
-    mlir::RankedTensorType zeroPointType =
-        mlir::RankedTensorType::get({1}, rewriter.getI32Type(), zeroLayoutAttr);
-    mlir::DenseIntElementsAttr zeroPointDenseAttr =
-        mlir::DenseIntElementsAttr::get(zeroPointType, zeroPoint);
-    ttnn::ConstantOp zeroPointConstant = rewriter.create<ttnn::ConstantOp>(
-        loc, zeroPointType, zeroPointDenseAttr);
-    return {scaleConstant.getResult(), zeroPointConstant.getResult()};
-  }
-
-  // Per-axis quantization.
-  if (auto quantPerAxisType =
-          mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
-              elementType)) {
-    // Create ttnn::ConstantOp for scale.
-    SmallVector<float> scales;
-    for (float scale : quantPerAxisType.getScales()) {
-      scales.push_back(scale);
-    }
-
-    mlir::tt::ttnn::TTNNLayoutAttr layoutAttr = makeLayoutAttr(
-        {static_cast<int64_t>(scales.size())}, rewriter.getF32Type());
-    mlir::RankedTensorType scaleType =
-        mlir::RankedTensorType::get({static_cast<int64_t>(scales.size())},
-                                    rewriter.getF32Type(), layoutAttr);
-    mlir::DenseFPElementsAttr scaleDenseAttr =
-        mlir::DenseFPElementsAttr::get(scaleType, scales);
-    ttnn::ConstantOp scaleConstant =
-        rewriter.create<ttnn::ConstantOp>(loc, scaleType, scaleDenseAttr);
-
-    // Create ttnn::ConstantOp for zero point. In the case of a splat, we use
-    // the Full op.
-    SmallVector<int32_t> zeroPoints;
-    for (int64_t zeroPoint : quantPerAxisType.getZeroPoints()) {
-      zeroPoints.push_back(static_cast<int32_t>(zeroPoint));
-    }
-    bool isZeroPointSplat =
-        !zeroPoints.empty() &&
-        std::all_of(zeroPoints.begin() + 1, zeroPoints.end(),
-                    [&](int32_t zp) { return zp == zeroPoints.front(); });
-    mlir::tt::ttnn::TTNNLayoutAttr zeroLayoutAttr = makeLayoutAttr(
-        {static_cast<int64_t>(zeroPoints.size())}, rewriter.getI32Type());
-    mlir::RankedTensorType zeroPointType = mlir::RankedTensorType::get(
-        {static_cast<int64_t>(zeroPoints.size())},
-        rewriter.getIntegerType(32, /*isSigned=*/true), zeroLayoutAttr);
-    mlir::Value zeroPointValue;
-    if (isZeroPointSplat) {
-      zeroPointValue =
-          rewriter
-              .create<ttnn::FullOp>(
-                  loc, zeroPointType, device,
-                  rewriter.getFloatAttr(rewriter.getF32Type(),
-                                        static_cast<float>(zeroPoints.front())))
-              .getResult();
-    } else {
-      mlir::DenseIntElementsAttr zeroPointDenseAttr =
-          mlir::DenseIntElementsAttr::get(zeroPointType, zeroPoints);
-      zeroPointValue =
-          rewriter
-              .create<ttnn::ConstantOp>(loc, zeroPointType, zeroPointDenseAttr)
-              .getResult();
-    }
-    return {scaleConstant.getResult(), zeroPointValue};
-  }
-
-  return {nullptr, nullptr};
-}
-
-// Utility function to get axis for quantized types.
-static IntegerAttr getAxis(mlir::quant::QuantizedType elementType,
-                           ConversionPatternRewriter &rewriter) {
-  IntegerAttr axis;
-  if (auto perAxisType =
-          mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
-              elementType)) {
-    axis = rewriter.getI32IntegerAttr(perAxisType.getQuantizedDimension());
-  }
-  return axis;
-}
-
 // Utility function to get data type for quantized types.
 static DataTypeAttr getDataType(mlir::Value val,
                                 ConversionPatternRewriter &rewriter,
@@ -1621,7 +1496,7 @@ static DataTypeAttr getDataType(mlir::Value val,
 
 namespace {
 template <typename OpTy, typename TTNNOpTy>
-class QuantizationOpConversionPatternBase : public OpConversionPattern<OpTy> {
+class QuantizationOpConversionPattern : public OpConversionPattern<OpTy> {
 public:
   using OpConversionPattern<OpTy>::OpConversionPattern;
 
@@ -1639,89 +1514,26 @@ public:
         outputDataType, ttnn::MemoryConfigAttr());
     return success();
   }
-
-protected:
-  virtual mlir::quant::QuantizedType getQuantizedElementType(OpTy op) const = 0;
-};
-
-class QuantizeOpConversionPattern
-    : public QuantizationOpConversionPatternBase<ttir::QuantizeUnrolledOp,
-                                                 ttnn::QuantizeOp> {
-public:
-  using QuantizationOpConversionPatternBase::
-      QuantizationOpConversionPatternBase;
-
-protected:
-  mlir::quant::QuantizedType
-  getQuantizedElementType(ttir::QuantizeUnrolledOp op) const override {
-    mlir::RankedTensorType outputType = op.getOutput().getType();
-    return mlir::dyn_cast<mlir::quant::QuantizedType>(
-        outputType.getElementType());
-  }
-};
-
-class DequantizeOpConversionPattern
-    : public QuantizationOpConversionPatternBase<ttir::DequantizeUnrolledOp,
-                                                 ttnn::DequantizeOp> {
-public:
-  using QuantizationOpConversionPatternBase::
-      QuantizationOpConversionPatternBase;
-
-protected:
-  mlir::quant::QuantizedType
-  getQuantizedElementType(ttir::DequantizeUnrolledOp op) const override {
-    mlir::RankedTensorType inputType = op.getInput().getType();
-    return mlir::dyn_cast<mlir::quant::QuantizedType>(
-        inputType.getElementType());
-  }
 };
 
 class RequantizeOpConversionPattern
-    : public OpConversionPattern<ttir::RequantizeOp> {
+    : public OpConversionPattern<ttir::RequantizeUnrolledOp> {
 public:
-  using OpConversionPattern<ttir::RequantizeOp>::OpConversionPattern;
+  using OpConversionPattern<ttir::RequantizeUnrolledOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::RequantizeOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::RequantizeUnrolledOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    mlir::RankedTensorType inputType = op.getInput().getType();
-    mlir::RankedTensorType outputType = op.getOutput().getType();
-
-    mlir::quant::QuantizedType inputElementType =
-        mlir::dyn_cast<mlir::quant::QuantizedType>(inputType.getElementType());
-    mlir::quant::QuantizedType outputElementType =
-        mlir::dyn_cast<mlir::quant::QuantizedType>(outputType.getElementType());
-
-    if (!inputElementType || !outputElementType) {
-      return failure();
-    }
-
-    auto [inputScale, inputZeroPoint] =
-        getScaleAndZeroPoint(inputElementType, rewriter, op.getLoc(),
-                             ttnn::utils::getOrInsertDevice(rewriter, op));
-    if (!inputScale) {
-      return rewriter.notifyMatchFailure(
-          op,
-          "Failed to extract input scale and zero point from quantized type.");
-    }
-
-    auto [outputScale, outputZeroPoint] =
-        getScaleAndZeroPoint(outputElementType, rewriter, op.getLoc(),
-                             ttnn::utils::getOrInsertDevice(rewriter, op));
-    if (!outputScale) {
-      return rewriter.notifyMatchFailure(
-          op,
-          "Failed to extract output scale and zero point from quantized type.");
-    }
-
-    IntegerAttr axisAttr = getAxis(inputElementType, rewriter);
     DataTypeAttr outputDataType =
         getDataType(op.getResult(), rewriter, this->getTypeConverter());
 
     rewriter.replaceOpWithNewOp<ttnn::RequantizeOp>(
         op, this->getTypeConverter()->convertType(op.getResult().getType()),
-        adaptor.getInput(), inputScale, inputZeroPoint, outputScale,
-        outputZeroPoint, axisAttr, outputDataType, ttnn::MemoryConfigAttr());
+        adaptor.getInput(), op.getInScale(), op.getInZeroPoint(),
+        op.getOutScale(), op.getOutZeroPoint(),
+        op.getAxis() ? rewriter.getI32IntegerAttr(*op.getAxis())
+                     : mlir::IntegerAttr(),
+        outputDataType, ttnn::MemoryConfigAttr());
     return success();
   }
 };
@@ -1740,8 +1552,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            NamedFullConversionPattern<ttir::OnesOp, ttnn::OnesOp>,
            FullOpConversionPattern,
            ToLayoutOpConversionPattern,
-           QuantizeOpConversionPattern,
-           DequantizeOpConversionPattern,
+           QuantizationOpConversionPattern<ttir::QuantizeUnrolledOp, ttnn::QuantizeOp>,
+           QuantizationOpConversionPattern<ttir::DequantizeUnrolledOp, ttnn::DequantizeOp>,
            RequantizeOpConversionPattern,
            ElementwiseOpConversionPattern<ttir::AbsOp, ttnn::AbsOp>,
            ElementwiseOpConversionPattern<ttir::AddOp, ttnn::AddOp>,

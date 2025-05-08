@@ -1792,12 +1792,9 @@ public:
     mlir::Type quantizeOutputType =
         this->getTypeConverter()->convertType(op.getOutput().getType());
 
-    auto output =
-        rewriter.create<ttir::EmptyOp>(op.getLoc(), quantizeOutputType);
-
     auto newOp = rewriter.create<QuantizeUnrolledOpTy>(
         op.getLoc(), quantizeOutputType, adaptor.getInput(), scale, zeroPoint,
-        axisAttr, output);
+        axisAttr, adaptor.getOutput());
 
     rewriter.replaceOp(op, newOp.getResult());
     return success();
@@ -1838,6 +1835,53 @@ protected:
   }
 };
 
+struct RequantizeOpPattern : public OpConversionPattern<ttir::RequantizeOp> {
+public:
+  using OpConversionPattern<ttir::RequantizeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::RequantizeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    mlir::RankedTensorType inputType = op.getInput().getType();
+    mlir::RankedTensorType outputType = op.getOutput().getType();
+
+    mlir::quant::QuantizedType inputElementType =
+        mlir::dyn_cast<mlir::quant::QuantizedType>(inputType.getElementType());
+    mlir::quant::QuantizedType outputElementType =
+        mlir::dyn_cast<mlir::quant::QuantizedType>(outputType.getElementType());
+
+    if (!inputElementType || !outputElementType) {
+      return failure();
+    }
+
+    auto [inputScale, inputZeroPoint] =
+        getScaleAndZeroPoint(inputElementType, rewriter, op.getLoc());
+    if (!inputScale) {
+      return rewriter.notifyMatchFailure(
+          op,
+          "Failed to extract input scale and zero point from quantized type.");
+    }
+
+    auto [outputScale, outputZeroPoint] =
+        getScaleAndZeroPoint(outputElementType, rewriter, op.getLoc());
+    if (!outputScale) {
+      return rewriter.notifyMatchFailure(
+          op,
+          "Failed to extract output scale and zero point from quantized type.");
+    }
+
+    IntegerAttr axisAttr = getAxis(inputElementType, rewriter);
+    mlir::Type requantizeOutputType =
+        this->getTypeConverter()->convertType(op.getOutput().getType());
+
+    rewriter.replaceOpWithNewOp<ttir::RequantizeUnrolledOp>(
+        op, requantizeOutputType, adaptor.getInput(), inputScale,
+        inputZeroPoint, outputScale, outputZeroPoint, axisAttr,
+        adaptor.getOutput());
+    return success();
+  }
+};
+
 } // namespace
 
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
@@ -1856,6 +1900,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<BatchNormPattern>(typeConverter, ctx);
   patterns.add<QuantizeOpPattern>(typeConverter, ctx);
   patterns.add<DequantizeOpPattern>(typeConverter, ctx);
+  patterns.add<RequantizeOpPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

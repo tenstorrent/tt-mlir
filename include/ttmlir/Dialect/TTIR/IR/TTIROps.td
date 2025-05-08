@@ -2426,7 +2426,7 @@ def TTIR_RequantizeOp : TTIR_NamedOp<"requantize"> {
   let hasVerifier = 1;
 }
 
-def TTIR_RequantizeUnrolledOp : TTIR_NamedOp<"requant_unrolled"> {
+def TTIR_RequantizeUnrolledOp : TTIR_NamedOp<"requantize_unrolled"> {
   let summary = "Requantize operation unrolled (scale and zero point as input operands).";
   let description = [{
     The RequantizeUnrolledOp requantizes a tensor using the scale and zero point provided as input operands.
@@ -2441,6 +2441,8 @@ def TTIR_RequantizeUnrolledOp : TTIR_NamedOp<"requant_unrolled"> {
                       AnyRankedTensor:$output);
 
   let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
 }
 
 #endif

@@ -57,6 +57,7 @@ struct TTIRToTTIRDecompositionPass
     target.addIllegalOp<ttir::ReduceOrOp>();
     target.addIllegalOp<ttir::QuantizeOp>();
     target.addIllegalOp<ttir::DequantizeOp>();
+    target.addIllegalOp<ttir::RequantizeOp>();
 
     // These are the ops that must satisfy some conditions after this pass
     target.addDynamicallyLegalOp<ttir::ArangeOp>([&](ttir::ArangeOp op) {

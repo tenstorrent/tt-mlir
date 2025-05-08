@@ -786,10 +786,10 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 // DequantizeUnrolledOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::DequantizeUnrolledOp::verify() {
   RankedTensorType inputTensorType = getInput().getType();
-  RankedTensorType resultTensorType = getResult().getType();
+  RankedTensorType outputTensorType = getResult().getType();
 
   auto inputElemType = inputTensorType.getElementType();
-  auto resultElemType = resultTensorType.getElementType();
+  auto outputElemType = outputTensorType.getElementType();
 
   if (!mlir::isa<mlir::quant::UniformQuantizedType,
                  mlir::quant::UniformQuantizedPerAxisType>(inputElemType)) {
@@ -798,13 +798,13 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
                          << inputElemType;
   }
 
-  if (!mlir::isa<mlir::FloatType>(resultElemType)) {
-    return emitOpError() << "Result element type must be float, but got "
-                         << resultElemType;
+  if (!mlir::isa<mlir::FloatType>(outputElemType)) {
+    return emitOpError() << "Output element type must be float, but got "
+                         << outputElemType;
   }
 
   return verifyQuantizeOpCommon([&]() { return emitOpError(); },
-                                inputTensorType, resultTensorType,
+                                inputTensorType, outputTensorType,
                                 /*axis=*/getAxis(), /*isUnrolled=*/true);
 }
 
@@ -830,6 +830,33 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
   return verifyQuantizeOpCommon([&]() { return emitOpError(); },
                                 getInput().getType(), getOutput().getType(),
                                 /*axis=*/std::nullopt, /*isUnrolled=*/false);
+}
+
+// RequantizeUnrolledOp verification.
+::mlir::LogicalResult mlir::tt::ttir::RequantizeUnrolledOp::verify() {
+  auto inputElemType = getInput().getType().getElementType();
+  auto outputElemType = getResult().getType().getElementType();
+
+  auto inputIsPerAxis =
+      mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(inputElemType);
+  auto outputIsPerAxis =
+      mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(outputElemType);
+  auto inputIsPerTensor =
+      mlir::isa<mlir::quant::UniformQuantizedType>(inputElemType);
+  auto outputIsPerTensor =
+      mlir::isa<mlir::quant::UniformQuantizedType>(outputElemType);
+
+  if (!((inputIsPerAxis && outputIsPerAxis) ||
+        (inputIsPerTensor && outputIsPerTensor))) {
+    return emitOpError()
+           << "Input and output element types must both be per-axis "
+              "or both be per-tensor quantized types, but got "
+           << inputElemType << " and " << outputElemType;
+  }
+
+  return verifyQuantizeOpCommon([&]() { return emitOpError(); },
+                                getInput().getType(), getOutput().getType(),
+                                /*axis=*/getAxis(), /*isUnrolled=*/true);
 }
 
 //===----------------------------------------------------------------------===//
