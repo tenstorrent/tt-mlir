@@ -61,7 +61,7 @@ void SingletonDeviceContext::openDevice(const size_t traceRegionSize) {
 
 void SingletonDeviceContext::closeDevice() {
   if (m_device) {
-    m_device->close();
+    m_device->reset();
     m_device = nullptr;
   }
 }
