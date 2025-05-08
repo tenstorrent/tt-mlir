@@ -13,6 +13,7 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -81,8 +82,46 @@ static Value getLoadIndex(Value tile) {
   return loadOp.getIndices().front();
 }
 
+static Value findInnerDimLoopVar(PatternRewriter &rewriter,
+                                 CopyTileOp copyTileOp) {
+  auto loopVars = llvm::SmallVector<Value>();
+
+  Operation *searchOp = copyTileOp;
+  while (searchOp->getParentOfType<scf::ForOp>()) {
+    searchOp = searchOp->getParentOfType<scf::ForOp>();
+    auto loop = mlir::cast<scf::ForOp>(searchOp);
+    loopVars.push_back(loop.getInductionVar());
+  }
+
+  llvm::SmallVector<Operation *> opsToInspect = {
+      copyTileOp.getTileIndexCb().getDefiningOp()};
+  llvm::SmallVector<Value> outerLoopVars;
+
+  while (!opsToInspect.empty()) {
+    Operation *op = opsToInspect.pop_back_val();
+    if (mlir::isa<scf::ForOp>(op)) {
+      outerLoopVars.push_back(mlir::cast<scf::ForOp>(op).getInductionVar());
+    } else {
+      for (auto operand : op->getOperands()) {
+        if (operand.getDefiningOp()) {
+          opsToInspect.push_back(operand.getDefiningOp());
+        }
+      }
+    }
+  }
+
+  for (auto loopVar : loopVars) {
+    if (llvm::find(outerLoopVars, loopVar) == outerLoopVars.end()) {
+      return loopVar;
+    }
+  }
+
+  assert(false && "No inner loop var found");
+}
+
 static void lowerLoadToCopyTile(memref::LoadOp op, bool cbIdxAsDstIdx,
-                                ConversionPatternRewriter &rewriter) {
+                                ConversionPatternRewriter &rewriter,
+                                bool guardFirstCopy = false) {
   auto index = [&](int64_t value) {
     return rewriter
         .create<arith::ConstantOp>(op.getLoc(), rewriter.getIndexType(),
@@ -92,11 +131,20 @@ static void lowerLoadToCopyTile(memref::LoadOp op, bool cbIdxAsDstIdx,
 
   auto cb = rewriter.getRemappedValue(op.getMemref());
   auto cbType = mlir::cast<ttkernel::CBType>(cb.getType());
-  rewriter.create<ttkernel::CopyTileInitOp>(op.getLoc(), cb);
-  rewriter.create<ttkernel::CopyTileOp>(
+  auto copyInit = rewriter.create<ttkernel::CopyTileInitOp>(op.getLoc(), cb);
+  auto copyTile = rewriter.create<ttkernel::CopyTileOp>(
       op.getLoc(), cb, op.getIndices().front(),
       cbIdxAsDstIdx ? index(static_cast<uint32_t>(cbType.getPort()))
                     : index(0));
+  if (guardFirstCopy) {
+    auto predicate = rewriter.create<arith::CmpIOp>(
+        op.getLoc(), arith::CmpIPredicate::ne,
+        findInnerDimLoopVar(rewriter, copyTile), index(0));
+    auto ifOp = rewriter.create<scf::IfOp>(op.getLoc(), predicate);
+    auto *ifBlock = &ifOp.getThenRegion().front();
+    rewriter.moveOpBefore(copyInit, ifBlock, ifBlock->begin());
+    rewriter.moveOpAfter(copyTile, copyInit);
+  }
 }
 
 } // namespace
@@ -176,7 +224,7 @@ public:
       rewriter.setInsertionPoint(mmInitOp);
       lowerLoadToCopyTile(
           adaptor.getC().template getDefiningOp<memref::LoadOp>(), false,
-          rewriter);
+          rewriter, true);
     } else {
       return llvm::failure();
     }
