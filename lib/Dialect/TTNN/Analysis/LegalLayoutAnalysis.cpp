@@ -66,6 +66,11 @@ void applyConv2dConfigOverrides(Operation *op,
 
   StringAttr activation =
       StringAttr::get(context, overrides.activation.value_or(""));
+  Conv2dOp conv2d = mlir::cast<Conv2dOp>(op);
+  if (conv2d.getConv2dConfig() && conv2d.getConv2dConfig()->getActivation()) {
+    activation = conv2d.getConv2dConfig()->getActivation();
+  }
+
   uint32_t inputChannelsAlignment =
       overrides.inputChannelsAlignment.value_or(32);
   BoolAttr deallocateActivation =
