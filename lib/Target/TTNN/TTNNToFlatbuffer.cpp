@@ -993,12 +993,24 @@ createEltwiseTernaryWhereOp(FlatbufferObjectCache &cache, WhereOp op) {
       *cache.fbb, first, second, third, memoryConfig, out);
 }
 
-// Helper to walk to_device -> to_layout -> constant and extract attribute
+// Helper to walk to_device -> to_layout -> from_device -> full and extract
+// attribute
 template <typename AttrType>
 static AttrType getAttrFromConstantChain(mlir::Value tensorVal,
                                          const char *expectedTypeMsg) {
+  mlir::Value firstInput = tensorVal;
+  if constexpr (std::is_same_v<AttrType, int32_t>) {
+    // typecast first op for per-tensor zp
+    if (auto typeCastOp =
+            mlir::dyn_cast<ttnn::TypecastOp>(firstInput.getDefiningOp())) {
+      firstInput = typeCastOp.getInput();
+    } else {
+      llvm_unreachable(
+          "Expected ttnn.typecast as defining op for per-tensor zp.");
+    }
+  }
   ttnn::ToDeviceOp toDeviceOp =
-      mlir::dyn_cast<ttnn::ToDeviceOp>(tensorVal.getDefiningOp());
+      mlir::dyn_cast<ttnn::ToDeviceOp>(firstInput.getDefiningOp());
   if (!toDeviceOp) {
     llvm_unreachable(
         "Expected ttnn.to_device as defining op for per-tensor scale/zp.");
@@ -1009,25 +1021,28 @@ static AttrType getAttrFromConstantChain(mlir::Value tensorVal,
     llvm_unreachable(
         "Expected ttnn.to_layout as defining op for per-tensor scale/zp.");
   }
-  ttnn::ConstantOp constOp =
-      mlir::dyn_cast<ttnn::ConstantOp>(toLayoutOp.getInput().getDefiningOp());
-  if (!constOp) {
+  ttnn::FromDeviceOp fromDeviceOp =
+      mlir::dyn_cast<ttnn::FromDeviceOp>(toLayoutOp.getInput().getDefiningOp());
+  if (!fromDeviceOp) {
     llvm_unreachable(
-        "Expected ttnn.constant as defining op for per-tensor scale/zp.");
+        "Expected ttnn.from_device as defining op for per-tensor scale/zp.");
   }
-  mlir::Attribute valueAttr = constOp.getValue();
-  if constexpr (std::is_same_v<AttrType, mlir::FloatAttr>) {
-    if (auto dense = mlir::dyn_cast<mlir::DenseFPElementsAttr>(valueAttr)) {
-      if (dense.getNumElements() == 1) {
-        return dense.getSplatValue<mlir::FloatAttr>();
-      }
-    }
+  ttnn::FullOp fullOp =
+      mlir::dyn_cast<ttnn::FullOp>(fromDeviceOp.getInput().getDefiningOp());
+  if (!fullOp) {
+    llvm_unreachable(
+        "Expected ttnn.full as defining op for per-tensor scale/zp.");
   }
-  if constexpr (std::is_same_v<AttrType, mlir::IntegerAttr>) {
-    if (auto dense = mlir::dyn_cast<mlir::DenseIntElementsAttr>(valueAttr)) {
-      if (dense.getNumElements() == 1) {
-        return dense.getSplatValue<mlir::IntegerAttr>();
-      }
+  llvm::APFloat valueAttr = fullOp.getFillValue();
+  if constexpr (std::is_same_v<AttrType, float>) {
+    return valueAttr.convertToDouble();
+  } else if constexpr (std::is_same_v<AttrType, int32_t>) {
+    llvm::APSInt result;
+    bool isExact = false;
+    bool isOverflow = valueAttr.convertToInteger(
+        result, llvm::APFloat::rmTowardZero, &isExact);
+    if (!isOverflow && isExact) {
+      return result.getSExtValue();
     }
   }
   llvm_unreachable(expectedTypeMsg);
@@ -1047,10 +1062,9 @@ processScaleTensor(FlatbufferObjectCache &cache, mlir::Value scale) {
   if (scaleTensorType.getNumElements() == 1) {
     // In the per-tensor case, the scale is a float scalar.
     scaleType = ::tt::target::ttnn::QuantizationScale::PerTensorScale;
-    mlir::FloatAttr floatAttr = getAttrFromConstantChain<mlir::FloatAttr>(
+    float scaleValue = getAttrFromConstantChain<float>(
         scaleTensor, "Scale tensor constant must be a float attribute for "
                      "per-tensor quantization.");
-    float scaleValue = floatAttr.getValueAsDouble();
     scaleUnion =
         ::tt::target::ttnn::CreatePerTensorScale(*cache.fbb, scaleValue)
             .Union();
@@ -1082,10 +1096,9 @@ processZeroPointTensor(FlatbufferObjectCache &cache, mlir::Value zeroPoint) {
   if (zeroPointTensorType.getNumElements() == 1) {
     zeroPointType =
         ::tt::target::ttnn::QuantizationZeroPoint::PerTensorZeroPoint;
-    mlir::IntegerAttr intAttr = getAttrFromConstantChain<mlir::IntegerAttr>(
+    int32_t zeroPointValue = getAttrFromConstantChain<int32_t>(
         zeroPointTensor, "Zero point tensor constant must be an integer "
                          "attribute for per-tensor quantization.");
-    int32_t zeroPointValue = static_cast<int32_t>(intAttr.getInt());
     zeroPointUnion =
         ::tt::target::ttnn::CreatePerTensorZeroPoint(*cache.fbb, zeroPointValue)
             .Union();

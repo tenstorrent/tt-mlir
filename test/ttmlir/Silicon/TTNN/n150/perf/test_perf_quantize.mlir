@@ -3,20 +3,23 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 
 module {
-  func.func @quantize_per_tensor_scale_per_tensor_zp(%arg0: tensor<1x3x320x320xf32>) -> tensor<1x3x320x320x!quant.uniform<i32:f32, 1.000000e-01>> {
+  func.func @quantize_per_tensor_scale_per_tensor_zp(%arg0: tensor<1x3x224x224xf32>) -> tensor<1x3x224x224x!quant.uniform<i32:f32, 2.000000e-02>> {
     // CHECK-LABEL: func.func @quantize_per_tensor_scale_per_tensor_zp(
-    %0 = ttir.empty() : tensor<1x3x320x320x!quant.uniform<i32:f32, 1.000000e-01>>
-    // CHECK: "ttnn.constant"
-    // CHECK-SAME: value = dense<1.000000e-01> : tensor<1xf32,
+    %0 = ttir.empty() : tensor<1x3x224x224x!quant.uniform<i32:f32, 2.000000e-02>>
+    // CHECK: "ttnn.full"
+    // CHECK-SAME: fillValue = 0.000000e+00 : f32
+    // CHECK-SAME: -> tensor<1xui32,
+    // CHECK: "ttnn.full"
+    // CHECK-SAME: fillValue = 2.000000e-02 : f32
     // CHECK-SAME: -> tensor<1xf32,
-    // CHECK: "ttnn.constant"
-    // CHECK-SAME: value = dense<0> : tensor<1xi32,
-    // CHECK-SAME: -> tensor<1xsi32,
     // CHECK: "ttnn.quantize"
     // CHECK-SAME: {output_dtype = #tt.supportedDataTypes<si32>}
-    // CHECK-SAME: tensor<1x3x320x320xf32
-    // CHECK-SAME: -> tensor<1x3x320x320x!quant.uniform<i32:f32, 1.000000e-01>,
-    %1 = "ttir.quantize"(%arg0, %0) : (tensor<1x3x320x320xf32>, tensor<1x3x320x320x!quant.uniform<i32:f32, 1.000000e-01>>) -> tensor<1x3x320x320x!quant.uniform<i32:f32, 1.000000e-01>>
-    return %1 : tensor<1x3x320x320x!quant.uniform<i32:f32, 1.000000e-01>>
+    // CHECK-SAME: tensor<1x3x224x224xf32
+    // CHECK-SAME: -> tensor<1x3x224x224x!quant.uniform<i32:f32, 2.000000e-02>,
+    %1 = "ttir.constant"() <{value = dense<2.000000e-02> : tensor<1xf32>}> : () -> tensor<1xf32>
+    %2 = "ttir.constant"() <{value = dense<0> : tensor<1xi32>}> : () -> tensor<1xi32>
+    %3 = ttir.empty() : tensor<1x3x224x224x!quant.uniform<i32:f32, 2.000000e-02>>
+    %4 = "ttir.quantize_unrolled"(%arg0, %1, %2, %3) : (tensor<1x3x224x224xf32>, tensor<1xf32>, tensor<1xi32>, tensor<1x3x224x224x!quant.uniform<i32:f32, 2.000000e-02>>) -> tensor<1x3x224x224x!quant.uniform<i32:f32, 2.000000e-02>>
+    return %4 : tensor<1x3x224x224x!quant.uniform<i32:f32, 2.000000e-02>>
   }
 }

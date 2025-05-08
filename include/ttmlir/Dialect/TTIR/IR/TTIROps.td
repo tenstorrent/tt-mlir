@@ -2369,7 +2369,7 @@ def TTIR_DequantizeOp : TTIR_NamedOp<"dequantize"> {
 def TTIR_QuantizeUnrolledOp : TTIR_NamedOp<"quantize_unrolled"> {
   let summary = "Quantize operation unrolled (scale and zero point as input operands).";
   let description = [{
-    The QuantUnrolledOp quantizes a tensor using the scale and zero point provided as input operands.
+    The QuantizeUnrolledOp quantizes a tensor using the scale and zero point provided as input operands.
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
@@ -2379,12 +2379,14 @@ def TTIR_QuantizeUnrolledOp : TTIR_NamedOp<"quantize_unrolled"> {
                        AnyRankedTensor:$output);
 
   let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
 }
 
 def TTIR_DequantizeUnrolledOp : TTIR_NamedOp<"dequantize_unrolled"> {
   let summary = "Dequantize operation unrolled (scale and zero point as input operands).";
   let description = [{
-    The DequantUnrolledOp dequantizes a tensor using the scale and zero point provided as input operands.
+    The DequantizeUnrolledOp dequantizes a tensor using the scale and zero point provided as input operands.
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
@@ -2394,6 +2396,8 @@ def TTIR_DequantizeUnrolledOp : TTIR_NamedOp<"dequantize_unrolled"> {
                        AnyRankedTensor:$output);
 
   let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
 }
 
 def TTIR_RequantizeOp : TTIR_NamedOp<"requantize"> {
@@ -2425,14 +2429,16 @@ def TTIR_RequantizeOp : TTIR_NamedOp<"requantize"> {
 def TTIR_RequantizeUnrolledOp : TTIR_NamedOp<"requant_unrolled"> {
   let summary = "Requantize operation unrolled (scale and zero point as input operands).";
   let description = [{
-    The RequantUnrolledOp requantizes a tensor using the scale and zero point provided as input operands.
+    The RequantizeUnrolledOp requantizes a tensor using the scale and zero point provided as input operands.
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
-                       AnyRankedTensor:$scale,
-                       AnyRankedTensor:$zero_point,
-                       OptionalAttr<I32Attr>:$axis,
-                       AnyRankedTensor:$output);
+                      AnyRankedTensor:$in_scale,
+                      AnyRankedTensor:$in_zero_point,
+                      AnyRankedTensor:$out_scale,
+                      AnyRankedTensor:$out_zero_point,
+                      OptionalAttr<I32Attr>:$axis,
+                      AnyRankedTensor:$output);
 
   let results = (outs AnyRankedTensor:$result);
 }
