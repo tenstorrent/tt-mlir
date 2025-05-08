@@ -96,6 +96,20 @@ def compile_shared_object(cpp_file_path, output_dir, args):
     source_cpp_path = os.path.join(standalone_source_dir, "ttnn-dylib.cpp")
     compiled_so_path = os.path.join(standalone_build_dir, "libttnn-dylib.so")
 
+    # Determine output .so path
+    output_file_name = cpp_base_name + ".so"
+    destination_path = os.path.join(output_dir, output_file_name)
+
+    # Check if rebuild is needed by comparing modification times
+    if os.path.exists(destination_path):
+        cpp_mtime = os.path.getmtime(cpp_file_path)
+        so_mtime = os.path.getmtime(destination_path)
+        if so_mtime >= cpp_mtime:
+            print(
+                f"\nSkipping build for {cpp_base_name} - {output_file_name} file is up to date"
+            )
+            return
+
     try:
         # Copy provided cpp file to source dir
         #
@@ -119,7 +133,7 @@ def compile_shared_object(cpp_file_path, output_dir, args):
             "--",
             "ttnn-dylib",
         ]
-        result = subprocess.run(
+        subprocess.run(
             build_command,
             check=True,
             cwd=standalone_source_dir,
@@ -135,8 +149,6 @@ def compile_shared_object(cpp_file_path, output_dir, args):
 
         # Copy the compiled .so
         #
-        output_file_name = cpp_base_name + ".so"
-        destination_path = os.path.join(output_dir, output_file_name)
         shutil.copy2(compiled_so_path, destination_path)
         print(f"  Successfully copied compiled file to {destination_path}.")
     except subprocess.CalledProcessError as e:
@@ -149,8 +161,6 @@ def compile_shared_object(cpp_file_path, output_dir, args):
         print(e.stderr)
         print(e.stdout)
         sys.exit(1)
-    finally:
-        pass
 
 
 def parse_arguments():
