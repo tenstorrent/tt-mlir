@@ -734,9 +734,9 @@ inline std::string convert(ttnn::MemoryConfigAttr attr) {
   // TODO (azecevic): Add ShardSpec once it's modeled in the `MemoryConfigAttr`.
   std::string buf;
   llvm::raw_string_ostream rso(buf);
-  rso << "::ttnn::MemoryConfig {";
-  rso << ".memory_layout = " << convert(attr.getTensorMemoryLayout()) << ", ";
-  rso << ".buffer_type = " << convert(attr.getBufferType());
+  rso << "::ttnn::MemoryConfig{";
+  rso << convert(attr.getTensorMemoryLayout()) << ", ";
+  rso << convert(attr.getBufferType());
   rso << "}";
   return buf;
 }
