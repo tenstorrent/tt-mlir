@@ -196,7 +196,7 @@ struct TTIRToTTNNBackendPipelineOptions
 
   Option<bool> eraseInverseOpsEnabled{
       *this, "enable-erase-inverse-ops-pass",
-      llvm::cl::desc("Enable erase inverse ops pass."), llvm::cl::init(true)};
+      llvm::cl::desc("Enable erase inverse ops pass."), llvm::cl::init(false)};
 
   Option<bool> enableFusing{*this, "enable-fusing-pass",
                             llvm::cl::desc("Enable fusing pass."),
