@@ -7,6 +7,7 @@
 #include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
 #include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
+#include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
 #include "mlir/Conversion/TensorToLinalg/TensorToLinalgPass.h"
 #include "mlir/Dialect/Bufferization/Pipelines/Passes.h"
@@ -84,6 +85,7 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   manager.addPass(mlir::createConvertControlFlowToLLVMPass());
   // These passes convert corresponding primitives to their LLVM equivalents.
   manager.addPass(mlir::createArithToLLVMConversionPass());
+  manager.addPass(mlir::createConvertMathToLLVMPass());
   manager.addPass(mlir::createConvertFuncToLLVMPass());
   manager.addPass(mlir::createFinalizeMemRefToLLVMConversionPass());
   // This pass is a cleanup for any unrealized conversion casts between

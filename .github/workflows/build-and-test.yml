@@ -117,6 +117,9 @@ jobs:
       with:
         create-symlink: true
         key: ${{ matrix.build.name }}-${{ env.SDK_VERSION }}
+      env:
+        CCACHE_NOHASHDIR: true
+        CCACHE_BASEDIR: ${{ steps.strings.outputs.work-dir }}
 
     - name: Run tt-mlir build
       uses: ./.github/actions/build-tt-mlir-action
@@ -159,19 +162,19 @@ jobs:
           {runs-on: n150,   name: "run",  suite: "consteval",         image: "speedy", type: "ttrt",    path: "test/python/const-eval", ttrt_flags: "--loops 5 --dirty-tensor-schedule=0:2,1:1,3:1,3:3 --check-cache-stats=hits:2,misses:3 --artifact-dir=ttrt-artifacts/const-eval", container-options: "--device /dev/tenstorrent/0"},
           # {runs-on: tg,     name: "run",  suite: "run",             image: "speedy", type: "ttrt",    path: "Silicon", ttrt_flags: "--non-zero --disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
           # {runs-on: tg,     name: "perf", suite: "perf",            image: "tracy",  type: "ttrt",    path: "Silicon/TTNN/tg/perf", ttrt_flags: "--disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
-          {runs-on: n150,   name: "perf", suite: "perf",              image: "tracy",  type: "pytest",  path: "runtime/tools/python/test", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "perf", suite: "perf",              image: "tracy",  type: "pytest",  path: "runtime/tools/ttrt/test", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150,   name: "run",  suite: "op_golden",         image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_ops.py", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true, container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150,   name: "run",  suite: "model_golden",      image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_models.py", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true, container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150,   name: "run",  suite: "op_compile",        image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_ops.py", flags: "-m \"run_error or fails_golden\"", run-ttrt: false, container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150,   name: "run",  suite: "model_compile",     image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_models.py", flags: "-m \"run_error or fails_golden\"", run-ttrt: false, container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n300,   name: "run",  suite: "op_golden",         image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_ops_n300.py", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true, container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: llmbox,   name: "run",  suite: "op_golden",         image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_ops_llmbox.py", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true, container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
           # Although these runtime tests are device agnostic, they depend on n150 compiled mlir artifacts
           # Therefore running these tests on n150 specifically
           {runs-on: n150,   name: "run",  suite: "ttnn_runtime",      image: "speedy", type: "pytest",  path: "runtime/test/python/ttnn/device_agnostic", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150,   name: "perf", suite: "explorer",          image: "tracy",  type: "pytest",  path: "tools/explorer/test/run_tests.py", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150,   name: "run",  suite: "op_by_op_infra",    image: "tracy",  type: "pytest",  path: "test/python/op_by_op_infra",            container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n300,   name: "run",  suite: "ttnn_runtime",      image: "speedy", type: "pytest",  path: "runtime/test/python/ttnn/multi_device", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n300,   name: "run",  suite: "multidevice",       image: "speedy", type: "golden",  path: "ccl_test/n300", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: llmbox, name: "run",  suite: "multidevice",       image: "speedy", type: "golden",  path: "ccl_test/llmbox", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
         ]
     name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ matrix.build.suite }},${{ matrix.build.type }},${{ strategy.job-index }})"
 
@@ -216,17 +219,11 @@ jobs:
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
 
     - name: Use install artifacts
-      uses: actions/download-artifact@v4
+      uses: ./.github/actions/download-artifact
       with:
         name: install-artifacts-${{ matrix.build.image }}
-        path: ${{ steps.strings.outputs.install-output-dir }}
-
-    # This is needed to preserve file permissions
-    # https://github.com/actions/upload-artifact?tab=readme-ov-file#permission-loss
-    - name: 'Untar install directory'
-      shell: bash
-      working-directory: ${{ steps.strings.outputs.install-output-dir }}
-      run: tar xf artifact.tar
+        path: install
+        github_token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Remove existing whls files
       shell: bash
@@ -249,17 +246,12 @@ jobs:
         fi
 
     - name: Download Build Artifacts
-      uses: actions/download-artifact@v4
+      uses: ./.github/actions/download-artifact
       if: ${{ matrix.build.type }} == "unit" || ${{ matrix.build.suite }} == "explorer"
       with:
         name: build-artifacts-${{ matrix.build.image }}
-        path: ${{ steps.strings.outputs.build-output-dir }}
-
-    - name: 'Untar build directory'
-      if: ${{ matrix.build.type }} == "unit" || ${{ matrix.build.suite }} == "explorer"
-      shell: bash
-      working-directory: ${{ steps.strings.outputs.build-output-dir }}
-      run: tar xf artifact.tar
+        path: build
+        github_token: ${{ secrets.GITHUB_TOKEN }}
 
     # TG galaxy doesn't have support for dispatch on eth cores - thus need to disable it
     - name: Generate system descriptor
@@ -351,13 +343,6 @@ jobs:
         export TT_EXPLORER_GENERATED_MLIR_TEST_DIRS=${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/perf,${{ steps.strings.outputs.build-output-dir }}/test/python/golden/ttnn
         export TT_EXPLORER_GENERATED_TTNN_TEST_DIRS=${{ steps.strings.outputs.build-output-dir }}/test/python/golden/ttnn
         pytest -ssv ${{ matrix.build.path }} ${{ matrix.build.flags }} --junit-xml=${{ steps.strings.outputs.test_report_path }}
-
-    - name: Run golden tests
-      if: matrix.build.type == 'golden'
-      shell: bash
-      run: |
-        source env/activate
-        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/python/golden/${{ matrix.build.path }}
 
     - name: Collect and Upload Perf Reports
       if: matrix.build.name == 'perf'

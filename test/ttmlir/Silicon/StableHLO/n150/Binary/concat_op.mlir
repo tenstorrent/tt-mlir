@@ -98,29 +98,13 @@ module @jit_concat attributes {} {
 
   func.func public @test_concat_reshape_workaround(%arg0: tensor<1x53xf32>, %arg1: tensor<1x1xf32>, %arg2: tensor<1x1xf32>) -> tensor<1x55xf32> {
     // CHECK-LABEL: @test_concat_reshape_workaround
-    // CHECK: %[[ARG0:[0-9]+]] = "ttnn.reshape"(%arg0)
-    // CHECK-SAME: <{shape = [1 : i32, 53 : i32, 1 : i32]}>
-    // CHECK-SAME: tensor<1x53xf32,
-    // CHECK-SAME: -> tensor<1x53x1xf32,
-    // CHECK: %[[ARG1:[0-9]+]] = "ttnn.reshape"(%arg1)
-    // CHECK-SAME: <{shape = [1 : i32, 1 : i32, 1 : i32]}>
-    // CHECK-SAME: tensor<1x1xf32,
-    // CHECK-SAME: -> tensor<1x1x1xf32,
-    // CHECK: %[[ARG2:[0-9]+]] = "ttnn.reshape"(%arg2)
-    // CHECK-SAME: <{shape = [1 : i32, 1 : i32, 1 : i32]}>
-    // CHECK-SAME: tensor<1x1xf32,
-    // CHECK-SAME: -> tensor<1x1x1xf32,
-    // CHECK: %3 = "ttnn.concat"(%[[ARG0]], %[[ARG1]], %[[ARG2]])
+    // CHECK: %{{[0-9]+}} = "ttnn.concat"(%arg0, %arg1, %arg2)
     // CHECK-SAME: {dim = 1 : si32}
-    // CHECK-SAME: tensor<1x53x1xf32,
-    // CHECK-SAME: tensor<1x1x1xf32,
-    // CHECK-SAME: tensor<1x1x1xf32,
-    // CHECK-SAME: -> tensor<1x55x1xf32,
-    %0 = stablehlo.concatenate %arg0, %arg1, %arg2, dim = 1 : (tensor<1x53xf32>, tensor<1x1xf32>, tensor<1x1xf32>) -> tensor<1x55xf32>
-    // CHECK: %4 = "ttnn.reshape"(%3)
-    // CHECK-SAME: {shape = [1 : i32, 55 : i32]}
-    // CHECK-SAME: tensor<1x55x1xf32,
+    // CHECK-SAME: tensor<1x53xf32,
+    // CHECK-SAME: tensor<1x1xf32,
+    // CHECK-SAME: tensor<1x1xf32,
     // CHECK-SAME: -> tensor<1x55xf32,
+    %0 = stablehlo.concatenate %arg0, %arg1, %arg2, dim = 1 : (tensor<1x53xf32>, tensor<1x1xf32>, tensor<1x1xf32>) -> tensor<1x55xf32>
     return %0 : tensor<1x55xf32>
   }
 }

@@ -15,6 +15,7 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Target/Cpp/CppEmitter.h"
+#include "llvm/ADT/ScopeExit.h"
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -76,6 +77,9 @@ public:
           /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
           loc, "compute_kernel_api/eltwise_unary/recip.h",
+          /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(
+          loc, "compute_kernel_api/eltwise_unary/trigonometry.h",
           /*isStandard=*/false);
       // Must define macros REDUCE_OP and REDUCE_DIM before including reduce.h
       // because they are default template parameters values in reduce api.
@@ -197,6 +201,7 @@ LogicalResult translateKernelFuncToCpp(func::FuncOp entry,
   if (failed(kernelModule)) {
     return failure();
   }
+  auto moduleCleanup = llvm::make_scope_exit([&]() { kernelModule->erase(); });
   return emitc::translateToCpp(*kernelModule, os);
 }
 

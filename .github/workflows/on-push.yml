@@ -13,5 +13,8 @@ jobs:
     uses: ./.github/workflows/spdx.yml
     secrets: inherit
   build-and-test:
+    needs:
+      - pre-commit
+      - spdx
     uses: ./.github/workflows/build-and-test.yml
     secrets: inherit

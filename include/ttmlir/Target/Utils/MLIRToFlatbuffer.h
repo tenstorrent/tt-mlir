@@ -37,6 +37,54 @@ struct GoldenTensor {
   GoldenTensor() = default;
 };
 
+inline flatbuffers::Offset<::tt::target::MLIR>
+toDebugInfo(::flatbuffers::FlatBufferBuilder &fbb, const std::string &name,
+            ModuleOp module) {
+  std::string source;
+  llvm::raw_string_ostream os(source);
+
+  mlir::OpPrintingFlags flags;
+  flags.enableDebugInfo(); // Enable the loc dumping
+  module->print(os, flags);
+
+  return ::tt::target::CreateMLIRDirect(fbb, name.c_str(), source.c_str());
+}
+
+inline flatbuffers::Offset<::tt::target::DebugInfo> debugInfoToFlatbuffer(
+    flatbuffers::FlatBufferBuilder &fbb, const std::string &name,
+    ModuleOp module,
+    const std::unordered_map<std::string, GoldenTensor> &goldenMap,
+    const std::vector<std::pair<std::string, std::string>> &moduleCache,
+    const char *cpp = nullptr) {
+  std::vector<flatbuffers::Offset<::tt::target::GoldenKV>> goldenKVList;
+  goldenKVList.reserve(goldenMap.size());
+
+  for (const auto &[key, value] : goldenMap) {
+    auto goldenTensor = ::tt::target::CreateGoldenTensorDirect(
+        fbb, value.name.c_str(), &value.shape, &value.strides, value.dtype,
+        &value.data);
+    auto goldenKV =
+        ::tt::target::CreateGoldenKVDirect(fbb, key.c_str(), goldenTensor);
+    goldenKVList.push_back(goldenKV);
+  }
+
+  auto goldenInfo = ::tt::target::CreateGoldenInfoDirect(fbb, &goldenKVList);
+
+  // Load the ModuleCache if present and populate DebugInfo
+  std::vector<flatbuffers::Offset<::tt::target::MLIR>> moduleCacheList;
+  moduleCacheList.reserve(moduleCache.size());
+
+  for (const auto &item : moduleCache) {
+    // Here the Name is the Pass Name and Source is the IR itself
+    auto moduleCacheItem = ::tt::target::CreateMLIRDirect(
+        fbb, item.first.c_str(), item.second.c_str());
+    moduleCacheList.push_back(moduleCacheItem);
+  }
+
+  return ::tt::target::CreateDebugInfoDirect(
+      fbb, toDebugInfo(fbb, name, module), cpp, &moduleCacheList, goldenInfo);
+}
+
 inline ::tt::target::OOBVal toFlatbuffer(FlatbufferObjectCache &,
                                          OOBVal oobVal) {
   switch (oobVal) {
@@ -359,15 +407,11 @@ toFlatbuffer(FlatbufferObjectCache &cache, SystemDescAttr systemDesc) {
 }
 
 inline std::vector<::tt::target::Dim2dRange>
-toFlatbuffer(FlatbufferObjectCache &cache, GridAttr tensorGrid,
-             GridAttr deviceGrid) {
+toFlatbuffer(FlatbufferObjectCache &cache, llvm::ArrayRef<int64_t> tensorGrid,
+             mlir::AffineMap mapping) {
   std::vector<::tt::target::Dim2dRange> coreRangeSet;
 
-  auto mapping = (tensorGrid.getMapping().isEmpty() == true)
-                     ? deviceGrid.getMapping()
-                     : tensorGrid.getMapping();
-  for (const auto &locsize2d :
-       utils::toCoreRangeSet(tensorGrid.getShape(), mapping)) {
+  for (const auto &locsize2d : utils::toCoreRangeSet(tensorGrid, mapping)) {
     const auto &[loc, size] = locsize2d;
     coreRangeSet.push_back(
         ::tt::target::Dim2dRange(::tt::target::Dim2d(loc[1], loc[0]),
@@ -375,6 +419,15 @@ toFlatbuffer(FlatbufferObjectCache &cache, GridAttr tensorGrid,
   }
 
   return coreRangeSet;
+}
+
+// Compatibility function for TTNN flatbuffer serialization.
+inline std::vector<::tt::target::Dim2dRange>
+toFlatbuffer(FlatbufferObjectCache &cache, GridAttr tensorGrid,
+             GridAttr deviceGrid) {
+  auto mapping = tensorGrid.getMapping().isEmpty() ? deviceGrid.getMapping()
+                                                   : tensorGrid.getMapping();
+  return toFlatbuffer(cache, tensorGrid.getShape(), mapping);
 }
 
 template <typename AttrType, typename ValueType>
@@ -429,19 +482,6 @@ toFlatbuffer(FlatbufferObjectCache &cache, ElementsAttr elementsAttr) {
   }
   SmallVector<uint32_t> data({value});
   return toFlatbuffer(cache, ArrayRef<uint32_t>(data));
-}
-
-inline flatbuffers::Offset<::tt::target::MLIR>
-toDebugInfo(::flatbuffers::FlatBufferBuilder &fbb, const std::string &name,
-            ModuleOp module) {
-  std::string source;
-  llvm::raw_string_ostream os(source);
-
-  mlir::OpPrintingFlags flags;
-  flags.enableDebugInfo(); // Enable the loc dumping
-  module->print(os, flags);
-
-  return ::tt::target::CreateMLIRDirect(fbb, name.c_str(), source.c_str());
 }
 
 inline double toFlatbuffer(FlatbufferObjectCache &, mlir::FloatAttr attr) {

@@ -404,6 +404,31 @@ unsigned SystemDescAttr::getPcieAddressAlignBytes(unsigned chipIndex) const {
   return getChipDescs()[chipIndex].getPcieAddressAlignBytes();
 }
 
+ShardLayoutAttr ShardLayoutAttr::get(mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> shape,
+                                     uint64_t elementSize, uint32_t buffers) {
+  return get(
+      context,
+      ttmlir::utils::calculateStrides(shape, static_cast<int64_t>(elementSize)),
+      buffers);
+}
+
+ShardLayoutAttr ShardLayoutAttr::get(ArrayRef<int64_t> shape, Type elementType,
+                                     uint32_t buffers) {
+  return get(elementType.getContext(), shape, getElementSizeBytes(elementType),
+             buffers);
+}
+
+ShardLayoutAttr ShardLayoutAttr::get(mlir::MemRefType memrefType,
+                                     uint32_t buffers) {
+  ArrayRef<int64_t> shape = memrefType.getShape();
+  if (auto layout =
+          mlir::dyn_cast<DeviceLayoutInterface>(memrefType.getLayout())) {
+    shape = layout.getShardShape(memrefType);
+  }
+  return get(shape, memrefType.getElementType(), buffers);
+}
+
 mlir::AffineMap ShardLayoutAttr::getAffineMap() const {
   auto *context = getContext();
   int64_t rank = getStride().size();
@@ -447,7 +472,7 @@ mlir::AffineMap ShardLayoutAttr::getAffineMap() const {
 //   - 7D tensor onto a 4D grid collapseIntervals=[(0, 3), (-3, -1)]:
 //       (d0, d1, d2, d3, d4, d5, d6) -> (d0 <> d1 <> d2, d3, d4 <> d5, d6)
 //
-mlir::AffineMap collapsedLinearAffineMap(
+mlir::AffineMap mlir::tt::collapsedLinearAffineMap(
     ::mlir::MLIRContext *context, ::llvm::ArrayRef<int64_t> shape,
     ::llvm::ArrayRef<int64_t> gridShape,
     ::llvm::ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
@@ -501,8 +526,8 @@ mlir::AffineMap collapsedLinearAffineMap(
 }
 
 mlir::SmallVector<std::int64_t>
-calculateLogicalShardShape(mlir::ArrayRef<int64_t> tensorShape,
-                           mlir::AffineMap linear, GridAttr grid) {
+mlir::tt::calculateLogicalShardShape(mlir::ArrayRef<int64_t> tensorShape,
+                                     mlir::AffineMap linear, GridAttr grid) {
   assert(linear.getNumResults() == grid.getShape().size());
   mlir::SmallVector<std::int64_t> logicalShape =
       ttmlir::utils::evalShape(linear, tensorShape);
@@ -521,7 +546,7 @@ MetalLayoutAttr MetalLayoutAttr::get(
     OOBVal oobVal) {
   auto grid = GridAttr::get(context, gridRank);
   auto elementType =
-      tiled ? TileType::get(context, ty.getElementType()) : ty.getElementType();
+      tiled ? TileType::get(ty.getElementType()) : ty.getElementType();
   return get(context, ty.getShape(), elementType, memorySpace, grid,
              collapseIntervals, oobVal);
 }
@@ -677,12 +702,7 @@ bool MetalLayoutAttr::isTiled() const {
 }
 
 uint64_t MetalLayoutAttr::getElementSizeBytes() const {
-  mlir::Type elementType = getElementType();
-  if (mlir::isa<TileType>(elementType)) {
-    auto tileType = mlir::cast<TileType>(elementType);
-    return tileType.getSizeBytes();
-  }
-  return elementType.getIntOrFloatBitWidth() / 8;
+  return mlir::tt::getElementSizeBytes(getElementType());
 }
 
 uint64_t MetalLayoutAttr::getMemrefSizeBytes() const {
@@ -1093,16 +1113,37 @@ DeviceAttr::getMemoryMap(std::pair<MemRefType, AffineMap> memrefAndView,
                       baseOffset);
 }
 
-size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType,
-                                      size_t pageSize) const {
-  DeviceLayoutInterface layout =
-      mlir::cast<DeviceLayoutInterface>(memrefType.getLayout());
+size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType, size_t pageSize,
+                                      bool includeBuffers) const {
+  assert(pageSize == 0 && "Page size not supported yet");
   mlir::Type elementType = memrefType.getElementType();
-  auto tileType = mlir::dyn_cast<TileType>(elementType);
-  uint64_t elementSizeBytes = tileType
-                                  ? tileType.getSizeBytes()
-                                  : elementType.getIntOrFloatBitWidth() / 8;
-  return layout.getShardNumElements(memrefType) * elementSizeBytes;
+  int64_t elementSizeBytes = getElementSizeBytes(elementType);
+  ShardLayoutAttr layout =
+      mlir::dyn_cast<ShardLayoutAttr>(memrefType.getLayout());
+  assert(
+      (layout || !mlir::isa<DeviceLayoutInterface>(memrefType.getLayout())) &&
+      "expected shard layout");
+  bool isLocalMemref = (layout == nullptr);
+  auto shardShape =
+      isLocalMemref ? memrefType.getShape() : layout.getShardShape(memrefType);
+  return ttmlir::utils::volume(shardShape,
+                               elementSizeBytes *
+                                   (includeBuffers ? layout.getBuffers() : 1));
+}
+
+size_t DeviceAttr::getMemrefCBPageSizeBytes(MemRefType memrefType) const {
+  mlir::Type elementType = memrefType.getElementType();
+  TileType tileType = mlir::dyn_cast<TileType>(elementType);
+  return tileType ? tileType.getSizeBytes()
+                  : TileType::get(elementType).getSizeBytes();
+}
+
+size_t DeviceAttr::getMemrefCBNumPages(MemRefType memrefType) const {
+  size_t sizeBytes =
+      getMemrefSizeBytes(memrefType, /*pageSize=*/0, /*includeBuffers=*/false);
+  size_t pageSize = getMemrefCBPageSizeBytes(memrefType);
+  assert(sizeBytes % pageSize == 0);
+  return sizeBytes / pageSize;
 }
 
 // Sample the last index in the tensor to get the last addressable element of
@@ -1192,9 +1233,9 @@ TileType::verify(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
   return ::mlir::success();
 }
 
-TileType TileType::get(::mlir::MLIRContext *context, Type elementType,
-                       ArrayRef<int64_t> shape) {
-  return get(context, shape, elementTypeToDataType(elementType));
+TileType TileType::get(Type elementType, ArrayRef<int64_t> shape) {
+  return get(elementType.getContext(), shape,
+             elementTypeToDataType(elementType));
 }
 
 llvm::SmallVector<int64_t>

@@ -130,7 +130,7 @@ def TTKernel_MatmulInitOp : TTKernel_InitOp<"mm_init"> {
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, TTKernel_CB:$out_cb, I32:$transpose);
 }
 
-def TTKernel_MatmulTilesOp : TTKernel_FPUOp<"matmul_tiles"> {
+def TTKernel_MatmulTilesOp : TTKernel_FPUOp<"matmul_tiles", [TTKernel_TernaryOpTrait]> {
     let summary = "Matmul tiles operation";
     let description = [{
       Performs tile-sized matrix multiplication *C=A\*B* between the tiles in two
@@ -156,7 +156,7 @@ def TTKernel_AddTilesInitOp : TTKernel_InitOp<"add_tiles_init"> {
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb); // FIXME: , BOOL:$acc_to_dst);
 }
 
-def TTKernel_AddTilesOp : TTKernel_FPUOp<"add_tiles"> {
+def TTKernel_AddTilesOp : TTKernel_FPUOp<"add_tiles", [TTKernel_BinaryOpTrait]> {
     let summary = "Add operation";
     let description = [{
       Performs element-wise addition C=A+B of tiles in two CBs at given indices
@@ -184,7 +184,7 @@ def TTKernel_MulTilesInitFOp : TTKernel_InitOp<"mul_tiles_init_f"> {
     }];
 }
 
-def TTKernel_MulTilesOp : TTKernel_FPUOp<"mul_tiles"> {
+def TTKernel_MulTilesOp : TTKernel_FPUOp<"mul_tiles", [TTKernel_BinaryOpTrait]> {
     let summary = "Mul operation";
     let description = [{
       Performs element-wise multiplication C=A*B of tiles in two CBs at given
@@ -213,7 +213,7 @@ def TTKernel_ExpTileInitOp : TTKernel_InitOp<"exp_tile_init"> {
     }];
 }
 
-def TTKernel_ExpTileOp : TTKernel_FPUOp<"exp_tile"> {
+def TTKernel_ExpTileOp : TTKernel_FPUOp<"exp_tile", [TTKernel_UnaryOpTrait]> {
     let summary = "Exp operation";
     let description = [{
       Performs element-wise computation of exponential on each element of a tile
@@ -232,7 +232,7 @@ def TTKernel_RecipTileInitOp : TTKernel_InitOp<"recip_tile_init"> {
     }];
 }
 
-def TTKernel_RecipTileOp : TTKernel_FPUOp<"recip_tile"> {
+def TTKernel_RecipTileOp : TTKernel_FPUOp<"recip_tile", [TTKernel_UnaryOpTrait]> {
     let summary = "Recip tile in the DST at specified index.";
     let description = [{
       Performs element-wise computation of the reciprocal on each element of a tile
@@ -258,7 +258,7 @@ def TTKernel_ReduceInitOp : TTKernel_InitOp<"reduce_init"> {
                          TTKernel_ReduceDimAttr:$reduce_dim);
 }
 
-def TTKernel_ReduceTileOp : TTKernel_FPUOp<"reduce_tile"> {
+def TTKernel_ReduceTileOp : TTKernel_FPUOp<"reduce_tile", [TTKernel_BinaryOpTrait]> {
     let summary = "Reduce operation";
     let description = [{
       Performs a reduction operation *B = reduce(A)* using reduce_func for
@@ -295,7 +295,7 @@ def TTKernel_MaxTilesInitOp : TTKernel_InitOp<"max_tile_init"> {
     let arguments = (ins);
 }
 
-def TTKernel_MaxTilesOp : TTKernel_SFPUOp<"max_tile"> {
+def TTKernel_MaxTilesOp : TTKernel_SFPUOp<"max_tile", [TTKernel_BinaryOpTrait]> {
     let summary = "Max operation";
     let description = [{
       Performs element-wise computation of maximum operation
@@ -305,6 +305,27 @@ def TTKernel_MaxTilesOp : TTKernel_SFPUOp<"max_tile"> {
     }];
 
     let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index);
+}
+
+def TTKernel_SinTileInitOp : TTKernel_InitOp<"sin_tile_init"> {
+    let summary = "Init function for sin_tile operation. Refer to documentation for any init function.";
+    let description = [{
+      Must be run before sin_tile.
+    }];
+
+    let arguments = (ins);
+}
+
+def TTKernel_SinTileOp : TTKernel_SFPUOp<"sin_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Sine tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise computation of sine operation
+      DST[dst0_index] <- sin(DST[dst0_index])
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index);
 }
 
 //===----------------------------------------------------------------------===//
@@ -359,28 +380,6 @@ def TTKernel_CBWaitFrontOp : TTKernel_Op<"cb_wait_front"> {
 // TTKernel Tile operations
 //===----------------------------------------------------------------------===//
 
-def TTKernel_TilizeInitOp : TTKernel_Op<"tilize_init"> {
-    let summary = "TilizeInitOp call.";
-    let description = [{
-      TilizeInitOp operation
-    }];
-
-    let arguments = (ins TTKernel_CB:$cbIn, I32:$numTiles, TTKernel_CB:$cbOut);
-
-    let hasVerifier = 1;
-}
-
-def TTKernel_UntilizeInitOp : TTKernel_Op<"untilize_init"> {
-    let summary = "UntilizeInitOp call.";
-    let description = [{
-      UntilizeInitOp operation
-    }];
-
-    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut);
-
-    let hasVerifier = 1;
-}
-
 def TTKernel_TilizeBlockOp : TTKernel_Op<"tilize_block"> {
     let summary = "TilizeBlockOp call.";
     let description = [{
@@ -392,6 +391,37 @@ def TTKernel_TilizeBlockOp : TTKernel_Op<"tilize_block"> {
     let hasVerifier = 1;
 }
 
+def TTKernel_TilizeInitOp : TTKernel_Op<"tilize_init"> {
+    let summary = "TilizeInitOp call.";
+    let description = [{
+      Initialize the tilize operation. To be called once at beginning of a
+      kernel.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn, I32:$numTiles, TTKernel_CB:$cbOut);
+
+    let hasVerifier = 1;
+}
+
+def TTKernel_TilizeInitShortOp : TTKernel_Op<"tilize_init_short"> {
+    let summary = "TilizeInitShortOp call.";
+     let description = [{
+      Re-initialize for the tilize operation. This can be called after a full
+      init.
+     }];
+
+    let arguments = (ins TTKernel_CB:$cbIn, I32:$numiles, TTKernel_CB:$cbOut);
+}
+
+def TTKernel_TilizeUninitOp : TTKernel_Op<"tilize_uninit"> {
+    let summary = "TilizeUninitOp call.";
+    let description = [{
+      Uninitialize tilize operation before re-initializing for another operation.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbI, TTKernel_CB:$cbOut);
+}
+
 def TTKernel_UntilizeBlockOp : TTKernel_Op<"untilize_block"> {
     let summary = "UntilizeBlockOp call.";
     let description = [{
@@ -401,6 +431,37 @@ def TTKernel_UntilizeBlockOp : TTKernel_Op<"untilize_block"> {
     let arguments = (ins TTKernel_CB:$cbIn, I32:$numTiles, TTKernel_CB:$cbOut);
 
     let hasVerifier = 1;
+}
+
+def TTKernel_UntilizeInitOp : TTKernel_Op<"untilize_init"> {
+    let summary = "UntilizeInitOp call.";
+    let description = [{
+      Init function for untilize operations, to be used at the beginning of the
+      kernel.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut);
+
+    let hasVerifier = 1;
+}
+
+def TTKernel_UntilizeInitShortOp : TTKernel_Op<"untilize_init_short"> {
+    let summary = "UntilizeInitShortOp call.";
+    let description = [{
+      Re-initialize for the tilize operation. This can be called after a full
+      init.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn);
+}
+
+def TTKernel_UntilizeUninitOp : TTKernel_Op<"untilize_uninit"> {
+    let summary = "UntilizeUninitOp call.";
+    let description = [{
+      Uninitialize untilize operation, to allow initializing another operation.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn);
 }
 
 //===----------------------------------------------------------------------===//

@@ -93,12 +93,12 @@ public:
     if (legalConfigs.find(op) == legalConfigs.end()) {
       legalConfigs[op] = std::vector<OpConfig>{TTNNLayoutAttr::get(
           &context, getTensorRankedType().getShape(),
-          mlir::tt::TileType::get(&context, builder.getF32Type()), memorySpace,
+          mlir::tt::TileType::get(builder.getF32Type()), memorySpace,
           mlir::tt::GridAttr::get(&context, {8, 8}), tensorMemoryLayoutAttr)};
     } else {
       legalConfigs[op].push_back(TTNNLayoutAttr::get(
           &context, getTensorRankedType().getShape(),
-          mlir::tt::TileType::get(&context, builder.getF32Type()), memorySpace,
+          mlir::tt::TileType::get(builder.getF32Type()), memorySpace,
           mlir::tt::GridAttr::get(&context, {8, 8}), tensorMemoryLayoutAttr));
     }
   }

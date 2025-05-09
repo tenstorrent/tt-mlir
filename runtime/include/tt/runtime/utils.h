@@ -55,6 +55,11 @@ inline std::vector<uint32_t> calculateStride(const std::vector<T> &shape) {
   return stride;
 }
 
+template <class... Ts>
+struct overloaded : Ts... {
+  using Ts::operator()...;
+};
+
 } // namespace tt::runtime::utils
 
 #endif

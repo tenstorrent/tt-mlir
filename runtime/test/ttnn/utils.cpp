@@ -2,11 +2,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tt/runtime/ttnn/test/utils.h"
+#include "tt/runtime/detail/ttnn/test/utils.h"
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/ttnn/types.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/runtime.h"
-#include "tt/runtime/ttnn/types.h"
-#include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/types.h"
 
 namespace tt::runtime::ttnn::test {
@@ -39,7 +39,7 @@ Layout getDramInterleavedRowMajorLayout(::tt::target::DataType dataType) {
   LOG_ASSERT(getCurrentRuntime() == DeviceRuntime::TTNN);
   ::ttnn::DataType ttnnDataType =
       ::tt::runtime::ttnn::utils::toTTNNDataType(dataType);
-  ::tt::runtime::ttnn::LayoutDesc layoutDesc(::ttnn::StorageType::OWNED,
+  ::tt::runtime::ttnn::LayoutDesc layoutDesc(::ttnn::StorageType::HOST,
                                              ::ttnn::Layout::ROW_MAJOR,
                                              ttnnDataType, std::nullopt);
   return Layout(

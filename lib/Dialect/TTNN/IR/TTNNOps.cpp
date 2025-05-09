@@ -883,42 +883,6 @@ static ::mlir::LogicalResult namedOpVerify(Op op) {
 }
 
 //===----------------------------------------------------------------------===//
-// ConstructTensorOp
-//===----------------------------------------------------------------------===//
-
-// ConstructTensorOp verification
-::mlir::LogicalResult mlir::tt::ttnn::ConstructTensorOp::verify() {
-  // Check that the attributes of the op match the attributes of the output
-  // tensor type.
-  //
-  RankedTensorType output = getResult().getType();
-
-  TTNNLayoutAttr layoutAttr = mlir::cast<TTNNLayoutAttr>(output.getEncoding());
-
-  // Shape
-  //
-  if (output.getShape() != getShape().getShape()) {
-    return emitOpError() << "Output tensor shape must be "
-                         << getShape().getShape() << ", but got "
-                         << output.getShape();
-  }
-  // DataType and Layout
-  //
-  if (getLayout() != layoutAttr.getLayout()) {
-    return emitOpError("Layout mismatch between op and layoutAttr.");
-  }
-  // CPU tensors must be RowMajor currently.
-  if (getLayout() != mlir::tt::ttnn::Layout::RowMajor) {
-    return emitOpError("ConstructTensorOp must have row-major layout.");
-  }
-  if (getDtype() != layoutAttr.getDataType()) {
-    return emitOpError("Data type mismatch between op and layoutAttr.");
-  }
-
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
 // ConcatOp
 //===----------------------------------------------------------------------===//
 

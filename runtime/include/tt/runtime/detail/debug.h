@@ -19,25 +19,40 @@ struct Env {
 #else
   constexpr static Env
 #endif
-  get(bool loadKernelsFromDisk = false)
+  get(bool dumpKernelsToDisk = false, bool loadKernelsFromDisk = false,
+      bool deviceAddressValidation = false, bool blockingCQ = false)
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
       ;
 #else
   {
-    return Env(false);
+    return Env(false, false, false, false);
   }
 #endif
 
+  bool dumpKernelsToDisk;
   bool loadKernelsFromDisk;
+  bool deviceAddressValidation;
+  bool blockingCQ;
 
 private:
-  constexpr Env(bool loadKernelsFromDisk)
-      : loadKernelsFromDisk(loadKernelsFromDisk) {}
+  constexpr Env(bool dumpKernelsToDisk, bool loadKernelsFromDisk,
+                bool deviceAddressValidation, bool blockingCQ)
+      : dumpKernelsToDisk(dumpKernelsToDisk),
+        loadKernelsFromDisk(loadKernelsFromDisk),
+        deviceAddressValidation(deviceAddressValidation),
+        blockingCQ(blockingCQ) {}
 };
 
 inline std::ostream &operator<<(std::ostream &os, const Env &env) {
   os << "debug::Env{\n"
-     << "\t" << "loadKernelsFromDisk: " << env.loadKernelsFromDisk << "\n"
+     << "\t"
+     << "dumpKernelsToDisk: " << env.dumpKernelsToDisk << "\n"
+     << "\t"
+     << "loadKernelsFromDisk: " << env.loadKernelsFromDisk << "\n"
+     << "\t"
+     << "deviceAddressValidation: " << env.deviceAddressValidation << "\n"
+     << "\t"
+     << "blockingCQ: " << env.blockingCQ << "\n"
      << "}";
   return os;
 }
@@ -74,7 +89,7 @@ inline std::ostream &operator<<(std::ostream &os, const PerfEnv &perfEnv) {
 struct Hooks {
   using CallbackFn = std::function<void(Binary, CallbackContext, OpContext)>;
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  static Hooks const &
+  static const Hooks &
   get(std::optional<CallbackFn> preOperatorCallback = std::nullopt,
       std::optional<CallbackFn> postOperatorCallback = std::nullopt);
 #else

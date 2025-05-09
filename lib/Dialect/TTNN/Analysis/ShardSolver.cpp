@@ -785,8 +785,7 @@ llvm::Expected<bool> ShardSolver::checkShardCompatible(
       // now. This will change once fork joins are supported.
       Type elementType = input.getElementType();
       if (!llvm::isa<TileType>(elementType)) {
-        elementType =
-            TileType::get(consumerOp->getContext(), input.getElementType());
+        elementType = TileType::get(input.getElementType());
       }
 
       inputLayouts.push_back(TTNNLayoutAttr::get(

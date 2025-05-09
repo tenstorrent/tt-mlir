@@ -248,6 +248,22 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @sin_tile_init
+    func.func @sin_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "sin_tile_init"()
+      "ttkernel.sin_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @sin_tile
+    func.func @sin_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: emitc.call_opaque "sin_tile"(%[[DST0_INDEX]])
+      "ttkernel.sin_tile"(%dst0_index) : (i32) -> ()
+      return
+    }
+
   } // module
 
   //===----------------------------------------------------------------------===//
@@ -317,12 +333,48 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @tilize_init_short
+    func.func @tilize_init_short(%in_cb: !cb0_scalar, %out_cb: !cb1_tiles) -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[IN_CB:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
+      // CHECK: %[[OUT_CB:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
+      // CHECK: %[[NUM_TILES:.*]] = "emitc.constant"
+      %num_tiles = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "tilize_init_short"(%[[IN_CB]], %[[NUM_TILES]], %[[OUT_CB]])
+      "ttkernel.tilize_init_short"(%in_cb, %num_tiles, %out_cb) : (!cb0_scalar, i32, !cb1_tiles) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @tilize_uninit
+    func.func @tilize_uninit(%in_cb: !cb0_scalar, %out_cb: !cb1_tiles) -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[IN_CB:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
+      // CHECK: %[[OUT_CB:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
+      // CHECK: emitc.call_opaque "tilize_uninit"(%[[IN_CB]], %[[OUT_CB]])
+      "ttkernel.tilize_uninit"(%in_cb, %out_cb) : (!cb0_scalar, !cb1_tiles) -> ()
+      return
+    }
+
     // CHECK-LABEL: func @untilize_init
     func.func @untilize_init(%in_cb: !cb0_tiles, %out_cb: !cb1_scalar) -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[IN_CB:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
       // CHECK: %[[OUT_CB:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
       // CHECK: emitc.call_opaque "untilize_init"(%[[IN_CB]], %[[OUT_CB]])
       "ttkernel.untilize_init"(%in_cb, %out_cb) : (!cb0_tiles, !cb1_scalar) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @untilize_init_short
+    func.func @untilize_init_short(%in_cb: !cb0_tiles) -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[IN_CB:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
+      // CHECK: emitc.call_opaque "untilize_init_short"(%[[IN_CB]])
+      "ttkernel.untilize_init_short"(%in_cb) : (!cb0_tiles) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @untilize_uninit
+    func.func @untilize_uninit(%in_cb: !cb0_tiles) -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[IN_CB:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
+      // CHECK: emitc.call_opaque "untilize_uninit"(%[[IN_CB]])
+      "ttkernel.untilize_uninit"(%in_cb) : (!cb0_tiles) -> ()
       return
     }
 

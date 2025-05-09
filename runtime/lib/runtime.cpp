@@ -15,11 +15,11 @@
 #include <vector>
 
 #if defined(TT_RUNTIME_ENABLE_TTNN)
-#include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
-#include "tt/runtime/detail/ttmetal.h"
+#include "tt/runtime/detail/ttmetal/ttmetal.h"
 #endif
 
 namespace tt::runtime {
@@ -141,54 +141,6 @@ getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
   LOG_FATAL("runtime is not enabled");
 }
 
-Tensor createOwnedHostTensor(const void *data,
-                             const std::vector<std::uint32_t> &shape,
-                             const std::vector<std::uint32_t> &stride,
-                             std::uint32_t itemsize,
-                             ::tt::target::DataType dataType) {
-  LOG_ASSERT(!shape.empty());
-  LOG_ASSERT(!stride.empty());
-  LOG_ASSERT(itemsize > 0);
-#if defined(TT_RUNTIME_ENABLE_TTNN)
-  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::createOwnedHostTensor(data, shape, stride,
-                                                      itemsize, dataType);
-  }
-#endif
-
-#if defined(TT_RUNTIME_ENABLE_TTMETAL)
-  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    LOG_FATAL("TT Metal runtime does not support creating owned tensors");
-  }
-#endif
-  LOG_FATAL("runtime is not enabled");
-}
-
-// TODO(mrakita): Deprecated, will be removed after frontends uplift.
-// https://github.com/tenstorrent/tt-mlir/issues/2757
-Tensor createOwnedTensor(std::shared_ptr<void> data,
-                         const std::vector<std::uint32_t> &shape,
-                         const std::vector<std::uint32_t> &stride,
-                         std::uint32_t itemsize,
-                         ::tt::target::DataType dataType) {
-  LOG_ASSERT(!shape.empty());
-  LOG_ASSERT(!stride.empty());
-  LOG_ASSERT(itemsize > 0);
-#if defined(TT_RUNTIME_ENABLE_TTNN)
-  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::createOwnedHostTensor(data.get(), shape, stride,
-                                                      itemsize, dataType);
-  }
-#endif
-
-#if defined(TT_RUNTIME_ENABLE_TTMETAL)
-  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    LOG_FATAL("TT Metal runtime does not support creating owned tensors");
-  }
-#endif
-  LOG_FATAL("runtime is not enabled");
-}
-
 Tensor createBorrowedHostTensor(void *data,
                                 const std::vector<std::uint32_t> &shape,
                                 const std::vector<std::uint32_t> &stride,
@@ -206,8 +158,32 @@ Tensor createBorrowedHostTensor(void *data,
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    LOG_FATAL("TT Metal runtime does not support creating borrowed host tensor "
-              "from direct pointer to data");
+    return ::tt::runtime::ttmetal::createBorrowedHostTensor(
+        data, TensorDesc(shape, stride, itemsize, dataType));
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
+Tensor createOwnedHostTensor(const void *data,
+                             const std::vector<std::uint32_t> &shape,
+                             const std::vector<std::uint32_t> &stride,
+                             std::uint32_t itemsize,
+                             ::tt::target::DataType dataType) {
+  LOG_ASSERT(!shape.empty());
+  LOG_ASSERT(!stride.empty());
+  LOG_ASSERT(itemsize > 0);
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::createOwnedHostTensor(data, shape, stride,
+                                                      itemsize, dataType);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::createOwnedHostTensor(
+        data, TensorDesc(shape, stride, itemsize, dataType));
   }
 #endif
   LOG_FATAL("runtime is not enabled");
@@ -232,8 +208,8 @@ Tensor createTensor(std::shared_ptr<void> data,
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::createTensor(data, shape, stride, itemsize,
-                                                dataType);
+    return ::tt::runtime::ttmetal::createBorrowedHostTensor(
+        data, TensorDesc(shape, stride, itemsize, dataType));
   }
 #endif
   LOG_FATAL("runtime is not enabled");
@@ -619,7 +595,7 @@ std::vector<Tensor> toHost(Tensor tensor, bool untilize) {
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    LOG_FATAL("not implemented");
+    return ::tt::runtime::ttmetal::toHost(tensor, untilize);
   }
 #endif
   LOG_FATAL("runtime is not enabled");
@@ -635,7 +611,7 @@ Tensor toLayout(Tensor tensor, Device device, Layout layout,
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    LOG_FATAL("not implemented");
+    return ::tt::runtime::ttmetal::toLayout(tensor, device, layout, retain);
   }
 #endif
   LOG_FATAL("runtime is not enabled");
@@ -652,7 +628,8 @@ Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    LOG_FATAL("not implemented");
+    return ::tt::runtime::ttmetal::getLayout(executableHandle, programIndex,
+                                             inputIndex);
   }
 #endif
   LOG_FATAL("runtime is not enabled");
@@ -667,7 +644,7 @@ void memcpy(void *dst, Tensor src) {
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    LOG_FATAL("not implemented");
+    return ::tt::runtime::ttmetal::memcpy(dst, src);
   }
 #endif
   LOG_FATAL("runtime is not enabled");
@@ -682,7 +659,7 @@ void memcpy(Tensor dst, Tensor src) {
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    LOG_FATAL("not implemented");
+    return ::tt::runtime::ttmetal::memcpy(dst, src);
   }
 #endif
   LOG_FATAL("runtime is not enabled");
@@ -697,7 +674,7 @@ void deallocateTensor(Tensor &tensor, bool force) {
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    LOG_FATAL("not implemented");
+    return ::tt::runtime::ttmetal::deallocateTensor(tensor, force);
   }
 #endif
   LOG_FATAL("runtime is not enabled");
@@ -785,28 +762,8 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    LOG_FATAL("not implemented");
-  }
-#endif
-  LOG_FATAL("runtime is not enabled");
-}
-
-Event submit(Device deviceHandle, Binary executableHandle,
-             std::uint32_t programIndex,
-             const std::vector<Tensor> &inputHandles,
-             const std::vector<Tensor> &outputHandles) {
-#if defined(TT_RUNTIME_ENABLE_TTNN)
-  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    LOG_FATAL("This submit API is deprecated for TTNN. Please switch to the "
-              "new API.");
-  }
-#endif
-
-#if defined(TT_RUNTIME_ENABLE_TTMETAL)
-  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
     return ::tt::runtime::ttmetal::submit(deviceHandle, executableHandle,
-                                          programIndex, inputHandles,
-                                          outputHandles);
+                                          programIndex, inputs);
   }
 #endif
   LOG_FATAL("runtime is not enabled");

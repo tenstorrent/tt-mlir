@@ -34,7 +34,9 @@ struct SmallVector {
   using value_type = T;
 };
 
-struct AnyDevice;
+namespace distributed {
+struct MeshDevice;
+} // namespace distributed
 struct IDevice;
 
 struct Tensor;
@@ -55,7 +57,8 @@ enum class VecMode {
 } // namespace unary
 
 namespace creation::detail {
-struct OptionalAnyDevice;
+using OptionalMeshDevice =
+    std::optional<std::reference_wrapper<distributed::MeshDevice>>;
 } // namespace creation::detail
 
 namespace conv::conv2d {
@@ -150,15 +153,27 @@ struct TypeName<std::optional<T>> {
       "::std::optional<" + TypeNameV<T> + ">";
 };
 
+template <typename T>
+struct TypeName<std::reference_wrapper<T>> {
+  inline static const std::string value =
+      "::std::reference_wrapper<" + TypeNameV<T> + ">";
+};
+
 template <typename... Types>
 struct TypeName<std::tuple<Types...>> {
   inline static const std::string value =
       "::std::tuple<" + JoinTypeNamesV<Types...> + ">";
 };
 
+template <typename... Types>
+struct TypeName<std::variant<Types...>> {
+  inline static const std::string value =
+      "::std::variant<" + JoinTypeNamesV<Types...> + ">";
+};
+
 template <>
-struct TypeName<::ttnn::AnyDevice> {
-  inline static const std::string value = "::ttnn::AnyDevice";
+struct TypeName<::ttnn::distributed::MeshDevice> {
+  inline static const std::string value = "::ttnn::distributed::MeshDevice";
 };
 
 template <>
@@ -167,9 +182,12 @@ struct TypeName<::ttnn::IDevice> {
 };
 
 template <>
-struct TypeName<::ttnn::operations::creation::detail::OptionalAnyDevice> {
+struct TypeName<::ttnn::operations::creation::detail::OptionalMeshDevice> {
+  // Following results in empty string, so hardcoded value is used instead
+  // TypeNameV<std::optional<std::reference_wrapper<::ttnn::distributed::MeshDevice>>>
   inline static const std::string value =
-      "::ttnn::operations::creation::detail::OptionalAnyDevice";
+      "::std::optional<::std::reference_wrapper<::ttnn::distributed::"
+      "MeshDevice>>";
 };
 
 template <>
@@ -863,45 +881,41 @@ public:
   }
 
   // Handles conversion of DeviceType objects to:
-  // - ::ttnn::IDevice*
-  // - ::ttnn::IDevice
-  // - ::ttnn::AnyDevice
-  // - ::ttnn::operations::creation::detail::OptionalAnyDevice
-  //    - converts to ::ttnn::AnyDevice, see comment below
+  // - ::ttnn::distributed::MeshDevice *
+  // - ::ttnn::distributed::MeshDevice
+  // - ::ttnn::operations::creation::detail::OptionalMeshDevice
   //
   // Will return `std::nullopt` if DeviceType is null
   //
-  template <typename TargetTy = ::ttnn::IDevice *>
+  template <typename TargetTy = ::ttnn::distributed::MeshDevice *>
   mlir::Attribute
   emit(::mlir::TypedValue<::mlir::tt::ttnn::DeviceType> device) {
     if (!device) {
       return emit(std::nullopt);
     }
 
-    if constexpr (std::is_same_v<TargetTy, ::ttnn::IDevice *> ||
-                  std::is_same_v<TargetTy, ::ttnn::IDevice>) {
+    if constexpr (std::is_same_v<TargetTy, ::ttnn::distributed::MeshDevice *> ||
+                  std::is_same_v<TargetTy, ::ttnn::distributed::MeshDevice>) {
       unsigned index = getOperandIndex(device);
       operands.push_back(adaptor.getOperands()[index]);
 
       return rewriter.getIndexAttr(index);
     } else if constexpr (std::is_same_v<TargetTy,
                                         ::ttnn::operations::creation::detail::
-                                            OptionalAnyDevice> ||
-                         std::is_same_v<TargetTy, ::ttnn::AnyDevice>) {
-      // Whether the desired target type is OptionalAnyDevice or AnyDevice, we
-      // can convert to AnyDevice in both scenarios, as there's an implicit
-      // constructor OptionalAnyDevice(AnyDevice).
-
+                                            OptionalMeshDevice>) {
       unsigned index = getOperandIndex(device);
       mlir::Value deviceValueFromOperandsList = adaptor.getOperands()[index];
 
-      emitc::CallOpaqueOp anyDeviceOp = rewriter.create<emitc::CallOpaqueOp>(
+      // optional<reference_wrapper<MeshDevice>> x = *device_ptr
+      emitc::ApplyOp meshDeviceOp = rewriter.create<emitc::ApplyOp>(
           op.getLoc(),
-          emitc::OpaqueType::get(rewriter.getContext(),
-                                 TypeNameV<::ttnn::AnyDevice>),
-          TypeNameV<::ttnn::AnyDevice>, deviceValueFromOperandsList);
+          rewriter.getType<emitc::OpaqueType>(
+              TypeNameV<
+                  ::ttnn::operations::creation::detail::OptionalMeshDevice>),
+          "*", // Dereference operator
+          deviceValueFromOperandsList);
 
-      operands.push_back(anyDeviceOp->getResult(0));
+      operands.push_back(meshDeviceOp->getResult(0));
       return rewriter.getIndexAttr(operands.size() - 1);
     } else {
       llvm_unreachable("Unknown TargetTy");
@@ -918,9 +932,16 @@ public:
     // element of the tuple.
     if constexpr (std::is_same_v<TTNNOp, tt::ttnn::Conv2dOp> ||
                   std::is_same_v<TTNNOp, tt::ttnn::ConvTranspose2dOp>) {
-      using ReturnTy =
-          std::tuple<::ttnn::Tensor, uint32_t, uint32_t, ::ttnn::Tensor,
-                     std::optional<::ttnn::Tensor>>;
+      using OutputHeight = std::uint32_t;
+      using OutputWidth = std::uint32_t;
+      using ReturnTy = std::variant<
+          ::ttnn::Tensor,
+          std::tuple<::ttnn::Tensor, std::tuple<OutputHeight, OutputWidth>>,
+          std::tuple<::ttnn::Tensor,
+                     std::tuple<::ttnn::Tensor, std::optional<::ttnn::Tensor>>>,
+          std::tuple<
+              ::ttnn::Tensor, std::tuple<OutputHeight, OutputWidth>,
+              std::tuple<::ttnn::Tensor, std::optional<::ttnn::Tensor>>>>;
 
       auto opResult = rewriter.create<emitc::CallOpaqueOp>(
           op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),

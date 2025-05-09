@@ -80,7 +80,7 @@ static std::vector<TTNNLayoutAttr> generateAllPossibleLayouts(
       mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
 
   auto tensorShape = tensorType.getShape();
-  Type tileElementType = TileType::get(ctx, scalarElementType);
+  Type tileElementType = TileType::get(scalarElementType);
 
   std::vector<TTNNLayoutAttr> shardedResults;
 
