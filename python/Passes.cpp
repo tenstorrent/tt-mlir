@@ -142,6 +142,27 @@ void populatePassesModule(nb::module_ &m) {
       },
       nb::arg("module"), nb::arg("options") = "");
 
+  m.def(
+      "ttmlir_custom_pipeline",
+      [](MlirModule module, std::string pipeline) {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getName());
+        mlir::DialectRegistry registry;
+        mlir::tt::registerAllDialects(registry);
+        mlir::tt::registerAllExtensions(registry);
+        mlir::MLIRContext *ctx = unwrap(mlirModuleGetContext(module));
+        ctx->appendDialectRegistry(registry);
+
+        if (mlir::failed(mlir::parsePassPipeline(pipeline, pm, llvm::errs()))) {
+          throw std::runtime_error("Failed to parse pipeline: " + pipeline);
+        }
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      nb::arg("module"), nb::arg("pipeline"));
+
   // This binds the vector into an interfaceable object in python and also an
   // opaquely passed one into other functions.
   nb::bind_vector<std::vector<std::pair<std::string, std::string>>>(

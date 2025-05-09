@@ -545,6 +545,14 @@ MetalLayoutAttr MetalLayoutAttr::get(
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals,
     OOBVal oobVal) {
   auto grid = GridAttr::get(context, gridRank);
+  return get(context, ty, grid, tiled, memorySpace, collapseIntervals, oobVal);
+}
+
+MetalLayoutAttr MetalLayoutAttr::get(
+    ::mlir::MLIRContext *context, RankedTensorType ty, GridAttr grid,
+    bool tiled, MemorySpace memorySpace,
+    ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals,
+    OOBVal oobVal) {
   auto elementType =
       tiled ? TileType::get(ty.getElementType()) : ty.getElementType();
   return get(context, ty.getShape(), elementType, memorySpace, grid,

@@ -1470,10 +1470,10 @@ def test_binary_ops(
     request,
 ):
     # NOTE: this function is _only_ for binary ops that take the same shape arguments
-    device_grid_shape = None
+    pipeline_options = []
     # Workaround for ttmetal, only support 1x1 grid atm
     if target == "ttmetal":
-        device_grid_shape = (1, 1)
+        pipeline_options.append("override-device-shape=1,1")
     compile_to_flatbuffer(
         test_fn,
         [shape, shape],
@@ -1481,8 +1481,8 @@ def test_binary_ops(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-        device_grid_shape=device_grid_shape,
         target=target,
+        pipeline_options=pipeline_options,
     )
 
 

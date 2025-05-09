@@ -158,6 +158,9 @@ class TTIRBuilder:
             raise ValueError("Invalid golden check level.")
         self._golden_check_level = level
 
+    def get_context(self) -> Context:
+        return self._ctx
+
     def get_next_global_id(self) -> int:
         self._global_id += 1
         return self._global_id
@@ -454,15 +457,19 @@ class TTIRBuilder:
         with self._ctx, self._loc:
             return RankedTensorType.get(shape, dtype, encoding)
 
+    def empty_from_tensor_type(
+        self, shape: Shape, tensor_type: RankedTensorType
+    ) -> OpView:
+        """Convenience wrapper constructing `ttir.EmptyOp`."""
+        with self._ctx, self._loc:
+            op = ttir.EmptyOp(tensor_type)
+            self.generate_and_store_random_golden(op)
+            return op
+
     def empty(self, shape: Shape, data_type: Optional[Type] = None) -> OpView:
         """Convenience wrapper constructing `ttir.EmptyOp`."""
         dtype = data_type if data_type is not None else self._default_dtype
-        with self._ctx, self._loc:
-            op = ttir.EmptyOp(RankedTensorType.get(shape, dtype))
-
-            self.generate_and_store_random_golden(op)
-
-            return op
+        return self.empty_from_tensor_type(shape, self.ranked_tensor_type(shape, dtype))
 
     # ----- TTIR op factories -----
     def _organize_eltwise_ttir(
@@ -483,9 +490,9 @@ class TTIRBuilder:
         organize_golden_args: Optional[Callable] = None,
         output_shape: Optional[Shape] = None,
         output_type: Optional[Type] = None,
+        output_create_fn: Optional[Callable] = None,
         golden_kwargs: dict = {},
         ttir_kwargs: dict = {},
-        use_zeros: bool = False,
     ) -> Any:
         """
         Provides a general interface for proxy-ing OPs and creating them.
@@ -564,8 +571,8 @@ class TTIRBuilder:
             elif not output_type:
                 output_type = self._default_dtype
 
-            if use_zeros:
-                output = self.zeros(output_shape, output_type)
+            if output_create_fn:
+                output = output_create_fn(output_shape, output_type)
             else:
                 output = self.empty(output_shape, output_type)
             id = self.get_next_global_id()
@@ -1964,6 +1971,26 @@ class TTIRBuilder:
             ),
             output_type=self.get_type_from_torch_dtype(
                 TypeInfo(dtype=dtype, scale=scale, zero_point=zero_point)
+            ),
+            unit_attrs=unit_attrs,
+        )
+
+    def to_layout(
+        self,
+        in0: Operand,
+        output_type: RankedTensorType,
+        unit_attrs: List[str] = None,
+    ) -> OpView:
+        return self.op_proxy(
+            lambda *args, **kwargs: args[0],
+            ttir.ToLayoutOp,
+            [in0],
+            output_type=output_type,
+            output_create_fn=self.empty_from_tensor_type,
+            organize_ttir_args=lambda i, o, _: (
+                [self._get_type(o)],
+                i[0],
+                o,
             ),
             unit_attrs=unit_attrs,
         )
