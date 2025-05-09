@@ -58,9 +58,11 @@ namespace ttnn {
 //
 class DeviceGetter {
 public:
+  static constexpr std::size_t l1SmallSize = 1 << 15;
+
   static ttnn::IDevice *getInstance() {
     static std::shared_ptr<ttnn::MeshDevice> instance =
-        ::ttnn::MeshDevice::create_unit_mesh(0, 1 << 15);
+        ::ttnn::MeshDevice::create_unit_mesh(0, l1SmallSize);
 
     return instance.get();
   }
