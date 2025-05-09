@@ -256,9 +256,8 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
                                   ::tt::tt_metal::ShardOrientation::ROW_MAJOR);
   }
 
-  ::ttnn::MemoryConfig memoryConfig{.memory_layout = ttnnMemLayout,
-                                    .buffer_type = ttnnBufferType,
-                                    .shard_spec = metalShardSpec};
+  ::ttnn::MemoryConfig memoryConfig{ttnnMemLayout, ttnnBufferType,
+                                    metalShardSpec};
   return std::make_optional(memoryConfig);
 }
 
@@ -278,7 +277,7 @@ void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
       [&tensor](auto &&storage) -> void * {
         using T = std::decay_t<decltype(storage)>;
         if constexpr (std::is_same_v<T, ::tt::tt_metal::HostStorage>) {
-          ::tt::tt_metal::HostBuffer hostBuffer = storage.get_buffer();
+          ::tt::tt_metal::HostBuffer hostBuffer = storage.buffer;
           return static_cast<void *>(hostBuffer.view_bytes().data());
         } else if constexpr (std::is_same_v<
                                  T, ::tt::tt_metal::MultiDeviceHostStorage>) {

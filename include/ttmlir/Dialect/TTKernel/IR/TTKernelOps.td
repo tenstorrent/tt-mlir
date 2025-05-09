@@ -380,28 +380,6 @@ def TTKernel_CBWaitFrontOp : TTKernel_Op<"cb_wait_front"> {
 // TTKernel Tile operations
 //===----------------------------------------------------------------------===//
 
-def TTKernel_TilizeInitOp : TTKernel_Op<"tilize_init"> {
-    let summary = "TilizeInitOp call.";
-    let description = [{
-      TilizeInitOp operation
-    }];
-
-    let arguments = (ins TTKernel_CB:$cbIn, I32:$numTiles, TTKernel_CB:$cbOut);
-
-    let hasVerifier = 1;
-}
-
-def TTKernel_UntilizeInitOp : TTKernel_Op<"untilize_init"> {
-    let summary = "UntilizeInitOp call.";
-    let description = [{
-      UntilizeInitOp operation
-    }];
-
-    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut);
-
-    let hasVerifier = 1;
-}
-
 def TTKernel_TilizeBlockOp : TTKernel_Op<"tilize_block"> {
     let summary = "TilizeBlockOp call.";
     let description = [{
@@ -413,6 +391,37 @@ def TTKernel_TilizeBlockOp : TTKernel_Op<"tilize_block"> {
     let hasVerifier = 1;
 }
 
+def TTKernel_TilizeInitOp : TTKernel_Op<"tilize_init"> {
+    let summary = "TilizeInitOp call.";
+    let description = [{
+      Initialize the tilize operation. To be called once at beginning of a
+      kernel.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn, I32:$numTiles, TTKernel_CB:$cbOut);
+
+    let hasVerifier = 1;
+}
+
+def TTKernel_TilizeInitShortOp : TTKernel_Op<"tilize_init_short"> {
+    let summary = "TilizeInitShortOp call.";
+     let description = [{
+      Re-initialize for the tilize operation. This can be called after a full
+      init.
+     }];
+
+    let arguments = (ins TTKernel_CB:$cbIn, I32:$numiles, TTKernel_CB:$cbOut);
+}
+
+def TTKernel_TilizeUninitOp : TTKernel_Op<"tilize_uninit"> {
+    let summary = "TilizeUninitOp call.";
+    let description = [{
+      Uninitialize tilize operation before re-initializing for another operation.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbI, TTKernel_CB:$cbOut);
+}
+
 def TTKernel_UntilizeBlockOp : TTKernel_Op<"untilize_block"> {
     let summary = "UntilizeBlockOp call.";
     let description = [{
@@ -422,6 +431,37 @@ def TTKernel_UntilizeBlockOp : TTKernel_Op<"untilize_block"> {
     let arguments = (ins TTKernel_CB:$cbIn, I32:$numTiles, TTKernel_CB:$cbOut);
 
     let hasVerifier = 1;
+}
+
+def TTKernel_UntilizeInitOp : TTKernel_Op<"untilize_init"> {
+    let summary = "UntilizeInitOp call.";
+    let description = [{
+      Init function for untilize operations, to be used at the beginning of the
+      kernel.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut);
+
+    let hasVerifier = 1;
+}
+
+def TTKernel_UntilizeInitShortOp : TTKernel_Op<"untilize_init_short"> {
+    let summary = "UntilizeInitShortOp call.";
+    let description = [{
+      Re-initialize for the tilize operation. This can be called after a full
+      init.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn);
+}
+
+def TTKernel_UntilizeUninitOp : TTKernel_Op<"untilize_uninit"> {
+    let summary = "UntilizeUninitOp call.";
+    let description = [{
+      Uninitialize untilize operation, to allow initializing another operation.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn);
 }
 
 //===----------------------------------------------------------------------===//

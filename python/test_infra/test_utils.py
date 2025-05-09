@@ -5,6 +5,7 @@
 import os
 import inspect
 import torch
+import pytest
 from typing import Callable, List, Optional, Tuple, Union
 
 from ttmlir.dialects import func
@@ -25,6 +26,16 @@ TT_MLIR_HOME = os.environ.get("TT_MLIR_HOME", "")
 # Default output to the current directory from where this module is being invoked
 OUTPUT_PATH = ""
 
+
+# Convenience class for adding pytest marks
+class Marks:
+    def __init__(self, *marks):
+        self.marks = marks
+
+    def __ror__(self, lhs):
+        return pytest.param(lhs, marks=self.marks)
+
+
 # ----- Static helpers used in this file only -----
 
 
@@ -34,6 +45,10 @@ def _dump_module(module: Module) -> None:
 
 
 #  ----- General Purpose Helpers - Could Be Used In Other Files -----
+
+
+def shape_str(shape):
+    return "x".join(map(str, shape))
 
 
 def set_output_path(path):
@@ -163,9 +178,16 @@ def compile_as_mlir_module(
             @func.func(*test_fn_input_types, name=test_fn.__name__)
             def decorated_func(*inputs):
                 # Randomly generate golden tensors for function inputs.
+                input_goldens = []
                 for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
-                    builder.generate_input_golden(operand, dtype, index)
-                return test_fn(*inputs, builder=builder)
+                    input_goldens.append(
+                        builder.generate_input_golden(operand, dtype, index).tensor
+                    )
+                result = test_fn(*inputs, builder=builder)
+                output_ops = result if hasattr(result, "__iter__") else (result,)
+                output_goldens = [builder._get_golden_tensor(op) for op in output_ops]
+                builder.set_graph_input_output(input_goldens, output_goldens)
+                return result
 
         print(f"`{test_fn.__name__}` sucessfully transformed into a MLIR module.")
 
@@ -185,6 +207,7 @@ def ttir_to_ttnn(
     output_path: str = "",
     output_file_name: str = "test.mlir",
     system_desc_path: Optional[str] = None,
+    device_grid_shape: Optional[Tuple[int, int]] = None,
     mesh_shape: Optional[Tuple[int, int]] = None,
     argument_types_string: Optional[str] = None,
 ):
@@ -205,6 +228,10 @@ def ttir_to_ttnn(
     -------
     MLIR module containing MLIR op graph defined by `module` and instance of TTIRBuilder.
     """
+    assert (
+        device_grid_shape is None
+    ), "`device_grid_shape` is not supported yet for ttnn backend."
+
     if argument_types_string:
         tt_populate_argument_types(module, argument_types_string)
 
@@ -242,6 +269,7 @@ def ttir_to_ttmetal(
     output_path: str = "",
     output_file_name: str = "test.mlir",
     system_desc_path: Optional[str] = None,
+    device_grid_shape: Optional[Tuple[int, int]] = None,
     mesh_shape: Optional[Tuple[int, int]] = None,
     argument_types_string: Optional[str] = None,
 ):
@@ -265,14 +293,20 @@ def ttir_to_ttmetal(
     -------
     MLIR module containing MLIR op graph defined by `module` and instance of TTIRBuilder.
     """
+    assert mesh_shape is None, "`mesh_shape` is not supported yet for ttmetal backend."
 
     # Default to the `SYSTEM_DESC_PATH` envvar
+    options = []
     if system_desc_path is None:
         system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
+    options.append(f"system-desc-path={system_desc_path}")
+
+    if device_grid_shape is not None:
+        options.append(f"override-device-shape={','.join(map(str, device_grid_shape))}")
 
     # Now, pass it through the TTIR to TTMetal pipeline. Module gets
     # modified in place.
-    ttir_to_ttmetal_backend_pipeline(module, f"system-desc-path={system_desc_path}")
+    ttir_to_ttmetal_backend_pipeline(module, " ".join(options))
 
     print("`ttir_to_ttmetal_backend_pipeline` passed successfully.")
 
@@ -288,6 +322,7 @@ def ttir_to_ttmetal(
 def ttnn_to_flatbuffer(
     module,
     builder,
+    device_grid_shape: Optional[Tuple[int, int]] = None,
     output_path: str = "",
     output_file_name: str = "ttnn_fb.ttnn",
     module_log=None,
@@ -325,12 +360,12 @@ def ttmetal_to_flatbuffer(
     # Convert to flatbuffer file.
     # Take the output_file_name and prefix with ttm directory
     output_file_name = get_ttmetal_path(output_path, output_file_name)
-    if module_log is not None:
-        ttmetal_to_flatbuffer_file(
-            module, output_file_name, builder.get_golden_map(), module_log
-        )
-    else:
-        ttmetal_to_flatbuffer_file(module, output_file_name, builder.get_golden_map())
+    ttmetal_to_flatbuffer_file(
+        module,
+        output_file_name,
+        builder.get_golden_map(),
+        module_log if module_log else [],
+    )
 
     print("`ttmetal_to_flatbuffer_file` passed successfully.")
 
@@ -343,6 +378,7 @@ def compile_to_flatbuffer(
     test_base: str = "test",
     output_root: str = ".",
     target: str = "ttnn",
+    device_grid_shape: Optional[Tuple[int, int]] = None,
     mesh_shape: Optional[Tuple[int, int]] = None,
     module_dump: bool = True,
     argument_types_string: Optional[str] = None,
@@ -384,13 +420,16 @@ def compile_to_flatbuffer(
     target: str
         Either `"ttnn"` or `"ttmetal"`. This controls which backend to use
 
+    device_grid_shape: Optional[Tuple[int, int]]
+        A list that contains shape of the device worker grid to override the default shape.
+        Defaults to `None`.
+
     mesh_shape: Optional[Tuple[int, int]]
         A list that contains shape of the mesh to be applied on ttir to ttnn
         conversion path. Defaults to `None`
 
     module_dump: bool
         Set to `True` to print out generated TTIR MLIR module.
-
     """
 
     if inputs_types is not None:
@@ -399,15 +438,20 @@ def compile_to_flatbuffer(
     from_ttir: Callable
     to_flatbuffer: Callable
     mlir_suffix: str
+    target_extension: str
 
     if target == "ttnn":
         from_ttir = ttir_to_ttnn
         to_flatbuffer = ttnn_to_flatbuffer
         mlir_suffix = "_ttnn.mlir"
-    else:
+        target_extension = "ttnn"
+    elif target == "ttmetal":
         from_ttir = ttir_to_ttmetal
         to_flatbuffer = ttmetal_to_flatbuffer
         mlir_suffix = "_ttm.mlir"
+        target_extension = "ttm"
+    else:
+        raise ValueError("Unsupported target: " + target)
 
     # Compile model to TTIR MLIR
     module, builder = compile_as_mlir_module(
@@ -421,6 +465,7 @@ def compile_to_flatbuffer(
         output_root,
         test_base + mlir_suffix,
         system_desc_path=system_desc_path,
+        device_grid_shape=device_grid_shape,
         mesh_shape=mesh_shape,
         argument_types_string=argument_types_string,
     )
@@ -433,6 +478,6 @@ def compile_to_flatbuffer(
         module,
         builder,
         output_root,
-        test_base + "." + target,
+        test_base + "." + target_extension,
         module_log=module_logger.module_log,
     )
