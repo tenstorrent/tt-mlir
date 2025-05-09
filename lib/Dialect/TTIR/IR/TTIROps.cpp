@@ -3913,6 +3913,17 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 }
 
 //===----------------------------------------------------------------------===//
+// BatchNormOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttir::BatchNormOp::verify() {
+  if (getOperand().getType().getRank() != 4) {
+    return emitOpError("input tensor must be a 4D tensor");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // YieldOp / AwaitOp
 //===----------------------------------------------------------------------===//
 
