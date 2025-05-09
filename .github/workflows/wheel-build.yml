@@ -96,7 +96,7 @@ jobs:
         shell: bash
         run: |
           URL=$(curl -s https://api.github.com/repos/tenstorrent/tt-forge/releases | jq -r 'map(select(.prerelease)) | first | .assets | map(select(.browser_download_url | contains("mlir"))) | .[].browser_download_url')
-          echo "ttmlir @ $URL" > python/pykernel/requirements.txt
+          echo "ttmlir @ $URL" > tools/pykernel/requirements.txt
           echo "Updated requirements.txt with: $URL"
 
       - name: Build pykernel wheel
@@ -104,7 +104,7 @@ jobs:
         run: |
           source env/activate
           mkdir -p ${{ steps.strings.outputs.wheel-output-dir }}
-          cd python
+          cd tools
           python3.10 -m pip wheel ./pykernel --wheel-dir ${{ steps.strings.outputs.wheel-output-dir }} --verbose
 
       - name: Upload wheel artifact
