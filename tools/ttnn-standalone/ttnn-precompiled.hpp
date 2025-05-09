@@ -58,7 +58,7 @@ namespace ttnn {
 //
 class DeviceGetter {
 public:
-  static ttnn::IDevice *getInstance() {
+  static ttnn::MeshDevice *getInstance() {
     static std::shared_ptr<ttnn::MeshDevice> instance =
         ::ttnn::MeshDevice::create_unit_mesh(0);
 
