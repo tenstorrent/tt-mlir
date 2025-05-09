@@ -5,6 +5,7 @@
 #system_memory = #ttnn.buffer_type<system_memory>
 #ttnn_layout_host_rm = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<64x128xf32, #system_memory>>
 #ttnn_layout_host_rm_bf16 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<64x128xbf16, #system_memory>>
+#ttnn_layout_host_rm_u32 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<64x128xui32, #system_memory>>
 #ttnn_layout_host_tile = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x4x!tt.tile<32x32, f32>, #system_memory>>
 #ttnn_layout_host_tile_bf16 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x4x!tt.tile<32x32, bf16>, #system_memory>>
 #ttnn_layout_device_rm = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<64x128xf32, #dram>, <interleaved>>
@@ -15,6 +16,7 @@
 #ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<64x128xbf16, #system_memory>>
 #ttnn_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x4x!tt.tile<32x32, bf16>, #dram>, <interleaved>>
 module attributes {} {
+
     // Test cases when we do layout transformation from host and we don't change tensor layout and tensor data type
     //
 
@@ -104,9 +106,22 @@ module attributes {} {
         return %1 : tensor<64x128xf32, #ttnn_layout_host_tile>
     }
 
+    // Test case when we move tensor from host to device for tile -> row-major case for bf16 data type.
+    func.func @from_host_to_device_dt_to_dt_from_tile_to_rm_bf16(%arg0: tensor<64x128xbf16, #ttnn_layout_host_tile_bf16>) -> tensor<64x128xbf16, #ttnn_layout_device_rm_bf16> {
+        // This test verifies that the `to_layout` and `to_device` operations are correctly inserted to move the tensor to the device and then change layout from tile to row-major.
+        // CHECK: %[[GET_DEVICE_OP:.*]] = "ttnn.get_device"()
+        // CHECK-NEXT: %[[TO_DEVICE_OP:.*]] = "ttnn.to_device"(%arg0, %[[GET_DEVICE_OP]])
+        // CHECK-NEXT: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%[[TO_DEVICE_OP]], %[[GET_DEVICE_OP]])
+        // CHECK-SAME: layout = #ttnn.layout<row_major>
+        // CHECK-NEXT: return %[[TO_LAYOUT_OP]]
+        %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
+        %1 = "ttnn.to_layout"(%arg0, %0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#dram, <<64x128>>, <interleaved>>}> : (tensor<64x128xbf16, #ttnn_layout_host_tile_bf16>, !ttnn.device) -> tensor<64x128xbf16, #ttnn_layout_device_rm_bf16>
+        return %1 : tensor<64x128xbf16, #ttnn_layout_device_rm_bf16>
+    }
+
     // Test case when we move tensor from host to device for tile -> row-major case.
-    func.func @from_host_to_device_dt_to_dt_from_tile_to_rm(%arg0: tensor<64x128xf32, #ttnn_layout_host_tile>) -> tensor<64x128xf32, #ttnn_layout_device_rm> {
-        // This test verifies that the `to_layout` and `to_device` operations are correctly inserted to change the layout from tile to row-major on the host and than move the tensor to the device.
+    func.func @from_host_to_device_dt_to_dt_from_tile_to_rm_f32(%arg0: tensor<64x128xf32, #ttnn_layout_host_tile>) -> tensor<64x128xf32, #ttnn_layout_device_rm> {
+        // This test verifies that the `to_layout` and `to_device` operations are correctly inserted to move the tensor to the device and then change layout from tile to row-major.
         // CHECK: %[[GET_DEVICE_OP:.*]] = "ttnn.get_device"()
         // CHECK-NEXT: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%arg0)
         // CHECK-SAME: layout = #ttnn.layout<row_major>
@@ -131,18 +146,18 @@ module attributes {} {
         return %1 : tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
     }
 
-    // Test case when we move tensor from host to device for row-major -> tile case for non-bf16 data type.
-    func.func @from_host_to_device_dt_to_dt_from_rm_to_tile_f32(%arg0: tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xf32, #ttnn_layout_device_tile> {
-        // This test verifies that the `to_layout` and `to_device` operations are correctly inserted to change the layout from row-major to tile on the host for non bf16 data type.
-        // Specifically, it ensures that non-BF16 tiling is performed on the host and then moved to the device.
+    // Test case when we move tensor from host to device for row-major -> tile case for non-bf16 non-f32 data type.
+    func.func @from_host_to_device_dt_to_dt_from_rm_to_tile_f16(%arg0: tensor<64x128xui32, #ttnn_layout_host_rm_u32>) -> tensor<64x128xui32, #ttnn_layout_device_tile_u32> {
+        // This test verifies that the `to_layout` and `to_device` operations are correctly inserted to change the layout from row-major to tile on the host for non bf16 non f32 data type.
+        // Specifically, it ensures that non-BF16 non-FP32 tiling is performed on the host and then moved to the device.
         // CHECK: %[[GET_DEVICE_OP:.*]] = "ttnn.get_device"()
         // CHECK-NEXT: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%arg0)
         // CHECK-SAME: layout = #ttnn.layout<tile>
         // CHECK-NEXT: %[[TO_DEVICE_OP:.*]] = "ttnn.to_device"(%[[TO_LAYOUT_OP]], %[[GET_DEVICE_OP]])
         // CHECK-NEXT: return %[[TO_DEVICE_OP]]
         %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-        %1 = "ttnn.to_layout"(%arg0, %0) <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <<2x4>>, <interleaved>>}> : (tensor<64x128xf32, #ttnn_layout_host_rm>, !ttnn.device) -> tensor<64x128xf32, #ttnn_layout_device_tile>
-        return %1 : tensor<64x128xf32, #ttnn_layout_device_tile>
+        %1 = "ttnn.to_layout"(%arg0, %0) <{dtype = #tt.supportedDataTypes<u32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <<2x4>>, <interleaved>>}> : (tensor<64x128xui32, #ttnn_layout_host_rm_u32>, !ttnn.device) -> tensor<64x128xui32, #ttnn_layout_device_tile_u32>
+        return %1 : tensor<64x128xui32, #ttnn_layout_device_tile_u32>
     }
 
     // Test cases when we do layout transformation from host and we change both tensor layout and tensor data type.

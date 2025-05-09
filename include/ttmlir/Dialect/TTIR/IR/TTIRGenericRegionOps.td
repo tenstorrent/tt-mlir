@@ -91,6 +91,16 @@ def TTIR_TileLogOp : TTIR_GenericRegionComputeOp<"tile_log"> {
     let results = (outs TT_Tile:$result);
 }
 
+def TTIR_TileSinOp : TTIR_GenericRegionComputeOp<"tile_sin"> {
+    let summary = "TTIR Tile Sin Op";
+    let description = [{
+        The `tile_sin` operation computes the sine function of each element in the input tile.
+    }];
+
+    let arguments = (ins TT_Tile:$input);
+    let results = (outs TT_Tile:$result);
+}
+
 def TTIR_TileMaximumOp : TTIR_GenericRegionComputeOp<"tile_maximum">{
     let summary = "TTIR Tile Maximum Op";
     let description = [{
@@ -395,14 +405,12 @@ class TTIR_SemaphoreUpdateOp<string mnemonic> : TTIR_GenericRegionOp<mnemonic,
 
       - Update a remote core's semaphore value
       ```mlir
-      ttir.semaphore_set %sem0, %c1 core[%c2, %c2]
       ttir.semaphore_inc %sem0, %c1 core[%c2, %c2]
       ```
 
       - Update a remote mcast region of cores' semaphore value
       ```mlir
       ttir.semaphore_set %sem0, %c1 core[%c2, %c2] mcast[%c4, %c4]
-      ttir.semaphore_inc %sem0, %c1 core[%c2, %c2] mcast[%c4, %c4]
       ```
     }];
 

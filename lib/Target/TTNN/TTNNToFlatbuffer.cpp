@@ -223,7 +223,7 @@ memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
                       : ::tt::target::ttnn::StorageType::Device;
   } else {
     storageType = bufferType == ttnn::BufferType::SystemMemory
-                      ? ::tt::target::ttnn::StorageType::Owned
+                      ? ::tt::target::ttnn::StorageType::Host
                       : ::tt::target::ttnn::StorageType::Device;
   }
 
@@ -318,7 +318,7 @@ tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
 template <typename OpT>
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 createOperation(FlatbufferObjectCache &cache, ::flatbuffers::Offset<OpT> op,
-                std::string const &debugString, std::string const &locInfo) {
+                const std::string &debugString, const std::string &locInfo) {
   return CreateOperationDirect(
       *cache.fbb, ::tt::target::ttnn::OpTypeTraits<OpT>::enum_value, op.Union(),
       debugString.c_str(), locInfo.c_str());
@@ -544,21 +544,6 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
   return ::tt::target::ttnn::CreateEmptyOp(
       *cache.fbb, cache.fbb->CreateVector<int64_t>(shape), dtype, layout,
       cache.at<::tt::target::DeviceRef>(device), memoryConfig,
-      cache.getOrCreate(output, tensorValueToFlatbuffer, kHostAllocatedSize));
-}
-
-::flatbuffers::Offset<::tt::target::ttnn::ConstructTensorOp>
-createOp(FlatbufferObjectCache &cache, ConstructTensorOp op) {
-  ::llvm::ArrayRef<int64_t> shape = op.getShape().getShape();
-  ::tt::target::DataType dtype =
-      ::tt::mlir::ttnn::utils::toTargetDataType(op.getDtype());
-  ::tt::target::TensorLayout layout =
-      ::tt::mlir::ttnn::utils::toTargetTensorLayout(op.getLayout());
-
-  auto output = op.getResult();
-
-  return ::tt::target::ttnn::CreateConstructTensorOp(
-      *cache.fbb, cache.fbb->CreateVector<int64_t>(shape), dtype, layout,
       cache.getOrCreate(output, tensorValueToFlatbuffer, kHostAllocatedSize));
 }
 
@@ -1657,7 +1642,7 @@ createOp(FlatbufferObjectCache &cache, tt::LoadCachedOp op,
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   const llvm::StringMap<uint32_t> &programIndexMap,
-                  std::string const &debugString, std::string const &locInfo) {
+                  const std::string &debugString, const std::string &locInfo) {
   if (auto getDeviceOp = dyn_cast<GetDeviceOp>(op); getDeviceOp) {
     return createOperation(cache, createOp(cache, getDeviceOp), debugString,
                            locInfo);
@@ -1690,11 +1675,6 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto emptyOp = dyn_cast<EmptyOp>(op); emptyOp) {
     return createOperation(cache, createOp(cache, emptyOp), debugString,
                            locInfo);
-  }
-  if (auto constructTensorOp = dyn_cast<ConstructTensorOp>(op);
-      constructTensorOp) {
-    return createOperation(cache, createOp(cache, constructTensorOp),
-                           debugString, locInfo);
   }
   if (auto fullOp = dyn_cast<FullOp>(op); fullOp) {
     return createOperation(cache, createOp(cache, fullOp), debugString,
@@ -2123,13 +2103,15 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   auto systemDesc =
       toFlatbuffer(cache, mlir::cast<tt::SystemDescAttr>(
                               module->getAttr(tt::SystemDescAttr::name)));
-  // Always get debug info for top-level module.
-  auto mlir = toDebugInfo(fbb, "ttnn", rootModule);
 
   std::string cpp;
   llvm::raw_string_ostream os(cpp);
   auto result = mlir::tt::ttnn::emitTTNNAsCpp(module, os);
   (void)result;
+
+  flatbuffers::Offset<::tt::target::DebugInfo> debugInfo =
+      debugInfoToFlatbuffer(fbb, "ttnn", rootModule, goldenMap, moduleCache,
+                            cpp.c_str());
 
   // Handle dylib creation and packaging, if needed.
   // Currently, we only have 1 CPUModuleOp and 1 top-level ModuleOp; we use a
@@ -2151,33 +2133,6 @@ std::shared_ptr<void> ttnnToFlatbuffer(
           ::tt::target::CreateDynamicLib(fbb, 0, rawFileVector));
     }
   }
-
-  std::vector<::flatbuffers::Offset<::tt::target::GoldenKV>> goldenKVList;
-  goldenKVList.reserve(goldenMap.size());
-
-  for (const auto &[key, value] : goldenMap) {
-    auto goldenTensor = ::tt::target::CreateGoldenTensorDirect(
-        fbb, value.name.c_str(), &value.shape, &value.strides, value.dtype,
-        &value.data);
-    auto goldenKV =
-        ::tt::target::CreateGoldenKVDirect(fbb, key.c_str(), goldenTensor);
-    goldenKVList.push_back(goldenKV);
-  }
-
-  // Load the ModuleCache if present and populate DebugInfo
-  std::vector<::flatbuffers::Offset<::tt::target::MLIR>> moduleCacheList;
-  moduleCacheList.reserve(moduleCache.size());
-
-  for (const auto &item : moduleCache) {
-    // Here the Name is the Pass Name and Source is the IR itself
-    auto moduleCacheItem = ::tt::target::CreateMLIRDirect(
-        fbb, item.first.c_str(), item.second.c_str());
-    moduleCacheList.push_back(moduleCacheItem);
-  }
-
-  auto goldenInfo = ::tt::target::CreateGoldenInfoDirect(fbb, &goldenKVList);
-  auto debugInfo = ::tt::target::CreateDebugInfoDirect(
-      fbb, mlir, cpp.c_str(), &moduleCacheList, goldenInfo);
 
   size_t programIdx = 0;
   llvm::StringMap<uint32_t> programIdxMap;
@@ -2248,7 +2203,7 @@ LogicalResult translateTTNNToFlatbuffer(
   std::shared_ptr<void> data = ttnnToFlatbuffer(op, goldenMap, moduleCache);
   std::size_t size = ::flatbuffers::GetSizePrefixedBufferLength(
       static_cast<const uint8_t *>(data.get()));
-  os.write(reinterpret_cast<char const *>(data.get()), size);
+  os.write(reinterpret_cast<const char *>(data.get()), size);
   return success();
 }
 } // namespace mlir::tt::ttnn

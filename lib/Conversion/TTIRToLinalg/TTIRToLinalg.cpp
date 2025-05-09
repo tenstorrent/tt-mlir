@@ -7,7 +7,11 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
-#include "mlir/Dialect/Traits.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Types.h"
@@ -19,9 +23,7 @@
 
 #include <cstdint>
 
-using namespace mlir;
-using namespace mlir::tt;
-
+namespace mlir::tt {
 namespace {
 // Get the dimensions to broadcast.
 //
@@ -63,7 +65,7 @@ static SmallVector<int64_t, 2> getBroadcastDims(ArrayRef<int64_t> inputShape,
 // 3], then we need to collapse the first dimension of input tensor to [4, 3].
 // This function calculates the dimensions to collapse. In case above, we will
 // return [[0], [1, 2]].
-SmallVector<SmallVector<int64_t, 2>, 2>
+static SmallVector<SmallVector<int64_t, 2>, 2>
 getCollapseDims(ArrayRef<int64_t> inputShape, ArrayRef<int64_t> targetShape) {
   // Calculate the size difference.
   const size_t sizeDiff = targetShape.size() - inputShape.size();
@@ -96,7 +98,9 @@ getCollapseDims(ArrayRef<int64_t> inputShape, ArrayRef<int64_t> targetShape) {
 
   return reassocIndexes;
 }
+} // namespace
 
+namespace {
 // Conversion pattern of operations which have exactly 2 input and 1 output
 // operands.
 template <typename TTIROpTy, typename LinalgOpTy,
@@ -204,8 +208,10 @@ public:
     }
 
     static_assert(ttir::utils::has_dps_trait_v<TTIROpTy>);
-    auto inputs = adaptor.getOperands().drop_back(op.getNumDpsInits());
-    auto outputs = adaptor.getOperands().take_back(op.getNumDpsInits());
+    auto inputs =
+        ttir::utils::getDpsInputsFromAdaptor(adaptor, op.getNumDpsInits());
+    auto outputs =
+        ttir::utils::getDpsOutputsFromAdaptor(adaptor, op.getNumDpsInits());
     rewriter.replaceOpWithNewOp<LinAlgOpTy>(op, resultTypes, inputs, outputs);
     return success();
   }
@@ -231,15 +237,10 @@ public:
       permutation[i] = i;
     }
 
-    auto dim0 = op.getDim0();
-    auto dim1 = op.getDim1();
-
-    if (dim0 < 0) {
-      dim0 = permSize + dim0;
-    }
-    if (dim1 < 0) {
-      dim1 = permSize + dim1;
-    }
+    const int64_t dim0 =
+        (op.getDim0() < 0) ? op.getDim0() + permSize : op.getDim0();
+    const int64_t dim1 =
+        (op.getDim1() < 0) ? op.getDim1() + permSize : op.getDim1();
 
     permutation[dim1] = dim0;
     permutation[dim0] = dim1;
@@ -290,7 +291,224 @@ public:
 };
 } // namespace
 
-namespace mlir::tt {
+namespace {
+// Conversion pattern for ttir.broadcast operation
+class BroadcastOpConversionPattern
+    : public OpConversionPattern<ttir::BroadcastOp> {
+public:
+  using OpConversionPattern<ttir::BroadcastOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::BroadcastOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value input = adaptor.getInput();
+    auto inputType = dyn_cast<RankedTensorType>(input.getType());
+    auto outputType = dyn_cast<RankedTensorType>(adaptor.getOutput().getType());
+
+    if (!inputType || !outputType) {
+      return failure();
+    }
+
+    // Calculate broadcast dimensions
+    SmallVector<int64_t> broadcastDims =
+        getBroadcastDims(inputType.getShape(), outputType.getShape());
+
+    // Create DenseI64ArrayAttr from the broadcast dimensions
+    auto broadcastDimsAttr = rewriter.getDenseI64ArrayAttr(broadcastDims);
+
+    // Use the correct builder signature
+    rewriter.replaceOpWithNewOp<linalg::BroadcastOp>(
+        op, input, adaptor.getOutput(), broadcastDimsAttr);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+// Conversion pattern for ttir.reshape operation
+class ReshapeOpConversionPattern : public OpConversionPattern<ttir::ReshapeOp> {
+public:
+  using OpConversionPattern<ttir::ReshapeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ReshapeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value input = adaptor.getInput();
+    Value output = adaptor.getOutput();
+
+    // Get the result type
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    rewriter.replaceOpWithNewOp<tensor::ReshapeOp>(op, resultType, input,
+                                                   output);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+// Conversion pattern for ttir.permute operation
+class PermuteOpConversionPattern : public OpConversionPattern<ttir::PermuteOp> {
+public:
+  using OpConversionPattern<ttir::PermuteOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::PermuteOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value input = adaptor.getInput();
+    llvm::ArrayRef<int64_t> permutation = op.getPermutation();
+
+    rewriter.replaceOpWithNewOp<linalg::TransposeOp>(
+        op, input, adaptor.getOutput(), permutation);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+// Conversion pattern for ttir.slice operation
+class SliceOpConversionPattern : public OpConversionPattern<ttir::SliceOp> {
+public:
+  using OpConversionPattern<ttir::SliceOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SliceOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value input = adaptor.getInput();
+    auto inputType = dyn_cast<RankedTensorType>(input.getType());
+    assert(inputType && "Input must be a ranked tensor type.");
+
+    // Convert begins, ends, and steps to the format expected by
+    // tensor.extract_slice
+    SmallVector<OpFoldResult> offsets, sizes, strides;
+
+    // Extract the actual integer values from the attributes
+    ArrayAttr begins = op.getBegins();
+    ArrayAttr ends = op.getEnds();
+    ArrayAttr steps = op.getStep();
+
+    // Make sure all arrays have the same size
+    assert(begins.size() == ends.size() && begins.size() == steps.size() &&
+           "Invalid slice attributes.");
+
+    for (unsigned i = 0; i < begins.size(); ++i) {
+      // Convert attribute to actual integer values using proper attribute
+      // casting
+      const int32_t beginVal = llvm::cast<IntegerAttr>(begins[i]).getInt();
+      const int32_t endVal = llvm::cast<IntegerAttr>(ends[i]).getInt();
+      const int32_t stepVal = llvm::cast<IntegerAttr>(steps[i]).getInt();
+
+      offsets.push_back(rewriter.getI64IntegerAttr(beginVal));
+
+      // Calculate size: (end - begin) / step
+      int64_t size = (endVal - beginVal);
+      if (stepVal != 0) {
+        size = (size + stepVal - 1) / stepVal;
+      }
+      sizes.push_back(rewriter.getI64IntegerAttr(size));
+
+      strides.push_back(rewriter.getI64IntegerAttr(stepVal));
+    }
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    rewriter.replaceOpWithNewOp<tensor::ExtractSliceOp>(
+        op, resultType, input, offsets, sizes, strides);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+// Conversion pattern for ttir.concat operation
+class ConcatOpConversionPattern : public OpConversionPattern<ttir::ConcatOp> {
+public:
+  using OpConversionPattern<ttir::ConcatOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ConcatOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Get the dimension to concatenate along
+    int64_t dim = op.getDim();
+    static_assert(ttir::utils::has_dps_trait_v<ttir::ConcatOp>);
+    auto inputs =
+        ttir::utils::getDpsInputsFromAdaptor(adaptor, op.getNumDpsInits());
+
+    // Create a tensor.empty for the result
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    auto emptyTensor = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), resultType.getShape(), resultType.getElementType());
+
+    // Insert each input tensor into the result tensor
+    Value result = emptyTensor;
+    int64_t offset = 0;
+
+    for (auto input : inputs) {
+      auto inputType = dyn_cast<RankedTensorType>(input.getType());
+      assert(inputType && "Input must be a ranked tensor type.");
+
+      // Calculate offsets, sizes, and strides for this input
+      SmallVector<OpFoldResult> offsets, sizes, strides;
+      for (unsigned i = 0; i < inputType.getRank(); ++i) {
+        if (i == dim) {
+          offsets.push_back(rewriter.getI64IntegerAttr(offset));
+          offset += inputType.getDimSize(i);
+        } else {
+          offsets.push_back(rewriter.getI64IntegerAttr(0));
+        }
+        sizes.push_back(rewriter.getI64IntegerAttr(inputType.getDimSize(i)));
+        strides.push_back(rewriter.getI64IntegerAttr(1));
+      }
+
+      // Insert this input into the result
+      result = rewriter.create<tensor::InsertSliceOp>(
+          op.getLoc(), input, result, offsets, sizes, strides);
+    }
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+// Conversion pattern for ttir.constant operation
+class ConstantOpConversionPattern
+    : public OpConversionPattern<ttir::ConstantOp> {
+public:
+  using OpConversionPattern<ttir::ConstantOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ConstantOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Get the constant value
+    auto value = op.getValue();
+
+    // Get the result type
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    // Create a new constant op with the converted type
+    auto newConstant =
+        rewriter.create<arith::ConstantOp>(op.getLoc(), resultType, value);
+
+    rewriter.replaceOp(op, newConstant.getResult());
+    return success();
+  }
+};
+} // namespace
 
 void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                   TypeConverter &typeConverter) {
@@ -309,8 +527,12 @@ void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       ElementwiseOpConversionPattern<ttir::FloorOp, linalg::FloorOp>,
       ElementwiseOpConversionPattern<ttir::TanhOp, linalg::TanhOp>,
       ElementwiseOpConversionPattern<ttir::ReciprocalOp, linalg::ReciprocalOp>,
+      ElementwiseOpConversionPattern<ttir::NegOp, linalg::NegFOp>,
       TransposeOpConversionPattern, SoftmaxOpConversionPattern,
-      EmptyOpConversionPattern>(typeConverter, ctx);
+      EmptyOpConversionPattern, BroadcastOpConversionPattern,
+      ReshapeOpConversionPattern, PermuteOpConversionPattern,
+      SliceOpConversionPattern, ConcatOpConversionPattern,
+      ConstantOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

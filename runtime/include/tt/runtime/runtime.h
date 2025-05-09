@@ -49,80 +49,73 @@ std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc(
     std::optional<DispatchCoreType> dispatchCoreType = std::nullopt,
     std::optional<Device> meshDevice = std::nullopt);
 
-// Creates host tensor with owned storage (the buffer of the tensor is on the
-// host and its allocation/deallocation is owned by this tensor instance).
-Tensor createOwnedHostTensor(void const *data,
-                             std::vector<std::uint32_t> const &shape,
-                             std::vector<std::uint32_t> const &stride,
-                             std::uint32_t itemsize,
-                             ::tt::target::DataType dataType);
-
-// TODO(mrakita): Deprecated, will be removed after frontends uplift.
-// https://github.com/tenstorrent/tt-mlir/issues/2757
-Tensor createOwnedTensor(std::shared_ptr<void> data,
-                         std::vector<std::uint32_t> const &shape,
-                         std::vector<std::uint32_t> const &stride,
-                         std::uint32_t itemsize,
-                         ::tt::target::DataType dataType);
-
-// Creates host tensor with borrowed storage (the buffer of the tensor is on the
-// host and it was borrowed from an external buffer which is responsible for its
-// allocation/deallocation).
+// Creates host tensor with a view of the input data (the buffer of the tensor
+// is on the host and it was borrowed from an external buffer which is
+// responsible for its allocation/deallocation).
 Tensor createBorrowedHostTensor(void *data,
-                                std::vector<std::uint32_t> const &shape,
-                                std::vector<std::uint32_t> const &stride,
+                                const std::vector<std::uint32_t> &shape,
+                                const std::vector<std::uint32_t> &stride,
                                 std::uint32_t itemsize,
                                 ::tt::target::DataType dataType);
+
+// Creates host tensor with a owned copy of the data (the buffer of the tensor
+// is on the host and its allocation/deallocation is owned by this tensor
+// instance).
+Tensor createOwnedHostTensor(const void *data,
+                             const std::vector<std::uint32_t> &shape,
+                             const std::vector<std::uint32_t> &stride,
+                             std::uint32_t itemsize,
+                             ::tt::target::DataType dataType);
 
 // TODO(mrakita): Should be deprecated but D2M path is using this, investigate
 // if it can also use the new `createBorrowedHostTensor` function.
 // https://github.com/tenstorrent/tt-mlir/issues/2757
 Tensor createTensor(std::shared_ptr<void> data,
-                    std::vector<std::uint32_t> const &shape,
-                    std::vector<std::uint32_t> const &stride,
+                    const std::vector<std::uint32_t> &shape,
+                    const std::vector<std::uint32_t> &stride,
                     std::uint32_t itemsize, ::tt::target::DataType dataType);
 
 // Creates multi-device host tensor with owned storage (buffers of the tensor
 // are on the host and their allocation/deallocation is owned by this tensor
 // instance).
 Tensor createMultiDeviceHostTensor(
-    std::vector<void const *> const &data,
-    std::vector<std::uint32_t> const &shape,
-    std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
+    const std::vector<const void *> &data,
+    const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
-    std::unordered_map<std::string, std::string> const &strategy);
+    const std::unordered_map<std::string, std::string> &strategy);
 
 // Creates multi-device host tensor from already existing host tensor shards.
 // Tensor shards can be host tensors with either owned or borrowed storage.
 Tensor createMultiDeviceHostTensor(
-    std::vector<Tensor> const &tensorShards,
-    std::unordered_map<std::string, std::string> const &strategy);
+    const std::vector<Tensor> &tensorShards,
+    const std::unordered_map<std::string, std::string> &strategy);
 
 // Creates empty tensor on host/device depending on the passed layout.
 Tensor createEmptyTensor(Device device, Layout layout,
-                         std::vector<std::uint32_t> const &shape,
-                         std::vector<std::uint32_t> const &stride,
+                         const std::vector<std::uint32_t> &shape,
+                         const std::vector<std::uint32_t> &stride,
                          std::uint32_t itemsize);
 
-inline Tensor createOwnedHostTensor(void const *data, TensorDesc const &desc) {
-  return ::tt::runtime::createOwnedHostTensor(data, desc.shape, desc.stride,
-                                              desc.itemsize, desc.dataType);
-}
-
-inline Tensor createBorrowedHostTensor(void *data, TensorDesc const &desc) {
+inline Tensor createBorrowedHostTensor(void *data, const TensorDesc &desc) {
   return ::tt::runtime::createBorrowedHostTensor(data, desc.shape, desc.stride,
                                                  desc.itemsize, desc.dataType);
 }
 
+inline Tensor createOwnedHostTensor(const void *data, const TensorDesc &desc) {
+  return ::tt::runtime::createOwnedHostTensor(data, desc.shape, desc.stride,
+                                              desc.itemsize, desc.dataType);
+}
+
 inline Tensor createMultiDeviceHostTensor(
-    std::vector<void const *> const &data, TensorDesc const &desc,
-    std::unordered_map<std::string, std::string> const &strategy) {
+    const std::vector<const void *> &data, const TensorDesc &desc,
+    const std::unordered_map<std::string, std::string> &strategy) {
   return ::tt::runtime::createMultiDeviceHostTensor(
       data, desc.shape, desc.stride, desc.itemsize, desc.dataType, strategy);
 }
 
 inline Tensor createEmptyTensor(Device device, Layout layout,
-                                TensorDesc const &desc) {
+                                const TensorDesc &desc) {
   return ::tt::runtime::createEmptyTensor(device, layout, desc.shape,
                                           desc.stride, desc.itemsize);
 }
@@ -159,7 +152,7 @@ void wait(Event event);
 
 void wait(Tensor tensor);
 
-void wait(std::vector<Tensor> const &tensors);
+void wait(const std::vector<Tensor> &tensors);
 
 // Copies device tensor data to host tensor with owned storage, with option to
 // untilize data.
@@ -189,10 +182,6 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
                            std::vector<Tensor> &inputs);
-
-Event submit(Device deviceHandle, Binary executableHandle,
-             std::uint32_t programIndex, std::vector<Tensor> const &inputs,
-             std::vector<Tensor> const &outputs);
 
 } // namespace tt::runtime
 

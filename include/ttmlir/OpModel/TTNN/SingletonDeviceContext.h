@@ -8,10 +8,13 @@
 
 #include "hostdevcommon/common_values.hpp"
 #include <cstddef>
+#include <memory>
 
 namespace tt {
 namespace tt_metal {
-class IDevice;
+namespace distributed {
+class MeshDevice;
+} // namespace distributed
 } // namespace tt_metal
 } // namespace tt
 
@@ -30,7 +33,9 @@ public:
   static void resetInstance();
   static void closeInstance();
 
-  ::tt::tt_metal::IDevice *getDevice() { return m_device; }
+  ::tt::tt_metal::distributed::MeshDevice *getDevice() {
+    return m_device.get();
+  }
 
 private:
   SingletonDeviceContext(
@@ -40,7 +45,7 @@ private:
   SingletonDeviceContext(const SingletonDeviceContext &) = delete;
   SingletonDeviceContext &operator=(const SingletonDeviceContext &) = delete;
 
-  ::tt::tt_metal::IDevice *m_device;
+  std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> m_device;
 
   void openDevice(const size_t trace_region_size = DEFAULT_TRACE_REGION_SIZE);
   void closeDevice();

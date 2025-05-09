@@ -9,12 +9,14 @@ namespace tt::runtime::debug {
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
 
-Env const &Env::get(bool loadKernelsFromDisk) {
-  static Env config(loadKernelsFromDisk);
+const Env &Env::get(bool dumpKernelsToDisk, bool loadKernelsFromDisk,
+                    bool deviceAddressValidation, bool blockingCQ) {
+  static Env config(dumpKernelsToDisk, loadKernelsFromDisk,
+                    deviceAddressValidation, blockingCQ);
   return config;
 }
 
-Hooks const &
+const Hooks &
 Hooks::get(std::optional<debug::Hooks::CallbackFn> preOperatorCallback,
            std::optional<debug::Hooks::CallbackFn> postOperatorCallback) {
   static Hooks config(preOperatorCallback, postOperatorCallback);
@@ -25,7 +27,7 @@ Hooks::get(std::optional<debug::Hooks::CallbackFn> preOperatorCallback,
 
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
 
-PerfEnv const &PerfEnv::get(std::uint32_t dumpDeviceRate) {
+const PerfEnv &PerfEnv::get(std::uint32_t dumpDeviceRate) {
   static PerfEnv config(dumpDeviceRate);
   return config;
 }

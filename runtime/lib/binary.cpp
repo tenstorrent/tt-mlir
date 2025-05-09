@@ -41,7 +41,7 @@ Binary &Binary::operator=(std::shared_ptr<void> handle) {
   return *this;
 }
 
-static std::string asJson(void const *fbb, uint8_t const *binarySchema,
+static std::string asJson(const void *fbb, const uint8_t *binarySchema,
                           size_t schemaSize) {
   flatbuffers::IDLOptions opts;
   opts.size_prefixed = true;
@@ -61,7 +61,7 @@ static std::string asJson(void const *fbb, uint8_t const *binarySchema,
 
 namespace ttnn {
 
-::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
+const ::tt::target::ttnn::TTNNBinary *getBinary(Flatbuffer binary) {
   bool isTTNN = ::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
       binary.handle.get());
   LOG_ASSERT(isTTNN, "Unsupported binary format");
@@ -69,7 +69,7 @@ namespace ttnn {
 }
 
 std::string getVersion(Flatbuffer binary) {
-  auto const *version = getBinary(binary)->version();
+  const auto *version = getBinary(binary)->version();
   return std::to_string(version->major()) + "." +
          std::to_string(version->minor()) + "." +
          std::to_string(version->patch());
@@ -88,8 +88,8 @@ std::string asJson(Flatbuffer binary) {
 std::vector<TensorDesc> getProgramInputs(Flatbuffer binary,
                                          std::uint32_t programIndex) {
   std::vector<TensorDesc> inputs;
-  auto const *program = getBinary(binary)->programs()->Get(programIndex);
-  for (auto const *input : *program->inputs()) {
+  const auto *program = getBinary(binary)->programs()->Get(programIndex);
+  for (const auto *input : *program->inputs()) {
     TensorDesc desc;
     desc.shape = {input->desc()->shape()->begin(),
                   input->desc()->shape()->end()};
@@ -105,8 +105,8 @@ std::vector<TensorDesc> getProgramInputs(Flatbuffer binary,
 std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
                                           std::uint32_t programIndex) {
   std::vector<TensorDesc> outputs;
-  auto const *program = getBinary(binary)->programs()->Get(programIndex);
-  for (auto const *output : *program->outputs()) {
+  const auto *program = getBinary(binary)->programs()->Get(programIndex);
+  for (const auto *output : *program->outputs()) {
     TensorDesc desc;
     desc.shape = {output->desc()->shape()->begin(),
                   output->desc()->shape()->end()};
@@ -121,13 +121,12 @@ std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
 
 const ::tt::target::GoldenTensor *getDebugInfoGolden(Flatbuffer binary,
                                                      std::string &loc) {
-  auto const *programs = getBinary(binary)->programs();
-  for (auto const *program : *programs) {
+  const auto *programs = getBinary(binary)->programs();
+  for (const auto *program : *programs) {
     for (const ::tt::target::GoldenKV *goldenKV :
          *program->debug_info()->golden_info()->golden_map()) {
-      if (std::string(goldenKV->key()->c_str()) == loc) {
+      if (loc == goldenKV->key()->c_str()) {
         return goldenKV->value();
-        ;
       }
     }
   }
@@ -140,7 +139,7 @@ const ::tt::target::GoldenTensor *getDebugInfoGolden(Flatbuffer binary,
 
 namespace metal {
 
-::tt::target::metal::TTMetalBinary const *getBinary(Flatbuffer binary) {
+const ::tt::target::metal::TTMetalBinary *getBinary(Flatbuffer binary) {
   bool isTTMetal =
       ::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
           binary.handle.get());
@@ -149,7 +148,7 @@ namespace metal {
 }
 
 std::string getVersion(Flatbuffer binary) {
-  auto const *version = getBinary(binary)->version();
+  const auto *version = getBinary(binary)->version();
   return std::to_string(version->major()) + "." +
          std::to_string(version->minor()) + "." +
          std::to_string(version->patch());
@@ -166,49 +165,54 @@ std::string asJson(Flatbuffer binary) {
       ::tt::target::metal::TTMetalBinaryBinarySchema::size());
 }
 
+static std::vector<TensorDesc>
+getTensorDescs(const ::flatbuffers::Vector<
+               ::flatbuffers::Offset<tt::target::metal::TensorRef>> *tensors) {
+  std::vector<TensorDesc> tensorDescs;
+  tensorDescs.reserve(tensors->size());
+  for (const auto *tensor : *tensors) {
+    TensorDesc desc;
+    desc.shape = {tensor->desc()->shape()->begin(),
+                  tensor->desc()->shape()->end()};
+    desc.stride = utils::calculateStride(desc.shape);
+    desc.dataType = tensor->desc()->layout()->memory_desc()->data_type();
+    desc.itemsize = utils::dataTypeElementSize(desc.dataType);
+    tensorDescs.push_back(desc);
+  }
+  return tensorDescs;
+}
+
 std::vector<TensorDesc> getProgramInputs(Flatbuffer binary,
                                          std::uint32_t programIndex) {
-  std::vector<TensorDesc> inputs;
-  auto const *program = getBinary(binary)->programs()->Get(programIndex);
+  const auto *program = getBinary(binary)->programs()->Get(programIndex);
   LOG_ASSERT(program->device_programs()->size() == 1,
              "Currently only one device program is supported, got: ",
              program->device_programs()->size());
-  for (auto const *input : *program->device_programs()->Get(0)->inputs()) {
-    TensorDesc desc;
-    desc.shape = {input->desc()->shape()->begin(),
-                  input->desc()->shape()->end()};
-    desc.stride = utils::calculateStride(desc.shape);
-    desc.itemsize = utils::dataTypeElementSize(
-        input->desc()->layout()->memory_desc()->data_type());
-    desc.dataType = input->desc()->layout()->memory_desc()->data_type();
-    inputs.push_back(desc);
-  }
-  return inputs;
+  return getTensorDescs(program->inputs());
 }
 
 std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
                                           std::uint32_t programIndex) {
-  std::vector<TensorDesc> outputs;
-  auto const *program = getBinary(binary)->programs()->Get(programIndex);
+  const auto *program = getBinary(binary)->programs()->Get(programIndex);
   LOG_ASSERT(program->device_programs()->size() == 1,
              "Currently only one device program is supported, got: ",
              program->device_programs()->size());
-  for (auto const *output : *program->device_programs()->Get(0)->outputs()) {
-    TensorDesc desc;
-    desc.shape = {output->desc()->shape()->begin(),
-                  output->desc()->shape()->end()};
-    desc.stride = utils::calculateStride(desc.shape);
-    desc.itemsize = utils::dataTypeElementSize(
-        output->desc()->layout()->memory_desc()->data_type());
-    desc.dataType = output->desc()->layout()->memory_desc()->data_type();
-    outputs.push_back(desc);
-  }
-  return outputs;
+  return getTensorDescs(program->outputs());
 }
 
 const ::tt::target::GoldenTensor *getDebugInfoGolden(Flatbuffer binary,
                                                      std::string &loc) {
-  LOG_WARNING("Debug golden information not enabled for metal yet!");
+  const auto *programs = getBinary(binary)->programs();
+  for (const auto *program : *programs) {
+    for (const ::tt::target::GoldenKV *goldenKV :
+         *program->debug_info()->golden_info()->golden_map()) {
+      if (loc == goldenKV->key()->c_str()) {
+        return goldenKV->value();
+      }
+    }
+  }
+
+  LOG_WARNING("Golden information not found");
   return nullptr;
 }
 
@@ -216,7 +220,7 @@ const ::tt::target::GoldenTensor *getDebugInfoGolden(Flatbuffer binary,
 
 namespace system_desc {
 
-::tt::target::SystemDescRoot const *getBinary(Flatbuffer binary) {
+const ::tt::target::SystemDescRoot *getBinary(Flatbuffer binary) {
   if (!::tt::target::SizePrefixedSystemDescRootBufferHasIdentifier(
           binary.handle.get())) {
     LOG_FATAL("Unsupported binary format");
@@ -225,7 +229,7 @@ namespace system_desc {
 }
 
 std::string getVersion(Flatbuffer binary) {
-  auto const *version = getBinary(binary)->version();
+  const auto *version = getBinary(binary)->version();
   return std::to_string(version->major()) + "." +
          std::to_string(version->minor()) + "." +
          std::to_string(version->patch());
@@ -243,7 +247,7 @@ std::string asJson(Flatbuffer binary) {
 
 } // namespace system_desc
 
-Flatbuffer Flatbuffer::loadFromPath(char const *path) {
+Flatbuffer Flatbuffer::loadFromPath(const char *path) {
   // load a flatbuffer from path
   std::ifstream fbb(path, std::ios::binary | std::ios::ate);
   LOG_ASSERT(fbb.is_open(), "Failed to open file: ", path);
@@ -254,12 +258,12 @@ Flatbuffer Flatbuffer::loadFromPath(char const *path) {
   return Flatbuffer(buffer);
 }
 
-void Flatbuffer::store(char const *path) const {
+void Flatbuffer::store(const char *path) const {
   // store a flatbuffer to path
   std::ofstream fbb(path, std::ios::binary);
   auto size = ::flatbuffers::GetSizePrefixedBufferLength(
       static_cast<const uint8_t *>(handle.get()));
-  fbb.write(reinterpret_cast<char const *>(handle.get()), size);
+  fbb.write(reinterpret_cast<const char *>(handle.get()), size);
 }
 
 std::string_view Flatbuffer::getFileIdentifier() const {
@@ -338,11 +342,11 @@ std::string Flatbuffer::asJson() const {
   LOG_FATAL("Unsupported binary format");
 }
 
-SystemDesc SystemDesc::loadFromPath(char const *path) {
+SystemDesc SystemDesc::loadFromPath(const char *path) {
   return SystemDesc(Flatbuffer::loadFromPath(path).handle);
 }
 
-Binary Binary::loadFromPath(char const *path) {
+Binary Binary::loadFromPath(const char *path) {
   return Binary(Flatbuffer::loadFromPath(path).handle);
 }
 

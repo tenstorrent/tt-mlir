@@ -93,7 +93,13 @@ inline std::string backtrace_to_string(int size = 64, int skip = 2,
 #define LOGGER_TYPES                                                           \
   X(Always)                                                                    \
   X(RuntimeTTNN)                                                               \
-  X(RuntimeTTMetal)
+  X(RuntimeTTMetal)                                                            \
+  X(RuntimeTTMetalBufferCreation)                                              \
+  X(RuntimeTTMetalCircularBufferCreation)                                      \
+  X(RuntimeTTMetalKernel)                                                      \
+  X(RuntimeTTMetalKernelArg)                                                   \
+  X(RuntimeTTMetalKernelSource)                                                \
+  X(RuntimeTTMetalCommand)
 
 enum LogType : uint32_t {
 #define X(a) Log##a,
@@ -153,7 +159,7 @@ public:
   }
 
   template <typename... Args>
-  void log_level_type(Level level, LogType type, Args const &...args) {
+  void log_level_type(Level level, LogType type, const Args &...args) {
     if (log_level_enabled(level) && log_type_enabled(type)) {
 #if defined(UTILS_LOGGER_PYTHON_OSTREAM_REDIRECT) &&                           \
     (UTILS_LOGGER_PYTHON_OSTREAM_REDIRECT == 1)
@@ -238,66 +244,66 @@ private:
 };
 
 template <typename... Args>
-inline void log_debug_(LogType type, Args const &...args) {
+inline void log_debug_(LogType type, const Args &...args) {
   Logger::get().log_level_type(Logger::Level::Debug, type, args...);
 }
 
 template <typename... Args>
-inline void log_debug_(Args const &...args) {
+inline void log_debug_(const Args &...args) {
   log_debug_(LogAlways, args...);
 }
 
 template <typename... Args>
 inline void log_trace_(LogType type, const std::string &src_info,
-                       Args const &...args) {
+                       const Args &...args) {
   Logger::get().log_level_type(Logger::Level::Trace, type, src_info, " - ",
                                args...);
 }
 
 template <typename... Args>
-inline void log_info_(LogType type, Args const &...args) {
+inline void log_info_(LogType type, const Args &...args) {
   Logger::get().log_level_type(Logger::Level::Info, type, args...);
 }
 
 template <typename... Args>
-inline void log_info_(Args const &...args) {
+inline void log_info_(const Args &...args) {
   log_info_(LogAlways, args...);
 }
 
 template <typename... Args>
-inline void log_warning_(LogType type, Args const &...args) {
+inline void log_warning_(LogType type, const Args &...args) {
   Logger::get().log_level_type(Logger::Level::Warning, type, args...);
 }
 
 template <typename... Args>
-inline void log_warning_(Args const &...args) {
+inline void log_warning_(const Args &...args) {
   log_warning_(LogAlways, args...);
 }
 
 template <typename... Args>
-inline void log_error_(LogType type, Args const &...args) {
+inline void log_error_(LogType type, const Args &...args) {
   Logger::get().log_level_type(Logger::Level::Error, type, args...);
 }
 
 template <typename... Args>
-inline void log_error_(Args const &...args) {
+inline void log_error_(const Args &...args) {
   log_error_(LogAlways, args...);
 }
 
 template <typename... Args>
-inline void log_fatal_(LogType type, Args const &...args) {
+inline void log_fatal_(LogType type, const Args &...args) {
   Logger::get().log_level_type(Logger::Level::Fatal, type, args...);
 }
 
 template <typename... Args>
-inline void log_fatal_(Args const &...args) {
+inline void log_fatal_(const Args &...args) {
   log_fatal_(LogAlways, args...);
 }
 
 template <typename... Args>
 [[noreturn]] inline void
 tt_throw_(const char *file, int line, const char *assert_type,
-          const char *condition_str, Args const &...args) {
+          const char *condition_str, const Args &...args) {
   std::stringstream trace_message_ss = {};
   trace_message_ss << "\n";
   trace_message_ss << bold << assert_type << " @ " << file << ":" << line
@@ -307,6 +313,12 @@ tt_throw_(const char *file, int line, const char *assert_type,
   trace_message_ss << reset_text_attrs << std::flush;
   log_fatal_(args..., trace_message_ss.str());
   Logger::get().flush();
+#if defined(TT_RUNTIME_DEBUG) && (TT_RUNTIME_DEBUG == 1)
+  const char *abort_on_error = std::getenv("TTMLIR_RUNTIME_ABORT_ON_ERROR");
+  if (abort_on_error && abort_on_error[0] == '1') {
+    abort();
+  }
+#endif
   throw std::runtime_error("Fatal error");
 }
 
@@ -394,5 +406,106 @@ tt_throw_(const char *file, int line, const char *assert_type,
 #endif
 
 #pragma clang diagnostic pop
+
+// Helper pretty printers.
+namespace tt::runtime::logger {
+
+template <typename T, typename Data>
+struct Tag {
+  static constexpr std::string_view tag() { return T::tag(); }
+  static constexpr std::string_view open() { return T::open(); }
+  static constexpr std::string_view close() { return T::close(); }
+  static constexpr std::ios_base::fmtflags fmtflags() { return T::fmtflags(); }
+
+  Tag(Data d) : data(d) {}
+
+  Data data;
+};
+
+template <typename T, typename Data>
+std::ostream &operator<<(std::ostream &os, const Tag<T, Data> &t) {
+  os << t.tag() << t.open();
+  auto flags = os.setf(t.fmtflags());
+  os << t.data;
+  os.flags(flags);
+  os << t.close();
+  return os;
+}
+
+template <typename T>
+struct HexTag {
+  static constexpr std::string_view tag() { return T::tag(); }
+  static constexpr std::string_view open() { return "[0x"; }
+  static constexpr std::string_view close() { return "]"; }
+  static constexpr std::ios_base::fmtflags fmtflags() {
+    return std::ios_base::hex;
+  }
+};
+
+template <typename T>
+struct IntegerTag {
+  static constexpr std::string_view tag() { return T::tag(); }
+  static constexpr std::string_view open() { return "["; }
+  static constexpr std::string_view close() { return "]"; }
+  static constexpr std::ios_base::fmtflags fmtflags() {
+    return std::ios_base::dec;
+  }
+};
+
+struct AddressTag : HexTag<AddressTag> {
+  static constexpr std::string_view tag() { return "address"; }
+};
+
+struct AlignTag : HexTag<AlignTag> {
+  static constexpr std::string_view tag() { return "align"; }
+};
+
+struct BufferTag : IntegerTag<BufferTag> {
+  static constexpr std::string_view tag() { return "buffer"; }
+};
+
+struct PortTag : IntegerTag<PortTag> {
+  static constexpr std::string_view tag() { return "port"; }
+};
+
+struct TensorTag : IntegerTag<TensorTag> {
+  static constexpr std::string_view tag() { return "tensor"; }
+};
+
+struct SizeTag : IntegerTag<SizeTag> {
+  static constexpr std::string_view tag() { return "size"; }
+};
+
+template <typename IntType>
+auto Address(IntType address) {
+  return Tag<AddressTag, IntType>(address);
+}
+
+template <typename IntType>
+auto Size(IntType size) {
+  return Tag<SizeTag, IntType>(size);
+}
+
+template <typename IntType>
+auto Align(IntType align) {
+  return Tag<AlignTag, IntType>(align);
+}
+
+template <typename IntType>
+auto Buffer(IntType buffer) {
+  return Tag<BufferTag, IntType>(buffer);
+}
+
+template <typename IntType>
+auto Port(IntType buffer) {
+  return Tag<PortTag, IntType>(buffer);
+}
+
+template <typename IntType>
+auto Tensor(IntType tensor) {
+  return Tag<TensorTag, IntType>(tensor);
+}
+
+} // namespace tt::runtime::logger
 
 #endif // TT_RUNTIME_DETAIL_LOGGER_H

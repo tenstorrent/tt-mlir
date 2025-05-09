@@ -4,15 +4,16 @@
 
 #include "operations/conv/conv_transpose2d.h"
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
 
-#include "tt/runtime/ttnn/operations/utils.h"
-#include "tt/runtime/ttnn/utils.h"
+#include "tt/runtime/detail/ttnn/operations/utils.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttnn/operations/conv/conv_transpose2d/conv_transpose2d.hpp"
 #include "ttnn/types.hpp"
 
 namespace tt::runtime::ttnn::operations::conv {
+using ::ttnn::operations::conv::conv2d::ResultWithOptions;
 void run(const ::tt::target::ttnn::ConvTranspose2dOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
@@ -52,11 +53,15 @@ void run(const ::tt::target::ttnn::ConvTranspose2dOp *op,
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  ::ttnn::Tensor out = std::get<0>(::ttnn::conv_transpose2d(
+  ResultWithOptions result = ::ttnn::conv_transpose2d(
       input, weight, &targetDevice, op->in_channels(), op->out_channels(),
       op->batch_size(), op->input_height(), op->input_width(), kernelSize,
       stride, padding, outputPadding, dilation, op->groups(), bias, config,
-      /*compute_config*/ std::nullopt, memoryConfig));
+      /*compute_config*/ std::nullopt, memoryConfig);
+
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result));
+
+  ::ttnn::Tensor out = std::get<::ttnn::Tensor>(result);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

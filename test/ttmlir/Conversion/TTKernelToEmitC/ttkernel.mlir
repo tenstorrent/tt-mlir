@@ -248,6 +248,22 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @sin_tile_init
+    func.func @sin_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "sin_tile_init"()
+      "ttkernel.sin_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @sin_tile
+    func.func @sin_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: emitc.call_opaque "sin_tile"(%[[DST0_INDEX]])
+      "ttkernel.sin_tile"(%dst0_index) : (i32) -> ()
+      return
+    }
+
   } // module
 
   //===----------------------------------------------------------------------===//
@@ -317,12 +333,48 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @tilize_init_short
+    func.func @tilize_init_short(%in_cb: !cb0_scalar, %out_cb: !cb1_tiles) -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[IN_CB:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
+      // CHECK: %[[OUT_CB:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
+      // CHECK: %[[NUM_TILES:.*]] = "emitc.constant"
+      %num_tiles = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "tilize_init_short"(%[[IN_CB]], %[[NUM_TILES]], %[[OUT_CB]])
+      "ttkernel.tilize_init_short"(%in_cb, %num_tiles, %out_cb) : (!cb0_scalar, i32, !cb1_tiles) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @tilize_uninit
+    func.func @tilize_uninit(%in_cb: !cb0_scalar, %out_cb: !cb1_tiles) -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[IN_CB:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
+      // CHECK: %[[OUT_CB:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
+      // CHECK: emitc.call_opaque "tilize_uninit"(%[[IN_CB]], %[[OUT_CB]])
+      "ttkernel.tilize_uninit"(%in_cb, %out_cb) : (!cb0_scalar, !cb1_tiles) -> ()
+      return
+    }
+
     // CHECK-LABEL: func @untilize_init
     func.func @untilize_init(%in_cb: !cb0_tiles, %out_cb: !cb1_scalar) -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[IN_CB:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
       // CHECK: %[[OUT_CB:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
       // CHECK: emitc.call_opaque "untilize_init"(%[[IN_CB]], %[[OUT_CB]])
       "ttkernel.untilize_init"(%in_cb, %out_cb) : (!cb0_tiles, !cb1_scalar) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @untilize_init_short
+    func.func @untilize_init_short(%in_cb: !cb0_tiles) -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[IN_CB:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
+      // CHECK: emitc.call_opaque "untilize_init_short"(%[[IN_CB]])
+      "ttkernel.untilize_init_short"(%in_cb) : (!cb0_tiles) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @untilize_uninit
+    func.func @untilize_uninit(%in_cb: !cb0_tiles) -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[IN_CB:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
+      // CHECK: emitc.call_opaque "untilize_uninit"(%[[IN_CB]])
+      "ttkernel.untilize_uninit"(%in_cb) : (!cb0_tiles) -> ()
       return
     }
 
@@ -462,7 +514,7 @@ module {
       // CHECK: %[[SEMAPHORE_ID:.*]] = "emitc.constant"
       %semaphore_id = arith.constant 2 : i32
       // CHECK: emitc.call_opaque "get_semaphore"(%[[SEMAPHORE_ID]])
-      "ttkernel.get_semaphore"(%semaphore_id) : (i32) -> (!ttkernel.l1_addr)
+      "ttkernel.get_semaphore"(%semaphore_id) : (i32) -> (!ttkernel.semaphore)
       return
     }
 
@@ -476,9 +528,9 @@ module {
       // CHECK: %[[INCR:.*]] = "emitc.constant"
       %incr = arith.constant 1 : i32
       // CHECK: %[[NOC_ID:.*]] = "emitc.constant"
-      %noc_id = arith.constant 3 : i32
+      %noc_id = arith.constant 3 : i8
       // CHECK: emitc.call_opaque "noc_semaphore_inc"(%[[ADDR]], %[[INCR]], %[[NOC_ID]])
-      "ttkernel.noc_semaphore_inc"(%addr, %incr, %noc_id) : (!ttkernel.noc_addr, i32, i32) -> ()
+      "ttkernel.noc_semaphore_inc"(%addr, %incr, %noc_id) : (!ttkernel.noc_addr, i32, i8) -> ()
       return
     }
 
@@ -522,7 +574,7 @@ module {
     func.func @noc_semaphore_set_multicast() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_semaphore"
       %temp1 = arith.constant 2 : i32
-      %src_addr = "ttkernel.get_semaphore"(%temp1) : (i32) -> (!ttkernel.l1_addr) // a dummy l1 addr
+      %src_addr = "ttkernel.get_semaphore"(%temp1) : (i32) -> (!ttkernel.semaphore) // a dummy l1 addr
       // CHECK: %[[DST_MCAST_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
@@ -534,7 +586,7 @@ module {
       // CHECK: emitc.call_opaque "noc_semaphore_set_multicast"(%[[SRC_ADDR]], %[[DST_MCAST_ADDR]], %[[NUM_DSTS]])
       "ttkernel.noc_semaphore_set_multicast"(%src_addr, %dst_mcast_addr, %num_dsts) <{
           linked = false, multicast_path_reserve = true
-        }> : (!ttkernel.l1_addr, !ttkernel.noc_addr, i32) -> ()
+        }> : (!ttkernel.semaphore, !ttkernel.noc_addr, i32) -> ()
       return
     }
 
@@ -542,7 +594,7 @@ module {
     func.func @noc_semaphore_set_multicast_loopback_src() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_semaphore"
       %temp1 = arith.constant 2 : i32
-      %src_addr = "ttkernel.get_semaphore"(%temp1) : (i32) -> (!ttkernel.l1_addr) // a dummy l1 addr
+      %src_addr = "ttkernel.get_semaphore"(%temp1) : (i32) -> (!ttkernel.semaphore) // a dummy l1 addr
       // CHECK: %[[DST_MCAST_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
@@ -554,7 +606,7 @@ module {
       // CHECK: emitc.call_opaque "noc_semaphore_set_multicast_loopback_src"(%[[SRC_ADDR]], %[[DST_MCAST_ADDR]], %[[NUM_DSTS]])
       "ttkernel.noc_semaphore_set_multicast_loopback_src"(%src_addr, %dst_mcast_addr, %num_dsts) <{
           linked = false, multicast_path_reserve = true
-        }> : (!ttkernel.l1_addr, !ttkernel.noc_addr, i32) -> ()
+        }> : (!ttkernel.semaphore, !ttkernel.noc_addr, i32) -> ()
       return
     }
 

@@ -2,7 +2,9 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 # Utility library for parsing MLIR
+import logging
 import re
+from pathlib import Path
 from collections import defaultdict
 from model_explorer import graph_builder, node_data_builder
 
@@ -15,12 +17,12 @@ OVERRIDE_PARAMETER_DISABLED_STR = "None"
 
 def parse_loc_string(loc_str):
     """
-    This can be replaced by ttmlir.ir.Module.parse, but requires some further wodo to extract the actual location object from the module.
+    This can be replaced by ttmlir.ir.Module.parse, but requires some further work to extract the actual location object from the module.
     """
     match = re.match(r'^loc\("([^"]+)"', loc_str)
-    if match:
-        return match.group(1)
-    return None
+    # https://github.com/tenstorrent/tt-mlir/issues/3255
+    # assert match, f"Failed to parse location string: {loc_str}"
+    return match.group(1) if match else None
 
 
 class AttrHandler:
@@ -845,13 +847,18 @@ FILTERED_OPS = [
 ]
 
 
-def build_graph(module, perf_trace=None, memory_trace=None, golden_results=None):
+def build_graph(
+    module_path: str, module, perf_trace=None, memory_trace=None, golden_results=None
+):
+    graph_id = Path(module_path).name
     output_connections = defaultdict(int)
-    graph = graph_builder.Graph(id="tt-graph")
+    graph = graph_builder.Graph(id=graph_id)
 
     op_to_graph_node = {}
     # Track operands already added to graph to avoid duplicates
     operands_in_graph = set()
+
+    # Use "full" locations for all below to prevent conflicts / unsupported with unnamed graphs.
 
     # Prepare perf data for color overlay
     perf_node_data = {}
@@ -861,6 +868,8 @@ def build_graph(module, perf_trace=None, memory_trace=None, golden_results=None)
             loc = parse_loc_string(row["LOC"])
             if not loc:
                 continue
+            # Force the full location here=,
+            loc = row["LOC"]
             if loc not in loc_to_perf:
                 loc_to_perf[loc] = 0
             loc_to_perf[loc] += row["DEVICE FW DURATION [ns]"]
@@ -868,7 +877,7 @@ def build_graph(module, perf_trace=None, memory_trace=None, golden_results=None)
     memory_data = {}
     if memory_trace is not None:
         for node in memory_trace:
-            loc = parse_loc_string(memory_trace[node]["loc"])
+            loc = memory_trace[node]["loc"]
             memory_data[loc] = {}
             memory_data[loc]["dram"] = round(
                 memory_trace[node]["dram"]["device_0"]["total_bytes_allocated_per_bank"]
@@ -892,11 +901,14 @@ def build_graph(module, perf_trace=None, memory_trace=None, golden_results=None)
     loc_to_accuracy = {}
     if golden_results is not None:
         for loc, res in golden_results.items():
-            loc = parse_loc_string(loc)
-            assert loc not in loc_to_accuracy
-            if loc:
-                # Store the full result here, just need to parse the loc accordingly
-                loc_to_accuracy[loc] = res
+            _loc = parse_loc_string(loc)
+            if not _loc:
+                continue
+            if loc in loc_to_accuracy:
+                logging.error("Double locations presented in golden_results")
+                raise IndexError("Double locations present in golden_results")
+            # Store the full result here, just need to parse the loc accordingly
+            loc_to_accuracy[loc] = res
 
     module_op = OpHandler(module.operation)
     module_attrs = module_op.get_attributes()
@@ -914,6 +926,8 @@ def build_graph(module, perf_trace=None, memory_trace=None, golden_results=None)
         # Merge with existing attributes if namespace already exists
         graph.groupNodeAttributes[namespace].update(module_attrs)
 
+    processed_locs = set()
+
     # Process the module hierarchy recursively
     process_operations(
         module.body.operations,
@@ -926,7 +940,13 @@ def build_graph(module, perf_trace=None, memory_trace=None, golden_results=None)
         perf_node_data,
         memory_data,
         accuracy_node_data,
+        processed_locs,
     )
+
+    # Check if all perf locations match some graph node
+    for loc in loc_to_perf.keys():
+        pass  # https://github.com/tenstorrent/tt-mlir/issues/3255
+        # assert loc in processed_locs, f"Perf location {loc} not found in graph nodes"
 
     # Add Overlay Data if it exists
     overlays = {}
@@ -941,7 +961,7 @@ def build_graph(module, perf_trace=None, memory_trace=None, golden_results=None)
             results=perf_node_data, gradient=gradient
         )
         overlays["perf_data"] = node_data_builder.ModelNodeData(
-            graphsData={"tt-graph": graph_node_data}
+            graphsData={graph_id: graph_node_data}
         ).graphsData
 
     if accuracy_node_data:
@@ -955,7 +975,7 @@ def build_graph(module, perf_trace=None, memory_trace=None, golden_results=None)
             results=accuracy_node_data, thresholds=thres
         )
         overlays["accuracy_data"] = node_data_builder.ModelNodeData(
-            graphsData={"tt-graph": graph_node_data}
+            graphsData={graph_id: graph_node_data}
         ).graphsData
 
     OpHandler.schedule = 0
@@ -973,6 +993,7 @@ def process_operations(
     perf_node_data,
     memory_data,
     accuracy_node_data,
+    processed_locs,
 ):
     """
     Recursively process a list of operations, including handling nested modules.
@@ -1006,6 +1027,7 @@ def process_operations(
                 perf_node_data,
                 memory_data,
                 accuracy_node_data,
+                processed_locs,
             )
             continue
 
@@ -1024,35 +1046,37 @@ def process_operations(
                     perf_node_data,
                     memory_data,
                     accuracy_node_data,
+                    processed_locs,
                 )
 
         # Create graph node for this operation
         operation = OpHandler(op)
+        processed_locs.add(operation.named_location)
 
         if (
-            operation.named_location in loc_to_perf
+            operation.full_location in loc_to_perf
             and operation.op.name not in EMPTY_OPS
         ):
             perf_node_data[operation.id] = node_data_builder.NodeDataResult(
-                loc_to_perf[operation.named_location]
+                loc_to_perf[operation.full_location]
             )
 
         if (
-            operation.named_location in loc_to_accuracy
+            operation.full_location in loc_to_accuracy
             and operation.op.name not in EMPTY_OPS
         ):
             accuracy_node_data[operation.id] = node_data_builder.NodeDataResult(
-                loc_to_accuracy[operation.named_location]["actual_pcc"]
-                - loc_to_accuracy[operation.named_location]["expected_pcc"]
+                loc_to_accuracy[operation.full_location]["actual_pcc"]
+                - loc_to_accuracy[operation.full_location]["expected_pcc"]
             )
 
         extra_attrs = []
-        if memory_data and operation.named_location in memory_data:
+        if memory_data and operation.full_location in memory_data:
             extra_attrs.append(
                 utils.add_to_dataclass(
                     graph_builder.KeyValue(
                         key="dram_memory",
-                        value=str(memory_data[operation.named_location]["dram"]),
+                        value=str(memory_data[operation.full_location]["dram"]),
                     ),
                     "display_type",
                     "memory",
@@ -1062,7 +1086,7 @@ def process_operations(
                 utils.add_to_dataclass(
                     graph_builder.KeyValue(
                         key="l1_memory",
-                        value=str(memory_data[operation.named_location]["l1"]),
+                        value=str(memory_data[operation.full_location]["l1"]),
                     ),
                     "display_type",
                     "memory",
@@ -1072,7 +1096,7 @@ def process_operations(
                 utils.add_to_dataclass(
                     graph_builder.KeyValue(
                         key="l1_small_memory",
-                        value=str(memory_data[operation.named_location]["l1_small"]),
+                        value=str(memory_data[operation.full_location]["l1_small"]),
                     ),
                     "display_type",
                     "memory",

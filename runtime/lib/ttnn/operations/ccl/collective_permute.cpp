@@ -4,10 +4,9 @@
 
 #include "operations/ccl/collective_permute.h"
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/detail/ttnn.h"
-
-#include "tt/runtime/ttnn/operations/utils.h"
-#include "tt/runtime/ttnn/utils.h"
+#include "tt/runtime/detail/ttnn/operations/utils.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 #include "ttnn/operations/ccl/ccl_host_types.hpp"
 
 /*
@@ -43,27 +42,25 @@ void run(const ::tt::target::ttnn::CollectivePermuteOp *op,
 
   // Get list of individual per-device tensors. It should be returned in logical
   // id order.
-  std::vector<::ttnn::Tensor> ownedStorageTensors =
+  std::vector<::ttnn::Tensor> hostTensors =
       ::ttnn::distributed::get_device_tensors(::ttnn::from_device(input));
 
   // Iterate through sourceTargetPairs and for each pair, get the source tensor
   // from the map and convert to device storage with dest device.
-  std::vector<bool> foundDestDevices(ownedStorageTensors.size(), false);
-  std::vector<::ttnn::Tensor> newHostTensors(ownedStorageTensors.size(),
+  std::vector<bool> foundDestDevices(hostTensors.size(), false);
+  std::vector<::ttnn::Tensor> newHostTensors(hostTensors.size(),
                                              ::ttnn::Tensor());
 
   for (size_t i = 0; i < sourceTargetPairs.size(); i += 2) {
     int64_t src = sourceTargetPairs[i];
     int64_t dest = sourceTargetPairs[i + 1];
 
-    LOG_ASSERT(
-        (src < static_cast<int64_t>(ownedStorageTensors.size()) && src >= 0),
-        "Source device id is out of bounds!");
-    LOG_ASSERT(
-        (dest < static_cast<int64_t>(ownedStorageTensors.size()) && dest >= 0),
-        "Destination device id is out of bounds!");
+    LOG_ASSERT((src < static_cast<int64_t>(hostTensors.size()) && src >= 0),
+               "Source device id is out of bounds!");
+    LOG_ASSERT((dest < static_cast<int64_t>(hostTensors.size()) && dest >= 0),
+               "Destination device id is out of bounds!");
 
-    auto &srcHostTensor = ownedStorageTensors[src];
+    auto &srcHostTensor = hostTensors[src];
 
     newHostTensors[dest] = srcHostTensor;
     foundDestDevices[dest] = true;
@@ -76,7 +73,7 @@ void run(const ::tt::target::ttnn::CollectivePermuteOp *op,
       continue;
     }
 
-    auto &srcHostTensor = ownedStorageTensors[i];
+    auto &srcHostTensor = hostTensors[i];
 
     // We need to memset this tensor value to 0 based on collective permute
     // operation semantics

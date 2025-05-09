@@ -52,6 +52,26 @@ getTensorLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
 ::ttnn::TensorSpec getTensorSpec(const ::llvm::ArrayRef<int64_t> shape,
                                  const mlir::tt::ttnn::TTNNLayoutAttr &layout);
 
+/**
+ * @brief Perform various validity checks on a converted TensorSpec
+ *
+ * 1. Checks if the shard bounding box fits within the available grid size.
+ * This check fails if the memory configuration is sharded and the shard
+ * bounding box exceeds the available grid size.
+ *
+ * 2. Checks if the TensorSpec can compute attributes required for tensor
+ * creation (e.g. shard_spec_buffer). This check fails if any of the calls
+ * fail.
+ *
+ * May lead to TT_FATAL being called.
+ *
+ * @param tensorSpec The tensor spec to validate.
+ * @param computeGridSize The compute grid size for the target device.
+ * @return false if any check fails
+ */
+bool validateTensorSpec(const ::ttnn::TensorSpec &tensorSpec,
+                        const ::tt::tt_metal::CoreCoord &computeGridSize);
+
 ::ttnn::SmallVector<int>
 convertLLVMSmallVecToTTNNSmallVec(const ::llvm::ArrayRef<int64_t> vec);
 

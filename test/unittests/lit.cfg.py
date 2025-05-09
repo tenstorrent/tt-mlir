@@ -15,7 +15,7 @@ import lit.formats
 config.name = "TTMLIR-Unit"
 
 # suffixes: A list of file extensions to treat as test files.
-config.suffixes = []
+config.suffixes = [".cpp"]
 
 # is_early; Request to run this suite early.
 config.is_early = True

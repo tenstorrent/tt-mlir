@@ -126,6 +126,17 @@ private:
     }
   };
 
+  // TODO (jnie): Add support for fp32, currently there's some precision loss
+  // which causes some FE tests to fail.
+  // Tracking here: https://github.com/tenstorrent/tt-metal/issues/21023
+  bool canTilizeDataTypeOnDevice(const DataType &dataType) const {
+    return dataType == DataType::BFloat16;
+  }
+
+  bool canUntilizeDataTypeOnDevice(const DataType &dataType) const {
+    return dataType == DataType::BFloat16;
+  }
+
   std::pair<LayoutInfo, LayoutInfo>
   getInputOutputLayouts(ttnn::ToLayoutOp op) const {
     LayoutInfo input, output;
@@ -190,7 +201,7 @@ private:
            output.bufferType == ttnn::BufferType::DRAM);
       // If shard grids don't match we need to reshard
       opsToCreate.createToMemoryConfigOp |=
-          (input.isL1Sharded() and output.isL1Sharded() and
+          (input.isL1Sharded() && output.isL1Sharded() &&
            input.shardGrid != output.shardGrid);
     }
 
@@ -423,9 +434,23 @@ private:
       return;
     }
 
-    // If the output is on device and we should untilize, we can untilize on
-    // host and than move the tensor to device.
-    if (info.shouldUntilize()) {
+    // If the output is on device and we can untilize on device, move to device
+    // and untilize.
+    if (info.shouldUntilize() && canUntilizeDataTypeOnDevice(output.dataType)) {
+      currentInput =
+          this->createToDeviceOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput =
+          this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                          currentInput, info);
+      op.getResult().replaceAllUsesWith(currentInput);
+      return;
+    }
+
+    // If the output is on device and we should untilize, we untilize on
+    // host and then move the tensor to device.
+    if (info.shouldUntilize() &&
+        !canUntilizeDataTypeOnDevice(output.dataType)) {
       currentInput =
           this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
       currentInput =
@@ -436,10 +461,9 @@ private:
       return;
     }
 
-    // Tilizing on device is supported only for bf16 data format. If the tensor
-    // is bf16 and the output is on device, we can move the tensor to device and
+    // If the tensor tilizable on device, we can move the tensor to device and
     // perform the tilization on device.
-    if (info.shouldTilize() && output.dataType == DataType::BFloat16) {
+    if (info.shouldTilize() && canTilizeDataTypeOnDevice(output.dataType)) {
       currentInput =
           this->createToDeviceOpIfNeeded(op, rewriter, currentInput, info);
       currentInput =
@@ -450,9 +474,9 @@ private:
       return;
     }
 
-    // Otherwise, if tensor is not in bf16 data format, we perform tilizing on
-    // host and than move the tensor to device.
-    if (info.shouldTilize() && output.dataType != DataType::BFloat16) {
+    // Otherwise, if tensor is not in a tilizable data format, we perform
+    // tilizing on host and than move the tensor to device.
+    if (info.shouldTilize() && !canTilizeDataTypeOnDevice(output.dataType)) {
       currentInput =
           this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
       currentInput =
@@ -537,11 +561,25 @@ private:
       return;
     }
 
-    // Untilize is only supported on the host, and typecast is only supported on
-    // the device for tilized tensors. Therefore, we need to untilize and change
-    // the tensor data type format on the host before moving the tensor to the
-    // device.
-    if (info.shouldUntilize()) {
+    // If we can untilize the output data type on device, move to device if
+    // needed, perform the typecast first and then untilize
+    if (info.shouldUntilize() && canUntilizeDataTypeOnDevice(output.dataType)) {
+      currentInput =
+          this->createToDeviceOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
+                                                           currentInput, info);
+      currentInput =
+          this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                          currentInput, info);
+      op.getResult().replaceAllUsesWith(currentInput);
+      return;
+    }
+
+    // If we cannot untilize the output data type on device, untilize and
+    // typecast on host
+    if (info.shouldUntilize() &&
+        !canUntilizeDataTypeOnDevice(output.dataType)) {
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
                                                            currentInput, info);
       currentInput =
@@ -554,11 +592,10 @@ private:
       return;
     }
 
-    // If we need to tilize and change the data type from bf16 to another
-    // format, we can move the tensor to the device, perform the tilization, and
-    // then cast the data type on the device since tilization is supported for
-    // bf16 on the device.
-    if (info.shouldTilize() && input.dataType == DataType::BFloat16) {
+    // If we need to tilize and change the data type from a tilizable data
+    // format to another format, we can move the tensor to the device, perform
+    // the tilization, and then cast the data type on the device
+    if (info.shouldTilize() && canTilizeDataTypeOnDevice(input.dataType)) {
       currentInput =
           this->createToDeviceOpIfNeeded(op, rewriter, currentInput, info);
       currentInput =
@@ -571,10 +608,10 @@ private:
       return;
     }
 
-    // If we need to tilize and change the data type format from another format
-    // to bf16, we can cast the data type on the host, move the tensor to the
-    // device, and then perform the tilization.
-    if (info.shouldTilize() && output.dataType == DataType::BFloat16) {
+    // If we need to tilize and change the data format from another format
+    // to a tilizable data format, we can cast the data type on host, move
+    // the tensor to device, and then tilize on device.
+    if (info.shouldTilize() && canTilizeDataTypeOnDevice(output.dataType)) {
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
                                                            currentInput, info);
       currentInput =
@@ -587,10 +624,10 @@ private:
       return;
     }
 
-    /* if we need to tilize and the input/ output data types are not bfloat16 do
-     * everything on host */
-    if (info.shouldTilize() && input.dataType != DataType::BFloat16 and
-        output.dataType != DataType::BFloat16) {
+    // If we need to tilize and the input/output data types are not device
+    // tilizable do everything on host
+    if (info.shouldTilize() && !canTilizeDataTypeOnDevice(input.dataType) &&
+        !canTilizeDataTypeOnDevice(output.dataType)) {
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
                                                            currentInput, info);
       currentInput =
@@ -651,10 +688,23 @@ private:
     assert(input.dataType == output.dataType &&
            "Data type should be the same if we're not creating typecast op");
 
-    /* if we should untilize, untilize on host */
-    /* this is the main untilize case hit when we read data from device back to
-     * host at the end of the program */
-    if (info.shouldUntilize() && opsToCreate.createFromDeviceOp) {
+    // If the output data type is untilizable on device, untilize on device then
+    // move to host
+    if (info.shouldUntilize() && canUntilizeDataTypeOnDevice(input.dataType)) {
+      currentInput =
+          this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                          currentInput, info);
+      currentInput =
+          this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
+      op.getResult().replaceAllUsesWith(currentInput);
+      return;
+    }
+
+    // If we want to untilize, but the output data type is not untilizable on
+    // device, move to host and then untilize
+    if (info.shouldUntilize() && !canUntilizeDataTypeOnDevice(input.dataType) &&
+        opsToCreate.createFromDeviceOp) {
       currentInput =
           this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
       currentInput =
@@ -663,10 +713,11 @@ private:
       return;
     }
 
-    /* This is a rare untilize case, where we want to untilize a device tensor
-       but keep it on device to handle this we need to move the tensor to host,
-       untilize it, and then move it back to device */
-    if (info.shouldUntilize() && !opsToCreate.createFromDeviceOp) {
+    // This is a rare untilize case, where we want to untilize a device tensor
+    // but keep it on device. To handle this we need to move the tensor to host,
+    // untilize it, and then move it back to device
+    if (info.shouldUntilize() && !canUntilizeDataTypeOnDevice(input.dataType) &&
+        !opsToCreate.createFromDeviceOp) {
       // Force-create a FromDeviceOp
       currentInput = this->createFromDeviceOpIfNeeded(
           op, rewriter, currentInput, info, /*forceCreate=*/true);
@@ -680,9 +731,9 @@ private:
       return;
     }
 
-    /* If we should tilize and the input data type is bfloat16, tilize on device
-     */
-    if (info.shouldTilize() && input.dataType == DataType::BFloat16) {
+    // If we should tilize and the input data type is device-tilizable, tilize
+    // on device
+    if (info.shouldTilize() && canTilizeDataTypeOnDevice(input.dataType)) {
       currentInput =
           this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
       currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
@@ -693,9 +744,9 @@ private:
       return;
     }
 
-    /* If we should tilize and the input data type is not bfloat16, tilize on
-     * host */
-    if (info.shouldTilize() && input.dataType != DataType::BFloat16 &&
+    // If we should tilize and the input data type is not device tilizable,
+    // tilize on host
+    if (info.shouldTilize() && !canTilizeDataTypeOnDevice(input.dataType) &&
         opsToCreate.createFromDeviceOp) {
       currentInput =
           this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
@@ -705,9 +756,9 @@ private:
       return;
     }
 
-    /* If we want to tilize a device tensor that is not bfloat16, we need to
-     * tilize on host and move it back */
-    if (info.shouldTilize() && input.dataType != DataType::BFloat16 &&
+    // If we want to tilize a device tensor that is not device tilizable, we
+    // need to tilize on host and move it back
+    if (info.shouldTilize() && !canTilizeDataTypeOnDevice(input.dataType) &&
         !opsToCreate.createFromDeviceOp) {
       // Force-create a FromDeviceOp
       currentInput = this->createFromDeviceOpIfNeeded(
@@ -737,7 +788,7 @@ private:
     assert(input.layoutEnum == output.layoutEnum &&
            "Layout should be the same if we're not creating toLayout op");
 
-    /* If the output is tilized, typecast directly on device*/
+    // If the output is tilized, typecast directly on device
     if (output.isTilized()) {
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
                                                            currentInput, info);
@@ -749,7 +800,7 @@ private:
       return;
     }
 
-    /* If the output is not tilized, typecast on host */
+    // If the output is not tilized, typecast on host
     if (!output.isTilized() && opsToCreate.createFromDeviceOp) {
       currentInput =
           this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
@@ -759,7 +810,7 @@ private:
       return;
     }
 
-    /* Device to device untilized typecast, need to move to host first */
+    // Device to device untilized typecast, need to move to host first
     if (!output.isTilized() && !opsToCreate.createFromDeviceOp) {
       // Force-create a FromDeviceOp
       currentInput = this->createFromDeviceOpIfNeeded(
@@ -784,10 +835,27 @@ private:
                                        mlir::Value currentInput,
                                        const OpCreationInfo &info) const {
     const LayoutInfo &input = info.input;
+    const LayoutInfo &output = info.output;
     const OpsToCreate &opsToCreate = info.opsToCreate;
 
-    /* If we need to untilize, typecast on device and untilize on host */
-    if (info.shouldUntilize() && opsToCreate.createFromDeviceOp) {
+    // If we need to untilize and the output data type can be untilized on
+    // device typcast and untilize on device
+    if (info.shouldUntilize() && canUntilizeDataTypeOnDevice(output.dataType)) {
+      currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
+                                                           currentInput, info);
+      currentInput =
+          this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput =
+          this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
+      op.getResult().replaceAllUsesWith(currentInput);
+      return;
+    }
+
+    // If we need to untilize and the output data type cannot be untilized on
+    // device typecast on device then untilize on host
+    if (info.shouldUntilize() &&
+        !canUntilizeDataTypeOnDevice(output.dataType) &&
+        opsToCreate.createFromDeviceOp) {
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
                                                            currentInput, info);
       currentInput =
@@ -798,28 +866,29 @@ private:
       return;
     }
 
-    /* Rare case of device to device untilize, typecast on device, untilize on
-     * host, move back to device */
-    if (info.shouldUntilize() && !opsToCreate.createFromDeviceOp) {
-      // typecast on device
+    // In case of device to device untilize, where the output data type cannot
+    // be untilized on device, typecast on device, untilize on host, then move
+    // back to device
+    if (info.shouldUntilize() &&
+        !canUntilizeDataTypeOnDevice(output.dataType) &&
+        !opsToCreate.createFromDeviceOp) {
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
                                                            currentInput, info);
-      // Force-create a FromDeviceOp
       currentInput = this->createFromDeviceOpIfNeeded(
           op, rewriter, currentInput, info, /*forceCreate=*/true);
-      // untilize on host
       currentInput =
           this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
-      // move back to device and convert memory config if needed
       currentInput = this->createToDeviceOpIfNeeded(op, rewriter, currentInput,
                                                     info, /*forceCreate=*/true);
+      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                          currentInput, info);
       op.getResult().replaceAllUsesWith(currentInput);
       return;
     }
 
-    /* If we should tilize and the input data type is bfloat16, tilize and
-     * typecast on device */
-    if (info.shouldTilize() && input.dataType == DataType::BFloat16) {
+    // If we should tilize and the input data type is device tilizable, tilize
+    // and typecast on device
+    if (info.shouldTilize() && canTilizeDataTypeOnDevice(input.dataType)) {
       currentInput =
           this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
@@ -832,9 +901,9 @@ private:
       return;
     }
 
-    /* If we should tilize and the input data type is not bfloat16 and we want
-       to read back from device do everything on host */
-    if (info.shouldTilize() && input.dataType != DataType::BFloat16 and
+    // If we should tilize and the input data type is not device tilizable and
+    // we want to read back from device do everything on host
+    if (info.shouldTilize() && !canTilizeDataTypeOnDevice(input.dataType) &&
         opsToCreate.createFromDeviceOp) {
       currentInput =
           this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
@@ -846,10 +915,10 @@ private:
       return;
     }
 
-    /* If we should tilize and the input data type is not bfloat 16 and we don't
-       want to read back from device: tilize on host, move back to device, and
-       typecast on device */
-    if (info.shouldTilize() && input.dataType != DataType::BFloat16 &&
+    // If we should tilize and the input data type is not device tilizable and
+    // we don't want to read back from device: tilize on host, move back to
+    // device, and typecast on device
+    if (info.shouldTilize() && !canTilizeDataTypeOnDevice(input.dataType) &&
         !opsToCreate.createFromDeviceOp) {
       // Force-create a FromDeviceOp
       currentInput = this->createFromDeviceOpIfNeeded(
@@ -898,7 +967,7 @@ private:
   /*
    * Logic for creating ops. Conditions/constraints include:
    * - When possible, we want to execute operations on device.
-   * - Tilize on device requires dataformat of BFLOAT16.
+   * - Tilize on device requires dataformat of bfloat16 or float32.
    * - Typecast on device requires TILIZED tensor.
    * - Untilize on device requires even width, and page size >
    *   sizeof(uint32_t). For now, we will always untilize on host. We rarely

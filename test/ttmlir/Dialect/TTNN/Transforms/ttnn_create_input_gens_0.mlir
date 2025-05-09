@@ -22,7 +22,7 @@ module attributes {} {
 
 // Confirm that the generator func is generated, and that the tensor attrs match:
 //
-// CHECK: func.func @createInputsFor_add() -> ([[TENSOR_A]], [[TENSOR_B]]) {
+// CHECK: func.func @create_inputs_for_add() -> ([[TENSOR_A]], [[TENSOR_B]]) {
 // CHECK: {{.*}} -> [[TENSOR_A]]
 // CHECK: {{.*}} -> [[TENSOR_B]]
 // CHECK: return %0, %1 : [[TENSOR_A]], [[TENSOR_B]]
@@ -30,6 +30,6 @@ module attributes {} {
 // Confirm that the main func is generated, and that the tensor attrs match:
 //
 // CHECK: func.func @main() -> i32 {
-// CHECK: %0:2 = call @createInputsFor_add() : () -> ([[TENSOR_A]], [[TENSOR_B]])
+// CHECK: %0:2 = call @create_inputs_for_add() : () -> ([[TENSOR_A]], [[TENSOR_B]])
 // CHECK: %1 = call @add(%0#0, %0#1) : ([[TENSOR_A]], [[TENSOR_B]]) -> [[TENSOR_OUT]]
 }

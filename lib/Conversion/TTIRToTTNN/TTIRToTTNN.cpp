@@ -69,9 +69,10 @@ public:
     if (mlir::tt::ttnn::isSystemBufferType(layoutAttr.getBufferType())) {
       // Replace op
       //
-      rewriter.replaceOpWithNewOp<ttnn::ConstructTensorOp>(
+      rewriter.replaceOpWithNewOp<ttnn::ZerosOp>(
           op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
-          dTypeAttr, tensorLayoutAttr);
+          dTypeAttr, tensorLayoutAttr, /*device=*/nullptr,
+          /*memoryConfig=*/nullptr);
       // Otherwise, we use regular empty op, with device-specific fields.
     } else {
       // Device
@@ -249,7 +250,8 @@ public:
     }
 
     static_assert(ttir::utils::has_dps_trait_v<TTIROpTy>);
-    auto inputs = adaptor.getOperands().drop_back(op.getNumDpsInits());
+    auto inputs =
+        ttir::utils::getDpsInputsFromAdaptor(adaptor, op.getNumDpsInits());
     rewriter.replaceOpWithNewOp<TTNNOpTy>(op, resultTypes, inputs);
     return success();
   }

@@ -15,36 +15,51 @@ namespace tt::runtime::debug {
 
 struct Env {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  static Env const &
+  static const Env &
 #else
   constexpr static Env
 #endif
-  get(bool loadKernelsFromDisk = false)
+  get(bool dumpKernelsToDisk = false, bool loadKernelsFromDisk = false,
+      bool deviceAddressValidation = false, bool blockingCQ = false)
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
       ;
 #else
   {
-    return Env(false);
+    return Env(false, false, false, false);
   }
 #endif
 
+  bool dumpKernelsToDisk;
   bool loadKernelsFromDisk;
+  bool deviceAddressValidation;
+  bool blockingCQ;
 
 private:
-  constexpr Env(bool loadKernelsFromDisk)
-      : loadKernelsFromDisk(loadKernelsFromDisk) {}
+  constexpr Env(bool dumpKernelsToDisk, bool loadKernelsFromDisk,
+                bool deviceAddressValidation, bool blockingCQ)
+      : dumpKernelsToDisk(dumpKernelsToDisk),
+        loadKernelsFromDisk(loadKernelsFromDisk),
+        deviceAddressValidation(deviceAddressValidation),
+        blockingCQ(blockingCQ) {}
 };
 
-inline std::ostream &operator<<(std::ostream &os, Env const &env) {
+inline std::ostream &operator<<(std::ostream &os, const Env &env) {
   os << "debug::Env{\n"
-     << "\t" << "loadKernelsFromDisk: " << env.loadKernelsFromDisk << "\n"
+     << "\t"
+     << "dumpKernelsToDisk: " << env.dumpKernelsToDisk << "\n"
+     << "\t"
+     << "loadKernelsFromDisk: " << env.loadKernelsFromDisk << "\n"
+     << "\t"
+     << "deviceAddressValidation: " << env.deviceAddressValidation << "\n"
+     << "\t"
+     << "blockingCQ: " << env.blockingCQ << "\n"
      << "}";
   return os;
 }
 
 struct PerfEnv {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-  static PerfEnv const &
+  static const PerfEnv &
 #else
   constexpr static PerfEnv
 #endif
@@ -64,7 +79,7 @@ private:
       : dumpDeviceRate(dumpDeviceRate) {}
 };
 
-inline std::ostream &operator<<(std::ostream &os, PerfEnv const &perfEnv) {
+inline std::ostream &operator<<(std::ostream &os, const PerfEnv &perfEnv) {
   os << "debug::PerfEnv{\n"
      << "\t" << "dumpDeviceRate: " << perfEnv.dumpDeviceRate << "\n"
      << "}";
@@ -74,7 +89,7 @@ inline std::ostream &operator<<(std::ostream &os, PerfEnv const &perfEnv) {
 struct Hooks {
   using CallbackFn = std::function<void(Binary, CallbackContext, OpContext)>;
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  static Hooks const &
+  static const Hooks &
   get(std::optional<CallbackFn> preOperatorCallback = std::nullopt,
       std::optional<CallbackFn> postOperatorCallback = std::nullopt);
 #else
@@ -119,7 +134,7 @@ private:
 #endif
 };
 
-inline std::ostream &operator<<(std::ostream &os, Hooks const &hooks) {
+inline std::ostream &operator<<(std::ostream &os, const Hooks &hooks) {
   os << "debug::Hooks{\n"
      << "\t"
      << "preOperatorCallback: "
