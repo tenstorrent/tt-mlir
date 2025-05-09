@@ -256,9 +256,8 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
                                   ::tt::tt_metal::ShardOrientation::ROW_MAJOR);
   }
 
-  ::ttnn::MemoryConfig memoryConfig{.memory_layout = ttnnMemLayout,
-                                    .buffer_type = ttnnBufferType,
-                                    .shard_spec = metalShardSpec};
+  ::ttnn::MemoryConfig memoryConfig{ttnnMemLayout, ttnnBufferType,
+                                    metalShardSpec};
   return std::make_optional(memoryConfig);
 }
 
