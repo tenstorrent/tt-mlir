@@ -13,8 +13,6 @@
 #include "ttmlir/Target/Common/types_generated.h"
 #pragma clang diagnostic pop
 
-#include "tt/runtime/flatbuffer_operator_ostream.h"
-
 namespace tt::runtime::utils {
 
 inline std::shared_ptr<void> malloc_shared(size_t size) {
