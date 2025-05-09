@@ -149,6 +149,7 @@ jobs:
         build: [
           {runs-on: n150,   name: "run",  suite: "unit",              image: "speedy", type: "unit",    container-options: "--device /dev/tenstorrent/0"},
           {runs-on: nXX0,   name: "run",  suite: "unit",              image: "tracy",  type: "unit",    container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "run",  suite: "ttnn_standalone",   image: "speedy", type: "ttrt",    path: "tools/ttnn-standalone", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150,   name: "run",  suite: "run",               image: "speedy", type: "ttrt",    path: "Silicon", flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150,   name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",    path: "Silicon/TTNN/n150/perf", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150,   name: "perf", suite: "optimizer",         image: "tracy",  type: "ttrt",    path: "Silicon/TTNN/n150/optimizer", container-options: "--device /dev/tenstorrent/0"},
@@ -252,6 +253,19 @@ jobs:
         name: build-artifacts-${{ matrix.build.image }}
         path: build
         github_token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Run TTNN-Standalone test
+      shell: bash
+      if: ${{ matrix.build.suite }} == "ttnn_standalone"
+      run: |
+        export CMAKE_PREFIX_PATH=${{ steps.strings.outputs.install-output-dir }}
+        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        cd ${{ matrix.build.path }}
+        cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_INSTALL_PREFIX=install
+        cmake --build build -- ttnn-standalone
+        cmake --install build --component TTNNStandalone
+        cd install/tools/ttnn-standalone
+        ./run
 
     # TG galaxy doesn't have support for dispatch on eth cores - thus need to disable it
     - name: Generate system descriptor
