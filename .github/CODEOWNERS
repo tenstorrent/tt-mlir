@@ -36,13 +36,13 @@ LICENSE @nsmithtt
 /test/ttmlir/Conversion/TTIRToLinalg/ @vwellsTT @ctodTT @nsmithTT
 
 # Tosa Conversion
-/include/ttmlir/Conversion/TosaToTTIR/ @mrakitaTT @sgligorijevicTT @sdjukicTT
-/lib/Conversion/TosaToTTIR/ @mrakitaTT @sgligorijevicTT @sdjukicTT
-/test/ttmlir/Conversion/TosaToTTIR/ @mrakitaTT @sgligorijevicTT @sdjukicTT
+/include/ttmlir/Conversion/TosaToTTIR/ @tenstorrent/forge-developers-mlir-tosa
+/lib/Conversion/TosaToTTIR/ @tenstorrent/forge-developers-mlir-tosa
+/test/ttmlir/Conversion/TosaToTTIR/ @tenstorrent/forge-developers-mlir-tosa
 
 # TTNN Conversions
 /include/ttmlir/Conversion/TTIRToTTIRDecomposition/ @tenstorrent/forge-developers-mlir-core
-/include/ttmlir/Conversion/TTIRToTTNN/ @tenstorrent/forge-developers-mlir-core
+/include/ttmlir/Conversion/TTIRToTTNN/ @tenstorrent/forge-developers-mlir-core @jnie-TT
 /include/ttmlir/Conversion/TTNNToEmitC/ @tenstorrent/forge-developers-mlir-core
 /lib/Conversion/TTIRToTTIRDecomposition/ @tenstorrent/forge-developers-mlir-core
 /lib/Conversion/TTIRToTTNN/ @tenstorrent/forge-developers-mlir-core
