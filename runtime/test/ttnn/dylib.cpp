@@ -16,7 +16,7 @@ namespace tt::runtime::ttnn::test {
 
 static constexpr const char *POTENTIAL_MANGLING_ADDITIONS[] = {
     "",
-    "PNS1_7IDeviceE",
+    "PNS1_11distributed10MeshDeviceE",
 };
 
 void *openSo(std::string path) {
@@ -30,6 +30,14 @@ void *openSo(std::string path) {
 
   dlerror();
   return handle;
+}
+
+void closeSo(void *handle) {
+  int ret = dlclose(handle);
+
+  if (ret != 0) {
+    exit(ret);
+  }
 }
 
 std::vector<::tt::runtime::Tensor>
@@ -61,7 +69,7 @@ runSoProgram(void *so, std::string func_name,
   // Get function from the shared object
   //
   using ForwardFunctionWithDevice = std::vector<::ttnn::Tensor> (*)(
-      std::vector<::ttnn::Tensor>, ::ttnn::IDevice *);
+      std::vector<::ttnn::Tensor>, ::ttnn::MeshDevice *);
   using ForwardFunctionNoDevice =
       std::vector<::ttnn::Tensor> (*)(std::vector<::ttnn::Tensor>);
 
@@ -80,10 +88,11 @@ runSoProgram(void *so, std::string func_name,
     dlclose(so);
     LOG_FATAL("Failed to load symbol: ", dlsym_error);
   }
+
   // Call program/function
   //
   std::vector<::ttnn::Tensor> ttnnOutputs;
-  if (mangledName.find("IDevice") != std::string::npos) {
+  if (mangledName.find("MeshDevice") != std::string::npos) {
     auto forwardFunc = reinterpret_cast<ForwardFunctionWithDevice>(symbol);
     ttnnOutputs = forwardFunc(ttnnInputs, &ttnnMeshDevice);
   } else {

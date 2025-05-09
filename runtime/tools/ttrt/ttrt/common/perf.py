@@ -521,23 +521,24 @@ class Perf:
                     with open(profiler_csv_file_path, "w+") as perf_file, open(
                         tracy_ops_data_file_path, "r"
                     ) as message_file:
+                        import re
+
                         message_reader = csv.reader(message_file, delimiter=";")
                         ops_index = 0
-                        prev = None
+                        current_loc = None
+                        loc_pattern = re.compile(r"^loc\(.*\)$")
                         for message in message_reader:
-                            message = message[0]  # Don't need timestamp information
-                            if message.startswith("`"):
-                                # This is a TTNN Message
-                                # The location data is now in the previous message
-                                # The order of data is maintained in perf_data so as the messages are received, they update the id last encountered.
-                                # Now that we have a new message, we can update the location data from the previous message
-                                if prev:
-                                    # Get the location data from the previous message and add it as new data for the perf_data (as a new col)
-                                    if len(perf_data) > ops_index:
-                                        perf_data[ops_index]["LOC"] = prev
-                                        ops_index += 1
-                            else:
-                                prev = message
+                            message = message[
+                                0
+                            ].strip()  # Don't need timestamp information
+                            # Check if this is a valid loc line
+                            if loc_pattern.match(message):
+                                current_loc = message
+                            elif message.startswith("`"):
+                                # This is a TTNN Message, assign current_loc to this op
+                                if current_loc and len(perf_data) > ops_index:
+                                    perf_data[ops_index]["LOC"] = current_loc
+                                    ops_index += 1
                         perf_writer = csv.DictWriter(perf_file, fieldnames=headers)
                         perf_writer.writeheader()
                         for row in perf_data:

@@ -42,7 +42,7 @@ using namespace mlir::tt;
 
 emitc::OpaqueAttr createNullDevicePointer(Builder &builder) {
   return builder.getType<emitc::OpaqueAttr>(
-      "static_cast<::ttnn::IDevice *>(nullptr)");
+      "static_cast<::ttnn::distributed::MeshDevice *>(nullptr)");
 }
 
 // Base class for TTNN to EmitC OpConversionPattern.
@@ -1384,7 +1384,7 @@ public:
         emitter.emit(srcOp.getMemoryConfig()) |
             emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getDevice()) |
-            emitter.emit<::ttnn::IDevice>(nullptr),
+            emitter.emit<::ttnn::distributed::MeshDevice>(nullptr),
     };
 
     emitter.replaceOp(*this, args);
@@ -1450,7 +1450,7 @@ public:
         emitter.emit(srcOp.getDtype()),
         emitter.emit(srcOp.getLayout()),
         emitter.template emit<
-            ::ttnn::operations::creation::detail::OptionalAnyDevice>(
+            ::ttnn::operations::creation::detail::OptionalMeshDevice>(
             srcOp.getDevice()),
         emitter.emit(srcOp.getMemoryConfig()) |
             emitter.getMemoryConfig(srcOp.getResult()),

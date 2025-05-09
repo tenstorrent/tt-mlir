@@ -104,7 +104,7 @@ runs:
       uses: actions/upload-artifact@v4
       with:
         name: ttrt-whl-${{ inputs.build-name }}
-        path: build/runtime/tools/python/build/ttrt*.whl
+        path: build/runtime/tools/ttrt/build/ttrt*.whl
 
     - name: Archive Install Directory
       shell: bash
