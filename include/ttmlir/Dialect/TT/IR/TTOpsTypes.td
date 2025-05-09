@@ -352,6 +352,13 @@ def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout"> {
                             ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}},
                             OOBVal oobVal = OOBVal::Undef);
       static MetalLayoutAttr get(::mlir::MLIRContext *context,
+                            RankedTensorType ty,
+                            GridAttr grid,
+                            bool tiled = false,
+                            MemorySpace memorySpace = MemorySpace::System,
+                            ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}},
+                            OOBVal oobVal = OOBVal::Undef);
+      static MetalLayoutAttr get(::mlir::MLIRContext *context,
                             ArrayRef<int64_t> tensorShape,
                             Type elementType,
                             MemorySpace memorySpace = MemorySpace::System,
