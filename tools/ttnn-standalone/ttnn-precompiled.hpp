@@ -60,7 +60,7 @@ class DeviceGetter {
 public:
   static constexpr std::size_t l1SmallSize = 1 << 15;
 
-  static ttnn::IDevice *getInstance() {
+  static ttnn::MeshDevice *getInstance() {
     static std::shared_ptr<ttnn::MeshDevice> instance =
         ::ttnn::MeshDevice::create_unit_mesh(0, l1SmallSize);
 
