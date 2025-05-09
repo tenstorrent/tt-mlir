@@ -1,6 +1,7 @@
 include(ExternalProject)
 
 set(TT_METAL_VERSION "7e6553092db1c3d05e944e0b0bd99d26fcacc789")
+message(STATUS "TT_METAL_VERSION AFTER INIT: ${TT_METAL_VERSION}")
 
 set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
 
@@ -85,6 +86,9 @@ set(TTMETAL_BUILD_TYPE "Release")
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
   set(TTMETAL_BUILD_TYPE "Debug")
 endif()
+
+message(STATUS "TT_METAL_VERSION SOME TIME LATER: ${TT_METAL_VERSION}")
+
 ExternalProject_Add(
   tt-metal
   PREFIX ${TTMLIR_SOURCE_DIR}/third_party/tt-metal
