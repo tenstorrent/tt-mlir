@@ -5,7 +5,9 @@
 #include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
 
 #include "ttmlir/Conversion/Passes.h"
+#include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 #include "ttmlir/Dialect/TT/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
 
@@ -51,37 +53,52 @@ void createTTIRToTTMetalBackendPipeline(
     registerDeviceOptions.systemDescPath = options.systemDescPath;
     registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
   }
-  pm.addPass(tt::createTTRegisterDevicePass(registerDeviceOptions));
-  pm.addPass(tt::createTTIRToTTIRGenericPass());
-  pm.addPass(mlir::createCanonicalizerPass());
+  pm.addPass(tt::createTTWrapDeviceModulePass());
+  pm.addPass(ttir::createTTIRHoistTransform());
+
+  // Run regular TTIR to TT_Metal pipeline on DeviceModule.
+  OpPassManager &devicePm =
+      pm.nest<tt::DeviceModuleOp>().nest<mlir::ModuleOp>();
+
+  devicePm.addPass(tt::createTTRegisterDevicePass(registerDeviceOptions));
+  devicePm.addPass(tt::createTTIRToTTIRGenericPass());
+  devicePm.addPass(mlir::createCanonicalizerPass());
   ttir::TTIROptimizeTensorLayoutOptions optimizeTensorLayoutOptions;
   {
     optimizeTensorLayoutOptions.overrideDeviceShape =
         llvm::to_vector(options.overrideDeviceShape);
   }
-  pm.addPass(ttir::createTTIROptimizeTensorLayout(optimizeTensorLayoutOptions));
-  pm.addPass(mlir::createCanonicalizerPass());
-  pm.addPass(ttir::createTTIRLowerToLayout());
-  createTTIRBufferizationPipeline(pm);
-  pm.addPass(ttir::createTTIRAllocate());
-  pm.addPass(mlir::createCanonicalizerPass());
-  pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
-  pm.addPass(ttir::createTTIRGenericLinearizeMemref());
-  pm.addPass(mlir::createLowerAffinePass());
-  pm.addPass(ttir::createTTIRGenericGenerateDatamovement());
-  pm.addPass(ttir::createTTIRGenericLowerDMAs());
-  pm.addPass(ttir::createTTIRGenericHWThreadSelection());
-  pm.addPass(ttir::createTTIRGenericGenerateLoops());
-  createOptimizationPasses(pm);
-  pm.addPass(ttir::createTTIRGenericRegionsToFuncs());
-  pm.addPass(tt::createConvertTTIRToTTKernelPass());
-  pm.addPass(mlir::createCanonicalizerPass());
-  pm.addPass(ttkernel::createTTKernelControlDstSection());
-  createOptimizationPasses(pm);
-  pm.addPass(createConvertTTIRToTTMetalPass());
-  pm.addPass(createConvertTTKernelToEmitC());
-  pm.addPass(mlir::createCanonicalizerPass());
-  pm.addPass(mlir::emitc::createFormExpressionsPass());
+  devicePm.addPass(
+      ttir::createTTIROptimizeTensorLayout(optimizeTensorLayoutOptions));
+  devicePm.addPass(mlir::createCanonicalizerPass());
+  devicePm.addPass(ttir::createTTIRLowerToLayout());
+  createTTIRBufferizationPipeline(devicePm);
+  devicePm.addPass(ttir::createTTIRAllocate());
+  devicePm.addPass(mlir::createCanonicalizerPass());
+  devicePm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
+  devicePm.addPass(ttir::createTTIRGenericLinearizeMemref());
+  devicePm.addPass(mlir::createLowerAffinePass());
+  devicePm.addPass(ttir::createTTIRGenericGenerateDatamovement());
+  devicePm.addPass(ttir::createTTIRGenericLowerDMAs());
+  devicePm.addPass(ttir::createTTIRGenericHWThreadSelection());
+  devicePm.addPass(ttir::createTTIRGenericGenerateLoops());
+  createOptimizationPasses(devicePm);
+  devicePm.addPass(ttir::createTTIRGenericRegionsToFuncs());
+  devicePm.addPass(tt::createConvertTTIRToTTKernelPass());
+  devicePm.addPass(mlir::createCanonicalizerPass());
+  devicePm.addPass(ttkernel::createTTKernelControlDstSection());
+  createOptimizationPasses(devicePm);
+  devicePm.addPass(createConvertTTIRToTTMetalPass());
+  devicePm.addPass(createConvertTTKernelToEmitC());
+  devicePm.addPass(mlir::createCanonicalizerPass());
+  devicePm.addPass(mlir::emitc::createFormExpressionsPass());
+
+  // Run lowering to LLVM pass on hoisted funcs in CPUModule.
+  OpPassManager &cpuPm = pm.nest<tt::CPUModuleOp>().nest<mlir::ModuleOp>();
+  cpuPm.addPass(createConvertTTIRToLinalgPass());
+  ttir::LinalgToLLVMPipelineOptions linalgToLLLVMOptions;
+  ttir::createLinalgToLLVMPipeline(cpuPm, linalgToLLLVMOptions);
+  cpuPm.addPass(llvm_util::createLLVMEmitCallingConventionWrapperFuncs());
 }
 
 //===----------------------------------------------------------------------===//

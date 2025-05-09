@@ -8,6 +8,7 @@
 #define FMT_HEADER_ONLY
 #include "tt-metalium/mesh_device.hpp"
 
+#include "tt/runtime/detail/dylib.h"
 #include "tt/runtime/types.h"
 #include "ttmlir/Target/TTMetal/Target.h"
 
@@ -16,7 +17,8 @@ namespace tt::runtime::ttmetal {
 std::vector<Tensor>
 executeDeviceProgram(::tt::tt_metal::IDevice *device,
                      const ::tt::target::metal::DeviceProgram *program,
-                     const std::vector<Tensor> &inputs);
+                     const std::vector<Tensor> &inputs,
+                     common::DylibManager &&dylibs);
 
 } // namespace tt::runtime::ttmetal
 

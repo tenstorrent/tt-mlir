@@ -8,6 +8,7 @@
 #include "tracy/Tracy.hpp"
 #include "tt/runtime/detail/common.h"
 #include "tt/runtime/detail/debug.h"
+#include "tt/runtime/detail/dylib.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttmetal/ttmetal.h"
 #include "tt/runtime/runtime.h"
@@ -33,7 +34,8 @@ public:
       tt_metal::IDevice *device,
       const flatbuffers::Vector<
           flatbuffers::Offset<tt::target::metal::BufferRef>> *programInputs,
-      const std::vector<Tensor> &inputs, bool blockingCQ);
+      const std::vector<Tensor> &inputs, common::DylibManager &&dylibManager,
+      bool blockingCQ);
 
   const std::vector<Tensor> &getOutputs() const { return outputs; }
 
@@ -54,6 +56,8 @@ private:
   void execute(const target::metal::EnqueueWaitForEventCommand *command);
   void execute(const target::metal::EventSynchronizeCommand *command);
   void execute(const target::metal::EventQueryCommand *command);
+  void execute(const target::metal::MemrefCopyCommand *command);
+  void execute(const target::metal::CpuCommand *command);
   void execute(const target::metal::FinishCommand *command);
 
 private:
@@ -67,6 +71,7 @@ private:
   bool blockingCQ;
   const char *currentProgramName;
   DeviceAddressValidator deviceAddressValidator;
+  common::DylibManager dylibManager;
 };
 } // namespace
 
@@ -74,8 +79,10 @@ CQExecutor::CQExecutor(
     tt_metal::IDevice *device,
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::BufferRef>>
         *programInputs,
-    const std::vector<Tensor> &inputs, bool blockingCQ)
-    : device(device), blockingCQ(blockingCQ), deviceAddressValidator(device) {
+    const std::vector<Tensor> &inputs, common::DylibManager &&dylibManager,
+    bool blockingCQ)
+    : device(device), blockingCQ(blockingCQ), deviceAddressValidator(device),
+      dylibManager(std::move(dylibManager)) {
   initEvents.reserve(inputs.size());
 
   std::uint32_t inputIndex = 0;
@@ -172,6 +179,14 @@ void CQExecutor::execute(const target::metal::Command *command) {
     execute(command->type_as_EventQueryCommand());
     break;
   }
+  case target::metal::CommandType::MemrefCopyCommand: {
+    execute(command->type_as_MemrefCopyCommand());
+    break;
+  }
+  case target::metal::CommandType::CpuCommand: {
+    execute(command->type_as_CpuCommand());
+    break;
+  }
   case target::metal::CommandType::FinishCommand: {
     execute(command->type_as_FinishCommand());
     break;
@@ -221,6 +236,8 @@ void CQExecutor::execute(const target::metal::ReturnCommand *command) {
     auto hostIter = hostBuffers.find(result->global_id());
     bool deviceFound = deviceIter != deviceBuffers.end();
     bool hostFound = hostIter != hostBuffers.end();
+    LOG_DEBUG("Found result for host: ", hostFound ? "true" : "false");
+    LOG_DEBUG("Found result for device: ", deviceFound ? "true" : "false");
     LOG_ASSERT(deviceFound != hostFound);
     if (deviceFound) {
       outputs.emplace_back(static_pointer_cast<void>(deviceIter->second),
@@ -356,18 +373,84 @@ void CQExecutor::execute(const target::metal::EventQueryCommand *command) {
               // something with the result
 }
 
+static std::vector<common::WrappedTensor> packTensors(
+    const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::BufferRef>>
+        *ins,
+    const tt::target::metal::BufferRef *out,
+    const std::unordered_map<std::uint32_t, Tensor> &tensorMap,
+    std::vector<std::vector<int64_t>> &allSizesAndStrides) {
+  allSizesAndStrides.reserve(ins->size() + 1);
+  std::vector<common::WrappedTensor> packedTensors;
+  packedTensors.reserve(ins->size());
+  for (size_t i = 0; i < ins->size(); ++i) {
+    auto shape = ins->Get(i)->desc()->shape();
+    const size_t rank = shape->size();
+    std::vector<int64_t> sizes(rank);
+    auto it = tensorMap.find(ins->Get(i)->global_id());
+    LOG_DEBUG("input idx: ", i, " with global id: ", ins->Get(i)->global_id());
+    LOG_ASSERT(it != tensorMap.end(),
+               "Cannot invoke cpu op on tensor which is not in cpu tensors.");
+    const Tensor &tens = it->second;
+    for (size_t j = 0; j < rank; ++j) {
+      sizes[j] = shape->Get(j);
+    }
+    std::vector<uint32_t> strides = tt::runtime::utils::calculateStride(sizes);
+    allSizesAndStrides.emplace_back(2 * rank);
+    std::copy(sizes.begin(), sizes.end(), allSizesAndStrides.back().begin());
+    std::transform(strides.begin(), strides.end(),
+                   allSizesAndStrides.back().begin() + rank,
+                   [](uint32_t s) -> int64_t { return s; });
+
+    float *rawDataPtr = static_cast<float *>(tens.data.get());
+    LOG_DEBUG("At addr: ", rawDataPtr, " with 1st value: ", rawDataPtr[0]);
+    packedTensors.emplace_back(rawDataPtr, rawDataPtr, 0,
+                               allSizesAndStrides.back().data());
+  }
+  return packedTensors;
+}
+
+void CQExecutor::execute(const target::metal::MemrefCopyCommand *command) {
+  LOG_DEBUG("src id: ", command->src()->global_id(),
+            " to dst id: ", command->dst()->global_id());
+  auto srcIt = hostBuffers.find(command->src()->global_id());
+  LOG_ASSERT(srcIt != hostBuffers.end());
+  auto dstIt = hostBuffers.find(command->dst()->global_id());
+  LOG_ASSERT(dstIt != hostBuffers.end());
+  LOG_DEBUG("first element in src: ",
+            static_cast<float *>(srcIt->second.data.get())[0]);
+  LOG_DEBUG("first element in dst (before cpy): ",
+            static_cast<float *>(dstIt->second.data.get())[0]);
+  ttmetal::memcpy(dstIt->second, srcIt->second);
+  LOG_DEBUG("first element in dst: ",
+            static_cast<float *>(dstIt->second.data.get())[0]);
+}
+
+void CQExecutor::execute(const target::metal::CpuCommand *command) {
+  std::vector<std::vector<int64_t>> allSizesAndStrides;
+  auto packedInputs = packTensors(command->ins(), command->out(), hostBuffers,
+                                  allSizesAndStrides);
+
+  common::WrappedFunc func =
+      dylibManager.getFunc(command->dylib_id(), command->func_name()->c_str());
+  func(packedInputs.data());
+
+  auto lastInputIt = hostBuffers.find(
+      command->ins()->Get(command->ins()->size() - 1)->global_id());
+  LOG_ASSERT(lastInputIt != hostBuffers.end());
+  hostBuffers.insert({command->out()->global_id(), lastInputIt->second});
+}
+
 void CQExecutor::execute(const target::metal::FinishCommand *) {
   ZoneScopedN("FinishCommand");
   tt_metal::Finish(*cq);
 }
 
-std::vector<Tensor>
-executeDeviceProgram(tt_metal::IDevice *device,
-                     const target::metal::DeviceProgram *program,
-                     const std::vector<Tensor> &inputs) {
+std::vector<Tensor> executeDeviceProgram(
+    tt_metal::IDevice *device, const target::metal::DeviceProgram *program,
+    const std::vector<Tensor> &inputs, common::DylibManager &&dylibs) {
   LOG_ASSERT(program->command_queues()->size() == 1, "Only one CQ supported");
 
-  CQExecutor executor(device, program->inputs(), inputs,
+  CQExecutor executor(device, program->inputs(), inputs, std::move(dylibs),
                       debug::Env::get().blockingCQ);
   for (const target::metal::CommandQueue *cq : *program->command_queues()) {
     FrameMark;

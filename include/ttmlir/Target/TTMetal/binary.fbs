@@ -48,6 +48,7 @@ table TTMetalBinary {
   ttmlir_git_hash: string;
   system_desc: SystemDesc;
   programs: [Program];
+  dylibs: [DynamicLib];
 }
 
 root_type TTMetalBinary;
