@@ -56,21 +56,21 @@ namespace ttnn {
 //
 // Singleton implementation for Device
 //
-class DeviceGetter {
-public:
-  static ttnn::MeshDevice *getInstance() {
-    static std::shared_ptr<ttnn::MeshDevice> instance =
-        ::ttnn::MeshDevice::create_unit_mesh(0, 1 << 15);
+// class DeviceGetter {
+// public:
+//   static ttnn::MeshDevice *getInstance() {
+//     static std::shared_ptr<ttnn::MeshDevice> instance =
+//         ::ttnn::MeshDevice::create_unit_mesh(0, 1 << 15);
 
-    return instance.get();
-  }
+//     return instance.get();
+//   }
 
-private:
-  DeviceGetter() = default;
+// private:
+//   DeviceGetter() = default;
 
-  DeviceGetter(const DeviceGetter &) = delete;
-  DeviceGetter &operator=(const DeviceGetter &) = delete;
-};
+//   DeviceGetter(const DeviceGetter &) = delete;
+//   DeviceGetter &operator=(const DeviceGetter &) = delete;
+// };
 
 // Wrapper to abstract const-eval logic out of runtime funcs to keep them
 // cleaner.  Invokes constEvalFunc iff outputs is empty.
