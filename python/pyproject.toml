@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ttmlir"
 description = "Python Bindings and Package for TT-MLIR Compiler Project"
-readme = { file = "../README.md" }
+readme = "../README.md"
 requires-python = ">=3.8"
 keywords = ["mlir", "forge", "tt-forge", "tt-mlir", "tt-metal", "bindings", "machine learning", "tenstorrent"]
 license = "Apache-2.0"
