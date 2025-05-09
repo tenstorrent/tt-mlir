@@ -2275,7 +2275,7 @@ def TTIR_QuantizeOp : TTIR_NamedOp<"quantize"> {
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
-                       AnyRankedTensor:$output);
+                   AnyRankedTensor:$output);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -2307,6 +2307,40 @@ def TTIR_DequantizeOp : TTIR_NamedOp<"dequantize"> {
   let hasVerifier = 1;
 }
 
+def TTIR_QuantizeUnrolledOp : TTIR_NamedOp<"quantize_unrolled"> {
+  let summary = "Quantize operation unrolled (scale and zero point as input operands).";
+  let description = [{
+    The QuantizeUnrolledOp quantizes a tensor using the scale and zero point provided as input operands.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$scale,
+                       AnyRankedTensor:$zero_point,
+                       OptionalAttr<I32Attr>:$axis,
+                       AnyRankedTensor:$output);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
+def TTIR_DequantizeUnrolledOp : TTIR_NamedOp<"dequantize_unrolled"> {
+  let summary = "Dequantize operation unrolled (scale and zero point as input operands).";
+  let description = [{
+    The DequantizeUnrolledOp dequantizes a tensor using the scale and zero point provided as input operands.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$scale,
+                       AnyRankedTensor:$zero_point,
+                       OptionalAttr<I32Attr>:$axis,
+                       AnyRankedTensor:$output);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_RequantizeOp : TTIR_NamedOp<"requantize"> {
   let summary = "Requantize operation.";
   let description = [{
@@ -2327,6 +2361,25 @@ def TTIR_RequantizeOp : TTIR_NamedOp<"requantize"> {
 
   let arguments = (ins AnyRankedTensor:$input,
                        AnyRankedTensor:$output);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
+def TTIR_RequantizeUnrolledOp : TTIR_NamedOp<"requantize_unrolled"> {
+  let summary = "Requantize operation unrolled (scale and zero point as input operands).";
+  let description = [{
+    The RequantizeUnrolledOp requantizes a tensor using the scale and zero point provided as input operands.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                      AnyRankedTensor:$in_scale,
+                      AnyRankedTensor:$in_zero_point,
+                      AnyRankedTensor:$out_scale,
+                      AnyRankedTensor:$out_zero_point,
+                      OptionalAttr<I32Attr>:$axis,
+                      AnyRankedTensor:$output);
 
   let results = (outs AnyRankedTensor:$result);
 
