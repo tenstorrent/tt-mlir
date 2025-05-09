@@ -89,6 +89,7 @@ public:
           loc, "#define REDUCE_DIM ReduceDim::REDUCE_COL");
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/reduce.h",
                                         /*isStandard=*/false);
+      emitExperimentalLLKs();
       builder->create<emitc::VerbatimOp>(loc, "namespace NAMESPACE {");
     }
   }
@@ -133,6 +134,22 @@ void dprint(Arg &&arg, ArgV&&... argv) {
 }
 } // namespace ttmlir
 )"""");
+  }
+
+  void emitExperimentalLLKs() {
+    if (!hasOp<emitc::CallOpaqueOp>([](emitc::CallOpaqueOp op) {
+          return op.getCallee().starts_with("experimental");
+        })) {
+      return;
+    }
+
+#define STRINGIFY(x) #x
+
+    const char *experimentalTilizeLLKs =
+#include "ttmlir/LLKs/experimental_tilize_llks.h"
+        ;
+
+    builder->create<emitc::VerbatimOp>(loc, experimentalTilizeLLKs);
   }
 
   template <typename OpT>
