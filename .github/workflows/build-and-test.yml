@@ -377,7 +377,6 @@ jobs:
 
 
   lint:
-    if: github.event_name == 'pull_request'
     needs: build-image
     timeout-minutes: 120
     strategy:
