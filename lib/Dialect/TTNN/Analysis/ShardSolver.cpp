@@ -85,7 +85,7 @@ bool ShardSolver::resolveStep() {
   // We need special handling for the first op in the chain.
   //
   if (!preprocessFirstOp()) {
-    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "{}",
+    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                  "Preprocessing first op failed, aborting.");
     return false;
   }
@@ -243,7 +243,7 @@ bool ShardSolver::resolveStep() {
     }
   }
 
-  TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "{}",
+  TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                "ShardSolver::resolveStep: returning true");
 
   return true;
