@@ -228,6 +228,14 @@ class ChiselContext:
             #    # check for dtype of the output tensor
             #    if  tensor_out.tensor.get_dtype() in [DataType.Int32]:
             #        self.should_skip.add(self.current_ttnn_op.outputs[0].name)
+            # if self.current_ttnn_op.name == "ttnn.matmul":
+            #     self.should_skip.add(
+            #         self.current_ttnn_op.outputs[0].name
+            #     )
+            # if self.current_ttnn_op.name in ("ttnn.sum", "ttnn.max"):
+            #    self.should_skip.add(self.current_ttnn_op.outputs[0].name)
+            # if 'div' in self.current_ttnn_op.name:
+            #    self.should_skip.add(self.current_ttnn_op.outputs[0].name)
 
             self.ttnn_op_idx += 1
             return tensor_out
