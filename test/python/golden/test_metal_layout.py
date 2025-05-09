@@ -12,24 +12,6 @@ from ttmlir.dialects import tt
 from ttmlir.ir import *
 
 
-def createMetalLayoutTensor(
-    ctx,
-    shape,
-    grid,
-    tiled=False,
-    memorySpace=tt.MemorySpace.DeviceL1,
-    collapseIntervals=[(0, -1)],
-    oobVal=tt.OOBVal.Undef,
-):
-    if isinstance(grid, list) or isinstance(grid, tuple):
-        grid = tt.ir.GridAttr.get(ctx, list(grid))
-    tensorTy = RankedTensorType.get(shape, F32Type.get(ctx))
-    layout = tt.ir.MetalLayoutAttr.get(
-        ctx, tensorTy, grid, tiled, memorySpace, collapseIntervals, oobVal
-    )
-    return RankedTensorType.get(shape, F32Type.get(ctx), layout, Location.unknown(ctx))
-
-
 @pytest.mark.parametrize("input_grid_y", [1, 2, 3])
 @pytest.mark.parametrize("input_grid_x", [1, 2, 3])
 @pytest.mark.parametrize("output_grid_y", [2, 3, 4])
@@ -62,7 +44,7 @@ def test_to_layout(
     ):
         to_device = builder.to_layout(
             in0,
-            output_type=createMetalLayoutTensor(
+            output_type=builder.metal_tensor_layout(
                 builder.get_context(), shape, input_grid, tiled=tiled
             ),
             unit_attrs=unit_attrs,
@@ -70,7 +52,7 @@ def test_to_layout(
         )
         reblock = builder.to_layout(
             in0,
-            output_type=createMetalLayoutTensor(
+            output_type=builder.metal_tensor_layout(
                 builder.get_context(), shape, output_grid, tiled=tiled
             ),
             unit_attrs=unit_attrs,
