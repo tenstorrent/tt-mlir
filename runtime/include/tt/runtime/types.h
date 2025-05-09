@@ -7,6 +7,7 @@
 
 #include <cassert>
 #include <memory>
+#include <numeric>
 #include <optional>
 #include <string_view>
 #include <vector>
@@ -113,6 +114,11 @@ struct TensorDesc {
       : shape(shape), stride(stride), itemsize(itemsize), dataType(dataType) {}
 
   std::uint32_t size() const { return shape[0] * stride[0] * itemsize; }
+  std::size_t volume() const {
+    return std::accumulate(shape.begin(), shape.end(),
+                           static_cast<std::size_t>(1),
+                           std::multiplies<std::size_t>());
+  }
 };
 
 struct MemoryView {

@@ -347,33 +347,48 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
 }
 
 std::vector<std::byte> getTensorDataBuffer(Tensor tensor) {
-  LOG_WARNING("getDataBuffer not implemented for metal runtime");
-  return {};
+  return std::visit(
+      utils::overloaded{
+          [&](const TensorDesc &desc) {
+            const std::byte *data =
+                static_cast<const std::byte *>(tensor.data.get());
+            assert(data);
+            return std::vector<std::byte>(data, data + desc.size());
+          },
+          [&](const DeviceBuffer &buffer) {
+            LOG_FATAL("getTensorDataBuffer from DeviceBuffer not supported.");
+            return std::vector<std::byte>{};
+          },
+      },
+      tensor.as<MetalTensor>(DeviceRuntime::TTMetal));
 }
 
 std::vector<std::uint32_t> getTensorShape(Tensor tensor) {
-  LOG_WARNING("getShape not implemented for metal runtime");
-  return {};
+  return ttmetal::getTensorDesc(tensor).shape;
 }
 
 std::vector<std::uint32_t> getTensorStride(Tensor tensor) {
-  LOG_WARNING("getStride not implemented for metal runtime");
-  return {};
+  return ttmetal::getTensorDesc(tensor).stride;
 }
 
 std::uint32_t getTensorElementSize(Tensor tensor) {
-  LOG_WARNING("getElementSize not implemented for metal runtime");
-  return 0;
+  return ttmetal::getTensorDesc(tensor).itemsize;
 }
 
 std::uint32_t getTensorVolume(Tensor tensor) {
-  LOG_WARNING("getVolume not implemented for metal runtime");
-  return 0;
+  return ttmetal::getTensorDesc(tensor).volume();
 }
 
 TensorDesc getTensorDesc(Tensor tensor) {
-  LOG_WARNING("getTensorDesc not implemented for metal runtime");
-  return {};
+  return std::visit(utils::overloaded{
+                        [&](const TensorDesc &desc) { return desc; },
+                        [&](const DeviceBuffer &buffer) {
+                          LOG_FATAL(
+                              "getTensorDesc from DeviceBuffer not supported.");
+                          return TensorDesc{};
+                        },
+                    },
+                    tensor.as<MetalTensor>(DeviceRuntime::TTMetal));
 }
 
 } // namespace tt::runtime::ttmetal
