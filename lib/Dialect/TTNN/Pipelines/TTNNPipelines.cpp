@@ -90,8 +90,8 @@ void createTTNNPipelineLoweringPasses(
 void createTTNNPipelineWorkaroundPass(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   TTNNWorkaroundsOptions workaroundOptions{
-      options.layoutWorkaroundsEnabled, options.decompositionWorkaroundsEnabled,
-      options.repeatFoldingWorkaroundEnabled};
+      options.layoutWorkaroundsEnabled,
+      options.decompositionWorkaroundsEnabled};
 
   // Optimizer solves layout constraints using graph capture.
   if (options.optimizerPassEnabled) {
