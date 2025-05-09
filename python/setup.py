@@ -15,6 +15,9 @@ from setuptools.command.build_ext import build_ext
 from datetime import datetime
 
 
+readme = None
+
+
 class TTExtension(Extension):
     def __init__(self, name):
         super().__init__(name, sources=[])
@@ -36,6 +39,7 @@ class CMakeBuild(build_ext):
         return os.environ.get("IN_CIBW_ENV") == "ON"
 
     def build_(self, ext):
+        global readme
         build_lib = self.build_lib
         if not os.path.exists(build_lib):
             # Might be an editable install or something else
@@ -77,6 +81,10 @@ class CMakeBuild(build_ext):
         # Otherwise, force the source to be set
         else:
             cmake_args.extend(["-S", str(cwd.parent)])
+
+        # Write to readme
+        with open(str(cwd.parent / "README.md"), "r", encoding="utf-8") as f:
+            readme = f.read()
 
         # Run source env/activate if in ci, otherwise onus is on dev
         if self.in_ci():
@@ -126,4 +134,7 @@ setup(
     ext_modules=[ttmlir_c],
     cmdclass={"build_ext": CMakeBuild},
     zip_safe=False,
+    # Write to readme
+    long_description=readme,
+    long_description_content_type="text/markdown",
 )
