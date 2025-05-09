@@ -5,10 +5,13 @@
 #include "ttmlir/Dialect/TTNN/Analysis/DFShardingPolicy.h"
 
 #include "ttmlir/Dialect/TT/IR/Utils.h"
+#include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Scheduler/Scheduler.h"
+#include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/IR/Diagnostics.h"
@@ -108,8 +111,13 @@ void DFShardingPolicy::run() {
                   // TODO(#2084): Remove once constraints are added for all
                   // Llama ops.
                   ttnn::MeanOp, ttnn::SinOp, ttnn::CosOp, ttnn::ReciprocalOp,
+
+                  // Following binary eltwise ops are blocked by metal issue
+                  // https://github.com/tenstorrent/tt-metal/issues/21846
+                  ttnn::AddOp, ttnn::SubtractOp, ttnn::MultiplyOp,
+
                   // TODO(#2588): Blocked by graph capture issue.
-                  ttnn::Conv2dOp, ttnn::MaxPool2dOp>(currentOp)) {
+                  ttnn::MaxPool2dOp>(currentOp)) {
             validForSharding = false;
           }
 
@@ -212,20 +220,19 @@ void DFShardingPolicy::run() {
 
   // Resolve shard chain configs.
   //
-  for (auto &l1ChainConfig : *l1ChainConfigs) {
+  for (L1ChainConfig &l1ChainConfig : *l1ChainConfigs) {
     ShardSolver shardSolver = l1ChainConfig.resolveWithSolver(
         tensorTypePossibleLayouts, legalConfigs, usableL1CacheSize,
         overrideReshardEdges);
 
     if (l1ChainConfig.getState() == L1ChainState::Failed) {
-      mlir::emitWarning(l1ChainConfig.getOpL1MemSpecs().front().op->getLoc(),
-                        "Failed to resolve L1 chain config");
-      // Debug print.
-      if (false) {
-        llvm::errs() << l1ChainConfig;
-      }
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                   "Failed to resolve L1 chain config {}", l1ChainConfig);
       continue;
     }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "Resolved L1 chain config {}",
+                 l1ChainConfig);
 
     pickOpShardConfigs(shardSolver, l1ChainConfig);
 
