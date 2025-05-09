@@ -373,11 +373,11 @@ def TTIRImplicitBroadcastFold: Pass<"ttir-implicit-broadcast-fold", "::mlir::Mod
     %0 = ttir.empty() : tensor<1x16x32xf32>
     %1 = "ttir.broadcast"(%arg1, %0) <{broadcast_dimensions = array<i32: 1, 16, 1>}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
     %2 = ttir.empty() : tensor<1x16x32xf32>
-    %3 = "ttir.multiply"(%arg0, %1, %2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x16x32xf32>, tensor<1x16x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
+    %3 = "ttir.multiply"(%arg0, %1, %2) : (tensor<1x16x32xf32>, tensor<1x16x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
 
     Since MultiplyOp supports implicit broadcasting, above broadcast is folded as:
     %0 = ttir.empty() : tensor<1x16x32xf32>
-    %1 = "ttir.multiply"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x16x32xf32>, tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32
+    %1 = "ttir.multiply"(%arg0, %arg1, %0) : (tensor<1x16x32xf32>, tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
   }];
 }
 
@@ -393,7 +393,7 @@ def TTIRHoistTransform: Pass<"ttir-cpu-hoist-transform", "::mlir::ModuleOp">
         builtin.module {
           func.func @add(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
             %0 = ttir.empty() : tensor<32x32xbf16>
-            %1 = "ttir.add"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16> loc("add_op1")
+            %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16> loc("add_op1")
             return %1 : tensor<32x32xbf16>
           }
         }
@@ -412,11 +412,11 @@ def TTIRHoistTransform: Pass<"ttir-cpu-hoist-transform", "::mlir::ModuleOp">
       tt.cpu_module {
         builtin.module {
           func.func @hoisted_ttir_add_32x32xbf16_32x32xbf16_32x32xbf16_func(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>, %arg2: tensor<32x32xbf16>) -> tensor<32x32xbf16> attributes {arg_ranks = [2, 2, 2, 2]} {
-            %0 = "ttir.add"(%arg0, %arg1, %arg2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+            %0 = "ttir.add"(%arg0, %arg1, %arg2) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
             return %0 : tensor<32x32xbf16>
+          }
         }
       }
-
   }];
 
   let dependentDialects = ["::mlir::tt::TTDialect"];
@@ -436,7 +436,7 @@ def TTIRFlattenSlidingWindow: Pass<"ttir-flatten-sliding-window", "::mlir::Modul
   let summary = "Flatten sliding window ops.";
   let description = [{
     This is a compatibility pass for converting to the TTNN dialect.
-    This pass walks through the graph and flattens sliding window ops (ttir.conv2d, ttir.max_pool2d).
+    This pass walks through the graph and flattens sliding window ops (ttir.conv2d, ttir.max_pool2d, ttir.avg_pool2d).
 
     Example:
       Before:
@@ -480,6 +480,33 @@ def TTIREraseInverseOps: Pass<"ttir-erase-inverse-ops", "::mlir::ModuleOp">
   }];
 
   let dependentDialects = ["mlir::tt::TTDialect", "mlir::tt::ttir::TTIRDialect"];
+}
+
+def TTIRQuantDataTypeConversionPass : Pass<"ttir-quant-data-type-conversion", "::mlir::ModuleOp"> {
+  let summary = "Convert integer data types in quantized types to a specified bit width";
+  let description = [{
+    This pass converts all integer data types in quantized types (e.g., i8) to a specified
+    bit width (e.g., i32) during ttir-to-ttnn conversion. This is a temporary workaround as
+    tt-metal currently only supports i32 quantized types.
+
+    Example:
+    Input:
+      %0 = "ttir.quantize"(%arg0, %1) : (tensor<1x3x224x224xf32>, tensor<1x3x224x224x!quant.uniform<i8:f32, 1.000000e-01>>) -> tensor<1x3x224x224x!quant.uniform<i8:f32, 1.000000e-01>>
+
+    Output (with quant_bit_width=32):
+      %0 = "ttir.quantize"(%arg0, %1) : (tensor<1x3x224x224xf32>, tensor<1x3x224x224x!quant.uniform<i32:f32, 1.000000e-01>>) -> tensor<1x3x224x224x!quant.uniform<i32:f32, 1.000000e-01>>
+  }];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::quant::QuantDialect"];
+
+  list<Option> options = [
+    Option<"targetBitWidth", "target-bit-width", "uint32_t", "32", "Target integer bit width for quantized types (8, 16, 32, 64)">
+  ];
+}
+
+def TTIRFusing: Pass<"ttir-fusing", "::mlir::ModuleOp">
+{
+  let summary = "TTIR fusing pass.";
+  let description = "This pass tries to fuse operations together with goal to reduce the number of operations in the graph.";
 }
 
 #endif

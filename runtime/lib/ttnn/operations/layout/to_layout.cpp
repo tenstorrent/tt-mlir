@@ -4,10 +4,10 @@
 
 #include "operations/layout/to_layout.h"
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
 
-#include "tt/runtime/ttnn/operations/utils.h"
-#include "tt/runtime/ttnn/utils.h"
+#include "tt/runtime/detail/ttnn/operations/utils.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::layout {
 void run(const ::tt::target::ttnn::ToLayoutOp *op, ProgramContext &context) {
@@ -31,19 +31,12 @@ void run(const ::tt::target::ttnn::ToLayoutOp *op, ProgramContext &context) {
   }
 
   ::ttnn::Tensor out;
+  ::ttnn::MeshDevice *targetDevice = nullptr;
   if (op->device()) {
-    DeviceVariant targetDevice =
-        context.getTargetDevice(op->device()->global_id());
-    out = std::visit(
-        [&](auto &&targetDevice) -> ::ttnn::Tensor {
-          return ::ttnn::to_layout(inputTensor, layout, dtype, memoryConfig,
-                                   &(targetDevice.get()));
-        },
-        targetDevice);
-  } else {
-    out = ::ttnn::to_layout(inputTensor, layout, dtype, memoryConfig,
-                            static_cast<::ttnn::IDevice *>(nullptr));
+    targetDevice = &(context.getMeshDevice());
   }
+  out =
+      ::ttnn::to_layout(inputTensor, layout, dtype, memoryConfig, targetDevice);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

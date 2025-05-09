@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
 
 #include "ttmlir/Conversion/Passes.h"
+#include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
 #include "ttmlir/Dialect/TT/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
@@ -13,6 +14,7 @@
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
+#include "mlir/Dialect/EmitC/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
@@ -51,6 +53,8 @@ void createTTIRToTTMetalBackendPipeline(
     registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
   }
   pm.addPass(tt::createTTRegisterDevicePass(registerDeviceOptions));
+  pm.addPass(tt::createTTIRToTTIRDecompositionPass());
+  pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(tt::createTTIRToTTIRGenericPass());
   pm.addPass(mlir::createCanonicalizerPass());
   ttir::TTIROptimizeTensorLayoutOptions optimizeTensorLayoutOptions;
@@ -74,9 +78,13 @@ void createTTIRToTTMetalBackendPipeline(
   createOptimizationPasses(pm);
   pm.addPass(ttir::createTTIRGenericRegionsToFuncs());
   pm.addPass(tt::createConvertTTIRToTTKernelPass());
-  pm.addPass(ttkernel::createTTKernelControlDstSection());
   pm.addPass(mlir::createCanonicalizerPass());
+  pm.addPass(ttkernel::createTTKernelControlDstSection());
+  createOptimizationPasses(pm);
   pm.addPass(createConvertTTIRToTTMetalPass());
+  pm.addPass(createConvertTTKernelToEmitC());
+  pm.addPass(mlir::createCanonicalizerPass());
+  pm.addPass(mlir::emitc::createFormExpressionsPass());
 }
 
 //===----------------------------------------------------------------------===//

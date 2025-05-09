@@ -80,12 +80,14 @@ simpler.
 
 So what does MLIR look like, how does it work and get parsed? The
 hierarchy of an MLIR Module is as shown:
-```
-module attributes {tt.system_desc = #tt.system_desc<[<#tt.arch<wormhole_b0>, #tt.grid<8x8>>], [0], [<pcie|host_mmio>], [<0, 0, 0, 0>]>} {
-  func.func @forward(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
-    %0 = ttir.empty() : tensor<64x128xf32>
-    %1 = "ttir.multiply"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
-    return %1 : tensor<64x128xf32>
+```mlir
+#permutation = array<i64: 0, 2, 1>
+
+module {
+  func.func @forward(%input: tensor<32x64x128xf32>) -> tensor<32x128x64xf32> {
+    %output = ttir.empty() : tensor<32x128x64xf32>
+    %result = "ttir.permute"(%input, %output) <{permutation = #permutation}> : (tensor<32x64x128xf32>, tensor<32x128x64xf32>) -> tensor<32x128x64xf32>
+    return %result : tensor<32x128x64xf32>
   }
 }
 ```

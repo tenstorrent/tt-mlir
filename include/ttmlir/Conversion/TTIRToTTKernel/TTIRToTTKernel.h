@@ -14,7 +14,7 @@ namespace mlir::tt {
 
 void populateTTIRToTTKernelPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
-    ttir::AssociatedDMAWaits const &associatedDMAWaits);
+    const ttir::AssociatedDMAWaits &associatedDMAWaits);
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertTTIRToTTKernelPass();
 

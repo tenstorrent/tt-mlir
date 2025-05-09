@@ -9,6 +9,7 @@
 
 #include "mlir-c/IR.h"
 #include "mlir/CAPI/IR.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -19,6 +20,7 @@
 #include "llvm/Support/MemoryBuffer.h"
 
 #include <cstdint>
+#include <numeric>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -35,17 +37,27 @@ T alignDown(T ptr, T alignment) {
   return ptr & ~(alignment - 1);
 }
 
-template <typename Vector, typename Fn>
-inline void sample(Vector const &shape, Fn fn) {
-  llvm::SmallVector<std::int64_t, 8> strides(shape.size());
-  std::int64_t stride = 1;
+template <typename T>
+inline mlir::SmallVector<T> calculateStrides(mlir::ArrayRef<T> shape,
+                                             T elementSize = 1) {
+  mlir::SmallVector<T> strides(shape.size());
+  T stride = elementSize;
+  assert(!shape.empty());
   for (std::int64_t i = shape.size() - 1; i >= 0; --i) {
     strides[i] = stride;
     stride *= shape[i];
   }
+  return strides;
+}
 
+template <typename Vector, typename Fn>
+inline void sample(const Vector &shape, Fn fn) {
+  if (shape.size() == 0) {
+    return;
+  }
+  llvm::SmallVector<std::int64_t> strides = calculateStrides(shape);
   llvm::SmallVector<std::int64_t, 8> index(shape.size());
-  int64_t volume = stride;
+  int64_t volume = shape[0] * strides[0];
   for (int64_t i = 0; i < volume; ++i) {
     for (unsigned j = 0; j < shape.size(); ++j) {
       index[j] = (i / strides[j]) % shape[j];
@@ -88,13 +100,10 @@ replaceAffineMapSymbols(mlir::AffineMap map, mlir::ArrayRef<int64_t> symbols) {
                                    map.getNumDims(), numResultSyms);
 }
 
-template <typename IntType>
-IntType volume(mlir::ArrayRef<IntType> shape) {
-  IntType result = 1;
-  for (auto dim : shape) {
-    result *= dim;
-  }
-  return result;
+template <typename T>
+T volume(mlir::ArrayRef<T> shape, T stride = 1) {
+  return std::accumulate(shape.begin(), shape.end(), stride,
+                         std::multiplies<T>());
 }
 
 // Returns a string that is the concatenation of the string representations of
@@ -413,6 +422,70 @@ static mlir::Region *getRegionWithParentOfType(mlir::Operation *op) {
   }
   return region;
 }
+
+// Check if all users of srcOp are of UserOps types.
+template <typename... UserOps>
+inline bool allUsersOfType(mlir::Operation *srcOp) {
+  auto check = [](mlir::Operation *op) { return mlir::isa<UserOps...>(op); };
+  return llvm::all_of(srcOp->getResult(0).getUsers(), check);
+}
+
+// Count the number of users of a value.
+inline size_t countUsers(mlir::Value value) {
+  return std::distance(value.user_begin(), value.user_end());
+}
+
+// Return vector of currentOp operands and drop:
+// - dps operand if currentOp is a DestinationStyleOpInterface
+// - operand which is defined by currentOpOperand
+inline llvm::SmallVector<mlir::OpOperand *>
+getOtherOperands(mlir::Operation *currentOp,
+                 mlir::Operation *currentOpOperand) {
+  llvm::SmallVector<mlir::OpOperand *> operands;
+  auto dpsOp = mlir::dyn_cast<mlir::DestinationStyleOpInterface>(currentOp);
+  for (auto &opOperand : currentOp->getOpOperands()) {
+    if (dpsOp && dpsOp.isDpsInit(&opOperand)) {
+      continue;
+    }
+
+    if (mlir::Operation *op = opOperand.get().getDefiningOp()) {
+      if (op != currentOpOperand) {
+        operands.push_back(&opOperand);
+      }
+    } else {
+      // This is block argument.
+      operands.push_back(&opOperand);
+    }
+  }
+
+  return operands;
+}
+
+// Filters out the constant parameters from the function signature.
+inline llvm::SmallPtrSet<mlir::BlockArgument, 4>
+populateConstParams(mlir::func::FuncOp funcOp) {
+  assert(!funcOp.isDeclaration() && "Function should not be a declaration.");
+
+  llvm::SmallPtrSet<mlir::BlockArgument, 4> constParams;
+
+  for (auto arg : funcOp.getArguments()) {
+    if (auto typeAttr = funcOp.getArgAttrOfType<mlir::tt::ArgumentTypeAttr>(
+            arg.getArgNumber(), mlir::tt::ArgumentTypeAttr::name)) {
+      auto argTypeValue = typeAttr.getValue();
+      if (argTypeValue == mlir::tt::ArgumentType::Parameter ||
+          argTypeValue == mlir::tt::ArgumentType::Constant) {
+        constParams.insert(arg);
+      }
+    }
+  }
+
+  return constParams;
+}
+
+template <typename T, typename From>
+T castContainer(const From &value) {
+  return T(value.begin(), value.end());
+};
 
 } // namespace ttmlir::utils
 

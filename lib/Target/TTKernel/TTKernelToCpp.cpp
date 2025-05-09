@@ -15,6 +15,7 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Target/Cpp/CppEmitter.h"
+#include "llvm/ADT/ScopeExit.h"
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -27,10 +28,17 @@ namespace mlir::tt::ttkernel {
 namespace {
 class ScopedModuleHelper {
 public:
-  ScopedModuleHelper(OpBuilder *builder, Location loc, ThreadType threadType)
-      : builder(builder), loc(loc), threadType(threadType) {
+  ScopedModuleHelper(OpBuilder *builder, Location loc, Region *region,
+                     ThreadType threadType, StringRef originalSymbolName = "")
+      : builder(builder), loc(loc), region(region), threadType(threadType) {
+    if (!originalSymbolName.empty()) {
+      emitComment(originalSymbolName);
+    }
     builder->create<emitc::IncludeOp>(loc, "cstdint",
                                       /*isStandard=*/true);
+
+    emitDebugPrint();
+
     if (threadType == ThreadType::Noc) {
 
       builder->create<emitc::IncludeOp>(loc, "dataflow_api.h",
@@ -40,6 +48,8 @@ public:
       builder->create<emitc::IncludeOp>(loc, "llk_defs.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/common.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/matmul.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/tilize.h",
                                         /*isStandard=*/false);
@@ -68,6 +78,9 @@ public:
       builder->create<emitc::IncludeOp>(
           loc, "compute_kernel_api/eltwise_unary/recip.h",
           /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(
+          loc, "compute_kernel_api/eltwise_unary/trigonometry.h",
+          /*isStandard=*/false);
       // Must define macros REDUCE_OP and REDUCE_DIM before including reduce.h
       // because they are default template parameters values in reduce api.
       builder->create<emitc::VerbatimOp>(loc,
@@ -88,9 +101,59 @@ public:
     }
   }
 
+  void emitComment(StringRef str) {
+    builder->create<emitc::VerbatimOp>(loc, (Twine("// ") + str).str());
+  }
+
+  void emitDebugPrint() {
+    if (!hasOp<emitc::CallOpaqueOp>([](emitc::CallOpaqueOp op) {
+          return op.getCallee() == "ttmlir::dprint";
+        })) {
+      return;
+    }
+
+    builder->create<emitc::IncludeOp>(loc, "debug/dprint.h",
+                                      /*isStandard=*/false);
+
+    builder->create<emitc::VerbatimOp>(
+        loc, "template <> uint8_t DebugPrintTypeToId<size_t>() { return "
+             "DPrintUINT32; }");
+
+    builder->create<emitc::VerbatimOp>(loc, R""""(
+namespace ttmlir {
+template<typename Arg>
+void dprint(Arg &&arg) {
+  DPRINT << arg;
+}
+
+template<typename Arg, typename... ArgV>
+void dprint(Arg &&arg, ArgV&&... argv) {
+  DPRINT << arg;
+  dprint(argv...);
+}
+} // namespace ttmlir
+)"""");
+  }
+
+  template <typename OpT>
+  bool hasOp(llvm::function_ref<bool(OpT)> predicate = [](OpT) {
+    return true;
+  }) {
+    bool found = false;
+    region->walk([&](OpT op) {
+      if (predicate(op)) {
+        found = true;
+        return WalkResult::interrupt();
+      }
+      return WalkResult::advance();
+    });
+    return found;
+  }
+
 private:
   OpBuilder *builder;
   Location loc;
+  Region *region;
   ThreadType threadType;
 };
 } // namespace
@@ -110,7 +173,8 @@ cloneEntryIntoStandaloneModule(func::FuncOp origEntry, ThreadType threadType) {
 
   Region *kernelMainRegion;
   {
-    ScopedModuleHelper threadConfigHelper(&builder, loc, threadType);
+    ScopedModuleHelper threadConfigHelper(&builder, loc, region, threadType,
+                                          origEntry.getName());
 
     // Clone 'region' into a new func op nested inside 'moduleWrapper':
     auto kernelMain = builder.create<func::FuncOp>(
@@ -137,6 +201,7 @@ LogicalResult translateKernelFuncToCpp(func::FuncOp entry,
   if (failed(kernelModule)) {
     return failure();
   }
+  auto moduleCleanup = llvm::make_scope_exit([&]() { kernelModule->erase(); });
   return emitc::translateToCpp(*kernelModule, os);
 }
 

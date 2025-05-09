@@ -18,7 +18,7 @@ For more information on the project, see https://tenstorrent.github.io/tt-mlir/.
 
 ## Links
 
-- [Building](https://tenstorrent.github.io/tt-mlir/build.html)
+- [Getting Started](https://docs.tenstorrent.com/tt-mlir/getting-started.html)
 - [Tools](https://tenstorrent.github.io/tt-mlir/tools.html)
 - [Additional Reading](https://tenstorrent.github.io/tt-mlir/additional-reading.html)
 

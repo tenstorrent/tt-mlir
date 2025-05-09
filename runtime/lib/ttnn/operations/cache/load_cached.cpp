@@ -5,11 +5,11 @@
 #include "operations/cache/load_cached.h"
 
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/ttnn/program_executor.h"
+#include "tt/runtime/detail/ttnn/types.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/tensor_cache.h"
-#include "tt/runtime/ttnn/program_executor.h"
-#include "tt/runtime/ttnn/types.h"
 #include "tt/runtime/types.h"
-
 #include <string_view>
 #include <vector>
 
@@ -22,7 +22,7 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   LOG_ASSERT(cache, "Cache must be enabled to support const-eval ops.");
 
   // Get the device ID from the parent mesh
-  const int deviceId = context.getParentMesh().id();
+  const int deviceId = context.getMeshDevice().id();
   const std::string cacheKey =
       generateCacheOuterKey(deviceId, context.getProgramIndex());
   const std::string &constEvalFuncname = op->callee_name()->str();
@@ -31,7 +31,7 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   inputVersions.reserve(op->inputs()->size());
   // Extract versions for each input tensor.
   for (const auto *input : *op->inputs()) {
-    ::tt::runtime::ttnn::TTNNTensorWrapper runtimeInput =
+    const ::tt::runtime::ttnn::TTNNTensorWrapper &runtimeInput =
         context.getTensorPool().getTTNNTensorWrapperAndValidate(input);
     inputVersions.push_back(runtimeInput.getVersion());
   }
@@ -66,12 +66,12 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
 
   // Execute the function
   const size_t programIndex = op->program_idx();
-  ::tt::target::ttnn::TTNNBinary const &fbb =
-      *getBinary(context.getExecutableHandle());
-  ::tt::target::ttnn::Program const *subProgram =
+  const ::tt::target::ttnn::TTNNBinary &fbb =
+      *::tt::runtime::ttnn::utils::getBinary(context.getExecutableHandle());
+  const ::tt::target::ttnn::Program *subProgram =
       fbb.programs()->Get(programIndex);
   ProgramExecutor exec(subProgram, context.getExecutableHandle(), inputs,
-                       &context.getParentMesh(), programIndex);
+                       context.getMeshDevicePtr(), programIndex);
   exec.execute();
   LOG_DEBUG("executed sub-func: ", constEvalFuncname);
   std::vector<Tensor> outputs = exec.gatherOutputTensors();

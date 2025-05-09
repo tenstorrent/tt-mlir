@@ -5,8 +5,8 @@
 #include "operations/creation/arange.h"
 #include "tt/runtime/detail/logger.h"
 
-#include "tt/runtime/ttnn/operations/utils.h"
-#include "tt/runtime/ttnn/utils.h"
+#include "tt/runtime/detail/ttnn/operations/utils.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 #include "ttnn/types.hpp"
 
 #include <functional>
@@ -17,7 +17,7 @@ void run(const ::tt::target::ttnn::ArangeOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   ::ttnn::DataType dtype =
       ::ttnn::DataType::BFLOAT16; // Default in arange implementation
-  std::optional<std::reference_wrapper<::ttnn::IDevice>> device = std::nullopt;
+  OptionalMeshDeviceRef targetDevice = std::nullopt;
   ::ttnn::MemoryConfig memoryConfig =
       ::ttnn::DRAM_MEMORY_CONFIG; // Default in arange implementation
 
@@ -32,18 +32,11 @@ void run(const ::tt::target::ttnn::ArangeOp *op, ProgramContext &context) {
   }
 
   if (op->device()) {
-    // ttnn::arange supports no device (host) and single device
-    DeviceVariant targetDevice =
-        context.getTargetDevice(op->device()->global_id());
-
-    LOG_ASSERT(std::holds_alternative<std::reference_wrapper<::ttnn::IDevice>>(
-                   targetDevice),
-               "ttnn::arange does not support MeshDevice.");
-    device = std::make_optional(
-        std::get<std::reference_wrapper<::ttnn::IDevice>>(targetDevice));
+    targetDevice = std::ref(context.getMeshDevice());
   }
+
   ::ttnn::Tensor out = ::ttnn::arange(op->start(), op->end(), op->step(), dtype,
-                                      device, memoryConfig);
+                                      targetDevice, memoryConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

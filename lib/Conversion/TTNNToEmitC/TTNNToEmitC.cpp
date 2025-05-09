@@ -42,7 +42,7 @@ using namespace mlir::tt;
 
 emitc::OpaqueAttr createNullDevicePointer(Builder &builder) {
   return builder.getType<emitc::OpaqueAttr>(
-      "static_cast<::ttnn::IDevice *>(nullptr)");
+      "static_cast<::ttnn::distributed::MeshDevice *>(nullptr)");
 }
 
 // Base class for TTNN to EmitC OpConversionPattern.
@@ -538,23 +538,24 @@ public:
 } // namespace
 // ANCHOR_END: adding_an_op_matmul_op_rewriter_emitc
 
-// MaxPool2d op conversion pattern
+// Generic 2d pooling op conversion pattern. Coverts maxpool_2d and avgpool_2d.
 //
 namespace {
-class MaxPool2dOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::MaxPool2dOp> {
+template <typename Pooling2dOp>
+class Pooling2dOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<Pooling2dOp> {
 
 public:
   using TTNNToEmitCBaseOpConversionPattern<
-      tt::ttnn::MaxPool2dOp>::TTNNToEmitCBaseOpConversionPattern;
+      Pooling2dOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = typename Pooling2dOp::Adaptor;
 
   LogicalResult
-  matchAndRewrite(tt::ttnn::MaxPool2dOp srcOp,
-                  tt::ttnn::MaxPool2dOp::Adaptor adaptor,
+  matchAndRewrite(Pooling2dOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::MaxPool2dOp> emitter(
-        srcOp, adaptor, rewriter);
+    ttnn_to_emitc::EmitCTTNNEmitter<Pooling2dOp> emitter(srcOp, adaptor,
+                                                         rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -562,10 +563,11 @@ public:
         emitter.emit(srcOp.getInputHeight()),
         emitter.emit(srcOp.getInputWidth()),
         emitter.emit(srcOp.getChannels()),
-        emitter.emit<std::array<uint32_t, 2>>(srcOp.getKernelSizeAttr()),
-        emitter.emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
-        emitter.emit<std::array<uint32_t, 2>>(srcOp.getPaddingAttr()),
-        emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
+        emitter.template emit<std::array<uint32_t, 2>>(
+            srcOp.getKernelSizeAttr()),
+        emitter.template emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
+        emitter.template emit<std::array<uint32_t, 2>>(srcOp.getPaddingAttr()),
+        emitter.template emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
         /*applied_shard_scheme=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getCeilMode()),
@@ -908,6 +910,7 @@ public:
         emitter.emit(srcOp.getDevice()),
         /*conv2d_config=*/emitter.emit(std::nullopt),
         /*compute_config_=*/emitter.emit(std::nullopt),
+        /*dram_slice_config=*/emitter.emit(std::nullopt),
     };
 
     emitter.replaceOp(*this, args);
@@ -1381,7 +1384,7 @@ public:
         emitter.emit(srcOp.getMemoryConfig()) |
             emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getDevice()) |
-            emitter.emit<::ttnn::IDevice>(nullptr),
+            emitter.emit<::ttnn::distributed::MeshDevice>(nullptr),
     };
 
     emitter.replaceOp(*this, args);
@@ -1424,111 +1427,6 @@ public:
 };
 } // namespace
 
-// ConstructTensorOp conversion pattern
-//
-namespace {
-// ConstructTensorOp conversion pattern
-class ConstructTensorOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::ConstructTensorOp> {
-
-public:
-  using TTNNToEmitCBaseOpConversionPattern<
-      tt::ttnn::ConstructTensorOp>::TTNNToEmitCBaseOpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(tt::ttnn::ConstructTensorOp srcOp, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    emitc::CallOpaqueOp shapeOp = tt::ttnn_to_emitc::utils::createShapeOp(
-        rewriter, srcOp.getShapeAttr(), srcOp.getLoc());
-
-    // Create a variable to hold the member function pointer
-    auto memberFuncPtrTy = emitc::OpaqueType::get(
-        rewriter.getContext(), "decltype(&ttnn::Shape::volume)");
-    auto memberFuncPtrAttr =
-        emitc::OpaqueAttr::get(rewriter.getContext(), "&ttnn::Shape::volume");
-    auto memberFuncPtrOp = rewriter.create<emitc::ConstantOp>(
-        srcOp.getLoc(), memberFuncPtrTy, memberFuncPtrAttr);
-
-    // Call std::invoke with the member function pointer and shape
-    auto volumeTy = emitc::OpaqueType::get(rewriter.getContext(), "uint32_t");
-    auto volumeOp = rewriter.create<emitc::CallOpaqueOp>(
-        srcOp.getLoc(), volumeTy, "std::invoke", nullptr, nullptr,
-        ValueRange{memberFuncPtrOp.getResult(), shapeOp.getResult(0)});
-
-    // Create owned_buffer with proper template based on data type
-    auto dtype = srcOp.getDtypeAttr().getValue();
-
-    TypeAttr templateTypeAttr;
-
-    switch (dtype) {
-    case tt::DataType::Float32:
-      templateTypeAttr =
-          TypeAttr::get(emitc::OpaqueType::get(rewriter.getContext(), "float"));
-      break;
-    case tt::DataType::UInt8:
-      templateTypeAttr = TypeAttr::get(
-          emitc::OpaqueType::get(rewriter.getContext(), "uint8_t"));
-      break;
-    case tt::DataType::UInt16:
-      templateTypeAttr = TypeAttr::get(
-          emitc::OpaqueType::get(rewriter.getContext(), "uint16_t"));
-      break;
-    case tt::DataType::Int32:
-      templateTypeAttr = TypeAttr::get(
-          emitc::OpaqueType::get(rewriter.getContext(), "int32_t"));
-      break;
-    case tt::DataType::UInt32:
-      templateTypeAttr = TypeAttr::get(
-          emitc::OpaqueType::get(rewriter.getContext(), "uint32_t"));
-      break;
-    case tt::DataType::BFloat16:
-      templateTypeAttr = TypeAttr::get(
-          emitc::OpaqueType::get(rewriter.getContext(), "bfloat16"));
-      break;
-    default:
-      return rewriter.notifyMatchFailure(
-          srcOp, "Unsupported data type for ConstructTensorOp");
-    }
-
-    auto bufferTy = emitc::OpaqueType::get(rewriter.getContext(),
-                                           "::tt::tt_metal::OwnedBuffer");
-
-    auto bufferOp = rewriter.create<emitc::CallOpaqueOp>(
-        srcOp.getLoc(), bufferTy, "::tt::tt_metal::owned_buffer::create",
-        nullptr, rewriter.getArrayAttr({templateTypeAttr}),
-        ValueRange{volumeOp.getResult(0)});
-
-    // Create owned_storage from buffer
-    auto storageTy = emitc::OpaqueType::get(rewriter.getContext(),
-                                            "::tt::tt_metal::OwnedStorage");
-    auto storageOp = rewriter.create<emitc::CallOpaqueOp>(
-        srcOp.getLoc(), storageTy, "::tt::tt_metal::OwnedStorage", nullptr,
-        nullptr, ValueRange{bufferOp.getResult(0)});
-
-    // Create Tensor with storage, shape, dtype, and layout
-    llvm::SmallVector<Value, 4> operands{storageOp.getResult(0),
-                                         shapeOp.getResult(0)};
-
-    // Create ArrayAttr object holding attributes and pointers to operands
-    size_t operandIndex = 0;
-    ArrayAttr arrayAttr = rewriter.getArrayAttr({
-        rewriter.getIndexAttr(operandIndex++), // OwnedStorage
-        rewriter.getIndexAttr(operandIndex++), // Shape
-        tt::ttnn_to_emitc::utils::convertDType(
-            rewriter, srcOp.getDtypeAttr()), // DataType
-        tt::ttnn_to_emitc::utils::convertLayoutAttr(
-            rewriter, srcOp.getLayoutAttr()) // Layout
-    });
-
-    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
-        "::ttnn::Tensor", arrayAttr, nullptr, operands);
-
-    return success();
-  }
-};
-} // namespace
-
 // Named FullOp conversion pattern for operations like ttnn::zeros or ttnn::ones
 //
 namespace {
@@ -1552,7 +1450,7 @@ public:
         emitter.emit(srcOp.getDtype()),
         emitter.emit(srcOp.getLayout()),
         emitter.template emit<
-            ::ttnn::operations::creation::detail::OptionalAnyDevice>(
+            ::ttnn::operations::creation::detail::OptionalMeshDevice>(
             srcOp.getDevice()),
         emitter.emit(srcOp.getMemoryConfig()) |
             emitter.getMemoryConfig(srcOp.getResult()),
@@ -2057,7 +1955,6 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   // clang-format off
   patterns.add<EmptyOpConversionPattern,
-               ConstructTensorOpConversionPattern,
                NamedFullOpConversionPattern<tt::ttnn::ZerosOp>,
                NamedFullOpConversionPattern<tt::ttnn::OnesOp>,
                DefaultOpConversionPattern<tt::ttnn::FullOp>,
@@ -2164,7 +2061,9 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Pooling ops
   //
-  patterns.add<MaxPool2dOpConversionPattern>(typeConverter, ctx);
+  patterns.add<Pooling2dOpConversionPattern<tt::ttnn::AvgPool2dOp>,
+               Pooling2dOpConversionPattern<tt::ttnn::MaxPool2dOp>>(
+      typeConverter, ctx);
   patterns.add<UpsampleOpConversionPattern>(typeConverter, ctx);
 
   // Convolution ops

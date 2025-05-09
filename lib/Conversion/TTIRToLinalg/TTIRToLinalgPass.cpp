@@ -39,6 +39,8 @@ struct ConvertTTIRToLinalgPass
     target.addLegalDialect<arith::ArithDialect>();
     target.addLegalDialect<math::MathDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
+    // TODO (#3232): Fix softmax linalg lowering and re-enable.
+    target.addIllegalOp<linalg::SoftmaxOp>();
 
     TypeConverter typeConverter;
     // All types map 1:1.

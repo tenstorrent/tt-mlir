@@ -5,22 +5,33 @@
 #include "tt/runtime/detail/debug.h"
 #include <set>
 
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-
 namespace tt::runtime::debug {
 
-Env const &Env::get(bool loadKernelsFromDisk) {
-  static Env config(loadKernelsFromDisk);
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+
+const Env &Env::get(bool dumpKernelsToDisk, bool loadKernelsFromDisk,
+                    bool deviceAddressValidation, bool blockingCQ) {
+  static Env config(dumpKernelsToDisk, loadKernelsFromDisk,
+                    deviceAddressValidation, blockingCQ);
   return config;
 }
 
-Hooks const &
+const Hooks &
 Hooks::get(std::optional<debug::Hooks::CallbackFn> preOperatorCallback,
            std::optional<debug::Hooks::CallbackFn> postOperatorCallback) {
   static Hooks config(preOperatorCallback, postOperatorCallback);
   return config;
 }
 
-} // namespace tt::runtime::debug
+#endif // TT_RUNTIME_DEBUG
 
-#endif
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+
+const PerfEnv &PerfEnv::get(std::uint32_t dumpDeviceRate) {
+  static PerfEnv config(dumpDeviceRate);
+  return config;
+}
+
+#endif // TT_RUNTIME_ENABLE_PERF_TRACE
+
+} // namespace tt::runtime::debug

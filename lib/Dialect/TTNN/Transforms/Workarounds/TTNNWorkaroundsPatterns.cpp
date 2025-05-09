@@ -589,7 +589,11 @@ public:
           workarounds::decomposition::CumSumOpDimRewritePattern,
           workarounds::decomposition::CumSumOpRankRewritePattern,
           workarounds::decomposition::EmbeddingOpSqueezeWeightRewritePattern,
-          workarounds::decomposition::ArgMaxOpRewritePattern>(&getContext());
+          workarounds::decomposition::ArgMaxOpRewritePattern,
+          workarounds::decomposition::ReduceOpsPadInputRewritePattern<
+              ttnn::MaxOp>,
+          workarounds::decomposition::ReduceOpsPadInputRewritePattern<
+              ttnn::MinOp>>(&getContext());
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);

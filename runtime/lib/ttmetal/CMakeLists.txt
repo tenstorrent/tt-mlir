@@ -12,10 +12,11 @@ endif()
 add_library(TTRuntimeTTMetal
   STATIC
   runtime.cpp
-  command_queue.cpp
+  executor.cpp
 )
 # We have to set the C++ standard to 20 because tt-metal requires it
 set_property(TARGET TTRuntimeTTMetal PROPERTY CXX_STANDARD 20)
+target_compile_definitions(TTRuntimeTTMetal PUBLIC TT_RUNTIME_ENABLE_TTMETAL)
 target_include_directories(TTRuntimeTTMetal PUBLIC
   ${PROJECT_SOURCE_DIR}/runtime/include
   ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common

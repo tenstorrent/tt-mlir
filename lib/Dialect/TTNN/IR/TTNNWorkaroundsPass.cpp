@@ -89,15 +89,16 @@ TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(Operation *op) {
 // Factory methods to create a set of workarounds for specific operations
 ///////////////////////////////////////////////////////////////////////////////
 
-// Factory method to create a set of workarounds for max pool 2d operation
-// operands. The max pool 2d operation can accept input in both row-major and
-// tile layout, but the output of the operation is strictly in row-major layout.
-// In order to keep the output consistent with the input, the row-major
-// workaround is applied to both the input and output operands.
-// The input and output operands are expected to use the bf16 data type, so the
-// bf16 workaround is applied to both the input and output operands.
+// Factory method to create a set of workarounds for 2d pooling operations
+// (avg_pool2d and max_pool2d) operands. The 2d pooling operation can accept
+// input in both row-major and tile layout, but the output of the operation is
+// strictly in row-major layout. In order to keep the output consistent with the
+// input, the row-major workaround is applied to both the input and output
+// operands. The input and output operands are expected to use the bf16 data
+// type, so the bf16 workaround is applied to both the input and output
+// operands.
 TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createMaxPool2DOpOperandsWorkarounds() {
+TTNNOperandsWorkaroundsFactory::createPool2DOpOperandsWorkarounds() {
   wa::TTNNOperandWorkarounds rowMajorLayoutBF16Workaround;
   rowMajorLayoutBF16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
   rowMajorLayoutBF16Workaround.tensorDataTypeWorkaround = DataType::BFloat16;
@@ -327,6 +328,9 @@ TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds() {
 // type does not match with input.
 // tt-metal issue to track mixed data types ops bug.
 // https://github.com/tenstorrent/tt-metal/issues/17998
+// Where also does not work with int32
+// so we also force everything to float32 in that case
+// https://github.com/tenstorrent/tt-mlir/issues/3154
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
     mlir::Operation::operand_range inputs) {
@@ -338,10 +342,13 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
   mlir::RankedTensorType inputType =
       mlir::cast<RankedTensorType>(inputs.back().getType());
   mlir::Type inputElementType = inputType.getElementType();
-  TTNNOperandWorkarounds typeWorkaround =
-      predicateElementType != inputElementType
-          ? TTNNOperandWorkarounds(elementTypeToDataType(inputElementType))
-          : TTNNOperandWorkarounds();
+  TTNNOperandWorkarounds typeWorkaround = TTNNOperandWorkarounds();
+  if (predicateElementType.isInteger() || inputElementType.isInteger()) {
+    typeWorkaround = TTNNOperandWorkarounds(DataType::Float32);
+  } else if (predicateElementType != inputElementType) {
+    typeWorkaround =
+        TTNNOperandWorkarounds(elementTypeToDataType(inputElementType));
+  }
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(typeWorkaround)
@@ -393,8 +400,23 @@ static std::optional<DataType> binaryOpDTypeWorkaround(mlir::Operation *op,
 
   if (isa<ttnn::AddOp, ttnn::SubtractOp>(op)) {
     if (dType == DataType::Float32 || dType == DataType::BFloat16 ||
-        dType == DataType::BFP_BFloat8 || dType == DataType::BFP_BFloat4 ||
-        dType == DataType::Int32) {
+        dType == DataType::BFP_BFloat8 || dType == DataType::BFP_BFloat4) {
+      return {};
+    }
+    if (dType == DataType::Int32) {
+      // Although TTNN claims to support int32 for Add and Subtract ops,
+      // broadcasting with int32 inputs does not currently work as expected.
+      // As a temporary workaround, we fall back to BFloat16 when input shapes
+      // differ. This should be removed once int32 broadcasting is properly
+      // supported.
+      auto lhsType =
+          mlir::cast<mlir::RankedTensorType>(op->getOperand(0).getType());
+      auto rhsType =
+          mlir::cast<mlir::RankedTensorType>(op->getOperand(1).getType());
+
+      if (lhsType.getShape() != rhsType.getShape()) {
+        return DataType::BFloat16;
+      }
       return {};
     }
     return DataType::BFloat16;

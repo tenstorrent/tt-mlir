@@ -406,6 +406,7 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
 
   let extraClassDeclaration = [{
     Conv2dConfigAttr withActivation(StringRef activation) const;
+    bool hasActivation() const;
   }];
 
   let assemblyFormat = "`<` struct(params) `>`";

@@ -64,25 +64,26 @@ def TTNNCreateInputGenerators: Pass<"ttnn-create-input-gens", "::mlir::ModuleOp"
 
     Given a forward function like this:
 
-    ```
+    ```mlir
     func.func @add(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
       %0 = "ttnn.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
       return %0 : tensor<32x32xbf16>
     }
     ```
 
-    The pass will create two function like this:
+    The pass will prepend `_` to the existing function name to avoid name collision
+    and create two function like this:
 
-    ```
-    func.func @createInputsFor_add() -> (tensor<32x32xbf16>, tensor<32x32xbf16>) {
+    ```mlir
+    func.func @create_inputs_for_add() -> (tensor<32x32xbf16>, tensor<32x32xbf16>) {
       %0 = "ttnn.empty"() <{shape = #ttnn.shape<32x32>}> : () -> tensor<32x32xbf16>
       %1 = "ttnn.empty"() <{shape = #ttnn.shape<32x32>}> : () -> tensor<32x32xbf16>
       return %0, %1 : tensor<32x32xbf16>, tensor<32x32xbf16>
     }
 
     func.func @main() -> i32 {
-      %0:2 = call @createInputsFor_add() : () -> (tensor<32x32xbf16>, tensor<32x32xbf16>)
-      %1 = call @add(%0#0, %0#1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %0:2 = call @create_inputs_for_add() : () -> (tensor<32x32xbf16>, tensor<32x32xbf16>)
+      %1 = call @_add(%0#0, %0#1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
       %c0_i32 = arith.constant 0 : i32
       return %c0_i32 : i32
     }
@@ -138,8 +139,14 @@ def TTNNPrepareConv2dWeights : Pass<"ttnn-prepare-conv2d-weights", "::mlir::Modu
   let description = [{
     This pass inserts a PrepareConv2dWeights operation before each Conv2d op which preprocess the weights used by Conv2d operations.
     The PrepareConv2dWeights op can be then const-evaled, leading to improved performance. In order to use this pass,
-    the project must be built with the op model library by setting -DTTMLIR_ENABLE_OP_MODEL=ON during the build process.
+    the project must be built with the op model library by setting -DTTMLIR_ENABLE_OPMODEL=ON during the build process.
   }];
+}
+
+def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
+{
+  let summary = "TTNN fusing pass.";
+  let description = "This pass tries to fuse operations together with goal to reduce the number of operations in the graph.";
 }
 
 #endif

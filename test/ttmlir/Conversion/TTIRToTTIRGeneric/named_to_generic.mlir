@@ -14,23 +14,33 @@ module {
     // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: ttir.tile_add
-    %0 = "ttir.add"(%lhs, %rhs, %out) <{operandSegmentSizes = array<i32: 2, 1>}> : (!ttype, !ttype, !ttype) -> !ttype
+    %0 = "ttir.add"(%lhs, %rhs, %out) : (!ttype, !ttype, !ttype) -> !ttype
     // named elementwise op, unary:
     // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: ttir.tile_exp
-    %1 = "ttir.exp"(%0, %out) <{operandSegmentSizes = array<i32: 1, 1>}> : (!ttype, !ttype) -> !ttype
+    %1 = "ttir.exp"(%0, %out) : (!ttype, !ttype) -> !ttype
     // named elementwise op, binary:
     // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: ttir.tile_mul
-    %2 = "ttir.multiply"(%0, %1, %out) <{operandSegmentSizes = array<i32: 2, 1>}> : (!ttype, !ttype, !ttype) -> !ttype
+    %2 = "ttir.multiply"(%0, %1, %out) : (!ttype, !ttype, !ttype) -> !ttype
     // named elementwise op, unary:
     // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: ttir.tile_log
-    %3 = "ttir.log"(%2, %out) <{operandSegmentSizes = array<i32: 1, 1>}> : (!ttype, !ttype) -> !ttype
-    return %3: !ttype
+    %3 = "ttir.log"(%2, %out) : (!ttype, !ttype) -> !ttype
+    // named elementwise op, binary:
+    // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: ttir.tile_maximum
+    %4 = "ttir.maximum"(%2, %3, %out) : (!ttype, !ttype, !ttype) -> !ttype
+    // named elementwise op, unary:
+    // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: ttir.tile_sin
+    %5 = "ttir.sin"(%4, %out) : (!ttype, !ttype) -> !ttype
+    return %5: !ttype
   }
 
   // CHECK-LABEL: func @named_reductions_R

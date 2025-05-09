@@ -175,18 +175,18 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
   fbb.read(static_cast<char *>(buffer.get()), size);
 
   // Read relevant information from binary
-  auto const *binarySystemDesc =
+  const auto *binarySystemDesc =
       ::tt::target::GetSizePrefixedSystemDescRoot(buffer.get())->system_desc();
-  auto const *binaryCpuDesc = binarySystemDesc->cpu_descs();
-  auto const *binaryChipDesc = binarySystemDesc->chip_descs();
-  auto const *binaryChipDescIndices = binarySystemDesc->chip_desc_indices();
-  auto const *chipCapabilities = binarySystemDesc->chip_capabilities();
-  auto const *binaryChipCoords = binarySystemDesc->chip_coords();
-  auto const *chipChannelConnections = binarySystemDesc->chip_channels();
+  const auto *binaryCpuDesc = binarySystemDesc->cpu_descs();
+  const auto *binaryChipDesc = binarySystemDesc->chip_descs();
+  const auto *binaryChipDescIndices = binarySystemDesc->chip_desc_indices();
+  const auto *chipCapabilities = binarySystemDesc->chip_capabilities();
+  const auto *binaryChipCoords = binarySystemDesc->chip_coords();
+  const auto *chipChannelConnections = binarySystemDesc->chip_channels();
 
   // Acquire cpu descs
   std::vector<tt::CPUDescAttr> cpuDescList;
-  for (auto const *element : *binaryCpuDesc) {
+  for (const auto *element : *binaryCpuDesc) {
     static_assert(llvm::to_underlying(::mlir::tt::CPURole::Device) ==
                   llvm::to_underlying(::tt::target::CPURole::Device));
     static_assert(llvm::to_underlying(::mlir::tt::CPURole::Host) ==
@@ -201,20 +201,20 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
 
   // Acquire chip descs
   std::vector<tt::ChipDescAttr> chipDescList;
-  for (auto const *element : *binaryChipDesc) {
+  for (const auto *element : *binaryChipDesc) {
     std::vector<tt::CoreCoordAttr> dramCores, ethCores, ethInactiveCores;
-    auto const *physicalHelperCores = element->physical_helper_cores();
+    const auto *physicalHelperCores = element->physical_helper_cores();
 
     // Populate all vecrors with CoreCoordAttr instances
-    for (auto const &core : *physicalHelperCores->dram()) {
+    for (const auto &core : *physicalHelperCores->dram()) {
       dramCores.emplace_back(
           tt::CoreCoordAttr::get(context, core->y(), core->x()));
     }
-    for (auto const &core : *physicalHelperCores->eth()) {
+    for (const auto &core : *physicalHelperCores->eth()) {
       ethCores.emplace_back(
           tt::CoreCoordAttr::get(context, core->y(), core->x()));
     }
-    for (auto const &core : *physicalHelperCores->eth_inactive()) {
+    for (const auto &core : *physicalHelperCores->eth_inactive()) {
       ethInactiveCores.emplace_back(
           tt::CoreCoordAttr::get(context, core->y(), core->x()));
     }
@@ -298,7 +298,7 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
 
     SmallVector<tt::TileSizeAttr> supportedTileSizesAttr;
 
-    for (auto const *it : *(element->supported_tile_sizes())) {
+    for (const auto *it : *(element->supported_tile_sizes())) {
       supportedTileSizesAttr.push_back(
           tt::TileSizeAttr::get(context, it->y(), it->x()));
     }
@@ -340,14 +340,14 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
 
   // Acquire chip coordinates
   std::vector<tt::ChipCoordAttr> chipCoordinateList;
-  for (auto const *element : *binaryChipCoords) {
+  for (const auto *element : *binaryChipCoords) {
     auto chipCoordinateAttr = tt::ChipCoordAttr::get(
         context, element->rack(), element->shelf(), element->y(), element->x());
     chipCoordinateList.push_back(chipCoordinateAttr);
   }
 
   std::vector<tt::ChipChannelAttr> chipChannelList;
-  for (auto const *element : *chipChannelConnections) {
+  for (const auto *element : *chipChannelConnections) {
     std::vector<int64_t> ethernetCoreCoord0Vec = {
         element->ethernet_core_coord0().y(),
         element->ethernet_core_coord0().x()};
@@ -404,6 +404,31 @@ unsigned SystemDescAttr::getPcieAddressAlignBytes(unsigned chipIndex) const {
   return getChipDescs()[chipIndex].getPcieAddressAlignBytes();
 }
 
+ShardLayoutAttr ShardLayoutAttr::get(mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> shape,
+                                     uint64_t elementSize, uint32_t buffers) {
+  return get(
+      context,
+      ttmlir::utils::calculateStrides(shape, static_cast<int64_t>(elementSize)),
+      buffers);
+}
+
+ShardLayoutAttr ShardLayoutAttr::get(ArrayRef<int64_t> shape, Type elementType,
+                                     uint32_t buffers) {
+  return get(elementType.getContext(), shape, getElementSizeBytes(elementType),
+             buffers);
+}
+
+ShardLayoutAttr ShardLayoutAttr::get(mlir::MemRefType memrefType,
+                                     uint32_t buffers) {
+  ArrayRef<int64_t> shape = memrefType.getShape();
+  if (auto layout =
+          mlir::dyn_cast<DeviceLayoutInterface>(memrefType.getLayout())) {
+    shape = layout.getShardShape(memrefType);
+  }
+  return get(shape, memrefType.getElementType(), buffers);
+}
+
 mlir::AffineMap ShardLayoutAttr::getAffineMap() const {
   auto *context = getContext();
   int64_t rank = getStride().size();
@@ -447,7 +472,7 @@ mlir::AffineMap ShardLayoutAttr::getAffineMap() const {
 //   - 7D tensor onto a 4D grid collapseIntervals=[(0, 3), (-3, -1)]:
 //       (d0, d1, d2, d3, d4, d5, d6) -> (d0 <> d1 <> d2, d3, d4 <> d5, d6)
 //
-mlir::AffineMap collapsedLinearAffineMap(
+mlir::AffineMap mlir::tt::collapsedLinearAffineMap(
     ::mlir::MLIRContext *context, ::llvm::ArrayRef<int64_t> shape,
     ::llvm::ArrayRef<int64_t> gridShape,
     ::llvm::ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
@@ -501,8 +526,8 @@ mlir::AffineMap collapsedLinearAffineMap(
 }
 
 mlir::SmallVector<std::int64_t>
-calculateLogicalShardShape(mlir::ArrayRef<int64_t> tensorShape,
-                           mlir::AffineMap linear, GridAttr grid) {
+mlir::tt::calculateLogicalShardShape(mlir::ArrayRef<int64_t> tensorShape,
+                                     mlir::AffineMap linear, GridAttr grid) {
   assert(linear.getNumResults() == grid.getShape().size());
   mlir::SmallVector<std::int64_t> logicalShape =
       ttmlir::utils::evalShape(linear, tensorShape);
@@ -521,7 +546,7 @@ MetalLayoutAttr MetalLayoutAttr::get(
     OOBVal oobVal) {
   auto grid = GridAttr::get(context, gridRank);
   auto elementType =
-      tiled ? TileType::get(context, ty.getElementType()) : ty.getElementType();
+      tiled ? TileType::get(ty.getElementType()) : ty.getElementType();
   return get(context, ty.getShape(), elementType, memorySpace, grid,
              collapseIntervals, oobVal);
 }
@@ -677,12 +702,7 @@ bool MetalLayoutAttr::isTiled() const {
 }
 
 uint64_t MetalLayoutAttr::getElementSizeBytes() const {
-  mlir::Type elementType = getElementType();
-  if (mlir::isa<TileType>(elementType)) {
-    auto tileType = mlir::cast<TileType>(elementType);
-    return tileType.getSizeBytes();
-  }
-  return elementType.getIntOrFloatBitWidth() / 8;
+  return mlir::tt::getElementSizeBytes(getElementType());
 }
 
 uint64_t MetalLayoutAttr::getMemrefSizeBytes() const {
@@ -1093,16 +1113,37 @@ DeviceAttr::getMemoryMap(std::pair<MemRefType, AffineMap> memrefAndView,
                       baseOffset);
 }
 
-size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType,
-                                      size_t pageSize) const {
-  DeviceLayoutInterface layout =
-      mlir::cast<DeviceLayoutInterface>(memrefType.getLayout());
+size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType, size_t pageSize,
+                                      bool includeBuffers) const {
+  assert(pageSize == 0 && "Page size not supported yet");
   mlir::Type elementType = memrefType.getElementType();
-  auto tileType = mlir::dyn_cast<TileType>(elementType);
-  uint64_t elementSizeBytes = tileType
-                                  ? tileType.getSizeBytes()
-                                  : elementType.getIntOrFloatBitWidth() / 8;
-  return layout.getShardNumElements(memrefType) * elementSizeBytes;
+  int64_t elementSizeBytes = getElementSizeBytes(elementType);
+  ShardLayoutAttr layout =
+      mlir::dyn_cast<ShardLayoutAttr>(memrefType.getLayout());
+  assert(
+      (layout || !mlir::isa<DeviceLayoutInterface>(memrefType.getLayout())) &&
+      "expected shard layout");
+  bool isLocalMemref = (layout == nullptr);
+  auto shardShape =
+      isLocalMemref ? memrefType.getShape() : layout.getShardShape(memrefType);
+  return ttmlir::utils::volume(shardShape,
+                               elementSizeBytes *
+                                   (includeBuffers ? layout.getBuffers() : 1));
+}
+
+size_t DeviceAttr::getMemrefCBPageSizeBytes(MemRefType memrefType) const {
+  mlir::Type elementType = memrefType.getElementType();
+  TileType tileType = mlir::dyn_cast<TileType>(elementType);
+  return tileType ? tileType.getSizeBytes()
+                  : TileType::get(elementType).getSizeBytes();
+}
+
+size_t DeviceAttr::getMemrefCBNumPages(MemRefType memrefType) const {
+  size_t sizeBytes =
+      getMemrefSizeBytes(memrefType, /*pageSize=*/0, /*includeBuffers=*/false);
+  size_t pageSize = getMemrefCBPageSizeBytes(memrefType);
+  assert(sizeBytes % pageSize == 0);
+  return sizeBytes / pageSize;
 }
 
 // Sample the last index in the tensor to get the last addressable element of
@@ -1192,9 +1233,9 @@ TileType::verify(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
   return ::mlir::success();
 }
 
-TileType TileType::get(::mlir::MLIRContext *context, Type elementType,
-                       ArrayRef<int64_t> shape) {
-  return get(context, shape, elementTypeToDataType(elementType));
+TileType TileType::get(Type elementType, ArrayRef<int64_t> shape) {
+  return get(elementType.getContext(), shape,
+             elementTypeToDataType(elementType));
 }
 
 llvm::SmallVector<int64_t>

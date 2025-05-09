@@ -351,5 +351,23 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 
 }; // namespace MaxPool2DInterface
 
+//===----------------------------------------------------------------------===//
+// ClampScalar
+//===----------------------------------------------------------------------===//
+namespace ClampScalarInterface {
+llvm::Expected<
+    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+getOpConstraints(GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout, llvm::APFloat min,
+                 llvm::APFloat max, llvm::ArrayRef<int64_t> outputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+llvm::Expected<size_t>
+getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayout, llvm::APFloat min,
+             llvm::APFloat max, llvm::ArrayRef<int64_t> outputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+}; // namespace ClampScalarInterface
+
 } // namespace mlir::tt::op_model::ttnn
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H

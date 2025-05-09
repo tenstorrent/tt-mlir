@@ -63,12 +63,18 @@ struct SplitCaller<OpTy, std::index_sequence<Is...>,
     // build(::mlir::OpBuilder &, ::mlir::OperationState &odsState,
     // ::mlir::TypeRange resultTypes, ::mlir::ValueRange operands,
     // ::llvm::ArrayRef<::mlir::NamedAttribute> attributes = {})`.
-    if constexpr (sizeof...(Js) == 1 &&
-                  std::is_convertible_v<
-                      std::tuple_element_t<
-                          sizeof...(Is) + sizeof...(Js) - 1,
-                          std::tuple<llvm::remove_cvref_t<ArgsTy>...>>,
-                      mlir::ArrayRef<mlir::NamedAttribute>>) {
+    if constexpr (sizeof...(Js) == 0) {
+      return builder.create<OpTy>(loc, output.getType(),
+                                  ttmlir::utils::flatten<mlir::Value>(
+                                      std::get<Is>(std::forward_as_tuple(
+                                          std::forward<ArgsTy>(args)...))...,
+                                      output));
+    } else if constexpr (sizeof...(Js) == 1 &&
+                         std::is_convertible_v<
+                             std::tuple_element_t<
+                                 sizeof...(Is) + sizeof...(Js) - 1,
+                                 std::tuple<llvm::remove_cvref_t<ArgsTy>...>>,
+                             mlir::ArrayRef<mlir::NamedAttribute>>) {
       return builder.create<OpTy>(
           loc, output.getType(),
           ttmlir::utils::flatten<mlir::Value>(
@@ -232,6 +238,24 @@ mlir::LogicalResult broadcastValue(mlir::PatternRewriter &rewriter,
                                    mlir::RankedTensorType desiredType,
                                    mlir::Value &output, mlir::Location loc,
                                    bool frontUnsqueeze);
+
+template <typename AdaptorT>
+mlir::ValueRange getDpsInputsFromAdaptor(AdaptorT adaptor,
+                                         unsigned numDpsInits) {
+  const auto operands = adaptor.getOperands();
+  assert(operands.size() >= numDpsInits &&
+         "not enough operands for numDpsInits");
+  return operands.drop_back(numDpsInits);
+}
+
+template <typename AdaptorT>
+mlir::ValueRange getDpsOutputsFromAdaptor(AdaptorT adaptor,
+                                          unsigned numDpsInits) {
+  const auto operands = adaptor.getOperands();
+  assert(operands.size() >= numDpsInits &&
+         "not enough operands for numDpsInits");
+  return operands.take_back(numDpsInits);
+}
 
 } // namespace mlir::tt::ttir::utils
 

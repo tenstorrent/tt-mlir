@@ -175,7 +175,9 @@ struct TTIRToTTNNBackendPipelineOptions
   //
   Option<bool> layoutWorkaroundsEnabled{
       *this, "enable-layout-workaround-pass",
-      llvm::cl::desc("Enable layout workaround pass."), llvm::cl::init(true)};
+      llvm::cl::desc("Enable layout workaround pass. Always false when "
+                     "optimizer pass is enabled."),
+      llvm::cl::init(true)};
 
   Option<bool> decompositionWorkaroundsEnabled{
       *this, "enable-decomposition-workaround-pass",
@@ -195,6 +197,10 @@ struct TTIRToTTNNBackendPipelineOptions
   Option<bool> eraseInverseOpsEnabled{
       *this, "enable-erase-inverse-ops-pass",
       llvm::cl::desc("Enable erase inverse ops pass."), llvm::cl::init(true)};
+
+  Option<bool> enableFusing{*this, "enable-fusing-pass",
+                            llvm::cl::desc("Enable fusing pass."),
+                            llvm::cl::init(false)};
 
   Option<tt::TTArgumentTypeMap, tt::ArgumentTypeMapParser> argumentTypeMap{
       *this, tt::OptionNames::argumentTypes,
@@ -223,6 +229,15 @@ struct TTIRToTTNNBackendPipelineOptions
       *this, "enable-const-eval",
       llvm::cl::desc("Enable const-eval optimization pass."),
       llvm::cl::init(false)};
+
+  // Option to specify the target bit width for quantized data types.
+  Option<uint32_t> quantBitWidth{
+      *this, "target-bit-width",
+      llvm::cl::desc(
+          "Target integer bit width for quantized types (8, 16, 32, 64). "
+          "Set to enable quantized data type conversion pass. "
+          "Leave empty to disable the pass."),
+      llvm::cl::init(32)};
 };
 
 // TTIR to EmitC pipeline options.
@@ -249,21 +264,6 @@ void createTTNNPipelineLayoutDecompositionPass(
 
 void createTTNNPipelineDeallocPass(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
-
-void createTTNNPipelineTTIRPassesFromString(OpPassManager &pm,
-                                            std::string options);
-
-void createTTNNPipelineAnalysisPassesFromString(OpPassManager &pm,
-                                                std::string options);
-
-void createTTNNPipelineLoweringPassesFromString(OpPassManager &pm,
-                                                std::string options);
-
-void createTTNNPipelineLayoutDecompositionPassFromString(OpPassManager &pm,
-                                                         std::string options);
-
-void createTTNNPipelineDeallocPassFromString(OpPassManager &pm,
-                                             std::string options);
 
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);

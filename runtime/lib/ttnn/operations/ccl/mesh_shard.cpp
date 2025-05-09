@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tt/runtime/ttnn/operations/utils.h"
+#include "tt/runtime/detail/ttnn/operations/utils.h"
 
 #include "operations/ccl/mesh_shard.h"
 #include "operations/ccl/mesh_shard_impl.h"
@@ -11,8 +11,7 @@ namespace tt::runtime::ttnn::operations::ccl {
 void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
-  ::ttnn::MeshDevice &meshDevice =
-      context.getSubMesh(op->device()->global_id());
+  ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
   const mesh_shard::MeshShardDirection shardDirection =
       static_cast<mesh_shard::MeshShardDirection>(op->shard_direction());
   const mesh_shard::MeshShardType shardType =
@@ -27,11 +26,11 @@ void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
     // tensor is pre-sharded by frontend and output tensor is expected to be
     // pre-sharded by frontend. Thus, no sharding is required, but need to makes
     // sure if the tensor is multi-device or multi-device host tensor.
-    DEBUG_ASSERT(input.storage_type() == ::ttnn::StorageType::MULTI_DEVICE ||
+    DEBUG_ASSERT(input.storage_type() == ::ttnn::StorageType::DEVICE ||
                      input.storage_type() ==
                          ::ttnn::StorageType::MULTI_DEVICE_HOST,
-                 "Input of mesh_shard with identity shard_type must be MULTI "
-                 "DEVICE or MULTI DEVICE HOST Storage.");
+                 "Input of mesh_shard with identity shard_type must be Device "
+                 " or MULTI DEVICE HOST Storage.");
   } else {
     DEBUG_ASSERT(::tt::runtime::ttnn::utils::isOnHost(input.storage_type()),
                  "Input of ttnn::mesh_shard should be host tensor for "

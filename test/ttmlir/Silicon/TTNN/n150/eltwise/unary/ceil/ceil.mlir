@@ -4,7 +4,7 @@
 
 func.func @ceil(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
   %0 = ttir.empty() : tensor<32x32xf32>
-  %1 = "ttir.ceil"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+  %1 = "ttir.ceil"(%arg0, %0) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
   // CHECK: "ttnn.ceil"
   // CHECK-SAME: tensor<32x32xf32
   // CHECK-SAME: -> tensor<32x32xf32

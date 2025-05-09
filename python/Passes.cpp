@@ -60,78 +60,6 @@ void populatePassesModule(nb::module_ &m) {
         }
       },
       nb::arg("module"), nb::arg("argument_types_string") = "");
-
-  m.def(
-      "ttnn_pipeline_ttir_passes",
-      [](MlirModule module, std::string options = "") {
-        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
-        mlir::PassManager pm(moduleOp->getContext());
-
-        tt::ttnn::createTTNNPipelineTTIRPassesFromString(pm, options);
-
-        if (mlir::failed(pm.run(moduleOp))) {
-          throw std::runtime_error("Failed to run pass manager");
-        }
-      },
-      nb::arg("module"), nb::arg("options") = "");
-
-  m.def(
-      "ttnn_pipeline_analysis_passes",
-      [](MlirModule module, std::string options = "") {
-        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
-        mlir::PassManager pm(moduleOp->getContext());
-
-        tt::ttnn::createTTNNPipelineAnalysisPassesFromString(pm, options);
-
-        if (mlir::failed(pm.run(moduleOp))) {
-          throw std::runtime_error("Failed to run pass manager");
-        }
-      },
-      nb::arg("module"), nb::arg("options") = "");
-
-  m.def(
-      "ttnn_pipeline_lowering_passes",
-      [](MlirModule module, std::string options = "") {
-        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
-        mlir::PassManager pm(moduleOp->getContext());
-
-        tt::ttnn::createTTNNPipelineLoweringPassesFromString(pm, options);
-
-        if (mlir::failed(pm.run(moduleOp))) {
-          throw std::runtime_error("Failed to run pass manager");
-        }
-      },
-      nb::arg("module"), nb::arg("options") = "");
-
-  m.def(
-      "ttnn_pipeline_layout_decomposition_pass",
-      [](MlirModule module, std::string options = "") {
-        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
-        mlir::PassManager pm(moduleOp->getContext());
-
-        tt::ttnn::createTTNNPipelineLayoutDecompositionPassFromString(pm,
-                                                                      options);
-
-        if (mlir::failed(pm.run(moduleOp))) {
-          throw std::runtime_error("Failed to run pass manager");
-        }
-      },
-      nb::arg("module"), nb::arg("options") = "");
-
-  m.def(
-      "ttnn_pipeline_dealloc_pass",
-      [](MlirModule module, std::string options = "") {
-        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
-        mlir::PassManager pm(moduleOp->getContext());
-
-        tt::ttnn::createTTNNPipelineDeallocPassFromString(pm, options);
-
-        if (mlir::failed(pm.run(moduleOp))) {
-          throw std::runtime_error("Failed to run pass manager");
-        }
-      },
-      nb::arg("module"), nb::arg("options") = "");
-
   m.def(
       "ttir_to_ttnn_backend_pipeline",
       [](MlirModule module, std::string options = "") {
@@ -262,8 +190,11 @@ void populatePassesModule(nb::module_ &m) {
           std::vector<std::pair<std::string, std::string>>());
 
   m.def("ttmetal_to_flatbuffer_file",
-        [](MlirModule module, std::string &filepath,
-           std::unordered_map<std::string, mlir::tt::GoldenTensor> goldenMap) {
+        [](MlirModule module, std::string filepath,
+           const std::unordered_map<std::string, mlir::tt::GoldenTensor>
+               &goldenMap = {},
+           const std::vector<std::pair<std::string, std::string>> &moduleCache =
+               {}) {
           mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
           std::error_code fileError;
           llvm::raw_fd_ostream file(filepath, fileError);
@@ -272,7 +203,7 @@ void populatePassesModule(nb::module_ &m) {
                                      ". Error: " + fileError.message());
           }
           if (mlir::failed(mlir::tt::ttmetal::translateTTMetalToFlatbuffer(
-                  moduleOp, file, goldenMap))) {
+                  moduleOp, file, goldenMap, moduleCache))) {
             throw std::runtime_error("Failed to write flatbuffer to file: " +
                                      filepath);
           }

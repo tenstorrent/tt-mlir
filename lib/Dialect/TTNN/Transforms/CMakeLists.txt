@@ -1,3 +1,7 @@
+if (TTMLIR_ENABLE_OPMODEL)
+        add_definitions(-DTTMLIR_ENABLE_OPMODEL)
+endif()
+
 add_mlir_dialect_library(MLIRTTNNTransforms
         Optimizer.cpp
         Passes.cpp
@@ -5,6 +9,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNDecomposeLayouts.cpp
         TTNNToCpp.cpp
         TTNNPrepareConv2dWeights.cpp
+        TTNNFusing.cpp
         Workarounds/Decomposition/ArgMaxOpRewritePattern.cpp
         Workarounds/Decomposition/CumSumOpDimRewritePattern.cpp
         Workarounds/Decomposition/CumSumOpRankRewritePattern.cpp

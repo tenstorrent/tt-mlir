@@ -37,7 +37,7 @@ def ttir_module_str() -> str:
             %4 = ttir.empty() : tensor<1x128xf32>
             %5 = "ttir.broadcast"(%3, %4) <{broadcast_dimensions = array<i64: 1, 1>}> : (tensor<1x128xf32>, tensor<1x128xf32>) -> tensor<1x128xf32>
             %6 = ttir.empty() : tensor<1x128xf32>
-            %7 = "ttir.add"(%1, %5, %6) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x128xf32>, tensor<1x128xf32>, tensor<1x128xf32>) -> tensor<1x128xf32>
+            %7 = "ttir.add"(%1, %5, %6) : (tensor<1x128xf32>, tensor<1x128xf32>, tensor<1x128xf32>) -> tensor<1x128xf32>
             return %7 : tensor<1x128xf32>
         }
         }
@@ -104,6 +104,9 @@ def test_compile(ttnn_module_str: str):
     assert result.dialect == ModuleDialect.TTNN
 
 
+@pytest.mark.skip(
+    "hardcoded system desc mismatch: https://github.com/tenstorrent/tt-mlir/issues/3191"
+)
 def test_execute(ttnn_module_str: str):
     ex = MLIRModuleExecutor()
     result: ExecutionResult = ex.execute(ttnn_module_str)

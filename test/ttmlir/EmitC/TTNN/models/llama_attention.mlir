@@ -22,11 +22,11 @@ module @LlamaSelfAttention attributes {} {
     %14 = ttir.empty() : tensor<1x12x100xf32>
     %15 = "ttir.concat"(%13, %13, %14) <{dim = -1 : si32}> : (tensor<1x12x50xf32>, tensor<1x12x50xf32>, tensor<1x12x100xf32>) -> tensor<1x12x100xf32>
     %16 = ttir.empty() : tensor<1x12x100xf32>
-    %17 = "ttir.cos"(%15, %16) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x12x100xf32>, tensor<1x12x100xf32>) -> tensor<1x12x100xf32>
+    %17 = "ttir.cos"(%15, %16) : (tensor<1x12x100xf32>, tensor<1x12x100xf32>) -> tensor<1x12x100xf32>
     %18 = ttir.empty() : tensor<1x1x12x100xf32>
     %19 = "ttir.unsqueeze"(%17, %18) <{dim = 1 : si32}> : (tensor<1x12x100xf32>, tensor<1x1x12x100xf32>) -> tensor<1x1x12x100xf32>
     %20 = ttir.empty() : tensor<1x32x12x100xf32>
-    %21 = "ttir.multiply"(%7, %19, %20) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x12x100xf32>, tensor<1x1x12x100xf32>, tensor<1x32x12x100xf32>) -> tensor<1x32x12x100xf32>
+    %21 = "ttir.multiply"(%7, %19, %20) : (tensor<1x32x12x100xf32>, tensor<1x1x12x100xf32>, tensor<1x32x12x100xf32>) -> tensor<1x32x12x100xf32>
     %22 = ttir.empty() : tensor<1x32x100x12xf32>
     %23 = "ttir.transpose"(%7, %22) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x12x100xf32>, tensor<1x32x100x12xf32>) -> tensor<1x32x100x12xf32>
     %24 = ttir.empty() : tensor<1x32x50x12xf32>
@@ -34,7 +34,7 @@ module @LlamaSelfAttention attributes {} {
     %26 = ttir.empty() : tensor<1x32x12x50xf32>
     %27 = "ttir.transpose"(%25, %26) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x50x12xf32>, tensor<1x32x12x50xf32>) -> tensor<1x32x12x50xf32>
     %28 = ttir.empty() : tensor<1x32x12x50xf32>
-    %29 = "ttir.multiply"(%27, %arg5, %28) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x12x50xf32>, tensor<1xf32>, tensor<1x32x12x50xf32>) -> tensor<1x32x12x50xf32>
+    %29 = "ttir.multiply"(%27, %arg5, %28) : (tensor<1x32x12x50xf32>, tensor<1xf32>, tensor<1x32x12x50xf32>) -> tensor<1x32x12x50xf32>
     %30 = ttir.empty() : tensor<1x32x100x12xf32>
     %31 = "ttir.transpose"(%7, %30) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x12x100xf32>, tensor<1x32x100x12xf32>) -> tensor<1x32x100x12xf32>
     %32 = ttir.empty() : tensor<1x32x50x12xf32>
@@ -44,13 +44,13 @@ module @LlamaSelfAttention attributes {} {
     %36 = ttir.empty() : tensor<1x32x12x100xf32>
     %37 = "ttir.concat"(%29, %35, %36) <{dim = -1 : si32}> : (tensor<1x32x12x50xf32>, tensor<1x32x12x50xf32>, tensor<1x32x12x100xf32>) -> tensor<1x32x12x100xf32>
     %38 = ttir.empty() : tensor<1x12x100xf32>
-    %39 = "ttir.sin"(%15, %38) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x12x100xf32>, tensor<1x12x100xf32>) -> tensor<1x12x100xf32>
+    %39 = "ttir.sin"(%15, %38) : (tensor<1x12x100xf32>, tensor<1x12x100xf32>) -> tensor<1x12x100xf32>
     %40 = ttir.empty() : tensor<1x1x12x100xf32>
     %41 = "ttir.unsqueeze"(%39, %40) <{dim = 1 : si32}> : (tensor<1x12x100xf32>, tensor<1x1x12x100xf32>) -> tensor<1x1x12x100xf32>
     %42 = ttir.empty() : tensor<1x32x12x100xf32>
-    %43 = "ttir.multiply"(%37, %41, %42) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x12x100xf32>, tensor<1x1x12x100xf32>, tensor<1x32x12x100xf32>) -> tensor<1x32x12x100xf32>
+    %43 = "ttir.multiply"(%37, %41, %42) : (tensor<1x32x12x100xf32>, tensor<1x1x12x100xf32>, tensor<1x32x12x100xf32>) -> tensor<1x32x12x100xf32>
     %44 = ttir.empty() : tensor<1x32x12x100xf32>
-    %45 = "ttir.add"(%21, %43, %44) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x12x100xf32>, tensor<1x32x12x100xf32>, tensor<1x32x12x100xf32>) -> tensor<1x32x12x100xf32>
+    %45 = "ttir.add"(%21, %43, %44) : (tensor<1x32x12x100xf32>, tensor<1x32x12x100xf32>, tensor<1x32x12x100xf32>) -> tensor<1x32x12x100xf32>
     %46 = ttir.empty() : tensor<32x12x100xf32>
     %47 = "ttir.squeeze"(%45, %46) <{dim = 0 : si32}> : (tensor<1x32x12x100xf32>, tensor<32x12x100xf32>) -> tensor<32x12x100xf32>
     %48 = ttir.empty() : tensor<12x3200xf32>
@@ -60,7 +60,7 @@ module @LlamaSelfAttention attributes {} {
     %52 = ttir.empty() : tensor<1x32x12x100xf32>
     %53 = "ttir.transpose"(%51, %52) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x12x32x100xf32>, tensor<1x32x12x100xf32>) -> tensor<1x32x12x100xf32>
     %54 = ttir.empty() : tensor<1x32x12x100xf32>
-    %55 = "ttir.multiply"(%53, %19, %54) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x12x100xf32>, tensor<1x1x12x100xf32>, tensor<1x32x12x100xf32>) -> tensor<1x32x12x100xf32>
+    %55 = "ttir.multiply"(%53, %19, %54) : (tensor<1x32x12x100xf32>, tensor<1x1x12x100xf32>, tensor<1x32x12x100xf32>) -> tensor<1x32x12x100xf32>
     %56 = ttir.empty() : tensor<1x32x100x12xf32>
     %57 = "ttir.transpose"(%53, %56) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x12x100xf32>, tensor<1x32x100x12xf32>) -> tensor<1x32x100x12xf32>
     %58 = ttir.empty() : tensor<1x32x50x12xf32>
@@ -68,7 +68,7 @@ module @LlamaSelfAttention attributes {} {
     %60 = ttir.empty() : tensor<1x32x12x50xf32>
     %61 = "ttir.transpose"(%59, %60) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x50x12xf32>, tensor<1x32x12x50xf32>) -> tensor<1x32x12x50xf32>
     %62 = ttir.empty() : tensor<1x32x12x50xf32>
-    %63 = "ttir.multiply"(%61, %arg8, %62) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x12x50xf32>, tensor<1xf32>, tensor<1x32x12x50xf32>) -> tensor<1x32x12x50xf32>
+    %63 = "ttir.multiply"(%61, %arg8, %62) : (tensor<1x32x12x50xf32>, tensor<1xf32>, tensor<1x32x12x50xf32>) -> tensor<1x32x12x50xf32>
     %64 = ttir.empty() : tensor<1x32x100x12xf32>
     %65 = "ttir.transpose"(%53, %64) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x12x100xf32>, tensor<1x32x100x12xf32>) -> tensor<1x32x100x12xf32>
     %66 = ttir.empty() : tensor<1x32x50x12xf32>
@@ -78,9 +78,9 @@ module @LlamaSelfAttention attributes {} {
     %70 = ttir.empty() : tensor<1x32x12x100xf32>
     %71 = "ttir.concat"(%63, %69, %70) <{dim = -1 : si32}> : (tensor<1x32x12x50xf32>, tensor<1x32x12x50xf32>, tensor<1x32x12x100xf32>) -> tensor<1x32x12x100xf32>
     %72 = ttir.empty() : tensor<1x32x12x100xf32>
-    %73 = "ttir.multiply"(%71, %41, %72) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x12x100xf32>, tensor<1x1x12x100xf32>, tensor<1x32x12x100xf32>) -> tensor<1x32x12x100xf32>
+    %73 = "ttir.multiply"(%71, %41, %72) : (tensor<1x32x12x100xf32>, tensor<1x1x12x100xf32>, tensor<1x32x12x100xf32>) -> tensor<1x32x12x100xf32>
     %74 = ttir.empty() : tensor<1x32x12x100xf32>
-    %75 = "ttir.add"(%55, %73, %74) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x12x100xf32>, tensor<1x32x12x100xf32>, tensor<1x32x12x100xf32>) -> tensor<1x32x12x100xf32>
+    %75 = "ttir.add"(%55, %73, %74) : (tensor<1x32x12x100xf32>, tensor<1x32x12x100xf32>, tensor<1x32x12x100xf32>) -> tensor<1x32x12x100xf32>
     %76 = ttir.empty() : tensor<32x12x100xf32>
     %77 = "ttir.squeeze"(%75, %76) <{dim = 0 : si32}> : (tensor<1x32x12x100xf32>, tensor<32x12x100xf32>) -> tensor<32x12x100xf32>
     %78 = ttir.empty() : tensor<32x100x12xf32>
@@ -90,9 +90,9 @@ module @LlamaSelfAttention attributes {} {
     %82 = ttir.empty() : tensor<1x32x12x12xf32>
     %83 = "ttir.unsqueeze"(%81, %82) <{dim = 0 : si32}> : (tensor<32x12x12xf32>, tensor<1x32x12x12xf32>) -> tensor<1x32x12x12xf32>
     %84 = ttir.empty() : tensor<1x32x12x12xf32>
-    %85 = "ttir.multiply"(%83, %arg10, %84) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x12x12xf32>, tensor<1xf32>, tensor<1x32x12x12xf32>) -> tensor<1x32x12x12xf32>
+    %85 = "ttir.multiply"(%83, %arg10, %84) : (tensor<1x32x12x12xf32>, tensor<1xf32>, tensor<1x32x12x12xf32>) -> tensor<1x32x12x12xf32>
     %86 = ttir.empty() : tensor<1x32x12x12xf32>
-    %87 = "ttir.add"(%85, %arg1, %86) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x12x12xf32>, tensor<1x1x12x12xf32>, tensor<1x32x12x12xf32>) -> tensor<1x32x12x12xf32>
+    %87 = "ttir.add"(%85, %arg1, %86) : (tensor<1x32x12x12xf32>, tensor<1x1x12x12xf32>, tensor<1x32x12x12xf32>) -> tensor<1x32x12x12xf32>
     %88 = ttir.empty() : tensor<1x32x12x12xf32>
     %89 = "ttir.softmax"(%87, %88) <{dimension = -1 : si32}> : (tensor<1x32x12x12xf32>, tensor<1x32x12x12xf32>) -> tensor<1x32x12x12xf32>
     %90 = ttir.empty() : tensor<32x12x12xf32>

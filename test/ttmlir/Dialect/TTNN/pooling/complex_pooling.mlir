@@ -14,7 +14,7 @@ module attributes {} {
         padding = array<i64: 0, 0, 0, 0, 0, 0, 0, 0>}> : (tensor<1x32x128x128xbf16>, tensor<1x32x128x128xbf16>, tensor<1x32x64x64xbf16>, tensor<1x32x64x64xbf16>) -> (tensor<1x32x64x64xbf16>, tensor<1x32x64x64xbf16>)
 
     %4 = ttir.empty() : tensor<1x32x64x64xbf16>
-    %6 = "ttir.add"(%2, %3, %4) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x64x64xbf16>, tensor<1x32x64x64xbf16>, tensor<1x32x64x64xbf16>) -> tensor<1x32x64x64xbf16>
+    %6 = "ttir.add"(%2, %3, %4) : (tensor<1x32x64x64xbf16>, tensor<1x32x64x64xbf16>, tensor<1x32x64x64xbf16>) -> tensor<1x32x64x64xbf16>
     return %6 : tensor<1x32x64x64xbf16>
   }
 }

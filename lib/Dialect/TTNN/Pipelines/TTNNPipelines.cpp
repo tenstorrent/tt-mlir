@@ -35,6 +35,9 @@ void createTTNNPipelineTTIRPasses(
 
   pm.addPass(mlir::tt::createTTPopulateArgumentTypes(options.argumentTypeMap));
   pm.addPass(mlir::createCanonicalizerPass());
+  if (options.enableFusing) {
+    pm.addPass(mlir::tt::ttir::createTTIRFusing());
+  }
   pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
   pm.addPass(mlir::createCanonicalizerPass());
 
@@ -45,7 +48,7 @@ void createTTNNPipelineTTIRPasses(
   // Flattening sliding window ops for compatibility with conversion to TTNN
   pm.addPass(mlir::tt::ttir::createTTIRFlattenSlidingWindow());
 
-  // Add pass to erase inverse ops. This is disabled by default
+  // Add pass to erase inverse ops. This is enabled by default
   // while the pass is experimental.
   if (options.eraseInverseOpsEnabled) {
     pm.addPass(mlir::tt::ttir::createTTIREraseInverseOps());
@@ -89,6 +92,11 @@ void createTTNNPipelineWorkaroundPass(
   TTNNWorkaroundsOptions workaroundOptions{
       options.layoutWorkaroundsEnabled, options.decompositionWorkaroundsEnabled,
       options.repeatFoldingWorkaroundEnabled};
+
+  // Optimizer solves layout constraints using graph capture.
+  if (options.optimizerPassEnabled) {
+    workaroundOptions.layoutWorkaroundsEnabled = false;
+  }
   pm.addPass(createTTNNWorkarounds(workaroundOptions));
   pm.addPass(mlir::createCanonicalizerPass());
 }
@@ -103,53 +111,11 @@ void createTTNNPipelineDeallocPass(
   pm.addPass(createTTNNDeallocate());
 }
 
-void createTTNNPipelineTTIRPassesFromString(OpPassManager &pm,
-                                            std::string options) {
-  auto optionsStruct =
-      TTIRToTTNNBackendPipelineOptions::createFromString(options);
-  createTTNNPipelineTTIRPasses(pm, *optionsStruct);
-}
-
-void createTTNNPipelineAnalysisPassesFromString(OpPassManager &pm,
-                                                std::string options) {
-  auto optionsStruct =
-      TTIRToTTNNBackendPipelineOptions::createFromString(options);
-  createTTNNPipelineAnalysisPasses(pm, *optionsStruct);
-}
-
-void createTTNNPipelineLoweringPassesFromString(OpPassManager &pm,
-                                                std::string options) {
-  auto optionsStruct =
-      TTIRToTTNNBackendPipelineOptions::createFromString(options);
-  createTTNNPipelineLoweringPasses(pm, *optionsStruct);
-}
-
-void createTTNNPipelineLayoutDecompositionPassFromString(OpPassManager &pm,
-                                                         std::string options) {
-  auto optionsStruct =
-      TTIRToTTNNBackendPipelineOptions::createFromString(options);
-  createTTNNPipelineLayoutDecompositionPass(pm, *optionsStruct);
-}
-
-void createTTNNPipelineDeallocPassFromString(OpPassManager &pm,
-                                             std::string options) {
-  auto optionsStruct =
-      TTIRToTTNNBackendPipelineOptions::createFromString(options);
-  createTTNNPipelineDeallocPass(pm, *optionsStruct);
-}
-
 void createTTNNPipelineTTIRImplicitBroadcastFoldPass(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   if (options.implicitBroadcastFoldingEnabled) {
     pm.addPass(mlir::tt::ttir::createTTIRImplicitBroadcastFold());
   }
-}
-
-void createTTNNPipelineTTIRImplicitBroadcastFoldPassFromString(
-    OpPassManager &pm, std::string options) {
-  auto optionsStruct =
-      TTIRToTTNNBackendPipelineOptions::createFromString(options);
-  createTTNNPipelineTTIRImplicitBroadcastFoldPass(pm, *optionsStruct);
 }
 
 void createTTIRToTTNNBackendPipeline(
@@ -167,12 +133,25 @@ void createTTIRToTTNNBackendPipeline(
       pm.nest<tt::DeviceModuleOp>().nest<mlir::ModuleOp>();
   createTTNNPipelineTTIRPasses(devicePm, options);
   createTTNNPipelineTTIRImplicitBroadcastFoldPass(devicePm, options);
+
+  ttir::TTIRQuantDataTypeConversionPassOptions quantOptions;
+  quantOptions.targetBitWidth = options.quantBitWidth;
+  devicePm.addPass(ttir::createTTIRQuantDataTypeConversionPass(quantOptions));
+
   createTTNNPipelineLoweringPasses(devicePm, options);
+  if (options.enableFusing) {
+    devicePm.addPass(tt::ttnn::createTTNNFusing());
+  }
   createTTNNPipelineWorkaroundPass(devicePm, options);
   if (options.enableConstEval) {
     devicePm.addPass(transforms::createConstEvalHoistTransform());
   }
   createTTNNPipelineAnalysisPasses(devicePm, options);
+  // We need to re-run const-eval to pick up const prepare conv2d weight ops
+  // split during the analysis passes.
+  if (options.enableConstEval) {
+    devicePm.addPass(transforms::createConstEvalHoistTransform());
+  }
   createTTNNPipelineLayoutDecompositionPass(devicePm, options);
   createTTNNPipelineDeallocPass(devicePm, options);
 

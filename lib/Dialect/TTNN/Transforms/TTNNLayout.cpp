@@ -77,11 +77,11 @@ createLayoutAttr(MLIRContext *ctx, GridAttr deviceGrid, RankedTensorType type,
   // Ex: for a quant p of fp32->int8, the storage type is int8.
   if (auto quantType =
           mlir::dyn_cast<mlir::quant::QuantizedType>(elementType)) {
-    elementType = isTiled ? TileType::get(ctx, quantType.getStorageType())
+    elementType = isTiled ? TileType::get(quantType.getStorageType())
                           : quantType.getStorageType();
   } else {
-    elementType = isTiled ? TileType::get(ctx, type.getElementType())
-                          : type.getElementType();
+    elementType =
+        isTiled ? TileType::get(type.getElementType()) : type.getElementType();
   }
   mlir::Attribute encoding = type.getEncoding();
   TensorMeshShardingAttr tensorMeshShardingAttr;
@@ -162,16 +162,14 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
 
   // Get element type that should be used in the new ttnn layout
   Type desiredElementType =
-      tiled ? rewriter.getType<TileType>(ty.getElementType())
-            : ty.getElementType();
+      tiled ? TileType::get(ty.getElementType()) : ty.getElementType();
 
   // If the element type is quantized, use the desired type.
   // Ex: for a quant op of fp32->int8, the storage type is int8.
   if (auto quantType =
           mlir::dyn_cast<mlir::quant::QuantizedType>(ty.getElementType())) {
-    desiredElementType =
-        tiled ? rewriter.getType<TileType>(quantType.getStorageType())
-              : quantType.getStorageType();
+    desiredElementType = tiled ? TileType::get(quantType.getStorageType())
+                               : quantType.getStorageType();
   }
 
   // If the current buffer type, element type and memory layout are the same as
@@ -669,6 +667,7 @@ public:
 
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
     registry.insert<mlir::tt::ttir::TTIRDialect>();
+    registry.insert<mlir::tt::ttnn::TTNNDialect>();
     registry.insert<mlir::tt::TTDialect>();
     registry.insert<mlir::func::FuncDialect>();
   }

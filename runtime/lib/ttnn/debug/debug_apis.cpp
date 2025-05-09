@@ -6,45 +6,11 @@
 #error "TT_RUNTIME_DEBUG must be defined and set"
 #endif
 
-#include "tt/runtime/ttnn/debug_apis.h"
+#include "tt/runtime/detail/ttnn/debug_apis.h"
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/ttnn/utils.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::debug {
-
-static std::string toString(::ttnn::Layout layout) {
-  switch (layout) {
-  case ::ttnn::Layout::ROW_MAJOR:
-    return "ROW_MAJOR";
-  case ::ttnn::Layout::TILE:
-    return "TILE";
-  case ::ttnn::Layout::INVALID:
-    return "INVALID";
-  }
-}
-
-static std::string toString(::ttnn::DataType dtype) {
-  switch (dtype) {
-  case ::ttnn::DataType::FLOAT32:
-    return "FLOAT32";
-  case ::ttnn::DataType::BFLOAT16:
-    return "BFLOAT16";
-  case ::ttnn::DataType::BFLOAT8_B:
-    return "BFLOAT8_B";
-  case ::ttnn::DataType::BFLOAT4_B:
-    return "BFLOAT4_B";
-  case ::ttnn::DataType::UINT32:
-    return "UINT32";
-  case ::ttnn::DataType::UINT16:
-    return "UINT16";
-  case ::ttnn::DataType::UINT8:
-    return "UINT8";
-  case ::ttnn::DataType::INT32:
-    return "INT32";
-  case ::ttnn::DataType::INVALID:
-    return "INVALID";
-  }
-}
 
 void checkTensorRefMatchesTTNNTensor(
     const ::tt::target::ttnn::TensorRef *tensorRef,

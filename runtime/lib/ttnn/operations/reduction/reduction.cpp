@@ -4,14 +4,14 @@
 
 #include "operations/reduction/reduction.h"
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
 
-#include "tt/runtime/ttnn/operations/utils.h"
-#include "tt/runtime/ttnn/utils.h"
+#include "tt/runtime/detail/ttnn/operations/utils.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::reduction {
 static void runReductionOp(
-    ::tt::target::ttnn::ReductionOp const *op, ProgramTensorPool &tensorPool,
+    const ::tt::target::ttnn::ReductionOp *op, ProgramTensorPool &tensorPool,
     const std::function<::ttnn::Tensor(
         const ::ttnn::Tensor &,
         const std::optional<std::variant<int, ::ttnn::SmallVector<int>>> &,

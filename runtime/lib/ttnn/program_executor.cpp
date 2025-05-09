@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tt/runtime/ttnn/program_executor.h"
+#include "tt/runtime/detail/ttnn/program_executor.h"
 
 #include "operations/cache/load_cached.h"
 #include "operations/ccl/all_gather.h"
@@ -16,7 +16,6 @@
 #include "operations/cpu/cpu.h"
 #include "operations/creation/arange.h"
 #include "operations/creation/constant.h"
-#include "operations/creation/construct_tensor.h"
 #include "operations/creation/empty.h"
 #include "operations/creation/full.h"
 #include "operations/creation/full_with.h"
@@ -48,13 +47,13 @@
 #include "operations/matmul/matmul.h"
 #include "operations/moreh/moreh_cumsum.h"
 #include "operations/normalization/softmax.h"
-#include "operations/pool/maxpool2d.h"
+#include "operations/pool/pool2d.h"
 #include "operations/pool/upsample.h"
 #include "operations/reduction/argmax.h"
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
 #include "tt/runtime/detail/debug.h"
-#include "tt/runtime/ttnn/types.h"
+#include "tt/runtime/detail/ttnn/types.h"
 #include "tt/runtime/utils.h"
 
 #ifdef TT_RUNTIME_ENABLE_PERF_TRACE
@@ -74,7 +73,7 @@ static void tracyLogOpLocation(const ::tt::target::ttnn::Operation *op) {
 ProgramExecutor::ProgramExecutor(
     const ::tt::target::ttnn::Program *program, const Binary &executableHandle,
     std::vector<::tt::runtime::Tensor> &programInputs,
-    ::ttnn::MeshDevice *meshDevice, const size_t programIndex)
+    std::shared_ptr<::ttnn::MeshDevice> meshDevice, const size_t programIndex)
     : program(program), executableHandle(executableHandle) {
   LOG_ASSERT(program, "Program must be provided for execution");
 
@@ -98,8 +97,8 @@ ProgramExecutor::ProgramExecutor(
 
   context = std::make_unique<ProgramContext>(
       programInputIds, programOutputIds, std::move(liveTensors),
-      common::DylibManager(program->dylibs()), meshDevice, executableHandle,
-      programIndex);
+      common::DylibManager(program->dylibs()), std::move(meshDevice),
+      executableHandle, programIndex);
 }
 
 void ProgramExecutor::runCallback(
@@ -119,6 +118,8 @@ void ProgramExecutor::runCallback(
 }
 
 void ProgramExecutor::execute() {
+  LOG_DEBUG(LogType::LogRuntimeTTNN,
+            "Starting execution of program: ", program->name()->c_str());
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
@@ -128,15 +129,20 @@ void ProgramExecutor::execute() {
     runOperation(op);
     runCallback(debug::Hooks::get().getPostOperatorCallback(), executableHandle,
                 op, context.get());
-    dumpPerfCountersIfNeeded(context->getParentMesh());
+    dumpPerfCountersIfNeeded(context->getMeshDevice());
   }
+  LOG_DEBUG(LogType::LogRuntimeTTNN,
+            "Finished execution of program: ", program->name()->c_str());
 }
 
-void ProgramExecutor::dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice,
-                                               std::uint32_t sampleRate) {
+std::vector<::tt::runtime::Tensor> ProgramExecutor::gatherOutputTensors() {
+  return context->getTensorPool().gatherOutputTensors();
+}
+
+void ProgramExecutor::dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice) {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
   static uint32_t counter = 0;
-  if (counter++ >= sampleRate) {
+  if (counter++ >= debug::PerfEnv::get().dumpDeviceRate) {
     LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +
                                            std::to_string(counter) +
                                            " operations");
@@ -174,10 +180,6 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::EmptyOp: {
     return operations::creation::run(op->type_as_EmptyOp(), getContext());
-  }
-  case ::tt::target::ttnn::OpType::ConstructTensorOp: {
-    return operations::creation::run(op->type_as_ConstructTensorOp(),
-                                     getContext());
   }
   case ::tt::target::ttnn::OpType::NamedFullOp: {
     return operations::creation::run(op->type_as_NamedFullOp(), getContext());
@@ -283,8 +285,8 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::DeallocateOp: {
     return operations::deletion::run(op->type_as_DeallocateOp(), getContext());
   }
-  case ::tt::target::ttnn::OpType::MaxPool2dOp: {
-    return operations::pool::run(op->type_as_MaxPool2dOp(), getContext());
+  case ::tt::target::ttnn::OpType::Pool2dOp: {
+    return operations::pool::run(op->type_as_Pool2dOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     return operations::ccl::run(op->type_as_AllGatherOp(), getContext());

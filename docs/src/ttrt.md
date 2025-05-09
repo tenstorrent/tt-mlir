@@ -34,7 +34,7 @@ TTRT_LOGGER_LEVEL=DEBUG
 ```
 
 ## Installing ttrt as python whls
-Everytime you build ttrt, it will create a whls file in `build/runtime/tools/python/build`. Ex filename `ttrt-0.0.235-cp310-cp310-linux_x86_64.whl`. You can take this whls file and install it in any docker container and in any venv outside of ttmlir. After which, you can use all the following functionality as the same.
+Everytime you build ttrt, it will create a whls file in `build/runtime/tools/ttrt/build`. Ex filename `ttrt-0.0.235-cp310-cp310-linux_x86_64.whl`. You can take this whls file and install it in any docker container and in any venv outside of ttmlir. After which, you can use all the following functionality as the same.
 1. Download whls
 2. Create a python venv
 ```bash
@@ -172,7 +172,6 @@ ttrt run /dir/of/flatbuffers --loops 10
 ttrt run /dir/of/flatbuffers --log-file ttrt.log
 ttrt run out.ttnn --save-artifacts --artifact-dir /path/to/some/dir
 ttrt run out.ttnn --load-kernels-from-disk
-ttrt run out.ttnn --enable-async-ttnn
 ttrt run out.ttnn --result-file result.json
 ttrt run out.ttnn --disable-golden
 ttrt run out.ttnn --save-golden-tensors
@@ -338,7 +337,7 @@ result_code, results = run_instance()
 ## Bonus Section: Extending runtime to other FE's
 MLIR Runtime exposes a feature to register python callback functions. Any two python fuctions can be provided - the first function will be executed before every op in MLIR Runtime, the second after every op. The following steps describe how to extend your application to register python functions.
 
-1. Pybind DebugHooks C++ class, specifically `tt::runtime::debug::Hooks::get`. See `runtime/tools/python/ttrt/runtime/module.cpp` for an example of how TTRT pybinds it.
+1. Pybind DebugHooks C++ class, specifically `tt::runtime::debug::Hooks::get`. See `runtime/tools/ttrt/ttrt/runtime/module.cpp` for an example of how TTRT pybinds it.
 ```bash
 tt::runtime::debug::Hooks
 tt::runtime::debug::Hooks::get
@@ -364,7 +363,7 @@ op_golden_tensor = binary.get_debug_info_golden(loc) : get the golden tensor fro
 op_output_tensor = ttrt.runtime.get_op_output_tensor(opContext, programContext) : get the currently running output tensor from device as list of float32
 ```
 
-5. A potential application for this callback function is implementing a golden callback. TTRT achieves this by first storing the golden data within the flatbuffer binary. See `python/Passes.cpp` - specifically `ttnn_to_flatbuffer_file` function for an example. This is used by `python/test_infra/ttir_builder.py` to construct flatbuffers with embedded golden data. You can store input/output/intermediate data within the flatbuffer. The choice of the map `key` for inputs/outputs is left to the golden implementor. The intermediate tensor key is derived from loc data for ttrt. External users can implement their own key/value logic. See `runtime/tools/python/ttrt/common/golden.py` for how ttrt implement the golden callback function.
+5. A potential application for this callback function is implementing a golden callback. TTRT achieves this by first storing the golden data within the flatbuffer binary. See `python/Passes.cpp` - specifically `ttnn_to_flatbuffer_file` function for an example. This is used by `python/test_infra/ttir_builder.py` to construct flatbuffers with embedded golden data. You can store input/output/intermediate data within the flatbuffer. The choice of the map `key` for inputs/outputs is left to the golden implementor. The intermediate tensor key is derived from loc data for ttrt. External users can implement their own key/value logic. See `runtime/tools/ttrt/ttrt/common/golden.py` for how ttrt implement the golden callback function.
 ```bash
 std::unordered_map<std::string, mlir::tt::GoldenTensor> goldenMap
 mlir::tt::ttnn::translateTTNNToFlatbuffer(moduleOp, file, goldenMap)

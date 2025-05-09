@@ -31,17 +31,24 @@ RUN unzip "${NINJA_ZIP}" -d /usr/local/bin/
 RUN chmod +x /usr/local/bin/ninja
 RUN rm -f "${NINJA_ZIP}"
 
-# Build Toolchain
+# Create a directory for the build and toolchain
+ENV PROJECT_NAME=tt-mlir
+ENV BUILD_DIR=/home/build
 ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
 
-RUN mkdir -p $TTMLIR_TOOLCHAIN_DIR && mkdir -p /build
+RUN echo "Building $PROJECT_NAME"
 
-RUN git clone --depth 1 https://github.com/tenstorrent/tt-mlir.git /build/tt-mlir
+RUN mkdir -p $BUILD_DIR && \
+    mkdir -p $TTMLIR_TOOLCHAIN_DIR
 
-RUN cd /build/tt-mlir && \
-    source env/activate && \
-    cmake -B env/build env && \
+# Copy the project to the container
+ADD . $BUILD_DIR/$PROJECT_NAME
+
+# Build the toolchain
+WORKDIR $BUILD_DIR/$PROJECT_NAME
+
+# Show last commit
+RUN git log -1
+
+RUN cmake -B env/build env && \
     cmake --build env/build
-
-# Delete build directory artifact
-RUN rm -rf /build

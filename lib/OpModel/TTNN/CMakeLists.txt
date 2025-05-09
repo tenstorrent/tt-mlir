@@ -4,7 +4,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(SOURCES
-    TTNNOpModelLib.cpp
+    TTNNOpModel.cpp
     Conversion.cpp
     SingletonDeviceContext.cpp
 )
@@ -14,10 +14,10 @@ message(STATUS "TTMLIR_ENABLE_OPMODEL[${TTMLIR_ENABLE_OPMODEL}]")
 if (TTMLIR_ENABLE_OPMODEL)
     # Building op model library will invoke building tt-metal; and it requires TT_METAL_HOME and ARCH_NAME environment variables to be set.
     if("$ENV{TT_METAL_HOME}" STREQUAL "")
-        message(FATAL_ERROR "TT_METAL_HOME is not set")
+        message(WARNING "TT_METAL_HOME is not set")
     endif()
     if("$ENV{ARCH_NAME}" STREQUAL "")
-        message(FATAL_ERROR "ARCH_NAME is not set")
+        message(WARNING "ARCH_NAME is not set")
     endif()
 
     # Link to tt-metal libs and include directories

@@ -27,8 +27,8 @@ using locSize2d = std::tuple<std::array<int32_t, 2>,  //  {{locX, locY},
 /// \returns A vector of core ranges, where each core range is represented by
 ///          a pair of location and size (both 2D).
 inline std::vector<locSize2d>
-toCoreRangeSet(const llvm::ArrayRef<int64_t> virtualGridShape,
-               const mlir::AffineMap mapping) {
+toCoreRangeSet(llvm::ArrayRef<int64_t> virtualGridShape,
+               mlir::AffineMap mapping) {
   std::vector<locSize2d> coreRangeSet;
   ::ttmlir::utils::sample(
       virtualGridShape, [&](ArrayRef<std::int64_t> virtualCoreCoord) {

@@ -867,52 +867,37 @@ class StableHLOToTTIRReduceWindowOpConversionPattern
       mlir::stablehlo::ReduceWindowOp>::OpConversionPattern;
 
 public:
-  bool isMaxPool(mlir::stablehlo::ReduceWindowOp &srcOp) const {
-    if (srcOp.getBody().getBlocks().size() != 1) {
-      return false;
-    }
-
-    // Find constant input(s)
-    Operation *initValue;
-    for (uint64_t i = 0; i < srcOp.getInitValues().size(); i++) {
-      initValue = srcOp.getInitValues()[i].getDefiningOp();
-      while (initValue->getOpOperands().size() == 1) {
-        initValue = initValue->getOpOperand(0).get().getDefiningOp();
-      }
-      if (!isa<stablehlo::ConstantOp>(initValue)) {
-        return false;
-      }
-
-      stablehlo::ConstantOp initValueOp =
-          mlir::cast<stablehlo::ConstantOp>(initValue);
-
-      if (!checkInitValue(initValueOp, TypicalInitReductionValue::NEG_INF)) {
-        return false;
-      }
-    }
-
-    Block &block = *srcOp.getBody().getBlocks().begin();
-    uint32_t opIdx = 0;
-    for (Operation &op : block) {
-      if (opIdx == 0 && !isa<mlir::stablehlo::MaxOp>(op)) {
-        return false;
-      }
-      if (opIdx == 1 && !isa<mlir::stablehlo::ReturnOp>(op)) {
-        return false;
-      }
-      if (opIdx >= 2) {
-        return false; // More than two ops in the block
-      }
-      opIdx++;
-    }
-
-    return true;
-  }
-
   LogicalResult
   matchAndRewrite(mlir::stablehlo::ReduceWindowOp srcOp,
                   mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    // Check basic structure of the ReduceWindowOp
+    if (!hasValidOpStructure(srcOp)) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Invalid structure of reduce window block.");
+    }
+
+    // Extract initialization constant value.
+    std::optional<TypicalInitReductionValue> initValue =
+        extractInitValue(srcOp);
+    if (!initValue) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Unable to extract constant initialization value.");
+      ;
+    }
+
+    Block &block = *srcOp.getBody().getBlocks().begin();
+    auto &operations = block.getOperations();
+    if (!isa<mlir::stablehlo::ReturnOp>(operations.back())) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Invalid last op in the block.");
+    }
+
+    mlir::Operation *frontOp = &operations.front();
+    if (!isa<mlir::stablehlo::AddOp, mlir::stablehlo::MaxOp>(frontOp)) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Invalid first op in the block.");
+    }
 
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult(0).getType()));
@@ -952,40 +937,81 @@ public:
                  : rewriter.getDenseI64ArrayAttr(
                        SmallVector<int64_t>(windowDimensions.size() * 2, 0));
 
-    mlir::tt::ttir::PoolingMethod poolingMethod;
-    int64_t dimension = -1;
-    if (isMaxPool(srcOp)) {
-      poolingMethod = mlir::tt::ttir::PoolingMethod::Max;
-    } else if (isCumSum(srcOp, adaptor, dimension, padding)) {
+    if (isMaxPool(srcOp, *initValue, frontOp)) {
+      rewriter.replaceOpWithNewOp<ttir::PoolingOp>(
+          srcOp, outputType, adaptor.getInputs(), outputs,
+          mlir::tt::ttir::PoolingMethod::Max, windowDimensions, windowStrides,
+          baseDilations, window_dilations, padding);
+      return success();
+    }
+    std::optional<mlir::Operation *> divOp =
+        isAvgPool(srcOp, *initValue, frontOp);
+    if (divOp) {
+      auto newOp = rewriter.replaceOpWithNewOp<ttir::PoolingOp>(
+          srcOp, outputType, adaptor.getInputs(), outputs,
+          mlir::tt::ttir::PoolingMethod::Average, windowDimensions,
+          windowStrides, baseDilations, window_dilations, padding);
+      (*divOp)->replaceAllUsesWith(newOp);
+      rewriter.eraseOp(*divOp);
+      return success();
+    }
+    std::optional<int64_t> dimension =
+        isCumSum(srcOp, adaptor, *initValue, frontOp, padding);
+    if (dimension) {
       rewriter.replaceOpWithNewOp<ttir::CumSumOp>(
           srcOp, outputType, adaptor.getInputs()[0],
-          rewriter.getI64IntegerAttr(dimension), outputs[0]);
+          rewriter.getI64IntegerAttr(*dimension), outputs[0]);
       return success();
-    } else {
-      return rewriter.notifyMatchFailure(srcOp, "Unsupported pooling method");
     }
-
-    rewriter.replaceOpWithNewOp<ttir::PoolingOp>(
-        srcOp, outputType, adaptor.getInputs(), outputs, poolingMethod,
-        windowDimensions, windowStrides, baseDilations, window_dilations,
-        padding);
-
-    return success();
+    return rewriter.notifyMatchFailure(srcOp, "Unsupported pooling method");
   }
 
 private:
+  // Requirements for max pooling.
+  // 1. Front op in the block must be 'max'.
+  // 2. InitValue must be negative infinity.
+  bool isMaxPool(mlir::stablehlo::ReduceWindowOp &srcOp,
+                 TypicalInitReductionValue initValue,
+                 mlir::Operation *frontOp) const {
+    if (!isa<mlir::stablehlo::MaxOp>(frontOp)) {
+      return false;
+    }
+    if (initValue != TypicalInitReductionValue::NEG_INF) {
+      return false;
+    }
+    return true;
+  }
+
+  // Requirements for average pooling.
+  // 1. Front op in the block must be 'add'.
+  // 2. InitValue must be zero.
+  // 3. The output of 'reduce_window' op is divided by number of elements in the
+  //    kernel.
+  std::optional<mlir::Operation *>
+  isAvgPool(mlir::stablehlo::ReduceWindowOp &srcOp,
+            TypicalInitReductionValue initValue,
+            mlir::Operation *frontOp) const {
+    if (!isa<mlir::stablehlo::AddOp>(frontOp)) {
+      return std::nullopt;
+    }
+    if (initValue != TypicalInitReductionValue::ZERO) {
+      return std::nullopt;
+    }
+
+    return extractDivisor(srcOp);
+  }
+
   // This function verify all the required conditions to convert stablehlo
   // reduce_window op to TTIR cumsum op and also determine the dimension
   // attribute along which the cumulative sum will be computed.
   // The reduce_window op must satisfy the following conditions.
-  // 1. One input / one output, one block in body and two ops with in block.
-  // 2. Ops in the block must be 'add' and 'return'.
-  // 3. InitValue must be zero.
-  // 4. There are no strides or dilations for window-related attributes.
-  // 5. The size of padding attribute is equal to two times input tensor rank.
-  // 6. Padding value must be zero in case of splat vector. Window dimension
+  // 1. Front op in the block must be 'add'.
+  // 2. InitValue must be zero.
+  // 3. There are no strides or dilations for window-related attributes.
+  // 4. The size of padding attribute is equal to two times input tensor rank.
+  // 5. Padding value must be zero in case of splat vector. Window dimension
   //    attribute must have all elements equal to one in this case.
-  // 7. Padding attribute have one non-zero element in case of non-splat vector
+  // 6. Padding attribute have one non-zero element in case of non-splat vector
   //    and this non-zero element must be equal to size of specified dimension
   //    minus one.
   // The dimension attribute is determined in following two ways.
@@ -994,77 +1020,68 @@ private:
   // 2. (If padding is non-splat vector): Window dimension attribute must have
   //    all elements equal to 1 except one; whose location is the required
   //    dimension and value must be qual to size of the required dimension.
-  bool isCumSum(mlir::stablehlo::ReduceWindowOp &srcOp,
-                mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
-                int64_t &dimension, DenseI64ArrayAttr padding) const {
-
-    // Check basic structure of the ReduceWindowOp
-    if (!hasValidOpStructure(srcOp)) {
-      return false;
+  std::optional<int64_t>
+  isCumSum(mlir::stablehlo::ReduceWindowOp &srcOp,
+           mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
+           TypicalInitReductionValue initValue, mlir::Operation *frontOp,
+           DenseI64ArrayAttr padding) const {
+    if (!isa<mlir::stablehlo::AddOp>(frontOp)) {
+      return std::nullopt;
     }
 
-    // Verify operations in the block
-    if (!hasValidOperationsInBlock(srcOp)) {
-      return false;
-    }
-
-    // Check init values
-    if (!hasValidInitValues(srcOp)) {
-      return false;
+    if (initValue != TypicalInitReductionValue::ZERO) {
+      return std::nullopt;
     }
 
     // Verify window-related attributes (strides, dilations)
     if (!hasValidWindowAttributes(adaptor)) {
-      return false;
+      return std::nullopt;
     }
 
+    int64_t dimension;
     // Check input tensor type and padding
     if (!hasValidInputAndPadding(srcOp, adaptor, dimension, padding)) {
-      return false;
+      return std::nullopt;
     }
 
-    return true;
+    return dimension;
+  }
+
+  // Extract the constant initialization value.
+  std::optional<TypicalInitReductionValue>
+  extractInitValue(mlir::stablehlo::ReduceWindowOp &srcOp) const {
+    if (srcOp.getInitValues().size() > 1) {
+      return std::nullopt;
+    }
+    // Find constant input(s)
+    auto initValue = srcOp.getInitValues().front();
+    auto *defOp = initValue.getDefiningOp();
+    while (defOp->getOpOperands().size() == 1) {
+      defOp = defOp->getOpOperand(0).get().getDefiningOp();
+    }
+    if (!isa<stablehlo::ConstantOp>(defOp)) {
+      return std::nullopt;
+    }
+    stablehlo::ConstantOp initValueOp =
+        mlir::cast<stablehlo::ConstantOp>(defOp);
+    if (checkInitValue(initValueOp, TypicalInitReductionValue::NEG_INF)) {
+      return TypicalInitReductionValue::NEG_INF;
+    }
+    if (checkInitValue(initValueOp, TypicalInitReductionValue::ZERO)) {
+      return TypicalInitReductionValue::ZERO;
+    }
+
+    return std::nullopt;
   }
 
   // validate basic structure of the ReduceWindowOp.
+  // One input / one output, one block in body and two ops with in block.
   bool hasValidOpStructure(mlir::stablehlo::ReduceWindowOp &srcOp) const {
     if (srcOp.getBody().getBlocks().size() != 1 ||
         srcOp.getBody().getBlocks().begin()->getOperations().size() != 2) {
       return false;
     }
     if (srcOp.getInputs().size() != 1 || srcOp->getResults().size() != 1) {
-      return false;
-    }
-    return true;
-  }
-
-  // Check init values (must be constant and zero).
-  bool hasValidInitValues(mlir::stablehlo::ReduceWindowOp &srcOp) const {
-    for (auto initValue : srcOp.getInitValues()) {
-      auto *defOp = initValue.getDefiningOp();
-      while (defOp->getOpOperands().size() == 1) {
-        defOp = defOp->getOpOperand(0).get().getDefiningOp();
-      }
-      if (!isa<stablehlo::ConstantOp>(defOp)) {
-        return false;
-      }
-      stablehlo::ConstantOp initValueOp =
-          mlir::cast<stablehlo::ConstantOp>(defOp);
-      if (!checkInitValue(initValueOp, TypicalInitReductionValue::ZERO)) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  // Verify operations inside the block (AddOp followed by ReturnOp).
-  bool hasValidOperationsInBlock(mlir::stablehlo::ReduceWindowOp &srcOp) const {
-    Block &block = *srcOp.getBody().getBlocks().begin();
-    auto &operations = block.getOperations();
-    if (!isa<mlir::stablehlo::AddOp>(operations.front())) {
-      return false;
-    }
-    if (!isa<mlir::stablehlo::ReturnOp>(operations.back())) {
       return false;
     }
     return true;
@@ -1171,6 +1188,47 @@ private:
     }
 
     return true;
+  }
+
+  // Verify that the output of reduce window op is consumed by division op and
+  // the divisor is initialized with a constant op which is equal to number of
+  // elements in the kernel.
+  std::optional<mlir::Operation *>
+  extractDivisor(mlir::stablehlo::ReduceWindowOp &srcOp) const {
+    mlir::Operation *op = *srcOp->getUsers().begin();
+    if (isa_and_nonnull<stablehlo::BroadcastInDimOp>(op)) {
+      op = *op->getUsers().begin();
+    }
+    if (!isa_and_nonnull<stablehlo::DivOp>(op)) {
+      return std::nullopt;
+    }
+    mlir::Operation *divOp = op;
+
+    op = op->getOperand(1).getDefiningOp();
+    while (
+        mlir::isa_and_present<stablehlo::BroadcastInDimOp, stablehlo::ReshapeOp,
+                              stablehlo::ConvertOp>(op)) {
+      op = op->getOperand(0).getDefiningOp();
+    }
+
+    auto constantOp = mlir::dyn_cast_if_present<stablehlo::ConstantOp>(op);
+    if (!constantOp) {
+      return std::nullopt;
+    }
+    if (constantOp.getType().getShape().size()) {
+      return std::nullopt;
+    }
+    auto kernel = srcOp.getWindowDimensions();
+    int64_t kernelSize = 1;
+    for (int64_t element : kernel) {
+      kernelSize *= element;
+    }
+    int64_t divisor =
+        constantOp.getValueAttr().getSplatValue<llvm::APInt>().getZExtValue();
+    if (divisor == kernelSize) {
+      return divOp;
+    }
+    return std::nullopt;
   }
 };
 } // namespace
@@ -1331,8 +1389,8 @@ private:
         mlir::cast<RankedTensorType>(this->getTypeConverter()->convertType(
             srcOp->getResults()[0].getType()));
 
-    ttir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
-                                               adaptor.getOperands());
+    ttir::utils::replaceOpWithNewDPSOp<DestOp>(
+        rewriter, srcOp, outputType, adaptor.getLhs(), adaptor.getRhs());
 
     return success();
   }

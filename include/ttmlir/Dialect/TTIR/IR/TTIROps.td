@@ -91,7 +91,7 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
         iterator_types = [#parallel, #parallel],     // Iterator types for the input/output tensors. See linalg.generic
         threads = [#ttir.thread<compute>],           // Thread types for the regions.
         operandSegmentSizes = array<i32: 2, 1>       // Sizes of the operand segments, i.e. 2 inputs and 1 output.
-      ({
+      }> ({
       ^bb0(%arg2: memref<64x128xf32, #l1_>,
            %arg3: memref<64x128xf32, #l1_>,
            %arg4: memref<64x128xf32, #l1_>):
@@ -412,16 +412,12 @@ class TTIR_NamedOp<string mnemonic, list<Trait> traits = []> :
     TTIR_DPSOp<mnemonic, [Pure] # traits>;
 
 class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_NamedOp<mnemonic, [AttrSizedOperandSegments, TTIR_Broadcastable] # traits> {
+    TTIR_NamedOp<mnemonic, [TTIR_Broadcastable] # traits> {
 
     let description = [{
       Base class for elementwise operations. Elementwise operations can take inputs with different shape,
       as long as the input tensors are broadcastable to the same shape.
     }];
-
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
-                         Variadic<AnyRankedTensor>:$outputs);
-    let results = (outs Variadic<AnyRankedTensor>:$results);
 }
 
 class TTIR_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
@@ -431,12 +427,19 @@ class TTIR_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
       Eltwise ternary op.
     }];
 
+    let arguments = (ins AnyRankedTensor:$first,
+                         AnyRankedTensor:$second,
+                         AnyRankedTensor:$third,
+                         AnyRankedTensor:$output);
+
+    let results = (outs AnyRankedTensor:$result);
+
     let builders =
     [
-      OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third, "Value": $out),
+      OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third, "Value": $output),
       [{
-        build($_builder, $_state, {out.getType()}, {first, second, third}, out);
-      }]>
+        build($_builder, $_state, output.getType(), first, second, third, output);
+      }]>,
     ];
 }
 
@@ -454,12 +457,17 @@ class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
       Eltwise unary op.
     }];
 
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output);
+
+    let results = (outs AnyRankedTensor:$result);
+
     let builders =
     [
-      OpBuilder<(ins "Value": $in, "Value": $out),
+      OpBuilder<(ins "Value": $input, "Value": $output),
       [{
-        build($_builder, $_state, {out.getType()}, in, out);
-      }]>
+        build($_builder, $_state, output.getType(), input, output);
+      }]>,
     ];
 }
 
@@ -684,16 +692,16 @@ class TTIR_ElementwiseUnaryWithFloatParameterOp<string mnemonic, list<Trait> tra
       Eltwise unary op with the float parameter.
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
-                         Variadic<AnyRankedTensor>:$outputs,
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
                          F32Attr:$parameter);
 
     let builders =
     [
-      OpBuilder<(ins "Value": $in, "Value": $out, "FloatAttr":$parameter),
+      OpBuilder<(ins "Value": $input, "Value": $output, "FloatAttr": $parameter),
       [{
-        build($_builder, $_state, {out.getType()}, {in}, {out}, parameter);
-      }]>
+        build($_builder, $_state, output.getType(), input, output, parameter);
+      }]>,
     ];
 }
 
@@ -727,16 +735,18 @@ class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
       Eltwise binary op.
     }];
 
+    let arguments = (ins AnyRankedTensor:$lhs,
+                         AnyRankedTensor:$rhs,
+                         AnyRankedTensor:$output);
+
+    let results = (outs AnyRankedTensor:$result);
+
     let builders =
     [
-      OpBuilder<(ins "Value": $lhs, "Value": $rhs, "Value": $out),
+      OpBuilder<(ins "Value": $lhs, "Value": $rhs, "Value": $output),
       [{
-        build($_builder, $_state, {out.getType()}, {lhs, rhs}, out);
+        build($_builder, $_state, output.getType(), lhs, rhs, output);
       }]>,
-      OpBuilder<(ins "Type":$outputType, "Value": $lhs, "Value": $rhs, "Value": $out),
-      [{
-        build($_builder, $_state, {outputType}, {lhs, rhs}, out);
-      }]>
     ];
 }
 
@@ -1407,7 +1417,7 @@ def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d"> {
     let extraClassDeclaration = [{
       // Get number of output channels
       int64_t getOutputChannelSize();
-      bool verifyBias(llvm::ArrayRef<int64_t> biasDims);
+      bool isBiasCompatible(llvm::ArrayRef<int64_t> biasDims);
       MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
     }];
 
@@ -1542,6 +1552,46 @@ def TTIR_PoolingOp : TTIR_NamedOp<"pooling", [AttrSizedOperandSegments]> {
   );
 
   let results = (outs Variadic<AnyRankedTensor>);
+
+  let hasVerifier = 1;
+}
+
+def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d"> {
+  let summary = "Applies a 2D average pooling over an input signal composed of several input planes.";
+  let description = [{
+    It is a downsampling operation to reduce the spatial dimensions (height and width) of a input tensor by computing averages with in a window.
+
+    Example:
+      // 3x3 input tensor
+      input: [[1, 2, 3],
+              [4, 5, 6],
+              [7, 8, 9]]
+      kernel_height: 2
+      kernel_width: 2
+      stride_height: 1
+      stride_width: 1
+      dilation_height: 1
+      dilation_width: 1
+      output: [[3, 4],
+               [6, 7]]
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$output,
+                       SI32Attr:$kernel_height,
+                       SI32Attr:$kernel_width,
+                       SI32Attr:$stride_height,
+                       SI32Attr:$stride_width,
+                       SI32Attr:$dilation_height,
+                       SI32Attr:$dilation_width,
+                       BoolAttr:$ceil_mode,
+                       SI32Attr:$padding_left,
+                       SI32Attr:$padding_right,
+                       SI32Attr:$padding_top,
+                       SI32Attr:$padding_bottom,
+                       DefaultValuedAttr<TTIR_FlattenedCompatInfoAttr, "nullptr">:$flattened_compat_info);
+
+  let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;
 }

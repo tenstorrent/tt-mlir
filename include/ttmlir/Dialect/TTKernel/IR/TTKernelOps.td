@@ -121,7 +121,16 @@ def TTKernel_BinaryOpInitCommonOp : TTKernel_InitOp<"binary_op_init_common"> {
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, TTKernel_CB:$out_cb);
 }
 
-def TTKernel_MatmulTilesOp : TTKernel_FPUOp<"matmul_tiles"> {
+def TTKernel_MatmulInitOp : TTKernel_InitOp<"mm_init"> {
+    let summary = "Matmul init function";
+    let description = [{
+      Must be run before matmul.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, TTKernel_CB:$out_cb, I32:$transpose);
+}
+
+def TTKernel_MatmulTilesOp : TTKernel_FPUOp<"matmul_tiles", [TTKernel_TernaryOpTrait]> {
     let summary = "Matmul tiles operation";
     let description = [{
       Performs tile-sized matrix multiplication *C=A\*B* between the tiles in two
@@ -134,7 +143,8 @@ def TTKernel_MatmulTilesOp : TTKernel_FPUOp<"matmul_tiles"> {
                          TTKernel_CB:$in1_cb_id,
                          IndexLike:$in0_tile_idx,
                          IndexLike:$in1_tile_idx,
-                         IndexLike:$dst_tile_idx);
+                         IndexLike:$dst_tile_idx,
+                         I32:$transpose);
 }
 
 def TTKernel_AddTilesInitOp : TTKernel_InitOp<"add_tiles_init"> {
@@ -146,7 +156,7 @@ def TTKernel_AddTilesInitOp : TTKernel_InitOp<"add_tiles_init"> {
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb); // FIXME: , BOOL:$acc_to_dst);
 }
 
-def TTKernel_AddTilesOp : TTKernel_FPUOp<"add_tiles"> {
+def TTKernel_AddTilesOp : TTKernel_FPUOp<"add_tiles", [TTKernel_BinaryOpTrait]> {
     let summary = "Add operation";
     let description = [{
       Performs element-wise addition C=A+B of tiles in two CBs at given indices
@@ -174,7 +184,7 @@ def TTKernel_MulTilesInitFOp : TTKernel_InitOp<"mul_tiles_init_f"> {
     }];
 }
 
-def TTKernel_MulTilesOp : TTKernel_FPUOp<"mul_tiles"> {
+def TTKernel_MulTilesOp : TTKernel_FPUOp<"mul_tiles", [TTKernel_BinaryOpTrait]> {
     let summary = "Mul operation";
     let description = [{
       Performs element-wise multiplication C=A*B of tiles in two CBs at given
@@ -203,7 +213,7 @@ def TTKernel_ExpTileInitOp : TTKernel_InitOp<"exp_tile_init"> {
     }];
 }
 
-def TTKernel_ExpTileOp : TTKernel_FPUOp<"exp_tile"> {
+def TTKernel_ExpTileOp : TTKernel_FPUOp<"exp_tile", [TTKernel_UnaryOpTrait]> {
     let summary = "Exp operation";
     let description = [{
       Performs element-wise computation of exponential on each element of a tile
@@ -222,7 +232,7 @@ def TTKernel_RecipTileInitOp : TTKernel_InitOp<"recip_tile_init"> {
     }];
 }
 
-def TTKernel_RecipTileOp : TTKernel_FPUOp<"recip_tile"> {
+def TTKernel_RecipTileOp : TTKernel_FPUOp<"recip_tile", [TTKernel_UnaryOpTrait]> {
     let summary = "Recip tile in the DST at specified index.";
     let description = [{
       Performs element-wise computation of the reciprocal on each element of a tile
@@ -248,7 +258,7 @@ def TTKernel_ReduceInitOp : TTKernel_InitOp<"reduce_init"> {
                          TTKernel_ReduceDimAttr:$reduce_dim);
 }
 
-def TTKernel_ReduceTileOp : TTKernel_FPUOp<"reduce_tile"> {
+def TTKernel_ReduceTileOp : TTKernel_FPUOp<"reduce_tile", [TTKernel_BinaryOpTrait]> {
     let summary = "Reduce operation";
     let description = [{
       Performs a reduction operation *B = reduce(A)* using reduce_func for
@@ -285,7 +295,7 @@ def TTKernel_MaxTilesInitOp : TTKernel_InitOp<"max_tile_init"> {
     let arguments = (ins);
 }
 
-def TTKernel_MaxTilesOp : TTKernel_SFPUOp<"max_tile"> {
+def TTKernel_MaxTilesOp : TTKernel_SFPUOp<"max_tile", [TTKernel_BinaryOpTrait]> {
     let summary = "Max operation";
     let description = [{
       Performs element-wise computation of maximum operation
@@ -295,6 +305,27 @@ def TTKernel_MaxTilesOp : TTKernel_SFPUOp<"max_tile"> {
     }];
 
     let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index);
+}
+
+def TTKernel_SinTileInitOp : TTKernel_InitOp<"sin_tile_init"> {
+    let summary = "Init function for sin_tile operation. Refer to documentation for any init function.";
+    let description = [{
+      Must be run before sin_tile.
+    }];
+
+    let arguments = (ins);
+}
+
+def TTKernel_SinTileOp : TTKernel_SFPUOp<"sin_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Sine tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise computation of sine operation
+      DST[dst0_index] <- sin(DST[dst0_index])
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index);
 }
 
 //===----------------------------------------------------------------------===//
@@ -349,28 +380,6 @@ def TTKernel_CBWaitFrontOp : TTKernel_Op<"cb_wait_front"> {
 // TTKernel Tile operations
 //===----------------------------------------------------------------------===//
 
-def TTKernel_TilizeInitOp : TTKernel_Op<"tilize_init"> {
-    let summary = "TilizeInitOp call.";
-    let description = [{
-      TilizeInitOp operation
-    }];
-
-    let arguments = (ins TTKernel_CB:$cbIn, I32:$numTiles, TTKernel_CB:$cbOut);
-
-    let hasVerifier = 1;
-}
-
-def TTKernel_UntilizeInitOp : TTKernel_Op<"untilize_init"> {
-    let summary = "UntilizeInitOp call.";
-    let description = [{
-      UntilizeInitOp operation
-    }];
-
-    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut);
-
-    let hasVerifier = 1;
-}
-
 def TTKernel_TilizeBlockOp : TTKernel_Op<"tilize_block"> {
     let summary = "TilizeBlockOp call.";
     let description = [{
@@ -380,6 +389,37 @@ def TTKernel_TilizeBlockOp : TTKernel_Op<"tilize_block"> {
     let arguments = (ins TTKernel_CB:$cbIn, I32:$numTiles, TTKernel_CB:$cbOut);
 
     let hasVerifier = 1;
+}
+
+def TTKernel_TilizeInitOp : TTKernel_Op<"tilize_init"> {
+    let summary = "TilizeInitOp call.";
+    let description = [{
+      Initialize the tilize operation. To be called once at beginning of a
+      kernel.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn, I32:$numTiles, TTKernel_CB:$cbOut);
+
+    let hasVerifier = 1;
+}
+
+def TTKernel_TilizeInitShortOp : TTKernel_Op<"tilize_init_short"> {
+    let summary = "TilizeInitShortOp call.";
+     let description = [{
+      Re-initialize for the tilize operation. This can be called after a full
+      init.
+     }];
+
+    let arguments = (ins TTKernel_CB:$cbIn, I32:$numiles, TTKernel_CB:$cbOut);
+}
+
+def TTKernel_TilizeUninitOp : TTKernel_Op<"tilize_uninit"> {
+    let summary = "TilizeUninitOp call.";
+    let description = [{
+      Uninitialize tilize operation before re-initializing for another operation.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbI, TTKernel_CB:$cbOut);
 }
 
 def TTKernel_UntilizeBlockOp : TTKernel_Op<"untilize_block"> {
@@ -393,17 +433,48 @@ def TTKernel_UntilizeBlockOp : TTKernel_Op<"untilize_block"> {
     let hasVerifier = 1;
 }
 
+def TTKernel_UntilizeInitOp : TTKernel_Op<"untilize_init"> {
+    let summary = "UntilizeInitOp call.";
+    let description = [{
+      Init function for untilize operations, to be used at the beginning of the
+      kernel.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut);
+
+    let hasVerifier = 1;
+}
+
+def TTKernel_UntilizeInitShortOp : TTKernel_Op<"untilize_init_short"> {
+    let summary = "UntilizeInitShortOp call.";
+    let description = [{
+      Re-initialize for the tilize operation. This can be called after a full
+      init.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn);
+}
+
+def TTKernel_UntilizeUninitOp : TTKernel_Op<"untilize_uninit"> {
+    let summary = "UntilizeUninitOp call.";
+    let description = [{
+      Uninitialize untilize operation, to allow initializing another operation.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn);
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel NOC operations
 //===----------------------------------------------------------------------===//
 
 def TTKernel_GetNocAddrOp : TTKernel_Op<"get_noc_addr"> {
-    let summary = "GetNocAddrXY";
+    let summary = "GetNocAddr";
     let description = [{
       GetNocAddr api including core coordinates
     }];
 
-    let arguments = (ins IndexLike:$x, IndexLike:$y, I32:$l1Address);
+    let arguments = (ins IndexLike:$x, IndexLike:$y, AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_Semaphore]>:$l1Address);
     let results = (outs TTKernel_NocAddr:$nocAddr);
 }
 
@@ -491,8 +562,8 @@ def TTKernel_GetSemaphoreOp : TTKernel_Op<"get_semaphore"> {
       Get L1 addr of the semaphore with specified semaphore id
     }];
 
-    let arguments = (ins IndexLike:$semaphore_id);
-    let results = (outs TTKernel_L1Addr:$sem_addr);
+    let arguments = (ins IndexLike:$semaphore);
+    let results = (outs TTKernel_Semaphore:$sem_addr);
 }
 
 def TTKernel_NocSemaphoreIncOp : TTKernel_Op<"noc_semaphore_inc"> {
@@ -504,7 +575,7 @@ def TTKernel_NocSemaphoreIncOp : TTKernel_Op<"noc_semaphore_inc"> {
       mechanism.
     }];
 
-    let arguments = (ins TTKernel_NocAddr:$addr, I32:$incr, I32:$noc_id);
+    let arguments = (ins TTKernel_NocAddr:$addr, IndexLike:$incr, Optional<I8>:$noc_id);
 }
 
 def TTKernel_NocSemaphoreSetOp : TTKernel_Op<"noc_semaphore_set"> {
@@ -516,7 +587,7 @@ def TTKernel_NocSemaphoreSetOp : TTKernel_Op<"noc_semaphore_set"> {
       *noc_semaphore_wait*.
     }];
 
-    let arguments = (ins TTKernel_L1AddrPtr:$sem_addr, I32:$val);
+    let arguments = (ins TTKernel_L1AddrPtr:$sem_addr, IndexLike:$val);
 }
 
 def TTKernel_NocSemaphoreWaitOp : TTKernel_Op<"noc_semaphore_wait"> {
@@ -528,7 +599,7 @@ def TTKernel_NocSemaphoreWaitOp : TTKernel_Op<"noc_semaphore_wait"> {
       synchronization mechanism. Also, see *noc_semaphore_set*.
     }];
 
-    let arguments = (ins TTKernel_L1AddrPtr:$sem_addr, I32:$val);
+    let arguments = (ins TTKernel_L1AddrPtr:$sem_addr, IndexLike:$val);
 }
 
 def TTKernel_NocSemaphoreWaitMinOp : TTKernel_Op<"noc_semaphore_wait_min"> {
@@ -561,11 +632,11 @@ def TTKernel_NocSemaphoreSetMulticastOp : TTKernel_Op<"noc_semaphore_set_multica
       *noc_semaphore_set_multicast_loopback_src* can be used.
     }];
 
-    let arguments = (ins TTKernel_L1Addr:$src_local_l1_addr,
+    let arguments = (ins TTKernel_Semaphore:$src_local_l1_addr,
                          TTKernel_NocAddr:$dst_noc_addr_multicast,
                          I32:$num_dests,
-                         BoolAttr:$linked,
-                         BoolAttr:$multicast_path_reserve);
+                         OptionalAttr<BoolAttr>:$linked,
+                         OptionalAttr<BoolAttr>:$multicast_path_reserve);
 }
 
 def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set_multicast_loopback_src"> {
@@ -586,7 +657,7 @@ def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set
       regular non multicast operations such as *noc_async_write* in this case.
     }];
 
-    let arguments = (ins TTKernel_L1Addr:$src_local_l1_addr,
+    let arguments = (ins TTKernel_Semaphore:$src_local_l1_addr,
                          TTKernel_NocAddr:$dst_noc_addr_multicast,
                          I32:$num_dests,
                          BoolAttr:$linked,
@@ -597,6 +668,8 @@ def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set
 // TTKernel Compile and runtime arguments operations
 //===----------------------------------------------------------------------===//
 
+def TTKernel_ArgResultType : AnyTypeOf<[I32, TTKernel_CB, TTKernel_L1Addr]>;
+
 def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val"> {
     let summary = "Get runtime arg value.";
     let description = [{
@@ -605,18 +678,19 @@ def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val"> {
 
     let arguments = (ins IndexLike:$arg_index);
 
-    let results = (outs AnyTypeOf<[TTKernel_Semaphore, I32]>:$arg_val);
+    let results = (outs TTKernel_ArgResultType:$arg_val);
 }
 
-def TTKernel_GetCompileArgValOp : TTKernel_Op<"get_compile_time_arg_val"> {
+def TTKernel_GetCompileArgValOp : TTKernel_Op<"get_compile_time_arg_val",
+                                              [Pure]> {
     let summary = "Get compile-time arg value.";
     let description = [{
       Get compile-time argument value at specified index.
     }];
 
-    let arguments = (ins IndexLike:$arg_index);
+    let arguments = (ins I32Attr:$arg_index);
 
-    let results = (outs AnyTypeOf<[TTKernel_Semaphore, I32]>:$arg_val);
+    let results = (outs TTKernel_ArgResultType:$arg_val);
 }
 
 //===----------------------------------------------------------------------===//
@@ -629,7 +703,7 @@ def TTKernel_CastToL1PtrOp : TTKernel_Op<"reinterpret_cast<volatile tt_l1_ptr ui
       Cast specified addr to L1 pointer.
     }];
 
-    let arguments = (ins AnyTypeOf<[I32, TTKernel_L1Addr]>:$addr);
+    let arguments = (ins AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_Semaphore]>:$addr);
 
     let results = (outs TTKernel_L1AddrPtr:$l1_ptr);
 }
@@ -673,18 +747,6 @@ def TTKernel_MyYOp : TTKernel_Op<"my_y"> {
     let results = (outs Index:$y);
 }
 
-def TTKernel_GetCBOp : TTKernel_Op<"get_cb", [Pure, ConstantLike]> {
-  let summary = "Get CB";
-  let description = [{
-     Returns a CB type.
-    }];
-
-  let arguments = (ins I32Attr:$cb_index);
-  let results = (outs TTKernel_CB:$cb);
-
-  let hasFolder = 1;
-}
-
 //===----------------------------------------------------------------------===//
 // TTKernel Multicast NoC operations
 //===----------------------------------------------------------------------===//
@@ -695,7 +757,7 @@ def TTKernel_GetNocMulticastAddrOp : TTKernel_Op<"get_noc_multicast_addr"> {
     GetNocMulticastAddr
   }];
 
-  let arguments = (ins IndexLike:$noc_x_start, IndexLike:$noc_y_start, IndexLike:$noc_x_end, IndexLike:$noc_y_end, I32:$addr, Optional<I8>:$noc);
+  let arguments = (ins IndexLike:$noc_x_start, IndexLike:$noc_y_start, IndexLike:$noc_x_end, IndexLike:$noc_y_end, AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_Semaphore]>:$addr, Optional<I8>:$noc);
   let results = (outs TTKernel_NocAddr:$mcastNocAddr);
 }
 
@@ -823,6 +885,35 @@ def TTKernel_CBReinterpretShapeOp : TTKernel_Op<"cb_reinterpret_shape"> {
     let results = (outs TTKernel_CB:$output);
 
     let hasVerifier = 1;
+}
+
+def TTKernel_DPrintOp : TTKernel_Op<"dprint", [MemoryEffects<[MemRead, MemWrite]>]> {
+    let summary = "Print to output stream from kernel.";
+    let description = [{
+      std::format style format string:
+      ```c++
+      rewriter.create<ttkernel::DPrintOp>(loc, "nocY={} nocX={} addr={}\\n",
+                                        nocY, nocX, addr);
+      ```
+      ```mlir
+      ttkernel.dprint("virtY {} virtX {} addr {}\\n", %14, %15, %13) : (index, index, i32)
+      ```
+      Notes:
+        - Only trivial format specifier currently supported, i.e. `{}`.
+        - Must double escape newline character or other special characters.
+    }];
+    let arguments = (ins StrAttr:$fmt, Variadic<AnyType>:$argv);
+
+    let hasVerifier = 1;
+
+    let assemblyFormat = "`(` $fmt `,` $argv `)` attr-dict `:` `(` type($argv) `)`";
+
+    let extraClassDeclaration = [{
+      template <typename... Args>
+      static void build(::mlir::OpBuilder &odsBuilder, ::mlir::OperationState &odsState, const char* fmt, Args &&...argv) {
+        return build(odsBuilder, odsState, StringRef(fmt), ValueRange{std::forward<Args>(argv)...});
+      }
+    }];
 }
 
 #endif

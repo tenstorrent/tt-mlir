@@ -4,10 +4,9 @@
 
 #include "operations/ccl/collective_permute.h"
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/detail/ttnn.h"
-
-#include "tt/runtime/ttnn/operations/utils.h"
-#include "tt/runtime/ttnn/utils.h"
+#include "tt/runtime/detail/ttnn/operations/utils.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 #include "ttnn/operations/ccl/ccl_host_types.hpp"
 
 /*
@@ -28,54 +27,42 @@ void run(const ::tt::target::ttnn::CollectivePermuteOp *op,
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
   const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
+  ::ttnn::MeshDevice *meshDevice = input.mesh_device();
+  LOG_ASSERT(meshDevice != nullptr, "Tensor must belong to a mesh device");
 
   const auto *fbSourceTargetPairs = op->source_target_pairs();
   std::vector<int64_t> sourceTargetPairs(fbSourceTargetPairs->begin(),
                                          fbSourceTargetPairs->end());
 
-  LOG_ASSERT(input.storage_type() == ::ttnn::StorageType::MULTI_DEVICE,
-             "Input of collective_permute must be multidevice storage. id:",
+  LOG_ASSERT(sourceTargetPairs.size() % 2 == 0,
+             "Expected sourceTargetPairs to have size multiple of 2");
+  LOG_ASSERT(input.storage_type() == ::ttnn::StorageType::DEVICE,
+             "Input of collective_permute must be device storage. id:",
              op->in()->global_id());
 
   // Get list of individual per-device tensors. It should be returned in logical
   // id order.
-  std::vector<::ttnn::Tensor> originalDeviceTensors =
-      ::ttnn::distributed::get_tensors_from_multi_device_storage(input);
-
-  std::vector<::ttnn::Tensor> ownedStorageTensors;
-  ownedStorageTensors.reserve(originalDeviceTensors.size());
-  std::vector<::ttnn::IDevice *> devices;
-  devices.reserve(originalDeviceTensors.size());
-
-  for (const auto &tensor : originalDeviceTensors) {
-    ownedStorageTensors.emplace_back(::ttnn::from_device(tensor));
-    devices.emplace_back(tensor.device());
-  }
+  std::vector<::ttnn::Tensor> hostTensors =
+      ::ttnn::distributed::get_device_tensors(::ttnn::from_device(input));
 
   // Iterate through sourceTargetPairs and for each pair, get the source tensor
   // from the map and convert to device storage with dest device.
-  std::vector<bool> foundDestDevices(originalDeviceTensors.size(), false);
-  std::vector<::ttnn::Tensor> newDeviceTensors(originalDeviceTensors.size(),
-                                               ::ttnn::Tensor());
+  std::vector<bool> foundDestDevices(hostTensors.size(), false);
+  std::vector<::ttnn::Tensor> newHostTensors(hostTensors.size(),
+                                             ::ttnn::Tensor());
 
   for (size_t i = 0; i < sourceTargetPairs.size(); i += 2) {
     int64_t src = sourceTargetPairs[i];
     int64_t dest = sourceTargetPairs[i + 1];
 
-    LOG_ASSERT(
-        (src < static_cast<int64_t>(originalDeviceTensors.size()) && src >= 0),
-        "Source device id is out of bounds!");
-    LOG_ASSERT((dest < static_cast<int64_t>(originalDeviceTensors.size()) &&
-                dest >= 0),
+    LOG_ASSERT((src < static_cast<int64_t>(hostTensors.size()) && src >= 0),
+               "Source device id is out of bounds!");
+    LOG_ASSERT((dest < static_cast<int64_t>(hostTensors.size()) && dest >= 0),
                "Destination device id is out of bounds!");
 
-    auto &srcHostTensor = ownedStorageTensors[src];
-    auto &device = devices[dest];
+    auto &srcHostTensor = hostTensors[src];
 
-    std::optional<::ttnn::MemoryConfig> memoryConfig =
-        srcHostTensor.memory_config();
-    newDeviceTensors[dest] =
-        ::ttnn::to_device(srcHostTensor, device, memoryConfig);
+    newHostTensors[dest] = srcHostTensor;
     foundDestDevices[dest] = true;
   }
 
@@ -86,28 +73,25 @@ void run(const ::tt::target::ttnn::CollectivePermuteOp *op,
       continue;
     }
 
-    auto &srcHostTensor = ownedStorageTensors[i];
-    auto &device = devices[i];
+    auto &srcHostTensor = hostTensors[i];
 
     // We need to memset this tensor value to 0 based on collective permute
     // operation semantics
-    void *dstPtr = ::tt::tt_metal::get_raw_host_data_ptr(srcHostTensor);
+    void *dstPtr = ::tt::runtime::ttnn::utils::getRawHostDataPtr(srcHostTensor);
     size_t size = srcHostTensor.volume() * srcHostTensor.element_size();
     std::memset(dstPtr, 0, size);
 
-    std::optional<::ttnn::MemoryConfig> memoryConfig =
-        srcHostTensor.memory_config();
-    newDeviceTensors[i] =
-        ::ttnn::to_device(srcHostTensor, device, memoryConfig);
+    newHostTensors[i] = srcHostTensor;
     foundDestDevices[i] = true;
   }
 
-  // Combine all device tensor shards into a single multi device tensor with
-  // multi device storage type.
-  ::ttnn::Tensor out = ::ttnn::distributed::create_multi_device_tensor(
-      newDeviceTensors, ::ttnn::StorageType::MULTI_DEVICE,
+  // Combine all host tensor shards into a single host tensor with
+  // multi device host storage.
+  ::ttnn::Tensor out = ::ttnn::distributed::aggregate_as_tensor(
+      newHostTensors,
       ::ttnn::distributed::get_distributed_tensor_config_from_tensor(input));
 
+  out = ::ttnn::to_device(out, meshDevice, input.memory_config());
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::ccl

@@ -7,6 +7,7 @@
 
 #include <cassert>
 #include <memory>
+#include <numeric>
 #include <optional>
 #include <string_view>
 #include <vector>
@@ -57,8 +58,8 @@ struct ObjectImpl {
     return *static_cast<T *>(handle.get());
   }
   template <typename T>
-  T const &as() const {
-    return *static_cast<T const *>(handle.get());
+  const T &as() const {
+    return *static_cast<const T *>(handle.get());
   }
 };
 
@@ -73,6 +74,7 @@ struct RuntimeCheckedObjectImpl {
   bool matchesRuntime(DeviceRuntime runtime) const {
     return associatedRuntime == runtime;
   }
+
   void assertMatchesRuntime(DeviceRuntime expectedRuntime) const {
     assert(matchesRuntime(expectedRuntime) &&
            "Associated runtime does not match expected runtime of cast");
@@ -83,11 +85,13 @@ struct RuntimeCheckedObjectImpl {
     assertMatchesRuntime(expectedRuntime);
     return *static_cast<T *>(handle.get());
   }
+
   template <typename T>
-  T const &as(DeviceRuntime expectedRuntime) const {
+  const T &as(DeviceRuntime expectedRuntime) const {
     assertMatchesRuntime(expectedRuntime);
-    return *static_cast<T const *>(handle.get());
+    return *static_cast<const T *>(handle.get());
   }
+
   template <typename T>
   std::shared_ptr<T> asSharedPtr(DeviceRuntime expectedRuntime) const {
     assertMatchesRuntime(expectedRuntime);
@@ -102,6 +106,19 @@ struct TensorDesc {
   std::vector<std::uint32_t> stride;
   std::uint32_t itemsize;
   ::tt::target::DataType dataType;
+
+  TensorDesc() = default;
+  TensorDesc(const std::vector<std::uint32_t> &shape,
+             const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+             ::tt::target::DataType dataType)
+      : shape(shape), stride(stride), itemsize(itemsize), dataType(dataType) {}
+
+  std::uint32_t size() const { return shape[0] * stride[0] * itemsize; }
+  std::size_t volume() const {
+    return std::accumulate(shape.begin(), shape.end(),
+                           static_cast<std::size_t>(1),
+                           std::multiplies<std::size_t>());
+  }
 };
 
 struct MemoryView {
@@ -117,7 +134,6 @@ struct MeshDeviceOptions {
   std::vector<uint32_t> meshOffset{0, 0};
   std::vector<int> deviceIds{};
   size_t numHWCQs = 1;
-  bool enableAsyncTTNN = false;
   bool enableProgramCache = false;
   std::optional<size_t> l1SmallSize = std::nullopt;
   std::optional<DispatchCoreType> dispatchCoreType = std::nullopt;
@@ -126,9 +142,9 @@ struct MeshDeviceOptions {
 struct Flatbuffer : public detail::ObjectImpl {
   using detail::ObjectImpl::ObjectImpl;
 
-  static Flatbuffer loadFromPath(char const *path);
+  static Flatbuffer loadFromPath(const char *path);
 
-  void store(char const *path) const;
+  void store(const char *path) const;
   std::string_view getFileIdentifier() const;
   std::string getVersion() const;
   std::string_view getTTMLIRGitHash() const;
@@ -138,13 +154,13 @@ struct Flatbuffer : public detail::ObjectImpl {
 struct SystemDesc : public Flatbuffer {
   using Flatbuffer::Flatbuffer;
 
-  static SystemDesc loadFromPath(char const *path);
+  static SystemDesc loadFromPath(const char *path);
 
-  ::tt::target::SystemDesc const *get() const {
+  const ::tt::target::SystemDesc *get() const {
     return ::tt::target::GetSizePrefixedSystemDescRoot(handle.get())
         ->system_desc();
   }
-  ::tt::target::SystemDesc const *operator->() const { return get(); }
+  const ::tt::target::SystemDesc *operator->() const { return get(); }
 };
 
 class TensorCache;
@@ -161,7 +177,7 @@ struct Binary : public Flatbuffer {
 
   using Flatbuffer::Flatbuffer;
 
-  static Binary loadFromPath(char const *path);
+  static Binary loadFromPath(const char *path);
 
   std::vector<TensorDesc> getProgramInputs(std::uint32_t programIndex) const;
   std::vector<TensorDesc> getProgramOutputs(std::uint32_t programIndex) const;

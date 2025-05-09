@@ -695,7 +695,7 @@ private:
         matmulResultShape, Float32Type::get(op.getContext()));
 
     return ttir::utils::createDPSOp<ttir::MatmulOp>(
-        rewriter, op->getLoc(), matmulResultType, typecastOp.getResult(0),
+        rewriter, op->getLoc(), matmulResultType, typecastOp.getResult(),
         constantOp);
   }
 
@@ -1018,10 +1018,10 @@ public:
                                        spatialDimIndices);
       return success();
     }
-    default: {
-      return rewriter.notifyMatchFailure(
-          op, "Failed to match pooling method: " +
-                  stringifyPoolingMethod(op.getPoolingMethod()));
+    case ttir::PoolingMethod::Average: {
+      rewritePool2d<ttir::AvgPool2dOp>(op, adaptor, rewriter,
+                                       spatialDimIndices);
+      return success();
     }
     }
   }
@@ -1068,8 +1068,9 @@ private:
     // representing the kernel size for max pooling operation.
     size_t numSpatialDimIndices = spatialDimIndices.size();
     if (numSpatialDimIndices > 2) {
-      return rewriter.notifyMatchFailure(
-          op, "Rank of kernel_size for pooling 2D op is greater than 2.");
+      return rewriter.notifyMatchFailure(op, "Rank of kernel_size for " +
+                                                 op.getOperationName() +
+                                                 " op is greater than 2.");
     }
 
     // Window strides will have two or less than two non 1 elements;
@@ -1078,15 +1079,16 @@ private:
         getIndicesOfElementsLargerThanOne(op.getWindowStrides());
     size_t windowStrideSize = trueWindowStrideIndices.size();
     if (windowStrideSize > 2) {
-      return rewriter.notifyMatchFailure(
-          op, "Rank of strides for pooling 2D is greater than 2.");
+      return rewriter.notifyMatchFailure(op, "Rank of strides for " +
+                                                 op.getOperationName() +
+                                                 " is greater than 2.");
     }
 
     // Padding must be 8 in length
     if (op.getPadding().size() != 8) {
       return rewriter.notifyMatchFailure(
-          op,
-          "Number of elements in padding does not match with pooling 2D op.");
+          op, "Number of elements in padding does not match with " +
+                  op.getOperationName() + " op.");
     }
 
     return success();

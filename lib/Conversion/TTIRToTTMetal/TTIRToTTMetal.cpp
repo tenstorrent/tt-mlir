@@ -3,10 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTIRToTTMetal/TTIRToTTMetal.h"
+
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 
 #include <cstdint>
@@ -19,15 +21,93 @@ class TTIRGenericRewriter : public OpConversionPattern<ttir::GenericOp> {
 public:
   using OpConversionPattern<ttir::GenericOp>::OpConversionPattern;
 
+  static KernelArgsAttr evalKernelArgsFromSpec(Builder &builder,
+                                               const SymbolTable &symbolTable,
+                                               SymbolRefAttr kernelSymbol) {
+    auto kernelFunc =
+        symbolTable.lookup<func::FuncOp>(kernelSymbol.getRootReference());
+    ttkernel::ArgSpecAttr kernelSpec =
+        kernelFunc->getAttrOfType<ttkernel::ArgSpecAttr>(
+            ttkernel::ArgSpecAttr::name);
+    SmallVector<ttmetal::KernelArgAttr> rtArgs;
+    SmallVector<ttmetal::KernelArgAttr> ctArgs;
+    for (ttkernel::ArgAttr arg : kernelSpec.getRtArgs()) {
+      rtArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
+          arg.getArgType(), arg.getOperandIndex()));
+    }
+    for (ttkernel::ArgAttr arg : kernelSpec.getCtArgs()) {
+      ctArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
+          arg.getArgType(), arg.getOperandIndex()));
+    }
+    return builder.getAttr<ttmetal::KernelArgsAttr>(rtArgs, ctArgs);
+  }
+
+  static ArrayAttr
+  convertThreadsToKernelConfigs(Builder &builder, ArrayAttr threads,
+                                GridAttr opGrid,
+                                const SymbolTable &symbolTable) {
+    SmallVector<Attribute> kernelConfigs;
+    uint32_t nocIndex = 0;
+    auto coreRange = builder.getAttr<ttmetal::CoreRangeAttr>(opGrid);
+    for (Attribute threadAttr : threads) {
+      ttir::ThreadAttr thread = mlir::cast<ttir::ThreadAttr>(threadAttr);
+      KernelArgsAttr kernelArgs = evalKernelArgsFromSpec(
+          builder, symbolTable, thread.getKernelSymbol());
+      Attribute kernelConfig = nullptr;
+      switch (thread.getThreadType()) {
+      case ttir::ThreadType::Compute: {
+        kernelConfig = builder.getAttr<ttmetal::ComputeConfigAttr>(
+            thread.getKernelSymbol(), coreRange, kernelArgs);
+        break;
+      }
+      case ttir::ThreadType::Datamovement: {
+        // The following assert just does a simple check for now, but in the
+        // future you could have non-overlapping grids which would make this
+        // calculation invalid.
+        assert(nocIndex < 2);
+        kernelConfig = builder.getAttr<ttmetal::NocConfigAttr>(
+            thread.getKernelSymbol(), coreRange, kernelArgs,
+            *symbolizeNocIndex(nocIndex));
+        ++nocIndex;
+        break;
+      }
+      }
+      assert(kernelConfig != nullptr);
+      kernelConfigs.push_back(kernelConfig);
+    }
+    return builder.getArrayAttr(kernelConfigs);
+  }
+
   LogicalResult
   matchAndRewrite(ttir::GenericOp op, ttir::GenericOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    llvm::SmallVector<Attribute> coreRanges(
-        op.getThreads().size(),
-        rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid()));
+    llvm::SmallVector<Value> buffers;
+    llvm::SmallVector<Value> remappedBuffers;
+    llvm::SmallVector<Value> cbs;
+    llvm::SmallVector<int64_t> cbPorts;
+    int64_t cbPort = 0;
+    for (auto operand : adaptor.getOperands()) {
+      auto stream = mlir::dyn_cast_if_present<ttir::StreamLayoutOp>(
+          operand.getDefiningOp());
+      if (stream) {
+        buffers.push_back(stream.getInput());
+        remappedBuffers.push_back(rewriter.getRemappedValue(stream.getInput()));
+        cbs.push_back(stream.getStorage());
+      } else {
+        buffers.push_back(operand);
+        remappedBuffers.push_back(rewriter.getRemappedValue(operand));
+        cbs.push_back(operand);
+      }
+      cbPorts.push_back(cbPort++);
+    }
+
+    ArrayAttr threads = op.getThreads();
+    GridAttr opGrid = op.getGrid();
+    SymbolTable symbolTable(op->getParentOfType<ModuleOp>());
+    auto kernelConfigs =
+        convertThreadsToKernelConfigs(rewriter, threads, opGrid, symbolTable);
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
-        op, op.getInputs(), op.getOutputs(), op.getThreads(),
-        rewriter.getArrayAttr(coreRanges), rewriter.getArrayAttr({}));
+        op, buffers, cbs, cbPorts, kernelConfigs);
     return success();
   };
 };
@@ -41,21 +121,13 @@ public:
   LogicalResult
   matchAndRewrite(memref::AllocOp op, memref::AllocOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto device = lookupDevice(op);
-    auto address = op->getAttr("address")
-                       ? op->getAttrOfType<IntegerAttr>("address")
-                       : rewriter.getI64IntegerAttr(
-                             1000); // TODO(#1909): arbitrary default for now,
-                                    // remove when allocate pass is implemented
+    auto address = op->getAttrOfType<IntegerAttr>("address");
     assert(op.getMemref().getType().getMemorySpace() &&
            "No memref memory space found, failing.");
     auto memrefType = op.getMemref().getType();
-    auto size = device.getMemrefSizeBytes(memrefType, 0);
-    auto memorySpace =
-        mlir::cast<tt::MemorySpaceAttr>(memrefType.getMemorySpace());
+    assert(mlir::isa<tt::ShardLayoutAttr>(memrefType.getLayout()));
     auto createBufferOp = rewriter.create<ttmetal::CreateBufferOp>(
-        op->getLoc(), memrefType, address.getInt(), size,
-        memorySpace.getValue());
+        op->getLoc(), memrefType, address);
     rewriter.replaceOp(op, createBufferOp);
 
     return success();

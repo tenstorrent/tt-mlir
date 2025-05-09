@@ -4,9 +4,9 @@
 
 #include "operations/creation/full_with.h"
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/ttnn/operations/utils.h"
-#include "tt/runtime/ttnn/utils.h"
+#include "tt/runtime/detail/ttnn/operations/utils.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 
 namespace tt::runtime::ttnn::operations::creation {
@@ -18,7 +18,7 @@ static void runFullWithOp(const ::tt::target::ttnn::NamedFullOp *op,
 
   std::optional<::ttnn::DataType> dtype;
   std::optional<::ttnn::Layout> layout;
-  std::optional<std::reference_wrapper<::ttnn::IDevice>> device;
+  OptionalMeshDeviceRef targetDevice = std::nullopt;
   std::optional<::ttnn::MemoryConfig> memoryConfig =
       op->memcfg()
           ? ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg())
@@ -35,15 +35,10 @@ static void runFullWithOp(const ::tt::target::ttnn::NamedFullOp *op,
   }
 
   if (op->device()) {
-    DeviceVariant targetDevice =
-        context.getTargetDevice(op->device()->global_id());
-    LOG_ASSERT(std::holds_alternative<std::reference_wrapper<::ttnn::IDevice>>(
-                   targetDevice),
-               "ttnn::", ttnnOp.base_name(), " does not support MeshDevice.");
-    device = std::get<std::reference_wrapper<::ttnn::IDevice>>(targetDevice);
+    targetDevice = std::ref(context.getMeshDevice());
   }
 
-  ::ttnn::Tensor out = ttnnOp(shape, dtype, layout, device, memoryConfig);
+  ::ttnn::Tensor out = ttnnOp(shape, dtype, layout, targetDevice, memoryConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

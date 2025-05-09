@@ -252,12 +252,13 @@ public:
     llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> opSchedule;
     llvm::DenseMap<Edge, MemReconfigEntry> memReconfigEntryMap;
     std::vector<Operation *> spillToDramOps;
-    if (memoryLayoutAnalysisEnabled) {
-      // Extract override resharding edges
-      //
-      llvm::DenseSet<Edge> overrideReshardEdges;
-      extractReshardEdges(moduleOp, overrideReshardEdges);
 
+    // Extract override resharding edges
+    //
+    llvm::DenseSet<Edge> overrideReshardEdges;
+    extractReshardEdges(moduleOp, overrideReshardEdges);
+
+    if (memoryLayoutAnalysisEnabled) {
       // Perform memory layout analysis.
       //
       MemoryLayoutAnalysis memoryLayoutAnalysis =
@@ -270,15 +271,16 @@ public:
       memReconfigEntryMap =
           memoryLayoutAnalysis.getResult().memReconfigEntryMap;
       spillToDramOps = memoryLayoutAnalysis.getResult().spillToDramOps;
+    }
 
-      // Manually overriden resharding edges should be added to the
-      // memReconfigEntryMap.
-      for (const auto &edge : overrideReshardEdges) {
-        if (memReconfigEntryMap.count(edge) == 0) {
-          auto newEntry = MemReconfigEntry();
-          newEntry.setOverridenReconfig(true);
-          memReconfigEntryMap[edge] = newEntry;
-        }
+    // Manually overriden resharding edges should be added to the
+    // memReconfigEntryMap.
+    //
+    for (const auto &edge : overrideReshardEdges) {
+      if (memReconfigEntryMap.count(edge) == 0) {
+        auto newEntry = MemReconfigEntry();
+        newEntry.setOverridenReconfig(true);
+        memReconfigEntryMap.try_emplace(edge, newEntry);
       }
     }
 
@@ -339,7 +341,10 @@ public:
         //
         if (opConfigAnalysis.getResult().contains(op)) {
           RankedTensorType newTensorType = RankedTensorType::get(
-              tensorShape, tensorType.getElementType(),
+              tensorShape,
+              opConfigAnalysis.getResult()
+                  .at(op)
+                  .outputLayout.getScalarElementType(),
               opConfigAnalysis.getResult().at(op).outputLayout);
 
           // Update the memory space and layout of the op.
@@ -402,7 +407,7 @@ public:
           if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(op)) {
             if (auto conv2dConfig =
                     mlir::dyn_cast_if_present<ttnn::Conv2dConfigAttr>(
-                        opConfigAnalysis.getResult().at(op).config)) {
+                        opConfigAnalysis.getResult().at(op).opSpecificAttr)) {
               conv2dOp.setConv2dConfigAttr(conv2dConfig);
             }
           }

@@ -1272,6 +1272,9 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d",
     let hasVerifier = 1;
 
     let extraClassDeclaration = [{
+      // Get number of output channels.
+      int64_t getOutputChannelSize();
+      bool isBiasCompatible(llvm::ArrayRef<int64_t> biasDims);
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
             getBias() != nullptr
@@ -1368,6 +1371,48 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d"> {
     }];
 }
 
+def TTNN_AvgPool2dOp : TTNN_Op<"avg_pool2d"> {
+  let summary = "Applies a 2D average pooling over an input signal composed of several input planes.";
+  let description = [{
+    It is a downsampling operation to reduce the spatial dimensions (height and width) of a input tensor by computing averages with in a window.
+
+    Example:
+      // 3x3 input tensor
+      input: [[1, 2, 3],
+              [4, 5, 6],
+              [7, 8, 9]]
+      kernel_height: 2
+      kernel_width: 2
+      stride_height: 1
+      stride_width: 1
+      dilation_height: 1
+      dilation_width: 1
+      output: [[3, 4],
+               [6, 7]]
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       UI32Attr:$batch_size,
+                       UI32Attr:$input_height,
+                       UI32Attr:$input_width,
+                       UI32Attr:$channels,
+                       DenseI32ArrayAttr:$kernel_size,
+                       DenseI32ArrayAttr:$stride,
+                       DenseI32ArrayAttr:$padding,
+                       DenseI32ArrayAttr:$dilation,
+                       BoolAttr:$ceil_mode);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createPool2DOpOperandsWorkarounds();
+    }
+  }];
+
+  let hasVerifier = 1;
+}
+
 def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d",
       [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
       > {
@@ -1391,14 +1436,16 @@ def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d",
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        return wa::TTNNOperandsWorkaroundsFactory::createMaxPool2DOpOperandsWorkarounds();
+        return wa::TTNNOperandsWorkaroundsFactory::createPool2DOpOperandsWorkarounds();
       }
     }];
 
     let hasVerifier = 1;
 }
 
-def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar", [HasMemoryConfigTrait]> {
+def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar", [HasMemoryConfigTrait,
+      DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Clamp op.";
     let description = [{
       Clamp tensor values to a specified range.
@@ -1471,21 +1518,6 @@ def TTNN_EmptyOp : TTNN_Op<"empty", [TT_CreationOpTrait]> {
                          TTNN_LayoutAttr:$layout,
                          TTNN_Device:$device,
                          TTNN_MemoryConfigAttr:$memory_config);
-
-    let results = (outs AnyRankedTensor:$result);
-
-    let hasVerifier = 1;
-}
-
-def TTNN_ConstructTensorOp : TTNN_Op<"construct_tensor"> {
-    let summary = "Construct empty tensor on host op.";
-    let description = [{
-      Invoke tensor ctor to create an empty tensor on host.
-    }];
-
-    let arguments = (ins TTNN_ShapeAttr:$shape,
-                         TT_DataTypeAttr:$dtype,
-                         TTNN_LayoutAttr:$layout);
 
     let results = (outs AnyRankedTensor:$result);
 

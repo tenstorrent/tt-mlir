@@ -37,7 +37,7 @@ def ttir_module_str() -> str:
             %4 = ttir.empty() : tensor<1x128xf32>
             %5 = "ttir.broadcast"(%3, %4) <{broadcast_dimensions = array<i64: 1, 1>}> : (tensor<1x128xf32>, tensor<1x128xf32>) -> tensor<1x128xf32>
             %6 = ttir.empty() : tensor<1x128xf32>
-            %7 = "ttir.add"(%1, %5, %6) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x128xf32>, tensor<1x128xf32>, tensor<1x128xf32>) -> tensor<1x128xf32>
+            %7 = "ttir.add"(%1, %5, %6) : (tensor<1x128xf32>, tensor<1x128xf32>, tensor<1x128xf32>) -> tensor<1x128xf32>
             return %7 : tensor<1x128xf32>
         }
         }
@@ -153,6 +153,9 @@ def test_split_compile_split_and_execute_ttir_module(ttir_module_str: str):
         assert result.execution_phase == expected_results[i]
 
 
+@pytest.mark.skip(
+    "hardcoded system desc mismatch: https://github.com/tenstorrent/tt-mlir/issues/3191"
+)
 def test_split_and_execute_ttnn_module(ttnn_module_str: str):
     results = split_and_execute(ttnn_module_str)
 
@@ -167,6 +170,9 @@ def test_split_and_execute_ttnn_module(ttnn_module_str: str):
         assert result.execution_phase == expected_results[i]
 
 
+@pytest.mark.skip(
+    "hardcoded system desc mismatch: https://github.com/tenstorrent/tt-mlir/issues/3191"
+)
 def test2_compile_split_and_execute_ttnn_module(ttnn_module_str: str):
     results = compile_split_and_execute(ttnn_module_str)
 
@@ -181,6 +187,9 @@ def test2_compile_split_and_execute_ttnn_module(ttnn_module_str: str):
         assert result.execution_phase == expected_results[i]
 
 
+@pytest.mark.skip(
+    "hardcoded system desc mismatch: https://github.com/tenstorrent/tt-mlir/issues/3191"
+)
 def test_split_compile_split_and_execute_ttnn_module(ttnn_module_str: str):
     results = split_compile_split_and_execute(ttnn_module_str)
 

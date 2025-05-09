@@ -18,8 +18,10 @@ add_mlir_dialect_library(MLIRTTNNAnalysis
         MLIRTTNNOpsIncGen
         MLIRTTNNPassesIncGen
         MLIRTTOpsIncGen
+        TTNNOpModelLib
 
         LINK_LIBS PUBLIC
         MLIRScheduler
         TTMLIRTTNNUtils
+        TTNNOpModelLib
         )

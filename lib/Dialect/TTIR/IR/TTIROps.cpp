@@ -57,12 +57,11 @@ void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
   // x ^ x == 0
   patterns.add(
       +[](mlir::tt::ttir::BitwiseXorOp op, mlir::PatternRewriter &rewriter) {
-        if (op.getInputs()[0] != op.getInputs()[1]) {
+        if (op.getLhs() != op.getRhs()) {
           return mlir::failure();
         }
 
-        mlir::RankedTensorType tensorType =
-            mlir::cast<mlir::RankedTensorType>(op.getInputs()[0].getType());
+        mlir::RankedTensorType tensorType = op.getResult().getType();
         auto elementType = tensorType.getElementType();
         Attribute zeroAttr;
         if (mlir::isa<mlir::FloatType>(elementType)) {
@@ -424,7 +423,7 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
       return emitOpError("Bias must be a 4D tensor");
     }
     auto biasShape = bias->getShape();
-    if (!verifyBias(biasShape)) {
+    if (!isBiasCompatible(biasShape)) {
       return emitOpError() << "Bias should have shape [1, 1, 1, "
                            << getOutputChannelSize() << "] but got ["
                            << biasShape << "]";
@@ -595,7 +594,7 @@ int64_t mlir::tt::ttir::Conv2dOp::getOutputChannelSize() {
 }
 
 // Verify that bias dimensions are compatible with conv2d operation
-bool mlir::tt::ttir::Conv2dOp::verifyBias(llvm::ArrayRef<int64_t> bias) {
+bool mlir::tt::ttir::Conv2dOp::isBiasCompatible(llvm::ArrayRef<int64_t> bias) {
   return bias[0] == 1 && bias[1] == 1 && bias[2] == 1 &&
          bias[3] == getOutputChannelSize();
 }
@@ -938,25 +937,25 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// MaxPool2dOp
+// Common verifier for pooling ops
 //===----------------------------------------------------------------------===//
-
-// MaxPool2dOp verification
-::mlir::LogicalResult mlir::tt::ttir::MaxPool2dOp::verify() {
-  ::mlir::RankedTensorType inputType = getInput().getType();
-  ArrayRef<int64_t> inputShape = inputType.getShape();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
-  ArrayRef<int64_t> outputShape = outputType.getShape();
+static mlir::LogicalResult verifyPoolingOp(
+    llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
+    mlir::RankedTensorType inputType, mlir::RankedTensorType outputType,
+    mlir::tt::ttir::FlattenedCompatInfoAttr flattenInfo, int32_t kernelHeight,
+    int32_t kernelWidth, llvm::StringRef opName) {
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
 
   if (inputType.getRank() != 4) {
     return emitOpError()
-           << "Input tensor rank must be 4. Recieved input with rank "
+           << "Input tensor rank must be 4. Received input with rank "
            << inputType.getRank() << ". Shape: (" << inputShape << ").";
   }
 
   if (outputType.getRank() != 4) {
     return emitOpError()
-           << "Output tensor rank must be 4. Recieved output with rank "
+           << "Output tensor rank must be 4. Received output with rank "
            << outputType.getRank() << ". Shape: (" << outputShape << ").";
   }
 
@@ -969,10 +968,10 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
   int64_t inputWidth = inputType.getDimSize(WIDTH_DIM);
   int64_t inChannels = inputType.getDimSize(CHANNEL_DIM);
   int64_t outChannels = outputType.getDimSize(CHANNEL_DIM);
-  if (getFlattenedCompatInfo()) {
-    auto batchSize = getFlattenedCompatInfo().getBatchSize();
-    inputHeight = getFlattenedCompatInfo().getInputHeight();
-    inputWidth = getFlattenedCompatInfo().getInputWidth();
+  if (flattenInfo) {
+    auto batchSize = flattenInfo.getBatchSize();
+    inputHeight = flattenInfo.getInputHeight();
+    inputWidth = flattenInfo.getInputWidth();
 
     if (inputType.getDimSize(2) != batchSize * inputHeight * inputWidth) {
       return emitOpError() << "Expected dim 2 of the input tensor to have size "
@@ -981,7 +980,7 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
     }
   }
 
-  if (!getFlattenedCompatInfo() &&
+  if (!flattenInfo &&
       inputType.getDimSize(BATCH_DIM) != outputType.getDimSize(BATCH_DIM)) {
     return emitOpError()
            << "Batch size from the input tensor ("
@@ -1008,25 +1007,49 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
                          << ").";
   }
 
-  if (getKernelHeight() > inputHeight) {
-    return emitOpError() << "Kernel height " << getKernelHeight()
+  if (kernelHeight > inputHeight) {
+    return emitOpError() << "Kernel height " << kernelHeight
                          << " is greater than input height " << inputHeight
-                         << (getFlattenedCompatInfo()
+                         << (flattenInfo
                                  ? " (as defined in flattened_compat_info)"
                                  : "")
-                         << ". This MaxPool2d configuration is invalid.";
+                         << ". This " << opName << " configuration is invalid.";
   }
 
-  if (getKernelWidth() > inputWidth) {
-    return emitOpError() << "Kernel width " << getKernelWidth()
+  if (kernelWidth > inputWidth) {
+    return emitOpError() << "Kernel width " << kernelWidth
                          << " is greater than input width " << inputWidth
-                         << (getFlattenedCompatInfo()
+                         << (flattenInfo
                                  ? " (as defined in flattened_compat_info)"
                                  : "")
-                         << ". This MaxPool2d configuration is invalid.";
+                         << ". This " << opName << " configuration is invalid.";
   }
 
-  return success();
+  return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
+// AvgPool2dOp
+//===----------------------------------------------------------------------===//
+
+// AvgPool2dOp verification
+::mlir::LogicalResult mlir::tt::ttir::AvgPool2dOp::verify() {
+  return verifyPoolingOp([&]() { return emitOpError(); }, getInput().getType(),
+                         getOutput().getType(), getFlattenedCompatInfo(),
+                         getKernelHeight(), getKernelWidth(),
+                         getOperationName());
+}
+
+//===----------------------------------------------------------------------===//
+// MaxPool2dOp
+//===----------------------------------------------------------------------===//
+
+// MaxPool2dOp verification
+::mlir::LogicalResult mlir::tt::ttir::MaxPool2dOp::verify() {
+  return verifyPoolingOp([&]() { return emitOpError(); }, getInput().getType(),
+                         getOutput().getType(), getFlattenedCompatInfo(),
+                         getKernelHeight(), getKernelWidth(),
+                         getOperationName());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1761,47 +1784,27 @@ mlir::OpFoldResult mlir::tt::ttir::TransposeOp::fold(FoldAdaptor adaptor) {
 //===----------------------------------------------------------------------===//
 
 // TypecastOp folder
-::llvm::LogicalResult mlir::tt::ttir::TypecastOp::fold(
-    FoldAdaptor adaptor,
-    ::llvm::SmallVectorImpl<::mlir::OpFoldResult> &results) {
-
-  if (getType(0) == getInputs()[0].getType()) {
-    results.push_back(getInputs()[0]);
-    return llvm::success();
+mlir::OpFoldResult mlir::tt::ttir::TypecastOp::fold(FoldAdaptor adaptor) {
+  if (getType() == getInput().getType()) {
+    return getInput();
   }
-  return llvm::failure();
+  return {};
 }
 
 // TypecastOp canonicalization method
 ::llvm::LogicalResult
 mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
                                          ::mlir::PatternRewriter &rewriter) {
-  // Fold two consecutive typecast ops into a single one
-  ::mlir::tt::ttir::TypecastOp previousTypecastOp =
-      op.getInputs()[0].getDefiningOp<mlir::tt::ttir::TypecastOp>();
+  // Fold two consecutive typecast ops into a single one.
+  ::mlir::tt::ttir::TypecastOp producerOp =
+      op.getInput().getDefiningOp<mlir::tt::ttir::TypecastOp>();
 
-  if (!previousTypecastOp) {
+  if (!producerOp) {
     return mlir::failure();
   }
 
-  // Check if the previous cast op has only one use. We can only fold if the
-  // previous op has single use.
-  if (!previousTypecastOp->hasOneUse()) {
-    return mlir::failure();
-  }
-
-  // Replace the previous op with the merged TypecastOp.
-  mlir::tt::ttir::TypecastOp foldedTypecastOp =
-      ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::TypecastOp>(
-          rewriter, previousTypecastOp,
-          mlir::cast<mlir::RankedTensorType>(op.getType(0)),
-          previousTypecastOp.getInputs());
-
-  // Replace all uses of the current op with the merged TypecastOp.
-  rewriter.replaceAllUsesWith(op->getResult(0), foldedTypecastOp->getResult(0));
-
-  // Erase the current op.
-  rewriter.eraseOp(op);
+  ttir::utils::replaceOpWithNewDPSOp<ttir::TypecastOp>(
+      rewriter, op, op.getType(), producerOp.getInput());
 
   return mlir::success();
 }
@@ -3373,7 +3376,7 @@ static mlir::LogicalResult
 verifyAffineShapes(llvm::function_ref<mlir::InFlightDiagnostic()> diagFn,
                    mlir::ArrayRef<mlir::AffineMap> indexingMaps,
                    mlir::ArrayRef<mlir::SmallVector<int64_t>> shapes,
-                   char const *shapeName) {
+                   const char *shapeName) {
   assert(indexingMaps.size() == shapes.size());
 
   auto compareCompatibleDims =

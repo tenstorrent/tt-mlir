@@ -10,10 +10,9 @@
 #include "device.hpp"
 #include "operations/ccl/all_gather/all_gather.hpp"
 #include "operations/ccl/ccl_host_types.hpp"
-#include "operations/ccl/mesh_shard_impl.h"
 #include "operations/ccl/reduce_scatter/reduce_scatter.hpp"
 #include "operations/conv/conv2d/conv2d.hpp"
-#include "operations/conv/conv2d/prepare_conv2d_weights.cpp"
+#include "operations/conv/conv2d/prepare_conv2d_weights.hpp"
 #include "operations/conv/conv_transpose2d/conv_transpose2d.hpp"
 #include "operations/copy.hpp"
 #include "operations/core/core.hpp"
@@ -43,6 +42,7 @@
 #include "tt-metalium/bfloat16.hpp"
 #include "tt-metalium/small_vector.hpp"
 #include "types.hpp"
+#include "workarounds.hpp"
 // ANCHOR_END: standalone_includes
 
 #include <cassert>
@@ -59,19 +59,17 @@ namespace ttnn {
 class DeviceGetter {
 public:
   static ttnn::IDevice *getInstance() {
-    static ttnn::IDevice *instance = &ttnn::open_device(0);
+    static std::shared_ptr<ttnn::MeshDevice> instance =
+        ::ttnn::MeshDevice::create_unit_mesh(0);
 
-    return instance;
+    return instance.get();
   }
 
 private:
-  ~DeviceGetter() { ttnn::close_device(*device); }
+  DeviceGetter() = default;
 
-public:
-  DeviceGetter(DeviceGetter const &) = delete;
-  void operator=(DeviceGetter const &) = delete;
-
-  ttnn::IDevice *device;
+  DeviceGetter(const DeviceGetter &) = delete;
+  DeviceGetter &operator=(const DeviceGetter &) = delete;
 };
 
 // Wrapper to abstract const-eval logic out of runtime funcs to keep them

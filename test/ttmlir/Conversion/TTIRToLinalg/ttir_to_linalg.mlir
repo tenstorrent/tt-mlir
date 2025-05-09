@@ -6,7 +6,7 @@ module attributes{} {
     %arg1: tensor<32x32xf32>,
     %arg2: tensor<32x32xf32>
   ) -> tensor<32x32xf32> {
-    %1 = "ttir.add"(%arg0, %arg1, %arg2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    %1 = "ttir.add"(%arg0, %arg1, %arg2) : (tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
     // CHECK: {{%[0-9]+}} = linalg.add ins(%arg{{[0-9]+}}, %arg{{[0-9]+}} : tensor<32x32xf32>, tensor<32x32xf32>) outs(%arg{{[0-9]+}} : tensor<32x32xf32>) -> tensor<32x32xf32>
     return %1 : tensor<32x32xf32>
   }
@@ -17,7 +17,7 @@ module attributes{} {
     %arg1: tensor<32x1xf32>,
     %arg2: tensor<32x32xf32>
   ) -> tensor<32x32xf32> {
-    %1 = "ttir.add"(%arg0, %arg1, %arg2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<32x32xf32>, tensor<32x1xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    %1 = "ttir.add"(%arg0, %arg1, %arg2) : (tensor<32x32xf32>, tensor<32x1xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
     // CHECK: %{{.+}} = tensor.collapse_shape
     // CHECK: %{{.+}} = tensor.empty()
     // CHECK: %{{.+}} = linalg.broadcast ins(%{{.+}} : tensor<{{.*xf32}}>) outs(%{{.+}} : tensor<{{.*xf32}}>) dimensions
@@ -32,7 +32,7 @@ module attributes{} {
     %arg1: tensor<32x32x32xf32>,
     %arg2: tensor<32x32x32xf32>
   ) -> tensor<32x32x32xf32> {
-    %1 = "ttir.add"(%arg0, %arg1, %arg2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<32x1xf32>, tensor<32x32x32xf32>, tensor<32x32x32xf32>) -> tensor<32x32x32xf32>
+    %1 = "ttir.add"(%arg0, %arg1, %arg2) : (tensor<32x1xf32>, tensor<32x32x32xf32>, tensor<32x32x32xf32>) -> tensor<32x32x32xf32>
     // CHECK: %{{.+}} = tensor.collapse_shape
     // CHECK: %{{.+}} = tensor.empty()
     // CHECK: %{{.+}} = linalg.broadcast ins(%{{.+}} : tensor<{{.*xf32}}>) outs(%{{.+}} : tensor<{{.*xf32}}>) dimensions =
@@ -46,7 +46,7 @@ module attributes{} {
     %arg1: tensor<32x1x1xf32>,
     %arg2: tensor<32x1x32xf32>
   ) -> tensor<32x1x32xf32> {
-    %1 = "ttir.add"(%arg0, %arg1, %arg2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<32x1x32xf32>, tensor<32x1x1xf32>, tensor<32x1x32xf32>) -> tensor<32x1x32xf32>
+    %1 = "ttir.add"(%arg0, %arg1, %arg2) : (tensor<32x1x32xf32>, tensor<32x1x1xf32>, tensor<32x1x32xf32>) -> tensor<32x1x32xf32>
     // CHECK: %{{.+}} = tensor.collapse_shape
     // CHECK: %{{.+}} = tensor.empty()
     // CHECK: %{{.+}} = linalg.broadcast ins(%{{.+}} : tensor<{{.*xf32}}>) outs(%{{.+}} : tensor<{{.*xf32}}>) dimensions
@@ -60,7 +60,7 @@ module attributes{} {
     %arg1: tensor<32x32xf32>,
     %arg2: tensor<32x32xf32>
   ) -> tensor<32x32xf32> {
-    %1 = "ttir.add"(%arg0, %arg1, %arg2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    %1 = "ttir.add"(%arg0, %arg1, %arg2) : (tensor<32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
     // CHECK: %{{.+}} = tensor.empty()
     // CHECK: %{{.+}} = linalg.broadcast ins(%{{.+}} : tensor<{{.*xf32}}>) outs(%{{.+}} : tensor<{{.*xf32}}>) dimensions
     // CHECK: %{{.+}} = linalg.add ins(%{{.+}}, %{{.+}} : tensor<{{.*xf32}}>, tensor<{{.*xf32}}>) outs(%{{.+}} : tensor<{{.*xf32}}>) -> tensor<{{.*xf32}}>
@@ -73,7 +73,7 @@ module attributes{} {
     %arg1: tensor<32x1xf32>,
     %arg2: tensor<32x32xf32>
   ) -> tensor<32x32xf32> {
-    %1 = "ttir.add"(%arg0, %arg1, %arg2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32xf32>, tensor<32x1xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    %1 = "ttir.add"(%arg0, %arg1, %arg2) : (tensor<1x32xf32>, tensor<32x1xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
     // CHECK: %{{.+}} = tensor.collapse_shape
     // CHECK: %{{.+}} = tensor.empty()
     // CHECK: %{{.+}} = linalg.broadcast
@@ -90,7 +90,7 @@ module attributes{} {
     %arg1: tensor<32x32x32x32xf32>,
     %arg2: tensor<32x32x32x32xf32>
   ) -> tensor<32x32x32x32xf32> {
-    %1 = "ttir.add"(%arg0, %arg1, %arg2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<32x1x32x1xf32>, tensor<32x32x32x32xf32>, tensor<32x32x32x32xf32>) -> tensor<32x32x32x32xf32>
+    %1 = "ttir.add"(%arg0, %arg1, %arg2) : (tensor<32x1x32x1xf32>, tensor<32x32x32x32xf32>, tensor<32x32x32x32xf32>) -> tensor<32x32x32x32xf32>
     // CHECK: %{{.+}} = tensor.collapse_shape
     // CHECK: %{{.+}} = tensor.empty()
     // CHECK: %{{.+}} = linalg.broadcast
@@ -104,7 +104,7 @@ module attributes{} {
     %arg1: tensor<32x32x32xf32>,
     %arg2: tensor<32x32x32xf32>
   ) -> tensor<32x32x32xf32> {
-    %1 = "ttir.add"(%arg0, %arg1, %arg2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x1x1xf32>, tensor<32x32x32xf32>, tensor<32x32x32xf32>) -> tensor<32x32x32xf32>
+    %1 = "ttir.add"(%arg0, %arg1, %arg2) : (tensor<1x1x1xf32>, tensor<32x32x32xf32>, tensor<32x32x32xf32>) -> tensor<32x32x32xf32>
     // CHECK: %{{.+}} = tensor.collapse_shape
     // CHECK: %{{.+}} = tensor.empty()
     // CHECK: %{{.+}} = linalg.broadcast
@@ -118,7 +118,7 @@ module attributes{} {
     %arg1: tensor<1x32x1x32xf32>,
     %arg2: tensor<1x32x32x32xf32>
   ) -> tensor<1x32x32x32xf32> {
-    %1 = "ttir.add"(%arg0, %arg1, %arg2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<32x32xf32>, tensor<1x32x1x32xf32>, tensor<1x32x32x32xf32>) -> tensor<1x32x32x32xf32>
+    %1 = "ttir.add"(%arg0, %arg1, %arg2) : (tensor<32x32xf32>, tensor<1x32x1x32xf32>, tensor<1x32x32x32xf32>) -> tensor<1x32x32x32xf32>
     // CHECK: %{{.+}} = tensor.empty()
     // CHECK: %{{.+}} = linalg.broadcast
     // CHECK: %{{.+}} = tensor.collapse_shape
@@ -133,7 +133,7 @@ module attributes{} {
     %arg1: tensor<32x32xf32>,
     %arg2: tensor<32x32xf32>
   ) -> tensor<32x32xf32> {
-    %1 = "ttir.add"(%arg0, %arg1, %arg2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<f32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    %1 = "ttir.add"(%arg0, %arg1, %arg2) : (tensor<f32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
     // CHECK: %{{.+}} = tensor.empty()
     // CHECK: %{{.+}} = linalg.broadcast
     // CHECK: %{{.+}} = linalg.add

@@ -18,6 +18,9 @@ jobs:
     uses: ./.github/workflows/spdx.yml
     secrets: inherit
   build-and-test:
+    needs:
+      - pre-commit
+      - spdx
     if: github.event.pull_request.draft == false
     uses: ./.github/workflows/build-and-test.yml
     secrets: inherit
@@ -51,7 +54,7 @@ jobs:
     - pre-commit
     - spdx
     - build-and-test
-    runs-on: Ubuntu-latest
+    runs-on: ubuntu-latest
     steps:
     - name: Check if the needed jobs succeeded or failed
       uses: re-actors/alls-green@release/v1

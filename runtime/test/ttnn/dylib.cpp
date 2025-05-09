@@ -2,12 +2,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tt/runtime/ttnn/test/dylib.h"
+#include "tt/runtime/detail/ttnn/test/dylib.h"
 
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/ttnn/types.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/runtime.h"
-#include "tt/runtime/ttnn/types.h"
-#include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/types.h"
 
 #include <dlfcn.h>
@@ -16,7 +16,7 @@ namespace tt::runtime::ttnn::test {
 
 static constexpr const char *POTENTIAL_MANGLING_ADDITIONS[] = {
     "",
-    "PNS1_7IDeviceE",
+    "PNS1_11distributed10MeshDeviceE",
 };
 
 void *openSo(std::string path) {
@@ -32,6 +32,14 @@ void *openSo(std::string path) {
   return handle;
 }
 
+void closeSo(void *handle) {
+  int ret = dlclose(handle);
+
+  if (ret != 0) {
+    exit(ret);
+  }
+}
+
 std::vector<::tt::runtime::Tensor>
 runSoProgram(void *so, std::string func_name,
              std::vector<::tt::runtime::Tensor> inputs, Device device) {
@@ -43,7 +51,6 @@ runSoProgram(void *so, std::string func_name,
   // In this path, we only ever test with a single device (for now) in CI, but
   // locally we may have 2 devices.
   assert(ttnnMeshDevice.get_devices().size() > 0);
-  ::ttnn::IDevice *ttnnDevice = ttnnMeshDevice.get_devices()[0];
 
   // Convert inputs to TTNN tensors using .as method
   //
@@ -62,7 +69,7 @@ runSoProgram(void *so, std::string func_name,
   // Get function from the shared object
   //
   using ForwardFunctionWithDevice = std::vector<::ttnn::Tensor> (*)(
-      std::vector<::ttnn::Tensor>, ::ttnn::IDevice *);
+      std::vector<::ttnn::Tensor>, ::ttnn::MeshDevice *);
   using ForwardFunctionNoDevice =
       std::vector<::ttnn::Tensor> (*)(std::vector<::ttnn::Tensor>);
 
@@ -81,12 +88,13 @@ runSoProgram(void *so, std::string func_name,
     dlclose(so);
     LOG_FATAL("Failed to load symbol: ", dlsym_error);
   }
+
   // Call program/function
   //
   std::vector<::ttnn::Tensor> ttnnOutputs;
-  if (mangledName.find("IDevice") != std::string::npos) {
+  if (mangledName.find("MeshDevice") != std::string::npos) {
     auto forwardFunc = reinterpret_cast<ForwardFunctionWithDevice>(symbol);
-    ttnnOutputs = forwardFunc(ttnnInputs, ttnnDevice);
+    ttnnOutputs = forwardFunc(ttnnInputs, &ttnnMeshDevice);
   } else {
     auto forwardFunc = reinterpret_cast<ForwardFunctionNoDevice>(symbol);
     ttnnOutputs = forwardFunc(ttnnInputs);
@@ -206,10 +214,14 @@ bool compareOuts(std::vector<::tt::runtime::Tensor> &lhs,
   std::vector<::ttnn::Tensor *> rhsTensors;
 
   for (auto &tensor : lhs) {
-    lhsTensors.push_back(static_cast<::ttnn::Tensor *>(tensor.handle.get()));
+    lhsTensors.push_back(
+        &(tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(getCurrentRuntime())
+              .getTensor()));
   }
   for (auto &tensor : rhs) {
-    rhsTensors.push_back(static_cast<::ttnn::Tensor *>(tensor.handle.get()));
+    rhsTensors.push_back(
+        &(tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(getCurrentRuntime())
+              .getTensor()));
   }
   LOG_ASSERT(lhsTensors.size() == rhsTensors.size());
 
@@ -232,9 +244,9 @@ bool compareOuts(std::vector<::tt::runtime::Tensor> &lhs,
     //
     size_t elementSize = lhsTensor->element_size();
     uint8_t *lhsData = static_cast<uint8_t *>(
-        ::tt::tt_metal::get_raw_host_data_ptr(*lhsTensor));
+        ::tt::runtime::ttnn::utils::getRawHostDataPtr(*lhsTensor));
     uint8_t *rhsData = static_cast<uint8_t *>(
-        ::tt::tt_metal::get_raw_host_data_ptr(*rhsTensor));
+        ::tt::runtime::ttnn::utils::getRawHostDataPtr(*rhsTensor));
     for (size_t i = 0; i < lhsTensor->volume(); ++i) {
       SupportedTypes lhsVal =
           getValueForDType(lhsTensor->get_dtype(), lhsData + i * elementSize);

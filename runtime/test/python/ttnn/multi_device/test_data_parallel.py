@@ -39,7 +39,7 @@ def worker_fn(binary, torch_inputs, mesh_device, results):
 
 def test_eltwise_binary_add_data_parallel(helper: Helper, request):
     num_devices = ttrt.runtime.get_num_available_devices()
-    assert num_devices > 1, "Test requires at least 2 devices"
+    assert num_devices == 2, "Test requires 2 devices"
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "add.mlir.tmp.ttnn")
     assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
     helper.initialize(request.node.name, binary_path)
@@ -53,7 +53,7 @@ def test_eltwise_binary_add_data_parallel(helper: Helper, request):
     ]
     assert len(batched_tensors) == 2
 
-    with DeviceContext(mesh_shape=[1, 2], enable_async=True) as parent_mesh:
+    with DeviceContext(mesh_shape=[1, 2]) as parent_mesh:
         threads = []
         results = []
         submeshes = []

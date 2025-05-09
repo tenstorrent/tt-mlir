@@ -1,6 +1,10 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "0d26beb2720e95946d48a6bb9e096e0052f647af")
+set(TT_METAL_VERSION "7e6553092db1c3d05e944e0b0bd99d26fcacc789")
+
+file(GLOB XTENSOR_INCLUDE_DIRS "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/xtensor/*/include")
+file(GLOB XTENSOR_BLAS_INCLUDE_DIRS "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/xtensor-blas/*/include")
+file(GLOB XTL_INCLUDE_DIRS "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/xtl/*/include")
 
 set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
 
@@ -51,9 +55,9 @@ set(TTMETAL_INCLUDE_DIRS
   ${CPM_SOURCE_CACHE}/magic_enum/4d76fe0a5b27a0e62d6c15976d02b33c54207096/include
   ${CPM_SOURCE_CACHE}/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
   ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
-  ${CPM_SOURCE_CACHE}/xtensor/4a957e26c765b48cbec4a4235fe9e518d5a85d3d/include
-  ${CPM_SOURCE_CACHE}/xtensor-blas/190c3a4314355b67291a7d78b20a2100de3f8f54/include
-  ${CPM_SOURCE_CACHE}/xtl/0918808959d33a292c551b9f014a0e808bc4a95c/include
+  ${XTENSOR_INCLUDE_DIRS}
+  ${XTENSOR_BLAS_INCLUDE_DIRS}
+  ${XTL_INCLUDE_DIRS}
   PARENT_SCOPE
 )
 
@@ -157,6 +161,40 @@ install(
   REGEX "third_party/umd/"
 )
 
+# TTNN Standalone install commands
+#
+# Copy .cpmcache libs
+install(
+  DIRECTORY
+    ${CPM_SOURCE_CACHE}/boost
+    ${CPM_SOURCE_CACHE}/fmt
+    ${CPM_SOURCE_CACHE}/magic_enum
+    ${CPM_SOURCE_CACHE}/nlohmann_json
+    ${CPM_SOURCE_CACHE}/reflect
+    ${CPM_SOURCE_CACHE}/xtensor
+    ${CPM_SOURCE_CACHE}/xtensor-blas
+    ${CPM_SOURCE_CACHE}/xtl
+  DESTINATION tt-metal/.cpmcache
+  COMPONENT TTNNStandalone
+  EXCLUDE_FROM_ALL
+)
+# Copy third_party
+install(
+  DIRECTORY
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/third_party
+  DESTINATION tt-metal/tt_metal
+  COMPONENT TTNNStandalone
+  EXCLUDE_FROM_ALL
+)
+# Copy tt_stl
+install(
+  DIRECTORY
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_stl
+  DESTINATION tt-metal
+  COMPONENT TTNNStandalone
+  EXCLUDE_FROM_ALL
+)
+
 list(APPEND library_names TTNN_LIBRARY TTMETAL_LIBRARY DEVICE_LIBRARY)
 list(APPEND library_paths ${TTNN_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH} ${DEVICE_LIBRARY_PATH})
 
@@ -188,4 +226,6 @@ else() # TTMLIR_ENABLE_RUNTIME
   add_library(TTNN_LIBRARY INTERFACE)
   add_library(TTMETAL_LIBRARY INTERFACE)
   add_library(DEVICE_LIBRARY INTERFACE)
+  add_library(tt-metal-download INTERFACE EXCLUDE_FROM_ALL)
+  add_library(tt-metal-configure INTERFACE EXCLUDE_FROM_ALL)
 endif() # TTMLIR_ENABLE_RUNTIME

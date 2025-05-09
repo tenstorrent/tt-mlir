@@ -18,11 +18,11 @@ module @jit_clamp {
     %0 = "ttir.constant"() <{value = dense<3.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
     %1 = "ttir.constant"() <{value = dense<6> : tensor<1xi32>}> : () -> tensor<1xi32>
     %2 = ttir.empty() : tensor<1xbf16>
-    %3 = "ttir.typecast"(%0, %2) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1xf32>, tensor<1xbf16>) -> tensor<1xbf16>
+    %3 = "ttir.typecast"(%0, %2) : (tensor<1xf32>, tensor<1xbf16>) -> tensor<1xbf16>
     %4 = ttir.empty() : tensor<1xbf16>
     %5 = "ttir.reshape"(%3, %4) <{shape = [1 : i32]}> : (tensor<1xbf16>, tensor<1xbf16>) -> tensor<1xbf16>
     %6 = ttir.empty() : tensor<1xbf16>
-    %7 = "ttir.typecast"(%1, %6) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1xi32>, tensor<1xbf16>) -> tensor<1xbf16>
+    %7 = "ttir.typecast"(%1, %6) : (tensor<1xi32>, tensor<1xbf16>) -> tensor<1xbf16>
     %8 = ttir.empty() : tensor<1xbf16>
     %9 = "ttir.reshape"(%7, %8) <{shape = [1 : i32]}> : (tensor<1xbf16>, tensor<1xbf16>) -> tensor<1xbf16>
     %10 = ttir.empty() : tensor<1x16xbf16>
@@ -66,7 +66,7 @@ module @jit_clamp {
     // CHECK-LABEL: @test_clamp_tensor_constant
     %0 = "ttir.constant"() <{value = dense<3.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
     %1 = ttir.empty() : tensor<1xbf16>
-    %2 = "ttir.typecast"(%0, %1) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1xf32>, tensor<1xbf16>) -> tensor<1xbf16>
+    %2 = "ttir.typecast"(%0, %1) : (tensor<1xf32>, tensor<1xbf16>) -> tensor<1xbf16>
     %3 = ttir.empty() : tensor<1xbf16>
     %4 = "ttir.reshape"(%2, %3) <{shape = [1 : i32]}> : (tensor<1xbf16>, tensor<1xbf16>) -> tensor<1xbf16>
     // CHECK: [[MIN:[0-9]+]] = "ttir.broadcast"(%{{[0-9]+}}, %{{[0-9]+}})

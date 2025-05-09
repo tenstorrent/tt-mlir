@@ -74,6 +74,21 @@ struct ConvertTTIRToTTKernel
       return ttkernel::CBType::get(
           memref.getContext(), ttkernel::symbolizeCBPort(0).value(), 0, memref);
     });
+    typeConverter.addConversion([](ttir::SemaphoreType semaphore) {
+      return ttkernel::SemaphoreType::get(semaphore.getContext());
+    });
+
+    auto materializeAsUnrealizedCast = [](OpBuilder &builder, Type resultType,
+                                          ValueRange inputs,
+                                          Location loc) -> Value {
+      if (inputs.size() != 1) {
+        return Value();
+      }
+      return builder.create<UnrealizedConversionCastOp>(loc, resultType, inputs)
+          .getResult(0);
+    };
+    typeConverter.addSourceMaterialization(materializeAsUnrealizedCast);
+    typeConverter.addTargetMaterialization(materializeAsUnrealizedCast);
 
     ttir::AssociatedDMAWaits associatedDMAWaits =
         getAnalysis<ttir::AssociatedDMAWaits>();

@@ -4,11 +4,11 @@
 
 #include "cpu.h"
 
-#include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
 
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/ttnn/operations/utils.h"
-#include "tt/runtime/ttnn/utils.h"
+#include "tt/runtime/detail/ttnn/operations/utils.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/utils.h"
 
 #include <dlfcn.h>
@@ -52,7 +52,8 @@ std::vector<WrappedTensor> packTensors(
                    allSizesAndStrides.back().begin() + rank,
                    [](uint32_t s) -> int64_t { return s; });
 
-    float *rawDataPtr = static_cast<float *>(get_raw_host_data_ptr(tens));
+    float *rawDataPtr = static_cast<float *>(
+        ::tt::runtime::ttnn::utils::getRawHostDataPtr(tens));
     packedTensors.emplace_back(rawDataPtr, rawDataPtr, 0,
                                allSizesAndStrides.back().data());
   }

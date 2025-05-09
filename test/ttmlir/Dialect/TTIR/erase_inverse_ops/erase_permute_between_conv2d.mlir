@@ -15,9 +15,9 @@ module {
     %6 = "ttir.conv2d"(%2, %4, %5) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 3, 3, 3, 3>, stride = array<i32: 2, 2>}> : (tensor<1x256x256x3xf32>, tensor<64x3x7x7xf32>, tensor<1x128x128x64xf32>) -> tensor<1x128x128x64xf32>
     %7 = "ttir.permute"(%6, %0) <{permutation = array<i64: 0, 3, 1, 2>}> : (tensor<1x128x128x64xf32>, tensor<1x64x128x128xf32>) -> tensor<1x64x128x128xf32>
     %8 = tensor.empty() : tensor<1x64x128x128xf32>
-    %9 = "ttir.add"(%arg2, %7, %8) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x64x128x128xf32>, tensor<1x64x128x128xf32>, tensor<1x64x128x128xf32>) -> tensor<1x64x128x128xf32>
+    %9 = "ttir.add"(%arg2, %7, %8) : (tensor<1x64x128x128xf32>, tensor<1x64x128x128xf32>, tensor<1x64x128x128xf32>) -> tensor<1x64x128x128xf32>
     %10 = tensor.empty() : tensor<1x64x128x128xf32>
-    %11 = "ttir.exp"(%9, %10) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x64x128x128xf32>, tensor<1x64x128x128xf32>) -> tensor<1x64x128x128xf32>
+    %11 = "ttir.exp"(%9, %10) : (tensor<1x64x128x128xf32>, tensor<1x64x128x128xf32>) -> tensor<1x64x128x128xf32>
     %12 = tensor.empty() : tensor<1x512x64x64xf32>
     %13 = tensor.empty() : tensor<1x128x128x64xf32>
     %14 = "ttir.permute"(%11, %13) <{permutation = array<i64: 0, 2, 3, 1>}> : (tensor<1x64x128x128xf32>, tensor<1x128x128x64xf32>) -> tensor<1x128x128x64xf32>

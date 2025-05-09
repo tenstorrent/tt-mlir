@@ -103,9 +103,9 @@ void applyConv2dConfigOverrides(Operation *op,
       getBoolAttr(overrides.enableSubblockPadding.value_or(false));
 
   for (auto &opConfig : analysisResult) {
-    assert(!opConfig.config &&
+    assert(!opConfig.opSpecificAttr &&
            "OpConfig should not have a config set before applying overrides");
-    opConfig.config = Conv2dConfigAttr::get(
+    opConfig.opSpecificAttr = Conv2dConfigAttr::get(
         context, dtype, weightsDtype, activation, inputChannelsAlignment,
         deallocateActivation, reallocateHaloOutput, actBlockHOverride,
         actBlockWDiv, reshardIfNotOptimal, overrideShardingConfig, shardLayout,
@@ -160,7 +160,7 @@ bool LegalLayoutAnalysis::applyOverrides() {
   }
 
   if (layoutOverride.memoryLayout == Layout::Tile) {
-    elementType = TileType::get(op->getContext(), elementType);
+    elementType = TileType::get(elementType);
   }
 
   analysisResult.push_back(TTNNLayoutAttr::get(

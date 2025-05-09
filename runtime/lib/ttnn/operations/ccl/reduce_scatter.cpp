@@ -4,10 +4,10 @@
 
 #include "operations/ccl/reduce_scatter.h"
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
 
-#include "tt/runtime/ttnn/operations/utils.h"
-#include "tt/runtime/ttnn/utils.h"
+#include "tt/runtime/detail/ttnn/operations/utils.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 #include "ttnn/operations/ccl/ccl_host_types.hpp"
 #include "ttnn/operations/ccl/reduce_scatter/reduce_scatter.hpp"
 
@@ -24,21 +24,27 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
   auto reduceType =
       ::tt::runtime::ttnn::utils::getReduceType(op->reduce_type());
 
-  LOG_ASSERT(input.storage_type() == ::ttnn::StorageType::MULTI_DEVICE,
-             "Input of reduce_scatter must be MULTIDEVICE. id:",
-             op->in()->global_id());
+  LOG_ASSERT(
+      input.storage_type() == ::ttnn::StorageType::DEVICE,
+      "Input of reduce_scatter must be DEVICE. id:", op->in()->global_id());
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
   LOG_ASSERT(outputMemoryConfig.has_value(),
-             "Memory config must be exist for device tensors");
+             "Memory config must exist for device tensors");
 
-  ::ttnn::MeshDevice &meshDevice =
-      context.getSubMesh(op->device()->global_id());
-  ::ttnn::Tensor out = ::ttnn::reduce_scatter(
-      input, scatterDimension, clusterAxis, meshDevice, reduceType, numLinks,
-      outputMemoryConfig, ::ttnn::ccl::Topology::Linear);
+  ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
+  ::ttnn::Tensor out;
+  try {
+    out = ::ttnn::reduce_scatter(
+        input, scatterDimension, clusterAxis, meshDevice, reduceType, numLinks,
+        outputMemoryConfig, ::ttnn::ccl::Topology::Linear);
+  } catch (const std::exception &e) {
+    auto bt = ::tt::runtime::logger::detail::backtrace_to_string(128, 0);
+    LOG_INFO("Stack trace: ", bt);
+    throw;
+  }
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

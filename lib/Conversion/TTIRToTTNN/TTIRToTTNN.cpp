@@ -7,17 +7,14 @@
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
-#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Quant/IR/Quant.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -72,9 +69,10 @@ public:
     if (mlir::tt::ttnn::isSystemBufferType(layoutAttr.getBufferType())) {
       // Replace op
       //
-      rewriter.replaceOpWithNewOp<ttnn::ConstructTensorOp>(
+      rewriter.replaceOpWithNewOp<ttnn::ZerosOp>(
           op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
-          dTypeAttr, tensorLayoutAttr);
+          dTypeAttr, tensorLayoutAttr, /*device=*/nullptr,
+          /*memoryConfig=*/nullptr);
       // Otherwise, we use regular empty op, with device-specific fields.
     } else {
       // Device
@@ -251,7 +249,10 @@ public:
       return failure();
     }
 
-    rewriter.replaceOpWithNewOp<TTNNOpTy>(op, resultTypes, adaptor.getInputs());
+    static_assert(ttir::utils::has_dps_trait_v<TTIROpTy>);
+    auto inputs =
+        ttir::utils::getDpsInputsFromAdaptor(adaptor, op.getNumDpsInits());
+    rewriter.replaceOpWithNewOp<TTNNOpTy>(op, resultTypes, inputs);
     return success();
   }
 };
@@ -588,8 +589,8 @@ public:
   matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<TTNNOpTy>(
-        op, this->getTypeConverter()->convertType(op.getType(0)),
-        adaptor.getInputs()[0], adaptor.getParameter());
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getParameter());
     return success();
   }
 };
@@ -1146,26 +1147,32 @@ private:
 } // namespace
 
 namespace {
-class MaxPool2dOpConversionPattern
-    : public OpConversionPattern<ttir::MaxPool2dOp> {
+template <typename TTIROpTy, typename TTNNOpTy>
+class Pooling2dOpConversionPattern : public OpConversionPattern<TTIROpTy> {
 public:
-  using OpConversionPattern<ttir::MaxPool2dOp>::OpConversionPattern;
+  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
+  using OpAdaptor = typename TTIROpTy::Adaptor;
 
   LogicalResult
-  matchAndRewrite(ttir::MaxPool2dOp op, OpAdaptor adaptor,
+  matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     if (!adaptor.getFlattenedCompatInfo()) {
       return rewriter.notifyMatchFailure(
-          op,
-          "TTNN only supports flattened input tensors for MaxPool2dOp. Please "
-          "run the FlattenSlidingWindow pass before lowering to TTNN.");
+          op, "TTNN only supports flattened input tensors for " +
+                  op.getOperationName() +
+                  ". Please "
+                  "run the FlattenSlidingWindow pass before lowering to TTNN.");
     }
-    assert(adaptor.getPaddingBottom() == adaptor.getPaddingTop() &&
-           "TTNN max_pool2d does not support padding top/bottom/left/right "
-           "separately");
-    assert(adaptor.getPaddingLeft() == adaptor.getPaddingRight() &&
-           "TTNN max_pool2d does not support padding top/bottom/left/right "
-           "separately");
+    if (adaptor.getPaddingBottom() != adaptor.getPaddingTop()) {
+      return rewriter.notifyMatchFailure(
+          op, op.getOperationName() +
+                  "does not support asymmetric padding for top/bottom.");
+    }
+    if (adaptor.getPaddingLeft() != adaptor.getPaddingRight()) {
+      return rewriter.notifyMatchFailure(
+          op, op.getOperationName() +
+                  "does not support asymmetric padding for left/right.");
+    }
 
     auto batchSize = adaptor.getFlattenedCompatInfo().getBatchSize();
     constexpr unsigned int CHANNEL_DIM = 3;
@@ -1185,7 +1192,7 @@ public:
     DenseI32ArrayAttr dilationAttr = rewriter.getDenseI32ArrayAttr(
         {adaptor.getDilationHeight(), adaptor.getDilationWidth()});
 
-    rewriter.replaceOpWithNewOp<ttnn::MaxPool2dOp>(
+    rewriter.replaceOpWithNewOp<TTNNOpTy>(
         op, this->getTypeConverter()->convertType(op.getResult().getType()),
         adaptor.getInput(), batchSize,
         adaptor.getFlattenedCompatInfo().getInputHeight(),
@@ -1207,20 +1214,14 @@ public:
   LogicalResult
   matchAndRewrite(ttir::TypecastOp op, ttir::TypecastOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
-    auto input = ::llvm::cast<::mlir::TypedValue<::mlir::RankedTensorType>>(
-        *op.getInputs().begin());
-    auto result = ::llvm::cast<::mlir::TypedValue<::mlir::RankedTensorType>>(
-        *op.getResults().begin());
-
+    auto resultType = op.getType();
     ttnn::TTNNLayoutAttr outputLayoutAttr =
-        mlir::cast<ttnn::TTNNLayoutAttr>(result.getType().getEncoding());
-
+        mlir::cast<ttnn::TTNNLayoutAttr>(resultType.getEncoding());
     DataType outputDataType = outputLayoutAttr.getDataType();
 
     rewriter.replaceOpWithNewOp<ttnn::TypecastOp>(
-        op, this->getTypeConverter()->convertType(op.getType(0)), input,
-        outputDataType);
+        op, this->getTypeConverter()->convertType(resultType),
+        adaptor.getInput(), outputDataType);
     return success();
   }
 };
@@ -1236,28 +1237,25 @@ public:
   matchAndRewrite(ttir::SubtractOp srcOp, ttir::SubtractOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     RankedTensorType lhsType =
-        mlir::cast<RankedTensorType>(adaptor.getInputs().front().getType());
+        mlir::cast<mlir::RankedTensorType>(adaptor.getLhs().getType());
     RankedTensorType rhsType =
-        mlir::cast<RankedTensorType>(adaptor.getInputs().back().getType());
-    Type outputType = this->getTypeConverter()->convertType(srcOp.getType(0));
+        mlir::cast<mlir::RankedTensorType>(adaptor.getRhs().getType());
+    Type outputType = this->getTypeConverter()->convertType(srcOp.getType());
 
     if (lhsType.getShape() == rhsType.getShape()) {
-      rewriter.replaceOpWithNewOp<ttnn::SubtractOp>(srcOp, outputType,
-                                                    adaptor.getInputs().front(),
-                                                    adaptor.getInputs().back());
+      rewriter.replaceOpWithNewOp<ttnn::SubtractOp>(
+          srcOp, outputType, adaptor.getLhs(), adaptor.getRhs());
 
       // Broadcast for rhs operand require the operation to be commutative to
       // allow switching the order of operands. To allow this conversion, the
       // following conversion is applied to SubtractOp: subtractOp(lhs,rhs) ->
       // addOp(lhs, negOp(rhs))
-
     } else {
       ttnn::NegOp negOp = rewriter.create<ttnn::NegOp>(
-          srcOp.getLoc(), adaptor.getInputs().back().getType(),
-          adaptor.getInputs().back());
+          srcOp.getLoc(), adaptor.getRhs().getType(), adaptor.getRhs());
 
-      rewriter.replaceOpWithNewOp<ttnn::AddOp>(
-          srcOp, outputType, adaptor.getInputs().front(), negOp);
+      rewriter.replaceOpWithNewOp<ttnn::AddOp>(srcOp, outputType,
+                                               adaptor.getLhs(), negOp);
     }
 
     return success();
@@ -1681,6 +1679,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::AtanOp, ttnn::AtanOp>,
            ElementwiseOpConversionPattern<ttir::Atan2Op, ttnn::Atan2Op>,
            ElementwiseOpConversionPattern<ttir::PowOp, ttnn::PowOp>,
+           Pooling2dOpConversionPattern<ttir::MaxPool2dOp, ttnn::MaxPool2dOp>,
+           Pooling2dOpConversionPattern<ttir::AvgPool2dOp, ttnn::AvgPool2dOp>,
            ReductionOpConversionPattern<ttir::SumOp, ttnn::SumOp>,
            ReductionOpConversionPattern<ttir::MeanOp, ttnn::MeanOp>,
            ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,
@@ -1710,7 +1710,6 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            MatmulOpConversionPattern,
            Conv2dOpConversionPattern,
            ConvTranspose2dOpConversionPattern,
-           MaxPool2dOpConversionPattern,
            SubtractOpConversionPattern,
            MeshShardOpConversionPattern,
            AllReduceOpConversionPattern,
