@@ -64,7 +64,7 @@ func.func @implicit_broadcast_second_operand_multiply(%arg0: tensor<8x16x32xf32>
 
 func.func @implicit_broadcast_both_operands_subtract(%arg0: tensor<1x16x1xf32>, %arg1: tensor<1x1x32xf32>) -> tensor<1x16x32xf32> {
   %0 = ttir.empty() : tensor<1x16x32xf32>
-  // CHECK: "ttnn.subtract"
+  // CHECK: "ttnn.add"
   // CHECK-SAME: tensor<1x16x1xf32
   // CHECK-SAME: tensor<1x1x32xf32
   // CHECK-SAME: -> tensor<1x16x32xf32
@@ -74,7 +74,7 @@ func.func @implicit_broadcast_both_operands_subtract(%arg0: tensor<1x16x1xf32>, 
 
 func.func @implicit_broadcast_first_operand_subtract(%arg0: tensor<1x16x32xf32>, %arg1: tensor<8x16x32xf32>) -> tensor<8x16x32xf32> {
   %0 = ttir.empty() : tensor<8x16x32xf32>
-  // CHECK: "ttnn.subtract"
+  // CHECK: "ttnn.add"
   // CHECK-SAME: tensor<1x16x32xf32
   // CHECK-SAME: tensor<8x16x32xf32
   // CHECK-SAME: -> tensor<8x16x32xf32
@@ -84,7 +84,7 @@ func.func @implicit_broadcast_first_operand_subtract(%arg0: tensor<1x16x32xf32>,
 
 func.func @implicit_broadcast_second_operand_subtract(%arg0: tensor<8x16x32xf32>, %arg1: tensor<1x16x32xf32>) -> tensor<8x16x32xf32> {
   %0 = ttir.empty() : tensor<8x16x32xf32>
-  // CHECK: "ttnn.subtract"
+  // CHECK: "ttnn.add"
   // CHECK-SAME: tensor<8x16x32xf32
   // CHECK-SAME: tensor<1x16x32xf32
   // CHECK-SAME: -> tensor<8x16x32xf32
