@@ -30,13 +30,33 @@ def _to_common_shape(x, y):
         return x, y
     except Exception:
         pass
+    # Last ditch attempt, we try to permute the dimensions
+    # to match the other tensor
+    ttir_shapes = list(x.shape)
+    ttnn_shapes = list(y.shape)
+    if x.ndim == y.ndim and not len(set(ttir_shapes)) < len(ttir_shapes):
+        try:
+            permutation = [ttir_shapes.index(i) for i in ttnn_shapes]
+            y = y.permute(permutation)
+            return x, y
+        except Exception:
+            pass
+
+    # Last Last ditch attempt, try to merge the last two dimensions to match
+    # the other tensor
+    if len(ttir_shapes) - len(ttnn_shapes) == 1:
+        sz = ttir_shapes[-1] * ttir_shapes[-2]
+        if sz == ttnn_shapes[-1]:
+            y = y.view(x.shape)
+            return x, y
+
     return None, None
 
 
 def compute_abs_err(ttir_result, ttnn_result):
     ttir_result, ttnn_result = _to_common_shape(ttir_result, ttnn_result)
     if ttir_result is None or ttnn_result is None:
-        return None
+        return -1
 
     ttir_result = ttir_result.to(torch.float32)
     ttnn_result = ttnn_result.to(torch.float32)
@@ -57,7 +77,7 @@ def compute_abs_err(ttir_result, ttnn_result):
 def compute_pcc(ttir_result, ttnn_result):
     ttir_result, ttnn_result = _to_common_shape(ttir_result, ttnn_result)
     if ttir_result is None or ttnn_result is None:
-        return None
+        return -1
 
     x = ttir_result.to(torch.float32).flatten()
     y = ttnn_result.to(torch.float32).flatten()
