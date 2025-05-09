@@ -428,7 +428,11 @@ jobs:
       shell: bash
       run: |
         source env/activate
+<<<<<<< HEAD
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- FBS_GENERATION mlir-headers mlir-generic-headers tt-metal-download tt-metal-update tt-metal-configure
+=======
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- FBS_GENERATION mlir-headers mlir-generic-headers tt-metal-download tt-metal-configure
+>>>>>>> 932e1d376 (run additional targets before clang-tidy)
         python3 tools/scripts/filter-compile-commands.py --diff ${{ steps.strings.outputs.build-output-dir }}/compile_commands.json
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- clang-tidy
 
