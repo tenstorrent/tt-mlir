@@ -391,6 +391,17 @@ def TTKernel_TilizeBlockOp : TTKernel_Op<"tilize_block"> {
     let hasVerifier = 1;
 }
 
+def TTKernel_ExperimentalTilizeBlockOp : TTKernel_Op<"experimental::tilize_block"> {
+    let summary = "Experimental TilizeBlockOp call.";
+    let description = [{
+      This is a custom tilize block LLK that takes the dimensions of the block, and properly tilizes each row.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut, I32:$block_r, I32:$block_c);
+
+    let hasVerifier = 1;
+}
+
 def TTKernel_TilizeInitOp : TTKernel_Op<"tilize_init"> {
     let summary = "TilizeInitOp call.";
     let description = [{
