@@ -19,8 +19,8 @@ static void runEltwiseBinaryOp(
         std::optional<::ttnn::Tensor>,
         tt::stl::Span<const ::ttnn::operations::unary::UnaryWithParam>,
         tt::stl::Span<const ::ttnn::operations::unary::UnaryWithParam>,
-        tt::stl::Span<const ::ttnn::operations::unary::UnaryWithParam>)>
-        &ttnnOp) {
+        tt::stl::Span<const ::ttnn::operations::unary::UnaryWithParam>,
+        std::optional<bool>)> &ttnnOp) {
 
   ::ttnn::Tensor *lhs = &(tensorPool.getTTNNTensorAndValidate(op->lhs()));
   ::ttnn::Tensor *rhs = &(tensorPool.getTTNNTensorAndValidate(op->rhs()));
@@ -42,8 +42,31 @@ static void runEltwiseBinaryOp(
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
+  // Metal does not support broadcasting sharded tensors on dimensions other
+  // than W. It is tracked in the following issue:
+  // https://github.com/tenstorrent/tt-metal/issues/16138
+  bool use_legacy = false;
+  if (lhs->memory_config().is_sharded() || rhs->memory_config().is_sharded() ||
+      (outputMemoryConfig && outputMemoryConfig->is_sharded())) {
+    const ::ttnn::Shape &shape_a = lhs->get_logical_shape();
+    const ::ttnn::Shape &shape_b = rhs->get_logical_shape();
+    size_t rank_a = shape_a.rank();
+    size_t rank_b = shape_b.rank();
+    size_t larger_rank = std::max(rank_a, rank_b);
+
+    for (size_t i = 0; i < larger_rank - 1; ++i) {
+      auto dim_a = i < rank_a ? shape_a[i] : 1;
+      auto dim_b = i < rank_b ? shape_b[i] : 1;
+
+      if (dim_a != dim_b) {
+        use_legacy = true;
+        break;
+      }
+    }
+  }
+
   ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputDataType, outputMemoryConfig,
-                              std::nullopt, {}, {}, {});
+                              std::nullopt, {}, {}, {}, use_legacy);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
