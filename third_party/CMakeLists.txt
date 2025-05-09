@@ -114,8 +114,9 @@ ExternalProject_Add(
   BUILD_BYPRODUCTS ${TTNN_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH} ${TRACY_LIBRARY_PATH} ${DEVICE_LIBRARY_PATH}
 )
 
-ExternalProject_Add_StepTargets(tt-metal download configure)
+ExternalProject_Add_StepTargets(tt-metal download update configure)
 set_target_properties(tt-metal-download PROPERTIES EXCLUDE_FROM_ALL TRUE)
+set_target_properties(tt-metal-update PROPERTIES EXCLUDE_FROM_ALL TRUE)
 set_target_properties(tt-metal-configure PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 set_target_properties(tt-metal PROPERTIES EXCLUDE_FROM_ALL TRUE)
@@ -228,5 +229,6 @@ else() # TTMLIR_ENABLE_RUNTIME
   add_library(TTMETAL_LIBRARY INTERFACE)
   add_library(DEVICE_LIBRARY INTERFACE)
   add_library(tt-metal-download INTERFACE EXCLUDE_FROM_ALL)
+  add_library(tt-metal-update INTERFACE EXCLUDE_FROM_ALL)
   add_library(tt-metal-configure INTERFACE EXCLUDE_FROM_ALL)
 endif() # TTMLIR_ENABLE_RUNTIME
