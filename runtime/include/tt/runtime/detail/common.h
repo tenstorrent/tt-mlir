@@ -10,6 +10,7 @@
 #define FMT_HEADER_ONLY
 #include "tt-metalium/host_api.hpp"
 
+#include "tt/runtime/detail/flatbuffer_operator_ostream.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/types.h"
 
