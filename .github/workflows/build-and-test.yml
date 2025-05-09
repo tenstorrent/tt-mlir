@@ -149,6 +149,7 @@ jobs:
         build: [
           {runs-on: n150,   name: "run",  suite: "unit",              image: "speedy", type: "unit",    container-options: "--device /dev/tenstorrent/0"},
           {runs-on: nXX0,   name: "run",  suite: "unit",              image: "tracy",  type: "unit",    container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: p150,   name: "run",  suite: "unit",              image: "tracy",  type: "unit",    container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150,   name: "run",  suite: "run",               image: "speedy", type: "ttrt",    path: "Silicon", flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150,   name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",    path: "Silicon/TTNN/n150/perf", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150,   name: "perf", suite: "optimizer",         image: "tracy",  type: "ttrt",    path: "Silicon/TTNN/n150/optimizer", container-options: "--device /dev/tenstorrent/0"},
