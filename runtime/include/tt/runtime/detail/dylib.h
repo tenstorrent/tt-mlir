@@ -25,6 +25,15 @@
 namespace tt::runtime::common {
 using DylibHandleMap = std::unordered_map<uint32_t, void *>;
 
+struct WrappedTensor {
+  float *start;
+  float *alignedStart;
+  int64_t startIdx;
+  int64_t *sizesAndStrides;
+};
+
+using WrappedFunc = void (*)(WrappedTensor *);
+
 class DylibManager {
 public:
   // Constructor takes dylibs and loads them
@@ -46,10 +55,12 @@ public:
   // Access the handle map
   const DylibHandleMap &getHandles() const { return handles; }
 
-  void *getHandle(const uint32_t key) {
+  void *getHandle(const uint32_t key) const {
     const auto it = handles.find(key);
     return (it == handles.end()) ? nullptr : it->second;
   }
+
+  WrappedFunc getFunc(const uint32_t key, const std::string &funcName) const;
 
 private:
   DylibHandleMap handles;

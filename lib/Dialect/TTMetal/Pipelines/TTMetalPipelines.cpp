@@ -97,9 +97,20 @@ void createTTIRToTTMetalBackendPipeline(
 
 void createTTIRToTTMetalPipeline(
     OpPassManager &pm, const TTIRToTTMetalBackendPipelineOptions &options) {
-  createTTIRToTTMetalFrontendPipeline(pm, options);
-  createTTIRToTTMetalMiddleendPipeline(pm, options);
-  createTTIRToTTMetalBackendPipeline(pm, options);
+  // Create DeviceModule to wrap all ops.
+  pm.addPass(tt::createTTWrapDeviceModulePass());
+  // Create CPUModuleOp to wrap hoisted ops (if any).
+  pm.addPass(ttir::createTTIRHoistTransform());
+  OpPassManager &devicePm =
+      pm.nest<tt::DeviceModuleOp>().nest<mlir::ModuleOp>();
+  createTTIRToTTMetalFrontendPipeline(devicePm, options);
+  createTTIRToTTMetalMiddleendPipeline(devicePm, options);
+  createTTIRToTTMetalBackendPipeline(devicePm, options);
+  OpPassManager &cpuPm = pm.nest<tt::CPUModuleOp>().nest<mlir::ModuleOp>();
+  cpuPm.addPass(createConvertTTIRToLinalgPass());
+  ttir::LinalgToLLVMPipelineOptions linalgToLLLVMOptions;
+  ttir::createLinalgToLLVMPipeline(cpuPm, linalgToLLLVMOptions);
+  cpuPm.addPass(llvm_util::createLLVMEmitCallingConventionWrapperFuncs());
 }
 
 //===----------------------------------------------------------------------===//

@@ -6,6 +6,7 @@
 
 #include "tracy/Tracy.hpp"
 #include "tt/runtime/detail/common.h"
+#include "tt/runtime/detail/dylib.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttmetal/ttmetal.h"
 #include "tt/runtime/runtime.h"
@@ -320,7 +321,7 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
 
     LOG_ASSERT(outputs.empty(), "Multi-device outputs not supported");
     outputs = executeDeviceProgram(device, program->device_programs()->Get(i),
-                                   inputs);
+                                   inputs, common::DylibManager(fbb.dylibs()));
     LOG_ASSERT(outputs.size() == program->outputs()->size(),
                "Outputs size mismatch");
   }

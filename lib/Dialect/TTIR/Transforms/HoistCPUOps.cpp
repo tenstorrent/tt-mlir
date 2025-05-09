@@ -60,6 +60,22 @@ static llvm::SmallString<16> generateHoistedFuncName(mlir::Operation *op) {
   return uniqueName;
 }
 
+// Helper function to determine if an operand is an output tensor
+static bool isOutputTensor(mlir::Operation *op, unsigned operandIdx) {
+  // Check if the operation implements DestinationStyleOpInterface
+  if (auto dpsOp = dyn_cast<mlir::DestinationStyleOpInterface>(op)) {
+    // For DPS operations, the outputs are at the end of the operand list
+    unsigned numOutputs = dpsOp.getNumDpsInits();
+    unsigned totalOperands = op->getNumOperands();
+
+    // The operand is an output if it's among the last numOutputs operands
+    return operandIdx >= (totalOperands - numOutputs);
+  }
+  // For other operations, we can add more specific logic
+  // Default to assuming it's an input
+  return true;
+}
+
 // Helper function to hoist an arbitrary op into a new function in targetModule,
 // generate a matching extern prototype in the sourceModule, and replace the
 // original op with a callOp to the extern function.
@@ -145,6 +161,23 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
       newOperands.push_back(block->getArgument(operand.index()));
     }
 
+    // Add bufferization access attributes to function arguments
+    for (unsigned i = 0; i < hoistedFunc.getNumArguments(); ++i) {
+      if (auto tensorType = dyn_cast<mlir::RankedTensorType>(
+              hoistedFunc.getArgument(i).getType())) {
+        // Determine if this is an input or output tensor
+        if (isOutputTensor(opToHoist, i)) {
+          // Output tensors are only written to
+          hoistedFunc.setArgAttr(i, "bufferization.access",
+                                 builder.getStringAttr("write"));
+        } else {
+          // Input tensors are only read from
+          hoistedFunc.setArgAttr(i, "bufferization.access",
+                                 builder.getStringAttr("read"));
+        }
+      }
+    }
+
     mlir::IRMapping mapping;
     for (auto operand : llvm::zip(opToHoist->getOperands(), newOperands)) {
       mapping.map(std::get<0>(operand), std::get<1>(operand));
@@ -184,7 +217,27 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
     localFunc = func::FuncOp::create(opToHoist->getLoc(),
                                      localFunctionName.str(), localFuncType);
     localFunc.setPrivate();
+
+    // Add the function to the module first
     sourceModule.push_back(localFunc);
+
+    // Now that the function is in the module, add bufferization access
+    // attributes
+    for (unsigned i = 0; i < localFunc.getNumArguments(); ++i) {
+      if (auto tensorType = dyn_cast<mlir::RankedTensorType>(
+              localFunc.getFunctionType().getInput(i))) {
+        // Determine if this is an input or output tensor
+        if (isOutputTensor(opToHoist, i)) {
+          // Output tensors are only written to
+          localFunc.setArgAttr(i, "bufferization.access",
+                               builder.getStringAttr("write"));
+        } else {
+          // Input tensors are only read from
+          localFunc.setArgAttr(i, "bufferization.access",
+                               builder.getStringAttr("read"));
+        }
+      }
+    }
 
     hoistedFunc->setAttr("arg_ranks", builder.getI64ArrayAttr(ranks));
   }
@@ -193,6 +246,10 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
   mlir::OpBuilder opBuilder(opToHoist);
   auto callOp = opBuilder.create<mlir::func::CallOp>(
       opToHoist->getLoc(), localFunc, convertedOperands);
+
+  // Add the hoisted_call attribute
+  callOp->setAttr(HoistedCallAttr::name,
+                  UnitAttr::get(opToHoist->getContext()));
 
   // Convert results back to original types if needed
   llvm::SmallVector<mlir::Value> finalResults;
@@ -213,10 +270,6 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
       finalResults.push_back(callResult);
     }
   }
-
-  // Add the hoisted_call attribute
-  callOp->setAttr(HoistedCallAttr::name,
-                  UnitAttr::get(opToHoist->getContext()));
 
   // Replace original op with the converted results
   opToHoist->replaceAllUsesWith(finalResults);

@@ -178,9 +178,7 @@ public:
   //
   // Dylib Manager Operation
   //
-  void *tryGetDylibHandle(const uint32_t dylibId) {
-    return dylibManager.getHandle(dylibId);
-  }
+  const common::DylibManager &getDylibManager() { return dylibManager; }
 
   //
   // Tensor Pool Operations
