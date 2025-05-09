@@ -72,6 +72,7 @@ table CpuCommand {
 table FinishCommand {
 }
 
+
 union CommandType {
   HostAllocCommand,
   ReturnCommand,

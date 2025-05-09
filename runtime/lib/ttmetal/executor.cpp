@@ -77,7 +77,10 @@ private:
   const char *currentProgramName;
   DeviceAddressValidator deviceAddressValidator;
   common::DylibManager dylibManager;
+<<<<<<< HEAD
   std::uint64_t nextProgramRuntimeId = 10000; // Start at a greppable number.
+=======
+>>>>>>> 104660f39 (working)
 };
 } // namespace
 
@@ -244,6 +247,8 @@ void CQExecutor::execute(const target::metal::ReturnCommand *command) {
     auto hostIter = hostBuffers.find(result->global_id());
     bool deviceFound = deviceIter != deviceBuffers.end();
     bool hostFound = hostIter != hostBuffers.end();
+    LOG_DEBUG("Found result for host: ", hostFound ? "true" : "false");
+    LOG_DEBUG("Found result for device: ", deviceFound ? "true" : "false");
     LOG_ASSERT(deviceFound != hostFound);
     if (deviceFound) {
       outputs.emplace_back(static_pointer_cast<void>(deviceIter->second),
