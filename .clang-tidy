@@ -7,7 +7,6 @@ ImplementationFileExtensions:
   - c
   - cpp
 HeaderFilterRegex: '(tt-mlir/include/ttmlir)|(tt-mlir/runtime/include)'
-ExcludeHeaderFilterRegex: 'tools/ttnn-standalone/.*'
 FormatStyle:     LLVM
 User:            nsmith
 CheckOptions:
