@@ -116,6 +116,7 @@ void ProgramExecutor::runCallback(
   if (t.handle.get() != nullptr)
   {
     auto k = t.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+    ::ttnn::core::set_printoptions("FULL");
     std::cerr << "output=" << k.write_to_string() << std::endl;
   }
   if (callback) {
