@@ -56,11 +56,11 @@ endif()
 set(METAL_SRC_DIR "$ENV{TT_METAL_HOME}" CACHE PATH "Path to the tt-metal root src directory")
 set(METAL_LIB_DIR "$ENV{TT_METAL_HOME}-build/lib" CACHE PATH "Path to the tt-metal lib directory")
 
-if (DEFINED ENV{CPM_SOURCE_CACHE})
-  set(CPM_SOURCE_CACHE $ENV{CPM_SOURCE_CACHE})
-else()
-  set(CPM_SOURCE_CACHE $ENV{TT_METAL_HOME}/.cpmcache)
-endif()
+# if (DEFINED ENV{CPM_SOURCE_CACHE})
+#   set(CPM_SOURCE_CACHE $ENV{CPM_SOURCE_CACHE})
+# else()
+set(CPM_SOURCE_CACHE $ENV{TT_METAL_HOME}/.cpmcache)
+# endif()
 message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
 
 # Directories to search for headers

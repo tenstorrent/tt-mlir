@@ -2,6 +2,7 @@ include(ExternalProject)
 
 set(TT_METAL_VERSION "7e6553092db1c3d05e944e0b0bd99d26fcacc789")
 message(STATUS "TT_METAL_VERSION AFTER INIT: ${TT_METAL_VERSION}")
+message(STATUS "CMake Version: ${CMAKE_VERSION}")
 
 set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
 
@@ -18,11 +19,11 @@ else()
   message(FATAL_ERROR "Unsupported ARCH_NAME: $ENV{ARCH_NAME}")
 endif()
 
-if (DEFINED ENV{CPM_SOURCE_CACHE})
-  set(CPM_SOURCE_CACHE $ENV{CPM_SOURCE_CACHE})
-else()
-  set(CPM_SOURCE_CACHE "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache")
-endif()
+# if (DEFINED ENV{CPM_SOURCE_CACHE})
+#   set(CPM_SOURCE_CACHE $ENV{CPM_SOURCE_CACHE})
+# else()
+set(CPM_SOURCE_CACHE "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache")
+# endif()
 message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
 
 set(METAL_INSTALL_PREFIX "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal-build/")
