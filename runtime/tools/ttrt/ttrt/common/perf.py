@@ -434,6 +434,7 @@ class Perf:
                     self.logging.info(
                         f"test command for binary={bin.file_path} is: {test_command}"
                     )
+                    print("perf is running run")
                     testProcess = subprocess.Popen(
                         [test_command], shell=True, env=env_vars, preexec_fn=os.setsid
                     )
@@ -580,6 +581,7 @@ class Perf:
                     traceback.print_exc()
                     continue
 
+        print("ttnn binaries: ", self.ttnn_binaries)
         self.logging.debug(f"executing ttnn binaries")
         _execute(self.ttnn_binaries)
         self.logging.debug(f"finished executing ttnn binaries")

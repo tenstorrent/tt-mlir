@@ -17,7 +17,7 @@ PYBIND11_MODULE(_C, m) {
   m.doc() =
       "ttrt.binary python extension for loading / inspecting tt binary files";
 
-  py::class_<tt::runtime::Flatbuffer>(m, "Flatbuffer")
+  py::class_<tt::runtime::Flatbuffer>(m, "Flatbuffer", py::module_local())
       .def_property_readonly("version", &tt::runtime::Flatbuffer::getVersion)
       .def_property_readonly("ttmlir_git_hash",
                              &tt::runtime::Flatbuffer::getTTMLIRGitHash)
@@ -25,7 +25,7 @@ PYBIND11_MODULE(_C, m) {
                              &tt::runtime::Flatbuffer::getFileIdentifier)
       .def("as_json", &tt::runtime::Flatbuffer::asJson)
       .def("store", &tt::runtime::Flatbuffer::store);
-  py::class_<tt::runtime::Binary>(m, "Binary")
+  py::class_<tt::runtime::Binary>(m, "Binary", py::module_local())
       .def_property_readonly("version", &tt::runtime::Binary::getVersion)
       .def_property_readonly("ttmlir_git_hash",
                              &tt::runtime::Binary::getTTMLIRGitHash)
@@ -39,7 +39,7 @@ PYBIND11_MODULE(_C, m) {
           "get_tensor_cache",
           [](tt::runtime::Binary &bin) { return bin.getCache(); },
           py::return_value_policy::reference);
-  py::class_<tt::runtime::SystemDesc>(m, "SystemDesc")
+  py::class_<tt::runtime::SystemDesc>(m, "SystemDesc", py::module_local())
       .def_property_readonly("version", &tt::runtime::SystemDesc::getVersion)
       .def_property_readonly("ttmlir_git_hash",
                              &tt::runtime::SystemDesc::getTTMLIRGitHash)
@@ -62,7 +62,8 @@ PYBIND11_MODULE(_C, m) {
   /**
    * Binding for the `GoldenTensor` type
    */
-  py::class_<tt::target::GoldenTensor>(m, "GoldenTensor", py::buffer_protocol())
+  py::class_<tt::target::GoldenTensor>(m, "GoldenTensor", py::buffer_protocol(),
+                                       py::module_local())
       .def_property_readonly(
           "name",
           [](const ::tt::target::GoldenTensor *t) -> std::string {
@@ -137,7 +138,8 @@ PYBIND11_MODULE(_C, m) {
       });
 
   py::class_<tt::runtime::TensorCache,
-             std::shared_ptr<tt::runtime::TensorCache>>(m, "TensorCache")
+             std::shared_ptr<tt::runtime::TensorCache>>(m, "TensorCache",
+                                                        py::module_local())
       .def(py::init<>())
       .def("clear", &tt::runtime::TensorCache::clear)
       .def("size", &tt::runtime::TensorCache::size)

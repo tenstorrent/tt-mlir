@@ -318,6 +318,7 @@ class Run:
         self.logging.debug(f"ttmetal_binary_paths={ttmetal_binary_paths}")
 
         for path in ttnn_binary_paths:
+            print("run 321 i have a tnn path")
             bin = Binary(self.logger, self.file_manager, path)
             try:
                 bin.check_version(ignore=self["--ignore-version"])
@@ -335,7 +336,7 @@ class Run:
                 )
                 self.results.add_result(test_result)
                 continue
-
+            print("run passed the first try")
             try:
                 bin.check_system_desc(self.query)
             except Exception as e:
@@ -352,7 +353,7 @@ class Run:
                 )
                 self.results.add_result(test_result)
                 continue
-
+            print("run passed the second try")
             if self["--program-index"] != "all":
                 if not bin.check_program_index_exists(int(self["--program-index"])):
                     message = f"program index={int(self['--program-index'])} is greater than number of programs in: {bin.file_path} - skipping this test"
@@ -370,7 +371,7 @@ class Run:
                     )
                     self.results.add_result(test_result)
                     continue
-
+            print("Lord i dont even know")
             self.ttnn_binaries.append(bin)
 
         for path in ttmetal_binary_paths:
@@ -469,6 +470,7 @@ class Run:
                 not self["--disable-read-update-index-for-kv-cache"],
                 not self["--disable-raw-host-data-pointer-wrapper"],
             )
+            print("run 2")
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
             self.logging.debug(f"setting torch manual seed={self['--seed']}")
             torch.manual_seed(self["--seed"])
@@ -476,7 +478,7 @@ class Run:
             current_runtime = ttrt.runtime.get_current_runtime()
             self.logging.debug(f"opening devices={self.query.device_ids}")
             dispatch_core_type = ttrt.runtime.DispatchCoreType.ETH
-
+            print("run 3")
             if self["--disable-eth-dispatch"]:
                 dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
 
@@ -485,11 +487,11 @@ class Run:
             mesh_options.dispatch_core_type = dispatch_core_type
             mesh_options.enable_program_cache = self["--enable-program-cache"]
             device = ttrt.runtime.open_mesh_device(mesh_shape, mesh_options)
-
+            print("run 4")
             for bin in binaries:
                 try:
                     self.logging.info(f"evaluating binary={bin.file_path}")
-
+                    print("setting up callbacks")
                     pre_op_callback_runtime_config = CallbackRuntimeConfig(
                         device,
                         "",
@@ -521,6 +523,7 @@ class Run:
                     )
 
                     if self["--save-artifacts"]:
+                        print("run is saving them artifacts")
                         self.artifacts.create_binary_artifacts_folder(bin)
 
                     if self["--emitc"]:
@@ -944,6 +947,7 @@ class Run:
             ttrt.runtime.close_mesh_device(device)
 
         self.logging.debug(f"executing ttnn binaries")
+        print(self.ttnn_binaries, "BINARIES RUN")
         _execute(self.ttnn_binaries)
         self.logging.debug(f"finished executing ttnn binaries")
 

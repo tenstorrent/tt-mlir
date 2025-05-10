@@ -519,6 +519,7 @@ class Artifacts:
         self.file_manager.remove_directory(self.get_binary_folder_path(binary))
 
     def create_binary_artifacts_folder(self, binary):
+        print("OPENING CREATE BINARY ART FOLDER")
         binary_folder = self.get_binary_folder_path(binary)
         self.file_manager.create_directory(binary_folder)
         self.file_manager.create_directory(f"{binary_folder}/run")
@@ -595,7 +596,7 @@ class Flatbuffer:
     ttsys_file_extension = ".ttsys"
 
     def __init__(self, logger, file_manager, file_path, capsule=None):
-        import ttrt.binary
+        import ttrt.runtime
 
         self.logger = logger
         self.logging = self.logger.get_logger()
@@ -641,13 +642,16 @@ class Binary(Flatbuffer):
         super().__init__(logger, file_manager, file_path, capsule=capsule)
 
         import torch
-        import ttrt.binary
+        import ttrt.runtime
 
         if not capsule:
-            self.fbb = ttrt.binary.load_binary_from_path(file_path)
+            self.fbb = ttrt.runtime.load_binary_from_path(file_path)
+            # print("SELF.FBB2: ", len(self.fbb))
         else:
-            self.fbb = ttrt.binary.load_binary_from_capsule(capsule)
-        self.fbb_dict = ttrt.binary.as_dict(self.fbb)
+            self.fbb = ttrt.runtime.load_binary_from_capsule(capsule)
+            # print("SELF.FBB22: ", self.fbb)
+        self.fbb_dict = ttrt.runtime.as_dict(self.fbb)
+        print("SELF.FBB dict: ", len(self.fbb_dict))
         self.version = self.fbb.version
         self.programs = []
 
@@ -656,7 +660,7 @@ class Binary(Flatbuffer):
             self.programs.append(program)
 
     def check_system_desc(self, query):
-        import ttrt.binary
+        import ttrt.runtime
 
         try:
             fbb_system_desc = self.fbb_dict["system_desc"]
@@ -821,10 +825,12 @@ class SystemDesc(Flatbuffer):
     def __init__(self, logger, file_manager, file_path):
         super().__init__(logger, file_manager, file_path)
 
-        import ttrt.binary
+        import ttrt.runtime
 
-        self.fbb = ttrt.binary.load_system_desc_from_path(file_path)
-        self.fbb_dict = ttrt.binary.as_dict(self.fbb)
+        self.fbb = ttrt.runtime.load_system_desc_from_path(file_path)
+        print("SELF.FBB sysdesc: ", self.fbb)
+        self.fbb_dict = ttrt.runtime.as_dict(self.fbb)
+        print("SELF.FBB dict sysdesc: ", len(self.fbb_dict))
         self.version = self.fbb.version
 
         # temporary state value to check if test failed
