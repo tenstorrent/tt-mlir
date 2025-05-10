@@ -88,13 +88,8 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
   set(TTMETAL_BUILD_TYPE "Debug")
 endif()
 
-<<<<<<< HEAD
 set(METAL_BUILD_DIR ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
 set(METAL_INSTALL_PREFIX "${METAL_BUILD_DIR}")
-=======
-message(STATUS "TT_METAL_VERSION SOME TIME LATER: ${TT_METAL_VERSION}")
-
->>>>>>> c0f001003 (what's going on with the metal version?)
 ExternalProject_Add(
   tt-metal
   PREFIX ${TTMLIR_SOURCE_DIR}/third_party/tt-metal
