@@ -61,6 +61,17 @@ def TTIR_TileMulOp : TTIR_GenericRegionComputeOp<"tile_mul"> {
     let results = (outs TT_Tile:$result);
 }
 
+def TTIR_TileDivOp : TTIR_GenericRegionComputeOp<"tile_div"> {
+    let summary = "TTIR Tile Div Op";
+    let description = [{
+        The `tile_div` operation divides two tiles element-wise.
+    }];
+
+    let arguments = (ins TT_Tile:$lhs,
+                         TT_Tile:$rhs);
+    let results = (outs TT_Tile:$result);
+}
+
 def TTIR_TileRecipOp : TTIR_GenericRegionComputeOp<"tile_recip"> {
     let summary = "TTIR Tile Recip Op";
     let description = [{
