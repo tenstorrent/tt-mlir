@@ -249,6 +249,15 @@ ttrt check --save-artifacts --artifact-dir /path/to/some/dir out.ttnn
 ttrt check out.ttnn --result-file result.json
 ```
 
+### gdb
+You can relaunch `ttrt` inside of gdb which can be useful for debugging C++
+runtime components.
+
+```bash
+ttrt --gdb run ...
+ttrt --gdb perf ...
+```
+
 ## ttrt as a python package
 
 The other way to use the APIs under ttrt is importing it as a library. This allows the user to use it in custom scripts.
