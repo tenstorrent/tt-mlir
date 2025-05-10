@@ -15,7 +15,7 @@ end
 set -gx TTMLIR_ENV_ACTIVATED 1
 set -gx PATH (pwd)/build/bin $TTMLIR_TOOLCHAIN_DIR/bin $TTMLIR_TOOLCHAIN_DIR/venv/bin $PATH
 set -gx TT_METAL_HOME (pwd)/third_party/tt-metal/src/tt-metal
-set -gx TT_METAL_BUILD_HOME (pwd)/third_party/tt-metal/src/tt-metal-build
+set -gx TT_METAL_BUILD_HOME (pwd)/third_party/tt-metal/src/tt-metal/build
 set -gx TT_MLIR_HOME (pwd)
 set -gx PYTHONPATH (pwd)/build/python_packages:(pwd)/.local/toolchain/python_packages/mlir_core:$TT_METAL_HOME:$TT_METAL_HOME/tt_eager:$TT_METAL_BUILD_HOME/tools/profiler/bin:$TT_METAL_HOME/ttnn
 set -gx ARCH_NAME (set -q ARCH_NAME; and echo $ARCH_NAME; or echo "wormhole_b0")
