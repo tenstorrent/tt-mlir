@@ -27,6 +27,8 @@
 
 namespace ttmlir::utils {
 
+const inline llvm::StringRef g_constEvalAttrName = "const_eval";
+
 template <typename T>
 T alignUp(T ptr, T alignment) {
   return (ptr + alignment - 1) & ~(alignment - 1);
