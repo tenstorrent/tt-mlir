@@ -4,3 +4,7 @@ add_subdirectory(TTNN)
 add_subdirectory(TTMetal)
 add_subdirectory(TTKernel)
 add_subdirectory(LLVM)
+
+if (TTMLIR_ENABLE_STABLEHLO)
+  add_subdirectory(StableHLO)
+endif()

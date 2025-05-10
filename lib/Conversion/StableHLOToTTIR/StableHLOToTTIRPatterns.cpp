@@ -1644,7 +1644,7 @@ public:
           srcOp, "AllReduceOp cannot specify cluster axis.");
     }
 
-    // Convert reduceType shlo attribute into ttir attribute
+    // Convert reduceType stablehlo attribute into ttir attribute
     llvm::ErrorOr<ReduceType> reduceType = getReduceType(srcOp);
     if (!reduceType) {
       return rewriter.notifyMatchFailure(
@@ -1719,7 +1719,7 @@ public:
           srcOp, "ReduceScatterOp cannot specify cluster axis.");
     }
 
-    // Convert reduceType shlo attribute into ttir attribute
+    // Convert reduceType stablehlo attribute into ttir attribute
     llvm::ErrorOr<ReduceType> reduceType = getReduceType(srcOp);
     if (!reduceType) {
       return rewriter.notifyMatchFailure(
