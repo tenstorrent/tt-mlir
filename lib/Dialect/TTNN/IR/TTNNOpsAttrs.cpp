@@ -672,16 +672,137 @@ struct Conv2dConfigAttrParams {
 };
 
 Conv2dConfigAttr Conv2dConfigAttr::get(::mlir::MLIRContext *context) {
-  return Conv2dConfigAttr::get(context, std::nullopt, std::nullopt, nullptr,
-                               std::nullopt, nullptr, nullptr, std::nullopt,
-                               std::nullopt, nullptr, nullptr, std::nullopt,
-                               nullptr, nullptr, std::nullopt, nullptr, nullptr,
-                               nullptr, nullptr, nullptr, nullptr);
+  auto convConfig = Conv2dConfigAttr::get(
+      context, std::nullopt, std::nullopt, nullptr, std::nullopt, nullptr,
+      nullptr, std::nullopt, std::nullopt, nullptr, nullptr, std::nullopt,
+      nullptr, nullptr, std::nullopt, nullptr, nullptr, nullptr, nullptr,
+      nullptr, nullptr);
+  return Conv2dConfigAttrParams(convConfig).buildConv2dConfig(context);
 }
 
 Conv2dConfigAttr Conv2dConfigAttr::withActivation(StringRef activation) const {
   Conv2dConfigAttrParams params(*this);
   params.activation = StringAttr::get(getContext(), activation);
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withDtype(DataType dtype) const {
+  Conv2dConfigAttrParams params(*this);
+  params.dtype = dtype;
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withWeightsDtype(DataType dtype) const {
+  Conv2dConfigAttrParams params(*this);
+  params.weightsDtype = dtype;
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr
+Conv2dConfigAttr::withInputChannelsAlignment(uint32_t alignment) const {
+  Conv2dConfigAttrParams params(*this);
+  params.inputChannelsAlignment = alignment;
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withDeallocateActivation(bool value) const {
+  Conv2dConfigAttrParams params(*this);
+  params.deallocateActivation = BoolAttr::get(getContext(), value);
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withReallocateHaloOutput(bool value) const {
+  Conv2dConfigAttrParams params(*this);
+  params.reallocateHaloOutput = BoolAttr::get(getContext(), value);
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withActBlockHOverride(uint32_t value) const {
+  Conv2dConfigAttrParams params(*this);
+  params.actBlockHOverride = value;
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withActBlockWDiv(uint32_t value) const {
+  Conv2dConfigAttrParams params(*this);
+  params.actBlockWDiv = value;
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withReshardIfNotOptimal(bool value) const {
+  Conv2dConfigAttrParams params(*this);
+  params.reshardIfNotOptimal = BoolAttr::get(getContext(), value);
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr
+Conv2dConfigAttr::withOverrideShardingConfig(bool value) const {
+  Conv2dConfigAttrParams params(*this);
+  params.overrideShardingConfig = BoolAttr::get(getContext(), value);
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr
+Conv2dConfigAttr::withShardLayout(TensorMemoryLayout layout) const {
+  Conv2dConfigAttrParams params(*this);
+  params.shardLayout = layout;
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withCoreGrid(CoreRangeSetAttr grid) const {
+  Conv2dConfigAttrParams params(*this);
+  params.coreGrid = grid;
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withTransposeShards(bool value) const {
+  Conv2dConfigAttrParams params(*this);
+  params.transposeShards = BoolAttr::get(getContext(), value);
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withOutputLayout(Layout layout) const {
+  Conv2dConfigAttrParams params(*this);
+  params.outputLayout = layout;
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr
+Conv2dConfigAttr::withPreprocessWeightsOnDevice(bool value) const {
+  Conv2dConfigAttrParams params(*this);
+  params.preprocessWeightsOnDevice = BoolAttr::get(getContext(), value);
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr
+Conv2dConfigAttr::withAlwaysPreprocessWeights(bool value) const {
+  Conv2dConfigAttrParams params(*this);
+  params.alwaysPreprocessWeights = BoolAttr::get(getContext(), value);
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withEnableActDoubleBuffer(bool value) const {
+  Conv2dConfigAttrParams params(*this);
+  params.enableActDoubleBuffer = BoolAttr::get(getContext(), value);
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr
+Conv2dConfigAttr::withEnableWeightsDoubleBuffer(bool value) const {
+  Conv2dConfigAttrParams params(*this);
+  params.enableWeightsDoubleBuffer = BoolAttr::get(getContext(), value);
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withEnableSplitReader(bool value) const {
+  Conv2dConfigAttrParams params(*this);
+  params.enableSplitReader = BoolAttr::get(getContext(), value);
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withEnableSubblockPadding(bool value) const {
+  Conv2dConfigAttrParams params(*this);
+  params.enableSubblockPadding = BoolAttr::get(getContext(), value);
   return params.buildConv2dConfig(getContext());
 }
 
