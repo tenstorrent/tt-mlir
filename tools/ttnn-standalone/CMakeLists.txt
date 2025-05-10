@@ -150,6 +150,9 @@ target_compile_definitions(ttnn-standalone PRIVATE ${COMPILE_DEFS})
 
 target_precompile_headers(ttnn-standalone PRIVATE ttnn-precompiled.hpp)
 
+# Add dependency on tt-metal ExternalProject
+add_dependencies(ttnn-standalone tt-metal)
+
 #      _         _  _  _
 #   __| | _   _ | |(_)| |__
 #  / _` || | | || || || '_ \
@@ -171,3 +174,6 @@ set_target_properties(ttnn-dylib PROPERTIES PUBLIC_HEADER ttnn-dylib.h)
 target_compile_options(ttnn-dylib PRIVATE -mavx -mavx2)
 
 target_precompile_headers(ttnn-dylib PRIVATE ttnn-precompiled.hpp)
+
+# Add dependency on tt-metal ExternalProject
+add_dependencies(ttnn-dylib tt-metal)
