@@ -180,16 +180,9 @@ def build_mlir_module(
             @func.func(*test_fn_input_types, name=test_fn.__name__)
             def decorated_func(*inputs):
                 # Randomly generate golden tensors for function inputs.
-                input_goldens = []
                 for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
-                    input_goldens.append(
-                        builder.generate_input_golden(operand, dtype, index).tensor
-                    )
-                result = test_fn(*inputs, builder=builder)
-                output_ops = result if hasattr(result, "__iter__") else (result,)
-                output_goldens = [builder._get_golden_tensor(op) for op in output_ops]
-                builder.set_graph_input_output(input_goldens, output_goldens)
-                return result
+                    builder.generate_input_golden(operand, dtype, index)
+                return test_fn(*inputs, builder=builder)
 
         print(f"`{test_fn.__name__}` sucessfully transformed into a MLIR module.")
 
