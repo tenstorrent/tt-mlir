@@ -130,6 +130,15 @@ def TTKernel_MatmulInitOp : TTKernel_InitOp<"mm_init"> {
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, TTKernel_CB:$out_cb, I32:$transpose);
 }
 
+def TTKernel_MatmulInitShortOp : TTKernel_InitOp<"mm_init_short"> {
+    let summary = "Matmul init function";
+    let description = [{
+      Must be run before matmul.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, I32:$transpose);
+}
+
 def TTKernel_MatmulTilesOp : TTKernel_FPUOp<"matmul_tiles", [TTKernel_TernaryOpTrait]> {
     let summary = "Matmul tiles operation";
     let description = [{
