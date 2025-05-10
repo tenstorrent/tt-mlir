@@ -1,7 +1,6 @@
 include(ExternalProject)
 
 set(TT_METAL_VERSION "7e6553092db1c3d05e944e0b0bd99d26fcacc789")
-message(STATUS "TT_METAL_VERSION AFTER INIT: ${TT_METAL_VERSION}")
 message(STATUS "CMake Version: ${CMAKE_VERSION}")
 
 set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
@@ -19,24 +18,11 @@ else()
   message(FATAL_ERROR "Unsupported ARCH_NAME: $ENV{ARCH_NAME}")
 endif()
 
-execute_process(
-    COMMAND rm -rf "/__w/tt-mlir/tt-mlir/third_party/tt-metal"
-    RESULT_VARIABLE RM_RESULT
-    OUTPUT_VARIABLE RM_OUTPUT
-    ERROR_VARIABLE RM_ERROR
-)
-
-if(NOT RM_RESULT EQUAL 0)
-    message(WARNING "Failed to remove directory: /__w/tt-mlir/tt-mlir/third_party/tt-metal. Error: ${RM_ERROR}")
+if (DEFINED ENV{CPM_SOURCE_CACHE})
+  set(CPM_SOURCE_CACHE $ENV{CPM_SOURCE_CACHE})
 else()
-    message(STATUS "Successfully removed directory: /__w/tt-mlir/tt-mlir/third_party/tt-metal")
+  set(CPM_SOURCE_CACHE "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache")
 endif()
-
-# if (DEFINED ENV{CPM_SOURCE_CACHE})
-#   set(CPM_SOURCE_CACHE $ENV{CPM_SOURCE_CACHE})
-# else()
-set(CPM_SOURCE_CACHE "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache")
-# endif()
 message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
 
 set(METAL_INSTALL_PREFIX "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal-build/")
@@ -100,8 +86,6 @@ set(TTMETAL_BUILD_TYPE "Release")
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
   set(TTMETAL_BUILD_TYPE "Debug")
 endif()
-
-message(STATUS "TT_METAL_VERSION SOME TIME LATER: ${TT_METAL_VERSION}")
 
 ExternalProject_Add(
   tt-metal
