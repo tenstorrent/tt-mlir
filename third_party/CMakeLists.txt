@@ -19,6 +19,19 @@ else()
   message(FATAL_ERROR "Unsupported ARCH_NAME: $ENV{ARCH_NAME}")
 endif()
 
+execute_process(
+    COMMAND rm -rf "/__w/tt-mlir/tt-mlir/third_party/tt-metal"
+    RESULT_VARIABLE RM_RESULT
+    OUTPUT_VARIABLE RM_OUTPUT
+    ERROR_VARIABLE RM_ERROR
+)
+
+if(NOT RM_RESULT EQUAL 0)
+    message(WARNING "Failed to remove directory: /__w/tt-mlir/tt-mlir/third_party/tt-metal. Error: ${RM_ERROR}")
+else()
+    message(STATUS "Successfully removed directory: /__w/tt-mlir/tt-mlir/third_party/tt-metal")
+endif()
+
 # if (DEFINED ENV{CPM_SOURCE_CACHE})
 #   set(CPM_SOURCE_CACHE $ENV{CPM_SOURCE_CACHE})
 # else()
