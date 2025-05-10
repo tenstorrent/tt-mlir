@@ -72,9 +72,10 @@ set(INCLUDE_DIRS
     ${CPM_SOURCE_CACHE}/magic_enum/4d76fe0a5b27a0e62d6c15976d02b33c54207096/include
     ${CPM_SOURCE_CACHE}/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
     ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
-    ${CPM_SOURCE_CACHE}/xtensor/885b8b6257187e28312354e1e1de2aa669c9b1b9/include
-    ${CPM_SOURCE_CACHE}/xtensor-blas/07b0c3cc7fd7eae08edb70ef07cdad39eeaa576c/include
-    ${CPM_SOURCE_CACHE}/xtl/919793ebd7b32422777e45825ab99ae16fbf749a/include
+    # CPM_PACKAGE_xtensor_SOURCE_DIR
+    ${xtensor_SOURCE_DIR}/include
+    ${xtensor-blas_SOURCE_DIR}/include
+    ${xtl_SOURCE_DIR}/include
 
     # Metalium
     ${METAL_SRC_DIR}
