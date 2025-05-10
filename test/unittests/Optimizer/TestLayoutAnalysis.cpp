@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <gtest/gtest.h>
+#include <optional>
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/Transforms/Transforms.h"
@@ -101,10 +102,9 @@ protected:
         &context,
         mlir::tt::ttnn::BufferTypeAttr::get(&context,
                                             mlir::tt::ttnn::BufferType::DRAM),
-        mlir::tt::ttnn::ShardSpecAttr::get(
-            &context, mlir::tt::ttnn::ShapeAttr::get(&context, {2, 2})),
         mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
-            &context, mlir::tt::ttnn::TensorMemoryLayout::Interleaved));
+            &context, mlir::tt::ttnn::TensorMemoryLayout::Interleaved),
+        std::nullopt);
 
     // Create an empty op with all required parameters
     builder.create<mlir::tt::ttnn::EmptyOp>(
