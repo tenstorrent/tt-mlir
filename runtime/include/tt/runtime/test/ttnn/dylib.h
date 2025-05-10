@@ -2,18 +2,18 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TT_RUNTIME_DETAIL_TTNN_TEST_DYLIB_H
-#define TT_RUNTIME_DETAIL_TTNN_TEST_DYLIB_H
+#ifndef TT_RUNTIME_TEST_TTNN_DYLIB_H
+#define TT_RUNTIME_TEST_TTNN_DYLIB_H
 
 #include "tt/runtime/types.h"
 
-namespace tt::runtime::ttnn::test {
+namespace tt::runtime::test::ttnn {
 
 void *openSo(std::string path);
 void closeSo(void *handle);
 std::vector<Tensor> runSoProgram(void *so, std::string func_name,
                                  std::vector<Tensor> inputs, Device device);
 bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs);
-} // namespace tt::runtime::ttnn::test
+} // namespace tt::runtime::test::ttnn
 
-#endif // TT_RUNTIME_DETAIL_TTNN_TEST_DYLIB_H
+#endif // TT_RUNTIME_TEST_TTNN_DYLIB_H

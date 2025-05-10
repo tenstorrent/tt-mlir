@@ -113,12 +113,11 @@ struct TensorDesc {
              ::tt::target::DataType dataType)
       : shape(shape), stride(stride), itemsize(itemsize), dataType(dataType) {}
 
-  std::uint32_t size() const { return shape[0] * stride[0] * itemsize; }
-  std::size_t volume() const {
-    return std::accumulate(shape.begin(), shape.end(),
-                           static_cast<std::size_t>(1),
-                           std::multiplies<std::size_t>());
+  std::int64_t volume() const {
+    return std::accumulate(shape.begin(), shape.end(), static_cast<int64_t>(1),
+                           std::multiplies<int64_t>());
   }
+  std::int64_t sizeBytes() const { return volume() * itemsize; }
 };
 
 struct MemoryView {

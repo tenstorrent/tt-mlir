@@ -6,7 +6,7 @@
 #dram = #ttnn.buffer_type<dram>
 #system_memory = #ttnn.buffer_type<system_memory>
 #ttnn_layout = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 192 + d1 * 3 + d2, d3), <1x1>, memref<12288x3xbf16, #system_memory>>
-#ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 576 + d1 * 576 + d2, d3), <1x1>, memref<18x2x!tt.tile<32x32, bf16>, #system_memory>>
+#ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 576 + d1 * 576 + d2, d3), <1x1>, memref<18x2x!tt.tile<32x32, bf16>, #dram>, <interleaved>>
 
 func.func @prepare_conv2d_weights(%arg0: tensor<64x64x3x3xbf16, #ttnn_layout>) -> tensor<1x1x576x64xbf16, #ttnn_layout1> {
   %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device

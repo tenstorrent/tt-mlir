@@ -29,17 +29,24 @@ void checkTensorRefMatchesTTNNTensor(
                "DataType mismatch, expected ", toString(expectedDataType),
                ", got ", toString(actualDataType));
 
-  // TODO (jnie): Compare storage once we correctly determine it in the
-  // flatbuffer. This requires compiler support which is missing.
-  //
-  // ::ttnn::StorageType expectedStorageType =
-  //     ::tt::runtime::ttnn::utils::toTTNNStorageType(
-  //         tensorRef->desc()->layout()->memory_desc()->storage_type());
-  // ::ttnn::StorageType actualStorageType =
-  //     ttnnTensor.storage_type();
-  // DEBUG_ASSERT(expectedStorageType == actualStorageType, "Storage type
-  // mismatch, expected ", static_cast<int>(expectedStorageType), ", got ",
-  // static_cast<int>(actualStorageType));
+  ::ttnn::StorageType expectedStorageType =
+      ::tt::runtime::ttnn::utils::toTTNNStorageType(
+          tensorRef->desc()->layout()->memory_desc()->storage_type());
+  ::ttnn::StorageType actualStorageType = ttnnTensor.storage_type();
+
+  // With TT-Mesh backend, single device tensors are also
+  // MULTI_DEVICE_HOST_STORAGE Therefore, for host tensors we loosen the
+  // constraint a bit and just check that the storage type is on host
+  if (utils::isOnHost(expectedStorageType)) {
+    DEBUG_ASSERT(
+        utils::isOnHost(actualStorageType), "Storage type mismatch, expected ",
+        toString(expectedStorageType), ", got ", toString(actualStorageType));
+  } else {
+    DEBUG_ASSERT(expectedStorageType == actualStorageType,
+                 "Storage type mismatch, expected ",
+                 toString(expectedStorageType), ", got ",
+                 toString(actualStorageType));
+  }
 
   if (!::tt::runtime::ttnn::utils::inSystemMemory(tensorRef)) {
     const ::tt::target::ttnn::MemoryConfig *memcfg =
