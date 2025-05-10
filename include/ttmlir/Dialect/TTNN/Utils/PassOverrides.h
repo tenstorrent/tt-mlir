@@ -17,7 +17,7 @@ namespace mlir::tt::ttnn {
 struct OptionNames {
 
   static constexpr StringRef optimizerPassEnabled = "enable-optimizer";
-  static constexpr StringRef overrideInputLayout = "insert-memreconfig";
+  static constexpr StringRef overrideInputLayout = "override-input-layout";
   static constexpr StringRef overrideOutputLayout = "override-output-layout";
   static constexpr StringRef overrideConv2dConfig = "override-conv2d-config";
   static constexpr StringRef memoryLayoutAnalysisEnabled =

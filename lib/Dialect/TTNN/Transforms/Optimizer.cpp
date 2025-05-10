@@ -294,6 +294,9 @@ public:
     // No further analysis.
     //
     moduleOp->walk([&](func::FuncOp func) {
+      if (func->hasAttr(ttmlir::utils::g_constEvalAttrName)) {
+        return;
+      }
       SmallVector<Type> funcResultTypes;
 
       // If schedule is set, apply order of operations to func.
@@ -611,6 +614,8 @@ private:
       } else {
         OpBuilder builder(consumerOp);
 
+        mlir::OpBuilder::InsertionGuard guard(builder);
+        builder.setInsertionPoint(consumerOp);
         Location loc = ttmlir::utils::appendLocationSuffix(consumerOp->getLoc(),
                                                            "_mem_reconfig");
         Operation *memoryReconfigOp = builder.create<ToLayoutOp>(
