@@ -873,12 +873,8 @@ std::vector<Tensor> runProgram(std::shared_ptr<::ttnn::MeshDevice> meshDevice,
                                Binary executableHandle,
                                std::uint32_t programIndex,
                                std::vector<::tt::runtime::Tensor> &inputs) {
-  const ::tt::target::ttnn::TTNNBinary &fbb =
-      *utils::getBinary(executableHandle);
-  const ::tt::target::ttnn::Program *program =
-      fbb.programs()->Get(programIndex);
-  ProgramExecutor executor(program, executableHandle, inputs,
-                           std::move(meshDevice), programIndex);
+  ProgramExecutor executor(executableHandle, inputs, std::move(meshDevice),
+                           programIndex);
   executor.execute();
   std::vector<::tt::runtime::Tensor> outputTensors =
       executor.gatherOutputTensors();
