@@ -87,6 +87,7 @@ static llvm::SmallVector<Value> findInnerDimLoopVars(PatternRewriter &rewriter,
                                                      memref::LoadOp loadOp) {
   auto loopVars = llvm::SmallVector<Value>();
 
+  // Find all loop variables that are parents of the load operation.
   Operation *searchOp = loadOp;
   while (searchOp->getParentOfType<scf::ForOp>()) {
     searchOp = searchOp->getParentOfType<scf::ForOp>();
@@ -94,25 +95,36 @@ static llvm::SmallVector<Value> findInnerDimLoopVars(PatternRewriter &rewriter,
     loopVars.emplace_back(loop.getInductionVar());
   }
 
-  llvm::SmallVector<Operation *> opsToInspect = {
-      loadOp.getIndices().front().getDefiningOp()};
   llvm::SmallVector<Value> outerLoopVars;
 
-  while (!opsToInspect.empty()) {
-    Operation *op = opsToInspect.pop_back_val();
-    for (auto operand : op->getOperands()) {
-      if (operand.getDefiningOp()) {
-        opsToInspect.emplace_back(operand.getDefiningOp());
-      } else if (mlir::isa<BlockArgument>(operand) &&
-                 mlir::isa<scf::ForOp>(mlir::cast<BlockArgument>(operand)
-                                           .getOwner()
-                                           ->getParentOp())) {
-        outerLoopVars.emplace_back(operand);
+  // Check if the load index is directly a for loop argument, if so we have
+  // found the only one that participates.
+  auto blockArg = mlir::dyn_cast<BlockArgument>(loadOp.getIndices().front());
+  if (blockArg && mlir::isa<scf::ForOp>(blockArg.getOwner()->getParentOp())) {
+    outerLoopVars = {blockArg};
+  } else {
+    // Otherwise, we need to recurse through the definition of the load index to
+    // find the for loop variables that participate in its calculation.
+    llvm::SmallVector<Operation *> opsToInspect = {
+        loadOp.getIndices().front().getDefiningOp()};
+    while (!opsToInspect.empty()) {
+      Operation *op = opsToInspect.pop_back_val();
+      for (auto operand : op->getOperands()) {
+        if (operand.getDefiningOp()) {
+          opsToInspect.emplace_back(operand.getDefiningOp());
+        } else if (mlir::isa<BlockArgument>(operand) &&
+                   mlir::isa<scf::ForOp>(mlir::cast<BlockArgument>(operand)
+                                             .getOwner()
+                                             ->getParentOp())) {
+          outerLoopVars.emplace_back(operand);
+        }
       }
     }
   }
 
   llvm::SmallVector<Value> innerLoopVars;
+  // Find all loop variables that do NOT participate in the load index. i.e. NOT
+  // in outerLoopVars.
   for (auto &loopVar : loopVars) {
     if (std::find(outerLoopVars.begin(), outerLoopVars.end(), loopVar) ==
         outerLoopVars.end()) {
