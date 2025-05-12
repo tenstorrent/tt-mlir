@@ -359,6 +359,7 @@ kernelConfigToFlatbuffer(FlatbufferObjectCache &cache,
                          KernelConfigInterface kernelConfig,
                          const SymbolTable &symbolTable) {
   StringRef kernelSymbol = kernelConfig.getKernelSymbol().getRootReference();
+  llvm::outs() << "Search for symbol: " << kernelSymbol << "\n";
   auto kernelEntry = symbolTable.lookup<func::FuncOp>(kernelSymbol);
   assert(kernelEntry);
   std::string source;
@@ -420,7 +421,6 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
 
   ModuleOp rootModule = dyn_cast<ModuleOp>(op);
   assert(rootModule && "Expected ModuleOp as top level operation");
-  SymbolTable symbolTable(rootModule);
 
   // If we have a nested module structure, we want to use nested module inside
   // DeviceModule for most conversions.
@@ -431,6 +431,7 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
     assert(module && "Found tt::DeviceModuleOp but it didn't contain a single "
                      "mlir::ModuleOp!");
   }
+  SymbolTable symbolTable(module);
 
   auto systemDesc =
       mlir::cast<tt::SystemDescAttr>(module->getAttr(tt::SystemDescAttr::name));
