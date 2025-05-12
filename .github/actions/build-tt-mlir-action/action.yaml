@@ -45,6 +45,7 @@ runs:
       shell: bash
       run: |
         source env/activate
+        cp xtensor.patch /tmp/xtensor.patch
         cmake -G Ninja \
           -B ${{ inputs.build-output-dir }} \
           -DCMAKE_CXX_COMPILER=clang++-17 \
