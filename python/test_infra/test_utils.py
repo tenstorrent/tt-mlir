@@ -276,8 +276,8 @@ def compile_to_flatbuffer(
     each next function called on the output of the last:
 
     1. `build_mlir_module`
-    2. `ttir_to_tt{nn,metal}`
-    3. `tt{nn,metal}_to_flatbuffer`
+    2. `run_pipeline`
+    3. `to_flatbuffer`
 
     The choice of TTNN vs. TTMetal is controlled by the `target` parameter
 
