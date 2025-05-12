@@ -160,4 +160,44 @@ module {
     ttir.await %arg2 : (memref<4x16x!tt.tile<32x32, f16>, #l1_>)
     return
   }
+
+  // The following is not a valid MM example, but it exercises the posibility where there are multiple inner loops.
+  // i.e. Multiple loop variables that do not contribute to the load index.
+  func.func private @two_inner(%arg0: memref<4x8x!tt.tile<32x32, f16>, #l1_>, %arg1: memref<8x16x!tt.tile<32x32, f16>, #l1_>, %arg2: memref<4x16x!tt.tile<32x32, f16>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
+    %c1 = arith.constant 1 : index
+    %c0 = arith.constant 0 : index
+    %c4 = arith.constant 4 : index
+    %c16 = arith.constant 16 : index
+    %c8 = arith.constant 8 : index
+    ttir.await %arg0, %arg1 : (memref<4x8x!tt.tile<32x32, f16>, #l1_>, memref<8x16x!tt.tile<32x32, f16>, #l1_>)
+    %collapse_shape = memref.collapse_shape %arg0 [[0, 1]] : memref<4x8x!tt.tile<32x32, f16>, #l1_> into memref<32x!tt.tile<32x32, f16>, #l1_>
+    %collapse_shape_0 = memref.collapse_shape %arg1 [[0, 1]] : memref<8x16x!tt.tile<32x32, f16>, #l1_> into memref<128x!tt.tile<32x32, f16>, #l1_>
+    %collapse_shape_1 = memref.collapse_shape %arg2 [[0, 1]] : memref<4x16x!tt.tile<32x32, f16>, #l1_> into memref<64x!tt.tile<32x32, f16>, #l1_>
+    // CHECK: scf.for [[INNER1:[%a-zA-Z0-9_]+]]
+    scf.for %arg3 = %c0 to %c4 step %c1 {
+      %0 = arith.muli %arg3, %c8 overflow<nsw> : index
+      %1 = arith.muli %arg3, %c16 overflow<nsw> : index
+        // CHECK: scf.for [[INNER2:[%a-zA-Z0-9_]+]]
+        scf.for %arg5 = %c0 to %c8 step %c1 {
+          %3 = arith.addi %0, %arg5 : index
+          %4 = memref.load %collapse_shape[%3] : memref<32x!tt.tile<32x32, f16>, #l1_>
+          %5 = arith.muli %arg3, %c16 overflow<nsw> : index
+          %6 = arith.addi %5, %arg5 : index
+          %7 = memref.load %collapse_shape_0[%6] : memref<128x!tt.tile<32x32, f16>, #l1_>
+          %8 = memref.load %collapse_shape_1[%c0] : memref<64x!tt.tile<32x32, f16>, #l1_>
+          // CHECK: [[COND1:[%0-9]+]] = arith.cmpi ne, [[INNER1]], %c0
+          // CHECK: [[COND2:[%0-9]+]] = arith.cmpi ne, [[INNER2]], %c0
+          // CHECK: [[AND:[%0-9]+]] = arith.andi [[COND1]], [[COND2]]
+          // CHECK: scf.if [[AND]] {
+          // CHECK: "ttkernel.copy_tile_init"
+          // CHECK: "ttkernel.copy_tile"
+          // CHECK: }
+          %9 = "ttir.tile_matmul"(%4, %7, %8) : (!tt.tile<32x32, f16>, !tt.tile<32x32, f16>, !tt.tile<32x32, f16>) -> !tt.tile<32x32, f16>
+          memref.store %9, %collapse_shape_1[%c0] : memref<64x!tt.tile<32x32, f16>, #l1_>
+        }
+    }
+    ttir.yield %arg2 : (memref<4x16x!tt.tile<32x32, f16>, #l1_>)
+    ttir.await %arg2 : (memref<4x16x!tt.tile<32x32, f16>, #l1_>)
+    return
+  }
 }
