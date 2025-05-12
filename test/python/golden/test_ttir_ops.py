@@ -1243,26 +1243,6 @@ def create_hoisted_binary_op(op_func, name):
     return hoisted_op
 
 
-def create_hoisted_broadcast_op(op_func, name):
-    """Create a hoisted version of the broadcast operation"""
-
-    def hoisted_op(in0, in1, builder, **kwargs):
-        # Default broadcast dimensions for the hoisted version
-        # Tests will need to use appropriate dimensions for their specific tensors
-        default_broadcast_dimensions = [1, 1, 1]
-        return op_func(
-            in0,
-            in1,
-            builder,
-            broadcast_dimensions=default_broadcast_dimensions,
-            unit_attrs=["should_hoist"],
-            **kwargs,
-        )
-
-    hoisted_op.__name__ = f"hoisted_{name}"
-    return hoisted_op
-
-
 def create_hoisted_permute_op(op_func, name):
     """Create a hoisted version of the permute operation that calculates appropriate permutation dimensions"""
 
@@ -1345,8 +1325,7 @@ hoisted_binary_ops = [
     create_hoisted_binary_op(subtract, "subtract"),
     create_hoisted_binary_op(div, "div"),
     create_hoisted_binary_op(pow, "pow"),
-    create_hoisted_broadcast_op(broadcast, "broadcast"),
-    create_hoisted_permute_op(permute, "permute"),
+    # create_hoisted_permute_op(permute, "permute"),
 ]
 
 hoisted_ternary_ops = [
@@ -1376,19 +1355,58 @@ def test_cpu_hoistable_unary_ops(
     )
 
 
-@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [(128, 128), (128, 128)],  # Same shapes
+        [(128, 128), (1, 128)],  # Broadcasting second dimension
+        [(128, 128), (128, 1)],  # Broadcasting first dimension
+        [(128, 128, 64), (128, 1, 64)],  # 3D tensors with broadcasting
+    ],
+)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("test_fn", hoisted_binary_ops)
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_cpu_hoistable_binary_ops(
-    test_fn: Callable, shape: Shape, dtype: torch.dtype, request, target: str
+    test_fn: Callable, shapes: List[Shape], dtype: torch.dtype, request, target: str
 ):
     """Test binary ops that support CPU hoisting"""
     compile_to_flatbuffer(
         test_fn,
-        [shape, shape],
-        [dtype, dtype],
+        shapes,
+        [dtype] * len(shapes),
         test_base=f"{request.node.name}",
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+# Test hoisted permute separately because it requires unique input shapes.
+@pytest.mark.parametrize(
+    "shapes_and_perms",
+    [
+        # [(input_shape, output_shape), permutation]
+        [[(2, 3, 4), (4, 2, 3)], [2, 0, 1]],
+        [[(128, 128), (128, 128)], [0, 1]],
+        [[(128, 64, 32), (32, 128, 64)], [2, 0, 1]],
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_permute(shapes_and_perms, request, target: str):
+    shapes, permutation = shapes_and_perms
+
+    def permute_wrapper(
+        in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
+    ):
+        return permute(in0, in1, builder, permutation, unit_attrs=["should_hoist"])
+
+    permute_wrapper.__name__ = "hoisted_permute"
+
+    compile_to_flatbuffer(
+        permute_wrapper,
+        shapes,
+        test_base=request.node.name,
         target=target,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
