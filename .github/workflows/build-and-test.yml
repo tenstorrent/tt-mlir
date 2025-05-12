@@ -304,6 +304,7 @@ jobs:
         export CMAKE_PREFIX_PATH=${{ steps.strings.outputs.install-output-dir }}
         export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
+        ls third_party
         cd ${{ matrix.build.path }}
         cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_INSTALL_PREFIX=install
         cmake --build build -- ttnn-standalone
