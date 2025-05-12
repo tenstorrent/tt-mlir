@@ -33,6 +33,7 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
+#include <llvm/ADT/StringRef.h>
 
 namespace mlir::tt::ttnn {
 
@@ -218,6 +219,22 @@ public:
     tracePossibleLayouts(tensorTypePossibleLayouts);
 
     moduleOp->walk([&](Operation *op) {
+      Operation *parentOp = op->getParentOp();
+      if (auto funcOp = dyn_cast<func::FuncOp>(parentOp)) {
+        if (funcOp->hasAttr("const_eval")) {
+          return;
+        }
+      }
+
+      if (auto funcOp = dyn_cast<func::FuncOp>(op)) {
+        if (funcOp->hasAttr("const_eval")) {
+          return;
+        }
+      }
+
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "Processing op {0}",
+                   op->getName());
+
       if (op->getNumResults() == 0) {
         return;
       }
@@ -294,6 +311,10 @@ public:
     // No further analysis.
     //
     moduleOp->walk([&](func::FuncOp func) {
+      if (func->hasAttr("const_eval")) {
+        return;
+      }
+
       SmallVector<Type> funcResultTypes;
 
       // If schedule is set, apply order of operations to func.
@@ -547,7 +568,7 @@ private:
     // analysis.
     //
     for (const auto &[edge, memReconfigEntry] : memReconfigEntryMap) {
-      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                    "Processing mem reconfig edge: {}", edge);
 
       Operation *producerOp = edge.producerOp;

@@ -14,11 +14,17 @@
 #include "ttmlir/Support/Logger.h"
 
 #include "mlir/IR/Diagnostics.h"
+#include <llvm/ADT/StringRef.h>
 
 namespace mlir::tt::ttnn {
 
 void DFShardingPolicy::run() {
   rootOp->walk([&](func::FuncOp func) {
+    if (func->hasAttr("const_eval")) {
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "{}", "Skipping const_eval function");
+      return;
+    }
+
     deviceAttr = lookupDevice(func);
     mlir::tt::scheduler::Scheduler scheduler(&func);
     l1ChainConfigs->push_back(L1ChainConfig());
@@ -216,6 +222,8 @@ void DFShardingPolicy::run() {
   // Resolve shard chain configs.
   //
   for (L1ChainConfig &l1ChainConfig : *l1ChainConfigs) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "Resolving L1 chain config {}",
+                 l1ChainConfig);
     ShardSolver shardSolver = l1ChainConfig.resolveWithSolver(
         tensorTypePossibleLayouts, legalConfigs, usableL1CacheSize,
         overrideReshardEdges);
