@@ -1356,8 +1356,13 @@ hoisted_ternary_ops = [
 
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("test_fn", hoisted_unary_ops)
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_cpu_hoistable_unary_ops(
-    test_fn: Callable, shape: Shape, request, dtype: torch.dtype = torch.float32
+    test_fn: Callable,
+    shape: Shape,
+    request,
+    target: str,
+    dtype: torch.dtype = torch.float32,
 ):
     """Test unary ops that support CPU hoisting"""
     compile_to_flatbuffer(
@@ -1365,6 +1370,7 @@ def test_cpu_hoistable_unary_ops(
         inputs_shapes=[shape],
         inputs_types=[dtype],
         test_base=f"{request.node.name}",
+        target=target,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -1373,8 +1379,9 @@ def test_cpu_hoistable_unary_ops(
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("test_fn", hoisted_binary_ops)
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_cpu_hoistable_binary_ops(
-    test_fn: Callable, shape: Shape, dtype: torch.dtype, request
+    test_fn: Callable, shape: Shape, dtype: torch.dtype, request, target: str
 ):
     """Test binary ops that support CPU hoisting"""
     compile_to_flatbuffer(
@@ -1382,6 +1389,7 @@ def test_cpu_hoistable_binary_ops(
         [shape, shape],
         [dtype, dtype],
         test_base=f"{request.node.name}",
+        target=target,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
