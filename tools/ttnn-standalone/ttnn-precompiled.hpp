@@ -58,31 +58,22 @@ namespace ttnn {
 //
 class DeviceGetter {
 public:
-  static ttnn::IDevice *getInstance() {
+    static ttnn::IDevice *
+            getInstance(size_t l1_small_size = DEFAULT_L1_SMALL_SIZE) {
     static std::shared_ptr<ttnn::MeshDevice> instance =
-        ::ttnn::MeshDevice::create_unit_mesh(0);
-
+::ttnn::MeshDevice::create_unit_mesh(0, l1_small_size);
     return instance.get();
   }
 
 private:
-  DeviceGetter() = default;
+  ~DeviceGetter() { ttnn::close_device(*device); }
 
-  DeviceGetter(const DeviceGetter &) = delete;
-  DeviceGetter &operator=(const DeviceGetter &) = delete;
+public:
+  DeviceGetter(DeviceGetter const &) = delete;
+  void operator=(DeviceGetter const &) = delete;
+
+  ttnn::IDevice *device;
 };
-
-// Wrapper to abstract const-eval logic out of runtime funcs to keep them
-// cleaner.  Invokes constEvalFunc iff outputs is empty.
-void constEvalFuncWrapper(
-    std::function<std::vector<ttnn::Tensor>(std::vector<ttnn::Tensor>)>
-        constEvalFunc,
-    const std::vector<ttnn::Tensor> &inputs,
-    std::vector<ttnn::Tensor> *outputs) {
-  if (outputs->empty()) {
-    *outputs = constEvalFunc(inputs);
-  }
-}
 
 } // namespace ttnn
 
