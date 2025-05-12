@@ -1,3 +1,4 @@
+// REQUIRES: stablehlo
 // RUN: not ttmlir-opt --automatic-sharding-pipeline="mesh-shape=2,4" %s 2>&1 | FileCheck %s
 
 func.func public @abs(%arg0: tensor<32x48x24x32xf32>) -> tensor<32x48x24x32xf32> {

@@ -1,3 +1,4 @@
+// REQUIRES: stablehlo
 // RUN: ttmlir-opt --automatic-sharding-pipeline="mesh-shape=1,2 automatic-arg-analysis" %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 
