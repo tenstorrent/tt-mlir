@@ -38,6 +38,6 @@ ALWI void tilize_block(uint32_t icb, uint32_t ocb, uint32_t block_r,
     start_tile_idx += block_c;
   }
 }
-}
+} // namespace experimental
 
 )
