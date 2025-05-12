@@ -59,7 +59,7 @@ set(METAL_LIB_DIR "$ENV{TT_METAL_HOME}-build/lib" CACHE PATH "Path to the tt-met
 if (DEFINED ENV{CPM_SOURCE_CACHE})
   set(CPM_SOURCE_CACHE $ENV{CPM_SOURCE_CACHE})
 else()
-  set(CPM_SOURCE_CACHE $ENV{TT_METAL_HOME}/.cpmcache)
+  set(CPM_SOURCE_CACHE "/tmp/.cpmcache")
 endif()
 message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
 
