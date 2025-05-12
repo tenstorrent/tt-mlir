@@ -552,6 +552,39 @@ public:
 } // namespace
 
 namespace {
+
+class StableHLOToBatchNormOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::BatchNormInferenceOp> {
+
+  using OpConversionPattern<
+      mlir::stablehlo::BatchNormInferenceOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::BatchNormInferenceOp srcOp,
+                  mlir::stablehlo::BatchNormInferenceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+    ttir::EmptyOp outputTensor = rewriter.create<ttir::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+    mlir::Type floatType = mlir::Float32Type::get(getContext());
+    mlir::Type integerType = mlir::IntegerType::get(getContext(), 32);
+    mlir::FloatAttr epsilonAttr =
+        mlir::FloatAttr::get(floatType, srcOp.getEpsilon());
+    mlir::IntegerAttr dimensionAttr =
+        mlir::IntegerAttr::get(integerType, srcOp.getFeatureIndex());
+    BoolAttr trainingAttr = rewriter.getBoolAttr(false);
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::BatchNormOp>(
+        srcOp, outputType, adaptor.getOperand(), adaptor.getScale(),
+        adaptor.getOffset(), adaptor.getMean(), adaptor.getVariance(),
+        epsilonAttr, dimensionAttr, trainingAttr, outputTensor);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOToTTIRReshapeOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ReshapeOp> {
   using OpConversionPattern<mlir::stablehlo::ReshapeOp>::OpConversionPattern;
@@ -2489,6 +2522,11 @@ static void addPadOpConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOToTTIROpPadOpConversionPattern>(typeConverter, ctx);
 }
 
+static void addBatchNormOpConversionPattern(MLIRContext *ctx,
+                                            RewritePatternSet &patterns,
+                                            TypeConverter &typeConverter) {
+  patterns.add<StableHLOToBatchNormOpConversionPattern>(typeConverter, ctx);
+}
 namespace mlir::tt {
 
 void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
@@ -2517,6 +2555,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addScatterOpConversionPatterns(ctx, patterns, typeConverter);
   addReverseOpConversionPattern(ctx, patterns, typeConverter);
   addPadOpConversionPattern(ctx, patterns, typeConverter);
+  addBatchNormOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
