@@ -17,6 +17,7 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/SmallSet.h"
 
 namespace mlir::tt::ttkernel {
 
@@ -82,41 +83,44 @@ static Value getLoadIndex(Value tile) {
   return loadOp.getIndices().front();
 }
 
-static Value findInnerDimLoopVar(PatternRewriter &rewriter,
-                                 CopyTileOp copyTileOp) {
+static llvm::SmallVector<Value> findInnerDimLoopVars(PatternRewriter &rewriter,
+                                                     memref::LoadOp loadOp) {
   auto loopVars = llvm::SmallVector<Value>();
 
-  Operation *searchOp = copyTileOp;
+  Operation *searchOp = loadOp;
   while (searchOp->getParentOfType<scf::ForOp>()) {
     searchOp = searchOp->getParentOfType<scf::ForOp>();
     auto loop = mlir::cast<scf::ForOp>(searchOp);
-    loopVars.push_back(loop.getInductionVar());
+    loopVars.emplace_back(loop.getInductionVar());
   }
 
   llvm::SmallVector<Operation *> opsToInspect = {
-      copyTileOp.getTileIndexCb().getDefiningOp()};
+      loadOp.getIndices().front().getDefiningOp()};
   llvm::SmallVector<Value> outerLoopVars;
 
   while (!opsToInspect.empty()) {
     Operation *op = opsToInspect.pop_back_val();
-    if (mlir::isa<scf::ForOp>(op)) {
-      outerLoopVars.push_back(mlir::cast<scf::ForOp>(op).getInductionVar());
-    } else {
-      for (auto operand : op->getOperands()) {
-        if (operand.getDefiningOp()) {
-          opsToInspect.push_back(operand.getDefiningOp());
-        }
+    for (auto operand : op->getOperands()) {
+      if (operand.getDefiningOp()) {
+        opsToInspect.emplace_back(operand.getDefiningOp());
+      } else if (mlir::isa<BlockArgument>(operand) &&
+                 mlir::isa<scf::ForOp>(mlir::cast<BlockArgument>(operand)
+                                           .getOwner()
+                                           ->getParentOp())) {
+        outerLoopVars.emplace_back(operand);
       }
     }
   }
 
-  for (auto loopVar : loopVars) {
-    if (llvm::find(outerLoopVars, loopVar) == outerLoopVars.end()) {
-      return loopVar;
+  llvm::SmallVector<Value> innerLoopVars;
+  for (auto &loopVar : loopVars) {
+    if (std::find(outerLoopVars.begin(), outerLoopVars.end(), loopVar) ==
+        outerLoopVars.end()) {
+      innerLoopVars.emplace_back(loopVar);
     }
   }
 
-  assert(false && "No inner loop var found");
+  return innerLoopVars;
 }
 
 static void lowerLoadToCopyTile(memref::LoadOp op, bool cbIdxAsDstIdx,
@@ -131,16 +135,34 @@ static void lowerLoadToCopyTile(memref::LoadOp op, bool cbIdxAsDstIdx,
 
   auto cb = rewriter.getRemappedValue(op.getMemref());
   auto cbType = mlir::cast<ttkernel::CBType>(cb.getType());
+  llvm::SmallVector<Value> innerLoopVars = findInnerDimLoopVars(rewriter, op);
+  if (guardFirstCopy && innerLoopVars.empty()) {
+    return;
+  }
   auto copyInit = rewriter.create<ttkernel::CopyTileInitOp>(op.getLoc(), cb);
   auto copyTile = rewriter.create<ttkernel::CopyTileOp>(
       op.getLoc(), cb, op.getIndices().front(),
       cbIdxAsDstIdx ? index(static_cast<uint32_t>(cbType.getPort()))
                     : index(0));
   if (guardFirstCopy) {
-    auto predicate = rewriter.create<arith::CmpIOp>(
-        op.getLoc(), arith::CmpIPredicate::ne,
-        findInnerDimLoopVar(rewriter, copyTile), index(0));
-    auto ifOp = rewriter.create<scf::IfOp>(op.getLoc(), predicate);
+    Value innerLoopVar = innerLoopVars.pop_back_val();
+
+    Value condition =
+        rewriter
+            .create<arith::CmpIOp>(op.getLoc(), arith::CmpIPredicate::ne,
+                                   innerLoopVar, index(0))
+            .getResult();
+    while (!innerLoopVars.empty()) {
+      auto innerLoopVar = innerLoopVars.pop_back_val();
+      condition =
+          rewriter
+              .create<arith::AndIOp>(op.getLoc(), condition,
+                                     rewriter.create<arith::CmpIOp>(
+                                         op.getLoc(), arith::CmpIPredicate::ne,
+                                         innerLoopVar, index(0)))
+              .getResult();
+    }
+    auto ifOp = rewriter.create<scf::IfOp>(op.getLoc(), condition);
     auto *ifBlock = &ifOp.getThenRegion().front();
     rewriter.moveOpBefore(copyInit, ifBlock, ifBlock->begin());
     rewriter.moveOpAfter(copyTile, copyInit);
