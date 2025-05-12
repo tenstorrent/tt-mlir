@@ -1,5 +1,6 @@
 add_subdirectory(ttmlir-opt)
 add_subdirectory(ttmlir-lsp-server)
+add_subdirectory(test_infra)
 add_subdirectory(ttmlir-translate)
 if (TTMLIR_ENABLE_EXPLORER)
   add_subdirectory(explorer)
