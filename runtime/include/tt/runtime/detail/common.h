@@ -8,6 +8,7 @@
 #include <optional>
 
 #define FMT_HEADER_ONLY
+#include "tt-metalium/hal.hpp"
 #include "tt-metalium/host_api.hpp"
 
 #include "tt/runtime/detail/flatbuffer_operator_ostream.h"
@@ -28,6 +29,8 @@ getDispatchCoreType(std::optional<DispatchCoreType> dispatchCoreType) {
     } else {
       LOG_FATAL("Unsupported dispatch core type");
     }
+  } else if (::tt::tt_metal::hal::get_arch() == ::tt::ARCH::BLACKHOLE) {
+    type = ::tt::tt_metal::DispatchCoreType::WORKER;
   } else {
     size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
     size_t numPCIeDevices = ::tt::tt_metal::GetNumPCIeDevices();
