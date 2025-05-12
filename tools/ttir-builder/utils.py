@@ -477,6 +477,7 @@ def ttmetal_to_flatbuffer(
         module,
         output_file_name,
         builder.get_golden_map(),
+        module_log if module_log else [],
     )
 
     print("`ttmetal_to_flatbuffer_file` passed successfully.")
