@@ -236,8 +236,6 @@ void CQExecutor::execute(const target::metal::ReturnCommand *command) {
     auto hostIter = hostBuffers.find(result->global_id());
     bool deviceFound = deviceIter != deviceBuffers.end();
     bool hostFound = hostIter != hostBuffers.end();
-    LOG_DEBUG("Found result for host: ", hostFound ? "true" : "false");
-    LOG_DEBUG("Found result for device: ", deviceFound ? "true" : "false");
     LOG_ASSERT(deviceFound != hostFound);
     if (deviceFound) {
       outputs.emplace_back(static_pointer_cast<void>(deviceIter->second),
@@ -387,7 +385,6 @@ static std::vector<common::WrappedTensor> packTensors(
     const size_t rank = shape->size();
     std::vector<int64_t> sizes(rank);
     auto it = tensorMap.find(ins->Get(i)->global_id());
-    LOG_DEBUG("input idx: ", i, " with global id: ", ins->Get(i)->global_id());
     LOG_ASSERT(it != tensorMap.end(),
                "Cannot invoke cpu op on tensor which is not in cpu tensors.");
     const Tensor &tens = it->second;
@@ -402,7 +399,6 @@ static std::vector<common::WrappedTensor> packTensors(
                    [](uint32_t s) -> int64_t { return s; });
 
     float *rawDataPtr = static_cast<float *>(tens.data.get());
-    LOG_DEBUG("At addr: ", rawDataPtr, " with 1st value: ", rawDataPtr[0]);
     packedTensors.emplace_back(rawDataPtr, rawDataPtr, 0,
                                allSizesAndStrides.back().data());
   }
@@ -410,19 +406,11 @@ static std::vector<common::WrappedTensor> packTensors(
 }
 
 void CQExecutor::execute(const target::metal::MemrefCopyCommand *command) {
-  LOG_DEBUG("src id: ", command->src()->global_id(),
-            " to dst id: ", command->dst()->global_id());
   auto srcIt = hostBuffers.find(command->src()->global_id());
   LOG_ASSERT(srcIt != hostBuffers.end());
   auto dstIt = hostBuffers.find(command->dst()->global_id());
   LOG_ASSERT(dstIt != hostBuffers.end());
-  LOG_DEBUG("first element in src: ",
-            static_cast<float *>(srcIt->second.data.get())[0]);
-  LOG_DEBUG("first element in dst (before cpy): ",
-            static_cast<float *>(dstIt->second.data.get())[0]);
   ttmetal::memcpy(dstIt->second, srcIt->second);
-  LOG_DEBUG("first element in dst: ",
-            static_cast<float *>(dstIt->second.data.get())[0]);
 }
 
 void CQExecutor::execute(const target::metal::CpuCommand *command) {
