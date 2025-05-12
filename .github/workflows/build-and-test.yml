@@ -305,7 +305,7 @@ jobs:
       if: matrix.build.suite == 'ttnn_standalone'
       with:
         name: third-party-artifacts-${{ matrix.build.image }}
-        path: third-party
+        path: third_party
         github_token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Run TTNN-Standalone test
@@ -316,6 +316,7 @@ jobs:
         export LD_LIBRARY_PATH="${{ steps.strings.outputs.third-party-output-dir }}/tt-metal/src/tt-metal-build/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export TT_METAL_HOME="${{ steps.strings.outputs.third-party-output-dir }}/tt-metal/src/tt-metal"
         export TT_METAL_LIB="${{ steps.strings.outputs.third-party-output-dir }}/tt-metal/src/tt-metal-build/lib"
+        ls third_party
         cd ${{ matrix.build.path }}
         cmake -G Ninja -B build \
           -DCMAKE_BUILD_TYPE=Release \
