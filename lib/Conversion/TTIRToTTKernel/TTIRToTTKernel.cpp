@@ -17,7 +17,6 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "llvm/ADT/SmallSet.h"
 
 namespace mlir::tt::ttkernel {
 
