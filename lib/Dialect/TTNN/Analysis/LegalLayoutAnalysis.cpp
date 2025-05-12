@@ -66,8 +66,6 @@ void applyConv2dConfigOverrides(Operation *op,
 
   StringAttr activation =
       StringAttr::get(context, overrides.activation.value_or(""));
-  uint32_t inputChannelsAlignment =
-      overrides.inputChannelsAlignment.value_or(32);
   BoolAttr deallocateActivation =
       getBoolAttr(overrides.deallocateActivation.value_or(false));
   BoolAttr reallocateHaloOutput =
@@ -106,10 +104,10 @@ void applyConv2dConfigOverrides(Operation *op,
     assert(!opConfig.opSpecificAttr &&
            "OpConfig should not have a config set before applying overrides");
     opConfig.opSpecificAttr = Conv2dConfigAttr::get(
-        context, dtype, weightsDtype, activation, inputChannelsAlignment,
-        deallocateActivation, reallocateHaloOutput, actBlockHOverride,
-        actBlockWDiv, reshardIfNotOptimal, overrideShardingConfig, shardLayout,
-        coreGrid, transposeShards, outputLayout, preprocessWeightsOnDevice,
+        context, dtype, weightsDtype, activation, deallocateActivation,
+        reallocateHaloOutput, actBlockHOverride, actBlockWDiv,
+        reshardIfNotOptimal, overrideShardingConfig, shardLayout, coreGrid,
+        transposeShards, outputLayout, preprocessWeightsOnDevice,
         alwaysPreprocessWeights, enableActDoubleBuffer,
         enableWeightsDoubleBuffer, enableSplitReader, enableSubblockPadding);
   }

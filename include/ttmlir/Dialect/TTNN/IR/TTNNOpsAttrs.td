@@ -382,7 +382,6 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
   let parameters = (ins OptionalParameter<"std::optional<DataType>">:$dtype,
                         OptionalParameter<"std::optional<DataType>">:$weights_dtype,
                         OptionalParameter<"StringAttr">:$activation,
-                        OptionalParameter<"std::optional<uint32_t>">:$input_channels_alignment,
                         OptionalParameter<"BoolAttr">:$deallocate_activation,
                         OptionalParameter<"BoolAttr">:$reallocate_halo_output,
                         OptionalParameter<"std::optional<uint32_t>">:$act_block_h_override,
