@@ -381,7 +381,7 @@ static std::vector<common::WrappedTensor> packTensors(
   std::vector<common::WrappedTensor> packedTensors;
   packedTensors.reserve(ins->size());
   for (size_t i = 0; i < ins->size(); ++i) {
-    auto shape = ins->Get(i)->desc()->shape();
+    const auto *shape = ins->Get(i)->desc()->shape();
     const size_t rank = shape->size();
     std::vector<int64_t> sizes(rank);
     auto it = tensorMap.find(ins->Get(i)->global_id());
