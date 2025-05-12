@@ -7,7 +7,6 @@ table Conv2dConfig {
   dtype: DataType = null;
   weights_dtype: DataType = null;
   activation: string;
-  input_channels_alignment: uint32 = null;
   deallocate_activation: bool = null;
   reallocate_halo_output: bool = null;
   act_block_h_override: uint32 = null;

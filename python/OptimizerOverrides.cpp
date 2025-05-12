@@ -215,9 +215,6 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
               &mlir::tt::ttnn::Conv2dConfigOverrideParams::weightsDtype)
       .def_rw("activation",
               &mlir::tt::ttnn::Conv2dConfigOverrideParams::activation)
-      .def_rw(
-          "input_channels_alignment",
-          &mlir::tt::ttnn::Conv2dConfigOverrideParams::inputChannelsAlignment)
       .def_rw("deallocate_activation",
               &mlir::tt::ttnn::Conv2dConfigOverrideParams::deallocateActivation)
       .def_rw("reallocate_halo_output",
@@ -281,11 +278,6 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
                throw std::invalid_argument("Invalid activation: " + value);
              }
              obj.activation = value;
-           })
-      .def("set_input_channels_alignment_from_str",
-           [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
-              const std::string &value) {
-             obj.inputChannelsAlignment = std::stoul(value);
            })
       .def("set_deallocate_activation_from_str",
            [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,

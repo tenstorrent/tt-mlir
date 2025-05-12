@@ -527,19 +527,6 @@ def parse_conv2d_config(attr):
     result.append(
         utils.make_editable_kv(
             graph_builder.KeyValue(
-                key="input_channels_alignment",
-                value=str(conv2d_config.input_channels_alignment),
-            ),
-            editable={
-                "input_type": "int_list",
-                "min_value": 0,
-                "step": 8,
-            },
-        )
-    )
-    result.append(
-        utils.make_editable_kv(
-            graph_builder.KeyValue(
                 key="deallocate_activation",
                 value=str(conv2d_config.deallocate_activation),
             ),
