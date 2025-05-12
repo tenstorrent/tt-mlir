@@ -99,7 +99,7 @@ static void lowerLoadToCopyTile(memref::LoadOp op, bool cbIdxAsDstIdx,
                     : index(0));
 }
 
-static void setInsertionPointAfterOperands(PatternRewriter &rewriter,
+static void setInsertionPointAfterOperands(OpBuilder &rewriter,
                                            llvm::ArrayRef<Value> operands) {
   Operation *latestDefOp = nullptr;
   for (Value operand : operands) {
