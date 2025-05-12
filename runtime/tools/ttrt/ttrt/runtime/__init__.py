@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 try:
-    from ._C import (
+    from ._runtime_C import (
         Device,
         Event,
         Tensor,

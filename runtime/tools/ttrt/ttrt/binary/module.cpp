@@ -13,7 +13,7 @@
 
 namespace py = pybind11;
 
-PYBIND11_MODULE(_C, m) {
+PYBIND11_MODULE(_binary_C, m) {
   m.doc() =
       "ttrt.binary python extension for loading / inspecting tt binary files";
 
