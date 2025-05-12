@@ -66,11 +66,7 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
 
   // Execute the function
   const size_t programIndex = op->program_idx();
-  const ::tt::target::ttnn::TTNNBinary &fbb =
-      *::tt::runtime::ttnn::utils::getBinary(context.getExecutableHandle());
-  const ::tt::target::ttnn::Program *subProgram =
-      fbb.programs()->Get(programIndex);
-  ProgramExecutor exec(subProgram, context.getExecutableHandle(), inputs,
+  ProgramExecutor exec(context.getExecutableHandle(), inputs,
                        context.getMeshDevicePtr(), programIndex);
   exec.execute();
   LOG_DEBUG("executed sub-func: ", constEvalFuncname);
