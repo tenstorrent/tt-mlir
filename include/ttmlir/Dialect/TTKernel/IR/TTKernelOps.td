@@ -124,10 +124,19 @@ def TTKernel_BinaryOpInitCommonOp : TTKernel_InitOp<"binary_op_init_common"> {
 def TTKernel_MatmulInitOp : TTKernel_InitOp<"mm_init"> {
     let summary = "Matmul init function";
     let description = [{
-      Must be run before matmul.
+      Can only be run ONCE per kernel. Should be run before matmul.
     }];
 
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, TTKernel_CB:$out_cb, I32:$transpose);
+}
+
+def TTKernel_MatmulInitShortOp : TTKernel_InitOp<"mm_init_short"> {
+    let summary = "Matmul short init function";
+    let description = [{
+      Can be run MULTIPLE times per kernel. Should be run before matmul. Use this if some other init was called between mm_init and matmul_tiles. (i.e. in a loop)
+    }];
+
+    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, I32:$transpose);
 }
 
 def TTKernel_MatmulTilesOp : TTKernel_FPUOp<"matmul_tiles", [TTKernel_TernaryOpTrait]> {
