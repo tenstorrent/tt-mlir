@@ -14,12 +14,17 @@
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
+#include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
+#include "ttmlir/Target/TTNN/types_generated.h"
 #include "ttmlir/Version.h"
 #include "ttnn/tensor/types.hpp"
+#include <memory>
+#include <optional>
+#include <vector>
 
 namespace tt::runtime::ttnn {
 
@@ -76,9 +81,9 @@ createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
   }
 }
 
-static ::tt::runtime::Tensor createNullTensor() {
-  return ::tt::runtime::Tensor(nullptr, nullptr, DeviceRuntime::TTNN);
-}
+// static ::tt::runtime::Tensor createNullTensor() {
+//   return ::tt::runtime::Tensor(nullptr, nullptr, DeviceRuntime::TTNN);
+// }
 
 static ::tt::runtime::Tensor toHostSingleTensor(::tt::runtime::Tensor tensor,
                                                 bool untilize) {
@@ -638,16 +643,13 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   return std::string(opContext.loc_info()->c_str());
 }
 
-::tt::runtime::Tensor getOpOutputTensor(OpContext opContextHandle,
-                                        CallbackContext programContextHandle) {
-  const auto &programContext =
-      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
-          DeviceRuntime::TTNN);
+std::optional<tt::runtime::TensorRef>
+getOpOutputTensorRef(OpContext opContextHandle,
+                     CallbackContext programContextHandle) {
   const auto &opContext =
       opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
-  const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
+  
   std::optional<const ::tt::target::ttnn::TensorRef *> tensorRef = std::nullopt;
-  const ::ttnn::Tensor *outPtr = nullptr;
 
   switch (opContext.type_type()) {
   case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
@@ -835,25 +837,51 @@ std::string getOpLocInfo(OpContext opContextHandle) {
     LOG_WARNING("getting output tensor is not supported for ",
                 ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
                     opContext.type_type())]);
-    return createNullTensor();
+    return std::nullopt;
   }
   default: {
     LOG_FATAL("Unsupported operation type");
   }
   }
 
-  if (tensorRef.has_value() && tensorPool.contains(tensorRef.value())) {
-    outPtr = &tensorPool.getTTNNTensorAndValidate(tensorRef.value());
-  } else {
-    LOG_WARNING("Output tensor not found in tensor pool");
-    return createNullTensor();
+  if (!tensorRef.has_value()) {
+    return std::nullopt;
   }
 
-  ::ttnn::Tensor hostTensor = ::ttnn::to_layout(
-      ::ttnn::from_device(*outPtr), ::ttnn::Layout::ROW_MAJOR, std::nullopt,
-      std::nullopt, static_cast<::ttnn::MeshDevice *>(nullptr));
+  return utils::createRuntimeTensorRefFromTTNN(tensorRef.value());
+}
 
-  return utils::createRuntimeTensorFromTTNN(hostTensor);
+
+
+std::optional<Tensor>
+getTensor(CallbackContext programContextHandle, tt::runtime::TensorRef tensorRef) {
+  auto const &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
+
+  auto tensorRefPtr = tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
+
+  // TODO: check this
+  if (!tensorRefPtr.has_value()) {
+    LOG_WARNING("Output tensor not found in tensor pool");
+    return std::nullopt;
+  }
+  if (!tensorPool.contains(tensorRefPtr.value())) {
+    LOG_WARNING("Output tensor not found in tensor pool");
+    return std::nullopt;
+  }
+
+  const auto &outPtr =
+      &tensorPool.getTTNNTensorAndValidate(tensorRefPtr.value());
+
+  // WHat happens if the tensor is not on device when you cann from device?
+  std::shared_ptr<::ttnn::Tensor> hostTensor =
+      std::make_shared<::ttnn::Tensor>(::ttnn::to_layout(
+          ::ttnn::from_device(*outPtr), ::ttnn::Layout::ROW_MAJOR, std::nullopt,
+          std::nullopt, static_cast<::ttnn::IDevice *>(nullptr)));
+
+  return utils::createRuntimeTensorFromTTNN(*hostTensor);
 }
 
 std::vector<::tt::runtime::Tensor>
