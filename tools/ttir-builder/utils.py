@@ -376,6 +376,112 @@ def run_pipeline(
     return module
 
 
+def ttir_to_ttmetal(
+    module,
+    dump_to_file: bool = True,
+    output_path: str = "",
+    output_file_name: str = "test.mlir",
+    system_desc_path: Optional[str] = None,
+    device_grid_shape: Optional[Tuple[int, int]] = None,
+    mesh_shape: Optional[Tuple[int, int]] = None,
+    argument_types_string: Optional[str] = None,
+):
+    """
+    Converts TTIR module `module` to TTMetal module and optionally dumps to file.
+
+    Wrapper around `ttir_to_ttmetal_backend_pipeline` pybound pass.
+
+    Arguments
+    ---------
+    module: ???
+        TTIR module to convert to TTMetal module
+
+    dump_to_file: bool
+        Flag which indicates that generated TTMetal module will be dumped to file.
+
+    output_file_name: str
+        Name of the output file.
+
+    Returns
+    -------
+    MLIR module containing MLIR op graph defined by `module` and instance of TTIRBuilder.
+    """
+    assert mesh_shape is None, "`mesh_shape` is not supported yet for ttmetal backend."
+
+    # Default to the `SYSTEM_DESC_PATH` envvar
+    options = []
+    if system_desc_path is None:
+        system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
+    options.append(f"system-desc-path={system_desc_path}")
+
+    if device_grid_shape is not None:
+        options.append(f"override-device-shape={','.join(map(str, device_grid_shape))}")
+
+    # Now, pass it through the TTIR to TTMetal pipeline. Module gets
+    # modified in place.
+    ttir_to_ttmetal_backend_pipeline(module, " ".join(options))
+
+    print("`ttir_to_ttmetal_backend_pipeline` passed successfully.")
+
+    # Optionally dump to file.
+    if dump_to_file:
+        output_file_name = get_ttmetal_path(output_path, output_file_name)
+        with open(output_file_name, "w") as f:
+            f.write(str(module))
+
+    return module
+
+
+def ttnn_to_flatbuffer(
+    module,
+    builder,
+    device_grid_shape: Optional[Tuple[int, int]] = None,
+    output_path: str = "",
+    output_file_name: str = "ttnn_fb.ttnn",
+    module_log=None,
+):
+    """
+    Converts TTNN module to flatbuffer and saves to file. Wrapper around
+    `ttnn_to_flatbuffer_file` pybound pass.
+    """
+
+    # Convert to flatbuffer file.
+    # Take the output_file_name and prefix with the ttnn directory
+    output_file_name = get_ttnn_path(output_path, output_file_name)
+    if module_log:
+        ttnn_to_flatbuffer_file(
+            module, output_file_name, builder.get_golden_map(), module_log
+        )
+    else:
+        ttnn_to_flatbuffer_file(module, output_file_name, builder.get_golden_map())
+
+    print("`ttnn_to_flatbuffer_file` passed successfully.")
+
+
+def ttmetal_to_flatbuffer(
+    module,
+    builder,
+    output_path: str = "",
+    output_file_name: str = "ttmetal_fb.ttm",
+    module_log=None,
+):
+    """
+    Converts TTMetal module to flatbuffer and saves to file. Wrapper around
+    `ttmetal_to_flatbuffer_file` pybound pass.
+    """
+
+    # Convert to flatbuffer file.
+    # Take the output_file_name and prefix with ttm directory
+    output_file_name = get_ttmetal_path(output_path, output_file_name)
+    ttmetal_to_flatbuffer_file(
+        module,
+        output_file_name,
+        builder.get_golden_map(),
+    )
+
+    print("`ttmetal_to_flatbuffer_file` passed successfully.")
+
+
 def compile_to_flatbuffer(
     fn: Callable,
     inputs_shapes: List[Shape],
