@@ -308,9 +308,8 @@ jobs:
         cd ${{ matrix.build.path }}
         cmake -G Ninja -B build \
           -DCMAKE_BUILD_TYPE=Release \
-          -DCMAKE_CXX_COMPILER=clang++ \
-          -DCMAKE_INSTALL_PREFIX=install \
-          -DCMAKE_CXX_STANDARD=17
+          -DCMAKE_CXX_COMPILER=clang++-17 \
+          -DCMAKE_INSTALL_PREFIX=install
         cmake --build build -- ttnn-standalone
         cmake --install build --component TTNNStandalone
         cd install/tools/ttnn-standalone
