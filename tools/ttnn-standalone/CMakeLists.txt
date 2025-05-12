@@ -63,10 +63,6 @@ else()
 endif()
 message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
 
-file(GLOB XTENSOR_INCLUDE_DIRS "${CPM_SOURCE_CACHE}/xtensor/*/include")
-file(GLOB XTENSOR_BLAS_INCLUDE_DIRS "${CPM_SOURCE_CACHE}/xtensor-blas/*/include")
-file(GLOB XTL_INCLUDE_DIRS "${CPM_SOURCE_CACHE}/xtl/*/include")
-
 # Directories to search for headers
 #
 set(INCLUDE_DIRS
@@ -76,9 +72,9 @@ set(INCLUDE_DIRS
     ${CPM_SOURCE_CACHE}/magic_enum/4d76fe0a5b27a0e62d6c15976d02b33c54207096/include
     ${CPM_SOURCE_CACHE}/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
     ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
-    ${XTENSOR_INCLUDE_DIRS}
-    ${XTENSOR_BLAS_INCLUDE_DIRS}
-    ${XTL_INCLUDE_DIRS}
+    ${xtensor_SOURCE_DIR}/include
+    ${xtensor-blas_SOURCE_DIR}/include
+    ${xtl_SOURCE_DIR}/include
 
     # Metalium
     ${METAL_SRC_DIR}
