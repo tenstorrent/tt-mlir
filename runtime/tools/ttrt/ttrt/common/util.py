@@ -595,8 +595,6 @@ class Flatbuffer:
     ttsys_file_extension = ".ttsys"
 
     def __init__(self, logger, file_manager, file_path, capsule=None):
-        import ttrt.binary
-
         self.logger = logger
         self.logging = self.logger.get_logger()
         self.file_manager = file_manager
@@ -641,13 +639,13 @@ class Binary(Flatbuffer):
         super().__init__(logger, file_manager, file_path, capsule=capsule)
 
         import torch
-        import ttrt.binary
+        import ttrt.runtime
 
         if not capsule:
-            self.fbb = ttrt.binary.load_binary_from_path(file_path)
+            self.fbb = ttrt.runtime.load_binary_from_path(file_path)
         else:
-            self.fbb = ttrt.binary.load_binary_from_capsule(capsule)
-        self.fbb_dict = ttrt.binary.as_dict(self.fbb)
+            self.fbb = ttrt.runtime.load_binary_from_capsule(capsule)
+        self.fbb_dict = ttrt.runtime.as_dict(self.fbb)
         self.version = self.fbb.version
         self.programs = []
 
@@ -656,8 +654,6 @@ class Binary(Flatbuffer):
             self.programs.append(program)
 
     def check_system_desc(self, query):
-        import ttrt.binary
-
         try:
             fbb_system_desc = self.fbb_dict["system_desc"]
             device_system_desc = query.get_system_desc_as_dict()["system_desc"]
@@ -821,10 +817,10 @@ class SystemDesc(Flatbuffer):
     def __init__(self, logger, file_manager, file_path):
         super().__init__(logger, file_manager, file_path)
 
-        import ttrt.binary
+        import ttrt.runtime
 
-        self.fbb = ttrt.binary.load_system_desc_from_path(file_path)
-        self.fbb_dict = ttrt.binary.as_dict(self.fbb)
+        self.fbb = ttrt.runtime.load_system_desc_from_path(file_path)
+        self.fbb_dict = ttrt.runtime.as_dict(self.fbb)
         self.version = self.fbb.version
 
         # temporary state value to check if test failed

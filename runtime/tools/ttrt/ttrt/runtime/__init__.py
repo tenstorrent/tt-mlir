@@ -42,6 +42,12 @@ try:
         WorkaroundEnv,
         get_op_loc_info,
         unregister_hooks,
+        load_from_path,
+        load_binary_from_path,
+        load_binary_from_capsule,
+        load_system_desc_from_path,
+        Flatbuffer,
+        GoldenTensor,
     )
 except ModuleNotFoundError:
     raise ImportError(
@@ -54,3 +60,15 @@ except ImportError:
     print(
         "Warning: not importing testing submodule since project was not built with runtime testing enabled. To enable, rebuild with: -DTTMLIR_ENABLE_RUNTIME_TESTS=ON"
     )
+
+import json
+
+
+def as_dict(bin):
+    tmp = bin.as_json()
+    # Flatbuffers emits 'nan' and 'inf'
+    # But Python's JSON accepts only 'NaN' and 'Infinity' and nothing else
+    # We include the comma to avoid replacing 'inf' in contexts like 'info'
+    tmp = tmp.replace("nan,", "NaN,")
+    tmp = tmp.replace("inf,", "Infinity,")
+    return json.loads(tmp)
