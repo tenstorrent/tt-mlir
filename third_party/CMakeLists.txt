@@ -28,7 +28,6 @@ else()
 endif()
 message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
 
-set(METAL_INSTALL_PREFIX "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build/")
 set(TTMETAL_INCLUDE_DIRS
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/cpp
@@ -90,12 +89,14 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
   set(TTMETAL_BUILD_TYPE "Debug")
 endif()
 
-# Ensure the build directory exists before adding the external project
-file(MAKE_DIRECTORY "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build")
+set(METAL_BUILD_DIR ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
+set(METAL_INSTALL_PREFIX "${METAL_BUILD_DIR}")
 ExternalProject_Add(
   tt-metal
   PREFIX ${TTMLIR_SOURCE_DIR}/third_party/tt-metal
-  BINARY_DIR ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build
+  BINARY_DIR ${METAL_BUILD_DIR}
+  # This patch command creates the build dir that otherwise doesn't get created
+  PATCH_COMMAND ${CMAKE_COMMAND} -E make_directory ${METAL_BUILD_DIR}
   CMAKE_ARGS
     -DCMAKE_INSTALL_MESSAGE=LAZY
   CMAKE_GENERATOR Ninja
