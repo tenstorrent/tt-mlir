@@ -54,6 +54,7 @@ endif()
 
 # Metal dir variables
 set(METAL_SRC_DIR "$ENV{TT_METAL_HOME}" CACHE PATH "Path to the tt-metal root src directory")
+# set(METAL_LIB_DIR "$ENV{TT_METAL_HOME}-build/lib" CACHE PATH "Path to the tt-metal lib directory")
 
 if(DEFINED ENV{TT_METAL_LIB})
   set(METAL_LIB_DIR "$ENV{TT_METAL_LIB}" CACHE PATH "Path to the tt-metal lib directory")
