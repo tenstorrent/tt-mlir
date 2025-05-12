@@ -1,3 +1,4 @@
+// REQUIRES: stablehlo
 // RUN: not ttmlir-opt --automatic-sharding-pipeline="mesh-shape=1,2" %s 2>&1 | FileCheck %s
 
 sdy.mesh @mesh = <["model"=1, "batch"=2]>

@@ -1,3 +1,4 @@
+// REQUIRES: stablehlo
 // This file incorporates work covered by the following copyright and permission notice:
 // SPDX-FileCopyrightText: Copyright (c) 2024 The Shardy Authors
 // SPDX-License-Identifier: Apache-2.0
