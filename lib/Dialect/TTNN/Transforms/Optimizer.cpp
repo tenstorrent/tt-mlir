@@ -217,37 +217,44 @@ public:
 
     tracePossibleLayouts(tensorTypePossibleLayouts);
 
-    moduleOp->walk([&](Operation *op) {
-      if (op->getNumResults() == 0) {
+    moduleOp->walk([&](func::FuncOp func) {
+      // Filter out all const-eval functions.
+      if (ttmlir::utils::isConstEvalFunc(func)) {
         return;
       }
 
-      if (!isa<RankedTensorType>(op->getResult(0).getType())) {
-        return;
-      }
+      func->walk([&](Operation *op) {
+        if (op->getNumResults() == 0) {
+          return;
+        }
 
-      if (llvm::isa<ttnn::EmptyOp>(op)) {
-        return;
-      }
+        if (!isa<RankedTensorType>(op->getResult(0).getType())) {
+          return;
+        }
 
-      RankedTensorType tensorType =
-          mlir::cast<RankedTensorType>(op->getResult(0).getType());
+        if (llvm::isa<ttnn::EmptyOp>(op)) {
+          return;
+        }
 
-      // Get all possible layouts for this tensor type
-      // Use layouts from the global analysis instead of regenerating per-op
-      auto tensorLayouts = tensorTypePossibleLayouts.find(tensorType);
-      bool hasLayoutsForTensorType =
-          (tensorLayouts != tensorTypePossibleLayouts.end());
+        RankedTensorType tensorType =
+            mlir::cast<RankedTensorType>(op->getResult(0).getType());
 
-      assert(hasLayoutsForTensorType && "No layouts found for tensor type");
+        // Get all possible layouts for this tensor type
+        // Use layouts from the global analysis instead of regenerating per-op
+        auto tensorLayouts = tensorTypePossibleLayouts.find(tensorType);
+        bool hasLayoutsForTensorType =
+            (tensorLayouts != tensorTypePossibleLayouts.end());
 
-      // Run legal layout analysis to select the best layouts
-      LegalLayoutAnalysis legalLayoutAnalysis =
-          getChildAnalysis<LegalLayoutAnalysis>(op);
-      legalLayoutAnalysis.init(LegalLayoutAnalysisInput(
-          &tensorLayouts->getSecond(), maxLegalLayouts, &overrideOutputLayout,
-          &overrideConv2dConfig, rowMajorEnabled));
-      legalConfigs[op] = legalLayoutAnalysis.getResult();
+        assert(hasLayoutsForTensorType && "No layouts found for tensor type");
+
+        // Run legal layout analysis to select the best layouts
+        LegalLayoutAnalysis legalLayoutAnalysis =
+            getChildAnalysis<LegalLayoutAnalysis>(op);
+        legalLayoutAnalysis.init(LegalLayoutAnalysisInput(
+            &tensorLayouts->getSecond(), maxLegalLayouts, &overrideOutputLayout,
+            &overrideConv2dConfig, rowMajorEnabled));
+        legalConfigs[op] = legalLayoutAnalysis.getResult();
+      });
     });
 
     llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> opSchedule;
@@ -294,9 +301,10 @@ public:
     // No further analysis.
     //
     moduleOp->walk([&](func::FuncOp func) {
-      if (func->hasAttr(ttmlir::utils::g_constEvalAttrName)) {
+      if (ttmlir::utils::isConstEvalFunc(func)) {
         return;
       }
+
       SmallVector<Type> funcResultTypes;
 
       // If schedule is set, apply order of operations to func.
@@ -523,7 +531,7 @@ private:
 
     // Device op does not exist in the block, hence we need to create it.
     DeviceAttr deviceAttr = lookupDevice(contextOp);
-    auto currentInsertionPoint = builder.saveInsertionPoint();
+    OpBuilder::InsertionGuard guard(builder);
     builder.setInsertionPoint(block, block->begin());
     llvm::SmallVector<int64_t> meshShape{deviceAttr.getMeshShape()};
     if (meshShape.empty()) {
@@ -539,7 +547,6 @@ private:
                                  meshShape[1]),
         ttnn::MeshOffsetAttr::get(contextOp->getContext(), meshOffset[0],
                                   meshOffset[1]));
-    builder.restoreInsertionPoint(currentInsertionPoint);
     return deviceOp;
   }
 
@@ -612,7 +619,7 @@ private:
         toLayoutOp.setMemoryConfigAttr(outputMemConfigAttr);
         toLayoutOp.getResult().setType(newTensorType);
       } else {
-        OpBuilder builder(consumerOp);
+        OpBuilder builder(consumerOp->getContext());
 
         mlir::OpBuilder::InsertionGuard guard(builder);
         builder.setInsertionPoint(consumerOp);
@@ -668,6 +675,7 @@ private:
               ShapeAttr::get(op->getContext(), dramLayout.getShardShape())),
           dramLayout.getMemLayout());
 
+      OpBuilder::InsertionGuard guard(builder);
       builder.setInsertionPointAfter(op);
       Location loc =
           ttmlir::utils::appendLocationSuffix(op->getLoc(), "_spill");

@@ -2139,7 +2139,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   llvm::StringMap<uint32_t> programIdxMap;
   // Preserve original ordering by skipping const-eval in the first pass.
   module->walk([&](func::FuncOp func) {
-    if (func->hasAttr(ttmlir::utils::g_constEvalAttrName)) {
+    if (ttmlir::utils::isConstEvalFunc(func)) {
       return;
     }
     programIdxMap[func.getSymName().str()] = programIdx++;
@@ -2147,7 +2147,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
 
   // Add const-eval funcs after normal funcs.
   module->walk([&](func::FuncOp func) {
-    if (!func->hasAttr(ttmlir::utils::g_constEvalAttrName)) {
+    if (!ttmlir::utils::isConstEvalFunc(func)) {
       return;
     }
     programIdxMap[func.getSymName().str()] = programIdx++;
@@ -2156,7 +2156,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::Program>> programs;
   // Again, process original funcs in order first to perserve input order.
   module->walk([&](func::FuncOp func) {
-    if (func->hasAttr(ttmlir::utils::g_constEvalAttrName)) {
+    if (ttmlir::utils::isConstEvalFunc(func)) {
       return;
     }
     Program<::tt::target::ttnn::Operation> program =
@@ -2169,7 +2169,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   });
   // Then process const-eval funcs in 2nd pass.
   module->walk([&](func::FuncOp func) {
-    if (!func->hasAttr(ttmlir::utils::g_constEvalAttrName)) {
+    if (!ttmlir::utils::isConstEvalFunc(func)) {
       return;
     }
     Program<::tt::target::ttnn::Operation> program =

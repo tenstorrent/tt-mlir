@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Scheduler/Scheduler.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/IR/Diagnostics.h"
 
@@ -16,6 +17,10 @@ namespace mlir::tt::ttnn {
 
 void DFShardingPolicy::run() {
   rootOp->walk([&](func::FuncOp func) {
+    if (ttmlir::utils::isConstEvalFunc(func)) {
+      return;
+    }
+
     deviceAttr = lookupDevice(func);
     mlir::tt::scheduler::Scheduler scheduler(&func);
     l1ChainConfigs->push_back(L1ChainConfig());

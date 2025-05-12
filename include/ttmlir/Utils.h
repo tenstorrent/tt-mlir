@@ -484,6 +484,13 @@ populateConstParams(mlir::func::FuncOp funcOp) {
   return constParams;
 }
 
+inline bool isConstEvalFunc(mlir::Operation *op) {
+  if (auto funcOp = mlir::dyn_cast<mlir::func::FuncOp>(op)) {
+    return funcOp->hasAttr(g_constEvalAttrName);
+  }
+  return false;
+}
+
 template <typename T, typename From>
 T castContainer(const From &value) {
   return T(value.begin(), value.end());
