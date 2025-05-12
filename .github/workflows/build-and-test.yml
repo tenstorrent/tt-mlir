@@ -110,6 +110,7 @@ jobs:
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
         echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
         echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
+        echo "third-party-output-dir=$(pwd)/third_party" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -134,6 +135,7 @@ jobs:
         build-name: ${{ matrix.build.name }}
         build-output-dir: ${{ steps.strings.outputs.build-output-dir }}
         install-output-dir: ${{ steps.strings.outputs.install-output-dir }}
+        third-party-output-dir: ${{ steps.strings.outputs.third-party-output-dir }}
         work-dir: ${{ steps.strings.outputs.work-dir }}
         test_report_path: ${{ steps.strings.outputs.test_report_path }}
 
@@ -220,6 +222,7 @@ jobs:
         echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
         echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
         echo "perf_report_path=perf_$JOB_ID" >> "$GITHUB_OUTPUT"
+        echo "third-party-output-dir=$(pwd)/third_party" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -297,18 +300,26 @@ jobs:
           echo "Unit test report copied"
         fi
 
+    - name: Download Third Party Artifacts
+      uses: ./.github/actions/download-artifact
+      if: matrix.build.suite == 'ttnn_standalone'
+      with:
+        name: third-party-artifacts-${{ matrix.build.image }}
+        path: third-party
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Run TTNN-Standalone test
       shell: bash
       if: matrix.build.suite == 'ttnn_standalone'
       run: |
-        export CMAKE_PREFIX_PATH=${{ steps.strings.outputs.install-output-dir }}
-        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
-        export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
-        export TT_METAL_LIB="${{ steps.strings.outputs.install-output-dir }}/lib"
+        export CMAKE_PREFIX_PATH="${{ steps.strings.outputs.third-party-output-dir }}/tt-metal/src/tt-metal-build/lib"
+        export LD_LIBRARY_PATH="${{ steps.strings.outputs.third-party-output-dir }}/tt-metal/src/tt-metal-build/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        export TT_METAL_HOME="${{ steps.strings.outputs.third-party-output-dir }}/tt-metal/src/tt-metal"
+        export TT_METAL_LIB="${{ steps.strings.outputs.third-party-output-dir }}/tt-metal/src/tt-metal-build/lib"
         cd ${{ matrix.build.path }}
         cmake -G Ninja -B build \
           -DCMAKE_BUILD_TYPE=Release \
-          -DCMAKE_CXX_COMPILER=clang++-17 \
+          -DCMAKE_CXX_COMPILER=clang++ \
           -DCMAKE_INSTALL_PREFIX=install
         cmake --build build -- ttnn-standalone
         cmake --install build --component TTNNStandalone
