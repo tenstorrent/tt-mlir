@@ -850,8 +850,9 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getAllDimensions()),
-        emitter.emit<int64_t>(srcOp.getDimArg()),
+        emitter.emit<int64_t>(srcOp.getAllDimensions()
+                                  ? std::nullopt
+                                  : std::optional<int64_t>(srcOp.getDimArg())),
         emitter.emit(srcOp.getKeepDim()),
         emitter.emit(srcOp.getMemoryConfig()) |
             emitter.getMemoryConfig(srcOp.getResult()),
