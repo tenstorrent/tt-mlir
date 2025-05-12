@@ -1,6 +1,7 @@
 // RUN: ttmlir-opt -canonicalize %s | FileCheck %s
 module {
   func.func @permute_composition(%arg0: tensor<1x2x3x4x5xbf16>) -> tensor<3x2x1x5x4xbf16> {
+    // CHECK-LABEL: func.func @permute_composition
     // CHECK: "ttir.permute"
     // CHECK-SAME: permutation = array<i64: 2, 1, 0, 4, 3>
     // CHECK-NOT: "ttir.permute"
@@ -11,7 +12,20 @@ module {
     return %3 : tensor<3x2x1x5x4xbf16>
   }
 
+  func.func @transpose_permute_composition(%arg0: tensor<1x2x3x4x5xbf16>) -> tensor<1x3x5x2x4xbf16> {
+    // CHECK-LABEL: func.func @transpose_permute_composition
+    // CHECK-NOT: "ttir.transpose"
+    // CHECK: "ttir.permute"
+    // CHECK-SAME: permutation = array<i64: 0, 2, 4, 1, 3>
+    %0 = ttir.empty() : tensor<1x3x2x4x5xbf16>
+    %1 = "ttir.transpose"(%arg0, %0) <{dim0 = 2 : si32, dim1 = 1 : si32}> : (tensor<1x2x3x4x5xbf16>, tensor<1x3x2x4x5xbf16>) -> tensor<1x3x2x4x5xbf16>
+    %2 = ttir.empty() : tensor<1x3x5x2x4xbf16>
+    %3 = "ttir.permute"(%1, %2) <{permutation = array<i64: 0, 1, 4, 2, 3>}> : (tensor<1x3x2x4x5xbf16>, tensor<1x3x5x2x4xbf16>) -> tensor<1x3x5x2x4xbf16>
+    return %3 : tensor<1x3x5x2x4xbf16>
+  }
+
   func.func @permute_noop(%arg0: tensor<1x2x3x4x5xbf16>) -> tensor<1x2x3x4x5xbf16> {
+    // CHECK-LABEL: func.func @permute_noop
     // CHECK-NOT: "ttir.permute"
     %0 = ttir.empty() : tensor<1x2x3x4x5xbf16>
     %1 = "ttir.permute"(%arg0, %0) <{permutation = array<i64: 0, 1, 2, 3, 4>}> : (tensor<1x2x3x4x5xbf16>, tensor<1x2x3x4x5xbf16>) -> tensor<1x2x3x4x5xbf16>
