@@ -14,6 +14,7 @@ import pandas as pd
 import threading
 import queue
 import json
+import glob
 
 
 class ExplorerRunException(Exception):
@@ -31,6 +32,8 @@ class ModelState:
     model_output_dir = None
     # Overrides, changes that the user made to op configurations.
     overrides = None
+    # EmitC Call to Generate C Code
+    generate_cpp_code = False
 
 
 class ModelRunner:
@@ -100,6 +103,11 @@ class ModelRunner:
             return self.model_state[model_path].overrides
         return None
 
+    def get_generate_cpp_code(self, model_path):
+        if model_path in self.model_state:
+            return self.model_state[model_path].generate_cpp_code
+        return False
+
     def get_error(self):
         return self.runner_error
 
@@ -166,6 +174,15 @@ class ModelRunner:
             res = json.load(f)
 
         return res
+
+    def get_cpp_code(self, model_path):
+        cpp_code = f"{self.model_state[model_path].model_output_dir}/**/*.cpp"
+        cpp_files = glob.glob(cpp_code, recursive=True)
+
+        if cpp_files:
+            with open(cpp_files[0], "r") as f:
+                return f.read()
+        return None
 
     def run_in_subprocess(self, command):
         self.log(f"Running command:\n{' '.join(command)}\n")
@@ -254,6 +271,51 @@ class ModelRunner:
             self.log(error, severity=logging.error)
             raise ExplorerRunException(error)
         self.progress = 20
+
+        ########################### EmitC Generation #############################
+
+        if self.get_generate_cpp_code():
+            # Backend Pipeline has already been run, the file is stored to ttnn_ir_file
+            # The translation to flatbuffer will happen, need to run the pass to emitc and then store the artifact
+            self.log("Enabled C++ Code Generation w/ EmitC")
+
+            emitc_ir_file = "/".join(
+                ttnn_ir_file.split("/")[:-1] + [f"{model_name}_emitc.mlir"]
+            )
+            emitc_command = [
+                f"{self._build_dir}/bin/ttmlir-opt",
+                "--ttnn-modify-signatured-for-dylib",
+                "--convert-ttnn-to-emitc",
+                ttnn_ir_file,
+                "-o",
+                emitc_ir_file,
+            ]
+
+            self.log("Running compile TTNN IR to EmitC IR")
+
+            compile_process = self.run_in_subprocess(emitc_command)
+            if compile_process.returncode != 0:
+                error = "Error compiling TTNN IR to EmitC IR"
+                self.log(error, severity=logging.error)
+                raise ExplorerRunException(error)
+
+            # Translate EmitC IR to C++ File
+            self.log("Translating EmitC IR to C++ Code")
+            # Write to C Code file directly in ttrt-artifacts-dir
+            c_code_file = state.model_output_dir + f"/{model_name}.cpp"
+            emitc_translate_command = [
+                f"{self._build_dir}/bin/ttmlir-translate",
+                "--mlir-to-cpp",
+                emitc_ir_file,
+                ">",
+                c_code_file,
+            ]
+
+            compile_process = self.run_in_subprocess(emitc_translate_command)
+            if compile_process.returncode != 0:
+                error = "Error translating EmitC IR to C++"
+                self.log(error, severity=logging.error)
+                raise ExplorerRunException(error)
 
         ############################## Translate #################################
 
@@ -363,7 +425,7 @@ class ModelRunner:
         state.optimized_model_path = ttnn_ir_file
         self.progress = 100
 
-    def run(self, model_path, compile_options, overrides):
+    def run(self, model_path, compile_options, settings):
         # Check if a run is already in progress
         if self.is_busy():
             raise RuntimeError(
@@ -371,6 +433,13 @@ class ModelRunner:
             )
         self.reset_state(model_path)
         self.model_state[model_path] = ModelState()
+
+        # Set the EmitC State
+        generate_cpp_code = settings.get("generateCppCode", False)
+        self.model_state[model_path].generate_cpp_code = generate_cpp_code
+
+        # Set overrides state from settings
+        overrides = settings.get("overrides", None)
         self.model_state[model_path].overrides = overrides
 
         # Start compile and run in a new thread
