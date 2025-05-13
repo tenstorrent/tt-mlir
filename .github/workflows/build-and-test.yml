@@ -247,7 +247,6 @@ jobs:
 
     - name: Download Build Artifacts
       uses: ./.github/actions/download-artifact
-      if: ${{ matrix.build.type == 'unit' || matrix.build.suite == 'explorer' }}
       with:
         name: build-artifacts-${{ matrix.build.image }}
         path: build
