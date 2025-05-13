@@ -70,88 +70,85 @@ void applyConv2dConfigOverrides(ttnn::Conv2dOp op,
   conv2dConfigAttr = conv2dConfigAttr.withWeightsDtype(weightsDtype);
 
   if (overrides.activation.has_value()) {
-    conv2dConfigAttr =
-        conv2dConfigAttr.withActivation(overrides.activation.value());
+    conv2dConfigAttr = conv2dConfigAttr.withActivation(*overrides.activation);
   }
 
   if (overrides.deallocateActivation.has_value()) {
     conv2dConfigAttr = conv2dConfigAttr.withDeallocateActivation(
-        overrides.deallocateActivation.value());
+        *overrides.deallocateActivation);
   }
 
   if (overrides.reallocateHaloOutput.has_value()) {
     conv2dConfigAttr = conv2dConfigAttr.withReallocateHaloOutput(
-        overrides.reallocateHaloOutput.value());
+        *overrides.reallocateHaloOutput);
   }
 
   if (overrides.actBlockHOverride.has_value()) {
-    conv2dConfigAttr = conv2dConfigAttr.withActBlockHOverride(
-        overrides.actBlockHOverride.value());
+    conv2dConfigAttr =
+        conv2dConfigAttr.withActBlockHOverride(*overrides.actBlockHOverride);
   }
 
   if (overrides.actBlockWDiv.has_value()) {
     conv2dConfigAttr =
-        conv2dConfigAttr.withActBlockWDiv(overrides.actBlockWDiv.value());
+        conv2dConfigAttr.withActBlockWDiv(*overrides.actBlockWDiv);
   }
 
   if (overrides.reshardIfNotOptimal.has_value()) {
     conv2dConfigAttr = conv2dConfigAttr.withReshardIfNotOptimal(
-        overrides.reshardIfNotOptimal.value());
+        *overrides.reshardIfNotOptimal);
   }
 
   if (overrides.overrideShardingConfig.has_value()) {
     conv2dConfigAttr = conv2dConfigAttr.withOverrideShardingConfig(
-        overrides.overrideShardingConfig.value());
+        *overrides.overrideShardingConfig);
   }
 
   if (overrides.shardLayout.has_value()) {
-    conv2dConfigAttr =
-        conv2dConfigAttr.withShardLayout(overrides.shardLayout.value());
+    conv2dConfigAttr = conv2dConfigAttr.withShardLayout(*overrides.shardLayout);
   }
 
   if (overrides.coreGrid.has_value()) {
-    conv2dConfigAttr =
-        conv2dConfigAttr.withCoreGrid(overrides.coreGrid.value());
+    conv2dConfigAttr = conv2dConfigAttr.withCoreGrid(*overrides.coreGrid);
   }
 
   if (overrides.transposeShards.has_value()) {
     conv2dConfigAttr =
-        conv2dConfigAttr.withTransposeShards(overrides.transposeShards.value());
+        conv2dConfigAttr.withTransposeShards(*overrides.transposeShards);
   }
 
   if (overrides.outputLayout.has_value()) {
     conv2dConfigAttr =
-        conv2dConfigAttr.withOutputLayout(overrides.outputLayout.value());
+        conv2dConfigAttr.withOutputLayout(*overrides.outputLayout);
   }
 
   if (overrides.preprocessWeightsOnDevice.has_value()) {
     conv2dConfigAttr = conv2dConfigAttr.withPreprocessWeightsOnDevice(
-        overrides.preprocessWeightsOnDevice.value());
+        *overrides.preprocessWeightsOnDevice);
   }
 
   if (overrides.alwaysPreprocessWeights.has_value()) {
     conv2dConfigAttr = conv2dConfigAttr.withAlwaysPreprocessWeights(
-        overrides.alwaysPreprocessWeights.value());
+        *overrides.alwaysPreprocessWeights);
   }
 
   if (overrides.enableActDoubleBuffer.has_value()) {
     conv2dConfigAttr = conv2dConfigAttr.withEnableActDoubleBuffer(
-        overrides.enableActDoubleBuffer.value());
+        *overrides.enableActDoubleBuffer);
   }
 
   if (overrides.enableWeightsDoubleBuffer.has_value()) {
     conv2dConfigAttr = conv2dConfigAttr.withEnableWeightsDoubleBuffer(
-        overrides.enableWeightsDoubleBuffer.value());
+        *overrides.enableWeightsDoubleBuffer);
   }
 
   if (overrides.enableSplitReader.has_value()) {
-    conv2dConfigAttr = conv2dConfigAttr.withEnableSplitReader(
-        overrides.enableSplitReader.value());
+    conv2dConfigAttr =
+        conv2dConfigAttr.withEnableSplitReader(*overrides.enableSplitReader);
   }
 
   if (overrides.enableSubblockPadding.has_value()) {
     conv2dConfigAttr = conv2dConfigAttr.withEnableSubblockPadding(
-        overrides.enableSubblockPadding.value());
+        *overrides.enableSubblockPadding);
   }
 
   for (auto &opConfig : analysisResult) {
