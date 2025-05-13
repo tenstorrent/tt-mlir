@@ -8,6 +8,7 @@
 #define FMT_HEADER_ONLY
 #include "hostdevcommon/common_values.hpp"
 #include "tt-metalium/host_api.hpp"
+#include "tt-metalium/host_buffer.hpp"
 #include "tt-metalium/memory_reporter.hpp"
 #include "tt-metalium/mesh_device.hpp"
 #include "ttnn/device.hpp"
@@ -39,7 +40,6 @@
 #include "ttnn/operations/reduction/generic/generic_reductions.hpp"
 #include "ttnn/operations/reduction/prod/prod.hpp"
 #include "ttnn/tensor/host_buffer/functions.hpp"
-#include "ttnn/tensor/host_buffer/host_buffer.hpp"
 #include "ttnn/tensor/shape/shape.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
