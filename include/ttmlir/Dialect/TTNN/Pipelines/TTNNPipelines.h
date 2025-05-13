@@ -227,7 +227,7 @@ struct TTIRToTTNNBackendPipelineOptions
   Option<bool> enableConstEval{
       *this, "enable-const-eval",
       llvm::cl::desc("Enable const-eval optimization pass."),
-      llvm::cl::init(false)};
+      llvm::cl::init(true)};
 
   // Option to specify the target bit width for quantized data types.
   Option<uint32_t> quantBitWidth{
