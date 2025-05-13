@@ -28,6 +28,7 @@ else()
 endif()
 message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
 
+set(METAL_INSTALL_PREFIX "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal-build/")
 set(TTMETAL_INCLUDE_DIRS
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/cpp
@@ -47,7 +48,7 @@ set(TTMETAL_INCLUDE_DIRS
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_stl
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_stl/tt_stl
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_eager
-  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build/include
+  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal-build/include
   ${CPM_SOURCE_CACHE}/reflect/e75434c4c5f669e4a74e4d84e0a30d7249c1e66f
   ${CPM_SOURCE_CACHE}/nanomsg/28cc32d5bdb6a858fe53b3ccf7e923957e53eada/include
   ${CPM_SOURCE_CACHE}/fmt/69912fb6b71fcb1f7e5deca191a2bb4748c4e7b6/include
@@ -60,7 +61,7 @@ set(TTMETAL_INCLUDE_DIRS
   PARENT_SCOPE
 )
 
-set(TTMETAL_LIBRARY_DIR ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build/lib)
+set(TTMETAL_LIBRARY_DIR ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal-build/lib)
 set(TTNN_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/_ttnn.so)
 set(TTMETAL_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtt_metal.so)
 set(DEVICE_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libdevice.so)
@@ -88,15 +89,9 @@ set(TTMETAL_BUILD_TYPE "Release")
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
   set(TTMETAL_BUILD_TYPE "Debug")
 endif()
-
-set(METAL_BUILD_DIR ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
-set(METAL_INSTALL_PREFIX "${METAL_BUILD_DIR}")
 ExternalProject_Add(
   tt-metal
   PREFIX ${TTMLIR_SOURCE_DIR}/third_party/tt-metal
-  BINARY_DIR ${METAL_BUILD_DIR}
-  # This patch command creates the build dir that otherwise doesn't get created
-  PATCH_COMMAND ${CMAKE_COMMAND} -E make_directory ${METAL_BUILD_DIR}
   CMAKE_ARGS
     -DCMAKE_INSTALL_MESSAGE=LAZY
   CMAKE_GENERATOR Ninja
