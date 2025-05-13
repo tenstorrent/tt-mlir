@@ -42,7 +42,7 @@ def ttrt_datatype_to_torch_dtype(dtype) -> torch.dtype:
     A `ValueError` if `dtype` is not one of `Float32`, `UInt32`, `UInt16`, or `UInt8`
 
     """
-    from ttrt.runtime._runtime_C import DataType
+    from ttrt.runtime._C import DataType
 
     if dtype == DataType.Float32:
         return torch.float32

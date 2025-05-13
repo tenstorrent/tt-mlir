@@ -37,7 +37,7 @@ debug_runtime = os.environ.get("TT_RUNTIME_DEBUG", "OFF") == "ON"
 
 ext_modules = [
     Pybind11Extension(
-        "ttrt.binary._binary_C",
+        "ttrt.binary._C",
         ["ttrt/binary/module.cpp"],
         include_dirs=[
             f"{toolchain}/include",
@@ -222,8 +222,8 @@ if enable_runtime:
 
     ext_modules.append(
         Pybind11Extension(
-            "ttrt.runtime._runtime_C",
-            ["ttrt/runtime/module.cpp", "ttrt/binary/module.cpp"],
+            "ttrt.runtime._C",
+            ["ttrt/runtime/module.cpp"],
             include_dirs=[
                 f"{toolchain}/include",
                 f"{src_dir}/runtime/include",

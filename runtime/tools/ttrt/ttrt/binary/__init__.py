@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from ._binary_C import (
+from ._C import (
     load_from_path,
     load_binary_from_path,
     load_binary_from_capsule,

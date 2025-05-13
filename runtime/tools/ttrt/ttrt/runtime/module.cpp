@@ -19,7 +19,7 @@
 
 namespace py = pybind11;
 
-PYBIND11_MODULE(_runtime_C, m) {
+PYBIND11_MODULE(_C, m) {
   m.doc() = "ttrt.runtime python extension for interacting with the "
             "Tenstorrent devices";
   py::class_<tt::runtime::MemoryView>(m, "MemoryView")

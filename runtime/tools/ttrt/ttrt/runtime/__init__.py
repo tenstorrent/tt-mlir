@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 try:
-    from ._runtime_C import (
+    from ._C import (
         Device,
         Event,
         Tensor,
@@ -44,7 +44,7 @@ try:
         unregister_hooks,
     )
 
-    from ttrt.binary._binary_C import (
+    from ttrt.binary._C import (
         load_from_path,
         load_binary_from_path,
         load_binary_from_capsule,
@@ -58,7 +58,7 @@ except ModuleNotFoundError:
     )
 
 try:
-    from ._runtime_C import testing
+    from ._C import testing
 except ImportError:
     print(
         "Warning: not importing testing submodule since project was not built with runtime testing enabled. To enable, rebuild with: -DTTMLIR_ENABLE_RUNTIME_TESTS=ON"
