@@ -580,37 +580,6 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
         auto globalOp = mlir::cast<memref::GlobalOp>(
             symbolTable.lookup(globalSymbolRef.getValue()));
         auto globalResult = getGlobalOp.getResult();
-
-        if (auto value =
-                mlir::dyn_cast<MemRefType>(globalOp.getTypeAttr().getValue());
-            value) {
-
-          if (mlir::isa<FloatType>(value.getElementType())) {
-
-            auto initial_value_attr = mlir::cast<mlir::DenseElementsAttr>(
-                globalOp.getInitialValueAttr());
-
-            fbb.StartVector<flatbuffers::Offset<float>>(
-                initial_value_attr.getNumElements());
-
-            for (auto i = initial_value_attr.value_begin<float>();
-                 i != initial_value_attr.value_end<float>(); i++) {
-              fbb.PushElement(*i);
-            }
-            auto vector = fbb.EndVector(initial_value_attr.getNumElements());
-
-            cqBuilder.appendCommand(
-                target::metal::CreateHostAllocCommand(
-                    fbb,
-                    cache.getOrCreate(globalResult, bufferValueToFlatbuffer, 0),
-                    vector),
-                op);
-          } else {
-            assert(false);
-          }
-        } else {
-          assert(false);
-        }
         cqBuilder.appendCommand(
             target::metal::CreateHostAllocCommand(
                 fbb,
