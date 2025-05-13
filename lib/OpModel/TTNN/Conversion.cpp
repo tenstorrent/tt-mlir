@@ -283,11 +283,6 @@ std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> getConv2dConfig(
     config.activation = conv2dConfig->getActivation().getValue().str();
   }
 
-  if (conv2dConfig->getInputChannelsAlignment()) {
-    config.input_channels_alignment =
-        *conv2dConfig->getInputChannelsAlignment();
-  }
-
   if (conv2dConfig->getDeallocateActivation()) {
     config.deallocate_activation =
         conv2dConfig->getDeallocateActivation().getValue();

@@ -61,6 +61,9 @@ LICENSE @nsmithtt
 /lib/Conversion/TTIRToTTMetal/ @tenstorrent/forge-developers-mlir-d2m
 /lib/Conversion/TTKernelToEmitC/ @tenstorrent/forge-developers-mlir-d2m
 /test/ttmlir/Conversion/TTKernelToEmitC/ @tenstorrent/forge-developers-mlir-d2m
+/include/ttmlir/Conversion/TTIRToTTKernel/ @tenstorrent/forge-developers-mlir-d2m
+/lib/Conversion/TTIRToTTKernel/ @tenstorrent/forge-developers-mlir-d2m
+/test/ttmlir/Conversion/TTIRToTTKernel/ @tenstorrent/forge-developers-mlir-d2m
 
 # LLVM Dialect
 /include/ttmlir/Dialect/LLVM/ @vwellsTT @mtopalovicTT

@@ -147,7 +147,7 @@ std::string OptimizerOverridesHandler::toString() const {
 
   // Create input layout overrides.
   //  Example:
-  //    insert-memreconfig=input0=0:1,input1=0,input2=0:1:2
+  //    override-input-layout=input0=0:1,input1=0,input2=0:1:2
   if (inputLayoutOverrides.size() > 0) {
     options += OptionNames::overrideInputLayout.str() + "=" +
                InputLayoutOverrideParser::toString(inputLayoutOverrides) + " ";

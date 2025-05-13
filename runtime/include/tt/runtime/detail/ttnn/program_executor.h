@@ -25,8 +25,7 @@ class ProgramContext; // Forward declaration
 class ProgramExecutor {
 public:
   // Constructor for executing a program
-  ProgramExecutor(const ::tt::target::ttnn::Program *program,
-                  const Binary &executableHandle,
+  ProgramExecutor(const Binary &executableHandle,
                   std::vector<::tt::runtime::Tensor> &programInputs,
                   std::shared_ptr<::ttnn::MeshDevice> meshDevice,
                   const size_t programIndex = 0);

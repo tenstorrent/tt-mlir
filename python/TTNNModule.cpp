@@ -167,7 +167,6 @@ void populateTTNNModule(nb::module_ &m) {
           "get",
           [](MlirContext ctx, std::optional<tt::DataType> dtype,
              std::optional<tt::DataType> weightsDtype, StringAttr activation,
-             std::optional<uint32_t> inputChannelsAlignment,
              BoolAttr deallocateActivation, BoolAttr reallocateHaloOutput,
              std::optional<uint32_t> actBlockHOverride,
              std::optional<uint32_t> actBlockWDiv, BoolAttr reshardIfNotOptimal,
@@ -182,8 +181,7 @@ void populateTTNNModule(nb::module_ &m) {
             MLIRContext *context = unwrap(ctx);
 
             return wrap(tt::ttnn::Conv2dConfigAttr::get(
-                context, dtype, weightsDtype, activation,
-                inputChannelsAlignment, deallocateActivation,
+                context, dtype, weightsDtype, activation, deallocateActivation,
                 reallocateHaloOutput, actBlockHOverride, actBlockWDiv,
                 reshardIfNotOptimal, overrideShardingConfig, shardLayout,
                 coreGrid, transposeShards, outputLayout,
@@ -214,15 +212,6 @@ void populateTTNNModule(nb::module_ &m) {
                        return nb::none();
                      }
                      return self.getActivation().getValue().str();
-                   })
-      .def_prop_ro("input_channels_alignment",
-                   [](tt::ttnn::Conv2dConfigAttr self)
-                       -> std::variant<nb::object, uint32_t> {
-                     if (!self.getInputChannelsAlignment()) {
-                       return nb::none();
-                     }
-                     return static_cast<uint32_t>(
-                         *self.getInputChannelsAlignment());
                    })
       .def_prop_ro("deallocate_activation",
                    [](tt::ttnn::Conv2dConfigAttr self)

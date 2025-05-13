@@ -268,10 +268,6 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
     conv2dConfig.activation = config->activation()->str();
   }
 
-  if (config->input_channels_alignment()) {
-    conv2dConfig.input_channels_alignment = *config->input_channels_alignment();
-  }
-
   if (config->deallocate_activation()) {
     conv2dConfig.deallocate_activation = *config->deallocate_activation();
   }

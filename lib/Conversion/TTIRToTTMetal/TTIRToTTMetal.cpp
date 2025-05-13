@@ -162,6 +162,9 @@ public:
     if (inputMemorySpace) {
       rewriter.replaceOpWithNewOp<ttmetal::EnqueueReadBufferOp>(op, input,
                                                                 output);
+      // Insert global barrier to ensure the read completes before subsequent
+      // ops use it.
+      rewriter.create<ttmetal::FinishOp>(op->getLoc());
     } else {
       rewriter.replaceOpWithNewOp<ttmetal::EnqueueWriteBufferOp>(op, input,
                                                                  output);

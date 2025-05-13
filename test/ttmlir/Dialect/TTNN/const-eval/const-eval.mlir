@@ -127,6 +127,7 @@ module {
   // CHECK: = "ttnn.add"(%{{.*}}, %{{.*}})
   // CHECK: = "ttnn.multiply"(%{{.*}}, %{{.*}})
 
+  // CHECK-LABEL: func.func @forward_reuse_constant_merge(
   func.func @forward_reuse_constant_merge(%arg0: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<input>}, %arg1: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<parameter>}, %arg3: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<constant>}) -> tensor<32x32xbf16> {
     // CHECK: = tt.load_cached(@forward_reuse_constant_merge_const_eval_0, [%arg1, %arg2])
     %0 = "ttir.constant"() <{value = dense<1.111e+00> : tensor<32x32xbf16>}> : () -> tensor<32x32xbf16>
@@ -143,5 +144,57 @@ module {
     // CHECK: = "ttnn.multiply"(%{{.*}}, %{{.*}})
     %10 = "ttir.multiply"(%2, %8, %9) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     return %10 : tensor<32x32xbf16>
+  }
+
+  // CHECK-LABEL: func.func @non_splat_constant_const_eval_0
+  // CHECK: = "ttnn.get_device"
+  // CHECK: = "ttnn.constant"() <{value = dense<{{\[\[}}1.000000e+00, 2.000000e+00], [3.000000e+00, 4.000000e+00]]> : tensor<2x2xbf16>}>
+
+  // CHECK: func.func @non_splat_constant(
+  func.func @non_splat_constant(%arg0: tensor<2x2xbf16> {tt.argument_type = #tt.argument_type<input>}) -> tensor<2x2xbf16> {
+    // CHECK: = tt.load_cached(@non_splat_constant_const_eval_0, [])
+    // Create a non-splat constant with different values
+    %0 = "ttir.constant"() <{value = dense<[[1.0, 2.0], [3.0, 4.0]]> : tensor<2x2xbf16>}> : () -> tensor<2x2xbf16>
+    %1 = ttir.empty() : tensor<2x2xbf16>
+    // CHECK: = "ttnn.add"(%arg0, %{{.*}})
+    %2 = "ttir.add"(%arg0, %0, %1) : (tensor<2x2xbf16>, tensor<2x2xbf16>, tensor<2x2xbf16>) -> tensor<2x2xbf16>
+    return %2 : tensor<2x2xbf16>
+  }
+
+  // CHECK-LABEL: func.func @creation_ops_const_eval_0
+  // CHECK: "ttnn.zeros"
+  // CHECK: "ttnn.ones"
+  // CHECK: "ttnn.add"
+  // CHECK: "ttnn.arange"
+  // CHECK: "ttnn.add"
+
+  // CHECK-LABEL: func.func @creation_ops(
+  func.func @creation_ops() -> tensor<4x4xbf16> {
+    // CHECK: = tt.load_cached(@creation_ops_const_eval_0, [])
+    %0 = "ttir.zeros"() <{shape = array<i32: 4, 4>}> : () -> tensor<4x4xbf16>
+    %1 = "ttir.ones"() <{shape = array<i32: 4, 4>}> : () -> tensor<4x4xbf16>
+
+    %2 = ttir.empty() : tensor<4x4xbf16>
+    %3 = "ttir.add"(%0, %1, %2) : (tensor<4x4xbf16>, tensor<4x4xbf16>, tensor<4x4xbf16>) -> tensor<4x4xbf16>
+
+    %4 = ttir.empty() : tensor<4x4xbf16>
+    %5 = "ttir.arange"() {start = 0 : si64, end = 4 : si64, step = 1 : si64, arange_dimension = 0 : i64} : () -> tensor<4x4xbf16>
+    %6 = "ttir.add"(%3, %5, %4) : (tensor<4x4xbf16>, tensor<4x4xbf16>, tensor<4x4xbf16>) -> tensor<4x4xbf16>
+
+    return %6 : tensor<4x4xbf16>
+  }
+
+  // CHECK-LABEL: func.func @forward_all_const_const_eval
+  // CHECK: "ttnn.add"
+
+
+  // CHECK-LABEL: func.func @forward_all_const(
+  func.func @forward_all_const(%arg0: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<constant>}, %arg1: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<constant>}) -> tensor<32x32xbf16> {
+    // CHECK: %[[LOAD_CACHED_RESULT:.+]] = tt.load_cached(@forward_all_const_const_eval_0, [%arg0, %arg1])
+    // CHECK-NOT: "ttnn.add"
+    %0 = ttir.empty() : tensor<32x32xbf16>
+    %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    // CHECK: return %[[LOAD_CACHED_RESULT]]
+    return %1 : tensor<32x32xbf16>
   }
 }

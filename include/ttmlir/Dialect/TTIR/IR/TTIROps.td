@@ -1991,13 +1991,13 @@ def TTIR_ArangeOp : TTIR_CreationOp<"arange"> {
     Produces a tensor with values from `start` to `end` (exclusive) with a step size of `step`, along the dimension specified by `arange_dimension`.
 
     Examples:
-      %0 = "ttir.arange"() {start = 0 : i64, end = 5 : i64 step = 1 : i64, arange_dimension = 0 : i64} : () -> tensor<5xi64>
+      %0 = "ttir.arange"() {start = 0 : si64, end = 5 : si64 step = 1 : i64, arange_dimension = 0 : i64} : () -> tensor<5xi64>
       // %0: [0, 1, 2, 3, 4]
 
-      %1 = "ttir.arange"() {start = 0 : i64, end = 10 : i64, step = 2 : i64, arange_dimension = 0 : i64} : () -> tensor<5xf32>
+      %1 = "ttir.arange"() {start = 0 : si64, end = 10 : si64, step = 2 : si64, arange_dimension = 0 : i64} : () -> tensor<5xf32>
       // %1: [0.0, 2.0, 4.0, 6.0, 8.0]
 
-      %2 = "ttir.arange"() {start = 0 : i64, end = 5 : i64, step = 1 : i64, arange_dimension = 0 : i64} : () -> tensor<5x3xi64>
+      %2 = "ttir.arange"() {start = 0 : si64, end = 5 : si64, step = 1 : si64, arange_dimension = 0 : i64} : () -> tensor<5x3xi64>
       // %2: [
               [0, 0, 0],
               [1, 1, 1],
@@ -2006,7 +2006,7 @@ def TTIR_ArangeOp : TTIR_CreationOp<"arange"> {
               [4, 4, 4]
              ]
 
-      %3 = "ttir.arange"() {start = 0 : i64, end = 3 : i64, step = 1 : i64, arange_dimension = 1 : i64} : () -> tensor<5x3xi64>
+      %3 = "ttir.arange"() {start = 0 : si64, end = 3 : si64, step = 1 : si64, arange_dimension = 1 : i64} : () -> tensor<5x3xi64>
       // %3: [
               [0, 1, 2],
               [0, 1, 2],

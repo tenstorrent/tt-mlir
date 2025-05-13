@@ -531,6 +531,15 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
         cqBuilder.appendCommand(
             target::metal::CreateReturnCommandDirect(fbb, &cqBuilder.outputs),
             op);
+      } else if (auto finishOp = dyn_cast_if_present<tt::ttmetal::FinishOp>(op);
+                 finishOp) {
+        cqBuilder.appendCommand(target::metal::CreateFinishCommand(fbb), op);
+      } else if (auto funcOp = dyn_cast_if_present<func::FuncOp>(op); funcOp) {
+        // Unqualified walk will visit the root op itself last, we should ignore
+        // this.
+        return;
+      } else {
+        llvm_unreachable("Encountered unsupported op.");
       }
     });
 

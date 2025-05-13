@@ -1543,7 +1543,10 @@ def TTNN_ClampTensorOp : TTNN_Op<"clamp_tensor", [HasMemoryConfigTrait]> {
     ];
 }
 
-def TTNN_EmptyOp : TTNN_Op<"empty", [TT_CreationOpTrait]> {
+class TTNN_CreationOp<string mnemonic, list<Trait> traits = []> :
+    TTNN_Op<mnemonic, [TT_CreationOpTrait] # traits>;
+
+def TTNN_EmptyOp : TTNN_CreationOp<"empty"> {
     let summary = "Empty op.";
     let description = [{
       Tensor empty operation
@@ -1560,7 +1563,7 @@ def TTNN_EmptyOp : TTNN_Op<"empty", [TT_CreationOpTrait]> {
     let hasVerifier = 1;
 }
 
-def TTNN_ArangeOp : TTNN_Op<"arange", [TT_CreationOpTrait]> {
+def TTNN_ArangeOp : TTNN_CreationOp<"arange"> {
   let summary = "Arange operation.";
   let description = [{
     Tensor arange operation.
@@ -1593,7 +1596,7 @@ def TTNN_ArangeOp : TTNN_Op<"arange", [TT_CreationOpTrait]> {
 }
 
 class TTNN_NamedFullOp<string mnemonic, list<Trait> traits = []> :
-  TTNN_Op<mnemonic, [HasMemoryConfigTrait] # traits> {
+  TTNN_CreationOp<mnemonic, [HasMemoryConfigTrait] # traits> {
   let arguments = (ins TTNN_ShapeAttr:$shape,
                        OptionalAttr<TT_DataTypeAttr>:$dtype,
                        OptionalAttr<TTNN_LayoutAttr>:$layout,
@@ -1605,7 +1608,7 @@ class TTNN_NamedFullOp<string mnemonic, list<Trait> traits = []> :
   let hasVerifier = 1;
 }
 
-def TTNN_ZerosOp : TTNN_NamedFullOp<"zeros", [TT_CreationOpTrait]> {
+def TTNN_ZerosOp : TTNN_NamedFullOp<"zeros"> {
   let summary = "Creates a tensor filled with zeros.";
   let description = [{
     Tensor operation to create a tensor filled with zeros.
@@ -1618,7 +1621,7 @@ def TTNN_ZerosOp : TTNN_NamedFullOp<"zeros", [TT_CreationOpTrait]> {
   }];
 }
 
-def TTNN_OnesOp : TTNN_NamedFullOp<"ones", [TT_CreationOpTrait]> {
+def TTNN_OnesOp : TTNN_NamedFullOp<"ones"> {
   let summary = "Creates a tensor filled with ones.";
   let description = [{
     Tensor operation to create a tensor filled with ones.
@@ -1631,7 +1634,7 @@ def TTNN_OnesOp : TTNN_NamedFullOp<"ones", [TT_CreationOpTrait]> {
   }];
 }
 
-def TTNN_FullOp : TTNN_Op<"full", [TT_CreationOpTrait]> {
+def TTNN_FullOp : TTNN_CreationOp<"full"> {
     let summary = "Full op.";
     let description = [{
       Tensor full operation
@@ -1647,6 +1650,31 @@ def TTNN_FullOp : TTNN_Op<"full", [TT_CreationOpTrait]> {
         return wa::TTNNOperandsWorkaroundsFactory::createFullOpOperandsWorkarounds(outputType);
       }
     }];
+}
+
+def TTNN_ConstantOp : TTNN_CreationOp<"constant", [AllShapesMatch<["value", "result"]>]> {
+    let summary = "Constant op.";
+    let description = [{
+      Produces tensor filled with given constant value.
+
+      Examples:
+        %0 = "ttnn.constant"() {value = dense<[[3, 4, 2], [1, 7, 8]]> : tensor<2x3xui16>} : () -> tensor<2x3xui16>
+        // %0: [[3, 4, 2], [1, 7, 8]]
+        %1 = "ttnn.constant"() {value = dense<[0.2, 1.3]> : tensor<2xf32>} : () -> tensor<2xf32>
+        // %1: [0.2, 1.3]
+    }];
+
+    let arguments = (ins ElementsAttr:$value);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds();
+      }
+    }];
+
+    let hasVerifier = 1;
 }
 
 def TTNN_AllocOp : TTNN_Op<"alloc", [TT_CreationOpTrait]> {
@@ -1841,31 +1869,6 @@ def TTNN_UpsampleOp : TTNN_Op<"upsample"> {
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createUpsampleOpOperandsWorkarounds();
-      }
-    }];
-
-    let hasVerifier = 1;
-}
-
-def TTNN_ConstantOp : TTNN_Op<"constant", [AllShapesMatch<["value", "result"]>]> {
-    let summary = "Constant op.";
-    let description = [{
-      Produces tensor filled with given constant value.
-
-      Examples:
-        %0 = "ttnn.constant"() {value = dense<[[3, 4, 2], [1, 7, 8]]> : tensor<2x3xui16>} : () -> tensor<2x3xui16>
-        // %0: [[3, 4, 2], [1, 7, 8]]
-        %1 = "ttnn.constant"() {value = dense<[0.2, 1.3]> : tensor<2xf32>} : () -> tensor<2xf32>
-        // %1: [0.2, 1.3]
-    }];
-
-    let arguments = (ins ElementsAttr:$value);
-
-    let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        return wa::TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds();
       }
     }];
 

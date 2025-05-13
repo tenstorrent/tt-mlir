@@ -14,7 +14,6 @@
   dtype = bf16,
   weights_dtype = bf16,
   activation = "",
-  input_channels_alignment = 32,
   deallocate_activation = false,
   reallocate_halo_output = true,
   act_block_h_override = 0,

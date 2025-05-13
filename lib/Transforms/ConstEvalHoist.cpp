@@ -159,6 +159,11 @@ private:
   }
 
   void processOp(Operation *op) {
+    // Skip terminator ops.
+    if (op->hasTrait<mlir::OpTrait::IsTerminator>()) {
+      return;
+    }
+
     // Skip creation ops, they have special handling.
     if (isCreationOp(op)) {
       return;
@@ -420,7 +425,7 @@ static void undoConstEvalImpl(mlir::ModuleOp module,
 
   // Find all const-eval functions
   module.walk([&](mlir::func::FuncOp funcOp) {
-    if (funcOp->hasAttr("const_eval")) {
+    if (ttmlir::utils::isConstEvalFunc(funcOp)) {
       constEvalFuncs.push_back(funcOp);
     }
   });
@@ -429,7 +434,7 @@ static void undoConstEvalImpl(mlir::ModuleOp module,
   module.walk([&](mlir::tt::LoadCachedOp loadOp) {
     mlir::StringRef calleeName = loadOp.getCallee();
     auto funcOp = module.lookupSymbol<mlir::func::FuncOp>(calleeName);
-    assert(funcOp && funcOp->hasAttr("const_eval"));
+    assert(funcOp && ttmlir::utils::isConstEvalFunc(funcOp));
     auto [_, inserted] = funcToCall.insert({funcOp, loadOp});
     assert(inserted && "Found const-eval func used more than once!");
   });
@@ -492,7 +497,7 @@ public:
 
     bool hasExistingConstEvalFuncs = false;
     module.walk([&](func::FuncOp funcOp) {
-      if (funcOp->hasAttr("const_eval")) {
+      if (ttmlir::utils::isConstEvalFunc(funcOp)) {
         hasExistingConstEvalFuncs = true;
         return WalkResult::interrupt();
       }
@@ -511,7 +516,7 @@ public:
 private:
   // Process a single function for const-eval hoisting
   void processFunction(func::FuncOp funcOp) {
-    if (funcOp->hasAttr("const_eval")) {
+    if (ttmlir::utils::isConstEvalFunc(funcOp)) {
       return;
     }
     // Run the analysis to identify const-eval subgraphs
@@ -581,7 +586,8 @@ private:
     auto newFuncOp = builder.create<func::FuncOp>(originalFunc.getLoc(),
                                                   newFuncName, funcType);
     // Mark the new function as const-eval.
-    newFuncOp->setAttr("const_eval", builder.getUnitAttr());
+    newFuncOp->setAttr(ttmlir::utils::g_constEvalAttrName,
+                       builder.getUnitAttr());
 
     // Build the body of the new function.
     auto *newEntryBlock = newFuncOp.addEntryBlock();

@@ -216,19 +216,16 @@ bool isLayoutLegalForTensorShape(llvm::ArrayRef<int64_t> tensorShape,
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
-static ::tt::tt_metal::HostStorage
-createHostStorage(std::uint32_t numElements,
-                  ::tt::tt_metal::DataType dataType) {
+static ::tt::tt_metal::HostBuffer
+createHostBuffer(uint32_t numElements, ::tt::tt_metal::DataType dataType) {
   switch (dataType) {
   case ::tt::tt_metal::DataType::FLOAT32: {
     std::vector<float> data(numElements);
-    return ::tt::tt_metal::HostStorage(
-        ::tt::tt_metal::host_buffer::create<float>(data));
+    return ::tt::tt_metal::HostBuffer(std::move(data));
   }
   case ::tt::tt_metal::DataType::BFLOAT16: {
     std::vector<bfloat16> data(numElements);
-    return ::tt::tt_metal::HostStorage(
-        ::tt::tt_metal::host_buffer::create<bfloat16>(data));
+    return ::tt::tt_metal::HostBuffer(std::move(data));
   }
   default:
     llvm::report_fatal_error("Unsupported data type");
@@ -246,10 +243,14 @@ createMetalHostTensor(llvm::ArrayRef<int64_t> shape,
   }
 
   auto metalDataType = conversion::getDataType(dataType);
-  auto storage = createHostStorage(volume, metalDataType);
+  auto hostBuffer = createHostBuffer(volume, metalDataType);
   auto metalShape = conversion::getShape(shape);
-  return ::tt::tt_metal::Tensor(storage, metalShape, metalDataType,
-                                ::tt::tt_metal::Layout::ROW_MAJOR);
+  ::tt::tt_metal::PageConfig pageconfig(::tt::tt_metal::Layout::ROW_MAJOR);
+  ::tt::tt_metal::TensorLayout layout(metalDataType, pageconfig,
+                                      ::tt::tt_metal::MemoryConfig{});
+  ::tt::tt_metal::TensorSpec tensorSpec(metalShape, layout);
+
+  return ::tt::tt_metal::Tensor(std::move(hostBuffer), tensorSpec);
 }
 
 // Returns the output tensor spec of the prepared weights for a conv2d op.

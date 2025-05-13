@@ -17,7 +17,7 @@ namespace mlir::tt::ttnn {
 struct OptionNames {
 
   static constexpr StringRef optimizerPassEnabled = "enable-optimizer";
-  static constexpr StringRef overrideInputLayout = "insert-memreconfig";
+  static constexpr StringRef overrideInputLayout = "override-input-layout";
   static constexpr StringRef overrideOutputLayout = "override-output-layout";
   static constexpr StringRef overrideConv2dConfig = "override-conv2d-config";
   static constexpr StringRef memoryLayoutAnalysisEnabled =
@@ -34,7 +34,6 @@ struct Conv2dConfigOverrideParams {
   std::optional<tt::DataType> dtype = std::nullopt;
   std::optional<tt::DataType> weightsDtype = std::nullopt;
   std::optional<std::string> activation = std::nullopt;
-  std::optional<uint32_t> inputChannelsAlignment = std::nullopt;
   std::optional<bool> deallocateActivation = std::nullopt;
   std::optional<bool> reallocateHaloOutput = std::nullopt;
   std::optional<uint32_t> actBlockHOverride = std::nullopt;
@@ -54,8 +53,7 @@ struct Conv2dConfigOverrideParams {
 
   bool empty() const {
     return !dtype.has_value() && !weightsDtype.has_value() &&
-           !activation.has_value() && !inputChannelsAlignment.has_value() &&
-           !deallocateActivation.has_value() &&
+           !activation.has_value() && !deallocateActivation.has_value() &&
            !reallocateHaloOutput.has_value() &&
            !actBlockHOverride.has_value() && !actBlockWDiv.has_value() &&
            !reshardIfNotOptimal.has_value() &&

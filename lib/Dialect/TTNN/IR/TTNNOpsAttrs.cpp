@@ -607,7 +607,6 @@ struct Conv2dConfigAttrParams {
   mlir::tt::DataType dtype;
   mlir::tt::DataType weightsDtype;
   mlir::StringAttr activation;
-  uint32_t inputChannelsAlignment;
   mlir::BoolAttr deallocateActivation;
   mlir::BoolAttr reallocateHaloOutput;
   uint32_t actBlockHOverride;
@@ -638,7 +637,6 @@ struct Conv2dConfigAttrParams {
         attr.getWeightsDtype().value_or(mlir::tt::DataType::BFloat16);
     activation = attr.getActivation() ? attr.getActivation()
                                       : mlir::StringAttr::get(ctx, "");
-    inputChannelsAlignment = attr.getInputChannelsAlignment().value_or(32);
     deallocateActivation = getOrDefault(attr.getDeallocateActivation());
     reallocateHaloOutput = getOrDefault(attr.getReallocateHaloOutput());
     actBlockHOverride = attr.getActBlockHOverride().value_or(0);
@@ -662,10 +660,10 @@ struct Conv2dConfigAttrParams {
 
   Conv2dConfigAttr buildConv2dConfig(mlir::MLIRContext *ctx) const {
     return Conv2dConfigAttr::get(
-        ctx, dtype, weightsDtype, activation, inputChannelsAlignment,
-        deallocateActivation, reallocateHaloOutput, actBlockHOverride,
-        actBlockWDiv, reshardIfNotOptimal, overrideShardingConfig, shardLayout,
-        coreGrid, transposeShards, outputLayout, preprocessWeightsOnDevice,
+        ctx, dtype, weightsDtype, activation, deallocateActivation,
+        reallocateHaloOutput, actBlockHOverride, actBlockWDiv,
+        reshardIfNotOptimal, overrideShardingConfig, shardLayout, coreGrid,
+        transposeShards, outputLayout, preprocessWeightsOnDevice,
         alwaysPreprocessWeights, enableActDoubleBuffer,
         enableWeightsDoubleBuffer, enableSplitReader, enableSubblockPadding);
   }
@@ -673,10 +671,10 @@ struct Conv2dConfigAttrParams {
 
 Conv2dConfigAttr Conv2dConfigAttr::get(::mlir::MLIRContext *context) {
   return Conv2dConfigAttr::get(context, std::nullopt, std::nullopt, nullptr,
-                               std::nullopt, nullptr, nullptr, std::nullopt,
-                               std::nullopt, nullptr, nullptr, std::nullopt,
+                               nullptr, nullptr, std::nullopt, std::nullopt,
                                nullptr, nullptr, std::nullopt, nullptr, nullptr,
-                               nullptr, nullptr, nullptr, nullptr);
+                               std::nullopt, nullptr, nullptr, nullptr, nullptr,
+                               nullptr, nullptr);
 }
 
 Conv2dConfigAttr Conv2dConfigAttr::withActivation(StringRef activation) const {
