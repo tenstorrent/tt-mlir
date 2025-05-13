@@ -161,7 +161,15 @@ def get_dimension_size(
 
 @pytest.mark.parametrize(
     "shapes,batch_dims_lhs,contract_dims_lhs,batch_dims_rhs,contract_dims_rhs",
-    [([(4, 10, 3, 5, 7), (4, 10, 5, 7, 3)], [0], [3], [0], [2])],
+    [
+        (
+            [(4, 10, 3, 5, 7), (4, 10, 5, 7, 3), (4, 10, 3, 7, 10, 7, 3)],
+            [0],
+            [3],
+            [0],
+            [2],
+        )
+    ],
 )
 def test_dot_general(
     shapes: List[Shape],
@@ -172,11 +180,16 @@ def test_dot_general(
     request,
 ):
     def dot_general(
-        in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
+        in0: Operand,
+        in1: Operand,
+        out0: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: List[str] = None,
     ):
         return builder.dot_general(
             in0,
             in1,
+            out0,
             batch_dims_lhs,
             contract_dims_lhs,
             batch_dims_rhs,

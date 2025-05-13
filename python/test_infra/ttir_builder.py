@@ -601,6 +601,8 @@ class TTIRBuilder:
             self.id_golden_map[str(loc)] = golden
             self._store_golden(op, golden)
             self._override_golden(output, golden)
+            print("golden: ", golden)
+            print("OP: ", op)
             return op
 
     def eltwise_proxy(
@@ -659,46 +661,67 @@ class TTIRBuilder:
         self,
         in0: Operand,
         in1: Operand,
+        out0: Operand,
         batch_dims_lhs: List[int],
         contract_dims_lhs: List[int],
         batch_dims_rhs: List[int],
         contract_dims_rhs: List[int],
         unit_attrs: List[str] = None,
     ) -> OpView:
-        # Configure inputs for golden function
-        lhs_dims = contract_dims_lhs + batch_dims_lhs
-        rhs_dims = contract_dims_rhs + batch_dims_rhs
-
-        # Get output_shape from inputs' shapes and dimensions
-        lhs = self._get_golden_tensor(in0)
-        rhs = self._get_golden_tensor(in1)
-        lhs_shape = self.get_shape(in0)
-        rhs_shape = self.get_shape(in1)
-        output_shape = [lhs_shape[i] for i in batch_dims_lhs]
-        for d in range(len(lhs_shape)):
-            if d not in batch_dims_lhs and d not in contract_dims_lhs:
-                output_shape.append(lhs_shape[d])
-        for d in range(len(rhs_shape)):
-            if d not in batch_dims_rhs and d not in contract_dims_rhs:
-                output_shape.append(rhs_shape[d])
+        kwargs = {
+            "batch_dims_lhs": batch_dims_lhs,
+            "contract_dims_lhs": contract_dims_lhs,
+            "batch_dims_rhs": batch_dims_rhs,
+            "contract_dims_rhs": contract_dims_rhs,
+        }
         return self.op_proxy(
-            torch.tensordot,
+            self.dot_general_golden_function,
             ttir.DotGeneralOp,
-            [in0, in1],
-            golden_kwargs={"dims": (lhs_dims, rhs_dims)},
-            ttir_kwargs={
-                "batch_dims_lhs": batch_dims_lhs,
-                "contract_dims_lhs": contract_dims_lhs,
-                "batch_dims_rhs": batch_dims_rhs,
-                "contract_dims_rhs": contract_dims_rhs,
-            },
+            [in0, in1, out0],
+            golden_kwargs=kwargs,
+            ttir_kwargs=kwargs,
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
-            output_shape=output_shape,
             output_type=self.get_type_from_torch_dtype(
                 self._get_golden_tensor(in0).dtype
             ),
             unit_attrs=unit_attrs,
         )
+
+    def dot_general_golden_function(
+        self,
+        lhs,
+        rhs,
+        out,
+        batch_dims_lhs,
+        contract_dims_lhs,
+        batch_dims_rhs,
+        contract_dims_rhs,
+    ):
+        non_batch_dims_lhs = [d for d in range(lhs.dim()) if d not in batch_dims_lhs]
+        non_batch_dims_rhs = [d for d in range(rhs.dim()) if d not in batch_dims_rhs]
+        transposed_lhs = torch.permute(lhs, (batch_dims_lhs + non_batch_dims_lhs))
+        transposed_rhs = torch.permute(rhs, (batch_dims_rhs + non_batch_dims_rhs))
+        result_batching_dims = list(range(len(batch_dims_lhs)))
+        result = torch.empty(*out.shape, dtype=lhs.dtype)
+
+        dim_ranges = []
+        for i in range(len(result_batching_dims)):
+            dim_ranges.append([j for j in range(list(lhs.shape)[i])])
+        import itertools
+
+        batch_indices = list(itertools.product(*dim_ranges))
+        for index in batch_indices:
+            transposed_lhs_slice = transposed_lhs[index]
+            transposed_rhs_slice = transposed_rhs[index]
+            dot_dims_lhs = [d - len(index) for d in contract_dims_lhs]
+            dot_dims_rhs = [d - len(index) for d in contract_dims_rhs]
+            out_index = index
+            result[out_index] = torch.tensordot(
+                transposed_lhs_slice,
+                transposed_rhs_slice,
+                dims=(dot_dims_lhs, dot_dims_rhs),
+            )
+        return result
 
     # TTIR top level named ops
     # class TTIR_ElementwiseTernaryOp
