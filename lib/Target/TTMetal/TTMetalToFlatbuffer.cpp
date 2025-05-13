@@ -425,14 +425,15 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
   target::Version binaryVersion(ttmlirVersion.major, ttmlirVersion.minor,
                                 ttmlirVersion.patch);
   std::vector<flatbuffers::Offset<target::metal::Program>> programs;
-  std::vector<flatbuffers::Offset<target::metal::TensorRef>> tensorInputs;
-  std::vector<flatbuffers::Offset<target::metal::TensorRef>> tensorOutputs;
 
   module->walk([&](func::FuncOp entry) {
     if (!entry.isPublic()) {
       // Skip private functions.
       return;
     }
+
+    std::vector<flatbuffers::Offset<target::metal::TensorRef>> tensorInputs;
+    std::vector<flatbuffers::Offset<target::metal::TensorRef>> tensorOutputs;
 
     CQBuilder cqBuilder(&fbb);
     cqBuilder.name = entry.getSymName().data();
