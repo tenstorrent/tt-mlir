@@ -49,7 +49,7 @@ except ModuleNotFoundError:
     )
 
 try:
-    from ._C import testing
+    from ._runtime_C import testing
 except ImportError:
     print(
         "Warning: not importing testing submodule since project was not built with runtime testing enabled. To enable, rebuild with: -DTTMLIR_ENABLE_RUNTIME_TESTS=ON"
