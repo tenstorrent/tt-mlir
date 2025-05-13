@@ -812,7 +812,7 @@ def TTIR_LogicalOrOp : TTIR_ElementwiseBinaryOp<"logical_or", [TTIR_BinaryIdempo
     }];
 }
 
-def TTIR_LogicalXorOp : TTIR_ElementwiseBinaryOp<"logical_xor", [TTIR_FullyBroadcastable]> {
+def TTIR_LogicalXorOp : TTIR_ElementwiseBinaryOp<"logical_xor"> {
     let summary = "Eltwise logical xor.";
     let description = [{
       Eltwise logical xor operation.
@@ -863,7 +863,7 @@ def TTIR_BitwiseXorOp : TTIR_ElementwiseBinaryOp<"bitwise_xor"> {
     let hasCanonicalizer = 1;
 }
 
-def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum", [TTIR_BinaryIdempotence, TTIR_FullyBroadcastable]> {
+def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum", [TTIR_BinaryIdempotence, TTIR_PartiallyBroadcastable]> {
     let summary = "Eltwise minimum OP.";
     let description = [{
       Calculates minimum of input tensors' values element-wise and stores result
@@ -947,7 +947,7 @@ def TTIR_MultiplyOp : TTIR_ElementwiseBinaryOp<"multiply", [TTIR_FullyBroadcasta
     }];
 }
 
-def TTIR_DivOp : TTIR_ElementwiseBinaryOp<"div"> {
+def TTIR_DivOp : TTIR_ElementwiseBinaryOp<"div", [TTIR_PartiallyBroadcastable]> {
     let summary = "Eltwise divide.";
     let description = [{
       Eltwise divide operation.
