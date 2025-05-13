@@ -183,4 +183,18 @@ module {
 
     return %6 : tensor<4x4xbf16>
   }
+
+  // CHECK-LABEL: func.func @forward_all_const_const_eval
+  // CHECK: "ttnn.add"
+
+
+  // CHECK-LABEL: func.func @forward_all_const(
+  func.func @forward_all_const(%arg0: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<constant>}, %arg1: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<constant>}) -> tensor<32x32xbf16> {
+    // CHECK: %[[LOAD_CACHED_RESULT:.+]] = tt.load_cached(@forward_all_const_const_eval_0, [%arg0, %arg1])
+    // CHECK-NOT: "ttnn.add"
+    %0 = ttir.empty() : tensor<32x32xbf16>
+    %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    // CHECK: return %[[LOAD_CACHED_RESULT]]
+    return %1 : tensor<32x32xbf16>
+  }
 }
