@@ -397,8 +397,8 @@ public:
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
         /*output=*/emitter.emit(std::nullopt),
         /*post_activations=*/
-        rewriter.getAttr<emitc::OpaqueAttr>(
-            "std::vector<ttnn::operations::unary::UnaryWithParam>()"),
+        emitter.template emit<
+            std::vector<::ttnn::operations::unary::UnaryWithParam>>({}),
         /*lhs_activations=*/
         rewriter.getAttr<emitc::OpaqueAttr>(
             "std::vector<ttnn::operations::unary::UnaryWithParam>()"),

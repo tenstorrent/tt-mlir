@@ -54,6 +54,8 @@ enum class VecMode {
   Invalid = 0xFF,
 };
 
+struct UnaryWithParam;
+
 } // namespace unary
 
 namespace creation::detail {
@@ -193,6 +195,12 @@ struct TypeName<::ttnn::operations::creation::detail::OptionalMeshDevice> {
 template <>
 struct TypeName<::ttnn::Tensor> {
   inline static const std::string value = "::ttnn::Tensor";
+};
+
+template <>
+struct TypeName<::ttnn::operations::unary::UnaryWithParam> {
+  inline static const std::string value =
+      "::ttnn::operations::unary::UnaryWithParam";
 };
 
 template <>
