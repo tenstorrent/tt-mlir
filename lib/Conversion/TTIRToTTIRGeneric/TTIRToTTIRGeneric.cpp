@@ -443,9 +443,9 @@ private:
 
     switch (bits) {
     case 1:
-      return ttir::ReduceDim::R;
-    case 2:
       return ttir::ReduceDim::C;
+    case 2:
+      return ttir::ReduceDim::R;
     case 3:
       return ttir::ReduceDim::RC;
     }
