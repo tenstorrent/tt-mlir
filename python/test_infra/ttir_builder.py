@@ -601,8 +601,6 @@ class TTIRBuilder:
             self.id_golden_map[str(loc)] = golden
             self._store_golden(op, golden)
             self._override_golden(output, golden)
-            print("golden: ", golden)
-            print("OP: ", op)
             return op
 
     def eltwise_proxy(
