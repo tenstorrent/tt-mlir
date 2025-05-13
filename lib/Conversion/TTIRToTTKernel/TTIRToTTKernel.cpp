@@ -99,6 +99,20 @@ static void lowerLoadToCopyTile(memref::LoadOp op, bool cbIdxAsDstIdx,
                     : index(0));
 }
 
+static void setInsertionPointAfterOperands(OpBuilder &rewriter,
+                                           llvm::ArrayRef<Value> operands) {
+  Operation *latestDefOp = nullptr;
+  for (Value operand : operands) {
+    Operation *definingOp = operand.getDefiningOp();
+    if (!latestDefOp ||
+        (definingOp && !definingOp->isBeforeInBlock(latestDefOp))) {
+      latestDefOp = definingOp;
+    }
+  }
+
+  rewriter.setInsertionPointAfter(latestDefOp);
+}
+
 } // namespace
 
 namespace {
@@ -164,16 +178,23 @@ public:
           getCB(rewriter, adaptor.getRhs()), getLoadIndex(adaptor.getLhs()),
           getLoadIndex(adaptor.getRhs()), dstIdx);
     } else if constexpr (std::is_same_v<ConcreteOp, ttir::TileMatmulOp>) {
-      auto mmInitOp = rewriter.create<ttkernel::MatmulInitOp>(
-          op->getLoc(), getCB(rewriter, adaptor.getA()),
-          getCB(rewriter, adaptor.getB()), getCB(rewriter, adaptor.getC()),
+      auto insertionPoint = rewriter.getInsertionPoint();
+      auto cbA = getCB(rewriter, adaptor.getA());
+      auto cbB = getCB(rewriter, adaptor.getB());
+      auto cbC = getCB(rewriter, adaptor.getC());
+      setInsertionPointAfterOperands(rewriter, {cbA, cbB, cbC});
+      rewriter.create<ttkernel::MatmulInitOp>(
+          op->getLoc(), cbA, cbB, cbC,
+          /* transpose */ i32(rewriter, op->getLoc(), 0));
+      rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+      auto mmInitShortOp = rewriter.create<ttkernel::MatmulInitShortOp>(
+          op->getLoc(), cbA, cbB,
           /* transpose */ i32(rewriter, op->getLoc(), 0));
       rewriter.create<ttkernel::MatmulTilesOp>(
-          op->getLoc(), getCB(rewriter, adaptor.getA()),
-          getCB(rewriter, adaptor.getB()), getLoadIndex(adaptor.getA()),
+          op->getLoc(), cbA, cbB, getLoadIndex(adaptor.getA()),
           getLoadIndex(adaptor.getB()), dstIdx,
           /* transpose */ i32(rewriter, op->getLoc(), 0));
-      rewriter.setInsertionPoint(mmInitOp);
+      rewriter.setInsertionPoint(mmInitShortOp);
       lowerLoadToCopyTile(
           adaptor.getC().template getDefiningOp<memref::LoadOp>(), false,
           rewriter);

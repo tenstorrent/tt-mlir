@@ -256,6 +256,13 @@ class Run:
             choices=None,
             help="flatbuffer binary file",
         )
+        Run.register_arg(
+            name="--ones-density",
+            type=int,
+            default=1,
+            choices=None,
+            help="Random ones vs zeroes density, 1 = 100% ones, 2 = 50% ones, 3 = 33% ones, etc.",
+        )
 
     def __init__(self, args={}, logger=None, artifacts=None):
         for name, attributes in Run.registered_args.items():
@@ -293,6 +300,7 @@ class Run:
         self.ttnn_binaries = []
         self.ttmetal_binaries = []
         self.results = Results(self.logger, self.file_manager)
+        self.torch_initializer = Run.TorchInitializer(self)
 
     def preprocess(self):
         self.logging.debug(f"------preprocessing run API")
@@ -576,11 +584,11 @@ class Run:
                                 golden_inputs.append(golden_tensor_torch)
 
                         program.populate_inputs(
-                            Run.TorchInitializer.get_initilizer(self["--init"]),
+                            self.torch_initializer.get_initilizer(self["--init"]),
                             golden_inputs,
                         )
                         program.populate_outputs(
-                            Run.TorchInitializer.get_initilizer("zeros")
+                            self.torch_initializer.get_initilizer("zeros")
                         )
 
                         inputs = []
@@ -1056,19 +1064,22 @@ class Run:
         init_fns = sorted(["randn", "arange", "zeros", "ones"])
 
         @staticmethod
-        def get_initilizer(name):
-            for attr, value in Run.TorchInitializer.__dict__.items():
-                if attr == name:
-                    return value
-
-            raise Exception(f"could not find specified init function={name}")
-
-        @staticmethod
         def get_init_fns():
             return Run.TorchInitializer.init_fns
 
-        @staticmethod
-        def randn(shape, dtype):
+        def __init__(self, run):
+            self.run = run
+
+        def get_initilizer(self, name):
+            import inspect
+
+            for func_name, func in inspect.getmembers(self, predicate=inspect.ismethod):
+                if func_name == name:
+                    return func
+
+            raise Exception(f"could not find specified init function={name}")
+
+        def randn(self, shape, dtype):
             import torch
 
             if dtype in (torch.uint8, torch.uint16, torch.uint32, torch.int32):
@@ -1077,8 +1088,7 @@ class Run:
 
             return torch.randn(shape, dtype=dtype)
 
-        @staticmethod
-        def arange(shape, dtype):
+        def arange(self, shape, dtype):
             import torch
 
             def volume(shape):
@@ -1089,14 +1099,13 @@ class Run:
 
             return torch.arange(volume(shape), dtype=dtype).reshape(shape)
 
-        @staticmethod
-        def zeros(shape, dtype):
+        def zeros(self, shape, dtype):
             import torch
 
             return torch.zeros(shape, dtype=dtype)
 
-        @staticmethod
-        def ones(shape, dtype):
+        def ones(self, shape, dtype):
             import torch
 
-            return torch.ones(shape, dtype=dtype)
+            x = torch.randint(0, self.run["--ones-density"], shape)
+            return torch.where(x == 0, 1.0, 0.0).to(dtype)

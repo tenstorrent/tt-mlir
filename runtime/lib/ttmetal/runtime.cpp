@@ -265,7 +265,7 @@ void memcpy(void *dst, Tensor src) {
   LOG_ASSERT(std::holds_alternative<TensorDesc>(metalSrc),
              "Only TensorDesc supported for now");
   const auto &hostSrc = std::get<TensorDesc>(metalSrc);
-  std::memcpy(dst, src.data.get(), hostSrc.size());
+  std::memcpy(dst, src.data.get(), hostSrc.sizeBytes());
 }
 
 void memcpy(Tensor dst, Tensor src) {
@@ -277,7 +277,8 @@ void memcpy(Tensor dst, Tensor src) {
              "Only TensorDesc supported for now");
   auto &hostDst = std::get<TensorDesc>(metalDst);
   const auto &hostSrc = std::get<TensorDesc>(metalSrc);
-  LOG_ASSERT(hostDst.size() == hostSrc.size(), "Tensor size mismatch");
+  LOG_ASSERT(hostDst.sizeBytes() == hostSrc.sizeBytes(),
+             "Tensor size mismatch");
   LOG_ASSERT(hostDst.dataType == hostSrc.dataType, "Tensor data type mismatch");
   return ::tt::runtime::ttmetal::memcpy(dst.data.get(), src);
 }
@@ -353,7 +354,7 @@ std::vector<std::byte> getTensorDataBuffer(Tensor tensor) {
             const std::byte *data =
                 static_cast<const std::byte *>(tensor.data.get());
             assert(data);
-            return std::vector<std::byte>(data, data + desc.size());
+            return std::vector<std::byte>(data, data + desc.sizeBytes());
           },
           [&](const DeviceBuffer &buffer) {
             LOG_FATAL("getTensorDataBuffer from DeviceBuffer not supported.");

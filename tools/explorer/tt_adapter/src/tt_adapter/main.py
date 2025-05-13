@@ -75,10 +75,6 @@ def settings_to_overrides(settings, artifacts_dir):
                             if attr["value"] == OVERRIDE_PARAMETER_DISABLED_STR
                             else attr["value"]
                         )
-                    case "input_channels_alignment":
-                        conv2d_config_override.set_input_channels_alignment_from_str(
-                            attr["value"].strip("[]")
-                        )
                     case "deallocate_activation":
                         conv2d_config_override.set_deallocate_activation_from_str(
                             attr["value"]

@@ -24,7 +24,7 @@ ttmlir_build_dir = os.environ.get(
     os.path.join(src_dir, "build"),
 )
 toolchain = os.environ.get("TTMLIR_TOOLCHAIN_DIR", "/opt/ttmlir-toolchain")
-metaldir = f"{src_dir}/third_party/tt-metal/src/tt-metal-build"
+metaldir = f"{src_dir}/third_party/tt-metal/src/tt-metal/build"
 ttmetalhome = os.environ.get("TT_METAL_HOME", "")
 
 os.environ["LDFLAGS"] = "-Wl,-rpath,'$ORIGIN'"
