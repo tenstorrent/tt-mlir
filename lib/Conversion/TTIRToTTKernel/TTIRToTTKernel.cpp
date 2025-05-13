@@ -82,16 +82,18 @@ static Value getLoadIndex(Value tile) {
   return loadOp.getIndices().front();
 }
 
-static llvm::SmallVector<Value> findInnerDimLoopVars(PatternRewriter &rewriter,
-                                                     memref::LoadOp loadOp) {
+// This function finds the loop variables that are not used in the computation
+// of the copy tile index. These represent the loop variables that loop over the
+// inner dimension of the tensor. They may not be the innermost loops in the IR.
+static llvm::SmallVector<Value>
+findInnerTensorDimLoopVars(PatternRewriter &rewriter, memref::LoadOp loadOp) {
   auto loopVars = llvm::SmallVector<Value>();
 
   // Find all loop variables that are parents of the load operation.
-  Operation *searchOp = loadOp;
-  while (searchOp->getParentOfType<scf::ForOp>()) {
-    searchOp = searchOp->getParentOfType<scf::ForOp>();
-    auto loop = mlir::cast<scf::ForOp>(searchOp);
-    loopVars.emplace_back(loop.getInductionVar());
+  scf::ForOp forOp = loadOp->getParentOfType<scf::ForOp>();
+  while (forOp != nullptr) {
+    loopVars.emplace_back(forOp.getInductionVar());
+    forOp = forOp->getParentOfType<scf::ForOp>();
   }
 
   llvm::SmallVector<Value> outerLoopVars;
@@ -135,8 +137,8 @@ static llvm::SmallVector<Value> findInnerDimLoopVars(PatternRewriter &rewriter,
 }
 
 static void lowerLoadToCopyTile(memref::LoadOp op, bool cbIdxAsDstIdx,
-                                ConversionPatternRewriter &rewriter,
-                                bool guardFirstCopy = false) {
+                                bool guardFirstCopy,
+                                ConversionPatternRewriter &rewriter) {
   auto index = [&](int64_t value) {
     return rewriter
         .create<arith::ConstantOp>(op.getLoc(), rewriter.getIndexType(),
@@ -146,7 +148,11 @@ static void lowerLoadToCopyTile(memref::LoadOp op, bool cbIdxAsDstIdx,
 
   auto cb = rewriter.getRemappedValue(op.getMemref());
   auto cbType = mlir::cast<ttkernel::CBType>(cb.getType());
-  llvm::SmallVector<Value> innerLoopVars = findInnerDimLoopVars(rewriter, op);
+  llvm::SmallVector<Value> innerLoopVars =
+      findInnerTensorDimLoopVars(rewriter, op);
+  // This early return is for the case where guardFirstCopy == true (indicating
+  // some sort of mm/reduction) and there is a single tile on the inner dim. In
+  // this case, we don't need to create a copy tile at all, so we just return.
   if (guardFirstCopy && innerLoopVars.empty()) {
     return;
   }
@@ -157,7 +163,6 @@ static void lowerLoadToCopyTile(memref::LoadOp op, bool cbIdxAsDstIdx,
                     : index(0));
   if (guardFirstCopy) {
     Value innerLoopVar = innerLoopVars.pop_back_val();
-
     Value condition =
         rewriter
             .create<arith::CmpIOp>(op.getLoc(), arith::CmpIPredicate::ne,
@@ -256,8 +261,8 @@ public:
           /* transpose */ i32(rewriter, op->getLoc(), 0));
       rewriter.setInsertionPoint(mmInitOp);
       lowerLoadToCopyTile(
-          adaptor.getC().template getDefiningOp<memref::LoadOp>(), false,
-          rewriter, true);
+          adaptor.getC().template getDefiningOp<memref::LoadOp>(), false, true,
+          rewriter);
     } else {
       return llvm::failure();
     }
@@ -304,7 +309,7 @@ public:
     for (int i = 0; i < arity; i++) {
       lowerLoadToCopyTile(
           adaptor.getOperands()[i].template getDefiningOp<memref::LoadOp>(),
-          true, rewriter);
+          true, false, rewriter);
     }
 
     rewriter.eraseOp(op);
