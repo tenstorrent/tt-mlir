@@ -751,7 +751,7 @@ class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
 }
 
 // TODO (azecevic): NaN != NaN, otherwise eq(x, x) == 1.
-def TTIR_EqualOp : TTIR_ElementwiseBinaryOp<"eq", [TTIR_FullyBroadcastable]> {
+def TTIR_EqualOp : TTIR_ElementwiseBinaryOp<"eq"> {
     let summary = "Eltwise equal to.";
     let description = [{
       Eltwise equal to operation.
@@ -759,7 +759,7 @@ def TTIR_EqualOp : TTIR_ElementwiseBinaryOp<"eq", [TTIR_FullyBroadcastable]> {
 }
 
 // TODO (azecevic): NaN != NaN, otherwise ne(x, x) == 0.
-def TTIR_NotEqualOp : TTIR_ElementwiseBinaryOp<"ne", [TTIR_FullyBroadcastable]> {
+def TTIR_NotEqualOp : TTIR_ElementwiseBinaryOp<"ne"> {
     let summary = "Eltwise not equal to.";
     let description = [{
       Eltwise not equal to operation.
@@ -767,7 +767,7 @@ def TTIR_NotEqualOp : TTIR_ElementwiseBinaryOp<"ne", [TTIR_FullyBroadcastable]> 
 }
 
 // TODO (azecevic): NaN != NaN, otherwise ge(x, x) == 1.
-def TTIR_GreaterEqualOp : TTIR_ElementwiseBinaryOp<"ge", [TTIR_FullyBroadcastable]> {
+def TTIR_GreaterEqualOp : TTIR_ElementwiseBinaryOp<"ge"> {
     let summary = "Eltwise greater than or equal to.";
     let description = [{
       Eltwise greater than or equal to operation.
@@ -775,7 +775,7 @@ def TTIR_GreaterEqualOp : TTIR_ElementwiseBinaryOp<"ge", [TTIR_FullyBroadcastabl
 }
 
 // TODO (azecevic): NaN != NaN, otherwise gt(x, x) == 0.
-def TTIR_GreaterThanOp : TTIR_ElementwiseBinaryOp<"gt", [TTIR_FullyBroadcastable]> {
+def TTIR_GreaterThanOp : TTIR_ElementwiseBinaryOp<"gt"> {
     let summary = "Eltwise greater than.";
     let description = [{
       Eltwise greater than operation.
@@ -783,7 +783,7 @@ def TTIR_GreaterThanOp : TTIR_ElementwiseBinaryOp<"gt", [TTIR_FullyBroadcastable
 }
 
 // TODO (azecevic): NaN != NaN, otherwise le(x, x) == 1.
-def TTIR_LessEqualOp : TTIR_ElementwiseBinaryOp<"le", [TTIR_FullyBroadcastable]> {
+def TTIR_LessEqualOp : TTIR_ElementwiseBinaryOp<"le"> {
     let summary = "Eltwise less than or equal to.";
     let description = [{
       Eltwise less than or equal to operation.
@@ -791,21 +791,21 @@ def TTIR_LessEqualOp : TTIR_ElementwiseBinaryOp<"le", [TTIR_FullyBroadcastable]>
 }
 
 // TODO (azecevic): NaN != NaN, otherwise lt(x, x) == 0.
-def TTIR_LessThanOp : TTIR_ElementwiseBinaryOp<"lt", [TTIR_FullyBroadcastable]> {
+def TTIR_LessThanOp : TTIR_ElementwiseBinaryOp<"lt"> {
     let summary = "Eltwise less than.";
     let description = [{
       Eltwise less than operation.
     }];
 }
 
-def TTIR_LogicalAndOp : TTIR_ElementwiseBinaryOp<"logical_and", [TTIR_BinaryIdempotence, TTIR_FullyBroadcastable]> {
+def TTIR_LogicalAndOp : TTIR_ElementwiseBinaryOp<"logical_and", [TTIR_BinaryIdempotence]> {
     let summary = "Eltwise logical and.";
     let description = [{
       Eltwise logical and operation.
     }];
 }
 
-def TTIR_LogicalOrOp : TTIR_ElementwiseBinaryOp<"logical_or", [TTIR_BinaryIdempotence, TTIR_FullyBroadcastable]> {
+def TTIR_LogicalOrOp : TTIR_ElementwiseBinaryOp<"logical_or", [TTIR_BinaryIdempotence]> {
     let summary = "Eltwise logical or.";
     let description = [{
       Eltwise logical or operation.
@@ -819,7 +819,7 @@ def TTIR_LogicalXorOp : TTIR_ElementwiseBinaryOp<"logical_xor", [TTIR_FullyBroad
     }];
 }
 
-def TTIR_BitwiseAndOp : TTIR_ElementwiseBinaryOp<"bitwise_and", [TTIR_BinaryIdempotence, TTIR_FullyBroadcastable]> {
+def TTIR_BitwiseAndOp : TTIR_ElementwiseBinaryOp<"bitwise_and", [TTIR_BinaryIdempotence]> {
     let summary = "Eltwise bitwise AND.";
     let description = [{
         Performs element-wise bitwise AND of two tensors `lhs` and `rhs`
@@ -833,7 +833,7 @@ def TTIR_BitwiseAndOp : TTIR_ElementwiseBinaryOp<"bitwise_and", [TTIR_BinaryIdem
     }];
 }
 
-def TTIR_BitwiseOrOp : TTIR_ElementwiseBinaryOp<"bitwise_or", [TTIR_BinaryIdempotence, TTIR_FullyBroadcastable]> {
+def TTIR_BitwiseOrOp : TTIR_ElementwiseBinaryOp<"bitwise_or", [TTIR_BinaryIdempotence]> {
     let summary = "Eltwise bitwise OR.";
     let description = [{
         Performs element-wise bitwise OR of two tensors `lhs` and `rhs`
@@ -847,7 +847,7 @@ def TTIR_BitwiseOrOp : TTIR_ElementwiseBinaryOp<"bitwise_or", [TTIR_BinaryIdempo
     }];
 }
 
-def TTIR_BitwiseXorOp : TTIR_ElementwiseBinaryOp<"bitwise_xor", [TTIR_FullyBroadcastable]> {
+def TTIR_BitwiseXorOp : TTIR_ElementwiseBinaryOp<"bitwise_xor"> {
     let summary = "Eltwise bitwise XOR.";
     let description = [{
         Performs element-wise bitwise XOR of two tensors `lhs` and `rhs`
@@ -900,7 +900,7 @@ def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder", [TTIR_PartiallyBroa
 
 // TODO We need to add a broadcastable trait to this op.
 // See issue https://github.com/tenstorrent/tt-mlir/issues/2015
-def TTIR_PowOp : TTIR_ElementwiseBinaryOp<"pow", [TTIR_FullyBroadcastable]> {
+def TTIR_PowOp : TTIR_ElementwiseBinaryOp<"pow"> {
     let summary = "Eltwise power OP.";
     let description = [{
       Performs element-wise exponentiation of lhs tensor by rhs tensor and produces a
@@ -947,14 +947,14 @@ def TTIR_MultiplyOp : TTIR_ElementwiseBinaryOp<"multiply", [TTIR_FullyBroadcasta
     }];
 }
 
-def TTIR_DivOp : TTIR_ElementwiseBinaryOp<"div", [TTIR_FullyBroadcastable]> {
+def TTIR_DivOp : TTIR_ElementwiseBinaryOp<"div"> {
     let summary = "Eltwise divide.";
     let description = [{
       Eltwise divide operation.
     }];
 }
 
-def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum", [TTIR_FullyBroadcastable]> {
+def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum"> {
     let summary = "Eltwise maximum.";
     let description = [{
       Calculates maximum of input tensors' values element-wise and stores result in output tensor.

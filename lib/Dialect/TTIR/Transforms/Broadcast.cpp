@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include <iostream>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRIMPLICITBROADCASTFOLD
