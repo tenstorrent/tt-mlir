@@ -65,20 +65,18 @@ TEST(LoggerTest, LoggingOutput) {
                "Debug message with two values: {0}, {1}", "hello", 3.14);
 
   // Test the general component
-  TTMLIR_DEBUG(LogComponent::General, "{}", "Debug with general component");
-  TTMLIR_TRACE(LogComponent::General, "{}", "Trace with general component");
+  TTMLIR_DEBUG(LogComponent::General, "Debug with general component");
+  TTMLIR_TRACE(LogComponent::General, "Trace with general component");
 
   // Switch to only general component
   llvm::setCurrentDebugType("general");
 
   // These should not be visible since optimizer component is disabled
-  TTMLIR_TRACE(LogComponent::Optimizer, "{}",
-               "This trace should not be visible");
-  TTMLIR_DEBUG(LogComponent::Optimizer, "{}",
-               "This debug should not be visible");
+  TTMLIR_TRACE(LogComponent::Optimizer, "This trace should not be visible");
+  TTMLIR_DEBUG(LogComponent::Optimizer, "This debug should not be visible");
 
   // This should be visible since general component is enabled
-  TTMLIR_DEBUG(LogComponent::General, "{}", "This debug should be visible");
+  TTMLIR_DEBUG(LogComponent::General, "This debug should be visible");
 
   // Get the captured output
   std::string outputBuffer = testing::internal::GetCapturedStderr();

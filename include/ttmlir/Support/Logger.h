@@ -108,7 +108,7 @@ inline std::string getCurrentTimestamp() {
 
 // Main logging macro that uses DEBUG_WITH_TYPE
 #ifdef TTMLIR_ENABLE_DEBUG_LOGS
-#define TTMLIR_LOG_FMT(logComponent, logLevel, fmt, ...)                       \
+#define TTMLIR_LOG_FMT(logComponent, logLevel, /* fmt, args */...)             \
   DEBUG_WITH_TYPE(                                                             \
       ttmlir::getLogComponentStr(logComponent),                                \
       if (ttmlir::isLogLevelEnabled(logLevel)) {                               \
@@ -126,22 +126,25 @@ inline std::string getCurrentTimestamp() {
         OS.changeColor(llvm::raw_ostream::MAGENTA, /*bold=*/true);             \
         OS << ttmlir::getLogComponentStr(logComponent);                        \
         OS.resetColor();                                                       \
-        OS << "] " << llvm::formatv(fmt, __VA_ARGS__) << "\n";                 \
+        OS << "] " << llvm::formatv(__VA_ARGS__) << "\n";                      \
         if (logLevel == ttmlir::LogLevel::Fatal) {                             \
           abort();                                                             \
         }                                                                      \
       })
 #else
-#define TTMLIR_LOG_FMT(logComponent, logLevel, fmt, ...) ((void)0)
+#define TTMLIR_LOG_FMT(logComponent, logLevel, /* fmt, args */...) ((void)0)
 #endif
 
 // Public logging macros
-#define TTMLIR_TRACE(component, fmt, ...)                                      \
-  TTMLIR_LOG_FMT(component, ttmlir::LogLevel::Trace, fmt, __VA_ARGS__)
-#define TTMLIR_DEBUG(component, fmt, ...)                                      \
-  TTMLIR_LOG_FMT(component, ttmlir::LogLevel::Debug, fmt, __VA_ARGS__)
-#define TTMLIR_FATAL(component, fmt, ...)                                      \
-  TTMLIR_LOG_FMT(component, ttmlir::LogLevel::Fatal, fmt, __VA_ARGS__)
+#define TTMLIR_TRACE(component, /* fmt, args */...)                            \
+  TTMLIR_LOG_FMT(component, ttmlir::LogLevel::Trace,                           \
+                 /* fmt, args */ __VA_ARGS__)
+#define TTMLIR_DEBUG(component, /* fmt, args */...)                            \
+  TTMLIR_LOG_FMT(component, ttmlir::LogLevel::Debug,                           \
+                 /* fmt, args */ __VA_ARGS__)
+#define TTMLIR_FATAL(component, /* fmt, args */...)                            \
+  TTMLIR_LOG_FMT(component, ttmlir::LogLevel::Fatal,                           \
+                 /* fmt, args */ __VA_ARGS__)
 
 } // namespace ttmlir
 

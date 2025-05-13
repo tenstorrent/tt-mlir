@@ -179,12 +179,14 @@ def TT_CPURole : I32EnumAttr<"CPURole", "TT CPU Role",
 def TT_ArgumentType_Input : I32EnumAttrCase<"Input", 0, "input">;
 def TT_ArgumentType_Parameter: I32EnumAttrCase<"Parameter", 1, "parameter">;
 def TT_ArgumentType_Constant : I32EnumAttrCase<"Constant", 2, "constant">;
+def TT_ArgumentType_Default : I32EnumAttrCase<"Default", 3, "default">;
 
 def TT_ArgumentType : I32EnumAttr<"ArgumentType", "Argument Type",
                             [
                               TT_ArgumentType_Input,
                               TT_ArgumentType_Parameter,
                               TT_ArgumentType_Constant,
+                              TT_ArgumentType_Default,
                             ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt";

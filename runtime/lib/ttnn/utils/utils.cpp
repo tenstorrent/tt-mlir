@@ -2,11 +2,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tt/runtime/detail/ttnn/utils.h"
+#include "tt/runtime/utils.h"
 #include "tt/runtime/detail/common.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn/debug_apis.h"
 #include "tt/runtime/detail/ttnn/types.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/workarounds.h"
 
 namespace tt::runtime::ttnn::utils {
@@ -256,9 +257,8 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
                                   ::tt::tt_metal::ShardOrientation::ROW_MAJOR);
   }
 
-  ::ttnn::MemoryConfig memoryConfig{.memory_layout = ttnnMemLayout,
-                                    .buffer_type = ttnnBufferType,
-                                    .shard_spec = metalShardSpec};
+  ::ttnn::MemoryConfig memoryConfig{ttnnMemLayout, ttnnBufferType,
+                                    metalShardSpec};
   return std::make_optional(memoryConfig);
 }
 
@@ -275,22 +275,20 @@ void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
       workaround::Env::get().rawHostDataPointerWrapper,
       "rawHostDataPointerWrapper workaround must be enabled to use this API");
   void *dataPtr = std::visit(
-      [&tensor](auto &&storage) -> void * {
-        using T = std::decay_t<decltype(storage)>;
-        if constexpr (std::is_same_v<T, ::tt::tt_metal::HostStorage>) {
-          ::tt::tt_metal::HostBuffer hostBuffer = storage.buffer;
-          return static_cast<void *>(hostBuffer.view_bytes().data());
-        } else if constexpr (std::is_same_v<
-                                 T, ::tt::tt_metal::MultiDeviceHostStorage>) {
-          LOG_ASSERT(storage.num_buffers() == 1);
-          ::tt::tt_metal::HostBuffer hostBuffer = storage.get_buffer(0);
-          return static_cast<void *>(hostBuffer.view_bytes().data());
-        } else {
-          LOG_FATAL("Unsupported storage type ",
-                    debug::toString(tensor.storage_type()));
-          return nullptr;
-        }
-      },
+      ::tt::runtime::utils::overloaded{
+          [&](const ::tt::tt_metal::HostStorage &storage) -> void * {
+            ::tt::tt_metal::HostBuffer hostBuffer = storage.buffer;
+            return static_cast<void *>(hostBuffer.view_bytes().data());
+          },
+          [&](const ::tt::tt_metal::MultiDeviceHostStorage &storage) -> void * {
+            LOG_ASSERT(storage.num_buffers() == 1);
+            ::tt::tt_metal::HostBuffer hostBuffer = storage.get_buffer(0);
+            return static_cast<void *>(hostBuffer.view_bytes().data());
+          },
+          [](auto &&storage) -> void * {
+            LOG_FATAL("Unsupported storage type ", debug::toString(storage));
+            return nullptr;
+          }},
       tensor.get_storage());
   return dataPtr;
 }

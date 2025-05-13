@@ -19,8 +19,10 @@ static void runReductionProdOp(const ::tt::target::ttnn::ReductionProdOp *op,
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
   ::ttnn::Tensor out =
-      ::ttnn::prod(in, op->all_dimensions(), op->dim_arg(), op->keep_dim(),
-                   outputMemoryConfig /* memory_config_arg */);
+      ::ttnn::prod(in,
+                   op->all_dimensions() ? std::nullopt
+                                        : std::optional<int64_t>(op->dim_arg()),
+                   op->keep_dim(), outputMemoryConfig /* memory_config_arg */);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

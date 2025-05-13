@@ -232,7 +232,7 @@ bool validateTensorSpec(const ::ttnn::TensorSpec &tensorSpec,
   auto memoryConfig = tensorSpec.memory_config();
   if (memoryConfig.is_sharded()) {
     ::tt::tt_metal::CoreRange shardBoundingBox =
-        memoryConfig.shard_spec.value().grid.bounding_box();
+        memoryConfig.shard_spec().value().grid.bounding_box();
     ::tt::tt_metal::CoreRangeSet deviceWorkerCores{::tt::tt_metal::CoreRange{
         ::tt::tt_metal::CoreCoord{0, 0},
         ::tt::tt_metal::CoreCoord{computeGridSize.x - 1,
@@ -281,11 +281,6 @@ std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> getConv2dConfig(
 
   if (conv2dConfig->getActivation()) {
     config.activation = conv2dConfig->getActivation().getValue().str();
-  }
-
-  if (conv2dConfig->getInputChannelsAlignment()) {
-    config.input_channels_alignment =
-        *conv2dConfig->getInputChannelsAlignment();
   }
 
   if (conv2dConfig->getDeallocateActivation()) {
@@ -370,25 +365,25 @@ llvm::SmallVector<int64_t>
 getLogicalGridShape(const ::tt::tt_metal::MemoryConfig &memoryConfig,
                     const llvm::ArrayRef<int64_t> &gridPhyCores) {
 
-  if (memoryConfig.memory_layout ==
+  if (memoryConfig.memory_layout() ==
       ::tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED) {
-    assert(memoryConfig.shard_spec.has_value());
-    return {memoryConfig.shard_spec->num_cores(), 1};
+    assert(memoryConfig.shard_spec().has_value());
+    return {memoryConfig.shard_spec()->num_cores(), 1};
   }
 
-  if (memoryConfig.memory_layout ==
+  if (memoryConfig.memory_layout() ==
       ::tt::tt_metal::TensorMemoryLayout::WIDTH_SHARDED) {
-    assert(memoryConfig.shard_spec.has_value());
-    return {1, memoryConfig.shard_spec->num_cores()};
+    assert(memoryConfig.shard_spec().has_value());
+    return {1, memoryConfig.shard_spec()->num_cores()};
   }
 
-  if (memoryConfig.memory_layout ==
+  if (memoryConfig.memory_layout() ==
       ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED) {
-    assert(memoryConfig.shard_spec.has_value());
-    CoreRange boundingGrid = memoryConfig.shard_spec->grid.bounding_box();
-    assert(memoryConfig.shard_spec->num_cores() == boundingGrid.size());
-    return {static_cast<long>(boundingGrid.grid_size().x),
-            static_cast<long>(boundingGrid.grid_size().y)};
+    assert(memoryConfig.shard_spec().has_value());
+    CoreRange boundingGrid = memoryConfig.shard_spec()->grid.bounding_box();
+    assert(memoryConfig.shard_spec()->num_cores() == boundingGrid.size());
+    return {static_cast<int64_t>(boundingGrid.grid_size().y),
+            static_cast<int64_t>(boundingGrid.grid_size().x)};
   }
 
   // interleaved
@@ -421,9 +416,10 @@ getLayoutAttrFromTensorSpec(MLIRContext *context,
   }
 
   mlir::tt::ttnn::BufferType bufferType =
-      getBufferType(tensorSpec.memory_config().buffer_type);
+      getBufferType(tensorSpec.memory_config().buffer_type());
   auto memoryLayoutAttr = mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
-      context, getTensorMemoryLayout(tensorSpec.memory_config().memory_layout));
+      context,
+      getTensorMemoryLayout(tensorSpec.memory_config().memory_layout()));
 
   GridAttr grid = mlir::tt::GridAttr::get(
       context, getLogicalGridShape(tensorSpec.memory_config(), deviceGrid),
