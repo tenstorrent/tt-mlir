@@ -84,7 +84,7 @@ class Validator:
                 line_no=op_group.line_no,
             )
             op_group.status.append(validator_info)
-            self.pcc_data[op_group.line_no].append(validator_info)
+            # self.pcc_data[op_group.line_no].append(validator_info)
             return
         last_ttnn_result = ttnn_op.outputs[0].tt_data
 
@@ -105,8 +105,12 @@ class Validator:
             if pcc is None:
                 continue
             # import pdb; pdb.set_trace()
-            self.ttir2ttnn_map[str(op.ir_op.result.get_name())] = str(ttnn_op.ir_op.result.get_name())
-            self.ttnn2ttir_tensor[str(ttnn_op.ir_op.result.get_name())] = str(op.ir_op.result.get_name())
+            self.ttir2ttnn_map[str(op.ir_op.result.get_name())] = str(
+                ttnn_op.ir_op.result.get_name()
+            )
+            self.ttnn2ttir_tensor[str(ttnn_op.ir_op.result.get_name())] = str(
+                op.ir_op.result.get_name()
+            )
             pccs.append(
                 ValidatorInfo(
                     ttir_op=str(op.ir_op),
@@ -120,8 +124,12 @@ class Validator:
             max_pcc = max(max_pcc, pcc)
             min_abs_err = min(min_abs_err, abs_err)
 
-        self.ttir2ttnn_map[str(op.ir_op.result.get_name())] = str(ttnn_op.ir_op.result.get_name())
-        self.ttnn2ttir_tensor[str(ttnn_op.ir_op.result.get_name())] = str(op.ir_op.result.get_name())
+        self.ttir2ttnn_map[str(op.ir_op.result.get_name())] = str(
+            ttnn_op.ir_op.result.get_name()
+        )
+        self.ttnn2ttir_tensor[str(ttnn_op.ir_op.result.get_name())] = str(
+            op.ir_op.result.get_name()
+        )
         validator_info = ValidatorInfo(
             ttir_op=str(op.ir_op),
             ttnn_op=str(ttnn_op.ir_op),

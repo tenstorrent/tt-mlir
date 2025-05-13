@@ -221,8 +221,23 @@ class ChiselContext:
                     self.ttir_manager.populate_op(op)
                     self.ttir_executor.execute_op(op, programContext)
                 group.computed_ttir = True
-            self.validator.validate(self.current_ttnn_op, target_group)
-            self.validator.export_csv("pcc_data.csv")
+
+            for tensor_value in self.current_ttnn_op.outputs:
+                if tensor_value.tt_data is not None:
+                    data = tensor_value.tt_data
+                    if data.dtype == torch.uint32:
+                        data = data.clone().float()
+                    torch.save(
+                        data,
+                        self.output_dir
+                        / "intermediates"
+                        / f"{tensor_value.name[1:]}.pt",
+                    )
+
+            # If the current ttnn op is the last op in the group, run the validator
+            if self.current_ttnn_op == target_group.get_last_ttnn_op(with_output=True):
+                self.validator.validate(self.current_ttnn_op, target_group)
+                self.validator.export_csv("pcc_data.csv")
 
             # if self.current_ttnn_op.name == "ttnn.add":
             #    # check for dtype of the output tensor
