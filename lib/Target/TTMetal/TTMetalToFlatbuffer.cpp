@@ -566,10 +566,8 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
         for (auto input : cpuOp.getOperands()) {
           ins.push_back(cache.at<target::metal::BufferRef>(input));
         }
-        std::string oldName = cpuOp.getCallee().str();
-        // Remove the "_decl" suffix and add the "_helper" suffix.
-        std::string funcName =
-            oldName.substr(0, oldName.size() - 5) + "_helper";
+        llvm::SmallString<24> funcName =
+            utils::convertDylibFuncName(cpuOp.getCallee());
         auto out = cache.getOrCreate(cpuOp.getResults()[0],
                                      bufferValueToFlatbuffer, 0);
         cqBuilder.appendCommand(target::metal::CreateCpuCommandDirect(
