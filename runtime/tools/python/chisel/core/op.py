@@ -58,10 +58,12 @@ class OpGroup:
 
     def add_ttir_op(self, op):
         self.get_last_ttnn_op.cache_clear()
+        self.get_last_ttir_op.cache_clear()
         self._ttir.append(op)
 
     def add_ttnn_op(self, op):
         self.get_last_ttir_op.cache_clear()
+        self.get_last_ttnn_op.cache_clear()
         self._ttnn.append(op)
 
     @functools.cache
@@ -79,6 +81,7 @@ class OpGroup:
             return self._ttnn[-1]
 
         for op in self._ttnn[::-1]:
-            if len(op.outputs) > 0:
+            ir_op = op.ir_op
+            if hasattr(ir_op, "results") and len(ir_op.results) > 0:
                 return op
         return None
