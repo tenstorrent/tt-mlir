@@ -87,9 +87,6 @@ static bool isOutputTensor(mlir::Operation *op, unsigned operandIdx) {
     // The operand is an output if it's among the last numOutputs operands
     return operandIdx >= (totalOperands - numOutputs);
   }
-  // For other operations, we can add more specific logic
-  // Default to assuming it's an input
-  return true;
 }
 
 // Helper function to hoist an arbitrary op into a new function in targetModule,
@@ -179,10 +176,14 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
 
     // Add bufferization access attributes to function arguments
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 28c6f9ff9 (feedback + cleanup)
     for (auto arg : llvm::enumerate(hoistedFunc.getArguments())) {
       if (auto tensorType =
               dyn_cast<mlir::RankedTensorType>(arg.value().getType())) {
         tagBufferizationAccess(hoistedFunc, arg.index(), opToHoist, builder);
+<<<<<<< HEAD
 =======
     for (unsigned i = 0; i < hoistedFunc.getNumArguments(); ++i) {
       if (auto tensorType = dyn_cast<mlir::RankedTensorType>(
@@ -198,6 +199,8 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
                                  builder.getStringAttr("read"));
         }
 >>>>>>> 104660f39 (working)
+=======
+>>>>>>> 28c6f9ff9 (feedback + cleanup)
       }
     }
 
@@ -247,10 +250,14 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
     // Now that the function is in the module, add bufferization access
     // attributes
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 28c6f9ff9 (feedback + cleanup)
     for (auto arg : llvm::enumerate(localFunc.getArguments())) {
       if (auto tensorType =
               dyn_cast<mlir::RankedTensorType>(arg.value().getType())) {
         tagBufferizationAccess(localFunc, arg.index(), opToHoist, builder);
+<<<<<<< HEAD
 =======
     for (unsigned i = 0; i < localFunc.getNumArguments(); ++i) {
       if (auto tensorType = dyn_cast<mlir::RankedTensorType>(
@@ -266,6 +273,8 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
                                builder.getStringAttr("read"));
         }
 >>>>>>> 104660f39 (working)
+=======
+>>>>>>> 28c6f9ff9 (feedback + cleanup)
       }
     }
 
