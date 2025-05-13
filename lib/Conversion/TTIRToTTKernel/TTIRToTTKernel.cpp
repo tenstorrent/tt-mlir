@@ -270,16 +270,20 @@ public:
       rewriter.create<ttkernel::TilizeInitOp>(op->getLoc(), src, block_c, dst);
       rewriter.create<ttkernel::ExperimentalTilizeBlockOp>(
           op->getLoc(), src, dst, block_r, block_c);
-    } else if (mlir::isa<ttir::TileUntilizeBlockOp>(op)) {
+    } else if (auto untilizeOp =
+                   mlir::dyn_cast<ttir::TileUntilizeBlockOp>(op)) {
       assert(operands.size() == 2);
       Value src = operands[0];
       Value dst = operands[1];
-      auto numTiles =
-          i32(rewriter, op->getLoc(),
-              mlir::cast<ttkernel::CBType>(src.getType()).getNumTiles());
+      auto uncollapsedMemrefType = mlir::cast<MemRefType>(
+          findUncollapsedMemref(untilizeOp.getInput()).getType());
+      auto block_r =
+          i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[0]);
+      auto block_c =
+          i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[1]);
       rewriter.create<ttkernel::UntilizeInitOp>(op->getLoc(), src, dst);
-      rewriter.create<ttkernel::UntilizeBlockOp>(op->getLoc(), src, numTiles,
-                                                 dst);
+      rewriter.create<ttkernel::ExperimentalUntilizeBlockOp>(
+          op->getLoc(), src, dst, block_r, block_c);
     } else {
       return failure();
     }

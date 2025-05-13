@@ -444,6 +444,17 @@ def TTKernel_UntilizeBlockOp : TTKernel_Op<"untilize_block"> {
     let hasVerifier = 1;
 }
 
+def TTKernel_ExperimentalUntilizeBlockOp : TTKernel_Op<"experimental::untilize_block"> {
+    let summary = "Experimental UntilizeBlockOp call.";
+    let description = [{
+      This is a custom untilize block LLK that takes the dimensions of the block.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut, I32:$block_r, I32:$block_c);
+
+    let hasVerifier = 1;
+}
+
 def TTKernel_UntilizeInitOp : TTKernel_Op<"untilize_init"> {
     let summary = "UntilizeInitOp call.";
     let description = [{
