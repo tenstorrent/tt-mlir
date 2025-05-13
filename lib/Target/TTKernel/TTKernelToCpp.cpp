@@ -153,6 +153,12 @@ void dprint(Arg &&arg, ArgV&&... argv) {
         ;
 
     builder->create<emitc::VerbatimOp>(loc, experimentalTilizeLLKs);
+
+    const char *experimentalUntilizeLLKs =
+#include "ttmlir/LLKs/experimental_untilize_llks.h"
+        ;
+
+    builder->create<emitc::VerbatimOp>(loc, experimentalUntilizeLLKs);
   }
 
   template <typename OpT>
