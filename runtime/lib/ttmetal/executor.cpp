@@ -382,7 +382,7 @@ static std::vector<common::WrappedTensor> packTensors(
   packedTensors.reserve(ins->size());
 
   for (size_t i = 0; i < ins->size(); ++i) {
-    auto tensorRef = ins->Get(i);
+    const auto *tensorRef = ins->Get(i);
     auto it = tensorMap.find(tensorRef->global_id());
     LOG_ASSERT(it != tensorMap.end(),
                "Cannot invoke cpu op on tensor which is not in cpu tensors.");
