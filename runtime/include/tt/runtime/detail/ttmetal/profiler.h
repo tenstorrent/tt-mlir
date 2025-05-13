@@ -11,12 +11,12 @@
 
 #include <cstdint>
 
+namespace tt::runtime::ttmetal::profiler {
+
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
 #if !defined(TRACY_ENABLE)
 #error "TRACY_ENABLE is not defined"
 #endif
-
-namespace tt::runtime::ttmetal::profiler {
 
 //
 // The following code is based on the code from tt_metal's
@@ -64,7 +64,7 @@ inline std::string op_meta_data_serialized_json(
   return fmt::format("{}{} ->\n{}`", short_str, program.get_runtime_id(), ser);
 }
 
-inline void profileProgram(tt_metal::IDevice *device,
+inline void profileProgram(tt::tt_metal::IDevice *device,
                            const tt::tt_metal::Program &program,
                            const char *loc) {
   ZoneScopedN("TT_DNN_DEVICE_OP");
@@ -79,8 +79,8 @@ inline void profileProgram(tt_metal::IDevice *device,
 
 #else
 
-inline void profileProgram(tt_metal::IDevice *, const tt::tt_metal::Program &,
-                           const char *) {
+inline void profileProgram(tt::tt_metal::IDevice *,
+                           const tt::tt_metal::Program &, const char *) {
   LOG_WARNING_ONCE("TT_RUNTIME_ENABLE_PERF_TRACE is not enabled in build, no "
                    "perf trace will be generated!");
 }
