@@ -189,7 +189,7 @@ class Check:
     def execute(self):
         self.logging.debug(f"------executing check API")
 
-        def _execute(binaries, system_desc_to_check):
+        def _execute(binaries):
             if len(binaries) == 0:
                 self.logging.warning(f"no binaries found to run - returning early")
                 return
@@ -202,43 +202,17 @@ class Check:
                     "artifacts": self.artifacts.artifacts_folder_path,
                 }
 
-                if system_desc_to_check != None:
-                    if (
-                        bin.fbb_dict["system_desc"]
-                        != system_desc_to_check["system_desc"]
-                    ):
-                        fbb_desc = bin.fbb_dict["system_desc"]
-                        check_desc = system_desc_to_check["system_desc"]
-
-                        # Serialize to JSON with pretty printing and split into lines
-                        fbb_json = json.dumps(
-                            fbb_desc, indent=2, sort_keys=True
-                        ).splitlines()
-                        check_json = json.dumps(
-                            check_desc, indent=2, sort_keys=True
-                        ).splitlines()
-
-                        # Generate a unified diff
-                        diff = list(
-                            difflib.unified_diff(
-                                fbb_json,
-                                check_json,
-                                fromfile="flatbuffer_system_desc",
-                                tofile="device_system_desc",
-                                lineterm="",
-                            )
-                        )
-
-                        # Log detailed information about the difference
-                        self.logging.info(
-                            f"system desc for device did not match flatbuffer: {bin.file_path}\n"
-                            f"Difference details:\n"
-                            f"{''.join(diff)}"
-                        )
+                if not self.system_desc_binaries:
+                    self.logging.warning(
+                        "no system descriptor file provided - querying from host machine"
+                    )
+                    try:
+                        self.query()
+                        bin.check_system_desc(self.query)
+                    except Exception as e:
+                        self.logging.info(str(e))
                         test_result["result"] = "error"
-                        test_result[
-                            "exception"
-                        ] = f"system desc for device did not match flatbuffer: {bin.file_path}"
+                        test_result["exception"] = str(e)
                         test_result["system_desc"] = "system_desc queried from device"
                     else:
                         self.logging.info(
@@ -266,20 +240,12 @@ class Check:
 
                 self.results.add_result(test_result)
 
-        system_desc_to_check = None
-        if self["--system-desc"] == "" or len(self.system_desc_binaries) == 0:
-            self.logging.warning(
-                "no system descriptor file provided - querying from host machine"
-            )
-            self.query()
-            system_desc_to_check = self.query.get_system_desc_as_dict()
-
         self.logging.debug(f"executing ttnn binaries")
-        _execute(self.ttnn_binaries, system_desc_to_check)
+        _execute(self.ttnn_binaries)
         self.logging.debug(f"finished executing ttnn binaries")
 
         self.logging.debug(f"executing ttmetal binaries")
-        _execute(self.ttmetal_binaries, system_desc_to_check)
+        _execute(self.ttmetal_binaries)
         self.logging.debug(f"finished executing ttmetal binaries")
 
         self.logging.debug(f"------finished executing check API")
