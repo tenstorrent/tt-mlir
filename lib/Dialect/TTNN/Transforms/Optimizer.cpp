@@ -531,7 +531,7 @@ private:
 
     // Device op does not exist in the block, hence we need to create it.
     DeviceAttr deviceAttr = lookupDevice(contextOp);
-    OpBuilder::InsertionGuard guard(builder);
+    auto currentInsertionPoint = builder.saveInsertionPoint();
     builder.setInsertionPoint(block, block->begin());
     llvm::SmallVector<int64_t> meshShape{deviceAttr.getMeshShape()};
     if (meshShape.empty()) {
@@ -547,6 +547,7 @@ private:
                                  meshShape[1]),
         ttnn::MeshOffsetAttr::get(contextOp->getContext(), meshOffset[0],
                                   meshOffset[1]));
+    builder.restoreInsertionPoint(currentInsertionPoint);
     return deviceOp;
   }
 
@@ -619,10 +620,7 @@ private:
         toLayoutOp.setMemoryConfigAttr(outputMemConfigAttr);
         toLayoutOp.getResult().setType(newTensorType);
       } else {
-        OpBuilder builder(consumerOp->getContext());
-
-        mlir::OpBuilder::InsertionGuard guard(builder);
-        builder.setInsertionPoint(consumerOp);
+        OpBuilder builder(consumerOp);
         Location loc = ttmlir::utils::appendLocationSuffix(consumerOp->getLoc(),
                                                            "_mem_reconfig");
         Operation *memoryReconfigOp = builder.create<ToLayoutOp>(
@@ -675,7 +673,6 @@ private:
               ShapeAttr::get(op->getContext(), dramLayout.getShardShape())),
           dramLayout.getMemLayout());
 
-      OpBuilder::InsertionGuard guard(builder);
       builder.setInsertionPointAfter(op);
       Location loc =
           ttmlir::utils::appendLocationSuffix(op->getLoc(), "_spill");
