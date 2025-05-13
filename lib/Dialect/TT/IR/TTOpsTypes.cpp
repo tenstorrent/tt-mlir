@@ -1127,10 +1127,8 @@ size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType, size_t pageSize,
   mlir::Type elementType = memrefType.getElementType();
   int64_t elementSizeBytes = getElementSizeBytes(elementType);
   auto tileType = mlir::dyn_cast<TileType>(elementType);
-  size_t alignSize =
-      tileType
-          ? tileType.getSizeBytes()
-          : TileType::get(elementType).getSizeBytes();
+  size_t alignSize = tileType ? tileType.getSizeBytes()
+                              : TileType::get(elementType).getSizeBytes();
 
   ShardLayoutAttr layout =
       mlir::dyn_cast<ShardLayoutAttr>(memrefType.getLayout());
