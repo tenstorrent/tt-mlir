@@ -52,7 +52,8 @@ struct CQBuilder {
     printFlags = printFlags.elideLargeElementsAttrs()
                      .elideLargeResourceString()
                      .skipRegions()
-                     .enableDebugInfo();
+                     .enableDebugInfo()
+                     .assumeVerified();
   }
 
   std::string getDebugString(mlir::Operation *op) {
@@ -62,13 +63,21 @@ struct CQBuilder {
     return str;
   };
 
+  std::string getOpLoc(mlir::Operation *op) {
+    std::string str;
+    llvm::raw_string_ostream os(str);
+    op->getLoc().print(os);
+    return str;
+  };
+
   template <typename CommandT>
   flatbuffers::Offset<target::metal::Command>
   appendCommand(flatbuffers::Offset<CommandT> commandT, mlir::Operation *op) {
     auto debugString = getDebugString(op);
+    auto loc = getOpLoc(op);
     commands.push_back(target::metal::CreateCommandDirect(
         *fbb, target::metal::CommandTypeTraits<CommandT>::enum_value,
-        commandT.Union(), debugString.c_str()));
+        commandT.Union(), loc.c_str(), debugString.c_str()));
     return commands.back();
   }
 };

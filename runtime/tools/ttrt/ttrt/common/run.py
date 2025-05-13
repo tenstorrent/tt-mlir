@@ -250,6 +250,20 @@ class Run:
             help="enable program cache in ttnn runtime",
         )
         Run.register_arg(
+            name="--dump-device-rate",
+            type=int,
+            default=1000,
+            choices=None,
+            help="Rate at which to flush device perf information",
+        )
+        Run.register_arg(
+            name="--enable-perf-trace",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="enable performance tracing",
+        )
+        Run.register_arg(
             name="binary",
             type=str,
             default="",
@@ -478,6 +492,11 @@ class Run:
                 not self["--disable-raw-host-data-pointer-wrapper"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
+            perf_env = ttrt.runtime.DebugPerfEnv.get(
+                self["--dump-device-rate"],
+                self["--enable-perf-trace"],
+            )
+            self.logging.debug(f"setting tt runtime perf env={perf_env}")
             self.logging.debug(f"setting torch manual seed={self['--seed']}")
             torch.manual_seed(self["--seed"])
             ttrt.runtime.set_compatible_runtime(binaries[0].fbb)
