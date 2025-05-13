@@ -274,7 +274,7 @@ class ModelRunner:
 
         ########################### EmitC Generation #############################
 
-        if self.get_generate_cpp_code():
+        if self.get_generate_cpp_code(model_path):
             # Backend Pipeline has already been run, the file is stored to ttnn_ir_file
             # The translation to flatbuffer will happen, need to run the pass to emitc and then store the artifact
             self.log("Enabled C++ Code Generation w/ EmitC")
@@ -284,7 +284,7 @@ class ModelRunner:
             )
             emitc_command = [
                 f"{self._build_dir}/bin/ttmlir-opt",
-                "--ttnn-modify-signatured-for-dylib",
+                "--ttnn-modify-signatures-for-dylib",
                 "--convert-ttnn-to-emitc",
                 ttnn_ir_file,
                 "-o",
@@ -307,7 +307,7 @@ class ModelRunner:
                 f"{self._build_dir}/bin/ttmlir-translate",
                 "--mlir-to-cpp",
                 emitc_ir_file,
-                ">",
+                "-o",
                 c_code_file,
             ]
 
