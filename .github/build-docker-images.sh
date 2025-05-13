@@ -44,8 +44,9 @@ build_and_push() {
 
     # If we are on main branch also push the latest tag
     if [ "$on_main" = "true" ]; then
-        docker manifest create $image_name:latest --amend $image_name:$DOCKER_TAG
-        docker manifest push $image_name:latest
+        printf "\nPushing latest tag for $image_name"
+        # Used to push both tags in one command on the original sha256 sum layer remotely (docker create manifest create a new sha256 sum only with only with new tag)
+        docker buildx imagetools create $image_name:$DOCKER_TAG --tag $image_name:latest --tag $image_name:$DOCKER_TAG
     fi
 }
 
