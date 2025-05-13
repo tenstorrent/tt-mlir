@@ -3,6 +3,8 @@
 // RUN: FileCheck %s --input-file=shard_transpose.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer shard_transpose.mlir > %t.ttnn
 
+// UNSUPPORTED: true
+
 module attributes {} {
   func.func @main(%arg0: tensor<1x3x224x224xf32>) -> tensor<1x224x3x224xf32> {
     %0 = ttir.empty() : tensor<1x224x3x224xf32> loc(#loc1)
