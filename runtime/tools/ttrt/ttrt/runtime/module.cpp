@@ -271,7 +271,7 @@ PYBIND11_MODULE(_C, m) {
        tt::runtime::TensorRef tensorRef) {
       return tt::runtime::getTensor(programContextHandle, tensorRef);
     },
-  "Get the tensor that corresponds to the tensor ref");,
+  "Get the tensor that corresponds to the tensor ref");
   m.def("get_op_debug_str", &tt::runtime::getOpDebugString,
         "Get the debug string of the op");
   m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,

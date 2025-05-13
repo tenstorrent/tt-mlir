@@ -181,6 +181,10 @@ std::optional<TensorRef>
 getOpOutputTensorRef(OpContext opContextHandle,
                   CallbackContext programContextHandle);
 
+std::vector<TensorRef>
+getOpInputTensorRefs(OpContext opContextHandle,
+                     CallbackContext programContextHandle);
+
 std::optional<Tensor>
 getTensor(CallbackContext programContextHandle, TensorRef tensorRef);
 
