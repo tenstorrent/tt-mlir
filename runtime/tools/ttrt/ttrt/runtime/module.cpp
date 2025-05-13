@@ -121,6 +121,8 @@ PYBIND11_MODULE(_C, m) {
                              vec.size());
           },
           py::return_value_policy::take_ownership);
+
+  py::class_<tt::runtime::TensorRef>(m, "TensorRef");
   py::class_<tt::runtime::Layout>(m, "Layout");
   py::class_<tt::runtime::OpContext>(m, "OpContext");
   py::class_<tt::runtime::CallbackContext>(m, "CallbackContext");
@@ -256,16 +258,20 @@ PYBIND11_MODULE(_C, m) {
       },
       py::arg("tensors"));
   m.def(
-      "get_op_output_tensor",
+      "get_op_output_tensor_ref",
       [](tt::runtime::OpContext &opContextHandle,
          tt::runtime::CallbackContext &programContextHandle) {
-        tt::runtime::Tensor tensor = tt::runtime::getOpOutputTensor(
-            opContextHandle, programContextHandle);
-        return tensor.handle.get() == nullptr
-                   ? std::nullopt
-                   : std::optional<tt::runtime::Tensor>(tensor);
+        return tt::runtime::getOpOutputTensorRef(opContextHandle,
+                                              programContextHandle);
       },
       "Get the output tensor of the op");
+  m.def(
+    "get_tensor",
+    [](tt::runtime::CallbackContext programContextHandle,
+       tt::runtime::TensorRef tensorRef) {
+      return tt::runtime::getTensor(programContextHandle, tensorRef);
+    },
+  "Get the tensor that corresponds to the tensor ref");,
   m.def("get_op_debug_str", &tt::runtime::getOpDebugString,
         "Get the debug string of the op");
   m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,

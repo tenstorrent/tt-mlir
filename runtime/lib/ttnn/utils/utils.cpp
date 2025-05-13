@@ -8,6 +8,7 @@
 #include "tt/runtime/detail/ttnn/debug_apis.h"
 #include "tt/runtime/detail/ttnn/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
+#include "tt/runtime/types.h"
 #include "tt/runtime/workarounds.h"
 
 namespace tt::runtime::ttnn::utils {
@@ -268,6 +269,12 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
       std::make_shared<::tt::runtime::ttnn::TTNNTensorWrapper>(tensor, retain);
   return ::tt::runtime::Tensor(std::static_pointer_cast<void>(tensorPtr),
                                nullptr, DeviceRuntime::TTNN);
+}
+
+::tt::runtime::TensorRef createRuntimeTensorRefFromTTNN(
+    const ::tt::target::ttnn::TensorRef * tensorRef) {
+      auto tensorRefPtr = std::shared_ptr<tt::target::ttnn::TensorRef>(const_cast<::tt::target::ttnn::TensorRef *>(tensorRef), [](auto p){});
+      return tt::runtime::TensorRef(std::static_pointer_cast<void>(tensorRefPtr), DeviceRuntime::TTNN);
 }
 
 void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {

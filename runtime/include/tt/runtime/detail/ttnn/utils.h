@@ -61,6 +61,9 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg);
 ::tt::runtime::Tensor createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor,
                                                   bool retain = false);
 
+::tt::runtime::TensorRef createRuntimeTensorRefFromTTNN(
+    const ::tt::target::ttnn::TensorRef *tensorRef);
+
 void *getRawHostDataPtr(const ::ttnn::Tensor &tensor);
 
 ::ttnn::TensorSpec createTensorSpec(

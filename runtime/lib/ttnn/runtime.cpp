@@ -860,20 +860,20 @@ getTensor(CallbackContext programContextHandle, tt::runtime::TensorRef tensorRef
           DeviceRuntime::TTNN);
   const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
 
-  auto tensorRefPtr = tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
+  const auto &tensorRefPtr = &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
 
   // TODO: check this
-  if (!tensorRefPtr.has_value()) {
+  if (!tensorRefPtr) {
     LOG_WARNING("Output tensor not found in tensor pool");
     return std::nullopt;
   }
-  if (!tensorPool.contains(tensorRefPtr.value())) {
+  if (!tensorPool.contains(tensorRefPtr)) {
     LOG_WARNING("Output tensor not found in tensor pool");
     return std::nullopt;
   }
 
   const auto &outPtr =
-      &tensorPool.getTTNNTensorAndValidate(tensorRefPtr.value());
+      &tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
 
   // WHat happens if the tensor is not on device when you cann from device?
   std::shared_ptr<::ttnn::Tensor> hostTensor =

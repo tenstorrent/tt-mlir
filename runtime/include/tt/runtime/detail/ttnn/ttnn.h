@@ -5,6 +5,9 @@
 #ifndef TT_RUNTIME_DETAIL_TTNN_TTNN_H
 #define TT_RUNTIME_DETAIL_TTNN_TTNN_H
 
+#include <optional>
+#include <vector>
+
 #define FMT_HEADER_ONLY
 #include "hostdevcommon/common_values.hpp"
 #include "tt-metalium/host_api.hpp"
@@ -171,8 +174,12 @@ std::string getOpDebugString(OpContext opContextHandle);
 
 std::string getOpLocInfo(OpContext opContextHandle);
 
-::tt::runtime::Tensor getOpOutputTensor(OpContext opContextHandle,
-                                        CallbackContext programContextHandle);
+std::optional<tt::runtime::TensorRef>
+getOpOutputTensorRef(OpContext opContextHandle,
+                  CallbackContext programContextHandle);
+
+std::optional<Tensor>
+getTensor(CallbackContext programContextHandle, tt::runtime::TensorRef tensorRef);
 
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,

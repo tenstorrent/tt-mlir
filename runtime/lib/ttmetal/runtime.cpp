@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <cstdarg>
+#include <optional>
 #include <variant>
 
 #include "tracy/Tracy.hpp"
@@ -9,6 +11,7 @@
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttmetal/ttmetal.h"
 #include "tt/runtime/runtime.h"
+#include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTMetal/Target.h"
 #include "ttmlir/Version.h"
@@ -40,9 +43,9 @@ Tensor toLayout(Tensor tensor, Device, Layout, std::optional<bool>) {
   return tensor;
 }
 
-static Tensor createNullTensor() {
-  return Tensor(nullptr, nullptr, DeviceRuntime::TTMetal);
-}
+// static Tensor createNullTensor() {
+//   return Tensor(nullptr, nullptr, DeviceRuntime::TTMetal);
+// }
 
 static MemoryView
 createMemoryView(const tt_metal::detail::MemoryView &memoryView) {
@@ -340,11 +343,19 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   return "";
 }
 
-Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle) {
+std::optional<tt::runtime::TensorRef>
+getOpOutputTensorRef(OpContext opContextHandle,
+                  CallbackContext programContextHandle) {
   // Not implemented
   LOG_WARNING("obtaining op output tensor for metal runtime not implemented");
-  return createNullTensor();
+  return std::nullopt;
+}
+
+std::optional<Tensor>
+getTensor(CallbackContext programContextHandle, TensorRef tensorRef) {
+  // Not implemented
+  LOG_WARNING("obtaining tensor for metal runtime not implemented");
+  return std::nullopt;
 }
 
 std::vector<std::byte> getTensorDataBuffer(Tensor tensor) {

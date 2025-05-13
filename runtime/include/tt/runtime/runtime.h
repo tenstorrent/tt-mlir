@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <vector>
 
 #include "tt/runtime/types.h"
@@ -176,8 +177,12 @@ std::string getOpDebugString(OpContext opContextHandle);
 
 std::string getOpLocInfo(OpContext opContextHandle);
 
-Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle);
+std::optional<TensorRef>
+getOpOutputTensorRef(OpContext opContextHandle,
+                  CallbackContext programContextHandle);
+
+std::optional<Tensor>
+getTensor(CallbackContext programContextHandle, TensorRef tensorRef);
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
