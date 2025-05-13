@@ -82,6 +82,14 @@ get_emitc_tests_path.path = None
 run_cmake_setup.already_created = None
 
 
+# Check if the modification time of file1 is lesser than file2 (i.e. if file1 is older than file2)
+#
+def is_file_older(f1_path, f2_path):
+    f1_mtime = os.path.getmtime(f1_path)
+    f2_mtime = os.path.getmtime(f2_path)
+    return f1_mtime < f2_mtime
+
+
 # Compile shared object, given source cpp and dest dir
 #
 def compile_shared_object(cpp_file_path, output_dir, args):
@@ -94,17 +102,20 @@ def compile_shared_object(cpp_file_path, output_dir, args):
     standalone_source_dir = get_standalone_dir()
     standalone_build_dir = os.path.join(standalone_source_dir, "build")
     source_cpp_path = os.path.join(standalone_source_dir, "ttnn-dylib.cpp")
+    ttnn_precompiled_header_path = os.path.join(
+        standalone_source_dir, "ttnn-precompiled.hpp"
+    )
     compiled_so_path = os.path.join(standalone_build_dir, "libttnn-dylib.so")
 
     # Determine output .so path
     output_file_name = cpp_base_name + ".so"
     destination_path = os.path.join(output_dir, output_file_name)
 
-    # Check if rebuild is needed by comparing modification times
-    if os.path.exists(destination_path):
-        cpp_mtime = os.path.getmtime(cpp_file_path)
-        so_mtime = os.path.getmtime(destination_path)
-        if so_mtime >= cpp_mtime:
+    # If the build is run in incremental mode, check if rebuild is needed by comparing modification times
+    if args.incremental and os.path.exists(destination_path):
+        if is_file_older(cpp_file_path, destination_path) and is_file_older(
+            ttnn_precompiled_header_path, destination_path
+        ):
             print(
                 f"\nSkipping build for {cpp_base_name} - {output_file_name} file is up to date"
             )
@@ -184,6 +195,14 @@ def parse_arguments():
         metavar="FILE",
         help="Specify a single cpp file for compilation",
     )
+    parser.add_argument(
+        "-i",
+        "--incremental",
+        dest="incremental",
+        action="store_true",
+        help="Incremental build mode. Only rebuilds files that have changed since last build. "
+        "NOTE: Build flag changes won't trigger rebuilds.",
+    )
 
     # Add option to override metal-src-dir and metal-lib-dir
     #
@@ -198,6 +217,7 @@ def parse_arguments():
         "--metal-lib-dir",
         type=str,
     )
+
     return parser.parse_args()
 
 
