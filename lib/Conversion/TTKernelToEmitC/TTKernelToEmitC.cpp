@@ -578,6 +578,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::TilizeBlockOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalTilizeBlockOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UntilizeBlockOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalUntilizeBlockOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryOpInitCommonOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AddTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulTilesInitOp>,
