@@ -712,7 +712,6 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
       *cache.fbb, toFlatbuffer(cache, config.getDtype()),
       toFlatbuffer(cache, config.getWeightsDtype()),
       toFlatbuffer(cache, config.getActivation()),
-      toFlatbuffer(cache, config.getInputChannelsAlignment()),
       toFlatbuffer(cache, config.getDeallocateActivation()),
       toFlatbuffer(cache, config.getReallocateHaloOutput()),
       toFlatbuffer(cache, config.getActBlockHOverride()),

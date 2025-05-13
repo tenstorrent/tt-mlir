@@ -48,7 +48,7 @@ bool parseBool(StringRef param, bool &result) {
 } // namespace
 
 // Full Example:
-// conv2d_1=dtype#bf16:weights_dtype#bf16:activation#relu:input_channels_alignment#32:deallocate_activation#false:reallocate_halo_output#true:act_block_h_override#0:act_block_w_div#1:reshard_if_not_optimal#false:override_sharding_config#false:shard_layout#block_sharded:core_grid#0:transpose_shards#true:output_layout#row_major:preprocess_weights_on_device#false:always_preprocess_weights#false:enable_act_double_buffer#false:enable_weights_double_buffer#false:enable_split_reader#false:enable_subblock_padding#false
+// conv2d_1=dtype#bf16:weights_dtype#bf16:activation#relu:deallocate_activation#false:reallocate_halo_output#true:act_block_h_override#0:act_block_w_div#1:reshard_if_not_optimal#false:override_sharding_config#false:shard_layout#block_sharded:core_grid#0:transpose_shards#true:output_layout#row_major:preprocess_weights_on_device#false:always_preprocess_weights#false:enable_act_double_buffer#false:enable_weights_double_buffer#false:enable_split_reader#false:enable_subblock_padding#false
 // Partial Example:
 // conv2d_1=enable_weights_double_buffer#true:activation#none,conv2d_2=dtype#bf16
 bool Conv2dConfigOverrideParser::parse(
@@ -116,17 +116,6 @@ bool Conv2dConfigOverrideParser::parse(
         }
         params.activation =
             activation.equals_insensitive("none") ? "" : activation.str();
-      } else if (paramName == "input_channels_alignment") {
-        uint32_t inputChannelsAlignment;
-        if (paramValue.getAsInteger<uint32_t>(10, inputChannelsAlignment)) {
-          opt.error("Invalid input_channels_alignment: " + paramValue);
-          return true;
-        }
-        if (params.inputChannelsAlignment.has_value()) {
-          opt.error("Duplicate input_channels_alignment: " + paramValue);
-          return true;
-        }
-        params.inputChannelsAlignment = inputChannelsAlignment;
       } else if (paramName == "deallocate_activation") {
         bool deallocateActivation;
         if (parseBool(paramValue, deallocateActivation)) {
@@ -325,10 +314,6 @@ std::string Conv2dConfigOverrideParser::toString(
     }
     if (params.activation.has_value()) {
       rso << "activation#" << params.activation.value() << ":";
-    }
-    if (params.inputChannelsAlignment.has_value()) {
-      rso << "input_channels_alignment#"
-          << params.inputChannelsAlignment.value() << ":";
     }
     if (params.deallocateActivation.has_value()) {
       rso << "deallocate_activation#"

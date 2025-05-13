@@ -84,7 +84,7 @@ struct TTIRToTTNNBackendPipelineOptions
   // optimizerPassEnabled (enable-optimizer) is true.
   //
   // Full Example:
-  // override-conv2d-config=conv2d_1=dtype#bf16:weights_dtype#bf16:activation#relu:input_channels_alignment#32:deallocate_activation#false:reallocate_halo_output#true:act_block_h_override#0:act_block_w_div#1:reshard_if_not_optimal#false:override_sharding_config#false:shard_layout#block_sharded:core_grid#0:transpose_shards#true:output_layout#row_major:preprocess_weights_on_device#false:always_preprocess_weights#false:enable_act_double_buffer#false:enable_weights_double_buffer#false:enable_split_reader#false:enable_subblock_padding#false
+  // override-conv2d-config=conv2d_1=dtype#bf16:weights_dtype#bf16:activation#relu:deallocate_activation#false:reallocate_halo_output#true:act_block_h_override#0:act_block_w_div#1:reshard_if_not_optimal#false:override_sharding_config#false:shard_layout#block_sharded:core_grid#0:transpose_shards#true:output_layout#row_major:preprocess_weights_on_device#false:always_preprocess_weights#false:enable_act_double_buffer#false:enable_weights_double_buffer#false:enable_split_reader#false:enable_subblock_padding#false
   // Partial Example:
   // "conv2d_1=enable_weights_double_buffer#true:activation#none,conv2d_2=dtype#bf16"
   //
@@ -93,7 +93,6 @@ struct TTIRToTTNNBackendPipelineOptions
   // * weights_dtype: [bf16, f32, f16, bfp_f8, bfp_bf8, bfp_f4, bfp_bf4, bfp_f2,
   // bfp_bf2, u32, u16, u8]
   // * activation: [none, relu]
-  // * input_channels_alignment: uint32_t (multiple of 8)
   // * deallocate_activation: [true, false]
   // * reallocate_halo_output: [true, false]
   // * act_block_h_override: uint32_t (multiple of 32)

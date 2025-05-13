@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Arith/Utils/Utils.h"
@@ -80,7 +81,7 @@ public:
 
       // Const eval subgraphs may not dealloc their params since they don't own
       // them.
-      if (!func->hasAttr("const_eval")) {
+      if (!ttmlir::utils::isConstEvalFunc(func)) {
         // Handle func op input parameters
         for (BlockArgument arg : func.getArguments()) {
           if (!isa<RankedTensorType>(arg.getType())) {
