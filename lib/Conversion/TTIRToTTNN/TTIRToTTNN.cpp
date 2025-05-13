@@ -1509,8 +1509,7 @@ public:
     rewriter.replaceOpWithNewOp<TTNNOpTy>(
         op, this->getTypeConverter()->convertType(op.getResult().getType()),
         adaptor.getInput(), op.getScale(), op.getZeroPoint(),
-        op.getAxis() ? rewriter.getI32IntegerAttr(*op.getAxis())
-                     : mlir::IntegerAttr(),
+        op.getAxisAttr() ? op.getAxisAttr() : mlir::IntegerAttr(),
         outputDataType, ttnn::MemoryConfigAttr());
     return success();
   }
@@ -1531,8 +1530,7 @@ public:
         op, this->getTypeConverter()->convertType(op.getResult().getType()),
         adaptor.getInput(), op.getInScale(), op.getInZeroPoint(),
         op.getOutScale(), op.getOutZeroPoint(),
-        op.getAxis() ? rewriter.getI32IntegerAttr(*op.getAxis())
-                     : mlir::IntegerAttr(),
+        op.getAxisAttr() ? op.getAxisAttr() : mlir::IntegerAttr(),
         outputDataType, ttnn::MemoryConfigAttr());
     return success();
   }

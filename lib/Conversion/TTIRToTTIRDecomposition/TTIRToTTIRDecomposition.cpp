@@ -1725,10 +1725,8 @@ getScaleAndZeroPoint(mlir::quant::QuantizedType elementType,
           mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
               elementType)) {
     // Create ttir::ConstantOp for scale.
-    SmallVector<float> scales;
-    for (float scale : quantPerAxisType.getScales()) {
-      scales.push_back(scale);
-    }
+    SmallVector<float> scales(
+        llvm::to_vector_of<float>(quantPerAxisType.getScales()));
     mlir::RankedTensorType scaleType = mlir::RankedTensorType::get(
         {static_cast<int64_t>(scales.size())}, rewriter.getF32Type());
     mlir::DenseFPElementsAttr scaleDenseAttr =
@@ -1737,10 +1735,8 @@ getScaleAndZeroPoint(mlir::quant::QuantizedType elementType,
         rewriter.create<ttir::ConstantOp>(loc, scaleType, scaleDenseAttr);
 
     // Create ttir::ConstantOp for zero point.
-    SmallVector<int32_t> zeroPoints;
-    for (int64_t zeroPoint : quantPerAxisType.getZeroPoints()) {
-      zeroPoints.push_back(static_cast<int32_t>(zeroPoint));
-    }
+    SmallVector<int32_t> zeroPoints(
+        llvm::to_vector_of<int32_t>(quantPerAxisType.getZeroPoints()));
     mlir::RankedTensorType zeroPointType = mlir::RankedTensorType::get(
         {static_cast<int64_t>(zeroPoints.size())}, rewriter.getIntegerType(32));
     mlir::DenseIntElementsAttr zeroPointDenseAttr =
@@ -1794,11 +1790,9 @@ public:
     mlir::Type quantizeOutputType =
         this->getTypeConverter()->convertType(op.getOutput().getType());
 
-    auto newOp = rewriter.create<QuantizeUnrolledOpTy>(
-        op.getLoc(), quantizeOutputType, adaptor.getInput(), scale, zeroPoint,
-        axisAttr, adaptor.getOutput());
-
-    rewriter.replaceOp(op, newOp.getResult());
+    rewriter.replaceOpWithNewOp<QuantizeUnrolledOpTy>(
+        op, quantizeOutputType, adaptor.getInput(), scale, zeroPoint, axisAttr,
+        adaptor.getOutput());
     return success();
   }
 
