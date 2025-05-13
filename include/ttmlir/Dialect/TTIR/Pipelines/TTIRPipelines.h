@@ -48,6 +48,8 @@ void createStableHLOToTTIRPipeline(
 
 void createLinalgToLLVMPipeline(OpPassManager &pm,
                                 const LinalgToLLVMPipelineOptions &options);
+void createTTIRToCPUPipeline(OpPassManager &manager,
+                             const LinalgToLLVMPipelineOptions &options);
 
 /// Registers all pipelines for the TTIR dialect.
 void registerTTIRPipelines();

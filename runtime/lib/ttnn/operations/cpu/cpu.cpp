@@ -21,29 +21,25 @@ std::vector<common::WrappedTensor> packTensors(
         *ins,
     const tt::target::ttnn::TensorRef *out, const ProgramContext &context,
     std::vector<std::vector<int64_t>> &allSizesAndStrides) {
-  allSizesAndStrides.reserve(ins->size() + 1);
+  allSizesAndStrides.reserve(ins->size());
   std::vector<common::WrappedTensor> packedTensors;
   packedTensors.reserve(ins->size());
+
   for (size_t i = 0; i < ins->size(); ++i) {
-    const size_t rank = ins->Get(i)->desc()->shape()->size();
-    std::vector<int64_t> sizes(rank);
+    auto tensorRef = ins->Get(i);
     const auto &tens =
-        context.getTensorPool().getTTNNTensorAndValidate(ins->Get(i));
-    for (size_t j = 0; j < rank; ++j) {
-      sizes[j] = ins->Get(i)->desc()->shape()->Get(j);
-    }
-    std::vector<uint32_t> strides = tt::runtime::utils::calculateStride(sizes);
-    allSizesAndStrides.emplace_back(2 * rank);
-    std::copy(sizes.begin(), sizes.end(), allSizesAndStrides.back().begin());
-    std::transform(strides.begin(), strides.end(),
-                   allSizesAndStrides.back().begin() + rank,
-                   [](uint32_t s) -> int64_t { return s; });
+        context.getTensorPool().getTTNNTensorAndValidate(tensorRef);
+
+    const std::vector<int64_t> sizes = tt::runtime::common::extractSizes(tensorRef);
+    tt::runtime::common::prepareSizesAndStrides(sizes, allSizesAndStrides);
 
     float *rawDataPtr = static_cast<float *>(
         ::tt::runtime::ttnn::utils::getRawHostDataPtr(tens));
-    packedTensors.emplace_back(rawDataPtr, rawDataPtr, 0,
-                               allSizesAndStrides.back().data());
+
+    packedTensors.push_back(common::WrappedTensor{
+        rawDataPtr, rawDataPtr, 0, allSizesAndStrides[i].data()});
   }
+
   return packedTensors;
 }
 

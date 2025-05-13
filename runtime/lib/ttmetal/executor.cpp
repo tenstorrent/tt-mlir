@@ -377,31 +377,26 @@ static std::vector<common::WrappedTensor> packTensors(
     const tt::target::metal::BufferRef *out,
     const std::unordered_map<std::uint32_t, Tensor> &tensorMap,
     std::vector<std::vector<int64_t>> &allSizesAndStrides) {
-  allSizesAndStrides.reserve(ins->size() + 1);
+  allSizesAndStrides.reserve(ins->size());
   std::vector<common::WrappedTensor> packedTensors;
   packedTensors.reserve(ins->size());
+
   for (size_t i = 0; i < ins->size(); ++i) {
-    const auto *shape = ins->Get(i)->desc()->shape();
-    const size_t rank = shape->size();
-    std::vector<int64_t> sizes(rank);
-    auto it = tensorMap.find(ins->Get(i)->global_id());
+    auto tensorRef = ins->Get(i);
+    auto it = tensorMap.find(tensorRef->global_id());
     LOG_ASSERT(it != tensorMap.end(),
                "Cannot invoke cpu op on tensor which is not in cpu tensors.");
     const Tensor &tens = it->second;
-    for (size_t j = 0; j < rank; ++j) {
-      sizes[j] = shape->Get(j);
-    }
-    std::vector<uint32_t> strides = tt::runtime::utils::calculateStride(sizes);
-    allSizesAndStrides.emplace_back(2 * rank);
-    std::copy(sizes.begin(), sizes.end(), allSizesAndStrides.back().begin());
-    std::transform(strides.begin(), strides.end(),
-                   allSizesAndStrides.back().begin() + rank,
-                   [](uint32_t s) -> int64_t { return s; });
+
+    const std::vector<int64_t> sizes = tt::runtime::common::extractSizes(tensorRef);
+    tt::runtime::common::prepareSizesAndStrides(sizes, allSizesAndStrides);
 
     float *rawDataPtr = static_cast<float *>(tens.data.get());
-    packedTensors.emplace_back(rawDataPtr, rawDataPtr, 0,
-                               allSizesAndStrides.back().data());
+
+    packedTensors.push_back(common::WrappedTensor{
+        rawDataPtr, rawDataPtr, 0, allSizesAndStrides[i].data()});
   }
+
   return packedTensors;
 }
 

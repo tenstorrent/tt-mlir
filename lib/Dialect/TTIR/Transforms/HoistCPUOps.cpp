@@ -60,20 +60,22 @@ static llvm::SmallString<16> generateHoistedFuncName(mlir::Operation *op) {
   return uniqueName;
 }
 
-// Helper function to determine if an operand is an output tensor
-static bool isOutputTensor(mlir::Operation *op, unsigned operandIdx) {
-  // Check if the operation implements DestinationStyleOpInterface
-  if (auto dpsOp = dyn_cast<mlir::DestinationStyleOpInterface>(op)) {
-    // For DPS operations, the outputs are at the end of the operand list
-    unsigned numOutputs = dpsOp.getNumDpsInits();
-    unsigned totalOperands = op->getNumOperands();
-
-    // The operand is an output if it's among the last numOutputs operands
-    return operandIdx >= (totalOperands - numOutputs);
+// Tag bufferization access options based on operand semantics.
+static void tagBufferizationAccess(mlir::func::FuncOp funcOp, unsigned argIdx,
+                                   mlir::Operation *origOp,
+                                   mlir::OpBuilder &builder) {
+  if (auto dpsOp = dyn_cast<mlir::DestinationStyleOpInterface>(origOp)) {
+    if (dpsOp.isDpsInit(&origOp->getOpOperand(argIdx))) {
+      funcOp.setArgAttr(argIdx, "bufferization.access",
+                        builder.getStringAttr("write"));
+    } else {
+      funcOp.setArgAttr(argIdx, "bufferization.access",
+                        builder.getStringAttr("read"));
+    }
+  } else {
+    funcOp.setArgAttr(argIdx, "bufferization.access",
+                      builder.getStringAttr("read_write"));
   }
-  // For other operations, we can add more specific logic
-  // Default to assuming it's an input
-  return true;
 }
 
 // Helper function to hoist an arbitrary op into a new function in targetModule,
@@ -162,19 +164,10 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
     }
 
     // Add bufferization access attributes to function arguments
-    for (unsigned i = 0; i < hoistedFunc.getNumArguments(); ++i) {
-      if (auto tensorType = dyn_cast<mlir::RankedTensorType>(
-              hoistedFunc.getArgument(i).getType())) {
-        // Determine if this is an input or output tensor
-        if (isOutputTensor(opToHoist, i)) {
-          // Output tensors are only written to
-          hoistedFunc.setArgAttr(i, "bufferization.access",
-                                 builder.getStringAttr("write"));
-        } else {
-          // Input tensors are only read from
-          hoistedFunc.setArgAttr(i, "bufferization.access",
-                                 builder.getStringAttr("read"));
-        }
+    for (auto arg : llvm::enumerate(hoistedFunc.getArguments())) {
+      if (auto tensorType =
+              dyn_cast<mlir::RankedTensorType>(arg.value().getType())) {
+        tagBufferizationAccess(hoistedFunc, arg.index(), opToHoist, builder);
       }
     }
 
@@ -223,19 +216,10 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
 
     // Now that the function is in the module, add bufferization access
     // attributes
-    for (unsigned i = 0; i < localFunc.getNumArguments(); ++i) {
-      if (auto tensorType = dyn_cast<mlir::RankedTensorType>(
-              localFunc.getFunctionType().getInput(i))) {
-        // Determine if this is an input or output tensor
-        if (isOutputTensor(opToHoist, i)) {
-          // Output tensors are only written to
-          localFunc.setArgAttr(i, "bufferization.access",
-                               builder.getStringAttr("write"));
-        } else {
-          // Input tensors are only read from
-          localFunc.setArgAttr(i, "bufferization.access",
-                               builder.getStringAttr("read"));
-        }
+    for (auto arg : llvm::enumerate(localFunc.getArguments())) {
+      if (auto tensorType =
+              dyn_cast<mlir::RankedTensorType>(arg.value().getType())) {
+        tagBufferizationAccess(localFunc, arg.index(), opToHoist, builder);
       }
     }
 

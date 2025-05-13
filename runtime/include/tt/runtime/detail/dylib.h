@@ -6,6 +6,7 @@
 #define TT_RUNTIME_DETAIL_DYLIB_H
 
 #include "tt/runtime/types.h"
+#include "tt/runtime/utils.h"
 
 #include <cstring>
 #include <dlfcn.h>
@@ -33,6 +34,36 @@ struct WrappedTensor {
 };
 
 using WrappedFunc = void (*)(WrappedTensor *);
+
+// Extract sizes from a tensor reference (works with both BufferRef and
+// TensorRef)
+template <typename TensorRefType>
+std::vector<int64_t> extractSizes(const TensorRefType *tensorRef) {
+  auto shape = tensorRef->desc()->shape();
+  const size_t rank = shape->size();
+  std::vector<int64_t> sizes(rank);
+
+  for (size_t j = 0; j < rank; ++j) {
+    sizes[j] = shape->Get(j);
+  }
+
+  return sizes;
+}
+
+// Calculate strides and prepare the combined sizes+strides vector
+inline void
+prepareSizesAndStrides(const std::vector<int64_t> &sizes,
+                       std::vector<std::vector<int64_t>> &allSizesAndStrides) {
+
+  std::vector<uint32_t> strides = tt::runtime::utils::calculateStride(sizes);
+  const size_t rank = sizes.size();
+
+  allSizesAndStrides.emplace_back(2 * rank);
+  std::copy(sizes.begin(), sizes.end(), allSizesAndStrides.back().begin());
+  std::transform(strides.begin(), strides.end(),
+                 allSizesAndStrides.back().begin() + rank,
+                 [](uint32_t s) -> int64_t { return s; });
+}
 
 class DylibManager {
 public:

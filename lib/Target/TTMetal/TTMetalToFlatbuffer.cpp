@@ -359,7 +359,6 @@ kernelConfigToFlatbuffer(FlatbufferObjectCache &cache,
                          KernelConfigInterface kernelConfig,
                          const SymbolTable &symbolTable) {
   StringRef kernelSymbol = kernelConfig.getKernelSymbol().getRootReference();
-  llvm::outs() << "Search for symbol: " << kernelSymbol << "\n";
   auto kernelEntry = symbolTable.lookup<func::FuncOp>(kernelSymbol);
   assert(kernelEntry);
   std::string source;
@@ -426,10 +425,8 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
   // DeviceModule for most conversions.
   ModuleOp module = rootModule;
   if (auto deviceModule = utils::findOpAtTopLevel<tt::DeviceModuleOp>(module)) {
-    module = dyn_cast_if_present<mlir::ModuleOp>(
+    module = mlir::cast<mlir::ModuleOp>(
         deviceModule.getBodyRegion().front().front());
-    assert(module && "Found tt::DeviceModuleOp but it didn't contain a single "
-                     "mlir::ModuleOp!");
   }
   SymbolTable symbolTable(module);
 
@@ -446,8 +443,8 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
   std::vector<::flatbuffers::Offset<::tt::target::DynamicLib>> dylibs;
   if (auto cpuModule = utils::findOpAtTopLevel<tt::CPUModuleOp>(rootModule);
       cpuModule != nullptr) {
-    mlir::ModuleOp cpuNestedModule = dyn_cast_if_present<mlir::ModuleOp>(
-        cpuModule.getBodyRegion().front().front());
+    mlir::ModuleOp cpuNestedModule =
+        mlir::cast<mlir::ModuleOp>(cpuModule.getBodyRegion().front().front());
     llvm::SmallVector<char, 2048> binaryBuffer;
     llvm::raw_svector_ostream dylibStream(binaryBuffer);
     auto result = mlir::tt::llvm_to_cpu::translateLLVMToDyLib(cpuNestedModule,
@@ -458,6 +455,8 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
           binaryBuffer.size());
       dylibs.emplace_back(
           ::tt::target::CreateDynamicLib(fbb, 0, rawFileVector));
+    } else {
+      llvm::report_fatal_error("Failed to compile dylib!");
     }
   }
 
