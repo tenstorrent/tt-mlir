@@ -31,6 +31,20 @@ void populateTTModule(nb::module_ &m) {
                         collapseIntervals,
                         static_cast<tt::OOBVal>(oobValValue)));
                   })
+      .def_static("get",
+                  [](MlirContext ctx, MlirType rankedTensorType,
+                     MlirAttribute grid, bool tiled, uint32_t memorySpaceValue,
+                     std::vector<std::pair<std::int64_t, std::int64_t>>
+                         collapseIntervals,
+                     uint32_t oobValValue) {
+                    return wrap(tt::MetalLayoutAttr::get(
+                        unwrap(ctx),
+                        mlir::cast<RankedTensorType>(unwrap(rankedTensorType)),
+                        mlir::cast<tt::GridAttr>(unwrap(grid)), tiled,
+                        static_cast<tt::MemorySpace>(memorySpaceValue),
+                        collapseIntervals,
+                        static_cast<tt::OOBVal>(oobValValue)));
+                  })
       .def_static("with_grid",
                   [](MlirContext ctx, MlirAttribute self,
                      std::vector<std::int64_t> tensorShape, MlirAttribute grid,
