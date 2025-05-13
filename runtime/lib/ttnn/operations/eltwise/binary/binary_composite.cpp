@@ -64,13 +64,13 @@ static void runEltwiseBinaryNGCompositeOp(
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
-  std::optional<bool> use_legacy = std::nullopt;
-  if (lhs->get_logical_shape() != rhs->get_logical_shape()) {
-    // Set use_legacy to false when shapes require broadcasting
-    // TODO(brataTT): Remove after
-    // https://github.com/tenstorrent/tt-metal/issues/16147 is closed
-    use_legacy = false;
-  }
+  std::optional<bool> use_legacy = false;
+  // if (lhs->get_logical_shape() != rhs->get_logical_shape()) {
+  //   // Set use_legacy to false when shapes require broadcasting
+  //   // TODO(brataTT): Remove after
+  //   // https://github.com/tenstorrent/tt-metal/issues/16147 is closed
+  //   use_legacy = false;
+  // }
   ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, std::nullopt, outputMemoryConfig,
                               std::nullopt, {}, {}, {}, use_legacy);
 
