@@ -89,9 +89,6 @@ static bool isOutputTensor(mlir::Operation *op, unsigned operandIdx) {
     // The operand is an output if it's among the last numOutputs operands
     return operandIdx >= (totalOperands - numOutputs);
   }
-  // For other operations, we can add more specific logic
-  // Default to assuming it's an input
-  return true;
 }
 
 // Helper function to hoist an arbitrary op into a new function in targetModule,
@@ -259,17 +256,11 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
     sourceModule.push_back(localFunc);
 
     // Now that the function is in the module, add bufferization access
-<<<<<<< HEAD
     // attributes.
-=======
-    // attributes
-<<<<<<< HEAD
->>>>>>> 0d53b48d7 (working)
     for (auto arg : llvm::enumerate(localFunc.getArguments())) {
       if (auto tensorType =
               mlir::dyn_cast<mlir::RankedTensorType>(arg.value().getType())) {
         tagBufferizationAccess(localFunc, arg.index(), opToHoist, builder);
-=======
     for (unsigned i = 0; i < localFunc.getNumArguments(); ++i) {
       if (auto tensorType = dyn_cast<mlir::RankedTensorType>(
               localFunc.getFunctionType().getInput(i))) {
@@ -283,7 +274,6 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
           localFunc.setArgAttr(i, "bufferization.access",
                                builder.getStringAttr("read"));
         }
->>>>>>> 104660f39 (working)
       }
     }
 

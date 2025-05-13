@@ -375,7 +375,6 @@ kernelConfigToFlatbuffer(FlatbufferObjectCache &cache,
                          KernelConfigInterface kernelConfig,
                          const SymbolTable &symbolTable) {
   StringRef kernelSymbol = kernelConfig.getKernelSymbol().getRootReference();
-  llvm::outs() << "Search for symbol: " << kernelSymbol << "\n";
   auto kernelEntry = symbolTable.lookup<func::FuncOp>(kernelSymbol);
   assert(kernelEntry);
   std::string source;
