@@ -30,7 +30,8 @@ std::vector<common::WrappedTensor> packTensors(
     const auto &tens =
         context.getTensorPool().getTTNNTensorAndValidate(tensorRef);
 
-    const std::vector<int64_t> sizes = tt::runtime::common::extractSizes(tensorRef);
+    const std::vector<int64_t> sizes =
+        tt::runtime::common::extractSizes(tensorRef);
     tt::runtime::common::prepareSizesAndStrides(sizes, allSizesAndStrides);
 
     float *rawDataPtr = static_cast<float *>(

@@ -388,7 +388,8 @@ static std::vector<common::WrappedTensor> packTensors(
                "Cannot invoke cpu op on tensor which is not in cpu tensors.");
     const Tensor &tens = it->second;
 
-    const std::vector<int64_t> sizes = tt::runtime::common::extractSizes(tensorRef);
+    const std::vector<int64_t> sizes =
+        tt::runtime::common::extractSizes(tensorRef);
     tt::runtime::common::prepareSizesAndStrides(sizes, allSizesAndStrides);
 
     float *rawDataPtr = static_cast<float *>(tens.data.get());
