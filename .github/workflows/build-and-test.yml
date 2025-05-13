@@ -252,7 +252,6 @@ jobs:
         path: build
         github_token: ${{ secrets.GITHUB_TOKEN }}
 
-
     # TG galaxy doesn't have support for dispatch on eth cores - thus need to disable it
     - name: Generate system descriptor
       shell: bash
