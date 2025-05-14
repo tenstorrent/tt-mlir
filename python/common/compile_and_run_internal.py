@@ -2,9 +2,9 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import multiprocessing as mp
 from dataclasses import dataclass
 from enum import Enum
-from multiprocessing import Process, Queue
 from typing import Any, Callable
 
 from ttmlir.compile_and_run_internal import *
@@ -27,15 +27,23 @@ class Status(Enum):
 
 
 def _run_worker_in_separate_process(
-    worker_fn: Callable,
-    worker_args_without_queue: tuple = (),
+    worker_fn: Callable, worker_args_without_queue: tuple = ()
 ) -> Any:
     """
     Runs `worker_fn` in a separate process, returns whatever worker returned through
     queue if no errors happend, otherwise raises RuntimeError.
+
+    `forkserver` is chosen as start method for `multiprocessing`. The default `fork`
+    method encounters problems when used in multithreaded processes, such as with JAX
+    for example, and it will be deprecated as default method in the future releases of
+    python. See:
+    https://docs.python.org/3/library/multiprocessing.html#contexts-and-start-methods
+    https://docs.python.org/3/library/os.html#os.fork
+    https://discuss.python.org/t/concerns-regarding-deprecation-of-fork-with-alive-threads/33555
     """
-    q = Queue()
-    p = Process(target=worker_fn, args=(*worker_args_without_queue, q))
+    ctx = mp.get_context("forkserver")
+    q = ctx.Queue()
+    p = ctx.Process(target=worker_fn, args=(*worker_args_without_queue, q))
     p.start()
     p.join()
 
@@ -67,12 +75,12 @@ class CompilationProcessResult:
     error: str = None
 
 
-def stablehlo_to_ttir_pipeline_worker(module_str: str, result_queue: Queue) -> None:
+def stablehlo_to_ttir_pipeline_worker(module_str: str, result_queue: mp.Queue) -> None:
     """
     Wrapper around `stablehlo_to_ttir_pipeline` pybound pass.
 
     It is not resistant to segfaults, i.e. some unpredictable errors that can happen
-    inside the pybound call. Thus it is meant to be used as a worker for a Process
+    inside the pybound call. Thus it is meant to be used as a worker for a mp.Process
     which will guard the caller from such errors.
     """
     try:
@@ -86,7 +94,7 @@ def stablehlo_to_ttir_pipeline_worker(module_str: str, result_queue: Queue) -> N
 
 
 def ttir_to_ttnn_backend_pipeline_worker(
-    module_str: str, system_desc: str, result_queue: Queue
+    module_str: str, system_desc: str, result_queue: mp.Queue
 ) -> None:
     """
     Wrapper around `ttir_to_ttnn_backend_pipeline` pybound pass.
@@ -106,7 +114,7 @@ def ttir_to_ttnn_backend_pipeline_worker(
 
 
 def ttir_to_ttmetal_backend_pipeline_worker(
-    module_str: str, system_desc: str, result_queue: Queue
+    module_str: str, system_desc: str, result_queue: mp.Queue
 ) -> None:
     """
     Wrapper around `ttir_to_ttmetal_backend_pipeline` pybound pass.
@@ -151,7 +159,7 @@ class TranslationProcessResult:
 
 
 def ttnn_to_flatbuffer_file_worker(
-    module_str: str, output_file_name: str, result_queue: Queue
+    module_str: str, output_file_name: str, result_queue: mp.Queue
 ) -> None:
     """
     Wrapper around `ttnn_to_flatbuffer_file` pybound pass.
@@ -171,7 +179,7 @@ def ttnn_to_flatbuffer_file_worker(
 
 
 def ttmetal_to_flatbuffer_file_worker(
-    module_str: str, output_file_name: str, result_queue: Queue
+    module_str: str, output_file_name: str, result_queue: mp.Queue
 ) -> None:
     """
     Wrapper around `ttmetal_to_flatbuffer_file` pybound pass.
@@ -218,7 +226,7 @@ class RunProcessResult:
     error: str = None
 
 
-def run_flatbuffer_worker(flatbuffer_file_path: str, result_queue: Queue) -> None:
+def run_flatbuffer_worker(flatbuffer_file_path: str, result_queue: mp.Queue) -> None:
     """
     Runs flatbuffer given as path to flatbuffer file on device.
 

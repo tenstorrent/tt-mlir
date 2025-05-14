@@ -27,6 +27,8 @@ def run_op_by_op_workflow(
     Unified function to process a module based on selected compilation and splitting
     strategy.
 
+    To enable showing progress of the workflow, set env var `SHOW_WORKFLOW_PROGRESS=ON`.
+
     Parameters
     ----------
     module: Module | str
