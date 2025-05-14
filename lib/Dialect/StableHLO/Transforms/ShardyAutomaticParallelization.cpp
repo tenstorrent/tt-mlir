@@ -296,6 +296,7 @@ static inline mlir::LogicalResult updateShapes(MLIRContext *context,
         }
         builder.setInsertionPoint(op);
         builder.insert(newOp);
+        op->erase();
       }
     }
   }
@@ -725,14 +726,6 @@ public:
         return;
       }
     });
-
-    // Remove any operations that are no longer being used.
-    pm.addPass(mlir::createCanonicalizerPass());
-    if (failed(pm.run(rootModule))) {
-      rootModule.emitError("Could not run canonicalizer pass on module.\n");
-      signalPassFailure();
-      return;
-    }
   }
 };
 
