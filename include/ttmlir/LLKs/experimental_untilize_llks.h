@@ -2,6 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#ifndef TTMLIR_LLKS_EXPERIMENTAL_UNTILIZE_LLKS_H
+#define TTMLIR_LLKS_EXPERIMENTAL_UNTILIZE_LLKS_H
+
 namespace experimental {
 #ifdef TRISC_UNPACK
 template <bool first_pass = true>
@@ -55,3 +58,5 @@ ALWI void untilize_block(uint32_t icb, uint32_t ocb, uint32_t block_r,
   }
 }
 } // namespace experimental
+
+#endif

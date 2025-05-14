@@ -2,6 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#ifndef TTMLIR_LLKS_EXPERIMENTAL_TILIZE_LLKS_H
+#define TTMLIR_LLKS_EXPERIMENTAL_TILIZE_LLKS_H
+
 namespace experimental {
 #ifdef TRISC_UNPACK
 ALWI void llk_unpack_tilize(std::uint32_t operand, std::uint32_t tile_index,
@@ -58,3 +61,5 @@ ALWI void tilize_block(uint32_t icb, uint32_t ocb, uint32_t block_r,
   }
 }
 } // namespace experimental
+
+#endif
