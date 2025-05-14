@@ -188,6 +188,8 @@ getOpInputTensorRefs(OpContext opContextHandle,
 std::optional<Tensor>
 getTensor(CallbackContext programContextHandle, TensorRef tensorRef);
 
+void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef, Tensor srcTensor);
+
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
                            std::vector<Tensor> &inputs);

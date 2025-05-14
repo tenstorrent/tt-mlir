@@ -114,6 +114,8 @@ getOpInputTensorRefs(OpContext opContextHandle,
 std::optional<Tensor> getTensor(CallbackContext programContextHandle,
                  TensorRef tensorRef);
 
+void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef, Tensor srcTensor);
+
 } // namespace tt::runtime::ttmetal
 
 #endif

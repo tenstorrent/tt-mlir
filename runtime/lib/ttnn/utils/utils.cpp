@@ -277,6 +277,20 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
       return tt::runtime::TensorRef(std::static_pointer_cast<void>(tensorRefPtr), DeviceRuntime::TTNN);
 }
 
+std::vector<const tt::target::ttnn::TensorRef *> convertFbTensorRefsToVector(
+  const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
+      *fbVector) {
+  std::vector<const tt::target::ttnn::TensorRef *> stdVector;
+  if (!fbVector) {
+    return stdVector;
+  }
+  stdVector.reserve(fbVector->size());
+  for (size_t i = 0; i < fbVector->size(); i++) {
+    stdVector.push_back(fbVector->Get(i));
+  }
+  return stdVector;
+}
+
 void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
   LOG_ASSERT(
       workaround::Env::get().rawHostDataPointerWrapper,

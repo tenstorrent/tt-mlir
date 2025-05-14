@@ -178,8 +178,14 @@ std::optional<tt::runtime::TensorRef>
 getOpOutputTensorRef(OpContext opContextHandle,
                   CallbackContext programContextHandle);
 
+std::vector<tt::runtime::TensorRef>
+getOpInputTensorRefs(OpContext opContextHandle,
+    CallbackContext programContextHandle);
+
 std::optional<Tensor>
 getTensor(CallbackContext programContextHandle, tt::runtime::TensorRef tensorRef);
+
+void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef, Tensor srcTensor);
 
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
