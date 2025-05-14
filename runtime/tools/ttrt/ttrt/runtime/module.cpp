@@ -36,6 +36,8 @@ PYBIND11_MODULE(_C, m) {
   py::class_<tt::runtime::Device>(m, "Device")
       .def("deallocate_buffers", &tt::runtime::detail::deallocateBuffers)
       .def("dump_memory_report", &tt::runtime::detail::dumpMemoryReport)
+      .def("dump_device_profile_results",
+           &tt::runtime::detail::dumpDeviceProfileResults)
       .def("get_memory_view", &tt::runtime::detail::getMemoryView,
            py::arg("device_id") = 0);
   py::class_<tt::runtime::Event>(m, "Event");
