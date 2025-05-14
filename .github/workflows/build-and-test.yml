@@ -429,6 +429,10 @@ jobs:
       run: |
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- FBS_GENERATION mlir-headers mlir-generic-headers tt-metal-download tt-metal-update tt-metal-configure
+        cd ${{ steps.strings.outputs.work-dir }}/tools/ttnn-standalone
+        cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++
+        cmake --build build -- ttnn-standalone  # clang-tidy expects the precompiled header to be built, so forcing the build here
+        cd -
         python3 tools/scripts/filter-compile-commands.py --diff ${{ steps.strings.outputs.build-output-dir }}/compile_commands.json
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- clang-tidy
 
