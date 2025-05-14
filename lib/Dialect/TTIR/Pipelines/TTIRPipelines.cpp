@@ -63,6 +63,23 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   // https://mlir.llvm.org/docs/Bufferization/#ownership-based-buffer-deallocation
   mlir::bufferization::OneShotBufferizationOptions bufferizationOptions;
   bufferizationOptions.bufferizeFunctionBoundaries = true;
+
+  // Use identity layout for unknown types.
+  bufferizationOptions.unknownTypeConverterFn =
+      [=](Value value, Attribute memorySpace,
+          const bufferization::BufferizationOptions &options) {
+        auto tensorType = cast<TensorType>(value.getType());
+        return bufferization::getMemRefTypeWithStaticIdentityLayout(
+            tensorType, memorySpace);
+      };
+  // Use identity layout for function boundaries.
+  bufferizationOptions.functionArgTypeConverterFn =
+      [=](TensorType tensorType, Attribute memorySpace, func::FuncOp funcOp,
+          const bufferization::BufferizationOptions &options) {
+        return bufferization::getMemRefTypeWithStaticIdentityLayout(
+            tensorType, memorySpace);
+      };
+
   manager.addPass(
       mlir::bufferization::createOneShotBufferizePass(bufferizationOptions));
   mlir::bufferization::BufferDeallocationPipelineOptions deallocationOptions;
