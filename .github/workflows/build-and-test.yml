@@ -150,15 +150,15 @@ jobs:
       matrix:
         build: [
           # When sh-run is true, the runner will use TT-shared GH infra and pull from harbor for image cache pull through
-          {runs-on: n150,   sh-run: false, name: "run",   suite: "unit",               image: "speedy", type: "unit"},
+          {runs-on: n150,   sh-run: false, name: "run",  suite: "unit",              image: "speedy", type: "unit"},
           {runs-on: nXX0,   sh-run: false, name: "run",  suite: "unit",              image: "tracy",  type: "unit"},
-          {runs-on: n150,   sh-run: true, name: "run",  suite: "run",               image: "speedy", type: "ttrt",     path: "Silicon", flags: "--non-zero"},
+          {runs-on: n150,   sh-run: true,  name: "run",  suite: "run",               image: "speedy", type: "ttrt",    path: "Silicon", flags: "--non-zero"},
           {runs-on: n150,   sh-run: false, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n150/perf"},
           {runs-on: n150,   sh-run: false, name: "perf", suite: "optimizer",         image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n150/optimizer"},
           {runs-on: n150,   sh-run: false, name: "run",  suite: "emitc",             image: "tracy",  type: "ttrt",     path: "EmitC", flags: "--emitc"},
           {runs-on: n150,   sh-run: false, name: "run",  suite: "op_model",          image: "speedy", type: "ttrt",     path: "Silicon/TTNN/n150/optimizer", flags: "--non-zero"},
           {runs-on: n150,   sh-run: false, name: "run",  suite: "runtime_debug",     image: "tracy",  type: "ttrt",     path: "Silicon", flags: "--non-zero"},
-          {runs-on: n300,   sh-run: true, name: "run",  suite: "run",               image: "speedy", type: "ttrt",     path: "Silicon", flags: "--non-zero"},
+          {runs-on: n300,   sh-run: true,  name: "run",  suite: "run",               image: "speedy", type: "ttrt",     path: "Silicon", flags: "--non-zero"},
           {runs-on: n300,   sh-run: false, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n300/perf"},
           {runs-on: llmbox, sh-run: false, name: "run",  suite: "run",               image: "speedy", type: "ttrt",     path: "Silicon", flags: "--non-zero"},
           {runs-on: llmbox, sh-run: false, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/llmbox/perf"},
@@ -171,7 +171,7 @@ jobs:
           {runs-on: n150,   sh-run: false, name: "run",  suite: "op_compile",        image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_ops.py", flags: "-m \"run_error or fails_golden\"", run-ttrt: false},
           {runs-on: n150,   sh-run: false, name: "run",  suite: "model_compile",     image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_models.py", flags: "-m \"run_error or fails_golden\"", run-ttrt: false},
           {runs-on: n300,   sh-run: false, name: "run",  suite: "op_golden",         image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_ops_n300.py", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true},
-          {runs-on: llmbox, sh-run: false, name: "run",   suite: "op_golden",         image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_ops_llmbox.py", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true},
+          {runs-on: n300-llmbox, sh-run: true,  name: "run",  suite: "op_golden",         image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_ops_llmbox.py", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true},
           # Although these runtime tests are device agnostic, they depend on n150 compiled mlir artifacts
           # Therefore running these tests on n150 specifically
           {runs-on: n150,   sh-run: false, name: "run",  suite: "ttnn_runtime",      image: "speedy", type: "pytest",  path: "runtime/test/python/ttnn/device_agnostic"},
@@ -192,6 +192,10 @@ jobs:
         - /etc/udev/rules.d:/etc/udev/rules.d
         - /lib/modules:/lib/modules
         - /opt/tt_metal_infra/provisioning/provisioning_env:/opt/tt_metal_infra/provisioning/provisioning_env
+
+    env:
+      # TODO: Revisit the addition of these env vars https://github.com/tenstorrent/tt-metal/issues/20161
+      TRACY_NO_INVARIANT_CHECK: 1
 
     steps:
     - uses: actions/checkout@v4
