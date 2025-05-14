@@ -430,9 +430,6 @@ jobs:
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- FBS_GENERATION mlir-headers mlir-generic-headers tt-metal-download tt-metal-update tt-metal-configure
         python3 tools/scripts/filter-compile-commands.py --diff ${{ steps.strings.outputs.build-output-dir }}/compile_commands.json
-        # Manually remove any ttnn-standalone entries from compile_commands.json
-        jq 'map(select(.file | test("/tools/ttnn-standalone/") | not))' ${{ steps.strings.outputs.build-output-dir }}/compile_commands.json > ${{ steps.strings.outputs.build-output-dir }}/filtere_standalone_compile_commands.json
-        cat ${{ steps.strings.outputs.build-output-dir }}/filtere_standalone_compile_commands.json > ${{ steps.strings.outputs.build-output-dir }}/compile_commands.json
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- clang-tidy
 
     - name: Unique-ify clang-tidy fixes
