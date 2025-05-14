@@ -146,18 +146,19 @@ void dprint(Arg &&arg, ArgV&&... argv) {
       return;
     }
 
-#define STRINGIFY(x) #x
+    // Include the generated llk headers
+#include "experimental_tilize_llks_generated.h"
+#include "experimental_untilize_llks_generated.h"
 
-    const char *experimentalTilizeLLKs =
-#include "ttmlir/LLKs/experimental_tilize_llks.h"
-        ;
-
+    // Convert hex arrays back to strings
+    std::string experimentalTilizeLLKs(
+        reinterpret_cast<const char *>(experimental_tilize_llks_generated),
+        experimental_tilize_llks_generated_len);
     builder->create<emitc::VerbatimOp>(loc, experimentalTilizeLLKs);
 
-    const char *experimentalUntilizeLLKs =
-#include "ttmlir/LLKs/experimental_untilize_llks.h"
-        ;
-
+    std::string experimentalUntilizeLLKs(
+        reinterpret_cast<const char *>(experimental_untilize_llks_generated),
+        experimental_untilize_llks_generated_len);
     builder->create<emitc::VerbatimOp>(loc, experimentalUntilizeLLKs);
   }
 
