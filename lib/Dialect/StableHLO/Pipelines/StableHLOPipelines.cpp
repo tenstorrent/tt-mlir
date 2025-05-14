@@ -43,9 +43,24 @@ void createAutomaticShardingPipeline(
   // Propagate tensor shardings through the entire graph.
   pm.addPass(mlir::sdy::createAggressivePropagationPass());
 
+  // Apply sharding constraints
+  pm.addPass(mlir::sdy::createApplyShardingConstraintsPass());
+
+  // Convert sharding constraints to reshards
+  pm.addPass(mlir::sdy::createShardingConstraintToReshardPass());
+
+  // Insert explicit reshards
+  pm.addPass(mlir::sdy::createInsertExplicitReshardsPass());
+
   // Wrap all operations under a sdy manual computation op to allow conversion
   // from stablehlo into ttir.
   pm.addPass(createShardyWrapManualComputationPass());
+
+  // Convert reshards to collectives
+  pm.addPass(mlir::sdy::createReshardToCollectivesPass());
+
+  // Split tensor dimensions according to tensor sharding annotations.
+  pm.addPass(createUpdateAutomaticShardShapesPass());
 
   // Close tensor shardings as analysis is complete.
   pm.addPass(mlir::sdy::createCloseShardingsPass());
