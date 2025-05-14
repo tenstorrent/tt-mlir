@@ -179,5 +179,16 @@ def ConvertTTIRToLinalg: Pass<"convert-ttir-to-linalg", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::linalg::LinalgDialect"];
 }
 
+def ConvertTTIRToTosa: Pass<"convert-ttir-to-tosa", "::mlir::ModuleOp"> {
+  let summary = "Convert TTIR dialect to Tosa dialect.";
+  let description = [{
+    Conversion pass to convert TTIR ops with defined conversion pattern into tosa ops.  Partial conversion, intended to be used with --convert-ttir-to-linalg and --tosa-to-linalg-pipeline to lower completely from TTIR to linalg.
+    Example:
+    TODO
+  }];
+  let constructor = "createConvertTTIRToTosaPass()";
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::tosa::TosaDialect"];
+}
+
 
 #endif // TTMLIR_CONVERSION_PASSES
