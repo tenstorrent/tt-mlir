@@ -5,16 +5,21 @@
 #ifndef TT_RUNTIME_DETAIL_DYLIB_H
 #define TT_RUNTIME_DETAIL_DYLIB_H
 
+#include "flatbuffers/flatbuffers.h"
+#include "flatbuffers/flexbuffers.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
 
 #include <cstring>
 #include <dlfcn.h>
+#include <functional>
 #include <iostream>
+#include <stdint.h>
 #include <string>
 #include <sys/mman.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+#include <vector>
 // Linux memfd_create syscall number, if not available in <sys/mman.h>
 #ifndef MFD_CLOEXEC
 #define MFD_CLOEXEC 0x0001U
@@ -22,7 +27,7 @@
 #ifndef SYS_memfd_create
 #define SYS_memfd_create 319
 #endif
-#include <stdint.h>
+
 namespace tt::runtime::common {
 using DylibHandleMap = std::unordered_map<uint32_t, void *>;
 
@@ -34,6 +39,44 @@ struct WrappedTensor {
 };
 
 using WrappedFunc = void (*)(WrappedTensor *);
+
+// Common function to pack tensors, using std::function for the customizable
+// parts
+template <typename TensorRefType>
+std::vector<common::WrappedTensor>
+packTensors(const flatbuffers::Vector<flatbuffers::Offset<TensorRefType>> *ins,
+            const TensorRefType *out,
+            std::function<void *(const TensorRefType *)> getTensorDataPtr,
+            std::vector<std::vector<int64_t>> &allSizesAndStrides) {
+
+  allSizesAndStrides.reserve(ins->size() + 1);
+  std::vector<common::WrappedTensor> packedTensors;
+  packedTensors.reserve(ins->size());
+
+  for (size_t i = 0; i < ins->size(); ++i) {
+    auto tensorRef = ins->Get(i);
+    auto shape = tensorRef->desc()->shape();
+    const size_t rank = shape->size();
+
+    std::vector<int64_t> sizes(rank);
+    for (size_t j = 0; j < rank; ++j) {
+      sizes[j] = shape->Get(j);
+    }
+
+    std::vector<uint32_t> strides = tt::runtime::utils::calculateStride(sizes);
+    allSizesAndStrides.emplace_back(2 * rank);
+    std::copy(sizes.begin(), sizes.end(), allSizesAndStrides.back().begin());
+    std::transform(strides.begin(), strides.end(),
+                   allSizesAndStrides.back().begin() + rank,
+                   [](uint32_t s) -> int64_t { return s; });
+
+    float *rawDataPtr = static_cast<float *>(getTensorDataPtr(tensorRef));
+    packedTensors.emplace_back(rawDataPtr, rawDataPtr, 0,
+                               allSizesAndStrides.back().data());
+  }
+
+  return packedTensors;
+}
 
 // Extract sizes from a tensor reference (works with both BufferRef and
 // TensorRef)

@@ -371,36 +371,6 @@ void CQExecutor::execute(const target::metal::EventQueryCommand *command) {
               // something with the result
 }
 
-static std::vector<common::WrappedTensor> packTensors(
-    const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::BufferRef>>
-        *ins,
-    const tt::target::metal::BufferRef *out,
-    const std::unordered_map<std::uint32_t, Tensor> &tensorMap,
-    std::vector<std::vector<int64_t>> &allSizesAndStrides) {
-  allSizesAndStrides.reserve(ins->size());
-  std::vector<common::WrappedTensor> packedTensors;
-  packedTensors.reserve(ins->size());
-
-  for (size_t i = 0; i < ins->size(); ++i) {
-    const auto *tensorRef = ins->Get(i);
-    auto it = tensorMap.find(tensorRef->global_id());
-    LOG_ASSERT(it != tensorMap.end(),
-               "Cannot invoke cpu op on tensor which is not in cpu tensors.");
-    const Tensor &tens = it->second;
-
-    const std::vector<int64_t> sizes =
-        tt::runtime::common::extractSizes(tensorRef);
-    tt::runtime::common::prepareSizesAndStrides(sizes, allSizesAndStrides);
-
-    float *rawDataPtr = static_cast<float *>(tens.data.get());
-
-    packedTensors.push_back(common::WrappedTensor{
-        rawDataPtr, rawDataPtr, 0, allSizesAndStrides[i].data()});
-  }
-
-  return packedTensors;
-}
-
 void CQExecutor::execute(const target::metal::MemrefCopyCommand *command) {
   auto srcIt = hostBuffers.find(command->src()->global_id());
   LOG_ASSERT(srcIt != hostBuffers.end());
@@ -411,8 +381,19 @@ void CQExecutor::execute(const target::metal::MemrefCopyCommand *command) {
 
 void CQExecutor::execute(const target::metal::CpuCommand *command) {
   std::vector<std::vector<int64_t>> allSizesAndStrides;
-  auto packedInputs = packTensors(command->ins(), command->out(), hostBuffers,
-                                  allSizesAndStrides);
+  auto dataFuncPtr =
+      std::function<void *(const tt::target::metal::BufferRef *)>(
+          [this](const tt::target::metal::BufferRef *ref) -> void * {
+            auto it = hostBuffers.find(ref->global_id());
+            LOG_ASSERT(
+                it != hostBuffers.end(),
+                "Cannot invoke cpu op on tensor which is not in cpu tensors.");
+            const Tensor &tens = it->second;
+            return tens.data.get();
+          });
+
+  auto packedInputs = tt::runtime::common::packTensors(
+      command->ins(), command->out(), dataFuncPtr, allSizesAndStrides);
 
   common::WrappedFunc func =
       dylibManager.getFunc(command->dylib_id(), command->func_name()->c_str());

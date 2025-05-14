@@ -1325,7 +1325,6 @@ hoisted_binary_ops = [
     create_hoisted_binary_op(subtract, "subtract"),
     create_hoisted_binary_op(div, "div"),
     create_hoisted_binary_op(pow, "pow"),
-    # create_hoisted_permute_op(permute, "permute"),
 ]
 
 hoisted_ternary_ops = [
