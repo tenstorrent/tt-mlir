@@ -6,10 +6,11 @@ declare_mlir_python_sources(TTIRBuilderSources
   ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
   ADD_TO_PARENT TTIRBuilder
   SOURCES
+    __init__.py
     ccl_golden.py
     test_optimizer_overrides.py
-    test_utils.py
-    ttir_builder.py
+    utils.py
+    builder.py
 )
 
 add_mlir_python_modules(TTIRBuilderModules

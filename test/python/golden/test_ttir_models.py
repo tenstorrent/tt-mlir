@@ -6,8 +6,8 @@ import torch
 import pytest
 from typing import List
 
-from ttir_builder.test_utils import compile_to_flatbuffer
-from ttir_builder.ttir_builder import Operand, TTIRBuilder, Shape
+from ttir_builder.utils import compile_to_flatbuffer
+from ttir_builder import Operand, TTIRBuilder, Shape
 
 
 @pytest.mark.parametrize("shapes", [[(32, 32), (32, 32), (32, 32)]], ids=["32x32"])
