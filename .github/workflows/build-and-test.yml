@@ -301,6 +301,7 @@ jobs:
         pytest ${{ matrix.build.path }} ${{ matrix.build.flags }} -v --junit-xml=${{ steps.strings.outputs.test_report_path }}
         if [[ "${{ matrix.build.run-ttrt }}" == "true" ]]; then
           ttrt run ttnn/
+          ttrt run ttmetal/
         fi
 
 
