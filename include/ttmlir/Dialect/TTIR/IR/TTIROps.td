@@ -456,8 +456,10 @@ class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
       Eltwise unary op.
     }];
 
-    let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output);
+    dag commonArgs = (ins AnyRankedTensor:$input,
+                          AnyRankedTensor:$output);
+
+    let arguments = commonArgs;
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -642,6 +644,9 @@ def TTIR_TypecastOp: TTIR_ElementwiseUnaryOp<"typecast"> {
     let description = [{
       Eltwise cast operation.
     }];
+
+    let arguments = !con(commonArgs,
+                         (ins DefaultValuedAttr<BoolAttr, "false">:$conservative_folding));
 
     let hasFolder = 1;
     let hasCanonicalizeMethod = 1;

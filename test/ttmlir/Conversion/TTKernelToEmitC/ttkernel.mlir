@@ -79,6 +79,24 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @typecast_tile_init
+    func.func @typecast_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "typecast_tile_init"() : () -> ()
+      "ttkernel.typecast_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @typecast_tile
+    func.func @typecast_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: emitc.call_opaque "typecast_tile"(%[[DST0_INDEX]]) {template_args =
+      // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Float32)">
+      // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Float16_b)">
+      "ttkernel.typecast_tile"(%dst0_index) <{in_dtype = #tt.supportedDataTypes<f32>, out_dtype = #tt.supportedDataTypes<bf16>}> : (i32) -> ()
+      return
+    }
+
   } // module
 
   //===----------------------------------------------------------------------===//

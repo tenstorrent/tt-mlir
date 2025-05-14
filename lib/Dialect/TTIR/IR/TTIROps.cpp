@@ -1969,6 +1969,48 @@ mlir::OpFoldResult mlir::tt::ttir::TypecastOp::fold(FoldAdaptor adaptor) {
   return {};
 }
 
+namespace {
+
+bool isNarrowingConversion(const ::mlir::tt::DataType srcDtype,
+                           const ::mlir::tt::DataType dstDtype) {
+  const bool srcIsFloat = isFloat(srcDtype);
+  const bool dstIsFloat = isFloat(dstDtype);
+  const auto srcNumberOfBits = getNumberOfBits(srcDtype);
+  const auto dstNumberOfBits = getNumberOfBits(dstDtype);
+
+  if (srcIsFloat && !dstIsFloat) {
+    return true;
+  }
+
+  if (srcIsFloat && dstIsFloat) {
+    const auto srcExponentSize = getExponentSize(srcDtype);
+    const auto dstExponentSize = getExponentSize(dstDtype);
+    const auto srcMantissaSize = getMantissaSize(srcDtype);
+    const auto dstMantissaSize = getMantissaSize(dstDtype);
+    return srcExponentSize > dstExponentSize ||
+           srcMantissaSize > dstMantissaSize;
+  }
+
+  // With the same number of bits, the FP type has bigger range but lost too
+  // much precision when representing the integer type
+  if (!srcIsFloat && dstIsFloat) {
+    return srcNumberOfBits >= dstNumberOfBits;
+  }
+
+  assert(!srcIsFloat && !dstIsFloat);
+  const auto srcIsSigned = isSignedInteger(srcDtype);
+  const auto dstIsSigned = isSignedInteger(dstDtype);
+  if (srcIsSigned == dstIsSigned) {
+    return srcNumberOfBits > dstNumberOfBits;
+  }
+  if (!srcIsSigned && dstIsSigned) {
+    return srcNumberOfBits >= dstNumberOfBits;
+  }
+  return false;
+}
+
+} // namespace
+
 // TypecastOp canonicalization method
 ::llvm::LogicalResult
 mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
@@ -1979,6 +2021,39 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
 
   if (!producerOp) {
     return mlir::failure();
+  }
+
+  const bool conservativeFolding =
+      op.getConservativeFolding() || producerOp.getConservativeFolding();
+
+  if (conservativeFolding) {
+    // Disable folding if it has the potential to cause too much numerical
+    // differences.
+    auto dtypeA = elementTypeToDataType(
+        mlir::cast<mlir::RankedTensorType>(producerOp->getOperand(0).getType())
+            .getElementType());
+    auto dtypeB = elementTypeToDataType(
+        mlir::cast<mlir::RankedTensorType>(op->getOperand(0).getType())
+            .getElementType());
+    auto dtypeC = elementTypeToDataType(
+        mlir::cast<mlir::RankedTensorType>(op->getResult(0).getType())
+            .getElementType());
+
+    assert(dtypeB ==
+           elementTypeToDataType(mlir::cast<mlir::RankedTensorType>(
+                                     producerOp->getResult(0).getType())
+                                     .getElementType()));
+
+    // If the 1st Op is narrowing and the 2nd Op is widening, we shouldn't fold.
+    // FP->Int->FP is special and should never fold, due to its truncation
+    // semantics and application in QDQ models.
+    const bool isNarrowingProducer = isNarrowingConversion(dtypeA, dtypeB);
+    const bool isNarrowingConsumer = isNarrowingConversion(dtypeB, dtypeC);
+    const bool isFpIntFp =
+        isFloat(dtypeA) && !isFloat(dtypeB) && isFloat(dtypeC);
+    if (isFpIntFp || (isNarrowingProducer && !isNarrowingConsumer)) {
+      return mlir::failure();
+    }
   }
 
   ttir::utils::replaceOpWithNewDPSOp<ttir::TypecastOp>(
