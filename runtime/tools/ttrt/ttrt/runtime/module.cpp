@@ -258,13 +258,24 @@ PYBIND11_MODULE(_C, m) {
       },
       py::arg("tensors"));
   m.def(
+      "get_op_output_tensor",
+      [](tt::runtime::OpContext &opContextHandle,
+          tt::runtime::CallbackContext &programContextHandle) {
+        tt::runtime::Tensor tensor = tt::runtime::getOpOutputTensor(
+            opContextHandle, programContextHandle);
+        return tensor.handle.get() == nullptr
+                    ? std::nullopt
+                    : std::optional<tt::runtime::Tensor>(tensor);
+      },
+      "Get the output tensor of the op");
+  m.def(
       "get_op_output_tensor_ref",
       [](tt::runtime::OpContext &opContextHandle,
          tt::runtime::CallbackContext &programContextHandle) {
         return tt::runtime::getOpOutputRef(opContextHandle,
                                            programContextHandle);
       },
-      "Get the output tensor of the op");
+      "Get the reference to the output tensor");
   m.def("get_op_input_tensor_refs",
         [](tt::runtime::OpContext &opContextHandle,
            tt::runtime::CallbackContext &programContextHandle) {

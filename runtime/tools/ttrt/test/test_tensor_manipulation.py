@@ -12,6 +12,7 @@ from ttrt.common.util import Artifacts as RtArtifacts
 from ttrt.runtime import (
     DebugHooks,
     get_op_debug_str,
+    get_op_output_tensor,
     get_op_output_tensor_ref,
     get_op_input_tensor_refs,
     get_tensor,
@@ -19,8 +20,22 @@ from ttrt.runtime import (
     memcpy,
     create_tensor,
 )
-from ttir2torch import DTYPE_TO_TORCH_DTYPE
 
+DTYPE_TO_TORCH_DTYPE = {
+    DataType.Float32: torch.float32,
+    DataType.Float16: torch.float16,
+    DataType.BFloat16: torch.bfloat16,
+    # DataType.BFP_Float8
+    # DataType.BFP_BFloat8
+    # DataType.BFP_Float4
+    # DataType.BFP_BFloat4
+    # DataType.BFP_Float2
+    # DataType.BFP_BFloat2
+    DataType.UInt32: torch.uint32,
+    DataType.UInt16: torch.uint16,
+    DataType.UInt8: torch.uint8,
+    DataType.Int32: torch.int32,
+}
 
 def get_torch_tensor(tensor):
     rt_data_ptr = tensor.get_data_buffer()
@@ -81,11 +96,7 @@ out_counter = 0
 
 def postop(binary, programContext, opContext):
     global out_counter
-    tensor_ref = get_op_output_tensor_ref(opContext, programContext)
-    if tensor_ref is None:
-        return
-    tensor = get_tensor(programContext, tensor_ref)
-
+    tensor = get_op_output_tensor(opContext, programContext)
     torch_tensor = get_torch_tensor(tensor)
     print(torch_tensor)
     if out_counter in check_out_tensors:

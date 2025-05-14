@@ -35,6 +35,7 @@ try:
         to_host,
         to_layout,
         get_layout,
+        get_op_output_tensor,
         get_op_output_tensor_ref,
         get_op_input_tensor_refs,
         get_tensor,
