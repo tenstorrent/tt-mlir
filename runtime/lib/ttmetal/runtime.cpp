@@ -206,8 +206,6 @@ void dumpDeviceProfileResults(Device deviceHandle) {
 
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
   for (auto *metalDevice : metalMeshDevice.get_devices()) {
-    std::cout << "Dumping profile results for device " << metalDevice
-              << std::endl;
     ::tt::tt_metal::detail::DumpDeviceProfileResults(metalDevice);
   }
 #endif
