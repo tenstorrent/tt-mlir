@@ -57,6 +57,10 @@ void createTTNNPipelineTTIRPasses(
 
 void createTTNNPipelineAnalysisPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  // Add pass to check for unique operation locations if enabled
+  if (options.checkUniqueOpLocations) {
+    pm.addPass(mlir::tt::ttnn::createTTNNUniqueOpLocations());
+  }
   if (options.optimizerPassEnabled) {
     ttnn::TTNNOptimizerOptions optimizerOptions;
     optimizerOptions.overrideInputLayout = options.overrideInputLayout;
