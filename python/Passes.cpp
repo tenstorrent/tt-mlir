@@ -99,7 +99,7 @@ void populatePassesModule(nb::module_ &m) {
         mlir::MLIRContext *ctx = unwrap(mlirModuleGetContext(module));
         ctx->appendDialectRegistry(registry);
         const auto *pipeline =
-            mlir::PassPipelineInfo::lookup("ttir-to-ttmetal-backend-pipeline");
+            mlir::PassPipelineInfo::lookup("ttir-to-ttmetal-pipeline");
         std::function<mlir::LogicalResult(const llvm::Twine &)> err_handler =
             [](const llvm::Twine &) { return mlir::failure(); };
         if (mlir::failed(pipeline->addToPipeline(pm, options, err_handler))) {
