@@ -5,8 +5,8 @@ import torch
 import pytest
 
 from typing import List, Tuple
-from test_infra.test_utils import compile_to_flatbuffer
-from test_infra.ttir_builder import Operand, TTIRBuilder, Shape
+from ttir_builder.test_utils import compile_to_flatbuffer
+from ttir_builder.ttir_builder import Operand, TTIRBuilder, Shape
 
 pytestmark = pytest.mark.llmbox
 
