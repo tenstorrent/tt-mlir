@@ -13,8 +13,8 @@ from ttrt.runtime import (
     DebugHooks,
     get_op_debug_str,
     get_op_output_tensor,
-    get_op_output_tensor_ref,
-    get_op_input_tensor_refs,
+    get_op_output_ref,
+    get_op_input_refs,
     get_tensor,
     update_tensor,
     memcpy,
@@ -78,7 +78,7 @@ in_counter = 0
 
 def preop(binary, programContext, opContext):
     global in_counter
-    tensor_refs = get_op_input_tensor_refs(opContext, programContext)
+    tensor_refs = get_op_input_refs(opContext, programContext)
 
     for ref in tensor_refs:
         tensor = get_tensor(programContext, ref)
