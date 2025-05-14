@@ -103,16 +103,17 @@ void createTTIRToTTMetalPipeline(
   pm.addPass(tt::createTTWrapDeviceModulePass());
   // Create CPUModuleOp to wrap hoisted ops (if any).
   pm.addPass(ttir::createTTIRHoistTransform());
+
+  // Run regular ttir to ttmetal pipelines on IR in DeviceModule.
   OpPassManager &devicePm =
       pm.nest<tt::DeviceModuleOp>().nest<mlir::ModuleOp>();
   createTTIRToTTMetalFrontendPipeline(devicePm, options);
   createTTIRToTTMetalMiddleendPipeline(devicePm, options);
   createTTIRToTTMetalBackendPipeline(devicePm, options);
-  OpPassManager &cpuPm = pm.nest<tt::CPUModuleOp>().nest<mlir::ModuleOp>();
-  cpuPm.addPass(createConvertTTIRToLinalgPass());
+
+  // Run lowering to LLVM pass on hoisted funcs in CPUModule.
   ttir::LinalgToLLVMPipelineOptions linalgToLLVMOptions;
-  ttir::createLinalgToLLVMPipeline(cpuPm, linalgToLLVMOptions);
-  cpuPm.addPass(llvm_util::createLLVMEmitCallingConventionWrapperFuncs());
+  ttir::createTTIRToCPUPipeline(pm, linalgToLLVMOptions);
 }
 
 //===----------------------------------------------------------------------===//
