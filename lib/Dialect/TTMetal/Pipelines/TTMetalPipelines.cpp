@@ -6,7 +6,9 @@
 
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
+#include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 #include "ttmlir/Dialect/TT/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
 
@@ -108,8 +110,8 @@ void createTTIRToTTMetalPipeline(
   createTTIRToTTMetalBackendPipeline(devicePm, options);
   OpPassManager &cpuPm = pm.nest<tt::CPUModuleOp>().nest<mlir::ModuleOp>();
   cpuPm.addPass(createConvertTTIRToLinalgPass());
-  ttir::LinalgToLLVMPipelineOptions linalgToLLLVMOptions;
-  ttir::createLinalgToLLVMPipeline(cpuPm, linalgToLLLVMOptions);
+  ttir::LinalgToLLVMPipelineOptions linalgToLLVMOptions;
+  ttir::createLinalgToLLVMPipeline(cpuPm, linalgToLLVMOptions);
   cpuPm.addPass(llvm_util::createLLVMEmitCallingConventionWrapperFuncs());
 }
 
