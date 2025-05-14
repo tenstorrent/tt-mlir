@@ -644,6 +644,19 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   return std::string(opContext.loc_info()->c_str());
 }
 
+Tensor getOpOutputTensor(OpContext opContextHandle,
+                         CallbackContext programContextHandle) {
+  auto tensorRef = getOpOutputRef(opContextHandle, programContextHandle);
+  if (!tensorRef.has_value()) {
+    return createNullTensor();
+  }
+  auto tensor = getTensor(programContextHandle, tensorRef.value());
+  if (!tensor.has_value()) {
+    return createNullTensor();
+  }
+  return tensor.value();
+}
+
 std::optional<tt::runtime::TensorRef>
 getOpOutputRef(OpContext opContextHandle,
                CallbackContext programContextHandle) {
@@ -1060,19 +1073,6 @@ getOpInputRefs(OpContext opContextHandle,
     rtTensorRefs.emplace_back(utils::createRuntimeTensorRefFromTTNN(ref));
   }
   return rtTensorRefs;
-}
-
-Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle) {
-  auto tensorRef = getOpOutputRef(opContextHandle, programContextHandle);
-  if (!tensorRef.has_value()) {
-    return createNullTensor();
-  }
-  auto tensor = getTensor(programContextHandle, tensorRef.value());
-  if (!tensor.has_value()) {
-    return createNullTensor();
-  }
-  return tensor.value();
 }
 
 std::optional<Tensor> getTensor(CallbackContext programContextHandle,

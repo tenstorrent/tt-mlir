@@ -19,6 +19,7 @@ from ttrt.runtime import (
     update_tensor,
     memcpy,
     create_tensor,
+    DataType,
 )
 
 DTYPE_TO_TORCH_DTYPE = {
@@ -36,6 +37,7 @@ DTYPE_TO_TORCH_DTYPE = {
     DataType.UInt8: torch.uint8,
     DataType.Int32: torch.int32,
 }
+
 
 def get_torch_tensor(tensor):
     rt_data_ptr = tensor.get_data_buffer()
@@ -97,6 +99,8 @@ out_counter = 0
 def postop(binary, programContext, opContext):
     global out_counter
     tensor = get_op_output_tensor(opContext, programContext)
+    if tensor is None:
+        return
     torch_tensor = get_torch_tensor(tensor)
     print(torch_tensor)
     if out_counter in check_out_tensors:

@@ -260,12 +260,12 @@ PYBIND11_MODULE(_C, m) {
   m.def(
       "get_op_output_tensor",
       [](tt::runtime::OpContext &opContextHandle,
-          tt::runtime::CallbackContext &programContextHandle) {
+         tt::runtime::CallbackContext &programContextHandle) {
         tt::runtime::Tensor tensor = tt::runtime::getOpOutputTensor(
             opContextHandle, programContextHandle);
         return tensor.handle.get() == nullptr
-                    ? std::nullopt
-                    : std::optional<tt::runtime::Tensor>(tensor);
+                   ? std::nullopt
+                   : std::optional<tt::runtime::Tensor>(tensor);
       },
       "Get the output tensor of the op");
   m.def(
