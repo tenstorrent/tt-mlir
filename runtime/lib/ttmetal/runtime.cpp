@@ -344,7 +344,7 @@ std::string getOpLocInfo(OpContext opContextHandle) {
 }
 
 Tensor getOpOutputTensor(OpContext opContextHandle,
-  CallbackContext programContextHandle) {
+                         CallbackContext programContextHandle) {
   // Not implemented
   LOG_WARNING("obtaining op output tensor for metal runtime not implemented");
   return createNullTensor();
@@ -352,7 +352,7 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
 
 std::optional<tt::runtime::TensorRef>
 getOpOutputRef(OpContext opContextHandle,
-                  CallbackContext programContextHandle) {
+               CallbackContext programContextHandle) {
   // Not implemented
   LOG_WARNING("obtaining op output tensor for metal runtime not implemented");
   return std::nullopt;
@@ -360,20 +360,21 @@ getOpOutputRef(OpContext opContextHandle,
 
 std::vector<tt::runtime::TensorRef>
 getOpInputRefs(OpContext opContextHandle,
-                  CallbackContext programContextHandle) {
+               CallbackContext programContextHandle) {
   // Not implemented
   LOG_WARNING("obtaining op output tensor for metal runtime not implemented");
   return {};
 }
 
-std::optional<Tensor>
-getTensor(CallbackContext programContextHandle, TensorRef tensorRef) {
+std::optional<Tensor> getTensor(CallbackContext programContextHandle,
+                                TensorRef tensorRef) {
   // Not implemented
   LOG_WARNING("obtaining tensor for metal runtime not implemented");
   return std::nullopt;
 }
 
-void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef, Tensor srcTensor) {
+void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef,
+                  Tensor srcTensor) {
   // Not implemented
   LOG_WARNING("obtaining tensor for metal runtime not implemented");
   return;

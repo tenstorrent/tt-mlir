@@ -262,30 +262,29 @@ PYBIND11_MODULE(_C, m) {
       [](tt::runtime::OpContext &opContextHandle,
          tt::runtime::CallbackContext &programContextHandle) {
         return tt::runtime::getOpOutputRef(opContextHandle,
-                                              programContextHandle);
+                                           programContextHandle);
       },
       "Get the output tensor of the op");
-  m.def(
-      "get_op_input_tensor_refs",
-      [](tt::runtime::OpContext &opContextHandle,
-        tt::runtime::CallbackContext &programContextHandle) {
+  m.def("get_op_input_tensor_refs",
+        [](tt::runtime::OpContext &opContextHandle,
+           tt::runtime::CallbackContext &programContextHandle) {
           return tt::runtime::getOpInputRefs(opContextHandle,
-            programContextHandle);}
-  );
+                                             programContextHandle);
+        });
   m.def(
-    "get_tensor",
-    [](tt::runtime::CallbackContext programContextHandle,
-       tt::runtime::TensorRef tensorRef) {
-      return tt::runtime::getTensor(programContextHandle, tensorRef);
-    },
+      "get_tensor",
+      [](tt::runtime::CallbackContext programContextHandle,
+         tt::runtime::TensorRef tensorRef) {
+        return tt::runtime::getTensor(programContextHandle, tensorRef);
+      },
 
-  "Get the tensor that corresponds to the tensor ref");
-  m.def(
-    "update_tensor",
-    [](tt::runtime::CallbackContext programContextHandle, tt::runtime::TensorRef tensorRefHandle, tt::runtime::Tensor tensorHandle) {
-      return tt::runtime::updateTensor(programContextHandle, tensorRefHandle, tensorHandle);
-    }
-  );
+      "Get the tensor that corresponds to the tensor ref");
+  m.def("update_tensor", [](tt::runtime::CallbackContext programContextHandle,
+                            tt::runtime::TensorRef tensorRefHandle,
+                            tt::runtime::Tensor tensorHandle) {
+    return tt::runtime::updateTensor(programContextHandle, tensorRefHandle,
+                                     tensorHandle);
+  });
   m.def("get_op_debug_str", &tt::runtime::getOpDebugString,
         "Get the debug string of the op");
   m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,

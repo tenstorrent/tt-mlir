@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import ttmlir
 import torch
 from ttrt.runtime import DataType
@@ -16,7 +19,7 @@ DTYPE_TO_TORCH_DTYPE = {
     DataType.Float32: torch.float32,
     DataType.Float16: torch.float16,
     DataType.BFloat16: torch.bfloat16,
-    # DataType.BFP_Float8 
+    # DataType.BFP_Float8
     # DataType.BFP_BFloat8
     # DataType.BFP_Float4
     # DataType.BFP_BFloat4

@@ -65,8 +65,8 @@ std::vector<const tt::target::ttnn::TensorRef *> convertFbTensorRefsToVector(
 ::tt::runtime::Tensor createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor,
                                                   bool retain = false);
 
-::tt::runtime::TensorRef createRuntimeTensorRefFromTTNN(
-    const ::tt::target::ttnn::TensorRef *tensorRef);
+::tt::runtime::TensorRef
+createRuntimeTensorRefFromTTNN(const ::tt::target::ttnn::TensorRef *tensorRef);
 
 void *getRawHostDataPtr(const ::ttnn::Tensor &tensor);
 

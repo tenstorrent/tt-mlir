@@ -271,15 +271,17 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
                                nullptr, DeviceRuntime::TTNN);
 }
 
-::tt::runtime::TensorRef createRuntimeTensorRefFromTTNN(
-    const ::tt::target::ttnn::TensorRef * tensorRef) {
-      auto tensorRefPtr = std::shared_ptr<tt::target::ttnn::TensorRef>(const_cast<::tt::target::ttnn::TensorRef *>(tensorRef), [](auto p){});
-      return tt::runtime::TensorRef(std::static_pointer_cast<void>(tensorRefPtr), DeviceRuntime::TTNN);
+::tt::runtime::TensorRef
+createRuntimeTensorRefFromTTNN(const ::tt::target::ttnn::TensorRef *tensorRef) {
+  auto tensorRefPtr = std::shared_ptr<tt::target::ttnn::TensorRef>(
+      const_cast<::tt::target::ttnn::TensorRef *>(tensorRef), [](auto p) {});
+  return tt::runtime::TensorRef(std::static_pointer_cast<void>(tensorRefPtr),
+                                DeviceRuntime::TTNN);
 }
 
 std::vector<const tt::target::ttnn::TensorRef *> convertFbTensorRefsToVector(
-  const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
-      *fbVector) {
+    const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
+        *fbVector) {
   std::vector<const tt::target::ttnn::TensorRef *> stdVector;
   if (!fbVector) {
     return stdVector;

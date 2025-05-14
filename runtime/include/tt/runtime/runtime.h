@@ -178,20 +178,19 @@ std::string getOpDebugString(OpContext opContextHandle);
 std::string getOpLocInfo(OpContext opContextHandle);
 
 Tensor getOpOutputTensor(OpContext opContextHandle,
-                      CallbackContext programContextHandle);
+                         CallbackContext programContextHandle);
 
-std::optional<TensorRef>
-getOpOutputRef(OpContext opContextHandle,
-                  CallbackContext programContextHandle);
+std::optional<TensorRef> getOpOutputRef(OpContext opContextHandle,
+                                        CallbackContext programContextHandle);
 
-std::vector<TensorRef>
-getOpInputRefs(OpContext opContextHandle,
-                     CallbackContext programContextHandle);
+std::vector<TensorRef> getOpInputRefs(OpContext opContextHandle,
+                                      CallbackContext programContextHandle);
 
-std::optional<Tensor>
-getTensor(CallbackContext programContextHandle, TensorRef tensorRef);
+std::optional<Tensor> getTensor(CallbackContext programContextHandle,
+                                TensorRef tensorRef);
 
-void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef, Tensor srcTensor);
+void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef,
+                  Tensor srcTensor);
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import ttrt
 import ttmlir
 import torch
@@ -19,7 +22,6 @@ from ttrt.runtime import (
 from ttir2torch import DTYPE_TO_TORCH_DTYPE
 
 
-
 def get_torch_tensor(tensor):
     rt_data_ptr = tensor.get_data_buffer()
     rt_dtype = tensor.get_dtype()
@@ -30,6 +32,7 @@ def get_torch_tensor(tensor):
 
     return torch_tensor
 
+
 def update_device_tensor(program_context, tensor_ref, dst_tensor, src_tensor):
     data_ptr = src_tensor.data_ptr()
     shape = dst_tensor.get_shape()
@@ -38,6 +41,7 @@ def update_device_tensor(program_context, tensor_ref, dst_tensor, src_tensor):
     size = torch.numel(src_tensor)
     tensor = create_tensor(data_ptr, shape, stride, size, dtype)
     update_tensor(program_context, tensor_ref, tensor)
+
 
 check_in_tensors = {
     0: torch.ones([10, 10]),
@@ -50,12 +54,12 @@ check_in_tensors = {
     7: torch.ones([10]),
 }
 
-update_in_tensors = {
-    4: torch.ones([10, 10]) * 20
-}
+update_in_tensors = {4: torch.ones([10, 10]) * 20}
 
 in_counter = 0
-def preop(binary, programContext, opContext):    
+
+
+def preop(binary, programContext, opContext):
     global in_counter
     tensor_refs = get_op_input_tensor_refs(opContext, programContext)
 
@@ -65,14 +69,16 @@ def preop(binary, programContext, opContext):
         if in_counter in check_in_tensors:
             assert torch.all(torch_tensor == check_in_tensors[in_counter])
         if in_counter in update_in_tensors:
-            update_device_tensor(programContext, ref, tensor, update_in_tensors[in_counter])
+            update_device_tensor(
+                programContext, ref, tensor, update_in_tensors[in_counter]
+            )
         in_counter += 1
 
-check_out_tensors = {
-    0: torch.ones([10, 10]) * 10,
-    1: torch.ones([10, 10]) * 21
-}
+
+check_out_tensors = {0: torch.ones([10, 10]) * 10, 1: torch.ones([10, 10]) * 21}
 out_counter = 0
+
+
 def postop(binary, programContext, opContext):
     global out_counter
     tensor_ref = get_op_output_tensor_ref(opContext, programContext)
@@ -85,7 +91,8 @@ def postop(binary, programContext, opContext):
     if out_counter in check_out_tensors:
         assert torch.all(torch_tensor == check_out_tensors[out_counter])
     out_counter += 1
-    
+
+
 flatbuffer_path = "/localdev/ndrakulic/chisel/linear/fb.ttnn"
 output_dir = "./dump"
 args = {
@@ -94,13 +101,9 @@ args = {
     "--init": "ones",
 }
 rt_logger = RtLogger()
-rt_artifacts = RtArtifacts(
-    logger=rt_logger, artifacts_folder_path=str(output_dir)
-)
+rt_artifacts = RtArtifacts(logger=rt_logger, artifacts_folder_path=str(output_dir))
 RtApi.initialize_apis()
-rt_api = RtApi.Run(
-    args=args, logger=rt_logger, artifacts=rt_artifacts
-)
+rt_api = RtApi.Run(args=args, logger=rt_logger, artifacts=rt_artifacts)
 
 callback_env_pre = DebugHooks.get(preop, postop)
 result_code, results = rt_api()

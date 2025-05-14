@@ -711,7 +711,7 @@ std::string getOpLocInfo(OpContext opContextHandle) {
 }
 
 Tensor getOpOutputTensor(OpContext opContextHandle,
-                  CallbackContext programContextHandle) {
+                         CallbackContext programContextHandle) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
     return ::tt::runtime::ttnn::getOpOutputTensor(opContextHandle,
@@ -730,18 +730,18 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
 
 std::optional<tt::runtime::TensorRef>
 getOpOutputRef(OpContext opContextHandle,
-                  CallbackContext programContextHandle) {
+               CallbackContext programContextHandle) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
     return ::tt::runtime::ttnn::getOpOutputRef(opContextHandle,
-                                                  programContextHandle);
+                                               programContextHandle);
   }
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
     return ::tt::runtime::ttmetal::getOpOutputRef(opContextHandle,
-                                                     programContextHandle);
+                                                  programContextHandle);
   }
 #endif
   LOG_FATAL("runtime is not enabled");
@@ -749,24 +749,25 @@ getOpOutputRef(OpContext opContextHandle,
 
 std::vector<tt::runtime::TensorRef>
 getOpInputRefs(OpContext opContextHandle,
-                  CallbackContext programContextHandle) {
+               CallbackContext programContextHandle) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
     return ::tt::runtime::ttnn::getOpInputRefs(opContextHandle,
-                                                  programContextHandle);
+                                               programContextHandle);
   }
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
     return ::tt::runtime::ttmetal::getOpInputRefs(opContextHandle,
-                                                     programContextHandle);
+                                                  programContextHandle);
   }
 #endif
   LOG_FATAL("runtime is not enabled");
 }
 
-std::optional<Tensor> getTensor(CallbackContext programContextHandle, TensorRef tensorRef) {
+std::optional<Tensor> getTensor(CallbackContext programContextHandle,
+                                TensorRef tensorRef) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
     return ::tt::runtime::ttnn::getTensor(programContextHandle, tensorRef);
@@ -781,20 +782,23 @@ std::optional<Tensor> getTensor(CallbackContext programContextHandle, TensorRef 
   LOG_FATAL("runtime is not enabled");
 }
 
-void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef, Tensor srcTensor) {
-  #if defined(TT_RUNTIME_ENABLE_TTNN)
-    if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-      return ::tt::runtime::ttnn::updateTensor(programContextHandle, tensorRef, srcTensor);
-    }
-  #endif
-  
-  #if defined(TT_RUNTIME_ENABLE_TTMETAL)
-    if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-      return ::tt::runtime::ttmetal::updateTensor(programContextHandle, tensorRef, srcTensor);
-    }
-  #endif
-    LOG_FATAL("runtime is not enabled");
+void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef,
+                  Tensor srcTensor) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::updateTensor(programContextHandle, tensorRef,
+                                             srcTensor);
   }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::updateTensor(programContextHandle, tensorRef,
+                                                srcTensor);
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,

@@ -175,20 +175,19 @@ std::string getOpDebugString(OpContext opContextHandle);
 std::string getOpLocInfo(OpContext opContextHandle);
 
 ::tt::runtime::Tensor getOpOutputTensor(OpContext opContextHandle,
-    CallbackContext programContextHandle);
+                                        CallbackContext programContextHandle);
 
 std::optional<tt::runtime::TensorRef>
-getOpOutputRef(OpContext opContextHandle,
-                  CallbackContext programContextHandle);
+getOpOutputRef(OpContext opContextHandle, CallbackContext programContextHandle);
 
 std::vector<tt::runtime::TensorRef>
-getOpInputRefs(OpContext opContextHandle,
-    CallbackContext programContextHandle);
+getOpInputRefs(OpContext opContextHandle, CallbackContext programContextHandle);
 
-std::optional<Tensor>
-getTensor(CallbackContext programContextHandle, tt::runtime::TensorRef tensorRef);
+std::optional<Tensor> getTensor(CallbackContext programContextHandle,
+                                tt::runtime::TensorRef tensorRef);
 
-void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef, Tensor srcTensor);
+void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef,
+                  Tensor srcTensor);
 
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
