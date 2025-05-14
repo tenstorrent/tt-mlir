@@ -830,6 +830,7 @@ std::string getOpLocInfo(OpContext opContextHandle) {
     tensorRef = opContext.type_as_UpdateCacheOp()->cache();
     break;
   }
+  case ::tt::target::ttnn::OpType::LoadCacheOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
   case ::tt::target::ttnn::OpType::DeallocateOp: {
     LOG_WARNING("getting output tensor is not supported for ",
