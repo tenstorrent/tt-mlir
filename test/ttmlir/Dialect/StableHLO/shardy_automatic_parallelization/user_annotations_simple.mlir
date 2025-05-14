@@ -102,3 +102,14 @@ func.func public @logical_and(%arg0: tensor<32x32xi1> {sdy.sharding = #sdy.shard
 // CHECK: sdy.manual_computation(%arg0, %arg1) in_shardings=[<@mesh, [{"batch"}, {}]>, <@mesh, [{"batch"}, {}]>] out_shardings=[<@mesh, [{"batch"}, {}]>]
 // CHECK: %1 = stablehlo.and %arg2, %arg3 : tensor<16x32xi1>
 // CHECK: sdy.return %1 : tensor<16x32xi1>
+
+func.func public @multiple_output(%arg0: tensor<64x128xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"batch"}, {"model"}]>}) -> (tensor<64x128xf32>, tensor<64x128xf32>) {
+  %0 = stablehlo.cbrt %arg0 : tensor<64x128xf32>
+  %1 = stablehlo.cbrt %arg0 : tensor<64x128xf32>
+  return %0, %1 : tensor<64x128xf32>, tensor<64x128xf32>
+}
+
+// CHECK: sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"batch"}, {"model"}]>] out_shardings=[<@mesh, [{"batch"}, {"model"}]>, <@mesh, [{"batch"}, {"model"}]>]
+// CHECK: %1 = stablehlo.cbrt %arg1 : tensor<32x128xf32>
+// CHECK: %2 = stablehlo.cbrt %arg1 : tensor<32x128xf32>
+// CHECK: sdy.return %1, %2 : tensor<32x128xf32>, tensor<32x128xf32>
