@@ -13,6 +13,7 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -81,7 +82,62 @@ static Value getLoadIndex(Value tile) {
   return loadOp.getIndices().front();
 }
 
+// This function finds the loop variables that are not used in the computation
+// of the copy tile index. These represent the loop variables that loop over the
+// inner dimension of the tensor. They may not be the innermost loops in the IR.
+static llvm::SmallVector<Value>
+findInnerTensorDimLoopVars(PatternRewriter &rewriter, memref::LoadOp loadOp) {
+  auto loopVars = llvm::SmallVector<Value>();
+
+  // Find all loop variables that are parents of the load operation.
+  scf::ForOp forOp = loadOp->getParentOfType<scf::ForOp>();
+  while (forOp != nullptr) {
+    loopVars.emplace_back(forOp.getInductionVar());
+    forOp = forOp->getParentOfType<scf::ForOp>();
+  }
+
+  llvm::SmallVector<Value> outerLoopVars;
+
+  // Check if the load index is directly a for loop argument, if so we have
+  // found the only one that participates.
+  auto blockArg = mlir::dyn_cast<BlockArgument>(loadOp.getIndices().front());
+  if (blockArg && mlir::isa<scf::ForOp>(blockArg.getOwner()->getParentOp())) {
+    outerLoopVars = {blockArg};
+  } else {
+    // Otherwise, we need to recurse through the definition of the load index to
+    // find the for loop variables that participate in its calculation.
+    llvm::SmallVector<Operation *> opsToInspect = {
+        loadOp.getIndices().front().getDefiningOp()};
+    while (!opsToInspect.empty()) {
+      Operation *op = opsToInspect.pop_back_val();
+      for (auto operand : op->getOperands()) {
+        if (operand.getDefiningOp()) {
+          opsToInspect.emplace_back(operand.getDefiningOp());
+        } else if (mlir::isa<BlockArgument>(operand) &&
+                   mlir::isa<scf::ForOp>(mlir::cast<BlockArgument>(operand)
+                                             .getOwner()
+                                             ->getParentOp())) {
+          outerLoopVars.emplace_back(operand);
+        }
+      }
+    }
+  }
+
+  llvm::SmallVector<Value> innerLoopVars;
+  // Find all loop variables that do NOT participate in the load index. i.e. NOT
+  // in outerLoopVars.
+  for (auto &loopVar : loopVars) {
+    if (std::find(outerLoopVars.begin(), outerLoopVars.end(), loopVar) ==
+        outerLoopVars.end()) {
+      innerLoopVars.emplace_back(loopVar);
+    }
+  }
+
+  return innerLoopVars;
+}
+
 static void lowerLoadToCopyTile(memref::LoadOp op, bool cbIdxAsDstIdx,
+                                bool guardFirstCopy,
                                 ConversionPatternRewriter &rewriter) {
   auto index = [&](int64_t value) {
     return rewriter
@@ -92,11 +148,41 @@ static void lowerLoadToCopyTile(memref::LoadOp op, bool cbIdxAsDstIdx,
 
   auto cb = rewriter.getRemappedValue(op.getMemref());
   auto cbType = mlir::cast<ttkernel::CBType>(cb.getType());
-  rewriter.create<ttkernel::CopyTileInitOp>(op.getLoc(), cb);
-  rewriter.create<ttkernel::CopyTileOp>(
+  llvm::SmallVector<Value> innerLoopVars =
+      findInnerTensorDimLoopVars(rewriter, op);
+  // This early return is for the case where guardFirstCopy == true (indicating
+  // some sort of mm/reduction) and there is a single tile on the inner dim. In
+  // this case, we don't need to create a copy tile at all, so we just return.
+  if (guardFirstCopy && innerLoopVars.empty()) {
+    return;
+  }
+  auto copyInit = rewriter.create<ttkernel::CopyTileInitOp>(op.getLoc(), cb);
+  auto copyTile = rewriter.create<ttkernel::CopyTileOp>(
       op.getLoc(), cb, op.getIndices().front(),
       cbIdxAsDstIdx ? index(static_cast<uint32_t>(cbType.getPort()))
                     : index(0));
+  if (guardFirstCopy) {
+    Value innerLoopVar = innerLoopVars.pop_back_val();
+    Value condition =
+        rewriter
+            .create<arith::CmpIOp>(op.getLoc(), arith::CmpIPredicate::ne,
+                                   innerLoopVar, index(0))
+            .getResult();
+    while (!innerLoopVars.empty()) {
+      auto innerLoopVar = innerLoopVars.pop_back_val();
+      condition =
+          rewriter
+              .create<arith::AndIOp>(op.getLoc(), condition,
+                                     rewriter.create<arith::CmpIOp>(
+                                         op.getLoc(), arith::CmpIPredicate::ne,
+                                         innerLoopVar, index(0)))
+              .getResult();
+    }
+    auto ifOp = rewriter.create<scf::IfOp>(op.getLoc(), condition);
+    auto *ifBlock = &ifOp.getThenRegion().front();
+    rewriter.moveOpBefore(copyInit, ifBlock, ifBlock->begin());
+    rewriter.moveOpAfter(copyTile, copyInit);
+  }
 }
 
 static void setInsertionPointAfterOperands(OpBuilder &rewriter,
@@ -188,7 +274,7 @@ public:
           /* transpose */ i32(rewriter, op->getLoc(), 0));
       rewriter.setInsertionPoint(mmInitShortOp);
       lowerLoadToCopyTile(
-          adaptor.getC().template getDefiningOp<memref::LoadOp>(), false,
+          adaptor.getC().template getDefiningOp<memref::LoadOp>(), false, true,
           rewriter);
     } else if constexpr (arity == 2) {
       rewriter.create<InitOp>(op->getLoc(), getCB(rewriter, adaptor.getLhs()),
@@ -252,7 +338,7 @@ public:
     for (int i = 0; i < arity; i++) {
       lowerLoadToCopyTile(
           adaptor.getOperands()[i].template getDefiningOp<memref::LoadOp>(),
-          true, rewriter);
+          true, false, rewriter);
     }
 
     rewriter.eraseOp(op);
