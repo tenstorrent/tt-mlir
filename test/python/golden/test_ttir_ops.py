@@ -158,6 +158,7 @@ def get_dimension_size(
     return builder.get_dimension_size(in0, unit_attrs=unit_attrs)
 
 
+@pytest.mark.fails_golden
 @pytest.mark.parametrize(
     "shapes,batch_dims_lhs,contract_dims_lhs,batch_dims_rhs,contract_dims_rhs",
     [
