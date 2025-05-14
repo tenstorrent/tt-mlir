@@ -261,7 +261,7 @@ PYBIND11_MODULE(_C, m) {
       "get_op_output_tensor_ref",
       [](tt::runtime::OpContext &opContextHandle,
          tt::runtime::CallbackContext &programContextHandle) {
-        return tt::runtime::getOpOutputTensorRef(opContextHandle,
+        return tt::runtime::getOpOutputRef(opContextHandle,
                                               programContextHandle);
       },
       "Get the output tensor of the op");
@@ -269,7 +269,7 @@ PYBIND11_MODULE(_C, m) {
       "get_op_input_tensor_refs",
       [](tt::runtime::OpContext &opContextHandle,
         tt::runtime::CallbackContext &programContextHandle) {
-          return tt::runtime::getOpInputTensorRefs(opContextHandle,
+          return tt::runtime::getOpInputRefs(opContextHandle,
             programContextHandle);}
   );
   m.def(

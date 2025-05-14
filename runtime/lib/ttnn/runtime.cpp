@@ -82,9 +82,9 @@ createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
   }
 }
 
-// static ::tt::runtime::Tensor createNullTensor() {
-//   return ::tt::runtime::Tensor(nullptr, nullptr, DeviceRuntime::TTNN);
-// }
+static ::tt::runtime::Tensor createNullTensor() {
+  return ::tt::runtime::Tensor(nullptr, nullptr, DeviceRuntime::TTNN);
+}
 
 static ::tt::runtime::Tensor toHostSingleTensor(::tt::runtime::Tensor tensor,
                                                 bool untilize) {
@@ -645,7 +645,7 @@ std::string getOpLocInfo(OpContext opContextHandle) {
 }
 
 std::optional<tt::runtime::TensorRef>
-getOpOutputTensorRef(OpContext opContextHandle,
+getOpOutputRef(OpContext opContextHandle,
                      CallbackContext programContextHandle) {
   const auto &opContext =
       opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
@@ -853,7 +853,7 @@ getOpOutputTensorRef(OpContext opContextHandle,
 }
 
 std::vector<tt::runtime::TensorRef>
-getOpInputTensorRefs(OpContext opContextHandle,
+getOpInputRefs(OpContext opContextHandle,
   CallbackContext programContextHandle) {
 
   auto const &opContext =
@@ -1060,6 +1060,19 @@ getOpInputTensorRefs(OpContext opContextHandle,
   }
   return rtTensorRefs;
 
+}
+
+
+Tensor getOpOutputTensor(OpContext opContextHandle, CallbackContext programContextHandle){
+  auto tensorRef = getOpOutputRef(opContextHandle, programContextHandle);
+  if(!tensorRef.has_value()){
+    return createNullTensor();
+  }
+  auto tensor = getTensor(programContextHandle, tensorRef.value());
+  if (!tensor.has_value()){
+    return createNullTensor();
+  }
+  return tensor.value();
 }
 
 

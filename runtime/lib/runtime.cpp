@@ -710,19 +710,37 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   throw std::runtime_error("runtime is not enabled");
 }
 
-std::optional<tt::runtime::TensorRef>
-getOpOutputTensorRef(OpContext opContextHandle,
+Tensor getOpOutputTensor(OpContext opContextHandle,
                   CallbackContext programContextHandle) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::getOpOutputTensorRef(opContextHandle,
+    return ::tt::runtime::ttnn::getOpOutputTensor(opContextHandle,
                                                   programContextHandle);
   }
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::getOpOutputTensorRef(opContextHandle,
+    return ::tt::runtime::ttmetal::getOpOutputTensor(opContextHandle,
+                                                     programContextHandle);
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
+std::optional<tt::runtime::TensorRef>
+getOpOutputRef(OpContext opContextHandle,
+                  CallbackContext programContextHandle) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::getOpOutputRef(opContextHandle,
+                                                  programContextHandle);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::getOpOutputRef(opContextHandle,
                                                      programContextHandle);
   }
 #endif
@@ -730,18 +748,18 @@ getOpOutputTensorRef(OpContext opContextHandle,
 }
 
 std::vector<tt::runtime::TensorRef>
-getOpInputTensorRefs(OpContext opContextHandle,
+getOpInputRefs(OpContext opContextHandle,
                   CallbackContext programContextHandle) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::getOpInputTensorRefs(opContextHandle,
+    return ::tt::runtime::ttnn::getOpInputRefs(opContextHandle,
                                                   programContextHandle);
   }
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::getOpInputTensorRefs(opContextHandle,
+    return ::tt::runtime::ttmetal::getOpInputRefs(opContextHandle,
                                                      programContextHandle);
   }
 #endif

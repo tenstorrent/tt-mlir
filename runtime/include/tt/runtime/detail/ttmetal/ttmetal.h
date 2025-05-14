@@ -103,12 +103,16 @@ std::string getOpDebugString(OpContext opContextHandle);
 
 std::string getOpLocInfo(OpContext opContextHandle);
 
+
+Tensor getOpOutputTensor(OpContext opContextHandle,
+  CallbackContext programContextHandle);
+
 std::optional<tt::runtime::TensorRef>
-getOpOutputTensorRef(OpContext opContextHandle,
+getOpOutputRef(OpContext opContextHandle,
                   CallbackContext programContextHandle);
 
 std::vector<tt::runtime::TensorRef>
-getOpInputTensorRefs(OpContext opContextHandle,
+getOpInputRefs(OpContext opContextHandle,
                      CallbackContext programContextHandle);
 
 std::optional<Tensor> getTensor(CallbackContext programContextHandle,
