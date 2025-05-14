@@ -89,7 +89,7 @@ void populatePassesModule(nb::module_ &m) {
         mlir::PassManager pm(moduleOp->getName());
 
         const auto *pipeline =
-            mlir::PassPipelineInfo::lookup("ttir-to-ttmetal-backend-pipeline");
+            mlir::PassPipelineInfo::lookup("ttir-to-ttmetal-pipeline");
         std::function<mlir::LogicalResult(const llvm::Twine &)> err_handler =
             [](const llvm::Twine &) { return mlir::failure(); };
         if (mlir::failed(pipeline->addToPipeline(pm, options, err_handler))) {
