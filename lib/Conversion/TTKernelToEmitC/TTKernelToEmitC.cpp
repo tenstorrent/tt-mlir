@@ -114,6 +114,40 @@ emitc::OpaqueAttr convertCBPort(Builder &builder, ttkernel::CBPort port) {
   return nullptr;
 }
 
+// Convert DataTypes defined in TTOpsEnums to Metalium DataFormat enums
+uint8_t datatypeToDataformat(::mlir::tt::DataType dtype) {
+  switch (dtype) {
+  case ::mlir::tt::DataType::Float32:
+    return 0;
+  case ::mlir::tt::DataType::Float16:
+    return 1;
+  case ::mlir::tt::DataType::BFloat16:
+    return 5;
+  case ::mlir::tt::DataType::BFP_Float8:
+    return 2;
+  case ::mlir::tt::DataType::BFP_BFloat8:
+    return 6;
+  case ::mlir::tt::DataType::BFP_Float4:
+    return 3;
+  case ::mlir::tt::DataType::BFP_BFloat4:
+    return 7;
+  case ::mlir::tt::DataType::BFP_Float2:
+    return 11;
+  case ::mlir::tt::DataType::BFP_BFloat2:
+    return 15;
+  case ::mlir::tt::DataType::UInt32:
+    return 24;
+  case ::mlir::tt::DataType::UInt16:
+    return 9;
+  case ::mlir::tt::DataType::UInt8:
+    return 30;
+  case ::mlir::tt::DataType::Int32:
+    return 8;
+  }
+  llvm_unreachable("Unknown DataType");
+  return -1;
+}
+
 // Type converter used for TTKernel/TTMetal conversions:
 namespace {
 class TTKernelToEmitCTypeConverter : public TypeConverter {
@@ -290,6 +324,15 @@ public:
 
       template_args.push_back(
           emitc::OpaqueAttr::get(op.getContext(), "true")); // default to DRAM
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::TypecastTileOp>) {
+      SmallVector<Attribute, 2> template_args;
+      auto inDtypeStr = std::to_string(datatypeToDataformat(op.getInDtype()));
+      auto outDtypeStr = std::to_string(datatypeToDataformat(op.getOutDtype()));
+      template_args.push_back(
+          emitc::OpaqueAttr::get(op.getContext(), inDtypeStr));
+      template_args.push_back(
+          emitc::OpaqueAttr::get(op.getContext(), outDtypeStr));
       return ArrayAttr::get(op.getContext(), template_args);
     }
     return ArrayAttr();
@@ -577,6 +620,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::UntilizeUninitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TilizeBlockOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UntilizeBlockOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::TypecastTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::TypecastTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryOpInitCommonOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AddTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulTilesInitOp>,

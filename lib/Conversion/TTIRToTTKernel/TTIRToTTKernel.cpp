@@ -402,6 +402,54 @@ public:
 
 namespace {
 
+class TTIRTypecastRewriter
+    : public OpTraitConversionPattern<
+          mlir::tt::ttir::TTIRGenericRegionComputeOpTrait> {
+public:
+  using OpTraitConversionPattern<
+      mlir::tt::ttir::TTIRGenericRegionComputeOpTrait>::
+      OpTraitConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const final {
+    if (mlir::isa<ttir::TileTypecastOp>(op)) {
+      rewriter.setInsertionPoint(op);
+      lowerLoadToCopyTile(operands[0].getDefiningOp<memref::LoadOp>(), true,
+                          false, rewriter);
+
+      auto inDType =
+          mlir::cast<tt::TileType>(operands[0].getType()).getDataType();
+      auto outDType =
+          mlir::cast<tt::TileType>(op->getResult(0).getType()).getDataType();
+      rewriter.create<ttkernel::TypecastTileInitOp>(op->getLoc());
+      rewriter.create<ttkernel::TypecastTileOp>(
+          op->getLoc(), i32(rewriter, op->getLoc(), 0), inDType, outDType);
+
+      ////////////////////////////////////////////////////////////////////////
+      fprintf(stderr, "++ TypecastRewriter\n");
+      op->dump();
+      operands[0].getType().dump();
+      op->getResult(0).getType().dump();
+      auto inElemType =
+          mlir::cast<tt::TileType>(operands[0].getType()).getElementType();
+      auto outElemType =
+          mlir::cast<tt::TileType>(op->getResult(0).getType()).getElementType();
+      inElemType.dump();
+      outElemType.dump();
+      ////////////////////////////////////////////////////////////////////////
+    } else {
+      return failure();
+    }
+
+    rewriter.eraseOp(op);
+    return success();
+  };
+};
+} // namespace
+
+namespace {
+
 template <typename ConcreteOp>
 class TTIRAwaitYieldRewriter : public OpConversionPattern<ConcreteOp> {
 public:
@@ -1027,6 +1075,7 @@ void populateTTIRToTTKernelPatterns(
       ttkernel::TTIRSFPUOpsRewriter<ttir::TileSinOp,     ttkernel::SinTileInitOp,        ttkernel::SinTileOp>,
 
       ttkernel::TTIRTilizeUntilizeRewriter,
+      ttkernel::TTIRTypecastRewriter,
       ttkernel::MemrefStoreRewriter,
       ttkernel::TTIRAwaitYieldRewriter<ttir::AwaitOp>,
       ttkernel::TTIRAwaitYieldRewriter<ttir::YieldOp>,

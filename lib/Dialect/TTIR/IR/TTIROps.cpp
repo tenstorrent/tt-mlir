@@ -1802,6 +1802,8 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
   if (!producerOp) {
     return mlir::failure();
   }
+  fprintf(stderr, "++ TypecastOp canonicalization is replacing: ");
+  op->dump();
 
   ttir::utils::replaceOpWithNewDPSOp<ttir::TypecastOp>(
       rewriter, op, op.getType(), producerOp.getInput());

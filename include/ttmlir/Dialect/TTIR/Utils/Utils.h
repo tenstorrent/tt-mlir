@@ -147,7 +147,7 @@ OpTy createDPSOp(mlir::OpBuilder &builder, mlir::Location loc,
 }
 
 // Wrapper for creating a DPS op with a given output shape, element type and
-// encoding. It's assumed that a  DPS op has exactly one output that comes after
+// encoding. It's assumed that a DPS op has exactly one output that comes after
 // all of the inputs and before any of the attributes in the builder of an op.
 // The output is generated using a ttir::EmptyOp. Calling this function:
 // createDPSOp<OpTy>(rewriter, loc,  outputShape, outputElementType,
@@ -174,7 +174,7 @@ OpTy createDPSOp(mlir::OpBuilder &builder, mlir::Location loc,
 }
 
 // Wrapper for replacing an op with a DPS op with a given output type.
-// It's assumed that a  DPS op has exactly one output that comes after all of
+// It's assumed that a DPS op has exactly one output that comes after all of
 // the inputs and before any of the attributes in the builder of a DPS op. The
 // output is generated using a ttir::EmptyOp. Calling this function:
 // replaceOpWithNewDPSOp<OpTy>(rewriter, op, outputType, operand1, operand2,
@@ -197,7 +197,7 @@ OpTy replaceOpWithNewDPSOp(mlir::PatternRewriter &rewriter, mlir::Operation *op,
 }
 
 // Wrapper for replacing an op with a DPS op with a given output shape, element
-// type and encoding. It's assumed that a  DPS op has exactly one output that
+// type and encoding. It's assumed that a DPS op has exactly one output that
 // comes after all of the inputs and before any of the attributes in the builder
 // of a DPS op. The output is generated using a ttir::EmptyOp. Calling this
 // function:
