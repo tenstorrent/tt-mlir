@@ -1125,15 +1125,11 @@ createEltwiseQuantizationOp(FlatbufferObjectCache &cache,
         return std::visit(
             [&cache](auto &&op) {
               // Process scale.
-              ::tt::target::ttnn::QuantizationScale scaleType;
-              flatbuffers::Offset<void> scaleValue;
-              std::tie(scaleType, scaleValue) =
+              auto [scaleType, scaleValue] =
                   processScaleTensor(cache, op.getScale());
 
               // Process zero point.
-              ::tt::target::ttnn::QuantizationZeroPoint zeroPointType;
-              flatbuffers::Offset<void> zeroPointValue;
-              std::tie(zeroPointType, zeroPointValue) =
+              auto [zeroPointType, zeroPointValue] =
                   processZeroPointTensor(cache, op.getZeroPoint());
 
               return ::tt::target::ttnn::CreateQuantizeDequantizeOpParams(
@@ -1145,27 +1141,17 @@ createEltwiseQuantizationOp(FlatbufferObjectCache &cache,
 
   auto createRequantOpParams = [&cache](RequantizeOp op) {
     // Process in_scale.
-    ::tt::target::ttnn::QuantizationScale inScaleType;
-    ::flatbuffers::Offset<void> inScaleValue;
-    std::tie(inScaleType, inScaleValue) =
+    auto [inScaleType, inScaleValue] =
         processScaleTensor(cache, op.getInScale());
 
     // Process in_zero_point.
-    ::tt::target::ttnn::QuantizationZeroPoint inZeroPointType;
-    ::flatbuffers::Offset<void> inZeroPointValue;
-    std::tie(inZeroPointType, inZeroPointValue) =
-        processZeroPointTensor(cache, op.getInZeroPoint());
-
-    // Process out_scale.
-    ::tt::target::ttnn::QuantizationScale outScaleType;
-    ::flatbuffers::Offset<void> outScaleValue;
-    std::tie(outScaleType, outScaleValue) =
-        processScaleTensor(cache, op.getOutScale());
+    auto [inZeroPointType, inZeroPointValue] =
+        // Process out_scale.
+        auto [outScaleType, outScaleValue] =
+            processScaleTensor(cache, op.getOutScale());
 
     // Process out_zero_point.
-    ::tt::target::ttnn::QuantizationZeroPoint outZeroPointType;
-    ::flatbuffers::Offset<void> outZeroPointValue;
-    std::tie(outZeroPointType, outZeroPointValue) =
+    auto [outZeroPointType, outZeroPointValue] =
         processZeroPointTensor(cache, op.getOutZeroPoint());
 
     return ::tt::target::ttnn::CreateRequantizeOpParams(
