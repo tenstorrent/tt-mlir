@@ -101,8 +101,9 @@ public:
       builder.setInsertionPoint(generic);
       auto symbolicGeneric = builder.create<GenericOp>(
           generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
-          generic.getOutputs(), generic.getGrid(), generic.getIndexingMaps(),
-          generic.getIteratorTypes(), builder.getArrayAttr(threads),
+          generic.getOutputs(), generic.getGrid(), generic.getBlockFactors(),
+          generic.getIndexingMaps(), generic.getIteratorTypes(),
+          builder.getArrayAttr(threads),
           /*numRegions*/ 0);
 
       generic.replaceAllUsesWith(symbolicGeneric);
