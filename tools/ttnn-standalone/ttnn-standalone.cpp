@@ -27,9 +27,9 @@ int32_t main() {
   ::ttnn::Tensor v1;
   ::ttnn::Tensor v2;
   std::tie(v1, v2) = create_inputs_for_add();
-
-  auto start = std::chrono::high_resolution_clock::now();
   ::ttnn::Tensor v3 = add(v1, v2);
+  auto start = std::chrono::high_resolution_clock::now();
+  v3 = add(v1, v2);
   auto end = std::chrono::high_resolution_clock::now();
 
   std::chrono::duration<double> duration_in_seconds = end - start;
