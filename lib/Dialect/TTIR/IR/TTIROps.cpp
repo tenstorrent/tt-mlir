@@ -633,6 +633,19 @@ bool mlir::tt::ttir::Conv2dOp::isBiasCompatible(llvm::ArrayRef<int64_t> bias) {
 // Quantize ops
 //===----------------------------------------------------------------------===//
 
+// Helper function to verify that a zero point is within the range of the
+// storage type.
+static ::mlir::LogicalResult verifyZeroPointInRange(
+    llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
+    int64_t zeroPoint, int64_t min, int64_t max, mlir::Type storageType) {
+  if (zeroPoint < min || zeroPoint > max) {
+    return emitOpError() << "Zero point " << zeroPoint
+                         << " is out of the range for storage type "
+                         << storageType;
+  }
+  return ::mlir::success();
+}
+
 // Common verifier for all Quantize ops.
 static ::mlir::LogicalResult verifyQuantizeOpCommon(
     llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
@@ -687,15 +700,16 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
       }
       // Verify that the zero point is in the range of the storage type.
       // This aligns with the frontends' behavior.
-      llvm::ArrayRef<int64_t> zps = quantPerAxisType.getZeroPoints();
+      llvm::ArrayRef<int64_t> zero_points = quantPerAxisType.getZeroPoints();
       int64_t min = quantPerAxisType.getStorageTypeMin();
       int64_t max = quantPerAxisType.getStorageTypeMax();
-      for (size_t i = 0; i < zps.size(); ++i) {
-        int64_t zp = zps[i];
-        if (zp < min || zp > max) {
-          return emitOpError() << "Zero point " << zp
-                               << " is out of the range for storage type "
-                               << quantPerAxisType.getStorageType();
+      for (size_t i = 0; i < zero_points.size(); ++i) {
+        int64_t cur_zero_point = zero_points[i];
+        if (auto result =
+                verifyZeroPointInRange(emitOpError, cur_zero_point, min, max,
+                                       quantPerAxisType.getStorageType());
+            failed(result)) {
+          return result;
         }
       }
     }
@@ -703,14 +717,11 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
             mlir::dyn_cast<mlir::quant::UniformQuantizedType>(elemType)) {
       // Verify that the zero point is in the range of the storage type
       // (per-tensor). This aligns with the frontends' behavior.
-      int64_t zp = quantType.getZeroPoint();
+      int64_t cur_zero_point = quantType.getZeroPoint();
       int64_t min = quantType.getStorageTypeMin();
       int64_t max = quantType.getStorageTypeMax();
-      if (zp < min || zp > max) {
-        return emitOpError() << "Zero point " << zp
-                             << " is out of the range for storage type "
-                             << quantType.getStorageType();
-      }
+      return verifyZeroPointInRange(emitOpError, cur_zero_point, min, max,
+                                    quantType.getStorageType());
     }
   }
 
@@ -760,7 +771,7 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 
   return verifyQuantizeOpCommon([&]() { return emitOpError(); },
                                 getInput().getType(), getOutput().getType(),
-                                /*axis=*/getAxis(), /*isUnrolled=*/true);
+                                getAxis(), /*isUnrolled=*/true);
 }
 
 // DequantizeOp verification.
@@ -806,8 +817,8 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
   }
 
   return verifyQuantizeOpCommon([&]() { return emitOpError(); },
-                                inputTensorType, outputTensorType,
-                                /*axis=*/getAxis(), /*isUnrolled=*/true);
+                                inputTensorType, outputTensorType, getAxis(),
+                                /*isUnrolled=*/true);
 }
 
 // RequantizeOp verification.

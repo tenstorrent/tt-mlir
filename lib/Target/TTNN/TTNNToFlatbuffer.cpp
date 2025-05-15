@@ -993,16 +993,16 @@ createEltwiseTernaryWhereOp(FlatbufferObjectCache &cache, WhereOp op) {
       *cache.fbb, first, second, third, memoryConfig, out);
 }
 
-// Helper to walk to_device -> to_layout -> from_device -> full and extract
-// attribute
+// Helper to walk typecast (optional) -> to_device -> to_layout -> from_device
+// -> full and extract attribute to get the original value for the constant
+// quantization scale or zero point.
 template <typename AttrType>
 static AttrType getAttrFromConstantChain(mlir::Value tensorVal,
                                          const char *expectedTypeMsg) {
   mlir::Value firstInput = tensorVal;
   if constexpr (std::is_same_v<AttrType, int32_t>) {
     // typecast first op for per-tensor zp
-    if (auto typeCastOp =
-            mlir::dyn_cast<ttnn::TypecastOp>(firstInput.getDefiningOp())) {
+    if (auto typeCastOp = firstInput.getDefiningOp<ttnn::TypecastOp>()) {
       firstInput = typeCastOp.getInput();
     } else {
       llvm_unreachable(
