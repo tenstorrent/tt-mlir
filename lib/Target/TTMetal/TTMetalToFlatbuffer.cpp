@@ -3,15 +3,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
+#include "ttmlir/Dialect/TT/IR/TTOps.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TT/IR/Utils.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
+#include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
 #include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include "ttmlir/Target/TTMetal/Target.h"
 #include "ttmlir/Target/TTMetal/command_generated.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
+#include "ttmlir/Target/Utils/Utils.h"
 #include "ttmlir/Version.h"
 
 #include "flatbuffers/buffer.h"
@@ -440,8 +443,16 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
   flatbuffers::FlatBufferBuilder fbb;
   FlatbufferObjectCache cache(&fbb);
 
-  ModuleOp module = dyn_cast<ModuleOp>(op);
-  assert(module && "Expected ModuleOp as top level operation");
+  ModuleOp rootModule = dyn_cast<ModuleOp>(op);
+  assert(rootModule && "Expected ModuleOp as top level operation");
+
+  // If we have a nested module structure, we want to use nested module inside
+  // DeviceModule for most conversions.
+  ModuleOp module = rootModule;
+  if (auto deviceModule = utils::findOpAtTopLevel<tt::DeviceModuleOp>(module)) {
+    module = mlir::cast<mlir::ModuleOp>(
+        deviceModule.getBodyRegion().front().front());
+  }
   SymbolTable symbolTable(module);
 
   auto systemDesc =
@@ -450,6 +461,29 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
   target::Version binaryVersion(ttmlirVersion.major, ttmlirVersion.minor,
                                 ttmlirVersion.patch);
   std::vector<flatbuffers::Offset<target::metal::Program>> programs;
+
+  // Handle dylib creation and packaging, if needed.
+  // Currently, we only have 1 CPUModuleOp and 1 top-level ModuleOp; we use a
+  // vector here in case in the future we support more complex arrangements.
+  std::vector<::flatbuffers::Offset<::tt::target::DynamicLib>> dylibs;
+  if (auto cpuModule = utils::findOpAtTopLevel<tt::CPUModuleOp>(rootModule);
+      cpuModule != nullptr) {
+    mlir::ModuleOp cpuNestedModule =
+        mlir::cast<mlir::ModuleOp>(cpuModule.getBodyRegion().front().front());
+    llvm::SmallVector<char, 2048> binaryBuffer;
+    llvm::raw_svector_ostream dylibStream(binaryBuffer);
+    auto result = mlir::tt::llvm_to_cpu::translateLLVMToDyLib(cpuNestedModule,
+                                                              dylibStream);
+    if (llvm::succeeded(result)) {
+      auto rawFileVector = fbb.CreateVector(
+          reinterpret_cast<const uint8_t *>(binaryBuffer.data()),
+          binaryBuffer.size());
+      dylibs.emplace_back(
+          ::tt::target::CreateDynamicLib(fbb, 0, rawFileVector));
+    } else {
+      llvm::report_fatal_error("Failed to compile dylib!");
+    }
+  }
 
   module->walk([&](func::FuncOp entry) {
     if (!entry.isPublic()) {
@@ -544,6 +578,26 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
                                     cache.at<target::metal::BufferRef>(
                                         enqueueWriteBufferOp.getOutput())),
                                 op);
+      } else if (auto copyOp = dyn_cast_if_present<memref::CopyOp>(op);
+                 copyOp) {
+        cqBuilder.appendCommand(
+            target::metal::CreateMemrefCopyCommand(
+                fbb, cache.at<target::metal::BufferRef>(copyOp.getSource()),
+                cache.at<target::metal::BufferRef>(copyOp.getTarget())),
+            op);
+      } else if (auto cpuOp = dyn_cast_if_present<func::CallOp>(op); cpuOp) {
+        std::vector<flatbuffers::Offset<target::metal::BufferRef>> ins;
+        ins.reserve(cpuOp.getOperands().size());
+        for (auto input : cpuOp.getOperands()) {
+          ins.push_back(cache.at<target::metal::BufferRef>(input));
+        }
+        llvm::SmallString<24> funcName =
+            utils::convertDylibFuncName(cpuOp.getCallee());
+        auto out = cache.getOrCreate(cpuOp.getResults()[0],
+                                     bufferValueToFlatbuffer, 0);
+        cqBuilder.appendCommand(target::metal::CreateCpuCommandDirect(
+                                    fbb, &ins, out, funcName.c_str(), 0),
+                                op);
       } else if (auto returnOp = dyn_cast_if_present<func::ReturnOp>(op);
                  returnOp) {
         assert(cqBuilder.outputs.empty() &&
@@ -606,7 +660,7 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
 
   auto binary = target::metal::CreateTTMetalBinaryDirect(
       fbb, &binaryVersion, ttmlir::getGitHash(),
-      toFlatbuffer(cache, systemDesc), &programs);
+      toFlatbuffer(cache, systemDesc), &programs, &dylibs);
 
   FinishSizePrefixedTTMetalBinaryBuffer(fbb, binary);
   flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());

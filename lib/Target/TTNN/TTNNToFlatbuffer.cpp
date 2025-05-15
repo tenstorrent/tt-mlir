@@ -28,7 +28,7 @@
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/FuncOpToProgram.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
-#include "ttmlir/Utils.h"
+#include "ttmlir/Target/Utils/Utils.h"
 #include "ttmlir/Version.h"
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
@@ -39,20 +39,6 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
-
-namespace mlir::tt {
-
-template <typename OpType>
-static OpType findOpAtTopLevel(mlir::ModuleOp module) {
-  for (auto &op : module.getBody()->getOperations()) {
-    if (auto targetOp = llvm::dyn_cast<OpType>(op)) {
-      return targetOp;
-    }
-  }
-  return nullptr;
-}
-
-} // namespace mlir::tt
 
 namespace mlir::tt::ttnn {
 
@@ -468,13 +454,12 @@ createCpuOp(FlatbufferObjectCache &cache, func::CallOp op, uint32_t dylib_id) {
   auto output = cache.getOrCreate(*op.getResults().begin(),
                                   tensorValueToFlatbuffer, kHostAllocatedSize);
 
-  std::string oldName = op.getCallee().str();
-  // Remove the "_decl" suffix and add the "_helper" suffix.
-  std::string funcName = oldName.substr(0, oldName.size() - 5) + "_helper";
+  llvm::SmallString<24> funcName =
+      tt::utils::convertDylibFuncName(op.getCallee());
 
   return ::tt::target::ttnn::CreateCpuOp(
       *cache.fbb, cache.fbb->CreateVector(ins), output,
-      cache.fbb->CreateString(funcName), dylib_id);
+      cache.fbb->CreateString(funcName.c_str()), dylib_id);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::DistributionStrategy>
@@ -2087,7 +2072,8 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   // If we have a nested module structure, we want to use nested module inside
   // DeviceModule for most conversions.
   ModuleOp module = rootModule;
-  if (auto deviceModule = findOpAtTopLevel<tt::DeviceModuleOp>(module)) {
+  if (auto deviceModule =
+          mlir::tt::utils::findOpAtTopLevel<tt::DeviceModuleOp>(module)) {
     module = dyn_cast_if_present<mlir::ModuleOp>(
         deviceModule.getBodyRegion().front().front());
     assert(module && "Found tt::DeviceModuleOp but it didn't contain a single "
@@ -2118,7 +2104,8 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   // Currently, we only have 1 CPUModuleOp and 1 top-level ModuleOp; we use a
   // vector here in case in the future we support more complex arrangements.
   std::vector<::flatbuffers::Offset<::tt::target::DynamicLib>> dylibs;
-  if (auto cpuModule = findOpAtTopLevel<tt::CPUModuleOp>(rootModule);
+  if (auto cpuModule =
+          mlir::tt::utils::findOpAtTopLevel<tt::CPUModuleOp>(rootModule);
       cpuModule != nullptr) {
     mlir::ModuleOp cpuNestedModule = dyn_cast_if_present<mlir::ModuleOp>(
         cpuModule.getBodyRegion().front().front());

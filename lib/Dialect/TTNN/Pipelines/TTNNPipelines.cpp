@@ -156,11 +156,8 @@ void createTTIRToTTNNBackendPipeline(
   createTTNNPipelineDeallocPass(devicePm, options);
 
   // Run lowering to LLVM pass on hoisted funcs in CPUModule.
-  OpPassManager &cpuPm = pm.nest<tt::CPUModuleOp>().nest<mlir::ModuleOp>();
-  cpuPm.addPass(createConvertTTIRToLinalgPass());
-  ttir::LinalgToLLVMPipelineOptions linalgToLLLVMOptions;
-  ttir::createLinalgToLLVMPipeline(cpuPm, linalgToLLLVMOptions);
-  cpuPm.addPass(llvm_util::createLLVMEmitCallingConventionWrapperFuncs());
+  ttir::LinalgToLLVMPipelineOptions linalgToLLVMOptions;
+  ttir::createTTIRToCPUPipeline(pm, linalgToLLVMOptions);
 }
 
 void createTTIRToEmitCPipeline(OpPassManager &pm,

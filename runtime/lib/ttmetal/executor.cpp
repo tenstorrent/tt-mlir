@@ -8,6 +8,7 @@
 #include "tracy/Tracy.hpp"
 #include "tt/runtime/detail/common.h"
 #include "tt/runtime/detail/debug.h"
+#include "tt/runtime/detail/dylib.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttmetal/ttmetal.h"
 #include "tt/runtime/runtime.h"
@@ -33,7 +34,8 @@ public:
       tt_metal::IDevice *device,
       const flatbuffers::Vector<
           flatbuffers::Offset<tt::target::metal::BufferRef>> *programInputs,
-      const std::vector<Tensor> &inputs, bool blockingCQ);
+      const std::vector<Tensor> &inputs, common::DylibManager &&dylibManager,
+      bool blockingCQ);
 
   const std::vector<Tensor> &getOutputs() const { return outputs; }
 
@@ -54,6 +56,8 @@ private:
   void execute(const target::metal::EnqueueWaitForEventCommand *command);
   void execute(const target::metal::EventSynchronizeCommand *command);
   void execute(const target::metal::EventQueryCommand *command);
+  void execute(const target::metal::MemrefCopyCommand *command);
+  void execute(const target::metal::CpuCommand *command);
   void execute(const target::metal::FinishCommand *command);
 
 private:
@@ -67,6 +71,7 @@ private:
   bool blockingCQ;
   const char *currentProgramName;
   DeviceAddressValidator deviceAddressValidator;
+  common::DylibManager dylibManager;
 };
 } // namespace
 
@@ -74,8 +79,10 @@ CQExecutor::CQExecutor(
     tt_metal::IDevice *device,
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::BufferRef>>
         *programInputs,
-    const std::vector<Tensor> &inputs, bool blockingCQ)
-    : device(device), blockingCQ(blockingCQ), deviceAddressValidator(device) {
+    const std::vector<Tensor> &inputs, common::DylibManager &&dylibManager,
+    bool blockingCQ)
+    : device(device), blockingCQ(blockingCQ), deviceAddressValidator(device),
+      dylibManager(std::move(dylibManager)) {
   initEvents.reserve(inputs.size());
 
   std::uint32_t inputIndex = 0;
@@ -170,6 +177,14 @@ void CQExecutor::execute(const target::metal::Command *command) {
   }
   case target::metal::CommandType::EventQueryCommand: {
     execute(command->type_as_EventQueryCommand());
+    break;
+  }
+  case target::metal::CommandType::MemrefCopyCommand: {
+    execute(command->type_as_MemrefCopyCommand());
+    break;
+  }
+  case target::metal::CommandType::CpuCommand: {
+    execute(command->type_as_CpuCommand());
     break;
   }
   case target::metal::CommandType::FinishCommand: {
@@ -361,18 +376,51 @@ void CQExecutor::execute(const target::metal::EventQueryCommand *command) {
               // something with the result
 }
 
+void CQExecutor::execute(const target::metal::MemrefCopyCommand *command) {
+  auto srcIt = hostBuffers.find(command->src()->global_id());
+  LOG_ASSERT(srcIt != hostBuffers.end());
+  auto dstIt = hostBuffers.find(command->dst()->global_id());
+  LOG_ASSERT(dstIt != hostBuffers.end());
+  ttmetal::memcpy(dstIt->second, srcIt->second);
+}
+
+void CQExecutor::execute(const target::metal::CpuCommand *command) {
+  std::vector<std::vector<int64_t>> allSizesAndStrides;
+  auto dataFuncPtr =
+      std::function<void *(const tt::target::metal::BufferRef *)>(
+          [this](const tt::target::metal::BufferRef *ref) -> void * {
+            auto it = hostBuffers.find(ref->global_id());
+            LOG_ASSERT(
+                it != hostBuffers.end(),
+                "Cannot invoke cpu op on tensor which is not in cpu tensors.");
+            const Tensor &tens = it->second;
+            return tens.data.get();
+          });
+
+  auto packedInputs = tt::runtime::common::packTensors(
+      command->ins(), command->out(), dataFuncPtr, allSizesAndStrides);
+
+  common::WrappedFunc func =
+      dylibManager.getFunc(command->dylib_id(), command->func_name()->c_str());
+  func(packedInputs.data());
+
+  auto lastInputIt = hostBuffers.find(
+      command->ins()->Get(command->ins()->size() - 1)->global_id());
+  LOG_ASSERT(lastInputIt != hostBuffers.end());
+  hostBuffers.insert({command->out()->global_id(), lastInputIt->second});
+}
+
 void CQExecutor::execute(const target::metal::FinishCommand *) {
   ZoneScopedN("FinishCommand");
   tt_metal::Finish(*cq);
 }
 
-std::vector<Tensor>
-executeDeviceProgram(tt_metal::IDevice *device,
-                     const target::metal::DeviceProgram *program,
-                     const std::vector<Tensor> &inputs) {
+std::vector<Tensor> executeDeviceProgram(
+    tt_metal::IDevice *device, const target::metal::DeviceProgram *program,
+    const std::vector<Tensor> &inputs, common::DylibManager &&dylibs) {
   LOG_ASSERT(program->command_queues()->size() == 1, "Only one CQ supported");
 
-  CQExecutor executor(device, program->inputs(), inputs,
+  CQExecutor executor(device, program->inputs(), inputs, std::move(dylibs),
                       debug::Env::get().blockingCQ);
   for (const target::metal::CommandQueue *cq : *program->command_queues()) {
     FrameMark;
