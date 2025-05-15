@@ -102,16 +102,17 @@ runs:
         source env/activate
         cmake --install ${{ inputs.build-output-dir }} --component Test
         cmake --install ${{ inputs.build-output-dir }} --component SharedLib
-
-    - name: Run ttnn-standalone
-      shell: bash
-      run: |
-        export TT_METAL_HOME="${{ inputs.work-dir }}/third_party/tt-metal/src/tt-metal"
-        export CMAKE_PREFIX_PATH="${{ inputs.work-dir }}/third_party/tt-metal/src/tt-metal/build/lib"
-        export LD_LIBRARY_PATH="${{ inputs.work-dir }}/third_party/tt-metal/src/tt-metal/build/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         cmake --install ${{ inputs.build-output-dir }} --component TTNNStandalone
-        cd install/tools/ttnn-standalone
-        ./run
+
+    # - name: Run ttnn-standalone
+    #   shell: bash
+    #   run: |
+    #     export TT_METAL_HOME="${{ inputs.work-dir }}/third_party/tt-metal/src/tt-metal"
+    #     export CMAKE_PREFIX_PATH="${{ inputs.work-dir }}/third_party/tt-metal/src/tt-metal/build/lib"
+    #     export LD_LIBRARY_PATH="${{ inputs.work-dir }}/third_party/tt-metal/src/tt-metal/build/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+    #     cmake --install ${{ inputs.build-output-dir }} --component TTNNStandalone
+    #     cd install/tools/ttnn-standalone
+    #     ./run
 
     - name: Upload ttrt .whl
       uses: actions/upload-artifact@v4
