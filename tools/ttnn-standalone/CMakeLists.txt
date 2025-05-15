@@ -101,6 +101,8 @@ set(INCLUDE_DIRS
 
     # TTNN
     ${METAL_SRC_DIR}/ttnn
+    ${METAL_SRC_DIR}/ttnn/api
+    ${METAL_SRC_DIR}/ttnn/core
     ${METAL_SRC_DIR}/ttnn/cpp
     ${METAL_SRC_DIR}/ttnn/cpp/ttnn
 )

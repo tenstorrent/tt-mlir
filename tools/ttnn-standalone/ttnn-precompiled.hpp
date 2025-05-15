@@ -6,8 +6,6 @@
 #define TOOLS_TTNN_STANDALONE_TTNN_PRECOMPILED_HPP
 
 // ANCHOR: standalone_includes
-#include "core.hpp"
-#include "device.hpp"
 #include "operations/ccl/all_gather/all_gather.hpp"
 #include "operations/ccl/ccl_host_types.hpp"
 #include "operations/ccl/reduce_scatter/reduce_scatter.hpp"
@@ -41,7 +39,9 @@
 #include "tensor/types.hpp"
 #include "tt-metalium/bfloat16.hpp"
 #include "tt-metalium/small_vector.hpp"
-#include "types.hpp"
+#include "ttnn/core.hpp"
+#include "ttnn/device.hpp"
+#include "ttnn/types.hpp"
 #include "workarounds.hpp"
 // ANCHOR_END: standalone_includes
 
