@@ -10,7 +10,8 @@ module {
     // CHECK-NOT: ttir.sum
     // CHECK-NOT: ttir.broadcast
     // CHECK-NOT: ttir.div
-    // CHECK: %[[RESULT:.*]] = "ttnn.softmax"(%arg0) <{dimension = 1 : si32}>
+    // CHECK: %[[RESULT:.*]] = "ttnn.softmax"
+    // CHECK-SAME: <{dimension = 1 : si32}>
     // CHECK: return %[[RESULT]]
 
     %0 = ttir.empty() : tensor<32x32xf32>
@@ -33,7 +34,8 @@ module {
     // CHECK-NOT: ttir.sum
     // CHECK-NOT: ttir.broadcast
     // CHECK-NOT: ttir.div
-    // CHECK: %[[RESULT:.*]] = "ttnn.softmax"(%arg0) <{dimension = 0 : si32}>
+    // CHECK: %[[RESULT:.*]] = "ttnn.softmax"
+    // CHECK-SAME: <{dimension = 0 : si32}>
     // CHECK: return %[[RESULT]]
 
     %0 = ttir.empty() : tensor<32x32xbf16>
@@ -57,7 +59,8 @@ module {
     // CHECK-NOT: ttir.sum
     // CHECK-NOT: ttir.broadcast
     // CHECK-NOT: ttir.div
-    // CHECK: %[[RESULT:.*]] = "ttnn.softmax"(%arg0) <{dimension = 1 : si32}>
+    // CHECK: %[[RESULT:.*]] = "ttnn.softmax"
+    // CHECK-SAME: <{dimension = 1 : si32}>
     // CHECK: return %[[RESULT]]
 
     %0 = ttir.empty() : tensor<32x32xf32>

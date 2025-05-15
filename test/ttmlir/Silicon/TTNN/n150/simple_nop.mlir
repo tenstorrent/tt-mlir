@@ -3,7 +3,8 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 module @jit_convert_element_type attributes {mhlo.num_partitions = 1 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<2x2xf32> {mhlo.layout_mode = "default"}) -> (tensor<2x2xf32> {jax.result_info = "", mhlo.layout_mode = "default"}) {
-    // CHECK: return %arg0 : tensor<2x2xf32, #ttnn_layout>
+    // CHECK: %[[TO_DEVICE:.+]] = "ttnn.to_device"
+    // CHECK: return %[[TO_DEVICE]] : tensor<2x2xf32
     return %arg0 : tensor<2x2xf32>
   }
 }

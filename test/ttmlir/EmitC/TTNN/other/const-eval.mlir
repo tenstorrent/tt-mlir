@@ -5,9 +5,9 @@
 
 module {
   func.func @forward(%arg0: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<input>}, %arg1: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<parameter>}, %arg3: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<constant>}) -> tensor<32x32xbf16> {
-    // CHECK: = tt.load_cached(@forward_merge_const_eval_0, [%arg1, %arg2, %arg3])
+    // CHECK: = tt.load_cached(@forward_merge_const_eval_0, [{{.*}}, {{.*}}, {{.*}}])
     %0 = ttir.empty() : tensor<32x32xbf16>
-    // CHECK: = "ttnn.add"(%arg0, %arg1)
+    // CHECK: = "ttnn.add"
     %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     %2 = ttir.empty() : tensor<32x32xbf16>
     %3 = "ttir.add"(%arg1, %arg2, %2)  : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>

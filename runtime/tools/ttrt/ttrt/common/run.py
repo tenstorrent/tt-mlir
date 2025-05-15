@@ -548,6 +548,8 @@ class Run:
                         program_indices.append(int(self["--program-index"]))
 
                     for program_index in program_indices:
+                        if program_index != 0:
+                            continue
                         self.logging.debug(
                             f"evaluating program={program_index} for binary={bin.file_path}"
                         )

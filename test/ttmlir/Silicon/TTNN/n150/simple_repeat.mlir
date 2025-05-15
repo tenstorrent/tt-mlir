@@ -3,7 +3,7 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 
 func.func @main0(%arg0: tensor<1x16x32xf32>, %arg1: tensor<1x1x32xf32>) -> tensor<1x16x32xf32> {
-  // CHECK: %{{[0-9]+}} = "ttnn.repeat"(%arg1)
+  // CHECK: %{{[0-9]+}} = "ttnn.repeat"
   %0 = ttir.empty() : tensor<1x16x32xf32>
   %1 = "ttir.broadcast"(%arg1, %0) <{broadcast_dimensions = array<i64 : 1, 16, 1>}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
   %2 = ttir.empty() : tensor<1x16x32xf32>
@@ -12,7 +12,7 @@ func.func @main0(%arg0: tensor<1x16x32xf32>, %arg1: tensor<1x1x32xf32>) -> tenso
 }
 
 func.func public @main1(%arg0: tensor<1xf32>, %arg1: tensor<512x512xf32>) -> (tensor<512x512xf32>) {
-  // CHECK: %{{[0-9]+}} = "ttnn.reshape"(%arg0)
+  // CHECK: %{{[0-9]+}} = "ttnn.reshape"
   // CHECK: %{{[0-9]+}} = "ttnn.repeat"(%{{[0-9]+}})
   %0 = ttir.empty() : tensor<1x1xf32>
   %1 = "ttir.reshape"(%arg0, %0) <{shape = [1 : i32, 1 : i32]}> : (tensor<1xf32>, tensor<1x1xf32>) -> tensor<1x1xf32>

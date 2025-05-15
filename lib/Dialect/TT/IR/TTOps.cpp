@@ -149,6 +149,7 @@ LogicalResult LoadCachedOp::verify() {
   }
 
   FunctionType fnType = funcOp.getFunctionType();
+  fnType.dump();
 
   // Check if we have tuple inputs/outputs.
   bool hasTupleInput = fnType.getNumInputs() == 1 &&

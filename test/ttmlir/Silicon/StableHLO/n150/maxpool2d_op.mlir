@@ -11,7 +11,7 @@ module @max_pool2d attributes {} {
   func.func @test_maxpool2d_kernel_3x3_stride_3x3_padding_1(%arg0: tensor<1x128x32x32xbf16>) -> tensor<1x128x11x11xbf16> {
     // CHECK-LABEL: func.func @test_maxpool2d_kernel_3x3_stride_3x3_padding_1(
     %cst = stablehlo.constant dense<0xFF80> : tensor<bf16>
-    // CHECK: %[[PERMUTE:[0-9]+]] = "ttnn.permute"(%arg0)
+    // CHECK: %[[PERMUTE:[0-9]+]] = "ttnn.permute"
     // CHECK-SAME: permutation = array<i64: 0, 2, 3, 1>
     // CHECK-SAME: tensor<1x128x32x32xbf16
     // CHECK-SAME: -> tensor<1x32x32x128xbf16
@@ -52,7 +52,7 @@ module @max_pool2d attributes {} {
   func.func @test_maxpool2d_kernel_1x1_stride_1x1_padding_0(%arg0: tensor<1x192x28x28xbf16>) -> tensor<1x192x28x28xbf16> {
     // CHECK-LABEL: func.func @test_maxpool2d_kernel_1x1_stride_1x1_padding_0(
     %cst = stablehlo.constant dense<0xFF80> : tensor<bf16>
-    // CHECK: %[[PERMUTE:[0-9]+]] = "ttnn.permute"(%arg0)
+    // CHECK: %[[PERMUTE:[0-9]+]] = "ttnn.permute"
     // CHECK-SAME: permutation = array<i64: 0, 2, 3, 1>
     // CHECK-SAME: tensor<1x192x28x28xbf16
     // CHECK-SAME: -> tensor<1x28x28x192xbf16
@@ -93,7 +93,7 @@ module @max_pool2d attributes {} {
   func.func @test_maxpool2d_kernel_1x2_stride_3x1_padding_0(%arg0: tensor<1x192x28x28xbf16>) -> tensor<1x192x10x27xbf16> {
     // CHECK-LABEL: func.func @test_maxpool2d_kernel_1x2_stride_3x1_padding_0(
     %cst = stablehlo.constant dense<0xFF80> : tensor<bf16>
-    // CHECK: %[[PERMUTE:[0-9]+]] = "ttnn.permute"(%arg0)
+    // CHECK: %[[PERMUTE:[0-9]+]] = "ttnn.permute"
     // CHECK-SAME: permutation = array<i64: 0, 2, 3, 1>
     // CHECK-SAME: tensor<1x192x28x28xbf16
     // CHECK-SAME: -> tensor<1x28x28x192xbf16

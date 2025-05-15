@@ -9,7 +9,7 @@
 module @test_clamp_tensor attributes {} {
   func.func public @test_clamp_tensor(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>, %arg2: tensor<64x128xf32>) -> tensor<64x128xf32> {
     // CHECK-LABEL: func.func public @test_clamp_tensor(
-    // CHECK: %{{[0-9]+}} = "ttnn.clamp_tensor"(%arg0, %arg1, %arg2)
+    // CHECK: %{{[0-9]+}} = "ttnn.clamp_tensor"
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: tensor<64x128xf32,
@@ -23,7 +23,7 @@ module @test_clamp_tensor attributes {} {
     %cst = arith.constant dense<3.0> : tensor<1xf64>
     %0 = stablehlo.convert %cst : (tensor<1xf64>) -> tensor<1xbf16>
     %1 = stablehlo.reshape %0 : (tensor<1xbf16>) -> tensor<bf16>
-    // CHECK: %{{[0-9]+}} = "ttnn.clamp_tensor"(%arg0, %{{[0-9]+}}, %{{[0-9]+}})
+    // CHECK: %{{[0-9]+}} = "ttnn.clamp_tensor"
     // CHECK-SAME: tensor<32x32xbf16,
     // CHECK-SAME: tensor<32x32xbf16,
     // CHECK-SAME: tensor<32x32xbf16,

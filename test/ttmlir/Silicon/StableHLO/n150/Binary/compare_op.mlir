@@ -9,7 +9,7 @@
 module @jit_eltwise_compare attributes {} {
   func.func public @test_eq(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xi1> {
     // CHECK-LABEL: func.func public @test_eq
-    // CHECK: ttnn.eq
+    // CHECK: "ttnn.eq"
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: -> tensor<64x128xbf16,
@@ -19,7 +19,7 @@ module @jit_eltwise_compare attributes {} {
 
   func.func public @test_ne(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xi1> {
     // CHECK-LABEL: func.func public @test_ne
-    // CHECK: ttnn.ne
+    // CHECK: "ttnn.ne"
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: -> tensor<64x128xbf16,
@@ -29,7 +29,7 @@ module @jit_eltwise_compare attributes {} {
 
   func.func public @test_ge(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xi1> {
     // CHECK-LABEL: func.func public @test_ge
-    // CHECK: ttnn.ge
+    // CHECK: "ttnn.ge"
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: -> tensor<64x128xbf16,
@@ -39,7 +39,7 @@ module @jit_eltwise_compare attributes {} {
 
   func.func public @test_gt(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xi1> {
     // CHECK-LABEL: func.func public @test_gt
-    // CHECK: ttnn.gt
+    // CHECK: "ttnn.gt"
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: -> tensor<64x128xbf16,
@@ -49,7 +49,7 @@ module @jit_eltwise_compare attributes {} {
 
   func.func public @test_le(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xi1> {
     // CHECK-LABEL: func.func public @test_le
-    // CHECK: ttnn.le
+    // CHECK: "ttnn.le"
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: -> tensor<64x128xbf16,
@@ -59,7 +59,7 @@ module @jit_eltwise_compare attributes {} {
 
   func.func public @test_lt(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xi1> {
     // CHECK-LABEL: func.func public @test_lt
-    // CHECK: ttnn.lt
+    // CHECK: "ttnn.lt"
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: -> tensor<64x128xbf16,
