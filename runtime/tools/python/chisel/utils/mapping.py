@@ -244,4 +244,5 @@ ttir_to_torch_mapping = {
     ),
     "ttir.neg": OpMapping(torch.neg),
     "ttir.abs": OpMapping(torch.abs),
+    "ttir.eq": OpMapping(torch.eq),
 }

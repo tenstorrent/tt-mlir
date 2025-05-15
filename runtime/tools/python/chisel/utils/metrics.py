@@ -114,3 +114,24 @@ def compute_pcc(ttir_result, ttnn_result):
         pcc = numerator / denominator
 
     return float(pcc)
+
+
+def compute_rel_err(ttir_result, ttnn_result):
+    ttir_result, ttnn_result = _to_common_shape(ttir_result, ttnn_result)
+    if ttir_result is None or ttnn_result is None:
+        return -1
+
+    ttir_result = ttir_result.to(torch.float32)
+    ttnn_result = ttnn_result.to(torch.float32)
+
+    if torch.all(torch.isnan(ttir_result)) and torch.all(torch.isnan(ttnn_result)):
+        return 0.0
+
+    # compare if inf
+    if torch.all(torch.isinf(ttir_result)) and torch.all(torch.isinf(ttnn_result)):
+        if torch.all(ttir_result == ttnn_result):
+            return 0.0
+        return torch.inf
+
+    rel_err = torch.max(torch.abs((ttir_result - ttnn_result) / (ttir_result + 1e-8)))
+    return rel_err.item()

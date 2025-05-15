@@ -3,7 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 import csv
 from dataclasses import dataclass
-from utils.metrics import compute_pcc, compute_abs_err
+from utils.metrics import compute_pcc, compute_abs_err, compute_rel_err
+
+import torch
 
 
 @dataclass
@@ -12,11 +14,13 @@ class ValidatorInfo:
     ttnn_op: str
     pcc: float
     abs_err: float
+    rel_err: float
     info: str
     line_no: int
+    lig: bool  # TTNN last with output in it's group
 
     def __repr__(self) -> str:
-        return f"ValidatorInfo({self.ttir_op=}, {self.ttnn_op=}, {self.pcc=}, {self.abs_err=}, {self.info=}, {self.line_no=})"
+        return f"ValidatorInfo({self.ttir_op=}, {self.ttnn_op=}, {self.pcc=}, {self.abs_err=}, {self.rel_err=}, {self.info=}, {self.line_no=}, {self.lig=})"
 
 
 class Validator:
@@ -27,10 +31,12 @@ class Validator:
         self.ttir2ttnn_map = {}
         self.ttnn2ttir_tensor = {}
 
-    def validate(self, ttnn_op, op_group, intermediate=False):
+    def validate(self, ttnn_op, op_group, intermediate=False, chisel_context=None):
         if op_group.line_no not in self.pcc_data:
             self.pcc_data[op_group.line_no] = []
-        self.compare_group(ttnn_op, op_group, intermediate)
+        self.compare_group(
+            ttnn_op, op_group, intermediate, chisel_context=chisel_context
+        )
 
     def export_csv(self, filename):
         mode = "w" if self._first_export else "a"
@@ -44,7 +50,16 @@ class Validator:
 
             if self._first_export:
                 writer.writerow(
-                    ["TTIR Line", "TTIR Op", "TTNN Op", "PCC", "Abs Err", "Info"]
+                    [
+                        "TTIR Line",
+                        "TTIR Op",
+                        "TTNN Op",
+                        "PCC",
+                        "Abs Err",
+                        "Rel Err",
+                        "Info",
+                        "LIG",
+                    ]
                 )
                 self._first_export = False
 
@@ -62,13 +77,15 @@ class Validator:
                         item.ttnn_op,
                         item.pcc,
                         item.abs_err,
+                        item.rel_err,
                         item.info,
+                        item.lig,
                     ]
                 )
 
             self._exported_count = total_items
 
-    def compare_group(self, ttnn_op, op_group, intermediate=False):
+    def compare_group(self, ttnn_op, op_group, intermediate=False, chisel_context=None):
         last_ttir_result = None
         last_ttir_op = None
         # find if ttnn op doesn't have an output, just set None everywhere
@@ -80,8 +97,10 @@ class Validator:
                 ttnn_op=str(ttnn_op.ir_op),
                 pcc=None,
                 abs_err=None,
+                rel_err=None,
                 info="No output",
                 line_no=op_group.line_no,
+                lig=(ttnn_op == op_group.get_last_ttnn_op(with_output=True)),
             )
             op_group.status.append(validator_info)
             # self.pcc_data[op_group.line_no].append(validator_info)
@@ -102,6 +121,18 @@ class Validator:
             last_ttir_result = output.cpu_data
             pcc = compute_pcc(last_ttir_result, last_ttnn_result)
             abs_err = compute_abs_err(last_ttir_result, last_ttnn_result)
+            rel_err = compute_rel_err(last_ttir_result, last_ttnn_result)
+
+            ## Hack, dump the ttir op's output to a file in outputs/goldens/{i}.pt
+            # where i is it's TTIR ir_op result name
+            if last_ttir_result is not None:
+                torch.save(
+                    last_ttir_result,
+                    chisel_context.output_dir
+                    / "goldens"
+                    / f"{op.ir_op.result.get_name()[1:]}.pt",
+                )
+
             if pcc is None:
                 continue
             # import pdb; pdb.set_trace()
@@ -117,8 +148,10 @@ class Validator:
                     ttnn_op=str(ttnn_op.ir_op),
                     pcc=pcc,
                     abs_err=abs_err,
+                    rel_err=rel_err,
                     info="",
                     line_no=op_group.line_no,
+                    lig=(ttnn_op == op_group.get_last_ttnn_op(with_output=True)),
                 )
             )
             max_pcc = max(max_pcc, pcc)
@@ -135,8 +168,10 @@ class Validator:
             ttnn_op=str(ttnn_op.ir_op),
             pcc=max_pcc,
             abs_err=min_abs_err,
+            rel_err=rel_err,
             info=f"{last_ttir_result}, {last_ttnn_result}",
             line_no=op_group.line_no,
+            lig=(ttnn_op == op_group.get_last_ttnn_op(with_output=True)),
         )
 
         op_group.status.append(validator_info)

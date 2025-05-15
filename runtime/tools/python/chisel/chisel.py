@@ -107,8 +107,12 @@ class ChiselContext:
             dtype = ttir_dtype_maps[data_format]
             shape = input.shape
             name = f"%arg{i}"
-            # Check it dtype is int
-            tensor = torch.ones(shape, dtype=dtype) * (i + 1)
+
+            tensor = torch.ones(shape, dtype=dtype)
+
+            if len(shape) == 2 and dtype in (torch.float32, torch.bfloat16):
+                tensor = torch.randn(shape) * shape[0] ** -0.5
+
             self.tensor_inputs[name] = tensor
         self.ttir_executor.tensor_pool.update(self.tensor_inputs)
 
@@ -235,22 +239,30 @@ class ChiselContext:
                     )
 
             # If the current ttnn op is the last op in the group, run the validator
-            if self.current_ttnn_op == target_group.get_last_ttnn_op(with_output=True):
-                self.validator.validate(self.current_ttnn_op, target_group)
-                self.validator.export_csv("pcc_data.csv")
+            # if self.current_ttnn_op == target_group.get_last_ttnn_op(with_output=True):
+            self.validator.validate(
+                self.current_ttnn_op,
+                target_group,
+                intermediate=False,
+                chisel_context=self,
+            )
+            self.validator.export_csv("pcc_data.csv")
 
             # if self.current_ttnn_op.name == "ttnn.add":
             #    # check for dtype of the output tensor
             #    if  tensor_out.tensor.get_dtype() in [DataType.Int32]:
             #        self.should_skip.add(self.current_ttnn_op.outputs[0].name)
-            # if self.current_ttnn_op.name == "ttnn.matmul":
-            #     self.should_skip.add(
-            #         self.current_ttnn_op.outputs[0].name
-            #     )
+            if self.current_ttnn_op.name == "ttnn.matmul":
+                output_shape = tensor_out.tensor.get_shape()
+                if output_shape == [12, 1, 16]:
+                    self.should_skip.add(self.current_ttnn_op.outputs[0].name)
+
             # if self.current_ttnn_op.name in ("ttnn.sum", "ttnn.max"):
-            #    self.should_skip.add(self.current_ttnn_op.outputs[0].name)
+            #   self.should_skip.add(self.current_ttnn_op.outputs[0].name)
             # if 'div' in self.current_ttnn_op.name:
-            #    self.should_skip.add(self.current_ttnn_op.outputs[0].name)
+            #   self.should_skip.add(self.current_ttnn_op.outputs[0].name)
+            if "where" in self.current_ttnn_op.name:
+                self.should_skip.add(self.current_ttnn_op.outputs[0].name)
 
             self.ttnn_op_idx += 1
             return tensor_out
@@ -379,7 +391,8 @@ def main():
 
     chisel_context = ChiselContext(args)
     # chisel_context.set_inputs(inputs)
-    chisel_context.generate_inputs()
+    with chisel_context.context:
+        chisel_context.generate_inputs()
     chisel_context.run()
 
     logger.debug(chisel_context.pcc_data)
