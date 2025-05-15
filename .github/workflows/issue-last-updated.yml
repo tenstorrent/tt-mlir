@@ -59,7 +59,7 @@ jobs:
         run: |
           # Properly escape the GraphQL query for JSON
           QUERY=$(cat <<'EOF'
-          query($projectId: ID!, $issueId: ID!) {
+          query($projectId: ID!) {
             node(id: $projectId) {
               ... on ProjectV2 {
                 items(first: 100) {
@@ -82,8 +82,7 @@ jobs:
           JSON_PAYLOAD=$(jq -n \
             --arg query "$QUERY" \
             --arg projectId "${{ env.project_id }}" \
-            --arg issueId "${{ env.issue_id }}" \
-            '{query: $query, variables: {projectId: $projectId, issueId: $issueId}}')
+            '{query: $query, variables: {projectId: $projectId}}')
           
           echo "JSON Payload: $JSON_PAYLOAD"
           
@@ -95,7 +94,13 @@ jobs:
           
           echo "GraphQL Response: $RESPONSE"
           
+          # Process the response to find the item matching our issue ID
           ITEM_ID=$(echo "$RESPONSE" | jq -r --arg issueId "${{ env.issue_id }}" '.data.node.items.nodes[] | select(.content.id==$issueId) | .id')
+          
+          # Debug output
+          echo "Looking for issue ID: ${{ env.issue_id }}"
+          echo "Available items:"
+          echo "$RESPONSE" | jq '.data.node.items.nodes[] | {id: .id, contentId: .content.id}'
           
           if [ -z "$ITEM_ID" ] || [ "$ITEM_ID" == "null" ]; then
             echo "Could not find item ID for issue. Check project permissions and IDs."
