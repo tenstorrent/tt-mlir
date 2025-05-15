@@ -4,9 +4,15 @@
 
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
+
+#include <memory>
+#include <optional>
+#include <utility>
+#include <vector>
 
 #if defined(TT_RUNTIME_ENABLE_TTNN)
 #include "tt/runtime/detail/ttnn/ttnn.h"
@@ -717,6 +723,78 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
     return ::tt::runtime::ttmetal::getOpOutputTensor(opContextHandle,
                                                      programContextHandle);
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
+std::optional<tt::runtime::TensorRef>
+getOpOutputRef(OpContext opContextHandle,
+               CallbackContext programContextHandle) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::getOpOutputRef(opContextHandle,
+                                               programContextHandle);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::getOpOutputRef(opContextHandle,
+                                                  programContextHandle);
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
+std::vector<tt::runtime::TensorRef>
+getOpInputRefs(OpContext opContextHandle,
+               CallbackContext programContextHandle) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::getOpInputRefs(opContextHandle,
+                                               programContextHandle);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::getOpInputRefs(opContextHandle,
+                                                  programContextHandle);
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
+std::optional<Tensor> getTensor(CallbackContext programContextHandle,
+                                TensorRef tensorRef) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::getTensor(programContextHandle, tensorRef);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::getTensor(programContextHandle, tensorRef);
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
+void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef,
+                  Tensor srcTensor) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::updateTensor(programContextHandle, tensorRef,
+                                             srcTensor);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::updateTensor(programContextHandle, tensorRef,
+                                                srcTensor);
   }
 #endif
   LOG_FATAL("runtime is not enabled");
