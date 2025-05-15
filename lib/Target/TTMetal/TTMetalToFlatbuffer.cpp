@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
 #include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include "ttmlir/Target/TTMetal/Target.h"
+#include "ttmlir/Target/TTMetal/command_generated.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "ttmlir/Version.h"
@@ -27,6 +28,9 @@
 #include <cassert>
 #include <cstddef>
 #include <memory>
+#include <mlir/IR/BuiltinTypeInterfaces.h>
+#include <mlir/IR/BuiltinTypes.h>
+#include <vector>
 
 namespace mlir::tt::ttmetal {
 
@@ -408,6 +412,27 @@ kernelConfigToFlatbuffer(FlatbufferObjectCache &cache,
       &coreRangeSet, args, configType, configUnion, kernelSymbol.data());
 }
 
+static flatbuffers::Offset<::flatbuffers::Vector<uint8_t>>
+memrefGlobalOpToFlatbufferByteVector(FlatbufferObjectCache &cache,
+                                     memref::GlobalOp globalOp) {
+  auto value = mlir::cast<MemRefType>(globalOp.getTypeAttr().getValue());
+  auto initialValueAttr =
+      mlir::cast<mlir::DenseElementsAttr>(globalOp.getInitialValueAttr());
+  flatbuffers::Offset<::flatbuffers::Vector<uint8_t>> data;
+
+  if (mlir::isa<FloatType>(value.getElementType())) {
+    if (value.getElementType().getIntOrFloatBitWidth() == 32) {
+      data = mlir::tt::toFlatbufferByteVector<float>(cache, initialValueAttr);
+    } else {
+      assert(false && "unsupported float bit width");
+    }
+  } else {
+    assert(false && "unsupported data type");
+  }
+
+  return data;
+}
+
 static std::shared_ptr<void> translateModuleToFlatbuffer(
     Operation *op,
     const std::unordered_map<std::string, GoldenTensor> &goldenMap,
@@ -535,9 +560,23 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
       } else if (auto finishOp = dyn_cast_if_present<tt::ttmetal::FinishOp>(op);
                  finishOp) {
         cqBuilder.appendCommand(target::metal::CreateFinishCommand(fbb), op);
+      } else if (auto getGlobalOp =
+                     dyn_cast_if_present<memref::GetGlobalOp>(op);
+                 getGlobalOp) {
+        auto globalSymbolRef =
+            mlir::cast<mlir::FlatSymbolRefAttr>(getGlobalOp->getAttr("name"));
+        auto globalOp = mlir::cast<memref::GlobalOp>(
+            symbolTable.lookup(globalSymbolRef.getValue()));
+        auto globalResult = getGlobalOp.getResult();
+        cqBuilder.appendCommand(
+            target::metal::CreateHostAllocCommand(
+                fbb,
+                cache.getOrCreate(globalResult, bufferValueToFlatbuffer, 0),
+                memrefGlobalOpToFlatbufferByteVector(cache, globalOp)),
+            op);
       } else if (auto funcOp = dyn_cast_if_present<func::FuncOp>(op); funcOp) {
-        // Unqualified walk will visit the root op itself last, we should ignore
-        // this.
+        // Unqualified walk will visit the root op itself last, we should
+        // ignore this.
         return;
       } else {
         llvm_unreachable("Encountered unsupported op.");

@@ -6,6 +6,7 @@ namespace tt.target.metal;
 
 table HostAllocCommand {
   dst: BufferRef;
+  data: [ubyte];
 }
 
 table ReturnCommand {
