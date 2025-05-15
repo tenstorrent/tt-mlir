@@ -25,14 +25,10 @@ namespace mlir::tt::ttir {
 #define TT_LOG_trace(/* fmt, args */...)                                       \
   TTMLIR_TRACE(ttmlir::LogComponent::General, __VA_ARGS__)
 
-//............................................................................
-
 using Record = AllocationPlanner::Record;
 using AllocSizeT = AllocationPlanner::AllocSizeT;
 using SequenceT = AllocationPlanner::SequenceT;
 using IndexT = std::int32_t;
-
-//............................................................................
 
 void AllocationPlanner::Context::add(AllocSizeT size, SequenceT first,
                                      SequenceT last) {
@@ -44,16 +40,14 @@ void AllocationPlanner::Context::add(AllocSizeT size, SequenceT first,
       records.emplace_back(Record{-1, size, first, last});
   TT_LOG_trace("added request record #{}: {}", (records.size() - 1), r);
 }
-//............................................................................
 
-template <AllocationPlanner::Algorithm::enum_t A>
+template <AllocationPlanner::Algorithm Algorithm>
 class PlannerImpl {
 public:
   static inline AllocationPlanner::Stats
   allocate(AllocationPlanner::Context &context);
+};
 
-}; // end of class
-//............................................................................
 //
 // A simple bumper allocator. It ignores live ranges and thus can't reuse
 // memory.
@@ -102,12 +96,11 @@ PlannerImpl<AllocationPlanner::Algorithm::simple>::allocate(
 
   return {maxSize, memUsage, 0};
 }
-//............................................................................
 //
 // Greedy-by-size allocator:
 //  1. visit requests in decreasing memory size order;
 //  2. place each request into the tighest gap found within the conflict set
-//     formed by already placed requests; if no such gap is found extend
+//     formed by already placed requests; if no such gap is found, extend
 //     the solution makespan.
 template <>
 inline AllocationPlanner::Stats
@@ -182,10 +175,9 @@ PlannerImpl<AllocationPlanner::Algorithm::greedy>::allocate(
                maxSize, memUsage);
   return {maxSize, memUsage, 0};
 }
-//............................................................................
 
-AllocationPlanner::Stats
-AllocationPlanner::allocate(Context &context, Algorithm::enum_t algorithm) {
+AllocationPlanner::Stats AllocationPlanner::allocate(Context &context,
+                                                     Algorithm algorithm) {
   switch (algorithm) {
   case Algorithm::simple:
     return PlannerImpl<Algorithm::simple>::allocate(context);
@@ -193,7 +185,6 @@ AllocationPlanner::allocate(Context &context, Algorithm::enum_t algorithm) {
     return PlannerImpl<Algorithm::greedy>::allocate(context);
   }
 }
-//............................................................................
 
 AllocationPlanner::Stats AllocationPlanner::verify(const Context &context) {
   TT_LOG_trace("verifying {} allocation(s)", context.size());
@@ -243,7 +234,6 @@ AllocationPlanner::Stats AllocationPlanner::verify(const Context &context) {
         // 'conflict' and 'record' must not overlap in memory space.
         // Note that a memory range is considered half-open, i.e. [offset,
         // offset+size).
-
         [[maybe_unused]] const bool memOverlap =
             std::max(record.offset, conflict.offset) <
             std::min(record.offset + record.size,

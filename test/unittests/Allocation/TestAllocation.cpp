@@ -16,11 +16,9 @@ namespace mlir::tt::ttir {
 
 namespace gtest = ::testing;
 
-//............................................................................
-
-template <AllocationPlanner::Algorithm::enum_t Algorithm>
+template <AllocationPlanner::Algorithm Algorithm>
 struct TestScenario {
-  static constexpr AllocationPlanner::Algorithm::enum_t algorithm = Algorithm;
+  static constexpr AllocationPlanner::Algorithm algorithm = Algorithm;
 };
 
 using TestScenarios =
@@ -31,8 +29,6 @@ template <typename T>
 struct AllocationTest : public gtest::Test {};
 TYPED_TEST_SUITE(AllocationTest, TestScenarios,
                  /* clang variadic macro issue workaround */);
-
-//............................................................................
 
 TYPED_TEST(AllocationTest, EdgeCases) {
 
@@ -72,7 +68,6 @@ TYPED_TEST(AllocationTest, EdgeCases) {
         << "single request should have been allocated at zero offset";
   }
 }
-//............................................................................
 
 // Run all algorithms against request sequences with varying density over scope
 // time axis and varying probability of liveness conflicts.
@@ -151,7 +146,6 @@ TYPED_TEST(AllocationTest, Conflicts) {
     }
   }
 }
-//............................................................................
 
 // When no allocation requests have actual live conflicts, any non-naive
 // algorithm should produce a plan that

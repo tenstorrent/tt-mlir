@@ -8,6 +8,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 namespace mlir::tt::ttir {
@@ -17,13 +18,9 @@ class AllocationPlanner final {
 public:
   /// Enum for planning algorithms exposed by this API.
   /// @see AllocationPlanner::allocate()
-  struct Algorithm {
-    // clang-format off
-    enum enum_t : std::int32_t {
-      simple,   //! Monotonic "bumper" allocator, does not support dealloc.
-      greedy    //! Greedy-by-size allocator.
-    };
-    // clang-format on
+  enum class Algorithm : std::int32_t {
+    simple, //! Monotonic "bumper" allocator, does not support dealloc.
+    greedy  //! Greedy-by-size allocator.
   };
 
   // Type for address-like values.
@@ -38,14 +35,11 @@ public:
     friend llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
                                          const Record &obj);
 
-    // clang-format off
-    AllocSizeT offset;  //! Start memory address (negative means N/A).
-    AllocSizeT size;    //! Requested memory size.
-    SequenceT first;    //! (Inclusive) start of live range.
-    SequenceT last;     //! (Inclusive) end of live range.
-    // clang-format on
-
-  }; // end of class
+    AllocSizeT offset; //! Start memory address (negative means N/A).
+    AllocSizeT size;   //! Requested memory size.
+    SequenceT first;   //! (Inclusive) start of live range.
+    SequenceT last;    //! (Inclusive) end of live range.
+  };
 
   /// An allocation planning problem descriptor. Callers may extend to
   /// associate additional information.
@@ -67,12 +61,11 @@ public:
 
   protected:
     friend class AllocationPlanner;
-    template <AllocationPlanner::Algorithm::enum_t Algorithm>
+    template <AllocationPlanner::Algorithm Algorithm>
     friend class PlannerImpl;
 
     std::vector<Record> records;
-
-  }; // end of class
+  };
 
   /// Descriptor of allocation and verification outcomes.
   struct Stats final {
@@ -89,21 +82,20 @@ public:
 
     /// Largest single-record memory size within an allocation context.
     AllocSizeT maxSize;
-    /// Allocation needed `[0, memUsage)` memory strip to satisfy the
-    /// allocation request (also known as "makespan").
+    /// "Memory usage" is the minimum amount of memory needed to satisfy
+    /// the allocation request (also known as "makespan" in literature).
     AllocSizeT memUsage;
     /// "Load" is the sum of sizes of all requests live at a given
     /// logical instant. This is the maximum such value across the
     /// entire logical time range. (0 indicates N/A)
     AllocSizeT maxLoad;
-
-  }; // end of class
+  };
 
   /// Find a feasible allocation for Records in `context` (expected
   /// to have `size`, `first`, and `last` fields set).
   /// @return `Stats` with `maxSize` and `memUsage` fields set
-  [[nodiscard]] static Stats
-  allocate(Context &context, Algorithm::enum_t algorithm = Algorithm::greedy);
+  [[nodiscard]] static Stats allocate(Context &context,
+                                      Algorithm algorithm = Algorithm::greedy);
 
   /// Validate the allocation plan in `context` for proper memory/liveness
   /// conflict resolution and return stats with *all* fields recomputed.
@@ -111,9 +103,7 @@ public:
 
 private:
   AllocationPlanner() = default; // Non-instantiable.
-
-}; // end of class
-//............................................................................
+};
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
                                      const AllocationPlanner::Record &obj) {

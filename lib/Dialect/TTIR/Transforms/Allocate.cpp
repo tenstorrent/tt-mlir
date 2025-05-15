@@ -67,7 +67,7 @@ struct MemorySpaceInfo final {
 
   static constexpr std::size_t maxEnumValForMemorySpace =
       (getMaxEnumValForMemorySpace() + 1);
-}; // end of class
+};
 
 struct MemorySpaces final {
 
@@ -78,8 +78,7 @@ struct MemorySpaces final {
 
   std::array<MemorySpaceInfo, MemorySpaceInfo::maxEnumValForMemorySpace>
       memorySpaceInfo;
-
-}; // end of class
+};
 
 struct FuncAnalysisData final : public AllocationPlanner::Context {
 
@@ -101,8 +100,7 @@ struct FuncAnalysisData final : public AllocationPlanner::Context {
   std::vector<Operation *> positionMap;
   // Inverse of `positionMap`.
   DenseMap<Operation *, SequenceT> operationMap;
-
-}; // end of class
+};
 
 struct ModuleAnalysisData final {
 
@@ -110,8 +108,7 @@ struct ModuleAnalysisData final {
 
   MemorySpaces memSpaces;
   DenseMap<func::FuncOp, FuncAnalysisData> funcAnalysis;
-
-}; // end of class
+};
 
 } // namespace
 //===----------------------------------------------------------------------===//
@@ -220,10 +217,8 @@ class TTIRAllocateStreams final : public OpRewritePattern<ttir::GenericOp> {
     rewriter.modifyOpInPlace(
         op, [&]() { operand.assign(streamLayout.getResult()); });
   }
-
-}; // end of class
+};
 } // namespace
-// ............................................................................
 
 namespace {
 class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
@@ -292,7 +287,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     Operation *lastOp;
     SequenceT first;
     SequenceT maxLast;
-  }; // end of class
+  };
 
   // Analyze and plan buffer allocation for a func.
   FailureOr<FuncAnalysisData> runAnalyzeBuffers(func::FuncOp func,
@@ -438,7 +433,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
           memrefTy, MemorySpace::System); // Interpret unset as "host memory".
 
       if (!isL1MemorySpace(memorySpace)) {
-        continue; // Same WIP guard as in the analyze step.
+        continue; // Only handling L1 space at the moment.
       }
 
       const auto &info =
@@ -502,8 +497,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     }
     return {std::move(info)};
   }
-
-}; // end of class
+};
 } // namespace
 
 } // namespace mlir::tt::ttir
