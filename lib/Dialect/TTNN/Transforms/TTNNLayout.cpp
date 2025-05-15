@@ -269,8 +269,8 @@ public:
         // https://github.com/tenstorrent/tt-mlir/issues/1528).
         if (operand.getOperandNumber() == 1) {
           modified = changeLayoutToHost(op, operand, rewriter, isDPSResult);
+          continue;
         }
-        continue;
       }
 
       // TTNN mesh shard expects host input and output
@@ -338,7 +338,8 @@ private:
     // unless we specify an override in the Conv2dConfig (which we don't
     // currently). Therefore we don't force row major if the operand is a DPS
     // result
-    if (mlir::isa<ttir::Conv2dOp>(operation) && !isDPSResult) {
+    if (mlir::isa<ttir::Conv2dOp>(operation) && !isDPSResult &&
+        operandNumber != 2) {
       return false;
     }
     return true;
@@ -465,13 +466,17 @@ private:
     SmallVector<Type> inputTypes;
     SmallVector<Type> outputTypes(funcOp.getResultTypes());
     for (BlockArgument &arg : entryBlock.getArguments()) {
-      if (!mlir::isa<RankedTensorType>(arg.getType()) ||
-          !shouldForceInputSystemMemory(arg)) {
+      if (!mlir::isa<RankedTensorType>(arg.getType())) {
         inputTypes.push_back(arg.getType());
         continue;
       }
-      RankedTensorType ty = mlir::cast<RankedTensorType>(arg.getType());
-      RankedTensorType newType = toSystemMemoryType(funcOp.getContext(), ty);
+
+      RankedTensorType newType = mlir::cast<RankedTensorType>(arg.getType());
+      if (shouldForceInputSystemMemory(arg)) {
+        newType = toSystemMemoryType(funcOp.getContext(), newType);
+      } else {
+        newType = toDeviceRowMajor(funcOp.getContext(), newType);
+      }
 
       inputTypes.push_back(newType);
       modified = arg.getType() != newType;
@@ -533,6 +538,15 @@ private:
                                       RankedTensorType ty) const {
     TTNNLayoutAttr newLayout = createLayoutAttr(
         ctx, deviceGrid, ty, BufferType::SystemMemory, false /* isTiledOpt */);
+    auto newType =
+        RankedTensorType::get(ty.getShape(), ty.getElementType(), newLayout);
+    return newType;
+  }
+
+  RankedTensorType toDeviceRowMajor(MLIRContext *ctx,
+                                    RankedTensorType ty) const {
+    TTNNLayoutAttr newLayout = createLayoutAttr(
+        ctx, deviceGrid, ty, BufferType::DRAM, false /* isTiledOpt */);
     auto newType =
         RankedTensorType::get(ty.getShape(), ty.getElementType(), newLayout);
     return newType;
