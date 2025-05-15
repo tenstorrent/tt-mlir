@@ -170,8 +170,8 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
 
   // Create the new output result type with the updated data type and layout.
   RankedTensorType newOutputResultType =
-      ttnn::utils::createRankedTensorTypeWithEncoding(
-          ttnn::utils::createRankedTensorTypeWithElementType(
+      ttnn::utils::RankedTensorTypeFactory::create(
+          ttnn::utils::RankedTensorTypeFactory::create(
               opResultType,
               mlir::tt::dataTypeToElementType(
                   rewriter.getContext(),

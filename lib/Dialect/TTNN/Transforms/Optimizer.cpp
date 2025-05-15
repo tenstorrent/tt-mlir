@@ -294,6 +294,9 @@ public:
     // No further analysis.
     //
     moduleOp->walk([&](func::FuncOp func) {
+      if (func->hasAttr("const_eval")) {
+        return;
+      }
       SmallVector<Type> funcResultTypes;
 
       // If schedule is set, apply order of operations to func.

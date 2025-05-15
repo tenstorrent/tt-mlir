@@ -160,6 +160,7 @@ def TTNN_MemoryConfigAttr : TTNN_Attr<"MemoryConfig", "memory_config"> {
   let assemblyFormat = "`<` params `>`";
 
   let extraClassDeclaration = [{
+    static MemoryConfigAttr get(TTNNLayoutAttr layoutAttr);
     llvm::ArrayRef<int64_t> getShardShape(bool convertTileToScalar = true) const;
     MemoryConfigAttr withBufferType(BufferType bufferType);
     MemoryConfigAttr withMemoryLayout(TensorMemoryLayout memLayout);
@@ -500,6 +501,7 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
     Type getScalarElementType() const;
     uint64_t getShardSizeInBytes() const;
     BufferType getBufferType() const;
+    BufferTypeAttr getBufferTypeAttr() const;
     DataType getDataType() const;
     uint64_t getElementSizeBytes() const;
     static llvm::SmallVector<int64_t> calculateLogicalShardShapeForSharding(ArrayRef<int64_t> tensorShape, mlir::AffineMap linear, GridAttr grid);

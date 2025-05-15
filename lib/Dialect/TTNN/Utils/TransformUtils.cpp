@@ -74,8 +74,8 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
 
   // Create the output result type with the new data type and encoding.
   RankedTensorType toLayoutOpResultType =
-      ttnn::utils::createRankedTensorTypeWithEncoding(
-          ttnn::utils::createRankedTensorTypeWithElementType(
+      ttnn::utils::RankedTensorTypeFactory::create(
+          ttnn::utils::RankedTensorTypeFactory::create(
               inputToLayoutOpType,
               mlir::tt::dataTypeToElementType(rewriter.getContext(),
                                               targetTensorDataType)),

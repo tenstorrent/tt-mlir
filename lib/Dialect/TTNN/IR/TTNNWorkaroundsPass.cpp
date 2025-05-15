@@ -547,6 +547,7 @@ TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
     bool hasBias) {
 
   TTNNOperandWorkarounds inputWorkaround;
+  inputWorkaround.tensorBufferTypeWorkaround = BufferType::DRAM;
   inputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
 
   // Convolution outputs are always in tile layout regardless
@@ -556,16 +557,21 @@ TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
   TTNNOperandWorkarounds outputWorkaround;
   outputWorkaround.tensorLayoutWorkaround = Layout::Tile;
 
-  TTNNOperandWorkarounds parameterWorkaround;
+  TTNNOperandWorkarounds weightWorkaround;
+  weightWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  weightWorkaround.tensorBufferTypeWorkaround = BufferType::SystemMemory;
 
   auto workaround =
       wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
           .addInputOperandWorkaround(inputWorkaround)
-          .addInputOperandWorkaround(parameterWorkaround)
+          .addInputOperandWorkaround(weightWorkaround)
           .addOutputOperandWorkaround(outputWorkaround);
 
   if (hasBias) {
-    workaround = workaround.addInputOperandWorkaround(parameterWorkaround);
+    TTNNOperandWorkarounds biasWorkaround;
+    biasWorkaround.tensorLayoutWorkaround = Layout::Tile;
+    biasWorkaround.tensorBufferTypeWorkaround = BufferType::DRAM;
+    workaround = workaround.addInputOperandWorkaround(biasWorkaround);
   }
   return workaround;
 }

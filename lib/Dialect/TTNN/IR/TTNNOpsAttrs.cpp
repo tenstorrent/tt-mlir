@@ -153,6 +153,10 @@ TTNNLayoutAttr::calculateLogicalShardShapeForL1Interleaved(
   return mlir::cast<mlir::tt::TileType>(elementType).getScalarShape(shardShape);
 }
 
+BufferTypeAttr TTNNLayoutAttr::getBufferTypeAttr() const {
+  return mlir::cast<BufferTypeAttr>(getMemref().getMemorySpace());
+}
+
 // Get the buffer type (DRAM/L1/SystemMemory)
 BufferType TTNNLayoutAttr::getBufferType() const {
   return mlir::cast<BufferTypeAttr>(getMemref().getMemorySpace()).getValue();
@@ -509,6 +513,15 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
   return verifyBufferAndMemoryLayout(emitError, bufferType, memLayout);
 }
 
+MemoryConfigAttr MemoryConfigAttr::get(TTNNLayoutAttr layoutAttr) {
+  MLIRContext *context = layoutAttr.getContext();
+  OpBuilder builder(context);
+  auto shardSpec = ShardSpecAttr::get(
+      context, ShapeAttr::get(context, layoutAttr.getShardShape()));
+  return MemoryConfigAttr::get(context, layoutAttr.getBufferTypeAttr(),
+                               shardSpec, layoutAttr.getMemLayout());
+}
+
 // Construct a new MemoryConfig
 //
 // This function creates a deep copy of the current MemoryConfigAttr and
@@ -672,10 +685,10 @@ struct Conv2dConfigAttrParams {
 
 Conv2dConfigAttr Conv2dConfigAttr::get(::mlir::MLIRContext *context) {
   auto convConfig = Conv2dConfigAttr::get(
-      context, std::nullopt, std::nullopt, nullptr, nullptr,
-      nullptr, std::nullopt, std::nullopt, nullptr, nullptr, std::nullopt,
-      nullptr, nullptr, std::nullopt, nullptr, nullptr, nullptr, nullptr,
-      nullptr, nullptr);
+      context, std::nullopt, std::nullopt, nullptr, nullptr, nullptr,
+      std::nullopt, std::nullopt, nullptr, nullptr, std::nullopt, nullptr,
+      nullptr, std::nullopt, nullptr, nullptr, nullptr, nullptr, nullptr,
+      nullptr);
   return Conv2dConfigAttrParams(convConfig).buildConv2dConfig(context);
 }
 

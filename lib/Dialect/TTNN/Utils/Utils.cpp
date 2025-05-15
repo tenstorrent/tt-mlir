@@ -48,18 +48,15 @@ toTTMemorySpace(const mlir::tt::ttnn::BufferType bufferType) {
   llvm_unreachable("Unknown MemorySpace");
 }
 
-// Helper method to create a RankedTensorType with the given encoding.
 RankedTensorType
-createRankedTensorTypeWithEncoding(RankedTensorType tensorType,
-                                   ttnn::TTNNLayoutAttr encoding) {
+RankedTensorTypeFactory::create(RankedTensorType tensorType,
+                                ttnn::TTNNLayoutAttr encoding) {
   return RankedTensorType::get(tensorType.getShape(),
                                tensorType.getElementType(), encoding);
 }
 
-// Helper method to create a RankedTensorType with the given element type.
-RankedTensorType
-createRankedTensorTypeWithElementType(RankedTensorType tensorType,
-                                      Type elementType) {
+RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
+                                                 Type elementType) {
   TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
   TTNNLayoutAttr newEncoding =
       oldEncoding.withElementType(elementType, tensorType.getShape());
@@ -71,31 +68,66 @@ createRankedTensorTypeWithElementType(RankedTensorType tensorType,
                                newEncoding);
 }
 
-// Helper method to create a RankedTensorType with the given buffer type.
-RankedTensorType
-createRankedTensorTypeWithBufferType(RankedTensorType tensorType,
-                                     ttnn::BufferType bufferType) {
+RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
+                                                 ttnn::BufferType bufferType) {
   TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
   TTNNLayoutAttr newEncoding = oldEncoding.withBufferType(bufferType);
-  return createRankedTensorTypeWithEncoding(tensorType, newEncoding);
+  return RankedTensorTypeFactory::create(tensorType, newEncoding);
 }
 
-// Helper method to create a RankedTensorType with the given memory layout.
 RankedTensorType
-createRankedTensorTypeWithMemoryLayout(RankedTensorType tensorType,
-                                       ttnn::TensorMemoryLayout memoryLayout) {
+RankedTensorTypeFactory::create(RankedTensorType tensorType,
+                                ttnn::TensorMemoryLayout memoryLayout) {
   TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
   TTNNLayoutAttr newEncoding = oldEncoding.withMemoryLayout(memoryLayout);
-  return createRankedTensorTypeWithEncoding(tensorType, newEncoding);
+  return RankedTensorTypeFactory::create(tensorType, newEncoding);
 }
 
-// Helper method to create a RankedTensorType with the given grid.
-RankedTensorType createRankedTensorTypeWithGrid(RankedTensorType tensorType,
-                                                GridAttr grid) {
+RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
+                                                 GridAttr grid) {
   TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
   TTNNLayoutAttr newEncoding =
       oldEncoding.withGrid(tensorType.getShape(), grid);
-  return createRankedTensorTypeWithEncoding(tensorType, newEncoding);
+  return RankedTensorTypeFactory::create(tensorType, newEncoding);
+}
+
+RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
+                                                 Layout layout) {
+  ttnn::TTNNLayoutAttr encoding =
+      cast<TTNNLayoutAttr>(tensorType.getEncoding());
+  Type newElementType =
+      getElementType(tensorType.getContext(), layout, encoding.getDataType());
+  return create(tensorType, newElementType);
+}
+
+RankedTensorType
+RankedTensorTypeFactory::create(RankedTensorType tensorType,
+                                const RankedTensorTypeFactory::Params &params) {
+  if (params.encoding) {
+    tensorType = create(tensorType, params.encoding);
+  }
+
+  if (params.elementType) {
+    tensorType = create(tensorType, params.elementType);
+  }
+
+  if (params.bufferType) {
+    tensorType = create(tensorType, *params.bufferType);
+  }
+
+  if (params.memoryLayout) {
+    tensorType = create(tensorType, *params.memoryLayout);
+  }
+
+  if (params.grid) {
+    tensorType = create(tensorType, params.grid);
+  }
+
+  if (params.layout) {
+    tensorType = create(tensorType, *params.layout);
+  }
+
+  return tensorType;
 }
 
 // Return the L1 memory usage of the output tensor of the given op.
@@ -156,5 +188,4 @@ llvm::SmallVector<int64_t> getTilePaddedShape(llvm::ArrayRef<int64_t> shape) {
   }
   return tiledShape;
 }
-
 } // namespace mlir::tt::ttnn::utils
