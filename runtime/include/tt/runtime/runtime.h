@@ -37,9 +37,9 @@ getMemoryView(Device device, int deviceID = 0);
 
 } // namespace detail
 
-DeviceRuntime getCurrentRuntime();
-
 std::vector<DeviceRuntime> getAvailableRuntimes();
+
+DeviceRuntime getCurrentRuntime();
 
 void setCurrentRuntime(const DeviceRuntime &runtime);
 
@@ -131,6 +131,8 @@ TensorDesc getTensorDesc(Tensor tensor);
 bool getTensorRetain(Tensor tensor);
 void setTensorRetain(Tensor tensor, bool retain);
 
+Arch getArch();
+
 size_t getNumAvailableDevices();
 
 Device openMeshDevice(const std::vector<uint32_t> &meshShape,
@@ -147,6 +149,13 @@ void releaseSubMeshDevice(Device subMesh);
 
 void reshapeMeshDevice(Device meshDevice,
                        const std::vector<uint32_t> &meshShape);
+
+std::vector<uint32_t> getMeshShape(Device meshDevice);
+std::vector<int> getDeviceIds(Device meshDevice);
+size_t getNumHwCqs(Device meshDevice);
+bool isProgramCacheEnabled(Device meshDevice);
+size_t getL1SmallSize(Device meshDevice);
+size_t getTraceRegionSize(Device meshDevice);
 
 void wait(Event event);
 

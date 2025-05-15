@@ -91,6 +91,10 @@ void setTensorRetain(Tensor tensor, bool retain) {
   LOG_FATAL("setTensorRetain not implemented for metal runtime");
 }
 
+Arch getArch() {
+  return ::tt::runtime::common::toRuntimeArch(::tt::tt_metal::hal::get_arch());
+}
+
 size_t getNumAvailableDevices() { return tt_metal::GetNumAvailableDevices(); }
 
 Device openMeshDevice(const std::vector<uint32_t> &meshShape,
@@ -102,6 +106,8 @@ Device openMeshDevice(const std::vector<uint32_t> &meshShape,
   tt_metal::distributed::MeshCoordinate offset(options.meshOffset);
 
   size_t l1SmallSize = options.l1SmallSize.value_or(DEFAULT_L1_SMALL_SIZE);
+  size_t traceRegionSize =
+      options.traceRegionSize.value_or(DEFAULT_TRACE_REGION_SIZE);
   tt_metal::DispatchCoreType dispatchCoreType =
       common::getDispatchCoreType(options.dispatchCoreType);
 
@@ -110,7 +116,7 @@ Device openMeshDevice(const std::vector<uint32_t> &meshShape,
 
   std::shared_ptr<tt_metal::distributed::MeshDevice> meshDevice =
       tt_metal::distributed::MeshDevice::create(
-          meshConfig, l1SmallSize, DEFAULT_TRACE_REGION_SIZE, options.numHWCQs,
+          meshConfig, l1SmallSize, traceRegionSize, options.numHWCQs,
           dispatchCoreType);
 
   LOG_DEBUG("Device grid size = { ",
@@ -185,6 +191,50 @@ void reshapeMeshDevice(Device meshDevice,
 
   metalMeshDevice.reshape(
       ::tt::tt_metal::distributed::MeshShape(meshShape[0], meshShape[1]));
+}
+
+std::vector<uint32_t> getMeshShape(Device meshDevice) {
+  ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
+      meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+  std::vector<uint32_t> shape(metalMeshDevice.shape().view().begin(),
+                              metalMeshDevice.shape().view().end());
+  return shape;
+}
+
+std::vector<int> getDeviceIds(Device meshDevice) {
+  ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
+      meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+  return metalMeshDevice.get_device_ids();
+}
+
+size_t getNumHwCqs(Device meshDevice) {
+  ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
+      meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+  return static_cast<size_t>(metalMeshDevice.num_hw_cqs());
+}
+
+bool isProgramCacheEnabled(Device meshDevice) {
+  ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
+      meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+  return metalMeshDevice.get_program_cache().is_enabled();
+}
+
+size_t getL1SmallSize(Device meshDevice) {
+  ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
+      meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+  return metalMeshDevice.allocator()->get_config().l1_small_size;
+}
+
+size_t getTraceRegionSize(Device meshDevice) {
+  ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
+      meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+  return metalMeshDevice.allocator()->get_config().trace_region_size;
 }
 
 void deallocateBuffers(Device deviceHandle) {
