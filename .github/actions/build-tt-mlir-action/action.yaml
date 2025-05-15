@@ -102,6 +102,7 @@ runs:
         source env/activate
         cmake --install ${{ inputs.build-output-dir }} --component Test
         cmake --install ${{ inputs.build-output-dir }} --component SharedLib
+        cmake --install ${{ inputs.build-output-dir }} --component TTNNStandalone
 
     - name: Upload ttrt .whl
       uses: actions/upload-artifact@v4
@@ -139,20 +140,20 @@ runs:
       shell: bash
       run: rm -f ${{ inputs.build-output-dir }}/artifact.tar
 
-    - name: Archive Third Party Directory
-      shell: bash
-      working-directory: ${{ inputs.third-party-output-dir }}
-      run: tar cf artifact.tar .
+    # - name: Archive Third Party Directory
+    #   shell: bash
+    #   working-directory: ${{ inputs.third-party-output-dir }}
+    #   run: tar cf artifact.tar .
 
-    - name: Upload Third Party Folder
-      uses: actions/upload-artifact@v4
-      with:
-        name: third-party-artifacts-${{ inputs.build-name }}
-        path: ${{ inputs.third-party-output-dir }}/artifact.tar
+    # - name: Upload Third Party Folder
+    #   uses: actions/upload-artifact@v4
+    #   with:
+    #     name: third-party-artifacts-${{ inputs.build-name }}
+    #     path: ${{ inputs.third-party-output-dir }}/artifact.tar
 
-    - name: Remove tar archive
-      shell: bash
-      run: rm -f ${{ inputs.third-party-output-dir }}/artifact.tar
+    # - name: Remove tar archive
+    #   shell: bash
+    #   run: rm -f ${{ inputs.third-party-output-dir }}/artifact.tar
 
     - name: Get Latest Tag and Version
       shell: bash
