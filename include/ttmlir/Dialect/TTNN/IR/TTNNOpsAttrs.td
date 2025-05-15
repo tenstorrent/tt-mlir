@@ -405,6 +405,24 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
 
   let extraClassDeclaration = [{
     Conv2dConfigAttr withActivation(StringRef activation) const;
+    Conv2dConfigAttr withDtype(DataType dtype) const;
+    Conv2dConfigAttr withWeightsDtype(DataType dtype) const;
+    Conv2dConfigAttr withDeallocateActivation(bool value) const;
+    Conv2dConfigAttr withReallocateHaloOutput(bool value) const;
+    Conv2dConfigAttr withActBlockHOverride(uint32_t value) const;
+    Conv2dConfigAttr withActBlockWDiv(uint32_t value) const;
+    Conv2dConfigAttr withReshardIfNotOptimal(bool value) const;
+    Conv2dConfigAttr withOverrideShardingConfig(bool value) const;
+    Conv2dConfigAttr withShardLayout(TensorMemoryLayout layout) const;
+    Conv2dConfigAttr withCoreGrid(CoreRangeSetAttr grid) const;
+    Conv2dConfigAttr withTransposeShards(bool value) const;
+    Conv2dConfigAttr withOutputLayout(Layout layout) const;
+    Conv2dConfigAttr withPreprocessWeightsOnDevice(bool value) const;
+    Conv2dConfigAttr withAlwaysPreprocessWeights(bool value) const;
+    Conv2dConfigAttr withEnableActDoubleBuffer(bool value) const;
+    Conv2dConfigAttr withEnableWeightsDoubleBuffer(bool value) const;
+    Conv2dConfigAttr withEnableSplitReader(bool value) const;
+    Conv2dConfigAttr withEnableSubblockPadding(bool value) const;
     bool hasActivation() const;
   }];
 
