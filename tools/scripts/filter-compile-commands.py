@@ -50,7 +50,9 @@ def main(args):
         compile_commands = json.load(f)
 
     filtered_commands = []
-    m = re.compile(r"^{}/((?!third_party).)*$".format(args.prefix))
+    m = re.compile(
+        r"^{}/((?!third_party|tools/ttnn-standalone).)*$".format(args.prefix)
+    )
     diff_files = get_diff_files(compile_commands) if args.diff else set()
     compile_commands = sorted(
         compile_commands, key=lambda x: x["file"] not in diff_files

@@ -211,7 +211,7 @@ tt::target::DataType getTensorDataType(::tt::runtime::Tensor tensor) {
   const ::ttnn::Tensor &nnTensor =
       tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
           .getTensor();
-  return utils::fromTTNNDataType(nnTensor.get_dtype());
+  return utils::fromTTNNDataType(nnTensor.dtype());
 }
 
 std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor tensor) {
@@ -323,7 +323,7 @@ std::uint32_t getTensorVolume(::tt::runtime::Tensor tensor) {
   const ::ttnn::Tensor &ttnnTensor =
       tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
           .getTensor();
-  return ttnnTensor.volume();
+  return ttnnTensor.padded_volume();
 }
 
 TensorDesc getTensorDesc(::tt::runtime::Tensor tensor) {
@@ -589,7 +589,7 @@ void memcpy(void *dst, ::tt::runtime::Tensor src) {
           .getTensor();
   if (utils::isOnHost(srcTensor.storage_type())) {
     const void *srcPtr = utils::getRawHostDataPtr(srcTensor);
-    size_t size = srcTensor.volume() * srcTensor.element_size();
+    size_t size = srcTensor.padded_volume() * srcTensor.element_size();
     std::memcpy(dst, srcPtr, size);
   } else {
     ::tt::tt_metal::memcpy(dst, srcTensor);
@@ -603,16 +603,17 @@ void memcpy(::tt::runtime::Tensor dst, ::tt::runtime::Tensor src) {
   const ::ttnn::Tensor &srcTensor =
       src.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
           .getTensor();
-  LOG_ASSERT(srcTensor.volume() * srcTensor.element_size() ==
-                 dstTensor.volume() * dstTensor.element_size(),
+  LOG_ASSERT(srcTensor.padded_volume() * srcTensor.element_size() ==
+                 dstTensor.padded_volume() * dstTensor.element_size(),
              "Input output tensor size mismatch in memcpy: ",
-             srcTensor.volume(), " * ", srcTensor.element_size(),
-             " != ", dstTensor.volume(), " * ", dstTensor.element_size());
+             srcTensor.padded_volume(), " * ", srcTensor.element_size(),
+             " != ", dstTensor.padded_volume(), " * ",
+             dstTensor.element_size());
   if (utils::isOnHost(srcTensor.storage_type()) &&
       utils::isOnHost(dstTensor.storage_type())) {
     void *dstPtr = utils::getRawHostDataPtr(dstTensor);
     const void *srcPtr = utils::getRawHostDataPtr(srcTensor);
-    size_t size = srcTensor.volume() * srcTensor.element_size();
+    size_t size = srcTensor.padded_volume() * srcTensor.element_size();
     std::memcpy(dstPtr, srcPtr, size);
   } else {
     ::tt::tt_metal::memcpy(dstTensor, srcTensor);
@@ -830,6 +831,7 @@ std::string getOpLocInfo(OpContext opContextHandle) {
     tensorRef = opContext.type_as_UpdateCacheOp()->cache();
     break;
   }
+  case ::tt::target::ttnn::OpType::LoadCachedOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
   case ::tt::target::ttnn::OpType::DeallocateOp: {
     LOG_WARNING("getting output tensor is not supported for ",

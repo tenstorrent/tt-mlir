@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "6f8b06c566a627fa06117852643175e1f9298c0a")
+set(TT_METAL_VERSION "1a58dca1c570bc38bdef6b728b692ee4e8c34a55")
 
 set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
 
@@ -26,7 +26,10 @@ message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
 
 set(TTMETAL_INCLUDE_DIRS
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn
+  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/api
+  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/core
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/cpp
+  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/cpp/ttnn
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/cpp/ttnn/deprecated
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/api
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal
@@ -114,8 +117,9 @@ ExternalProject_Add(
   BUILD_BYPRODUCTS ${TTNN_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH} ${TRACY_LIBRARY_PATH} ${DEVICE_LIBRARY_PATH}
 )
 
-ExternalProject_Add_StepTargets(tt-metal download configure)
+ExternalProject_Add_StepTargets(tt-metal download update configure)
 set_target_properties(tt-metal-download PROPERTIES EXCLUDE_FROM_ALL TRUE)
+set_target_properties(tt-metal-update PROPERTIES EXCLUDE_FROM_ALL TRUE)
 set_target_properties(tt-metal-configure PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 set_target_properties(tt-metal PROPERTIES EXCLUDE_FROM_ALL TRUE)
@@ -228,5 +232,6 @@ else() # TTMLIR_ENABLE_RUNTIME
   add_library(TTMETAL_LIBRARY INTERFACE)
   add_library(DEVICE_LIBRARY INTERFACE)
   add_library(tt-metal-download INTERFACE EXCLUDE_FROM_ALL)
+  add_library(tt-metal-update INTERFACE EXCLUDE_FROM_ALL)
   add_library(tt-metal-configure INTERFACE EXCLUDE_FROM_ALL)
 endif() # TTMLIR_ENABLE_RUNTIME
