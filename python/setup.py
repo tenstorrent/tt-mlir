@@ -119,34 +119,10 @@ version = "0.1." + date + ".dev0"
 # Only the ttmlir package relies on the CMake build process
 ttmlir_c = TTExtension("ttmlir")
 
-# Determine the project root and README.md path
-def find_project_root():
-    # Start from current directory and move up until we find a directory named 'tt-mlir'
-    current_dir = pathlib.Path().absolute()
-
-    # Check if current directory is named 'tt-mlir'
-    if current_dir.name == "tt-mlir":
-        return current_dir
-
-    # Look for parent directories named 'tt-mlir'
-    parent = current_dir
-    while parent != parent.parent:  # Stop at filesystem root
-        parent = parent.parent
-        if parent.name == "tt-mlir":
-            return parent
-
-    # If we couldn't find it, return the parent directory as fallback
-    return pathlib.Path().absolute().parent
-
-
 # Read README.md file from project root
-project_root = find_project_root()
-readme_path = project_root / "README.md"
-if readme_path.exists():
-    with open(str(readme_path), "r", encoding="utf-8") as f:
-        readme = f.read()
-else:
-    readme = "No README.md found"
+readme_path = pathlib.Path(__file__).absolute().parent.parent / "README.md"
+with open(str(readme_path), "r", encoding="utf-8") as f:
+    readme = f.read()
 
 setup(
     name="ttmlir",
