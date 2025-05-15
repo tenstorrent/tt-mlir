@@ -730,6 +730,21 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
       toFlatbuffer(cache, config.getEnableSubblockPadding()));
 }
 
+template <typename T>
+static flatbuffers::Offset<::flatbuffers::Vector<uint8_t>>
+toFlatbufferByteVector(FlatbufferObjectCache &cache,
+                       mlir::DenseElementsAttr &attr) {
+  size_t size_bytes = attr.getNumElements() * sizeof(T);
+  cache.fbb->StartVector<flatbuffers::Offset<uint8_t>>(size_bytes);
+
+  for (auto i = attr.value_begin<T>(); i != attr.value_end<T>(); i++) {
+    T value = *i;
+    uint8_t *buf = reinterpret_cast<uint8_t *>(&value);
+    cache.fbb->PushBytes(buf, sizeof(T));
+  }
+  return cache.fbb->EndVector(size_bytes);
+}
+
 } // namespace mlir::tt
 
 #endif

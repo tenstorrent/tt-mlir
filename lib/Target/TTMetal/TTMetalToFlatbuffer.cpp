@@ -412,32 +412,20 @@ kernelConfigToFlatbuffer(FlatbufferObjectCache &cache,
       &coreRangeSet, args, configType, configUnion, kernelSymbol.data());
 }
 
-template <typename T>
 static flatbuffers::Offset<::flatbuffers::Vector<uint8_t>>
-denseElementsToFlatbufferByteVector(mlir::DenseElementsAttr &initial_value_attr,
-                                    flatbuffers::FlatBufferBuilder &fbb) {
-  size_t size_bytes = initial_value_attr.getNumElements() * sizeof(T);
-  fbb.StartVector<flatbuffers::Offset<uint8_t>>(size_bytes);
-
-  for (auto i = initial_value_attr.value_begin<T>();
-       i != initial_value_attr.value_end<T>(); i++) {
-    T value = *i;
-    uint8_t *buf = reinterpret_cast<uint8_t *>(&value);
-    fbb.PushBytes(buf, sizeof(T));
-  }
-  return fbb.EndVector(size_bytes);
-}
-
-static flatbuffers::Offset<::flatbuffers::Vector<uint8_t>>
-memrefGlobalOpToFlatbufferByteVector(memref::GlobalOp &globalOp,
-                                     flatbuffers::FlatBufferBuilder &fbb) {
+memrefGlobalOpToFlatbufferByteVector(FlatbufferObjectCache &cache,
+                                     memref::GlobalOp globalOp) {
   auto value = mlir::cast<MemRefType>(globalOp.getTypeAttr().getValue());
-  auto initial_value_attr =
+  auto initialValueAttr =
       mlir::cast<mlir::DenseElementsAttr>(globalOp.getInitialValueAttr());
   flatbuffers::Offset<::flatbuffers::Vector<uint8_t>> data;
 
   if (mlir::isa<FloatType>(value.getElementType())) {
-    data = denseElementsToFlatbufferByteVector<float>(initial_value_attr, fbb);
+    if (value.getElementType().getIntOrFloatBitWidth() == 32) {
+      data = mlir::tt::toFlatbufferByteVector<float>(cache, initialValueAttr);
+    } else {
+      assert(false && "unsupported float bit width");
+    }
   } else {
     assert(false && "unsupported data type");
   }
@@ -584,7 +572,7 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
             target::metal::CreateHostAllocCommand(
                 fbb,
                 cache.getOrCreate(globalResult, bufferValueToFlatbuffer, 0),
-                memrefGlobalOpToFlatbufferByteVector(globalOp, fbb)),
+                memrefGlobalOpToFlatbufferByteVector(cache, globalOp)),
             op);
       } else if (auto funcOp = dyn_cast_if_present<func::FuncOp>(op); funcOp) {
         // Unqualified walk will visit the root op itself last, we should
