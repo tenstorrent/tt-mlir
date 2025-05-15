@@ -6,9 +6,8 @@ import pytest
 import torch
 from typing import Callable, List
 
-from ttmlir.test_utils import compile_to_flatbuffer, Marks, shape_str
-from ttmlir.ttir_builder import Operand, TTIRBuilder, UnitAttr, Shape, TypeInfo
-from ttmlir.dialects import ttir
+from ttir_builder import Operand, TTIRBuilder, Shape, TypeInfo
+from ttir_builder.utils import compile_to_flatbuffer, Marks, shape_str
 from ttmlir.ir import (
     DenseI64ArrayAttr,
     DenseI32ArrayAttr,
