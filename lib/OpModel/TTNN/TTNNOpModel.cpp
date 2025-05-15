@@ -306,7 +306,7 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
       // TODO(#2441): Need to match tensor dtypes with conv2d config.
       // This will be fixed on IR side shortly.
       localConfig.dtype = inputSpec.data_type();
-      localConfig.weights_dtype = weightTensor.get_dtype();
+      localConfig.weights_dtype = weightTensor.dtype();
     } else {
       localConfig = *conv2dConfigConverted;
     }
