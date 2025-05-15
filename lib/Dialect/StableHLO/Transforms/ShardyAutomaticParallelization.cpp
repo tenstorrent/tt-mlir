@@ -3,10 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
+#include "ttmlir/Dialect/StableHLO/Transforms/ShardyCCLToStableHLOCCL.h"
 #include "ttmlir/Dialect/StableHLO/Transforms/ShardyUtils.h"
 #include "ttmlir/Dialect/TT/Utils/PopulateArgumentTypes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 
 #include "mlir/Analysis/TopologicalSortUtils.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/Builders.h"
@@ -39,7 +42,9 @@ c. gspmd annotations
 d. sdy annotations
 
 Algorithm:
-1. Check if the graph is annotated with sharding attributes.
+1. Apply sharding constraints in case of any sharding mismatches. This will
+insert sdy.sharding_constraint operations into the graph.
+2. Check if the graph is annotated with sharding attributes.
   a. If it's annotated with gspmd, throw pass error since this pass doesn't
 support that yet (need to add a conversion from gspmd into sdy).
   b. If it's annotated with sdy, we get the meshOp from the module.
@@ -48,14 +53,18 @@ determine the inputs and insert custom meshOp and sharding annotations for batch
 parallelization.
   d. If it's not annotated, we insert custom meshOp and sharding
 annotations for batch parallelization.
-2. Run sdy sharding propogation pass.
-3. Wrap all operations under a sdy.manual_computationOp.
-4. Run topological sort on the graph and update all shapes with a new shape
+3. Run sdy sharding propogation pass.
+4. Convert all sharding constraints into reshard operations.
+5. Insert explicit reshards in case of sharding mismatches.
+6. Wrap all operations under a sdy.manual_computationOp.
+7. Convert all reshards into sdy collective operations.
+8. Run topological sort on the graph and update all shapes with a new shape
 based on their sharding annotation determine by the sdy sharding propagation
-pass.
-5. Remove all sdy annotations since analysis is complete.
-6. Remove any dead operations that are no longer needed.
-7. Close tensor shardings and drop replicated axes.
+pass. Also convert all sdy collective operations into stablehlo collective
+operations.
+9. Remove all sdy annotations since analysis is complete.
+10. Remove any dead operations that are no longer needed.
+11. Close tensor shardings and drop replicated axes.
 */
 
 // Check if tt argument annotations exist in the module.
@@ -336,6 +345,34 @@ static inline mlir::LogicalResult updateShapes(MLIRContext *context,
         op->erase();
       }
     }
+  }
+
+  return mlir::success();
+}
+
+// Convert all sdy ccl ops into stablehlo ccl ops.
+static inline mlir::LogicalResult
+convertSdyCCLToSHLOCCL(MLIRContext *context, mlir::ModuleOp &rootModule) {
+  RewritePatternSet patterns(context);
+  ShardyTypeConverter typeConverter(context);
+  populateShardyCCLToStableHLOCCLPatterns(context, patterns, typeConverter);
+
+  mlir::ConversionTarget target(*context);
+  target.addLegalDialect<mlir::tt::ttir::TTIRDialect>();
+  target.addLegalDialect<mlir::sdy::SdyDialect>();
+  target.addLegalDialect<mlir::stablehlo::StablehloDialect>();
+  target.addLegalOp<mlir::ModuleOp>();
+  target.addLegalOp<mlir::func::FuncOp>();
+  target.addLegalOp<mlir::func::ReturnOp>();
+  target.addLegalOp<mlir::func::CallOp>();
+  target.addLegalOp<mlir::arith::ConstantOp>();
+  target.addIllegalOp<mlir::sdy::AllGatherOp>();
+
+  // Apply conversion.
+  if (failed(applyFullConversion(rootModule, target, std::move(patterns)))) {
+    rootModule.emitError("Could not convert shardy ccl operations into "
+                         "stablehlo ccl operations.\n");
+    return mlir::failure();
   }
 
   return mlir::success();
@@ -796,6 +833,15 @@ public:
         return;
       }
     });
+
+    // Run conversion pattern to convert all sdy ccl operations into stablehlo
+    // ccl operations
+    if (failed(convertSdyCCLToSHLOCCL(context, rootModule))) {
+      rootModule.emitError(
+          "Could not convert shardy ccl ops into stablehlo ccl ops.\n");
+      signalPassFailure();
+      return;
+    }
 
     // Remove all sdy tensor sharding annotations since all the analysis is
     // complete

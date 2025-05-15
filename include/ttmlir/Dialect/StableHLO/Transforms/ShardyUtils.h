@@ -34,6 +34,7 @@
 #include "shardy/dialect/sdy/transforms/propagation/op_sharding_rule_builder.h"
 #include "shardy/dialect/sdy/transforms/propagation/passes.h"
 #include "stablehlo/dialect/StablehloOps.h"
+#include "ttmlir/Dialect/StableHLO/Transforms/ShardyCCLToStableHLOCCL.h"
 
 namespace mlir::tt::sdy_utils {
 
@@ -200,7 +201,7 @@ inline mlir::DictionaryAttr addDictionaryAttrSdyShardingAnnotation(
 
 // Get a default sdy.sharding annotation (ie all dimensions are open and
 // replicated).
-mlir::sdy::TensorShardingAttr
+inline mlir::sdy::TensorShardingAttr
 getDefaultTensorSdyShardingAttr(MLIRContext *context, llvm::StringRef meshName,
                                 mlir::Type type) {
   mlir::RankedTensorType rankedTensorType =
@@ -217,7 +218,7 @@ getDefaultTensorSdyShardingAttr(MLIRContext *context, llvm::StringRef meshName,
 }
 
 // Get the argument sharding attributes.
-llvm::SmallVector<mlir::sdy::TensorShardingAttr>
+inline llvm::SmallVector<mlir::sdy::TensorShardingAttr>
 getInShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
                    mlir::sdy::MeshOp &globalMeshOp) {
   llvm::SmallVector<mlir::sdy::TensorShardingAttr> inShardingAttrs;
@@ -265,7 +266,7 @@ getInShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
 }
 
 // Get the result sharding attributes.
-llvm::SmallVector<mlir::sdy::TensorShardingAttr>
+inline llvm::SmallVector<mlir::sdy::TensorShardingAttr>
 getOutShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
                     mlir::sdy::MeshOp &globalMeshOp) {
   llvm::SmallVector<mlir::sdy::TensorShardingAttr> outShardingAttrs;
