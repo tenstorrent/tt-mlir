@@ -5,6 +5,8 @@
 #include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
+#include "ttmlir/Target/TTKernel/LLKs/experimental_tilize_llks_generated.h"
+#include "ttmlir/Target/TTKernel/LLKs/experimental_untilize_llks_generated.h"
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -16,10 +18,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Target/Cpp/CppEmitter.h"
 #include "llvm/ADT/ScopeExit.h"
-#include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
-
-#include <cassert>
 
 namespace mlir::tt::ttkernel {
 
@@ -146,17 +145,13 @@ void dprint(Arg &&arg, ArgV&&... argv) {
       return;
     }
 
-    // Include the generated llk headers
-#include "experimental_tilize_llks_generated.h"
-#include "experimental_untilize_llks_generated.h"
-
     // Convert hex arrays back to strings
-    std::string experimentalTilizeLLKs(
+    auto experimentalTilizeLLKs = StringRef(
         reinterpret_cast<const char *>(experimental_tilize_llks_generated),
         experimental_tilize_llks_generated_len);
     builder->create<emitc::VerbatimOp>(loc, experimentalTilizeLLKs);
 
-    std::string experimentalUntilizeLLKs(
+    auto experimentalUntilizeLLKs = StringRef(
         reinterpret_cast<const char *>(experimental_untilize_llks_generated),
         experimental_untilize_llks_generated_len);
     builder->create<emitc::VerbatimOp>(loc, experimentalUntilizeLLKs);
