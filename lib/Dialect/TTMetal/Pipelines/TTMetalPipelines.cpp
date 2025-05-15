@@ -46,7 +46,7 @@ void createOptimizationPasses(OpPassManager &pm) {
 }
 
 void createTTIRToTTMetalFrontendPipeline(
-    OpPassManager &pm, const TTIRToTTMetalBackendPipelineOptions &options) {
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
   tt::TTRegisterDevicePassOptions registerDeviceOptions;
   {
     registerDeviceOptions.systemDescPath = options.systemDescPath;
@@ -68,7 +68,7 @@ void createTTIRToTTMetalFrontendPipeline(
 }
 
 void createTTIRToTTMetalMiddleendPipeline(
-    OpPassManager &pm, const TTIRToTTMetalBackendPipelineOptions &options) {
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
   createTTIRBufferizationPipeline(pm);
   pm.addPass(ttir::createTTIRAllocate());
   pm.addPass(mlir::createCanonicalizerPass());
@@ -84,7 +84,7 @@ void createTTIRToTTMetalMiddleendPipeline(
 }
 
 void createTTIRToTTMetalBackendPipeline(
-    OpPassManager &pm, const TTIRToTTMetalBackendPipelineOptions &options) {
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
   pm.addPass(tt::createConvertTTIRToTTKernelPass());
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(ttkernel::createTTKernelControlDstSection());
@@ -95,8 +95,8 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(mlir::emitc::createFormExpressionsPass());
 }
 
-void createTTIRToTTMetalPipeline(
-    OpPassManager &pm, const TTIRToTTMetalBackendPipelineOptions &options) {
+void createTTIRToTTMetalPipeline(OpPassManager &pm,
+                                 const TTIRToTTMetalPipelineOptions &options) {
   createTTIRToTTMetalFrontendPipeline(pm, options);
   createTTIRToTTMetalMiddleendPipeline(pm, options);
   createTTIRToTTMetalBackendPipeline(pm, options);
@@ -107,26 +107,16 @@ void createTTIRToTTMetalPipeline(
 //===----------------------------------------------------------------------===//
 
 void registerTTMetalPipelines() {
-  mlir::PassPipelineRegistration<
-      tt::ttmetal::TTIRToTTMetalBackendPipelineOptions>(
-      "ttir-to-ttmetal-backend-pipeline",
-      "Pipeline lowering ttir to ttmetal. (Deprecated use "
-      "ttir-to-ttmetal-pipeline)",
-      tt::ttmetal::createTTIRToTTMetalPipeline);
-  mlir::PassPipelineRegistration<
-      tt::ttmetal::TTIRToTTMetalBackendPipelineOptions>(
+  mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
       "ttir-to-ttmetal-pipeline", "Pipeline lowering ttir to ttmetal.",
       tt::ttmetal::createTTIRToTTMetalPipeline);
-  mlir::PassPipelineRegistration<
-      tt::ttmetal::TTIRToTTMetalBackendPipelineOptions>(
+  mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
       "ttir-to-ttmetal-fe-pipeline", "Frontend lowering passes.",
       tt::ttmetal::createTTIRToTTMetalFrontendPipeline);
-  mlir::PassPipelineRegistration<
-      tt::ttmetal::TTIRToTTMetalBackendPipelineOptions>(
+  mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
       "ttir-to-ttmetal-me-pipeline", "Middleend lowering passes.",
       tt::ttmetal::createTTIRToTTMetalMiddleendPipeline);
-  mlir::PassPipelineRegistration<
-      tt::ttmetal::TTIRToTTMetalBackendPipelineOptions>(
+  mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
       "ttir-to-ttmetal-be-pipeline", "Backend lowering passes.",
       tt::ttmetal::createTTIRToTTMetalBackendPipeline);
   mlir::PassPipelineRegistration<>(

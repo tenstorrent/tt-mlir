@@ -10,8 +10,8 @@
 namespace mlir::tt::ttmetal {
 // Options for the TTIR to TTMetal backend pipeline.
 //
-struct TTIRToTTMetalBackendPipelineOptions
-    : public PassPipelineOptions<TTIRToTTMetalBackendPipelineOptions> {
+struct TTIRToTTMetalPipelineOptions
+    : public PassPipelineOptions<TTIRToTTMetalPipelineOptions> {
   ListOption<int64_t> meshShape{
       *this, "mesh-shape", llvm::cl::desc("Set the multi-device mesh shape.")};
 
@@ -32,7 +32,7 @@ struct TTIRToTTMetalBackendPipelineOptions
 void createTTIRBufferizationPipeline(OpPassManager &pm);
 
 void createTTIRToTTMetalBackendPipeline(
-    OpPassManager &pm, const TTIRToTTMetalBackendPipelineOptions &options);
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
 
 void registerTTMetalPipelines();
 } // namespace mlir::tt::ttmetal

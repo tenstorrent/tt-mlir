@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-to-ttmetal-backend-pipeline %s > %t.mlir
+// RUN: ttmlir-opt --ttir-to-ttmetal-pipeline %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 // UNSUPPORTED: true
 // Full lowering requires:

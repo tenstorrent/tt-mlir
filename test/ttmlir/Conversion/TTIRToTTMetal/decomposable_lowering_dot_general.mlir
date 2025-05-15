@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-to-ttmetal-backend-pipeline %s > %t.mlir
+// RUN: ttmlir-opt --ttir-to-ttmetal-pipeline %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 // Higher-dimension tests requires:
 //   Permute: https://github.com/tenstorrent/tt-mlir/issues/3025

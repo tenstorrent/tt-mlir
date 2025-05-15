@@ -1,5 +1,5 @@
 // UNSUPPORTED: true
-// RUN: ttmlir-opt --ttir-to-ttmetal-backend-pipeline="system-desc-path=%system_desc_path%"  %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttmetal-pipeline="system-desc-path=%system_desc_path%"  %s | FileCheck %s
 #l1_ = #tt.memory_space<l1>
 
 func.func @reduceW(%arg0: tensor<64x256xf32>) -> tensor<64x32xf32> {
