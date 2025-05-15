@@ -737,6 +737,7 @@ toFlatbufferByteVector(FlatbufferObjectCache &cache,
   size_t sizeBytes = attr.getNumElements() * sizeof(T);
   cache.fbb->StartVector<flatbuffers::Offset<uint8_t>>(sizeBytes);
 
+  // Iterate over the values to make sure splat is unrolled correctly
   for (auto i = attr.value_begin<T>(); i != attr.value_end<T>(); i++) {
     T value = *i;
     uint8_t *buf = reinterpret_cast<uint8_t *>(&value);
