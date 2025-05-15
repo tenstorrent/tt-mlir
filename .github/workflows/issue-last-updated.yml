@@ -1,16 +1,19 @@
 name: Update Project Date on Issue Update
 
-
 on:
   issues:
     types: [opened, edited, deleted, closed, reopened, assigned, unassigned, labeled, unlabeled]
   issue_comment:
     types: [created, edited, deleted]
-
-
-env:
-  GITHUB_TOKEN: ${{ secrets.GH_SECRET_PROJECTS }}
-
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to test with'
+        required: true
+        default: '1019'
+  push:
+    branches:
+      - '**'  # This will trigger on any branch push
 
 jobs:
   update_project_date:
@@ -21,29 +24,44 @@ jobs:
           echo "project_id=PVT_kwDOA9MHEM4AjeTl" >> $GITHUB_ENV
           echo "field_id=PVTF_lADOA9MHEM4AjeTlzgiiU18" >> $GITHUB_ENV
 
+      - name: Get Issue Number
+        id: get_issue_number
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            issue_number=${{ github.event.inputs.issue_number }}
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            issue_number="1019"  # Default for push events
+          elif [[ "${{ github.event_name }}" == "issues" || "${{ github.event_name }}" == "issue_comment" ]]; then
+            issue_number=${{ github.event.issue.number }}
+          else
+            echo "Unknown event type. Using default issue #1019"
+            issue_number="1019"
+          fi
+          
+          echo "Using Issue number: $issue_number"
+          echo "issue_number=$issue_number" >> $GITHUB_ENV
 
       - name: Get Issue ID
         id: get_issue_id
         run: |
-          issue_number=${{ github.event.issue.number }}
-          issue_details=$(curl -H "Authorization: Bearer ${{ secrets.GH_SECRET_PROJECTS}}" -s "https://api.github.com/repos/${{ github.repository }}/issues/$issue_number")
+          issue_details=$(curl -H "Authorization: token ${{ secrets.GH_SECRET_PROJECTS }}" -s "https://api.github.com/repos/${{ github.repository }}/issues/${{ env.issue_number }}")
           issue_id=$(echo "$issue_details" | jq -r '.node_id')
+          echo "Issue ID: $issue_id"
+          
+          if [ -z "$issue_id" ] || [ "$issue_id" == "null" ]; then
+            echo "Could not find issue ID. Check issue number and permissions."
+            exit 1
+          fi
+          
           echo "issue_id=$issue_id" >> $GITHUB_ENV
 
-
-      - name: Get Item ID for Issue
-        id: get_item_id_by_issue_id
+      - name: Find Item ID in Project
         run: |
-          # Initialize variables
-          CURSOR=null
-          ITEM_ID=""
-
-
-          # Define the GraphQL query as a string
-          QUERY='query($projectId: ID!, $cursor: String) {
+          QUERY='
+          query($projectId: ID!, $issueId: ID!) {
             node(id: $projectId) {
               ... on ProjectV2 {
-                items(first: 100, after: $cursor) {
+                items(first: 100) {
                   nodes {
                     id
                     content {
@@ -52,80 +70,60 @@ jobs:
                       }
                     }
                   }
-                  pageInfo {
-                    hasNextPage
-                    endCursor
-                  }
                 }
               }
             }
           }'
+          
+          RESPONSE=$(curl -s -X POST \
+            -H "Authorization: token ${{ secrets.GH_SECRET_PROJECTS }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\": \"$QUERY\", \"variables\": {\"projectId\": \"${{ env.project_id }}\", \"issueId\": \"${{ env.issue_id }}\"}}" \
+            https://api.github.com/graphql)
+          
+          echo "GraphQL Response: $RESPONSE"
+          
+          ITEM_ID=$(echo "$RESPONSE" | jq -r --arg issueId "${{ env.issue_id }}" '.data.node.items.nodes[] | select(.content.id==$issueId) | .id')
+          
+          if [ -z "$ITEM_ID" ] || [ "$ITEM_ID" == "null" ]; then
+            echo "Could not find item ID for issue. Check project permissions and IDs."
+            exit 1
+          fi
+          
+          echo "Found Item ID: $ITEM_ID"
+          echo "item_id=$ITEM_ID" >> $GITHUB_ENV
 
-
-          while : ; do
-            # Construct JSON payload using jq for proper formatting
-            JSON_PAYLOAD=$(jq -n \
-              --arg query "$QUERY" \
-              --arg projectId "${{ env.project_id }}" \
-              --arg cursor "$CURSOR" \
-              '{ query: $query, variables: { projectId: $projectId, cursor: $cursor }}')
-
-
-            # Make the GraphQL request
-            RESPONSE=$(curl -s -X POST -H "Authorization: Bearer $GITHUB_TOKEN" \
-                                 -H "Content-Type: application/json" \
-                                 -d "$JSON_PAYLOAD" \
-                                 https://api.github.com/graphql)
-
-
-            # Debug: print entire response
-            echo "RESPONSE: $RESPONSE"
-
-
-            # Check if the response contains `items` data
-            ITEMS_DATA=$(echo "$RESPONSE" | jq -r '.data.node.items.nodes' 2>/dev/null)
-            if [[ "$ITEMS_DATA" == "null" ]]; then
-              echo "Error: Items data not found. Please check your PROJECT_ID and GITHUB_TOKEN permissions."
-              break
-            fi
-
-
-            # Parse the item ID if it matches the issue_id
-            ITEM_ID=$(echo "$RESPONSE" | jq -r --arg issue_id "$issue_id" \
-                       '.data.node.items.nodes[] | select(.content.id==$issue_id) | .id')
-
-
-            # If ITEM_ID is found, output it and stop the loop
-            if [[ -n "$ITEM_ID" && "$ITEM_ID" != "null" ]]; then
-              echo "Found ITEM_ID: $ITEM_ID"
-              echo "ITEM_ID=$ITEM_ID" >> $GITHUB_ENV  # Save ITEM_ID to environment for future steps
-              break
-            fi
-
-
-            # Extract pagination information
-            HAS_NEXT_PAGE=$(echo "$RESPONSE" | jq -r '.data.node.items.pageInfo.hasNextPage')
-            CURSOR=$(echo "$RESPONSE" | jq -r '.data.node.items.pageInfo.endCursor')
-
-
-            # If no more pages, exit loop
-            if [[ "$HAS_NEXT_PAGE" != "true" ]]; then
-              echo "Issue not found in project items."
-              break
-            fi
-          done
-
-
-      - name: Use Found ITEM_ID
-        if: env.ITEM_ID  # Only runs if ITEM_ID was set
-        run: echo "The ITEM_ID is ${{ env.ITEM_ID }}"
-
-
-      - name: Update Project Field
+      - name: Update Last Updated Date Field
         run: |
           current_date=$(date +%Y-%m-%d)
-          curl -H "Authorization: Bearer ${{ secrets.GH_SECRET_PROJECTS }}" \
-               -H "Content-Type: application/json" \
-               -d "{ \"query\": \"mutation { updateProjectV2ItemFieldValue(input: { projectId: \\\"${{ env.project_id }}\\\", itemId: \\\"${{ env.ITEM_ID }}\\\", fieldId: \\\"${{ env.field_id }}\\\", value: { date: \\\"$current_date\\\" } }) { clientMutationId } }\" }" \
-               -X POST \
-               "https://api.github.com/graphql"
+          echo "Updating field ${{ env.field_id }} for item ${{ env.item_id }} to date $current_date"
+          
+          MUTATION='
+          mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $date: Date!) {
+            updateProjectV2ItemFieldValue(input: {
+              projectId: $projectId,
+              itemId: $itemId,
+              fieldId: $fieldId,
+              value: { date: $date }
+            }) {
+              projectV2Item {
+                id
+              }
+            }
+          }'
+          
+          RESPONSE=$(curl -s -X POST \
+            -H "Authorization: token ${{ secrets.GH_SECRET_PROJECTS }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\": \"$MUTATION\", \"variables\": {\"projectId\": \"${{ env.project_id }}\", \"itemId\": \"${{ env.item_id }}\", \"fieldId\": \"${{ env.field_id }}\", \"date\": \"$current_date\"}}" \
+            https://api.github.com/graphql)
+            
+          echo "Update Response: $RESPONSE"
+          
+          if echo "$RESPONSE" | jq -e '.errors' > /dev/null; then
+            echo "Error updating field:"
+            echo "$RESPONSE" | jq '.errors'
+            exit 1
+          else
+            echo "Field updated successfully"
+          fi
