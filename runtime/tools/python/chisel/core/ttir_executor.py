@@ -23,7 +23,7 @@ class TTIRExecutor:
             outputs.append(op.ir_op.output.get_name())
 
         inputs = [
-            self.tensor_pool.get(input.name)
+            self.tensor_pool.get(input.name).float()
             for input in op.inputs
             if input.name not in outputs
         ]
