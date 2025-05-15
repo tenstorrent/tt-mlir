@@ -11,6 +11,7 @@ include "ttmlir/Dialect/TTIR/IR/TTIRBase.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.td"
 
+include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.td"
 include "mlir/IR/OpAsmInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferIntRangeInterface.td"
@@ -304,6 +305,12 @@ def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
   [ AttrSizedOperandSegments
   , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
   ]> {
     let summary = "TTIR DMA Op";
     let description = [{
@@ -356,8 +363,8 @@ def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
       - src and dst cannot both be remote
     }];
 
-    let arguments = (ins AnyNon0RankedMemRef:$src, OptionalAttr<AffineMapAttr>:$srcAffineMap, Variadic<Index>:$srcIndices,
-                         AnyNon0RankedMemRef:$dst, OptionalAttr<AffineMapAttr>:$dstAffineMap, Variadic<Index>:$dstIndices,
+    let arguments = (ins AnyRankedTensorOrMemRef:$src, OptionalAttr<AffineMapAttr>:$srcAffineMap, Variadic<Index>:$srcIndices,
+                         AnyRankedTensorOrMemRef:$dst, OptionalAttr<AffineMapAttr>:$dstAffineMap, Variadic<Index>:$dstIndices,
                          OptionalAttr<I64Attr>:$optNumElems, Variadic<Index>:$mcastStartIndex, Variadic<Index>:$mcastShape);
     let results = (outs TTIR_MemTx:$result);
 
@@ -428,6 +435,7 @@ def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
       MemRefType getSrcMemRefType() { return cast<MemRefType>(getSrc().getType()); }
       MemRefType getDstMemRefType() { return cast<MemRefType>(getDst().getType()); }
       int64_t getNumElems();
+      size_t getSizeBytes();
       bool isSrcLocal() {
         Block *block = getSrc().getParentBlock();
         Block::BlockArgListType blockArgs = block->getArguments();
@@ -443,11 +451,9 @@ def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
       }
       bool isDstRemote() { return !isDstLocal(); }
       bool isMcast() { return !getMcastShape().empty(); }
-      bool isAffine() { return getSrcAffineMap() || getDstAffineMap(); }
-      bool isFullyIndexed() {
-        return static_cast<int64_t>(getSrcIndices().size()) == getSrcMemRefType().getRank() &&
-               static_cast<int64_t>(getDstIndices().size()) == getDstMemRefType().getRank() &&
-               getOptNumElems();
+      bool isAffine() { return (getSrcAffineMap() || getDstAffineMap()) && getSrcIndices().empty() && getDstIndices().empty(); }
+      bool isLowered() {
+        return bool(getOptNumElems());
       }
     }];
 }
@@ -603,6 +609,7 @@ class TTIR_IndexOp<string mnemonic, list<Trait> traits = []> : TTIR_GenericRegio
     let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$dim);
     let results = (outs Index:$result);
     let assemblyFormat = [{ `(` $dim `)` attr-dict `:` type($result) }];
+    let hasFolder = true;
 
     let builders =
     [
@@ -620,12 +627,11 @@ def TTIR_IterIndexOp : TTIR_IndexOp<"iter_index"> {
     }];
 }
 
-def TTIR_CoreIndexOp : TTIR_IndexOp<"core_index", [ConstantLike]> {
+def TTIR_CoreIndexOp : TTIR_IndexOp<"core_index"> {
     let summary = "Core Index op.";
     let description = [{
       Return the index of this core's coordinate inside the generic op's grid dimension.
     }];
-    let hasFolder = true;
 }
 
 //===----------------------------------------------------------------------===//
