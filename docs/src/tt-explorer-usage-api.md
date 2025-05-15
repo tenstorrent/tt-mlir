@@ -43,14 +43,20 @@ The performance overlay is generated on **every** execution, it highlights the t
 #### Accuracy Overlay
 The accuracy overlay is _only_ generated when executing from a compatible flatbuffer (`.ttnn` file extension with Debug Info). The overlay consists of either Green or Red node overlays. Green if the node passed a "golden" test, Red if not. The value for the overlay is the actual Pearson Correlation Coefficient (PCC) value with the "golden" tensor subtracted by the expected PCC value. If the number is `< 0` we know it doesn't match the expected PCC, otherwise it is an accurate comparison.
 
-#### Opt. Policy
+#### Advanced Settings
+This menu will open a window with some advanced settings for Model execution.
+
+##### Opt. Policy
 This dropdown provides a list of **Optimization Policies** which will be used when the model is executed. These policies are applied when lowering from a `ttir` module to an executable `ttnn` module.
 
-#### "Upload" Button
-Once Overridden Fields have been changed or modified, this button will be available to send the overrides to the backend. The overrides will then be processed and the module recompiled to include these new changes.
+##### Generate C++ Code
+This toggle will run the `EmitC` pass in the `tt-mlir` compiler to generate TTNN C++ Code and make it available to you after running a model. Default value for this toggle is `Off`.
 
 #### "Play" Button
 This button invokes the `execute` function which will compile and execute the model. The button will then be "loading" until execution is finished. Once execution is finished a performance trace should be overlayed on the graph and it should reload.
+
+#### "Code" Button
+If the `Generate C++ Code` flag is set, this button will become available to view and download the C++ code in a window within explorer.
 
 #### "Comment" Button
 This button will open a window to view the shell logs while execution is running. If any errors occur they will be displayed here.
