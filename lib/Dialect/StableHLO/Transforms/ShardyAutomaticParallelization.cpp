@@ -3,10 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
+#include "ttmlir/Dialect/StableHLO/Transforms/ShardyCCLToStableHLOCCL.h"
 #include "ttmlir/Dialect/StableHLO/Transforms/ShardyUtils.h"
 #include "ttmlir/Dialect/TT/Utils/PopulateArgumentTypes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 
 #include "mlir/Analysis/TopologicalSortUtils.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/Builders.h"
@@ -783,6 +786,31 @@ public:
         return;
       }
     });
+
+    // Run conversion pattern to convert all sdy ccl operations into stablehlo
+    // ccl operations
+    RewritePatternSet patterns(context);
+    ShardyTypeConverter typeConverter(context);
+    populateShardyCCLToStableHLOCCLPatterns(context, patterns, typeConverter);
+
+    mlir::ConversionTarget target(*context);
+    target.addLegalDialect<mlir::tt::ttir::TTIRDialect>();
+    target.addLegalDialect<mlir::sdy::SdyDialect>();
+    target.addLegalDialect<mlir::stablehlo::StablehloDialect>();
+    target.addLegalOp<mlir::ModuleOp>();
+    target.addLegalOp<mlir::func::FuncOp>();
+    target.addLegalOp<mlir::func::ReturnOp>();
+    target.addLegalOp<mlir::func::CallOp>();
+    target.addLegalOp<mlir::arith::ConstantOp>();
+    target.addIllegalOp<mlir::sdy::AllGatherOp>();
+
+    // Apply conversion.
+    if (failed(applyFullConversion(rootModule, target, std::move(patterns)))) {
+      rootModule.emitError("Could not convert shardy ccl operations into "
+                           "stablehlo ccl operations.\n");
+      signalPassFailure();
+      return;
+    }
 
     // Remove all sdy tensor sharding annotations since all the analysis is
     // complete
