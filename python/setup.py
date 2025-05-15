@@ -39,7 +39,6 @@ class CMakeBuild(build_ext):
         return os.environ.get("IN_CIBW_ENV") == "ON"
 
     def build_(self, ext):
-        global readme
         build_lib = self.build_lib
         if not os.path.exists(build_lib):
             # Might be an editable install or something else
@@ -82,10 +81,6 @@ class CMakeBuild(build_ext):
         else:
             cmake_args.extend(["-S", str(cwd.parent)])
 
-        # Write to readme
-        with open(str(cwd.parent / "README.md"), "r", encoding="utf-8") as f:
-            readme = f.read()
-
         # Run source env/activate if in ci, otherwise onus is on dev
         if self.in_ci():
             subprocess.run(
@@ -126,22 +121,19 @@ ttmlir_c = TTExtension("ttmlir")
 
 # Determine the project root and README.md path
 def find_project_root():
-    # Start from current directory and move up until we find README.md
+    # Start from current directory and move up until we find a directory named 'tt-mlir'
     current_dir = pathlib.Path().absolute()
 
-    # First, check if we're already at the project root
-    if (current_dir / "README.md").exists():
+    # Check if current directory is named 'tt-mlir'
+    if current_dir.name == "tt-mlir":
         return current_dir
 
-    # If not, try the parent directory (which seems to be the common case)
-    if (current_dir.parent / "README.md").exists():
-        return current_dir.parent
-
-    # If still not found, search up to 3 levels up
-    for i in range(3):
-        current_dir = current_dir.parent
-        if (current_dir / "README.md").exists():
-            return current_dir
+    # Look for parent directories named 'tt-mlir'
+    parent = current_dir
+    while parent != parent.parent:  # Stop at filesystem root
+        parent = parent.parent
+        if parent.name == "tt-mlir":
+            return parent
 
     # If we couldn't find it, return the parent directory as fallback
     return pathlib.Path().absolute().parent

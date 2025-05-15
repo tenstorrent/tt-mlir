@@ -18,7 +18,7 @@ classifiers = [
 ]
 
 # We will dynamically provide `version` and `dependencies` in setup.py
-dynamic = ["version", "dependencies"]
+dynamic = ["version", "dependencies", "readme"]
 
 [project.urls]
 Homepage = "https://docs.tenstorrent.com/tt-mlir/"
