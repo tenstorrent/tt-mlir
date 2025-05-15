@@ -154,7 +154,7 @@ jobs:
           # When sh-run is true, the runner will use TT-shared GH infra and pull from harbor for image cache pull through
           {runs-on: n150,   sh-run: false, name: "run",  suite: "unit",              image: "speedy", type: "unit"},
           {runs-on: nXX0,   sh-run: false, name: "run",  suite: "unit",              image: "tracy",  type: "unit"},
-          {runs-on: n150,   sh-run: false, name: "run",  suite: "ttnn_standalone",   image: "speedy", type: "ttrt",    path: "install/tools/ttnn-standalone"},
+          {runs-on: n150,   sh-run: false, name: "run",  suite: "ttnn_standalone",   image: "speedy", type: "ttrt",    path: "tools/ttnn-standalone"},
           {runs-on: n150,   sh-run: true,  name: "run",  suite: "run",               image: "speedy", type: "ttrt",    path: "Silicon", flags: "--non-zero"},
           {runs-on: n150,   sh-run: false, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n150/perf"},
           {runs-on: n150,   sh-run: false, name: "perf", suite: "optimizer",         image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n150/optimizer"},
@@ -300,39 +300,29 @@ jobs:
           echo "Unit test report copied"
         fi
 
-    # - name: Download Third Party Artifacts
-    #   uses: ./.github/actions/download-artifact
-    #   if: matrix.build.suite == 'ttnn_standalone'
-    #   with:
-    #     name: third-party-artifacts-${{ matrix.build.image }}
-    #     path: third_party
-    #     github_token: ${{ secrets.GITHUB_TOKEN }}
-
-    # - name: Run TTNN-Standalone test
-    #   shell: bash
-    #   if: matrix.build.suite == 'ttnn_standalone'
-    #   run: |
-    #     export CMAKE_PREFIX_PATH="${{ steps.strings.outputs.third-party-output-dir }}/tt-metal/src/tt-metal-build/lib"
-    #     export LD_LIBRARY_PATH="${{ steps.strings.outputs.third-party-output-dir }}/tt-metal/src/tt-metal-build/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
-    #     export TT_METAL_HOME="${{ steps.strings.outputs.third-party-output-dir }}/tt-metal/src/tt-metal"
-    #     cd ${{ matrix.build.path }}
-    #     cmake -G Ninja -B build \
-    #       -DCMAKE_BUILD_TYPE=Release \
-    #       -DCMAKE_CXX_COMPILER=clang++-17 \
-    #       -DCMAKE_INSTALL_PREFIX=install
-    #     cmake --build build -- ttnn-standalone
-    #     cmake --install build --component TTNNStandalone
-    #     cd install/tools/ttnn-standalone
-    #     ./run
+    - name: Download Third Party Artifacts
+      uses: ./.github/actions/download-artifact
+      if: matrix.build.suite == 'ttnn_standalone'
+      with:
+        name: third-party-artifacts-${{ matrix.build.image }}
+        path: third_party
+        github_token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Run TTNN-Standalone test
       shell: bash
       if: matrix.build.suite == 'ttnn_standalone'
       run: |
-        export TT_METAL_HOME="${{ steps.strings.outputs.third-party-output-dir }}/tt-metal/src/tt-metal"
         export CMAKE_PREFIX_PATH="${{ steps.strings.outputs.third-party-output-dir }}/tt-metal/src/tt-metal/build/lib"
         export LD_LIBRARY_PATH="${{ steps.strings.outputs.third-party-output-dir }}/tt-metal/src/tt-metal/build/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        export TT_METAL_HOME="${{ steps.strings.outputs.third-party-output-dir }}/tt-metal/src/tt-metal"
         cd ${{ matrix.build.path }}
+        cmake -G Ninja -B build \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_CXX_COMPILER=clang++-17 \
+          -DCMAKE_INSTALL_PREFIX=install
+        cmake --build build -- ttnn-standalone
+        cmake --install build --component TTNNStandalone
+        cd install/tools/ttnn-standalone
         ./run
 
     - name: Builder Tests
