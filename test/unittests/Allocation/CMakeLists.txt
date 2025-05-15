@@ -5,4 +5,5 @@ add_mlir_unittest(AllocationTests
 target_link_libraries(AllocationTests
     PRIVATE
     MLIRTTIRAnalysis
+    coverage_config
 )
