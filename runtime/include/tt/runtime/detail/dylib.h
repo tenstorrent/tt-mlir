@@ -43,11 +43,11 @@ using WrappedFunc = void (*)(WrappedTensor *);
 // Common function to pack tensors, using std::function for the customizable
 // parts
 template <typename TensorRefType>
-std::vector<common::WrappedTensor>
-packTensors(const flatbuffers::Vector<flatbuffers::Offset<TensorRefType>> *ins,
-            const TensorRefType *out,
-            std::function<void *(const TensorRefType *)> getTensorDataPtr,
-            std::vector<std::vector<int64_t>> &allSizesAndStrides) {
+std::vector<common::WrappedTensor> inline packTensors(
+    const flatbuffers::Vector<flatbuffers::Offset<TensorRefType>> *ins,
+    const TensorRefType *out,
+    std::function<void *(const TensorRefType *)> getTensorDataPtr,
+    std::vector<std::vector<int64_t>> &allSizesAndStrides) {
 
   allSizesAndStrides.reserve(ins->size() + 1);
   std::vector<common::WrappedTensor> packedTensors;

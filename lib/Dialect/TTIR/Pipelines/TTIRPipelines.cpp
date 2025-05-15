@@ -64,7 +64,7 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   mlir::bufferization::OneShotBufferizationOptions bufferizationOptions;
   bufferizationOptions.bufferizeFunctionBoundaries = true;
 
-  // Use identity layout for unknown types.
+  // Use identity layout for our tensors; this simplifies output IR.
   bufferizationOptions.unknownTypeConverterFn =
       [=](Value value, Attribute memorySpace,
           const bufferization::BufferizationOptions &options) {
@@ -72,7 +72,6 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
         return bufferization::getMemRefTypeWithStaticIdentityLayout(
             tensorType, memorySpace);
       };
-  // Use identity layout for function boundaries.
   bufferizationOptions.functionArgTypeConverterFn =
       [=](TensorType tensorType, Attribute memorySpace, func::FuncOp funcOp,
           const bufferization::BufferizationOptions &options) {
