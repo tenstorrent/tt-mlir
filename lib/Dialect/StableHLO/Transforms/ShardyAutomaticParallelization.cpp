@@ -158,7 +158,7 @@ static inline mlir::LogicalResult wrapFunctionBodyInManualComputationOp(
   // manualComputationOp as it's operand.
   builder.setInsertionPointAfter(manualComputationOp);
   builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(),
-                                       manualComputationOp->getResult(0));
+                                       manualComputationOp->getResults());
 
   // Update old arguments with new arguments inside of the
   // manualComputationBlock.
@@ -182,7 +182,7 @@ static inline mlir::LogicalResult wrapFunctionBodyInManualComputationOp(
     if (auto returnOp = llvm::dyn_cast<mlir::func::ReturnOp>(op)) {
       builder.setInsertionPoint(returnOp);
       builder.create<mlir::sdy::ReturnOp>(builder.getUnknownLoc(),
-                                          returnOp->getOperand(0));
+                                          returnOp->getOperands());
       returnOp->erase();
     }
   }
