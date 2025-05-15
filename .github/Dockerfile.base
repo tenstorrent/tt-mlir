@@ -33,7 +33,8 @@ RUN apt-get update && apt-get install -y \
     sudo \
     gh \
     lcov \
-    unzip
+    unzip \
+    xxd
 
 
 # Install clang 17
