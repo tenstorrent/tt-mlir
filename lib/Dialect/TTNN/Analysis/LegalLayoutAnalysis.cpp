@@ -49,7 +49,7 @@ void applyConv2dConfigOverrides(Operation *op,
   //
 
   // vkovacevic: This is needed to get through a tt-metal assert in
-  // prepare_conv2d_weights.cpp where `weight_tensor_.get_dtype() ==
+  // prepare_conv2d_weights.cpp where `weight_tensor_.dtype() ==
   // weights_bias_dtype`.
   //
   MLIRContext *context = op->getContext();

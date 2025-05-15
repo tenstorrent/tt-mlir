@@ -289,7 +289,7 @@ void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
             LOG_FATAL("Unsupported storage type ", debug::toString(storage));
             return nullptr;
           }},
-      tensor.get_storage());
+      tensor.storage());
   return dataPtr;
 }
 
