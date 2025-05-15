@@ -237,6 +237,25 @@ static bool changeLayoutToHost(DestinationStyleOpInterface &op,
   return false;
 }
 
+static bool changeLayoutToDeviceTiled(DestinationStyleOpInterface &op,
+                                      OpOperand &operand,
+                                      PatternRewriter &rewriter,
+                                      bool isDPSResult) {
+  Location newLoc = appendInputSuffix(op.getLoc(), operand.getOperandNumber());
+  std::optional<Value> layout = createToLayoutOp(
+      rewriter, newLoc, operand.get(), BufferType::DRAM, true /* tiled */);
+  if (layout.has_value()) {
+    rewriter.modifyOpInPlace(op, [&]() {
+      op->setOperand(operand.getOperandNumber(), *layout);
+      if (isDPSResult) {
+        op->getResult(0).setType(layout->getType());
+      }
+    });
+    return true;
+  }
+  return false;
+}
+
 // Updates the layout of the operands of a TTIR ops which have DPS operands.
 // This function rewrites the operands and result to have the correct layout
 // with respect to operand constraints.
@@ -269,8 +288,14 @@ public:
         // https://github.com/tenstorrent/tt-mlir/issues/1528).
         if (operand.getOperandNumber() == 1) {
           modified = changeLayoutToHost(op, operand, rewriter, isDPSResult);
-          continue;
         }
+
+        if (operand.getOperandNumber() == 2) {
+          modified =
+              changeLayoutToDeviceTiled(op, operand, rewriter, isDPSResult);
+        }
+
+        continue;
       }
 
       // TTNN mesh shard expects host input and output
