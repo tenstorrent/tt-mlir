@@ -2209,9 +2209,17 @@ std::shared_ptr<void> ttnnToFlatbuffer(
           funcOpToProgram<::tt::target::ttnn::Operation>(
               cache, func, emitTTNNOperation, tensorValueToFlatbuffer,
               programIdxMap);
+
+      DeviceAttr deviceAttr = lookupDevice(func);
+      assert(deviceAttr);
+
+      ArrayRef<int64_t> meshShapeArr = deviceAttr.getMeshShape();
+      assert(meshShapeArr.size() == 2 && "Ill-Sized Mesh Shape");
+
+      const ::tt::target::Dim2d meshShape(meshShapeArr[0], meshShapeArr[1]);
       programs.push_back(::tt::target::ttnn::CreateProgramDirect(
           fbb, program.name, &program.inputs, &program.outputs, &program.ops,
-          &dylibs, debugInfo, isPrivate));
+          &dylibs, debugInfo, isPrivate, &meshShape));
     });
   };
 
