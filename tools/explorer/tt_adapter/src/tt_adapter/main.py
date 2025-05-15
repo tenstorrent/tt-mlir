@@ -13,10 +13,10 @@ OVERRIDE_PARAMETER_DISABLED_STR = "None"
 OPTIMIZER_DISABLED_POLICY = "Optimizer Disabled"
 
 OPTIMIZATION_POLICIES = {
+    OPTIMIZER_DISABLED_POLICY: False,
     "DF Sharding": optimizer_overrides.MemoryLayoutAnalysisPolicyType.DFSharding,
     "Greedy L1 Interleaved": optimizer_overrides.MemoryLayoutAnalysisPolicyType.GreedyL1Interleaved,
     "BF Interleaved": optimizer_overrides.MemoryLayoutAnalysisPolicyType.BFInterleaved,
-    OPTIMIZER_DISABLED_POLICY: False,
 }
 
 
