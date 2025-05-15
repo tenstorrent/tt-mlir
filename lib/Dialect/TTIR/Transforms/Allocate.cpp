@@ -53,7 +53,7 @@ namespace {
 using AllocSizeT = AllocationPlanner::AllocSizeT;
 using SequenceT = AllocationPlanner::SequenceT;
 
-struct MemorySpaceInfo final {
+struct MemorySpaceInfo {
 
   MemorySpaceInfo() = default;
   MemorySpaceInfo(AllocSizeT baseAddress, AllocSizeT size, AllocSizeT alignment)
@@ -69,7 +69,7 @@ struct MemorySpaceInfo final {
       (getMaxEnumValForMemorySpace() + 1);
 };
 
-struct MemorySpaces final {
+struct MemorySpaces {
 
   MemorySpaces(
       std::array<MemorySpaceInfo, MemorySpaceInfo::maxEnumValForMemorySpace>
@@ -102,7 +102,7 @@ struct FuncAnalysisData final : public AllocationPlanner::Context {
   DenseMap<Operation *, SequenceT> operationMap;
 };
 
-struct ModuleAnalysisData final {
+struct ModuleAnalysisData {
 
   ModuleAnalysisData(MemorySpaces memSpaces) : memSpaces(memSpaces) {}
 
@@ -283,7 +283,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     return moduleAnalysis;
   }
 
-  struct LivenessClosure final {
+  struct LivenessClosure {
     Operation *lastOp;
     SequenceT first;
     SequenceT maxLast;

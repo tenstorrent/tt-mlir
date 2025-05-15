@@ -8,13 +8,12 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <cstdint>
-#include <optional>
 #include <vector>
 
 namespace mlir::tt::ttir {
 
 /// An API for static DSA ("dynamic storage allocation") algorithms.
-class AllocationPlanner final {
+class AllocationPlanner {
 public:
   /// Enum for planning algorithms exposed by this API.
   /// @see AllocationPlanner::allocate()
@@ -30,7 +29,7 @@ public:
 
   /// An allocation descriptor, a range of memory usage `[offset, offset+size)`
   /// over a liveness range `[first, last]`.
-  struct Record final {
+  struct Record {
 
     friend llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
                                          const Record &obj);
@@ -68,7 +67,7 @@ public:
   };
 
   /// Descriptor of allocation and verification outcomes.
-  struct Stats final {
+  struct Stats {
 
     friend llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
                                          const Stats &obj);
