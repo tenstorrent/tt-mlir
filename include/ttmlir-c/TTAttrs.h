@@ -34,7 +34,7 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTChipDescAttrGet(
     unsigned eriscL1UnreservedBase, unsigned dramUnreservedBase,
     unsigned dramUnreservedEnd, MlirAttribute chipPhysicalHelperCores,
     MlirAttribute *supportedDataTypes, MlirAttribute *supportedTileSizes,
-    unsigned numCBs, unsigned numComputeThreads,
+    unsigned dstRegisterSizeTiles, unsigned numCBs, unsigned numComputeThreads,
     unsigned numDatamovementThreads);
 
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTChipCoordAttrGet(

@@ -41,7 +41,7 @@ MlirAttribute ttmlirTTChipDescAttrGet(
     unsigned eriscL1UnreservedBase, unsigned dramUnreservedBase,
     unsigned dramUnreservedEnd, MlirAttribute chipPhysicalHelperCores,
     MlirAttribute *supportedDataTypes, MlirAttribute *supportedTileSizes,
-    unsigned numCBs, unsigned numComputeThreads,
+    unsigned dstRegisterSizeTiles, unsigned numCBs, unsigned numComputeThreads,
     unsigned numDatamovementThreads) {
   std::vector<int64_t> gridVec(grid, grid + gridSize);
   std::vector<int64_t> coordTranslationOffsetsVec(
@@ -56,8 +56,8 @@ MlirAttribute ttmlirTTChipDescAttrGet(
       mlir::dyn_cast<ChipPhysicalHelperCoresAttr>(
           unwrap(chipPhysicalHelperCores)),
       mlir::dyn_cast<DataTypeAttr>(unwrap(*supportedDataTypes)),
-      mlir::dyn_cast<TileSizeAttr>(unwrap(*supportedTileSizes)), numCBs,
-      numComputeThreads, numDatamovementThreads));
+      mlir::dyn_cast<TileSizeAttr>(unwrap(*supportedTileSizes)),
+      dstRegisterSizeTiles, numCBs, numComputeThreads, numDatamovementThreads));
 }
 
 MlirAttribute ttmlirTTChipCoordAttrGet(MlirContext ctx, unsigned rack,
