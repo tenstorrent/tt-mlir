@@ -107,6 +107,8 @@ runs:
       shell: bash
       run: |
         export TT_METAL_HOME="third_party/tt-metal/src/tt-metal"
+        export CMAKE_PREFIX_PATH="third_party/tt-metal/src/tt-metal/build/lib"
+        export LD_LIBRARY_PATH="third_party/tt-metal/src/tt-metal/build/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         cmake --install build --component TTNNStandalone
         cd install/tools/ttnn-standalone
         ./run
