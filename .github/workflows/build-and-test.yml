@@ -315,7 +315,6 @@ jobs:
         export CMAKE_PREFIX_PATH="${{ steps.strings.outputs.third-party-output-dir }}/tt-metal/src/tt-metal-build/lib"
         export LD_LIBRARY_PATH="${{ steps.strings.outputs.third-party-output-dir }}/tt-metal/src/tt-metal-build/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export TT_METAL_HOME="${{ steps.strings.outputs.third-party-output-dir }}/tt-metal/src/tt-metal"
-        export TT_METAL_LIB="${{ steps.strings.outputs.third-party-output-dir }}/tt-metal/src/tt-metal-build/lib"
         cd ${{ matrix.build.path }}
         cmake -G Ninja -B build \
           -DCMAKE_BUILD_TYPE=Release \
