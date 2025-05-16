@@ -9,7 +9,6 @@ module {
     // CHECK-LABEL: func.func public @reduce_prod_not_keep_dim
     %0 = ttir.empty() : tensor<128x32x4xf32>
     // CHECK: "ttnn.prod"
-    // CHECK: all_dimensions = false
     // CHECK-SAME: dim_arg = 1
     // CHECK-SAME: keep_dim = false
     // CHECK-SAME: tensor<128x10x32x4xf32,
@@ -22,7 +21,6 @@ module {
     // CHECK-LABEL: func.func public @reduce_prod_keep_dim
     %0 = ttir.empty() : tensor<128x1x32x4xf32>
     // CHECK: "ttnn.prod"
-    // CHECK: all_dimensions = false
     // CHECK-SAME: dim_arg = 1
     // CHECK-SAME: keep_dim = true
     // CHECK-SAME: tensor<128x10x32x4xf32,

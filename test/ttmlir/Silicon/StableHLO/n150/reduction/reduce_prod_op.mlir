@@ -10,7 +10,6 @@ module @jit_reduce_prod attributes {} {
   func.func public @test_reduce_prod_4to3dim(%arg0: tensor<128x10x32x4xf32>, %cst_0: tensor<f32>) -> tensor<128x32x4xf32> {
     // CHECK-LABEL: func.func public @test_reduce_prod_4to3dim
     // CHECK: "ttnn.prod"
-    // CHECK: all_dimensions = false
     // CHECK-SAME: dim_arg = 1
     // CHECK-SAME: keep_dim = false
     // CHECK-SAME: (tensor<128x10x32x4xf32,
@@ -22,7 +21,6 @@ module @jit_reduce_prod attributes {} {
   func.func public @test_reduce_prod_3to2dim(%arg0: tensor<128x10x4xf32>, %cst_0: tensor<f32>) -> tensor<128x10xf32> {
     // CHECK-LABEL: func.func public @test_reduce_prod_3to2dim
     // CHECK: "ttnn.prod"
-    // CHECK: all_dimensions = false
     // CHECK-SAME: dim_arg = 2
     // CHECK-SAME: keep_dim = false
     // CHECK-SAME: (tensor<128x10x4xf32,
@@ -34,7 +32,6 @@ module @jit_reduce_prod attributes {} {
   func.func public @test_reduce_prod_2to1dim(%arg0: tensor<128x10xf32>, %cst_0: tensor<f32>) -> tensor<128xf32> {
     // CHECK-LABEL: func.func public @test_reduce_prod_2to1dim
     // CHECK: "ttnn.prod"
-    // CHECK: all_dimensions = false
     // CHECK-SAME: dim_arg = 1
     // CHECK-SAME: keep_dim = false
     // CHECK-SAME: (tensor<128x10xf32,
