@@ -12,8 +12,12 @@
 
 namespace mlir::tt {
 
-void registerDevice(ModuleOp module, tt::Arch arch = tt::Arch::WormholeB0,
-                    std::string path = {}, ArrayRef<int64_t> meshShape = {});
+void registerDevice(ModuleOp module,
+                    tt::Arch mockSystemDescArch = tt::Arch::WormholeB0,
+                    ArrayRef<int64_t> meshShape = {});
+
+void registerDevice(ModuleOp module, const std::string &systemDescPath,
+                    ArrayRef<int64_t> meshShape = {});
 
 } // namespace mlir::tt
 
