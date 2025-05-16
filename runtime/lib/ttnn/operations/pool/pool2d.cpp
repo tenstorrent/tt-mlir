@@ -29,7 +29,7 @@ void runPool2dOp(const ::tt::target::ttnn::Pool2dOp *op,
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
+          op->memory_config());
   LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
@@ -40,11 +40,16 @@ void runPool2dOp(const ::tt::target::ttnn::Pool2dOp *op,
   std::copy_n(op->padding()->begin(), 2, padding.begin());
   std::copy_n(op->dilation()->begin(), 2, dilation.begin());
 
-  ::ttnn::Tensor out = ttnnOp(input, op->batch_size(), op->input_height(),
-                              op->input_width(), op->channels(), kernelSize,
-                              stride, padding, dilation, outputMemoryConfig,
-                              /*applied_shard_scheme=*/std::nullopt,
-                              op->ceil_mode(), /*in_place_halo=*/false);
+  std::optional<::ttnn::TensorMemoryLayout> appliedShardScheme = std::nullopt;
+  if (op->applied_shard_scheme()) {
+    appliedShardScheme = ::tt::runtime::ttnn::utils::toTTNNTensorMemoryLayout(
+        *op->applied_shard_scheme());
+  }
+
+  ::ttnn::Tensor out = ttnnOp(
+      input, op->batch_size(), op->input_height(), op->input_width(),
+      op->channels(), kernelSize, stride, padding, dilation, outputMemoryConfig,
+      appliedShardScheme, op->ceil_mode(), op->in_place_halo());
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
