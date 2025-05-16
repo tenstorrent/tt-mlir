@@ -76,13 +76,15 @@ Specify the type of test run. Currently supported:
 - __ttrt__ - run tests using ttrt tool
 - __unit__ - run unit tests
 - __builder__ - run builder tests and execute generated flatbuffers iff `run-ttrt` flag is set
+- __ttnn__ - run tests related to ttnn
 
 #### flags (optional)
 Additional flags may be used when running tests. These are passed to ttrt or pytest as an additional parameter.
 
-#### container-options
+#### container-options (optional)
 Each test runs in a docker container and this option specifies docker container options.
-It is mostly used to map TT hardware device to a docker container (for example: `"--device /dev/tenstorrent/0"`).
+It is mostly used to map TT hardware device to a docker container (for example: `"--device /dev/tenstorrent/0"`).  
+If no value is passed, the default value will be used (`"--device /dev/tenstorrent" `)
 
 ### Adding New Test
 Usually, it is enough to add a single line to the test matrix and your tests will become part of tt-mlir CI.
