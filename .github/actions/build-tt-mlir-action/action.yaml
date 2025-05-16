@@ -36,9 +36,6 @@ inputs:
   test_report_path:
     description: "Path to test report"
     required: true
-  third-party-output-dir:
-    description: "Third party folder location"
-    required: true
 
 runs:
   using: "composite"
@@ -104,16 +101,6 @@ runs:
         cmake --install ${{ inputs.build-output-dir }} --component SharedLib
         cmake --install ${{ inputs.build-output-dir }} --component TTNNStandalone
 
-    # - name: Run ttnn-standalone
-    #   shell: bash
-    #   run: |
-    #     export TT_METAL_HOME="${{ inputs.work-dir }}/third_party/tt-metal/src/tt-metal"
-    #     export CMAKE_PREFIX_PATH="${{ inputs.work-dir }}/third_party/tt-metal/src/tt-metal/build/lib"
-    #     export LD_LIBRARY_PATH="${{ inputs.work-dir }}/third_party/tt-metal/src/tt-metal/build/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
-    #     cmake --install ${{ inputs.build-output-dir }} --component TTNNStandalone
-    #     cd install/tools/ttnn-standalone
-    #     ./run
-
     - name: Upload ttrt .whl
       uses: actions/upload-artifact@v4
       with:
@@ -149,21 +136,6 @@ runs:
     - name: Remove tar archive
       shell: bash
       run: rm -f ${{ inputs.build-output-dir }}/artifact.tar
-
-    # - name: Archive Third Party Directory
-    #   shell: bash
-    #   working-directory: ${{ inputs.third-party-output-dir }}
-    #   run: tar cf artifact.tar .
-
-    # - name: Upload Third Party Folder
-    #   uses: actions/upload-artifact@v4
-    #   with:
-    #     name: third-party-artifacts-${{ inputs.build-name }}
-    #     path: ${{ inputs.third-party-output-dir }}/artifact.tar
-
-    # - name: Remove tar archive
-    #   shell: bash
-    #   run: rm -f ${{ inputs.third-party-output-dir }}/artifact.tar
 
     - name: Get Latest Tag and Version
       shell: bash
