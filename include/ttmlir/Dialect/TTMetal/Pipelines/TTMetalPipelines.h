@@ -41,7 +41,8 @@ struct TTIRToTTMetalBackendPipelineOptions
       llvm::cl::values(clEnumValN(tt::Arch::WormholeB0, "wormhole_b0",
                                   "Use mock wormhole_b0 system desc."),
                        clEnumValN(tt::Arch::Blackhole, "blackhole",
-                                  "Use mock blackhole system desc."))};
+                                  "Use mock blackhole system desc.")),
+      llvm::cl::init(tt::Arch::WormholeB0)};
 };
 
 void createTTIRBufferizationPipeline(OpPassManager &pm);
