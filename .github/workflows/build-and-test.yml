@@ -171,8 +171,8 @@ jobs:
           {runs-on: n150,   sh-run: false, name: "run",  suite: "model_golden",      image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_models.py", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true},
           {runs-on: n150,   sh-run: false, name: "run",  suite: "op_compile",        image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_ops.py", flags: "-m \"run_error or fails_golden\"", run-ttrt: false},
           {runs-on: n150,   sh-run: false, name: "run",  suite: "model_compile",     image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_models.py", flags: "-m \"run_error or fails_golden\"", run-ttrt: false},
-          {runs-on: n300,   sh-run: false, name: "run",  suite: "op_golden",         image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_ops_n300.py", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true},
-          {runs-on: n300-llmbox, sh-run: true,  name: "run",  suite: "op_golden",         image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_ops_llmbox.py", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true},
+          {runs-on: n300,   sh-run: false, name: "run",  suite: "golden",            image: "tracy",  type: "builder",  path: "test/python/golden", flags: "-m \"not run_error and not fails_golden and n300\"", run-ttrt: true},
+          {runs-on: n300-llmbox, sh-run: true,  name: "run",  suite: "golden",       image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_ops_llmbox.py", flags: "-m \"not run_error and not fails_golden and llmbox\"", run-ttrt: true},
           # Although these runtime tests are device agnostic, they depend on n150 compiled mlir artifacts
           # Therefore running these tests on n150 specifically
           {runs-on: n150,   sh-run: true,  name: "run",  suite: "ttnn_runtime",      image: "speedy", type: "pytest",  path: "runtime/test/python/ttnn/device_agnostic"},
