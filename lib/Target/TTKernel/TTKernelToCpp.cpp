@@ -6,9 +6,7 @@
 
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 
-// NOLINTNEXTLINE(clang-diagnostic-error)
 #include "ttmlir/Target/TTKernel/LLKs/experimental_tilize_llks_generated.h"
-// NOLINTNEXTLINE(clang-diagnostic-error)
 #include "ttmlir/Target/TTKernel/LLKs/experimental_untilize_llks_generated.h"
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
