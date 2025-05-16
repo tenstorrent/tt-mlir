@@ -232,6 +232,7 @@ mlir::LogicalResult mlir::tt::ttir::DMAOp::bufferize(
   }
 
   ::llvm::SmallVector<mlir::Value> invocationStack;
+  // NOLINTNEXTLINE
   mlir::bufferization::replaceOpWithNewBufferizedOp<mlir::tt::ttir::DMAOp>(
       rewriter, *this, getResult().getType(), src, getSrcAffineMapAttr(),
       getSrcIndices(), dst, getDstAffineMapAttr(), getDstIndices(),
