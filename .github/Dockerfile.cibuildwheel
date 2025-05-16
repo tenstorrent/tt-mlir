@@ -18,7 +18,7 @@ RUN dnf install --refresh -y \
     yaml-cpp-devel boost-devel libcurl-devel \
     pandoc doxygen graphviz patchelf lcov perf \
     xz \
-    xxd
+    vim-common
 
 RUN dnf clean all
 
