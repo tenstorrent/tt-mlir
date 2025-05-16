@@ -20,7 +20,10 @@ table Pool2dOp {
   stride: [int32];
   padding: [int32];
   dilation: [int32];
-  ceil_mode: bool;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  applied_shard_scheme: tt.target.ttnn.TensorMemoryLayout = null;
+  ceil_mode: bool = false;
+  in_place_halo: bool = false;
 }
 
 table UniformScale2D {
