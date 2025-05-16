@@ -69,7 +69,12 @@ def test_all_gather(shape: Shape, mesh_shape: Tuple[int, int], request):
         )
 
     compile_to_flatbuffer(
-        all_gather, [shape], mesh_shape=mesh_shape, test_base=request.node.name
+        all_gather,
+        [shape],
+        mesh_shape=mesh_shape,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -135,6 +140,8 @@ def test_all_reduce(shape: Shape, mesh_shape: Tuple[int, int], request):
         mesh_shape=mesh_shape,
         test_base=request.node.name,
         module_dump=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -201,7 +208,12 @@ def test_reduce_scatter(shape: Shape, mesh_shape: Tuple[int, int], request):
         )
 
     compile_to_flatbuffer(
-        reduce_scatter, [shape], mesh_shape=mesh_shape, test_base=request.node.name
+        reduce_scatter,
+        [shape],
+        mesh_shape=mesh_shape,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -255,7 +267,12 @@ def test_collective_permute(shape: Shape, mesh_shape: Tuple[int, int], request):
         )
 
     compile_to_flatbuffer(
-        collective_permute, [shape], mesh_shape=mesh_shape, test_base=request.node.name
+        collective_permute,
+        [shape],
+        mesh_shape=mesh_shape,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -310,7 +327,12 @@ def test_matmul_1x2(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
         )
 
     compile_to_flatbuffer(
-        matmul_1x2, shapes, mesh_shape=mesh_shape, test_base=request.node.name
+        matmul_1x2,
+        shapes,
+        mesh_shape=mesh_shape,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -364,6 +386,8 @@ def test_neg_1x2_dim_3(shape: Shape, mesh_shape: Tuple[int, int], request):
         [shape],
         mesh_shape=mesh_shape,
         test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -417,6 +441,8 @@ def test_neg_1x2_dim_1(shape: Shape, mesh_shape: Tuple[int, int], request):
         [shape],
         mesh_shape=mesh_shape,
         test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -469,5 +495,10 @@ def test_eltwise_multidevice(shapes: List[Shape], mesh_shape: Tuple[int, int], r
         )
 
     compile_to_flatbuffer(
-        eltwise_multidevice, shapes, mesh_shape=mesh_shape, test_base=request.node.name
+        eltwise_multidevice,
+        shapes,
+        mesh_shape=mesh_shape,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
