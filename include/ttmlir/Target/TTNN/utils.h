@@ -10,7 +10,7 @@
 #include "ttmlir/Target/Common/types_generated.h"
 #include "llvm/Support/ErrorHandling.h"
 
-namespace tt::mlir::ttnn::utils {
+namespace mlir::tt::ttnn::utils {
 
 inline ::tt::target::ttnn::TensorMemoryLayout toTargetTensorMemoryLayout(
     ::mlir::tt::ttnn::TensorMemoryLayout tensorMemoryLayout) {
@@ -93,6 +93,6 @@ inline ::tt::target::DataType toTargetDataType(::mlir::tt::DataType dataType) {
   llvm_unreachable("Unsupported DataType");
 }
 
-} // namespace tt::mlir::ttnn::utils
+} // namespace mlir::tt::ttnn::utils
 
 #endif // TTMLIR_TARGET_TTNN_UTILS_H
