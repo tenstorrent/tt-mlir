@@ -28,3 +28,6 @@ export TT_METAL_BUILD_HOME="$(pwd)/third_party/tt-metal/src/tt-metal/build"
 export TT_MLIR_HOME="$(pwd)"
 export PYTHONPATH="$(pwd)/${BUILD_DIR:=build}/python_packages:$(pwd)/.local/toolchain/python_packages/mlir_core:${TT_METAL_HOME}:${TT_METAL_HOME}/tt_eager:${TT_METAL_BUILD_HOME}/tools/profiler/bin:${TT_METAL_HOME}/ttnn"
 export ARCH_NAME="${ARCH_NAME:-wormhole_b0}"
+
+# Allow TestPyPi here
+export PIP_EXTRA_INDEX_URL="https://test.pypi.org/simple/ https://download.pytorch.org/whl/cpu"
