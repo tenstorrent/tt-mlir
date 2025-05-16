@@ -1779,6 +1779,59 @@ mlir::OpFoldResult mlir::tt::ttir::TransposeOp::fold(FoldAdaptor adaptor) {
   return nullptr;
 }
 
+// TransposeOp canonicalizer
+void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
+    RewritePatternSet &patterns, MLIRContext *context) {
+  // Fold two consecutive transpose ops into a single permute op.
+  patterns.add(+[](mlir::tt::ttir::TransposeOp op,
+                   mlir::PatternRewriter &rewriter) {
+    auto producerOp =
+        op.getInput().getDefiningOp<mlir::tt::ttir::TransposeOp>();
+    if (!producerOp) {
+      return mlir::failure();
+    }
+
+    int64_t rank = op.getType().getRank();
+    // Starting from the identity permutation, we will apply the transpose of
+    // the `producerOp` to the permutation, and then apply the transpose of the
+    // current `op` to the permutation.
+    llvm::SmallVector<int64_t> permutation(llvm::to_vector(llvm::seq(rank)));
+    int64_t normalizedDim0 = (op.getDim0() + rank) % rank;
+    int64_t normalizedDim1 = (op.getDim1() + rank) % rank;
+    int64_t normalizedProducerDim0 = (producerOp.getDim0() + rank) % rank;
+    int64_t normalizedProducerDim1 = (producerOp.getDim1() + rank) % rank;
+    std::swap(permutation[normalizedProducerDim0],
+              permutation[normalizedProducerDim1]);
+    std::swap(permutation[normalizedDim0], permutation[normalizedDim1]);
+
+    ttir::utils::replaceOpWithNewDPSOp<ttir::PermuteOp>(
+        rewriter, op, op.getType(), producerOp.getInput(), permutation);
+
+    return mlir::success();
+  });
+
+  // Fold transpose op into a producer's permute op.
+  patterns.add(+[](mlir::tt::ttir::TransposeOp op,
+                   mlir::PatternRewriter &rewriter) {
+    auto producerOp = op.getInput().getDefiningOp<mlir::tt::ttir::PermuteOp>();
+    if (!producerOp) {
+      return mlir::failure();
+    }
+
+    int64_t rank = op.getType().getRank();
+    int64_t normalizedDim0 = (op.getDim0() + rank) % rank;
+    int64_t normalizedDim1 = (op.getDim1() + rank) % rank;
+
+    llvm::SmallVector<int64_t> permutation(producerOp.getPermutation());
+    std::swap(permutation[normalizedDim0], permutation[normalizedDim1]);
+
+    ttir::utils::replaceOpWithNewDPSOp<ttir::PermuteOp>(
+        rewriter, op, op.getType(), producerOp.getInput(), permutation);
+
+    return mlir::success();
+  });
+}
+
 //===----------------------------------------------------------------------===//
 // TypecastOp
 //===----------------------------------------------------------------------===//
@@ -3354,6 +3407,30 @@ static mlir::OpFoldResult foldConsecutivePermute(mlir::tt::ttir::PermuteOp op) {
   return nullptr;
 }
 
+// If the producer is a TransposeOp we can compose the permutation attributes
+// into `op`, and set the input to the producers input.
+static mlir::OpFoldResult foldTransposePermute(mlir::tt::ttir::PermuteOp op) {
+  if (auto producerOp =
+          op.getInput().getDefiningOp<mlir::tt::ttir::TransposeOp>()) {
+    int64_t rank = op.getType().getRank();
+    // Permutation is obtained by applying the `permutation` of the `op` to the
+    // permutation of the `producerOp`.
+    llvm::SmallVector<int64_t> permutation(
+        llvm::to_vector(llvm::seq<int64_t>(rank)));
+    int64_t normalizedDim0 = (producerOp.getDim0() + rank) % rank;
+    int64_t normalizedDim1 = (producerOp.getDim1() + rank) % rank;
+    std::swap(permutation[normalizedDim0], permutation[normalizedDim1]);
+    permutation = ttmlir::utils::applyPermutation(llvm::ArrayRef(permutation),
+                                                  op.getPermutation());
+    op.setPermutation(permutation);
+
+    op.getInputMutable().assign(producerOp.getInput());
+
+    return op.getResult();
+  }
+  return nullptr;
+}
+
 // PermuteOp folder
 mlir::OpFoldResult mlir::tt::ttir::PermuteOp::fold(FoldAdaptor adaptor) {
 
@@ -3362,6 +3439,10 @@ mlir::OpFoldResult mlir::tt::ttir::PermuteOp::fold(FoldAdaptor adaptor) {
   }
 
   if (auto foldResult = foldConsecutivePermute(*this)) {
+    return foldResult;
+  }
+
+  if (auto foldResult = foldTransposePermute(*this)) {
     return foldResult;
   }
 
