@@ -90,6 +90,21 @@ void deallocateBuffers(Device device) {
       [&]() { ::tt::runtime::ttmetal::deallocateBuffers(device); });
 }
 
+void dumpDeviceProfileResults(Device device) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::dumpDeviceProfileResults(device);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::dumpDeviceProfileResults(device);
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
 void dumpMemoryReport(Device device) {
   using RetType = void;
   return DISPATCH_TO_CURRENT_RUNTIME(
