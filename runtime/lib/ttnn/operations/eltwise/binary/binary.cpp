@@ -48,8 +48,8 @@ static void runEltwiseBinaryOp(
   bool use_legacy = false;
   if (lhs->memory_config().is_sharded() || rhs->memory_config().is_sharded() ||
       (outputMemoryConfig && outputMemoryConfig->is_sharded())) {
-    const ::ttnn::Shape &shape_a = lhs->get_logical_shape();
-    const ::ttnn::Shape &shape_b = rhs->get_logical_shape();
+    const ::ttnn::Shape &shape_a = lhs->logical_shape();
+    const ::ttnn::Shape &shape_b = rhs->logical_shape();
     size_t rank_a = shape_a.rank();
     size_t rank_b = shape_b.rank();
     size_t larger_rank = std::max(rank_a, rank_b);
