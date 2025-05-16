@@ -1,5 +1,9 @@
 add_subdirectory(ttmlir-opt)
 add_subdirectory(ttmlir-lsp-server)
+add_subdirectory(ttmlir-translate)
+add_subdirectory(ttnn-standalone)
+
+# Tools that rely on Python Bindings
 if(TTMLIR_ENABLE_BINDINGS_PYTHON AND MLIR_ENABLE_BINDINGS_PYTHON)
   add_subdirectory(ttir-builder)
 
@@ -12,6 +16,3 @@ if(TTMLIR_ENABLE_BINDINGS_PYTHON AND MLIR_ENABLE_BINDINGS_PYTHON)
   endif()
 
 endif()
-add_subdirectory(ttmlir-translate)
-
-add_subdirectory(ttnn-standalone)
