@@ -402,7 +402,7 @@ void closeMeshDevice(Device parentMesh) {
   }
 #endif
 
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
   for (::ttnn::IDevice *ttnnDevice : ttnnMeshDevice.get_devices()) {
     ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
   }
