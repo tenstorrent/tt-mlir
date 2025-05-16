@@ -12,7 +12,7 @@ module attributes {} {
     // CHECK-SAME: tensor<1x1x128x128xbf16
     // CHECK-SAME: tensor<1x1x128x128xbf16
     %1 = "ttnn.add"(%arg0, %arg1) : (tensor<1x1x1x128xsi32,#ttnn_layout1>, tensor<1x1x128x128xsi32,#ttnn_layout>) -> tensor<1x1x128x128xsi32,#ttnn_layout>
-    %2 = "ttnn.to_layout"(%1, %0) <{dtype = #tt.supportedDataTypes<si32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <<4x4>>, <interleaved>>}> : (tensor<1x1x128x128xsi32, #ttnn_layout>, !ttnn.device) -> tensor<1x1x128x128xbf16, #ttnn_layout2>
+    %2 = "ttnn.to_layout"(%1, %0) <{dtype = #tt.supportedDataTypes<si32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<1x1x128x128xsi32, #ttnn_layout>, !ttnn.device) -> tensor<1x1x128x128xbf16, #ttnn_layout2>
     return %2 : tensor<1x1x128x128xbf16,#ttnn_layout2>
   }
 }

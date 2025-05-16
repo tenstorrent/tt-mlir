@@ -8,6 +8,8 @@
 #include "ttmlir-c/TTNNAttrs.h"
 
 #include <nanobind/stl/optional.h>
+#include <optional>
+
 namespace mlir::ttmlir::python {
 void populateTTNNModule(nb::module_ &m) {
 
@@ -45,43 +47,42 @@ void populateTTNNModule(nb::module_ &m) {
 
   tt_attribute_class<tt::ttnn::ShardSpecAttr>(m, "ShardSpecAttr")
       .def_static("get",
-                  [](MlirContext ctx, tt::ttnn::ShapeAttr shardShape) {
-                    return wrap(
-                        tt::ttnn::ShardSpecAttr::get(unwrap(ctx), shardShape));
+                  [](MlirContext ctx, tt::ttnn::CoreRangeSetAttr coreRangeSet,
+                     tt::ttnn::ShapeAttr shardShape,
+                     tt::ttnn::ShardOrientationAttr shardOrientation,
+                     tt::ttnn::ShardModeAttr shardMode,
+                     tt::ttnn::ShapeAttr physicalShardShape) {
+                    return wrap(tt::ttnn::ShardSpecAttr::get(
+                        unwrap(ctx), coreRangeSet, shardShape, shardOrientation,
+                        shardMode, physicalShardShape));
                   })
-      .def_prop_ro("shard_shape", &tt::ttnn::ShardSpecAttr::getShardShape);
+      .def_prop_ro(
+          "core_range_set",
+          [](tt::ttnn::ShardSpecAttr self) { return self.getCoreRangeSet(); })
+      .def_prop_ro("shard_shape",
+                   [](tt::ttnn::ShardSpecAttr self) { return self.getShape(); })
+      .def_prop_ro("shard_orientation",
+                   [](tt::ttnn::ShardSpecAttr self) {
+                     return self.getShardOrientation();
+                   })
+      .def_prop_ro(
+          "shard_mode",
+          [](tt::ttnn::ShardSpecAttr self) { return self.getShardMode(); })
+      .def_prop_ro("physical_shard_shape", [](tt::ttnn::ShardSpecAttr self) {
+        return self.getPhysicalShardShape();
+      });
 
   tt_attribute_class<tt::ttnn::MemoryConfigAttr>(m, "MemoryConfigAttr")
-      .def_static("get",
-                  [](MlirContext ctx,
-                     tt::ttnn::TensorMemoryLayoutAttr tensorMemoryLayoutAttr,
-                     tt::ttnn::BufferTypeAttr bufferTypeAttr,
-                     tt::ttnn::ShardSpecAttr shardSpecAttr) {
-                    return wrap(tt::ttnn::MemoryConfigAttr::get(
-                        unwrap(ctx), bufferTypeAttr, shardSpecAttr,
-                        tensorMemoryLayoutAttr));
-                  })
       .def_static(
-          "get_by_value",
-          [](MlirContext ctx, uint32_t tensorMemoryLayout, uint32_t bufferType,
-             std::vector<int64_t> shardShape) {
-            tt::ttnn::TensorMemoryLayoutAttr layoutAttr =
-                tt::ttnn::TensorMemoryLayoutAttr::get(
-                    unwrap(ctx), static_cast<tt::ttnn::TensorMemoryLayout>(
-                                     tensorMemoryLayout));
-
-            return wrap(tt::ttnn::MemoryConfigAttr::get(
-                unwrap(ctx),
-                tt::ttnn::BufferTypeAttr::get(
-                    unwrap(ctx), static_cast<tt::ttnn::BufferType>(bufferType)),
-                tt::ttnn::ShardSpecAttr::get(
-                    unwrap(ctx),
-                    tt::ttnn::ShapeAttr::get(unwrap(ctx), shardShape)),
-                layoutAttr));
+          "get",
+          [](MlirContext ctx, MlirAttribute tensorMemoryLayoutAttr,
+             MlirAttribute bufferTypeAttr, MlirAttribute shardSpecAttr) {
+            return ttmlirTTNNMemoryConfigAttrGet(ctx, tensorMemoryLayoutAttr,
+                                                 bufferTypeAttr, shardSpecAttr);
           })
+      .def_prop_ro("buffer_type", &tt::ttnn::MemoryConfigAttr::getBufferType)
       .def_prop_ro("tensor_memory_layout",
                    &tt::ttnn::MemoryConfigAttr::getTensorMemoryLayout)
-      .def_prop_ro("buffer_type", &tt::ttnn::MemoryConfigAttr::getBufferType)
       .def_prop_ro("shard_spec", &tt::ttnn::MemoryConfigAttr::getShardSpec);
 
   tt_attribute_class<tt::ttnn::ShapeAttr>(m, "ShapeAttr")
