@@ -270,6 +270,7 @@ public:
         if (operand.getOperandNumber() == 1) {
           modified = changeLayoutToHost(op, operand, rewriter, isDPSResult);
         }
+
         continue;
       }
 
@@ -550,6 +551,14 @@ private:
         return true;
       }
     }
+
+    func::FuncOp owningFunc = cast<func::FuncOp>(arg.getOwner()->getParentOp());
+    unsigned argIdx = arg.getArgNumber();
+
+    if (owningFunc.getArgAttr(argIdx, ttmlir::utils::g_conv2dWeightAttrName)) {
+      return true;
+    }
+
     return false;
   }
 
