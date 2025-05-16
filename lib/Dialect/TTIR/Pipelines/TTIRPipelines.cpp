@@ -109,7 +109,9 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
 void createTTIRToCPUPipeline(OpPassManager &manager,
                              const LinalgToLLVMPipelineOptions &options) {
   OpPassManager &cpuPm = manager.nest<tt::CPUModuleOp>().nest<mlir::ModuleOp>();
-  cpuPm.addPass(createConvertTTIRToLinalgPass());
+  // cpuPm.addPass(createConvertTTIRToLinalgPass());
+  cpuPm.addPass(createConvertTTIRToTosaPass());
+  cpuPm.addPass(tosa::createTosaToLinalg());
   ttir::createLinalgToLLVMPipeline(cpuPm, options);
   cpuPm.addPass(llvm_util::createLLVMEmitCallingConventionWrapperFuncs());
 }
