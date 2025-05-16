@@ -6,7 +6,7 @@
 
 #include "ttmlir/Support/Logger.h"
 
-#include "gtest/gtest.h"
+#include "llvm-gtest/gtest/gtest.h"
 
 #include <cstdint>
 #include <cstdlib>
