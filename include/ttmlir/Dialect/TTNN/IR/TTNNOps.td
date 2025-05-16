@@ -1604,7 +1604,12 @@ def TTNN_FullOp : TTNN_CreationOp<"full"> {
       Tensor full operation
     }];
 
-    let arguments = (ins TTNN_Device:$device, F32Attr:$fillValue);
+    let arguments = (ins TTNN_ShapeAttr:$shape,
+                         F32Attr:$fill_value,
+                         OptionalAttr<TT_DataTypeAttr>:$dtype,
+                         OptionalAttr<TTNN_LayoutAttr>:$layout,
+                         Optional<TTNN_Device>:$device,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{

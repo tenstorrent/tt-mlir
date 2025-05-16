@@ -850,9 +850,19 @@ public:
         fillValue = valueAttr.getSplatValue<mlir::APFloat>();
       }
 
+      ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+          op.getResult().getType().getEncoding());
+      ttnn::ShapeAttr shapeAttr = ttnn::ShapeAttr::get(
+          rewriter.getContext(),
+          mlir::cast<RankedTensorType>(op->getResult(0).getType()).getShape());
+      DataType dtype = layoutAttr.getDataType();
+      DataTypeAttr dTypeAttr = DataTypeAttr::get(rewriter.getContext(), dtype);
+
       rewriter.replaceOpWithNewOp<ttnn::FullOp>(
-          op, this->getTypeConverter()->convertType(op.getType()), device,
-          rewriter.getF32FloatAttr(fillValue.convertToFloat()));
+          op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
+          rewriter.getF32FloatAttr(fillValue.convertToFloat()), dTypeAttr,
+          ttnn::LayoutAttr::get(op.getContext(), layoutAttr.getLayout()),
+          device, ttnn::MemoryConfigAttr());
 
       // Otherwise, we use the ttnn::ConstantOp to create the tensor.
     } else {
