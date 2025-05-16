@@ -26,6 +26,8 @@ TTNNRepeatFoldingWorkaround::matchAndRewrite(ttnn::RepeatOp op,
   ttnn::FullOp zeroOp = rewriter.create<ttnn::FullOp>(
       op->getLoc(), op.getResult().getType(), device, fillValueAttr);
 
+  zeroOp->dump();
+
   SmallVector<Value> addInputs;
   addInputs.push_back(op.getOperand());
   addInputs.push_back(zeroOp.getResult());
