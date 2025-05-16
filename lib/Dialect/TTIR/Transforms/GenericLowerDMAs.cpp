@@ -294,12 +294,12 @@ public:
           device.getMemrefSizeBytes(srcUnderlyingMemrefAndView.first,
                                     /*pageSize=*/0);
       return device.getMemoryMap(srcUnderlyingMemrefAndView, srcPageSize);
-    } else {
-      MemRefType inputType = mlir::cast<MemRefType>(input.getType());
-      return canonicalStridedMap(device.getContext(), inputType.getShape(),
-                                 inputType.getElementType(),
-                                 inputType.getLayout().getAffineMap());
     }
+
+    MemRefType inputType = mlir::cast<MemRefType>(input.getType());
+    return canonicalStridedMap(device.getContext(), inputType.getShape(),
+                               inputType.getElementType(),
+                               inputType.getLayout().getAffineMap());
   }
 
   static SmallVector<Value> applyMap(PatternRewriter &rewriter, Location loc,
@@ -319,10 +319,10 @@ public:
       auto offset = map.dropResults({0, 1});
       return {affineApply(gridY, index), affineApply(gridX, index),
               affineApply(offset, index)};
-    } else {
-      assert(map.getNumResults() == 1);
-      return {affineApply(map, index)};
     }
+
+    assert(map.getNumResults() == 1);
+    return {affineApply(map, index)};
   }
 
   static AffineMap canonicalStridedMap(MLIRContext *context,

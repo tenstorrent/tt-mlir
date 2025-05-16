@@ -71,7 +71,7 @@ mlir::tt::ttir::detail::verifyGenericParent(mlir::Operation *op) {
 static mlir::AffineMap reblockViewWorkaround(mlir::MemRefType inputMemref,
                                              mlir::MemRefType resultMemref) {
   assert(inputMemref.getRank() == resultMemref.getRank());
-  auto ctx = inputMemref.getContext();
+  auto *ctx = inputMemref.getContext();
   int64_t rank = inputMemref.getRank();
   auto inputLayout =
       mlir::cast<mlir::tt::DeviceLayoutInterface>(inputMemref.getLayout());

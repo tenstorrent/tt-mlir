@@ -62,7 +62,7 @@ public:
       return mlir::cast<ThreadAttr>(threadAttr).getThreadType() ==
              ThreadType::Compute;
     };
-    auto computeThread =
+    const auto *computeThread =
         std::find_if(threads.begin(), threads.end(), isComputeThread);
     if (computeThread == threads.end()) {
       return std::nullopt;
