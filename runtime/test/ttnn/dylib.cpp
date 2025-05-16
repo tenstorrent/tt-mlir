@@ -43,7 +43,7 @@ static std::string getMangledName(std::string_view funcName,
   return mangledName;
 }
 
-void *openSo(std::string_view path) {
+void *openSo(const std::string &path) {
   LOG_ASSERT(getCurrentRuntime() == DeviceRuntime::TTNN);
 
   void *handle = dlopen(path.data(), RTLD_LAZY);
@@ -66,7 +66,7 @@ void closeSo(void *handle) {
 }
 
 std::vector<::tt::runtime::Tensor>
-runSoProgram(void *so, std::string_view funcName,
+runSoProgram(void *so, const std::string &funcName,
              std::vector<::tt::runtime::Tensor> inputs, Device device) {
   LOG_ASSERT(getCurrentRuntime() == DeviceRuntime::TTNN);
 

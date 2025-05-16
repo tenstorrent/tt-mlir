@@ -135,7 +135,7 @@ def golden(callback_runtime_config, binary, program_context, op_context):
     rt_buffer = op_output_tensor.get_data_buffer()
     dtype = ttrt_datatype_to_torch_dtype(op_golden_tensor.dtype)
     assert ttrt_datatype_to_torch_dtype(op_output_tensor.get_dtype()) == dtype
-    golden_tensor_torch = torch.frombuffer(op_golden_tensor, dtype=dtype).flatten()
+    golden_tensor_torch = golden_tensor_to_torch(op_golden_tensor).flatten()
 
     output_tensor_torch = torch.frombuffer(rt_buffer, dtype=dtype).flatten()
     if callback_runtime_config.save_golden_tensors:
