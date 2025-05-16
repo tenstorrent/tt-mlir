@@ -84,7 +84,7 @@ Additional flags may be used when running tests. These are passed to ttrt or pyt
 #### container-options (optional)
 Each test runs in a docker container and this option specifies docker container options.
 It is mostly used to map TT hardware device to a docker container (for example: `"--device /dev/tenstorrent/0"`).  
-If no value is passed, the default value will be used (`"--device /dev/tenstorrent" `)
+If no value is passed, the default value will be used (`"--device /dev/tenstorrent"`)
 
 ### Adding New Test
 Usually, it is enough to add a single line to the test matrix and your tests will become part of tt-mlir CI.
