@@ -822,9 +822,8 @@ def TTNN_ProdOp : TTNN_Op<"prod"> {
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
-                       BoolAttr:$all_dimensions,
+                       OptionalAttr<I64Attr>:$dim_arg,
                        BoolAttr:$keep_dim,
-                       I64Attr:$dim_arg,
                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
   let results = (outs AnyRankedTensor:$result);

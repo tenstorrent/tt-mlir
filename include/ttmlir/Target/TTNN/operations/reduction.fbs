@@ -29,8 +29,7 @@ table ReductionArgMaxOp {
 table ReductionProdOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
-  all_dimensions: bool;
-  dim_arg: int64;
+  dim_arg: int64 = null;
   keep_dim: bool;
   memcfg: tt.target.ttnn.MemoryConfig;
 }
