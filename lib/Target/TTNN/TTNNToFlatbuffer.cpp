@@ -1146,9 +1146,11 @@ createEltwiseQuantizationOp(FlatbufferObjectCache &cache,
 
     // Process in_zero_point.
     auto [inZeroPointType, inZeroPointValue] =
-        // Process out_scale.
-        auto [outScaleType, outScaleValue] =
-            processScaleTensor(cache, op.getOutScale());
+        processZeroPointTensor(cache, op.getInZeroPoint());
+
+    // Process out_scale.
+    auto [outScaleType, outScaleValue] =
+        processScaleTensor(cache, op.getOutScale());
 
     // Process out_zero_point.
     auto [outZeroPointType, outZeroPointValue] =
