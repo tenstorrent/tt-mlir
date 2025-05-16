@@ -301,7 +301,7 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::ProdOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), newDimArg, adaptor.getKeepDim(),
-        /*memoryConfig*/ nullptr);
+        /*memoryConfig=*/nullptr);
     return success();
   }
 };
@@ -602,7 +602,7 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::ConcatOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInputs(), dim,
-        /* memory_config */ nullptr);
+        /*memory_config=*/nullptr);
     return success();
   }
 };
@@ -618,7 +618,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getShape(), /* memory_config */ nullptr);
+        adaptor.getInput(), adaptor.getShape(), /*memory_config=*/nullptr);
     return success();
   }
 };
@@ -678,7 +678,7 @@ public:
     // Replace the SqueezeOp with a ReshapeOp
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), shapeAttr, /* memory_config */ nullptr);
+        adaptor.getInput(), shapeAttr, /*memory_config=*/nullptr);
 
     return success();
   }
@@ -747,7 +747,7 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::PadOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getPaddingAttr(), adaptor.getValue(),
-        /* use_multicore */ true, memcfg);
+        /*use_multicore=*/true, memcfg);
 
     return success();
   }
@@ -797,7 +797,7 @@ public:
     // Replace the UnsqueezeOp with a ReshapeOp
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), shapeAttr, /* memory_config */ nullptr);
+        adaptor.getInput(), shapeAttr, /*memory_config=*/nullptr);
 
     return success();
   }
@@ -1091,7 +1091,7 @@ public:
         adaptor.getBias(), device, inChannelsAttr, outChannelsAttr,
         batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
         *strideAttr, reducedPaddingAttr, *outputPaddingAttr, *dilationAttr,
-        groupsAttr, /*memoryConfig*/ nullptr);
+        groupsAttr, /*memoryConfig=*/nullptr);
 
     // Restore the normal shape (N x H x W x C).
     Value output =
@@ -1184,9 +1184,9 @@ public:
         adaptor.getFlattenedCompatInfo().getInputHeight(),
         adaptor.getFlattenedCompatInfo().getInputWidth(), channels,
         kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
-        /* memory_config */ nullptr,
-        /* applied_shard_scheme */ nullptr, adaptor.getCeilMode(),
-        /* in_place_halo */ false);
+        /*memory_config=*/nullptr,
+        /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
+        /* in_place_halo=*/false);
 
     return success();
   }
