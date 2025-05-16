@@ -765,7 +765,7 @@ class Run:
                                         raise PCCErrorException(
                                             f"Failed: prgram-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={post_op_callback_runtime_config.pcc}"
                                         )
-                                    self.logging.debug(
+                                    self.logging.info(
                                         f"Program level golden for output_{idx} matched. pcc={cal_pcc}"
                                     )
 
