@@ -154,7 +154,7 @@ jobs:
           # When sh-run is true, the runner will use TT-shared GH infra and pull from harbor for image cache pull through
           {runs-on: n150,   sh-run: false, name: "run",  suite: "unit",              image: "speedy", type: "unit"},
           {runs-on: nXX0,   sh-run: false, name: "run",  suite: "unit",              image: "tracy",  type: "unit"},
-          # {runs-on: n150,   sh-run: false, name: "run",  suite: "ttnn_standalone",   image: "speedy", type: "ttrt",    path: "tools/ttnn-standalone"},
+          {runs-on: n150,   sh-run: false, name: "run",  suite: "ttnn_standalone",   image: "speedy", type: "ttrt",    path: "tools/ttnn-standalone"},
           {runs-on: n150,   sh-run: true,  name: "run",  suite: "run",               image: "speedy", type: "ttrt",    path: "Silicon", flags: "--non-zero"},
           {runs-on: n150,   sh-run: false, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n150/perf"},
           {runs-on: n150,   sh-run: false, name: "perf", suite: "optimizer",         image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n150/optimizer"},
@@ -324,6 +324,17 @@ jobs:
     #     cmake --install build --component TTNNStandalone
     #     cd install/tools/ttnn-standalone
     #     ./run
+
+    - name: Run TTNN-Standalone test
+      shell: bash
+      if: matrix.build.suite == 'ttnn_standalone'
+      run: |
+        export CMAKE_PREFIX_PATH="${{ steps.strings.outputs.install-output-dir }}/lib"
+        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
+        export TT_METAL_LIB="${{ steps.strings.outputs.install-output-dir }}/lib"
+        cd ${{ steps.strings.outputs.install-output-dir }}/${{ matrix.build.path }}
+        ./run
 
     - name: Builder Tests
       if: matrix.build.type == 'builder'
