@@ -9,3 +9,5 @@ add_mlir_translation_library(TTKernelTargetCpp
     MLIRTTKernelDialect
     MLIRTTIRDialect
 )
+
+add_dependencies(TTKernelTargetCpp TTKernelGeneratedLLKHeaders)

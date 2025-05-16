@@ -117,10 +117,36 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
   return success();
 }
 
+::mlir::LogicalResult ExperimentalTilizeBlockOp::verify() {
+  if (!insideEnqueueProgramOpRegion(getOperation())) {
+    return emitOpError("ExperimentalTilizeBlockOp must be inside of a "
+                       "EnqueueProgramOp region");
+  }
+  std::string err =
+      verifyTilizeUntilizeCBs(getCbOut().getType(), getCbIn().getType());
+  if (!err.empty()) {
+    return emitOpError(err);
+  }
+  return success();
+}
+
 ::mlir::LogicalResult UntilizeBlockOp::verify() {
   if (!insideEnqueueProgramOpRegion(getOperation())) {
     return emitOpError(
         "UntilizeBlockOp must be inside of a EnqueueProgramOp region");
+  }
+  std::string err =
+      verifyTilizeUntilizeCBs(getCbIn().getType(), getCbOut().getType());
+  if (!err.empty()) {
+    return emitOpError(err);
+  }
+  return success();
+}
+
+::mlir::LogicalResult ExperimentalUntilizeBlockOp::verify() {
+  if (!insideEnqueueProgramOpRegion(getOperation())) {
+    return emitOpError("ExperimentalUntilizeBlockOp must be inside of a "
+                       "EnqueueProgramOp region");
   }
   std::string err =
       verifyTilizeUntilizeCBs(getCbIn().getType(), getCbOut().getType());
