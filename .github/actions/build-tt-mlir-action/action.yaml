@@ -99,6 +99,7 @@ runs:
         source env/activate
         cmake --install ${{ inputs.build-output-dir }} --component Test
         cmake --install ${{ inputs.build-output-dir }} --component SharedLib
+        cmake --install ${{ inputs.build-output-dir }} --component TTNNStandalone
 
     - name: Upload ttrt .whl
       uses: actions/upload-artifact@v4
