@@ -22,8 +22,8 @@ struct TestScenario {
 };
 
 using TestScenarios =
-    gtest::Types<TestScenario<AllocationPlanner::Algorithm::simple>,
-                 TestScenario<AllocationPlanner::Algorithm::greedy>>;
+    gtest::Types<TestScenario<AllocationPlanner::Algorithm::Simple>,
+                 TestScenario<AllocationPlanner::Algorithm::Greedy>>;
 
 template <typename T>
 struct AllocationTest : public gtest::Test {};
@@ -97,7 +97,7 @@ TYPED_TEST(AllocationTest, Conflicts) {
     for (std::int32_t drift : {2, 10, 100}) {
       for (std::int32_t durationScale : {drift / 2, drift, drift * 2}) {
         for (std::int32_t repeat = 0; repeat < repeats; ++repeat) {
-          TTMLIR_DEBUG(ttmlir::LogComponent::General,
+          TTMLIR_DEBUG(ttmlir::LogComponent::Test,
                        "[{}/{}] sub-scenario: n = {}, drift = {}, "
                        "durationScale = {} ...",
                        (repeat + 1), repeats, n, drift, durationScale);
@@ -193,7 +193,7 @@ TEST(GreedyAllocationTest, ConflictFree) {
     const AllocationPlanner::Stats verifyStats = AllocationPlanner::verify(ctx);
 
     ASSERT_EQ(verifyStats.usageRatio(), 1.0)
-        << "inconsistent max load/mem usage calculation";
+        << "expected max load/mem usage ratio of exactly 1.0";
   }
 }
 

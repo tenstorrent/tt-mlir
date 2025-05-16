@@ -18,8 +18,8 @@ public:
   /// Enum for planning algorithms exposed by this API.
   /// @see AllocationPlanner::allocate()
   enum class Algorithm : std::int32_t {
-    simple, //! Monotonic "bumper" allocator, does not support dealloc.
-    greedy  //! Greedy-by-size allocator.
+    Simple, //! Monotonic "bumper" allocator, does not support dealloc.
+    Greedy  //! Greedy-by-size allocator.
   };
 
   // Type for address-like values.
@@ -43,7 +43,6 @@ public:
   /// An allocation planning problem descriptor. Callers may extend to
   /// associate additional information.
   struct Context {
-  public:
     Context() = default;
 
     /// @result count of request records
@@ -94,7 +93,7 @@ public:
   /// to have `size`, `first`, and `last` fields set).
   /// @return `Stats` with `maxSize` and `memUsage` fields set
   [[nodiscard]] static Stats allocate(Context &context,
-                                      Algorithm algorithm = Algorithm::greedy);
+                                      Algorithm algorithm = Algorithm::Greedy);
 
   /// Validate the allocation plan in `context` for proper memory/liveness
   /// conflict resolution and return stats with *all* fields recomputed.

@@ -17,13 +17,13 @@ namespace mlir::tt::ttir {
 
 // Define some local convenience macros.
 
-#define TT_assert(condition, msg) assert((condition) && "message")
+#define TT_assert(condition, msg) assert((condition) && msg)
 
-#define TT_LOG_debug(/* fmt, args */...)                                       \
-  TTMLIR_DEBUG(ttmlir::LogComponent::General, __VA_ARGS__)
+#define TT_ALLOC_DEBUG(/* fmt, args */...)                                     \
+  TTMLIR_DEBUG(ttmlir::LogComponent::Allocator, __VA_ARGS__)
 
-#define TT_LOG_trace(/* fmt, args */...)                                       \
-  TTMLIR_TRACE(ttmlir::LogComponent::General, __VA_ARGS__)
+#define TT_ALLOC_TRACE(/* fmt, args */...)                                     \
+  TTMLIR_TRACE(ttmlir::LogComponent::Allocator, __VA_ARGS__)
 
 using Record = AllocationPlanner::Record;
 using AllocSizeT = AllocationPlanner::AllocSizeT;
@@ -38,7 +38,7 @@ void AllocationPlanner::Context::add(AllocSizeT size, SequenceT first,
 
   [[maybe_unused]] const auto &r =
       records.emplace_back(Record{-1, size, first, last});
-  TT_LOG_trace("added request record #{}: {}", (records.size() - 1), r);
+  TT_ALLOC_TRACE("added request record #{}: {}", (records.size() - 1), r);
 }
 
 template <AllocationPlanner::Algorithm Algorithm>
@@ -54,11 +54,11 @@ public:
 //
 template <>
 inline AllocationPlanner::Stats
-PlannerImpl<AllocationPlanner::Algorithm::simple>::allocate(
+PlannerImpl<AllocationPlanner::Algorithm::Simple>::allocate(
     AllocationPlanner::Context &context) {
   auto &records = context.records;
   const IndexT n = static_cast<IndexT>(records.size());
-  TT_LOG_debug("allocating {} record(s) ...", n);
+  TT_ALLOC_DEBUG("allocating {} record(s) ...", n);
 
   AllocSizeT memUsage = 0;
   AllocSizeT maxSize = 0;
@@ -81,18 +81,18 @@ PlannerImpl<AllocationPlanner::Algorithm::simple>::allocate(
     const IndexT i = pq.top();
     pq.pop();
     Record &record = records[i];
-    TT_LOG_trace("record #{}: {}", i, record);
+    TT_ALLOC_TRACE("record #{}: {}", i, record);
 
     record.offset = memUsage;
     memUsage += record.size;
 
-    TT_LOG_trace("record #{}: placed at offset {}", i, record.offset);
+    TT_ALLOC_TRACE("record #{}: placed at offset {}", i, record.offset);
 
     maxSize = std::max(maxSize, record.size);
   }
 
-  TT_LOG_debug("allocated {} record(s): max alloc size {}, mem usage {}", n,
-               maxSize, memUsage);
+  TT_ALLOC_DEBUG("allocated {} record(s): max alloc size {}, mem usage {}", n,
+                 maxSize, memUsage);
 
   return {maxSize, memUsage, 0};
 }
@@ -104,11 +104,11 @@ PlannerImpl<AllocationPlanner::Algorithm::simple>::allocate(
 //     the solution makespan.
 template <>
 inline AllocationPlanner::Stats
-PlannerImpl<AllocationPlanner::Algorithm::greedy>::allocate(
+PlannerImpl<AllocationPlanner::Algorithm::Greedy>::allocate(
     AllocationPlanner::Context &context) {
   auto &records = context.records;
   const IndexT n = static_cast<IndexT>(records.size());
-  TT_LOG_debug("allocating {} record(s) ...", n);
+  TT_ALLOC_DEBUG("allocating {} record(s) ...", n);
 
   auto bySize = [&](IndexT lhs, IndexT rhs) {
     return (records[lhs].size < records[rhs].size);
@@ -128,7 +128,7 @@ PlannerImpl<AllocationPlanner::Algorithm::greedy>::allocate(
     const IndexT i = pq.top();
     pq.pop();
     Record &record = records[i];
-    TT_LOG_trace("record #{}: {}", i, record);
+    TT_ALLOC_TRACE("record #{}: {}", i, record);
     TT_assert(record.offset < 0, "record should not be marked allocated yet");
 
     AllocSizeT gapBest = std::numeric_limits<AllocSizeT>::max();
@@ -147,7 +147,7 @@ PlannerImpl<AllocationPlanner::Algorithm::greedy>::allocate(
       // gap between it and the previous conflict.
 
       if (maxFirst <= minLast) {
-        TT_LOG_trace("\tconflict record #{}: {}", k, allocatedRecord);
+        TT_ALLOC_TRACE("\tconflict record #{}: {}", k, allocatedRecord);
         const AllocSizeT gap = allocatedRecord.offset - offsetPrev;
         if (gap >= allocatedRecord.size && gap < gapBest) {
           gapBest = gap;
@@ -162,7 +162,7 @@ PlannerImpl<AllocationPlanner::Algorithm::greedy>::allocate(
       offsetBest = offsetPrev;
     }
 
-    TT_LOG_trace("record #{}: placed at offset {}", i, offsetBest);
+    TT_ALLOC_TRACE("record #{}: placed at offset {}", i, offsetBest);
 
     record.offset = offsetBest;
     allocatedOrderedByOffset.emplace(offsetBest, i);
@@ -171,23 +171,23 @@ PlannerImpl<AllocationPlanner::Algorithm::greedy>::allocate(
     maxSize = std::max(maxSize, record.size);
   }
 
-  TT_LOG_debug("allocated {} record(s): max alloc size {}, mem usage {}", n,
-               maxSize, memUsage);
+  TT_ALLOC_DEBUG("allocated {} record(s): max alloc size {}, mem usage {}", n,
+                 maxSize, memUsage);
   return {maxSize, memUsage, 0};
 }
 
 AllocationPlanner::Stats AllocationPlanner::allocate(Context &context,
                                                      Algorithm algorithm) {
   switch (algorithm) {
-  case Algorithm::simple:
-    return PlannerImpl<Algorithm::simple>::allocate(context);
-  case Algorithm::greedy:
-    return PlannerImpl<Algorithm::greedy>::allocate(context);
+  case Algorithm::Simple:
+    return PlannerImpl<Algorithm::Simple>::allocate(context);
+  case Algorithm::Greedy:
+    return PlannerImpl<Algorithm::Greedy>::allocate(context);
   }
 }
 
 AllocationPlanner::Stats AllocationPlanner::verify(const Context &context) {
-  TT_LOG_trace("verifying {} allocation(s)", context.size());
+  TT_ALLOC_TRACE("verifying {} allocation(s)", context.size());
   if (!context.size()) {
     return {0, 0, 0};
   }
@@ -244,8 +244,8 @@ AllocationPlanner::Stats AllocationPlanner::verify(const Context &context) {
       }
     }
 
-    TT_LOG_trace("record #{}: {} conflict(s), size {}, load {}", i,
-                 (conflicts.size() - 1), record.size, load);
+    TT_ALLOC_TRACE("record #{}: {} conflict(s), size {}, load {}", i,
+                   (conflicts.size() - 1), record.size, load);
 
     memUsage = std::max(memUsage, record.offset + record.size);
     maxLoad = std::max(maxLoad, load);
@@ -256,7 +256,7 @@ AllocationPlanner::Stats AllocationPlanner::verify(const Context &context) {
   TT_assert(maxLoad <= memUsage,
             "inconsistent max load/mem usage metrics inferred");
 
-  TT_LOG_debug(
+  TT_ALLOC_DEBUG(
       "verified allocation plan with {} record(s): max alloc size {}, mem "
       "usage {}, max load {} (ratio {})",
       context.size(), maxSize, memUsage, maxLoad,
@@ -265,7 +265,7 @@ AllocationPlanner::Stats AllocationPlanner::verify(const Context &context) {
   return {maxSize, memUsage, maxLoad};
 }
 
-#undef TT_LOG_trace
-#undef TT_LOG_debug
+#undef TT_ALLOC_TRACE
+#undef TT_ALLOC_DEBUG
 
 } // namespace mlir::tt::ttir

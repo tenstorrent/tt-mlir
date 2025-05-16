@@ -30,13 +30,13 @@ namespace mlir::tt::ttir {
 // Helper definitions.
 //===----------------------------------------------------------------------===//
 
-#define TT_assert(condition, msg) assert((condition) && "message")
+#define TT_assert(condition, msg) assert((condition) && msg)
 
-#define TT_LOG_debug(/* fmt, args */...)                                       \
-  TTMLIR_DEBUG(ttmlir::LogComponent::General, __VA_ARGS__)
+#define TT_ALLOC_DEBUG(/* fmt, args */...)                                     \
+  TTMLIR_DEBUG(ttmlir::LogComponent::Allocator, __VA_ARGS__)
 
-#define TT_LOG_trace(/* fmt, args */...)                                       \
-  TTMLIR_TRACE(ttmlir::LogComponent::General, __VA_ARGS__)
+#define TT_ALLOC_TRACE(/* fmt, args */...)                                     \
+  TTMLIR_TRACE(ttmlir::LogComponent::Allocator, __VA_ARGS__)
 
 inline MemorySpace getMemorySpace(MemRefType memref, MemorySpace dflt) {
   auto memSpace = memref.getMemorySpace();
@@ -69,16 +69,8 @@ struct MemorySpaceInfo {
       (getMaxEnumValForMemorySpace() + 1);
 };
 
-struct MemorySpaces {
-
-  MemorySpaces(
-      std::array<MemorySpaceInfo, MemorySpaceInfo::maxEnumValForMemorySpace>
-          &&memorySpaceInfo)
-      : memorySpaceInfo(std::move(memorySpaceInfo)) {}
-
-  std::array<MemorySpaceInfo, MemorySpaceInfo::maxEnumValForMemorySpace>
-      memorySpaceInfo;
-};
+using MemorySpaces =
+    std::array<MemorySpaceInfo, MemorySpaceInfo::maxEnumValForMemorySpace>;
 
 struct FuncAnalysisData final : public AllocationPlanner::Context {
 
@@ -311,7 +303,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
 
     funcBody.walk<WalkOrder::PreOrder>([&](Operation *op) {
       const SequenceT position = analysis.positionMap.size();
-      TT_LOG_trace("preorder visit @{}: {}", position, *op);
+      TT_ALLOC_TRACE("preorder visit @{}: {}", position, *op);
 
       analysis.operationMap[op] = position;
       analysis.positionMap.emplace_back(op);
@@ -345,8 +337,8 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
 
     for (auto &[op, ctx] : livenessJoinGraph) {
       const SequenceT maxLast = resolve(op, livenessJoinGraph);
-      TT_LOG_debug("last use of @{} extended from {} to {}", ctx.first,
-                   ctx.maxLast, maxLast);
+      TT_ALLOC_DEBUG("last use of @{} extended from {} to {}", ctx.first,
+                     ctx.maxLast, maxLast);
       ctx.maxLast = maxLast;
     }
 
@@ -364,8 +356,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
         }
 
         const AllocSizeT alignment =
-            memSpaces.memorySpaceInfo[llvm::to_underlying(memorySpace)]
-                .alignment;
+            memSpaces[llvm::to_underlying(memorySpace)].alignment;
         const AllocSizeT sizeBytes = device.getMemrefSizeBytes(memrefTy, 0);
         const AllocSizeT alignedSize =
             ttmlir::utils::alignUp(sizeBytes, alignment);
@@ -379,11 +370,10 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
 
     // TODO(#3378) dump this instead (usageRatio() is useful) in "debug" mode:
     // AllocationPlanner::Stats stats = AllocationPlanner::verify(analysis);
-    TT_LOG_debug("allocation planning outcome: {}", stats);
+    TT_ALLOC_DEBUG("allocation planning outcome: {}", stats);
 
     const auto memSizeL1 =
-        memSpaces.memorySpaceInfo[llvm::to_underlying(MemorySpace::DeviceL1)]
-            .size;
+        memSpaces[llvm::to_underlying(MemorySpace::DeviceL1)].size;
     if (stats.memUsage > memSizeL1) {
       return func.emitOpError() << "required memory usage " << stats.memUsage
                                 << " exceeds memory size " << memSizeL1;
@@ -436,8 +426,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
         continue; // Only handling L1 space at the moment.
       }
 
-      const auto &info =
-          memSpaces.memorySpaceInfo[llvm::to_underlying(memorySpace)];
+      const auto &info = memSpaces[llvm::to_underlying(memorySpace)];
 
       const AllocSizeT alignment = info.alignment;
       const AllocSizeT address = info.baseAddress + record.offset;
@@ -495,7 +484,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
           chipDesc.getDramUnreservedBase(), chipDesc.getDramChannelSize(),
           chipDesc.getNocDRAMAddressAlignBytes());
     }
-    return {std::move(info)};
+    return info;
   }
 };
 } // namespace
