@@ -212,6 +212,7 @@ mlir::LogicalResult mlir::tt::ttir::DMAOp::bufferize(
   Value src = nullptr;
   if (isSrcRemote()) {
     auto maybeSrc = mlir::bufferization::getBuffer(rewriter, getSrc(), options);
+    // NOLINTNEXTLINE
     if (failed(maybeSrc)) {
       return maybeSrc;
     }
@@ -223,6 +224,7 @@ mlir::LogicalResult mlir::tt::ttir::DMAOp::bufferize(
   Value dst = nullptr;
   if (isDstRemote()) {
     auto maybeDst = mlir::bufferization::getBuffer(rewriter, getDst(), options);
+    // NOLINTNEXTLINE
     if (failed(maybeDst)) {
       return maybeDst;
     }
