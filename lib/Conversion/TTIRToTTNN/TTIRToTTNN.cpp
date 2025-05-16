@@ -1184,7 +1184,9 @@ public:
         adaptor.getFlattenedCompatInfo().getInputHeight(),
         adaptor.getFlattenedCompatInfo().getInputWidth(), channels,
         kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
-        adaptor.getCeilMode());
+        /* memory_config */ nullptr,
+        /* applied_shard_scheme */ nullptr, adaptor.getCeilMode(),
+        /* in_place_halo */ false);
 
     return success();
   }

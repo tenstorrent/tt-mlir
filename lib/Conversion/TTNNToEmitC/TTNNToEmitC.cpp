@@ -568,9 +568,10 @@ public:
         emitter.template emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
         emitter.template emit<std::array<uint32_t, 2>>(srcOp.getPaddingAttr()),
         emitter.template emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
-        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-        /*applied_shard_scheme=*/emitter.emit(std::nullopt),
+        emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getAppliedShardScheme()),
         emitter.emit(srcOp.getCeilMode()),
+        emitter.emit(srcOp.getInPlaceHalo()),
     };
 
     emitter.replaceOp(*this, args);

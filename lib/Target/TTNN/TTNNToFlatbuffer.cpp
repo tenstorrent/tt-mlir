@@ -1360,10 +1360,13 @@ createPool2dOp(FlatbufferObjectCache &cache, Pool2dOp op) {
   ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> dilation =
       toFlatbuffer(cache, op.getDilation());
 
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
   return ::tt::target::ttnn::CreatePool2dOp(
       *cache.fbb, type, in, out, op.getBatchSize(), op.getInputHeight(),
       op.getInputWidth(), op.getChannels(), kernelSize, stride, padding,
-      dilation, op.getCeilMode());
+      dilation, memoryConfig, toFlatbuffer(cache, op.getAppliedShardScheme()),
+      op.getCeilMode(), op.getInPlaceHalo());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::RepeatInterleaveOp>
