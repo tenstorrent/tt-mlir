@@ -259,6 +259,7 @@ public:
 
   ArrayAttr getTemplateArgs(SourceOp op) const {
     if constexpr (std::is_same_v<SourceOp, ttkernel::ReduceInitOp> ||
+                  std::is_same_v<SourceOp, ttkernel::ReduceInitShortOp> ||
                   std::is_same_v<SourceOp, ttkernel::ReduceTileOp>) {
       SmallVector<Attribute, 4> template_args;
       StringRef reduceType, reduceDim;
@@ -268,6 +269,10 @@ public:
             op.getContext(), "true")); // "at_start" template argument
         std::tie(reduceType, reduceDim) =
             getReduceTypeAndDim<ttkernel::ReduceInitOp>(reduceInitOp);
+      } else if (mlir::isa<ttkernel::ReduceInitShortOp>(op)) {
+        auto reduceOp = mlir::cast<ttkernel::ReduceInitShortOp>(op);
+        std::tie(reduceType, reduceDim) =
+            getReduceTypeAndDim<ttkernel::ReduceInitShortOp>(reduceOp);
       } else {
         auto reduceOp = mlir::cast<ttkernel::ReduceTileOp>(op);
         std::tie(reduceType, reduceDim) =
@@ -592,6 +597,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::MaxTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SinTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ReduceInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ReduceInitShortOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ReduceTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOp>,
