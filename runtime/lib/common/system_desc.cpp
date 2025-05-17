@@ -15,6 +15,8 @@
 #define FMT_HEADER_ONLY
 #include "eth_l1_address_map.h"
 #include "hostdevcommon/common_values.hpp"
+#include "impl/context/metal_context.hpp"
+#include "llrt/tt_cluster.hpp"
 #include "tt-metalium/allocator.hpp"
 #include "tt-metalium/hal.hpp"
 #include "tt-metalium/host_api.hpp"
@@ -63,6 +65,11 @@ getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
     std::unordered_set<CoreCoord> activeEthernetCores =
         device->get_active_ethernet_cores(true);
     for (const CoreCoord &ethernetCore : activeEthernetCores) {
+      if (not tt::tt_metal::MetalContext::instance()
+                  .get_cluster()
+                  .is_ethernet_link_up(device->id(), ethernetCore)) {
+        continue;
+      }
       std::tuple<chip_id_t, CoreCoord> connectedDevice =
           device->get_connected_ethernet_core(ethernetCore);
       addConnection(device->id(), ethernetCore, std::get<0>(connectedDevice),
