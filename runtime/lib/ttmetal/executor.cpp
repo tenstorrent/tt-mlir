@@ -5,10 +5,13 @@
 #include "executor.h"
 #include "executor_utils.h"
 
+#include "tools/profiler/op_profiler.hpp"
 #include "tracy/Tracy.hpp"
 #include "tt/runtime/detail/common.h"
 #include "tt/runtime/detail/debug.h"
+#include "tt/runtime/detail/dylib.h"
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/ttmetal/profiler.h"
 #include "tt/runtime/detail/ttmetal/ttmetal.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
@@ -33,7 +36,8 @@ public:
       tt_metal::IDevice *device,
       const flatbuffers::Vector<
           flatbuffers::Offset<tt::target::metal::BufferRef>> *programInputs,
-      const std::vector<Tensor> &inputs, bool blockingCQ);
+      const std::vector<Tensor> &inputs, common::DylibManager &&dylibManager,
+      bool blockingCQ);
 
   const std::vector<Tensor> &getOutputs() const { return outputs; }
 
@@ -44,7 +48,7 @@ private:
   void execute(const target::metal::HostAllocCommand *command);
   void execute(const target::metal::ReturnCommand *command);
   void execute(const target::metal::EnqueueProgramCommand *command,
-               const char *debugInfo);
+               const char *loc, const char *debugInfo);
   void execute(const target::metal::EnqueueWriteBufferCommand *command);
   void execute(const target::metal::EnqueueReadBufferCommand *command);
   void execute(const target::metal::CreateBufferCommand *command);
@@ -54,7 +58,11 @@ private:
   void execute(const target::metal::EnqueueWaitForEventCommand *command);
   void execute(const target::metal::EventSynchronizeCommand *command);
   void execute(const target::metal::EventQueryCommand *command);
+  void execute(const target::metal::MemrefCopyCommand *command);
+  void execute(const target::metal::CpuCommand *command);
   void execute(const target::metal::FinishCommand *command);
+
+  std::uint64_t getUniqueProgramRuntimeId() { return nextProgramRuntimeId++; }
 
 private:
   tt_metal::IDevice *device;
@@ -67,6 +75,8 @@ private:
   bool blockingCQ;
   const char *currentProgramName;
   DeviceAddressValidator deviceAddressValidator;
+  common::DylibManager dylibManager;
+  std::uint64_t nextProgramRuntimeId = 10000; // Start at a greppable number.
 };
 } // namespace
 
@@ -74,8 +84,10 @@ CQExecutor::CQExecutor(
     tt_metal::IDevice *device,
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::BufferRef>>
         *programInputs,
-    const std::vector<Tensor> &inputs, bool blockingCQ)
-    : device(device), blockingCQ(blockingCQ), deviceAddressValidator(device) {
+    const std::vector<Tensor> &inputs, common::DylibManager &&dylibManager,
+    bool blockingCQ)
+    : device(device), blockingCQ(blockingCQ), deviceAddressValidator(device),
+      dylibManager(std::move(dylibManager)) {
   initEvents.reserve(inputs.size());
 
   std::uint32_t inputIndex = 0;
@@ -132,7 +144,7 @@ void CQExecutor::execute(const target::metal::Command *command) {
     break;
   }
   case target::metal::CommandType::EnqueueProgramCommand: {
-    execute(command->type_as_EnqueueProgramCommand(),
+    execute(command->type_as_EnqueueProgramCommand(), command->loc()->c_str(),
             command->debug_info()->c_str());
     break;
   }
@@ -172,6 +184,14 @@ void CQExecutor::execute(const target::metal::Command *command) {
     execute(command->type_as_EventQueryCommand());
     break;
   }
+  case target::metal::CommandType::MemrefCopyCommand: {
+    execute(command->type_as_MemrefCopyCommand());
+    break;
+  }
+  case target::metal::CommandType::CpuCommand: {
+    execute(command->type_as_CpuCommand());
+    break;
+  }
   case target::metal::CommandType::FinishCommand: {
     execute(command->type_as_FinishCommand());
     break;
@@ -196,10 +216,16 @@ void CQExecutor::execute(const target::metal::HostAllocCommand *command) {
   desc.itemsize = utils::dataTypeElementSize(bufferDesc->data_type());
   desc.dataType = bufferDesc->data_type();
 
-  size_t size = desc.shape[0] * desc.stride[0] * desc.itemsize;
+  size_t size =
+      utils::alignUp(desc.shape[0] * desc.stride[0], 1024U) * desc.itemsize;
   auto data = std::shared_ptr<void>(std::malloc(size), std::free);
   if (!data) {
     LOG_FATAL("HostAllocCommand: Failed to allocate host memory.");
+  }
+
+  if (command->data() != nullptr) {
+    assert(command->data()->size() == size);
+    std::memcpy(data.get(), command->data()->data(), size);
   }
 
   std::shared_ptr<MetalTensor> tensor = std::make_shared<MetalTensor>(desc);
@@ -235,9 +261,10 @@ void CQExecutor::execute(const target::metal::ReturnCommand *command) {
 }
 
 void CQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
-                         const char *debugInfo) {
+                         const char *loc, const char *debugInfo) {
   ZoneScopedN("EnqueueProgramCommand");
   tt_metal::Program program = tt_metal::CreateProgram();
+  program.set_runtime_id(getUniqueProgramRuntimeId());
 
   for (const target::metal::KernelConfig *kernelConfig :
        *command->program()->kernels()) {
@@ -281,6 +308,10 @@ void CQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
   }
 
   tt_metal::EnqueueProgram(*cq, program, blockingCQ);
+
+  if (debug::PerfEnv::get().enablePerfTrace) {
+    profiler::profileProgram(device, program, loc);
+  }
 }
 
 void CQExecutor::execute(
@@ -356,18 +387,51 @@ void CQExecutor::execute(const target::metal::EventQueryCommand *command) {
               // something with the result
 }
 
+void CQExecutor::execute(const target::metal::MemrefCopyCommand *command) {
+  auto srcIt = hostBuffers.find(command->src()->global_id());
+  LOG_ASSERT(srcIt != hostBuffers.end());
+  auto dstIt = hostBuffers.find(command->dst()->global_id());
+  LOG_ASSERT(dstIt != hostBuffers.end());
+  ttmetal::memcpy(dstIt->second, srcIt->second);
+}
+
+void CQExecutor::execute(const target::metal::CpuCommand *command) {
+  std::vector<std::vector<int64_t>> allSizesAndStrides;
+  auto dataFuncPtr =
+      std::function<void *(const tt::target::metal::BufferRef *)>(
+          [this](const tt::target::metal::BufferRef *ref) -> void * {
+            auto it = hostBuffers.find(ref->global_id());
+            LOG_ASSERT(
+                it != hostBuffers.end(),
+                "Cannot invoke cpu op on tensor which is not in cpu tensors.");
+            const Tensor &tens = it->second;
+            return tens.data.get();
+          });
+
+  auto packedInputs = tt::runtime::common::packTensors(
+      command->ins(), command->out(), dataFuncPtr, allSizesAndStrides);
+
+  common::WrappedFunc func =
+      dylibManager.getFunc(command->dylib_id(), command->func_name()->c_str());
+  func(packedInputs.data());
+
+  auto lastInputIt = hostBuffers.find(
+      command->ins()->Get(command->ins()->size() - 1)->global_id());
+  LOG_ASSERT(lastInputIt != hostBuffers.end());
+  hostBuffers.insert({command->out()->global_id(), lastInputIt->second});
+}
+
 void CQExecutor::execute(const target::metal::FinishCommand *) {
   ZoneScopedN("FinishCommand");
   tt_metal::Finish(*cq);
 }
 
-std::vector<Tensor>
-executeDeviceProgram(tt_metal::IDevice *device,
-                     const target::metal::DeviceProgram *program,
-                     const std::vector<Tensor> &inputs) {
+std::vector<Tensor> executeDeviceProgram(
+    tt_metal::IDevice *device, const target::metal::DeviceProgram *program,
+    const std::vector<Tensor> &inputs, common::DylibManager &&dylibs) {
   LOG_ASSERT(program->command_queues()->size() == 1, "Only one CQ supported");
 
-  CQExecutor executor(device, program->inputs(), inputs,
+  CQExecutor executor(device, program->inputs(), inputs, std::move(dylibs),
                       debug::Env::get().blockingCQ);
   for (const target::metal::CommandQueue *cq : *program->command_queues()) {
     FrameMark;

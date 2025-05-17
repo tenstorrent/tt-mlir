@@ -11,7 +11,7 @@ module attributes {} {
   func.func @main(%arg0: tensor<1x32x32xf32, #ttnn_layout>, %arg1: tensor<1x32x32xf32, #ttnn_layout> {tt.argument_type = #tt.argument_type<constant>}) -> tensor<1x32x32xf32, #ttnn_layout1> {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     // CHECK: "ttnn.to_layout"
-    %1 = "ttnn.to_layout"(%arg1, %0) <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<<dram>, <<32x32>>, <interleaved>>}> : (tensor<1x32x32xf32, #ttnn_layout>, !ttnn.device) -> tensor<1x32x32xf32, #ttnn_layout1>
+    %1 = "ttnn.to_layout"(%arg1, %0) <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<<dram>, <interleaved>>}> : (tensor<1x32x32xf32, #ttnn_layout>, !ttnn.device) -> tensor<1x32x32xf32, #ttnn_layout1>
     %2 = "ttnn.add"(%arg0, %1) : (tensor<1x32x32xf32, #ttnn_layout>, tensor<1x32x32xf32, #ttnn_layout1>) -> tensor<1x32x32xf32, #ttnn_layout1> loc(#loc1)
     return %2 : tensor<1x32x32xf32, #ttnn_layout1>
   }

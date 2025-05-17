@@ -38,7 +38,7 @@ bool cantChangeOutputLayout(Operation *op) {
   return false;
 }
 
-void applyConv2dConfigOverrides(Operation *op,
+void applyConv2dConfigOverrides(ttnn::Conv2dOp op,
                                 const Conv2dConfigOverrideParams &overrides,
                                 std::vector<OpConfig> &analysisResult) {
   // Apply conv2d config overrides to all legal (layout) configurations of
@@ -52,11 +52,6 @@ void applyConv2dConfigOverrides(Operation *op,
   // prepare_conv2d_weights.cpp where `weight_tensor_.dtype() ==
   // weights_bias_dtype`.
   //
-  MLIRContext *context = op->getContext();
-  auto getBoolAttr = [context](bool value) {
-    return BoolAttr::get(context, value);
-  };
-
   DataType dtype = elementTypeToDataType(
       mlir::cast<RankedTensorType>(op->getOperand(0).getType())
           .getElementType());
@@ -64,52 +59,102 @@ void applyConv2dConfigOverrides(Operation *op,
       mlir::cast<RankedTensorType>(op->getOperand(1).getType())
           .getElementType());
 
-  StringAttr activation =
-      StringAttr::get(context, overrides.activation.value_or(""));
-  BoolAttr deallocateActivation =
-      getBoolAttr(overrides.deallocateActivation.value_or(false));
-  BoolAttr reallocateHaloOutput =
-      getBoolAttr(overrides.reallocateHaloOutput.value_or(true));
-  uint32_t actBlockHOverride = overrides.actBlockHOverride.value_or(0);
-  uint32_t actBlockWDiv = overrides.actBlockWDiv.value_or(1);
-  BoolAttr reshardIfNotOptimal =
-      getBoolAttr(overrides.reshardIfNotOptimal.value_or(false));
-  BoolAttr overrideShardingConfig =
-      getBoolAttr(overrides.overrideShardingConfig.value_or(false));
-
-  std::optional<ttnn::TensorMemoryLayout> shardLayout;
-  if (overrides.shardLayout.has_value()) {
-    shardLayout = overrides.shardLayout;
+  // If conv2d config is not set get default conv2d config.
+  Conv2dConfigAttr conv2dConfigAttr = op.getConv2dConfigAttr();
+  if (!conv2dConfigAttr) {
+    conv2dConfigAttr = Conv2dConfigAttr::get(op.getContext());
   }
 
-  ttnn::CoreRangeSetAttr coreGrid =
-      overrides.coreGrid.value_or(ttnn::CoreRangeSetAttr());
-  BoolAttr transposeShards =
-      getBoolAttr(overrides.transposeShards.value_or(false));
-  Layout outputLayout = overrides.outputLayout.value_or(Layout::Tile);
-  BoolAttr preprocessWeightsOnDevice =
-      getBoolAttr(overrides.preprocessWeightsOnDevice.value_or(false));
-  BoolAttr alwaysPreprocessWeights =
-      getBoolAttr(overrides.alwaysPreprocessWeights.value_or(false));
-  BoolAttr enableActDoubleBuffer =
-      getBoolAttr(overrides.enableActDoubleBuffer.value_or(false));
-  BoolAttr enableWeightsDoubleBuffer =
-      getBoolAttr(overrides.enableWeightsDoubleBuffer.value_or(false));
-  BoolAttr enableSplitReader =
-      getBoolAttr(overrides.enableSplitReader.value_or(false));
-  BoolAttr enableSubblockPadding =
-      getBoolAttr(overrides.enableSubblockPadding.value_or(false));
+  conv2dConfigAttr = conv2dConfigAttr.withDtype(dtype);
+
+  conv2dConfigAttr = conv2dConfigAttr.withWeightsDtype(weightsDtype);
+
+  if (overrides.activation.has_value()) {
+    conv2dConfigAttr = conv2dConfigAttr.withActivation(*overrides.activation);
+  }
+
+  if (overrides.deallocateActivation.has_value()) {
+    conv2dConfigAttr = conv2dConfigAttr.withDeallocateActivation(
+        *overrides.deallocateActivation);
+  }
+
+  if (overrides.reallocateHaloOutput.has_value()) {
+    conv2dConfigAttr = conv2dConfigAttr.withReallocateHaloOutput(
+        *overrides.reallocateHaloOutput);
+  }
+
+  if (overrides.actBlockHOverride.has_value()) {
+    conv2dConfigAttr =
+        conv2dConfigAttr.withActBlockHOverride(*overrides.actBlockHOverride);
+  }
+
+  if (overrides.actBlockWDiv.has_value()) {
+    conv2dConfigAttr =
+        conv2dConfigAttr.withActBlockWDiv(*overrides.actBlockWDiv);
+  }
+
+  if (overrides.reshardIfNotOptimal.has_value()) {
+    conv2dConfigAttr = conv2dConfigAttr.withReshardIfNotOptimal(
+        *overrides.reshardIfNotOptimal);
+  }
+
+  if (overrides.overrideShardingConfig.has_value()) {
+    conv2dConfigAttr = conv2dConfigAttr.withOverrideShardingConfig(
+        *overrides.overrideShardingConfig);
+  }
+
+  if (overrides.shardLayout.has_value()) {
+    conv2dConfigAttr = conv2dConfigAttr.withShardLayout(*overrides.shardLayout);
+  }
+
+  if (overrides.coreGrid.has_value()) {
+    conv2dConfigAttr = conv2dConfigAttr.withCoreGrid(*overrides.coreGrid);
+  }
+
+  if (overrides.transposeShards.has_value()) {
+    conv2dConfigAttr =
+        conv2dConfigAttr.withTransposeShards(*overrides.transposeShards);
+  }
+
+  if (overrides.outputLayout.has_value()) {
+    conv2dConfigAttr =
+        conv2dConfigAttr.withOutputLayout(*overrides.outputLayout);
+  }
+
+  if (overrides.preprocessWeightsOnDevice.has_value()) {
+    conv2dConfigAttr = conv2dConfigAttr.withPreprocessWeightsOnDevice(
+        *overrides.preprocessWeightsOnDevice);
+  }
+
+  if (overrides.alwaysPreprocessWeights.has_value()) {
+    conv2dConfigAttr = conv2dConfigAttr.withAlwaysPreprocessWeights(
+        *overrides.alwaysPreprocessWeights);
+  }
+
+  if (overrides.enableActDoubleBuffer.has_value()) {
+    conv2dConfigAttr = conv2dConfigAttr.withEnableActDoubleBuffer(
+        *overrides.enableActDoubleBuffer);
+  }
+
+  if (overrides.enableWeightsDoubleBuffer.has_value()) {
+    conv2dConfigAttr = conv2dConfigAttr.withEnableWeightsDoubleBuffer(
+        *overrides.enableWeightsDoubleBuffer);
+  }
+
+  if (overrides.enableSplitReader.has_value()) {
+    conv2dConfigAttr =
+        conv2dConfigAttr.withEnableSplitReader(*overrides.enableSplitReader);
+  }
+
+  if (overrides.enableSubblockPadding.has_value()) {
+    conv2dConfigAttr = conv2dConfigAttr.withEnableSubblockPadding(
+        *overrides.enableSubblockPadding);
+  }
 
   for (auto &opConfig : analysisResult) {
     assert(!opConfig.opSpecificAttr &&
            "OpConfig should not have a config set before applying overrides");
-    opConfig.opSpecificAttr = Conv2dConfigAttr::get(
-        context, dtype, weightsDtype, activation, deallocateActivation,
-        reallocateHaloOutput, actBlockHOverride, actBlockWDiv,
-        reshardIfNotOptimal, overrideShardingConfig, shardLayout, coreGrid,
-        transposeShards, outputLayout, preprocessWeightsOnDevice,
-        alwaysPreprocessWeights, enableActDoubleBuffer,
-        enableWeightsDoubleBuffer, enableSplitReader, enableSubblockPadding);
+    opConfig.opSpecificAttr = conv2dConfigAttr;
   }
 }
 
@@ -171,7 +216,7 @@ bool LegalLayoutAnalysis::applyOverrides() {
   // If they do not exist, or they do not exist for a specific conv2d op, set
   // conv2d config with default values.
   //
-  if (isa<ttnn::Conv2dOp>(op)) {
+  if (auto convOp = mlir::dyn_cast<ttnn::Conv2dOp>(op)) {
     Conv2dConfigOverrideParams conv2dConfigOverrides;
     if (analysisInput.conv2dConfigOverrides) {
       auto overrideConv2dIt =
@@ -180,7 +225,7 @@ bool LegalLayoutAnalysis::applyOverrides() {
         conv2dConfigOverrides = overrideConv2dIt->getValue();
       }
     }
-    applyConv2dConfigOverrides(op, conv2dConfigOverrides, analysisResult);
+    applyConv2dConfigOverrides(convOp, conv2dConfigOverrides, analysisResult);
   }
   return true;
 }
@@ -370,7 +415,7 @@ void LegalLayoutAnalysis::analysisImplementation() {
   //
   if (auto opLoc = mlir::dyn_cast<NameLoc>(op->getLoc())) {
     StringRef opLocName = opLoc.getName().strref();
-    if (isa<ttnn::Conv2dOp>(op)) {
+    if (auto convOp = mlir::dyn_cast<ttnn::Conv2dOp>(op)) {
       Conv2dConfigOverrideParams conv2dConfigOverrides;
       if (analysisInput.conv2dConfigOverrides) {
         auto overrideConv2dIt =
@@ -379,7 +424,7 @@ void LegalLayoutAnalysis::analysisImplementation() {
           conv2dConfigOverrides = overrideConv2dIt->getValue();
         }
       }
-      applyConv2dConfigOverrides(op, conv2dConfigOverrides, analysisResult);
+      applyConv2dConfigOverrides(convOp, conv2dConfigOverrides, analysisResult);
     }
   }
 

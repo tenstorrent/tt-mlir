@@ -181,17 +181,14 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
   ::flatbuffers::FlatBufferBuilder fbb;
 
   std::uint32_t pcieAlignment = ::tt::tt_metal::hal::get_pcie_alignment();
+  std::uint32_t l1Alignment = ::tt::tt_metal::hal::get_l1_alignment();
+  std::uint32_t dramAlignment = ::tt::tt_metal::hal::get_dram_alignment();
 
   for (const ::tt::tt_metal::IDevice *device : devices) {
     size_t l1UnreservedBase =
         device->allocator()->get_base_allocator_addr(HalMemType::L1);
     size_t dramUnreservedBase =
         device->allocator()->get_base_allocator_addr(HalMemType::DRAM);
-    std::uint32_t l1Alignment =
-        device->allocator()->get_alignment(BufferType::L1);
-    std::uint32_t dramAlignment =
-        device->allocator()->get_alignment(BufferType::DRAM);
-
     // Construct chip descriptor
     ::tt::target::Dim2d deviceGrid =
         toFlatbuffer(device->compute_with_storage_grid_size());

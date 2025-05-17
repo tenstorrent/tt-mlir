@@ -461,9 +461,6 @@ bool ShardSolver::insertReshard(const Edge &edge) {
   }
 
   if (!validConfigExists) {
-    consumerOp->emitWarning()
-        << "No valid output config found for resharded input!";
-
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                  "Resharding failed for edge: {}", edge);
     for ([[maybe_unused]] auto &layout : inputLayouts) {
@@ -787,7 +784,6 @@ llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
   //
   auto deviceAttr = mlir::tt::lookupDevice(consumerOp);
   assert(deviceAttr);
-  auto workerGrid = deviceAttr.getWorkerGrid();
 
   // Map consumer operands to DRAM interleave or provided producerLayout
   // only one operand can be mapped to producerLayout, it's picked as first
@@ -821,18 +817,14 @@ llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
 
     RankedTensorType input = mlir::cast<RankedTensorType>(operand.getType());
 
-    // TODO(odjuricic): Hardcode other operands to TILE DRAM INTERLEAVED for
-    // now. This will change once fork joins are supported.
-    Type elementType = input.getElementType();
-    if (!llvm::isa<TileType>(elementType)) {
-      elementType = TileType::get(input.getElementType());
-    }
+    auto layout = mlir::cast<TTNNLayoutAttr>(input.getEncoding());
 
-    inputLayouts.push_back(TTNNLayoutAttr::get(
-        consumerOp->getContext(), input.getShape(), elementType,
-        BufferType::DRAM, workerGrid,
-        TensorMemoryLayoutAttr::get(consumerOp->getContext(),
-                                    TensorMemoryLayout::Interleaved)));
+    assert(layout && "Input operand must have a layout");
+
+    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                 "Op {0} has additional operand with layout {1}",
+                 consumerOp->getName(), layout);
+    inputLayouts.push_back(layout);
   }
 
   assert(inputUnderCheckFound && "Input under check not found");

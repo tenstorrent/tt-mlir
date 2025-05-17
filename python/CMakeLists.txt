@@ -155,16 +155,6 @@ declare_mlir_python_sources(TTMLIRPythonOpByOpInfra.Main
     workflow.py
 )
 
-declare_mlir_python_sources(TTMLIRPythonTestInfra)
-
-declare_mlir_python_sources(TTMLIRPythonTestInfra.Main
-  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/test_infra"
-  ADD_TO_PARENT TTMLIRPythonTestInfra
-  SOURCES
-    ccl_golden.py
-    test_utils.py
-    ttir_builder.py
-)
 
 ################################################################################
 # Generate packages and shared library
@@ -187,7 +177,6 @@ set(TTMLIR_PYTHON_SOURCES
   TTMLIRPythonExtensions
   TTMLIRPythonCommon
   TTMLIRPythonOpByOpInfra
-  TTMLIRPythonTestInfra
   TTMLIRPythonSiteInitialize
 )
 

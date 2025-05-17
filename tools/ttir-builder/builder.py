@@ -202,12 +202,18 @@ class TTIRBuilder:
         return golden
 
     def generate_input_golden(
-        self, operand: Operand, dtype: Union[torch.dtype, TypeInfo], index: int
+        self,
+        operand: Operand,
+        dtype: Union[torch.dtype, TypeInfo],
+        index: int,
+        override: bool = False,
     ) -> None:
         """
         Generates random tensor of `dtype`s of `input`s shape, assigns it to a golden,
         and maps `input` to that golden.
         """
+        if not override and f"input_{index}" in self.id_golden_map:
+            return self.id_golden_map[f"input_{index}"]
         golden = self.generate_and_store_random_golden(operand, dtype)
         self.id_golden_map[f"input_{index}"] = golden
         return golden
@@ -238,7 +244,10 @@ class TTIRBuilder:
         self.mesh_shape = mesh_shape
 
     def set_graph_input_output(
-        self, inputs: List[torch.Tensor], outputs: Optional[List[torch.Tensor]] = None
+        self,
+        inputs: List[torch.Tensor],
+        outputs: Optional[List[torch.Tensor]] = None,
+        override: bool = False,
     ) -> None:
         """
         Records the input and output tensors for the graph.
@@ -248,12 +257,16 @@ class TTIRBuilder:
             if input_key in self.id_golden_map:
                 assert self.id_golden_map[input_key].tensor.shape == tensor.shape
                 assert self.id_golden_map[input_key].tensor.dtype == tensor.dtype
+            if not override and input_key in self.id_golden_map:
+                continue
             self.id_golden_map[input_key] = Golden(tensor)
 
         if outputs is not None:
             self.golden_check_level = GoldenCheckLevel.GRAPH_LEVEL
             for index, tensor in enumerate(outputs):
                 output_key = f"output_{index}"
+                if not override and output_key in self.id_golden_map:
+                    continue
                 self.id_golden_map[output_key] = Golden(tensor)
 
     # ----- Private helpers -----

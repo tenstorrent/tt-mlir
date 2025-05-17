@@ -7,8 +7,10 @@
 
 #include "ttmlir/Conversion/TTNNToEmitC/Utils.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TT/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/IR/Attributes.h"
@@ -975,11 +977,13 @@ public:
     ttnn::BufferTypeAttr bufferTypeAttr = ttnn::BufferTypeAttr::get(
         layoutAttr.getContext(), layoutAttr.getBufferType());
     ttnn::TensorMemoryLayoutAttr tensorMemoryLayout = layoutAttr.getMemLayout();
-    // TODO (azecevic): Currently we don't model ShardSpec properly so we are
-    // ingoring it for now.
-    ttnn::MemoryConfigAttr memoryConfigAttr =
-        ttnn::MemoryConfigAttr::get(layoutAttr.getContext(), bufferTypeAttr,
-                                    /*shardSpec=*/nullptr, tensorMemoryLayout);
+
+    DeviceAttr deviceAttr = lookupDevice(op);
+
+    ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
+        layoutAttr.getContext(), tensorMemoryLayout, bufferTypeAttr,
+        ttnn::utils::createShardSpecIfNeeded(layoutAttr,
+                                             deviceAttr.getWorkerGrid()));
 
     return emit(memoryConfigAttr);
   }

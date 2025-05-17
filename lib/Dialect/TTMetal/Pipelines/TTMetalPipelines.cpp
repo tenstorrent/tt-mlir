@@ -6,7 +6,9 @@
 
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
+#include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 #include "ttmlir/Dialect/TT/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
 
@@ -97,9 +99,21 @@ void createTTIRToTTMetalBackendPipeline(
 
 void createTTIRToTTMetalPipeline(
     OpPassManager &pm, const TTIRToTTMetalBackendPipelineOptions &options) {
-  createTTIRToTTMetalFrontendPipeline(pm, options);
-  createTTIRToTTMetalMiddleendPipeline(pm, options);
-  createTTIRToTTMetalBackendPipeline(pm, options);
+  // Create DeviceModule to wrap all ops.
+  pm.addPass(tt::createTTWrapDeviceModulePass());
+  // Create CPUModuleOp to wrap hoisted ops (if any).
+  pm.addPass(ttir::createTTIRHoistTransform());
+
+  // Run regular ttir to ttmetal pipelines on IR in DeviceModule.
+  OpPassManager &devicePm =
+      pm.nest<tt::DeviceModuleOp>().nest<mlir::ModuleOp>();
+  createTTIRToTTMetalFrontendPipeline(devicePm, options);
+  createTTIRToTTMetalMiddleendPipeline(devicePm, options);
+  createTTIRToTTMetalBackendPipeline(devicePm, options);
+
+  // Run lowering to LLVM pass on hoisted funcs in CPUModule.
+  ttir::LinalgToLLVMPipelineOptions linalgToLLVMOptions;
+  ttir::createTTIRToCPUPipeline(pm, linalgToLLVMOptions);
 }
 
 //===----------------------------------------------------------------------===//

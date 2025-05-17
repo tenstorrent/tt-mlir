@@ -6,13 +6,14 @@
 #define TTMLIR_DIALECT_TT_TRANSFORMS_TRANSFORMS_H
 
 #include "mlir/IR/BuiltinOps.h"
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 
 #include <string>
 
 namespace mlir::tt {
 
-void registerDevice(ModuleOp module, std::string path = {},
-                    ArrayRef<int64_t> meshShape = {});
+void registerDevice(ModuleOp module, tt::Arch arch = tt::Arch::WormholeB0,
+                    std::string path = {}, ArrayRef<int64_t> meshShape = {});
 
 } // namespace mlir::tt
 

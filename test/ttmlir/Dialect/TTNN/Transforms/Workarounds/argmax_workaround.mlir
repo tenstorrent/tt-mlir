@@ -15,7 +15,7 @@ module attributes {} {
     // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: tensor<1x1x64x64xf32,
     // CHECK-SAME: -> tensor<1x1x64x64xbf16,
-    %1 = "ttnn.empty"(%0) <{dtype = #tt.supportedDataTypes<u32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <<2x1>>, <interleaved>>, shape = #ttnn.shape<64x1>}> : (!ttnn.device) -> tensor<64x1xui32, #ttnn_layout1>
+    %1 = "ttnn.empty"(%0) <{dtype = #tt.supportedDataTypes<u32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>, shape = #ttnn.shape<64x1>}> : (!ttnn.device) -> tensor<64x1xui32, #ttnn_layout1>
     // CHECK: [[ARG_MAX:[0-9]+]] = "ttnn.argmax"(%[[ARG0]])
     // CHECK-SAME: {dim = 3 : i32, keep_dim = false, use_multicore = false}
     // CHECK-SAME: tensor<1x1x64x64xbf16

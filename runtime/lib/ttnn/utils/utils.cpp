@@ -212,6 +212,25 @@ toTTNNCoreRangeSet(const tt::target::ttnn::CoreRangeSet &coreRangeSet) {
   return CoreRangeSet(coreRanges);
 }
 
+::ttnn::ShardOrientation
+toTTNNShardOrientation(tt::target::ttnn::ShardOrientation orientation) {
+  switch (orientation) {
+  case tt::target::ttnn::ShardOrientation::RowMajor:
+    return ::ttnn::ShardOrientation::ROW_MAJOR;
+  case tt::target::ttnn::ShardOrientation::ColMajor:
+    return ::ttnn::ShardOrientation::COL_MAJOR;
+  }
+}
+
+::ttnn::ShardMode toTTNNShardMode(tt::target::ttnn::ShardMode mode) {
+  switch (mode) {
+  case tt::target::ttnn::ShardMode::Physical:
+    return ::ttnn::ShardMode::PHYSICAL;
+  case tt::target::ttnn::ShardMode::Logical:
+    return ::ttnn::ShardMode::LOGICAL;
+  }
+}
+
 const ::tt::target::ttnn::MemoryConfig *
 getTensorRefMemoryConfig(const ::tt::target::ttnn::TensorRef *tensorRef) {
   return tensorRef->desc()->layout()->memory_desc()->memory_config();
@@ -237,24 +256,32 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
 
   ::ttnn::BufferType ttnnBufferType = toTTNNBufferType(targetBufferType);
 
+  // Verify that shard spec is present only for sharded memory layouts
+  LOG_ASSERT((memcfg->shard_spec() != nullptr) ==
+             isSharded(targetMemoryLayout));
   std::optional<::tt::tt_metal::ShardSpec> metalShardSpec = std::nullopt;
 
   if (isSharded(targetMemoryLayout)) {
-    LOG_ASSERT(memcfg->shard_spec(), "Sharded tensors must have shard spec");
     const ::flatbuffers::Vector<int32_t> *targetShardShape =
-        memcfg->shard_spec()->shard_shape();
+        memcfg->shard_spec()->shape();
     LOG_ASSERT(targetShardShape->size() == 2,
                "Only 2D shard shape is supported in TTNN backend");
     std::array<uint32_t, 2> ttnnShardShape;
     std::copy(targetShardShape->begin(), targetShardShape->end(),
               ttnnShardShape.begin());
 
-    const ::flatbuffers::Vector<const tt::target::Dim2dRange *>
-        *targetCoreRangeSet = memcfg->shard_spec()->grid();
-    CoreRangeSet ttnnCoreRangeSet = common::toCoreRangeSet(targetCoreRangeSet);
-    metalShardSpec =
-        ::tt::tt_metal::ShardSpec(ttnnCoreRangeSet, ttnnShardShape,
-                                  ::tt::tt_metal::ShardOrientation::ROW_MAJOR);
+    const tt::target::ttnn::CoreRangeSet *targetCoreRangeSet =
+        memcfg->shard_spec()->core_range_set();
+    CoreRangeSet ttnnCoreRangeSet = toTTNNCoreRangeSet(*targetCoreRangeSet);
+    ::ttnn::ShardOrientation ttnnShardOrientation =
+        toTTNNShardOrientation(memcfg->shard_spec()->orientation());
+    ::ttnn::ShardMode ttnnShardMode =
+        toTTNNShardMode(memcfg->shard_spec()->mode());
+    LOG_ASSERT(ttnnShardMode == ::ttnn::ShardMode::PHYSICAL &&
+                   memcfg->shard_spec()->physical_shard_shape() == 0,
+               "Physical shard shape must be empty");
+    metalShardSpec = ::tt::tt_metal::ShardSpec(
+        ttnnCoreRangeSet, ttnnShardShape, ttnnShardOrientation, ttnnShardMode);
   }
 
   ::ttnn::MemoryConfig memoryConfig{ttnnMemLayout, ttnnBufferType,
