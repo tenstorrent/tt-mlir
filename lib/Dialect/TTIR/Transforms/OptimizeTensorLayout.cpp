@@ -72,7 +72,7 @@ calculateOutputBlockFactors(ArrayRef<int64_t> outputShardShape,
   for (int64_t dim : llvm::reverse(outputShardShape)) {
     for (int64_t factor = remainingBlockFactor; factor > 0; factor--) {
       if (dim % factor == 0) {
-        outputBlockFactors.push_back(factor);
+        outputBlockFactors.push_back(dim / factor);
         // If the dimension is fully consumed by this factor, then we can
         // continue pulling factors from outer dimensions. Otherwise we must
         // snap it to 1 to enforce row major output.
