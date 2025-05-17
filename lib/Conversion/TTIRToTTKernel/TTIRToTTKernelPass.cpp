@@ -12,8 +12,6 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 
-#include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
-#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
@@ -98,7 +96,6 @@ struct ConvertTTIRToTTKernel
         patterns, typeConverter);
     populateTTIRToTTKernelPatterns(&getContext(), patterns, typeConverter,
                                    associatedDMAWaits);
-    populateAffineToStdConversionPatterns(patterns);
     scf::populateSCFStructuralTypeConversionsAndLegality(typeConverter,
                                                          patterns, target);
 

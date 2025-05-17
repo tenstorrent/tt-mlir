@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --tt-register-device --convert-ttir-to-ttkernel %s | FileCheck %s
+// RUN: ttmlir-opt --tt-register-device --ttir-generic-lower-dmas --convert-ttir-to-ttkernel %s | FileCheck %s
 
 #l1_ = #tt.memory_space<l1>
 #dram = #tt.memory_space<dram>
@@ -72,8 +72,8 @@ func.func @test_remote_l1_to_local(%dst: memref<2x2x!tt.tile<32x32, f32>, #l1_>)
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
   %src = ttir.get_global_operand(0) : memref<1x2x2x2x!tt.tile<32x32, f32>, #tt.shard<16384x4096>, #l1_>
-  // CHECK: ttkernel.get_write_ptr
   // CHECK: ttkernel.get_noc_addr
+  // CHECK: ttkernel.get_write_ptr
   // CHECK: ttkernel.noc_async_read
   %0 = ttir.dma %src[%c0, %c1, %c0, %c0], %dst[%c0, %c0] : (memref<1x2x2x2x!tt.tile<32x32, f32>, #tt.shard<16384x4096>, #l1_>, memref<2x2x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
   ttir.dma_wait %0
