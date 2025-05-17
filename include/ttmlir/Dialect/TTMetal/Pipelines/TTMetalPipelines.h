@@ -43,6 +43,12 @@ struct TTIRToTTMetalPipelineOptions
                        clEnumValN(tt::Arch::Blackhole, "blackhole",
                                   "Use mock blackhole system desc.")),
       llvm::cl::init(tt::Arch::WormholeB0)};
+
+  Option<unsigned> maxDstRegisterSizeTiles{
+      *this, "max-dst-register-size-tiles",
+      llvm::cl::desc("Clamp the maximum destination register size in tiles. 0 "
+                     "means unset."),
+      llvm::cl::init(0)};
 };
 
 void createTTIRBufferizationPipeline(OpPassManager &pm);
