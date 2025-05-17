@@ -63,6 +63,12 @@ getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
     std::unordered_set<CoreCoord> activeEthernetCores =
         device->get_active_ethernet_cores(true);
     for (const CoreCoord &ethernetCore : activeEthernetCores) {
+      // Skip on blackhole. When link is down, get_connected_ethernet_core
+      // will throw an exception.
+      // See https://github.com/tenstorrent/tt-mlir/issues/3423
+      if (device->arch() == ::tt::ARCH::BLACKHOLE) {
+        continue;
+      }
       std::tuple<chip_id_t, CoreCoord> connectedDevice =
           device->get_connected_ethernet_core(ethernetCore);
       addConnection(device->id(), ethernetCore, std::get<0>(connectedDevice),
