@@ -351,6 +351,7 @@ def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
     let results = (outs AnyRankedTensorOrMemRef:$result);
 
     let hasVerifier = 1;
+    let hasFolder = 1;
 }
 
 //===----------------------------------------------------------------------===//
