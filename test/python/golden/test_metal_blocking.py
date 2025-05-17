@@ -49,7 +49,58 @@ def test_eltwise_blocking(
         target="ttmetal",
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
-        print_ir="blocking_mlir",
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.fails_golden
+@pytest.mark.parametrize("grid_m", [1])
+@pytest.mark.parametrize("grid_k", [1])
+@pytest.mark.parametrize("grid_n", [1])
+@pytest.mark.parametrize("m", [3])
+@pytest.mark.parametrize("k", [2])
+@pytest.mark.parametrize("n", [4])
+@pytest.mark.parametrize("dst_register_size_tiles", [1])
+def test_matmul_blocking(
+    grid_m: int,
+    grid_k: int,
+    grid_n: int,
+    m: int,
+    k: int,
+    n: int,
+    dst_register_size_tiles: int,
+    request,
+):
+    tile_size = 32
+    lhs = (
+        grid_m * m * tile_size,
+        grid_k * k * tile_size,
+    )
+    rhs = (
+        grid_k * k * tile_size,
+        grid_n * n * tile_size,
+    )
+
+    def eltwise_blocking(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: List[str] = None,
+    ):
+        return builder.matmul(in0, in1, unit_attrs=unit_attrs)
+
+    options = [
+        f"max-dst-register-size-tiles={dst_register_size_tiles}",
+        f"override-device-shape={grid_m},{grid_n}",
+    ]
+    compile_to_flatbuffer(
+        eltwise_blocking,
+        [lhs, rhs],
+        target="ttmetal",
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        print_ir=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )

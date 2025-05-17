@@ -590,6 +590,10 @@ mlir::AffineMap ShardLayoutAttr::getAffineMap() const {
   return mlir::AffineMap::get(getStride().size() * 2, 0, mapExprs, context);
 }
 
+ViewLayoutAttr ViewLayoutAttr::compose(ViewLayoutAttr g) const {
+  return get(getContext(), getAffineMap().compose(g.getAffineMap()));
+}
+
 //
 // This function creates an affine map that represents collapsing the tensor
 // dims onto an n-dimensional grid. E.g. (Where <> is some join operator)
@@ -861,6 +865,27 @@ uint64_t MetalLayoutAttr::getMemrefSizeBytes() const {
   uint64_t size = getElementSizeBytes();
   return std::accumulate(shape.begin(), shape.end(), size,
                          std::multiplies<uint64_t>());
+}
+
+MetalLayoutAttr MetalLayoutAttr::withGrid(GridAttr newGrid) {
+  MemRefType memref = getMemref();
+  SmallVector<int64_t> fullShape;
+  for (auto [gridDim, shardDim] :
+       llvm::zip(getGrid().getShape(), memref.getShape())) {
+    fullShape.push_back(gridDim * shardDim);
+  }
+  SmallVector<int64_t> newShardShape;
+  for (auto [fullDim, gridDim] : llvm::zip(fullShape, newGrid.getShape())) {
+    assert(fullDim % gridDim == 0);
+    newShardShape.push_back(fullDim / gridDim);
+  }
+  return get(getContext(), getLinear(), getOobVal(), newGrid,
+             MemRefType::get(newShardShape, memref.getElementType(),
+                             memref.getLayout(), memref.getMemorySpace()));
+}
+
+MetalLayoutAttr MetalLayoutAttr::withGrid(ArrayRef<int64_t> gridShape) {
+  return withGrid(GridAttr::get(getContext(), gridShape));
 }
 
 MetalLayoutAttr MetalLayoutAttr::withGrid(
