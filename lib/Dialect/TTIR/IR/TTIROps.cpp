@@ -3436,9 +3436,7 @@ static mlir::LogicalResult verifyAffineBlockFactors(
   };
 
   for (size_t operand = 0; operand < indexingMaps.size(); ++operand) {
-    auto shapeMap =
-        inverseAndBroadcastProjectedPermutation(indexingMaps[operand]);
-    auto shape = shapeMap.compose(shapes[operand]);
+    auto shape = shapes[operand];
     auto factor = indexingMaps[operand].compose(factors);
     assert(shape.size() == factor.size());
     if (auto dim = isNotDivisible(shape, factor)) {
