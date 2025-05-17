@@ -944,8 +944,17 @@ public:
           baseDilations, window_dilations, padding);
       return success();
     }
+    std::optional<int64_t> dimension =
+        isCumSum(srcOp, adaptor, *initValue, frontOp, padding);
+    if (dimension) {
+      rewriter.replaceOpWithNewOp<ttir::CumSumOp>(
+          srcOp, outputType, adaptor.getInputs()[0],
+          rewriter.getI64IntegerAttr(*dimension), outputs[0]);
+      return success();
+    }
+    bool isSumPool = false;
     std::optional<mlir::Operation *> divOp =
-        isAvgPool(srcOp, *initValue, frontOp);
+        isAvgPool(srcOp, *initValue, frontOp, isSumPool);
     if (divOp) {
       auto newOp = rewriter.replaceOpWithNewOp<ttir::PoolingOp>(
           srcOp, outputType, adaptor.getInputs(), outputs,
@@ -955,12 +964,36 @@ public:
       rewriter.eraseOp(*divOp);
       return success();
     }
-    std::optional<int64_t> dimension =
-        isCumSum(srcOp, adaptor, *initValue, frontOp, padding);
-    if (dimension) {
-      rewriter.replaceOpWithNewOp<ttir::CumSumOp>(
-          srcOp, outputType, adaptor.getInputs()[0],
-          rewriter.getI64IntegerAttr(*dimension), outputs[0]);
+    // If the stablehol.reduce_window op satisfy all the conditions for average
+    // pooling except constant divisor. Then we can consider this op as sum
+    // pooling and can lower it to 'average pooling' multiplied by 'kernel
+    // size'.
+    if (isSumPool) {
+      auto avgPool = rewriter.create<ttir::PoolingOp>(
+          srcOp->getLoc(), outputType, adaptor.getInputs(), outputs,
+          mlir::tt::ttir::PoolingMethod::Average, windowDimensions,
+          windowStrides, baseDilations, window_dilations, padding);
+      auto kernel = srcOp.getWindowDimensions();
+      int64_t kernelSize = 1;
+      for (int64_t element : kernel) {
+        kernelSize *= element;
+      }
+      auto elementType = outputType.getElementType();
+      mlir::Attribute constantValue;
+      if (mlir::isa<mlir::FloatType>(elementType)) {
+        constantValue = mlir::FloatAttr::get(elementType, kernelSize);
+      } else if (mlir::isa<mlir::IntegerType>(elementType)) {
+        constantValue = mlir::IntegerAttr::get(elementType, kernelSize);
+      }
+
+      mlir::DenseElementsAttr constantValueAttr =
+          mlir::SplatElementsAttr::get(outputType, constantValue);
+
+      auto constantOp = rewriter.create<ttir::ConstantOp>(
+          srcOp->getLoc(), outputType, constantValueAttr);
+      ttir::utils::replaceOpWithNewDPSOp<ttir::MultiplyOp>(
+          rewriter, srcOp, outputType, Value(avgPool->getResult(0)),
+          Value(constantOp));
       return success();
     }
     return rewriter.notifyMatchFailure(srcOp, "Unsupported pooling method");
@@ -989,8 +1022,8 @@ private:
   //    kernel.
   std::optional<mlir::Operation *>
   isAvgPool(mlir::stablehlo::ReduceWindowOp &srcOp,
-            TypicalInitReductionValue initValue,
-            mlir::Operation *frontOp) const {
+            TypicalInitReductionValue initValue, mlir::Operation *frontOp,
+            bool &isSumPool) const {
     if (!isa<mlir::stablehlo::AddOp>(frontOp)) {
       return std::nullopt;
     }
@@ -998,6 +1031,7 @@ private:
       return std::nullopt;
     }
 
+    isSumPool = true;
     return extractDivisor(srcOp);
   }
 
@@ -1056,6 +1090,9 @@ private:
     // Find constant input(s)
     auto initValue = srcOp.getInitValues().front();
     auto *defOp = initValue.getDefiningOp();
+    if (!defOp) {
+      return std::nullopt;
+    }
     while (defOp->getOpOperands().size() == 1) {
       defOp = defOp->getOpOperand(0).get().getDefiningOp();
     }
