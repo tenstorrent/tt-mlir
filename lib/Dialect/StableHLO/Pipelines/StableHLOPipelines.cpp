@@ -47,6 +47,9 @@ void createAutomaticShardingPipeline(
   // from stablehlo into ttir.
   pm.addPass(createShardyWrapManualComputationPass());
 
+  // Split tensor dimensions according to tensor sharding annotations.
+  pm.addPass(createUpdateAutomaticShardShapesPass());
+
   // Close tensor shardings as analysis is complete.
   pm.addPass(mlir::sdy::createCloseShardingsPass());
 

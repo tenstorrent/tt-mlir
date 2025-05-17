@@ -244,6 +244,7 @@ if enable_runtime:
                 ("VERSION_INFO", __version__),
                 ("TT_RUNTIME_DEBUG", "1" if debug_runtime else "0"),
                 ("TTMLIR_ENABLE_RUNTIME_TESTS", "1" if enable_runtime_tests else "0"),
+                ("TT_RUNTIME_ENABLE_PERF_TRACE", "1" if enable_perf else "0"),
             ],
         )
     )

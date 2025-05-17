@@ -5,11 +5,13 @@
 #include "executor.h"
 #include "executor_utils.h"
 
+#include "tools/profiler/op_profiler.hpp"
 #include "tracy/Tracy.hpp"
 #include "tt/runtime/detail/common.h"
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/dylib.h"
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/ttmetal/profiler.h"
 #include "tt/runtime/detail/ttmetal/ttmetal.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
@@ -46,7 +48,7 @@ private:
   void execute(const target::metal::HostAllocCommand *command);
   void execute(const target::metal::ReturnCommand *command);
   void execute(const target::metal::EnqueueProgramCommand *command,
-               const char *debugInfo);
+               const char *loc, const char *debugInfo);
   void execute(const target::metal::EnqueueWriteBufferCommand *command);
   void execute(const target::metal::EnqueueReadBufferCommand *command);
   void execute(const target::metal::CreateBufferCommand *command);
@@ -60,6 +62,8 @@ private:
   void execute(const target::metal::CpuCommand *command);
   void execute(const target::metal::FinishCommand *command);
 
+  std::uint64_t getUniqueProgramRuntimeId() { return nextProgramRuntimeId++; }
+
 private:
   tt_metal::IDevice *device;
   std::vector<std::shared_ptr<tt_metal::Event>> initEvents;
@@ -72,6 +76,7 @@ private:
   const char *currentProgramName;
   DeviceAddressValidator deviceAddressValidator;
   common::DylibManager dylibManager;
+  std::uint64_t nextProgramRuntimeId = 10000; // Start at a greppable number.
 };
 } // namespace
 
@@ -139,7 +144,7 @@ void CQExecutor::execute(const target::metal::Command *command) {
     break;
   }
   case target::metal::CommandType::EnqueueProgramCommand: {
-    execute(command->type_as_EnqueueProgramCommand(),
+    execute(command->type_as_EnqueueProgramCommand(), command->loc()->c_str(),
             command->debug_info()->c_str());
     break;
   }
@@ -256,9 +261,10 @@ void CQExecutor::execute(const target::metal::ReturnCommand *command) {
 }
 
 void CQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
-                         const char *debugInfo) {
+                         const char *loc, const char *debugInfo) {
   ZoneScopedN("EnqueueProgramCommand");
   tt_metal::Program program = tt_metal::CreateProgram();
+  program.set_runtime_id(getUniqueProgramRuntimeId());
 
   for (const target::metal::KernelConfig *kernelConfig :
        *command->program()->kernels()) {
@@ -302,6 +308,10 @@ void CQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
   }
 
   tt_metal::EnqueueProgram(*cq, program, blockingCQ);
+
+  if (debug::PerfEnv::get().enablePerfTrace) {
+    profiler::profileProgram(device, program, loc);
+  }
 }
 
 void CQExecutor::execute(

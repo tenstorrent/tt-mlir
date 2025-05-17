@@ -368,6 +368,18 @@ tt_throw_(const char *file, int line, const char *assert_type,
     }                                                                          \
   } while (0)
 
+#define LOG_WARNING_ONCE(...)                                                  \
+  do {                                                                         \
+    if (::tt::runtime::logger::Logger::get().log_level_enabled(                \
+            ::tt::runtime::logger::Logger::Level::Warning)) {                  \
+      static bool once = false;                                                \
+      if (!once) {                                                             \
+        once = true;                                                           \
+        ::tt::runtime::logger::log_warning_(__VA_ARGS__);                      \
+      }                                                                        \
+    }                                                                          \
+  } while (0)
+
 #define LOG_ERROR(...)                                                         \
   do {                                                                         \
     if (::tt::runtime::logger::Logger::get().log_level_enabled(                \

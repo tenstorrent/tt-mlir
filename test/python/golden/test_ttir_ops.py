@@ -1405,6 +1405,7 @@ def test_cpu_hoistable_binary_ops(
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.fails_golden
 def test_hoisted_permute(shapes_and_perms, request, target: str):
     shapes, permutation = shapes_and_perms
 

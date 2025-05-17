@@ -213,7 +213,7 @@ createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
   ::tt::target::TensorLayout layout =
-      ::tt::mlir::ttnn::utils::toTargetTensorLayout(op.getLayout());
+      ::mlir::tt::ttnn::utils::toTargetTensorLayout(op.getLayout());
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
 
@@ -236,7 +236,7 @@ createOp(FlatbufferObjectCache &cache, ToDTypeOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
   ::tt::target::DataType dtype =
-      ::tt::mlir::ttnn::utils::toTargetDataType(op.getDtype());
+      ::mlir::tt::ttnn::utils::toTargetDataType(op.getDtype());
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
 
@@ -248,7 +248,7 @@ createOp(FlatbufferObjectCache &cache, TypecastOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
   ::tt::target::DataType dtype =
-      ::tt::mlir::ttnn::utils::toTargetDataType(op.getDtype());
+      ::mlir::tt::ttnn::utils::toTargetDataType(op.getDtype());
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
 
@@ -362,9 +362,9 @@ createDistributionStrategy(FlatbufferObjectCache &cache,
 createOp(FlatbufferObjectCache &cache, EmptyOp op) {
   ::llvm::ArrayRef<int64_t> shape = op.getShape().getShape();
   ::tt::target::DataType dtype =
-      ::tt::mlir::ttnn::utils::toTargetDataType(op.getDtype());
+      ::mlir::tt::ttnn::utils::toTargetDataType(op.getDtype());
   ::tt::target::TensorLayout layout =
-      ::tt::mlir::ttnn::utils::toTargetTensorLayout(op.getLayout());
+      ::mlir::tt::ttnn::utils::toTargetTensorLayout(op.getLayout());
 
   auto output = getOperandThroughDPSOps(op.getResult());
   auto device = getOperandThroughDPSOps(op.getDevice());
@@ -866,7 +866,7 @@ createEltwiseBinaryOp(FlatbufferObjectCache &cache, EltwiseBinaryOp op) {
   auto outputType = mlir::cast<RankedTensorType>(result.getType());
   DataType outputDtype = elementTypeToDataType(outputType.getElementType());
   ::tt::target::DataType targetDtype =
-      ::tt::mlir::ttnn::utils::toTargetDataType(outputDtype);
+      ::mlir::tt::ttnn::utils::toTargetDataType(outputDtype);
 
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 

@@ -410,7 +410,7 @@ class Perf:
                         tracy_capture_tool_command, shell=True
                     )
 
-                    command_options = f"--program-index {self['--program-index']} --loops {self['--loops']} --save-artifacts "
+                    command_options = f"--enable-perf-trace --program-index {self['--program-index']} --loops {self['--loops']} --save-artifacts "
 
                     if self["--memory"]:
                         command_options += " --memory "

@@ -92,6 +92,7 @@ union CommandType {
 
 table Command {
   type: CommandType;
+  loc: string;
   debug_info: string;
 }
 

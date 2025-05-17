@@ -56,7 +56,7 @@
 #include "tt/runtime/detail/ttnn/types.h"
 #include "tt/runtime/utils.h"
 
-#ifdef TT_RUNTIME_ENABLE_PERF_TRACE
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
 #include "tracy/Tracy.hpp"
 #endif
 
@@ -65,7 +65,7 @@ namespace tt::runtime::ttnn {
 using LogType = ::tt::runtime::logger::LogType;
 
 static void tracyLogOpLocation(const ::tt::target::ttnn::Operation *op) {
-#ifdef TT_RUNTIME_ENABLE_PERF_TRACE
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
   TracyMessage(op->loc_info()->c_str(), op->loc_info()->size());
 #endif
 }
@@ -150,7 +150,7 @@ std::vector<::tt::runtime::Tensor> ProgramExecutor::gatherOutputTensors() {
 }
 
 void ProgramExecutor::dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice) {
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
   static uint32_t counter = 0;
   if (counter++ >= debug::PerfEnv::get().dumpDeviceRate) {
     LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +

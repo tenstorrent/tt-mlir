@@ -38,4 +38,13 @@ def ShardyWrapManualComputationPass : Pass<"shardy-wrap-manual-computation", "::
   ];
 }
 
+def UpdateAutomaticShardShapesPass : Pass<"update-automatic-shard-shapes", "::mlir::ModuleOp">
+{
+  let summary = "Update all the tensor dimensions based on their tensor sharding annotation.";
+
+  let dependentDialects = [
+    "::mlir::sdy::SdyDialect"
+  ];
+}
+
 #endif
