@@ -7,24 +7,20 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # set(CMAKE_VERBOSE_MAKEFILE on)
 
 # Installation
-install(
-  FILES
-    ci_compile_dylib.py
-    CMakeLists.txt
-    compile_so.cpp
-    compile_so.hpp
-    README.md
-    ttnn-precompiled.hpp
-    ttnn-standalone.cpp
-    workarounds.hpp
-  DESTINATION "tools/ttnn-standalone"
-  COMPONENT TTNNStandalone
+# Add shared library for compile_so
+add_library(compile_so SHARED compile_so.cpp)
+set_target_properties(compile_so PROPERTIES
+  CXX_STANDARD 20
+  POSITION_INDEPENDENT_CODE ON
+  PUBLIC_HEADER compile_so.hpp
+  OUTPUT_NAME compile_so
 )
 
+# Install the library and its public header
 install(
-  PROGRAMS
-    run
-  DESTINATION "tools/ttnn-standalone"
+  TARGETS compile_so
+  LIBRARY DESTINATION lib
+  PUBLIC_HEADER DESTINATION include/ttmlir/tools/ttnn-standalone
   COMPONENT TTNNStandalone
 )
 
