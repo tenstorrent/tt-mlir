@@ -508,6 +508,10 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, StringRef path) {
   return systemDescAttr;
 }
 
+ChipDescAttr SystemDescAttr::getChipDesc(unsigned chipIndex) const {
+  return getChipDescs()[getChipDescIndices()[chipIndex]];
+}
+
 unsigned SystemDescAttr::getAddressAlignBytes(unsigned chipIndex) const {
   return std::max(std::initializer_list<unsigned>{
       getNocL1AddressAlignBytes(),
@@ -531,15 +535,15 @@ unsigned SystemDescAttr::getAddressAlignBytes(MemorySpace memorySpace,
 }
 
 unsigned SystemDescAttr::getNocL1AddressAlignBytes(unsigned chipIndex) const {
-  return getChipDescs()[chipIndex].getNocL1AddressAlignBytes();
+  return getChipDesc(chipIndex).getNocL1AddressAlignBytes();
 }
 
 unsigned SystemDescAttr::getNocDRAMAddressAlignBytes(unsigned chipIndex) const {
-  return getChipDescs()[chipIndex].getNocDRAMAddressAlignBytes();
+  return getChipDescs(chipIndex).getNocDRAMAddressAlignBytes();
 }
 
 unsigned SystemDescAttr::getPcieAddressAlignBytes(unsigned chipIndex) const {
-  return getChipDescs()[chipIndex].getPcieAddressAlignBytes();
+  return getChipDescs(chipIndex).getPcieAddressAlignBytes();
 }
 
 ShardLayoutAttr ShardLayoutAttr::get(mlir::MLIRContext *context,
