@@ -56,6 +56,10 @@ struct ConvertTTIRToTTMetal
       return !mlir::dyn_cast_if_present<tt::MemorySpaceAttr>(
           op.getMemref().getType().getMemorySpace());
     });
+    target.addDynamicallyLegalOp<memref::DeallocOp>([&](memref::DeallocOp op) {
+      return !mlir::dyn_cast_if_present<tt::MemorySpaceAttr>(
+          op.getMemref().getType().getMemorySpace());
+    });
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });

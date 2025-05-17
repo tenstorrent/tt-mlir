@@ -136,6 +136,23 @@ public:
 } // namespace
 
 namespace {
+class MemrefDeallocRewriter : public OpConversionPattern<memref::DeallocOp> {
+public:
+  using OpConversionPattern<memref::DeallocOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(memref::DeallocOp op, memref::DeallocOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto deallocateBufferOp = rewriter.create<ttmetal::DeallocateBufferOp>(
+        op->getLoc(), op.getMemref());
+    rewriter.replaceOp(op, deallocateBufferOp);
+
+    return success();
+  };
+};
+} // namespace
+
+namespace {
 class TTIRToLayoutRewriter : public OpConversionPattern<ttir::ToLayoutOp> {
 public:
   using OpConversionPattern<ttir::ToLayoutOp>::OpConversionPattern;
@@ -182,7 +199,8 @@ void populateTTIRToTTMetalPatterns(MLIRContext *ctx,
                                    RewritePatternSet &patterns,
                                    TypeConverter & /*typeConverter*/) {
   patterns.add<ttmetal::TTIRGenericRewriter, ttmetal::MemrefAllocRewriter,
-               ttmetal::TTIRToLayoutRewriter>(ctx);
+               ttmetal::MemrefDeallocRewriter, ttmetal::TTIRToLayoutRewriter>(
+      ctx);
 }
 
 } // namespace mlir::tt
