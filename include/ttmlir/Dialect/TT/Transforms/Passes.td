@@ -58,7 +58,15 @@ def TTRegisterDevicePass : Pass<"tt-register-device", "::mlir::ModuleOp"> {
   }];
 
   list<Option> options = [
-        Option<"archName", "arch-name-for-mock-system-desc", "tt::Arch", "tt::Arch::WormholeB0", "Arch name">,
+        Option<"mockSystemDescArch", "mock-system-desc-arch", "tt::Arch",
+            /*default=*/"tt::Arch::WormholeB0",
+            "Arch name for constructing a mock system descriptor in lieu of system-desc-path.",
+            [{::llvm::cl::values(
+              clEnumValN(tt::Arch::WormholeB0, "wormhole_b0",
+               "Use mock wormhole_b0 system desc."),
+              clEnumValN(tt::Arch::Blackhole, "blackhole",
+               "Use mock blackhole system desc.")
+             )}]>,
         Option<"systemDescPath", "system-desc-path", "std::string", "", "System desc path">,
         ListOption<"meshShape", "mesh-shape", "int64_t", "Set the mesh shape">,
     ];

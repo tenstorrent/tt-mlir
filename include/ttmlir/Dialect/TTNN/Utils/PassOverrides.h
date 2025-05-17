@@ -26,6 +26,7 @@ struct OptionNames {
   static constexpr StringRef memoryLayoutAnalysisPolicy =
       "memory-layout-analysis-policy";
   static constexpr StringRef systemDescPath = "system-desc-path";
+  static constexpr StringRef mockSystemDescArch = "mock-system-desc-arch";
   static constexpr StringRef maxLegalLayouts = "max-legal-layouts";
   static constexpr StringRef meshShape = "mesh-shape";
 };

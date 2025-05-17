@@ -299,7 +299,8 @@ mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
 }
 
 mlir::tt::SystemDescAttr
-mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
+mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context,
+                                      const std::string &path) {
   // Check if file exists
   assert(!path.empty() && "system desc path must not be empty!");
   std::ifstream fbb(path, std::ios::binary | std::ios::ate);
