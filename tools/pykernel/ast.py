@@ -5,6 +5,7 @@
 import ast
 import inspect
 import functools
+import textwrap
 import os
 from ttmlir.ir import *
 from ttmlir.dialects import tt, ttkernel, func, scf, arith, memref, emitc
@@ -934,16 +935,25 @@ class TTKernelCompiler(ast.NodeVisitor):
             raise NotImplementedError(f"visit {type(node).__name__} not supported")
 
 
-def ttkernel_compile(kernel_type=None, verbose: bool = False, optimize: bool = True):
+def ttkernel_compile(kernel_type=None, verbose: bool = False, optimize: bool = False):
     def _decorator(f):
         @functools.wraps(f)
         def _wrapper(*args, **kwargs):
+            # Code to deal with identation issues
+            source_code = inspect.getsource(f)
+            source_code = textwrap.dedent(source_code)
+            cleaned = [
+                line
+                for line in source_code.splitlines()
+                if not line.strip().startswith("@")
+            ]
+            source_code = "\n".join(cleaned)
+
             if verbose is True:
                 # Create easily index-able object to store source code:
-                source_code = inspect.getsource(f).split("\n")
-                kwargs["source_code"] = source_code
+                kwargs["source_code"] = source_code.splitlines()
                 kwargs["verbose"] = True
-            m = ast.parse(inspect.getsource(f))
+            m = ast.parse(source_code)
             b = TTKernelCompiler(f.__name__, kernel_type, *args, **kwargs)
             print(ast.dump(m, indent=4) + "\n")
             b.visit(m)
@@ -966,9 +976,9 @@ def ttkernel_compile(kernel_type=None, verbose: bool = False, optimize: bool = T
     return _decorator
 
 
-def ttkernel_tensix_compile(verbose: bool = False, optimize: bool = True):
+def ttkernel_tensix_compile(verbose: bool = False, optimize: bool = False):
     return ttkernel_compile(kernel_type="compute", verbose=verbose, optimize=optimize)
 
 
-def ttkernel_noc_compile(verbose: bool = False, optimize: bool = True):
+def ttkernel_noc_compile(verbose: bool = False, optimize: bool = False):
     return ttkernel_compile(kernel_type="noc", verbose=verbose, optimize=optimize)

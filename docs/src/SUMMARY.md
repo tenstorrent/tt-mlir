@@ -17,6 +17,7 @@
     - [Usage & API](./tt-explorer-usage-api.md)
     - [Roadmap](./tt-explorer-roadmap.md)
   - [ttnn-standalone](./ttnn-standalone.md)
+  - [PyKernel](./pykernel.md)
 - [Python Bindings](./python-bindings.md)
 - [Flatbuffers](./flatbuffers.md)
 - [CI](./ci.md)

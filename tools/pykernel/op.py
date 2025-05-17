@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
+from pykernel.types import *
 import hashlib
 
 
@@ -25,6 +26,8 @@ class PyKernelOp:
         semaphores = self.define_semaphores(tensors, options)
         setattr(self, "_made_semaphores", semaphores)
 
+        return semaphores
+
     def define_semaphores(self, tensors, options):
         """Define Semaphore Descriptors from tensors and options."""
         # Default implementation - subclasses should override
@@ -40,8 +43,8 @@ class PyKernelOp:
 
         # Define the PyKernel Type CBs as well
         pykernel_cbs = []
-        for cb in cbs:
-            pykernel_cbs.append(CircularBuffer(cb.buffer_index))
+        for cb_format in self._cb_formats:
+            pykernel_cbs.append(CircularBuffer(cb_format.buffer_index))
         setattr(self, "_made_pykernel_cbs", pykernel_cbs)
 
         return cbs
@@ -121,7 +124,7 @@ class PyKernelOp:
                 # Define the KernelDescriptor for each Kernel
                 kernel_desc_args = {
                     "kernel_source": kernel_path,
-                    "core_range": options["core_grid"],
+                    "core_ranges": options["core_ranges"],
                     "compile_time_args": ct_args,
                     "runtime_args": [[rt_args]],
                     "config": config(),

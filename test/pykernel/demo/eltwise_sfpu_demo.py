@@ -8,8 +8,6 @@ from pykernel.types import *
 import ttnn
 import torch
 
-# Try to inherit from the PyKernelBaseOP
-
 
 class EltwiseSFPUPyKernelOp(PyKernelOp):
     # KERNEL DEFINITIONS
@@ -63,13 +61,13 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
         num_tiles = rt_args[1]
         start_id = rt_args[2]
 
-        dst_is_dram = ct_args[1]
+        dst_is_dram = ct_args[0]
         onetile = 1
         tile_bytes = get_tile_size(cb_out)
         dataformat = get_dataformat(cb_out)
 
         s0 = get_interleaved_addr_gen_fast(
-            dst_is_dram, dst_addr, tile_bytes, dataformat
+            dst_is_dram > 0, dst_addr, tile_bytes, dataformat
         )
 
         end_id = start_id + num_tiles
@@ -111,7 +109,7 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
         dataformat = get_dataformat(cb_in)
 
         s0 = get_interleaved_addr_gen_fast(
-            src_is_dram, src_addr, tile_bytes, dataformat
+            src_is_dram > 0, src_addr, tile_bytes, dataformat
         )
 
         end_id = start_id + num_tiles
@@ -125,12 +123,12 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
             ii += onetile
         return
 
-    def writer_unary_interleaved_CT_ARGS(self, tensors, options):
+    def reader_unary_interleaved_CT_ARGS(self, tensors, options):
         return [
             options["is_dram_input"],
         ]
 
-    def writer_unary_interleaved_RT_ARGS(self, tensors, options):
+    def reader_unary_interleaved_RT_ARGS(self, tensors, options):
         return [
             tensors[0].buffer_address(),
             options["num_tiles"],
@@ -161,7 +159,7 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
         in_cb = options["in_cb"]
         out_cb = options["out_cb"]
 
-        core_grid = options["core_grid"]
+        core_ranges = options["core_ranges"]
 
         in_cb_format = ttnn.CBFormatDescriptor(
             buffer_index=in_cb,
@@ -173,14 +171,18 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
             data_format=input_cb_data_format,
             page_size=cb_page_size,
         )
+
+        # Set cb formats as artifact to use later on
+        self._cb_formats = [in_cb_format, out_cb_format]
+
         in_cb_descriptor = ttnn.CBDescriptor(
             total_size=cb_total_size,
-            core_ranges=core_grid,
+            core_ranges=core_ranges,
             format_descriptors=[in_cb_format],
         )
         out_cb_descriptor = ttnn.CBDescriptor(
             total_size=cb_total_size,
-            core_ranges=core_grid,
+            core_ranges=core_ranges,
             format_descriptors=[out_cb_format],
         )
 
@@ -192,7 +194,7 @@ device = ttnn.open_device(device_id=0)
 
 # Core Grid for 0, 0
 core = ttnn.CoreCoord(0, 0)
-core_grid = ttnn.CoreRangeSet([ttnn.CoreRange(core, core)])
+core_ranges = ttnn.CoreRangeSet([ttnn.CoreRange(core, core)])
 
 # I/O Tensor Definitions
 num_tiles = 4
@@ -232,9 +234,10 @@ eltwise_exp_op_options = {
     * 1024,  # tt::DataFormat::Float16_b hard coded to have size 2 * 1024
     "cb_page_size": 2 * 1024,
     "num_tiles": num_tiles,
-    "core_grid": core_grid,
+    "core_ranges": core_ranges,
 }
 
+# Run tests against the golden "exp" op.
 output = eltwise_exp_op(*io_tensors, **eltwise_exp_op_options)
 golden = ttnn.exp(input_tensor)
 
