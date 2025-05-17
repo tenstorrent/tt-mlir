@@ -796,7 +796,7 @@ toFlatbuffer(FlatbufferObjectCache &cache,
   ::tt::target::ttnn::TensorMemoryLayout tensorMemoryLayout =
       toFlatbuffer(cache, tensorMemoryLayoutAttr);
   ::tt::target::BufferType bufferType =
-      ::tt::mlir::ttnn::utils::toTargetBufferType(
+      ::mlir::tt::ttnn::utils::toTargetBufferType(
           memoryConfigAttr.getBufferType().getValue());
 
   ::flatbuffers::Offset<::tt::target::ttnn::ShardSpec> shardSpec = 0;
