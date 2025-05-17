@@ -85,7 +85,7 @@ mlir::memref::GlobalOp createGlobal(ModuleOp moduleOp, StringRef name,
 
   auto symbolName = getUniqueSymbolName();
 
-  OpBuilder builder(moduleOp);
+  OpBuilder builder(moduleOp.getRegion());
   auto global = builder.create<memref::GlobalOp>(
       moduleOp->getLoc(), symbolName,
       /*sym_visibility*/
