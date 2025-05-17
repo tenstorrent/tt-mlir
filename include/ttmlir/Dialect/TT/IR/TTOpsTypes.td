@@ -218,6 +218,7 @@ def TT_SystemDescAttr : TT_Attr<"SystemDesc", "system_desc"> {
   let extraClassDeclaration = [{
     static tt::SystemDescAttr getDefault(MLIRContext *context, tt::Arch arch = tt::Arch::WormholeB0, const llvm::SmallVector<int64_t> &meshShape = {1});
     static tt::SystemDescAttr getFromPath(MLIRContext *context, StringRef path);
+    ChipDescAttr getChipDesc(unsigned chipIndex) const;
     unsigned getAddressAlignBytes(unsigned chipIndex = 0) const;
     unsigned getAddressAlignBytes(MemorySpace memorySpace, unsigned chipIndex = 0) const;
     unsigned getNocL1AddressAlignBytes(unsigned chipIndex = 0) const;
@@ -249,6 +250,9 @@ def TT_ViewLayoutAttr : TT_Attr<"ViewLayout", "view", [TT_DeviceLayoutInterface]
       static ViewLayoutAttr get(::mlir::MLIRContext *context, unsigned rank) {
         return get(context, mlir::AffineMap::getMultiDimIdentityMap(rank, context));
       }
+
+      // Compose two view layouts f(g(x)) where f=this and g=other.
+      ViewLayoutAttr compose(ViewLayoutAttr g) const;
   }];
 }
 
@@ -378,6 +382,8 @@ def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout"> {
                             MemorySpace memorySpace,
                             GridAttr grid,
                             Type elementType);
+      MetalLayoutAttr withGrid(GridAttr grid);
+      MetalLayoutAttr withGrid(ArrayRef<int64_t> gridShape);
       MetalLayoutAttr withGrid(::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape, GridAttr grid, ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
       MetalLayoutAttr withGrid(::mlir::MLIRContext *context,
                           RankedTensorType ty,
