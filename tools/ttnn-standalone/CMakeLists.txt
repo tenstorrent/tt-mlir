@@ -7,24 +7,36 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # set(CMAKE_VERBOSE_MAKEFILE on)
 
 # Installation
+# Add shared library for compile_so
+add_library(TTNNCompileSo SHARED compile_so.cpp)
+set_target_properties(TTNNCompileSo PROPERTIES
+  PUBLIC_HEADER compile_so.hpp
+)
+
+# Standard CMake installation approach
+include(GNUInstallDirs)
+
 install(
-  FILES
+  TARGETS TTNNCompileSo
+  COMPONENT TTNNStandalone
+  PUBLIC_HEADER DESTINATION include/ttmlir/tools/ttnn-standalone
+)
+
+# TODO (azecevic): This is a workaround for the fact that we expect `ttnn-precompiled.hpp` to be in the same directory as `ci_compile_dylib.py`
+install(
+  PROGRAMS
     ci_compile_dylib.py
-    CMakeLists.txt
-    compile_so.cpp
-    compile_so.hpp
-    README.md
-    ttnn-precompiled.hpp
-    ttnn-standalone.cpp
-    workarounds.hpp
-  DESTINATION "tools/ttnn-standalone"
+    run
+  DESTINATION tools/ttnn-standalone
   COMPONENT TTNNStandalone
 )
 
 install(
-  PROGRAMS
-    run
-  DESTINATION "tools/ttnn-standalone"
+  FILES
+    CMakeLists.txt
+    ttnn-precompiled.hpp
+    workarounds.hpp
+  DESTINATION tools/ttnn-standalone
   COMPONENT TTNNStandalone
 )
 
