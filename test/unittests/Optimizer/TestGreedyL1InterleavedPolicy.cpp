@@ -2,8 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <gtest/gtest.h>
-
+#include "llvm-gtest/gtest/gtest.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
 #include "llvm/ADT/SmallVector.h"
