@@ -73,32 +73,30 @@ calculateOutputBlockFactors(ArrayRef<int64_t> outputShardShape,
     for (int64_t factor = remainingBlockFactor; factor > 0; factor--) {
       if (dim % factor == 0) {
         outputBlockFactors.push_back(factor);
-        // If there is leftover in this dimension, we need to snap it to 1 to
-        // enforce row major output. Otherwise we can continue pulling factors
-        // from outer dimensions.
-        bool leftover = dim > factor;
-        remainingBlockFactor = leftover ? 1 : remainingBlockFactor / factor;
+        // If the dimension is fully consumed by this factor, then we can
+        // continue pulling factors from outer dimensions. Otherwise we must
+        // snap it to 1 to enforce row major output.
+        bool consumed = dim == factor;
+        remainingBlockFactor = consumed ? remainingBlockFactor / factor : 1;
         assert(remainingBlockFactor > 0);
         break;
       }
     }
   }
+  assert(outputBlockFactors.size() == outputShardShape.size());
   // We reversed on the way in, so reverse it back.
-  return llvm::reverse(outputBlockFactors);
+  return llvm::to_vector(llvm::reverse(outputBlockFactors));
 }
 
 static SmallVector<int64_t>
 calculateOptimalBlockFactors(ArrayRef<AffineMap> indexingMaps,
-                             ArrayRef<ArrayRef<int64_t>> operandShardShapes,
-                             unsigned outputOperandIndex,
+                             ArrayRef<int64_t> outputShardShape,
                              unsigned dstRegisterSizeTiles) {
-  assert(outputOperandIndex < indexingMaps.size());
-  assert(outputOperandIndex < operandShardShapes.size());
-  assert(indexingMaps.size() == operandShardShapes.size());
+  assert(!indexingMaps.empty());
   MLIRContext *context = indexingMaps[0].getContext();
 
-  ArrayRef<int64_t> outputBlockFactors = calculateOutputBlockFactors(
-      operandShardShapes[outputOperandIndex], dstRegisterSizeTiles);
+  SmallVector<int64_t> outputBlockFactors =
+      calculateOutputBlockFactors(outputShardShape, dstRegisterSizeTiles);
 
   //
   // Concat all of the indexing maps together, matmul example:
@@ -122,19 +120,19 @@ calculateOptimalBlockFactors(ArrayRef<AffineMap> indexingMaps,
   //
   AffineMap inverse = inversePermutation(concat);
 
+  //
+  // Since we reversed above to give the output block factors priority in the
+  // inverse affine map, we add those first. Then fill the rest of the dims with
+  // 1s, these are free variables that don't depend on the sizing of dst. In the
+  // future we might do something more intellegent with the free variables, or
+  // enable downstream passes like allocation to adjust them based on memory
+  // requirements. factors.
+  //
+  SmallVector<int64_t> flattenedBlockFactors(outputBlockFactors);
+  flattenedBlockFactors.resize(inverse.getNumDims(), 1);
+
   // Eval the affine map to get the buffer factors.
-  SmallVector<int64_t> flattenedShardShapes(
-      ttmlir::utils::flatten(llvm::reverse(operandShardShapes)));
-
-  // Divide out the compute grid dims and re-eval
-  ArrayRef<int64_t> computeGrid = getGrid().getShape();
-  for (size_t i = 0; i < computeGrid.size(); ++i) {
-    assert(flattenedGridShapes[i] % computeGrid[i] == 0 &&
-           "Output grid shape must be divisible by compute grid shape");
-    flattenedGridShapes[i] /= computeGrid[i];
-  }
-
-  return inverse.compose(flattenedGridShapes);
+  return inverse.compose(flattenedBlockFactors);
 }
 
 namespace {
@@ -144,7 +142,8 @@ struct TTIRGenericTensorLayoutRewriter
                                   SmallVector<int64_t> workerGridShape,
                                   unsigned dstRegisterSizeTiles)
       : OpRewritePattern<ttir::GenericOp>(context),
-        workerGridShape(workerGridShape) {}
+        workerGridShape(workerGridShape),
+        dstRegisterSizeTiles(dstRegisterSizeTiles) {}
 
   LogicalResult matchAndRewrite(ttir::GenericOp op,
                                 PatternRewriter &rewriter) const final {
@@ -152,7 +151,7 @@ struct TTIRGenericTensorLayoutRewriter
     assert(op->getResults().size() == 1 &&
            "Only one result tensor is supported for now");
     auto newTensorType = calculateOptimalLayoutForTensorType(
-        rewriter, op->getResult(0), workerGridShape, dstRegisterSizeTiles);
+        rewriter, op->getResult(0), workerGridShape);
     if (op->getResult(0).getType() == newTensorType) {
       return failure();
     }
@@ -161,14 +160,9 @@ struct TTIRGenericTensorLayoutRewriter
     auto dpsOp = mlir::cast<DestinationStyleOpInterface>(op.getOperation());
     assert(dpsOp.getNumDpsInits() == 1 &&
            "Only one result tensor is supported for now");
-    SmallVector<ArrayRef<int64_t>> operandShardShapes;
     for (OpOperand &operand : op->getOpOperands()) {
       auto newOperandType = calculateOptimalLayoutForTensorType(
-          rewriter, operand.get(), workerGridShape, dstRegisterSizeTiles);
-      MetalLayoutAttr metalLayout =
-          mlir::cast<MetalLayoutAttr>(newOperandType.getEncoding());
-      operandShardShapes.push_back(
-          metalLayout.getShardShape(/*convertTileToScalar=*/false));
+          rewriter, operand.get(), workerGridShape);
       if (operand.get().getType() != newOperandType) {
         auto emptyOp =
             rewriter.create<ttir::EmptyOp>(op->getLoc(), newOperandType);
@@ -186,11 +180,12 @@ struct TTIRGenericTensorLayoutRewriter
       }
     }
 
-    assert(op.getOutputs().size() == 1);
-    unsigned outputOperandIndex = op.getOutputs().getBeginOperandIndex();
+    MetalLayoutAttr metalLayout =
+        mlir::cast<MetalLayoutAttr>(newTensorType.getEncoding());
+    SmallVector<int64_t> outputShardShape =
+        metalLayout.getShardShape(/*convertTileToScalar=*/false);
     SmallVector<int64_t> blockFactors = calculateOptimalBlockFactors(
-        op.getIndexingMapsValue(), operandShardShapes, outputOperandIndex,
-        dstRegisterSizeTiles);
+        op.getIndexingMapsValue(), outputShardShape, dstRegisterSizeTiles);
 
     rewriter.modifyOpInPlace(op, [&]() {
       // Update generic grid (match worker cores to output grid)
@@ -218,6 +213,21 @@ namespace {
 struct TTIRMemrefLayoutRewriter : public OpRewritePattern<ttir::GenericOp> {
   using OpRewritePattern<ttir::GenericOp>::OpRewritePattern;
 
+  static MemRefType getBlockedMemRefType(MemRefType fullShard,
+                                         AffineMap indexingMap,
+                                         ArrayRef<int64_t> blockFactors) {
+    SmallVector<int64_t> operandBlockFactors =
+        indexingMap.compose(blockFactors);
+    SmallVector<int64_t> blockShape(fullShard.getShape());
+    assert(operandBlockFactors.size() == blockShape.size());
+    for (auto [dim, factor] : llvm::enumerate(operandBlockFactors)) {
+      assert(blockShape[dim] % factor == 0);
+      blockShape[dim] /= factor;
+    }
+    return MemRefType::get(blockShape, fullShard.getElementType(),
+                           fullShard.getLayout(), fullShard.getMemorySpace());
+  }
+
   LogicalResult matchAndRewrite(ttir::GenericOp op,
                                 PatternRewriter &rewriter) const final {
     bool modified = false;
@@ -234,12 +244,14 @@ struct TTIRMemrefLayoutRewriter : public OpRewritePattern<ttir::GenericOp> {
             mlir::cast<RankedTensorType>(op->getOperand(i).getType());
         auto operandEncoding =
             mlir::cast<MetalLayoutAttr>(operand.getEncoding());
-        if (arg.getType() == operandEncoding.getMemref()) {
+        auto blockedMemRefType = getBlockedMemRefType(
+            operandEncoding.getMemref(), op.getIndexingMapsValue()[i],
+            op.getBlockFactorsValue());
+        if (arg.getType() == blockedMemRefType) {
           continue;
         }
         modified = true;
-        rewriter.modifyOpInPlace(
-            op, [&]() { arg.setType(operandEncoding.getMemref()); });
+        rewriter.modifyOpInPlace(op, [&]() { arg.setType(blockedMemRefType); });
       }
     }
 
@@ -269,9 +281,9 @@ class TTIROptimizeTensorLayout
     }
 
     unsigned dstRegisterSizeTiles = chipDesc.getDstRegisterSizeTiles();
-    if (maxDstRegisterSizeTiles > 0) {
+    if (maxDstRegisterSizeTiles.getValue() > 0) {
       dstRegisterSizeTiles =
-          std::min(dstRegisterSizeTiles, maxDstRegisterSizeTiles);
+          std::min(dstRegisterSizeTiles, maxDstRegisterSizeTiles.getValue());
     }
 
     {
