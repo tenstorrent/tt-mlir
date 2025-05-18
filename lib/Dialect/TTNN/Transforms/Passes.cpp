@@ -381,6 +381,14 @@ public:
           continue;
         }
 
+        if (funcOp.getName() == "main") {
+          // Rename the function if it's named `main` to `_main`. This is done
+          // as compiler will complain that `main` must return `int` and that
+          // it's first parameter must also be an `int`.
+          rewriter.modifyOpInPlace(funcOp,
+                                   [&]() { funcOp.setSymName("_main"); });
+        }
+
         forwardFuncOps.push_back(funcOp);
       }
     }
