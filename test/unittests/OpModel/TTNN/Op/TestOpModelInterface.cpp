@@ -662,7 +662,8 @@ TEST_F(OpModelBase, Conv2dInterface) {
       llvm::ArrayRef<int32_t>({3, 3}), // Padding [H, W]
       llvm::ArrayRef<int32_t>({1, 1}), // Dilation [H, W]
       1,                               // Groups
-      nullptr                          // Conv2dConfig (optional)
+      nullptr,                         // Conv2dConfig (optional)
+      nullptr                          // ComputeKernelConfig (optional)
   );
 
   // Device hangs otherwise.
@@ -725,7 +726,8 @@ TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
       llvm::ArrayRef<int32_t>({3, 3}), // Padding [H, W]
       llvm::ArrayRef<int32_t>({1, 1}), // Dilation [H, W]
       1,                               // Groups
-      nullptr                          // Conv2dConfig (optional)
+      nullptr,                         // Conv2dConfig (optional)
+      nullptr                          // ComputeKernelConfig (optional)
   );
 
   // Device hangs otherwise.
@@ -779,7 +781,7 @@ TEST_F(OpModelBase, PrepareConv2dWeightsOutput) {
       builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
       64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
-      llvm::ArrayRef<int32_t>({1, 1}), 1, nullptr);
+      llvm::ArrayRef<int32_t>({1, 1}), 1, nullptr, nullptr);
 
   auto preparedWeightOutput =
       mlir::tt::op_model::ttnn::getPreparedConv2dWeightsOutputTensor(&conv2d);
@@ -823,7 +825,7 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
       builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
       64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
-      llvm::ArrayRef<int32_t>({1, 1}), 1, nullptr);
+      llvm::ArrayRef<int32_t>({1, 1}), 1, nullptr, nullptr);
 
   // Device hangs otherwise.
   mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();

@@ -125,6 +125,19 @@ getBinary(::tt::runtime::Flatbuffer binary) {
   }
 }
 
+MathFidelity toTTNNMathFidelity(::tt::target::MathFidelity mathFidelity) {
+  switch (mathFidelity) {
+  case ::tt::target::MathFidelity::LoFi:
+    return MathFidelity::LoFi;
+  case ::tt::target::MathFidelity::HiFi2:
+    return MathFidelity::HiFi2;
+  case ::tt::target::MathFidelity::HiFi3:
+    return MathFidelity::HiFi3;
+  case ::tt::target::MathFidelity::HiFi4:
+    return MathFidelity::HiFi4;
+  }
+}
+
 ::ttnn::Layout toTTNNLayout(::tt::target::TensorLayout layout) {
   switch (layout) {
   case ::tt::target::TensorLayout::Tile:

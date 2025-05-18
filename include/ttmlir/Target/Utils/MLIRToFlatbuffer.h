@@ -9,7 +9,9 @@
 #include "ttmlir/Dialect/TT/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Target/Common/Target.h"
+#include "ttmlir/Target/Common/types_generated.h"
 #include "ttmlir/Target/TTNN/Target.h"
+#include "ttmlir/Target/TTNN/operations/configs_generated.h"
 #include "ttmlir/Target/TTNN/utils.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Utils.h"
@@ -155,6 +157,20 @@ inline ::tt::target::DataType toFlatbuffer(FlatbufferObjectCache &,
     return ::tt::target::DataType::UInt8;
   case DataType::Int32:
     return ::tt::target::DataType::Int32;
+  }
+}
+
+inline ::tt::target::MathFidelity
+toFlatbuffer(FlatbufferObjectCache &, ttnn::MathFidelity mathFidelity) {
+  switch (mathFidelity) {
+  case ttnn::MathFidelity::LoFi:
+    return ::tt::target::MathFidelity::LoFi;
+  case ttnn::MathFidelity::HiFi2:
+    return ::tt::target::MathFidelity::HiFi2;
+  case ttnn::MathFidelity::HiFi3:
+    return ::tt::target::MathFidelity::HiFi3;
+  case ttnn::MathFidelity::HiFi4:
+    return ::tt::target::MathFidelity::HiFi4;
   }
 }
 
@@ -750,6 +766,17 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
       toFlatbuffer(cache, config.getEnableWeightsDoubleBuffer()),
       toFlatbuffer(cache, config.getEnableSplitReader()),
       toFlatbuffer(cache, config.getEnableSubblockPadding()));
+}
+
+inline ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ttnn::DeviceComputeKernelConfigAttr computeConfigAttr) {
+  return ::tt::target::ttnn::CreateDeviceComputeKernelConfig(
+      *cache.fbb, toFlatbuffer(cache, computeConfigAttr.getMathFidelity()),
+      toFlatbuffer(cache, computeConfigAttr.getMathApproxMode()),
+      toFlatbuffer(cache, computeConfigAttr.getFp32DestAccEn()),
+      toFlatbuffer(cache, computeConfigAttr.getPackerL1Acc()),
+      toFlatbuffer(cache, computeConfigAttr.getDstFullSyncEn()));
 }
 
 template <typename T>

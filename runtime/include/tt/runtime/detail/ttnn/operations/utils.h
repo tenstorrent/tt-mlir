@@ -8,6 +8,7 @@
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
+#include "ttmlir/Target/TTNN/operations/configs_generated.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "types_generated.h"
 #include <concepts>
@@ -46,6 +47,9 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::MatmulOp *op);
 
 ::ttnn::operations::conv::conv2d::Conv2dConfig
 createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *memcfg);
+
+::ttnn::DeviceComputeKernelConfig createDeviceComputeKernelConfig(
+    const ::tt::target::ttnn::DeviceComputeKernelConfig *config);
 
 ::ttnn::Tensor toTTNNTensor(const ::flatbuffers::Vector<uint8_t> *data,
                             const ::ttnn::Shape &shape,

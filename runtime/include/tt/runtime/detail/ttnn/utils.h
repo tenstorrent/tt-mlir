@@ -32,6 +32,8 @@ getBinary(::tt::runtime::Flatbuffer binary);
 
 ::tt::target::DataType fromTTNNDataType(::ttnn::DataType dataType);
 
+MathFidelity toTTNNMathFidelity(::tt::target::MathFidelity mathFidelity);
+
 ::ttnn::Layout toTTNNLayout(::tt::target::TensorLayout layout);
 
 ::ttnn::TensorMemoryLayout toTTNNTensorMemoryLayout(
