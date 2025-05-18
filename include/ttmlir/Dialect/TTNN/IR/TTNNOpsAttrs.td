@@ -495,6 +495,36 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
   let assemblyFormat = "`<` struct(params) `>`";
 }
 
+def TTNN_DeviceComputeKernelConfig : TTNN_Attr<"DeviceComputeKernelConfig", "device_compute_kernel_config"> {
+  let summary = "TTNN DeviceComputeKernelConfig attribute";
+  let description = [{
+    TTNN DeviceComputeKernelConfig attribute
+  }];
+
+  let parameters = (ins OptionalParameter<"std::optional<MathFidelity>">:$math_fidelity,
+                        OptionalParameter<"BoolAttr">:$math_approx_mode,
+                        OptionalParameter<"BoolAttr">:$fp32_dest_acc_en,
+                        OptionalParameter<"BoolAttr">:$packer_l1_acc,
+                        OptionalParameter<"BoolAttr">:$dst_full_sync_en);
+
+  let builders = [
+    AttrBuilder<(ins ),
+    [{
+      return Base::get($_ctxt, std::nullopt, nullptr, nullptr, nullptr, nullptr);
+    }]>,
+  ];
+
+  let extraClassDeclaration = [{
+    DeviceComputeKernelConfigAttr withMathFidelity(MathFidelity mathFidelity) const;
+    DeviceComputeKernelConfigAttr withMathApproxMode(bool value) const;
+    DeviceComputeKernelConfigAttr withFp32DestAccEn(bool value) const;
+    DeviceComputeKernelConfigAttr withPackerL1Acc(bool value) const;
+    DeviceComputeKernelConfigAttr withDstFullSyncEn(bool value) const;
+  }];
+
+  let assemblyFormat = "`<` struct(params) `>`";
+}
+
 def TTNN_MeshShapeAttr : TTNN_Mesh2DCoordAttr<"MeshShape", "mesh_shape"> {
   let summary = "TTNN Mesh Shape";
   let description = [{

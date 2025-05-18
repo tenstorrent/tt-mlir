@@ -5,6 +5,7 @@
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/workarounds.h"
+#include <operations/core/compute_kernel/compute_kernel_config.hpp>
 
 namespace tt::runtime::ttnn::operations::utils {
 
@@ -340,6 +341,27 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
   }
 
   return conv2dConfig;
+}
+
+::ttnn::DeviceComputeKernelConfig createDeviceComputeKernelConfig(
+    const ::tt::target::ttnn::DeviceComputeKernelConfig *config) {
+  ::ttnn::WormholeComputeKernelConfig computeKernelConfig;
+
+  if (config->math_fidelity()) {
+    computeKernelConfig.math_fidelity =
+        ::tt::runtime::ttnn::utils::toTTNNMathFidelity(
+            *config->math_fidelity());
+  }
+
+  if (config->math_approx_mode()) {
+    computeKernelConfig.math_approx_mode = *config->math_approx_mode();
+  }
+
+  if (config->dst_full_sync_en()) {
+    computeKernelConfig.dst_full_sync_en = *config->dst_full_sync_en();
+  }
+
+  return computeKernelConfig;
 }
 
 template <typename T>

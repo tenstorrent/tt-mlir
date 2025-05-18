@@ -28,6 +28,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 
+#include "llvm/Support/raw_ostream.h"
 #include <cstdint>
 #include <optional>
 
@@ -1002,7 +1003,8 @@ public:
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(), device,
         inChannelsAttr, outChannelsAttr, batchSizeAttr, inputHeightAttr,
         inputWidthAttr, kernelSizeAttr, *strideAttr, reducedPaddingAttr,
-        *dilationAttr, groupsAttr, nullptr);
+        *dilationAttr, groupsAttr, /*conv2d_config=*/nullptr,
+        /*compute_config=*/nullptr);
 
     return success();
   }
