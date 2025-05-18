@@ -4,23 +4,25 @@ project(ttnn-standalone CXX)
 set(CMAKE_CXX_STANDARD 20 CACHE STRING "C++ standard to conform to")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# set(CMAKE_VERBOSE_MAKEFILE on)
+option(ENABLE_TTNN_COMPILESO "Enable building of TTNNCompileSo" ON)
+option(ENABLE_TTNN_STANDALONE "Enable building of TTNNStandalone" ON)
+option(ENABLE_TTNN_DYLIB "Enable building of dylib" ON)
 
+include(GNUInstallDirs)
 # Installation
 # Add shared library for compile_so
-add_library(TTNNCompileSo SHARED compile_so.cpp)
-set_target_properties(TTNNCompileSo PROPERTIES
-  PUBLIC_HEADER compile_so.hpp
-)
+if(ENABLE_TTNN_COMPILESO)
+  add_library(TTNNCompileSo SHARED compile_so.cpp)
+  set_target_properties(TTNNCompileSo PROPERTIES
+      PUBLIC_HEADER compile_so.hpp
+  )
 
-# Standard CMake installation approach
-include(GNUInstallDirs)
-
-install(
-  TARGETS TTNNCompileSo
-  COMPONENT TTNNStandalone
-  PUBLIC_HEADER DESTINATION include/ttmlir/tools/ttnn-standalone
-)
+  install(
+    TARGETS TTNNCompileSo
+    COMPONENT TTNNStandalone
+    PUBLIC_HEADER DESTINATION include/ttmlir/tools/ttnn-standalone
+  )
+endif()
 
 # TODO (azecevic): This is a workaround for the fact that we expect `ttnn-precompiled.hpp` to be in the same directory as `ci_compile_dylib.py`
 install(
@@ -148,16 +150,18 @@ set(COMPILE_DEFS
 # \__ \| |_| (_| || | | || (_| || (_| || || (_) || | | ||  __/
 # |___/ \__|\__,_||_| |_| \__,_| \__,_||_| \___/ |_| |_| \___|
 
-add_executable(ttnn-standalone ttnn-standalone.cpp)
-set_property(TARGET ttnn-standalone PROPERTY CXX_STANDARD 20)
-set_property(TARGET ttnn-standalone PROPERTY EXCLUDE_FROM_ALL TRUE)
+if (ENABLE_TTNN_STANDALONE)
+  add_executable(ttnn-standalone ttnn-standalone.cpp)
+  set_property(TARGET ttnn-standalone PROPERTY CXX_STANDARD 20)
+  set_property(TARGET ttnn-standalone PROPERTY EXCLUDE_FROM_ALL TRUE)
 
-target_include_directories(ttnn-standalone PRIVATE ${INCLUDE_DIRS})
-target_link_directories(ttnn-standalone PRIVATE ${LINK_DIRS})
-target_link_libraries(ttnn-standalone PRIVATE ${LINK_LIBS})
-target_compile_definitions(ttnn-standalone PRIVATE ${COMPILE_DEFS})
+  target_include_directories(ttnn-standalone PRIVATE ${INCLUDE_DIRS})
+  target_link_directories(ttnn-standalone PRIVATE ${LINK_DIRS})
+  target_link_libraries(ttnn-standalone PRIVATE ${LINK_LIBS})
+  target_compile_definitions(ttnn-standalone PRIVATE ${COMPILE_DEFS})
 
-target_precompile_headers(ttnn-standalone PRIVATE ttnn-precompiled.hpp)
+  target_precompile_headers(ttnn-standalone PRIVATE ttnn-precompiled.hpp)
+endif()
 
 #      _         _  _  _
 #   __| | _   _ | |(_)| |__
@@ -166,17 +170,19 @@ target_precompile_headers(ttnn-standalone PRIVATE ttnn-precompiled.hpp)
 #  \__,_| \__, ||_||_||_.__/
 #         |___/
 
-if(NOT EXISTS "ttnn-dylib.cpp")
-    file(TOUCH "ttnn-dylib.cpp")
+if (ENABLE_TTNN_DYLIB)
+  if(NOT EXISTS "ttnn-dylib.cpp")
+      file(TOUCH "ttnn-dylib.cpp")
+  endif()
+  add_library(ttnn-dylib SHARED ttnn-dylib.cpp)
+  set_property(TARGET ttnn-dylib PROPERTY CXX_STANDARD 20)
+  set_property(TARGET ttnn-dylib PROPERTY EXCLUDE_FROM_ALL TRUE)
+
+  target_include_directories(ttnn-dylib PRIVATE ${INCLUDE_DIRS})
+  target_link_directories(ttnn-dylib PRIVATE ${LINK_DIRS})
+  target_link_libraries(ttnn-dylib PRIVATE ${LINK_LIBS})
+  set_target_properties(ttnn-dylib PROPERTIES PUBLIC_HEADER ttnn-dylib.h)
+  target_compile_options(ttnn-dylib PRIVATE -mavx -mavx2)
+
+  target_precompile_headers(ttnn-dylib PRIVATE ttnn-precompiled.hpp)
 endif()
-add_library(ttnn-dylib SHARED ttnn-dylib.cpp)
-set_property(TARGET ttnn-dylib PROPERTY CXX_STANDARD 20)
-set_property(TARGET ttnn-dylib PROPERTY EXCLUDE_FROM_ALL TRUE)
-
-target_include_directories(ttnn-dylib PRIVATE ${INCLUDE_DIRS})
-target_link_directories(ttnn-dylib PRIVATE ${LINK_DIRS})
-target_link_libraries(ttnn-dylib PRIVATE ${LINK_LIBS})
-set_target_properties(ttnn-dylib PROPERTIES PUBLIC_HEADER ttnn-dylib.h)
-target_compile_options(ttnn-dylib PRIVATE -mavx -mavx2)
-
-target_precompile_headers(ttnn-dylib PRIVATE ttnn-precompiled.hpp)

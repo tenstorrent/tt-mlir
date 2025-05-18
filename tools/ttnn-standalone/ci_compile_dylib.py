@@ -51,6 +51,8 @@ def run_cmake_setup(args):
         standalone_source_dir,
         "-DCMAKE_BUILD_TYPE=Release",
         "-DCMAKE_CXX_COMPILER=clang++",
+        "-DENABLE_TTNN_COMPILESO=OFF",
+        "-DENABLE_TTNN_STANDALONE=OFF",
     ]
 
     if args.metal_src_dir:
