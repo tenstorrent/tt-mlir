@@ -17,6 +17,8 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::ttkernel {
 
@@ -874,7 +876,7 @@ public:
         auto cb = rewriter.create<GetCompileArgValOp>(
             op.getLoc(), getTypeConverter()->convertType(arg.getType()),
             rewriter.getI32IntegerAttr(arg.getArgNumber()));
-        signatureConverter.remapInput(arg.getArgNumber(), cb);
+        signatureConverter.remapInput(arg.getArgNumber(), {cb});
         ctArgSpecVector.push_back(
             rewriter.getAttr<ArgAttr>(ArgType::CBPort, arg.getArgNumber()));
       } else if (mlir::isa<SemaphoreType>(argType)) {

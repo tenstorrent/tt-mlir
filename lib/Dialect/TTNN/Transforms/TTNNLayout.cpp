@@ -657,7 +657,7 @@ public:
       patterns.add<TTNNLayoutHoistedFuncCallRewriter>(&getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
       GreedyRewriteConfig config = GreedyRewriteConfig();
-      config.useTopDownTraversal = true;
+      config.setUseTopDownTraversal(true);
       if (failed(applyPatternsGreedily(getOperation(), patternSet, config))) {
         signalPassFailure();
         return;

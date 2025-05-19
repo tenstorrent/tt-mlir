@@ -87,7 +87,7 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
 
   // An explicit bufferization to memref conversion is sometimes needed to
   // eliminate some nasty bufferization::clone() calls.
-  manager.addPass(mlir::createBufferizationToMemRefPass());
+  manager.addPass(mlir::createConvertBufferizationToMemRefPass());
 
   // This lowers linalg to scf-based loops.
   manager.addPass(mlir::createConvertLinalgToLoopsPass());
@@ -97,7 +97,7 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   manager.addPass(mlir::memref::createExpandStridedMetadataPass());
 
   // These two passes convert scf to LLVM control flow.
-  manager.addPass(mlir::createConvertSCFToCFPass());
+  manager.addPass(mlir::createSCFToControlFlowPass());
   manager.addPass(mlir::createConvertControlFlowToLLVMPass());
   // These passes convert corresponding primitives to their LLVM equivalents.
   manager.addPass(mlir::createArithToLLVMConversionPass());
