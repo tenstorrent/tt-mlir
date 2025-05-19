@@ -11,7 +11,7 @@ namespace tt::runtime::test::ttnn {
 
 void *openSo(std::string_view path);
 void closeSo(void *handle);
-std::vector<Tensor> runSoProgram(void *so, std::string funcName,
+std::vector<Tensor> runSoProgram(void *so, std::string_view funcName,
                                  std::vector<Tensor> inputs, Device device);
 bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs);
 } // namespace tt::runtime::test::ttnn
