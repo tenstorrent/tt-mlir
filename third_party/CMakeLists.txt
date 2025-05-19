@@ -167,6 +167,17 @@ install(
   REGEX "third_party/umd/"
 )
 
+# Install tt-metal tools.
+if (TT_RUNTIME_ENABLE_PERF_TRACE) 
+  install(
+    DIRECTORY
+      ${METAL_BUILD_DIR}/tools
+    DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal
+    COMPONENT SharedLib
+    EXCLUDE_FROM_ALL
+  )
+endif()
+
 # TTNN Standalone install commands
 #
 # Copy .cpmcache libs
