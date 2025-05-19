@@ -299,10 +299,10 @@ mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
 }
 
 mlir::tt::SystemDescAttr
-mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
+mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, StringRef path) {
   // Check if file exists
   assert(!path.empty() && "system desc path must not be empty!");
-  std::ifstream fbb(path, std::ios::binary | std::ios::ate);
+  std::ifstream fbb(path.data(), std::ios::binary | std::ios::ate);
   assert(fbb.good() && "system desc does not exist!");
   std::streampos size = fbb.tellg();
   fbb.seekg(0, std::ios::beg);
