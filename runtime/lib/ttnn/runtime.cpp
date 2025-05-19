@@ -22,9 +22,9 @@
 #include "ttmlir/Target/TTNN/types_generated.h"
 #include "ttmlir/Version.h"
 #include "ttnn/tensor/types.hpp"
+
 #include <memory>
 #include <optional>
-#include <tuple>
 #include <vector>
 
 namespace tt::runtime::ttnn {
@@ -646,15 +646,12 @@ std::string getOpLocInfo(OpContext opContextHandle) {
 
 Tensor getOpOutputTensor(OpContext opContextHandle,
                          CallbackContext programContextHandle) {
-  auto tensorRef = getOpOutputRef(opContextHandle, programContextHandle);
-  if (!tensorRef.has_value()) {
+    std::optional<tt::runtime::TensorRef> tensorRef = getOpOutputRef(opContextHandle, programContextHandle);
+  if (!tensorRef) {
     return createNullTensor();
   }
-  auto tensor = getTensor(programContextHandle, tensorRef.value());
-  if (!tensor.has_value()) {
-    return createNullTensor();
-  }
-  return tensor.value();
+  auto tensor = getTensor(programContextHandle, *tensorRef);
+  return tensor ? *tensor : createNullTensor();
 }
 
 std::optional<tt::runtime::TensorRef>
@@ -892,7 +889,6 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::ConstantOp: {
-    tensorRefs = {opContext.type_as_ConstantOp()->out()};
     tensorRefs = {};
     break;
   }
@@ -1072,6 +1068,7 @@ getOpInputRefs(OpContext opContextHandle,
   for (const auto *ref : tensorRefs) {
     rtTensorRefs.emplace_back(utils::createRuntimeTensorRefFromTTNN(ref));
   }
+
   return rtTensorRefs;
 }
 
@@ -1085,11 +1082,11 @@ std::optional<Tensor> getTensor(CallbackContext programContextHandle,
   const auto &tensorRefPtr =
       &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
 
-  // TODO: check this
   if (!tensorRefPtr) {
     LOG_WARNING("Tensor not found in tensor pool");
     return std::nullopt;
   }
+  // TODO(ndrakulicTT): Check what happens if the tensor is not live
   if (!tensorPool.contains(tensorRefPtr)) {
     LOG_WARNING("Tensor not found in tensor pool");
     return std::nullopt;
