@@ -40,7 +40,7 @@ struct ShardSolverSolution {
 //
 class ShardSolver {
 private:
-  static constexpr size_t kNumBitsetBits = 64;
+  static constexpr size_t kNumBitsetBits = 512;
   using Bitset = std::bitset<kNumBitsetBits>;
   static Bitset kBitsetAll;
   static constexpr Bitset kBitsetNone = Bitset{};
@@ -280,16 +280,28 @@ private:
   bool preprocessFirstOp();
 
   // Performs backend check to see if producer tensor is compatible with
-  // consumer op. Backend may or
-  // may not respect consumer config. Backend returns actual output tensor
-  // layout that is being created for the given producer tensor. This function
-  // will return error if producer and consumer are not compatible. Also, it
-  // will return an error if provided consumer config is not the same as actual
-  // consumer layout. Otherwise, it will return TTNNLayoutAttr with actual
-  // consumer layout.
+  // consumer op. Backend may or may not respect consumer config. Backend
+  // returns actual output tensor layout that is being created for the given
+  // producer tensor. This function will return error if producer and consumer
+  // are not compatible. Also, it will return an error if provided consumer
+  // config is not the same as actual consumer layout. Otherwise, it will return
+  // TTNNLayoutAttr with actual consumer layout.
   llvm::Expected<TTNNLayoutAttr> checkShardCompatible(
       Value producerOperand, const TTNNLayoutAttr &producerLayout,
       Operation *consumerOp, const OpConfig &consumerConfig) const;
+
+  // Helper to check if producer and consumer are compatible for a given
+  // input layout. We try all consumer configs (basically op specific
+  // attributes) without consumer tensor layout. Then we check if backend
+  // returned output layout is found among consumer configs. If so, we return
+  // the index of the consumer config. If backend yielded an error, we return
+  // the error to the callback. Caller provides callback to handle the result or
+  // error.
+  void checkShardCompatibleForInputLayout(
+      const Edge &edge, Operation *op, TTNNLayoutAttr inputLayout,
+      std::vector<OpConfig::OpSpecificAttrs> &consumerOpSpecificAttrSet,
+      const std::vector<OpConfig> &consumerConfigs,
+      std::function<void(llvm::Expected<std::size_t>)> callback);
 
 public:
   ShardSolver(

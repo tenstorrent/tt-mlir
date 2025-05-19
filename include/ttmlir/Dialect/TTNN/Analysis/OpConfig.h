@@ -8,6 +8,7 @@
 #include "OpConfigAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
+#include "llvm/Support/FormatVariadic.h"
 #include <variant>
 
 namespace mlir::tt::ttnn {
@@ -66,5 +67,16 @@ struct OpConfig {
 };
 
 } // namespace mlir::tt::ttnn
+
+// Format provider specialization for OpConfig::OpSpecificAttrs variant
+namespace llvm {
+template <>
+struct format_provider<mlir::tt::ttnn::OpConfig::OpSpecificAttrs> {
+  static void format(const mlir::tt::ttnn::OpConfig::OpSpecificAttrs &variant,
+                     raw_ostream &os, StringRef options) {
+    std::visit([&os](const auto &attr) { os << attr.toString(); }, variant);
+  }
+};
+} // namespace llvm
 
 #endif // TTMLIR_DIALECT_TTNN_ANALYSIS_OPCONFIG_H

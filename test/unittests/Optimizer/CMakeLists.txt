@@ -2,8 +2,8 @@ add_mlir_unittest(OptimizerTests
     TestShardSolver.cpp
     TestOptimizerOverrides.cpp
     TestGreedyL1InterleavedPolicy.cpp
-    TestAllPossibleLayoutsAnalysis.cpp
     TestLegalLayoutAnalysis.cpp
+    TestLegalTensorLayoutAnalysis.cpp
     PARTIAL_SOURCES_INTENDED
 )
 
