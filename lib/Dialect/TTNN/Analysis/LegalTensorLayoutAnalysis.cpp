@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/Analysis/AllPossibleLayoutsAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/LegalTensorLayoutAnalysis.h"
 
 #include "ttmlir/Dialect/TTNN/Analysis/ScalarDataTypeAnalysis.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -215,10 +215,10 @@ static std::vector<TTNNLayoutAttr> generateAllPossibleLayouts(
 }
 
 // ===----------------------------------------------------------------------===//
-// AllPossibleLayoutsAnalysis
+// LegalTensorLayoutAnalysis
 // ===----------------------------------------------------------------------===//
 
-void AllPossibleLayoutsAnalysis::analysisImplementation() {
+void LegalTensorLayoutAnalysis::analysisImplementation() {
   mlir::ModuleOp moduleOp = mlir::cast<mlir::ModuleOp>(op);
   llvm::DenseSet<RankedTensorType> processedTypes;
 
@@ -248,8 +248,7 @@ void AllPossibleLayoutsAnalysis::analysisImplementation() {
   });
 }
 
-void AllPossibleLayoutsAnalysis::processTensorType(
-    RankedTensorType tensorType) {
+void LegalTensorLayoutAnalysis::processTensorType(RankedTensorType tensorType) {
   // Generate all possible layouts for this tensor type
   std::vector<TTNNLayoutAttr> layouts = generateLayouts(tensorType);
 
@@ -272,16 +271,15 @@ void AllPossibleLayoutsAnalysis::processTensorType(
 }
 
 std::vector<TTNNLayoutAttr>
-AllPossibleLayoutsAnalysis::generateLayouts(RankedTensorType tensorType) {
+LegalTensorLayoutAnalysis::generateLayouts(RankedTensorType tensorType) {
 
   std::vector<TTNNLayoutAttr> allLayouts;
 
   // Assert that we have allowedScalarTypes and it's not empty
-  assert(
-      analysisInput.allowedScalarTypes &&
-      "AllPossibleLayoutsAnalysis requires allowedScalarTypes to be non-null");
+  assert(analysisInput.allowedScalarTypes &&
+         "LegalTensorAnalysis requires allowedScalarTypes to be non-null");
   assert(!analysisInput.allowedScalarTypes->empty() &&
-         "AllPossibleLayoutsAnalysis requires at least one scalar type");
+         "LegalTensorAnalysis requires at least one scalar type");
 
   // Generate layouts for each allowed scalar type
   for (Type scalarType : *analysisInput.allowedScalarTypes) {

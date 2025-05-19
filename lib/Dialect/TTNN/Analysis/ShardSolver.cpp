@@ -10,8 +10,6 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
-#include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
@@ -27,12 +25,27 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include "mlir/IR/Attributes.h"
+#include "mlir/IR/Visitors.h"
 #include <utility>
 #include <vector>
 
 namespace mlir::tt::ttnn {
 
 ShardSolver::Bitset ShardSolver::kBitsetAll = ~kBitsetNone;
+
+// todo move to private method
+static DenseSet<Attribute>
+getUniqueOpSpecificAttrs(const std::vector<OpConfig> &configs) {
+  llvm::DenseSet<Attribute> attrSet;
+  for (const OpConfig &config : configs) {
+    if (attrSet.count(config.opSpecificAttr) > 0) {
+      continue;
+    }
+    attrSet.insert(config.opSpecificAttr);
+  }
+  return attrSet;
+}
 
 ShardSolver::ShardSolver(
     const TensorTypeLayoutsMap *tensorTypePossibleLayouts,
@@ -103,18 +116,6 @@ bool ShardSolver::resolveStep() {
     Bitset *consumerBitset = getOrInsertBitset(consumerOp, kBitsetAll);
     const std::vector<OpConfig> &consumerConfigs = getLegalConfigs(consumerOp);
 
-    // For now, we don't change op-specific attributes in this analysis so we
-    // can check that all consumer configs have the same op-specific attribute.
-    for (const OpConfig &config : consumerConfigs) {
-      if (config.opSpecificAttr != consumerConfigs.begin()->opSpecificAttr) {
-        llvm::report_fatal_error("[TTNN Optimizer] All consumer configs must "
-                                 "have the same op-specific attribute");
-      }
-    }
-
-    OpConfig consumerConfigNoLayout = OpConfig(
-        /*outputLayout=*/nullptr, consumerConfigs.begin()->opSpecificAttr);
-
     auto edges = operandOpEdges.find(consumerOp);
     if (edges == operandOpEdges.end()) {
       continue;
@@ -142,8 +143,6 @@ bool ShardSolver::resolveStep() {
       Bitset edgeConsumerBitset = kBitsetNone;
       std::uint64_t producerCount =
           std::min(kNumBitsetBits, std::max(1lu, producerConfigs.size()));
-      std::uint64_t consumerCount =
-          std::min(kNumBitsetBits, std::max(1lu, consumerConfigs.size()));
 
       // reshardOnEdge can only happen if an override exists for the edge. This
       // is because we have only one resolve step per chain in the current
@@ -178,48 +177,34 @@ bool ShardSolver::resolveStep() {
             continue;
           }
 
-          llvm::Expected<TTNNLayoutAttr> shardCompatible =
-              checkShardCompatible(producerOp->getResult(0),
-                                   producerConfigs[producerId].outputLayout,
-                                   consumerOp, consumerConfigNoLayout);
+          llvm::DenseSet<Attribute> consumerOpSpecificAttrs =
+              getUniqueOpSpecificAttrs(consumerConfigs);
 
-          if (shardCompatible) {
-            assert(producerId <=
-                   std::numeric_limits<decltype(Path::producerId)>::max());
-            TTNNLayoutAttr consumerLayout = shardCompatible.get();
+          TTNNLayoutAttr inputLayout = producerConfigs[producerId].outputLayout;
 
-            // Go through all consumer configs and find the one that matches
-            // the consumer layout. This search can be optimized in the future.
-            for (std::size_t consumerId = 0; consumerId < consumerCount;
-                 ++consumerId) {
-
-              if (consumerConfigs[consumerId].outputLayout != consumerLayout) {
-                TTMLIR_TRACE(
-                    ttmlir::LogComponent::Optimizer,
-                    "OpName: {} Generated consumer layout {} does not match "
-                    "backend returned layout {}",
-                    consumerOp->getName(),
-                    consumerConfigs[consumerId].outputLayout, consumerLayout);
-                continue;
-              }
-
-              assert(consumerId <=
-                     std::numeric_limits<decltype(Path::consumerId)>::max());
+          auto checkShardCompatCallback = [&](llvm::Expected<std::size_t> res) {
+            if (res) {
+              std::size_t consumerId = res.get();
               TTMLIR_TRACE(
                   ttmlir::LogComponent::Optimizer,
                   "Backend chose valid consumer layout {}, consumerId {}",
-                  consumerLayout, consumerId);
+                  consumerConfigs[consumerId].outputLayout, consumerId);
+              assert(consumerId <=
+                     std::numeric_limits<decltype(Path::consumerId)>::max());
               paths.push_back(Path(producerId, consumerId));
               edgeProducerBitset.set(producerId);
               edgeConsumerBitset.set(consumerId);
-              break;
+            } else {
+              std::string error = llvm::toString(res.takeError());
+              TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                           "Shard not compatible, error: {}", error);
+              errorCount[error]++;
             }
-          } else {
-            std::string error = llvm::toString(shardCompatible.takeError());
-            TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                         "Shard not compabitle, error: {}", error);
-            errorCount[error]++;
-          }
+          };
+
+          checkShardCompatibleForInputLayout(
+              edge, consumerOp, inputLayout, consumerOpSpecificAttrs,
+              consumerConfigs, checkShardCompatCallback);
         }
       }
       if (paths.empty() || ((*producerBitset & edgeProducerBitset) == 0) ||
@@ -381,6 +366,47 @@ bool ShardSolver::preprocessFirstOp() {
   return insertReshard(shardChainInputEdge);
 }
 
+void ShardSolver::checkShardCompatibleForInputLayout(
+    const Edge &edge, Operation *op, TTNNLayoutAttr inputLayout,
+    llvm::DenseSet<Attribute> &consumerConfigSet,
+    const std::vector<OpConfig> &consumerConfigs,
+    std::function<void(llvm::Expected<std::size_t>)> callback) {
+
+  for (const Attribute &opSpecificAttr : consumerConfigSet) {
+    OpConfig consumerConfigNoLayout = {nullptr, opSpecificAttr};
+    llvm::Expected<TTNNLayoutAttr> shardCompatible =
+        checkShardCompatible(op->getOperand(edge.operandIndex), inputLayout, op,
+                             consumerConfigNoLayout);
+    if (shardCompatible) {
+      TTNNLayoutAttr outputLayout = shardCompatible.get();
+      size_t consumerConfigIdx;
+      for (consumerConfigIdx = 0; consumerConfigIdx < consumerConfigs.size();
+           ++consumerConfigIdx) {
+        if (consumerConfigs[consumerConfigIdx].outputLayout == outputLayout &&
+            consumerConfigs[consumerConfigIdx].opSpecificAttr ==
+                opSpecificAttr) {
+          break;
+        }
+      }
+
+      if (consumerConfigIdx == consumerConfigs.size()) {
+        // Once we enable row-major, this case should not occur, at that point
+        // we can add a fatal error.
+        TTMLIR_TRACE(
+            ttmlir::LogComponent::Optimizer,
+            "Did not find consumer config (layout {}, op-specific attr {}) "
+            "among generated configs",
+            outputLayout, opSpecificAttr);
+        continue;
+      }
+
+      callback(consumerConfigIdx);
+      break;
+    }
+    callback(shardCompatible.takeError());
+  }
+}
+
 bool ShardSolver::insertReshard(const Edge &edge) {
   // Same edge should not be resharded twice!
   assert(memReconfigMap.count(edge) == 0);
@@ -407,74 +433,59 @@ bool ShardSolver::insertReshard(const Edge &edge) {
   // For all legal outputs, check if there is at least one valid input.
   //
   MemReconfigEntry memReconfigEntry;
-  bool validConfigExists = false;
 
-  // Check that all consumer configs have the same op-specific attribute
-  for (const OpConfig &config : consumerConfigs) {
-    if (config.opSpecificAttr != consumerConfigs.begin()->opSpecificAttr) {
-      llvm::report_fatal_error("[TTNN Optimizer] All consumer configs must "
-                               "have the same op-specific attribute");
-    }
-  }
-  OpConfig consumerConfigNoLayout = OpConfig(
-      /*outputLayout=*/nullptr, consumerConfigs.begin()->opSpecificAttr);
+  // Copy consumer configs without layout, but keep only unique op-specific
+  // attrs.
+  llvm::DenseSet<Attribute> consumerConfigSet =
+      getUniqueOpSpecificAttrs(consumerConfigs);
+
+  bool foundSolution = false;
+  auto processShardCompatCallback =
+      [&](llvm::Expected<std::size_t> consumerConfigIdxExp,
+          const TTNNLayoutAttr &inputLayout) {
+        if (consumerConfigIdxExp) {
+          std::size_t consumerConfigIdx = consumerConfigIdxExp.get();
+          consumerBitset->set(consumerConfigIdx);
+
+          if (memReconfigEntry.reshardOutputConfigMap.find(consumerConfigIdx) ==
+              memReconfigEntry.reshardOutputConfigMap.end()) {
+            memReconfigEntry.reshardOutputConfigMap[consumerConfigIdx] =
+                llvm::SmallVector<OpConfig>();
+          }
+
+          TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                       "Resharding found valid config for edge: {}, producer "
+                       "layout: {}, consumer idx: {}",
+                       edge, inputLayout, consumerConfigIdx);
+
+          memReconfigEntry.reshardOutputConfigMap[consumerConfigIdx].push_back(
+              inputLayout);
+          foundSolution = true;
+        } else if (llvm::DebugFlag) {
+          std::string errorMsg = ttmlir::utils::firstNLines(
+              llvm::toString(consumerConfigIdxExp.takeError()), 4);
+          errorCount[errorMsg].push_back(inputLayout);
+        } else {
+          llvm::consumeError(consumerConfigIdxExp.takeError());
+        }
+      };
 
   for (const TTNNLayoutAttr &inputLayout : inputLayouts) {
-    llvm::Expected<TTNNLayoutAttr> shardCompatible =
-        checkShardCompatible(consumerOp->getOperand(edge.operandIndex),
-                             inputLayout, consumerOp, consumerConfigNoLayout);
+    auto inputLayoutBoundCB = std::bind(processShardCompatCallback,
+                                        std::placeholders::_1, inputLayout);
 
-    if (shardCompatible) {
-      TTNNLayoutAttr consumerLayout = shardCompatible.get();
+    checkShardCompatibleForInputLayout(edge, consumerOp, inputLayout,
+                                       consumerConfigSet, consumerConfigs,
+                                       inputLayoutBoundCB);
 
-      size_t consumerConfigIdx;
-      for (consumerConfigIdx = 0; consumerConfigIdx < consumerConfigs.size();
-           ++consumerConfigIdx) {
-        if (consumerConfigs[consumerConfigIdx].outputLayout == consumerLayout) {
-          break;
-        }
-      }
-
-      if (consumerConfigIdx == consumerConfigs.size()) {
-        // Once we enable row-major, this case should not occur, at that point
-        // we can add a fatal error.
-        TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                     "Did not find consumer config {} among generated configs",
-                     consumerLayout);
-        continue;
-      }
-
-      consumerBitset->set(consumerConfigIdx);
-      validConfigExists = true;
-
-      if (memReconfigEntry.reshardOutputConfigMap.find(consumerConfigIdx) ==
-          memReconfigEntry.reshardOutputConfigMap.end()) {
-        memReconfigEntry.reshardOutputConfigMap[consumerConfigIdx] =
-            llvm::SmallVector<OpConfig>();
-      }
-      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                   "Resharding found valid config for edge: {}, producer "
-                   "layout: {}, consumer idx: {}",
-                   edge, inputLayout, consumerConfigIdx);
-
-      memReconfigEntry.reshardOutputConfigMap[consumerConfigIdx].push_back(
-          inputLayout);
-
-      // Breaking as soon as we find one valid config. In future, we might
-      // want to keep all valid configs for optimal resharding
+    if (foundSolution) {
+      // Breaking as soon as we find one valid layout. In future, we might
+      // want to keep all valid configs for optimal resharding.
       break;
-    }
-
-    if (llvm::DebugFlag) {
-      std::string errorMsg = ttmlir::utils::firstNLines(
-          llvm::toString(shardCompatible.takeError()), 4);
-      errorCount[errorMsg].push_back(inputLayout);
-    } else {
-      llvm::consumeError(shardCompatible.takeError());
     }
   }
 
-  if (!validConfigExists) {
+  if (memReconfigEntry.reshardOutputConfigMap.empty()) {
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                  "Resharding failed for edge: {}", edge);
     for ([[maybe_unused]] auto &layout : inputLayouts) {

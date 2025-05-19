@@ -2,27 +2,33 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/Analysis/LegalLayoutAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/LegalOpLayoutAnalysis.h"
 
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/Analysis/Conv2dConfigSearchSpace.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 #include "ttmlir/Support/Logger.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/ErrorHandling.h"
 
 #include <algorithm>
+#include <cstdint>
+#include <mlir/Support/LLVM.h>
+#include <optional>
 
 namespace mlir::tt::ttnn {
 
-bool cantChangeOutputLayout(Operation *op) {
+static bool cantChangeOutputLayout(Operation *op) {
   // Check if OP belongs to TTNN dialect.
-  //
   if (!isa<TTNNDialect>(op->getDialect())) {
     return true;
   }
@@ -38,127 +44,7 @@ bool cantChangeOutputLayout(Operation *op) {
   return false;
 }
 
-void applyConv2dConfigOverrides(ttnn::Conv2dOp op,
-                                const Conv2dConfigOverrideParams &overrides,
-                                std::vector<OpConfig> &analysisResult) {
-  // Apply conv2d config overrides to all legal (layout) configurations of
-  // current op.
-  // TODO(vkovacevic): Currently conv2d config overrides are applied without any
-  // analysis, but will need to go through analysis in the future to check if
-  // they are valid.
-  //
-
-  // vkovacevic: This is needed to get through a tt-metal assert in
-  // prepare_conv2d_weights.cpp where `weight_tensor_.dtype() ==
-  // weights_bias_dtype`.
-  //
-  DataType dtype = elementTypeToDataType(
-      mlir::cast<RankedTensorType>(op->getOperand(0).getType())
-          .getElementType());
-  DataType weightsDtype = elementTypeToDataType(
-      mlir::cast<RankedTensorType>(op->getOperand(1).getType())
-          .getElementType());
-
-  // If conv2d config is not set get default conv2d config.
-  Conv2dConfigAttr conv2dConfigAttr = op.getConv2dConfigAttr();
-  if (!conv2dConfigAttr) {
-    conv2dConfigAttr = Conv2dConfigAttr::get(op.getContext());
-  }
-
-  conv2dConfigAttr = conv2dConfigAttr.withDtype(dtype);
-
-  conv2dConfigAttr = conv2dConfigAttr.withWeightsDtype(weightsDtype);
-
-  if (overrides.activation.has_value()) {
-    conv2dConfigAttr = conv2dConfigAttr.withActivation(*overrides.activation);
-  }
-
-  if (overrides.deallocateActivation.has_value()) {
-    conv2dConfigAttr = conv2dConfigAttr.withDeallocateActivation(
-        *overrides.deallocateActivation);
-  }
-
-  if (overrides.reallocateHaloOutput.has_value()) {
-    conv2dConfigAttr = conv2dConfigAttr.withReallocateHaloOutput(
-        *overrides.reallocateHaloOutput);
-  }
-
-  if (overrides.actBlockHOverride.has_value()) {
-    conv2dConfigAttr =
-        conv2dConfigAttr.withActBlockHOverride(*overrides.actBlockHOverride);
-  }
-
-  if (overrides.actBlockWDiv.has_value()) {
-    conv2dConfigAttr =
-        conv2dConfigAttr.withActBlockWDiv(*overrides.actBlockWDiv);
-  }
-
-  if (overrides.reshardIfNotOptimal.has_value()) {
-    conv2dConfigAttr = conv2dConfigAttr.withReshardIfNotOptimal(
-        *overrides.reshardIfNotOptimal);
-  }
-
-  if (overrides.overrideShardingConfig.has_value()) {
-    conv2dConfigAttr = conv2dConfigAttr.withOverrideShardingConfig(
-        *overrides.overrideShardingConfig);
-  }
-
-  if (overrides.shardLayout.has_value()) {
-    conv2dConfigAttr = conv2dConfigAttr.withShardLayout(*overrides.shardLayout);
-  }
-
-  if (overrides.coreGrid.has_value()) {
-    conv2dConfigAttr = conv2dConfigAttr.withCoreGrid(*overrides.coreGrid);
-  }
-
-  if (overrides.transposeShards.has_value()) {
-    conv2dConfigAttr =
-        conv2dConfigAttr.withTransposeShards(*overrides.transposeShards);
-  }
-
-  if (overrides.outputLayout.has_value()) {
-    conv2dConfigAttr =
-        conv2dConfigAttr.withOutputLayout(*overrides.outputLayout);
-  }
-
-  if (overrides.preprocessWeightsOnDevice.has_value()) {
-    conv2dConfigAttr = conv2dConfigAttr.withPreprocessWeightsOnDevice(
-        *overrides.preprocessWeightsOnDevice);
-  }
-
-  if (overrides.alwaysPreprocessWeights.has_value()) {
-    conv2dConfigAttr = conv2dConfigAttr.withAlwaysPreprocessWeights(
-        *overrides.alwaysPreprocessWeights);
-  }
-
-  if (overrides.enableActDoubleBuffer.has_value()) {
-    conv2dConfigAttr = conv2dConfigAttr.withEnableActDoubleBuffer(
-        *overrides.enableActDoubleBuffer);
-  }
-
-  if (overrides.enableWeightsDoubleBuffer.has_value()) {
-    conv2dConfigAttr = conv2dConfigAttr.withEnableWeightsDoubleBuffer(
-        *overrides.enableWeightsDoubleBuffer);
-  }
-
-  if (overrides.enableSplitReader.has_value()) {
-    conv2dConfigAttr =
-        conv2dConfigAttr.withEnableSplitReader(*overrides.enableSplitReader);
-  }
-
-  if (overrides.enableSubblockPadding.has_value()) {
-    conv2dConfigAttr = conv2dConfigAttr.withEnableSubblockPadding(
-        *overrides.enableSubblockPadding);
-  }
-
-  for (auto &opConfig : analysisResult) {
-    assert(!opConfig.opSpecificAttr &&
-           "OpConfig should not have a config set before applying overrides");
-    opConfig.opSpecificAttr = conv2dConfigAttr;
-  }
-}
-
-bool LegalLayoutAnalysis::applyOverrides() {
+bool LegalOpLayoutAnalysis::applyOverrides() {
   // Lookup layout overrides based on location information for current
   // operation.
   //
@@ -206,27 +92,14 @@ bool LegalLayoutAnalysis::applyOverrides() {
     elementType = TileType::get(elementType);
   }
 
-  analysisResult.push_back(TTNNLayoutAttr::get(
+  TTNNLayoutAttr newLayout = TTNNLayoutAttr::get(
       op->getContext(), tensorShape, elementType,
       layoutOverride.bufferType.value(), grid,
       TensorMemoryLayoutAttr::get(op->getContext(),
-                                  layoutOverride.tensorMemoryLayout.value())));
+                                  layoutOverride.tensorMemoryLayout.value()));
 
-  // Apply conv2d config overrides.
-  // If they do not exist, or they do not exist for a specific conv2d op, set
-  // conv2d config with default values.
-  //
-  if (auto convOp = mlir::dyn_cast<ttnn::Conv2dOp>(op)) {
-    Conv2dConfigOverrideParams conv2dConfigOverrides;
-    if (analysisInput.conv2dConfigOverrides) {
-      auto overrideConv2dIt =
-          analysisInput.conv2dConfigOverrides->find(opLocName);
-      if (overrideConv2dIt != analysisInput.conv2dConfigOverrides->end()) {
-        conv2dConfigOverrides = overrideConv2dIt->getValue();
-      }
-    }
-    applyConv2dConfigOverrides(convOp, conv2dConfigOverrides, analysisResult);
-  }
+  analysisResult.push_back({newLayout, nullptr});
+
   return true;
 }
 
@@ -263,32 +136,8 @@ bool incompatibleWithOverride(
   return false;
 }
 
-void LegalLayoutAnalysis::analysisImplementation() {
-  // Skip operations that don't have output tensors.
-  if (op->getNumResults() == 0) {
-    return;
-  }
-
-  if (!isa<RankedTensorType>(op->getResult(0).getType())) {
-    return;
-  }
-
-  if (llvm::isa<ttnn::EmptyOp>(op)) {
-    return;
-  }
-
-  // Get output tensor type.
-  RankedTensorType tensorType =
-      mlir::cast<RankedTensorType>(op->getResult(0).getType());
-  TTNNLayoutAttr layout = mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
-
-  // Return existing layout if it is not possible to change it.
-  if (cantChangeOutputLayout(op)) {
-    analysisResult.push_back(layout);
-    return;
-  }
-
-  Type scalarElementType = layout.getScalarElementType();
+void LegalOpLayoutAnalysis::fillTTNNLayoutAttrs(TTNNLayoutAttr baseLayout) {
+  Type scalarElementType = baseLayout.getScalarElementType();
 
   std::optional<OutputLayoutOverrideParams> override;
 
@@ -408,29 +257,39 @@ void LegalLayoutAnalysis::analysisImplementation() {
                                         shouldRemoveLayout),
                          analysisResult.end());
   }
+}
 
-  // Apply conv2d config overrides.
-  // If they do not exist, or they do not exist for a specific conv2d op, set
-  // conv2d config with default values.
-  //
-  if (auto opLoc = mlir::dyn_cast<NameLoc>(op->getLoc())) {
-    StringRef opLocName = opLoc.getName().strref();
-    if (auto convOp = mlir::dyn_cast<ttnn::Conv2dOp>(op)) {
-      Conv2dConfigOverrideParams conv2dConfigOverrides;
-      if (analysisInput.conv2dConfigOverrides) {
-        auto overrideConv2dIt =
-            analysisInput.conv2dConfigOverrides->find(opLocName);
-        if (overrideConv2dIt != analysisInput.conv2dConfigOverrides->end()) {
-          conv2dConfigOverrides = overrideConv2dIt->getValue();
-        }
-      }
-      applyConv2dConfigOverrides(convOp, conv2dConfigOverrides, analysisResult);
-    }
+void LegalOpLayoutAnalysis::analysisImplementation() {
+  // Skip operations that don't have output tensors.
+  if (op->getNumResults() == 0) {
+    return;
   }
+
+  if (!isa<RankedTensorType>(op->getResult(0).getType())) {
+    return;
+  }
+
+  if (llvm::isa<ttnn::EmptyOp>(op)) {
+    return;
+  }
+
+  // Get output tensor type.
+  RankedTensorType tensorType =
+      mlir::cast<RankedTensorType>(op->getResult(0).getType());
+  TTNNLayoutAttr layout = mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
+
+  // Return existing layout if it is not possible to change it.
+  if (cantChangeOutputLayout(op)) {
+    analysisResult.push_back(layout);
+    return;
+  }
+
+  fillTTNNLayoutAttrs(layout);
 
   if (analysisResult.empty()) {
-    op->emitError("No legal layout found for the operation.");
-    assert(false && "At least one legal layout must be found.");
+    op->emitError("No legal layout found for the operation");
+    llvm::llvm_unreachable_internal("No legal layout found for the operation.");
   }
 }
+
 } // namespace mlir::tt::ttnn

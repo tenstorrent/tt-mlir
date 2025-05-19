@@ -2,54 +2,53 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_ALLPOSSIBLELAYOUTSANALYSIS_H
-#define TTMLIR_DIALECT_TTNN_ANALYSIS_ALLPOSSIBLELAYOUTSANALYSIS_H
+#ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_LEGALTENSORLAYOUTANALYSIS_H
+#define TTMLIR_DIALECT_TTNN_ANALYSIS_LEGALTENSORLAYOUTANALYSIS_H
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TTNNAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
-#include "ttmlir/Support/Logger.h"
 
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 
 namespace mlir::tt::ttnn {
 
-struct AllPossibleLayoutsAnalysisInput {
+struct LegalTensorLayoutAnalysisInput {
   GridAttr maxGrid;
   llvm::DenseSet<Type> *allowedScalarTypes;
   bool rowMajorAllowed;
 
-  AllPossibleLayoutsAnalysisInput()
+  LegalTensorLayoutAnalysisInput()
       : maxGrid(nullptr), allowedScalarTypes(nullptr), rowMajorAllowed(false) {}
 
-  AllPossibleLayoutsAnalysisInput(GridAttr maxGrid,
-                                  llvm::DenseSet<Type> *allowedScalarTypes,
-                                  bool rowMajorAllowed)
+  LegalTensorLayoutAnalysisInput(GridAttr maxGrid,
+                                 llvm::DenseSet<Type> *allowedScalarTypes,
+                                 bool rowMajorAllowed)
       : maxGrid(maxGrid), allowedScalarTypes(allowedScalarTypes),
         rowMajorAllowed(rowMajorAllowed) {}
 
-  bool operator==(const AllPossibleLayoutsAnalysisInput &rhs) const {
+  bool operator==(const LegalTensorLayoutAnalysisInput &rhs) const {
     return maxGrid == rhs.maxGrid &&
-           allowedScalarTypes == rhs.allowedScalarTypes;
+           allowedScalarTypes == rhs.allowedScalarTypes &&
+           rowMajorAllowed == rhs.rowMajorAllowed;
   }
 
-  bool operator!=(const AllPossibleLayoutsAnalysisInput &rhs) const {
+  bool operator!=(const LegalTensorLayoutAnalysisInput &rhs) const {
     return !(*this == rhs);
   }
 };
 
-class AllPossibleLayoutsAnalysis
-    : public TTNNAnalysis<AllPossibleLayoutsAnalysisInput,
+// This analysis generates all possible layouts for all the ranked tensors in
+// the graph under the given module op.
+class LegalTensorLayoutAnalysis
+    : public TTNNAnalysis<LegalTensorLayoutAnalysisInput,
                           TensorTypeLayoutsMap> {
 public:
-  using TTNNAnalysis<AllPossibleLayoutsAnalysisInput,
+  using TTNNAnalysis<LegalTensorLayoutAnalysisInput,
                      TensorTypeLayoutsMap>::TTNNAnalysis;
 
-  AllPossibleLayoutsAnalysis(Operation *op) : TTNNAnalysis(op) {}
+  LegalTensorLayoutAnalysis(Operation *op) : TTNNAnalysis(op) {}
 
 private:
   // Main analysis implementation
@@ -67,4 +66,4 @@ private:
 
 } // namespace mlir::tt::ttnn
 
-#endif // TTMLIR_DIALECT_TTNN_ANALYSIS_ALLPOSSIBLELAYOUTSANALYSIS_H
+#endif // TTMLIR_DIALECT_TTNN_ANALYSIS_LEGALTENSORLAYOUTANALYSIS_H
