@@ -19,7 +19,28 @@ def pseudo_golden_all_gather(
     return output_tensor
 
 
-@pytest.mark.parametrize("shape", [(1, 32, 128, 128)])
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (1, 32, 128, 128),
+        (1, 32, 120, 128),
+        (1, 32, 60, 128),
+        (1, 32, 30, 128),
+        (1, 32, 2, 128),
+        pytest.param(
+            (1, 32, 128, 120), marks=pytest.mark.fails_golden
+        ),  # https://github.com/tenstorrent/tt-metal/issues/21964
+        pytest.param((1, 32, 120, 120), marks=pytest.mark.fails_golden),
+        pytest.param((1, 32, 128, 60), marks=pytest.mark.fails_golden),
+        pytest.param((1, 32, 60, 60), marks=pytest.mark.fails_golden),
+        pytest.param((1, 32, 128, 30), marks=pytest.mark.fails_golden),
+        pytest.param((1, 32, 30, 30), marks=pytest.mark.fails_golden),
+        pytest.param((1, 32, 128, 2), marks=pytest.mark.fails_golden),
+        pytest.param((1, 32, 2, 2), marks=pytest.mark.fails_golden),
+        pytest.param((1, 1, 1, 2), marks=pytest.mark.fails_golden),
+        pytest.param((1, 1, 10, 10), marks=pytest.mark.fails_golden),
+    ],
+)
 @pytest.mark.parametrize("mesh_shape", [(1, 2)])
 def test_all_gather(shape: Shape, mesh_shape: Tuple[int, int], request):
     def all_gather(in0: Operand, builder: TTIRBuilder):
@@ -48,7 +69,12 @@ def test_all_gather(shape: Shape, mesh_shape: Tuple[int, int], request):
         )
 
     compile_to_flatbuffer(
-        all_gather, [shape], mesh_shape=mesh_shape, test_base=request.node.name
+        all_gather,
+        [shape],
+        mesh_shape=mesh_shape,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -58,7 +84,29 @@ def pseudo_golden_all_reduce(input_tensor: torch.Tensor):
     return output_tensor
 
 
-@pytest.mark.parametrize("shape", [(1, 1, 128, 512)])
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (1, 1, 128, 512),
+        (1, 1, 130, 512),
+        (1, 1, 126, 512),
+        (1, 1, 128, 508),
+        (1, 1, 126, 508),
+        (1, 1, 130, 508),
+        (1, 1, 32, 2),
+        pytest.param(
+            (1, 1, 1, 2), marks=pytest.mark.fails_golden
+        ),  # https://github.com/tenstorrent/tt-metal/issues/21964
+        pytest.param(
+            (1, 1, 128, 516), marks=pytest.mark.run_error
+        ),  # https://github.com/tenstorrent/tt-metal/issues/21987
+        pytest.param((1, 1, 128, 516), marks=pytest.mark.run_error),
+        pytest.param((1, 1, 126, 516), marks=pytest.mark.run_error),
+        pytest.param((1, 1, 130, 516), marks=pytest.mark.run_error),
+        pytest.param((1, 1, 32, 4), marks=pytest.mark.run_error),
+        pytest.param((1, 1, 32, 8), marks=pytest.mark.run_error),
+    ],
+)
 @pytest.mark.parametrize("mesh_shape", [(1, 2)])
 def test_all_reduce(shape: Shape, mesh_shape: Tuple[int, int], request):
     def all_reduce(in0: Operand, builder: TTIRBuilder):
@@ -87,7 +135,13 @@ def test_all_reduce(shape: Shape, mesh_shape: Tuple[int, int], request):
         )
 
     compile_to_flatbuffer(
-        all_reduce, [shape], mesh_shape=mesh_shape, test_base=request.node.name
+        all_reduce,
+        [shape],
+        mesh_shape=mesh_shape,
+        test_base=request.node.name,
+        module_dump=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -100,7 +154,31 @@ def pseudo_golden_reduce_scatter(
     return output_tensor
 
 
-@pytest.mark.parametrize("shape", [(1, 1, 8192, 512)])
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (1, 1, 128, 512),
+        (1, 1, 128, 256),
+        (1, 1, 128, 128),
+        (1, 1, 127, 512),
+        (1, 1, 126, 512),
+        (1, 1, 129, 512),
+        (1, 1, 130, 512),
+        pytest.param(
+            (1, 1, 128, 508), marks=pytest.mark.fails_golden
+        ),  # ToDo: Analyze why this fails
+        pytest.param(
+            (1, 1, 128, 64), marks=pytest.mark.run_error
+        ),  # https://github.com/tenstorrent/tt-metal/issues/21987
+        pytest.param((1, 1, 128, 516), marks=pytest.mark.run_error),
+        pytest.param(
+            (1, 1, 64, 128), marks=pytest.mark.run_error
+        ),  # hangs # https://github.com/tenstorrent/tt-metal/issues/21987
+        pytest.param(
+            (1, 1, 32, 128), marks=pytest.mark.run_error
+        ),  # hangs # https://github.com/tenstorrent/tt-metal/issues/21987
+    ],
+)
 @pytest.mark.parametrize("mesh_shape", [(1, 2)])
 def test_reduce_scatter(shape: Shape, mesh_shape: Tuple[int, int], request):
     def reduce_scatter(in0: Operand, builder: TTIRBuilder):
@@ -130,7 +208,12 @@ def test_reduce_scatter(shape: Shape, mesh_shape: Tuple[int, int], request):
         )
 
     compile_to_flatbuffer(
-        reduce_scatter, [shape], mesh_shape=mesh_shape, test_base=request.node.name
+        reduce_scatter,
+        [shape],
+        mesh_shape=mesh_shape,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -146,7 +229,17 @@ def pseudo_golden_collective_permute(
     return result_tensor
 
 
-@pytest.mark.parametrize("shape", [(1, 1, 128, 1024)])
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (1, 1, 128, 1024),
+        (1, 1, 128, 512),
+        (1, 1, 64, 512),
+        (1, 1, 32, 64),
+        (1, 1, 30, 60),
+        (1, 1, 1, 2),
+    ],
+)
 @pytest.mark.parametrize("mesh_shape", [(1, 2)])
 def test_collective_permute(shape: Shape, mesh_shape: Tuple[int, int], request):
     def collective_permute(in0: Operand, builder: TTIRBuilder):
@@ -174,11 +267,29 @@ def test_collective_permute(shape: Shape, mesh_shape: Tuple[int, int], request):
         )
 
     compile_to_flatbuffer(
-        collective_permute, [shape], mesh_shape=mesh_shape, test_base=request.node.name
+        collective_permute,
+        [shape],
+        mesh_shape=mesh_shape,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
-@pytest.mark.parametrize("shapes", [[(2048, 196), (196, 4096)]])
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [(2048, 196), (196, 4096)],
+        [(2046, 196), (196, 4094)],
+        [(100, 196), (196, 320)],
+        [(100, 194), (194, 320)],
+        [(98, 196), (196, 318)],
+        pytest.param(
+            [(2050, 196), (196, 4098)], marks=pytest.mark.run_error
+        ),  # https://github.com/tenstorrent/tt-metal/issues/21987
+        pytest.param([(10, 4), (4, 20)], marks=pytest.mark.run_error),
+    ],
+)
 @pytest.mark.parametrize("mesh_shape", [(1, 2)])
 def test_matmul_1x2(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
     def matmul_1x2(in0: Operand, in1: Operand, builder: TTIRBuilder):
@@ -216,11 +327,37 @@ def test_matmul_1x2(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
         )
 
     compile_to_flatbuffer(
-        matmul_1x2, shapes, mesh_shape=mesh_shape, test_base=request.node.name
+        matmul_1x2,
+        shapes,
+        mesh_shape=mesh_shape,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
-@pytest.mark.parametrize("shape", [(1, 256, 64, 256)])
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (1, 256, 64, 256),
+        (1, 32, 32, 64),
+        (1, 32, 32, 62),
+        (1, 32, 32, 66),
+        (1, 32, 32, 32),
+        (1, 32, 32, 30),
+        (1, 32, 32, 34),
+        (1, 32, 31, 32),
+        (1, 32, 30, 32),
+        (1, 1, 1, 2),
+        (1, 1, 1, 4),
+        (1, 1, 1, 6),
+        (1, 1, 1, 8),
+        (1, 1, 3, 2),
+        (1, 1, 3, 4),
+        (1, 1, 3, 6),
+        (1, 1, 3, 8),
+    ],
+)
 @pytest.mark.parametrize("mesh_shape", [(1, 2)])
 def test_neg_1x2_dim_3(shape: Shape, mesh_shape: Tuple[int, int], request):
     def neg_1x2_dim_3(in0: Operand, builder: TTIRBuilder):
@@ -249,10 +386,33 @@ def test_neg_1x2_dim_3(shape: Shape, mesh_shape: Tuple[int, int], request):
         [shape],
         mesh_shape=mesh_shape,
         test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
-@pytest.mark.parametrize("shape", [(1, 256, 64, 256)])
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (1, 256, 64, 256),
+        (1, 64, 32, 32),
+        (1, 62, 32, 32),
+        (1, 66, 32, 32),
+        (1, 32, 32, 32),
+        (1, 30, 32, 32),
+        (1, 34, 32, 32),
+        (1, 32, 31, 32),
+        (1, 32, 30, 32),
+        (1, 2, 1, 1),
+        (1, 4, 1, 1),
+        (1, 6, 1, 1),
+        (1, 8, 1, 1),
+        (1, 2, 3, 1),
+        (1, 4, 3, 1),
+        (1, 6, 3, 1),
+        (1, 8, 3, 1),
+    ],
+)
 @pytest.mark.parametrize("mesh_shape", [(1, 2)])
 def test_neg_1x2_dim_1(shape: Shape, mesh_shape: Tuple[int, int], request):
     def neg_1x2_dim_1(in0: Operand, builder: TTIRBuilder):
@@ -281,10 +441,28 @@ def test_neg_1x2_dim_1(shape: Shape, mesh_shape: Tuple[int, int], request):
         [shape],
         mesh_shape=mesh_shape,
         test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
-@pytest.mark.parametrize("shapes", [[(512, 1024), (512, 1024)]])
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [(512, 1024), (512, 1024)],
+        [(512, 1022), (512, 1022)],
+        [(512, 1020), (512, 1020)],
+        [(512, 1026), (512, 1026)],
+        [(512, 1028), (512, 1028)],
+        [(511, 1024), (511, 1024)],
+        [(510, 1024), (510, 1024)],
+        [(513, 1024), (513, 1024)],
+        [(514, 1024), (514, 1024)],
+        [(1, 2), (1, 2)],
+        [(2, 2), (2, 2)],
+        [(3, 6), (3, 6)],
+    ],
+)
 @pytest.mark.parametrize("mesh_shape", [(1, 2)])
 def test_eltwise_multidevice(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
     def eltwise_multidevice(in0: Operand, in1: Operand, builder: TTIRBuilder):
@@ -317,5 +495,10 @@ def test_eltwise_multidevice(shapes: List[Shape], mesh_shape: Tuple[int, int], r
         )
 
     compile_to_flatbuffer(
-        eltwise_multidevice, shapes, mesh_shape=mesh_shape, test_base=request.node.name
+        eltwise_multidevice,
+        shapes,
+        mesh_shape=mesh_shape,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
