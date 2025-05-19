@@ -22,10 +22,11 @@ set(TTMLIR_RUNTIME_TEST_TTNN_PUBLIC_HEADERS
   "${PROJECT_SOURCE_DIR}/runtime/include/tt/runtime/test/ttnn/dylib.h"
 )
 set_target_properties(TTRuntimeTTNNTestLib PROPERTIES PUBLIC_HEADER "${TTMLIR_RUNTIME_TEST_TTNN_PUBLIC_HEADERS}")
+include(GNUInstallDirs)
 install(TARGETS TTRuntimeTTNNTestLib
+  COMPONENT TTNNStandalone
   PUBLIC_HEADER
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/tt/runtime/test
-    COMPONENT TTNNStandalone
 )
 
 add_subdirectory(gtest)
