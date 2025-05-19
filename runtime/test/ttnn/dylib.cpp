@@ -11,6 +11,7 @@
 #include "tt/runtime/utils.h"
 
 #include <dlfcn.h>
+#include <string>
 
 namespace tt::runtime::test::ttnn {
 
@@ -18,6 +19,22 @@ static constexpr const char *POTENTIAL_MANGLING_ADDITIONS[] = {
     "",
     "PNS1_11distributed10MeshDeviceE",
 };
+
+static std::string getMangledName(std::string_view funcName,
+                                  std::string_view suffix) {
+  std::string mangledName = "_Z";
+  // If the model function name is `main`, we need to prepend it with `_`, as
+  // the `main` has a special semantic in C/C++.
+  if (funcName == "main") {
+    mangledName += "5_main";
+  } else {
+    mangledName += std::to_string(funcName.size());
+    mangledName += funcName;
+  }
+  mangledName += "St6vectorIN2tt8tt_metal6TensorESaIS2_EE";
+  mangledName += suffix;
+  return mangledName;
+}
 
 void *openSo(std::string path) {
   LOG_ASSERT(getCurrentRuntime() == DeviceRuntime::TTNN);
@@ -41,7 +58,7 @@ void closeSo(void *handle) {
 }
 
 std::vector<::tt::runtime::Tensor>
-runSoProgram(void *so, std::string func_name,
+runSoProgram(void *so, std::string funcName,
              std::vector<::tt::runtime::Tensor> inputs, Device device) {
   LOG_ASSERT(getCurrentRuntime() == DeviceRuntime::TTNN);
 
@@ -77,7 +94,7 @@ runSoProgram(void *so, std::string func_name,
   void *symbol;
   std::string mangledName;
   for (const char *addition : POTENTIAL_MANGLING_ADDITIONS) {
-    mangledName = func_name + addition;
+    mangledName = getMangledName(funcName, addition);
     symbol = dlsym(so, mangledName.c_str());
     dlsym_error = dlerror();
     if (!dlsym_error) {
