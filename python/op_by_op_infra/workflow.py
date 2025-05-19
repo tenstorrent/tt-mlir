@@ -9,9 +9,9 @@ It is meant to simplify and abstract away all complexities of the infra.
 
 from typing import List, Optional
 
-import ttmlir.workflow_internal as workflow_internal
 from ttmlir.ir import Module
 
+from . import workflow_internal
 from .pydantic_models import OpTest
 
 
