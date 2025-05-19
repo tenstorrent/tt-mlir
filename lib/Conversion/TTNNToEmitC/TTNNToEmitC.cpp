@@ -850,9 +850,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit<int64_t>(srcOp.getAllDimensions()
-                                  ? std::nullopt
-                                  : std::optional<int64_t>(srcOp.getDimArg())),
+        emitter.emit(srcOp.getDimArg()),
         emitter.emit(srcOp.getKeepDim()),
         emitter.emit(srcOp.getMemoryConfig()) |
             emitter.getMemoryConfig(srcOp.getResult()),
@@ -1464,6 +1462,45 @@ public:
 };
 } // namespace
 
+// FullOp conversion pattern
+//
+namespace {
+class FullOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::FullOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::ttnn::FullOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::FullOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::FullOp> emitter(srcOp, adaptor,
+                                                              rewriter);
+
+    auto type = srcOp.getType();
+    auto layout = mlir::cast<tt::ttnn::TTNNLayoutAttr>(type.getEncoding());
+    auto shapeAttr =
+        tt::ttnn::ShapeAttr::get(srcOp.getContext(), type.getShape());
+    auto dtype = layout.getDataType();
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(shapeAttr),
+        emitter.emit(srcOp.getFillValue()),
+        emitter.emit(dtype),
+        emitter.emit(layout.getLayout()),
+        emitter.emit<::ttnn::operations::creation::detail::OptionalMeshDevice>(
+            srcOp.getDevice()),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // DeallocateOp conversion pattern
 //
 namespace {
@@ -1958,7 +1995,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<EmptyOpConversionPattern,
                NamedFullOpConversionPattern<tt::ttnn::ZerosOp>,
                NamedFullOpConversionPattern<tt::ttnn::OnesOp>,
-               DefaultOpConversionPattern<tt::ttnn::FullOp>,
+               FullOpConversionPattern,
                DefaultOpConversionPattern<tt::ttnn::ArangeOp>,
                DefaultOpConversionPattern<tt::ttnn::ConstantOp>>(typeConverter, ctx);
   // clang-format on
