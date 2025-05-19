@@ -66,6 +66,10 @@ def update_device_tensor(program_context, tensor_ref, dst_tensor, src_tensor):
     update_tensor(program_context, tensor_ref, tensor)
 
 
+in_counter = 0
+out_counter = 0
+
+
 def test_tensor_manipulation_apis():
     check_in_tensors = {
         0: torch.ones([10, 10]),
@@ -125,5 +129,4 @@ def test_tensor_manipulation_apis():
 
     callback_env_pre = DebugHooks.get(preop, postop)
     result_code, results = rt_api()
-    print("result_code: ", result_code)
-    print("results: ", results)
+    assert result_code == 0, "Test failed"
