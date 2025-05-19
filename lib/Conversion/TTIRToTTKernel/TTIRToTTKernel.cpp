@@ -173,9 +173,9 @@ static void lowerLoadToCopyTile(memref::LoadOp op, bool cbIdxAsDstIdx,
       condition =
           rewriter
               .create<arith::OrIOp>(op.getLoc(), condition,
-                                     rewriter.create<arith::CmpIOp>(
-                                         op.getLoc(), arith::CmpIPredicate::ne,
-                                         innerLoopVar, index(0)))
+                                    rewriter.create<arith::CmpIOp>(
+                                        op.getLoc(), arith::CmpIPredicate::ne,
+                                        innerLoopVar, index(0)))
               .getResult();
     }
     auto ifOp = rewriter.create<scf::IfOp>(op.getLoc(), condition);
