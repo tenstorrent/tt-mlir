@@ -275,7 +275,7 @@ public:
   matchAndRewrite(ttir::ProdOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     int64_t inputRank = op.getInput().getType().getRank();
-    auto dimArg = op.getDimArg();
+    std::optional<::mlir::ArrayAttr> dimArg = op.getDimArg();
     int64_t size = dimArg ? dimArg->size() : inputRank;
 
     // [TODO](mmanzoor) Decompose ttnn.prod op into multiple ttnn.prod to handle
@@ -287,14 +287,20 @@ public:
               "dimensions.");
     }
 
-    bool allDimensions = (size == inputRank) ? true : false;
-    int64_t dimension =
-        dimArg ? (mlir::cast<mlir::IntegerAttr>(dimArg->getValue()[0])).getInt()
-               : 0;
+    // TTNN only supports reduce(prod) along one dimension or all dimensions.
+    // That is controlled by dimArg. If dimArg is not present, then all
+    // dimensions are reduced. Otherwise, only the specified dimension is
+    // reduced.
+    mlir::IntegerAttr newDimArg = nullptr;
+    if (dimArg && dimArg->size() == 1) {
+      auto int32Attr = mlir::cast<mlir::IntegerAttr>(dimArg->getValue()[0]);
+      newDimArg =
+          mlir::IntegerAttr::get(rewriter.getI64Type(), int32Attr.getInt());
+    }
 
     rewriter.replaceOpWithNewOp<ttnn::ProdOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), allDimensions, adaptor.getKeepDim(), dimension,
+        adaptor.getInput(), newDimArg, adaptor.getKeepDim(),
         /*memoryConfig*/ nullptr);
     return success();
   }
