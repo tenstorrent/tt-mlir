@@ -19,17 +19,25 @@ static constexpr const char *POTENTIAL_MANGLING_ADDITIONS[] = {
     "PNS1_11distributed10MeshDeviceE",
 };
 
+// If the model function name is `main`, it can't be emitted as such, because
+// compiler will complain about the parameter and return type, as `main` has a
+// special semantics in C/C++. Hence, in `TTNNModifySignaturesForDylib` pass,
+// the `main` is prepended with a `_`.
+static std::string getEmittedFuncName(std::string_view funcName) {
+  if (funcName == "main") {
+    return "_main";
+  }
+  return std::string(funcName);
+}
+
 static std::string getMangledName(std::string_view funcName,
                                   std::string_view suffix) {
   std::string mangledName = "_Z";
-  // If the model function name is `main`, we need to prepend it with `_`, as
-  // the `main` has a special semantic in C/C++.
-  if (funcName == "main") {
-    mangledName += "5_main";
-  } else {
-    mangledName += std::to_string(funcName.size());
-    mangledName += funcName;
-  }
+  // The function name and the name with which it is emitted can be different
+  // (see the explanation in the `getEmittedFuncName`).
+  std::string emittedFuncName = getEmittedFuncName(funcName);
+  mangledName += std::to_string(emittedFuncName.size());
+  mangledName += emittedFuncName;
   mangledName += "St6vectorIN2tt8tt_metal6TensorESaIS2_EE";
   mangledName += suffix;
   return mangledName;
