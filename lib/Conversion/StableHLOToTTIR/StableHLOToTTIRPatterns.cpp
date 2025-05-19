@@ -1822,6 +1822,106 @@ public:
 } // namespace
 
 namespace {
+class StableHLOToTTIRAllToAllOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::AllToAllOp> {
+  using OpConversionPattern<mlir::stablehlo::AllToAllOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::AllToAllOp srcOp,
+                  mlir::stablehlo::AllToAllOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Check legality of the conversion.
+    LogicalResult err = checkConversionLegality(srcOp, adaptor, rewriter);
+    if (failed(err)) {
+      return err;
+    }
+
+    // Create the output tensor type based on inputs
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+
+    // Determine cluster axis based on replica groups
+    uint32_t clusterAxis;
+    if (failed(determineClusterAxis(adaptor.getReplicaGroups(), clusterAxis))) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "AllGather cannot specify cluster axis.");
+    }
+
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::AllToAllOp>(
+        rewriter, srcOp, outputType, adaptor.getOperands()[0],
+        adaptor.getSplitDimension(), adaptor.getConcatDimension(),
+        adaptor.getSplitCount(), clusterAxis);
+
+    return success();
+  }
+
+private:
+  LogicalResult
+  checkConversionLegality(mlir::stablehlo::AllToAllOp &srcOp,
+                          mlir::stablehlo::AllToAllOp::Adaptor adaptor,
+                          ConversionPatternRewriter &rewriter) const {
+    if (srcOp.getOperands().empty() || srcOp.getOperands().size() > 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "AllToAllOp must have one input/output for now.");
+    }
+    RankedTensorType inputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getOperands()[0].getType()));
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+    auto inShape = inputType.getShape();
+    auto outShape = outputType.getShape();
+    int64_t splitDim = adaptor.getSplitDimension();
+    int64_t concatDim = adaptor.getConcatDimension();
+    int64_t splitCount = adaptor.getSplitCount();
+    ::mlir::DenseIntElementsAttr replicaGroups = adaptor.getReplicaGroups();
+    auto replicaGroupsShape = replicaGroups.getType().getShape();
+    if (splitDim < 0 || splitDim >= inputType.getRank()) {
+      return failure(); // C1
+    }
+    if (inShape[splitDim] % splitCount != 0) {
+      return failure(); // C2
+    }
+    if (concatDim < 0 || concatDim >= inputType.getRank()) {
+      return failure(); // C3
+    }
+    if (splitCount <= 0) {
+      return failure(); // C4
+    }
+    llvm::SmallDenseSet<int64_t> seen;
+    for (int64_t id : replicaGroups.getValues<int64_t>()) {
+      if (!seen.insert(id).second) {
+        return failure(); // C5
+      }
+    }
+    int64_t numIds = replicaGroupsShape[0] * replicaGroupsShape[1];
+    for (int64_t id : replicaGroups.getValues<int64_t>()) {
+      if (id < 0 || id >= numIds) {
+        return failure(); // C7
+      }
+    }
+    if (replicaGroupsShape[1] != splitCount) {
+      return failure(); // C8
+    }
+    if (splitDim == concatDim) {
+      if (outputType != inputType) {
+        return failure(); // C9
+      }
+    } else {
+      int64_t expectedSplit = inShape[splitDim] / splitCount;
+      int64_t expectedConcat = inShape[concatDim] * splitCount;
+
+      if (outShape[splitDim] != expectedSplit ||
+          outShape[concatDim] != expectedConcat) {
+        return failure(); // C9
+      }
+    }
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOToTTIRCustomCallOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
 
