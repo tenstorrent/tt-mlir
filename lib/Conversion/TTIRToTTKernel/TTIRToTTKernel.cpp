@@ -303,18 +303,13 @@ public:
       auto cbB = getCB(rewriter, adaptor.getB());
       auto cbC = getCB(rewriter, adaptor.getC());
       setInsertionPointAfterOperands(rewriter, {cbA, cbB, cbC});
-      rewriter.create<ttkernel::ReduceInitOp>(
-          op->getLoc(), cbA,
-          cbB, cbC,
-          reduce_type, kernel_reduce_dim);
+      rewriter.create<ttkernel::ReduceInitOp>(op->getLoc(), cbA, cbB, cbC,
+                                              reduce_type, kernel_reduce_dim);
       rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
       auto reduceInitShortOp = rewriter.create<ttkernel::ReduceInitShortOp>(
-        op->getLoc(),cbA,
-        cbB, cbC,
-        reduce_type, kernel_reduce_dim);
+          op->getLoc(), cbA, cbB, cbC, reduce_type, kernel_reduce_dim);
       rewriter.create<ttkernel::ReduceTileOp>(
-          op->getLoc(), cbA,
-          cbB, getLoadIndex(adaptor.getA()),
+          op->getLoc(), cbA, cbB, getLoadIndex(adaptor.getA()),
           getLoadIndex(adaptor.getB()), dstIdx, reduce_type, kernel_reduce_dim);
       rewriter.setInsertionPoint(reduceInitShortOp);
       lowerLoadToCopyTile(
