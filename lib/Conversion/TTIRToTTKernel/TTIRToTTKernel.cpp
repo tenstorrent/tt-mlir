@@ -172,7 +172,7 @@ static void lowerLoadToCopyTile(memref::LoadOp op, bool cbIdxAsDstIdx,
       auto innerLoopVar = innerLoopVars.pop_back_val();
       condition =
           rewriter
-              .create<arith::AndIOp>(op.getLoc(), condition,
+              .create<arith::OrIOp>(op.getLoc(), condition,
                                      rewriter.create<arith::CmpIOp>(
                                          op.getLoc(), arith::CmpIPredicate::ne,
                                          innerLoopVar, index(0)))
