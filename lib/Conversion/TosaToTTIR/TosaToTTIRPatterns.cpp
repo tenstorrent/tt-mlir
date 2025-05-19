@@ -89,9 +89,28 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
+    FloatAttr minValAttr;
+    FloatAttr maxValueAttr;
+
+    if (mlir::isa<mlir::IntegerAttr>(srcOp.getMinVal())) {
+      minValAttr = rewriter.getF32FloatAttr(
+          cast<mlir::IntegerAttr>(srcOp.getMinVal()).getSInt());
+    } else {
+      minValAttr = rewriter.getF32FloatAttr(
+          cast<mlir::FloatAttr>(srcOp.getMinVal()).getValue().convertToFloat());
+    }
+
+    if (mlir::isa<mlir::IntegerAttr>(srcOp.getMaxVal())) {
+      maxValueAttr = rewriter.getF32FloatAttr(
+          cast<mlir::IntegerAttr>(srcOp.getMaxVal()).getSInt());
+    } else {
+      maxValueAttr = rewriter.getF32FloatAttr(
+          cast<mlir::FloatAttr>(srcOp.getMaxVal()).getValue().convertToFloat());
+    }
+
     ttir::utils::replaceOpWithNewDPSOp<ttir::ClampScalarOp>(
-        rewriter, srcOp, outputType, adaptor.getInput(), adaptor.getMinFp(),
-        adaptor.getMaxFp());
+        rewriter, srcOp, outputType, adaptor.getInput(), minValAttr,
+        maxValueAttr);
 
     return success();
   }
