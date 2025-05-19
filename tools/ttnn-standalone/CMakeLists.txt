@@ -30,6 +30,8 @@ install(
     ttnn-precompiled.hpp
     ttnn-standalone.cpp
     workarounds.hpp
+    compile_so.hpp
+    compile_so.cpp
   DESTINATION tools/ttnn-standalone
   COMPONENT TTNNStandalone
 )
