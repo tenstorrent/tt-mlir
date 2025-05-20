@@ -1357,7 +1357,7 @@ void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef,
   ::ttnn::Tensor &srcTensor = tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
   ::ttnn::Tensor dstTensor = tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
   srcTensor = srcTensor.pad_to_tile(0.0f);
-  srcTensor = srcTensor.to_layout(dstTensor.get_layout());
+  srcTensor = srcTensor.to_layout(dstTensor.layout());
   srcTensor = srcTensor.to_device(dstTensor.device());
   tensorPool.insertTTNNTensorAndValidate(tensorRefPtr, srcTensor);
 }
