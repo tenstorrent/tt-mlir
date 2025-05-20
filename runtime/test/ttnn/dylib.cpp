@@ -77,16 +77,21 @@ runSoProgram(void *so, std::string_view funcName,
   // locally we may have 2 devices.
   assert(ttnnMeshDevice.get_devices().size() > 0);
 
-  // Try to find and call a setDevice function in the dylib
-  using SetDeviceFunction = void (*)(::ttnn::MeshDevice *);
-  dlerror(); // Clear any previous errors
+  // Clear any previous errors
+  //
+  dlerror();
+
+  // Call setDevice function from dylib.
+  //
   void *setDeviceSymbol = dlsym(so, "setDevice");
   const char *setDeviceError = dlerror();
-  if (!setDeviceError) {
-    // If we found the setDevice function, call it
-    auto setDeviceFunc = reinterpret_cast<SetDeviceFunction>(setDeviceSymbol);
-    setDeviceFunc(&ttnnMeshDevice);
+  if (setDeviceError) {
+    dlclose(so);
+    LOG_FATAL("Failed to find setDevice function in dylib.");
   }
+  using SetDeviceFunction = void (*)(::ttnn::MeshDevice *);
+  auto setDeviceFunc = reinterpret_cast<SetDeviceFunction>(setDeviceSymbol);
+  setDeviceFunc(&ttnnMeshDevice);
 
   // Convert inputs to TTNN tensors using .as method
   //
@@ -98,11 +103,11 @@ runSoProgram(void *so, std::string_view funcName,
             .getTensor());
   }
 
-  // Clear previous errors
+  // Clear previous errors.
   //
   dlerror();
 
-  // Get function from the shared object
+  // Get function from the shared object.
   //
   using ForwardFunction =
       std::vector<::ttnn::Tensor> (*)(std::vector<::ttnn::Tensor>);
@@ -123,13 +128,13 @@ runSoProgram(void *so, std::string_view funcName,
     LOG_FATAL("Failed to load symbol: ", dlsymError);
   }
 
-  // Call program/function
+  // Call program/function.
   //
   std::vector<::ttnn::Tensor> ttnnOutputs;
   auto forwardFunc = reinterpret_cast<ForwardFunction>(symbol);
   ttnnOutputs = forwardFunc(ttnnInputs);
 
-  // Convert TTNN Tensors to Runtime Tensors
+  // Convert TTNN Tensors to Runtime Tensors.
   //
   std::vector<::tt::runtime::Tensor> outputs;
   for (::ttnn::Tensor &output : ttnnOutputs) {
