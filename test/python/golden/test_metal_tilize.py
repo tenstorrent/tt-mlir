@@ -105,12 +105,12 @@ def test_tilize_untilize(shape: Shape, request):
         builder: TTIRBuilder,
         unit_attrs: List[str] = None,
     ):
-        to_device = builder.to_layout(
+        to_device = builder.tilize(
             in0,
             output_type=builder.metal_tensor_layout(shape, (1, 1), True),
             unit_attrs=unit_attrs,
         )
-        from_device = builder.to_layout(
+        from_device = builder.untilize(
             to_device,
             output_type=in0.type,
             unit_attrs=unit_attrs,
