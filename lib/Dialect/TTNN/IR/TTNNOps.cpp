@@ -2115,6 +2115,19 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
     return emitOpError("output type mismatch: expected type=")
            << expectedType << " output type=" << outputType;
   }
+  if (auto deviceOp = getDevice().getDefiningOp<ttnn::GetDeviceOp>();
+      deviceOp) {
+    if (auto meshShapeAttr = deviceOp.getMeshShape(); meshShapeAttr) {
+      llvm::SmallVector<int64_t, 2> meshShape{meshShapeAttr->getY(),
+                                              meshShapeAttr->getX()};
+      if (meshShape[getClusterAxis()] != splitCount)
+        return emitOpError()
+               << "mesh_shape[" << getClusterAxis() << "] is "
+               << meshShape[getClusterAxis()] << " but split_count is "
+               << splitCount << "; they must be equal";
+    }
+  }
+
   return success();
 }
 

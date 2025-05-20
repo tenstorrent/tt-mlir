@@ -120,3 +120,16 @@ module @all_to_all_output_type_4 attributes {mhlo.num_partitions = 1 : i32, mhlo
 }
 // CHECK: error: 'ttnn.all_to_all' op output type mismatch: expected type='tensor<128x128xf32,
 // CHECK-SAME: output type='tensor<128x128xi32,
+
+// -----
+
+#dram = #ttnn.buffer_type<dram>
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<4x4x!tt.tile<32x32, f32>, #dram>, <interleaved>>
+module @all_to_all_incorrect_split_count attributes {mhlo.num_partitions = 1 : i32, mhlo.num_replicas = 2 : i32} {
+  func.func public @main(%arg0: tensor<128x128xf32, #ttnn_layout>) -> (tensor<128x128xf32, #ttnn_layout> {}) {
+    %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x2>}> : () -> !ttnn.device
+    %1 = "ttnn.all_to_all"(%arg0, %0) <{cluster_axis = 1 : ui32, concat_dim = 1 : si32, split_count = 4 : si32, split_dim = 1 : si32}> : (tensor<128x128xf32, #ttnn_layout>, !ttnn.device) -> tensor<128x128xf32, #ttnn_layout>
+    return %1 : tensor<128x128xf32, #ttnn_layout>
+  }
+}
+// CHECK: error: 'ttnn.all_to_all' op mesh_shape[1] is 2 but split_count is 4; they must be equal
