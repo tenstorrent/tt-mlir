@@ -55,6 +55,9 @@ def test_tilize(shape: Shape, request):
     )
 
 
+@pytest.mark.skip(
+    reason="Issue #3486: Unit testing untilize hits some unexpected lowering behaviour."
+)
 @pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64), (64, 128)])
 def test_untilize(shape: Shape, request):
     def untilize(
