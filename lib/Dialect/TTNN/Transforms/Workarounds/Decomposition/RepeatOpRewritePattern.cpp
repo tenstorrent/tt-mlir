@@ -24,7 +24,7 @@ TTNNRepeatFoldingWorkaround::matchAndRewrite(ttnn::RepeatOp op,
 
   // Create a zero Full Op to be used with AddOp
   ttnn::FullOp zeroOp = rewriter.create<ttnn::FullOp>(
-      op->getLoc(), op.getResult().getType(), device, fillValueAttr);
+      op->getLoc(), op.getResult().getType(), fillValueAttr, device);
 
   SmallVector<Value> addInputs;
   addInputs.push_back(op.getOperand());

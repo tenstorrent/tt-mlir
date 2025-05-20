@@ -379,7 +379,10 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
 ::flatbuffers::Offset<::tt::target::ttnn::FullOp>
 createOp(FlatbufferObjectCache &cache, FullOp op) {
   auto device = getOperandThroughDPSOps(op.getDevice());
-  auto fillValue = op.getFillValue().convertToFloat();
+  // TODO (azecevic): Current workaround to compile!
+  auto fillValue = mlir::cast<mlir::FloatAttr>(op.getFillValue())
+                       .getValue()
+                       .convertToFloat();
   auto output = getOperandThroughDPSOps(op.getResult());
   return ::tt::target::ttnn::CreateFullOp(
       *cache.fbb, cache.at<::tt::target::DeviceRef>(device), fillValue,

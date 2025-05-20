@@ -307,8 +307,40 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::EmptyOp::getBufferType(
 //===----------------------------------------------------------------------===//
 
 // ConstantOp folder
-::mlir::OpFoldResult mlir::tt::ttir::ConstantOp::fold(FoldAdaptor adaptor) {
+::mlir::OpFoldResult mlir::tt::ttir::ConstantOp::fold(FoldAdaptor) {
   return getValueAttr();
+}
+
+// ConstantOp canonicalization
+void mlir::tt::ttir::ConstantOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
+
+  patterns.add(
+      +[](mlir::tt::ttir::ConstantOp op, mlir::PatternRewriter &rewriter) {
+        auto valueAttr = op.getValueAttr();
+        if (!valueAttr.isSplat()) {
+          return failure();
+        }
+
+        mlir::Attribute fillValueAttr;
+        if (valueAttr.getElementType().isInteger()) {
+          auto fillValue = valueAttr.getSplatValue<llvm::APInt>();
+          fillValueAttr = rewriter.getI32IntegerAttr(fillValue.getSExtValue());
+        } else if (valueAttr.getElementType().isIntOrFloat()) {
+          auto fillValue = valueAttr.getSplatValue<mlir::APFloat>();
+          fillValueAttr = rewriter.getF32FloatAttr(fillValue.convertToDouble());
+        } else {
+          return failure();
+        }
+
+        rewriter.replaceOpWithNewOp<mlir::tt::ttir::FullOp>(
+            op, op.getType(),
+            rewriter.getDenseI32ArrayAttr(
+                llvm::to_vector_of<int32_t>(op.getType().getShape())),
+            fillValueAttr);
+
+        return success();
+      });
 }
 
 ::mlir::LogicalResult mlir::tt::ttir::ConstantOp::verify() {

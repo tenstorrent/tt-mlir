@@ -2136,6 +2136,8 @@ def TTIR_ConstantOp : TTIR_CreationOp<"constant",
 
     let hasFolder = 1;
 
+    let hasCanonicalizer = 1;
+
     let hasVerifier = 1;
 }
 

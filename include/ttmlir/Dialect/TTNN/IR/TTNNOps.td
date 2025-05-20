@@ -1588,21 +1588,46 @@ def TTNN_OnesOp : TTNN_NamedFullOp<"ones"> {
 }
 
 def TTNN_FullOp : TTNN_CreationOp<"full"> {
-    let summary = "Full op.";
-    let description = [{
-      Tensor full operation
-    }];
+  let summary = "Full op.";
+  let description = [{
+    Tensor full operation
+  }];
 
-    let arguments = (ins TTNN_Device:$device, F32Attr:$fillValue);
-    let results = (outs AnyRankedTensor:$result);
+  let arguments = (ins TTNN_ShapeAttr:$shape,
+                       AnyAttrOf<[F32Attr, I32Attr]>:$fill_value,
+                       OptionalAttr<TT_DataTypeAttr>:$dtype,
+                       OptionalAttr<TTNN_LayoutAttr>:$layout,
+                       Optional<TTNN_Device>:$device,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
-    let extraClassDeclaration = [{
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        mlir::tt::ttnn::FullOp op = mlir::cast<mlir::tt::ttnn::FullOp>(this->getOperation());
-        auto outputType = mlir::cast<RankedTensorType>(op.getType());
-        return wa::TTNNOperandsWorkaroundsFactory::createFullOpOperandsWorkarounds(outputType);
-      }
-    }];
+  let results = (outs AnyRankedTensor:$result);
+
+    let builders =
+    [
+      OpBuilder<(ins "Type": $resultType, "Attribute": $fillValue, "Value": $device),
+      [{
+        MLIRContext *ctx = $_builder.getContext();
+        RankedTensorType tensorType = mlir::cast<RankedTensorType>(resultType);
+        TTNNLayoutAttr layoutAttr = mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
+
+        ShapeAttr shapeAttr = ShapeAttr::get(
+            ctx, tensorType.getShape());
+        DataTypeAttr dtypeAttr =
+            DataTypeAttr::get(ctx, layoutAttr.getDataType());
+        LayoutAttr tensorLayoutAttr =
+          LayoutAttr::get(ctx, layoutAttr.getLayout());
+
+        build($_builder, $_state, resultType, shapeAttr, fillValue, dtypeAttr, tensorLayoutAttr, device, /*memory_config=*/nullptr);
+      }]>
+    ];
+
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      auto outputType = getType();
+      return wa::TTNNOperandsWorkaroundsFactory::createFullOpOperandsWorkarounds(outputType);
+    }
+  }];
 }
 
 def TTNN_ConstantOp : TTNN_CreationOp<"constant", [AllShapesMatch<["value", "result"]>]> {

@@ -122,20 +122,13 @@ public:
         rewriter.getContext(), llvm::SmallVector<int64_t, 4>(
                                    op.getShape().begin(), op.getShape().end()));
 
-    // Get memref
-    //
-    mlir::MemRefType memref = layoutAttr.getMemref();
-
     // Get data type, tensor layout, device and memory config
     //
     DataTypeAttr dTypeAttr =
         DataTypeAttr::get(rewriter.getContext(), layoutAttr.getDataType());
     ttnn::BufferType bufferType = layoutAttr.getBufferType();
-    ttnn::Layout ttnnLayoutEnum = llvm::isa<TileType>(memref.getElementType())
-                                      ? ttnn::Layout::Tile
-                                      : ttnn::Layout::RowMajor;
     ttnn::LayoutAttr tensorLayoutAttr =
-        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
+        ttnn::LayoutAttr::get(op.getContext(), layoutAttr.getLayout());
     ttnn::TensorMemoryLayoutAttr memLayout = layoutAttr.getMemLayout();
 
     // Device only exists if memLayout is *not* null
@@ -837,8 +830,8 @@ public:
       }
 
       rewriter.replaceOpWithNewOp<ttnn::FullOp>(
-          op, this->getTypeConverter()->convertType(op.getType()), device,
-          rewriter.getF32FloatAttr(fillValue.convertToFloat()));
+          op, this->getTypeConverter()->convertType(op.getType()),
+          rewriter.getF32FloatAttr(fillValue.convertToFloat()), device);
 
       // Otherwise, we use the ttnn::ConstantOp to create the tensor.
     } else {
