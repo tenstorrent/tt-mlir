@@ -16,18 +16,9 @@ namespace mlir::tt {
 // Register device pass
 //===----------------------------------------------------------------------===//
 
-void registerDevice(ModuleOp module, tt::Arch arch, std::string path,
-                    ArrayRef<int64_t> meshShape) {
+static void registerDeviceInSymbolTable(ModuleOp module,
+                                        ArrayRef<int64_t> meshShape) {
   MLIRContext *context = module.getContext();
-
-  if (!path.empty()) {
-    module->setAttr(tt::SystemDescAttr::name,
-                    tt::SystemDescAttr::getFromPath(context, path));
-  } else if (!module->hasAttr(tt::SystemDescAttr::name)) {
-    module->setAttr(tt::SystemDescAttr::name,
-                    tt::SystemDescAttr::getDefault(context, arch,
-                                                   llvm::to_vector(meshShape)));
-  }
 
   SymbolTable symbolTable(module);
   if (!symbolTable.lookup(tt::getDefaultDeviceName())) {
@@ -47,6 +38,29 @@ void registerDevice(ModuleOp module, tt::Arch arch, std::string path,
   }
 }
 
+void registerDevice(ModuleOp module,
+                    tt::Arch mockSystemDescArch = tt::Arch::WormholeB0,
+                    ArrayRef<int64_t> meshShape = {}) {
+  MLIRContext *context = module.getContext();
+
+  if (!module->hasAttr(tt::SystemDescAttr::name)) {
+    module->setAttr(tt::SystemDescAttr::name,
+                    tt::SystemDescAttr::getDefault(context, mockSystemDescArch,
+                                                   llvm::to_vector(meshShape)));
+  }
+
+  registerDeviceInSymbolTable(module, meshShape);
+}
+
+void registerDevice(ModuleOp module, const std::string &systemDescPath,
+                    ArrayRef<int64_t> meshShape = {}) {
+  MLIRContext *context = module.getContext();
+  assert(!systemDescPath.empty() && "path must be set");
+  module->setAttr(tt::SystemDescAttr::name,
+                  tt::SystemDescAttr::getFromPath(context, systemDescPath));
+  registerDeviceInSymbolTable(module, meshShape);
+}
+
 namespace {
 class TTRegisterDevicePass
     : public impl::TTRegisterDevicePassBase<TTRegisterDevicePass> {
@@ -55,7 +69,11 @@ public:
       TTRegisterDevicePass>::TTRegisterDevicePassBase;
 
   void runOnOperation() final {
-    registerDevice(getOperation(), archName, systemDescPath, *meshShape);
+    if (!systemDescPath.empty()) {
+      registerDevice(getOperation(), systemDescPath, *meshShape);
+    } else {
+      registerDevice(getOperation(), mockSystemDescArch, *meshShape);
+    }
   }
 };
 } // namespace

@@ -151,8 +151,22 @@ struct TTIRToTTNNBackendPipelineOptions
           "Pass in a system descriptor flatbuffer to compile against."),
       llvm::cl::init("")};
 
-  // Option to override maximum number of sharded layouts to be generated in
-  // legal layout analysis.
+  // Option to provide a fallback mock system descriptor arch to compile
+  // against.
+  //
+  Option<tt::Arch> mockSystemDescArch{
+      *this, OptionNames::mockSystemDescArch,
+      llvm::cl::desc(
+          "Arch name for constructing a mock system descriptor in lieu of "
+          "system-desc-path."),
+      llvm::cl::values(clEnumValN(tt::Arch::WormholeB0, "wormhole_b0",
+                                  "Use mock wormhole_b0 system desc."),
+                       clEnumValN(tt::Arch::Blackhole, "blackhole",
+                                  "Use mock blackhole system desc.")),
+      llvm::cl::init(tt::Arch::WormholeB0)};
+
+  // Option to override maximum number of sharded layouts to be generated
+  // in legal layout analysis.
   //
   Option<int64_t> maxLegalLayouts{
       *this, OptionNames::maxLegalLayouts,

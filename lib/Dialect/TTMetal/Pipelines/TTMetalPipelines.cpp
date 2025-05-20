@@ -52,6 +52,7 @@ void createTTIRToTTMetalFrontendPipeline(
   tt::TTRegisterDevicePassOptions registerDeviceOptions;
   {
     registerDeviceOptions.systemDescPath = options.systemDescPath;
+    registerDeviceOptions.mockSystemDescArch = options.mockSystemDescArch;
     registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
   }
   pm.addPass(tt::createTTRegisterDevicePass(registerDeviceOptions));
