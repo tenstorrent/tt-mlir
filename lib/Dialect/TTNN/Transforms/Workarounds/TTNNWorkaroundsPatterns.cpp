@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ArgMaxOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/BroadcastingOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpDimRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpRankRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
@@ -590,6 +591,15 @@ public:
           workarounds::decomposition::CumSumOpRankRewritePattern,
           workarounds::decomposition::EmbeddingOpSqueezeWeightRewritePattern,
           workarounds::decomposition::ArgMaxOpRewritePattern,
+          workarounds::decomposition::BroadcastingOpRewritePattern,
+          workarounds::decomposition::EltwiseBroadcastingOpRewritePattern<
+              ttnn::AddOp>,
+          workarounds::decomposition::EltwiseBroadcastingOpRewritePattern<
+              ttnn::MultiplyOp>,
+          workarounds::decomposition::EltwiseBroadcastingOpRewritePattern<
+              ttnn::SubtractOp>,
+          workarounds::decomposition::EltwiseBroadcastingOpRewritePattern<
+              ttnn::DivideOp>,
           workarounds::decomposition::ReduceOpsPadInputRewritePattern<
               ttnn::MaxOp>,
           workarounds::decomposition::ReduceOpsPadInputRewritePattern<
