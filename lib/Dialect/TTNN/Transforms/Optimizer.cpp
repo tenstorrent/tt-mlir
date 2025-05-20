@@ -366,6 +366,18 @@ public:
 
           op->getResult(0).setType(newTensorType);
 
+          if (llvm::isa<ttnn::AddOp>(op)) {
+            BufferType bufferType = layoutAttr.getBufferType();
+            TensorMemoryLayoutAttr tensorMemoryLayoutAttr =
+                layoutAttr.getMemLayout();
+
+            mlir::cast<ttnn::AddOp>(op).setMemoryConfigAttr(
+                ttnn::MemoryConfigAttr::get(
+                    op->getContext(), tensorMemoryLayoutAttr,
+                    BufferTypeAttr::get(op->getContext(), bufferType),
+                    utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
+          }
+
           // Update DPS operand layout as well.
           //
           if (isa<mlir::DestinationStyleOpInterface>(op)) {

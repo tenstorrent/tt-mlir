@@ -600,7 +600,10 @@ struct TTNNTarget<llvm::APFloat> {
   using type = float;
 };
 
-inline std::string convert(ttnn::ShapeAttr attr) {
+template <typename T>
+inline std::string convert(std::optional<T> attr);
+
+inline std::string convert(ttnn::ShapeAttr attr, bool simple = false) {
   if (!attr) {
     return "::std::nullopt";
   }
@@ -609,9 +612,9 @@ inline std::string convert(ttnn::ShapeAttr attr) {
   llvm::raw_string_ostream rso(buf);
 
   auto shape = attr.getShape();
-  rso << "::ttnn::Shape({";
+  rso << (simple ? "{" : "::ttnn::Shape({");
   llvm::interleaveComma(shape, rso);
-  rso << "})";
+  rso << (simple ? "}" : "})");
 
   return buf;
 }
@@ -728,6 +731,110 @@ inline std::string convert(ttnn::BufferTypeAttr attr) {
   return convert(attr.getValue());
 }
 
+inline std::string convert(ttnn::CoreCoordAttr attr) {
+  if (!attr) {
+    return TypeNameV<std::nullopt_t>;
+  }
+
+  std::string buf;
+  llvm::raw_string_ostream rso(buf);
+
+  rso << "::ttnn::CoreCoord {";
+  rso << attr.getX() << ", ";
+  rso << attr.getY();
+  rso << "}";
+
+  return buf;
+}
+
+inline std::string convert(ttnn::CoreRangeAttr attr) {
+  if (!attr) {
+    return TypeNameV<std::nullopt_t>;
+  }
+
+  std::string buf;
+  llvm::raw_string_ostream rso(buf);
+
+  rso << "::ttnn::CoreRange {";
+  rso << convert(attr.getStartCoord()) << ", ";
+  rso << convert(attr.getEndCoord());
+  rso << "}";
+
+  return buf;
+}
+
+inline std::string convert(ttnn::CoreRangeSetAttr attr) {
+  if (!attr) {
+    return TypeNameV<std::nullopt_t>;
+  }
+
+  std::string buf;
+  llvm::raw_string_ostream rso(buf);
+
+  rso << "::ttnn::CoreRangeSet {";
+  rso << "std::set<CoreRange> {";
+  for (const ttnn::CoreRangeAttr &coreRangeAttr : attr.getCoreRanges()) {
+    rso << convert(coreRangeAttr)
+        << ", "; // TODO(svuckovic): don't do on last elem
+  }
+  rso << "}";
+  rso << "}";
+
+  return buf;
+}
+
+inline std::string convert(ttnn::ShardOrientation attr) {
+  switch (attr) {
+  case ttnn::ShardOrientation::RowMajor:
+    return "::ttnn::ShardOrientation::ROW_MAJOR";
+  case ttnn::ShardOrientation::ColMajor:
+    return "::ttnn::ShardOrientation::COL_MAJOR";
+  }
+
+  llvm_unreachable("Unknown ttnn::ShardOrientation");
+}
+
+inline std::string convert(ttnn::ShardOrientationAttr attr) {
+  if (!attr) {
+    return TypeNameV<std::nullopt_t>;
+  }
+
+  return convert(attr.getValue());
+}
+
+inline std::string convert(ttnn::ShardSpecAttr attr) {
+  if (!attr) {
+    return TypeNameV<std::nullopt_t>;
+  }
+
+  std::string buf;
+  llvm::raw_string_ostream rso(buf);
+
+  rso << "::tt::tt_metal::ShardSpec(";
+  rso << convert(attr.getCoreRangeSet()) << ", ";
+  rso << convert(attr.getShape(), /*simple=*/true) << ", ";
+  rso << convert(attr.getShardOrientation());
+  rso << ")";
+
+  return buf;
+}
+
+// tt::tt_metal::ShardSpec(
+//   CoreRangeSet{
+//     std::set<CoreRange>{
+//       CoreRange{CoreCoord{1, 2}, CoreCoord{7, 4}}
+//     }
+//   },
+//   {32, 128},
+//   tt::tt_metal::ShardOrientation::ROW_MAJOR
+// )
+
+// let parameters = (ins "CoreRangeSetAttr": $coreRangeSet,
+//                   "ShapeAttr":$shape,
+//                   "ShardOrientationAttr":$shardOrientation,
+//                   "ShardModeAttr":$shardMode,
+//                   OptionalParameter<"ShapeAttr">:$physical_shard_shape);
+
 inline std::string convert(ttnn::MemoryConfigAttr attr) {
   if (!attr) {
     return TypeNameV<std::nullopt_t>;
@@ -738,9 +845,19 @@ inline std::string convert(ttnn::MemoryConfigAttr attr) {
   llvm::raw_string_ostream rso(buf);
   rso << "::ttnn::MemoryConfig{";
   rso << convert(attr.getTensorMemoryLayout()) << ", ";
-  rso << convert(attr.getBufferType());
+  rso << convert(attr.getBufferType()) << ", ";
+  rso << convert(attr.getShardSpec());
   rso << "}";
   return buf;
+}
+
+template <typename T>
+inline std::string convert(std::optional<T> attr) {
+  if (!attr) {
+    return TypeNameV<std::nullopt_t>;
+  }
+
+  return convert(*attr);
 }
 
 template <typename T>

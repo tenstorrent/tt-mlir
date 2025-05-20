@@ -114,7 +114,7 @@ void DFShardingPolicy::run() {
 
                   // Following binary eltwise ops are blocked by metal issue
                   // https://github.com/tenstorrent/tt-metal/issues/21846
-                  ttnn::AddOp, ttnn::SubtractOp, ttnn::MultiplyOp,
+                  // ttnn::AddOp, ttnn::SubtractOp, ttnn::MultiplyOp,
 
                   // TODO(#2588): Blocked by graph capture issue.
                   ttnn::MaxPool2dOp>(currentOp)) {
