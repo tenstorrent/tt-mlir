@@ -270,6 +270,8 @@ PYBIND11_MODULE(_C, m) {
         "Get the debug string of the op");
   m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,
         "Get the location info of the op");
+  m.def("get_debug_info_golden", &::tt::runtime::Binary::getDebugInfoGolden,
+        py::return_value_policy::reference, "Get the debug info golden tensor");
   m.def(
       "memcpy",
       [](std::uintptr_t dst, ::tt::runtime::Tensor src) {
