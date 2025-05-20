@@ -2117,7 +2117,7 @@ class TTIRBuilder:
             lambda *args, **kwargs: args[0],
             ttir.ViewLayoutOp,
             [in0],
-            ttir_kwargs={"allowFormatChange": True},
+            ttir_kwargs={"reinterpretLayout": True},
             output_type=output_type,
             output_create_fn=self.empty_from_tensor_type,
             organize_ttir_args=lambda i, o, _: (

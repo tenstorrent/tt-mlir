@@ -333,7 +333,7 @@ def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
       ```
     }];
 
-    let arguments = (ins AnyRankedTensorOrMemRef:$input, DefaultValuedAttr<BoolAttr, "false">:$allowFormatChange);
+    let arguments = (ins AnyRankedTensorOrMemRef:$input, DefaultValuedAttr<BoolAttr, "false">:$reinterpretLayout);
     let results = (outs AnyRankedTensorOrMemRef:$result);
 
     let hasVerifier = 1;
