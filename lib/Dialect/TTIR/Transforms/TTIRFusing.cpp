@@ -8,6 +8,7 @@
 
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include <cstdint>
+#include <iostream>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRFUSING
@@ -421,6 +422,39 @@ public:
       return mlir::failure();
     }
 
+    std::cout<< "Replacing scatter op with kv-cache update op" << std::endl;
+
+    //inputs -- this expects only 3 inputs 
+
+    // Replace scatter op with new UpdateCacheOp op.
+    // utils::replaceOpWithNewDPSOp<UpdateCacheOp>(
+    //   rewriter, 
+    //   scatterOp,
+    //   scatterOp.getInput().getType(),          // Cache tensor
+    //   scatterOp.getInput().getType(),          // Cache tensor
+    //   scatterOp.getScatterIndices().getType(), // Indices tensor
+    //   scatterOp.getUpdate().getType()          // Updates tensor
+    //   ,scatterOp.getInput().getType()
+    // );
+
+    utils::replaceOpWithNewDPSOp<FillCacheOp>(
+      rewriter,
+      // scatterOp,
+      scatterOp.getOutput().getType(),  // Cache tensor output type
+      scatterOp.getInput().getType(),             // Cache tensor
+      scatterOp.getUpdate().getType(),   // Updates tensor
+      rewriter.getI32IntegerAttr(0)     // Batch offset (set to 0 as an example)
+    );
+
+    // auto newOp = rewriter.create<ttir::UpdateCacheOp>(
+    //   );
+
+    // rewriter.replaceOp(op, newOp.getResult());
+
+    // The original scatter op will be removed by DCE since it's no longer
+    // used.+
+
+
     return mlir::success();
   }
 
@@ -432,8 +466,12 @@ private:
   //        (d0,d1,d2,d3,1), (d0,d1,d2,d3,1), (d0,d1,d2,d3,1), (d0,d1,d2,d3,1))
   //        -> (d0,d1,d2,d3,4)
   // %189 = "ttir.scatter"(%arg6, %187, %95, %188)
+
   static bool isKvCacheUpdate(ttir::ScatterOp scatterOp) {
     auto scatterIndices = scatterOp.getScatterIndices();
+
+    return true;
+
     ArrayRef<int64_t> inputShape =
         mlir::cast<RankedTensorType>(scatterOp.getInput().getType()).getShape();
     ArrayRef<int64_t> scatterIdxShape =
@@ -442,6 +480,7 @@ private:
         mlir::cast<RankedTensorType>(scatterOp.getUpdate().getType())
             .getShape();
 
+    std::cout << "scatter" << std::endl;
     if (inputShape.size() != 4 || scatterIdxShape.size() != 5 ||
         udpateShape.size() != 4) {
       return false;
@@ -669,30 +708,23 @@ class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
 public:
   using impl::TTIRFusingBase<TTIRFusingPass>::TTIRFusingBase;
   void runOnOperation() final {
-    {
-      RewritePatternSet patterns(&getContext());
-      patterns.add<Conv2dTagWeights>(&getContext());
-      if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
-        signalPassFailure();
-        return;
-      }
-    }
-    {
-      RewritePatternSet patterns(&getContext());
-      patterns.add<TTIRConv2dWithBias>(&getContext());
+    RewritePatternSet patterns(&getContext());
+    // patterns.add<TTIRConv2dWithBias>(&getContext());
 
-      // Add patterns for each reduction op type.
-      patterns.add<ReductionWithReshapePattern<SumOp>>(&getContext());
-      patterns.add<ReductionWithReshapePattern<MeanOp>>(&getContext());
-      patterns.add<ReductionWithReshapePattern<MaxOp>>(&getContext());
-      patterns.add<ReductionWithReshapePattern<MinOp>>(&getContext());
-      patterns.add<ReductionWithReshapePattern<ProdOp>>(&getContext());
-      patterns.add<ReductionWithReshapePattern<ReduceAndOp>>(&getContext());
-      patterns.add<ReductionWithReshapePattern<ReduceOrOp>>(&getContext());
-      patterns.add<ReductionWithReshapePattern<ArgMaxOp>>(&getContext());
+    // // Add patterns for each reduction op type.
+    // patterns.add<ReductionWithReshapePattern<SumOp>>(&getContext());
+    // patterns.add<ReductionWithReshapePattern<MeanOp>>(&getContext());
+    // patterns.add<ReductionWithReshapePattern<MaxOp>>(&getContext());
+    // patterns.add<ReductionWithReshapePattern<MinOp>>(&getContext());
+    // patterns.add<ReductionWithReshapePattern<ProdOp>>(&getContext());
+    // patterns.add<ReductionWithReshapePattern<ReduceAndOp>>(&getContext());
+    // patterns.add<ReductionWithReshapePattern<ReduceOrOp>>(&getContext());
+    // patterns.add<ReductionWithReshapePattern<ArgMaxOp>>(&getContext());
 
-      patterns.add<SoftmaxFusionPattern>(&getContext());
-      patterns.add<Conv2dWithMultiply>(&getContext());
+    // patterns.add<SoftmaxFusionPattern>(&getContext());
+    // patterns.add<Conv2dWithMultiply>(&getContext());
+
+    patterns.add<KvCacheUpdatePattern>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);
