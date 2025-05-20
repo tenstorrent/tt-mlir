@@ -1845,7 +1845,7 @@ public:
     uint32_t clusterAxis;
     if (failed(determineClusterAxis(adaptor.getReplicaGroups(), clusterAxis))) {
       return rewriter.notifyMatchFailure(
-          srcOp, "AllGather cannot specify cluster axis.");
+          srcOp, "AllToAll cannot specify cluster axis.");
     }
 
     ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::AllToAllOp>(
@@ -1877,35 +1877,48 @@ private:
     ::mlir::DenseIntElementsAttr replicaGroups = adaptor.getReplicaGroups();
     auto replicaGroupsShape = replicaGroups.getType().getShape();
     if (splitDim < 0 || splitDim >= inputType.getRank()) {
-      return failure(); // C1
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "splitDim must be in the range [0, rank(operands)] (C1)"); // C1
     }
     if (inShape[splitDim] % splitCount != 0) {
-      return failure(); // C2
+      return rewriter.notifyMatchFailure(
+          srcOp, "splitDim size must be divisible by splitCount (C2)"); // C2
     }
     if (concatDim < 0 || concatDim >= inputType.getRank()) {
-      return failure(); // C3
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "concatDim must be in the range [0, rank(operands)] (C3)"); // C3
     }
     if (splitCount <= 0) {
-      return failure(); // C4
+      return rewriter.notifyMatchFailure(
+          srcOp, "splitCount must be a positive integer (C4)"); // C4
     }
     llvm::SmallDenseSet<int64_t> seen;
     for (int64_t id : replicaGroups.getValues<int64_t>()) {
       if (!seen.insert(id).second) {
-        return failure(); // C5
+        return rewriter.notifyMatchFailure(
+            srcOp,
+            "replica_groups must not contain duplicate IDs (C5)"); // C5
       }
     }
     int64_t numIds = replicaGroupsShape[0] * replicaGroupsShape[1];
     for (int64_t id : replicaGroups.getValues<int64_t>()) {
       if (id < 0 || id >= numIds) {
-        return failure(); // C7
+        return rewriter.notifyMatchFailure(
+            srcOp, "replicaGroup ID must be in the range [0, "
+                   "size(replica_groups)] (C7)"); // C7
       }
     }
     if (replicaGroupsShape[1] != splitCount) {
-      return failure(); // C8
+      return rewriter.notifyMatchFailure(
+          srcOp, "replicaGroup Cound must be same with splitCount (C8)"); // C8
     }
     if (splitDim == concatDim) {
       if (outputType != inputType) {
-        return failure(); // C9
+        return rewriter.notifyMatchFailure(
+            srcOp, "when split_dim == concat_dim the full result type must "
+                   "equal the operand type (C9)"); // C9
       }
     } else {
       int64_t expectedSplit = inShape[splitDim] / splitCount;
@@ -1913,7 +1926,8 @@ private:
 
       if (outShape[splitDim] != expectedSplit ||
           outShape[concatDim] != expectedConcat) {
-        return failure(); // C9
+        return rewriter.notifyMatchFailure(
+            srcOp, "result tensor has incorrect split/concat dims (C9)"); // C9
       }
     }
     return success();
@@ -2521,6 +2535,7 @@ static void addCCLOpsConversionPattern(MLIRContext *ctx,
                                                                 ctx);
   patterns.add<StableHLOToTTIRCollectivePermuteOpConversionPattern>(
       typeConverter, ctx);
+  patterns.add<StableHLOToTTIRAllToAllOpConversionPattern>(typeConverter, ctx);
   patterns.add<StableHLOToTTIRCustomCallOpConversionPattern>(typeConverter,
                                                              ctx);
 }
