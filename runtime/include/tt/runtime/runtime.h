@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <vector>
 
 #include "tt/runtime/types.h"
@@ -188,6 +189,29 @@ std::string getOpLocInfo(OpContext opContextHandle);
 
 Tensor getOpOutputTensor(OpContext opContextHandle,
                          CallbackContext programContextHandle);
+
+// Returns the reference to the output tensor of the current operation.
+// In case that operation does not have an output tensor, returns nullopt
+// instead.
+std::optional<TensorRef> getOpOutputRef(OpContext opContextHandle,
+                                        CallbackContext programContextHandle);
+
+// Returns the vector of references to the input tensors of the current
+// operation
+// TODO(ndrakulicTT): Check if it is in correct order.
+std::vector<TensorRef> getOpInputRefs(OpContext opContextHandle,
+                                      CallbackContext programContextHandle);
+
+// For the given tensor reference, returns the tensor that it refers to.
+// TODO(ndrakulicTT): Check what happens if the tensor is not live, and other
+// cases
+std::optional<Tensor> getTensor(CallbackContext programContextHandle,
+                                TensorRef tensorRef);
+
+// Updates the tensor that is referenced by the given tensor reference.
+// TODO(ndrakulicTT): Check edge cases
+void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef,
+                  Tensor srcTensor);
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,

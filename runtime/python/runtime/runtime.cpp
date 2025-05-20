@@ -144,6 +144,7 @@ void registerRuntimeBindings(nb::module_ &m) {
           },
           nb::rv_policy::take_ownership);
 
+  nb::class_<tt::runtime::TensorRef>(m, "TensorRef");
   nb::class_<tt::runtime::Layout>(m, "Layout");
   nb::class_<tt::runtime::OpContext>(m, "OpContext");
   nb::class_<tt::runtime::CallbackContext>(m, "CallbackContext");
@@ -310,6 +311,34 @@ void registerRuntimeBindings(nb::module_ &m) {
                    : std::optional<tt::runtime::Tensor>(tensor);
       },
       "Get the output tensor of the op");
+  m.def(
+      "get_op_output_ref",
+      [](tt::runtime::OpContext &opContextHandle,
+         tt::runtime::CallbackContext &programContextHandle) {
+        return tt::runtime::getOpOutputRef(opContextHandle,
+                                           programContextHandle);
+      },
+      "Get the reference to the output tensor");
+  m.def("get_op_input_refs",
+        [](tt::runtime::OpContext &opContextHandle,
+           tt::runtime::CallbackContext &programContextHandle) {
+          return tt::runtime::getOpInputRefs(opContextHandle,
+                                             programContextHandle);
+        });
+  m.def(
+      "get_tensor",
+      [](tt::runtime::CallbackContext programContextHandle,
+         tt::runtime::TensorRef tensorRef) {
+        return tt::runtime::getTensor(programContextHandle, tensorRef);
+      },
+
+      "Get the tensor that corresponds to the tensor ref");
+  m.def("update_tensor", [](tt::runtime::CallbackContext programContextHandle,
+                            tt::runtime::TensorRef tensorRefHandle,
+                            tt::runtime::Tensor tensorHandle) {
+    return tt::runtime::updateTensor(programContextHandle, tensorRefHandle,
+                                     tensorHandle);
+  });
   m.def("get_op_debug_str", &tt::runtime::getOpDebugString,
         "Get the debug string of the op");
   m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,
