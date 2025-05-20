@@ -1357,6 +1357,29 @@ public:
 } // namespace
 
 namespace {
+class AllToAllOpConversionPattern
+    : public OpConversionPattern<ttir::AllToAllOp> {
+public:
+  using OpConversionPattern<ttir::AllToAllOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::AllToAllOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    rewriter.replaceOpWithNewOp<ttnn::AllToAllOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), device, adaptor.getSplitDim(),
+        adaptor.getConcatDim(), adaptor.getSplitCount(),
+        adaptor.getClusterAxis());
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class ArangeOpConversionPattern : public OpConversionPattern<ttir::ArangeOp> {
 public:
   using OpConversionPattern<ttir::ArangeOp>::OpConversionPattern;
@@ -1701,6 +1724,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            AllGatherOpConversionPattern,
            ReduceScatterOpConversionPattern,
            CollectivePermuteOpConversionPattern,
+           AllToAllOpConversionPattern,
            ArangeOpConversionPattern,
            UpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,

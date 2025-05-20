@@ -78,3 +78,19 @@ def collective_permute_golden(
 ) -> torch.Tensor:
     # Return a random torch.Tensor which has the correct shape and type after doing collective_permute on the input.
     return torch.randn(input.shape, dtype=input.dtype)
+
+
+def all_to_all_golden(
+    input: torch.Tensor,
+    mesh_shape: Tuple[int, int],
+    split_dim: int,
+    concat_dim: int,
+    split_count: int,
+    cluster_axis: int,
+) -> torch.Tensor:
+    # Return a random torch.Tensor which has the correct shape and type after doing all_gather on the input.
+    num_devices = mesh_shape[cluster_axis]
+    out_shape = list(input.shape)
+    out_shape[split_dim] //= num_devices
+    out_shape[concat_dim] *= num_devices
+    return torch.randn(out_shape, dtype=input.dtype)

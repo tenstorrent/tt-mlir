@@ -1866,6 +1866,35 @@ public:
 };
 } // namespace
 
+// AllToAllOp conversion pattern
+//
+namespace {
+class AllToAllOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::AllToAllOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::ttnn::AllToAllOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::AllToAllOp srcOp,
+                  tt::ttnn::AllToAllOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    rewriter.create<emitc::VerbatimOp>(
+        srcOp.getLoc(),
+        "assert(0 && \"AllToAll  operation is "
+        "not supported in emitc yet.\"); // ::ttnn::AllToAllOp");
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::AllToAllOp> emitter(
+        srcOp, adaptor, rewriter);
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+    };
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
 // SliceOp conversion pattern
 //
 namespace {
@@ -2082,6 +2111,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<AllGatherOpConversionPattern>(typeConverter, ctx);
   patterns.add<ReduceScatterOpConversionPattern>(typeConverter, ctx);
   patterns.add<CollectivePermuteOpConversionPattern>(typeConverter, ctx);
+  patterns.add<AllToAllOpConversionPattern>(typeConverter, ctx);
   patterns.add<MeshShardOpConversionPattern>(typeConverter, ctx);
 
   // KV Cache ops
