@@ -20,6 +20,8 @@ RUN dnf install --refresh -y \
     xz \
     vim-common
 
+#test comment
+
 RUN dnf clean all
 
 # Install Ninja
