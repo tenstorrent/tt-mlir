@@ -2278,7 +2278,7 @@ mlir::tt::ttir::StreamLayoutOp::getBufferType(
 // ViewLayoutOp verificatin
 mlir::LogicalResult mlir::tt::ttir::ViewLayoutOp::verify() {
   return verifyLayoutOp(*this, getInput().getType(), getResult().getType(),
-                        /*allowFormatChange*/ false,
+                        /*allowFormatChange*/ getAllowFormatChange(),
                         /*allowMemorySpaceChange*/ false);
 }
 
@@ -2316,7 +2316,7 @@ mlir::LogicalResult mlir::tt::ttir::ViewLayoutOp::bufferize(
   mlir::bufferization::replaceOpWithNewBufferizedOp<
       mlir::tt::ttir::ViewLayoutOp>(
       rewriter, *this, *getBufferType(getResult(), options, invocationStack),
-      *maybeInput);
+      *maybeInput, getAllowFormatChange());
   return mlir::success();
 }
 
