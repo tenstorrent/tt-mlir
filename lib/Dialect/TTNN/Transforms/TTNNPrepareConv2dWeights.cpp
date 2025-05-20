@@ -46,7 +46,7 @@ public:
       ttnn::PrepareConv2dWeightsOp prepareConv2dWeightsOp =
           rewriter.create<ttnn::PrepareConv2dWeightsOp>(
               ttmlir::utils::appendLocationSuffix(conv2dOp.getLoc(),
-                                                  "_prepare_conv2d"),
+                                                  "_prepareConv2d"),
               getPreparedWeightsType(conv2dOp), conv2dOp.getWeight(),
               inputMemConfigAttr,
               rewriter.getAttr<ttnn::LayoutAttr>(inputLayoutAttr.getLayout()),

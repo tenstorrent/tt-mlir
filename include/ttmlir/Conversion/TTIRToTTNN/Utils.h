@@ -16,7 +16,7 @@ mlir::tt::ttnn::ReshapeOp
 generateReshape(mlir::TypedValue<mlir::RankedTensorType> input,
                 llvm::ArrayRef<int64_t> newShape,
                 mlir::PatternRewriter &rewriter,
-                llvm::StringRef locSuffix = "");
+                llvm::StringRef locSuffix = "_reshape");
 
 // Generates a reshape operation for the given input tensor that returns 4D
 // tensor. Assumes that the input tensor is 4D. First 3 dimensions are flattened
@@ -24,7 +24,7 @@ generateReshape(mlir::TypedValue<mlir::RankedTensorType> input,
 mlir::tt::ttnn::ReshapeOp
 generateNHWFlatten(mlir::TypedValue<mlir::RankedTensorType> input,
                    mlir::PatternRewriter &rewriter,
-                   llvm::StringRef locSuffix = "");
+                   llvm::StringRef locSuffix = "_flatten");
 
 } // namespace mlir::tt::ttir_to_ttnn::utils
 
