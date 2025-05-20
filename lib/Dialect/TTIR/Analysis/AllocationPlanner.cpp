@@ -34,7 +34,7 @@ void AllocationPlanner::Context::add(AllocSizeT size, SequenceT first,
                                      SequenceT last) {
   TT_assert(size > 0, "expected positive size");
   TT_assert(0 <= first && 0 <= last, "expected non-negative op positions");
-  TT_assert(first < last, "expected first < last");
+  TT_assert(first <= last, "expected first <= last");
 
   [[maybe_unused]] const auto &r =
       records.emplace_back(Record{-1, size, first, last});

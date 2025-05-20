@@ -65,26 +65,26 @@ struct MemorySpaceInfo {
   AllocSizeT size = 0;
   AllocSizeT alignment = 0;
 
-  static constexpr std::size_t maxEnumValForMemorySpace =
+  static constexpr std::size_t kMaxEnumValForMemorySpace =
       (getMaxEnumValForMemorySpace() + 1);
 };
 
 using MemorySpaces =
-    std::array<MemorySpaceInfo, MemorySpaceInfo::maxEnumValForMemorySpace>;
+    std::array<MemorySpaceInfo, MemorySpaceInfo::kMaxEnumValForMemorySpace>;
 
 struct FuncAnalysisData final : public AllocationPlanner::Context {
 
-  using base = AllocationPlanner::Context;
+  using Base = AllocationPlanner::Context;
 
-  using base::base;
+  using Base::Base;
 
   void add(AllocSizeT size, SequenceT first, SequenceT last,
            memref::AllocOp alloc) {
-    base::add(size, first, last);
+    Base::add(size, first, last);
     allocs.emplace_back(alloc);
   }
 
-  // A list of alloc ops, parallel to `base::records`
+  // A list of alloc ops, parallel to `Base::records`
   std::vector<memref::AllocOp> allocs;
 
   // Within a func body scope, maps logical time positions (in preorder)
@@ -108,9 +108,9 @@ struct ModuleAnalysisData {
 //===----------------------------------------------------------------------===//
 namespace {
 class TTIRAllocateStreams final : public OpRewritePattern<ttir::GenericOp> {
-  using base = OpRewritePattern<ttir::GenericOp>;
+  using Base = OpRewritePattern<ttir::GenericOp>;
 
-  using base::base;
+  using Base::Base;
 
   LogicalResult matchAndRewrite(ttir::GenericOp op,
                                 PatternRewriter &rewriter) const final {
@@ -214,9 +214,9 @@ class TTIRAllocateStreams final : public OpRewritePattern<ttir::GenericOp> {
 
 namespace {
 class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
-  using base = impl::TTIRAllocateBase<TTIRAllocate>;
+  using Base = impl::TTIRAllocateBase<TTIRAllocate>;
 
-  using base::base;
+  using Base::Base;
 
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
@@ -472,7 +472,8 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
   }
 
   static MemorySpaces getMemorySpaces(ChipDescAttr chipDesc) {
-    std::array<MemorySpaceInfo, MemorySpaceInfo::maxEnumValForMemorySpace> info;
+    std::array<MemorySpaceInfo, MemorySpaceInfo::kMaxEnumValForMemorySpace>
+        info;
     // Currently, we only need some slots in 'info'.
     {
       info[llvm::to_underlying(MemorySpace::DeviceL1)] = MemorySpaceInfo(

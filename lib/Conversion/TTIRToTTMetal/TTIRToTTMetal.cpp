@@ -126,9 +126,8 @@ public:
            "No memref memory space found, failing.");
     auto memrefType = op.getMemref().getType();
     assert(mlir::isa<tt::ShardLayoutAttr>(memrefType.getLayout()));
-    auto createBufferOp = rewriter.create<ttmetal::CreateBufferOp>(
-        op->getLoc(), memrefType, address);
-    rewriter.replaceOp(op, createBufferOp);
+    rewriter.replaceOpWithNewOp<ttmetal::CreateBufferOp>(op, memrefType,
+                                                         address);
 
     return success();
   };
@@ -143,9 +142,8 @@ public:
   LogicalResult
   matchAndRewrite(memref::DeallocOp op, memref::DeallocOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto deallocateBufferOp = rewriter.create<ttmetal::DeallocateBufferOp>(
-        op->getLoc(), op.getMemref());
-    rewriter.replaceOp(op, deallocateBufferOp);
+    rewriter.replaceOpWithNewOp<ttmetal::DeallocateBufferOp>(op,
+                                                             op.getMemref());
 
     return success();
   };

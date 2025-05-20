@@ -163,11 +163,11 @@ TEST(GreedyAllocationTest, ConflictFree) {
   constexpr AllocationPlanner::SequenceT positionLimit = 1000; // Soft limit.
 
   std::uniform_int_distribution<std::int32_t> unifSize(
-      1, sizeLimit - 1); // [0, sizeLimit)
+      1, sizeLimit - 1); // [1, sizeLimit)
 
   for (std::int32_t repeat = 0; repeat < repeats; ++repeat) {
     gen.seed(seed + repeat);
-    std::uniform_int_distribution<std::int32_t> unifLength(1, 5 + 2 * repeat);
+    std::uniform_int_distribution<std::int32_t> unifLength(0, 5 + 2 * repeat);
 
     AllocationPlanner::AllocSizeT maxSize = 0;
     AllocationPlanner::Context ctx;
@@ -180,7 +180,7 @@ TEST(GreedyAllocationTest, ConflictFree) {
         ctx.add(size, first, last);
 
         maxSize = std::max(maxSize, size);
-        first = last + unifLength(gen); // Ensure no position overlap.
+        first = last + 1 + unifLength(gen); // Ensure no position overlap.
       }
     }
 
