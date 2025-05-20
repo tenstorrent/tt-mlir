@@ -149,4 +149,10 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
   let description = "This pass tries to fuse operations together with goal to reduce the number of operations in the graph.";
 }
 
+def TTNNUniqueLocations: Pass<"ttnn-unique-locations", "::mlir::ModuleOp">
+{
+  let summary = "Check if operations have unique locations.";
+  let description = "This pass checks if all operations in the module have unique locations. If not, it emits an error.";
+}
+
 #endif
