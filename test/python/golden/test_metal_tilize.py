@@ -20,10 +20,6 @@ def test_tilize(shape: Shape, request):
         unit_attrs: List[str] = None,
     ):
 
-        input = torch.randn(shape[0] * shape[1], dtype=torch.float32).reshape(shape)
-        golden_output = builder.tilize_golden(input)
-        builder.set_graph_input_output([input], [golden_output])
-
         to_device = builder.tilize(
             in0,
             output_type=builder.metal_tensor_layout(shape, (1, 1), True),

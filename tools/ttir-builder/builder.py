@@ -1562,7 +1562,7 @@ class TTIRBuilder:
                                 ]
                                 idx += 1
 
-        tilized = tilized.reshape(input.shape)
+        tilized = tilized.reshape(shape)
         return tilized
 
     def untilize_golden(self, input: torch.Tensor) -> torch.Tensor:
