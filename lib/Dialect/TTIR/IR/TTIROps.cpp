@@ -3371,6 +3371,39 @@ mlir::OpFoldResult mlir::tt::ttir::PermuteOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// FullOp
+//===----------------------------------------------------------------------===//
+
+// FullOp verification
+mlir::LogicalResult mlir::tt::ttir::FullOp::verify() {
+  // Verify that the shape is the shape of the output.
+  if (!llvm::equal(getShape(), getType().getShape())) {
+    return emitOpError() << "expected shape (" << getType().getShape()
+                         << "), got (" << getShape() << ")";
+  }
+
+  // Verify that the fill value type category matches the output type category,
+  // i.e. both are either floating point types or integral types.
+  bool isFillValueFloatingPoint = mlir::isa<FloatAttr>(getFillValue());
+  if (isFillValueFloatingPoint &&
+      !mlir::isa<mlir::FloatType>(getType().getElementType())) {
+    assert(mlir::isa<mlir::IntegerType>(getType().getElementType()) &&
+           "expected integer type");
+    return emitOpError()
+           << "expected fill value of floating point type, got integral type";
+  }
+  if (!isFillValueFloatingPoint &&
+      !mlir::isa<mlir::IntegerType>(getType().getElementType())) {
+    assert(mlir::isa<mlir::FloatType>(getType().getElementType()) &&
+           "expected floating point type");
+    return emitOpError()
+           << "expected fill value of integral type, got floating point type";
+  }
+
+  return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
 // GenericOp
 //===----------------------------------------------------------------------===//
 
