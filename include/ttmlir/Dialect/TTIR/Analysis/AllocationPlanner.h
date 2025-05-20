@@ -5,10 +5,10 @@
 #ifndef TTMLIR_DIALECT_TTIR_ANALYSIS_ALLOCATIONPLANNER_H
 #define TTMLIR_DIALECT_TTIR_ANALYSIS_ALLOCATIONPLANNER_H
 
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <cstdint>
-#include <vector>
 
 namespace mlir::tt::ttir {
 
@@ -62,7 +62,7 @@ public:
     template <AllocationPlanner::Algorithm Algorithm>
     friend class PlannerImpl;
 
-    std::vector<Record> records;
+    llvm::SmallVector<Record> records;
   };
 
   /// Descriptor of allocation and verification outcomes.
