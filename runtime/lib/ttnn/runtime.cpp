@@ -1122,6 +1122,10 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_DeallocateOp()->in()};
     break;
   }
+  case ::tt::target::ttnn::OpType::LoadCachedOp: {
+    tensorRefs = {};
+    break;
+  }
   default: {
     LOG_FATAL("Unsupported operation type");
   }
