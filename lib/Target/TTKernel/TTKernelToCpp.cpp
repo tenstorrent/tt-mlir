@@ -140,22 +140,25 @@ void dprint(Arg &&arg, ArgV&&... argv) {
   }
 
   void emitExperimentalLLKs() {
-    if (!hasOp<emitc::CallOpaqueOp>([](emitc::CallOpaqueOp op) {
-          return op.getCallee().starts_with("experimental");
+    if (hasOp<emitc::CallOpaqueOp>([](emitc::CallOpaqueOp op) {
+          return op.getCallee().starts_with("experimental::tilize");
         })) {
-      return;
+
+      auto experimentalTilizeLLKs = StringRef(
+          reinterpret_cast<const char *>(experimental_tilize_llks_generated),
+          experimental_tilize_llks_generated_len);
+      builder->create<emitc::VerbatimOp>(loc, experimentalTilizeLLKs);
     }
 
-    // Convert hex arrays back to strings
-    auto experimentalTilizeLLKs = StringRef(
-        reinterpret_cast<const char *>(experimental_tilize_llks_generated),
-        experimental_tilize_llks_generated_len);
-    builder->create<emitc::VerbatimOp>(loc, experimentalTilizeLLKs);
+    if (hasOp<emitc::CallOpaqueOp>([](emitc::CallOpaqueOp op) {
+          return op.getCallee().starts_with("experimental::untilize");
+        })) {
 
-    auto experimentalUntilizeLLKs = StringRef(
-        reinterpret_cast<const char *>(experimental_untilize_llks_generated),
-        experimental_untilize_llks_generated_len);
-    builder->create<emitc::VerbatimOp>(loc, experimentalUntilizeLLKs);
+      auto experimentalUntilizeLLKs = StringRef(
+          reinterpret_cast<const char *>(experimental_untilize_llks_generated),
+          experimental_untilize_llks_generated_len);
+      builder->create<emitc::VerbatimOp>(loc, experimentalUntilizeLLKs);
+    }
   }
 
   template <typename OpT>
