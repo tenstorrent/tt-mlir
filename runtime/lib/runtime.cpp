@@ -4,10 +4,16 @@
 
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
+
 #include <atomic>
+#include <memory>
+#include <optional>
+#include <utility>
+#include <vector>
 
 #if defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)
 #include "tt/runtime/detail/ttnn/ttnn.h"
@@ -682,6 +688,68 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
       [&]() -> RetType {
         return ::tt::runtime::ttmetal::getOpOutputTensor(opContextHandle,
                                                          programContextHandle);
+      });
+}
+
+std::optional<tt::runtime::TensorRef>
+getOpOutputRef(OpContext opContextHandle,
+               CallbackContext programContextHandle) {
+
+  using RetType = std::optional<tt::runtime::TensorRef>;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::getOpOutputRef(opContextHandle,
+                                                   programContextHandle);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::getOpOutputRef(opContextHandle,
+                                                      programContextHandle);
+      });
+}
+
+std::vector<tt::runtime::TensorRef>
+getOpInputRefs(OpContext opContextHandle,
+               CallbackContext programContextHandle) {
+  using RetType = std::vector<tt::runtime::TensorRef>;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::getOpInputRefs(opContextHandle,
+                                                   programContextHandle);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::getOpInputRefs(opContextHandle,
+                                                      programContextHandle);
+      });
+}
+
+std::optional<Tensor> getTensor(CallbackContext programContextHandle,
+                                TensorRef tensorRef) {
+  using RetType = std::optional<Tensor>;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::getTensor(programContextHandle, tensorRef);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::getTensor(programContextHandle,
+                                                 tensorRef);
+      });
+}
+
+void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef,
+                  Tensor srcTensor) {
+  using RetType = void;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::updateTensor(programContextHandle,
+                                                 tensorRef, srcTensor);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::updateTensor(programContextHandle,
+                                                    tensorRef, srcTensor);
       });
 }
 
