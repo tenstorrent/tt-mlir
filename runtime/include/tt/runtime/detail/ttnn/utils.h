@@ -72,6 +72,10 @@ getTensorRefMemoryConfig(const ::tt::target::ttnn::TensorRef *tensorRef);
 std::optional<::ttnn::MemoryConfig>
 createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg);
 
+std::vector<const tt::target::ttnn::TensorRef *> convertFbTensorRefsToVector(
+    const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
+        *fbVector);
+
 ::tt::runtime::Tensor createRuntimeTensorFromTTNN(
     const ::ttnn::Tensor &tensor,
     const std::optional<::ttnn::MeshEvent> &meshEvent = std::nullopt,
@@ -82,6 +86,9 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg);
 ::ttnn::MeshShape
 getMeshShapeFromConfig(const ::tt::tt_metal::DistributedTensorConfig &config,
                        const std::vector<::ttnn::Tensor> &tensorShards);
+
+::tt::runtime::TensorRef
+createRuntimeTensorRefFromTTNN(const ::tt::target::ttnn::TensorRef *tensorRef);
 
 void *getRawHostDataPtr(const ::ttnn::Tensor &tensor);
 

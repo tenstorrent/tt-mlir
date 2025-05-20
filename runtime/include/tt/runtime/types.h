@@ -282,6 +282,10 @@ struct Tensor : public detail::RuntimeCheckedObjectImpl {
         event(eventHandle, runtime) {}
 };
 
+struct TensorRef : public detail::RuntimeCheckedObjectImpl {
+  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
+};
+
 struct Layout : public detail::RuntimeCheckedObjectImpl {
   using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
 };
