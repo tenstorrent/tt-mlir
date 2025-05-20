@@ -199,12 +199,17 @@ getNullableMemoryConfig(::mlir::tt::ttnn::TTNNLayoutAttr layout) {
 #endif // TTMLIR_ENABLE_OPMODEL
 
 bool isLayoutLegalForTensorShape(llvm::ArrayRef<int64_t> tensorShape,
-                                 mlir::tt::ttnn::TTNNLayoutAttr layout) {
+                                 mlir::tt::ttnn::TTNNLayoutAttr layout,
+                                 GridAttr maxGrid) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   // Conversion to TensorSpec may throw if the layout is invalid, in which case
   // we return false.
   try {
-    conversion::getTensorSpec(tensorShape, layout);
+    auto tensorSpec = conversion::getTensorSpec(tensorShape, layout);
+    auto computeGridSize = ::tt::tt_metal::CoreCoord{
+        static_cast<std::size_t>(maxGrid.getShape()[0]),
+        static_cast<std::size_t>(maxGrid.getShape()[1])};
+    return conversion::validateTensorSpec(tensorSpec, computeGridSize);
   } catch (const std::exception &e) {
     return false;
   }

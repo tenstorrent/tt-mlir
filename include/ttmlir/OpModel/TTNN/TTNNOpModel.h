@@ -18,7 +18,8 @@ namespace mlir::tt::op_model::ttnn {
 
 // Checks if the tensor layout is legal for the given tensor shape.
 bool isLayoutLegalForTensorShape(llvm::ArrayRef<int64_t> tensorShape,
-                                 mlir::tt::ttnn::TTNNLayoutAttr layout);
+                                 mlir::tt::ttnn::TTNNLayoutAttr layout,
+                                 GridAttr maxGrid);
 
 // Calculate the output tensor type of the prepared weights for a conv2d op.
 mlir::RankedTensorType
