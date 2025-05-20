@@ -32,7 +32,7 @@ CumSumOpRankRewritePattern::matchAndRewrite(ttnn::MorehCumSumOp srcOp,
   adaptedShape.append(additionalAxes, 1);
 
   ReshapeOp adaptedInput = ttir_to_ttnn::utils::generateReshape(
-      srcOp.getInput(), adaptedShape, rewriter);
+      srcOp.getInput(), adaptedShape, rewriter, "_reshapeInput");
 
   RankedTensorType outputType = srcOp.getResult().getType();
   RankedTensorType adaptedOutputType =
@@ -43,7 +43,8 @@ CumSumOpRankRewritePattern::matchAndRewrite(ttnn::MorehCumSumOp srcOp,
           /*memory_config=*/nullptr);
 
   ReshapeOp cumsumOutput = ttir_to_ttnn::utils::generateReshape(
-      adaptedCumSumOp, srcOp.getResult().getType().getShape(), rewriter);
+      adaptedCumSumOp, srcOp.getResult().getType().getShape(), rewriter,
+      "_reshapeOutput");
   rewriter.replaceOp(srcOp, cumsumOutput);
 
   return success();
