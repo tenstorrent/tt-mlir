@@ -5,6 +5,7 @@
 #ifndef TT_RUNTIME_DETAIL_TTMETAL_TTMETAL_H
 #define TT_RUNTIME_DETAIL_TTMETAL_TTMETAL_H
 
+#include <optional>
 #define FMT_HEADER_ONLY
 #include "tt-metalium/circular_buffer.hpp"
 #include "tt-metalium/event.hpp"
@@ -130,6 +131,18 @@ std::string getOpLocInfo(OpContext opContextHandle);
 
 Tensor getOpOutputTensor(OpContext opContextHandle,
                          CallbackContext programContextHandle);
+
+std::optional<tt::runtime::TensorRef>
+getOpOutputRef(OpContext opContextHandle, CallbackContext programContextHandle);
+
+std::vector<tt::runtime::TensorRef>
+getOpInputRefs(OpContext opContextHandle, CallbackContext programContextHandle);
+
+std::optional<Tensor> getTensor(CallbackContext programContextHandle,
+                                TensorRef tensorRef);
+
+void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef,
+                  Tensor srcTensor);
 
 } // namespace tt::runtime::ttmetal
 
