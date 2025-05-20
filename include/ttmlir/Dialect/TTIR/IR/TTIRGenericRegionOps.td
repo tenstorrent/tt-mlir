@@ -125,7 +125,7 @@ def TTIR_TileMaximumOp : TTIR_GenericRegionComputeOp<"tile_maximum">{
 def TTIR_TileReduceSumOp : TTIR_GenericRegionComputeOp<"tile_reduce_sum"> {
   let summary = "TTIR Tile Reduce Sum Op";
   let description = [{
-        The `tile_reduce_sum` operation computes the sum of all elements in the input A element-wise multiplied by B over the specified reduction dim(s) and element-wise adds C tile: Result = ReduceSum<dims>(A * B) + C
+        The `tile_reduce_sum` operation computes the sum of all elements in the input A element-wise multiplied by B and input C over the specified reduction dim(s): result <- sum<dims>(A * B, C)
     }];
 
   let arguments = (ins TT_Tile:$a,
@@ -138,7 +138,7 @@ def TTIR_TileReduceSumOp : TTIR_GenericRegionComputeOp<"tile_reduce_sum"> {
 def TTIR_TileReduceMaxOp : TTIR_GenericRegionComputeOp<"tile_reduce_max"> {
   let summary = "TTIR Tile Reduce Max Op";
   let description = [{
-        The `tile_reduce_max` operation computes the max of all elements in the input A element-wise multiplied by B over the specified reduction dim(s) and element-wise adds C tile: Result = ReduceMax<dims>(A * B) + C
+        The `tile_reduce_max` operation computes the max of all elements in the input A element-wise multiplied by B and input C over the specified reduction dim(s): result <- max<dims>(A * B, C)
     }];
 
   let arguments = (ins TT_Tile:$a,
