@@ -1545,16 +1545,15 @@ class TTIRBuilder:
         FACE_SIZE = 16
         Y_TILES = shape[0] // TILE_SIZE
         X_TILES = shape[1] // TILE_SIZE
-        Y_FACES_PER_TILE = TILE_SIZE // FACE_SIZE
-        X_FACES_PER_TILE = TILE_SIZE // FACE_SIZE
+        FACES_PER_TILE = TILE_SIZE // FACE_SIZE
 
         tilized = torch.zeros((input.numel(),))
 
         idx = 0
         for tile_y in range(Y_TILES):
             for tile_x in range(X_TILES):
-                for face_y in range(Y_FACES_PER_TILE):
-                    for face_x in range(X_FACES_PER_TILE):
+                for face_y in range(FACES_PER_TILE):
+                    for face_x in range(FACES_PER_TILE):
                         for datum_y in range(FACE_SIZE):
                             for datum_x in range(FACE_SIZE):
                                 tilized[idx] = input[
@@ -1572,16 +1571,16 @@ class TTIRBuilder:
         FACE_SIZE = 16
         Y_TILES = shape[0] // TILE_SIZE
         X_TILES = shape[1] // TILE_SIZE
-        Y_FACES_PER_TILE = TILE_SIZE // FACE_SIZE
-        X_FACES_PER_TILE = TILE_SIZE // FACE_SIZE
+        FACES_PER_TILE = TILE_SIZE // FACE_SIZE
 
         untilized = torch.zeros_like(input)
+        flattened = input.flatten()
 
         idx = 0
         for tile_y in range(Y_TILES):
             for tile_x in range(X_TILES):
-                for face_y in range(Y_FACES_PER_TILE):
-                    for face_x in range(X_FACES_PER_TILE):
+                for face_y in range(FACES_PER_TILE):
+                    for face_x in range(FACES_PER_TILE):
                         for datum_y in range(FACE_SIZE):
                             for datum_x in range(FACE_SIZE):
                                 # Calculate the original position
@@ -1593,7 +1592,7 @@ class TTIRBuilder:
                                 )
 
                                 # Place the value from the tilized tensor back to its original position
-                                untilized[orig_y, orig_x] = input.flatten()[idx]
+                                untilized[orig_y, orig_x] = flattened[idx]
                                 idx += 1
 
         return untilized
