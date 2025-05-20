@@ -49,8 +49,6 @@ def TTKernel_SFPUOpTrait : TTKernel_Trait<"TTKernelSFPUOpTrait", []>;
 
 def TTKernel_InitOpTrait : TTKernel_Trait<"TTKernelInitOpTrait", []>;
 
-def TTKernel_ExperimentalOpTrait : TTKernel_Trait<"TTKernelExperimentalOpTrait", []>;
-
 def TTKernel_UnaryOpTrait : TTKernel_Trait<"TTKernelUnaryOpTrait", []>;
 
 def TTKernel_BinaryOpTrait : TTKernel_Trait<"TTKernelBinaryOpTrait", []>;
