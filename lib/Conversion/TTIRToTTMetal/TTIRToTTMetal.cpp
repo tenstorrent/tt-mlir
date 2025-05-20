@@ -126,9 +126,24 @@ public:
            "No memref memory space found, failing.");
     auto memrefType = op.getMemref().getType();
     assert(mlir::isa<tt::ShardLayoutAttr>(memrefType.getLayout()));
-    auto createBufferOp = rewriter.create<ttmetal::CreateBufferOp>(
-        op->getLoc(), memrefType, address);
-    rewriter.replaceOp(op, createBufferOp);
+    rewriter.replaceOpWithNewOp<ttmetal::CreateBufferOp>(op, memrefType,
+                                                         address);
+
+    return success();
+  };
+};
+} // namespace
+
+namespace {
+class MemrefDeallocRewriter : public OpConversionPattern<memref::DeallocOp> {
+public:
+  using OpConversionPattern<memref::DeallocOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(memref::DeallocOp op, memref::DeallocOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<ttmetal::DeallocateBufferOp>(op,
+                                                             op.getMemref());
 
     return success();
   };
@@ -182,7 +197,8 @@ void populateTTIRToTTMetalPatterns(MLIRContext *ctx,
                                    RewritePatternSet &patterns,
                                    TypeConverter & /*typeConverter*/) {
   patterns.add<ttmetal::TTIRGenericRewriter, ttmetal::MemrefAllocRewriter,
-               ttmetal::TTIRToLayoutRewriter>(ctx);
+               ttmetal::MemrefDeallocRewriter, ttmetal::TTIRToLayoutRewriter>(
+      ctx);
 }
 
 } // namespace mlir::tt
