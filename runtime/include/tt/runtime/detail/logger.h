@@ -14,8 +14,10 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <sstream>
 #include <string>
+#include <vector>
 
 #if defined(UTILS_LOGGER_PYTHON_OSTREAM_REDIRECT) &&                           \
     (UTILS_LOGGER_PYTHON_OSTREAM_REDIRECT == 1)
