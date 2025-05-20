@@ -77,6 +77,17 @@ runSoProgram(void *so, std::string_view funcName,
   // locally we may have 2 devices.
   assert(ttnnMeshDevice.get_devices().size() > 0);
 
+  // Try to find and call a setDevice function in the dylib
+  using SetDeviceFunction = void (*)(::ttnn::MeshDevice *);
+  dlerror(); // Clear any previous errors
+  void *setDeviceSymbol = dlsym(so, "setDevice");
+  const char *setDeviceError = dlerror();
+  if (!setDeviceError) {
+    // If we found the setDevice function, call it
+    auto setDeviceFunc = reinterpret_cast<SetDeviceFunction>(setDeviceSymbol);
+    setDeviceFunc(&ttnnMeshDevice);
+  }
+
   // Convert inputs to TTNN tensors using .as method
   //
   std::vector<::ttnn::Tensor> ttnnInputs;
@@ -93,9 +104,7 @@ runSoProgram(void *so, std::string_view funcName,
 
   // Get function from the shared object
   //
-  using ForwardFunctionWithDevice = std::vector<::ttnn::Tensor> (*)(
-      std::vector<::ttnn::Tensor>, ::ttnn::MeshDevice *);
-  using ForwardFunctionNoDevice =
+  using ForwardFunction =
       std::vector<::ttnn::Tensor> (*)(std::vector<::ttnn::Tensor>);
 
   const char *dlsymError;
@@ -117,13 +126,8 @@ runSoProgram(void *so, std::string_view funcName,
   // Call program/function
   //
   std::vector<::ttnn::Tensor> ttnnOutputs;
-  if (mangledName.find("MeshDevice") != std::string::npos) {
-    auto forwardFunc = reinterpret_cast<ForwardFunctionWithDevice>(symbol);
-    ttnnOutputs = forwardFunc(ttnnInputs, &ttnnMeshDevice);
-  } else {
-    auto forwardFunc = reinterpret_cast<ForwardFunctionNoDevice>(symbol);
-    ttnnOutputs = forwardFunc(ttnnInputs);
-  }
+  auto forwardFunc = reinterpret_cast<ForwardFunction>(symbol);
+  ttnnOutputs = forwardFunc(ttnnInputs);
 
   // Convert TTNN Tensors to Runtime Tensors
   //

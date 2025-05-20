@@ -48,6 +48,7 @@
 #include <cassert>
 #include <cstddef>
 #include <iostream>
+#include <mutex>
 #include <vector>
 
 namespace ttnn {
@@ -61,10 +62,25 @@ public:
   static constexpr std::size_t l1SmallSize = 1 << 15;
 
   static ttnn::MeshDevice *getInstance() {
-    static std::shared_ptr<ttnn::MeshDevice> instance =
-        ::ttnn::MeshDevice::create_unit_mesh(0, l1SmallSize);
+    // If we have an external device, use it.
+    if (externalDevice) {
+      return externalDevice;
+    }
 
-    return instance.get();
+    // Otherwise, create and use our own device.
+    if (!ownedDevice) {
+      ownedDevice = ::ttnn::MeshDevice::create_unit_mesh(0, l1SmallSize);
+    }
+    return ownedDevice.get();
+  }
+
+  // Set an external device (we don't own it)
+  static void setInstance(ttnn::MeshDevice *newInstance) {
+    // Clear any owned device we might have.
+    ownedDevice.reset();
+
+    // Store the external device pointer.
+    externalDevice = newInstance;
   }
 
 private:
@@ -72,7 +88,22 @@ private:
 
   DeviceGetter(const DeviceGetter &) = delete;
   DeviceGetter &operator=(const DeviceGetter &) = delete;
+
+  // External device (not owned by us).
+  static ttnn::MeshDevice *externalDevice;
+
+  // Our owned device (only used if no external device is set).
+  static std::shared_ptr<ttnn::MeshDevice> ownedDevice;
 };
+
+inline ttnn::MeshDevice *DeviceGetter::externalDevice = nullptr;
+inline std::shared_ptr<ttnn::MeshDevice> DeviceGetter::ownedDevice;
+
+// Function to be exported from the dylib that can be called to set the
+// device--extern to avoid mangling.
+extern "C" {
+void setDevice(ttnn::MeshDevice *device) { DeviceGetter::setInstance(device); }
+}
 
 // Wrapper to abstract const-eval logic out of runtime funcs to keep them
 // cleaner.  Invokes constEvalFunc iff outputs is empty.
