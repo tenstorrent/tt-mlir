@@ -3116,11 +3116,11 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
     return emitOpError("Batching currently not supported");
   }
 
-  for (uint64_t insertedWindowDims : getInsertedWindowDims()) {
-    if (inputShape[insertedWindowDims] != 1) {
-      return emitOpError("Dimension size to slice into must be 1");
-    }
-  }
+  // for (uint64_t insertedWindowDims : getInsertedWindowDims()) {
+  //   if (inputShape[insertedWindowDims] != 1) {
+  //     return emitOpError("Dimension size to slice into must be 1");
+  //   }
+  // }
 
   return success();
 }
