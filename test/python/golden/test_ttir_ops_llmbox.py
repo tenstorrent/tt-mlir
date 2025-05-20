@@ -804,3 +804,209 @@ def test_eltwise_multidevice(shapes: List[Shape], mesh_shape: Tuple[int, int], r
         mesh_shape=mesh_shape,
         test_base=request.node.name,
     )
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [(1024, 32), (32, 512), (1024, 512)],
+        [(256, 128), (128, 128), (256, 128)],
+    ],
+)
+@pytest.mark.parametrize("mesh_shape", [(2, 4)])
+def test_matmul_and_binary_op(
+    shapes: List[Shape], mesh_shape: Tuple[int, int], request
+):
+    def matmul_test(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
+        input = builder._get_golden_tensor(in0)
+        weight = builder._get_golden_tensor(in1)
+        bias = builder._get_golden_tensor(in2)
+        golden_output = torch.add(torch.matmul(input, weight), bias)
+        builder.set_graph_input_output([input, weight], [golden_output])
+
+        sharded_in0 = builder.mesh_shard(
+            in0,
+            shard_direction="#tt.shard_direction<full_to_shard>",
+            shard_type="#tt.shard_type<devices>",
+            shard_shape=(2, 4),
+            shard_dims=(0, 1),
+        )
+        sharded_in1 = builder.mesh_shard(
+            in1,
+            shard_direction="#tt.shard_direction<full_to_shard>",
+            shard_type="#tt.shard_type<devices>",
+            shard_shape=(4, 1),
+            shard_dims=(-1, 0),
+        )
+        partial_matmul = builder.matmul(sharded_in0, sharded_in1)
+        reduced = builder.all_reduce(
+            partial_matmul,
+            reduce_type="#tt.reduce_type<sum>",
+            cluster_axis=1,
+        )
+        unsharded = builder.mesh_shard(
+            reduced,
+            shard_direction="#tt.shard_direction<shard_to_full>",
+            shard_type="#tt.shard_type<devices>",
+            shard_shape=(2, 1),
+            shard_dims=(0, -1),
+        )
+        output = builder.add(unsharded, in2)
+        return output
+
+    compile_to_flatbuffer(
+        matmul_test,
+        shapes,
+        mesh_shape=mesh_shape,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [(1024, 32), (32, 512)],
+        [(256, 128), (128, 128)],
+    ],
+)
+@pytest.mark.parametrize("mesh_shape", [(2, 4)])
+def test_matmul_and_unary_op(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
+    def matmul_test(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        input = builder._get_golden_tensor(in0)
+        weight = builder._get_golden_tensor(in1)
+        golden_output = torch.neg(torch.matmul(input, weight))
+        builder.set_graph_input_output([input, weight], [golden_output])
+
+        sharded_in0 = builder.mesh_shard(
+            in0,
+            shard_direction="#tt.shard_direction<full_to_shard>",
+            shard_type="#tt.shard_type<devices>",
+            shard_shape=(2, 4),
+            shard_dims=(0, 1),
+        )
+        sharded_in1 = builder.mesh_shard(
+            in1,
+            shard_direction="#tt.shard_direction<full_to_shard>",
+            shard_type="#tt.shard_type<devices>",
+            shard_shape=(4, 1),
+            shard_dims=(-1, 0),
+        )
+        partial_matmul = builder.matmul(sharded_in0, sharded_in1)
+        reduced = builder.all_reduce(
+            partial_matmul,
+            reduce_type="#tt.reduce_type<sum>",
+            cluster_axis=1,
+        )
+        unsharded = builder.mesh_shard(
+            reduced,
+            shard_direction="#tt.shard_direction<shard_to_full>",
+            shard_type="#tt.shard_type<devices>",
+            shard_shape=(2, 1),
+            shard_dims=(0, -1),
+        )
+        output = builder.neg(unsharded)
+        return output
+
+    compile_to_flatbuffer(
+        matmul_test,
+        shapes,
+        mesh_shape=mesh_shape,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [(1024, 32), (32, 512), (1024, 32), (32, 512)],
+        [(256, 128), (128, 128), (256, 128), (128, 128)],
+    ],
+)
+@pytest.mark.parametrize("mesh_shape", [(2, 4)])
+def test_matmul_and_binary_op_2(
+    shapes: List[Shape], mesh_shape: Tuple[int, int], request
+):
+    def matmul_test(
+        in0: Operand, in1: Operand, in2: Operand, in3: Operand, builder: TTIRBuilder
+    ):
+        input = builder._get_golden_tensor(in0)
+        weight = builder._get_golden_tensor(in1)
+        input_2 = builder._get_golden_tensor(in2)
+        weight_2 = builder._get_golden_tensor(in3)
+        golden_output = torch.add(
+            torch.matmul(input, weight), torch.matmul(input_2, weight_2)
+        )
+        builder.set_graph_input_output(
+            [input, weight, input_2, weight_2], [golden_output]
+        )
+
+        sharded_in0 = builder.mesh_shard(
+            in0,
+            shard_direction="#tt.shard_direction<full_to_shard>",
+            shard_type="#tt.shard_type<devices>",
+            shard_shape=(2, 4),
+            shard_dims=(0, 1),
+        )
+        sharded_in1 = builder.mesh_shard(
+            in1,
+            shard_direction="#tt.shard_direction<full_to_shard>",
+            shard_type="#tt.shard_type<devices>",
+            shard_shape=(4, 1),
+            shard_dims=(-1, 0),
+        )
+        partial_matmul_0 = builder.matmul(sharded_in0, sharded_in1)
+        reduced_0 = builder.all_reduce(
+            partial_matmul_0,
+            reduce_type="#tt.reduce_type<sum>",
+            cluster_axis=1,
+        )
+        matmul_0 = builder.mesh_shard(
+            reduced_0,
+            shard_direction="#tt.shard_direction<shard_to_full>",
+            shard_type="#tt.shard_type<devices>",
+            shard_shape=(2, 1),
+            shard_dims=(0, -1),
+        )
+
+        sharded_in2 = builder.mesh_shard(
+            in2,
+            shard_direction="#tt.shard_direction<full_to_shard>",
+            shard_type="#tt.shard_type<devices>",
+            shard_shape=(2, 4),
+            shard_dims=(0, 1),
+        )
+        sharded_in3 = builder.mesh_shard(
+            in3,
+            shard_direction="#tt.shard_direction<full_to_shard>",
+            shard_type="#tt.shard_type<devices>",
+            shard_shape=(4, 1),
+            shard_dims=(-1, 0),
+        )
+        partial_matmul_2 = builder.matmul(sharded_in2, sharded_in3)
+        reduced_2 = builder.all_reduce(
+            partial_matmul_2,
+            reduce_type="#tt.reduce_type<sum>",
+            cluster_axis=1,
+        )
+        matmul_2 = builder.mesh_shard(
+            reduced_2,
+            shard_direction="#tt.shard_direction<shard_to_full>",
+            shard_type="#tt.shard_type<devices>",
+            shard_shape=(2, 1),
+            shard_dims=(0, -1),
+        )
+        output = builder.add(matmul_0, matmul_2)
+        return output
+
+    compile_to_flatbuffer(
+        matmul_test,
+        shapes,
+        mesh_shape=mesh_shape,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
