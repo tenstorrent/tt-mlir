@@ -7,8 +7,9 @@ namespace mlir::tt::ttnn::workarounds::decomposition {
 
 llvm::SmallVector<long, 4> squeezeTo4dim(ArrayRef<long> shape) {
   auto mergedDim = 1;
-  for (size_t i = 0; i < shape.size() - 3; ++i)
+  for (size_t i = 0; i < shape.size() - 3; ++i) {
     mergedDim *= shape[i];
+  }
 
   llvm::SmallVector<long, 4> reducedShape = {mergedDim, shape[shape.size() - 3],
                                              shape[shape.size() - 2],
@@ -34,9 +35,12 @@ BroadcastingOpRewritePattern::matchAndRewrite(ttnn::RepeatOp srcOp,
                                               PatternRewriter &rewriter) const {
   auto outputType = cast<mlir::RankedTensorType>(srcOp.getResult().getType());
   auto outputShape = outputType.getShape();
+
   // Skip if rank is 4 or less (no need to reshape).
-  if (outputShape.size() <= 4)
+  if (outputShape.size() <= 4) {
     return failure();
+  }
+
   auto inputTypedValue =
       dyn_cast<mlir::TypedValue<mlir::RankedTensorType>>(srcOp->getOperand(0));
   auto inputType = inputTypedValue.getType();
@@ -47,13 +51,15 @@ BroadcastingOpRewritePattern::matchAndRewrite(ttnn::RepeatOp srcOp,
       inputTypedValue, reducedShape, rewriter);
 
   auto oldRepeatDims = srcOp.getRepeatDims().getShape();
-  if (oldRepeatDims.size() != inputShape.size())
+  if (oldRepeatDims.size() != inputShape.size()) {
     return failure();
+  }
 
   // Collapse repeat dims to match reduced shape.
   int64_t mergedRepeatDim = 1;
-  for (size_t i = 0; i < oldRepeatDims.size() - 3; ++i)
+  for (size_t i = 0; i < oldRepeatDims.size() - 3; ++i) {
     mergedRepeatDim *= oldRepeatDims[i];
+  }
 
   llvm::SmallVector<int64_t> newRepeatDims = {
       mergedRepeatDim, oldRepeatDims[oldRepeatDims.size() - 3],

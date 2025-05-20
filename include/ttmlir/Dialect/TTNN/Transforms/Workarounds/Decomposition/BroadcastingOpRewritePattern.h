@@ -9,7 +9,6 @@
 #include "mlir/Support/LogicalResult.h"
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include <iostream>
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
@@ -61,7 +60,7 @@ public:
 // If permute is not needed, just perform squeeze and unsqueeze with reshape,
 // skipping permute steps.
 //
-// TODO: Does not handle cases with >4 dimensions and >3 non-broadcast
+// TODO(sshon): Does not handle cases with >4 dimensions and >3 non-broadcast
 // dimensions.
 // lhs (3,4,5,6,7), rhs (1,4,5,1,7) --> covered
 // lhs (2,3,4,5,6,7), rhs (1,3,1,5,6,7) --> uncovered
@@ -294,8 +293,9 @@ private:
 
     // Apply permutation to shape
     llvm::SmallVector<int64_t> permutedShape;
-    for (auto idx : permutation)
+    for (auto idx : permutation) {
       permutedShape.push_back(shape[idx]);
+    }
 
     auto newLayoutAttr =
         mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding())
@@ -339,10 +339,12 @@ private:
     auto shape_rhs =
         mlir::cast<mlir::RankedTensorType>(srcOp.getOperand(1).getType())
             .getShape();
-    if (std::max(shape_lhs.size(), shape_rhs.size()) <= 4u)
+    if (std::max(shape_lhs.size(), shape_rhs.size()) <= 4u) {
       return false;
-    if (shape_lhs.size() != shape_rhs.size())
+    }
+    if (shape_lhs.size() != shape_rhs.size()) {
       return true;
+    }
     return std::mismatch(shape_lhs.begin(), shape_lhs.end(), shape_rhs.begin())
                .first != shape_lhs.end();
   }
