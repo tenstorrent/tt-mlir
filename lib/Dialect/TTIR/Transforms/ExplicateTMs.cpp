@@ -22,12 +22,11 @@ public:
 
   LogicalResult matchAndRewrite(ElementwiseInterfaceType op,
                                 PatternRewriter &rewriter) const override {
-    auto [maxRank, needsReshape] = getMaxRankForOperands(op);
-    if (!needsReshape) {
-      return failure();
-    }
+    int64_t maxRank = getMaxRankForOperands(op);
+    bool hasChanged = false;
 
-    llvm::SmallVector<mlir::Value> newOperands(op->getOperands());
+    assert(op->template hasTrait<mlir::DestinationStyleOpInterface::Trait>() &&
+           "Elementwise op should have the DestinationStyleOpInterface trait");
     for (int64_t i = 0; i < op->getNumOperands() - 1; i++) {
       auto operandType =
           mlir::cast<mlir::RankedTensorType>(op->getOperand(i).getType());
@@ -37,55 +36,35 @@ public:
         continue;
       }
 
-      // Copy original dimensions, aligned to the right
-      llvm::SmallVector<int32_t> newShape(maxRank, 1);
-      for (int64_t j = 0; j < operandRank; j++) {
-        newShape[maxRank - operandRank + j] = operandType.getDimSize(j);
-      }
+      // Copy original dimensions, aligned to the right.
+      llvm::SmallVector<int64_t> newShape(maxRank - operandRank, 1);
+      newShape.append(operandType.getShape().begin(),
+                      operandType.getShape().end());
 
-      // Create new reshape operation
-      auto reshapedResultType = mlir::RankedTensorType::get(
-          llvm::SmallVector<int64_t>(newShape.begin(), newShape.end()),
-          operandType.getElementType(), operandType.getEncoding());
+      // Create a new reshape operation.
       auto reshapeOp = ttir::utils::createDPSOp<ttir::ReshapeOp>(
-          rewriter, op.getLoc(), reshapedResultType, op->getOperand(i),
-          rewriter.getI32ArrayAttr(newShape));
+          rewriter, op.getLoc(), newShape, operandType.getElementType(),
+          operandType.getEncoding(), op->getOperand(i),
+          rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(newShape)));
 
-      newOperands[i] = reshapeOp.getResult();
+      // Replace operand with the new reshape operation.
+      rewriter.modifyOpInPlace(op, [&]() { op->setOperand(i, reshapeOp); });
+      hasChanged = true;
     }
 
-    rewriter.modifyOpInPlace(op, [op, &newOperands]() {
-      for (size_t i = 0; i < newOperands.size(); i++) {
-        op->setOperand(i, newOperands[i]);
-      }
-    });
-
-    return success();
+    return llvm::success(hasChanged);
   }
 
 private:
-  std::pair<int64_t, bool>
-  getMaxRankForOperands(ElementwiseInterfaceType op) const {
-    auto firstOperandType =
-        mlir::cast<mlir::RankedTensorType>(op->getOperand(0).getType());
-    int64_t maxRank = firstOperandType.getRank();
-    bool needsReshape = false;
-
-    // Find the maximum rank (excluding the last DPS operand)
-    for (int64_t i = 0; i < op->getNumOperands() - 1; i++) {
-      auto operandType =
-          mlir::cast<mlir::RankedTensorType>(op->getOperand(i).getType());
-      int64_t operandRank = operandType.getRank();
-
-      if (operandRank < maxRank) {
-        needsReshape = true;
-      } else if (operandRank > maxRank) {
-        needsReshape = true;
-        maxRank = operandRank;
-      }
-    }
-
-    return std::make_pair(maxRank, needsReshape);
+  int64_t getMaxRankForOperands(ElementwiseInterfaceType op) const {
+    assert(op->template hasTrait<mlir::DestinationStyleOpInterface::Trait>() &&
+           "Elementwise op should have the DestinationStyleOpInterface trait");
+    return std::accumulate(
+        op->operand_type_begin(), op->operand_type_end() - 1, 0,
+        [](int64_t acc, mlir::Type type) {
+          return std::max(acc,
+                          mlir::cast<mlir::RankedTensorType>(type).getRank());
+        });
   }
 };
 } // namespace
@@ -99,90 +78,69 @@ public:
       ElementwiseInterfaceType>::OpInterfaceRewritePattern;
   LogicalResult matchAndRewrite(ElementwiseInterfaceType op,
                                 PatternRewriter &rewriter) const override {
-    auto broadcastInfo = getTargetBroadcastShapeForOperands(op);
-    if (auto error = broadcastInfo.takeError()) {
+    auto expectedBroadcastedShape = getBroadcastedShapeForOperands(op);
+    if (auto error = expectedBroadcastedShape.takeError()) {
       llvm::report_fatal_error(
           llvm::StringRef(llvm::toString(std::move(error))));
     }
+    llvm::ArrayRef<int64_t> targetShape = *expectedBroadcastedShape;
+    bool hasChanged = false;
 
-    auto [targetShape, needsBroadcast] = *broadcastInfo;
-    if (!needsBroadcast) {
-      return failure();
-    }
-
-    llvm::SmallVector<mlir::Value> newOperands(op->getOperands());
-
-    // Broadcast operands to match target shape, excluding the last DPS operand
+    assert(op->template hasTrait<mlir::DestinationStyleOpInterface::Trait>() &&
+           "Elementwise op should have the DestinationStyleOpInterface trait");
     for (int64_t i = 0; i < op->getNumOperands() - 1; i++) {
       auto operandType =
           mlir::cast<mlir::RankedTensorType>(op->getOperand(i).getType());
       llvm::ArrayRef<int64_t> operandShape = operandType.getShape();
-      if (!needsBroadcasting(operandShape, targetShape)) {
+
+      llvm::SmallVector<int64_t> broadcastDimensions =
+          getBroadcastDimensions(operandShape, targetShape);
+      if (llvm::all_of(broadcastDimensions, [](int64_t i) { return i == 1; })) {
         continue;
       }
 
-      // Create new broadcast operation
-      auto broadcastResultType = mlir::RankedTensorType::get(
-          targetShape, operandType.getElementType(), operandType.getEncoding());
-      llvm::SmallVector<int64_t> broadcastDimensions =
-          getBroadcastDimensions(operandShape, targetShape);
+      // Create a new broadcast operation.
       auto broadcastOp = ttir::utils::createDPSOp<ttir::BroadcastOp>(
-          rewriter, op.getLoc(), broadcastResultType, op->getOperand(i),
-          broadcastDimensions);
+          rewriter, op.getLoc(), targetShape, operandType.getElementType(),
+          operandType.getEncoding(), op->getOperand(i), broadcastDimensions);
 
-      newOperands[i] = broadcastOp.getResult();
+      // Replace operand with the new broadcast operation.
+      rewriter.modifyOpInPlace(op, [&]() { op->setOperand(i, broadcastOp); });
+      hasChanged = true;
     }
 
-    rewriter.modifyOpInPlace(op, [op, &newOperands]() {
-      for (size_t i = 0; i < newOperands.size(); i++) {
-        op->setOperand(i, newOperands[i]);
-      }
-    });
-
-    return success();
+    return llvm::success(hasChanged);
   }
 
 private:
-  llvm::Expected<std::pair<llvm::SmallVector<int64_t>, bool>>
-  getTargetBroadcastShapeForOperands(ElementwiseInterfaceType op) const {
-    auto firstOperandType =
-        mlir::cast<mlir::RankedTensorType>(op->getOperand(0).getType());
-    llvm::SmallVector<int64_t> targetShape(firstOperandType.getShape());
-    bool needsBroadcast = false;
-
-    // Find the maximum dimensions (excluding the last DPS operand)
+  llvm::Expected<llvm::SmallVector<int64_t>>
+  getBroadcastedShapeForOperands(ElementwiseInterfaceType op) const {
+    assert(op->template hasTrait<mlir::DestinationStyleOpInterface::Trait>() &&
+           "Elementwise op should have the DestinationStyleOpInterface trait");
+    llvm::SmallVector<int64_t> broadcastedShape(
+        mlir::cast<mlir::RankedTensorType>(op->getOperand(0).getType())
+            .getShape());
     for (int64_t i = 0; i < op->getNumOperands() - 1; i++) {
-      auto operandType =
-          mlir::cast<mlir::RankedTensorType>(op->getOperand(i).getType());
-      llvm::ArrayRef<int64_t> operandShape = operandType.getShape();
+      llvm::ArrayRef<int64_t> operandShape =
+          mlir::cast<mlir::RankedTensorType>(op->getOperand(i).getType())
+              .getShape();
 
-      if (operandShape.size() != targetShape.size()) {
+      if (broadcastedShape.size() != operandShape.size()) {
         return llvm::createStringError(
-            "Elementwise operands have different rank.");
+            "Operands of binary elementwise op must have the same rank "
+            "to be broadcasted.");
       }
 
-      for (size_t dim = 0; dim < operandShape.size(); dim++) {
-        if (operandShape[dim] < targetShape[dim]) {
-          needsBroadcast = true;
-        } else if (operandShape[dim] > targetShape[dim]) {
-          needsBroadcast = true;
-          targetShape[dim] = operandShape[dim];
-        }
-      }
-    }
-
-    return std::make_pair(targetShape, needsBroadcast);
-  }
-
-  bool needsBroadcasting(llvm::ArrayRef<int64_t> operandShape,
-                         llvm::ArrayRef<int64_t> targetShape) const {
-    for (size_t dim = 0; dim < operandShape.size(); dim++) {
-      if (operandShape[dim] < targetShape[dim]) {
-        return true;
+      llvm::SmallVector<int64_t> prevBroadcastedShape = broadcastedShape;
+      if (!mlir::OpTrait::util::getBroadcastedShape(
+              prevBroadcastedShape, operandShape, broadcastedShape)) {
+        return llvm::createStringError(
+            "Operands of a binary elementwise op do not have broadcast-"
+            "compatible shape.");
       }
     }
 
-    return false;
+    return broadcastedShape;
   }
 
   llvm::SmallVector<int64_t>

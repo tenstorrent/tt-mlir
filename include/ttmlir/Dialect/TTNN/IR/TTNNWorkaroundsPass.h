@@ -226,7 +226,7 @@ public:
   // Create workarounds for upsample op operands.
   static TTNNOperandsWorkarounds createUpsampleOpOperandsWorkarounds();
 
-  // Create workarounds for full op operands.
+  // Create workarounds for zeros op operands.
   static TTNNOperandsWorkarounds
   createZerosOpOperandsWorkarounds(RankedTensorType outputType);
 

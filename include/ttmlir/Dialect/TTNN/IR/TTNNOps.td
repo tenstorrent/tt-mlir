@@ -1575,9 +1575,7 @@ def TTNN_ZerosOp : TTNN_NamedFullOp<"zeros"> {
 
   let extraClassDeclaration = [{
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-      mlir::tt::ttnn::ZerosOp op = mlir::cast<mlir::tt::ttnn::ZerosOp>(this->getOperation());
-      auto outputType = mlir::cast<RankedTensorType>(op.getType());
-      return wa::TTNNOperandsWorkaroundsFactory::createZerosOpOperandsWorkarounds(outputType);
+      return wa::TTNNOperandsWorkaroundsFactory::createZerosOpOperandsWorkarounds(getType());
     }
   }];
 }
