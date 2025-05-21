@@ -1227,10 +1227,8 @@ public:
 
     bool hasBroadcastedOperand = lhsType.getShape() != rhsType.getShape();
     hasBroadcastedOperand |=
-        adaptor.getLhs().getDefiningOp() &&
         isa_and_nonnull<ttnn::RepeatOp>(adaptor.getLhs().getDefiningOp());
     hasBroadcastedOperand |=
-        adaptor.getRhs().getDefiningOp() &&
         isa_and_nonnull<ttnn::RepeatOp>(adaptor.getRhs().getDefiningOp());
     if (!hasBroadcastedOperand) {
       rewriter.replaceOpWithNewOp<ttnn::SubtractOp>(
