@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -17,6 +18,8 @@
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRHOISTTRANSFORM
+#define GEN_PASS_DEF_TTIRWORKAROUNDREENABLEDPS
+#define GEN_PASS_DEF_TTIRREMOVERETURNVALUES
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 //===----------------------------------------------------------------------===//
@@ -92,9 +95,9 @@ static bool isOutputTensor(mlir::Operation *op, unsigned operandIdx) {
 // Helper function to hoist an arbitrary op into a new function in targetModule,
 // generate a matching extern prototype in the sourceModule, and replace the
 // original op with a callOp to the extern function.
-static void hoistOperationToFunction(mlir::Operation *opToHoist,
-                                     mlir::ModuleOp sourceModule,
-                                     mlir::ModuleOp targetModule) {
+static Value hoistOperationToFunction(mlir::Operation *opToHoist,
+                                      mlir::ModuleOp sourceModule,
+                                      mlir::ModuleOp targetModule) {
 
   const llvm::SmallVector<int64_t, 4> ranks = getOperandTensorRanks(opToHoist);
   mlir::MLIRContext *context = sourceModule.getContext();
@@ -148,7 +151,7 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
   mlir::FunctionType localFuncType =
       mlir::FunctionType::get(context, operandTypes, resultTypes);
   mlir::FunctionType funcType =
-      mlir::FunctionType::get(context, operandTypes, {});
+      mlir::FunctionType::get(context, operandTypes, resultTypes);
 
   const llvm::SmallString<16> functionName = generateHoistedFuncName(opToHoist);
   llvm::SmallString<16> localFunctionName = functionName;
@@ -236,8 +239,25 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
       }
     }
 
-    // Add a return operation to the function.
-    builder.create<mlir::func::ReturnOp>(opToHoist->getLoc(), ValueRange());
+    // Add an attribute to the function that maps return values to output
+    // arguments
+    if (auto dpsOp = dyn_cast<mlir::DestinationStyleOpInterface>(opToHoist)) {
+      // Ensure there's only a single output
+      assert(dpsOp.getDpsInits().size() == 1 &&
+             "Only operations with a single output are supported");
+
+      // Get the index of the output operand
+      unsigned outputIdx =
+          opToHoist->getNumOperands() - dpsOp.getDpsInits().size();
+
+      // Store this mapping as an attribute on the function
+      hoistedFunc->setAttr("ttir.return_to_output_mapping",
+                           builder.getI32IntegerAttr(outputIdx));
+    }
+
+    // Add a return operation to the function with the operation results
+    builder.create<mlir::func::ReturnOp>(opToHoist->getLoc(),
+                                         clonedOp->getResults());
 
     // Declare the function prototype in the source module.
     localFunc = func::FuncOp::create(opToHoist->getLoc(),
@@ -315,10 +335,13 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
 
   // Erase the original operation
   opToHoist->erase();
+
+  return finalResults.empty() ? Value() : finalResults[0];
 }
 
 // An analysis class which currently relies on manually tagging ops with a
 // `should_hoist` attribute, but in the future will also tag fall-back ops, etc.
+namespace {
 class TTIRHoistAnalyze {
 public:
   using HoistOpSet = llvm::SmallVector<llvm::SmallSet<mlir::Operation *, 4>>;
@@ -338,7 +361,9 @@ public:
 private:
   HoistOpSet hoistedOps;
 };
+} // namespace
 
+namespace {
 // Transform pass to hoist specific ops (based on configured analysis pass) into
 // a cpu submodule for later independent lowering.
 class TTIRHoistTransform
@@ -412,5 +437,191 @@ public:
     }
   }
 };
+} // namespace
+
+// Function to transform defining ops of return values s.t. they use original
+// DPS parameter (stashed in return_to_output_mapping attr) instead of empty ops
+// created during lowering.
+static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
+  IRRewriter rewriter(moduleOp.getContext());
+
+  // Find all functions with the return_to_output_mapping attribute
+  SmallVector<func::FuncOp> functionsToTransform;
+  moduleOp.walk([&](func::FuncOp funcOp) {
+    if (funcOp->hasAttr("ttir.return_to_output_mapping")) {
+      functionsToTransform.push_back(funcOp);
+    }
+  });
+
+  // Transform each function
+  for (func::FuncOp funcOp : functionsToTransform) {
+    // Get the return_to_output_mapping attribute
+    auto mappingAttr =
+        funcOp->getAttrOfType<IntegerAttr>("ttir.return_to_output_mapping");
+    if (!mappingAttr) {
+      funcOp->emitError() << "Function has ttir.return_to_output_mapping "
+                             "attribute but it's not an IntegerAttr";
+      return failure();
+    }
+
+    // Find the return operation
+    func::ReturnOp returnOp;
+    for (Block &block : funcOp.getBlocks()) {
+      if (auto retOp = dyn_cast<func::ReturnOp>(block.getTerminator())) {
+        returnOp = retOp;
+        break;
+      }
+    }
+
+    if (!returnOp) {
+      funcOp->emitError() << "Function does not have a return operation";
+      return failure();
+    }
+
+    if (returnOp.getNumOperands() == 0) {
+      funcOp->emitWarning()
+          << "Function already has no return values, nothing to transform";
+      funcOp->removeAttr("ttir.return_to_output_mapping");
+      continue;
+    }
+
+    // Get the output operand index
+    unsigned outputArgIdx = mappingAttr.getInt();
+    if (outputArgIdx >= funcOp.getNumArguments()) {
+      funcOp->emitError() << "Output argument index " << outputArgIdx
+                          << " is out of range (function has "
+                          << funcOp.getNumArguments() << " arguments)";
+      return failure();
+    }
+
+    // Get the return value
+    Value returnVal = returnOp.getOperands()[0];
+
+    // Find the operation that produces the return value
+    Operation *producer = returnVal.getDefiningOp();
+    if (!producer) {
+      funcOp->emitError() << "Return value is not produced by an operation";
+      return failure();
+    }
+
+    // Handle different types of operations
+    bool transformed = false;
+
+    // Handle linalg.generic operations
+    if (auto linalgOp = dyn_cast<linalg::GenericOp>(producer)) {
+      // Find all tensor.empty operations that feed into this linalg.generic
+      for (OpOperand &output : linalgOp.getDpsInitsMutable()) {
+        Value outputBuffer = output.get();
+        if (auto emptyOp = dyn_cast_or_null<tensor::EmptyOp>(
+                outputBuffer.getDefiningOp())) {
+          // Get the output tensor from the function arguments
+          Value outputTensor = funcOp.getArgument(outputArgIdx);
+          // Replace the tensor.empty with the output tensor
+          rewriter.setInsertionPoint(emptyOp);
+          rewriter.replaceOp(emptyOp, outputTensor);
+          transformed = true;
+        }
+      }
+    }
+    // Handle other operations that might create temporary tensors
+    else {
+      // For now, we only handle linalg.generic operations
+      funcOp->emitWarning()
+          << "Unhandled operation type: " << producer->getName().getStringRef()
+          << ". Only linalg.generic operations are currently supported.";
+    }
+
+    if (!transformed) {
+      funcOp->emitWarning()
+          << "Could not find any tensor.empty operations to replace";
+      continue;
+    }
+
+    // Replace the return operation with an empty return
+    rewriter.setInsertionPoint(returnOp);
+    rewriter.replaceOpWithNewOp<func::ReturnOp>(returnOp);
+
+    // Update the function type to remove the return value
+    auto funcType = funcOp.getFunctionType();
+    auto newFuncType =
+        FunctionType::get(funcOp.getContext(), funcType.getInputs(), {});
+    funcOp.setType(newFuncType);
+
+    // Remove the mapping attribute since we've applied it
+    funcOp->removeAttr("ttir.return_to_output_mapping");
+  }
+
+  return success();
+}
+
+namespace {
+// Simple pass which implements a TTIR -> TOSA -> Linalg workaround to ensure
+// the final linalg ops use the same DPS outputs as the original TTIR (TOSA will
+// drop DPS outputs and replace with new empty ops otherwise).
+class TTIRWorkaroundReenableDPS
+    : public impl::TTIRWorkaroundReenableDPSBase<TTIRWorkaroundReenableDPS> {
+  using impl::TTIRWorkaroundReenableDPSBase<
+      TTIRWorkaroundReenableDPS>::TTIRWorkaroundReenableDPSBase;
+  void runOnOperation() override {
+    if (failed(reenableDpsFromAttr(getOperation()))) {
+      signalPassFailure();
+    }
+  }
+};
+} // namespace
+
+namespace {
+// Pass to remove return values from functions that have been cleaned up; we do
+// not want our hoisted funcs to return, since this would involve allocating new
+// tensors etc.
+class TTIRRemoveReturnValuesPass
+    : public impl::TTIRRemoveReturnValuesBase<TTIRRemoveReturnValuesPass> {
+public:
+  using impl::TTIRRemoveReturnValuesBase<
+      TTIRRemoveReturnValuesPass>::TTIRRemoveReturnValuesBase;
+
+  void runOnOperation() final {
+    ModuleOp moduleOp = getOperation();
+    IRRewriter rewriter(&getContext());
+
+    // Find all functions with return values
+    moduleOp.walk([&](func::FuncOp funcOp) {
+      auto funcType = funcOp.getFunctionType();
+      if (funcType.getResults().empty()) {
+        return;
+      }
+
+      // Find the return operation.
+      func::ReturnOp returnOp;
+      for (Block &block : funcOp.getBlocks()) {
+        if (auto retOp = dyn_cast<func::ReturnOp>(block.getTerminator())) {
+          returnOp = retOp;
+          break;
+        }
+      }
+
+      if (!returnOp) {
+        funcOp->emitError() << "Function does not have a return operation";
+        signalPassFailure();
+        return;
+      }
+
+      if (returnOp.getNumOperands() == 0) {
+        // Function already has no return values, nothing to transform.
+        return;
+      }
+
+      // Replace the return operation with an empty return.
+      rewriter.setInsertionPoint(returnOp);
+      rewriter.replaceOpWithNewOp<func::ReturnOp>(returnOp);
+
+      // Update the function type to remove the return values
+      auto newFuncType =
+          FunctionType::get(funcOp.getContext(), funcType.getInputs(), {});
+      funcOp.setType(newFuncType);
+    });
+  }
+};
+} // namespace
 
 } // namespace mlir::tt::ttir
