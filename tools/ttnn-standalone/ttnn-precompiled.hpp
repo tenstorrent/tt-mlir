@@ -12,7 +12,6 @@
 #include "operations/conv/conv2d/conv2d.hpp"
 #include "operations/conv/conv2d/prepare_conv2d_weights.hpp"
 #include "operations/conv/conv_transpose2d/conv_transpose2d.hpp"
-#include "operations/copy.hpp"
 #include "operations/core/core.hpp"
 #include "operations/creation.hpp"
 #include "operations/data_movement/concat/concat.hpp"
@@ -41,6 +40,7 @@
 #include "tt-metalium/small_vector.hpp"
 #include "ttnn/core.hpp"
 #include "ttnn/device.hpp"
+#include "ttnn/operations/copy/typecast/typecast.hpp"
 #include "ttnn/types.hpp"
 #include "workarounds.hpp"
 // ANCHOR_END: standalone_includes
