@@ -64,7 +64,8 @@ private:
    */
   void runOperation(const ::tt::target::ttnn::Operation *op);
 
-  void dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice);
+  void dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice,
+                                bool counterOverride = false);
 };
 
 } // namespace tt::runtime::ttnn

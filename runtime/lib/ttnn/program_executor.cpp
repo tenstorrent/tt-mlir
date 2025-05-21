@@ -143,16 +143,18 @@ void ProgramExecutor::execute() {
   }
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Finished execution of program: ", program->name()->c_str());
+  dumpPerfCountersIfNeeded(context->getMeshDevice(), true);
 }
 
 std::vector<::tt::runtime::Tensor> ProgramExecutor::gatherOutputTensors() {
   return context->getTensorPool().gatherOutputTensors();
 }
 
-void ProgramExecutor::dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice) {
+void ProgramExecutor::dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice,
+                                               bool counterOverride) {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
   static uint32_t counter = 0;
-  if (counter++ >= debug::PerfEnv::get().dumpDeviceRate) {
+  if (counter++ >= debug::PerfEnv::get().dumpDeviceRate || counterOverride) {
     LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +
                                            std::to_string(counter - 1) +
                                            " operations");
