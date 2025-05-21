@@ -255,6 +255,7 @@ class TTIRBuilder:
         inputs: List[torch.Tensor],
         outputs: Optional[List[torch.Tensor]] = None,
         override: bool = False,
+        check_level: GoldenCheckLevel = GoldenCheckLevel.GRAPH_LEVEL,
     ) -> None:
         """
         Records the input and output tensors for the graph.
@@ -269,7 +270,7 @@ class TTIRBuilder:
             self.id_golden_map[input_key] = Golden(tensor)
 
         if outputs is not None:
-            self.golden_check_level = GoldenCheckLevel.GRAPH_LEVEL
+            self.golden_check_level = check_level
             for index, tensor in enumerate(outputs):
                 output_key = f"output_{index}"
                 if not override and output_key in self.id_golden_map:
