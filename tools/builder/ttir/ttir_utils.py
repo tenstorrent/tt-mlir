@@ -209,10 +209,10 @@ def build_ttir_module(
                     )
                 result = fn(*inputs, ttir_builder)
                 output_ops = result if hasattr(result, "__iter__") else (result,)
-                output_goldens = [
-                    ttir_builder._get_golden_tensor(op) for op in output_ops
-                ]
-                ttir_builder.set_graph_input_output(input_goldens, output_goldens)
+                output_goldens = [ttir_builder._get_golden_tensor(op) for op in output_ops]
+                ttir_builder.set_graph_input_output(
+                    input_goldens, output_goldens, check_level=GoldenCheckLevel.OP_LEVEL
+                )
                 return result
 
         print(f"`{fn.__name__}` sucessfully transformed into a MLIR module.")
