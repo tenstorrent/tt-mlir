@@ -156,6 +156,31 @@ public:
 } // namespace
 
 namespace {
+class FullOpConversionPattern : public OpConversionPattern<ttir::FullOp> {
+public:
+  using OpConversionPattern<ttir::FullOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::FullOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto ttnnLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(op.getType().getEncoding());
+    bool isOnDevice =
+        ttnnLayoutAttr.getBufferType() != ttnn::BufferType::SystemMemory;
+    ttnn::GetDeviceOp deviceOp;
+    if (isOnDevice) {
+      deviceOp = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    }
+    rewriter.replaceOpWithNewOp<ttnn::FullOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getFillValue(), deviceOp);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class ToLayoutOpConversionPattern
     : public OpConversionPattern<ttir::ToLayoutOp> {
 public:
@@ -1610,6 +1635,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       .add<TensorEmptyConversionPattern,
            NamedFullConversionPattern<ttir::ZerosOp, ttnn::ZerosOp>,
            NamedFullConversionPattern<ttir::OnesOp, ttnn::OnesOp>,
+           FullOpConversionPattern,
            ToLayoutOpConversionPattern,
            QuantizeOpConversionPattern,
            DequantizeOpConversionPattern,

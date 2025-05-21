@@ -380,9 +380,16 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
 createOp(FlatbufferObjectCache &cache, FullOp op) {
   auto device = getOperandThroughDPSOps(op.getDevice());
   // TODO (azecevic): Current workaround to compile!
-  auto fillValue = mlir::cast<mlir::FloatAttr>(op.getFillValue())
-                       .getValue()
-                       .convertToFloat();
+  float fillValue{};
+  if (mlir::isa<mlir::FloatAttr>(op.getFillValue())) {
+    fillValue = mlir::cast<mlir::FloatAttr>(op.getFillValue())
+                    .getValue()
+                    .convertToFloat();
+  } else if (mlir::isa<mlir::IntegerAttr>(op.getFillValue())) {
+    fillValue = mlir::cast<mlir::IntegerAttr>(op.getFillValue())
+                    .getValue()
+                    .getSExtValue();
+  }
   auto output = getOperandThroughDPSOps(op.getResult());
   return ::tt::target::ttnn::CreateFullOp(
       *cache.fbb, cache.at<::tt::target::DeviceRef>(device), fillValue,
