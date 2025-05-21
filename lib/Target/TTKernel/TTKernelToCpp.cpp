@@ -144,9 +144,9 @@ void dprint(Arg &&arg, ArgV&&... argv) {
           return op.getCallee().starts_with("experimental::tilize");
         })) {
 
-      auto experimentalTilizeLLKs = StringRef(
-          reinterpret_cast<const char *>(experimental_tilize_llks_generated),
-          experimental_tilize_llks_generated_len);
+      auto experimentalTilizeLLKs =
+          StringRef(reinterpret_cast<const char *>(experimental_tilize_llks_h),
+                    experimental_tilize_llks_h_len);
       builder->create<emitc::VerbatimOp>(loc, experimentalTilizeLLKs);
     }
 
@@ -155,8 +155,8 @@ void dprint(Arg &&arg, ArgV&&... argv) {
         })) {
 
       auto experimentalUntilizeLLKs = StringRef(
-          reinterpret_cast<const char *>(experimental_untilize_llks_generated),
-          experimental_untilize_llks_generated_len);
+          reinterpret_cast<const char *>(experimental_untilize_llks_h),
+          experimental_untilize_llks_h_len);
       builder->create<emitc::VerbatimOp>(loc, experimentalUntilizeLLKs);
     }
   }

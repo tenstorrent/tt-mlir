@@ -4,15 +4,15 @@ function(generate_xxd_header INPUT_FILE OUTPUT_FILE VARIABLE_NAME)
   get_filename_component(OUTPUT_DIR ${OUTPUT_FILE} DIRECTORY)
   file(MAKE_DIRECTORY ${OUTPUT_DIR})
 
+  # Get relative path to simplify variable name
+  file(RELATIVE_PATH REL_INPUT_FILE ${CMAKE_CURRENT_SOURCE_DIR} ${INPUT_FILE})
+
   add_custom_command(
     OUTPUT ${OUTPUT_FILE}
-    COMMAND bash -c "echo \"// Auto-generated from ${INPUT_FILE} - Do not edit directly\" > ${OUTPUT_FILE}"
-    COMMAND bash -c "echo \"const unsigned char ${VARIABLE_NAME}[] = {\" >> ${OUTPUT_FILE}"
-    # Use xxd to convert the file content to a hex array
-    COMMAND bash -c "xxd -i < ${INPUT_FILE} >> ${OUTPUT_FILE}"
-    COMMAND bash -c "echo \"}; const unsigned int ${VARIABLE_NAME}_len = sizeof(${VARIABLE_NAME});\" >> ${OUTPUT_FILE}"
+    COMMAND xxd -i ${REL_INPUT_FILE} > ${OUTPUT_FILE}
     DEPENDS ${INPUT_FILE}
-    COMMENT "Generating xxd header for ${INPUT_FILE}"
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMENT "Generating xxd header for ${REL_INPUT_FILE}"
     VERBATIM
   )
 endfunction()
