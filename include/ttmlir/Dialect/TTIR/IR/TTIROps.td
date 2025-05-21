@@ -2042,6 +2042,15 @@ def TTIR_FullOp : TTIR_CreationOp<"full"> {
 
   let results = (outs AnyRankedTensor:$result);
 
+  let builders =
+  [
+    OpBuilder<(ins "Type": $resultType, "Attribute": $fillValue),
+    [{
+      RankedTensorType tensorType = cast<RankedTensorType>(resultType);
+      build($_builder, $_state, tensorType, llvm::to_vector_of<int32_t>(tensorType.getShape()), fillValue);
+    }]>
+  ];
+
   let hasVerifier = 1;
 }
 
