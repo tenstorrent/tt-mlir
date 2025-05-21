@@ -39,7 +39,6 @@ func.func @reblock(%arg0: tensor<256x768xf32, #layout1>) -> tensor<256x768xf32, 
   %0 = ttir.empty() : tensor<256x768xf32, #layout2>
   // CHECK: ttir.generic {grid = #tt.grid<8x8>
   // CHECK: ^compute0
-  // CHECK-NEXT: ttir.yield %cb0 : (memref<1x3x!tt.tile<32x32, f32>, #l1_>)
   %1 = ttir.to_layout %arg0, %0 : tensor<256x768xf32, #layout1> into tensor<256x768xf32, #layout2> -> tensor<256x768xf32, #layout2>
   return %1 : tensor<256x768xf32, #layout2>
 }

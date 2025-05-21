@@ -28,10 +28,14 @@ namespace mlir::tt::ttmetal {
 
 void createTTIRBufferizationPipeline(OpPassManager &pm) {
   pm.addPass(ttir::createTTIRPrepareTensorsForBufferization());
-  mlir::bufferization::OneShotBufferizationOptions bufferizationOptions;
-  ttir::initializeOneShotBufferizationOptions(bufferizationOptions);
+  bufferization::OneShotBufferizePassOptions bufferizePassOptions;
+  bufferizePassOptions.bufferizeFunctionBoundaries = true;
+  bufferizePassOptions.functionBoundaryTypeConversion =
+      bufferization::LayoutMapOption::IdentityLayoutMap;
+  bufferizePassOptions.unknownTypeConversion =
+      bufferization::LayoutMapOption::IdentityLayoutMap;
   pm.addPass(
-      mlir::bufferization::createOneShotBufferizePass(bufferizationOptions));
+      mlir::bufferization::createOneShotBufferizePass(bufferizePassOptions));
   // TODO(#2246)
   // bufferization::BufferDeallocationPipelineOptions
   // bufferDeallocationOptions;

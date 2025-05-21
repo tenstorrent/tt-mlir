@@ -208,6 +208,24 @@ public:
 };
 } // namespace
 
+namespace {
+class TosaToTTIRConstantOpConversionPattern
+    : public OpConversionPattern<tosa::ConstOp> {
+  using OpConversionPattern<tosa::ConstOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(tosa::ConstOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttir::ConstantOp>(
+        srcOp,
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()),
+        srcOp.getValues());
+    return success();
+  }
+};
+} // namespace
+
 static void
 addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                          RewritePatternSet &patterns,
@@ -328,7 +346,8 @@ void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   addPoolingOpsConversionPatterns(ctx, patterns, typeConverter);
 
   patterns.add<TosaToTTIRClampOpConversionPattern,
-               TosaToTTIRConcatOpConversionPattern>(typeConverter, ctx);
+               TosaToTTIRConcatOpConversionPattern,
+               TosaToTTIRConstantOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
