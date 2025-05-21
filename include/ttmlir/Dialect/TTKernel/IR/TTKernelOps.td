@@ -230,6 +230,7 @@ def TTKernel_ReduceInitShortOp : TTKernel_InitOp<"reduce_init_short"> {
     let arguments = (ins TTKernel_CB:$in_cb,
                          TTKernel_CB:$scaling_cb,
                          TTKernel_CB:$out_cb,
+                         I1:$disableMask,
                          TTKernel_ReduceTypeAttr:$reduce_type,
                          TTKernel_ReduceDimAttr:$reduce_dim);
 }
