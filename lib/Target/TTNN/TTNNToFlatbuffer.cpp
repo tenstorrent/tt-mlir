@@ -23,6 +23,7 @@
 #include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/binary_generated.h"
+#include "ttmlir/Target/TTNN/operations/creation_generated.h"
 #include "ttmlir/Target/TTNN/operations/pool_generated.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/TTNN/utils.h"
@@ -379,20 +380,27 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
 ::flatbuffers::Offset<::tt::target::ttnn::FullOp>
 createOp(FlatbufferObjectCache &cache, FullOp op) {
   auto device = getOperandThroughDPSOps(op.getDevice());
-  // TODO (azecevic): Current workaround to compile!
-  float fillValue{};
-  if (mlir::isa<mlir::FloatAttr>(op.getFillValue())) {
-    fillValue = mlir::cast<mlir::FloatAttr>(op.getFillValue())
-                    .getValue()
-                    .convertToFloat();
-  } else if (mlir::isa<mlir::IntegerAttr>(op.getFillValue())) {
-    fillValue = mlir::cast<mlir::IntegerAttr>(op.getFillValue())
-                    .getValue()
-                    .getSExtValue();
+  ::tt::target::ttnn::FillValueType fillValueType;
+  ::flatbuffers::Offset<void> fillValue;
+  if (auto fillValueAttr = mlir::dyn_cast<mlir::FloatAttr>(op.getFillValue())) {
+    fillValueType = ::tt::target::ttnn::FillValueType::FP;
+    fillValue = ::tt::target::ttnn::CreateFloatingPointType(
+                    *cache.fbb, fillValueAttr.getValue().convertToFloat())
+                    .Union();
+  } else if (auto fillValueAttr =
+                 mlir::dyn_cast<mlir::IntegerAttr>(op.getFillValue())) {
+    fillValueType = ::tt::target::ttnn::FillValueType::I32;
+    fillValue = ::tt::target::ttnn::CreateIntegralType(
+                    *cache.fbb, fillValueAttr.getValue().getSExtValue())
+                    .Union();
+  } else {
+    llvm_unreachable("fill value must be float or integer");
   }
+
   auto output = getOperandThroughDPSOps(op.getResult());
   return ::tt::target::ttnn::CreateFullOp(
-      *cache.fbb, cache.at<::tt::target::DeviceRef>(device), fillValue,
+      *cache.fbb, cache.at<::tt::target::DeviceRef>(device), fillValueType,
+      fillValue,
       cache.getOrCreate(output, tensorValueToFlatbuffer, kHostAllocatedSize));
 }
 

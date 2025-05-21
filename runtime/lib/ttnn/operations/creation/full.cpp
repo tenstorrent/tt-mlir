@@ -3,15 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "operations/creation/full.h"
-#include "tt/runtime/detail/logger.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
 
+#include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn/operations/utils.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/utils.h"
-#include "tt/runtime/workarounds.h"
 
 namespace tt::runtime::ttnn::operations::creation {
-void run(const ::tt::target::ttnn::FullOp *op, ProgramContext &context) {
+void runFullOp(const ::tt::target::ttnn::FullOp *op, auto &&fillValue,
+               ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
   ::ttnn::Shape shape = ::tt::runtime::ttnn::operations::utils::toTTNNShape(
@@ -20,7 +20,6 @@ void run(const ::tt::target::ttnn::FullOp *op, ProgramContext &context) {
       ::tt::runtime::ttnn::operations::utils::getDataType(op->out());
   ::ttnn::Layout layout =
       ::tt::runtime::ttnn::utils::inferLayoutFromTileShape(op->out());
-  float fillValue = op->fill_value();
 
   OptionalMeshDeviceRef meshDevice = std::nullopt;
 
@@ -36,5 +35,15 @@ void run(const ::tt::target::ttnn::FullOp *op, ProgramContext &context) {
       ::ttnn::full(shape, fillValue, dtype, layout, meshDevice, memoryConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+}
+
+void run(const ::tt::target::ttnn::FullOp *op, ProgramContext &context) {
+  if (op->fill_value_type() == ::tt::target::ttnn::FillValueType::FP) {
+    runFullOp(op, op->fill_value_as_FP()->value(), context);
+  } else if (op->fill_value_type() == ::tt::target::ttnn::FillValueType::I32) {
+    runFullOp(op, op->fill_value_as_I32()->value(), context);
+  } else {
+    LOG_FATAL("unknown fill value type");
+  }
 }
 } // namespace tt::runtime::ttnn::operations::creation

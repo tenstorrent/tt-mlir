@@ -27,9 +27,22 @@ table EmptyOp {
   out: tt.target.ttnn.TensorRef;
 }
 
+table FloatingPointType {
+  value: float;
+}
+
+table IntegralType {
+  value: int32;
+}
+
+union FillValueType {
+  FP: FloatingPointType,
+  I32: IntegralType,
+}
+
 table FullOp {
   device: tt.target.DeviceRef;
-  fill_value: float;
+  fill_value: FillValueType;
   out: tt.target.ttnn.TensorRef;
 }
 
