@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -17,6 +18,8 @@
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRHOISTTRANSFORM
+#define GEN_PASS_DEF_TTIRWORKAROUNDREENABLEDPS
+#define GEN_PASS_DEF_TTIRREMOVERETURNVALUES
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 //===----------------------------------------------------------------------===//
@@ -94,9 +97,9 @@ static bool isOutputTensor(mlir::Operation *op, unsigned operandIdx) {
 // Helper function to hoist an arbitrary op into a new function in targetModule,
 // generate a matching extern prototype in the sourceModule, and replace the
 // original op with a callOp to the extern function.
-static void hoistOperationToFunction(mlir::Operation *opToHoist,
-                                     mlir::ModuleOp sourceModule,
-                                     mlir::ModuleOp targetModule) {
+static Value hoistOperationToFunction(mlir::Operation *opToHoist,
+                                      mlir::ModuleOp sourceModule,
+                                      mlir::ModuleOp targetModule) {
 
   const llvm::SmallVector<int64_t, 4> ranks = getOperandTensorRanks(opToHoist);
   mlir::MLIRContext *context = sourceModule.getContext();
@@ -228,8 +231,7 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
 
     // Add an attribute to the function that maps return values to output
     // arguments
-    if (auto dpsOp =
-            mlir::dyn_cast<mlir::DestinationStyleOpInterface>(opToHoist)) {
+    if (auto dpsOp = dyn_cast<mlir::DestinationStyleOpInterface>(opToHoist)) {
       // Ensure there's only a single output
       assert(dpsOp.getDpsInits().size() == 1 &&
              "Only operations with a single output are supported");
@@ -315,6 +317,8 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
 
   // Erase the original operation
   opToHoist->erase();
+
+  return finalResults.empty() ? Value() : finalResults[0];
 }
 
 // An analysis class which currently relies on manually tagging ops with a

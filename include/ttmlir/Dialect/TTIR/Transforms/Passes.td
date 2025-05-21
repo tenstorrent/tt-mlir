@@ -601,4 +601,68 @@ def TTIRFusing: Pass<"ttir-fusing", "::mlir::ModuleOp">
   let description = "This pass tries to fuse operations together with goal to reduce the number of operations in the graph.";
 }
 
+def TTIRWorkaroundReenableDPS: Pass<"ttir-workaround-reenable-dps", "::mlir::ModuleOp">
+{
+  let summary = "Transform functions with return values to use output parameters.";
+  let description = [{
+    This pass finds functions with the ttir.return_to_output_mapping attribute and
+    transforms them to use output parameters instead of return values. This is useful
+    for operations that implement the DestinationStyleOpInterface, where we want to
+    write directly to the output buffer instead of creating a new tensor and returning it.
+
+    Example:
+    ```mlir
+    // Before
+    func.func @hoisted_op(%arg0: tensor<4x4xf32>, %arg1: tensor<4x4xf32>) -> tensor<4x4xf32> {
+      %0 = linalg.generic ... {
+        ...
+      } : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+      return %0 : tensor<4x4xf32>
+    }
+
+    // After
+    func.func @hoisted_op(%arg0: tensor<4x4xf32>, %arg1: tensor<4x4xf32>, %arg2: tensor<4x4xf32>) {
+      // The linalg.generic now writes directly to %arg2 instead of creating a new tensor
+      linalg.generic ... {
+        ...
+      } : tensor<4x4xf32>, tensor<4x4xf32>, tensor<4x4xf32>
+      return
+    }
+    ```
+  }];
+
+  let dependentDialects = ["mlir::linalg::LinalgDialect", "mlir::tensor::TensorDialect", "mlir::func::FuncDialect"];
+}
+
+def TTIRRemoveReturnValues: Pass<"ttir-remove-return-values", "::mlir::ModuleOp">
+{
+  let summary = "Remove return values from functions.";
+  let description = [{
+    This pass finds functions with return values and transforms them to have no return values.
+    It only removes return values when it's safe to do so - specifically when the returned values
+    are only used by the return operation itself.
+
+    Example:
+    ```mlir
+    // Before
+    func.func @hoisted_op(%arg0: tensor<4x4xf32>, %arg1: tensor<4x4xf32>) -> tensor<4x4xf32> {
+      %0 = linalg.generic ... {
+        ...
+      } : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+      return %0 : tensor<4x4xf32>
+    }
+
+    // After
+    func.func @hoisted_op(%arg0: tensor<4x4xf32>, %arg1: tensor<4x4xf32>) {
+      %0 = linalg.generic ... {
+        ...
+      } : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+      return
+    }
+    ```
+  }];
+
+  let dependentDialects = ["mlir::func::FuncDialect"];
+}
+
 #endif
