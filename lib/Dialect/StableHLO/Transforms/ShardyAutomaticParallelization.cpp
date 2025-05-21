@@ -22,6 +22,7 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
+#include <iostream>
 
 namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_SHARDYANNOTATEARGUMENTSPASS
@@ -275,9 +276,9 @@ static inline mlir::LogicalResult updateShapes(MLIRContext *context,
         state.operands.append(op->operand_begin(), op->operand_end());
         llvm::SmallVector<mlir::NamedAttribute> namedAttrs(op->getAttrs());
 
-        // stablehlo.constant also needs its argument dictionary
-        // updated.
-        if (auto constant = mlir::dyn_cast<mlir::stablehlo::ConstantOp>(*op)) {
+        // stablehlo.constant needs its argument dictionary updated.
+        if (auto constantOp =
+                mlir::dyn_cast<mlir::stablehlo::ConstantOp>(*op)) {
           for (auto &namedAttr : namedAttrs) {
             if (namedAttr.getName() == "value") {
               mlir::DenseElementsAttr denseElementsAttr =
@@ -287,14 +288,54 @@ static inline mlir::LogicalResult updateShapes(MLIRContext *context,
               // for the entire constant) we fail as this is currently
               // not supported.
               if (!denseElementsAttr.isSplat()) {
-                op->emitError("Shardy automatic parallelization currently does "
-                              "not support non-splat constant tensors.\n");
+                constantOp->emitError(
+                    "Shardy automatic parallelization currently does "
+                    "not support non-splat constant tensors.\n");
                 return mlir::failure();
               }
               mlir::DenseElementsAttr newAttr = mlir::DenseElementsAttr::get(
                   newTypes[0],
                   denseElementsAttr.getSplatValue<mlir::Attribute>());
               namedAttr.setValue(newAttr);
+            }
+          }
+        }
+
+        // stablehlo.slice needs its argument dictionary updated
+        if (auto sliceOp = mlir::dyn_cast<mlir::stablehlo::SliceOp>(*op)) {
+          llvm::SmallVector<int64_t> startIndices(sliceOp.getStartIndices());
+          llvm::SmallVector<int64_t> limitIndices(sliceOp.getLimitIndices());
+
+          // Iterate through start and limit indices and update them based on
+          // the sharding annotation for that dimension.
+          for (uint32_t i = 0; i < tensorShardings.size(); i++) {
+            mlir::sdy::DimensionShardingAttr dimShardingAttr =
+                tensorShardings[i].getDimShardings()[i];
+            FailureOr<int64_t> updatedStartShapeDim =
+                sdy_utils::calculateUpdatedShapeDim(
+                    globalMeshOp.getMesh(), dimShardingAttr, startIndices[i]);
+            FailureOr<int64_t> updatedLimitShapeDim =
+                sdy_utils::calculateUpdatedShapeDim(
+                    globalMeshOp.getMesh(), dimShardingAttr, limitIndices[i]);
+
+            if (failed(updatedStartShapeDim) || failed(updatedLimitShapeDim)) {
+              sliceOp->emitError("Could not apply propagated tensor shardings "
+                                 "to attribute dictionary for slice op.\n");
+              return mlir::failure();
+            }
+
+            startIndices[i] = *updatedStartShapeDim;
+            limitIndices[i] = *updatedLimitShapeDim;
+          }
+
+          // Update start and limit indices in op named attributes.
+          for (auto &namedAttr : namedAttrs) {
+            if (namedAttr.getName() == "start_indices") {
+              namedAttr.setValue(
+                  mlir::DenseI64ArrayAttr::get(context, startIndices));
+            } else if (namedAttr.getName() == "limit_indices") {
+              namedAttr.setValue(
+                  mlir::DenseI64ArrayAttr::get(context, limitIndices));
             }
           }
         }
