@@ -3,7 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttnn-precompiled.hpp"
-::ttnn::Tensor _main(::ttnn::Tensor v1, ::ttnn::Tensor v2, ::ttnn::Tensor v3, ::ttnn::Tensor v4, ::ttnn::Tensor v5) {
+
+::ttnn::Tensor mnist_fwd(::ttnn::Tensor v1, ::ttnn::Tensor v2, ::ttnn::Tensor v3, ::ttnn::Tensor v4, ::ttnn::Tensor v5) {
   ttnn::distributed::MeshDevice* v6 = ttnn::DeviceGetter::getInstance();
   ::ttnn::Tensor v7 = ttnn::matmul(v1, v5, false, false, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED, ::ttnn::BufferType::DRAM, ::std::nullopt});
   ttnn::deallocate(v5, false);
@@ -28,7 +29,7 @@
   return v14;
 }
 
-std::tuple<::ttnn::Tensor, ::ttnn::Tensor, ::ttnn::Tensor, ::ttnn::Tensor, ::ttnn::Tensor> create_inputs_for__main() {
+std::tuple<::ttnn::Tensor, ::ttnn::Tensor, ::ttnn::Tensor, ::ttnn::Tensor, ::ttnn::Tensor> create_inputs_for_mnist_fwd() {
   ttnn::distributed::MeshDevice* v1 = ttnn::DeviceGetter::getInstance();
   ::ttnn::Tensor v2 = ttnn::ones(::ttnn::Shape({1, 784}), ::ttnn::DataType::FLOAT32, ::ttnn::Layout::TILE, ::std::nullopt, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED, ::ttnn::BufferType::DRAM, ::std::nullopt});
   ::ttnn::Tensor v3 = ttnn::to_device(v2, v1, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED, ::ttnn::BufferType::DRAM, ::std::nullopt});
@@ -49,8 +50,8 @@ int32_t main() {
   ::ttnn::Tensor v3;
   ::ttnn::Tensor v4;
   ::ttnn::Tensor v5;
-  std::tie(v1, v2, v3, v4, v5) = create_inputs_for__main();
-  ::ttnn::Tensor v6 = _main(v1, v2, v3, v4, v5);
+  std::tie(v1, v2, v3, v4, v5) = create_inputs_for_mnist_fwd();
+  ::ttnn::Tensor v6 = mnist_fwd(v1, v2, v3, v4, v5);
   int32_t v7 = 0;
   return v7;
 }
