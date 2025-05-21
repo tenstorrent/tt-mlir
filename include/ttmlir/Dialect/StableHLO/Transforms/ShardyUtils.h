@@ -304,33 +304,48 @@ getOutShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
   return outShardingAttrs;
 }
 
+// Calculate the updated shape based on the tensor sharding annotation.
+inline FailureOr<int64_t>
+calculateUpdatedShapeDim(mlir::sdy::MeshAttr meshAttr,
+                         mlir::sdy::DimensionShardingAttr dimShardingAttr,
+                         int64_t oldShapeDim) {
+  int64_t updatedShapeDim = oldShapeDim;
+  MeshMap meshMap = createMeshMapFromMeshAttr(meshAttr);
+  llvm::ArrayRef<mlir::sdy::AxisRefAttr> shardingAxes =
+      dimShardingAttr.getAxes();
+
+  for (auto shardingAxis : shardingAxes) {
+    llvm::StringRef axisName = shardingAxis.getName();
+    if (meshMap.find(axisName) == meshMap.end() ||
+        oldShapeDim % meshMap[axisName] != 0) {
+      return failure();
+    }
+
+    updatedShapeDim = updatedShapeDim / meshMap[axisName];
+  }
+
+  return updatedShapeDim;
+}
+
 // Calculate the new sharded output based on the sdy tensor sharding attribute.
 inline FailureOr<mlir::RankedTensorType>
 populateShardedOutputType(mlir::sdy::MeshAttr meshAttr,
                           mlir::RankedTensorType oldType,
                           mlir::sdy::TensorShardingAttr tensorShardingAttr) {
-  MeshMap meshMap = createMeshMapFromMeshAttr(meshAttr);
-
   llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> dimShardings =
       tensorShardingAttr.getDimShardings();
   llvm::SmallVector<int64_t> newShape(oldType.getShape().begin(),
                                       oldType.getShape().end());
 
   for (uint32_t i = 0; i < newShape.size(); i++) {
-    int64_t currIndexShape = newShape[i];
-    llvm::ArrayRef<mlir::sdy::AxisRefAttr> shardingAxes =
-        dimShardings[i].getAxes();
+    FailureOr<int64_t> updatedShapeDim =
+        calculateUpdatedShapeDim(meshAttr, dimShardings[i], newShape[i]);
 
-    for (auto shardingAxis : shardingAxes) {
-      llvm::StringRef axisName = shardingAxis.getName();
-      if (meshMap.find(axisName) == meshMap.end() ||
-          currIndexShape % meshMap[axisName] != 0) {
-        return failure();
-      }
-
-      currIndexShape = currIndexShape / meshMap[axisName];
+    if (failed(updatedShapeDim)) {
+      return failure();
     }
-    newShape[i] = currIndexShape;
+
+    newShape[i] = *updatedShapeDim;
   }
 
   return RankedTensorType::get(newShape, oldType.getElementType());
