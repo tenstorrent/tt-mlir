@@ -14,7 +14,7 @@ module attributes {} {
     // CHECK: %[[PAD:[0-9]+]] = "ttnn.pad"(%[[ARG0]])
     // CHECK-SAME: tensor<1x30x30xbf16
     // CHECK-SAME: -> tensor<1x32x32xbf16,
-    %0 = "ttnn.pad"(%arg0) <{memory_config = #ttnn.memory_config<<dram>, <<1x1>>, <interleaved>>, padding = array<i32: 0, 0, 1, 1, 1, 1>, use_multicore = true, value = 0.000000e+00 : f32}> : (tensor<1x30x30xsi32, #ttnn_layout>) -> tensor<1x32x32xsi32, #ttnn_layout1>
+    %0 = "ttnn.pad"(%arg0) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>, padding = array<i32: 0, 0, 1, 1, 1, 1>, use_multicore = true, value = 0.000000e+00 : f32}> : (tensor<1x30x30xsi32, #ttnn_layout>) -> tensor<1x32x32xsi32, #ttnn_layout1>
     // CHECK: %{{[0-9]+}} = "ttnn.to_layout"(%[[PAD]],
     // CHECK-SAME: <{dtype = #tt.supportedDataTypes<si32>,
     // CHECK-SAME: layout = #ttnn.layout<tile>

@@ -211,7 +211,7 @@ tt::target::DataType getTensorDataType(::tt::runtime::Tensor tensor) {
   const ::ttnn::Tensor &nnTensor =
       tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
           .getTensor();
-  return utils::fromTTNNDataType(nnTensor.get_dtype());
+  return utils::fromTTNNDataType(nnTensor.dtype());
 }
 
 std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor tensor) {
@@ -323,7 +323,7 @@ std::uint32_t getTensorVolume(::tt::runtime::Tensor tensor) {
   const ::ttnn::Tensor &ttnnTensor =
       tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
           .getTensor();
-  return ttnnTensor.volume();
+  return ttnnTensor.padded_volume();
 }
 
 TensorDesc getTensorDesc(::tt::runtime::Tensor tensor) {
@@ -347,6 +347,10 @@ void setTensorRetain(::tt::runtime::Tensor tensor, bool retain) {
   return tensorWrapper.setRetain(retain);
 }
 
+Arch getArch() {
+  return ::tt::runtime::common::toRuntimeArch(::tt::tt_metal::hal::get_arch());
+}
+
 size_t getNumAvailableDevices() {
   return ::tt::tt_metal::GetNumAvailableDevices();
 }
@@ -361,14 +365,16 @@ Device openMeshDevice(const std::vector<uint32_t> &meshShape,
 
   size_t l1SmallSize =
       options.l1SmallSize.value_or(::tt::constants::L1_SMALL_SIZE);
+  size_t traceRegionSize =
+      options.traceRegionSize.value_or(DEFAULT_TRACE_REGION_SIZE);
   ::tt::tt_metal::DispatchCoreType dispatchCoreTypeValue =
       tt::runtime::common::getDispatchCoreType(options.dispatchCoreType);
 
   ::ttnn::MeshDeviceConfig meshConfig(shape, offset, options.deviceIds);
 
-  std::shared_ptr<::ttnn::MeshDevice> meshDevice = ::ttnn::MeshDevice::create(
-      meshConfig, l1SmallSize, DEFAULT_TRACE_REGION_SIZE, options.numHWCQs,
-      dispatchCoreTypeValue);
+  std::shared_ptr<::ttnn::MeshDevice> meshDevice =
+      ::ttnn::MeshDevice::create(meshConfig, l1SmallSize, traceRegionSize,
+                                 options.numHWCQs, dispatchCoreTypeValue);
 
   if (options.enableProgramCache) {
     meshDevice->enable_program_cache();
@@ -396,7 +402,7 @@ void closeMeshDevice(Device parentMesh) {
   }
 #endif
 
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
   for (::ttnn::IDevice *ttnnDevice : ttnnMeshDevice.get_devices()) {
     ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
   }
@@ -445,6 +451,44 @@ void reshapeMeshDevice(Device meshDevice,
       meshDevice.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
 
   ttnnMeshDevice.reshape(::ttnn::MeshShape(meshShape[0], meshShape[1]));
+}
+
+std::vector<uint32_t> getMeshShape(Device meshDevice) {
+  ::ttnn::MeshDevice &ttnnMeshDevice =
+      meshDevice.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  std::vector<uint32_t> shape(ttnnMeshDevice.shape().view().begin(),
+                              ttnnMeshDevice.shape().view().end());
+  return shape;
+}
+
+std::vector<int> getDeviceIds(Device meshDevice) {
+  ::ttnn::MeshDevice &ttnnMeshDevice =
+      meshDevice.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  return ttnnMeshDevice.get_device_ids();
+}
+
+size_t getNumHwCqs(Device meshDevice) {
+  ::ttnn::MeshDevice &ttnnMeshDevice =
+      meshDevice.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  return static_cast<size_t>(ttnnMeshDevice.num_hw_cqs());
+}
+
+bool isProgramCacheEnabled(Device meshDevice) {
+  ::ttnn::MeshDevice &ttnnMeshDevice =
+      meshDevice.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  return ttnnMeshDevice.get_program_cache().is_enabled();
+}
+
+size_t getL1SmallSize(Device meshDevice) {
+  ::ttnn::MeshDevice &ttnnMeshDevice =
+      meshDevice.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  return ttnnMeshDevice.allocator()->get_config().l1_small_size;
+}
+
+size_t getTraceRegionSize(Device meshDevice) {
+  ::ttnn::MeshDevice &ttnnMeshDevice =
+      meshDevice.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  return ttnnMeshDevice.allocator()->get_config().trace_region_size;
 }
 
 void deallocateBuffers(Device deviceHandle) {
@@ -599,7 +643,7 @@ void memcpy(void *dst, ::tt::runtime::Tensor src) {
           .getTensor();
   if (utils::isOnHost(srcTensor.storage_type())) {
     const void *srcPtr = utils::getRawHostDataPtr(srcTensor);
-    size_t size = srcTensor.volume() * srcTensor.element_size();
+    size_t size = srcTensor.padded_volume() * srcTensor.element_size();
     std::memcpy(dst, srcPtr, size);
   } else {
     ::tt::tt_metal::memcpy(dst, srcTensor);
@@ -613,16 +657,17 @@ void memcpy(::tt::runtime::Tensor dst, ::tt::runtime::Tensor src) {
   const ::ttnn::Tensor &srcTensor =
       src.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
           .getTensor();
-  LOG_ASSERT(srcTensor.volume() * srcTensor.element_size() ==
-                 dstTensor.volume() * dstTensor.element_size(),
+  LOG_ASSERT(srcTensor.padded_volume() * srcTensor.element_size() ==
+                 dstTensor.padded_volume() * dstTensor.element_size(),
              "Input output tensor size mismatch in memcpy: ",
-             srcTensor.volume(), " * ", srcTensor.element_size(),
-             " != ", dstTensor.volume(), " * ", dstTensor.element_size());
+             srcTensor.padded_volume(), " * ", srcTensor.element_size(),
+             " != ", dstTensor.padded_volume(), " * ",
+             dstTensor.element_size());
   if (utils::isOnHost(srcTensor.storage_type()) &&
       utils::isOnHost(dstTensor.storage_type())) {
     void *dstPtr = utils::getRawHostDataPtr(dstTensor);
     const void *srcPtr = utils::getRawHostDataPtr(srcTensor);
-    size_t size = srcTensor.volume() * srcTensor.element_size();
+    size_t size = srcTensor.padded_volume() * srcTensor.element_size();
     std::memcpy(dstPtr, srcPtr, size);
   } else {
     ::tt::tt_metal::memcpy(dstTensor, srcTensor);
@@ -840,6 +885,7 @@ std::string getOpLocInfo(OpContext opContextHandle) {
     tensorRef = opContext.type_as_UpdateCacheOp()->cache();
     break;
   }
+  case ::tt::target::ttnn::OpType::LoadCachedOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
   case ::tt::target::ttnn::OpType::DeallocateOp: {
     LOG_WARNING("getting output tensor is not supported for ",

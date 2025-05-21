@@ -69,6 +69,7 @@ llvm::Expected<bool> MeshSharding::parseGSPMDDevicesStr(StringRef devicesStr) {
       return llvm::createStringError(
           "Fail to parse GSPMD devices reshape string: " + reshapeStr);
     }
+    deviceIds.clear();
     // Parse devices string after "]" e.g., 0,1,2,3,4,5,6,7.
   } else if (!parseDimsFromDimensionStr(restStr, deviceIds, false)) {
     return llvm::createStringError("Fail to parse GSPMD device id string: " +
@@ -114,6 +115,12 @@ llvm::Expected<bool> MeshSharding::determineGSPMDShardingDims() {
       // e.g., orgShardShape [1,2,4] or [2,1,4] leads to [2,4]
       llvm::copy_if(orgShardShape, std::back_inserter(meshShape),
                     [](int64_t s) { return s != int64_t{1}; });
+      if (!deviceIds.empty() && deviceIds[0] + 1 != deviceIds[1]) {
+        // transposed shardShape if devicIds are not consecutive, so reverse the
+        // meshShape. [4,2] leads to [2,4]
+        std::reverse(meshShape.begin(), meshShape.end());
+        reverseOrder = true;
+      }
     }
   }
 

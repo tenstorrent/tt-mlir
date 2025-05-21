@@ -52,6 +52,11 @@ CoreRange toTTNNCoreRange(const tt::target::ttnn::CoreRange &coreRange);
 CoreRangeSet
 toTTNNCoreRangeSet(const tt::target::ttnn::CoreRangeSet &coreRangeSet);
 
+::ttnn::types::ShardOrientation
+toTTNNShardOrientation(tt::target::ttnn::ShardOrientation orientation);
+
+::ttnn::types::ShardMode toTTNNShardMode(tt::target::ttnn::ShardMode mode);
+
 const ::tt::target::ttnn::MemoryConfig *
 getTensorRefMemoryConfig(const ::tt::target::ttnn::TensorRef *tensorRef);
 

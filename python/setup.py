@@ -15,6 +15,9 @@ from setuptools.command.build_ext import build_ext
 from datetime import datetime
 
 
+readme = None
+
+
 class TTExtension(Extension):
     def __init__(self, name):
         super().__init__(name, sources=[])
@@ -116,6 +119,11 @@ version = "0.1." + date + ".dev0"
 # Only the ttmlir package relies on the CMake build process
 ttmlir_c = TTExtension("ttmlir")
 
+# Read README.md file from project root
+readme_path = pathlib.Path(__file__).absolute().parent.parent / "README.md"
+with open(str(readme_path), "r", encoding="utf-8") as f:
+    readme = f.read()
+
 setup(
     name="ttmlir",
     version=version,
@@ -126,4 +134,7 @@ setup(
     ext_modules=[ttmlir_c],
     cmdclass={"build_ext": CMakeBuild},
     zip_safe=False,
+    # Write to readme
+    long_description=readme,
+    long_description_content_type="text/markdown",
 )

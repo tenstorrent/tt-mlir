@@ -240,6 +240,19 @@ def test_execute_and_check_memory_data_exists():
     assert "display_type" in str(result)
 
 
+def test_get_emitc_cpp_code():
+    execute_command_and_wait(
+        MNIST_SHARDING_PATH,
+        {
+            "optimizationPolicy": "Optimizer Disabled",
+            "generateCppCode": True,
+        },
+        timeout=300,
+    )
+    result = convert_command_and_assert(MNIST_SHARDING_PATH)
+    assert "cppCode" in result["graphs"][0]
+
+
 # TODO: figure out if this should be deleted, or adapted with new tests
 @pytest.mark.skip(
     "This is now handled by tests under `test/python/golden/test_ttir_models.py`"

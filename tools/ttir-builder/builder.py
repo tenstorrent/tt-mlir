@@ -202,12 +202,18 @@ class TTIRBuilder:
         return golden
 
     def generate_input_golden(
-        self, operand: Operand, dtype: Union[torch.dtype, TypeInfo], index: int
+        self,
+        operand: Operand,
+        dtype: Union[torch.dtype, TypeInfo],
+        index: int,
+        override: bool = False,
     ) -> None:
         """
         Generates random tensor of `dtype`s of `input`s shape, assigns it to a golden,
         and maps `input` to that golden.
         """
+        if not override and f"input_{index}" in self.id_golden_map:
+            return self.id_golden_map[f"input_{index}"]
         golden = self.generate_and_store_random_golden(operand, dtype)
         self.id_golden_map[f"input_{index}"] = golden
         return golden
@@ -238,7 +244,10 @@ class TTIRBuilder:
         self.mesh_shape = mesh_shape
 
     def set_graph_input_output(
-        self, inputs: List[torch.Tensor], outputs: Optional[List[torch.Tensor]] = None
+        self,
+        inputs: List[torch.Tensor],
+        outputs: Optional[List[torch.Tensor]] = None,
+        override: bool = False,
     ) -> None:
         """
         Records the input and output tensors for the graph.
@@ -248,12 +257,16 @@ class TTIRBuilder:
             if input_key in self.id_golden_map:
                 assert self.id_golden_map[input_key].tensor.shape == tensor.shape
                 assert self.id_golden_map[input_key].tensor.dtype == tensor.dtype
+            if not override and input_key in self.id_golden_map:
+                continue
             self.id_golden_map[input_key] = Golden(tensor)
 
         if outputs is not None:
             self.golden_check_level = GoldenCheckLevel.GRAPH_LEVEL
             for index, tensor in enumerate(outputs):
                 output_key = f"output_{index}"
+                if not override and output_key in self.id_golden_map:
+                    continue
                 self.id_golden_map[output_key] = Golden(tensor)
 
     # ----- Private helpers -----
@@ -659,46 +672,67 @@ class TTIRBuilder:
         self,
         in0: Operand,
         in1: Operand,
+        out0: Operand,
         batch_dims_lhs: List[int],
         contract_dims_lhs: List[int],
         batch_dims_rhs: List[int],
         contract_dims_rhs: List[int],
         unit_attrs: List[str] = None,
     ) -> OpView:
-        # Configure inputs for golden function
-        lhs_dims = contract_dims_lhs + batch_dims_lhs
-        rhs_dims = contract_dims_rhs + batch_dims_rhs
-
-        # Get output_shape from inputs' shapes and dimensions
-        lhs = self._get_golden_tensor(in0)
-        rhs = self._get_golden_tensor(in1)
-        lhs_shape = self.get_shape(in0)
-        rhs_shape = self.get_shape(in1)
-        output_shape = [lhs_shape[i] for i in batch_dims_lhs]
-        for d in range(len(lhs_shape)):
-            if d not in batch_dims_lhs and d not in contract_dims_lhs:
-                output_shape.append(lhs_shape[d])
-        for d in range(len(rhs_shape)):
-            if d not in batch_dims_rhs and d not in contract_dims_rhs:
-                output_shape.append(rhs_shape[d])
+        kwargs = {
+            "batch_dims_lhs": batch_dims_lhs,
+            "contract_dims_lhs": contract_dims_lhs,
+            "batch_dims_rhs": batch_dims_rhs,
+            "contract_dims_rhs": contract_dims_rhs,
+        }
         return self.op_proxy(
-            torch.tensordot,
+            self.dot_general_golden_function,
             ttir.DotGeneralOp,
-            [in0, in1],
-            golden_kwargs={"dims": (lhs_dims, rhs_dims)},
-            ttir_kwargs={
-                "batch_dims_lhs": batch_dims_lhs,
-                "contract_dims_lhs": contract_dims_lhs,
-                "batch_dims_rhs": batch_dims_rhs,
-                "contract_dims_rhs": contract_dims_rhs,
-            },
+            [in0, in1, out0],
+            golden_kwargs=kwargs,
+            ttir_kwargs=kwargs,
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
-            output_shape=output_shape,
             output_type=self.get_type_from_torch_dtype(
                 self._get_golden_tensor(in0).dtype
             ),
             unit_attrs=unit_attrs,
         )
+
+    def dot_general_golden_function(
+        self,
+        lhs,
+        rhs,
+        out,
+        batch_dims_lhs,
+        contract_dims_lhs,
+        batch_dims_rhs,
+        contract_dims_rhs,
+    ):
+        non_batch_dims_lhs = [d for d in range(lhs.dim()) if d not in batch_dims_lhs]
+        non_batch_dims_rhs = [d for d in range(rhs.dim()) if d not in batch_dims_rhs]
+        transposed_lhs = torch.permute(lhs, (batch_dims_lhs + non_batch_dims_lhs))
+        transposed_rhs = torch.permute(rhs, (batch_dims_rhs + non_batch_dims_rhs))
+        result_batching_dims = list(range(len(batch_dims_lhs)))
+        result = torch.empty(*out.shape, dtype=lhs.dtype)
+
+        dim_ranges = []
+        for i in range(len(result_batching_dims)):
+            dim_ranges.append([j for j in range(list(lhs.shape)[i])])
+        import itertools
+
+        batch_indices = list(itertools.product(*dim_ranges))
+        for index in batch_indices:
+            transposed_lhs_slice = transposed_lhs[index]
+            transposed_rhs_slice = transposed_rhs[index]
+            dot_dims_lhs = [d - len(index) for d in contract_dims_lhs]
+            dot_dims_rhs = [d - len(index) for d in contract_dims_rhs]
+            out_index = index
+            result[out_index] = torch.tensordot(
+                transposed_lhs_slice,
+                transposed_rhs_slice,
+                dims=(dot_dims_lhs, dot_dims_rhs),
+            )
+        return result
 
     # TTIR top level named ops
     # class TTIR_ElementwiseTernaryOp

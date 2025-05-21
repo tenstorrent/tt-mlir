@@ -179,23 +179,6 @@ def test_create_tensor_memcpy(helper: Helper, shape, dtype, request):
     helper.teardown()
 
 
-def test_set_program_cache(helper):
-    num_devices = ttrt.runtime.get_num_available_devices()
-    with DeviceContext(
-        mesh_shape=[1, num_devices], enable_program_cache=False
-    ) as device:
-        assert (
-            ttrt.runtime.testing.is_program_cache_enabled(device) == False
-        ), "Expected program cache to be disabled"
-
-    with DeviceContext(
-        mesh_shape=[1, num_devices], enable_program_cache=True
-    ) as device:
-        assert (
-            ttrt.runtime.testing.is_program_cache_enabled(device) == True
-        ), "Expected program cache to be enabled"
-
-
 @pytest.mark.parametrize(
     "runtime",
     [ttrt.runtime.DeviceRuntime.TTNN, ttrt.runtime.DeviceRuntime.TTMetal],

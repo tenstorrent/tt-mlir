@@ -225,14 +225,14 @@ bool compareOuts(std::vector<::tt::runtime::Tensor> &lhs,
 
     // Compare various tensor properties
     //
-    LOG_ASSERT(lhsTensor->get_dtype() == rhsTensor->get_dtype(),
-               "DType: ", lhsTensor->get_dtype(), ", ", rhsTensor->get_dtype());
-    LOG_ASSERT(lhsTensor->get_layout() == rhsTensor->get_layout(),
-               "Layout: ", static_cast<int>(lhsTensor->get_layout()), ", ",
-               static_cast<int>(rhsTensor->get_layout()));
-    LOG_ASSERT(lhsTensor->get_logical_shape() == rhsTensor->get_logical_shape(),
-               "Logical shape: ", lhsTensor->get_logical_shape(), ", ",
-               rhsTensor->get_logical_shape());
+    LOG_ASSERT(lhsTensor->dtype() == rhsTensor->dtype(),
+               "DType: ", lhsTensor->dtype(), ", ", rhsTensor->dtype());
+    LOG_ASSERT(lhsTensor->layout() == rhsTensor->layout(),
+               "Layout: ", static_cast<int>(lhsTensor->layout()), ", ",
+               static_cast<int>(rhsTensor->layout()));
+    LOG_ASSERT(lhsTensor->logical_shape() == rhsTensor->logical_shape(),
+               "Logical shape: ", lhsTensor->logical_shape(), ", ",
+               rhsTensor->logical_shape());
 
     // Compare tensor data
     //
@@ -241,14 +241,14 @@ bool compareOuts(std::vector<::tt::runtime::Tensor> &lhs,
         ::tt::runtime::ttnn::utils::getRawHostDataPtr(*lhsTensor));
     uint8_t *rhsData = static_cast<uint8_t *>(
         ::tt::runtime::ttnn::utils::getRawHostDataPtr(*rhsTensor));
-    for (size_t i = 0; i < lhsTensor->volume(); ++i) {
+    for (size_t i = 0; i < lhsTensor->padded_volume(); ++i) {
       SupportedTypes lhsVal =
-          getValueForDType(lhsTensor->get_dtype(), lhsData + i * elementSize);
+          getValueForDType(lhsTensor->dtype(), lhsData + i * elementSize);
       SupportedTypes rhsVal =
-          getValueForDType(rhsTensor->get_dtype(), rhsData + i * elementSize);
+          getValueForDType(rhsTensor->dtype(), rhsData + i * elementSize);
       if (lhsVal != rhsVal) {
         LOG_FATAL("Mismatch at index ",
-                  toString(getIndex(lhsTensor->get_logical_shape(), i)), ": ",
+                  toString(getIndex(lhsTensor->logical_shape(), i)), ": ",
                   toString(lhsVal), " != ", toString(rhsVal));
         return false;
       }

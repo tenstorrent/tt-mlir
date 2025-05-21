@@ -21,6 +21,11 @@ LICENSE @nsmithtt
 /lib/CAPI/ @ctodTT @tapspatel @vprajapati-tt @vcanicTT
 /python/ @ctodTT @tapspatel @vprajapati-tt @vcanicTT
 
+# StableHLO Dialect
+include/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
+lib/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
+test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
+
 # StableHLO Conversion
 /include/ttmlir/Conversion/ArithToStableHLO/ @tenstorrent/forge-developers-mlir-stablehlo
 /include/ttmlir/Conversion/StableHLOToTTIR/ @tenstorrent/forge-developers-mlir-stablehlo
@@ -137,7 +142,7 @@ LICENSE @nsmithtt
 /tools/pykernel/ @xanderchin @vprajapati-tt
 
 # TTIRBuilder
-/python/test_infra @ctodTT @tapspatel
+/tools/ttir-builder @ctodTT @tapspatel
 
 # tt-explorer
 /tools/explorer/ @tenstorrent/forge-developers-mlir-explorer

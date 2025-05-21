@@ -48,7 +48,7 @@ bool isTilized(const ::tt::target::ttnn::TensorRef *tensorRef) {
 bool shouldSwapBinaryOperands(const ::ttnn::Tensor &lhs,
                               const ::ttnn::Tensor &rhs) {
   return (workaround::Env::get().swapBinaryOperands) &&
-         (lhs.volume() < rhs.volume());
+         (lhs.padded_volume() < rhs.padded_volume());
 }
 
 ::ttnn::operations::unary::UnaryOpType

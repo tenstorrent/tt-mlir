@@ -10,12 +10,14 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/TTNN/Target.h"
+#include "ttmlir/Target/TTNN/utils.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Utils.h"
 
 #include "flatbuffers/buffer.h"
 #include "llvm/ADT/STLForwardCompat.h"
 
+#include <optional>
 #include <type_traits>
 
 namespace mlir::tt {
@@ -215,6 +217,26 @@ inline ::tt::target::MemorySpace toFlatbuffer(FlatbufferObjectCache &,
     return ::tt::target::MemorySpace::DeviceDRAM;
   case MemorySpace::DeviceL1:
     return ::tt::target::MemorySpace::DeviceL1;
+  }
+}
+
+inline ::tt::target::ttnn::ShardOrientation
+toFlatbuffer(FlatbufferObjectCache &, ttnn::ShardOrientation orientation) {
+  switch (orientation) {
+  case ttnn::ShardOrientation::RowMajor:
+    return ::tt::target::ttnn::ShardOrientation::RowMajor;
+  case ttnn::ShardOrientation::ColMajor:
+    return ::tt::target::ttnn::ShardOrientation::ColMajor;
+  }
+}
+
+inline ::tt::target::ttnn::ShardMode toFlatbuffer(FlatbufferObjectCache &,
+                                                  ttnn::ShardMode mode) {
+  switch (mode) {
+  case ttnn::ShardMode::Physical:
+    return ::tt::target::ttnn::ShardMode::Physical;
+  case ttnn::ShardMode::Logical:
+    return ::tt::target::ttnn::ShardMode::Logical;
   }
 }
 
@@ -728,6 +750,149 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
       toFlatbuffer(cache, config.getEnableWeightsDoubleBuffer()),
       toFlatbuffer(cache, config.getEnableSplitReader()),
       toFlatbuffer(cache, config.getEnableSubblockPadding()));
+}
+
+template <typename T>
+static flatbuffers::Offset<::flatbuffers::Vector<uint8_t>>
+toFlatbufferByteVector(FlatbufferObjectCache &cache,
+                       mlir::DenseElementsAttr &attr) {
+  size_t sizeBytes = attr.getNumElements() * sizeof(T);
+  cache.fbb->StartVector<flatbuffers::Offset<uint8_t>>(sizeBytes);
+
+  // Iterate over the values to make sure splat is unrolled correctly
+  for (auto i = attr.value_begin<T>(); i != attr.value_end<T>(); i++) {
+    T value = *i;
+    uint8_t *buf = reinterpret_cast<uint8_t *>(&value);
+    cache.fbb->PushBytes(buf, sizeof(T));
+  }
+  return cache.fbb->EndVector(sizeBytes);
+}
+
+inline ::flatbuffers::Offset<::tt::target::ttnn::ShardSpec>
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ::mlir::tt::ttnn::ShardSpecAttr shardSpec) {
+  auto coreRangeSet = toFlatbuffer(cache, shardSpec.getCoreRangeSet());
+  llvm::ArrayRef<int64_t> shardShapeArr = shardSpec.getShape().getShape();
+  assert(shardShapeArr.size() == 2);
+  std::vector<int32_t> shardShape;
+  shardShape.reserve(shardShapeArr.size());
+  std::transform(shardShapeArr.begin(), shardShapeArr.end(),
+                 std::back_inserter(shardShape), [](int64_t val) -> int32_t {
+                   return static_cast<int32_t>(val);
+                 });
+  auto shardOrientation =
+      toFlatbuffer(cache, shardSpec.getShardOrientation().getValue());
+  auto shardMode = toFlatbuffer(cache, shardSpec.getShardMode().getValue());
+
+  return ::tt::target::ttnn::CreateShardSpecDirect(
+      *cache.fbb, coreRangeSet, &shardShape, shardOrientation, shardMode);
+}
+
+inline ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ::mlir::tt::ttnn::MemoryConfigAttr memoryConfigAttr) {
+  ttnn::TensorMemoryLayoutAttr tensorMemoryLayoutAttr =
+      memoryConfigAttr.getTensorMemoryLayout();
+  ::tt::target::ttnn::TensorMemoryLayout tensorMemoryLayout =
+      toFlatbuffer(cache, tensorMemoryLayoutAttr);
+  ::tt::target::BufferType bufferType =
+      ::mlir::tt::ttnn::utils::toTargetBufferType(
+          memoryConfigAttr.getBufferType().getValue());
+
+  ::flatbuffers::Offset<::tt::target::ttnn::ShardSpec> shardSpec = 0;
+  if (memoryConfigAttr.getShardSpec()) {
+    assert(tensorMemoryLayoutAttr && mlir::tt::ttnn::isShardedMemoryLayout(
+                                         tensorMemoryLayoutAttr.getValue()));
+    shardSpec = toFlatbuffer(cache, *memoryConfigAttr.getShardSpec());
+  }
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
+      ::tt::target::ttnn::CreateMemoryConfig(*cache.fbb, tensorMemoryLayout,
+                                             bufferType, shardSpec);
+  return memoryConfig;
+}
+
+inline flatbuffers::Offset<::tt::target::ttnn::MemoryDesc>
+toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
+             tt::TensorMeshShardingAttr tensorMeshSharding,
+             ttnn::BufferType bufferType,
+             ttnn::TensorMemoryLayoutAttr memLayoutAttr, tt::GridAttr shardGrid,
+             tt::GridAttr deviceGrid) {
+  auto shapeInt64 = memref.getShape();
+  std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
+  DataType dtype = DataType::Float32;
+  ::tt::target::Dim2d tileShape(1, 1);
+  mlir::Type elementType = memref.getElementType();
+  std::uint64_t elementSize = 0;
+  if (mlir::isa<TileType>(elementType)) {
+    auto tileType = mlir::cast<TileType>(elementType);
+    dtype = tileType.getDataType();
+    tileShape = ::tt::target::Dim2d(tileType.getHeight(), tileType.getWidth());
+    elementSize = tileType.getSizeBytes();
+  } else {
+    dtype = elementTypeToDataType(elementType);
+    elementSize = getElementSizeBytes(dtype);
+  }
+
+  std::uint64_t size = elementSize;
+  for (auto dim : shapeInt64) {
+    size *= dim;
+  }
+
+  ::tt::target::ttnn::StorageType storageType;
+  if (tensorMeshSharding) {
+    storageType = bufferType == ttnn::BufferType::SystemMemory
+                      ? ::tt::target::ttnn::StorageType::MultiDeviceHost
+                      : ::tt::target::ttnn::StorageType::Device;
+  } else {
+    storageType = bufferType == ttnn::BufferType::SystemMemory
+                      ? ::tt::target::ttnn::StorageType::Host
+                      : ::tt::target::ttnn::StorageType::Device;
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
+
+  // Only device tensors should have a memory config
+  if (bufferType != ttnn::BufferType::SystemMemory) {
+    ::mlir::MLIRContext *ctx = memref.getContext();
+    auto bufferTypeAttr = ttnn::BufferTypeAttr::get(ctx, bufferType);
+    std::optional<mlir::tt::ttnn::ShardSpecAttr> shardSpecAttr = std::nullopt;
+    if (isShardedMemoryLayout(memLayoutAttr.getValue())) {
+      llvm::SmallVector<int64_t> shape(memref.getShape().begin(),
+                                       memref.getShape().end());
+      assert(shape.size() == 2);
+      shape[0] *= tileShape.y();
+      shape[1] *= tileShape.x();
+      shardSpecAttr = ttnn::ShardSpecAttr::get(
+          ctx, ttnn::ShapeAttr::get(ctx, shape), shardGrid, deviceGrid);
+    }
+    auto memoryConfigAttr = ::mlir::tt::ttnn::MemoryConfigAttr::get(
+        ctx, memLayoutAttr, bufferTypeAttr, shardSpecAttr);
+
+    memoryConfig = toFlatbuffer(cache, memoryConfigAttr);
+  }
+
+  return ::tt::target::ttnn::CreateMemoryDesc(
+      *cache.fbb, storageType, &tileShape, toFlatbuffer(cache, dtype),
+      memoryConfig, size);
+}
+
+inline flatbuffers::Offset<::tt::target::ttnn::LayoutDesc>
+ttnnLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
+                           ttnn::TTNNLayoutAttr layoutAttr,
+                           DeviceAttr deviceAttr) {
+  // TODO (jnie): Memory reference alone is insufficient to determine LayoutDesc
+  // uniquely. Using `cache.getOrCreate()` is unsafe because identical memory
+  // references can produce different LayoutDesc objects.
+  // Current state: Removed cache.getOrCreate() to prevent inconsistencies
+  // Ideally, we establish one-to-one mapping between MLIR and FlatBuffer
+  // that guarantees identical memrefs will always produce identical
+  // flatbuffer LayoutDescs.
+  return ::tt::target::ttnn::CreateLayoutDesc(
+      *cache.fbb, toFlatbuffer(cache, OOBVal::Undef),
+      toFlatbuffer(cache, layoutAttr.getMemref(),
+                   layoutAttr.getTensorMeshSharding(),
+                   layoutAttr.getBufferType(), layoutAttr.getMemLayout(),
+                   layoutAttr.getGrid(), deviceAttr.getWorkerGrid()));
 }
 
 } // namespace mlir::tt

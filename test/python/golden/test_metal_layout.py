@@ -4,11 +4,11 @@
 
 import pytest
 import torch
-from typing import Callable, List
+from typing import List
 
-from ttmlir.test_utils import compile_to_flatbuffer, Marks, shape_str
-from ttmlir.ttir_builder import Operand, TTIRBuilder, UnitAttr, Shape, TypeInfo
-from ttmlir.dialects import ttir, tt
+from ttir_builder.utils import compile_to_flatbuffer
+from ttir_builder import Operand, TTIRBuilder, Shape
+from ttmlir.dialects import tt
 from ttmlir.ir import *
 
 

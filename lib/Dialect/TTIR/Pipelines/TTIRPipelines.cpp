@@ -63,6 +63,22 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   // https://mlir.llvm.org/docs/Bufferization/#ownership-based-buffer-deallocation
   mlir::bufferization::OneShotBufferizationOptions bufferizationOptions;
   bufferizationOptions.bufferizeFunctionBoundaries = true;
+
+  // Use identity layout for our tensors; this simplifies output IR.
+  bufferizationOptions.unknownTypeConverterFn =
+      [=](Value value, Attribute memorySpace,
+          const bufferization::BufferizationOptions &options) {
+        auto tensorType = cast<TensorType>(value.getType());
+        return bufferization::getMemRefTypeWithStaticIdentityLayout(
+            tensorType, memorySpace);
+      };
+  bufferizationOptions.functionArgTypeConverterFn =
+      [=](TensorType tensorType, Attribute memorySpace, func::FuncOp funcOp,
+          const bufferization::BufferizationOptions &options) {
+        return bufferization::getMemRefTypeWithStaticIdentityLayout(
+            tensorType, memorySpace);
+      };
+
   manager.addPass(
       mlir::bufferization::createOneShotBufferizePass(bufferizationOptions));
   mlir::bufferization::BufferDeallocationPipelineOptions deallocationOptions;
@@ -100,6 +116,14 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
     manager.addPass(mlir::createCSEPass());
     manager.addPass(mlir::createSymbolDCEPass());
   }
+}
+
+void createTTIRToCPUPipeline(OpPassManager &manager,
+                             const LinalgToLLVMPipelineOptions &options) {
+  OpPassManager &cpuPm = manager.nest<tt::CPUModuleOp>().nest<mlir::ModuleOp>();
+  cpuPm.addPass(createConvertTTIRToLinalgPass());
+  ttir::createLinalgToLLVMPipeline(cpuPm, options);
+  cpuPm.addPass(llvm_util::createLLVMEmitCallingConventionWrapperFuncs());
 }
 
 //===----------------------------------------------------------------------===//

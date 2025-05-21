@@ -3,14 +3,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
+#include "ttmlir/Dialect/TT/IR/TTOps.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TT/IR/Utils.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
+#include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
 #include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include "ttmlir/Target/TTMetal/Target.h"
+#include "ttmlir/Target/TTMetal/command_generated.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
+#include "ttmlir/Target/Utils/Utils.h"
 #include "ttmlir/Version.h"
 
 #include "flatbuffers/buffer.h"
@@ -26,7 +30,11 @@
 
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <mlir/IR/BuiltinTypeInterfaces.h>
+#include <mlir/IR/BuiltinTypes.h>
+#include <vector>
 
 namespace mlir::tt::ttmetal {
 
@@ -44,7 +52,8 @@ struct CQBuilder {
     printFlags = printFlags.elideLargeElementsAttrs()
                      .elideLargeResourceString()
                      .skipRegions()
-                     .enableDebugInfo();
+                     .enableDebugInfo()
+                     .assumeVerified();
   }
 
   std::string getDebugString(mlir::Operation *op) {
@@ -54,13 +63,21 @@ struct CQBuilder {
     return str;
   };
 
+  std::string getOpLoc(mlir::Operation *op) {
+    std::string str;
+    llvm::raw_string_ostream os(str);
+    op->getLoc().print(os);
+    return str;
+  };
+
   template <typename CommandT>
   flatbuffers::Offset<target::metal::Command>
   appendCommand(flatbuffers::Offset<CommandT> commandT, mlir::Operation *op) {
     auto debugString = getDebugString(op);
+    auto loc = getOpLoc(op);
     commands.push_back(target::metal::CreateCommandDirect(
         *fbb, target::metal::CommandTypeTraits<CommandT>::enum_value,
-        commandT.Union(), debugString.c_str()));
+        commandT.Union(), loc.c_str(), debugString.c_str()));
     return commands.back();
   }
 };
@@ -137,7 +154,7 @@ static std::array<int32_t, 2> calculateCoreRangeSetShapeExtents(
 static flatbuffers::Offset<target::metal::ShardedBufferConfig>
 memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
                                           MemRefType memref, DeviceAttr device,
-                                          target::Dim2d tileShape) {
+                                          target::Dim2d elementShape) {
   auto deviceLayout =
       mlir::dyn_cast_if_present<DeviceLayoutInterface>(memref.getLayout());
   if (!deviceLayout) {
@@ -159,19 +176,19 @@ memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
 
   // Calculate ShardSpec
   assert(stride[stride.size() - 1] % elementSize == 0);
-  int32_t shardXTiles = stride[stride.size() - 2] / elementSize;
-  assert((memrefShardShape[0] * stride[0] / elementSize) % shardXTiles == 0);
-  int32_t collapsedShardYTiles =
-      (memrefShardShape[0] * stride[0] / elementSize) / shardXTiles;
+  int32_t shardXElements = stride[stride.size() - 2] / elementSize;
+  assert((memrefShardShape[0] * stride[0] / elementSize) % shardXElements == 0);
+  int32_t collapsedShardYElements =
+      (memrefShardShape[0] * stride[0] / elementSize) / shardXElements;
   // Shard shape is the fully collapsed shard down to 2D, so:
   //   [d0 * ... * dN-2, dN-1]
-  target::Dim2d shardShape(collapsedShardYTiles * tileShape.y(),
-                           shardXTiles * tileShape.x());
+  target::Dim2d shardShape(collapsedShardYElements * elementShape.y(),
+                           shardXElements * elementShape.x());
   auto shardSpec = target::metal::CreateShardSpecDirect(
       *cache.fbb, &coreRangeSet, &shardShape);
 
   // Calculate ShardSpecBuffer
-  target::Dim2d pageShape(tileShape.y(), shardShape.x());
+  target::Dim2d pageShape(elementShape.y(), shardShape.x());
   std::array<int32_t, 2> tensorShape = {gridShapeExtents[0] * shardShape.y(),
                                         gridShapeExtents[1] * shardShape.x()};
   assert(tensorShape[0] % pageShape.y() == 0);
@@ -182,19 +199,31 @@ memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
       *cache.fbb, shardSpec, &pageShape, &tensorShapeInPages);
 
   // Calculate ShardedBufferConfig
-  assert(pageShape.y() % tileShape.y() == 0);
-  assert(pageShape.x() % tileShape.x() == 0);
-  std::array<int32_t, 2> pageShapeInTiles = {pageShape.y() / tileShape.y(),
-                                             pageShape.x() / tileShape.x()};
-  uint64_t pageSize = pageShapeInTiles[0] * pageShapeInTiles[1] * elementSize;
+  assert(pageShape.y() % elementShape.y() == 0);
+  assert(pageShape.x() % elementShape.x() == 0);
+  std::array<int32_t, 2> pageShapeInElements = {
+      pageShape.y() / elementShape.y(), pageShape.x() / elementShape.x()};
+
+  uint64_t pageSize;
+  if (mlir::isa<TileType>(memref.getElementType())) {
+    pageSize = pageShapeInElements[0] * pageShapeInElements[1] * elementSize;
+  } else {
+    auto tileShape = TileType::getDefaultShape();
+    int64_t alignSize = tileShape[0] * tileShape[1] * elementSize;
+
+    pageSize = ttmlir::utils::alignUp(pageShapeInElements[0] *
+                                          pageShapeInElements[1] * elementSize,
+                                      alignSize);
+  }
+
   return target::metal::CreateShardedBufferConfig(*cache.fbb, size, pageSize,
                                                   shardSpecBuffer);
 }
 
 static flatbuffers::Offset<target::metal::CircularBufferConfig>
 memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
-                                           MemRefType memref, DeviceAttr device,
-                                           target::Dim2d tileShape) {
+                                           MemRefType memref,
+                                           DeviceAttr device) {
   auto deviceLayout =
       mlir::dyn_cast_if_present<DeviceLayoutInterface>(memref.getLayout());
   if (!deviceLayout) {
@@ -220,7 +249,7 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
                        DeviceAttr device) {
   std::vector<int32_t> shape =
       ttmlir::utils::castContainer<std::vector<int32_t>>(memref.getShape());
-  target::Dim2d tileShape(1, 1);
+  target::Dim2d elementShape(1, 1);
   DataType dtype = DataType::Float32;
   target::MemorySpace memorySpace =
       memref.getMemorySpace()
@@ -232,22 +261,22 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
   Type elementType = memref.getElementType();
   if (auto tileType = mlir::dyn_cast<TileType>(elementType)) {
     dtype = tileType.getDataType();
-    tileShape = target::Dim2d(tileType.getHeight(), tileType.getWidth());
+    elementShape = target::Dim2d(tileType.getHeight(), tileType.getWidth());
   } else {
     dtype = elementTypeToDataType(elementType);
   }
 
   flatbuffers::Offset<target::metal::ShardedBufferConfig> shardedBufferConfig =
       memrefTypeToShardedBufferConfigFlatbuffer(cache, memref, device,
-                                                tileShape);
+                                                elementShape);
 
   flatbuffers::Offset<target::metal::CircularBufferConfig>
-      circularBufferConfig = memrefTypeToCircularBufferConfigFlatbuffer(
-          cache, memref, device, tileShape);
+      circularBufferConfig =
+          memrefTypeToCircularBufferConfigFlatbuffer(cache, memref, device);
 
   return target::metal::CreateBufferDescDirect(
-      *cache.fbb, &shape, &tileShape, toFlatbuffer(cache, dtype), memorySpace,
-      shardedBufferConfig, circularBufferConfig);
+      *cache.fbb, &shape, &elementShape, toFlatbuffer(cache, dtype),
+      memorySpace, shardedBufferConfig, circularBufferConfig);
 }
 
 static flatbuffers::Offset<target::metal::BufferRef>
@@ -408,6 +437,27 @@ kernelConfigToFlatbuffer(FlatbufferObjectCache &cache,
       &coreRangeSet, args, configType, configUnion, kernelSymbol.data());
 }
 
+static flatbuffers::Offset<::flatbuffers::Vector<uint8_t>>
+memrefGlobalOpToFlatbufferByteVector(FlatbufferObjectCache &cache,
+                                     memref::GlobalOp globalOp) {
+  auto value = mlir::cast<MemRefType>(globalOp.getTypeAttr().getValue());
+  auto initialValueAttr =
+      mlir::cast<mlir::DenseElementsAttr>(globalOp.getInitialValueAttr());
+  flatbuffers::Offset<::flatbuffers::Vector<uint8_t>> data;
+
+  if (mlir::isa<FloatType>(value.getElementType())) {
+    if (value.getElementType().getIntOrFloatBitWidth() == 32) {
+      data = mlir::tt::toFlatbufferByteVector<float>(cache, initialValueAttr);
+    } else {
+      assert(false && "unsupported float bit width");
+    }
+  } else {
+    assert(false && "unsupported data type");
+  }
+
+  return data;
+}
+
 static std::shared_ptr<void> translateModuleToFlatbuffer(
     Operation *op,
     const std::unordered_map<std::string, GoldenTensor> &goldenMap,
@@ -415,8 +465,16 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
   flatbuffers::FlatBufferBuilder fbb;
   FlatbufferObjectCache cache(&fbb);
 
-  ModuleOp module = dyn_cast<ModuleOp>(op);
-  assert(module && "Expected ModuleOp as top level operation");
+  ModuleOp rootModule = dyn_cast<ModuleOp>(op);
+  assert(rootModule && "Expected ModuleOp as top level operation");
+
+  // If we have a nested module structure, we want to use nested module inside
+  // DeviceModule for most conversions.
+  ModuleOp module = rootModule;
+  if (auto deviceModule = utils::findOpAtTopLevel<tt::DeviceModuleOp>(module)) {
+    module = mlir::cast<mlir::ModuleOp>(
+        deviceModule.getBodyRegion().front().front());
+  }
   SymbolTable symbolTable(module);
 
   auto systemDesc =
@@ -425,6 +483,29 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
   target::Version binaryVersion(ttmlirVersion.major, ttmlirVersion.minor,
                                 ttmlirVersion.patch);
   std::vector<flatbuffers::Offset<target::metal::Program>> programs;
+
+  // Handle dylib creation and packaging, if needed.
+  // Currently, we only have 1 CPUModuleOp and 1 top-level ModuleOp; we use a
+  // vector here in case in the future we support more complex arrangements.
+  std::vector<::flatbuffers::Offset<::tt::target::DynamicLib>> dylibs;
+  if (auto cpuModule = utils::findOpAtTopLevel<tt::CPUModuleOp>(rootModule);
+      cpuModule != nullptr) {
+    mlir::ModuleOp cpuNestedModule =
+        mlir::cast<mlir::ModuleOp>(cpuModule.getBodyRegion().front().front());
+    llvm::SmallVector<char, 2048> binaryBuffer;
+    llvm::raw_svector_ostream dylibStream(binaryBuffer);
+    auto result = mlir::tt::llvm_to_cpu::translateLLVMToDyLib(cpuNestedModule,
+                                                              dylibStream);
+    if (llvm::succeeded(result)) {
+      auto rawFileVector = fbb.CreateVector(
+          reinterpret_cast<const uint8_t *>(binaryBuffer.data()),
+          binaryBuffer.size());
+      dylibs.emplace_back(
+          ::tt::target::CreateDynamicLib(fbb, 0, rawFileVector));
+    } else {
+      llvm::report_fatal_error("Failed to compile dylib!");
+    }
+  }
 
   module->walk([&](func::FuncOp entry) {
     if (!entry.isPublic()) {
@@ -519,6 +600,26 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
                                     cache.at<target::metal::BufferRef>(
                                         enqueueWriteBufferOp.getOutput())),
                                 op);
+      } else if (auto copyOp = dyn_cast_if_present<memref::CopyOp>(op);
+                 copyOp) {
+        cqBuilder.appendCommand(
+            target::metal::CreateMemrefCopyCommand(
+                fbb, cache.at<target::metal::BufferRef>(copyOp.getSource()),
+                cache.at<target::metal::BufferRef>(copyOp.getTarget())),
+            op);
+      } else if (auto cpuOp = dyn_cast_if_present<func::CallOp>(op); cpuOp) {
+        std::vector<flatbuffers::Offset<target::metal::BufferRef>> ins;
+        ins.reserve(cpuOp.getOperands().size());
+        for (auto input : cpuOp.getOperands()) {
+          ins.push_back(cache.at<target::metal::BufferRef>(input));
+        }
+        llvm::SmallString<24> funcName =
+            utils::convertDylibFuncName(cpuOp.getCallee());
+        auto out = cache.getOrCreate(cpuOp.getResults()[0],
+                                     bufferValueToFlatbuffer, 0);
+        cqBuilder.appendCommand(target::metal::CreateCpuCommandDirect(
+                                    fbb, &ins, out, funcName.c_str(), 0),
+                                op);
       } else if (auto returnOp = dyn_cast_if_present<func::ReturnOp>(op);
                  returnOp) {
         assert(cqBuilder.outputs.empty() &&
@@ -535,9 +636,23 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
       } else if (auto finishOp = dyn_cast_if_present<tt::ttmetal::FinishOp>(op);
                  finishOp) {
         cqBuilder.appendCommand(target::metal::CreateFinishCommand(fbb), op);
+      } else if (auto getGlobalOp =
+                     dyn_cast_if_present<memref::GetGlobalOp>(op);
+                 getGlobalOp) {
+        auto globalSymbolRef =
+            mlir::cast<mlir::FlatSymbolRefAttr>(getGlobalOp->getAttr("name"));
+        auto globalOp = mlir::cast<memref::GlobalOp>(
+            symbolTable.lookup(globalSymbolRef.getValue()));
+        auto globalResult = getGlobalOp.getResult();
+        cqBuilder.appendCommand(
+            target::metal::CreateHostAllocCommand(
+                fbb,
+                cache.getOrCreate(globalResult, bufferValueToFlatbuffer, 0),
+                memrefGlobalOpToFlatbufferByteVector(cache, globalOp)),
+            op);
       } else if (auto funcOp = dyn_cast_if_present<func::FuncOp>(op); funcOp) {
-        // Unqualified walk will visit the root op itself last, we should ignore
-        // this.
+        // Unqualified walk will visit the root op itself last, we should
+        // ignore this.
         return;
       } else {
         llvm_unreachable("Encountered unsupported op.");
@@ -567,7 +682,7 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
 
   auto binary = target::metal::CreateTTMetalBinaryDirect(
       fbb, &binaryVersion, ttmlir::getGitHash(),
-      toFlatbuffer(cache, systemDesc), &programs);
+      toFlatbuffer(cache, systemDesc), &programs, &dylibs);
 
   FinishSizePrefixedTTMetalBinaryBuffer(fbb, binary);
   flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());

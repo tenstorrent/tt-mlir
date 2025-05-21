@@ -1,5 +1,7 @@
 # EmitC testing
 
+#### NOTE: This is a developer's guide on how to test EmitC as a feature. For usage of EmitC, please refer to [ttnn-standalone](ttnn-standalone.md) docs.
+
 ## Prerequisites
 
 * [Built ttmlir](https://docs.tenstorrent.com/tt-mlir/build.html#build)

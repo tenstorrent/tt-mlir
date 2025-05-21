@@ -28,6 +28,7 @@ namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_SHARDYCLEANUPMODULEPASS
 #define GEN_PASS_DEF_SHARDYUPDATEAUTOMATICSHARDSHAPESPASS
 #define GEN_PASS_DEF_SHARDYWRAPMANUALCOMPUTATIONPASS
+#define GEN_PASS_DEF_UPDATEAUTOMATICSHARDSHAPESPASS
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
 /*
@@ -91,14 +92,6 @@ static inline mlir::LogicalResult wrapFunctionBodyInManualComputationOp(
   mlir::sdy::TensorShardingPerValueAttr outShardings =
       mlir::sdy::TensorShardingPerValueAttr::get(context, outShardingAttrs);
 
-  // Get manual axes from meshOp since this pass currently only supports 1
-  // mesh.
-  llvm::SmallVector<mlir::StringAttr> manualAxes;
-  for (auto meshAxisAttr : globalMeshOp.getMesh().getAxes()) {
-    manualAxes.push_back(
-        mlir::StringAttr::get(context, meshAxisAttr.getName()));
-  }
-
   // Create sdy.manual_computation op
   mlir::FunctionType funcType = funcOp.getFunctionType();
   mlir::Block &entryBlock = funcOp.getBody().front();
@@ -106,7 +99,7 @@ static inline mlir::LogicalResult wrapFunctionBodyInManualComputationOp(
   mlir::sdy::ManualComputationOp manualComputationOp =
       builder.create<mlir::sdy::ManualComputationOp>(
           builder.getUnknownLoc(), funcType.getResults(), funcOp.getArguments(),
-          inShardings, outShardings, manualAxes);
+          inShardings, outShardings, llvm::SmallVector<mlir::StringAttr>());
 
   // Determine the argumentTypes and argumentLocations that need to get
   // added to the new region in manualComputationOp.
@@ -116,24 +109,9 @@ static inline mlir::LogicalResult wrapFunctionBodyInManualComputationOp(
   for (auto arg : funcOp.getArguments()) {
     // All arguments must be annotated with sdy.sharding attribute at this
     // point.
-    mlir::DictionaryAttr argAttrDict =
-        funcOp.getArgAttrDict(arg.getArgNumber());
-    mlir::sdy::TensorShardingAttr tensorShardingAttr =
-        mlir::dyn_cast<mlir::sdy::TensorShardingAttr>(
-            argAttrDict.get(mlir::sdy::TensorShardingAttr::name));
     mlir::RankedTensorType oldType =
         mlir::cast<mlir::RankedTensorType>(arg.getType());
-    FailureOr<mlir::RankedTensorType> newType =
-        sdy_utils::populateShardedOutputType(globalMeshOp.getMesh(), oldType,
-                                             tensorShardingAttr);
-
-    if (failed(newType)) {
-      funcOp.emitError("Could not apply propagated tensor shardings to "
-                       "tensor dimensions.");
-      return mlir::failure();
-    }
-
-    argumentTypes.push_back(*newType);
+    argumentTypes.push_back(oldType);
     argumentLocations.push_back(arg.getLoc());
   }
 
@@ -158,7 +136,7 @@ static inline mlir::LogicalResult wrapFunctionBodyInManualComputationOp(
   // manualComputationOp as it's operand.
   builder.setInsertionPointAfter(manualComputationOp);
   builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(),
-                                       manualComputationOp->getResult(0));
+                                       manualComputationOp->getResults());
 
   // Update old arguments with new arguments inside of the
   // manualComputationBlock.
@@ -182,7 +160,7 @@ static inline mlir::LogicalResult wrapFunctionBodyInManualComputationOp(
     if (auto returnOp = llvm::dyn_cast<mlir::func::ReturnOp>(op)) {
       builder.setInsertionPoint(returnOp);
       builder.create<mlir::sdy::ReturnOp>(builder.getUnknownLoc(),
-                                          returnOp->getOperand(0));
+                                          returnOp->getOperands());
       returnOp->erase();
     }
   }
@@ -190,11 +168,70 @@ static inline mlir::LogicalResult wrapFunctionBodyInManualComputationOp(
   return mlir::success();
 }
 
+// Update the manual axes for each computation block and update the argument
+// tensor shapes according to their tensor sharding annotation.
+static inline mlir::LogicalResult
+updateManualAxes(MLIRContext *context, mlir::OpBuilder &builder,
+                 mlir::sdy::MeshOp &globalMeshOp, func::FuncOp &funcOp) {
+  // Set the manual axes from meshOp since this pass currently only supports 1
+  // mesh.
+  llvm::SmallVector<mlir::StringAttr> manualAxes;
+  for (auto meshAxisAttr : globalMeshOp.getMesh().getAxes()) {
+    manualAxes.push_back(
+        mlir::StringAttr::get(context, meshAxisAttr.getName()));
+  }
+  mlir::sdy::ManualAxesAttr manualAxesAttr =
+      mlir::sdy::ManualAxesAttr::get(context, manualAxes);
+
+  // Update the manual axes in the mlir module.
+  mlir::WalkResult result = funcOp.getBody().walk([&](mlir::Operation *op) {
+    auto manualComputationOp =
+        llvm::dyn_cast<mlir::sdy::ManualComputationOp>(op);
+    if (!manualComputationOp) {
+      return WalkResult::advance();
+    }
+
+    manualComputationOp.setManualAxesAttr(manualAxesAttr);
+    // Walk through each argument in the manual computation op and update the
+    // shape based on it's in_sharding attribute.
+    mlir::Block &entryBlock = manualComputationOp.getRegion().front();
+    llvm::ArrayRef<mlir::sdy::TensorShardingAttr> tensorShardings =
+        manualComputationOp.getInShardings().getShardings();
+
+    uint32_t initialArgSize = entryBlock.getArguments().size();
+    for (uint32_t i = 0; i < initialArgSize; i++) {
+      mlir::BlockArgument arg = entryBlock.getArgument(i);
+      mlir::RankedTensorType oldType =
+          mlir::cast<mlir::RankedTensorType>(arg.getType());
+      FailureOr<mlir::RankedTensorType> newType =
+          sdy_utils::populateShardedOutputType(
+              globalMeshOp.getMesh(), oldType,
+              tensorShardings[arg.getArgNumber()]);
+
+      if (failed(newType)) {
+        manualComputationOp.emitError("Could not apply propagated tensor "
+                                      "shardings to tensor dimensions.");
+        return WalkResult::interrupt();
+      }
+
+      mlir::Value newArg = entryBlock.addArgument(*newType, arg.getLoc());
+      arg.replaceAllUsesWith(newArg);
+    }
+
+    // Remove all unused arguments
+    entryBlock.eraseArguments(0, initialArgSize);
+    return WalkResult::advance();
+  });
+
+  return result.wasInterrupted() ? mlir::failure() : mlir::success();
+}
+
 // Update all shapes in the module based on their sdy tensor sharding attribute.
 static inline mlir::LogicalResult updateShapes(MLIRContext *context,
                                                mlir::OpBuilder &builder,
                                                mlir::sdy::MeshOp &globalMeshOp,
                                                func::FuncOp &funcOp) {
+  // Run a topological sort and apply tensor sharding annotations to each op.
   llvm::SetVector<mlir::Operation *> opSet;
   funcOp.getBody().walk([&](mlir::Operation *op) { opSet.insert(op); });
   llvm::SetVector<mlir::Operation *> sortedOpSet = mlir::topologicalSort(opSet);
@@ -577,8 +614,6 @@ public:
             "in mlir module. Using existing mesh in module.\n");
       }
 
-      // The pass currently only support a single mesh op.
-      globalMeshOp = parsedMeshOps[0];
       return;
     }
 
@@ -704,8 +739,54 @@ public:
         return;
       }
     });
+  }
+};
 
-    // Analysis the graph and cut all the shapes of each operation according to
+class UpdateAutomaticShardShapesPass
+    : public impl::UpdateAutomaticShardShapesPassBase<
+          UpdateAutomaticShardShapesPass> {
+public:
+  using impl::UpdateAutomaticShardShapesPassBase<
+      UpdateAutomaticShardShapesPass>::UpdateAutomaticShardShapesPassBase;
+
+  void runOnOperation() final {
+    mlir::ModuleOp rootModule = getOperation();
+    MLIRContext *context = rootModule.getContext();
+    mlir::OpBuilder builder(context);
+
+    // Get the shardy mesh op in the root module.
+    mlir::sdy::MeshOp globalMeshOp;
+    llvm::SmallVector<mlir::sdy::MeshOp> parsedMeshOps =
+        sdy_utils::getMeshOps(rootModule);
+
+    if (parsedMeshOps.size() == 0) {
+      rootModule.emitError(
+          "Pass requires a shardy mesh op to be present in the root module.\n");
+      signalPassFailure();
+      return;
+    }
+
+    if (parsedMeshOps.size() > 1) {
+      rootModule.emitError("Pass currently only support a single shardy mesh "
+                           "op in the module.\n");
+      signalPassFailure();
+      return;
+    }
+
+    globalMeshOp = parsedMeshOps[0];
+
+    // Update the manual axes to include the correct mesh shape dimensions in
+    // the manual computation op. Also update all the argument shapes.
+    rootModule.walk([&](func::FuncOp funcOp) {
+      if (failed(updateManualAxes(context, builder, globalMeshOp, funcOp))) {
+        rootModule.emitError(
+            "Could not update manual axes for manual computation op.\n");
+        signalPassFailure();
+        return;
+      }
+    });
+
+    // Analyze the graph and cut all the shapes of each operation according to
     // their sdy sharding attribute.
     rootModule.walk([&](func::FuncOp funcOp) {
       if (failed(updateShapes(context, builder, globalMeshOp, funcOp))) {
