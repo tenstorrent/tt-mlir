@@ -29,6 +29,7 @@ def test_tilize(shape: Shape, request):
         view_as_rm = builder.view_layout(
             to_device,
             output_type=builder.metal_tensor_layout(shape, (1, 1), False),
+            reinterpret_layout=True,
             unit_attrs=unit_attrs,
         )
 
@@ -75,6 +76,7 @@ def test_untilize(shape: Shape, request):
         view_as_tiled = builder.view_layout(
             to_device,
             output_type=builder.metal_tensor_layout(shape, (1, 1), True),
+            reinterpret_layout=True,
             unit_attrs=unit_attrs,
         )
 

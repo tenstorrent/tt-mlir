@@ -2111,13 +2111,14 @@ class TTIRBuilder:
         self,
         in0: Operand,
         output_type: RankedTensorType,
+        reinterpret_layout: bool = False,
         unit_attrs: List[str] = None,
     ) -> OpView:
         return self.op_proxy(
             lambda *args, **kwargs: args[0],
             ttir.ViewLayoutOp,
             [in0],
-            ttir_kwargs={"reinterpretLayout": True},
+            ttir_kwargs={"reinterpretLayout": reinterpret_layout},
             output_type=output_type,
             output_create_fn=self.empty_from_tensor_type,
             organize_ttir_args=lambda i, o, _: (

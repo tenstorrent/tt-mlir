@@ -140,25 +140,25 @@ void dprint(Arg &&arg, ArgV&&... argv) {
   }
 
   void emitExperimentalLLKs() {
-    if (hasOp<emitc::CallOpaqueOp>([](emitc::CallOpaqueOp op) {
-          return op.getCallee().starts_with("experimental::tilize");
-        })) {
-
+    if (hasCall("experimental::tilize")) {
       auto experimentalTilizeLLKs =
           StringRef(reinterpret_cast<const char *>(experimental_tilize_llks_h),
                     experimental_tilize_llks_h_len);
       builder->create<emitc::VerbatimOp>(loc, experimentalTilizeLLKs);
     }
 
-    if (hasOp<emitc::CallOpaqueOp>([](emitc::CallOpaqueOp op) {
-          return op.getCallee().starts_with("experimental::untilize");
-        })) {
-
+    if (hasCall("experimental::untilize")) {
       auto experimentalUntilizeLLKs = StringRef(
           reinterpret_cast<const char *>(experimental_untilize_llks_h),
           experimental_untilize_llks_h_len);
       builder->create<emitc::VerbatimOp>(loc, experimentalUntilizeLLKs);
     }
+  }
+
+  bool hasCall(StringRef name) {
+    return hasOp<emitc::CallOpaqueOp>([=](emitc::CallOpaqueOp op) {
+      return op.getCallee().starts_with(name);
+    });
   }
 
   template <typename OpT>
