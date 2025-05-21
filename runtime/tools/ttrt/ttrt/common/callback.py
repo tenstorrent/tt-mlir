@@ -114,14 +114,13 @@ class CallbackRuntimeConfig:
 def golden(callback_runtime_config, binary, program_context, op_context):
     import torch
     import ttrt.runtime
-    import ttrt.binary
 
     logging = callback_runtime_config.logging
     logging.debug("executing golden comparison")
 
     loc = ttrt.runtime.get_op_loc_info(op_context)
 
-    op_golden_tensor = binary.get_debug_info_golden(loc)
+    op_golden_tensor = ttrt.runtime.get_debug_info_golden(binary, loc)
 
     if op_golden_tensor is None:
         logging.debug("Golden tensor is None - skipping golden comparison")
@@ -213,7 +212,6 @@ def create_memory_dictionary(memory_view):
 
 def memory(callback_runtime_config, binary, program_context, op_context):
     import ttrt.runtime
-    import ttrt.binary
 
     device = callback_runtime_config.device
     logging = callback_runtime_config.logging
@@ -270,7 +268,6 @@ def memory(callback_runtime_config, binary, program_context, op_context):
 def debugger(callback_runtime_config, binary, program_context, op_context):
     import pdb
     import ttrt.runtime
-    import ttrt.binary
 
     device = callback_runtime_config.device
     logging = callback_runtime_config.logging
