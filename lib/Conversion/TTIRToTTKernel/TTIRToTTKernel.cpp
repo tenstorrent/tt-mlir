@@ -366,7 +366,7 @@ public:
             mlir::dyn_cast<memref::CollapseShapeOp>(memref.getDefiningOp())) {
       return findUncollapsedMemref(collapseOp.getSrc());
     }
-    assert(false && "Expected BlockArgument or CollapseShapeOp");
+    llvm_unreachable("Expected BlockArgument or CollapseShapeOp");
   }
 
   LogicalResult
@@ -378,13 +378,13 @@ public:
       Value dst = operands[1];
       auto uncollapsedMemrefType = mlir::cast<MemRefType>(
           findUncollapsedMemref(tilizeOp.getOutput()).getType());
-      auto block_r =
+      auto blockR =
           i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[0]);
-      auto block_c =
+      auto blockC =
           i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[1]);
-      rewriter.create<ttkernel::TilizeInitOp>(op->getLoc(), src, block_c, dst);
-      rewriter.create<ttkernel::ExperimentalTilizeBlockOp>(
-          op->getLoc(), src, dst, block_r, block_c);
+      rewriter.create<ttkernel::TilizeInitOp>(op->getLoc(), src, blockC, dst);
+      rewriter.create<ttkernel::ExperimentalTilizeBlockOp>(op->getLoc(), src,
+                                                           dst, blockR, blockC);
     } else if (auto untilizeOp =
                    mlir::dyn_cast<ttir::TileUntilizeBlockOp>(op)) {
       assert(operands.size() == 2);
@@ -392,13 +392,13 @@ public:
       Value dst = operands[1];
       auto uncollapsedMemrefType = mlir::cast<MemRefType>(
           findUncollapsedMemref(untilizeOp.getInput()).getType());
-      auto block_r =
+      auto blockR =
           i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[0]);
-      auto block_c =
+      auto blockC =
           i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[1]);
       rewriter.create<ttkernel::UntilizeInitOp>(op->getLoc(), src, dst);
       rewriter.create<ttkernel::ExperimentalUntilizeBlockOp>(
-          op->getLoc(), src, dst, block_r, block_c);
+          op->getLoc(), src, dst, blockR, blockC);
     } else {
       return failure();
     }

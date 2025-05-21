@@ -29,7 +29,7 @@ ALWI void llk_unpack_untilize(std::uint32_t operand,
   llk_unpack_untilize_pass<false>(operand, block_c_tiles, start_tile_index);
   WAYPOINT("UPUD");
 }
-#endif
+#endif // TRISC_UNPACK
 
 ALWI void untilize_block(uint32_t icb, uint32_t ocb, uint32_t block_r,
                          uint32_t block_c) {

@@ -10,15 +10,16 @@ namespace experimental {
 ALWI void llk_unpack_tilize(std::uint32_t operand, std::uint32_t tile_index,
                             std::uint32_t block_ct_dim,
                             std::uint32_t start_tile_index) {
-  std::uint32_t operand_id = get_operand_id(operand);
+  const std::uint32_t operand_id = get_operand_id(operand);
   const std::uint32_t page_bytes =
       get_local_cb_interface(operand_id).fifo_page_size;
   const std::uint32_t face_r_dim = get_operand_face_r_dim(operand_id);
   const std::uint32_t num_faces = get_operand_num_faces(operand_id);
   const bool narrow_tile = get_operand_narrow_tile(operand_id);
 
-  std::uint32_t base_address = get_local_cb_interface(operand_id).fifo_rd_ptr -
-                               1; // Remove header size added by descriptor
+  const std::uint32_t base_address =
+      get_local_cb_interface(operand_id).fifo_rd_ptr -
+      1; // Remove header size added by descriptor
 
   WAYPOINT("UPTW");
   _llk_unpack_tilize_(base_address + (start_tile_index * page_bytes),
@@ -34,7 +35,7 @@ ALWI void llk_unpack_tilize_block(std::uint32_t operand,
     llk_unpack_tilize(operand, tile_index, block_c_tiles, start_tile_idx);
   }
 }
-#endif
+#endif // TRISC_UNPACK
 
 ALWI void tilize_block(uint32_t icb, uint32_t ocb, uint32_t block_r,
                        uint32_t block_c) {
