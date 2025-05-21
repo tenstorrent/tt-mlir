@@ -152,7 +152,14 @@ struct TTIRGenericTensorLayoutRewriter
            "Only one result tensor is supported for now");
     auto newTensorType = calculateOptimalLayoutForTensorType(
         rewriter, op->getResult(0), workerGridShape);
-    if (op->getResult(0).getType() == newTensorType) {
+    MetalLayoutAttr metalLayout =
+        mlir::cast<MetalLayoutAttr>(newTensorType.getEncoding());
+    SmallVector<int64_t> outputShardShape =
+        metalLayout.getShardShape(/*convertTileToScalar=*/false);
+    SmallVector<int64_t> blockFactors = calculateOptimalBlockFactors(
+        op.getIndexingMapsValue(), outputShardShape, dstRegisterSizeTiles);
+    bool blockFactorsChanged = blockFactors != op.getBlockFactorsValue();
+    if (op->getResult(0).getType() == newTensorType && !blockFactorsChanged) {
       return failure();
     }
 
@@ -163,29 +170,33 @@ struct TTIRGenericTensorLayoutRewriter
     for (OpOperand &operand : op->getOpOperands()) {
       auto newOperandType = calculateOptimalLayoutForTensorType(
           rewriter, operand.get(), workerGridShape);
-      if (operand.get().getType() != newOperandType) {
-        auto emptyOp =
-            rewriter.create<ttir::EmptyOp>(op->getLoc(), newOperandType);
-        auto toLayoutOp = rewriter.create<ttir::ToLayoutOp>(
-            op->getLoc(), operand.get(), emptyOp.getResult());
-        rewriter.modifyOpInPlace(
-            op, [&]() { operand.set(toLayoutOp.getResult(0)); });
+      if (operand.get().getType() != newOperandType || blockFactorsChanged) {
+        Value view =
+            blockedView(rewriter, op->getLoc(), operand.get(), newOperandType,
+                        op.getIndexingMapsValue()[operand.getOperandNumber()],
+                        blockFactors);
+        rewriter.modifyOpInPlace(op, [&]() { operand.set(view); });
 
         if (dpsOp.isDpsInit(&operand)) {
           assert(newOperandType == newTensorType &&
                  "DPS init tensor must have the same type as the result");
           rewriter.modifyOpInPlace(
               op, [&]() { op->getResult(0).setType(newTensorType); });
-        }
+          }
+      }
+
+      for (auto &region : op->getRegions()) {
+        assert(region.getBlocks().size() == 1 &&
+               "Only one block per region is supported.");
+        Block &genericBlock = region.front();
+        auto arg = genericBlock.getArgument(operand.getOperandNumber());
+        auto memref = mlir::cast<MemRefType>(arg.getType());
+        auto blockedMemRefType = getBlockedMemRefType(
+            memref, op.getIndexingMapsValue()[operand.getOperandNumber()],
+            op.getBlockFactorsValue());
+        rewriter.modifyOpInPlace(op, [&]() { arg.setType(blockedMemRefType); });
       }
     }
-
-    MetalLayoutAttr metalLayout =
-        mlir::cast<MetalLayoutAttr>(newTensorType.getEncoding());
-    SmallVector<int64_t> outputShardShape =
-        metalLayout.getShardShape(/*convertTileToScalar=*/false);
-    SmallVector<int64_t> blockFactors = calculateOptimalBlockFactors(
-        op.getIndexingMapsValue(), outputShardShape, dstRegisterSizeTiles);
 
     rewriter.modifyOpInPlace(op, [&]() {
       // Update generic grid (match worker cores to output grid)
@@ -204,14 +215,28 @@ struct TTIRGenericTensorLayoutRewriter
     return success();
   }
 
-  SmallVector<int64_t> workerGridShape;
-  unsigned dstRegisterSizeTiles;
-};
-} // namespace
-
-namespace {
-struct TTIRMemrefLayoutRewriter : public OpRewritePattern<ttir::GenericOp> {
-  using OpRewritePattern<ttir::GenericOp>::OpRewritePattern;
+  static Value blockedView(PatternRewriter &rewriter, Location loc,
+                           Value tensor, RankedTensorType newOperandType,
+                           AffineMap indexingMap,
+                           ArrayRef<int64_t> blockFactors) {
+    auto emptyOp = rewriter.create<ttir::EmptyOp>(loc, newOperandType);
+    auto toLayoutOp =
+        rewriter.create<ttir::ToLayoutOp>(loc, tensor, emptyOp.getResult());
+    MetalLayoutAttr metalLayout =
+        mlir::cast<MetalLayoutAttr>(newOperandType.getEncoding());
+    SmallVector<int64_t> blockShape = indexingMap.compose(blockFactors);
+    for (auto [i, dim] : llvm::enumerate(metalLayout.getGrid().getShape())) {
+      blockShape[i] *= dim;
+    }
+    MetalLayoutAttr viewLayout = metalLayout.withGrid(blockShape);
+    auto viewOp = rewriter.create<ttir::ViewLayoutOp>(
+        loc,
+        RankedTensorType::get(newOperandType.getShape(),
+                              newOperandType.getElementType(), viewLayout),
+        toLayoutOp.getResult(0));
+    viewOp.dump();
+    return viewOp.getResult();
+  }
 
   static MemRefType getBlockedMemRefType(MemRefType fullShard,
                                          AffineMap indexingMap,
@@ -228,35 +253,8 @@ struct TTIRMemrefLayoutRewriter : public OpRewritePattern<ttir::GenericOp> {
                            fullShard.getLayout(), fullShard.getMemorySpace());
   }
 
-  LogicalResult matchAndRewrite(ttir::GenericOp op,
-                                PatternRewriter &rewriter) const final {
-    bool modified = false;
-    for (auto &region : op->getRegions()) {
-      assert(region.getBlocks().size() == 1 &&
-             "Only one block per region is supported.");
-      Block &genericBlock = region.front();
-      assert(genericBlock.getNumArguments() == op->getNumOperands() &&
-             "Number of block arguments should match the number of generic op "
-             "operands");
-      for (size_t i = 0; i < genericBlock.getNumArguments(); i++) {
-        auto arg = genericBlock.getArgument(i);
-        auto operand =
-            mlir::cast<RankedTensorType>(op->getOperand(i).getType());
-        auto operandEncoding =
-            mlir::cast<MetalLayoutAttr>(operand.getEncoding());
-        auto blockedMemRefType = getBlockedMemRefType(
-            operandEncoding.getMemref(), op.getIndexingMapsValue()[i],
-            op.getBlockFactorsValue());
-        if (arg.getType() == blockedMemRefType) {
-          continue;
-        }
-        modified = true;
-        rewriter.modifyOpInPlace(op, [&]() { arg.setType(blockedMemRefType); });
-      }
-    }
-
-    return modified ? success() : failure();
-  }
+  SmallVector<int64_t> workerGridShape;
+  unsigned dstRegisterSizeTiles;
 };
 } // namespace
 
@@ -286,23 +284,12 @@ class TTIROptimizeTensorLayout
           std::min(dstRegisterSizeTiles, maxDstRegisterSizeTiles.getValue());
     }
 
-    {
-      RewritePatternSet patterns(&getContext());
-      patterns.add<TTIRGenericTensorLayoutRewriter>(
-          &getContext(), workerGridShape, dstRegisterSizeTiles);
-      if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
-        signalPassFailure();
-        return;
-      }
-    }
-
-    {
-      RewritePatternSet patterns(&getContext());
-      patterns.add<TTIRMemrefLayoutRewriter>(&getContext());
-      if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
-        signalPassFailure();
-        return;
-      }
+    RewritePatternSet patterns(&getContext());
+    patterns.add<TTIRGenericTensorLayoutRewriter>(
+        &getContext(), workerGridShape, dstRegisterSizeTiles);
+    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
+      signalPassFailure();
+      return;
     }
   }
 
