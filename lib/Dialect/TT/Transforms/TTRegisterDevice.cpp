@@ -20,6 +20,10 @@ static void registerDeviceInSymbolTable(ModuleOp module,
                                         ArrayRef<int64_t> meshShape) {
   MLIRContext *context = module.getContext();
 
+  if (meshShape.empty()) {
+    meshShape = {1, 1};
+  }
+
   SymbolTable symbolTable(module);
   if (!symbolTable.lookup(tt::getDefaultDeviceName())) {
     auto systemDesc =
