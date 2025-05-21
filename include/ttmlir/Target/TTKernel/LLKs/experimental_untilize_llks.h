@@ -6,24 +6,23 @@
 #define TTMLIR_LLKS_EXPERIMENTAL_UNTILIZE_LLKS_H
 
 namespace experimental {
+using std::uint32_t;
+
 #ifdef TRISC_UNPACK
 template <bool first_pass = true>
-ALWI void llk_unpack_untilize_pass(std::uint32_t operand,
-                                   std::uint32_t block_tile_cols,
-                                   std::uint32_t start_tile_index = 0) {
-  const std::uint32_t operand_id = get_operand_id(operand);
-  const std::uint32_t base_address =
+ALWI void llk_unpack_untilize_pass(uint32_t operand, uint32_t block_tile_cols,
+                                   uint32_t start_tile_index = 0) {
+  const uint32_t operand_id = get_operand_id(operand);
+  const uint32_t base_address =
       get_local_cb_interface(operand_id).fifo_rd_ptr - 1;
-  const std::uint32_t page_bytes =
-      get_local_cb_interface(operand_id).fifo_page_size;
+  const uint32_t page_bytes = get_local_cb_interface(operand_id).fifo_page_size;
 
   _llk_unpack_untilize_pass_<first_pass>(
       base_address + (start_tile_index * page_bytes), block_tile_cols);
 }
 
-ALWI void llk_unpack_untilize(std::uint32_t operand,
-                              std::uint32_t block_c_tiles,
-                              std::uint32_t start_tile_index = 0) {
+ALWI void llk_unpack_untilize(uint32_t operand, uint32_t block_c_tiles,
+                              uint32_t start_tile_index = 0) {
   WAYPOINT("UPUW");
   llk_unpack_untilize_pass<true>(operand, block_c_tiles, start_tile_index);
   llk_unpack_untilize_pass<false>(operand, block_c_tiles, start_tile_index);

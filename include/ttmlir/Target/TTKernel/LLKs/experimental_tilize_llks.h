@@ -6,20 +6,19 @@
 #define TTMLIR_LLKS_EXPERIMENTAL_TILIZE_LLKS_H
 
 namespace experimental {
+using std::uint32_t;
+
 #ifdef TRISC_UNPACK
-ALWI void llk_unpack_tilize(std::uint32_t operand, std::uint32_t tile_index,
-                            std::uint32_t block_ct_dim,
-                            std::uint32_t start_tile_index) {
-  const std::uint32_t operand_id = get_operand_id(operand);
-  const std::uint32_t page_bytes =
-      get_local_cb_interface(operand_id).fifo_page_size;
-  const std::uint32_t face_r_dim = get_operand_face_r_dim(operand_id);
-  const std::uint32_t num_faces = get_operand_num_faces(operand_id);
+ALWI void llk_unpack_tilize(uint32_t operand, uint32_t tile_index,
+                            uint32_t block_ct_dim, uint32_t start_tile_index) {
+  const uint32_t operand_id = get_operand_id(operand);
+  const uint32_t page_bytes = get_local_cb_interface(operand_id).fifo_page_size;
+  const uint32_t face_r_dim = get_operand_face_r_dim(operand_id);
+  const uint32_t num_faces = get_operand_num_faces(operand_id);
   const bool narrow_tile = get_operand_narrow_tile(operand_id);
 
-  const std::uint32_t base_address =
-      get_local_cb_interface(operand_id).fifo_rd_ptr -
-      1; // Remove header size added by descriptor
+  const uint32_t base_address = get_local_cb_interface(operand_id).fifo_rd_ptr -
+                                1; // Remove header size added by descriptor
 
   WAYPOINT("UPTW");
   _llk_unpack_tilize_(base_address + (start_tile_index * page_bytes),
@@ -28,10 +27,9 @@ ALWI void llk_unpack_tilize(std::uint32_t operand, std::uint32_t tile_index,
   WAYPOINT("UPTD");
 }
 
-ALWI void llk_unpack_tilize_block(std::uint32_t operand,
-                                  std::uint32_t block_c_tiles,
-                                  std::uint32_t start_tile_idx) {
-  for (std::uint32_t tile_index = 0; tile_index < block_c_tiles; tile_index++) {
+ALWI void llk_unpack_tilize_block(uint32_t operand, uint32_t block_c_tiles,
+                                  uint32_t start_tile_idx) {
+  for (uint32_t tile_index = 0; tile_index < block_c_tiles; tile_index++) {
     llk_unpack_tilize(operand, tile_index, block_c_tiles, start_tile_idx);
   }
 }
