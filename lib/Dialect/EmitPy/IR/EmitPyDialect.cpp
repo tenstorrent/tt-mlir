@@ -19,6 +19,8 @@ using namespace mlir::tt::emitpy;
 // EmitPy dialect.
 //===----------------------------------------------------------------------===//
 
+#include "ttmlir/Dialect/EmitPy/IR/EmitPyOpsDialect.cpp.inc"
+
 void EmitPyDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
