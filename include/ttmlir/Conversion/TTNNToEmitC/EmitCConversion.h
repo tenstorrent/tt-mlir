@@ -785,6 +785,14 @@ public:
     return rewriter.getAttr<emitc::OpaqueAttr>(convert(attr));
   }
 
+  mlir::Attribute emit(ttnn::TensorMemoryLayout attr) {
+    return rewriter.getAttr<emitc::OpaqueAttr>(convert(attr));
+  }
+
+  mlir::Attribute emit(ttnn::TensorMemoryLayoutAttr attr) {
+    return rewriter.getAttr<emitc::OpaqueAttr>(convert(attr));
+  }
+
   mlir::Attribute emit(tt::ttnn::MemoryConfigAttr attr) {
     return rewriter.getType<emitc::OpaqueAttr>(convert(attr));
   }
