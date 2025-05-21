@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+import time
 
 from ttrt.common.util import *
 from ttrt.common.query import Query
@@ -561,6 +562,7 @@ class Run:
                         self.logging.debug(f"opened emitc dylib={emitc_dylib_path}")
 
                     program_indices = []
+                    total_e2e_duration_milliseconds = 0
                     if self["--program-index"] == "all":
                         program_indices.extend(range(bin.get_num_programs()))
                     else:
@@ -725,12 +727,18 @@ class Run:
                                             f"Cannot dirty input tensor {input_idx}, only {len(inputs)} inputs available"
                                         )
 
+                            start = time.perf_counter()
                             runtime_outputs = ttrt.runtime.submit(
                                 device,
                                 bin.fbb,
                                 program_index,
                                 inputs,
                             )
+                            end = time.perf_counter()
+                            total_e2e_duration_milliseconds = (
+                                total_e2e_duration_milliseconds + ((end - start) * 1000)
+                            )
+
                             if self["--check-cache-stats"]:
                                 # Log cache stats after execution
                                 cache_stats = bin.fbb.get_tensor_cache().get_stats()
@@ -944,6 +952,7 @@ class Run:
                             if self["--check-memory-leak"]:
                                 post_op_callback_runtime_config.check_memory_leak()
 
+                    bin.e2e_duration_milliseconds = total_e2e_duration_milliseconds
                 except Exception as e:
                     result = "error"
                     if isinstance(e, TTRTTestException):
@@ -999,6 +1008,7 @@ class Run:
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
                     "program_index": self["--program-index"],
+                    "e2e_duration_milliseconds": bin.e2e_duration_milliseconds,
                 }
                 self.results.add_result(test_result)
                 self.logging.info(f"PASS: test case={bin.file_path}")
@@ -1014,6 +1024,7 @@ class Run:
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
                     "program_index": self["--program-index"],
+                    "e2e_duration_milliseconds": bin.e2e_duration_milliseconds,
                 }
                 self.results.add_result(test_result)
                 self.logging.info(f"PASS: test case={bin.file_path}")
