@@ -6,6 +6,7 @@ include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 
 include "EmitPyBase.td"
+include "EmitPyTypes.td"
 
 def EmitPy_CallOpaqueOp : EmitPy_Op<"call_opaque"> {
   let summary = "Opaque call operation";

@@ -16,9 +16,11 @@ def EmitPy_Dialect : Dialect {
       [include "Dialects/emitpy.md"]
     }];
 
-    let hasConstantMaterializer = 1;
     let useDefaultTypePrinterParser = 1;
-    let useDefaultAttributePrinterParser = 1;
+
+    let extraClassDeclaration = [{
+        void registerTypes();
+  }];
 }
 
 //===----------------------------------------------------------------------===//

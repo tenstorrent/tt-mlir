@@ -5,7 +5,6 @@
 #ifndef TTMLIR_DIALECT_EmitPy_IR_EmitPy_H
 #define TTMLIR_DIALECT_EmitPy_IR_EmitPy_H
 
-#include "mlir/Bytecode/BytecodeOpInterface.h"
 #include "mlir/IR/Dialect.h"
 
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOpsDialect.h.inc"

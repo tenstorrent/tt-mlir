@@ -1,0 +1,19 @@
+add_mlir_conversion_library(TTMLIRTTNNToEmitPy
+  TTNNToEmitPy.cpp
+  TTNNToEmitPyPass.cpp
+
+  ADDITIONAL_HEADER_DIRS
+  ${PROJECT_SOURCE_DIR}/include/ttmlir/Conversion/TTNNToEmitPy
+
+  DEPENDS
+  TTMLIRConversionPassIncGen
+  MLIREMITPYDialect
+
+  LINK_LIBS PUBLIC
+  MLIRTTTransforms
+  MLIRIR
+  MLIRPass
+  MLIRFuncTransforms
+  MLIRTargetCpp
+  MLIREMITPYDialect
+)
