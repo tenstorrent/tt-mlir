@@ -799,8 +799,6 @@ class Run:
                         if self["--emitc"]:
                             # Create symbol string to read from dylib
                             fwd_func_name = program.program["name"]
-                            fwd_func_name_len = len(fwd_func_name)
-                            fwd_func_sym = f"_Z{fwd_func_name_len}{fwd_func_name}St6vectorIN2tt8tt_metal6TensorESaIS2_EE"
 
                             # pre-upload inputs
                             inputs = convert_input_layouts(
@@ -810,7 +808,7 @@ class Run:
                             for loop in range(self["--loops"]):
                                 emitc_outs = ttrt.runtime.testing.run_so_program(
                                     emitc_dylib_handle,
-                                    fwd_func_sym,
+                                    fwd_func_name,
                                     inputs,
                                     device,
                                 )

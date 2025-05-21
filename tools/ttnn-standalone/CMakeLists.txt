@@ -4,27 +4,35 @@ project(ttnn-standalone CXX)
 set(CMAKE_CXX_STANDARD 20 CACHE STRING "C++ standard to conform to")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# set(CMAKE_VERBOSE_MAKEFILE on)
+add_library(TTNNCompileSo SHARED compile_so.cpp)
+set_target_properties(TTNNCompileSo PROPERTIES
+    PUBLIC_HEADER compile_so.hpp
+)
 
-# Installation
 install(
-  FILES
-    ci_compile_dylib.py
-    CMakeLists.txt
-    compile_so.cpp
-    compile_so.hpp
-    README.md
-    ttnn-precompiled.hpp
-    ttnn-standalone.cpp
-    workarounds.hpp
-  DESTINATION "tools/ttnn-standalone"
+  TARGETS TTNNCompileSo
   COMPONENT TTNNStandalone
+  PUBLIC_HEADER DESTINATION include/ttmlir/tools/ttnn-standalone
 )
 
 install(
   PROGRAMS
     run
-  DESTINATION "tools/ttnn-standalone"
+    ci_compile_dylib.py
+  DESTINATION tools/ttnn-standalone
+  COMPONENT TTNNStandalone
+)
+
+install(
+  FILES
+    CMakeLists.txt
+    README.md
+    ttnn-precompiled.hpp
+    ttnn-standalone.cpp
+    workarounds.hpp
+    compile_so.hpp
+    compile_so.cpp
+  DESTINATION tools/ttnn-standalone
   COMPONENT TTNNStandalone
 )
 
