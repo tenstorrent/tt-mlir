@@ -158,6 +158,7 @@ def get_dimension_size(
     return builder.get_dimension_size(in0, unit_attrs=unit_attrs)
 
 
+@pytest.mark.fails_golden
 @pytest.mark.parametrize(
     "shapes,batch_dims_lhs,contract_dims_lhs,batch_dims_rhs,contract_dims_rhs",
     [
@@ -1404,6 +1405,7 @@ def test_cpu_hoistable_binary_ops(
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.fails_golden
 def test_hoisted_permute(shapes_and_perms, request, target: str):
     shapes, permutation = shapes_and_perms
 

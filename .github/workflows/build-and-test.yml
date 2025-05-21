@@ -150,8 +150,9 @@ jobs:
       matrix:
         build: [
           # When sh-run is true, the runner will use TT-shared GH infra and pull from harbor for image cache pull through
-          {runs-on: n150,   sh-run: false, name: "run",  suite: "unit",              image: "speedy", type: "unit"},
-          {runs-on: nXX0,   sh-run: false, name: "run",  suite: "unit",              image: "tracy",  type: "unit"},
+          {runs-on: n150,   sh-run: true,  name: "run",  suite: "unit",              image: "speedy", type: "unit"},
+          {runs-on: n300,   sh-run: true,  name: "run",  suite: "unit",              image: "tracy",  type: "unit"},
+          {runs-on: n150,   sh-run: false, name: "run",  suite: "run",               image: "speedy", type: "ttnn_standalone",    path: "tools/ttnn-standalone"},
           {runs-on: n150,   sh-run: true,  name: "run",  suite: "run",               image: "speedy", type: "ttrt",    path: "Silicon", flags: "--non-zero"},
           {runs-on: n150,   sh-run: false, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n150/perf"},
           {runs-on: n150,   sh-run: false, name: "perf", suite: "optimizer",         image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n150/optimizer"},
@@ -166,18 +167,18 @@ jobs:
           # {runs-on: tg,     sh-run: false, name: "run",  suite: "run",               image: "speedy", type: "ttrt",     path: "Silicon", ttrt_flags: "--non-zero --disable-eth-dispatch"},
           # {runs-on: tg,     sh-run: false, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/tg/perf", ttrt_flags: "--disable-eth-dispatch"},
           {runs-on: n150,   sh-run: false, name: "perf", suite: "perf",              image: "tracy",  type: "pytest",   path: "runtime/tools/ttrt/test"},
-          {runs-on: n150,   sh-run: false, name: "run",  suite: "op_golden",         image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_ops.py", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true},
+          {runs-on: n150,   sh-run: true, name: "run",  suite: "op_golden",         image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_ops.py", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true},
           {runs-on: n150,   sh-run: false, name: "run",  suite: "model_golden",      image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_models.py", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true},
           {runs-on: n150,   sh-run: false, name: "run",  suite: "op_compile",        image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_ops.py", flags: "-m \"run_error or fails_golden\"", run-ttrt: false},
           {runs-on: n150,   sh-run: false, name: "run",  suite: "model_compile",     image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_models.py", flags: "-m \"run_error or fails_golden\"", run-ttrt: false},
-          {runs-on: n300,   sh-run: false, name: "run",  suite: "op_golden",         image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_ops_n300.py", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true},
-          {runs-on: n300-llmbox, sh-run: true,  name: "run",  suite: "op_golden",         image: "tracy",  type: "builder",  path: "test/python/golden/test_ttir_ops_llmbox.py", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true},
+          {runs-on: n300,   sh-run: true, name: "run",  suite: "golden",            image: "tracy",  type: "builder",  path: "test/python/golden", flags: "-m \"not run_error and not fails_golden and n300\"", run-ttrt: true},
+          {runs-on: n300-llmbox, sh-run: true,  name: "run",  suite: "golden",       image: "tracy",  type: "builder",  path: "test/python/golden", flags: "-m \"not run_error and not fails_golden and llmbox\"", run-ttrt: true},
           # Although these runtime tests are device agnostic, they depend on n150 compiled mlir artifacts
           # Therefore running these tests on n150 specifically
-          {runs-on: n150,   sh-run: false, name: "run",  suite: "ttnn_runtime",      image: "speedy", type: "pytest",  path: "runtime/test/python/ttnn/device_agnostic"},
+          {runs-on: n150,   sh-run: true,  name: "run",  suite: "ttnn_runtime",      image: "speedy", type: "pytest",  path: "runtime/test/python/ttnn/device_agnostic"},
           {runs-on: n150,   sh-run: false, name: "perf", suite: "explorer",          image: "tracy",  type: "pytest",  path: "tools/explorer/test/run_tests.py"},
           {runs-on: n150,   sh-run: false, name: "run",  suite: "op_by_op_infra",    image: "tracy",  type: "pytest",  path: "test/python/op_by_op_infra"},
-          {runs-on: n300,   sh-run: false, name: "run",  suite: "ttnn_runtime",      image: "speedy", type: "pytest",  path: "runtime/test/python/ttnn/multi_device"},
+          {runs-on: n300,   sh-run: true,  name: "run",  suite: "ttnn_runtime",      image: "speedy", type: "pytest",  path: "runtime/test/python/ttnn/multi_device"},
         ]
     name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ matrix.build.suite }},${{ matrix.build.type }},${{ strategy.job-index }})"
 
@@ -295,6 +296,15 @@ jobs:
           cp build/test/report.xml ${{ steps.strings.outputs.test_report_path }}
           echo "Unit test report copied"
         fi
+
+    - name: Run TTNN-Standalone test
+      shell: bash
+      if: ${{ matrix.build.type == 'ttnn_standalone' && matrix.build.suite == 'run' }}
+      run: |
+        export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
+        export TT_METAL_LIB="${{ steps.strings.outputs.install-output-dir }}/lib"
+        cd ${{ steps.strings.outputs.install-output-dir }}/${{ matrix.build.path }}
+        ./run
 
     - name: Builder Tests
       if: matrix.build.type == 'builder'

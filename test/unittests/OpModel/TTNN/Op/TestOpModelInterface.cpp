@@ -937,9 +937,12 @@ TEST_F(OpModelBase, maxPool2DOp) {
   int32_t strideWidth = 2;
   int32_t dilationHeight = 1;
   int32_t dilationWidth = 1;
-  bool ceilMode = false;
   int32_t paddingHeight = 0;
   int32_t paddingWidth = 0;
+  MemoryConfigAttr memoryConfigAttr = nullptr;
+  TensorMemoryLayoutAttr appliedShardScheme = nullptr;
+  bool ceilMode = false;
+  bool inPlaceHalo = false;
 
   llvm::SmallVector<int32_t, 2> kernelSize = {kernelHeight, kernelWidth};
   llvm::SmallVector<int32_t, 2> stride = {strideHeight, strideWidth};
@@ -948,7 +951,8 @@ TEST_F(OpModelBase, maxPool2DOp) {
 
   auto maxPool2DOp = builder.create<MaxPool2dOp>(
       builder.getUnknownLoc(), output.getType(), input, batchSize, inputHeight,
-      inputWidth, numChannels, kernelSize, stride, padding, dilation, ceilMode);
+      inputWidth, numChannels, kernelSize, stride, padding, dilation,
+      memoryConfigAttr, appliedShardScheme, ceilMode, inPlaceHalo);
   maxPool2DOp->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   constexpr int32_t numRuns = 10;

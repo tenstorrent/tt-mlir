@@ -18,7 +18,7 @@ func.func @prepare_conv2d_weights(%arg0: tensor<64x64x3x3xbf16, #ttnn_layout>) -
               has_bias = true,
               in_channels = 64 : i32,
               input_height = 32 : i32,
-              input_memory_config = #ttnn.memory_config<#dram, <<32x2>>, <interleaved>>,
+              input_memory_config = #ttnn.memory_config<#dram, <interleaved>>,
               input_tensor_layout = #ttnn.layout<tile>,
               input_width = 32 : i32,
               kernel_size = array<i32: 3, 3>,

@@ -34,6 +34,12 @@ PYBIND11_MODULE(_C, m) {
                     &tt::runtime::MemoryView::largestContiguousBytesFreePerBank)
       .def_readonly("block_table", &tt::runtime::MemoryView::blockTable);
   py::class_<tt::runtime::Device>(m, "Device")
+      .def("get_mesh_shape", &tt::runtime::getMeshShape)
+      .def("get_device_ids", &tt::runtime::getDeviceIds)
+      .def("get_num_hw_cqs", &tt::runtime::getNumHwCqs)
+      .def("is_program_cache_enabled", &tt::runtime::isProgramCacheEnabled)
+      .def("get_l1_small_size", &tt::runtime::getL1SmallSize)
+      .def("get_trace_region_size", &tt::runtime::getTraceRegionSize)
       .def("deallocate_buffers", &tt::runtime::detail::deallocateBuffers)
       .def("dump_memory_report", &tt::runtime::detail::dumpMemoryReport)
       .def("get_memory_view", &tt::runtime::detail::getMemoryView,
@@ -61,6 +67,18 @@ PYBIND11_MODULE(_C, m) {
             o.l1SmallSize = py::none().is(value)
                                 ? std::nullopt
                                 : std::make_optional(value.cast<size_t>());
+          })
+      .def_property(
+          "trace_region_size",
+          [](const tt::runtime::MeshDeviceOptions &o) {
+            return o.traceRegionSize.has_value()
+                       ? py::cast(o.traceRegionSize.value())
+                       : py::none();
+          },
+          [](tt::runtime::MeshDeviceOptions &o, py::handle value) {
+            o.traceRegionSize = py::none().is(value)
+                                    ? std::nullopt
+                                    : std::make_optional(value.cast<size_t>());
           })
       .def_property(
           "dispatch_core_type",
@@ -150,6 +168,11 @@ PYBIND11_MODULE(_C, m) {
   py::enum_<::tt::runtime::DispatchCoreType>(m, "DispatchCoreType")
       .value("WORKER", ::tt::runtime::DispatchCoreType::WORKER)
       .value("ETH", ::tt::runtime::DispatchCoreType::ETH);
+  py::enum_<::tt::runtime::Arch>(m, "Arch")
+      .value("GRAYSKULL", ::tt::runtime::Arch::GRAYSKULL)
+      .value("WORMHOLE_B0", ::tt::runtime::Arch::WORMHOLE_B0)
+      .value("BLACKHOLE", ::tt::runtime::Arch::BLACKHOLE)
+      .value("QUASAR", ::tt::runtime::Arch::QUASAR);
   m.def("get_current_runtime", &tt::runtime::getCurrentRuntime,
         "Get the backend device runtime type");
   m.def("get_available_runtimes", &tt::runtime::getAvailableRuntimes,
@@ -210,6 +233,8 @@ PYBIND11_MODULE(_C, m) {
             data, shape, stride, itemsize, dataType, strategy);
       },
       "Create a multi-device host tensor with owned memory");
+  m.def("get_arch", &tt::runtime::getArch,
+        "Get the architecture of the device");
   m.def("get_num_available_devices", &tt::runtime::getNumAvailableDevices,
         "Get the number of available devices");
   m.def("open_mesh_device", &tt::runtime::openMeshDevice, py::arg("mesh_shape"),
@@ -270,6 +295,8 @@ PYBIND11_MODULE(_C, m) {
         "Get the debug string of the op");
   m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,
         "Get the location info of the op");
+  m.def("get_debug_info_golden", &::tt::runtime::Binary::getDebugInfoGolden,
+        py::return_value_policy::reference, "Get the debug info golden tensor");
   m.def(
       "memcpy",
       [](std::uintptr_t dst, ::tt::runtime::Tensor src) {
@@ -348,9 +375,6 @@ PYBIND11_MODULE(_C, m) {
   testing.def("get_host_row_major_layout",
               &tt::runtime::test::ttnn::getHostRowMajorLayout, py::arg("dtype"),
               "Get host row major layout");
-  testing.def("is_program_cache_enabled",
-              &tt::runtime::test::ttnn::isProgramCacheEnabled,
-              py::arg("device"), "Check if program cache is enabled");
   testing.def("open_so", &tt::runtime::test::ttnn::openSo, py::arg("path"),
               "Open a shared object");
   testing.def("close_so", &tt::runtime::test::ttnn::closeSo, py::arg("handle"),

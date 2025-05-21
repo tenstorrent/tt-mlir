@@ -1499,7 +1499,6 @@ def TTIR_ConvolutionOp : TTIR_NamedOp<"convolution"> {
     AnyRankedTensor:$weight,
     Optional<AnyRankedTensor>:$bias,
     AnyRankedTensor:$output,
-
     DenseI64ArrayAttr:$window_strides,
     DenseI64ArrayAttr:$padding,
     DenseI64ArrayAttr:$input_dilation,

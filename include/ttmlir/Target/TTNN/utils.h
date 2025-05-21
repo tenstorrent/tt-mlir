@@ -10,9 +10,9 @@
 #include "ttmlir/Target/Common/types_generated.h"
 #include "llvm/Support/ErrorHandling.h"
 
-namespace tt::mlir::ttnn::utils {
+namespace mlir::tt::ttnn::utils {
 
-::tt::target::ttnn::TensorMemoryLayout toTargetTensorMemoryLayout(
+inline ::tt::target::ttnn::TensorMemoryLayout toTargetTensorMemoryLayout(
     ::mlir::tt::ttnn::TensorMemoryLayout tensorMemoryLayout) {
 
   switch (tensorMemoryLayout) {
@@ -31,7 +31,7 @@ namespace tt::mlir::ttnn::utils {
   llvm_unreachable("Unsupported TensorMemoryLayout");
 }
 
-::tt::target::BufferType
+inline ::tt::target::BufferType
 toTargetBufferType(::mlir::tt::ttnn::BufferType bufferType) {
 
   switch (bufferType) {
@@ -50,7 +50,7 @@ toTargetBufferType(::mlir::tt::ttnn::BufferType bufferType) {
   llvm_unreachable("Unsupported BufferType");
 }
 
-::tt::target::TensorLayout
+inline ::tt::target::TensorLayout
 toTargetTensorLayout(::mlir::tt::ttnn::Layout layout) {
   switch (layout) {
   case ::mlir::tt::ttnn::Layout::RowMajor:
@@ -64,7 +64,7 @@ toTargetTensorLayout(::mlir::tt::ttnn::Layout layout) {
   llvm_unreachable("Unsupported Layout");
 }
 
-::tt::target::DataType toTargetDataType(::mlir::tt::DataType dataType) {
+inline ::tt::target::DataType toTargetDataType(::mlir::tt::DataType dataType) {
   switch (dataType) {
   case ::mlir::tt::DataType::Float32:
     return ::tt::target::DataType::Float32;
@@ -93,6 +93,6 @@ toTargetTensorLayout(::mlir::tt::ttnn::Layout layout) {
   llvm_unreachable("Unsupported DataType");
 }
 
-} // namespace tt::mlir::ttnn::utils
+} // namespace mlir::tt::ttnn::utils
 
 #endif // TTMLIR_TARGET_TTNN_UTILS_H

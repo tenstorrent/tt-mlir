@@ -81,6 +81,7 @@ def build_mlir_module(
     mesh_shape: Optional[Tuple[int, int]] = None,
     module_dump: bool = False,
     base: Optional[str] = None,
+    output_root: str = ".",
 ):
     """
     Define a MLIR module specified as a python function.
@@ -180,16 +181,25 @@ def build_mlir_module(
             @func.func(*test_fn_input_types, name=test_fn.__name__)
             def decorated_func(*inputs):
                 # Randomly generate golden tensors for function inputs.
+                input_goldens = []
                 for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
-                    builder.generate_input_golden(operand, dtype, index)
-                return test_fn(*inputs, builder=builder)
+                    input_goldens.append(
+                        builder.generate_input_golden(operand, dtype, index).tensor
+                    )
+                result = test_fn(*inputs, builder=builder)
+                output_ops = result if hasattr(result, "__iter__") else (result,)
+                output_goldens = [builder._get_golden_tensor(op) for op in output_ops]
+                builder.set_graph_input_output(input_goldens, output_goldens)
+                return result
 
         print(f"`{test_fn.__name__}` sucessfully transformed into a MLIR module.")
 
         base = test_fn.__name__ if base is None else base
 
+        filename = get_target_path(output_root, base + "_ttir.mlir", "ttir")
+
         if module_dump:
-            with open(base + "_ttir.mlir", "w") as f:
+            with open(filename, "w") as f:
                 f.write(str(module))
                 print(module)
 
@@ -359,6 +369,7 @@ def compile_to_flatbuffer(
         inputs_types,
         mesh_shape=mesh_shape,
         module_dump=module_dump,
+        output_root=output_root,
     )
 
     output_file_mlir = get_target_path(output_root, test_base + mlir_suffix, target)

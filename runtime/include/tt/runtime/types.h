@@ -42,10 +42,23 @@ enum class DeviceRuntime {
   TTMetal,
 };
 
+inline std::string toString(DeviceRuntime runtime) {
+  switch (runtime) {
+  case DeviceRuntime::TTNN:
+    return "TTNN";
+  case DeviceRuntime::TTMetal:
+    return "TTMetal";
+  case DeviceRuntime::Disabled:
+    return "Disabled";
+  }
+}
+
 enum class DispatchCoreType {
   WORKER,
   ETH,
 };
+
+enum class Arch { GRAYSKULL = 1, WORMHOLE_B0 = 2, BLACKHOLE = 3, QUASAR = 4 };
 
 namespace detail {
 struct ObjectImpl {
@@ -135,6 +148,7 @@ struct MeshDeviceOptions {
   size_t numHWCQs = 1;
   bool enableProgramCache = false;
   std::optional<size_t> l1SmallSize = std::nullopt;
+  std::optional<size_t> traceRegionSize = std::nullopt;
   std::optional<DispatchCoreType> dispatchCoreType = std::nullopt;
 };
 

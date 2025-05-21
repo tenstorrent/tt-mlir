@@ -312,12 +312,14 @@ def parse_memory_config(attr):
             value=str(ttnn.BufferType(memory_config.buffer_type.value)),
         )
     )
-    result.append(
-        graph_builder.KeyValue(
-            key="shard-shape",
-            value="x".join(map(str, memory_config.shard_spec.shard_shape.shape)),
+
+    if memory_config.shard_spec:
+        result.append(
+            graph_builder.KeyValue(
+                key="shard-shape",
+                value="x".join(map(str, memory_config.shard_spec.shard_shape.shape)),
+            )
         )
-    )
 
     result.append(
         graph_builder.KeyValue(

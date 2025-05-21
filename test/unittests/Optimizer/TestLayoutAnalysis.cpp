@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <gtest/gtest.h>
+#include <optional>
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/Transforms/Transforms.h"
@@ -16,6 +16,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 
+#include "llvm-gtest/gtest/gtest.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -99,12 +100,11 @@ protected:
     // Create a memory configuration
     auto memConfig = mlir::tt::ttnn::MemoryConfigAttr::get(
         &context,
+        mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
+            &context, mlir::tt::ttnn::TensorMemoryLayout::Interleaved),
         mlir::tt::ttnn::BufferTypeAttr::get(&context,
                                             mlir::tt::ttnn::BufferType::DRAM),
-        mlir::tt::ttnn::ShardSpecAttr::get(
-            &context, mlir::tt::ttnn::ShapeAttr::get(&context, {2, 2})),
-        mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
-            &context, mlir::tt::ttnn::TensorMemoryLayout::Interleaved));
+        std::nullopt);
 
     // Create an empty op with all required parameters
     builder.create<mlir::tt::ttnn::EmptyOp>(

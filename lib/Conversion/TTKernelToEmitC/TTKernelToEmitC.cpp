@@ -291,6 +291,13 @@ public:
       template_args.push_back(
           emitc::OpaqueAttr::get(op.getContext(), "true")); // default to DRAM
       return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::PackTileOp>) {
+      SmallVector<Attribute, 1> template_args;
+
+      auto packTileOp = mlir::cast<ttkernel::PackTileOp>(op);
+
+      template_args.push_back(packTileOp.getOutOfOrderAttr());
+      return ArrayAttr::get(op.getContext(), template_args);
     }
     return ArrayAttr();
   }

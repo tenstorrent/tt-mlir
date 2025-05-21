@@ -568,9 +568,10 @@ public:
         emitter.template emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
         emitter.template emit<std::array<uint32_t, 2>>(srcOp.getPaddingAttr()),
         emitter.template emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
-        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-        /*applied_shard_scheme=*/emitter.emit(std::nullopt),
+        emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getAppliedShardScheme()),
         emitter.emit(srcOp.getCeilMode()),
+        emitter.emit(srcOp.getInPlaceHalo()),
     };
 
     emitter.replaceOp(*this, args);
@@ -850,9 +851,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit<int64_t>(srcOp.getAllDimensions()
-                                  ? std::nullopt
-                                  : std::optional<int64_t>(srcOp.getDimArg())),
+        emitter.emit(srcOp.getDimArg()),
         emitter.emit(srcOp.getKeepDim()),
         emitter.emit(srcOp.getMemoryConfig()) |
             emitter.getMemoryConfig(srcOp.getResult()),

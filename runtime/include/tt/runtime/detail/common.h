@@ -72,5 +72,20 @@ inline ::tt::DataFormat toDataFormat(::tt::target::DataType dataType) {
   }
 }
 
+inline ::tt::runtime::Arch toRuntimeArch(::tt::ARCH arch) {
+  switch (arch) {
+  case ::tt::ARCH::GRAYSKULL:
+    return ::tt::runtime::Arch::GRAYSKULL;
+  case ::tt::ARCH::WORMHOLE_B0:
+    return ::tt::runtime::Arch::WORMHOLE_B0;
+  case ::tt::ARCH::BLACKHOLE:
+    return ::tt::runtime::Arch::BLACKHOLE;
+  case ::tt::ARCH::QUASAR:
+    return ::tt::runtime::Arch::QUASAR;
+  default:
+    LOG_FATAL("Unsupported device architecture");
+  }
+}
+
 } // namespace tt::runtime::common
 #endif // TT_RUNTIME_DETAIL_COMMON_H

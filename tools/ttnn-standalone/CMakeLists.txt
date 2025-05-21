@@ -54,7 +54,11 @@ endif()
 
 # Metal dir variables
 set(METAL_SRC_DIR "$ENV{TT_METAL_HOME}" CACHE PATH "Path to the tt-metal root src directory")
-set(METAL_LIB_DIR "$ENV{TT_METAL_HOME}/build/lib" CACHE PATH "Path to the tt-metal lib directory")
+if(DEFINED ENV{TT_METAL_LIB})
+  set(METAL_LIB_DIR "$ENV{TT_METAL_LIB}" CACHE PATH "Path to the tt-metal lib directory")
+else()
+  set(METAL_LIB_DIR "$ENV{TT_METAL_HOME}/build/lib" CACHE PATH "Path to the tt-metal lib directory")
+endif()
 
 if (DEFINED ENV{CPM_SOURCE_CACHE})
   set(CPM_SOURCE_CACHE $ENV{CPM_SOURCE_CACHE})
@@ -67,7 +71,7 @@ message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
 #
 set(INCLUDE_DIRS
     # TODO: Remove these when ttmetal removes the dependencies from public facing headers
-    ${CPM_SOURCE_CACHE}/reflect/e75434c4c5f669e4a74e4d84e0a30d7249c1e66f
+    ${CPM_SOURCE_CACHE}/reflect/f93e77475670eaeacf332927dfe8b50e3f3812e0
     ${CPM_SOURCE_CACHE}/fmt/69912fb6b71fcb1f7e5deca191a2bb4748c4e7b6/include
     ${CPM_SOURCE_CACHE}/magic_enum/4d76fe0a5b27a0e62d6c15976d02b33c54207096/include
     ${CPM_SOURCE_CACHE}/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
