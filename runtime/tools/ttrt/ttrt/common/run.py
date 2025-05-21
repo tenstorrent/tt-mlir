@@ -527,10 +527,11 @@ class Run:
             mesh_options = ttrt.runtime.MeshDeviceOptions()
             mesh_options.dispatch_core_type = dispatch_core_type
             mesh_options.enable_program_cache = self["--enable-program-cache"]
-            device = ttrt.runtime.open_mesh_device(mesh_shape, mesh_options)
+            parent_device = ttrt.runtime.open_mesh_device(mesh_shape, mesh_options)
 
             for bin in binaries:
                 try:
+                    device = ttrt.runtime.create_sub_mesh_device(parent_device, [1, 1])
                     self.logging.info(f"evaluating binary={bin.file_path}")
 
                     pre_op_callback_runtime_config = CallbackRuntimeConfig(
@@ -1011,13 +1012,13 @@ class Run:
                     self.results.add_result(test_result)
                     bin.test_result = result
                 finally:
-                    ttrt.runtime.reshape_mesh_device(device, mesh_shape)
+                    # ttrt.runtime.reshape_mesh_device(device, mesh_shape)
 
                     if self["--emitc"]:
                         ttrt.runtime.test.close_so(emitc_dylib_handle)
 
             ttrt.runtime.unregister_hooks()
-            ttrt.runtime.close_mesh_device(device)
+            ttrt.runtime.close_mesh_device(parent_device)
 
         self.logging.debug(f"executing ttnn binaries")
         _execute(self.ttnn_binaries)
