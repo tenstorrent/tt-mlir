@@ -36,12 +36,12 @@ struct TTIRToTTNNBackendPipelineOptions
   //
   // Note: This option is only valid if optimizerPassEnabled is true.
   //
-  Option<llvm::StringMap<InputLayoutOverrideParams>, InputLayoutOverrideParser>
-      overrideInputLayout{
-          *this, OptionNames::overrideInputLayout,
+  Option<llvm::StringMap<InsertMemReconfigParams>, InsertMemReconfigParser>
+      insertMemReconfig{
+          *this, OptionNames::insertMemReconfig,
           llvm::cl::desc(
               "Manually insert memory reconfig op for specific op's operand."),
-          llvm::cl::init(llvm::StringMap<InputLayoutOverrideParams>())};
+          llvm::cl::init(llvm::StringMap<InsertMemReconfigParams>())};
 
   // Option to override output layout for specific operations. You can
   // override any number or combination of layout parameters. If not all are

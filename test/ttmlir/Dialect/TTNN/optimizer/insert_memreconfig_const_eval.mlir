@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --tt-register-device --const-eval-hoist-transform --ttnn-optimizer="override-input-layout=add_1_2=0" --ttnn-decompose-layouts %s | FileCheck %s
+// RUN: ttmlir-opt --tt-register-device --const-eval-hoist-transform --ttnn-optimizer="insert-memreconfig=add_1_2=0" --ttnn-decompose-layouts %s | FileCheck %s
 
 #dram = #ttnn.buffer_type<dram>
 #system_memory = #ttnn.buffer_type<system_memory>

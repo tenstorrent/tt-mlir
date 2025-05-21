@@ -54,9 +54,8 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
       .def("set_mesh_shape", &tt::ttnn::OptimizerOverridesHandler::setMeshShape)
       .def("get_mesh_shape", &tt::ttnn::OptimizerOverridesHandler::getMeshShape)
 
-      .def("get_input_layout_overrides",
-           &tt::ttnn::OptimizerOverridesHandler::
-               getInputLayoutOverridesNanobindWrapper)
+      .def("get_insert_memreconfig", &tt::ttnn::OptimizerOverridesHandler::
+                                         getInsertMemReconfigNanobindWrapper)
       .def("get_output_layout_overrides",
            &tt::ttnn::OptimizerOverridesHandler::
                getOutputLayoutOverridesNanobindWrapper)
@@ -64,9 +63,8 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
            &tt::ttnn::OptimizerOverridesHandler::
                getConv2dConfigOverridesNanobindWrapper)
 
-      .def("add_input_layout_override",
-           &tt::ttnn::OptimizerOverridesHandler::
-               addInputLayoutOverrideNanobindWrapper)
+      .def("add_insert_memreconfig", &tt::ttnn::OptimizerOverridesHandler::
+                                         addInsertMemReconfigNanobindWrapper)
       .def("add_output_layout_override",
            &tt::ttnn::OptimizerOverridesHandler::
                addOutputLayoutOverrideNanobindWrapper)
@@ -118,17 +116,17 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
       .value("UInt8", mlir::tt::DataType::UInt8)
       .value("Int32", mlir::tt::DataType::Int32);
 
-  nb::class_<mlir::tt::ttnn::InputLayoutOverrideParams>(
-      m, "InputLayoutOverrideParams")
+  nb::class_<mlir::tt::ttnn::InsertMemReconfigParams>(m,
+                                                      "InsertMemReconfigParams")
       .def(nb::init<>())
       .def_prop_rw(
           "operand_idxes",
-          [](const mlir::tt::ttnn::InputLayoutOverrideParams &obj) {
+          [](const mlir::tt::ttnn::InsertMemReconfigParams &obj) {
             // Getter: Convert SmallVector to std::vector
             return std::vector<int64_t>(obj.operandIdxes.begin(),
                                         obj.operandIdxes.end());
           },
-          [](mlir::tt::ttnn::InputLayoutOverrideParams &obj,
+          [](mlir::tt::ttnn::InsertMemReconfigParams &obj,
              const std::vector<int64_t> &input) {
             // Setter: Convert std::vector to SmallVector
             obj.operandIdxes.clear();
