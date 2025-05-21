@@ -472,12 +472,12 @@ void populateTTNNModule(nb::module_ &m) {
              uint64_t outBlockH, uint64_t outBlockW, uint64_t perCoreM,
              uint64_t perCoreN, bool fuseBatch, MlirAttribute fusedActivation,
              bool mcastIn0, bool gatherIn0, MlirAttribute hopCores,
-             uint64_t numGlobalCbReceivers) {
+             uint64_t numGlobalCbReceivers, bool untilizeOut) {
             return ttmlirTTNNMatmulMultiCoreReuseMultiCast1DProgramConfigAttrGet(
                 ctx, computeWithStorageGridSize, in0BlockW, outSubblockH,
                 outSubblockW, outBlockH, outBlockW, perCoreM, perCoreN,
                 fuseBatch, fusedActivation, mcastIn0, gatherIn0, hopCores,
-                numGlobalCbReceivers);
+                numGlobalCbReceivers, untilizeOut);
           })
       .def_prop_ro(
           "compute_with_storage_grid_size",
@@ -526,7 +526,10 @@ void populateTTNNModule(nb::module_ &m) {
           })
       .def_prop_ro("num_global_cb_receivers",
                    &tt::ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigAttr::
-                       getNumGlobalCbReceivers);
+                       getNumGlobalCbReceivers)
+      .def_prop_ro("untilize_out",
+                   &tt::ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigAttr::
+                       getUntilizeOut);
 
   tt_attribute_class<
       tt::ttnn::MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(

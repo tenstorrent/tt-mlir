@@ -228,7 +228,7 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::MatmulOp *op) {
             .hop_cores = ::tt::runtime::ttnn::utils::toTTNNCoreRangeSet(
                 *config->hop_cores()),
             .num_global_cb_receivers = config->num_global_cb_receivers(),
-            .untilize_out = false};
+            .untilize_out = config->untilize_out()};
   }
   case ::tt::target::ttnn::MatmulProgramConfig::
       MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig: {

@@ -20,7 +20,8 @@
   mcast_in0 = true,
   gather_in0 = false,
   hop_cores = #ttnn.core_range_set<>,
-  num_global_cb_receivers = 0
+  num_global_cb_receivers = 0,
+  untilize_out = false
 >
 
 module attributes {} {
