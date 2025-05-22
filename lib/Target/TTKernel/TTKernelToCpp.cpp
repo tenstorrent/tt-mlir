@@ -6,6 +6,9 @@
 
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 
+#include "ttmlir/Target/TTKernel/LLKs/experimental_tilize_llks_generated.h"
+#include "ttmlir/Target/TTKernel/LLKs/experimental_untilize_llks_generated.h"
+
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
@@ -16,10 +19,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Target/Cpp/CppEmitter.h"
 #include "llvm/ADT/ScopeExit.h"
-#include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
-
-#include <cassert>
 
 namespace mlir::tt::ttkernel {
 
@@ -92,6 +92,7 @@ public:
           loc, "#define REDUCE_DIM ReduceDim::REDUCE_COL");
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/reduce.h",
                                         /*isStandard=*/false);
+      emitExperimentalLLKs();
       builder->create<emitc::VerbatimOp>(loc, "namespace NAMESPACE {");
     }
   }
@@ -136,6 +137,28 @@ void dprint(Arg &&arg, ArgV&&... argv) {
 }
 } // namespace ttmlir
 )"""");
+  }
+
+  void emitExperimentalLLKs() {
+    if (hasCall("experimental::tilize")) {
+      auto experimentalTilizeLLKs =
+          StringRef(experimental_tilize_llks_generated,
+                    experimental_tilize_llks_generated_len);
+      builder->create<emitc::VerbatimOp>(loc, experimentalTilizeLLKs);
+    }
+
+    if (hasCall("experimental::untilize")) {
+      auto experimentalUntilizeLLKs =
+          StringRef(experimental_untilize_llks_generated,
+                    experimental_untilize_llks_generated_len);
+      builder->create<emitc::VerbatimOp>(loc, experimentalUntilizeLLKs);
+    }
+  }
+
+  bool hasCall(StringRef name) {
+    return hasOp<emitc::CallOpaqueOp>([=](emitc::CallOpaqueOp op) {
+      return op.getCallee().starts_with(name);
+    });
   }
 
   template <typename OpT>

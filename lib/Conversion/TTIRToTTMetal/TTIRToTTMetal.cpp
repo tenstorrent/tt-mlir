@@ -158,8 +158,20 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ToLayoutOp op, ttir::ToLayoutOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    Value input = op.getInput();
-    Value output = op.getOutput();
+    Value input;
+    if (auto view = mlir::dyn_cast_if_present<ttir::ViewLayoutOp>(
+            adaptor.getInput().getDefiningOp())) {
+      input = view.getInput();
+    } else {
+      input = adaptor.getInput();
+    }
+    Value output;
+    if (auto view = mlir::dyn_cast_if_present<ttir::ViewLayoutOp>(
+            adaptor.getOutput().getDefiningOp())) {
+      output = view.getInput();
+    } else {
+      output = adaptor.getOutput();
+    }
     MemRefType inputTy = mlir::cast<MemRefType>(input.getType());
     MemRefType outputTy = mlir::cast<MemRefType>(output.getType());
     tt::MemorySpaceAttr inputMemorySpace =
