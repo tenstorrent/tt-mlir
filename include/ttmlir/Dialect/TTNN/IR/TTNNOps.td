@@ -1588,9 +1588,20 @@ def TTNN_OnesOp : TTNN_NamedFullOp<"ones"> {
 }
 
 def TTNN_FullOp : TTNN_CreationOp<"full"> {
-  let summary = "Full op.";
+  let summary = "Creates a tensor filled with the specified value";
   let description = [{
-    Tensor full operation
+    Tensor operation to create a tensor filled with a specified value.
+
+    Given a `shape` and a `fill_value`, produces a tensor with the shape, filled with the specified value.
+
+    Example:
+      %0 = "ttnn.full"() <{
+        dtype = #tt.supportedDataTypes<u32>,
+        fill_value = 3 : i32,
+        layout = #ttnn.layout<tile>,
+        shape = #ttnn.shape<64x128>
+      }> : () -> tensor<64x128xui32>
+      // %0: [[[7, 7, 7, ..., 7], [7, 7, 7, ..., 7], ..., [7, 7, 7, ..., 7]]]
   }];
 
   let arguments = (ins TTNN_ShapeAttr:$shape,

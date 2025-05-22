@@ -306,6 +306,8 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::EmptyOp::getBufferType(
 void mlir::tt::ttir::ConstantOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
 
+  // Canonicalize ConstantOp to FullOp when the value is a splat value (i.e. all
+  // elements are the same).
   patterns.add(+[](mlir::tt::ttir::ConstantOp op,
                    mlir::PatternRewriter &rewriter) {
     auto valueAttr = op.getValueAttr();

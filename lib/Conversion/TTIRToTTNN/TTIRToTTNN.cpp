@@ -838,32 +838,9 @@ public:
       return legalityResult;
     }
 
-    // If the value is a splat (i.e. single value), we can use the ttnn::FullOp
-    // to create the tensor.
-    if (valueAttr.isSplat()) {
-      auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
-
-      mlir::APFloat fillValue(mlir::APFloat::IEEEsingle());
-      if (valueAttr.getElementType().isInteger()) {
-        // Both signed and signless integer can have negative values.
-        bool isSigned = valueAttr.getElementType().isSignedInteger() ||
-                        valueAttr.getElementType().isSignlessInteger();
-        fillValue.convertFromAPInt(valueAttr.getSplatValue<llvm::APInt>(),
-                                   isSigned, llvm::RoundingMode::TowardZero);
-      } else {
-        fillValue = valueAttr.getSplatValue<mlir::APFloat>();
-      }
-
-      rewriter.replaceOpWithNewOp<ttnn::FullOp>(
-          op, this->getTypeConverter()->convertType(op.getType()),
-          rewriter.getF32FloatAttr(fillValue.convertToFloat()), device);
-
-      // Otherwise, we use the ttnn::ConstantOp to create the tensor.
-    } else {
-      rewriter.replaceOpWithNewOp<ttnn::ConstantOp>(
-          op, this->getTypeConverter()->convertType(op.getType()),
-          adaptor.getValue());
-    }
+    rewriter.replaceOpWithNewOp<ttnn::ConstantOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getValue());
 
     return success();
   }
