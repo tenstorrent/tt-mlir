@@ -27,7 +27,6 @@ MemoryBlockTable is a list of memory blocks in the following format:
 */
 using MemoryBlockTable =
     std::vector<std::unordered_map<std::string, std::string>>;
-using DeviceIds = std::vector<int>;
 
 enum class MemoryBufferType {
   DRAM,
@@ -205,9 +204,6 @@ private:
 };
 
 struct Device : public detail::RuntimeCheckedObjectImpl {
-  Device(std::shared_ptr<void> handle, DeviceRuntime runtime,
-         std::shared_ptr<TensorCache> tensorCache)
-      : detail::RuntimeCheckedObjectImpl(handle, runtime) {}
   using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
 };
 

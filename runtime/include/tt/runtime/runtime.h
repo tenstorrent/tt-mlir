@@ -14,7 +14,7 @@
 namespace tt::runtime {
 
 namespace system_desc {
-std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc(
+SystemDesc getCurrentSystemDesc(
     std::optional<DispatchCoreType> dispatchCoreType = std::nullopt,
     std::optional<Device> meshDevice = std::nullopt);
 } // namespace system_desc
@@ -45,7 +45,7 @@ void setCurrentRuntime(const DeviceRuntime &runtime);
 
 void setCompatibleRuntime(const Binary &binary);
 
-std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc(
+SystemDesc getCurrentSystemDesc(
     std::optional<DispatchCoreType> dispatchCoreType = std::nullopt,
     std::optional<Device> meshDevice = std::nullopt);
 

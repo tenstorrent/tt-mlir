@@ -299,10 +299,9 @@ createNewMeshDevice(size_t numDevices,
       DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1, type);
 }
 
-std::pair<::tt::runtime::SystemDesc, DeviceIds>
+::tt::runtime::SystemDesc
 getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
                      std::optional<Device> meshDevice) {
-  const size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
 
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevicePtr;
   if (meshDevice.has_value()) {
@@ -310,6 +309,7 @@ getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
         meshDevice.value().asSharedPtr<::tt::tt_metal::distributed::MeshDevice>(
             getCurrentRuntime());
   } else {
+    const size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
     meshDevicePtr = createNewMeshDevice(numDevices, dispatchCoreType);
   }
 
@@ -319,12 +319,8 @@ getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
 
   std::exception_ptr eptr = nullptr;
   std::unique_ptr<::tt::runtime::SystemDesc> desc;
-  std::vector<chip_id_t> deviceIds;
   try {
     desc = getCurrentSystemDescImpl(*meshDevicePtr);
-
-    deviceIds = meshDevicePtr->get_device_ids();
-    std::sort(deviceIds.begin(), deviceIds.end());
   } catch (...) {
     eptr = std::current_exception();
   }
@@ -333,9 +329,10 @@ getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
     meshDevicePtr->close();
   }
   if (eptr) {
+    LOG_ERROR("Exception occured when getting system descriptor");
     std::rethrow_exception(eptr);
   }
-  return std::make_pair(*desc, deviceIds);
+  return *desc;
 }
 
 } // namespace tt::runtime::system_desc

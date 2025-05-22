@@ -79,8 +79,8 @@ def test_to_layout(helper: Helper, shape, dtype, request):
         torch_result_tensor.element_size(),
         runtime_dtype,
     )
-    device_layout = ttrt.runtime.testing.get_dram_interleaved_tile_layout(runtime_dtype)
-    host_layout = ttrt.runtime.testing.get_host_row_major_layout(runtime_dtype)
+    device_layout = ttrt.runtime.test.get_dram_interleaved_tile_layout(runtime_dtype)
+    host_layout = ttrt.runtime.test.get_host_row_major_layout(runtime_dtype)
     with DeviceContext(mesh_shape=[1, 1]) as device:
         device_tensor = ttrt.runtime.to_layout(
             runtime_input_tensor, device, device_layout
@@ -111,7 +111,7 @@ def test_memcpy_to_pointer(helper: Helper, shape, dtype, request):
         torch_input_tensor.element_size(),
         runtime_dtype,
     )
-    device_layout = ttrt.runtime.testing.get_dram_interleaved_row_major_layout(
+    device_layout = ttrt.runtime.test.get_dram_interleaved_row_major_layout(
         runtime_dtype
     )
     with DeviceContext(mesh_shape=[1, 1]) as device:
@@ -159,7 +159,7 @@ def test_create_tensor_memcpy(helper: Helper, shape, dtype, request):
         torch_result_tensor.element_size(),
         runtime_dtype,
     )
-    device_layout = ttrt.runtime.testing.get_dram_interleaved_row_major_layout(
+    device_layout = ttrt.runtime.test.get_dram_interleaved_row_major_layout(
         runtime_dtype
     )
     with DeviceContext(mesh_shape=[1, 1]) as device:
@@ -196,23 +196,11 @@ def test_get_system_desc(runtime, dispatch_core_type, with_device):
 
     if with_device:
         with DeviceContext(mesh_shape=[1, num_devices]) as device:
-            system_desc, device_ids = ttrt.runtime.get_current_system_desc(
+            system_desc = ttrt.runtime.get_current_system_desc(
                 dispatch_core_type, device
             )
 
     else:
-        system_desc, device_ids = ttrt.runtime.get_current_system_desc(
-            dispatch_core_type
-        )
-
-        assert (
-            len(device_ids) == num_devices
-        ), f"Expected {num_devices} device IDs, got {len(device_ids)}"
+        system_desc = ttrt.runtime.get_current_system_desc(dispatch_core_type)
 
     assert system_desc is not None, "System descriptor should exist"
-    assert device_ids is not None, "Device IDs should exist"
-
-    sorted_device_ids = sorted(device_ids)
-    assert (
-        device_ids == sorted_device_ids
-    ), f"Expected device IDs {sorted_device_ids}, got {device_ids}"
