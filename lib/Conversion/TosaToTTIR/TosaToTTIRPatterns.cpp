@@ -92,17 +92,15 @@ public:
     FloatAttr minValAttr;
     FloatAttr maxValueAttr;
 
-    if (mlir::isa<mlir::IntegerAttr>(srcOp.getMinVal())) {
-      minValAttr = rewriter.getF32FloatAttr(
-          cast<mlir::IntegerAttr>(srcOp.getMinVal()).getSInt());
+    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(srcOp.getMinVal())) {
+      minValAttr = rewriter.getF32FloatAttr(intAttr.getSInt());
     } else {
       minValAttr = rewriter.getF32FloatAttr(
           cast<mlir::FloatAttr>(srcOp.getMinVal()).getValue().convertToFloat());
     }
 
-    if (mlir::isa<mlir::IntegerAttr>(srcOp.getMaxVal())) {
-      maxValueAttr = rewriter.getF32FloatAttr(
-          cast<mlir::IntegerAttr>(srcOp.getMaxVal()).getSInt());
+    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(srcOp.getMaxVal())) {
+      maxValueAttr = rewriter.getF32FloatAttr(intAttr.getSInt());
     } else {
       maxValueAttr = rewriter.getF32FloatAttr(
           cast<mlir::FloatAttr>(srcOp.getMaxVal()).getValue().convertToFloat());
