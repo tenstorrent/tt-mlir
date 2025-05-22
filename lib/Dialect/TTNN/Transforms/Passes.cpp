@@ -408,7 +408,7 @@ public:
           mlir::TupleType::get(&getContext(), originalFuncType.getResults());
 
       // Create modified function type (signature) that takes the input tuple
-      // as an operand, and returns the output tuple
+      // as an operand, and returns the output tuple.
       //
       FunctionType modifiedFuncType =
           originalFuncType.clone(tuplifiedInputTensors, tuplifiedOutputTensors);
@@ -452,7 +452,7 @@ public:
       entryBlock.eraseArguments(paramOffset,
                                 originalFuncType.getInputs().size());
 
-      // Find return statement and replace with tuple
+      // Find return statement and replace with tuple.
       //
       forwardFuncOp.walk<WalkOrder::PostOrder, ReverseIterator>(
           [&](mlir::func::ReturnOp returnOp) {
