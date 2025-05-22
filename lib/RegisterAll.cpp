@@ -71,6 +71,7 @@ void mlir::tt::registerAllExtensions(mlir::DialectRegistry &registry) {
   // intermediate dialects) is required to convert types to memrefs during
   // lowering.
   arith::registerBufferizableOpInterfaceExternalModels(registry);
+  arith::registerBufferDeallocationOpInterfaceExternalModels(registry);
   linalg::registerBufferizableOpInterfaceExternalModels(registry);
   scf::registerBufferizableOpInterfaceExternalModels(registry);
   bufferization::func_ext::registerBufferizableOpInterfaceExternalModels(

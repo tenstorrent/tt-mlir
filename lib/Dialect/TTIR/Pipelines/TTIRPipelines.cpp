@@ -115,9 +115,21 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
 void createTTIRToCPUPipeline(OpPassManager &manager,
                              const LinalgToLLVMPipelineOptions &options) {
   OpPassManager &cpuPm = manager.nest<tt::CPUModuleOp>().nest<mlir::ModuleOp>();
-  // cpuPm.addPass(createConvertTTIRToLinalgPass());
   cpuPm.addPass(createConvertTTIRToTosaPass());
-  cpuPm.addPass(tosa::createTosaToLinalg());
+
+  // Add tosa-to-tensor pass to handle tosa.const operations
+  cpuPm.addPass(tosa::createTosaToTensor());
+
+  // Use the full TOSA to Linalg pipeline instead of just the single pass
+  tosa::addTosaToLinalgPasses(cpuPm, {}, {}, {});
+  // Workaround TTIR -> TOSA -> Linalg DPS issues by simple manual pass.
+  cpuPm.addPass(createTTIRWorkaroundReenableDPS());
+
+  // Lower any outstanding TTIR ops directly to Linalg
+  cpuPm.addPass(createConvertTTIRToLinalgPass());
+  // Cleanup the funcs s.t. they don't return values
+  cpuPm.addPass(createTTIRRemoveReturnValues());
+
   ttir::createLinalgToLLVMPipeline(cpuPm, options);
   cpuPm.addPass(llvm_util::createLLVMEmitCallingConventionWrapperFuncs());
 }

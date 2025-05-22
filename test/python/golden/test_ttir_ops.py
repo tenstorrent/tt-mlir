@@ -748,10 +748,15 @@ def test_unsqueeze(shape: Shape, dim: int, request):
 
 @pytest.mark.parametrize("shape", [(1, 32, 32)])
 @pytest.mark.parametrize("dims", [[32, 1, 1]])
+<<<<<<< HEAD
 def test_repeat(shape: Shape, dims: List[int], request):
     def repeat(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
+=======
+def test_repeat(shape, dims, request):
+    def repeat(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
+>>>>>>> 9f303bf52 (more coverage)
         return builder.repeat(in0, dims=dims, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
@@ -1198,12 +1203,18 @@ def reduce_or(
     in0: Operand,
     builder: TTIRBuilder,
     dim_args: List[int],
+<<<<<<< HEAD
     keep_dim: bool = False,
     unit_attrs: Optional[List[str]] = None,
 ):
     return builder.reduce_or(
         in0, dim_args=dim_args, keep_dim=keep_dim, unit_attrs=unit_attrs
     )
+=======
+    unit_attrs: List[str] = None,
+):
+    return builder.reduce_or(in0, dim_args=dim_args, unit_attrs=unit_attrs)
+>>>>>>> 9f303bf52 (more coverage)
 
 
 @pytest.mark.skip(
@@ -1213,9 +1224,15 @@ def reduce_or(
 @pytest.mark.parametrize("dim_args", [[0, 1]])
 def test_reduce_or(shape: Shape, dim_args: List[int], request):
     def reduce_or_wrapper(
+<<<<<<< HEAD
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
         return reduce_or(in0, builder, dim_args=dim_args, unit_attrs=unit_attrs)
+=======
+        in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
+    ):
+        return reduce_or(in0, build, dim_args, unit_attrs)
+>>>>>>> 9f303bf52 (more coverage)
 
     compile_to_flatbuffer(
         reduce_or_wrapper,
@@ -1610,6 +1627,34 @@ def create_hoisted_concat_op(op_func, name):
     return hoisted_op
 
 
+# Create a function for hoisted where operation
+def create_hoisted_where_op(op_func, name):
+    """Create a hoisted version of the where operation"""
+
+    def hoisted_op(condition, x, y, builder, **kwargs):
+        return op_func(condition, x, y, builder, unit_attrs=["should_hoist"], **kwargs)
+
+    hoisted_op.__name__ = f"hoisted_{name}"
+    return hoisted_op
+
+
+# Create a function for hoisted slice operation
+def create_hoisted_slice_op(op_func, name):
+    """Create a hoisted version of the slice operation"""
+
+    def hoisted_op(in0, builder, **kwargs):
+        # Default slice parameters
+        begins = DenseI32ArrayAttr.get([0, 0])
+        ends = DenseI32ArrayAttr.get([10, 10])
+        steps = DenseI32ArrayAttr.get([1, 1])
+        return op_func(
+            in0, begins, ends, steps, builder, unit_attrs=["should_hoist"], **kwargs
+        )
+
+    hoisted_op.__name__ = f"hoisted_{name}"
+    return hoisted_op
+
+
 # Create hoisted versions of all hoistable operations with proper names
 hoisted_unary_ops = [
     create_hoisted_unary_op(exp, "exp"),
@@ -1619,6 +1664,13 @@ hoisted_unary_ops = [
     create_hoisted_unary_op(tanh, "tanh"),
     create_hoisted_unary_op(reciprocal, "reciprocal"),
     create_hoisted_unary_op(neg, "neg"),
+    create_hoisted_unary_op(sigmoid, "sigmoid"),
+    create_hoisted_unary_op(sin, "sin"),
+    create_hoisted_unary_op(cos, "cos"),
+    create_hoisted_unary_op(logical_not, "logical_not"),
+    create_hoisted_unary_op(max, "max"),
+    create_hoisted_unary_op(sum, "sum"),
+    create_hoisted_unary_op(reduce_or, "reduce_or"),
     pytest.param(
         create_hoisted_unary_op(softmax, "softmax"),
         marks=pytest.mark.xfail(
@@ -1642,6 +1694,17 @@ hoisted_binary_ops = [
     create_hoisted_binary_op(add, "add"),
     create_hoisted_binary_op(multiply, "multiply"),
     create_hoisted_binary_op(subtract, "subtract"),
+<<<<<<< HEAD
+=======
+    create_hoisted_binary_op(div, "div"),
+    create_hoisted_binary_op(pow, "pow"),
+    create_hoisted_binary_op(eq, "equal"),
+    create_hoisted_binary_op(ne, "not_equal"),
+    create_hoisted_binary_op(gt, "greater_than"),
+    create_hoisted_binary_op(ge, "greater_equal"),
+    create_hoisted_binary_op(lt, "less_than"),
+    create_hoisted_binary_op(le, "less_equal"),
+>>>>>>> 9f303bf52 (more coverage)
 ]
 
 hoisted_ternary_ops = [
@@ -1726,6 +1789,167 @@ def test_hoisted_permute(shapes_and_perms, request, target: str):
     compile_to_flatbuffer(
         permute_wrapper,
         shapes,
+        test_base=request.node.name,
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shape,begins,ends,step",
+    [
+        ((64, 64), [0, 0], [32, 32], None),
+        ((128, 128), [10, 20], [50, 60], [1, 1]),
+        ((32, 64, 64), [5, 10, 15], [25, 50, 55], [2, 2, 1]),
+    ],
+    ids=["basic_slice", "explicit_step", "3d_slice"],
+)
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_slice(
+    shape: Shape,
+    begins: List[int],
+    ends: List[int],
+    step: List[int],
+    target: str,
+    request,
+):
+    def slice_wrapper(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
+        # Create a simple identity operation first to ensure we have a proper tensor
+        identity = builder.add(in0, builder.constant(shape, 0.0))
+        # Now use the slice operation with the CPU hoisting attribute
+        return builder.slice(identity, begins, ends, step, unit_attrs=["should_hoist"])
+
+    compile_to_flatbuffer(
+        slice_wrapper,
+        [shape],
+        test_base=request.node.name,
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+# Add test for hoisted where operation
+@pytest.mark.parametrize("shapes", [[(64, 64), (64, 64), (64, 64)]])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_where(shapes, request, target: str):
+    def where_wrapper(condition: Operand, x: Operand, y: Operand, builder: TTIRBuilder):
+        return builder.where(condition, x, y, unit_attrs=["should_hoist"])
+
+    where_wrapper.__name__ = "hoisted_where"
+
+    compile_to_flatbuffer(
+        where_wrapper,
+        shapes,
+        test_base=request.node.name,
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes,broadcast_dimensions",
+    [
+        ([(1, 1, 32), (1, 16, 32)], [1, 16, 1]),  # Basic broadcasting
+        ([(1, 32), (16, 32)], [16, 1]),  # 2D broadcasting
+        (
+            [(128, 1, 64), (128, 32, 64)],
+            [1, 32, 1],
+        ),  # 3D with middle dimension broadcasting
+        (
+            [(64, 1, 1), (64, 32, 16)],
+            [1, 32, 16],
+        ),  # 3D with multiple broadcast dimensions
+    ],
+    ids=[
+        "basic_broadcast",
+        "2d_broadcast",
+        "3d_middle_broadcast",
+        "3d_multi_broadcast",
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoistable_broadcast(
+    shapes: List[Shape], broadcast_dimensions: List[int], target: str, request
+):
+    """Test broadcast operation with CPU hoisting enabled"""
+
+    # Create a wrapper function that captures broadcast_dimensions and adds should_hoist attribute
+    def broadcast_hoistable_wrapper(
+        in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
+    ):
+        unit_attrs = unit_attrs or []
+        unit_attrs.append("should_hoist")
+        return broadcast(in0, in1, builder, broadcast_dimensions, unit_attrs)
+
+    # Set the name for better test identification
+    broadcast_hoistable_wrapper.__name__ = "hoistable_broadcast"
+
+    compile_to_flatbuffer(
+        broadcast_hoistable_wrapper,
+        shapes,
+        test_base=request.node.name,
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        # [input_shape, output_shape]
+        [(2, 3, 4), (24,)],
+        [(128, 128), (16384,)],
+        [(128, 64, 32), (128, 2048)],
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_reshape(shapes, request, target: str):
+    input_shape, output_shape = shapes
+
+    def reshape_wrapper(in0: Operand, builder: TTIRBuilder):
+        return builder.reshape(in0, output_shape, unit_attrs=["should_hoist"])
+
+    reshape_wrapper.__name__ = "hoisted_reshape"
+
+    compile_to_flatbuffer(
+        reshape_wrapper,
+        [input_shape],
+        test_base=request.node.name,
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes_and_dims",
+    [
+        # [(input_shape, output_shape), permutation]
+        [[(2, 3, 4), (2, 4, 3)], [2, 1]],
+        [[(128, 128), (128, 128)], [1, 0]],
+        [[(128, 64, 32), (32, 64, 128)], [0, 2]],
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_transpose(shapes_and_dims, request, target: str):
+    shapes, dims = shapes_and_dims
+
+    def transpose_wrapper(in0: Operand, builder: TTIRBuilder):
+        # For 2D tensors with permutation [1, 0], swap dimensions 0 and 1
+        # For 3D tensors with permutation [2, 1, 0], swap dimensions 0 and 2
+        dim0 = dims[0]
+        dim1 = dims[1]
+        return builder.transpose(in0, dim0=dim0, dim1=dim1, unit_attrs=["should_hoist"])
+
+    transpose_wrapper.__name__ = "hoisted_transpose"
+
+    compile_to_flatbuffer(
+        transpose_wrapper,
+        [shapes[0]],
         test_base=request.node.name,
         target=target,
         output_root=request.config.getoption("--path"),
@@ -1872,6 +2096,7 @@ def test_unique_ops(
     )
 
 
+<<<<<<< HEAD
 def gather(
     in0: Operand,
     builder: TTIRBuilder,
@@ -2054,6 +2279,38 @@ def test_hoisted_dot_general(
         shapes,
         test_base=request.node.name,
         target=target,
+=======
+def slice(
+    in0: Operand,
+    begins: List[int],
+    ends: List[int],
+    step: List[int] = None,
+    builder: TTIRBuilder = None,
+    unit_attrs: List[str] = None,
+):
+    return builder.slice(in0, begins, ends, step, unit_attrs=unit_attrs)
+
+
+@pytest.mark.parametrize(
+    "shape,begins,ends,step",
+    [
+        ((64, 64), [0, 0], [32, 32], None),
+        ((64, 64), [10, 20], [50, 60], [1, 1]),
+        ((64, 64, 64), [10, 20, 30], [50, 60, 64], [2, 2, 1]),
+    ],
+    ids=["basic_slice", "explicit_step", "3d_slice"],
+)
+def test_slice(
+    shape: Shape, begins: List[int], ends: List[int], step: List[int], request
+):
+    def slice_op(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
+        return slice(in0, begins, ends, step, builder, unit_attrs)
+
+    compile_to_flatbuffer(
+        slice_op,
+        [shape],
+        test_base=request.node.name,
+>>>>>>> 9f303bf52 (more coverage)
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )

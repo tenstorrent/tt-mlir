@@ -127,11 +127,7 @@ void createTTIRToTTMetalPipeline(
   createTTIRToTTMetalFrontendPipeline(devicePm, options);
   createTTIRToTTMetalMiddleendPipeline(devicePm, options);
   createTTIRToTTMetalBackendPipeline(devicePm, options);
-  OpPassManager &cpuPm = pm.nest<tt::CPUModuleOp>().nest<mlir::ModuleOp>();
-  cpuPm.addPass(createConvertTTIRToLinalgPass());
-  ttir::LinalgToLLVMPipelineOptions linalgToLLVMOptions;
-  ttir::createLinalgToLLVMPipeline(cpuPm, linalgToLLVMOptions);
-  cpuPm.addPass(llvm_util::createLLVMEmitCallingConventionWrapperFuncs());
+  ttir::createTTIRToCPUPipeline(pm, {});
 }
 
 //===----------------------------------------------------------------------===//
