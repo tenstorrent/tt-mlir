@@ -1274,7 +1274,7 @@ class TTIRBuilder:
             ttir.SoftmaxOp,
             [in0],
             golden_kwargs={"dim": dimension},
-            organize_ttir_args=lambda i, o, _: (
+            organize_ttir_args=lambda i, o, shape: (
                 self._get_type(o),
                 i[0],
                 o,
@@ -2306,4 +2306,86 @@ class TTIRBuilder:
             ttir.CollectivePermuteOp,
             [input],
             kwargs=kwargs,
+        )
+
+    def slice(
+        self,
+        in0: Operand,
+        begins: List[int],
+        ends: List[int],
+        step: List[int] = None,
+        unit_attrs: List[str] = None,
+    ) -> OpView:
+        # If step is not provided, use 1 for each dimension
+        if step is None:
+            step = [1] * len(begins)
+
+        # Ensure begins, ends, and step have the same length
+        assert (
+            len(begins) == len(ends) == len(step)
+        ), "begins, ends, and step must have the same length"
+
+        # Get the input shape
+        input_shape = self.get_shape(in0)
+
+        # Calculate the output shape
+        output_shape = []
+        for i, (b, e, s) in enumerate(zip(begins, ends, step)):
+            # Handle negative indices
+            if b < 0:
+                b += input_shape[i]
+            if e < 0:
+                e += input_shape[i]
+
+            # Clamp to valid range
+            b = max(0, min(b, input_shape[i]))
+            e = max(0, min(e, input_shape[i]))
+
+            # Calculate dimension size
+            dim_size = max(0, (e - b + s - 1) // s)
+            output_shape.append(dim_size)
+
+        # Create the attributes using a different approach
+        from ttmlir.ir import ArrayAttr, IntegerAttr, IntegerType
+
+        # Create integer attributes for each value
+        begins_int_attrs = [
+            IntegerAttr.get(IntegerType.get_signless(32), b) for b in begins
+        ]
+        ends_int_attrs = [
+            IntegerAttr.get(IntegerType.get_signless(32), e) for e in ends
+        ]
+        step_int_attrs = [
+            IntegerAttr.get(IntegerType.get_signless(32), s) for s in step
+        ]
+
+        # Create array attributes
+        begins_attr = ArrayAttr.get(begins_int_attrs, self._ctx)
+        ends_attr = ArrayAttr.get(ends_int_attrs, self._ctx)
+        step_attr = ArrayAttr.get(step_int_attrs, self._ctx)
+
+        # Golden function for slicing
+        def slice_golden_fn(x, begins, ends, step):
+            if len(begins) == 1:
+                return torch.narrow(x, 0, begins[0], ends[0] - begins[0])
+            else:
+                slices = [slice(b, e, s) for b, e, s in zip(begins, ends, step)]
+                return x[tuple(slices)]
+
+        # Define a custom organize_ttir_args function that prints its output for debugging
+        def custom_organize_ttir_args(inputs, output, output_shape):
+            args = (inputs[0], output, begins_attr, ends_attr, step_attr)
+            print(f"SliceOp args: {args}")
+            return args
+
+        # Use op_proxy with the custom organize_ttir_args function
+        return self.op_proxy(
+            slice_golden_fn,
+            ttir.SliceOp,
+            [in0],
+            golden_kwargs={"begins": begins, "ends": ends, "step": step},
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+            output_shape=output_shape,
+            unit_attrs=unit_attrs,
+            ttir_kwargs={"begins": begins_attr, "ends": ends_attr, "step": step_attr},
         )
