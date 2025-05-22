@@ -239,7 +239,7 @@ public:
     // Add mesh_shard (FullToShardShape) for inputs.
     llvm::SmallVector<mlir::Value> fullToShardResults;
     for (auto [globalOperand, argSharding, localArgType] : llvm::zip_equal(
-             srcOp.getOperands(), srcOp.getInShardings().getShardings(),
+             adaptor.getOperands(), srcOp.getInShardings().getShardings(),
              srcOp.getBody().getArgumentTypes())) {
 
       mlir::tt::sharding_utils::MeshSharding meshSharding;
