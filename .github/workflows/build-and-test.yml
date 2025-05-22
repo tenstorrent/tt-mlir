@@ -281,6 +281,9 @@ jobs:
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
 
+        echo "Running optimizer tests"
+        ${{ steps.strings.outputs.build-output-dir }}/test/unittests/Optimizer/OptimizerTests
+
         if [ "${{ matrix.build.suite }}" == "op_model" ]; then
           export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
           echo "Running op-model test Conversion"
