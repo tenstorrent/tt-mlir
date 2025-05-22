@@ -736,6 +736,7 @@ class Run:
                                 )
 
                             ttrt.runtime.wait(runtime_outputs)
+                            runtime_torch_outputs = []
                             for i, runtime_output_tensor in enumerate(runtime_outputs):
                                 output_host = ttrt.runtime.to_host(
                                     runtime_output_tensor, untilize=True
@@ -747,7 +748,16 @@ class Run:
                                 ttrt.runtime.deallocate_tensor(
                                     runtime_output_tensor, force=True
                                 )
-
+                                
+                                output_tensor = outputs[i]
+                                output_tensor_torch = torch.frombuffer(
+                                    bytearray(output_tensor.get_data_buffer()),
+                                    dtype=ttrt_datatype_to_torch_dtype(
+                                        output_tensor.get_dtype()
+                                    ),
+                                ).reshape(output_tensor.get_shape())
+                                runtime_torch_outputs.append(output_tensor_torch)
+                                
                                 # compare program level golden.
                                 if (not self["--disable-golden"]) and (
                                     i < len(golden_outputs_torch)
@@ -762,7 +772,7 @@ class Run:
                                             output_tensor.get_dtype()
                                         ),
                                     ).reshape(output_tensor.get_shape())
-                                    golden_tensor_torch = golden_outputs_torch[i]
+                                    runtime_torch_outputs.append(output_tensor_torch)
                                     if (
                                         golden_tensor_torch.shape
                                         != output_tensor_torch.shape
@@ -782,6 +792,7 @@ class Run:
                                     self.logging.info(
                                         f"Program level golden for output_{idx} matched. pcc={cal_pcc}"
                                     )
+                            torch.save(runtime_torch_outputs, "runtime_outputs.pt")
 
                             self.logging.debug(
                                 f"finished loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
@@ -860,9 +871,17 @@ class Run:
                         self.logging.debug(
                             f"output tensors for program={program_index}"
                         )
+                        
+                        output_tensors_save = []
                         for tensor in program.output_tensors:
                             self.logging.debug(f"{tensor}\n")
+                            output_tensors_save.append(tensor)
+                        self.logging.debug("Saving output tensors to disk output_tensors.pt")
 
+                        torch.save(
+                            output_tensors_save, "output_tensors.pt"
+                        )
+                        
                         device.deallocate_buffers()
 
                         # if golden comparison is enabled, check golden results json file to see if test passed

@@ -422,37 +422,38 @@ public:
       return mlir::failure();
     }
 
-    std::cout<< "Replacing scatter op with kv-cache update op" << std::endl;
+    // std::cout<< "Replacing scatter op with kv-cache update op" << std::endl;
 
-    //inputs -- this expects only 3 inputs 
+    // Extract the operands of the scatter operation.
+    Value cache = scatterOp.getInput();             // Cache tensor
+    Value updates = scatterOp.getUpdate();          // Updates tensor
+    // Value indices = scatterOp.getScatterIndices();  // Indices tensor
 
-    // Replace scatter op with new UpdateCacheOp op.
-    // utils::replaceOpWithNewDPSOp<UpdateCacheOp>(
-    //   rewriter, 
-    //   scatterOp,
-    //   scatterOp.getInput().getType(),          // Cache tensor
-    //   scatterOp.getInput().getType(),          // Cache tensor
-    //   scatterOp.getScatterIndices().getType(), // Indices tensor
-    //   scatterOp.getUpdate().getType()          // Updates tensor
-    //   ,scatterOp.getInput().getType()
-    // );
+    // Validate the indices tensor to ensure it matches the expected kv-cache pattern.
+    // ConcatOp concatOp = indices.getDefiningOp<ConcatOp>();
+    // if (!concatOp || !isKvScatteredIndeces(concatOp)) {
+    //   return mlir::failure();
+    // }
 
-    utils::replaceOpWithNewDPSOp<FillCacheOp>(
-      rewriter,
-      // scatterOp,
-      scatterOp.getOutput().getType(),  // Cache tensor output type
-      scatterOp.getInput().getType(),             // Cache tensor
-      scatterOp.getUpdate().getType(),   // Updates tensor
-      rewriter.getI32IntegerAttr(0)     // Batch offset (set to 0 as an example)
+    // Extract the start index for the cache update from the indices tensor.
+    // Value startIdx = concatOp.getInputs()[2];  // Assuming the 3rd input is the start index tensor.
+
+    // Slice the start index tensor to get the first value.
+    // auto startIdxType = startIdx.getType().cast<RankedTensorType>();
+    // if (startIdxType.getRank() != 1 || startIdxType.getDimSize(0) != 1) {
+    //   return mlir::failure();
+    // }
+
+    // Create a constant batch offset (set to 0 for now).
+    auto batchOffsetAttr = rewriter.getI32IntegerAttr(0);
+
+    // Replace the scatter operation with the fill_cache operation.
+    rewriter.replaceOpWithNewOp<FillCacheOp>(
+        scatterOp, scatterOp.getResult().getType(),  // Result type
+        cache,                                       // Cache tensor
+        updates,                                     // Updates tensor
+        batchOffsetAttr                              // Batch offset
     );
-
-    // auto newOp = rewriter.create<ttir::UpdateCacheOp>(
-    //   );
-
-    // rewriter.replaceOp(op, newOp.getResult());
-
-    // The original scatter op will be removed by DCE since it's no longer
-    // used.+
 
 
     return mlir::success();
