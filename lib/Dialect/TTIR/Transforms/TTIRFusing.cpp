@@ -709,23 +709,31 @@ class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
 public:
   using impl::TTIRFusingBase<TTIRFusingPass>::TTIRFusingBase;
   void runOnOperation() final {
-    RewritePatternSet patterns(&getContext());
-    // patterns.add<TTIRConv2dWithBias>(&getContext());
+    {
+      RewritePatternSet patterns(&getContext());
+      patterns.add<Conv2dTagWeights>(&getContext());
+      if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
+        signalPassFailure();
+        return;
+      }
+    }
+    {
+      RewritePatternSet patterns(&getContext());
+      // patterns.add<TTIRConv2dWithBias>(&getContext());
 
-    // // Add patterns for each reduction op type.
-    // patterns.add<ReductionWithReshapePattern<SumOp>>(&getContext());
-    // patterns.add<ReductionWithReshapePattern<MeanOp>>(&getContext());
-    // patterns.add<ReductionWithReshapePattern<MaxOp>>(&getContext());
-    // patterns.add<ReductionWithReshapePattern<MinOp>>(&getContext());
-    // patterns.add<ReductionWithReshapePattern<ProdOp>>(&getContext());
-    // patterns.add<ReductionWithReshapePattern<ReduceAndOp>>(&getContext());
-    // patterns.add<ReductionWithReshapePattern<ReduceOrOp>>(&getContext());
-    // patterns.add<ReductionWithReshapePattern<ArgMaxOp>>(&getContext());
+      // // Add patterns for each reduction op type.
+      // patterns.add<ReductionWithReshapePattern<SumOp>>(&getContext());
+      // patterns.add<ReductionWithReshapePattern<MeanOp>>(&getContext());
+      // patterns.add<ReductionWithReshapePattern<MaxOp>>(&getContext());
+      // patterns.add<ReductionWithReshapePattern<MinOp>>(&getContext());
+      // patterns.add<ReductionWithReshapePattern<ProdOp>>(&getContext());
+      // patterns.add<ReductionWithReshapePattern<ReduceAndOp>>(&getContext());
+      // patterns.add<ReductionWithReshapePattern<ReduceOrOp>>(&getContext());
+      // patterns.add<ReductionWithReshapePattern<ArgMaxOp>>(&getContext());
 
-    // patterns.add<SoftmaxFusionPattern>(&getContext());
-    // patterns.add<Conv2dWithMultiply>(&getContext());
-
-    patterns.add<KvCacheUpdatePattern>(&getContext());
+      // patterns.add<SoftmaxFusionPattern>(&getContext());
+      // patterns.add<Conv2dWithMultiply>(&getContext());
+      patterns.add<KvCacheUpdatePattern>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);
