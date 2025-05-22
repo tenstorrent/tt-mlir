@@ -77,6 +77,22 @@ runSoProgram(void *so, std::string_view funcName,
   // locally we may have 2 devices.
   assert(ttnnMeshDevice.get_devices().size() > 0);
 
+  // Clear any previous errors.
+  //
+  dlerror();
+
+  // Call setDevice function from dylib.
+  //
+  void *setDeviceSymbol = dlsym(so, "setDevice");
+  const char *setDeviceError = dlerror();
+  if (setDeviceError) {
+    dlclose(so);
+    LOG_FATAL("Failed to find setDevice function in dylib.");
+  }
+  using SetDeviceFunction = void (*)(::ttnn::MeshDevice *);
+  auto setDeviceFunc = reinterpret_cast<SetDeviceFunction>(setDeviceSymbol);
+  setDeviceFunc(&ttnnMeshDevice);
+
   // Convert inputs to TTNN tensors using .as method
   //
   std::vector<::ttnn::Tensor> ttnnInputs;
@@ -87,15 +103,9 @@ runSoProgram(void *so, std::string_view funcName,
             .getTensor());
   }
 
-  // Clear previous errors
+  // Get function from the shared object.
   //
-  dlerror();
-
-  // Get function from the shared object
-  //
-  using ForwardFunctionWithDevice = std::vector<::ttnn::Tensor> (*)(
-      std::vector<::ttnn::Tensor>, ::ttnn::MeshDevice *);
-  using ForwardFunctionNoDevice =
+  using ForwardFunction =
       std::vector<::ttnn::Tensor> (*)(std::vector<::ttnn::Tensor>);
 
   const char *dlsymError;
@@ -114,18 +124,13 @@ runSoProgram(void *so, std::string_view funcName,
     LOG_FATAL("Failed to load symbol: ", dlsymError);
   }
 
-  // Call program/function
+  // Call program/function.
   //
   std::vector<::ttnn::Tensor> ttnnOutputs;
-  if (mangledName.find("MeshDevice") != std::string::npos) {
-    auto forwardFunc = reinterpret_cast<ForwardFunctionWithDevice>(symbol);
-    ttnnOutputs = forwardFunc(ttnnInputs, &ttnnMeshDevice);
-  } else {
-    auto forwardFunc = reinterpret_cast<ForwardFunctionNoDevice>(symbol);
-    ttnnOutputs = forwardFunc(ttnnInputs);
-  }
+  auto forwardFunc = reinterpret_cast<ForwardFunction>(symbol);
+  ttnnOutputs = forwardFunc(ttnnInputs);
 
-  // Convert TTNN Tensors to Runtime Tensors
+  // Convert TTNN Tensors to Runtime Tensors.
   //
   std::vector<::tt::runtime::Tensor> outputs;
   for (::ttnn::Tensor &output : ttnnOutputs) {
