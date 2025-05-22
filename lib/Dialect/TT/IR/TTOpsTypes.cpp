@@ -590,6 +590,10 @@ mlir::AffineMap ShardLayoutAttr::getAffineMap() const {
   return mlir::AffineMap::get(getStride().size() * 2, 0, mapExprs, context);
 }
 
+ViewLayoutAttr ViewLayoutAttr::compose(ViewLayoutAttr g) const {
+  return get(getContext(), getAffineMap().compose(g.getAffineMap()));
+}
+
 //
 // This function creates an affine map that represents collapsing the tensor
 // dims onto an n-dimensional grid. E.g. (Where <> is some join operator)

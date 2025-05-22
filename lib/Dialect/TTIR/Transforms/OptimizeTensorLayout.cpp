@@ -136,16 +136,14 @@ calculateOptimalBlockFactors(ArrayRef<AffineMap> indexingMaps,
 }
 
 namespace {
-struct TTIRGenericTensorLayoutRewriter
-    : public OpRewritePattern<ttir::GenericOp> {
+struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
   TTIRGenericTensorLayoutRewriter(MLIRContext *context,
                                   SmallVector<int64_t> workerGridShape,
                                   unsigned dstRegisterSizeTiles)
-      : OpRewritePattern<ttir::GenericOp>(context),
-        workerGridShape(workerGridShape),
+      : OpRewritePattern<GenericOp>(context), workerGridShape(workerGridShape),
         dstRegisterSizeTiles(dstRegisterSizeTiles) {}
 
-  LogicalResult matchAndRewrite(ttir::GenericOp op,
+  LogicalResult matchAndRewrite(GenericOp op,
                                 PatternRewriter &rewriter) const final {
     // Update output tensor type
     assert(op->getResults().size() == 1 &&
@@ -159,7 +157,7 @@ struct TTIRGenericTensorLayoutRewriter
     SmallVector<int64_t> blockFactors = calculateOptimalBlockFactors(
         op.getIndexingMapsValue(), outputShardShape, dstRegisterSizeTiles);
     bool blockFactorsChanged = blockFactors != op.getBlockFactorsValue();
-    if (op->getResult(0).getType() == newTensorType && !blockFactorsChanged) {
+    if (op.getGrid() == metalLayout.getGrid() && !blockFactorsChanged) {
       return failure();
     }
 
@@ -181,7 +179,7 @@ struct TTIRGenericTensorLayoutRewriter
           assert(newOperandType == newTensorType &&
                  "DPS init tensor must have the same type as the result");
           rewriter.modifyOpInPlace(
-              op, [&]() { op->getResult(0).setType(newTensorType); });
+              op, [&]() { op->getResult(0).setType(view.getType()); });
           }
       }
 
@@ -193,7 +191,7 @@ struct TTIRGenericTensorLayoutRewriter
         auto memref = mlir::cast<MemRefType>(arg.getType());
         auto blockedMemRefType = getBlockedMemRefType(
             memref, op.getIndexingMapsValue()[operand.getOperandNumber()],
-            op.getBlockFactorsValue());
+            blockFactors);
         rewriter.modifyOpInPlace(op, [&]() { arg.setType(blockedMemRefType); });
       }
     }
@@ -206,8 +204,8 @@ struct TTIRGenericTensorLayoutRewriter
     });
 
     rewriter.setInsertionPointAfter(op);
-    auto emptyOp = rewriter.create<ttir::EmptyOp>(op->getLoc(), originalType);
-    auto toLayoutOp = rewriter.create<ttir::ToLayoutOp>(
+    auto emptyOp = rewriter.create<EmptyOp>(op->getLoc(), originalType);
+    auto toLayoutOp = rewriter.create<ToLayoutOp>(
         op->getLoc(), op->getResult(0), emptyOp.getResult());
     rewriter.replaceAllUsesExcept(op->getResult(0), toLayoutOp.getResult(0),
                                   toLayoutOp);
@@ -219,9 +217,9 @@ struct TTIRGenericTensorLayoutRewriter
                            Value tensor, RankedTensorType newOperandType,
                            AffineMap indexingMap,
                            ArrayRef<int64_t> blockFactors) {
-    auto emptyOp = rewriter.create<ttir::EmptyOp>(loc, newOperandType);
+    auto emptyOp = rewriter.create<EmptyOp>(loc, newOperandType);
     auto toLayoutOp =
-        rewriter.create<ttir::ToLayoutOp>(loc, tensor, emptyOp.getResult());
+        rewriter.create<ToLayoutOp>(loc, tensor, emptyOp.getResult());
     MetalLayoutAttr metalLayout =
         mlir::cast<MetalLayoutAttr>(newOperandType.getEncoding());
     SmallVector<int64_t> blockShape = indexingMap.compose(blockFactors);
@@ -229,13 +227,13 @@ struct TTIRGenericTensorLayoutRewriter
       blockShape[i] *= dim;
     }
     MetalLayoutAttr viewLayout = metalLayout.withGrid(blockShape);
-    auto viewOp = rewriter.create<ttir::ViewLayoutOp>(
-        loc,
-        RankedTensorType::get(newOperandType.getShape(),
-                              newOperandType.getElementType(), viewLayout),
-        toLayoutOp.getResult(0));
-    viewOp.dump();
-    return viewOp.getResult();
+    return rewriter
+        .create<ViewLayoutOp>(
+            loc,
+            RankedTensorType::get(newOperandType.getShape(),
+                                  newOperandType.getElementType(), viewLayout),
+            toLayoutOp.getResult(0))
+        .getResult();
   }
 
   static MemRefType getBlockedMemRefType(MemRefType fullShard,
