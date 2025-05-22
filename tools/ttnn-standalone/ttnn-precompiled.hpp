@@ -48,7 +48,6 @@
 #include <cassert>
 #include <cstddef>
 #include <iostream>
-#include <mutex>
 #include <vector>
 
 namespace ttnn {
@@ -64,6 +63,7 @@ public:
   static ttnn::MeshDevice *getInstance() {
     // If we have an external device, use it.
     if (externalDevice) {
+      assert(ownedDevice == nullptr);
       return externalDevice;
     }
 
@@ -76,8 +76,8 @@ public:
 
   // Set an external device (we don't own it)
   static void setInstance(ttnn::MeshDevice *newInstance) {
-    // Clear any owned device we might have.
-    ownedDevice.reset();
+    // We don't want to mix and match owned/external devices.
+    assert(ownedDevice == nullptr);
 
     // Store the external device pointer.
     externalDevice = newInstance;

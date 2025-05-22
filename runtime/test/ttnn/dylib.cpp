@@ -77,7 +77,7 @@ runSoProgram(void *so, std::string_view funcName,
   // locally we may have 2 devices.
   assert(ttnnMeshDevice.get_devices().size() > 0);
 
-  // Clear any previous errors
+  // Clear any previous errors.
   //
   dlerror();
 
@@ -102,10 +102,6 @@ runSoProgram(void *so, std::string_view funcName,
         input.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
             .getTensor());
   }
-
-  // Clear previous errors.
-  //
-  dlerror();
 
   // Get function from the shared object.
   //
