@@ -853,3 +853,63 @@ CoreRangeSetAttr ShardSpecAttr::getCoreRangeSet(mlir::MLIRContext *context,
 
   return CoreRangeSetAttr::get(context, coreRangeSet);
 }
+
+struct DeviceComputeKernelConfigAttrParams {
+  std::optional<mlir::tt::ttnn::MathFidelity> mathFidelity;
+  mlir::BoolAttr mathApproxMode;
+  mlir::BoolAttr fp32DestAccEn;
+  mlir::BoolAttr packerL1Acc;
+  mlir::BoolAttr dstFullSyncEn;
+
+  DeviceComputeKernelConfigAttrParams() = delete;
+
+  DeviceComputeKernelConfigAttrParams(DeviceComputeKernelConfigAttr attr) {
+    mathFidelity = attr.getMathFidelity();
+    mathApproxMode = attr.getMathApproxMode();
+    fp32DestAccEn = attr.getFp32DestAccEn();
+    packerL1Acc = attr.getPackerL1Acc();
+    dstFullSyncEn = attr.getDstFullSyncEn();
+  }
+
+  DeviceComputeKernelConfigAttr
+  buildDeviceComputeKernelConfigAttr(mlir::MLIRContext *ctx) const {
+    return DeviceComputeKernelConfigAttr::get(ctx, mathFidelity, mathApproxMode,
+                                              fp32DestAccEn, packerL1Acc,
+                                              dstFullSyncEn);
+  }
+};
+
+DeviceComputeKernelConfigAttr DeviceComputeKernelConfigAttr::withMathFidelity(
+    mlir::tt::ttnn::MathFidelity mathFidelity) const {
+  DeviceComputeKernelConfigAttrParams params(*this);
+  params.mathFidelity = mathFidelity;
+  return params.buildDeviceComputeKernelConfigAttr(getContext());
+}
+
+DeviceComputeKernelConfigAttr
+DeviceComputeKernelConfigAttr::withMathApproxMode(bool value) const {
+  DeviceComputeKernelConfigAttrParams params(*this);
+  params.mathApproxMode = BoolAttr::get(getContext(), value);
+  return params.buildDeviceComputeKernelConfigAttr(getContext());
+}
+
+DeviceComputeKernelConfigAttr
+DeviceComputeKernelConfigAttr::withFp32DestAccEn(bool value) const {
+  DeviceComputeKernelConfigAttrParams params(*this);
+  params.fp32DestAccEn = BoolAttr::get(getContext(), value);
+  return params.buildDeviceComputeKernelConfigAttr(getContext());
+}
+
+DeviceComputeKernelConfigAttr
+DeviceComputeKernelConfigAttr::withPackerL1Acc(bool value) const {
+  DeviceComputeKernelConfigAttrParams params(*this);
+  params.packerL1Acc = BoolAttr::get(getContext(), value);
+  return params.buildDeviceComputeKernelConfigAttr(getContext());
+}
+
+DeviceComputeKernelConfigAttr
+DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
+  DeviceComputeKernelConfigAttrParams params(*this);
+  params.dstFullSyncEn = BoolAttr::get(getContext(), value);
+  return params.buildDeviceComputeKernelConfigAttr(getContext());
+}

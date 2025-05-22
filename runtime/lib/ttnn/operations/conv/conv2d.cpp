@@ -46,8 +46,12 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
     conv2dConfig.weights_dtype = utils::getDataType(op->weight());
   }
 
-  // Use defaults for now, until compiler drives this.
   std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig = std::nullopt;
+  if (op->compute_config()) {
+    computeConfig =
+        utils::createDeviceComputeKernelConfig(op->compute_config());
+  }
+
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));

@@ -1,0 +1,11 @@
+include "ttmlir/Target/Common/types.fbs";
+
+namespace tt.target.ttnn;
+
+table DeviceComputeKernelConfig {
+  math_fidelity: tt.target.MathFidelity = null;
+  math_approx_mode: bool = null;
+  fp32_dest_acc_en: bool = null;
+  packer_l1_acc: bool = null;
+  dst_full_sync_en: bool = null;
+}
