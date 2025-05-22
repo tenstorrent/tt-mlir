@@ -915,7 +915,7 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
   if (!tensorRef) {
     return createNullTensor();
   }
-  auto tensor = getTensor(programContextHandle, *tensorRef);
+  auto tensor = getTensor(programContextHandle, *tensorRef, true);
   return tensor ? *tensor : createNullTensor();
 }
 
@@ -1068,6 +1068,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_Pool2dOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::PrepareConv2dWeightsOp: {
+    tensorRef = opContext.type_as_PrepareConv2dWeightsOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     tensorRef = opContext.type_as_AllGatherOp()->out();
     break;
@@ -1116,8 +1120,9 @@ getOpOutputRef(OpContext opContextHandle,
                     opContext.type_type())]);
     return std::nullopt;
   }
-  default: {
-    LOG_FATAL("Unsupported operation type");
+  case ::tt::target::ttnn::OpType::NONE: {
+    LOG_FATAL("Invalid op type");
+    break;
   }
   }
 
@@ -1323,31 +1328,24 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_DeallocateOp()->in()};
     break;
   }
+  case ::tt::target::ttnn::OpType::NamedFullOp:
+  case ::tt::target::ttnn::OpType::UpdateCacheOp:
+  case ::tt::target::ttnn::OpType::FillCacheOp:
   case ::tt::target::ttnn::OpType::LoadCachedOp: {
     tensorRefs = {};
     break;
   }
-  default: {
-    LOG_FATAL("Unsupported operation type");
+  case ::tt::target::ttnn::OpType::PrepareConv2dWeightsOp: {
+    tensorRefs = {opContext.type_as_PrepareConv2dWeightsOp()->weight_tensor()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::NONE: {
+    LOG_FATAL("Invalid op type");
+    break;
   }
   }
-
   std::vector<tt::runtime::TensorRef> rtTensorRefs;
   rtTensorRefs.reserve(tensorRefs.size());
-
-  for (const auto *ref : tensorRefs) {
-    rtTensorRefs.emplace_back(utils::createRuntimeTensorRefFromTTNN(ref));
-  }
-
-  return rtTensorRefs;
-}
-
-std::optional<Tensor> getTensor(CallbackContext programContextHandle,
-                                tt::runtime::TensorRef tensorRef) {
-  const auto &programContext =
-      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
-          DeviceRuntime::TTNN);
-  const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
 
   const auto &tensorRefPtr =
       &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
@@ -1373,18 +1371,40 @@ std::optional<Tensor> getTensor(CallbackContext programContextHandle,
   return utils::createRuntimeTensorFromTTNN(*hostTensor);
 }
 
-void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef,
-                  Tensor tensor) {
-  auto &programContext =
+std::optional<Tensor> getTensor(CallbackContext programContextHandle,
+                                tt::runtime::TensorRef tensorRef,
+                                bool untilize) {
+  const auto &programContext =
       programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
           DeviceRuntime::TTNN);
-  ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
-  const auto &tensorRefPtr =
+  const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
+
+  const auto *tensorRefPtr =
       &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
 
   if (!tensorRefPtr) {
     LOG_WARNING("Tensor not found in tensor pool");
-    return;
+    return std::nullopt;
+  }
+  // TODO(ndrakulicTT): Check what happens if the tensor is not live
+  if (!tensorPool.contains(tensorRefPtr)) {
+    LOG_WARNING("Tensor not found in tensor pool");
+    return std::nullopt;
+  }
+
+  ::tt::runtime::Tensor outTensor = utils::createRuntimeTensorFromTTNN(
+      tensorPool.getTTNNTensorAndValidate(tensorRefPtr));
+
+  std::vector<tt::runtime::Tensor> hostTensors =
+      ::tt::runtime::ttnn::toHost(outTensor, untilize);
+
+  if (hostTensors.empty()) {
+    LOG_WARNING("Tensor not found in tensor pool");
+    return std::nullopt;
+  }
+
+  if (hostTensors.size() != 1) {
+    LOG_FATAL("Multi device tensor not supported");
   }
   if (!tensorPool.contains(tensorRefPtr)) {
     LOG_WARNING("Tensor not found in tensor pool");
@@ -1410,6 +1430,35 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
       executor.gatherOutputTensors();
 
   return outputTensors;
+}
+
+  return hostTensors[0];
+}
+
+void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef,
+                  Tensor tensor) {
+  auto &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
+  const auto &tensorRefPtr =
+      &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
+
+  if (!tensorRefPtr) {
+    LOG_WARNING("Tensor not found in tensor pool");
+    return;
+  }
+  if (!tensorPool.contains(tensorRefPtr)) {
+    LOG_WARNING("Tensor not found in tensor pool");
+    return;
+  }
+
+  ::ttnn::Tensor &srcTensor = tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  ::ttnn::Tensor &dstTensor = tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
+  srcTensor = srcTensor.pad_to_tile(0.0f);
+  srcTensor = srcTensor.to_layout(dstTensor.layout());
+  srcTensor = srcTensor.to_device(dstTensor.device());
+  tensorPool.insertTTNNTensorAndValidate(tensorRefPtr, srcTensor);
 }
 
 } // namespace tt::runtime::ttnn

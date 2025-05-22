@@ -5,9 +5,6 @@
 #ifndef TT_RUNTIME_DETAIL_TTNN_TTNN_H
 #define TT_RUNTIME_DETAIL_TTNN_TTNN_H
 
-#include <optional>
-#include <vector>
-
 #define FMT_HEADER_ONLY
 #include "hostdevcommon/common_values.hpp"
 #include "tt-metalium/hal.hpp"
@@ -56,6 +53,9 @@
 
 #include "tt/runtime/types.h"
 #include "ttmlir/Target/TTNN/Target.h"
+
+#include <optional>
+#include <vector>
 
 namespace tt::runtime::ttnn {
 
@@ -212,15 +212,26 @@ std::string getOpLocInfo(OpContext opContextHandle);
 ::tt::runtime::Tensor getOpOutputTensor(OpContext opContextHandle,
                                         CallbackContext programContextHandle);
 
+// Returns reference to the output tensor of the operation
+// if the operation does not have an output tensor, returns std::nullopt
 std::optional<tt::runtime::TensorRef>
 getOpOutputRef(OpContext opContextHandle, CallbackContext programContextHandle);
 
+// Returns list of references to the input tensors of the operation
+// if the operation does not have any input tensors, returns empty vector
 std::vector<tt::runtime::TensorRef>
 getOpInputRefs(OpContext opContextHandle, CallbackContext programContextHandle);
 
+// Returns tensor to which tensorRef refers
+// In case that that tensor is not in the tensor pool, returns std::nullopt
+// For now only supports single device tensors
 std::optional<Tensor> getTensor(CallbackContext programContextHandle,
-                                tt::runtime::TensorRef tensorRef);
+                                tt::runtime::TensorRef tensorRef,
+                                bool untilize);
 
+// Update tensor to which tensorRef refers
+// Prefered to be owned tensor to avoid unexpected behavior in case of
+// deallocation
 void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef,
                   Tensor srcTensor);
 

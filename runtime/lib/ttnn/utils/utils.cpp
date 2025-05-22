@@ -360,10 +360,9 @@ getMeshShapeFromConfig(const ::tt::tt_metal::DistributedTensorConfig &config,
 
 ::tt::runtime::TensorRef
 createRuntimeTensorRefFromTTNN(const ::tt::target::ttnn::TensorRef *tensorRef) {
-  auto tensorRefPtr = std::shared_ptr<tt::target::ttnn::TensorRef>(
-      const_cast<::tt::target::ttnn::TensorRef *>(tensorRef), [](auto p) {});
-  return tt::runtime::TensorRef(std::static_pointer_cast<void>(tensorRefPtr),
-                                DeviceRuntime::TTNN);
+  std::shared_ptr<const void> tensorRefPtr =
+      ::tt::runtime::utils::unsafe_borrow_shared(tensorRef);
+  return tt::runtime::TensorRef(tensorRefPtr, DeviceRuntime::TTNN);
 }
 
 std::vector<const tt::target::ttnn::TensorRef *> convertFbTensorRefsToVector(
