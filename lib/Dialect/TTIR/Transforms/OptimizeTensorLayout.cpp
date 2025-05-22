@@ -169,7 +169,9 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
       auto newOperandType = calculateOptimalLayoutForTensorType(
           rewriter, operand.get(), workerGridShape);
       if (operand.get().getType() != newOperandType || blockFactorsChanged) {
-        Value view =
+        Value view;
+        MetalLayoutAttr viewMetalLayout;
+        std::tie(view, viewMetalLayout) =
             blockedView(rewriter, op->getLoc(), operand.get(), newOperandType,
                         op.getIndexingMapsValue()[operand.getOperandNumber()],
                         blockFactors);
@@ -181,18 +183,15 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
           rewriter.modifyOpInPlace(
               op, [&]() { op->getResult(0).setType(view.getType()); });
           }
-      }
 
-      for (auto &region : op->getRegions()) {
-        assert(region.getBlocks().size() == 1 &&
-               "Only one block per region is supported.");
-        Block &genericBlock = region.front();
-        auto arg = genericBlock.getArgument(operand.getOperandNumber());
-        auto memref = mlir::cast<MemRefType>(arg.getType());
-        auto blockedMemRefType = getBlockedMemRefType(
-            memref, op.getIndexingMapsValue()[operand.getOperandNumber()],
-            blockFactors);
-        rewriter.modifyOpInPlace(op, [&]() { arg.setType(blockedMemRefType); });
+        for (auto &region : op->getRegions()) {
+          assert(region.getBlocks().size() == 1 &&
+                 "Only one block per region is supported.");
+          Block &genericBlock = region.front();
+          auto arg = genericBlock.getArgument(operand.getOperandNumber());
+          rewriter.modifyOpInPlace(
+              op, [&]() { arg.setType(viewMetalLayout.getMemref()); });
+        }
       }
     }
 
@@ -213,10 +212,10 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
     return success();
   }
 
-  static Value blockedView(PatternRewriter &rewriter, Location loc,
-                           Value tensor, RankedTensorType newOperandType,
-                           AffineMap indexingMap,
-                           ArrayRef<int64_t> blockFactors) {
+  static std::pair<Value, MetalLayoutAttr>
+  blockedView(PatternRewriter &rewriter, Location loc, Value tensor,
+              RankedTensorType newOperandType, AffineMap indexingMap,
+              ArrayRef<int64_t> blockFactors) {
     auto emptyOp = rewriter.create<EmptyOp>(loc, newOperandType);
     auto toLayoutOp =
         rewriter.create<ToLayoutOp>(loc, tensor, emptyOp.getResult());
@@ -227,28 +226,16 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
       blockShape[i] *= dim;
     }
     MetalLayoutAttr viewLayout = metalLayout.withGrid(blockShape);
-    return rewriter
-        .create<ViewLayoutOp>(
-            loc,
-            RankedTensorType::get(newOperandType.getShape(),
-                                  newOperandType.getElementType(), viewLayout),
-            toLayoutOp.getResult(0))
-        .getResult();
-  }
-
-  static MemRefType getBlockedMemRefType(MemRefType fullShard,
-                                         AffineMap indexingMap,
-                                         ArrayRef<int64_t> blockFactors) {
-    SmallVector<int64_t> operandBlockFactors =
-        indexingMap.compose(blockFactors);
-    SmallVector<int64_t> blockShape(fullShard.getShape());
-    assert(operandBlockFactors.size() == blockShape.size());
-    for (auto [dim, factor] : llvm::enumerate(operandBlockFactors)) {
-      assert(blockShape[dim] % factor == 0);
-      blockShape[dim] /= factor;
-    }
-    return MemRefType::get(blockShape, fullShard.getElementType(),
-                           fullShard.getLayout(), fullShard.getMemorySpace());
+    return std::make_pair(
+        rewriter
+            .create<ViewLayoutOp>(
+                loc,
+                RankedTensorType::get(newOperandType.getShape(),
+                                      newOperandType.getElementType(),
+                                      viewLayout),
+                toLayoutOp.getResult(0))
+            .getResult(),
+        viewLayout);
   }
 
   SmallVector<int64_t> workerGridShape;

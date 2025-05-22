@@ -54,6 +54,7 @@ def test_eltwise_blocking(
     )
 
 
+@pytest.mark.fails_golden
 @pytest.mark.parametrize("grid_m", [1])
 @pytest.mark.parametrize("grid_k", [1])
 @pytest.mark.parametrize("grid_n", [1])

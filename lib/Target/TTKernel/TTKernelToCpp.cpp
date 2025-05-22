@@ -40,7 +40,6 @@ public:
     emitDebugPrint();
 
     if (threadType == ThreadType::Noc) {
-
       builder->create<emitc::IncludeOp>(loc, "dataflow_api.h",
                                         /*isStandard=*/false);
     }
