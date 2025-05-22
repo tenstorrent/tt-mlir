@@ -199,6 +199,7 @@ class Query:
         return self.results.get_result_code(), self.results.get_results()
 
     def get_system_desc_as_dict(self):
+        print("SYSDESCJSON TYPE: ", type(self.system_desc.as_json()))
         return json.loads(self.system_desc.as_json())
 
     @staticmethod

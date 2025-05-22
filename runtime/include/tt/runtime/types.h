@@ -168,6 +168,7 @@ struct SystemDesc : public Flatbuffer {
   using Flatbuffer::Flatbuffer;
 
   static SystemDesc loadFromPath(const char *path);
+  SystemDesc getSystemDescFromBinary(Flatbuffer binary);
 
   const ::tt::target::SystemDesc *get() const {
     return ::tt::target::GetSizePrefixedSystemDescRoot(handle.get())
@@ -194,7 +195,10 @@ struct Binary : public Flatbuffer {
 
   std::vector<TensorDesc> getProgramInputs(std::uint32_t programIndex) const;
   std::vector<TensorDesc> getProgramOutputs(std::uint32_t programIndex) const;
+  std::string getProgramsAsJson() const;
   const ::tt::target::GoldenTensor *getDebugInfoGolden(std::string &loc) const;
+
+  SystemDesc getSystemDesc() const { return SystemDesc(handle); }
 
   // Get the tensor cache associated with this binary
   std::shared_ptr<TensorCache> getCache() { return cache; }

@@ -80,9 +80,20 @@ std::string_view getTTMLIRGitHash(Flatbuffer binary) {
 }
 
 std::string asJson(Flatbuffer binary) {
-  return ::tt::runtime::asJson(
+  std::string test = ::tt::runtime::asJson(
       binary.handle.get(), ::tt::target::ttnn::TTNNBinaryBinarySchema::data(),
       ::tt::target::ttnn::TTNNBinaryBinarySchema::size());
+  std::cout << "TTNN test length: " << test.length() << std::endl;
+  return test;
+}
+
+std::string getProgramsAsJson(Flatbuffer binary) {
+  const auto *programs = getBinary(binary)->programs();
+  std::string test = ::tt::runtime::asJson(
+      programs, ::tt::target::ttnn::TTNNBinaryBinarySchema::data(),
+      ::tt::target::ttnn::TTNNBinaryBinarySchema::size());
+  std::cout << "Program test length: " << test.length() << std::endl;
+  return test;
 }
 
 std::vector<TensorDesc> getProgramInputs(Flatbuffer binary,
@@ -159,10 +170,21 @@ std::string_view getTTMLIRGitHash(Flatbuffer binary) {
 }
 
 std::string asJson(Flatbuffer binary) {
-  return ::tt::runtime::asJson(
+  std::string test = ::tt::runtime::asJson(
       binary.handle.get(),
       ::tt::target::metal::TTMetalBinaryBinarySchema::data(),
       ::tt::target::metal::TTMetalBinaryBinarySchema::size());
+  std::cout << "METAL test length: " << test.length() << std::endl;
+  return test;
+}
+
+std::string getProgramsAsJson(Flatbuffer binary) {
+  const auto *programs = getBinary(binary)->programs();
+  std::string test = ::tt::runtime::asJson(
+      programs, ::tt::target::metal::TTMetalBinaryBinarySchema::data(),
+      ::tt::target::metal::TTMetalBinaryBinarySchema::size());
+  std::cout << "ProgramMetal test length: " << test.length() << std::endl;
+  return test;
 }
 
 static std::vector<TensorDesc>
@@ -240,9 +262,18 @@ std::string_view getTTMLIRGitHash(Flatbuffer binary) {
 }
 
 std::string asJson(Flatbuffer binary) {
-  return ::tt::runtime::asJson(
+
+  std::string test = ::tt::runtime::asJson(
       binary.handle.get(), ::tt::target::SystemDescRootBinarySchema::data(),
       ::tt::target::SystemDescRootBinarySchema::size());
+  std::cout << "SYSDESC test length: " << test.length() << std::endl;
+  return test;
+}
+
+std::string asNewJson(Flatbuffer binary) {
+  std::string test = "";
+
+  return test;
 }
 
 } // namespace system_desc
@@ -342,8 +373,26 @@ std::string Flatbuffer::asJson() const {
   LOG_FATAL("Unsupported binary format");
 }
 
+std::string Binary::getProgramsAsJson() const {
+  if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
+          handle.get())) {
+    return ttnn::getProgramsAsJson(*this);
+  }
+
+  if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
+          handle.get())) {
+    return metal::getProgramsAsJson(*this);
+  }
+
+  LOG_FATAL("Unsupported binary format");
+}
+
 SystemDesc SystemDesc::loadFromPath(const char *path) {
   return SystemDesc(Flatbuffer::loadFromPath(path).handle);
+}
+
+SystemDesc SystemDesc::getSystemDescFromBinary(Flatbuffer binary) {
+  return SystemDesc(binary.handle);
 }
 
 Binary Binary::loadFromPath(const char *path) {

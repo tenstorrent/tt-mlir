@@ -35,6 +35,8 @@ PYBIND11_MODULE(_C, m) {
       .def("store", &tt::runtime::Binary::store)
       .def("get_debug_info_golden", &::tt::runtime::Binary::getDebugInfoGolden,
            py::return_value_policy::reference)
+      .def("get_system_desc", &tt::runtime::Binary::getSystemDesc,
+           py::return_value_policy::reference)
       .def(
           "get_tensor_cache",
           [](tt::runtime::Binary &bin) { return bin.getCache(); },
@@ -58,6 +60,7 @@ PYBIND11_MODULE(_C, m) {
                                                   // shared_ptr*
   });
   m.def("load_system_desc_from_path", &tt::runtime::SystemDesc::loadFromPath);
+  m.def("get_programs_as_json", &tt::runtime::Binary::getProgramsAsJson);
 
   /**
    * Binding for the `GoldenTensor` type
