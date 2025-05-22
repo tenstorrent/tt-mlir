@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
+import pytest
 import ttrt
 import ttmlir
 import torch
@@ -19,14 +20,13 @@ from ttrt.runtime import (
     get_tensor,
     update_tensor,
     memcpy,
-    create_tensor,
+    create_owned_tensor,
     DataType,
+    unregister_hooks,
 )
 from ..utils import TT_MLIR_HOME
 
-FLATBUFFER_BASE_PATH = (
-    f"{TT_MLIR_HOME}/build/test/ttmlir/Silicon/TTNN/n150/chisel/Output"
-)
+DIRECTORY_PATH = f"{TT_MLIR_HOME}/build/test/ttmlir/Silicon"
 
 DTYPE_TO_TORCH_DTYPE = {
     DataType.Float32: torch.float32,
@@ -62,61 +62,64 @@ def update_device_tensor(program_context, tensor_ref, dst_tensor, src_tensor):
     stride = dst_tensor.get_stride()
     dtype = dst_tensor.get_dtype()
     size = torch.numel(src_tensor)
-    tensor = create_tensor(data_ptr, shape, stride, size, dtype)
+    tensor = create_owned_tensor(data_ptr, shape, stride, size, dtype)
     update_tensor(program_context, tensor_ref, tensor)
 
 
-in_counter = 0
-out_counter = 0
-
-
-def test_tensor_manipulation_apis():
-    check_in_tensors = {
-        0: torch.ones([10, 10]),
-        1: torch.ones([10, 10]),
-        2: torch.ones([10, 10]),
-        3: torch.ones([10, 10]),
-        4: torch.ones([10, 10]) * 10,
-        5: torch.ones([10]),
-        6: torch.ones([10, 10]) * 20,
-        7: torch.ones([10]),
-    }
-
-    update_in_tensors = {4: torch.ones([10, 10]) * 20}
+@pytest.mark.parametrize(
+    "flatbuffer_path,golden_input_tensors,golden_out_tensors,update_in_tensors",
+    [
+        (
+            f"{DIRECTORY_PATH}/TTNN/n150/chisel/Output/test_tensor_manipulation.mlir.tmp.ttnn",
+            {
+                0: torch.ones([10, 10]),
+                1: torch.ones([10, 10]),
+                2: torch.ones([10, 10]),
+                3: torch.ones([10, 10]),
+                4: torch.ones([10, 10]) * 10,
+                5: torch.ones([10]),
+                6: torch.ones([10, 10]) * 20,
+                7: torch.ones([10]),
+            },
+            {0: torch.ones([10, 10]) * 10, 1: torch.ones([10, 10]) * 21},
+            {4: torch.ones([10, 10]) * 20},
+        ),
+    ],
+)
+def test_tensor_manipulation_apis(
+    flatbuffer_path, golden_input_tensors, golden_out_tensors, update_in_tensors
+):
+    in_counter = 0
+    out_counter = 0
 
     def preop(binary, programContext, opContext):
-        global in_counter
+        nonlocal in_counter
         tensor_refs = get_op_input_refs(opContext, programContext)
 
         for ref in tensor_refs:
             tensor = get_tensor(programContext, ref)
             torch_tensor = get_torch_tensor(tensor)
-            if in_counter in check_in_tensors:
-                assert torch.all(torch_tensor == check_in_tensors[in_counter])
+            if in_counter in golden_input_tensors:
+                assert torch.all(torch_tensor == golden_input_tensors[in_counter])
             if in_counter in update_in_tensors:
                 update_device_tensor(
                     programContext, ref, tensor, update_in_tensors[in_counter]
                 )
             in_counter += 1
 
-    check_out_tensors = {0: torch.ones([10, 10]) * 10, 1: torch.ones([10, 10]) * 21}
-
     def postop(binary, programContext, opContext):
-        global out_counter
+        nonlocal out_counter
+
         tensor = get_op_output_tensor(opContext, programContext)
         if tensor is None:
             return
         torch_tensor = get_torch_tensor(tensor)
-        print(torch_tensor)
-        if out_counter in check_out_tensors:
-            assert torch.all(torch_tensor == check_out_tensors[out_counter])
+        if out_counter in golden_out_tensors:
+            assert torch.all(torch_tensor == golden_out_tensors[out_counter])
         out_counter += 1
 
-    flatbuffer_path = os.path.join(
-        FLATBUFFER_BASE_PATH, "test_tensor_manipulation.mlir.tmp.ttnn"
-    )
+    assert os.path.exists(flatbuffer_path)
 
-    # output_dir = "./dump"
     args = {
         "binary": str(flatbuffer_path),
         "save-artifacts": True,
@@ -129,4 +132,5 @@ def test_tensor_manipulation_apis():
 
     callback_env_pre = DebugHooks.get(preop, postop)
     result_code, results = rt_api()
+    unregister_hooks()
     assert result_code == 0, "Test failed"

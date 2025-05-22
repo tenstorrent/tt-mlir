@@ -915,7 +915,7 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
   if (!tensorRef) {
     return createNullTensor();
   }
-  auto tensor = getTensor(programContextHandle, *tensorRef);
+  auto tensor = getTensor(programContextHandle, *tensorRef, true);
   return tensor ? *tensor : createNullTensor();
 }
 
@@ -1068,6 +1068,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_Pool2dOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::PrepareConv2dWeightsOp: {
+    tensorRef = opContext.type_as_PrepareConv2dWeightsOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     tensorRef = opContext.type_as_AllGatherOp()->out();
     break;
@@ -1116,8 +1120,9 @@ getOpOutputRef(OpContext opContextHandle,
                     opContext.type_type())]);
     return std::nullopt;
   }
-  default: {
-    LOG_FATAL("Unsupported operation type");
+  case ::tt::target::ttnn::OpType::NONE: {
+    LOG_FATAL("Invalid op type");
+    break;
   }
   }
 
@@ -1128,289 +1133,320 @@ getOpOutputRef(OpContext opContextHandle,
   return utils::createRuntimeTensorRefFromTTNN(tensorRef.value());
 }
 
-  std::vector<tt::runtime::TensorRef> getOpInputRefs(
-      OpContext opContextHandle, CallbackContext programContextHandle) {
+std::vector<tt::runtime::TensorRef>
+getOpInputRefs(OpContext opContextHandle,
+               CallbackContext programContextHandle) {
 
-    const auto &opContext =
-        opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
+  const auto &opContext =
+      opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
 
-    std::vector<const ::tt::target::ttnn::TensorRef *> tensorRefs;
+  std::vector<const ::tt::target::ttnn::TensorRef *> tensorRefs;
 
-    switch (opContext.type_type()) {
-    case ::tt::target::ttnn::OpType::ArangeOp: {
-      tensorRefs = {};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::EmptyOp: {
-      tensorRefs = {};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::GetDeviceOp: {
-      tensorRefs = {};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::FullOp: {
-      tensorRefs = {};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::ConstantOp: {
-      tensorRefs = {};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
-      tensorRefs = {opContext.type_as_ToMemoryConfigOp()->in0()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::ToLayoutOp: {
-      tensorRefs = {opContext.type_as_ToLayoutOp()->in()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::ToDTypeOp: {
-      tensorRefs = {opContext.type_as_ToDTypeOp()->in()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::TypecastOp: {
-      tensorRefs = {opContext.type_as_TypecastOp()->in()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::ToDeviceOp: {
-      tensorRefs = {opContext.type_as_ToDeviceOp()->in()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::FromDeviceOp: {
-      tensorRefs = {opContext.type_as_FromDeviceOp()->in()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::EltwiseBinaryOp: {
-      tensorRefs = {opContext.type_as_EltwiseBinaryOp()->lhs(),
-                    opContext.type_as_EltwiseBinaryOp()->rhs()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeOp: {
-      tensorRefs = {opContext.type_as_EltwiseBinaryCompositeOp()->lhs(),
-                    opContext.type_as_EltwiseBinaryCompositeOp()->rhs()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::EltwiseTernaryWhereOp: {
-      tensorRefs = {opContext.type_as_EltwiseTernaryWhereOp()->first(),
-                    opContext.type_as_EltwiseTernaryWhereOp()->second(),
-                    opContext.type_as_EltwiseTernaryWhereOp()->third()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::EltwiseQuantizationOp: {
-      tensorRefs = {opContext.type_as_EltwiseQuantizationOp()->in()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::EltwiseUnaryOp: {
-      tensorRefs = {opContext.type_as_EltwiseUnaryOp()->in()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::EltwiseUnaryCompositeOp: {
-      tensorRefs = {opContext.type_as_EltwiseUnaryCompositeOp()->in()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::LinearOp: {
-      tensorRefs = {opContext.type_as_LinearOp()->a(),
-                    opContext.type_as_LinearOp()->b(),
-                    opContext.type_as_LinearOp()->bias()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::MatmulOp: {
-      tensorRefs = {opContext.type_as_MatmulOp()->a(),
-                    opContext.type_as_MatmulOp()->b()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::MorehCumSumOp: {
-      tensorRefs = {opContext.type_as_MorehCumSumOp()->in()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::ReductionArgMaxOp: {
-      tensorRefs = {opContext.type_as_ReductionArgMaxOp()->in()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::ReductionProdOp: {
-      tensorRefs = {opContext.type_as_ReductionProdOp()->in()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::ReductionOp: {
-      tensorRefs = {opContext.type_as_ReductionOp()->in()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::EmbeddingOp: {
-      tensorRefs = {opContext.type_as_EmbeddingOp()->input()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::EmbeddingBackwardOp: {
-      tensorRefs = {opContext.type_as_EmbeddingBackwardOp()->input()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::SoftmaxOp: {
-      tensorRefs = {opContext.type_as_SoftmaxOp()->in()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::TransposeOp: {
-      tensorRefs = {opContext.type_as_TransposeOp()->in()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::PadOp: {
-      tensorRefs = {opContext.type_as_PadOp()->in()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::ConcatOp: {
-      tensorRefs = utils::convertFbTensorRefsToVector(
-          opContext.type_as_ConcatOp()->inputs());
-      break;
-    }
-    case ::tt::target::ttnn::OpType::PermuteOp: {
-      tensorRefs = {opContext.type_as_PermuteOp()->in()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::ReshapeOp: {
-      tensorRefs = {opContext.type_as_ReshapeOp()->in()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::SliceOp: {
-      tensorRefs = {opContext.type_as_SliceOp()->in()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::RepeatOp: {
-      tensorRefs = {opContext.type_as_RepeatOp()->in()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::RepeatInterleaveOp: {
-      tensorRefs = {opContext.type_as_RepeatInterleaveOp()->input()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::Conv2dOp: {
-      tensorRefs = {opContext.type_as_Conv2dOp()->input()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::ConvTranspose2dOp: {
-      tensorRefs = {opContext.type_as_ConvTranspose2dOp()->input()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::Pool2dOp: {
-      tensorRefs = {opContext.type_as_Pool2dOp()->in()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::AllGatherOp: {
-      tensorRefs = {opContext.type_as_AllGatherOp()->in()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::ReduceScatterOp: {
-      tensorRefs = {opContext.type_as_ReduceScatterOp()->in()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::CollectivePermuteOp: {
-      tensorRefs = {opContext.type_as_CollectivePermuteOp()->in()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::MeshShardOp: {
-      tensorRefs = {opContext.type_as_MeshShardOp()->in()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::UpsampleOp: {
-      tensorRefs = {opContext.type_as_UpsampleOp()->in()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::CpuOp: {
-      tensorRefs =
-          utils::convertFbTensorRefsToVector(opContext.type_as_CpuOp()->ins());
-      break;
-    }
-    case ::tt::target::ttnn::OpType::DeallocateOp: {
-      tensorRefs = {opContext.type_as_DeallocateOp()->in()};
-      break;
-    }
-    case ::tt::target::ttnn::OpType::LoadCachedOp: {
-      tensorRefs = {};
-      break;
-    }
-    default: {
-      LOG_FATAL("Unsupported operation type");
-    }
-    }
+  switch (opContext.type_type()) {
+  case ::tt::target::ttnn::OpType::ArangeOp: {
+    tensorRefs = {};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EmptyOp: {
+    tensorRefs = {};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::GetDeviceOp: {
+    tensorRefs = {};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::FullOp: {
+    tensorRefs = {};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ConstantOp: {
+    tensorRefs = {};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
+    tensorRefs = {opContext.type_as_ToMemoryConfigOp()->in0()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ToLayoutOp: {
+    tensorRefs = {opContext.type_as_ToLayoutOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ToDTypeOp: {
+    tensorRefs = {opContext.type_as_ToDTypeOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::TypecastOp: {
+    tensorRefs = {opContext.type_as_TypecastOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ToDeviceOp: {
+    tensorRefs = {opContext.type_as_ToDeviceOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::FromDeviceOp: {
+    tensorRefs = {opContext.type_as_FromDeviceOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseBinaryOp: {
+    tensorRefs = {opContext.type_as_EltwiseBinaryOp()->lhs(),
+                  opContext.type_as_EltwiseBinaryOp()->rhs()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeOp: {
+    tensorRefs = {opContext.type_as_EltwiseBinaryCompositeOp()->lhs(),
+                  opContext.type_as_EltwiseBinaryCompositeOp()->rhs()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseTernaryWhereOp: {
+    tensorRefs = {opContext.type_as_EltwiseTernaryWhereOp()->first(),
+                  opContext.type_as_EltwiseTernaryWhereOp()->second(),
+                  opContext.type_as_EltwiseTernaryWhereOp()->third()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseQuantizationOp: {
+    tensorRefs = {opContext.type_as_EltwiseQuantizationOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseUnaryOp: {
+    tensorRefs = {opContext.type_as_EltwiseUnaryOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseUnaryCompositeOp: {
+    tensorRefs = {opContext.type_as_EltwiseUnaryCompositeOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::LinearOp: {
+    tensorRefs = {opContext.type_as_LinearOp()->a(),
+                  opContext.type_as_LinearOp()->b(),
+                  opContext.type_as_LinearOp()->bias()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MatmulOp: {
+    tensorRefs = {opContext.type_as_MatmulOp()->a(),
+                  opContext.type_as_MatmulOp()->b()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MorehCumSumOp: {
+    tensorRefs = {opContext.type_as_MorehCumSumOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReductionArgMaxOp: {
+    tensorRefs = {opContext.type_as_ReductionArgMaxOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReductionProdOp: {
+    tensorRefs = {opContext.type_as_ReductionProdOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReductionOp: {
+    tensorRefs = {opContext.type_as_ReductionOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EmbeddingOp: {
+    tensorRefs = {opContext.type_as_EmbeddingOp()->input()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EmbeddingBackwardOp: {
+    tensorRefs = {opContext.type_as_EmbeddingBackwardOp()->input()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SoftmaxOp: {
+    tensorRefs = {opContext.type_as_SoftmaxOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::TransposeOp: {
+    tensorRefs = {opContext.type_as_TransposeOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PadOp: {
+    tensorRefs = {opContext.type_as_PadOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ConcatOp: {
+    tensorRefs = utils::convertFbTensorRefsToVector(
+        opContext.type_as_ConcatOp()->inputs());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PermuteOp: {
+    tensorRefs = {opContext.type_as_PermuteOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReshapeOp: {
+    tensorRefs = {opContext.type_as_ReshapeOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SliceOp: {
+    tensorRefs = {opContext.type_as_SliceOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RepeatOp: {
+    tensorRefs = {opContext.type_as_RepeatOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RepeatInterleaveOp: {
+    tensorRefs = {opContext.type_as_RepeatInterleaveOp()->input()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::Conv2dOp: {
+    tensorRefs = {opContext.type_as_Conv2dOp()->input()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ConvTranspose2dOp: {
+    tensorRefs = {opContext.type_as_ConvTranspose2dOp()->input()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::Pool2dOp: {
+    tensorRefs = {opContext.type_as_Pool2dOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllGatherOp: {
+    tensorRefs = {opContext.type_as_AllGatherOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReduceScatterOp: {
+    tensorRefs = {opContext.type_as_ReduceScatterOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CollectivePermuteOp: {
+    tensorRefs = {opContext.type_as_CollectivePermuteOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MeshShardOp: {
+    tensorRefs = {opContext.type_as_MeshShardOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::UpsampleOp: {
+    tensorRefs = {opContext.type_as_UpsampleOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CpuOp: {
+    tensorRefs =
+        utils::convertFbTensorRefsToVector(opContext.type_as_CpuOp()->ins());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DeallocateOp: {
+    tensorRefs = {opContext.type_as_DeallocateOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::NamedFullOp:
+  case ::tt::target::ttnn::OpType::UpdateCacheOp:
+  case ::tt::target::ttnn::OpType::FillCacheOp:
+  case ::tt::target::ttnn::OpType::LoadCachedOp: {
+    tensorRefs = {};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrepareConv2dWeightsOp: {
+    tensorRefs = {opContext.type_as_PrepareConv2dWeightsOp()->weight_tensor()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::NONE: {
+    LOG_FATAL("Invalid op type");
+    break;
+  }
+  }
+  std::vector<tt::runtime::TensorRef> rtTensorRefs;
+  rtTensorRefs.reserve(tensorRefs.size());
 
-    std::vector<tt::runtime::TensorRef> rtTensorRefs;
-    rtTensorRefs.reserve(tensorRefs.size());
+  const auto &tensorRefPtr =
+      &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
 
-    for (const auto *ref : tensorRefs) {
-      rtTensorRefs.emplace_back(utils::createRuntimeTensorRefFromTTNN(ref));
-    }
-
-    return rtTensorRefs;
+  if (!tensorRefPtr) {
+    LOG_WARNING("Tensor not found in tensor pool");
+    return std::nullopt;
+  }
+  // TODO(ndrakulicTT): Check what happens if the tensor is not live
+  if (!tensorPool.contains(tensorRefPtr)) {
+    LOG_WARNING("Tensor not found in tensor pool");
+    return std::nullopt;
   }
 
-  std::optional<Tensor> getTensor(CallbackContext programContextHandle,
-                                  tt::runtime::TensorRef tensorRef) {
-    const auto &programContext =
-        programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
-            DeviceRuntime::TTNN);
-    const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
+  const auto &outPtr = &tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
 
-    const auto &tensorRefPtr =
-        &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
+  // WHat happens if the tensor is not on device when you cann from device?
+  std::shared_ptr<::ttnn::Tensor> hostTensor =
+      std::make_shared<::ttnn::Tensor>(::ttnn::to_layout(
+          ::ttnn::from_device(*outPtr), ::ttnn::Layout::ROW_MAJOR, std::nullopt,
+          std::nullopt, static_cast<::ttnn::IDevice *>(nullptr)));
 
-    if (!tensorRefPtr) {
-      LOG_WARNING("Tensor not found in tensor pool");
-      return std::nullopt;
-    }
-    // TODO(ndrakulicTT): Check what happens if the tensor is not live
-    if (!tensorPool.contains(tensorRefPtr)) {
-      LOG_WARNING("Tensor not found in tensor pool");
-      return std::nullopt;
-    }
+  return utils::createRuntimeTensorFromTTNN(*hostTensor);
+}
 
-    const auto &outPtr = &tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
+std::vector<::tt::runtime::Tensor>
+submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
+       std::vector<::tt::runtime::Tensor> &inputs) {
 
-    // WHat happens if the tensor is not on device when you cann from device?
-    std::shared_ptr<::ttnn::Tensor> hostTensor =
-        std::make_shared<::ttnn::Tensor>(::ttnn::to_layout(
-            ::ttnn::from_device(*outPtr), ::ttnn::Layout::ROW_MAJOR,
-            std::nullopt, std::nullopt,
-            static_cast<::ttnn::IDevice *>(nullptr)));
+  ProgramExecutor executor(deviceHandle, executableHandle, programIndex,
+                           inputs);
+  executor.execute();
+  std::vector<::tt::runtime::Tensor> outputTensors =
+      executor.gatherOutputTensors();
 
-    return utils::createRuntimeTensorFromTTNN(*hostTensor);
+  return outputTensors;
+}
+
+std::optional<Tensor> getTensor(CallbackContext programContextHandle,
+                                tt::runtime::TensorRef tensorRef,
+                                bool untilize) {
+  const auto &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
+
+  const auto *tensorRefPtr =
+      &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
+
+  if (!tensorRefPtr) {
+    LOG_WARNING("Tensor not found in tensor pool");
+    return std::nullopt;
+  }
+  // TODO(ndrakulicTT): Check what happens if the tensor is not live
+  if (!tensorPool.contains(tensorRefPtr)) {
+    LOG_WARNING("Tensor not found in tensor pool");
+    return std::nullopt;
   }
 
-  void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef,
-                    Tensor tensor) {
-    auto &programContext =
-        programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
-            DeviceRuntime::TTNN);
-    ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
-    const auto &tensorRefPtr =
-        &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
+  ::tt::runtime::Tensor outTensor = utils::createRuntimeTensorFromTTNN(
+      tensorPool.getTTNNTensorAndValidate(tensorRefPtr));
 
-    if (!tensorRefPtr) {
-      LOG_WARNING("Tensor not found in tensor pool");
-      return;
-    }
-    if (!tensorPool.contains(tensorRefPtr)) {
-      LOG_WARNING("Tensor not found in tensor pool");
-      return;
-    }
+  std::vector<tt::runtime::Tensor> hostTensors =
+      ::tt::runtime::ttnn::toHost(outTensor, untilize);
 
-    ::ttnn::Tensor &srcTensor = tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
-    ::ttnn::Tensor dstTensor =
-        tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
-    srcTensor = srcTensor.pad_to_tile(0.0f);
-    srcTensor = srcTensor.to_layout(dstTensor.layout());
-    srcTensor = srcTensor.to_device(dstTensor.device());
-    tensorPool.insertTTNNTensorAndValidate(tensorRefPtr, srcTensor);
+  if (hostTensors.empty()) {
+    LOG_WARNING("Tensor not found in tensor pool");
+    return std::nullopt;
   }
 
-  std::vector<::tt::runtime::Tensor> submit(
-      Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
-      std::vector<::tt::runtime::Tensor> & inputs) {
-
-    ProgramExecutor executor(deviceHandle, executableHandle, programIndex,
-                             inputs);
-    executor.execute();
-    std::vector<::tt::runtime::Tensor> outputTensors =
-        executor.gatherOutputTensors();
-
-    return outputTensors;
+  if (hostTensors.size() != 1) {
+    LOG_FATAL("Multi device tensor not supported");
   }
+
+  return hostTensors[0];
+}
+
+void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef,
+                  Tensor tensor) {
+  auto &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
+  const auto &tensorRefPtr =
+      &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
+
+  if (!tensorRefPtr) {
+    LOG_WARNING("Tensor not found in tensor pool");
+    return;
+  }
+  if (!tensorPool.contains(tensorRefPtr)) {
+    LOG_WARNING("Tensor not found in tensor pool");
+    return;
+  }
+
+  ::ttnn::Tensor &srcTensor = tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  ::ttnn::Tensor &dstTensor = tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
+  srcTensor = srcTensor.pad_to_tile(0.0f);
+  srcTensor = srcTensor.to_layout(dstTensor.layout());
+  srcTensor = srcTensor.to_device(dstTensor.device());
+  tensorPool.insertTTNNTensorAndValidate(tensorRefPtr, srcTensor);
+}
 
 } // namespace tt::runtime::ttnn
