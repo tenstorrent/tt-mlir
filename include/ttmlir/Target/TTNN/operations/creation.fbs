@@ -41,8 +41,12 @@ union FillValueType {
 }
 
 table FullOp {
-  device: tt.target.DeviceRef;
+  shape: [int64];
   fill_value: FillValueType;
+  dtype: tt.target.DataType = null;
+  layout: tt.target.TensorLayout = null;
+  device: tt.target.DeviceRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
 }
 

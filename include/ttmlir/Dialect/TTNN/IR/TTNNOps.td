@@ -1602,25 +1602,24 @@ def TTNN_FullOp : TTNN_CreationOp<"full"> {
 
   let results = (outs AnyRankedTensor:$result);
 
-    let builders =
-    [
-      OpBuilder<(ins "Type": $resultType, "Attribute": $fillValue, "Value": $device),
-      [{
-        MLIRContext *ctx = $_builder.getContext();
-        RankedTensorType tensorType = mlir::cast<RankedTensorType>(resultType);
-        TTNNLayoutAttr layoutAttr = mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
+  let builders =
+  [
+    OpBuilder<(ins "Type": $resultType, "Attribute": $fillValue, "Value": $device),
+    [{
+      MLIRContext *ctx = $_builder.getContext();
+      RankedTensorType tensorType = mlir::cast<RankedTensorType>(resultType);
+      TTNNLayoutAttr layoutAttr = mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
 
-        ShapeAttr shapeAttr = ShapeAttr::get(
-            ctx, tensorType.getShape());
-        DataTypeAttr dtypeAttr =
-            DataTypeAttr::get(ctx, layoutAttr.getDataType());
-        LayoutAttr tensorLayoutAttr =
-          LayoutAttr::get(ctx, layoutAttr.getLayout());
+      ShapeAttr shapeAttr = ShapeAttr::get(
+          ctx, tensorType.getShape());
+      DataTypeAttr dtypeAttr =
+          DataTypeAttr::get(ctx, layoutAttr.getDataType());
+      LayoutAttr tensorLayoutAttr =
+        LayoutAttr::get(ctx, layoutAttr.getLayout());
 
-        build($_builder, $_state, resultType, shapeAttr, fillValue, dtypeAttr, tensorLayoutAttr, device, /*memory_config=*/nullptr);
-      }]>
-    ];
-
+      build($_builder, $_state, resultType, shapeAttr, fillValue, dtypeAttr, tensorLayoutAttr, device, /*memory_config=*/nullptr);
+    }]>
+  ];
 
   let extraClassDeclaration = [{
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {

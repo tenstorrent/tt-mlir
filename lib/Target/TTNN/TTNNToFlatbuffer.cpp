@@ -379,7 +379,9 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
 
 ::flatbuffers::Offset<::tt::target::ttnn::FullOp>
 createOp(FlatbufferObjectCache &cache, FullOp op) {
-  auto device = getOperandThroughDPSOps(op.getDevice());
+  auto shape = op.getShape().getShape().vec();
+  auto device = cache.at<::tt::target::DeviceRef>(
+      getOperandThroughDPSOps(op.getDevice()));
   ::tt::target::ttnn::FillValueType fillValueType;
   ::flatbuffers::Offset<void> fillValue;
   if (auto fillValueAttr = mlir::dyn_cast<mlir::FloatAttr>(op.getFillValue())) {
@@ -396,12 +398,18 @@ createOp(FlatbufferObjectCache &cache, FullOp op) {
   } else {
     llvm_unreachable("fill value must be float or integer");
   }
+  auto dtype = toFlatbuffer(cache, op.getDtype());
+  auto layout = toFlatbuffer(cache, op.getLayout());
+  auto memoryConfig =
+      llvm::transformOptional(op.getMemoryConfig(), [&](auto &&memoryConfig) {
+        return toFlatbuffer(cache, memoryConfig);
+      }).value_or(0);
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedSize);
 
-  auto output = getOperandThroughDPSOps(op.getResult());
-  return ::tt::target::ttnn::CreateFullOp(
-      *cache.fbb, cache.at<::tt::target::DeviceRef>(device), fillValueType,
-      fillValue,
-      cache.getOrCreate(output, tensorValueToFlatbuffer, kHostAllocatedSize));
+  return ::tt::target::ttnn::CreateFullOpDirect(
+      *cache.fbb, &shape, fillValueType, fillValue, dtype, layout, device,
+      memoryConfig, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ArangeOp>
