@@ -62,7 +62,7 @@ if enable_runtime:
         command = [
             "patchelf",
             "--set-rpath",
-            "$ORIGIN",
+            "/opt/openmpi-v5.0.7-ulfm/lib:$ORIGIN",
             f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime/{lib_name}",
         ]
         try:
