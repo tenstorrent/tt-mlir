@@ -6,10 +6,9 @@
 
 #include "ttmlir/Support/Logger.h"
 
-#include "llvm-gtest/gtest/gtest.h"
+#include "testing/Utils.h"
 
 #include <cstdint>
-#include <cstdlib>
 #include <random>
 
 namespace mlir::tt::ttir {
@@ -76,7 +75,7 @@ TYPED_TEST(AllocationTest, Conflicts) {
   using Scenario = TypeParam;
 
   constexpr std::int32_t repeats = 3;
-  std::uint64_t seed = 1747264320186267367; // TODO(#3377) time-varying seeding
+  std::uint64_t seed = tt::testing::randomSeed();
 
   std::mt19937 gen;
 
@@ -155,7 +154,7 @@ TYPED_TEST(AllocationTest, Conflicts) {
 TEST(GreedyAllocationTest, ConflictFree) {
 
   constexpr std::int32_t repeats = 3;
-  std::uint64_t seed = 1747264320186267367; // TODO(#3377) time-varying seeding
+  std::uint64_t seed = tt::testing::randomSeed();
 
   std::mt19937 gen;
 
