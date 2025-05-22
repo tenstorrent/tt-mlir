@@ -358,29 +358,47 @@ public:
       mlir::tt::ttir::TTIRGenericRegionComputeOpTrait>::
       OpTraitConversionPattern;
 
+  static Value findUncollapsedMemref(Value memref) {
+    if (auto funcArg = mlir::dyn_cast<BlockArgument>(memref)) {
+      return funcArg;
+    }
+    if (auto collapseOp =
+            mlir::dyn_cast<memref::CollapseShapeOp>(memref.getDefiningOp())) {
+      return findUncollapsedMemref(collapseOp.getSrc());
+    }
+    llvm_unreachable("Expected BlockArgument or CollapseShapeOp");
+  }
+
   LogicalResult
   matchAndRewrite(Operation *op, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const final {
-    if (mlir::isa<ttir::TileTilizeBlockOp>(op)) {
+    if (auto tilizeOp = mlir::dyn_cast<ttir::TileTilizeBlockOp>(op)) {
       assert(operands.size() == 2);
       Value src = operands[0];
       Value dst = operands[1];
-      auto numTiles =
-          i32(rewriter, op->getLoc(),
-              mlir::cast<ttkernel::CBType>(dst.getType()).getNumTiles());
-      rewriter.create<ttkernel::TilizeInitOp>(op->getLoc(), src, numTiles, dst);
-      rewriter.create<ttkernel::TilizeBlockOp>(op->getLoc(), src, numTiles,
-                                               dst);
-    } else if (mlir::isa<ttir::TileUntilizeBlockOp>(op)) {
+      auto uncollapsedMemrefType = mlir::cast<MemRefType>(
+          findUncollapsedMemref(tilizeOp.getOutput()).getType());
+      auto blockR =
+          i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[0]);
+      auto blockC =
+          i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[1]);
+      rewriter.create<ttkernel::TilizeInitOp>(op->getLoc(), src, blockC, dst);
+      rewriter.create<ttkernel::ExperimentalTilizeBlockOp>(op->getLoc(), src,
+                                                           dst, blockR, blockC);
+    } else if (auto untilizeOp =
+                   mlir::dyn_cast<ttir::TileUntilizeBlockOp>(op)) {
       assert(operands.size() == 2);
       Value src = operands[0];
       Value dst = operands[1];
-      auto numTiles =
-          i32(rewriter, op->getLoc(),
-              mlir::cast<ttkernel::CBType>(src.getType()).getNumTiles());
+      auto uncollapsedMemrefType = mlir::cast<MemRefType>(
+          findUncollapsedMemref(untilizeOp.getInput()).getType());
+      auto blockR =
+          i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[0]);
+      auto blockC =
+          i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[1]);
       rewriter.create<ttkernel::UntilizeInitOp>(op->getLoc(), src, dst);
-      rewriter.create<ttkernel::UntilizeBlockOp>(op->getLoc(), src, numTiles,
-                                                 dst);
+      rewriter.create<ttkernel::ExperimentalUntilizeBlockOp>(
+          op->getLoc(), src, dst, blockR, blockC);
     } else {
       return failure();
     }
