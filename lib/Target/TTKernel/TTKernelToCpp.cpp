@@ -142,15 +142,15 @@ void dprint(Arg &&arg, ArgV&&... argv) {
   void emitExperimentalLLKs() {
     if (hasCall("experimental::tilize")) {
       auto experimentalTilizeLLKs =
-          StringRef(reinterpret_cast<const char *>(experimental_tilize_llks_h),
-                    experimental_tilize_llks_h_len);
+          StringRef(experimental_tilize_llks_generated,
+                    experimental_tilize_llks_generated_len);
       builder->create<emitc::VerbatimOp>(loc, experimentalTilizeLLKs);
     }
 
     if (hasCall("experimental::untilize")) {
-      auto experimentalUntilizeLLKs = StringRef(
-          reinterpret_cast<const char *>(experimental_untilize_llks_h),
-          experimental_untilize_llks_h_len);
+      auto experimentalUntilizeLLKs =
+          StringRef(experimental_untilize_llks_generated,
+                    experimental_untilize_llks_generated_len);
       builder->create<emitc::VerbatimOp>(loc, experimentalUntilizeLLKs);
     }
   }

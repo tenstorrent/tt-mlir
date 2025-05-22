@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_LLKS_EXPERIMENTAL_UNTILIZE_LLKS_H
-#define TTMLIR_LLKS_EXPERIMENTAL_UNTILIZE_LLKS_H
+#ifndef TTMLIR_TARGET_TTKERNEL_LLKS_EXPERIMENTAL_UNTILIZE_LLKS_H
+#define TTMLIR_TARGET_TTKERNEL_LLKS_EXPERIMENTAL_UNTILIZE_LLKS_H
 
 namespace experimental {
 using std::uint32_t;
@@ -58,4 +58,4 @@ ALWI void untilize_block(uint32_t icb, uint32_t ocb, uint32_t block_r,
 }
 } // namespace experimental
 
-#endif
+#endif // TTMLIR_TARGET_TTKERNEL_LLKS_EXPERIMENTAL_UNTILIZE_LLKS_H

@@ -1,5 +1,5 @@
 # Include the hex header generation script
-include(GenerateXXDHeader)
+include(GenerateRawStringHeader)
 
 # Define the LLK header files to convert to hex
 set(LLK_HEADERS
@@ -15,7 +15,7 @@ set(GENERATED_LLK_HEADERS)
 foreach(llk_header ${LLK_HEADERS})
     get_filename_component(header_name ${llk_header} NAME_WE)
     set(output_file ${GENERATED_HEADERS_DIR}/${header_name}_generated.h)
-    generate_xxd_header(${llk_header} ${output_file} ${header_name}_generated)
+    generate_raw_string_header(${llk_header} ${output_file} ${header_name}_generated)
     list(APPEND GENERATED_LLK_HEADERS ${output_file})
 endforeach()
 
