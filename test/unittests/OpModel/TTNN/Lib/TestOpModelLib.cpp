@@ -1423,4 +1423,75 @@ INSTANTIATE_TEST_SUITE_P(
                                mlir::tt::ttnn::BufferType::L1},
             llvm::SmallVector<int64_t>{0, -3, -1, -2}, 0.0f, true)));
 
+class OpModelUpsampleParam : public OpModelTest,
+                             public testing::WithParamInterface<
+                                 std::tuple<detail::TestTensor, // input
+                                            detail::TestTensor, // output
+                                            int,                // scale factor
+                                                 // note: could also be a tuple
+                                            std::string, // mode
+                                            bool         // expected legal
+                                            >> {};
+
+TEST_P(OpModelUpsampleParam, UpsampleParam) {
+  auto params = GetParam();
+  const auto [inputShape, inputTensorLayout, inputBufferType,
+              inputVirtualGrid] = std::get<0>(params);
+  const auto [outputShape, outputTensorLayout, outputBufferType,
+              outputVirtualGrid] = std::get<1>(params);
+  const auto scaleFactor = builder.getI64IntegerAttr(std::get<2>(params));
+  const auto mode = std::get<3>(params);
+  const auto expectedLegal = std::get<4>(params);
+
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout = CreateRowMajorLayout(
+      inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+
+  const mlir::tt::ttnn::TTNNLayoutAttr outputLayout = CreateRowMajorLayout(
+      outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+  SingletonDeviceContext::resetInstance();
+
+  auto constraintsExp = UpsampleOpInterface::getOpConstraints(
+      CreateWorkerGrid(), inputShape, inputLayout, scaleFactor, mode,
+      outputShape, outputLayout);
+  if (!constraintsExp) {
+    std::cout << "Error: " << llvm::toString(constraintsExp.takeError())
+              << std::endl;
+  }
+  EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+
+  if (constraintsExp) {
+    const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+        constraintsExp.get();
+    EXPECT_GT(cbSize, 0);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    // Must clean up the error
+    llvm::consumeError(constraintsExp.takeError());
+  }
+
+  SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp = UpsampleOpInterface::getOpRuntime(
+      inputShape, inputLayout, scaleFactor, mode, outputShape, outputLayout);
+  EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    llvm::consumeError(runtimeExp.takeError());
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    UpsampleTests, OpModelUpsampleParam,
+    ::testing::Values(std::make_tuple(
+        detail::TestTensor{{2, 128, 8, 8},
+                           mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                           mlir::tt::ttnn::BufferType::DRAM},
+        detail::TestTensor{{2, 256, 16, 8},
+                           mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                           mlir::tt::ttnn::BufferType::DRAM},
+        2, "nearest", true)));
+
 } // namespace mlir::tt::op_model::ttnn

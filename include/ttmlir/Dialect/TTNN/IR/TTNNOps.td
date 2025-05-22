@@ -1863,7 +1863,9 @@ def TTNN_PermuteOp : TTNN_Op<"permute",
     }];
 }
 
-def TTNN_UpsampleOp : TTNN_Op<"upsample"> {
+def TTNN_UpsampleOp : TTNN_Op<"upsample",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Upsample 2D op.";
 
     let description = [{

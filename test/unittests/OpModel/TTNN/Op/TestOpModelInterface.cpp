@@ -1046,4 +1046,58 @@ TEST_F(OpModelBase, permuteOp) {
   }
 }
 
+TEST_F(OpModelBase, upsampleOp) {
+  // Create UpsampleOp with flattened input tensor
+  llvm::SmallVector<int64_t> inputShape = {2, 128, 16, 8};
+  llvm::SmallVector<int64_t> outputShape = {2, 256, 32, 8};
+  int scaleFactor = 2;
+  std::string mode = "nearest";
+
+  // ttnn::upsample requires input tensor layout to be RowMajor
+  // Meanwhile L1 RowMajor does not work, see
+  // https://github.com/tenstorrent/tt-mlir/issues/2976
+  auto input = createEmptyTensor(
+      inputShape, builder.getBF16Type(),
+      CreateRowMajorLayout(inputShape, mlir::tt::ttnn::BufferType::DRAM,
+                           mlir::tt::ttnn::TensorMemoryLayout::Interleaved));
+  auto outputType = createRankedTensorType(
+      outputShape, builder.getBF16Type(),
+      CreateRowMajorLayout(outputShape, mlir::tt::ttnn::BufferType::DRAM,
+                           mlir::tt::ttnn::TensorMemoryLayout::Interleaved));
+
+  // Convert to Attr
+  mlir::IntegerAttr scaleFactorAttr = builder.getI32IntegerAttr(scaleFactor);
+  mlir::StringAttr modeAttr = builder.getStringAttr(mode);
+
+  UpsampleOp upsampleOp =
+      builder.create<UpsampleOp>(builder.getUnknownLoc(), outputType, input,
+                                 scaleFactorAttr, modeAttr, nullptr);
+  upsampleOp->setAttr(DeviceAttr::name, getFakeDeviceAttr());
+
+  op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  // getOutputLayout() hardcodes L1, so we cannot use it
+  OpModel backend = dyn_cast<OpModel>(upsampleOp.getOperation());
+  auto constraintsExp =
+      backend.getOpConstraints(getInputLayouts(upsampleOp), OpConfig());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_EQ(peakSize, 0);
+  EXPECT_EQ(outputSize, 0);
+
+  op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp = getOpRuntime(upsampleOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 } // namespace mlir::tt::ttnn

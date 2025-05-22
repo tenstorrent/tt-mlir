@@ -1736,4 +1736,103 @@ PermuteOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+//===----------------------------------------------------------------------===//
+// Upsample
+//===----------------------------------------------------------------------===//
+llvm::Expected<
+    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+UpsampleOpInterface::getOpConstraints(
+    GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout, mlir::Attribute scaleFactor,
+    llvm::StringRef mode, llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // Convert params
+  std::variant<int, ::tt::tt_metal::Array2D> convertedScaleFactor;
+  if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(scaleFactor)) {
+    convertedScaleFactor = static_cast<int>(value.getInt());
+  } else if (auto tuple =
+                 mlir::dyn_cast<::mlir::detail::DenseArrayAttrImpl<int32_t>>(
+                     scaleFactor);
+             tuple.size() == 2) {
+    std::array<uint32_t, 2> arr;
+    arr[0] = static_cast<uint32_t>(tuple[0]);
+    arr[1] = static_cast<uint32_t>(tuple[1]);
+    convertedScaleFactor = ::tt::tt_metal::Array2D(arr);
+  } else {
+    return llvm::createStringError("Invalid scaleFactor");
+  }
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto upsampleQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::upsample, device, inputSpec, convertedScaleFactor,
+        std::string(mode), detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints("UpsampleOpInterface",
+                                     inputLayout.getContext(), deviceGrid,
+                                     upsampleQuery);
+#else
+  return std::make_tuple(0, 0, 0, nullptr);
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> UpsampleOpInterface::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout, mlir::Attribute scaleFactor,
+    llvm::StringRef mode, llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // Convert parameters
+  std::variant<int, ::tt::tt_metal::Array2D> convertedScaleFactor;
+  if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(scaleFactor)) {
+    convertedScaleFactor = static_cast<int>(value.getInt());
+  } else if (auto tuple =
+                 mlir::dyn_cast<::mlir::detail::DenseArrayAttrImpl<int32_t>>(
+                     scaleFactor);
+             tuple.size() == 2) {
+    std::array<uint32_t, 2> arr;
+    arr[0] = static_cast<uint32_t>(tuple[0]);
+    arr[1] = static_cast<uint32_t>(tuple[1]);
+    convertedScaleFactor = ::tt::tt_metal::Array2D(arr);
+  } else {
+    return llvm::createStringError("Invalid scaleFactor");
+  }
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto upsampleQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::upsample, device, inputSpec, convertedScaleFactor,
+        std::string(mode), detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime("UpsampleOpInterface", upsampleQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
 } // namespace mlir::tt::op_model::ttnn
