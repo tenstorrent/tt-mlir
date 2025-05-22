@@ -162,7 +162,7 @@ void setCompatibleRuntime(const Binary &binary) {
   LOG_FATAL("Unsupported binary file identifier or runtime not enabled");
 }
 
-std::pair<SystemDesc, DeviceIds>
+SystemDesc
 getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
                      std::optional<Device> meshDevice) {
 #if (defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)) ||      \

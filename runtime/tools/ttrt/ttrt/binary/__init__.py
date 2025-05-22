@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from ._C import (
+from ttrt.runtime._ttmlir_runtime.binary import (
     load_from_path,
     load_binary_from_path,
     load_binary_from_capsule,
@@ -10,6 +10,7 @@ from ._C import (
     Flatbuffer,
     GoldenTensor,
 )
+
 from . import stats
 
 import json
