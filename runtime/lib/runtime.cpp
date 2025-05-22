@@ -529,6 +529,42 @@ size_t getTraceRegionSize(Device meshDevice) {
       });
 }
 
+size_t getNumDramChannels(Device meshDevice) {
+  using RetType = size_t;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::getNumDramChannels(meshDevice);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::getNumDramChannels(meshDevice);
+      });
+}
+
+size_t getDramSizePerChannel(Device meshDevice) {
+  using RetType = size_t;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::getDramSizePerChannel(meshDevice);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::getDramSizePerChannel(meshDevice);
+      });
+}
+
+size_t getL1SizePerCore(Device meshDevice) {
+  using RetType = size_t;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::getL1SizePerCore(meshDevice);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::getL1SizePerCore(meshDevice);
+      });
+}
+
 void wait(Event event) {
   using RetType = void;
   DISPATCH_TO_CURRENT_RUNTIME(

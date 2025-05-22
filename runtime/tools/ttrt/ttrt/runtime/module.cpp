@@ -40,6 +40,9 @@ PYBIND11_MODULE(_C, m) {
       .def("is_program_cache_enabled", &tt::runtime::isProgramCacheEnabled)
       .def("get_l1_small_size", &tt::runtime::getL1SmallSize)
       .def("get_trace_region_size", &tt::runtime::getTraceRegionSize)
+      .def("get_num_dram_channels", &tt::runtime::getNumDramChannels)
+      .def("get_dram_size_per_channel", &tt::runtime::getDramSizePerChannel)
+      .def("get_l1_size_per_core", &tt::runtime::getL1SizePerCore)
       .def("deallocate_buffers", &tt::runtime::detail::deallocateBuffers)
       .def("dump_memory_report", &tt::runtime::detail::dumpMemoryReport)
       .def("get_memory_view", &tt::runtime::detail::getMemoryView,
