@@ -445,23 +445,24 @@ public:
 static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
   IRRewriter rewriter(moduleOp.getContext());
 
+  bool failed = false;
   // Find all functions with the return_to_output_mapping attribute
-  SmallVector<func::FuncOp> functionsToTransform;
   moduleOp.walk([&](func::FuncOp funcOp) {
-    if (funcOp->hasAttr("ttir.return_to_output_mapping")) {
-      functionsToTransform.push_back(funcOp);
+    // This transform is only meaningful on an op which has been lowered TTIR ->
+    // TOSA -> Linalg, so we ignore any funcs without both these attrs.
+    if (!funcOp->hasAttr("ttir.return_to_output_mapping") ||
+        !funcOp->hasAttr("ttir.processed_by_tosa")) {
+      return;
     }
-  });
 
-  // Transform each function
-  for (func::FuncOp funcOp : functionsToTransform) {
     // Get the return_to_output_mapping attribute
     auto mappingAttr =
         funcOp->getAttrOfType<IntegerAttr>("ttir.return_to_output_mapping");
     if (!mappingAttr) {
       funcOp->emitError() << "Function has ttir.return_to_output_mapping "
                              "attribute but it's not an IntegerAttr";
-      return failure();
+      failed = true;
+      return;
     }
 
     // Find the return operation
@@ -475,14 +476,15 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
 
     if (!returnOp) {
       funcOp->emitError() << "Function does not have a return operation";
-      return failure();
+      failed = true;
+      return;
     }
 
     if (returnOp.getNumOperands() == 0) {
       funcOp->emitWarning()
           << "Function already has no return values, nothing to transform";
       funcOp->removeAttr("ttir.return_to_output_mapping");
-      continue;
+      return;
     }
 
     // Get the output operand index
@@ -491,7 +493,8 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
       funcOp->emitError() << "Output argument index " << outputArgIdx
                           << " is out of range (function has "
                           << funcOp.getNumArguments() << " arguments)";
-      return failure();
+      failed = true;
+      return;
     }
 
     // Get the return value
@@ -501,7 +504,8 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
     Operation *producer = returnVal.getDefiningOp();
     if (!producer) {
       funcOp->emitError() << "Return value is not produced by an operation";
-      return failure();
+      failed = true;
+      return;
     }
 
     // Handle different types of operations
@@ -534,7 +538,7 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
     if (!transformed) {
       funcOp->emitWarning()
           << "Could not find any tensor.empty operations to replace";
-      continue;
+      return;
     }
 
     // Replace the return operation with an empty return
@@ -549,9 +553,9 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
 
     // Remove the mapping attribute since we've applied it
     funcOp->removeAttr("ttir.return_to_output_mapping");
-  }
+  });
 
-  return success();
+  return failed ? failure() : success();
 }
 
 namespace {
