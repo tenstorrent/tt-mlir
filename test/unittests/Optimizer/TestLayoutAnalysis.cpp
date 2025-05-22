@@ -120,7 +120,12 @@ protected:
 };
 
 // Test that layouts are correctly generated for all tensor types with different
-// parameters
+// parameters.
+//
+// This test must be run serially for different inputs. Layout validation
+// includes calls into TensorSpec APIs that require the creation of the cluster
+// descriptor file. If multiple processes/threads attempt that in parallel, the
+// test will fail
 TEST_P(AllPossibleLayoutsAnalysisTest, GenerateAndCategorizeLayouts) {
   createTestOps();
 
