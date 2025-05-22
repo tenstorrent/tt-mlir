@@ -90,8 +90,8 @@ public:
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
     ttir::utils::replaceOpWithNewDPSOp<ttir::ClampScalarOp>(
-        rewriter, srcOp, outputType, adaptor.getInput(), adaptor.getMinFp(),
-        adaptor.getMaxFp());
+        rewriter, srcOp, outputType, adaptor.getInput(), adaptor.getMinVal(),
+        adaptor.getMaxVal());
 
     return success();
   }

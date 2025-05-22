@@ -586,10 +586,10 @@ index 0000000..dc33501
 +)
 diff --git a/shardy/round_trip_import/CMakeLists.txt b/shardy/round_trip_import/CMakeLists.txt
 new file mode 100644
-index 0000000..11e4b1d
+index 0000000..526889c
 --- /dev/null
 +++ b/shardy/round_trip_import/CMakeLists.txt
-@@ -0,0 +1,145 @@
+@@ -0,0 +1,125 @@
 +# Shardy MLIR Roundtrip Import Passes
 +
 +add_mlir_translation_library(SdyRoundtripUtils
@@ -629,8 +629,8 @@ index 0000000..11e4b1d
 +  SdyDialect
 +)
 +
-+add_mlir_translation_library(SdyRoundtripImportBackendFuncCalls
-+  import_backend_func_calls.cc
++add_mlir_translation_library(SdyRoundtripImportUninlineableFuncCalls
++  import_uninlineable_func_calls.cc
 +
 +  DEPENDS
 +  SdyRoundtripUtils
@@ -670,24 +670,6 @@ index 0000000..11e4b1d
 +  SdyDialect
 +)
 +
-+add_mlir_translation_library(SdyRoundtripImportCallbackCustomCalls
-+  import_callback_custom_calls.cc
-+
-+  DEPENDS
-+  SdyRoundtripUtils
-+  SdyDialect
-+
-+  LINK_LIBS PUBLIC
-+  LLVMSupport
-+  MLIRIR
-+  MLIRPass
-+  MLIRSupport
-+  MLIRTransformUtils
-+  StablehloOps
-+  SdyRoundtripUtils
-+  SdyDialect
-+)
-+
 +add_mlir_translation_library(SdyRoundtripShardMapImport
 +  shard_map_import.cc
 +
@@ -711,8 +693,7 @@ index 0000000..11e4b1d
 +  pipelines.cc
 +
 +  DEPENDS
-+  SdyRoundtripImportBackendFuncCalls
-+  SdyRoundtripImportCallbackCustomCalls
++  SdyRoundtripImportUninlineableFuncCalls
 +  SdyRoundtripImportSdyCustomCalls
 +  SdyRoundtripImportShardyAttrs
 +  SdyRoundtripShardMapImport
@@ -724,8 +705,7 @@ index 0000000..11e4b1d
 +  MLIRTransformUtils
 +  MLIRTransforms
 +  StablehloPasses
-+  SdyRoundtripImportBackendFuncCalls
-+  SdyRoundtripImportCallbackCustomCalls
++  SdyRoundtripImportUninlineableFuncCalls
 +  SdyRoundtripImportSdyCustomCalls
 +  SdyRoundtripImportShardyAttrs
 +  SdyRoundtripShardMapImport
