@@ -38,7 +38,23 @@ Place your `.cpp` file in:
 tests/ttnn/unit_tests/gtests/emitc/
 ```
 
+and add it to the cmake file:
+
+```
+tests/ttnn/unit_tests/gtests/CMakeLists.txt
+```
+
+like so:
+
+```cmake
+set(EMITC_UNIT_TESTS_SRC
+    ${CMAKE_CURRENT_SOURCE_DIR}/emitc/test_sanity.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/emitc/your_test_name.cpp  # <<<===
+)
+```
+
 Use the existing file `test_sanity.cpp` in that directory as a reference.
+
 
 ### 5. Modify the Repro for GTest
 
@@ -52,7 +68,7 @@ TEST(EmitC, YourTestName) {
 }
 ```
 
-- Remove any `return` statements from the function body.
+- Remove any `return` statements from the `TEST(...)` function body.
 - Replace `#include "ttnn-precompiled.hpp"` with `#include "emitc.hpp"`
 
 ### 6. Build the TTNN EmitC Tests
