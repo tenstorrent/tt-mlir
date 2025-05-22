@@ -324,6 +324,7 @@ def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
 
       Additional notes/constraints:
       - It is not capable of changing the data type nor the memory space of the tensor.
+      - If reinterpretLayout is true, the layout view change can include a data type cast, but note this does not actually change the format of the data in memory.
       - All ViewLayout ops can trivially be converted to ToLayout ops.
 
       ```llvm
