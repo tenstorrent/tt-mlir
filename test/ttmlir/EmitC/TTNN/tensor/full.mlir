@@ -3,7 +3,7 @@
 // RUN: ttmlir-opt --ttnn-modify-signatures-for-dylib --convert-ttnn-to-emitc %t.mlir > %t2.mlir
 // RUN: ttmlir-translate --mlir-to-cpp %t2.mlir > %basename_t.cpp
 
-func.func @full() -> tensor<4x12x15x31xf32> {
-  %0 = "ttir.full"() <{shape = array<i32: 4, 12, 15, 31>, fill_value = 13.89 : f32}> : () -> tensor<4x12x15x31xf32>
-  return %0 : tensor<4x12x15x31xf32>
+func.func @full_float() -> tensor<64x128xbf16> {
+  %0 = "ttir.full"() <{shape = array<i32: 64, 128>, fill_value = 3.0 : f32}> : () -> tensor<64x128xbf16>
+  return %0 : tensor<64x128xbf16>
 }
