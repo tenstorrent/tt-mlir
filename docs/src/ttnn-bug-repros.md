@@ -73,11 +73,20 @@ TEST(EmitC, YourTestName) {
 
 ### 6. Build the TTNN EmitC Tests
 
-From the root of the repo:
+First, activate the python virtual env, and set some env variables:
+```bash
+source python_env/bin/activate
+export TT_METAL_HOME=$(pwd)
+export PYTHONPATH=$(pwd)
+```
+
+Then, build the tests:
 
 ```bash
 ./build_metal.sh --build-ttnn-tests
 ```
+
+Note: some unrelated gtests might fail here, we can ignore them.
 
 ### 7. Run the EmitC Unit Tests
 
