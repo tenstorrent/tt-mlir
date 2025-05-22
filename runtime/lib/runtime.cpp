@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -53,10 +53,11 @@
                            std::invoke_result_t<decltype((ttmetalImpl))>>,     \
             "Return type must match TTMetal implementation return type");)     \
     switch (::tt::runtime::getCurrentRuntime()) {                              \
-      IF_TTNN_ENABLED(case ::tt::runtime::DeviceRuntime::TTNN                  \
-                      : { return (ttnnImpl)(); })                              \
-      IF_TTMETAL_ENABLED(case ::tt::runtime::DeviceRuntime::TTMetal            \
-                         : { return (ttmetalImpl)(); })                        \
+      IF_TTNN_ENABLED(                                                         \
+          case ::tt::runtime::DeviceRuntime::TTNN : { return (ttnnImpl)(); })  \
+      IF_TTMETAL_ENABLED(case ::tt::runtime::DeviceRuntime::TTMetal : {        \
+        return (ttmetalImpl)();                                                \
+      })                                                                       \
     default: {                                                                 \
       LOG_FATAL("Runtime is not enabled");                                     \
     }                                                                          \

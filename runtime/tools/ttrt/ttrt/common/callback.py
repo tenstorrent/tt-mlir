@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 
@@ -198,13 +198,13 @@ def create_memory_dictionary(memory_view):
     memory_dict = {}
     memory_dict["num_banks"] = memory_view.num_banks
     memory_dict["total_bytes_per_bank"] = memory_view.total_bytes_per_bank
-    memory_dict[
-        "total_bytes_allocated_per_bank"
-    ] = memory_view.total_bytes_allocated_per_bank
+    memory_dict["total_bytes_allocated_per_bank"] = (
+        memory_view.total_bytes_allocated_per_bank
+    )
     memory_dict["total_bytes_free_per_bank"] = memory_view.total_bytes_free_per_bank
-    memory_dict[
-        "largest_contiguous_bytes_free_per_bank"
-    ] = memory_view.largest_contiguous_bytes_free_per_bank
+    memory_dict["largest_contiguous_bytes_free_per_bank"] = (
+        memory_view.largest_contiguous_bytes_free_per_bank
+    )
     memory_dict["block_table"] = memory_view.block_table
 
     return memory_dict
@@ -241,14 +241,14 @@ def memory(callback_runtime_config, binary, program_context, op_context):
     )
 
     l1_small_op_device_memory_report = {}
-    l1_small_op_device_memory_report[
-        "device_" + str(device_id)
-    ] = create_memory_dictionary(l1_small_memory_view)
+    l1_small_op_device_memory_report["device_" + str(device_id)] = (
+        create_memory_dictionary(l1_small_memory_view)
+    )
 
     trace_op_device_memory_report = {}
-    trace_op_device_memory_report[
-        "device_" + str(device_id)
-    ] = create_memory_dictionary(trace_memory_view)
+    trace_op_device_memory_report["device_" + str(device_id)] = (
+        create_memory_dictionary(trace_memory_view)
+    )
 
     op_memory_report["dram"] = dram_op_device_memory_report
     op_memory_report["l1"] = l1_op_device_memory_report

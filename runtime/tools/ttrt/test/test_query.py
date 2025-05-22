@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 
@@ -28,9 +28,9 @@ from util import *
 def test_clean_artifacts_query():
     API.initialize_apis()
     custom_args = {}
-    custom_args[
-        "--result-file"
-    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    custom_args["--result-file"] = (
+        f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    )
     custom_args["--clean-artifacts"] = True
     query_instance = API.Query(args=custom_args)
     query_instance()
@@ -44,9 +44,9 @@ def test_clean_artifacts_cmd_query():
 def test_save_artifacts_query():
     API.initialize_apis()
     custom_args = {}
-    custom_args[
-        "--result-file"
-    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    custom_args["--result-file"] = (
+        f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    )
     custom_args["--clean-artifacts"] = True
     custom_args["--save-artifacts"] = True
     query_instance = API.Query(args=custom_args)
@@ -61,9 +61,9 @@ def test_save_artifacts_cmd_query():
 def test_log_file_query():
     API.initialize_apis()
     custom_args = {}
-    custom_args[
-        "--result-file"
-    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    custom_args["--result-file"] = (
+        f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    )
     custom_args["--log-file"] = "test.log"
     query_instance = API.Query(args=custom_args)
     query_instance()
@@ -77,9 +77,9 @@ def test_log_file_cmd_query():
 def test_artifact_dir_query():
     API.initialize_apis()
     custom_args = {}
-    custom_args[
-        "--result-file"
-    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    custom_args["--result-file"] = (
+        f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    )
     custom_args["--clean-artifacts"] = True
     custom_args["--save-artifacts"] = True
     custom_args["--artifact-dir"] = f"{os.getcwd()}/test-artifacts"
@@ -95,9 +95,9 @@ def test_artifact_dir_cmd_query():
 def test_logger_query():
     API.initialize_apis()
     custom_args = {}
-    custom_args[
-        "--result-file"
-    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    custom_args["--result-file"] = (
+        f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    )
     log_file_name = "test.log"
     custom_logger = Logger(log_file_name)
     query_instance = API.Query(args=custom_args, logger=custom_logger)
@@ -107,9 +107,9 @@ def test_logger_query():
 def test_artifacts_query():
     API.initialize_apis()
     custom_args = {}
-    custom_args[
-        "--result-file"
-    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    custom_args["--result-file"] = (
+        f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    )
     log_file_name = "test.log"
     custom_logger = Logger(log_file_name)
     artifacts_folder_path = f"{os.getcwd()}/test-artifacts"
@@ -123,9 +123,9 @@ def test_artifacts_query():
 def test_quiet_query():
     API.initialize_apis()
     custom_args = {}
-    custom_args[
-        "--result-file"
-    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    custom_args["--result-file"] = (
+        f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    )
     custom_args["--quiet"] = True
     query_instance = API.Query(args=custom_args)
     query_instance()

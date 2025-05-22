@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 20245 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 20245 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 

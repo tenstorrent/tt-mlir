@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 
@@ -227,9 +227,9 @@ class Check:
                                 f"system desc for: {desc.file_path} did not match flatbuffer: {bin.file_path}"
                             )
                             test_result["result"] = "error"
-                            test_result[
-                                "exception"
-                            ] = f"system desc for: {desc.file_path} did not match flatbuffer: {bin.file_path}"
+                            test_result["exception"] = (
+                                f"system desc for: {desc.file_path} did not match flatbuffer: {bin.file_path}"
+                            )
                             test_result["system_desc"] = f"{desc.file_path}"
                         else:
                             self.logging.info(

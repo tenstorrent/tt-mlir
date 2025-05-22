@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 
@@ -28,9 +28,9 @@ from util import *
 def test_flatbuffer_perf():
     API.initialize_apis()
     custom_args = {}
-    custom_args[
-        "--result-file"
-    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    custom_args["--result-file"] = (
+        f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    )
     custom_args["binary"] = PERF_BINARY_FILE_PATH
     custom_args["--host-only"] = True
     perf_instance = API.Perf(args=custom_args)
@@ -45,9 +45,9 @@ def test_flatbuffer_cmd_perf():
 def test_logger_perf():
     API.initialize_apis()
     custom_args = {}
-    custom_args[
-        "--result-file"
-    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    custom_args["--result-file"] = (
+        f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    )
     custom_args["binary"] = PERF_BINARY_FILE_PATH
     custom_args["--host-only"] = True
     log_file_name = "test.log"
@@ -59,9 +59,9 @@ def test_logger_perf():
 def test_clean_artifacts_perf():
     API.initialize_apis()
     custom_args = {}
-    custom_args[
-        "--result-file"
-    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    custom_args["--result-file"] = (
+        f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    )
     custom_args["binary"] = PERF_BINARY_FILE_PATH
     custom_args["--host-only"] = True
     custom_args["--clean-artifacts"] = True
@@ -77,9 +77,9 @@ def test_clean_artifacts_cmd_perf():
 def test_log_file_perf():
     API.initialize_apis()
     custom_args = {}
-    custom_args[
-        "--result-file"
-    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    custom_args["--result-file"] = (
+        f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    )
     custom_args["binary"] = PERF_BINARY_FILE_PATH
     custom_args["--host-only"] = True
     custom_args["--log-file"] = "test.log"
@@ -95,9 +95,9 @@ def test_log_file_cmd_perf():
 def test_program_index_perf():
     API.initialize_apis()
     custom_args = {}
-    custom_args[
-        "--result-file"
-    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    custom_args["--result-file"] = (
+        f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    )
     custom_args["binary"] = PERF_BINARY_FILE_PATH
     custom_args["--host-only"] = True
     custom_args["--program-index"] = "0"
@@ -113,9 +113,9 @@ def test_program_index_cmd_perf():
 def test_loops_perf():
     API.initialize_apis()
     custom_args = {}
-    custom_args[
-        "--result-file"
-    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    custom_args["--result-file"] = (
+        f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    )
     custom_args["binary"] = PERF_BINARY_FILE_PATH
     custom_args["--host-only"] = True
     custom_args["--loops"] = 1
@@ -131,9 +131,9 @@ def test_loops_cmd_perf():
 def test_device_perf():
     API.initialize_apis()
     custom_args = {}
-    custom_args[
-        "--result-file"
-    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    custom_args["--result-file"] = (
+        f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    )
     custom_args["binary"] = PERF_BINARY_FILE_PATH
     perf_instance = API.Perf(args=custom_args)
     perf_instance()

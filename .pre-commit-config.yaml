@@ -1,22 +1,17 @@
 repos:
   - repo: https://github.com/psf/black
-    rev: 22.3.0
+    rev: 25.1.0
     hooks:
       - id: black
         language_version: python3
   - repo: https://github.com/pre-commit/mirrors-clang-format
-    rev: v18.1.7
+    rev: v20.1.5
     hooks:
     - id: clang-format
       types_or: [c++, c]
       args: [-style=file, -i]
-  - repo: https://github.com/espressif/check-copyright/
-    rev: v1.0.3
-    hooks:
-      - id: check-copyright
-        args: ['--config', '.github/check-spdx.yaml']
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v3.4.0
+    rev: v5.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
@@ -30,3 +25,23 @@ repos:
         language: script
         types: [c++, text]
         files: \.(cpp|h)$
+
+  - repo: local
+    hooks:
+      - id: download-file
+        name: Download File from Internet
+        description: Downloads a file from a specified URL to a local destination
+        entry: wget --no-clobber https://raw.githubusercontent.com/tenstorrent/tt-metal/main/scripts/check_license_headers.py
+        language: system
+        pass_filenames: false
+      - id: check-license-headers
+        name: Check License Headers
+        entry: python3 check_license_headers.py
+        language: system
+        types_or: [python, c++, c, header]
+      - id: rm-file
+        name: Remove File from Internet
+        description: Removes a file from a specified URL to a local destination
+        entry: rm check_license_headers.py
+        language: system
+        pass_filenames: false

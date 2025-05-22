@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 
@@ -233,9 +233,9 @@ class TTKernelCompiler(ast.NodeVisitor):
         func_sym_table = {}
         self.func_entry = func.FuncOp(name=node.name, type=(arg_types, []))
         if self.kernel_type:
-            self.func_entry.attributes[
-                ttkernel.ir.ThreadTypeAttr.name
-            ] = ttkernel.ir.ThreadTypeAttr.get(self.ctx, self.kernel_type)
+            self.func_entry.attributes[ttkernel.ir.ThreadTypeAttr.name] = (
+                ttkernel.ir.ThreadTypeAttr.get(self.ctx, self.kernel_type)
+            )
         func_bb = self.func_entry.add_entry_block()
         for i in range(len(func_bb.arguments)):
             func_sym_table[node.args.args[i].arg] = func_bb.arguments[i]
