@@ -84,10 +84,10 @@ index 0000000..e35e927
 +)
 diff --git a/shardy/dialect/sdy/ir/CMakeLists.txt b/shardy/dialect/sdy/ir/CMakeLists.txt
 new file mode 100755
-index 0000000..dd44e0f
+index 0000000..b2c87de
 --- /dev/null
 +++ b/shardy/dialect/sdy/ir/CMakeLists.txt
-@@ -0,0 +1,99 @@
+@@ -0,0 +1,106 @@
 +# Shardy MLIR dialect.
 +
 +set(LLVM_TARGET_DEFINITIONS dialect.td)
@@ -126,7 +126,13 @@ index 0000000..dd44e0f
 +add_public_tablegen_target(SdyCanonicalizationIncGen)
 +add_dependencies(mlir-headers SdyCanonicalizationIncGen)
 +
++set(LLVM_TARGET_DEFINITIONS bytecode.td)
++mlir_tablegen(bytecode.cc.inc -gen-bytecode -bytecode-dialect=sdy)
++add_public_tablegen_target(SdyBytecodeIncGen)
++add_dependencies(mlir-headers SdyBytecodeIncGen)
++
 +add_mlir_dialect_library(SdyDialect
++  bytecode.cc
 +  canonicalization.cc
 +  dialect.cc
 +  extensions/stablehlo_extensions.cc
@@ -142,6 +148,7 @@ index 0000000..dd44e0f
 +  SdyEnumsIncGen
 +  SdyOpInterfaceIncGen
 +  SdyCanonicalizationIncGen
++  SdyBytecodeIncGen
 +
 +  LINK_LIBS PUBLIC
 +  LLVMSupport
@@ -256,10 +263,10 @@ index 0000000..3b414d1
 +)
 diff --git a/shardy/dialect/sdy/transforms/export/CMakeLists.txt b/shardy/dialect/sdy/transforms/export/CMakeLists.txt
 new file mode 100755
-index 0000000..cae2272
+index 0000000..097780a
 --- /dev/null
 +++ b/shardy/dialect/sdy/transforms/export/CMakeLists.txt
-@@ -0,0 +1,56 @@
+@@ -0,0 +1,93 @@
 +# Shardy MLIR Transform Export Passes and Pipeline
 +
 +set(LLVM_TARGET_DEFINITIONS passes.td)
@@ -268,19 +275,10 @@ index 0000000..cae2272
 +add_dependencies(mlir-headers SdyExportPassesIncGen)
 +add_mlir_doc(Passes SdyTransformsExportPasses ./ -gen-pass-doc)
 +
-+add_mlir_library(SdyTransformsExportPasses
-+  close_shardings.cc
-+  drop_sharding_rules.cc
-+  export_pipeline.cc
-+  insert_explicit_reshards.cc
-+  remove_sharding_groups.cc
-+  reshard_to_collectives.cc
-+  sharding_constraint_to_reshard.cc
-+  sink_data_flow_edges.cc
-+  update_non_divisible_input_output_shardings.cc
++add_mlir_library(SdyExplicitReshardsUtil
++  explicit_reshards_util.cc
 +
 +  DEPENDS
-+  SdyExportPassesIncGen
 +  SdyCommonFileUtils
 +  SdyAxisListRef
 +  SdyDialect
@@ -301,6 +299,24 @@ index 0000000..cae2272
 +  MLIRSupport
 +  MLIRTransformUtils
 +  StablehloOps
++)
++
++add_mlir_library(SdyTransformsExportPasses
++  close_shardings.cc
++  constant_merger.cc
++  drop_sharding_rules.cc
++  export_pipeline.cc
++  insert_explicit_reshards.cc
++  remove_sharding_groups.cc
++  reshard_to_collectives.cc
++  sharding_constraint_to_reshard.cc
++  sink_data_flow_edges.cc
++  temp_explicit_reshards_for_optimizations.cc
++  update_non_divisible_input_output_shardings.cc
++
++  DEPENDS
++  SdyExplicitReshardsUtil
++  SdyExportPassesIncGen
 +  SdyCommonFileUtils
 +  SdyAxisListRef
 +  SdyDialect
@@ -310,18 +326,46 @@ index 0000000..cae2272
 +  SdyTransformsPropagationShardingProjection
 +  SdyTransformsPropagationUtils
 +  SdyTransformsPropagationDebuggingSourceSharding
++  SdyTransformsImportPasses
++
++  LINK_LIBS PUBLIC
++  LLVMSupport
++  MLIRFuncDialect
++  MLIRIR
++  MLIRPass
++  MLIRRewrite
++  MLIRSideEffectInterfaces
++  MLIRSupport
++  MLIRTransformUtils
++  StablehloOps
++  SdyCommonFileUtils
++  SdyAxisListRef
++  SdyDialect
++  SdyTransformsCommonOpProperties
++  SdyTransformsCommonShardingWalker
++  SdyTransformsPropagationOpShardingRuleRegistry
++  SdyTransformsPropagationShardingProjection
++  SdyTransformsPropagationUtils
++  SdyTransformsPropagationDebuggingSourceSharding
++  SdyExplicitReshardsUtil
++  SdyTransformsImportPasses
 +)
 +
 +target_include_directories(SdyTransformsExportPasses INTERFACE
 +  $<BUILD_INTERFACE:${SHARDY_SOURCE_DIR}>
 +  $<BUILD_INTERFACE:${SHARDY_BINARY_DIR}>
 +)
++
++target_include_directories(SdyExplicitReshardsUtil INTERFACE
++  $<BUILD_INTERFACE:${SHARDY_SOURCE_DIR}>
++  $<BUILD_INTERFACE:${SHARDY_BINARY_DIR}>
++)
 diff --git a/shardy/dialect/sdy/transforms/import/CMakeLists.txt b/shardy/dialect/sdy/transforms/import/CMakeLists.txt
 new file mode 100755
-index 0000000..ac94d78
+index 0000000..9415122
 --- /dev/null
 +++ b/shardy/dialect/sdy/transforms/import/CMakeLists.txt
-@@ -0,0 +1,45 @@
+@@ -0,0 +1,46 @@
 +# Shardy MLIR Transforms Import Passes and Pipeline
 +
 +set(LLVM_TARGET_DEFINITIONS passes.td)
@@ -335,6 +379,7 @@ index 0000000..ac94d78
 +  apply_sharding_constraints.cc
 +  constant_splitter.cc
 +  import_pipeline.cc
++  inline_meshes.cc
 +  lift_inlined_meshes.cc
 +  manual_axes_cleanup.cc
 +  sharding_group_import.cc
@@ -586,10 +631,10 @@ index 0000000..dc33501
 +)
 diff --git a/shardy/round_trip_import/CMakeLists.txt b/shardy/round_trip_import/CMakeLists.txt
 new file mode 100644
-index 0000000..11e4b1d
+index 0000000..1afbf24
 --- /dev/null
 +++ b/shardy/round_trip_import/CMakeLists.txt
-@@ -0,0 +1,145 @@
+@@ -0,0 +1,125 @@
 +# Shardy MLIR Roundtrip Import Passes
 +
 +add_mlir_translation_library(SdyRoundtripUtils
@@ -629,8 +674,8 @@ index 0000000..11e4b1d
 +  SdyDialect
 +)
 +
-+add_mlir_translation_library(SdyRoundtripImportBackendFuncCalls
-+  import_backend_func_calls.cc
++add_mlir_translation_library(SdyRoundtripImportUninlineableFuncCalls
++  import_uninlineable_func_calls.cc
 +
 +  DEPENDS
 +  SdyRoundtripUtils
@@ -670,24 +715,6 @@ index 0000000..11e4b1d
 +  SdyDialect
 +)
 +
-+add_mlir_translation_library(SdyRoundtripImportCallbackCustomCalls
-+  import_callback_custom_calls.cc
-+
-+  DEPENDS
-+  SdyRoundtripUtils
-+  SdyDialect
-+
-+  LINK_LIBS PUBLIC
-+  LLVMSupport
-+  MLIRIR
-+  MLIRPass
-+  MLIRSupport
-+  MLIRTransformUtils
-+  StablehloOps
-+  SdyRoundtripUtils
-+  SdyDialect
-+)
-+
 +add_mlir_translation_library(SdyRoundtripShardMapImport
 +  shard_map_import.cc
 +
@@ -711,8 +738,7 @@ index 0000000..11e4b1d
 +  pipelines.cc
 +
 +  DEPENDS
-+  SdyRoundtripImportBackendFuncCalls
-+  SdyRoundtripImportCallbackCustomCalls
++  SdyRoundtripImportUninlineableFuncCalls
 +  SdyRoundtripImportSdyCustomCalls
 +  SdyRoundtripImportShardyAttrs
 +  SdyRoundtripShardMapImport
@@ -724,8 +750,7 @@ index 0000000..11e4b1d
 +  MLIRTransformUtils
 +  MLIRTransforms
 +  StablehloPasses
-+  SdyRoundtripImportBackendFuncCalls
-+  SdyRoundtripImportCallbackCustomCalls
++  SdyRoundtripImportUninlineableFuncCalls
 +  SdyRoundtripImportSdyCustomCalls
 +  SdyRoundtripImportShardyAttrs
 +  SdyRoundtripShardMapImport

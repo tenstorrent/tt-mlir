@@ -3610,7 +3610,8 @@ mlir::tt::ttir::GenericOp::getOperandGridShapes() {
     auto memrefType = mlir::dyn_cast<MemRefType>(operand.getType());
     if (memrefType) {
       mlir::tt::DeviceLayoutInterface layout =
-          mlir::cast<mlir::tt::DeviceLayoutInterface>(memrefType.getLayout());
+          mlir::dyn_cast<mlir::tt::DeviceLayoutInterface>(
+              memrefType.getLayout());
       gridShapes.emplace_back(layout.getGridShape(memrefType));
     } else {
       auto tensorType = mlir::cast<RankedTensorType>(operand.getType());

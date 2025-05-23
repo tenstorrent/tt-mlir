@@ -80,12 +80,12 @@ convertToLLVMModule(mlir::ModuleOp cpuModule, llvm::LLVMContext &llvmContext) {
 
 // Get an llvm::TargetMachine with proper default options.
 std::unique_ptr<llvm::TargetMachine>
-createTargetMachine(llvm::StringRef targetTriple) {
+createTargetMachine(const llvm::Triple &targetTriple) {
   std::string errorMessage;
   const auto *llvmTarget =
       llvm::TargetRegistry::lookupTarget(targetTriple, errorMessage);
   if (!llvmTarget) {
-    llvm::errs() << "target lookup failed for " << targetTriple
+    llvm::errs() << "target lookup failed for " << targetTriple.str()
                  << " w msg: " << errorMessage << "\n";
     return nullptr;
   }
@@ -115,13 +115,13 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
   // Set target triple if not already set.
   if (module.getTargetTriple().empty()) {
     auto defaultTriple = llvm::sys::getDefaultTargetTriple();
-    module.setTargetTriple(defaultTriple);
+    module.setTargetTriple(llvm::Triple(Twine(defaultTriple)));
   }
 
   auto targetMachine = createTargetMachine(module.getTargetTriple());
   if (!targetMachine) {
     llvm::errs() << "Failed to create TargetMachine for triple: "
-                 << module.getTargetTriple() << "\n";
+                 << module.getTargetTriple().str() << "\n";
     return llvm::failure();
   }
 

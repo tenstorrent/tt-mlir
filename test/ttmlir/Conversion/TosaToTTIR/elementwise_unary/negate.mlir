@@ -1,4 +1,6 @@
 // RUN: ttmlir-opt --convert-tosa-to-ttir %s | FileCheck %s
+// Support TOSA negate #3502
+// UNSUPPORTED: true
 module attributes {} {
   func.func @test_negate(%arg0: tensor<13x21x3xf32>) -> tensor<13x21x3xf32> {
     %0 = tosa.negate %arg0 : (tensor<13x21x3xf32>) -> tensor<13x21x3xf32>

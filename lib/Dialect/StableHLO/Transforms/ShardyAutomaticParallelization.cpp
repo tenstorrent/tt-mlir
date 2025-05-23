@@ -448,8 +448,8 @@ public:
     }
 
     // Add the shardy sharding attribute to the argument
-    mlir::sdy::TensorShardingAttr sharding =
-        mlir::sdy::TensorShardingAttr::get(context, "mesh", dimShardings, {});
+    mlir::sdy::TensorShardingAttr sharding = mlir::sdy::TensorShardingAttr::get(
+        context, "mesh", dimShardings, {}, {});
     newArgAttrs.emplace_back(
         mlir::StringAttr::get(context, mlir::sdy::TensorShardingAttr::name),
         sharding);
@@ -534,8 +534,8 @@ public:
     }
 
     // Add the shardy sharding attribute to the argument
-    mlir::sdy::TensorShardingAttr sharding =
-        mlir::sdy::TensorShardingAttr::get(context, "mesh", dimShardings, {});
+    mlir::sdy::TensorShardingAttr sharding = mlir::sdy::TensorShardingAttr::get(
+        context, "mesh", dimShardings, {}, {});
     newArgAttrs.emplace_back(
         mlir::StringAttr::get(context, mlir::sdy::TensorShardingAttr::name),
         sharding);

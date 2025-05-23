@@ -5,9 +5,9 @@
 #sc_map = affine_map<(d0, d1) -> (0, 0)>
 #parallel = #tt.iterator_type<parallel>
 #reduction = #tt.iterator_type<reduction>
-#l1_ = #tt.memory_space<l1>
-#layout1 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<8x12x!tt.tile<32x32, f32>, #l1_>>
-#layout2 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<8x1x!tt.tile<32x32, f32>, #l1_>>
+#l1 = #tt.memory_space<l1>
+#layout1 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<8x12x!tt.tile<32x32, f32>, #l1>>
+#layout2 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<8x1x!tt.tile<32x32, f32>, #l1>>
 
 func.func @reduce_large_grid(%arg0: tensor<256x384xf32, #layout1>, %arg1: tensor<256x384xf32, #layout1>) -> tensor<256x32xf32, #layout2> {
   %0 = ttir.empty() : tensor<256x32xf32, #layout2>
@@ -20,17 +20,17 @@ func.func @reduce_large_grid(%arg0: tensor<256x384xf32, #layout1>, %arg1: tensor
         threads = [#ttir.thread<compute>],
         operandSegmentSizes = array<i32: 2, 1>
         }> ({
-        // CHECK: ^compute0(%cb0: memref<1x2x!tt.tile<32x32, f32>, #l1_>,
-        // CHECK-SAME: %cb1: memref<1x2x!tt.tile<32x32, f32>, #l1_>,
-        // CHECK-SAME: %cb2: memref<1x1x!tt.tile<32x32, f32>, #l1_>):
-        ^bb0(%arg2: memref<8x12x!tt.tile<32x32, f32>, #l1_>,
-            %arg3: memref<8x12x!tt.tile<32x32, f32>, #l1_>,
-            %arg4: memref<8x1x!tt.tile<32x32, f32>, #l1_>):
+        // CHECK: ^compute0(%cb0: memref<1x2x!tt.tile<32x32, f32>, #l1>,
+        // CHECK-SAME: %cb1: memref<1x2x!tt.tile<32x32, f32>, #l1>,
+        // CHECK-SAME: %cb2: memref<1x1x!tt.tile<32x32, f32>, #l1>):
+        ^bb0(%arg2: memref<8x12x!tt.tile<32x32, f32>, #l1>,
+            %arg3: memref<8x12x!tt.tile<32x32, f32>, #l1>,
+            %arg4: memref<8x1x!tt.tile<32x32, f32>, #l1>):
             linalg.generic {
                 indexing_maps = [#map1, #sc_map, #map2],
                 iterator_types = ["parallel", "parallel"]}
-                ins(%arg2, %arg3: memref<8x12x!tt.tile<32x32, f32>, #l1_>, memref<8x12x!tt.tile<32x32, f32>, #l1_>)
-                outs(%arg4: memref<8x1x!tt.tile<32x32, f32>, #l1_>) {
+                ins(%arg2, %arg3: memref<8x12x!tt.tile<32x32, f32>, #l1>, memref<8x12x!tt.tile<32x32, f32>, #l1>)
+                outs(%arg4: memref<8x1x!tt.tile<32x32, f32>, #l1>) {
                 ^bb0(%a: !tt.tile<32x32, f32>, %b: !tt.tile<32x32, f32>, %c: !tt.tile<32x32, f32>):
                     %2 = "ttir.tile_reduce_max" (%a, %b) {reduce_dim = #ttir<reduce_dim R>} : (!tt.tile<32x32, f32>, !tt.tile<32x32, f32>) -> !tt.tile<32x32, f32>
                     linalg.yield %2: !tt.tile<32x32, f32>
@@ -48,9 +48,9 @@ func.func @reduce_large_grid(%arg0: tensor<256x384xf32, #layout1>, %arg1: tensor
 #sc_map = affine_map<(d0, d1) -> (0, 0)>
 #parallel = #tt.iterator_type<parallel>
 #reduction = #tt.iterator_type<reduction>
-#l1_ = #tt.memory_space<l1>
-#layout1 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<1x19x!tt.tile<32x32, f32>, #l1_>>
-#layout2 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<1x1x!tt.tile<32x32, f32>, #l1_>>
+#l1 = #tt.memory_space<l1>
+#layout1 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<1x19x!tt.tile<32x32, f32>, #l1>>
+#layout2 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<1x1x!tt.tile<32x32, f32>, #l1>>
 
 func.func @reduce_prime(%arg0: tensor<32x608xf32, #layout1>, %arg1: tensor<32x608xf32, #layout1>) -> tensor<32x32xf32, #layout2> {
   %0 = ttir.empty() : tensor<32x32xf32, #layout2>
@@ -61,17 +61,17 @@ func.func @reduce_prime(%arg0: tensor<32x608xf32, #layout1>, %arg1: tensor<32x60
         threads = [#ttir.thread<compute>],
         operandSegmentSizes = array<i32: 2, 1>
         }> ({
-        // CHECK: ^compute0(%cb0: memref<1x19x!tt.tile<32x32, f32>, #l1_>,
-        // CHECK-SAME: %cb1: memref<1x19x!tt.tile<32x32, f32>, #l1_>,
-        // CHECK-SAME: %cb2: memref<1x1x!tt.tile<32x32, f32>, #l1_>):
-        ^bb0(%arg2: memref<1x19x!tt.tile<32x32, f32>, #l1_>,
-            %arg3: memref<1x19x!tt.tile<32x32, f32>, #l1_>,
-            %arg4: memref<1x1x!tt.tile<32x32, f32>, #l1_>):
+        // CHECK: ^compute0(%cb0: memref<1x19x!tt.tile<32x32, f32>, #l1>,
+        // CHECK-SAME: %cb1: memref<1x19x!tt.tile<32x32, f32>, #l1>,
+        // CHECK-SAME: %cb2: memref<1x1x!tt.tile<32x32, f32>, #l1>):
+        ^bb0(%arg2: memref<1x19x!tt.tile<32x32, f32>, #l1>,
+            %arg3: memref<1x19x!tt.tile<32x32, f32>, #l1>,
+            %arg4: memref<1x1x!tt.tile<32x32, f32>, #l1>):
             linalg.generic {
                 indexing_maps = [#map1, #sc_map, #map2],
                 iterator_types = ["parallel", "parallel"]}
-                ins(%arg2, %arg3: memref<1x19x!tt.tile<32x32, f32>, #l1_>, memref<1x19x!tt.tile<32x32, f32>, #l1_>)
-                outs(%arg4: memref<1x1x!tt.tile<32x32, f32>, #l1_>) {
+                ins(%arg2, %arg3: memref<1x19x!tt.tile<32x32, f32>, #l1>, memref<1x19x!tt.tile<32x32, f32>, #l1>)
+                outs(%arg4: memref<1x1x!tt.tile<32x32, f32>, #l1>) {
                 ^bb0(%a: !tt.tile<32x32, f32>, %b: !tt.tile<32x32, f32>, %c: !tt.tile<32x32, f32>):
                     %2 = "ttir.tile_reduce_max" (%a, %b) {reduce_dim = #ttir<reduce_dim R>} : (!tt.tile<32x32, f32>, !tt.tile<32x32, f32>) -> !tt.tile<32x32, f32>
                     linalg.yield %2: !tt.tile<32x32, f32>

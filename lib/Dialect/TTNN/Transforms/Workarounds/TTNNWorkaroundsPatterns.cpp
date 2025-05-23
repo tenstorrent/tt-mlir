@@ -627,10 +627,10 @@ private:
   void runRewritePatterns(RewritePatternSet &&patterns, int64_t maxIterations) {
     FrozenRewritePatternSet patternSet(std::move(patterns));
     GreedyRewriteConfig config = GreedyRewriteConfig();
-    config.maxIterations = maxIterations;
+    config.setMaxIterations(maxIterations);
     // This configuration specifies that the rewriter should traverse the IR
     // in a top-down order.
-    config.useTopDownTraversal = true;
+    config.setUseTopDownTraversal(true);
     if (failed(applyPatternsGreedily(getOperation(), patternSet, config))) {
       signalPassFailure();
       return;

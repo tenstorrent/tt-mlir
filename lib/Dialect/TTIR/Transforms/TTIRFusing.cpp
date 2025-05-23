@@ -422,7 +422,7 @@ public:
       patterns.add<Conv2dWithMultiply>(&getContext());
 
       GreedyRewriteConfig config;
-      config.useTopDownTraversal = true;
+      config.setUseTopDownTraversal(true);
       (void)applyPatternsGreedily(getOperation(), std::move(patterns), config);
     }
   }

@@ -42,7 +42,7 @@ module {
 // -----
 func.func @test_invalid_scale(%arg0: tensor<1x3x320x320xf32>) -> tensor<1x3x320x320x!quant.uniform<i32:f32, -0.2>> {
   %0 = ttir.empty() : tensor<1x3x320x320x!quant.uniform<i32:f32, -0.2>>
-  // CHECK: scale out of expressed type range [1.401298e-45, 3.402823e+38]
+  // CHECK: scale -2.000000e-01 out of expressed type range [1.401298e-45, 3.402823e+38]
   %1 = "ttir.quantize"(%arg0, %0) : (tensor<1x3x320x320xf32>, tensor<1x3x320x320x!quant.uniform<i32:f32, -0.2>>) -> tensor<1x3x320x320x!quant.uniform<i32:f32, -0.2>>
   return %1 : tensor<1x3x320x320x!quant.uniform<i32:f32, -0.2>>
 }

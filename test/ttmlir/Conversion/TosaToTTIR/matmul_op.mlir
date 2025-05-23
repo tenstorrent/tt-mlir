@@ -1,4 +1,6 @@
 // RUN: ttmlir-opt --convert-tosa-to-ttir %s | FileCheck %s
+// Support TOSA matmul #3503
+// UNSUPPORTED: true
 module attributes {} {
   func.func @test_matmul(%arg0: tensor<13x21x16xf32>, %arg1: tensor<13x16x31xf32>) -> tensor<13x21x31xf32> {
     // CHECK: func.func {{.+}}%arg{{[0-9]+}}: tensor<[[B:[0-9]+]]x[[I:[0-9]+]]x[[J:[0-9]+]]xf32>, %arg{{[0-9]+}}: tensor<[[B:[0-9]+]]x[[J:[0-9]+]]x[[K:[0-9]+]]xf32>

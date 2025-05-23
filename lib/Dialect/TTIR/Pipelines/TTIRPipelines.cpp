@@ -61,33 +61,21 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   // One-shot bufferize passes convert tensors into memrefs, which we can lower
   // into LLVM Dialect.  See:
   // https://mlir.llvm.org/docs/Bufferization/#ownership-based-buffer-deallocation
-  mlir::bufferization::OneShotBufferizationOptions bufferizationOptions;
-  bufferizationOptions.bufferizeFunctionBoundaries = true;
-
-  // Use identity layout for our tensors; this simplifies output IR.
-  bufferizationOptions.unknownTypeConverterFn =
-      [=](Value value, Attribute memorySpace,
-          const bufferization::BufferizationOptions &options) {
-        auto tensorType = cast<TensorType>(value.getType());
-        return bufferization::getMemRefTypeWithStaticIdentityLayout(
-            tensorType, memorySpace);
-      };
-  bufferizationOptions.functionArgTypeConverterFn =
-      [=](TensorType tensorType, Attribute memorySpace, func::FuncOp funcOp,
-          const bufferization::BufferizationOptions &options) {
-        return bufferization::getMemRefTypeWithStaticIdentityLayout(
-            tensorType, memorySpace);
-      };
-
+  bufferization::OneShotBufferizePassOptions bufferizePassOptions;
+  bufferizePassOptions.bufferizeFunctionBoundaries = true;
+  bufferizePassOptions.functionBoundaryTypeConversion =
+      bufferization::LayoutMapOption::IdentityLayoutMap;
+  bufferizePassOptions.unknownTypeConversion =
+      bufferization::LayoutMapOption::IdentityLayoutMap;
   manager.addPass(
-      mlir::bufferization::createOneShotBufferizePass(bufferizationOptions));
+      mlir::bufferization::createOneShotBufferizePass(bufferizePassOptions));
   mlir::bufferization::BufferDeallocationPipelineOptions deallocationOptions;
   mlir::bufferization::buildBufferDeallocationPipeline(manager,
                                                        deallocationOptions);
 
   // An explicit bufferization to memref conversion is sometimes needed to
   // eliminate some nasty bufferization::clone() calls.
-  manager.addPass(mlir::createBufferizationToMemRefPass());
+  manager.addPass(mlir::createConvertBufferizationToMemRefPass());
 
   // This lowers linalg to scf-based loops.
   manager.addPass(mlir::createConvertLinalgToLoopsPass());
@@ -97,7 +85,7 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   manager.addPass(mlir::memref::createExpandStridedMetadataPass());
 
   // These two passes convert scf to LLVM control flow.
-  manager.addPass(mlir::createConvertSCFToCFPass());
+  manager.addPass(mlir::createSCFToControlFlowPass());
   manager.addPass(mlir::createConvertControlFlowToLLVMPass());
   // These passes convert corresponding primitives to their LLVM equivalents.
   manager.addPass(mlir::createArithToLLVMConversionPass());

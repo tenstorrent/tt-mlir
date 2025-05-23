@@ -89,9 +89,26 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
+    FloatAttr minValAttr;
+    FloatAttr maxValueAttr;
+
+    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(srcOp.getMinVal())) {
+      minValAttr = rewriter.getF32FloatAttr(intAttr.getSInt());
+    } else {
+      minValAttr = rewriter.getF32FloatAttr(
+          cast<mlir::FloatAttr>(srcOp.getMinVal()).getValue().convertToFloat());
+    }
+
+    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(srcOp.getMaxVal())) {
+      maxValueAttr = rewriter.getF32FloatAttr(intAttr.getSInt());
+    } else {
+      maxValueAttr = rewriter.getF32FloatAttr(
+          cast<mlir::FloatAttr>(srcOp.getMaxVal()).getValue().convertToFloat());
+    }
+
     ttir::utils::replaceOpWithNewDPSOp<ttir::ClampScalarOp>(
-        rewriter, srcOp, outputType, adaptor.getInput(), adaptor.getMinFp(),
-        adaptor.getMaxFp());
+        rewriter, srcOp, outputType, adaptor.getInput(), minValAttr,
+        maxValueAttr);
 
     return success();
   }
@@ -184,6 +201,24 @@ public:
         strides[0], strides[1], 1, 1, false, pad[2], pad[3], pad[0], pad[1],
         /*flattened_compat_info=*/nullptr);
 
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class TosaToTTIRConstantOpConversionPattern
+    : public OpConversionPattern<tosa::ConstOp> {
+  using OpConversionPattern<tosa::ConstOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(tosa::ConstOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttir::ConstantOp>(
+        srcOp,
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()),
+        srcOp.getValues());
     return success();
   }
 };
@@ -309,7 +344,8 @@ void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   addPoolingOpsConversionPatterns(ctx, patterns, typeConverter);
 
   patterns.add<TosaToTTIRClampOpConversionPattern,
-               TosaToTTIRConcatOpConversionPattern>(typeConverter, ctx);
+               TosaToTTIRConcatOpConversionPattern,
+               TosaToTTIRConstantOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

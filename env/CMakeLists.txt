@@ -2,9 +2,9 @@ cmake_minimum_required(VERSION 3.20.0)
 project(ttmlir-toolchain LANGUAGES CXX C)
 
 set(FLATBUFFERS_VERSION "fb9afbafc7dfe226b9db54d4923bfb8839635274")
-set(LLVM_PROJECT_VERSION "a854c266b98468ad4479a7d3c56a3fa76437e30d")
-set(STABLEHLO_VERSION "459897561d365ef97caba46984847f9184d472ec")
-set(SHARDY_VERSION "5576df2f44db44559f60fccfbc3842edf5f33370")
+set(LLVM_PROJECT_VERSION "d78ff5f6a9c1e63a9a33ef92778edec37bf4d292")
+set(STABLEHLO_VERSION "d04fac09573114edad22c7d7af27ae0030c7a04e")
+set(SHARDY_VERSION "ea2ba7edd02b693423107c5fc40542e8c0542bf8")
 set(LLVM_BUILD_TYPE MinSizeRel CACHE STRING "Build type for LLVM")
 
 include(ExternalProject)
@@ -82,7 +82,6 @@ ExternalProject_Add(stablehlo
    CONFIGURE_COMMAND ""
    BUILD_COMMAND ""
    INSTALL_COMMAND ""
-   PATCH_COMMAND git config user.email "tt-mlir@tenstorrent.com" && git config user.name "tenstorrent" && git apply --index "${CMAKE_CURRENT_LIST_DIR}/patches/shlo.patch" && git commit -m "tt-mlir related patch"
 )
 
 ExternalProject_Add(shardy
