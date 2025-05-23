@@ -2,11 +2,14 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRFUSING
@@ -27,8 +30,23 @@ public:
 
     auto conv2dOp = components->first;
     auto bias = components->second;
-    rewriter.modifyOpInPlace(conv2dOp,
-                             [&]() { conv2dOp.getBiasMutable().assign(bias); });
+
+    // rewriter.replaceAllOpUsesWith(srcOp, conv2dOp);
+    // rewriter.eraseOp(srcOp);
+
+    // if (bias.getDefiningOp()) {
+    //   rewriter.moveOpBefore(bias.getDefiningOp(), conv2dOp);
+    // }
+    rewriter.setInsertionPoint(conv2dOp);
+
+    RankedTensorType biasRankedTensorType =
+        mlir::cast<RankedTensorType>(bias.getType());
+    mlir::Value copyOfBias = rewriter.create<ttir::ZerosOp>(
+        conv2dOp.getLoc(), biasRankedTensorType,
+        llvm::to_vector_of<int32_t>(biasRankedTensorType.getShape()));
+
+    rewriter.modifyOpInPlace(
+        conv2dOp, [&]() { conv2dOp.getBiasMutable().assign(copyOfBias); });
     rewriter.replaceAllOpUsesWith(srcOp, conv2dOp);
 
     // The original conv2d op will be removed by DCE since it's no longer
@@ -40,9 +58,7 @@ private:
   bool isFusable(ttir::Conv2dOp conv2dOp,
                  mlir::TypedValue<mlir::RankedTensorType> bias) const {
     return conv2dOp && !conv2dOp.getBias() && conv2dOp->hasOneUse() &&
-           conv2dOp.isBiasCompatible(bias.getType().getShape()) &&
-           (!bias.getDefiningOp() ||
-            bias.getDefiningOp()->isBeforeInBlock(conv2dOp));
+           conv2dOp.isBiasCompatible(bias.getType().getShape());
   }
 
   std::optional<std::pair<ttir::Conv2dOp, mlir::Value>>
@@ -241,6 +257,13 @@ public:
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp multiplyOp,
                   mlir::PatternRewriter &rewriter) const final {
+
+    if (auto conv2dOp =
+            llvm::dyn_cast<Conv2dOp>(multiplyOp.getLhs().getDefiningOp())) {
+      rewriter.replaceAllOpUsesWith(multiplyOp, conv2dOp);
+      return mlir::success();
+    }
+
     // Check if this pattern is applicable.
     auto components = getConv2dAndScale(multiplyOp);
     if (!components) {
