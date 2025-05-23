@@ -464,3 +464,20 @@ module @jit__unnamed_wrapped_function_ attributes {mhlo.num_partitions = 8 : i32
 // CHECK-SAME: tensor<1024x1024xf32, #tt.mesh_sharding<"mesh", [ 8(1),  1]>>
 // CHECK-SAME: tensor<1024x1024xf32, #tt.mesh_sharding<"mesh", [ 8(1),  1]>>
 // CHECK-SAME: tensor<1024x1024xf32, #tt.mesh_sharding<"mesh", [ 8(1),  1]>>
+
+// -----
+module @sdy_manual_computation_constant {
+  sdy.mesh @mesh = <["x"=1, "batch"=8]>
+  func.func public @main(%arg0: tensor<f32>) -> tensor<f32> {
+    %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, []>] out_shardings=[<@mesh, []>] manual_axes={"x", "batch"} (%arg1: tensor<f32>) {
+      sdy.return %arg1 : tensor<f32>
+    } : (tensor<f32>) -> tensor<f32>
+    return %0 : tensor<f32>
+  }
+}
+
+// CHECK: "ttir.mesh_shard"
+// CHECK-SAME: shard_dims = array<i64: -1>
+// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_shape = array<i64: 1>
+// CHECK-SAME: shard_type = #tt.shard_type<replicate>

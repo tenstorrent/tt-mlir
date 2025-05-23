@@ -1174,8 +1174,10 @@ createReductionArgMaxOp(FlatbufferObjectCache &cache, ReductionOp op) {
       getOperandThroughDPSOps(op.getInput()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
-  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
   ::flatbuffers::Optional<int32_t> dim = toFlatbuffer(cache, op.getDim());
+
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
   return ::tt::target::ttnn::CreateReductionArgMaxOp(
       *cache.fbb, in, output, dim, op.getKeepDim(), op.getUseMulticore(),
@@ -1190,13 +1192,14 @@ createReductionProdOp(FlatbufferObjectCache &cache, ReductionOp op) {
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
 
+  ::flatbuffers::Optional<int64_t> dimArg = toFlatbuffer(cache, op.getDimArg());
+
   auto memoryConfig = op.getMemoryConfig()
                           ? toFlatbuffer(cache, op.getMemoryConfig().value())
                           : 0;
 
   return ::tt::target::ttnn::CreateReductionProdOp(
-      *cache.fbb, in, output, op.getAllDimensions(), op.getDimArg(),
-      op.getKeepDim(), memoryConfig);
+      *cache.fbb, in, output, dimArg, op.getKeepDim(), memoryConfig);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::TransposeOp>
@@ -1357,10 +1360,13 @@ createPool2dOp(FlatbufferObjectCache &cache, Pool2dOp op) {
   ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> dilation =
       toFlatbuffer(cache, op.getDilation());
 
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
   return ::tt::target::ttnn::CreatePool2dOp(
       *cache.fbb, type, in, out, op.getBatchSize(), op.getInputHeight(),
       op.getInputWidth(), op.getChannels(), kernelSize, stride, padding,
-      dilation, op.getCeilMode());
+      dilation, memoryConfig, toFlatbuffer(cache, op.getAppliedShardScheme()),
+      op.getCeilMode(), op.getInPlaceHalo());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::RepeatInterleaveOp>

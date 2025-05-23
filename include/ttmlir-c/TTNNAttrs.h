@@ -45,7 +45,7 @@ ttmlirTTNNMatmulMultiCoreReuseMultiCast1DProgramConfigAttrGet(
     uint64_t outBlockH, uint64_t outBlockW, uint64_t perCoreM,
     uint64_t perCoreN, bool fuseBatch, MlirAttribute fusedActivation,
     bool mcastIn0, bool gatherIn0, MlirAttribute hopCores,
-    uint64_t numGlobalCbReceivers);
+    uint64_t numGlobalCbReceivers, bool untilizeOut);
 
 MLIR_CAPI_EXPORTED MlirAttribute
 ttmlirTTNNMatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttrGet(

@@ -470,6 +470,26 @@ class TTIRBuilder:
         with self._ctx, self._loc:
             return RankedTensorType.get(shape, dtype, encoding)
 
+    def metal_tensor_layout(
+        self,
+        shape: Shape,
+        grid,
+        tiled=False,
+        memorySpace=tt.MemorySpace.DeviceL1,
+        collapseIntervals=[(0, -1)],
+        oobVal=tt.OOBVal.Undef,
+    ):
+        ctx = self._ctx
+        if isinstance(grid, list) or isinstance(grid, tuple):
+            grid = tt.ir.GridAttr.get(ctx, list(grid))
+        tensorTy = RankedTensorType.get(shape, F32Type.get(ctx))
+        layout = tt.ir.MetalLayoutAttr.get(
+            self._ctx, tensorTy, grid, tiled, memorySpace, collapseIntervals, oobVal
+        )
+        return RankedTensorType.get(
+            shape, F32Type.get(ctx), layout, Location.unknown(ctx)
+        )
+
     def empty_from_tensor_type(
         self, shape: Shape, tensor_type: RankedTensorType
     ) -> OpView:
@@ -1519,6 +1539,64 @@ class TTIRBuilder:
             unit_attrs=unit_attrs,
         )
 
+    def tilize_golden(self, input: torch.Tensor) -> torch.Tensor:
+        shape = input.shape
+        TILE_SIZE = 32
+        FACE_SIZE = 16
+        Y_TILES = shape[0] // TILE_SIZE
+        X_TILES = shape[1] // TILE_SIZE
+        FACES_PER_TILE = TILE_SIZE // FACE_SIZE
+
+        tilized = torch.zeros((input.numel(),))
+
+        idx = 0
+        for tile_y in range(Y_TILES):
+            for tile_x in range(X_TILES):
+                for face_y in range(FACES_PER_TILE):
+                    for face_x in range(FACES_PER_TILE):
+                        for datum_y in range(FACE_SIZE):
+                            for datum_x in range(FACE_SIZE):
+                                tilized[idx] = input[
+                                    datum_y + tile_y * TILE_SIZE + face_y * FACE_SIZE,
+                                    datum_x + tile_x * TILE_SIZE + face_x * FACE_SIZE,
+                                ]
+                                idx += 1
+
+        tilized = tilized.reshape(shape)
+        return tilized
+
+    def untilize_golden(self, input: torch.Tensor) -> torch.Tensor:
+        shape = input.shape
+        TILE_SIZE = 32
+        FACE_SIZE = 16
+        Y_TILES = shape[0] // TILE_SIZE
+        X_TILES = shape[1] // TILE_SIZE
+        FACES_PER_TILE = TILE_SIZE // FACE_SIZE
+
+        untilized = torch.zeros_like(input)
+        flattened = input.flatten()
+
+        idx = 0
+        for tile_y in range(Y_TILES):
+            for tile_x in range(X_TILES):
+                for face_y in range(FACES_PER_TILE):
+                    for face_x in range(FACES_PER_TILE):
+                        for datum_y in range(FACE_SIZE):
+                            for datum_x in range(FACE_SIZE):
+                                # Calculate the original position
+                                orig_y = (
+                                    datum_y + tile_y * TILE_SIZE + face_y * FACE_SIZE
+                                )
+                                orig_x = (
+                                    datum_x + tile_x * TILE_SIZE + face_x * FACE_SIZE
+                                )
+
+                                # Place the value from the tilized tensor back to its original position
+                                untilized[orig_y, orig_x] = flattened[idx]
+                                idx += 1
+
+        return untilized
+
     def max_pool2d_golden_function(
         self,
         input_tensor: Operand,
@@ -2017,6 +2095,67 @@ class TTIRBuilder:
     ) -> OpView:
         return self.op_proxy(
             lambda *args, **kwargs: args[0],
+            ttir.ToLayoutOp,
+            [in0],
+            output_type=output_type,
+            output_create_fn=self.empty_from_tensor_type,
+            organize_ttir_args=lambda i, o, _: (
+                [self._get_type(o)],
+                i[0],
+                o,
+            ),
+            unit_attrs=unit_attrs,
+        )
+
+    def view_layout(
+        self,
+        in0: Operand,
+        output_type: RankedTensorType,
+        reinterpret_layout: bool = False,
+        unit_attrs: List[str] = None,
+    ) -> OpView:
+        return self.op_proxy(
+            lambda *args, **kwargs: args[0],
+            ttir.ViewLayoutOp,
+            [in0],
+            ttir_kwargs={"reinterpretLayout": reinterpret_layout},
+            output_type=output_type,
+            output_create_fn=self.empty_from_tensor_type,
+            organize_ttir_args=lambda i, o, _: (
+                self._get_type(o),
+                i[0],
+            ),
+            unit_attrs=unit_attrs,
+        )
+
+    def tilize(
+        self,
+        in0: Operand,
+        output_type: RankedTensorType,
+        unit_attrs: List[str] = None,
+    ) -> OpView:
+        return self.op_proxy(
+            self.tilize_golden,
+            ttir.ToLayoutOp,
+            [in0],
+            output_type=output_type,
+            output_create_fn=self.empty_from_tensor_type,
+            organize_ttir_args=lambda i, o, _: (
+                [self._get_type(o)],
+                i[0],
+                o,
+            ),
+            unit_attrs=unit_attrs,
+        )
+
+    def untilize(
+        self,
+        in0: Operand,
+        output_type: RankedTensorType,
+        unit_attrs: List[str] = None,
+    ) -> OpView:
+        return self.op_proxy(
+            self.untilize_golden,
             ttir.ToLayoutOp,
             [in0],
             output_type=output_type,

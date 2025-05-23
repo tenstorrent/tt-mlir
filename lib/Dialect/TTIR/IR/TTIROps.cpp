@@ -2277,9 +2277,11 @@ mlir::tt::ttir::StreamLayoutOp::getBufferType(
 
 // ViewLayoutOp verificatin
 mlir::LogicalResult mlir::tt::ttir::ViewLayoutOp::verify() {
-  return verifyLayoutOp(*this, getInput().getType(), getResult().getType(),
-                        /*allowFormatChange*/ false,
-                        /*allowMemorySpaceChange*/ false);
+  return verifyLayoutOp(
+      *this, getInput().getType(), getResult().getType(),
+      /*allowFormatChange - reinterpretLayout allows format change */
+      getReinterpretLayout(),
+      /*allowMemorySpaceChange*/ false);
 }
 
 void mlir::tt::ttir::ViewLayoutOp::getAsmResultNames(
@@ -2316,7 +2318,7 @@ mlir::LogicalResult mlir::tt::ttir::ViewLayoutOp::bufferize(
   mlir::bufferization::replaceOpWithNewBufferizedOp<
       mlir::tt::ttir::ViewLayoutOp>(
       rewriter, *this, *getBufferType(getResult(), options, invocationStack),
-      *maybeInput);
+      *maybeInput, getReinterpretLayout());
   return mlir::success();
 }
 
@@ -3610,7 +3612,8 @@ mlir::tt::ttir::GenericOp::getOperandGridShapes() {
     auto memrefType = mlir::dyn_cast<MemRefType>(operand.getType());
     if (memrefType) {
       mlir::tt::DeviceLayoutInterface layout =
-          mlir::cast<mlir::tt::DeviceLayoutInterface>(memrefType.getLayout());
+          mlir::dyn_cast<mlir::tt::DeviceLayoutInterface>(
+              memrefType.getLayout());
       gridShapes.emplace_back(layout.getGridShape(memrefType));
     } else {
       auto tensorType = mlir::cast<RankedTensorType>(operand.getType());

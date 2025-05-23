@@ -212,7 +212,7 @@ getDefaultTensorSdyShardingAttr(MLIRContext *context, llvm::StringRef meshName,
         mlir::sdy::DimensionShardingAttr::get(context, {}, true));
   }
 
-  return mlir::sdy::TensorShardingAttr::get(context, meshName, dimShardings,
+  return mlir::sdy::TensorShardingAttr::get(context, meshName, dimShardings, {},
                                             {});
 }
 

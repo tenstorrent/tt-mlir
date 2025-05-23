@@ -16,6 +16,21 @@ module {
 
 // -----
 
+// Verify that verification fails if the output tensor memory layout is not the same as the memory_config one.
+#dram = #ttnn.buffer_type<dram>
+#l1 = #ttnn.buffer_type<l1>
+#device_tile_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!tt.tile<32x32, f32>, #dram>, <interleaved>>
+#device_tile_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x3x!tt.tile<32x32, f32>, #l1>, <block_sharded>>
+module {
+  func.func @forward(%arg0: tensor<32x32xf32, #device_tile_layout1>) -> tensor<32x96xf32, #device_tile_layout2> {
+    // CHECK: error: 'ttnn.to_memory_config' op Output tensor layout memory space block_sharded must match memory config memory space interleaved
+    %1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <interleaved>>}> : (tensor<32x32xf32, #device_tile_layout1>) -> tensor<32x96xf32, #device_tile_layout2>
+    return %1 : tensor<32x96xf32, #device_tile_layout2>
+  }
+}
+
+// -----
+
 // Verify that verification fails if the output tensor sharding is not the same as the memory_config one.
 #dram = #ttnn.buffer_type<dram>
 #l1 = #ttnn.buffer_type<l1>

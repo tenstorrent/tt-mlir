@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-from pybind11.setup_helpers import Pybind11Extension, build_ext
 from setuptools import setup
 import shutil
 import subprocess
@@ -35,31 +34,13 @@ enable_runtime_tests = os.environ.get("TTMLIR_ENABLE_RUNTIME_TESTS", "OFF") == "
 enable_perf = os.environ.get("TT_RUNTIME_ENABLE_PERF_TRACE", "OFF") == "ON"
 debug_runtime = os.environ.get("TT_RUNTIME_DEBUG", "OFF") == "ON"
 
-ext_modules = [
-    Pybind11Extension(
-        "ttrt.binary._C",
-        ["ttrt/binary/module.cpp"],
-        include_dirs=[
-            f"{toolchain}/include",
-            f"{src_dir}/runtime/include",
-            f"{ttmlir_build_dir}/include",
-            f"{ttmlir_build_dir}/include/ttmlir/Target/Common",
-        ],
-        libraries=["TTBinary", "flatbuffers"],
-        library_dirs=[
-            f"{ttmlir_build_dir}/runtime/lib",
-            f"{toolchain}/lib",
-        ],
-        define_macros=[("VERSION_INFO", __version__)],
-    ),
-]
-
+runtime_module = "_ttmlir_runtime.cpython-310-x86_64-linux-gnu.so"
 dylibs = []
 runlibs = []
 perflibs = []
 metallibs = []
 install_requires = []
-install_requires += ["pybind11"]
+install_requires += ["nanobind"]
 
 if enable_ttnn:
     runlibs += ["_ttnn.so"]
@@ -76,25 +57,14 @@ if enable_perf:
     perflibs += ["csvexport-release"]
 
 if enable_runtime:
-    assert enable_ttmetal or enable_ttnn, "At least one runtime must be enabled"
 
-    shutil.copy(
-        f"{ttmlir_build_dir}/runtime/lib/libTTMLIRRuntime.so",
-        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime",
-    )
-
-    for dylib in runlibs:
-        shutil.copy(
-            f"{metaldir}/lib/{dylib}",
-            f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime",
-        )
+    def run_patchelf_command(lib_name):
         command = [
             "patchelf",
             "--set-rpath",
             "$ORIGIN",
-            f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime/{dylib}",
+            f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime/{lib_name}",
         ]
-
         try:
             result = subprocess.run(
                 command,
@@ -105,6 +75,26 @@ if enable_runtime:
             )
         except subprocess.CalledProcessError as e:
             print(f"Command failed with return code {e.returncode}")
+
+    assert enable_ttmetal or enable_ttnn, "At least one runtime must be enabled"
+
+    shutil.copy(
+        f"{ttmlir_build_dir}/runtime/lib/libTTMLIRRuntime.so",
+        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime",
+    )
+
+    shutil.copy(
+        f"{ttmlir_build_dir}/runtime/python/{runtime_module}",
+        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime",
+    )
+    run_patchelf_command(runtime_module)
+
+    for runlib in runlibs:
+        shutil.copy(
+            f"{metaldir}/lib/{runlib}",
+            f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime",
+        )
+        run_patchelf_command(runlib)
 
     for dylib in perflibs:
         shutil.copy(
@@ -220,36 +210,7 @@ if enable_runtime:
     metallibs += extra_files_ttnn
     metallibs += extra_files_tests
 
-    ext_modules.append(
-        Pybind11Extension(
-            "ttrt.runtime._C",
-            ["ttrt/runtime/module.cpp"],
-            include_dirs=[
-                f"{toolchain}/include",
-                f"{src_dir}/runtime/include",
-                f"{src_dir}/runtime/test/include",
-                f"{ttmlir_build_dir}/include",
-                f"{ttmlir_build_dir}/include/ttmlir/Target/Common",
-            ],
-            libraries=[
-                "TTMLIRRuntime",
-                "flatbuffers",
-            ],
-            library_dirs=[
-                f"{ttmlir_build_dir}/runtime/lib",
-                f"{ttmlir_build_dir}/runtime/test/ttnn",
-                f"{toolchain}/lib",
-            ],
-            define_macros=[
-                ("VERSION_INFO", __version__),
-                ("TT_RUNTIME_DEBUG", "1" if debug_runtime else "0"),
-                ("TTMLIR_ENABLE_RUNTIME_TESTS", "1" if enable_runtime_tests else "0"),
-                ("TT_RUNTIME_ENABLE_PERF_TRACE", "1" if enable_perf else "0"),
-            ],
-        )
-    )
-
-dylibs += ["libTTMLIRRuntime.so"]
+dylibs += ["libTTMLIRRuntime.so", runtime_module]
 dylibs += runlibs
 dylibs += perflibs
 dylibs += metallibs
@@ -276,8 +237,6 @@ setup(
     url="https://github.com/tenstorrent/tt-mlir",
     description="Python bindings to runtime libraries",
     long_description="",
-    ext_modules=ext_modules,
-    cmdclass={"build_ext": build_ext},
     packages=packages,
     package_dir=package_dir,
     install_requires=install_requires,

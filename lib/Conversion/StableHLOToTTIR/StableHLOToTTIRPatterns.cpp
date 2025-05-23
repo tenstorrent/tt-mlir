@@ -944,23 +944,32 @@ public:
           baseDilations, window_dilations, padding);
       return success();
     }
-    std::optional<mlir::Operation *> divOp =
-        isAvgPool(srcOp, *initValue, frontOp);
-    if (divOp) {
-      auto newOp = rewriter.replaceOpWithNewOp<ttir::PoolingOp>(
-          srcOp, outputType, adaptor.getInputs(), outputs,
-          mlir::tt::ttir::PoolingMethod::Average, windowDimensions,
-          windowStrides, baseDilations, window_dilations, padding);
-      (*divOp)->replaceAllUsesWith(newOp);
-      rewriter.eraseOp(*divOp);
-      return success();
-    }
     std::optional<int64_t> dimension =
         isCumSum(srcOp, adaptor, *initValue, frontOp, padding);
     if (dimension) {
       rewriter.replaceOpWithNewOp<ttir::CumSumOp>(
           srcOp, outputType, adaptor.getInputs()[0],
           rewriter.getI64IntegerAttr(*dimension), outputs[0]);
+      return success();
+    }
+    if (isSumPool(srcOp, *initValue, frontOp)) {
+      std::optional<mlir::Operation *> divOp = extractDivisor(srcOp);
+      if (divOp) {
+        // Combination of sum pool with divide op makes AvgPool.
+        auto newOp = rewriter.replaceOpWithNewOp<ttir::PoolingOp>(
+            srcOp, outputType, adaptor.getInputs(), outputs,
+            mlir::tt::ttir::PoolingMethod::Average, windowDimensions,
+            windowStrides, baseDilations, window_dilations, padding);
+        (*divOp)->replaceAllUsesWith(newOp);
+        rewriter.eraseOp(*divOp);
+        return success();
+      }
+
+      rewriter.replaceOpWithNewOp<ttir::PoolingOp>(
+          srcOp, outputType, adaptor.getInputs(), outputs,
+          mlir::tt::ttir::PoolingMethod::Sum, windowDimensions, windowStrides,
+          baseDilations, window_dilations, padding);
+
       return success();
     }
     return rewriter.notifyMatchFailure(srcOp, "Unsupported pooling method");
@@ -982,23 +991,20 @@ private:
     return true;
   }
 
-  // Requirements for average pooling.
+  // Requirements for sum pooling.
   // 1. Front op in the block must be 'add'.
   // 2. InitValue must be zero.
-  // 3. The output of 'reduce_window' op is divided by number of elements in the
-  //    kernel.
-  std::optional<mlir::Operation *>
-  isAvgPool(mlir::stablehlo::ReduceWindowOp &srcOp,
-            TypicalInitReductionValue initValue,
-            mlir::Operation *frontOp) const {
+  bool isSumPool(mlir::stablehlo::ReduceWindowOp &srcOp,
+                 TypicalInitReductionValue initValue,
+                 mlir::Operation *frontOp) const {
     if (!isa<mlir::stablehlo::AddOp>(frontOp)) {
-      return std::nullopt;
+      return false;
     }
     if (initValue != TypicalInitReductionValue::ZERO) {
-      return std::nullopt;
+      return false;
     }
 
-    return extractDivisor(srcOp);
+    return true;
   }
 
   // This function verify all the required conditions to convert stablehlo
@@ -1056,6 +1062,9 @@ private:
     // Find constant input(s)
     auto initValue = srcOp.getInitValues().front();
     auto *defOp = initValue.getDefiningOp();
+    if (!defOp) {
+      return std::nullopt;
+    }
     while (defOp->getOpOperands().size() == 1) {
       defOp = defOp->getOpOperand(0).get().getDefiningOp();
     }

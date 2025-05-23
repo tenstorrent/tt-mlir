@@ -187,7 +187,7 @@ module {
           %8 = memref.load %collapse_shape_1[%c0] : memref<64x!tt.tile<32x32, f16>, #l1_>
           // CHECK: [[COND1:[%0-9]+]] = arith.cmpi ne, [[INNER1]], %c0
           // CHECK: [[COND2:[%0-9]+]] = arith.cmpi ne, [[INNER2]], %c0
-          // CHECK: [[AND:[%0-9]+]] = arith.andi [[COND1]], [[COND2]]
+          // CHECK: [[AND:[%0-9]+]] = arith.ori [[COND1]], [[COND2]]
           // CHECK: scf.if [[AND]] {
           // CHECK: "ttkernel.copy_tile_init"
           // CHECK: "ttkernel.copy_tile"

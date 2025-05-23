@@ -690,7 +690,8 @@ toFlatbuffer(
       matmulConfigAttr.getFuseBatch(), fusedActivation,
       matmulConfigAttr.getMcastIn0(), matmulConfigAttr.getGatherIn0(),
       toFlatbuffer(cache, matmulConfigAttr.getHopCores()),
-      matmulConfigAttr.getNumGlobalCbReceivers());
+      matmulConfigAttr.getNumGlobalCbReceivers(),
+      matmulConfigAttr.getUntilizeOut());
 }
 
 inline ::flatbuffers::Offset<

@@ -70,14 +70,14 @@ MlirAttribute ttmlirTTNNMatmulMultiCoreReuseMultiCast1DProgramConfigAttrGet(
     uint64_t outBlockH, uint64_t outBlockW, uint64_t perCoreM,
     uint64_t perCoreN, bool fuseBatch, MlirAttribute fusedActivation,
     bool mcastIn0, bool gatherIn0, MlirAttribute hopCores,
-    uint64_t numGlobalCbReceivers) {
+    uint64_t numGlobalCbReceivers, bool untilizeOut) {
   return wrap(MatmulMultiCoreReuseMultiCast1DProgramConfigAttr::get(
       unwrap(ctx),
       mlir::cast<CoreCoordAttr>(unwrap(computeWithStorageGridSize)), in0BlockW,
       outSubblockH, outSubblockW, outBlockH, outBlockW, perCoreM, perCoreN,
       fuseBatch, mlir::cast<UnaryWithParamAttr>(unwrap(fusedActivation)),
       mcastIn0, gatherIn0, mlir::cast<CoreRangeSetAttr>(unwrap(hopCores)),
-      numGlobalCbReceivers));
+      numGlobalCbReceivers, untilizeOut));
 }
 
 MlirAttribute

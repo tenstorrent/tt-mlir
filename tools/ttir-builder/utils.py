@@ -81,6 +81,7 @@ def build_mlir_module(
     mesh_shape: Optional[Tuple[int, int]] = None,
     module_dump: bool = False,
     base: Optional[str] = None,
+    output_root: str = ".",
 ):
     """
     Define a MLIR module specified as a python function.
@@ -195,8 +196,10 @@ def build_mlir_module(
 
         base = test_fn.__name__ if base is None else base
 
+        filename = get_target_path(output_root, base + "_ttir.mlir", "ttir")
+
         if module_dump:
-            with open(base + "_ttir.mlir", "w") as f:
+            with open(filename, "w") as f:
                 f.write(str(module))
                 print(module)
 
@@ -366,6 +369,7 @@ def compile_to_flatbuffer(
         inputs_types,
         mesh_shape=mesh_shape,
         module_dump=module_dump,
+        output_root=output_root,
     )
 
     output_file_mlir = get_target_path(output_root, test_base + mlir_suffix, target)

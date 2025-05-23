@@ -555,9 +555,7 @@ class Run:
                         emitc_dylib_path = bin.file_path.replace(".ttnn", ".so")
 
                         # Open the dylib
-                        emitc_dylib_handle = ttrt.runtime.testing.open_so(
-                            emitc_dylib_path
-                        )
+                        emitc_dylib_handle = ttrt.runtime.test.open_so(emitc_dylib_path)
                         self.logging.debug(f"opened emitc dylib={emitc_dylib_path}")
 
                     program_indices = []
@@ -597,8 +595,8 @@ class Run:
                                     golden_tensor.dtype
                                 )
 
-                                golden_tensor_torch = torch.frombuffer(
-                                    golden_tensor, dtype=dtype
+                                golden_tensor_torch = golden_tensor_to_torch(
+                                    golden_tensor
                                 )
                                 golden_inputs.append(golden_tensor_torch)
 
@@ -640,12 +638,9 @@ class Run:
                                     f"output_{idx}"
                                 )
                                 if golden_tensor is not None:
-                                    golden_tensor_torch = torch.frombuffer(
-                                        golden_tensor,
-                                        dtype=ttrt_datatype_to_torch_dtype(
-                                            golden_tensor.dtype
-                                        ),
-                                    ).reshape(golden_tensor.shape)
+                                    golden_tensor_torch = golden_tensor_to_torch(
+                                        golden_tensor
+                                    )
                                     golden_outputs_torch.append(golden_tensor_torch)
 
                         event = None
@@ -799,8 +794,6 @@ class Run:
                         if self["--emitc"]:
                             # Create symbol string to read from dylib
                             fwd_func_name = program.program["name"]
-                            fwd_func_name_len = len(fwd_func_name)
-                            fwd_func_sym = f"_Z{fwd_func_name_len}{fwd_func_name}St6vectorIN2tt8tt_metal6TensorESaIS2_EE"
 
                             # pre-upload inputs
                             inputs = convert_input_layouts(
@@ -808,9 +801,9 @@ class Run:
                             )
 
                             for loop in range(self["--loops"]):
-                                emitc_outs = ttrt.runtime.testing.run_so_program(
+                                emitc_outs = ttrt.runtime.test.run_so_program(
                                     emitc_dylib_handle,
-                                    fwd_func_sym,
+                                    fwd_func_name,
                                     inputs,
                                     device,
                                 )
@@ -822,7 +815,7 @@ class Run:
                                     f"got emitc outputs for program_index={program_index}, loop={loop}"
                                 )
 
-                                all_tensors_match = ttrt.runtime.testing.compare_outs(
+                                all_tensors_match = ttrt.runtime.test.compare_outs(
                                     outputs, emitc_outs
                                 )
 
@@ -966,8 +959,9 @@ class Run:
                     ttrt.runtime.reshape_mesh_device(device, mesh_shape)
 
                     if self["--emitc"]:
-                        ttrt.runtime.testing.close_so(emitc_dylib_handle)
+                        ttrt.runtime.test.close_so(emitc_dylib_handle)
 
+            ttrt.runtime.unregister_hooks()
             ttrt.runtime.close_mesh_device(device)
 
         self.logging.debug(f"executing ttnn binaries")

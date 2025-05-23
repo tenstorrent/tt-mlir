@@ -275,7 +275,7 @@ public:
   matchAndRewrite(ttir::ProdOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     int64_t inputRank = op.getInput().getType().getRank();
-    auto dimArg = op.getDimArg();
+    std::optional<::mlir::ArrayAttr> dimArg = op.getDimArg();
     int64_t size = dimArg ? dimArg->size() : inputRank;
 
     // [TODO](mmanzoor) Decompose ttnn.prod op into multiple ttnn.prod to handle
@@ -287,15 +287,21 @@ public:
               "dimensions.");
     }
 
-    bool allDimensions = (size == inputRank) ? true : false;
-    int64_t dimension =
-        dimArg ? (mlir::cast<mlir::IntegerAttr>(dimArg->getValue()[0])).getInt()
-               : 0;
+    // TTNN only supports reduce(prod) along one dimension or all dimensions.
+    // That is controlled by dimArg. If dimArg is not present, then all
+    // dimensions are reduced. Otherwise, only the specified dimension is
+    // reduced.
+    mlir::IntegerAttr newDimArg = nullptr;
+    if (dimArg && dimArg->size() == 1) {
+      auto int32Attr = mlir::cast<mlir::IntegerAttr>(dimArg->getValue()[0]);
+      newDimArg =
+          mlir::IntegerAttr::get(rewriter.getI64Type(), int32Attr.getInt());
+    }
 
     rewriter.replaceOpWithNewOp<ttnn::ProdOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), allDimensions, adaptor.getKeepDim(), dimension,
-        /*memoryConfig*/ nullptr);
+        adaptor.getInput(), newDimArg, adaptor.getKeepDim(),
+        /*memoryConfig=*/nullptr);
     return success();
   }
 };
@@ -596,7 +602,7 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::ConcatOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInputs(), dim,
-        /* memory_config */ nullptr);
+        /*memory_config=*/nullptr);
     return success();
   }
 };
@@ -612,7 +618,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getShape(), /* memory_config */ nullptr);
+        adaptor.getInput(), adaptor.getShape(), /*memory_config=*/nullptr);
     return success();
   }
 };
@@ -672,7 +678,7 @@ public:
     // Replace the SqueezeOp with a ReshapeOp
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), shapeAttr, /* memory_config */ nullptr);
+        adaptor.getInput(), shapeAttr, /*memory_config=*/nullptr);
 
     return success();
   }
@@ -741,7 +747,7 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::PadOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getPaddingAttr(), adaptor.getValue(),
-        /* use_multicore */ true, memcfg);
+        /*use_multicore=*/true, memcfg);
 
     return success();
   }
@@ -791,7 +797,7 @@ public:
     // Replace the UnsqueezeOp with a ReshapeOp
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), shapeAttr, /* memory_config */ nullptr);
+        adaptor.getInput(), shapeAttr, /*memory_config=*/nullptr);
 
     return success();
   }
@@ -1085,7 +1091,7 @@ public:
         adaptor.getBias(), device, inChannelsAttr, outChannelsAttr,
         batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
         *strideAttr, reducedPaddingAttr, *outputPaddingAttr, *dilationAttr,
-        groupsAttr, /*memoryConfig*/ nullptr);
+        groupsAttr, /*memoryConfig=*/nullptr);
 
     // Restore the normal shape (N x H x W x C).
     Value output =
@@ -1178,7 +1184,9 @@ public:
         adaptor.getFlattenedCompatInfo().getInputHeight(),
         adaptor.getFlattenedCompatInfo().getInputWidth(), channels,
         kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
-        adaptor.getCeilMode());
+        /*memory_config=*/nullptr,
+        /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
+        /* in_place_halo=*/false);
 
     return success();
   }

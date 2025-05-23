@@ -134,10 +134,8 @@ class Query:
                 dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
 
             self.logging.debug(f"getting system descriptor")
-            (
-                self.system_desc,
-                self.device_ids,
-            ) = ttrt.runtime.get_current_system_desc(dispatch_core_type)
+            self.system_desc = ttrt.runtime.get_current_system_desc(dispatch_core_type)
+            self.device_ids = list(range(ttrt.runtime.get_num_available_devices()))
 
             if not self["--quiet"]:
                 self.logging.info(self.system_desc.as_json())

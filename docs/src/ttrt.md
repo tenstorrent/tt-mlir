@@ -284,14 +284,21 @@ query_instance = API.Query(args=custom_args)
 ```
 
 #### logging
-You can specify a specific logging module you want to set inside your API instance. The rationale behind this is to support different instances of different APIs, all being able to be logged to a different file.
+You can specify a specific logging module you want to set inside your API instance. The rationale behind this is to support different instances of different APIs, all being able to be logged to a different file. You can also customize the level of detail your log file contains.
 
 ```bash
 from ttrt.common.util import Logger
+import os
 
+os.environ["LOGGER_LEVEL"] = "DEBUG"
 log_file_name = "some_file_name.log"
 custom_logger = Logger(log_file_name)
 read_instance = API.Read(logger=custom_logger)
+```
+
+To set logging level through the terminal, use environment variable TTRT_LOGGER_LEVEL.
+```bash
+   export TTRT_LOGGER_LEVEL=DEBUG
 ```
 
 #### artifacts
@@ -359,17 +366,18 @@ callback_env = ttrt.runtime.DebugHooks.get(preOpGolden, postOpGolden)
 
 3. The callback function has a particular function signature, which looks like the following
 ```bash
-def preOpGolden(binary, programContext, opContext):
+def preOpGolden(binary, program_context, op_context):
 ```
-`binary`: reference to the binary you are currently running
-`programContext`: reference to the program currently running
-`opContext`: reference to the op that is currently running
+`binary`: reference to the binary you are currently running, ttrt.binary Binary object
+`program_context`: reference to the program currently running, ttrt.runtime ProgramContext object
+`op_context`: reference to the op that is currently running, ttrt.runtime OpContext object
 
-4. Each of these parameters has certain APIs exposed which can be called within the callback function
+4. Each of these parameters has certain APIs exposed which can be called within the callback functions
 ```bash
-op_debug_str = ttrt.runtime.get_op_debug_str(opContext) : get the op debug str (ie you can parse this string to get the location of the op which is used as the key when indexing the golden tensors stored in the flatbuffer)
-op_golden_tensor = binary.get_debug_info_golden(loc) : get the golden tensor from the binary as list of float32
-op_output_tensor = ttrt.runtime.get_op_output_tensor(opContext, programContext) : get the currently running output tensor from device as list of float32
+loc = ttrt.runtime.get_op_loc_info(op_context) : get the location of the op as a string which is used as the key when indexing the golden tensors stored in the flatbuffer
+op_debug_str = ttrt.runtime.get_op_debug_str(op_context) : get the op debug str (contains op metadata inculding op type, attributes, input tensor shapes and dtypes, memref with layout and buffer type, and loc)
+op_golden_tensor = ttrt.runtime.get_debug_info_golden(binary, loc) : get the golden tensor from the binary as a ttrt.binary GoldenTensor object
+op_output_tensor = ttrt.runtime.get_op_output_tensor(op_context, program_context) : get the currently running output tensor from device as a ttrt.runtime Tensor object, if this is called in a preOp function or the op doesn't output a tensor, an empty tensor will be returned.
 ```
 
 5. A potential application for this callback function is implementing a golden callback. TTRT achieves this by first storing the golden data within the flatbuffer binary. See `python/Passes.cpp` - specifically `ttnn_to_flatbuffer_file` function for an example. This is used by `tools/ttir-builder/builder.py` to construct flatbuffers with embedded golden data. You can store input/output/intermediate data within the flatbuffer. The choice of the map `key` for inputs/outputs is left to the golden implementor. The intermediate tensor key is derived from loc data for ttrt. External users can implement their own key/value logic. See `runtime/tools/ttrt/ttrt/common/golden.py` for how ttrt implement the golden callback function.
