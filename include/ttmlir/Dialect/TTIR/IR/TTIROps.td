@@ -884,7 +884,7 @@ def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract", [TTIR_PartiallyBroadc
     }];
 }
 
-def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder", [TTIR_PartiallyBroadcastable]> {
+def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder"> {
     let summary = "Eltwise remainder.";
     let description = [{
       Performs element-wise remainder of dividend lhs and divisor rhs tensors and produces a
@@ -948,7 +948,7 @@ def TTIR_MultiplyOp : TTIR_ElementwiseBinaryOp<"multiply", [TTIR_PartiallyBroadc
     }];
 }
 
-def TTIR_DivOp : TTIR_ElementwiseBinaryOp<"div", [TTIR_PartiallyBroadcastable]> {
+def TTIR_DivOp : TTIR_ElementwiseBinaryOp<"div"> {
     let summary = "Eltwise divide.";
     let description = [{
       Eltwise divide operation.
