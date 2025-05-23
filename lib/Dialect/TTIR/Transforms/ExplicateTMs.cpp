@@ -148,6 +148,7 @@ private:
   llvm::SmallVector<int64_t>
   getBroadcastDimensions(llvm::ArrayRef<int64_t> operandShape,
                          llvm::ArrayRef<int64_t> targetShape) const {
+    assert(operandShape.size() == targetShape.size());
     llvm::SmallVector<int64_t> broadcastDimensions(operandShape.size(), 1);
     for (size_t dim = 0; dim < operandShape.size(); dim++) {
       if (operandShape[dim] < targetShape[dim]) {
