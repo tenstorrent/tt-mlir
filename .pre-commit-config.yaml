@@ -36,7 +36,7 @@ repos:
 #        pass_filenames: false
       - id: check-license-headers
         name: Check License Headers
-        entry: python3 check_license_headers.py --fix
+        entry: python3 check_license_headers.py --fix --only-errors
         language: system
         types_or: [python, c++, c, header]
 #      - id: rm-file

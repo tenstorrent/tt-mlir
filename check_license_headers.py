@@ -149,7 +149,12 @@ def extract_header_block(path: Path, normalize_year=True, git_year=None):
 
 
 def check_file(
-    path: Path, expected_lines, normalize_year=True, git_year=None, fix=False
+    path: Path,
+    expected_lines,
+    normalize_year=True,
+    git_year=None,
+    fix=False,
+    only_errors=False,
 ):
     actual_lines, header_start_line = extract_header_block(
         path, normalize_year, git_year
@@ -187,6 +192,9 @@ def check_file(
             else:
                 print(f"❌ Failed to fix header in {path}")
         return False
+    elif not only_errors:
+        # Only print success messages if not in only_errors mode
+        print(f"✅ License header OK in {path}")
     return True
 
 
@@ -419,6 +427,11 @@ def main():
         action="store_true",
         help="Replace incorrect SPDX headers with correct ones.",
     )
+    parser.add_argument(
+        "--only-errors",
+        action="store_true",
+        help="Only print messages for files with errors.",
+    )
     parser.add_argument("files", nargs="+", help="Files to check")
     args = parser.parse_args()
 
@@ -432,7 +445,10 @@ def main():
     for file_arg in args.files:
         path = Path(file_arg)
         ext = path.suffix
-        print(f"Checking {path} with ext {ext}", file=sys.stderr)
+
+        # Only print checking message if not in only-errors mode
+        if not args.only_errors:
+            print(f"Checking {path} with ext {ext}", file=sys.stderr)
 
         git_year = file_years.get(path)
 
@@ -442,13 +458,23 @@ def main():
         if git_year is None:
             git_year = get_git_year(path)
 
-        print(f"Git year: {git_year}", file=sys.stderr)
+        if not args.only_errors:
+            print(f"Git year: {git_year}", file=sys.stderr)
+
         expected = get_expected_header(ext, args.ignore_year, git_year)
 
         if expected is None:
             continue  # Skip unsupported files
 
-        if not check_file(path, expected, args.ignore_year, git_year, fix=args.fix):
+        # Pass the only_errors flag to check_file
+        if not check_file(
+            path,
+            expected,
+            args.ignore_year,
+            git_year,
+            fix=args.fix,
+            only_errors=args.only_errors,
+        ):
             failed = True
 
     sys.exit(1 if failed else 0)
