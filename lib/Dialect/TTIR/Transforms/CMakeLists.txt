@@ -11,6 +11,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         GenericLowerDMAs.cpp
         GenericRegionsToFuncs.cpp
         InsertDstRegisterAccess.cpp
+        GenericApplyInterchange.cpp
         OptimizeTensorLayout.cpp
         HoistCPUOps.cpp
         ElementTypeNormalization.cpp
@@ -29,4 +30,5 @@ add_mlir_dialect_library(MLIRTTIRTransforms
 
         LINK_LIBS PUBLIC
         MLIRTTIREraseInverseOps
+        MLIRTTIRAnalysis
         )
