@@ -59,12 +59,14 @@ private:
   int64_t getMaxRankForOperands(ElementwiseInterfaceType op) const {
     assert(op->template hasTrait<mlir::DestinationStyleOpInterface::Trait>() &&
            "Elementwise op should have the DestinationStyleOpInterface trait");
-    return std::accumulate(
-        op->operand_type_begin(), op->operand_type_end() - 1, 0,
-        [](int64_t acc, mlir::Type type) {
-          return std::max(acc,
-                          mlir::cast<mlir::RankedTensorType>(type).getRank());
-        });
+    int64_t maxRank = 0;
+    for (int64_t i = 0; i < op->getNumOperands() - 1; ++i) {
+      maxRank = std::max(maxRank, mlir::cast<mlir::RankedTensorType>(
+                                      op->getOperand(i).getType())
+                                      .getRank());
+    }
+
+    return maxRank;
   }
 };
 } // namespace
