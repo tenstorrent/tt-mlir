@@ -85,6 +85,16 @@ bool ShardSolver::resolveStep() {
   bitsetIds.reserve(shardedOps->size());
   selectedOpConfig.reserve(shardedOps->size());
 
+  if (shardSpecs->size() == 1) {
+    // Only one op, no need to resolve, we'll anyway spill last op to DRAM, so
+    // just skip.
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "Skipping L1 chain config, just single op {}",
+                 shardSpecs->begin()->op->getName());
+    earlyExit = true;
+    return false;
+  }
+
   // We need special handling for the first op in the chain.
   //
   if (!preprocessFirstOp()) {
@@ -127,6 +137,9 @@ bool ShardSolver::resolveStep() {
                      "Found resharding on edge {}", edge);
       }
 
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "Processing Edge: {}",
+                   edge);
+
       Operation *producerOp = edge.producerOp;
       Bitset *producerBitset = getOrInsertBitset(producerOp, kBitsetAll);
       const std::vector<OpConfig> &producerConfigs =
@@ -167,6 +180,10 @@ bool ShardSolver::resolveStep() {
       } else {
         for (std::uint64_t producerId = 0; producerId < producerCount;
              ++producerId) {
+          // TODO(rpavlovicTT) check with Ogi but after we inserted reshard in
+          // preprocessFirstOp we dont need to try every producerId here, right?
+          // Because we already decided on that one that is result of reshard.
+
           // If the producer cannot accomodate this path, continue.
           // Also if this is not the OpConfig we selected, continue.
           if (!producerBitset->test(producerId)) {
@@ -296,6 +313,8 @@ bool ShardSolver::supportsInterleavedInputShardedOutput(Operation *op,
                "Checking if interleaved to sharded is possible for op : {}",
                op->getName());
 
+  // TODO(rpavlovicTT) this is bad as we are hardcoding this layout, while it
+  // could be overriden.
   inputLayout = inputLayout.withBufferType(BufferType::DRAM)
                     .withMemoryLayout(TensorMemoryLayout::Interleaved);
 
@@ -820,10 +839,6 @@ llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
     auto layout = mlir::cast<TTNNLayoutAttr>(input.getEncoding());
 
     assert(layout && "Input operand must have a layout");
-
-    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                 "Op {0} has additional operand with layout {1}",
-                 consumerOp->getName(), layout);
     inputLayouts.push_back(layout);
   }
 
@@ -866,9 +881,14 @@ llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
 
   if (!l1UsageValid) {
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                 "OpModel constraints failed: {0}->{1} :: {2}",
+                 "Not enough L1 memory. OpModel constraints failed: {0}->{1} "
+                 "\n producerLayout: {2}, outputLayout: {3}, l1Usage: {4}, "
+                 "producerL1OutputUsage: {5}, "
+                 "outputTensorUsage: {6}, cBUsagePeak: {7}",
                  producerOperand.getLoc(), consumerOp->getName(),
-                 "Not enough L1 memory");
+                 producerLayout, outputLayout,
+                 cBUsagePeak + outputTensorUsage + producerL1OutputUsage,
+                 producerL1OutputUsage, outputTensorUsage, cBUsagePeak);
     return llvm::createStringError("Not enough L1 memory");
   }
 
@@ -876,10 +896,13 @@ llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
       ttmlir::LogComponent::Optimizer,
       "OpModel constraints valid. Producer: {0} -> Consumer: {1}\n"
       "ProducerLayout: {2}\nOutputLayout: {3}\n"
-      "L1 usage: cBUsagePeak: {4}, tensorUsage: {5}, outputTensorUsage: {6}\n"
+      "L1 usage: cBUsagePeak: {4}, tensorUsage: {5}, outputTensorUsage: {6}, "
+      "producerL1OutputUsage: {7}, totalL1Usage: {8}\n"
       "=== End of debug dump ===",
       producerOperand.getLoc(), consumerOp->getName(), producerLayout,
-      outputLayout, cBUsagePeak, tensorUsage, outputTensorUsage);
+      outputLayout, cBUsagePeak, tensorUsage, outputTensorUsage,
+      producerL1OutputUsage,
+      cBUsagePeak + outputTensorUsage + producerL1OutputUsage);
 
   return outputLayout;
 }
