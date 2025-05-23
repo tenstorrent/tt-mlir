@@ -400,10 +400,7 @@ createOp(FlatbufferObjectCache &cache, FullOp op) {
   }
   auto dtype = toFlatbuffer(cache, op.getDtype());
   auto layout = toFlatbuffer(cache, op.getLayout());
-  auto memoryConfig =
-      llvm::transformOptional(op.getMemoryConfig(), [&](auto &&memoryConfig) {
-        return toFlatbuffer(cache, memoryConfig);
-      }).value_or(0);
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig()).value_or(0);
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
 
