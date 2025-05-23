@@ -1828,7 +1828,8 @@ bool isNarrowingConversion(const ::mlir::tt::DataType srcDtype,
   if (!srcIsSigned && dstIsSigned) {
     return srcNumberOfBits >= dstNumberOfBits;
   }
-  return false;
+  assert(srcIsSigned && !dstIsSigned);
+  return true;
 }
 
 } // namespace
