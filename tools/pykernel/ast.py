@@ -125,12 +125,24 @@ class TTKernelCompiler(ast.NodeVisitor):
         self.supported_nodes = get_supported_nodes()
         self.kernel_type = kernel_type
 
+        self.args = args
         self.cb_args = args
         self.rt_args = None
         self.ct_args = kwargs.get("ct_args")
 
-        self.verbose = kwargs.get("verbose", False)
-        self.source_code = kwargs.get("source_code", "")
+        # if not isinstance(self.ct_args, dict):
+        #    raise TypeError("ct_args must be a dict!")
+
+        # Get rid of appended metadata sent into compiler
+        self.verbose = False
+        self.source_code = ""
+        if "_verbose" in kwargs:
+            self.verbose = kwargs["_verbose"]
+            del kwargs["_verbose"]
+
+        if "source_code" in kwargs:
+            self.source_code = kwargs["_source_code"]
+            del kwargs["_source_code"]
 
     def get_source_comment(self, node):
         """

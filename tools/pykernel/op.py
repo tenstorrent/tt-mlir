@@ -58,10 +58,9 @@ class PyKernelOp:
         if hasattr(self, "_made_cbs"):
             return getattr(self, "_made_cbs")
 
-        # Define CBs otherwise
-        if hasattr(self, "define_cbs"):
-            cbs = self.define_cbs(tensors, options)
-        else:
+        # Define CBs otherwise, use autoconfigure if define_cbs isn't defined
+        cbs = self.define_cbs(tensors, options)
+        if cbs is None:
             cbs = self._autoconfigure_cbs(selected_kernels, tensors, options)
             if cbs is None:
                 raise ValueError("Please use define_cbs. Autoconfiguration has failed.")
@@ -79,7 +78,7 @@ class PyKernelOp:
     def define_cbs(self, tensors, options):
         """Define Circular Buffers Descriptors from tensors and options."""
         # Default implementation - subclasses should override
-        return []
+        return None
 
     def _get_core_ranges(self, tensors, options):
         res = self.define_core_ranges(tensors, options)
@@ -118,7 +117,7 @@ class PyKernelOp:
             i_cfg, o_cfg = i.memory_config(), o.memory_config()
 
             # Populate is_dram_input
-            options["is_dram_input"] = i_cfg.buffer_type = self.ttnn.BufferType.DRAM
+            options["is_dram_input"] = i_cfg.buffer_type == self.ttnn.BufferType.DRAM
 
             # Check case where inputs have same shape
             if list(i.shape) == list(o.shape):
@@ -130,7 +129,7 @@ class PyKernelOp:
         cbs = {}
         num_cbs = 0
         # Here we need to ingest the selected kernels as well
-        for kernel in selected_kernels:
+        for kernel, config in selected_kernels:
             # Figure out which is which
             params = inspect.signature(kernel).parameters
 
@@ -161,16 +160,8 @@ class PyKernelOp:
                     cbs[cb.name] = i
                     num_cbs += 1
 
-        # Check to make sure enough CBs exist
-        if num_cbs > TOTAL_CBS:
-            logging.error(
-                "More CBs required than possible (%d), quitting CB Autoconfiguration, please use define_cbs or reduce CB usage.",
-                TOTAL_CBS,
-            )
-            return None
-
         # Check for index collisions
-        if len(cbs.values()) == len(set(cbs.values())):
+        if len(cbs.values()) != len(set(cbs.values())):
             logging.error(
                 "Index Collisions in Autoconfiguration Logic, please use define_cbs."
             )
@@ -186,7 +177,7 @@ class PyKernelOp:
         dtype = dtypes[0]
 
         # Page size is just 1 tile x dtype size
-        page_size = self._tile_bytes_from_ttnn_dtype(dtype)
+        page_size = self._tile_bytes_from_ttnn_dtype(int(dtype))
         if not isinstance(page_size, int):
             raise ValueError("Invalid DataType possessed by tensors.")
 
@@ -202,7 +193,7 @@ class PyKernelOp:
         current_buffer_index = 0
 
         # Construct the resultant cbs and cb_formats
-        for cb, idx in cbs.items():
+        for cb, i in cbs.items():
             core_ranges = self._get_core_ranges(tensors, options)
 
             cb_formats[i] = self.ttnn.CBFormatDescriptor(
@@ -240,6 +231,9 @@ class PyKernelOp:
         Returns:
             Result tensor(s) from the operation
         """
+        # Autoconfigure Options based on Input
+        self._autoconfigure_options(tensors, options)
+
         # Compute hash for kernel selection and caching
         input_hash = self._compute_input_hash(tensors, options)
 
@@ -284,7 +278,7 @@ class PyKernelOp:
                 # Define the KernelDescriptor for each Kernel
                 kernel_desc_args = {
                     "kernel_source": kernel_path,
-                    "core_ranges": options["core_ranges"],
+                    "core_ranges": self._get_core_ranges(tensors, options),
                     "compile_time_args": ct_args,
                     "runtime_args": [[rt_args]],
                     "config": config(),

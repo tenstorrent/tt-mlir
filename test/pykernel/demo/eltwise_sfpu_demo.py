@@ -67,7 +67,7 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
         dataformat = get_dataformat(cb_out)
 
         s0 = get_interleaved_addr_gen_fast(
-            dst_is_dram > 0, dst_addr, tile_bytes, dataformat
+            dst_is_dram, dst_addr, tile_bytes, dataformat
         )
 
         end_id = start_id + num_tiles
@@ -83,7 +83,6 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
 
     def writer_unary_interleaved_CT_ARGS(self, tensors, options):
         return [
-            options["out_cb"],
             options["is_dram_input"],
         ]
 
@@ -109,7 +108,7 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
         dataformat = get_dataformat(cb_in)
 
         s0 = get_interleaved_addr_gen_fast(
-            src_is_dram > 0, src_addr, tile_bytes, dataformat
+            src_is_dram, src_addr, tile_bytes, dataformat
         )
 
         end_id = start_id + num_tiles
@@ -186,7 +185,7 @@ io_tensors = [input_tensor, output_tensor]
 eltwise_exp_op = EltwiseSFPUPyKernelOp(ttnn)
 
 # Run tests against the golden "exp" op.
-output = eltwise_exp_op(*io_tensors)
+output = eltwise_exp_op(*io_tensors, num_tiles=num_tiles)
 golden = ttnn.exp(input_tensor)
 
 torch_golden = ttnn.to_torch(golden)
