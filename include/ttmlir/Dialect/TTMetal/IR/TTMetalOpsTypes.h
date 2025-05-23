@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-License-Identifier: Apache-2.0
 
 #ifndef TTMLIR_DIALECT_TTMETAL_IR_TTMETALOPSTYPES_H
 #define TTMLIR_DIALECT_TTMETAL_IR_TTMETALOPSTYPES_H

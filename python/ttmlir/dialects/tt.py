@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-License-Identifier: Apache-2.0
 
 from ._tt_ops_gen import *
 from ._tt_enum_gen import *

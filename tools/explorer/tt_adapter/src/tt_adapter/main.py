@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-License-Identifier: Apache-2.0
 from typing import Dict
 import model_explorer
 from . import runner, utils, mlir

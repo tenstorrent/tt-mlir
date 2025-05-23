@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-License-Identifier: Apache-2.0
 #include "operations/deletion/deallocate.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"

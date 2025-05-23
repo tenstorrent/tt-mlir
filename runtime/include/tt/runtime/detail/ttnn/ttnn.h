@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-License-Identifier: Apache-2.0
 
 #ifndef TT_RUNTIME_DETAIL_TTNN_TTNN_H
 #define TT_RUNTIME_DETAIL_TTNN_TTNN_H

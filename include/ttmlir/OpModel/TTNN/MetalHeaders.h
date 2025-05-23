@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-License-Identifier: Apache-2.0
 
 #ifndef TTMLIR_OPMODEL_TTNN_METALHEADERS_H
 #define TTMLIR_OPMODEL_TTNN_METALHEADERS_H

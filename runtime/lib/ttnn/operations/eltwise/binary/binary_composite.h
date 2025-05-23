@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-License-Identifier: Apache-2.0
 
 #ifndef RUNTIME_LIB_TTNN_OPERATIONS_ELTWISE_BINARY_COMPOSITE_H
 #define RUNTIME_LIB_TTNN_OPERATIONS_ELTWISE_BINARY_COMPOSITE_H

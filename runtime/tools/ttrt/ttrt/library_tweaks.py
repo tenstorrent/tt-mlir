@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-License-Identifier: Apache-2.0
 """
 Simple library tweaks module used to move `TT_METAL_HOME` to point to the
 mirrored TTMetal tree within the `ttrt` wheel. It is important that

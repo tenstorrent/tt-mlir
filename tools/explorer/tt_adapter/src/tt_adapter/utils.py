@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-License-Identifier: Apache-2.0
 import ttmlir
 from dataclasses import make_dataclass, is_dataclass, asdict
 from collections import defaultdict

@@ -129,8 +129,10 @@ def extract_header_block(path: Path, normalize_year=True, git_year=None):
                     # Found the start of a SPDX header
                     start_idx = line_num
                     # Get all lines that look like they're part of the header
-                    while start_idx < len(content) and ("SPDX" in content[start_idx] or 
-                          content[start_idx].strip() == comment_prefix.strip()):
+                    while start_idx < len(content) and (
+                        "SPDX" in content[start_idx]
+                        or content[start_idx].strip() == comment_prefix.strip()
+                    ):
                         lines.append(content[start_idx].rstrip("\n\r"))
                         start_idx += 1
                     break
@@ -152,6 +154,18 @@ def check_file(
     actual_lines, header_start_line = extract_header_block(
         path, normalize_year, git_year
     )
+
+    # Handle the case where no header was found
+    if not actual_lines or len(actual_lines) == 0:
+        print(f"❌ No license header found in {path}")
+        if fix:
+            if add_license_header(path, expected_lines):
+                print(f"✅ Added license header to {path}")
+                return True
+            else:
+                print(f"❌ Failed to add license header to {path}")
+        return False
+
     if actual_lines is None:
         return False
 
@@ -263,6 +277,40 @@ def get_file_years() -> dict[Path, int | None]:
 # now you have a master list of all the years for each file
 
 
+def add_license_header(path: Path, expected_lines):
+    """Add a license header to a file that doesn't have one"""
+    try:
+        ext = path.suffix
+        git_year = get_git_year(path)
+
+        # Get the raw expected header (without normalization)
+        raw_header = get_raw_expected_header(ext, git_year)
+        if not raw_header:
+            return False
+
+        # Read the entire file
+        with open(path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        # Insert header at the beginning of the file
+        # For C/C++ files, place license header at the very beginning, before include guards
+        if ext in [".h", ".hpp", ".c", ".cpp", ".cc", ".cuh", ".cu"]:
+            # For all C/C++ files, license header should come first, then include guards
+            new_lines = [line + "\n" for line in raw_header] + ["\n"] + lines
+        else:
+            # For other files, just insert at the beginning
+            new_lines = [line + "\n" for line in raw_header] + ["\n"] + lines
+
+        # Write the file back
+        with open(path, "w", encoding="utf-8") as f:
+            f.writelines(new_lines)
+
+        return True
+    except Exception as e:
+        print(f"❌ ERROR adding header to {path}: {e}", file=sys.stderr)
+        return False
+
+
 def replace_header(path: Path, expected_lines, header_start_line):
     """Replace the existing SPDX header with the correct one"""
     try:
@@ -283,7 +331,7 @@ def replace_header(path: Path, expected_lines, header_start_line):
         in_header = False
         license_lines = 0
         comment_prefix = COMMENT_STYLES.get(ext, "# ")
-        
+
         # Scan from the beginning of the file up to 20 lines
         max_scan = min(20, len(lines))
         for i in range(max_scan):
@@ -295,11 +343,18 @@ def replace_header(path: Path, expected_lines, header_start_line):
                 if "SPDX-License-Identifier" in line:
                     license_lines += 1
             # Include empty comment lines and comment-only lines in the header section
-            elif in_header and (line.strip() == comment_prefix.strip() or 
-                               (line.startswith(comment_prefix) and line.strip() == comment_prefix.strip())):
+            elif in_header and (
+                line.strip() == comment_prefix.strip()
+                or (
+                    line.startswith(comment_prefix)
+                    and line.strip() == comment_prefix.strip()
+                )
+            ):
                 header_lines_to_remove.append(i)
             # If we've found the license lines and then hit a non-comment line, we're done with the header
-            elif in_header and license_lines > 0 and not line.startswith(comment_prefix):
+            elif (
+                in_header and license_lines > 0 and not line.startswith(comment_prefix)
+            ):
                 break
 
         # If we found header lines to remove
@@ -309,14 +364,16 @@ def replace_header(path: Path, expected_lines, header_start_line):
             for i in range(len(lines)):
                 if i not in header_lines_to_remove:
                     new_lines.append(lines[i])
-                elif i == header_lines_to_remove[0]:  # Insert new header at first removed line
+                elif (
+                    i == header_lines_to_remove[0]
+                ):  # Insert new header at first removed line
                     for header_line in raw_header:
                         new_lines.append(header_line + "\n")
-            
+
             # Write the file back
             with open(path, "w", encoding="utf-8") as f:
                 f.writelines(new_lines)
-            
+
             return True
         else:
             # Fallback to the original approach if we didn't find any header lines
@@ -340,11 +397,11 @@ def replace_header(path: Path, expected_lines, header_start_line):
                 + [line + "\n" for line in raw_header]
                 + lines[header_end_line:]
             )
-            
+
             # Write the file back
             with open(path, "w", encoding="utf-8") as f:
                 f.writelines(new_lines)
-            
+
             return True
 
     except Exception as e:
