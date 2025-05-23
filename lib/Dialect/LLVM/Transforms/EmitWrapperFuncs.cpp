@@ -88,7 +88,7 @@ void generateLLVMWrappersForArgRanks(ModuleOp moduleOp) {
       // Get pointer to the struct for this offset-th tensor in input array.
       Value structPtr = builder.create<LLVM::GEPOp>(
           func.getLoc(), ptrTy, ptrTy, structArrayPtr, ValueRange(offset),
-          /*inbounds=*/true);
+          LLVM::GEPNoWrapFlags::inbounds);
 
       // Load actual tensor object from pointer so we can extract its members.
       Value tensorStruct = builder.create<LLVM::LoadOp>(

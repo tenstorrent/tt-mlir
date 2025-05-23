@@ -50,8 +50,7 @@ if (TTMLIR_ENABLE_STABLEHLO)
     SdyTransformsImportPasses
     SdyTransformsPasses
     SdyRoundtripImportShardyAttrs
-    SdyRoundtripImportCallbackCustomCalls
-    SdyRoundtripImportBackendFuncCalls
+    SdyRoundtripImportUninlineableFuncCalls
     SdyRoundtripShardMapImport
     SdyRoundtripPipelines
   )

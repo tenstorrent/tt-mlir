@@ -892,7 +892,7 @@ public:
         auto cb = rewriter.create<GetCompileArgValOp>(
             op.getLoc(), getTypeConverter()->convertType(arg.getType()),
             rewriter.getI32IntegerAttr(arg.getArgNumber()));
-        signatureConverter.remapInput(arg.getArgNumber(), cb);
+        signatureConverter.remapInput(arg.getArgNumber(), {cb});
         ctArgSpecVector.push_back(
             rewriter.getAttr<ArgAttr>(ArgType::CBPort, arg.getArgNumber()));
       } else if (mlir::isa<SemaphoreType>(argType)) {
