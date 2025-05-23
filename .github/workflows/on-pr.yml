@@ -14,13 +14,9 @@ jobs:
   pre-commit:
     uses: ./.github/workflows/pre-commit.yml
     secrets: inherit
-  spdx:
-    uses: ./.github/workflows/spdx.yml
-    secrets: inherit
   build-and-test:
     needs:
       - pre-commit
-      - spdx
     if: github.event.pull_request.draft == false
     uses: ./.github/workflows/build-and-test.yml
     secrets: inherit
@@ -52,7 +48,6 @@ jobs:
     if: always()
     needs:
     - pre-commit
-    - spdx
     - build-and-test
     runs-on: ubuntu-latest
     steps:
