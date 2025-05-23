@@ -136,62 +136,22 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
         ]
 
     # KERNEL SELECTION
-    def assign_kernels_and_core_ranges(self, tensors, options):
-        # Define the kernel types here to be passed into the config
+    def select_kernels(self, tensors, options):
+        return [
+            (EltwiseSFPUPyKernelOp.eltwise_sfpu, ttnn.ComputeConfigDescriptor),
+            (
+                EltwiseSFPUPyKernelOp.writer_unary_interleaved,
+                ttnn.WriterConfigDescriptor,
+            ),
+            (
+                EltwiseSFPUPyKernelOp.reader_unary_interleaved,
+                ttnn.ReaderConfigDescriptor,
+            ),
+        ]
+
+    def define_core_ranges(self, tensors, options):
         core = ttnn.CoreCoord(0, 0)
-        core_ranges = ttnn.CoreRangeSet([ttnn.CoreRange(core, core)])
-
-        return {
-            core_ranges: [
-                (EltwiseSFPUPyKernelOp.eltwise_sfpu, ttnn.ComputeConfigDescriptor),
-                (
-                    EltwiseSFPUPyKernelOp.writer_unary_interleaved,
-                    ttnn.WriterConfigDescriptor,
-                ),
-                (
-                    EltwiseSFPUPyKernelOp.reader_unary_interleaved,
-                    ttnn.ReaderConfigDescriptor,
-                ),
-            ]
-        }
-
-    # Circular Buffers  will be statically created and used for all kernels
-    def define_cbs(self, tensors, options):
-        # Parse these kernel values from the supplied Options
-        input_cb_data_format = options["cb_data_format"]
-        cb_total_size = options["cb_total_size"]
-        cb_page_size = options["cb_page_size"]
-        in_cb = options["in_cb"]
-        out_cb = options["out_cb"]
-
-        core_ranges = options["core_ranges"]
-
-        in_cb_format = ttnn.CBFormatDescriptor(
-            buffer_index=in_cb,
-            data_format=input_cb_data_format,
-            page_size=cb_page_size,
-        )
-        out_cb_format = ttnn.CBFormatDescriptor(
-            buffer_index=out_cb,
-            data_format=input_cb_data_format,
-            page_size=cb_page_size,
-        )
-
-        # Set cb formats as artifact to use later on
-        self._cb_formats = [in_cb_format, out_cb_format]
-
-        in_cb_descriptor = ttnn.CBDescriptor(
-            total_size=cb_total_size,
-            core_ranges=core_ranges,
-            format_descriptors=[in_cb_format],
-        )
-        out_cb_descriptor = ttnn.CBDescriptor(
-            total_size=cb_total_size,
-            core_ranges=core_ranges,
-            format_descriptors=[out_cb_format],
-        )
-
-        return [in_cb_descriptor, out_cb_descriptor]
+        return ttnn.CoreRangeSet([ttnn.CoreRange(core, core)])
 
 
 # Device Definitions
@@ -225,21 +185,8 @@ io_tensors = [input_tensor, output_tensor]
 # Define Custom Generic Op
 eltwise_exp_op = EltwiseSFPUPyKernelOp(ttnn)
 
-eltwise_exp_op_options = {
-    "in_cb": 0,
-    "out_cb": 16,
-    "is_dram_input": 1,
-    "cb_data_format": ttnn.bfloat16,
-    "cb_total_size": 2
-    * 2
-    * 1024,  # tt::DataFormat::Float16_b hard coded to have size 2 * 1024
-    "cb_page_size": 2 * 1024,
-    "num_tiles": num_tiles,
-    "core_ranges": core_ranges,
-}
-
 # Run tests against the golden "exp" op.
-output = eltwise_exp_op(*io_tensors, **eltwise_exp_op_options)
+output = eltwise_exp_op(*io_tensors)
 golden = ttnn.exp(input_tensor)
 
 torch_golden = ttnn.to_torch(golden)

@@ -81,6 +81,19 @@ class PyKernelOp:
         # Default implementation - subclasses should override
         return []
 
+    def _get_core_ranges(self, tensors, options):
+        res = self.define_core_ranges(tensors, options)
+        if res is None:
+            raise ValueError(
+                "Please use define_core_ranges, can't automatically resolve"
+            )
+        return res
+
+    def define_core_ranges(self, tensors, options):
+        """Define Core Ranges from tensors and options."""
+        # Default implementation - subclasses should override
+        return None
+
     def select_kernels(self, tensors, options):
         """Select appropriate kernels based on input tensors and options."""
         # Default implementation - subclasses should override
@@ -190,7 +203,7 @@ class PyKernelOp:
 
         # Construct the resultant cbs and cb_formats
         for cb, idx in cbs.items():
-            core_ranges = options["core_ranges"]
+            core_ranges = self._get_core_ranges(tensors, options)
 
             cb_formats[i] = self.ttnn.CBFormatDescriptor(
                 buffer_index=current_buffer_index,
