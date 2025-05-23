@@ -2025,6 +2025,35 @@ def TTIR_ArangeOp : TTIR_CreationOp<"arange"> {
   let hasVerifier = 1;
 }
 
+def TTIR_FullOp : TTIR_CreationOp<"full"> {
+  let summary = "Creates a tensor filled with the specified value";
+  let description = [{
+    Tensor operation to create a tensor filled with a specified value.
+
+    Given a `shape` and a `fill_value`, produces a tensor with the shape, filled with the specified value.
+
+    Example:
+      %0 = "ttir.full"() <{shape = array<i32: 64, 32, 32>, fill_value = 7 : i32}> : () -> tensor<64x32x32xi32>
+      // %0: [[[7, 7, 7, ..., 7], [7, 7, 7, ..., 7], ..., [7, 7, 7, ..., 7]]]
+  }];
+
+  let arguments = (ins DenseI32ArrayAttr:$shape,
+                       AnyAttrOf<[F32Attr, I32Attr]>:$fill_value);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let builders =
+  [
+    OpBuilder<(ins "Type": $resultType, "Attribute": $fillValue),
+    [{
+      RankedTensorType tensorType = cast<RankedTensorType>(resultType);
+      build($_builder, $_state, tensorType, llvm::to_vector_of<int32_t>(tensorType.getShape()), fillValue);
+    }]>
+  ];
+
+  let hasVerifier = 1;
+}
+
 class TTIR_NamedFullOp<string mnemonic, list<Trait> traits = []> :
   TTIR_CreationOp<mnemonic, traits> {
   let arguments = (ins DenseI32ArrayAttr:$shape);
@@ -2115,6 +2144,8 @@ def TTIR_ConstantOp : TTIR_CreationOp<"constant",
     let results = (outs AnyRankedTensor:$result);
 
     let hasFolder = 1;
+
+    let hasCanonicalizer = 1;
 
     let hasVerifier = 1;
 }

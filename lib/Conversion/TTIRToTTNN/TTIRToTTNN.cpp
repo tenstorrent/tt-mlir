@@ -122,20 +122,13 @@ public:
         rewriter.getContext(), llvm::SmallVector<int64_t, 4>(
                                    op.getShape().begin(), op.getShape().end()));
 
-    // Get memref
-    //
-    mlir::MemRefType memref = layoutAttr.getMemref();
-
     // Get data type, tensor layout, device and memory config
     //
     DataTypeAttr dTypeAttr =
         DataTypeAttr::get(rewriter.getContext(), layoutAttr.getDataType());
     ttnn::BufferType bufferType = layoutAttr.getBufferType();
-    ttnn::Layout ttnnLayoutEnum = llvm::isa<TileType>(memref.getElementType())
-                                      ? ttnn::Layout::Tile
-                                      : ttnn::Layout::RowMajor;
     ttnn::LayoutAttr tensorLayoutAttr =
-        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
+        ttnn::LayoutAttr::get(op.getContext(), layoutAttr.getLayout());
     ttnn::TensorMemoryLayoutAttr memLayout = layoutAttr.getMemLayout();
 
     // Device only exists if memLayout is *not* null
@@ -156,6 +149,31 @@ public:
     rewriter.replaceOpWithNewOp<TTNNType>(
         op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
         dTypeAttr, tensorLayoutAttr, device, memoryConfigAttr);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class FullOpConversionPattern : public OpConversionPattern<ttir::FullOp> {
+public:
+  using OpConversionPattern<ttir::FullOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::FullOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto ttnnLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(op.getType().getEncoding());
+    bool isOnDevice =
+        ttnnLayoutAttr.getBufferType() != ttnn::BufferType::SystemMemory;
+    ttnn::GetDeviceOp deviceOp;
+    if (isOnDevice) {
+      deviceOp = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    }
+    rewriter.replaceOpWithNewOp<ttnn::FullOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getFillValue(), deviceOp);
 
     return success();
   }
@@ -820,32 +838,9 @@ public:
       return legalityResult;
     }
 
-    // If the value is a splat (i.e. single value), we can use the ttnn::FullOp
-    // to create the tensor.
-    if (valueAttr.isSplat()) {
-      auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
-
-      mlir::APFloat fillValue(mlir::APFloat::IEEEsingle());
-      if (valueAttr.getElementType().isInteger()) {
-        // Both signed and signless integer can have negative values.
-        bool isSigned = valueAttr.getElementType().isSignedInteger() ||
-                        valueAttr.getElementType().isSignlessInteger();
-        fillValue.convertFromAPInt(valueAttr.getSplatValue<llvm::APInt>(),
-                                   isSigned, llvm::RoundingMode::TowardZero);
-      } else {
-        fillValue = valueAttr.getSplatValue<mlir::APFloat>();
-      }
-
-      rewriter.replaceOpWithNewOp<ttnn::FullOp>(
-          op, this->getTypeConverter()->convertType(op.getType()), device,
-          rewriter.getF32FloatAttr(fillValue.convertToFloat()));
-
-      // Otherwise, we use the ttnn::ConstantOp to create the tensor.
-    } else {
-      rewriter.replaceOpWithNewOp<ttnn::ConstantOp>(
-          op, this->getTypeConverter()->convertType(op.getType()),
-          adaptor.getValue());
-    }
+    rewriter.replaceOpWithNewOp<ttnn::ConstantOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getValue());
 
     return success();
   }
@@ -1617,6 +1612,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       .add<TensorEmptyConversionPattern,
            NamedFullConversionPattern<ttir::ZerosOp, ttnn::ZerosOp>,
            NamedFullConversionPattern<ttir::OnesOp, ttnn::OnesOp>,
+           FullOpConversionPattern,
            ToLayoutOpConversionPattern,
            QuantizeOpConversionPattern,
            DequantizeOpConversionPattern,

@@ -838,6 +838,30 @@ static ::mlir::LogicalResult namedOpVerify(Op op) {
 }
 
 //===----------------------------------------------------------------------===//
+// FullOp
+//===----------------------------------------------------------------------===//
+
+void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
+                                   mlir::OperationState &state,
+                                   mlir::Type resultType,
+                                   mlir::Attribute fillValue,
+                                   mlir::Value device) {
+  mlir::MLIRContext *ctx = builder.getContext();
+  mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(resultType);
+  ttnn::TTNNLayoutAttr layoutAttr =
+      mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+
+  ttnn::ShapeAttr shapeAttr = ttnn::ShapeAttr::get(ctx, tensorType.getShape());
+  tt::DataTypeAttr dtypeAttr =
+      tt::DataTypeAttr::get(ctx, layoutAttr.getDataType());
+  ttnn::LayoutAttr tensorLayoutAttr =
+      ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout());
+
+  build(builder, state, resultType, shapeAttr, fillValue, dtypeAttr,
+        tensorLayoutAttr, device, /*memory_config=*/nullptr);
+}
+
+//===----------------------------------------------------------------------===//
 // EmptyOp
 //===----------------------------------------------------------------------===//
 
