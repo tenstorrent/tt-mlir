@@ -421,7 +421,7 @@ class Read:
 
     def system_desc(self, *binaries):
         return self._operate_on_binary(
-            binaries, lambda binary: ttrt.binary.as_dict(binary.fbb.get_system_desc())
+            binaries, lambda binary: json.loads(binary.fbb.get_system_desc_as_json())
         )
 
     def mlir(self, *binaries):

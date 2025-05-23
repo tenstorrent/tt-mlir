@@ -222,10 +222,7 @@ class Check:
                         test_result["system_desc"] = "system_desc queried from device"
                 else:
                     for desc in self.system_desc_binaries:
-                        if (
-                            bin.system_desc_dict["system_desc"]
-                            != desc.system_desc_dict["system_desc"]
-                        ):
+                        if bin.system_desc_dict != desc.system_desc_dict["system_desc"]:
                             self.logging.info(
                                 f"system desc for: {desc.file_path} did not match flatbuffer: {bin.file_path}"
                             )

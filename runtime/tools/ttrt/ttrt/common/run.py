@@ -514,7 +514,6 @@ class Run:
             device = ttrt.runtime.open_mesh_device(mesh_shape, mesh_options)
 
             for bin in binaries:
-                print("Run bin type: ", type(bin))
                 try:
                     self.logging.info(f"evaluating binary={bin.file_path}")
 
