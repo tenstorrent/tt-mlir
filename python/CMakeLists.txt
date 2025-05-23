@@ -120,7 +120,7 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     MLIRSPIRVToLLVMIRTranslation
     MLIRTestToLLVMIRTranslation
     MLIRVCIXToLLVMIRTranslation
-    MLIRX86VectorToLLVMIRTranslation
+    MLIRX86VectorTransforms
   PYTHON_BINDINGS_LIBRARY nanobind
 )
 

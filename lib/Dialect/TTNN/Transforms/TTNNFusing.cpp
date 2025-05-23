@@ -106,7 +106,7 @@ public:
     RewritePatternSet patterns(&getContext());
     patterns.add<TTNNConv2dWithActivation>(&getContext());
     GreedyRewriteConfig config;
-    config.useTopDownTraversal = true;
+    config.setUseTopDownTraversal(true);
     (void)applyPatternsGreedily(getOperation(), std::move(patterns));
   }
 };

@@ -11,8 +11,12 @@
 #layout2 = #tt.metal_layout<(d0, d1, d2, d3) -> (d0 * 64 + d1 * 64 + d2, d3), undef, <1x1>, memref<2x2x!tt.tile<32x32, f32>, #l1_>>
 #layout3 = #tt.metal_layout<(d0, d1, d2, d3) -> (d0 * 64 + d1 * 64 + d2, d3), undef, <1x2>, memref<2x2x!tt.tile<32x32, f32>, #l1_>>
 
-func.func @matmul(%arg0: tensor<1x1x2x4x!tt.tile<32x32, f32>, #layout>, %arg1: tensor<1x1x4x2x!tt.tile<32x32, f32>, #layout1>) -> tensor<1x1x2x2x!tt.tile<32x32, f32>, #layout2> {
-  // CHECK: = memref.alloc(){{.*}}: memref<1x1x2x2x!tt.tile<32x32, f32>, #tt.shard<8192x4096>, #l1_>
+func.func @matmul() -> tensor<1x1x2x2x!tt.tile<32x32, f32>, #layout2> {
+  %arg0 = ttir.empty() : tensor<1x1x2x4x!tt.tile<32x32, f32>, #layout>
+  %arg1 = ttir.empty() : tensor<1x1x4x2x!tt.tile<32x32, f32>, #layout1>
+  // CHECK: = memref.alloc
+  // CHECK: = memref.alloc
+  // CHECK: = memref.alloc
   %0 = ttir.empty() : tensor<1x1x2x2x!tt.tile<32x32, f32>, #layout2>
   // CHECK: {{^  ttir.generic.*}}
   %1 = "ttir.generic"(%arg0, %arg1, %0) <{grid = #tt.grid<1x1>, indexing_maps = [#map, #map1, #map2], iterator_types = [#parallel, #parallel, #reduction], threads = [#ttir.thread<compute>], operandSegmentSizes = array<i32: 2, 1>}> ({
@@ -22,23 +26,26 @@ func.func @matmul(%arg0: tensor<1x1x2x4x!tt.tile<32x32, f32>, #layout>, %arg1: t
   return %1 : tensor<1x1x2x2x!tt.tile<32x32, f32>, #layout2>
 }
 
-func.func @to_layout(%arg0: tensor<1x1x2x4x!tt.tile<32x32, f32>, #layout>) -> tensor<1x2x2x2x!tt.tile<32x32, f32>, #layout3> {
-  // CHECK: = memref.alloc(){{.*}}: memref<1x2x2x2x!tt.tile<32x32, f32>, #tt.shard<8192x4096>, #l1_>
+func.func @to_layout() -> tensor<1x2x2x2x!tt.tile<32x32, f32>, #layout3> {
+  %arg0 = ttir.empty() : tensor<1x1x2x4x!tt.tile<32x32, f32>, #layout>
+  // CHECK: = memref.alloc
   %0 = ttir.empty() : tensor<1x2x2x2x!tt.tile<32x32, f32>, #layout3>
   // CHECK: {{^  ttir.to_layout.*}}
   %1 = "ttir.to_layout"(%arg0, %0) : (tensor<1x1x2x4x!tt.tile<32x32, f32>, #layout>, tensor<1x2x2x2x!tt.tile<32x32, f32>, #layout3>) -> tensor<1x2x2x2x!tt.tile<32x32, f32>, #layout3>
   return %1 : tensor<1x2x2x2x!tt.tile<32x32, f32>, #layout3>
 }
 
-func.func @stream_layout(%arg0: tensor<1x1x2x4x!tt.tile<32x32, f32>, #layout>) -> tensor<1x1x2x4x!tt.tile<32x32, f32>, #layout> {
-  // CHECK: = memref.alloc(){{.*}}: memref<1x1x2x4x!tt.tile<32x32, f32>, #tt.shard<16384x4096>, #l1_>
+func.func @stream_layout() -> tensor<1x1x2x4x!tt.tile<32x32, f32>, #layout> {
+  %arg0 = ttir.empty() : tensor<1x1x2x4x!tt.tile<32x32, f32>, #layout>
+  // CHECK: = memref.alloc
   %0 = ttir.empty() : tensor<1x1x2x4x!tt.tile<32x32, f32>, #layout>
   // CHECK: = "ttir.stream_layout"
   %stream = "ttir.stream_layout"(%arg0, %0) : (tensor<1x1x2x4x!tt.tile<32x32, f32>, #layout>, tensor<1x1x2x4x!tt.tile<32x32, f32>, #layout>) -> tensor<1x1x2x4x!tt.tile<32x32, f32>, #layout>
   return %stream : tensor<1x1x2x4x!tt.tile<32x32, f32>, #layout>
 }
 
-func.func @view_layout(%arg0: tensor<1x1x2x4x!tt.tile<32x32, f32>, #layout>) -> tensor<1x1x2x4x!tt.tile<32x32, f32>, #layout> {
+func.func @view_layout() -> tensor<1x1x2x4x!tt.tile<32x32, f32>, #layout> {
+  %arg0 = ttir.empty() : tensor<1x1x2x4x!tt.tile<32x32, f32>, #layout>
   // CHECK: = "ttir.view_layout"
   %view = "ttir.view_layout"(%arg0) : (tensor<1x1x2x4x!tt.tile<32x32, f32>, #layout>) -> tensor<1x1x2x4x!tt.tile<32x32, f32>, #layout>
   return %view : tensor<1x1x2x4x!tt.tile<32x32, f32>, #layout>
