@@ -177,13 +177,15 @@ void mlir::tt::ttir::ClampTensorOp::getCanonicalizationPatterns(
       +[](mlir::tt::ttir::ClampTensorOp op, mlir::PatternRewriter &rewriter) {
         RankedTensorType outputType = op.getResult().getType();
 
-        std::optional<mlir::APFloat> minValue = getConstantValue(op.getMin());
-        std::optional<mlir::APFloat> maxValue = getConstantValue(op.getMax());
-        if (minValue && maxValue) {
-          ttir::utils::replaceOpWithNewDPSOp<ttir::ClampScalarOp>(
-              rewriter, op, outputType, op.getInput(), *minValue, *maxValue);
+        {
+          std::optional<mlir::APFloat> minValue = getConstantValue(op.getMin());
+          std::optional<mlir::APFloat> maxValue = getConstantValue(op.getMax());
+          if (minValue && maxValue) {
+            ttir::utils::replaceOpWithNewDPSOp<ttir::ClampScalarOp>(
+                rewriter, op, outputType, op.getInput(), *minValue, *maxValue);
 
-          return success();
+            return success();
+          }
         }
 
         if (outputType.getShape() == op.getMin().getType().getShape() &&
