@@ -18,6 +18,7 @@ target_link_libraries(OptimizerTests
     gtest_main
     MLIRTTDialect
     MLIRTTNNAnalysis
-    MLIRTTNNPipelines
+    MLIRTTNNDialect
     MLIRTTTransforms
+    TTMLIRTTNNUtils
 )
