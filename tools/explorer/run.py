@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 #
-# # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 #
+# SPDX-License-Identifier: Apache-2.0
 # SPDX-License-Identifier: Apache-2.0
 
 import model_explorer

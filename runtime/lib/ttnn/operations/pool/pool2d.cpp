@@ -1,5 +1,6 @@
-// SPDX-FileCopyrightText: © 202 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 //
+// SPDX-License-Identifier: Apache-2.0
 // SPDX-License-Identifier: Apache-2.0
 
 #include "operations/pool/pool2d.h"

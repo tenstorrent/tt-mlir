@@ -1,5 +1,6 @@
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 #
+# SPDX-License-Identifier: Apache-2.0
 # SPDX-License-Identifier: Apache-2.0
 """
 Simple library tweaks module used to move `TT_METAL_HOME` to point to the
