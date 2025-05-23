@@ -245,7 +245,6 @@ bool validateTensorSpec(const ::ttnn::TensorSpec &tensorSpec,
   // Check attributes required for allocation
   // May call TT_THROW or TT_FATAL for malformed TensorSpecs
   try {
-    tensorSpec.compute_packed_buffer_size_bytes();
     tensorSpec.compute_page_size_bytes();
     tensorSpec.compute_shard_spec_buffer();
   } catch (const std::exception &e) {
