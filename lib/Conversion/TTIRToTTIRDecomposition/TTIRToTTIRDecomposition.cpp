@@ -1248,16 +1248,23 @@ private:
         adaptor.getWindowDilations()[spatialDimIndices[0]]);
     auto dilationWidthAttr = rewriter.getSI32IntegerAttr(
         adaptor.getWindowDilations()[spatialDimIndices[1]]);
-    auto ceilModeAttr = rewriter.getBoolAttr(false);
+    auto ceilMode = op.getCeilMode();
+    auto ceilModeAttr = rewriter.getBoolAttr(ceilMode);
+    auto paddingTop = op.getPadding()[2 * spatialDimIndices[0]];
+    auto paddingBottom = op.getPadding()[2 * spatialDimIndices[0] + 1];
+    auto paddingLeft = op.getPadding()[2 * spatialDimIndices[1]];
+    auto paddingRight = op.getPadding()[2 * spatialDimIndices[1] + 1];
+    if (ceilMode) {
+      paddingTop -= op.getCeilModePadding()[2 * spatialDimIndices[0]];
+      paddingBottom -= op.getCeilModePadding()[2 * spatialDimIndices[0] + 1];
+      paddingLeft -= op.getCeilModePadding()[2 * spatialDimIndices[1]];
+      paddingRight -= op.getCeilModePadding()[2 * spatialDimIndices[1] + 1];
+    }
 
-    auto paddingTopAttr =
-        rewriter.getSI32IntegerAttr(op.getPadding()[2 * spatialDimIndices[0]]);
-    auto paddingBottomAttr = rewriter.getSI32IntegerAttr(
-        op.getPadding()[2 * spatialDimIndices[0] + 1]);
-    auto paddingLeftAttr =
-        rewriter.getSI32IntegerAttr(op.getPadding()[2 * spatialDimIndices[1]]);
-    auto paddingRightAttr = rewriter.getSI32IntegerAttr(
-        op.getPadding()[2 * spatialDimIndices[1] + 1]);
+    auto paddingTopAttr = rewriter.getSI32IntegerAttr(paddingTop);
+    auto paddingBottomAttr = rewriter.getSI32IntegerAttr(paddingBottom);
+    auto paddingLeftAttr = rewriter.getSI32IntegerAttr(paddingLeft);
+    auto paddingRightAttr = rewriter.getSI32IntegerAttr(paddingRight);
 
     llvm::SmallVector<Value> outputs;
     for (Value input : adaptor.getInputs()) {

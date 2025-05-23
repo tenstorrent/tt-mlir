@@ -1548,7 +1548,9 @@ def TTIR_PoolingOp : TTIR_NamedOp<"pooling", [AttrSizedOperandSegments]> {
     DenseI64ArrayAttr:$window_strides,
     DenseI64ArrayAttr:$base_dilations,
     DenseI64ArrayAttr:$window_dilations,
-    DenseI64ArrayAttr:$padding
+    DenseI64ArrayAttr:$padding,
+    BoolAttr:$ceil_mode,
+    DenseI64ArrayAttr:$ceil_mode_padding
   );
 
   let results = (outs Variadic<AnyRankedTensor>);
