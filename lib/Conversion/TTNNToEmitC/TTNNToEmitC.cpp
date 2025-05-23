@@ -351,11 +351,61 @@ public:
 
     ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
 
+    RankedTensorType lhsType =
+        mlir::cast<mlir::RankedTensorType>(srcOp.getLhs().getType());
+    RankedTensorType rhsType =
+        mlir::cast<mlir::RankedTensorType>(srcOp.getRhs().getType());
+
+    tt::ttnn::TTNNLayoutAttr lhsLayoutAttr =
+        mlir::cast<tt::ttnn::TTNNLayoutAttr>(lhsType.getEncoding());
+    tt::ttnn::TTNNLayoutAttr rhsLayoutAttr =
+        mlir::cast<tt::ttnn::TTNNLayoutAttr>(rhsType.getEncoding());
+
+    // Metal does not support broadcasting sharded tensors on dimensions other
+    // than W. It is tracked in the following issue:
+    // https://github.com/tenstorrent/tt-metal/issues/16138
+    bool use_legacy = false;
+    if (tt::ttnn::isShardedMemoryLayout(
+            lhsLayoutAttr.getMemLayout().getValue()) ||
+        tt::ttnn::isShardedMemoryLayout(
+            rhsLayoutAttr.getMemLayout().getValue()) ||
+        (srcOp.getMemoryConfig() &&
+         tt::ttnn::isShardedMemoryLayout(
+             srcOp.getMemoryConfig()->getTensorMemoryLayout().getValue()))) {
+
+      ::llvm::ArrayRef<int64_t> shape_a = lhsType.getShape();
+      ::llvm::ArrayRef<int64_t> shape_b = rhsType.getShape();
+      size_t rank_a = shape_a.size();
+      size_t rank_b = shape_b.size();
+      size_t larger_rank = std::max(rank_a, rank_b);
+
+      for (size_t i = 0; i < larger_rank - 1; ++i) {
+        auto dim_a = i < rank_a ? shape_a[i] : 1;
+        auto dim_b = i < rank_b ? shape_b[i] : 1;
+
+        if (dim_a != dim_b) {
+          use_legacy = true;
+          break;
+        }
+      }
+    }
+
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getLhs()),
         emitter.emit(srcOp.getRhs()),
         /*dtype=*/emitter.emit(std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        /*output=*/emitter.emit(std::nullopt),
+        /*post_activations=*/
+        rewriter.getAttr<emitc::OpaqueAttr>(
+            "std::vector<ttnn::operations::unary::UnaryWithParam>()"),
+        /*lhs_activations=*/
+        rewriter.getAttr<emitc::OpaqueAttr>(
+            "std::vector<ttnn::operations::unary::UnaryWithParam>()"),
+        /*rhs_activations=*/
+        rewriter.getAttr<emitc::OpaqueAttr>(
+            "std::vector<ttnn::operations::unary::UnaryWithParam>()"),
+        emitter.emit(use_legacy),
     };
 
     emitter.replaceOp(*this, args);
