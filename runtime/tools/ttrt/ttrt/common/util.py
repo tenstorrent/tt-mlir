@@ -651,11 +651,10 @@ class Binary(Flatbuffer):
         self.system_desc = self.fbb.get_system_desc()
         self.system_desc_dict = ttrt.binary.as_dict(self.system_desc)
         self.version = self.fbb.version
-        self.program_list = json.loads(self.fbb.get_programs_as_json())
+        self.program_indices = range(self.fbb.get_num_programs())
         self.programs = []
-
-        for i in range(len(self.program_list)):
-            program = Binary.Program(i, self.program_list[i])
+        for i in self.program_indices:
+            program = Binary.Program(i, self.fbb)
             self.programs.append(program)
 
     def check_system_desc(self, query):
@@ -704,7 +703,7 @@ class Binary(Flatbuffer):
         return True
 
     def get_num_programs(self):
-        return len(self.programs)
+        return self.fbb.get_num_programs()
 
     def check_program_index_exists(self, program_index):
         if program_index >= self.get_num_programs():
@@ -733,28 +732,35 @@ class Binary(Flatbuffer):
         print()
 
     class Program:
-        def __init__(self, index, program):
+        def __init__(self, index, binary):
+            self.fbb = binary
             self.index = index
-            self.program = program
+            self.inputs_dict = json.loads(
+                self.fbb.get_program_inputs_as_json(self.index)
+            )
+            self.outputs_dict = json.loads(
+                self.fbb.get_program_outputs_as_json(self.index)
+            )
+            self.operations = json.loads(self.fbb.get_program_ops_as_json(self.index))
             self.input_tensors = []
             self.output_tensors = []
 
         def num_inputs(self):
-            return len(self.program["inputs"])
+            return len(self.inputs_dict)
 
         def num_outputs(self):
-            return len(self.program["outputs"])
+            return len(self.outputs_dict)
 
         def populate_inputs(self, init_fn, golden_inputs=[]):
             if len(golden_inputs) > 0:
-                assert len(golden_inputs) == len(self.program["inputs"])
-                for index, input_fb in enumerate(self.program["inputs"]):
+                assert len(golden_inputs) == len(self.inputs_dict)
+                for index, input_fb in enumerate(self.inputs_dict):
                     reshaped = torch.reshape(
                         golden_inputs[index], input_fb["desc"]["shape"]
                     )
                     self.input_tensors.append(reshaped)
             else:
-                for i in self.program["inputs"]:
+                for i in self.inputs_dict:
                     torch_tensor = init_fn(
                         i["desc"]["shape"],
                         dtype=Binary.Program.from_data_type(
@@ -764,7 +770,7 @@ class Binary(Flatbuffer):
                     self.input_tensors.append(torch_tensor)
 
         def populate_outputs(self, init_fn):
-            for i in self.program["outputs"]:
+            for i in self.outputs_dict:
                 torch_tensor = init_fn(
                     i["desc"]["shape"],
                     dtype=Binary.Program.from_data_type(
@@ -774,9 +780,7 @@ class Binary(Flatbuffer):
                 self.output_tensors.append(torch_tensor)
 
         def to_dict(self) -> dict:
-            return {
-                i: op["debug_info"] for i, op in enumerate(self.program["operations"])
-            }
+            return {i: op["debug_info"] for i, op in enumerate(self.operations)}
 
         @staticmethod
         def to_data_type(dtype):

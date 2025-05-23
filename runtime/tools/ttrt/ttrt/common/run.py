@@ -514,6 +514,7 @@ class Run:
             device = ttrt.runtime.open_mesh_device(mesh_shape, mesh_options)
 
             for bin in binaries:
+                print("Run bin type: ", type(bin))
                 try:
                     self.logging.info(f"evaluating binary={bin.file_path}")
 
@@ -583,7 +584,7 @@ class Run:
                         program = bin.get_program(program_index)
                         golden_inputs = []
 
-                        for i in range(len(program.program["inputs"])):
+                        for i in range(program.num_inputs()):
                             golden_tensor = None
 
                             if not self["--disable-golden"]:
@@ -798,7 +799,7 @@ class Run:
                         # Compare to EmitC
                         if self["--emitc"]:
                             # Create symbol string to read from dylib
-                            fwd_func_name = program.program["name"]
+                            fwd_func_name = program.name
 
                             # pre-upload inputs
                             inputs = convert_input_layouts(

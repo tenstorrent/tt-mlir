@@ -192,9 +192,15 @@ struct Binary : public Flatbuffer {
 
   static Binary loadFromPath(const char *path);
 
+  std::uint32_t getNumPrograms() const;
+  std::string getProgramName(std::uint32_t programIndex) const;
+  std::string getProgramsAsJson() const;
+  std::string getProgramOpsAsJson(std::uint32_t programIndex) const;
   std::vector<TensorDesc> getProgramInputs(std::uint32_t programIndex) const;
   std::vector<TensorDesc> getProgramOutputs(std::uint32_t programIndex) const;
-  std::string getProgramsAsJson() const;
+  std::string getProgramInputsAsJson(std::uint32_t programIndex) const;
+  std::string getProgramOutputsAsJson(std::uint32_t programIndex) const;
+  std::string getProgramDebugInfoAsJson(std::uint32_t programIndex) const;
   const ::tt::target::GoldenTensor *getDebugInfoGolden(std::string &loc) const;
 
   SystemDesc getSystemDesc() const { return SystemDesc(handle); }

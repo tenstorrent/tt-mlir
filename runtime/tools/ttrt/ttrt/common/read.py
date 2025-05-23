@@ -429,19 +429,15 @@ class Read:
 
     def mlir(self, *binaries):
         def _get_mlir(binary):
-            program_list = json.loads(binary.fbb.get_programs_as_json())
             results = []
-            for program in program_list:
-                if "debug_info" not in program:
-                    self.logging.info(
-                        f"no debug info found for program:{program['name']}"
-                    )
-                    continue
+            for index in range(binary.fbb.get_num_programs()):
                 results.append(
                     {
-                        program["debug_info"]["mlir"]["name"]: program["debug_info"][
-                            "mlir"
-                        ]["source"]
+                        binary.fbb.get_program_debug_info_as_json(index)["mlir"][
+                            "name"
+                        ]: binary.fbb.get_program_debug_info_as_json(index)["mlir"][
+                            "source"
+                        ]
                     }
                 )
             return results
@@ -450,15 +446,20 @@ class Read:
 
     def cpp(self, *binaries):
         def _get_cpp(binary):
-            program_list = json.loads(binary.fbb.get_programs_as_json())
             results = []
-            for program in program_list:
+            for index in range(binary.fbb.get_num_programs()):
                 if "debug_info" not in program:
                     self.logging.info(
                         f"no debug_info found for program:{program['name']}"
                     )
                     continue
-                results.append({program["name"]: program["debug_info"]["cpp"]})
+                results.append(
+                    {
+                        binary.fbb.get_program_name(
+                            index
+                        ): binary.fbb.get_program_debug_info_as_json(index)["cpp"]
+                    }
+                )
             return results
 
         return self._operate_on_binary(binaries, _get_cpp)
@@ -467,8 +468,12 @@ class Read:
         return self._operate_on_binary(
             binaries,
             lambda binary: [
-                {program["name"]: program["inputs"]}
-                for program in json.loads(binary.fbb.get_programs_as_json())
+                {
+                    binary.fbb.get_program_name(
+                        index
+                    ): binary.fbb.get_program_inputs_as_json(index)
+                }
+                for index in range(binary.fbb.get_num_programs())
             ],
         )
 
@@ -476,8 +481,12 @@ class Read:
         return self._operate_on_binary(
             binaries,
             lambda binary: [
-                {program["name"]: program["outputs"]}
-                for program in json.loads(binary.fbb.get_programs_as_json())
+                {
+                    binary.fbb.get_program_name(
+                        index
+                    ): binary.fbb.get_program_outputs_as_json(index)
+                }
+                for index in range(binary.fbb.get_num_programs())
             ],
         )
 

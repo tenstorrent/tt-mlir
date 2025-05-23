@@ -37,7 +37,26 @@ PYBIND11_MODULE(_C, m) {
            py::return_value_policy::reference)
       .def("get_system_desc", &tt::runtime::Binary::getSystemDesc,
            py::return_value_policy::reference)
+      .def("get_num_programs", &tt::runtime::Binary::getNumPrograms,
+           py::return_value_policy::reference)
       .def("get_programs_as_json", &tt::runtime::Binary::getProgramsAsJson)
+      .def("get_program_name", &tt::runtime::Binary::getProgramName,
+           py::return_value_policy::reference)
+      .def("get_program_ops_as_json", &tt::runtime::Binary::getProgramOpsAsJson,
+           py::return_value_policy::reference)
+      .def("get_program_inputs", &tt::runtime::Binary::getProgramInputs,
+           py::return_value_policy::reference)
+      .def("get_program_outputs", &tt::runtime::Binary::getProgramOutputs,
+           py::return_value_policy::reference)
+      .def("get_program_inputs_as_json",
+           &tt::runtime::Binary::getProgramInputsAsJson,
+           py::return_value_policy::reference)
+      .def("get_program_outputs_as_json",
+           &tt::runtime::Binary::getProgramOutputsAsJson,
+           py::return_value_policy::reference)
+      .def("get_program_debug_info_as_json",
+           &tt::runtime::Binary::getProgramDebugInfoAsJson,
+           py::return_value_policy::reference)
       .def(
           "get_tensor_cache",
           [](tt::runtime::Binary &bin) { return bin.getCache(); },
@@ -61,7 +80,6 @@ PYBIND11_MODULE(_C, m) {
                                                   // shared_ptr*
   });
   m.def("load_system_desc_from_path", &tt::runtime::SystemDesc::loadFromPath);
-  // m.def("get_programs_as_json", &tt::runtime::Binary::getProgramsAsJson);
 
   /**
    * Binding for the `GoldenTensor` type
