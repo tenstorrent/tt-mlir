@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "flatbuffers/idl.h"
 #include <fstream>
-#include <iostream>
+
+#include "flatbuffers/idl.h"
 
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/tensor_cache.h"
@@ -48,9 +48,11 @@ static std::string asJson(const void *fbb, const uint8_t *binarySchema,
   opts.strict_json = true;
   opts.output_default_scalars_in_json = true;
   flatbuffers::Parser parser(opts);
+
   if (!parser.Deserialize(binarySchema, schemaSize)) {
     LOG_FATAL("Failed to deserialize schema");
   }
+
   std::string text;
   const char *err = ::flatbuffers::GenerateText(parser, fbb, &text);
   LOG_ASSERT(!err, "Failed to generate JSON: ", err);
@@ -108,10 +110,29 @@ std::string_view getTTMLIRGitHash(Flatbuffer binary) {
 }
 
 std::string asJson(Flatbuffer binary) {
-  std::string test = ::tt::runtime::asJson(
-      binary.handle.get(), ::tt::target::ttnn::TTNNBinaryBinarySchema::data(),
-      ::tt::target::ttnn::TTNNBinaryBinarySchema::size());
-  return test;
+  return ::tt::runtime::asJson(
+      binary.handle.get(), ::tt::target::SystemDescRootBinarySchema::data(),
+      ::tt::target::SystemDescRootBinarySchema::size());
+}
+
+std::string getSystemDescAsJson(Flatbuffer binary) {
+  const auto *system_desc = getBinary(binary)->system_desc();
+
+  flatbuffers::IDLOptions opts;
+  opts.size_prefixed = true;
+  opts.strict_json = true;
+  opts.output_default_scalars_in_json = true;
+  flatbuffers::Parser parser(opts);
+  if (!parser.Deserialize(::tt::target::ttnn::TTNNBinaryBinarySchema::data(),
+                          ::tt::target::ttnn::TTNNBinaryBinarySchema::size())) {
+    LOG_FATAL("Failed to deserialize schema");
+  }
+
+  std::string text;
+  const char *err = ::flatbuffers::GenTextFromTable(
+      parser, system_desc, system_desc->GetFullyQualifiedName(), &text);
+  LOG_ASSERT(!err, "Failed to generate JSON: ", err);
+  return text;
 }
 
 std::string getProgramsAsJson(Flatbuffer binary) {
@@ -247,45 +268,38 @@ std::string_view getTTMLIRGitHash(Flatbuffer binary) {
 }
 
 std::string asJson(Flatbuffer binary) {
-  std::string test = ::tt::runtime::asJson(
+  return ::tt::runtime::asJson(
       binary.handle.get(),
       ::tt::target::metal::TTMetalBinaryBinarySchema::data(),
       ::tt::target::metal::TTMetalBinaryBinarySchema::size());
-  return test;
 }
 
-std::string getProgramsAsJson(Flatbuffer binary) {
-  const auto *programs = getBinary(binary)->programs();
+std::string getSystemDescAsJson(Flatbuffer binary) {
+  const auto *system_desc = getBinary(binary)->system_desc();
 
   flatbuffers::IDLOptions opts;
   opts.size_prefixed = true;
   opts.strict_json = true;
   opts.output_default_scalars_in_json = true;
   flatbuffers::Parser parser(opts);
-
-  // Deserialize schema
   if (!parser.Deserialize(
           ::tt::target::metal::TTMetalBinaryBinarySchema::data(),
           ::tt::target::metal::TTMetalBinaryBinarySchema::size())) {
     LOG_FATAL("Failed to deserialize schema");
   }
 
-  // Process programs
-  std::string programs_text;
-  for (const auto *program : *programs) {
-    std::string text;
-    const char *err = ::flatbuffers::GenTextFromTable(
-        parser, program, program->GetFullyQualifiedName(), &text);
-    LOG_ASSERT(!err, "Failed to generate JSON: ", err);
+  std::string text;
+  const char *err = ::flatbuffers::GenTextFromTable(
+      parser, system_desc, system_desc->GetFullyQualifiedName(), &text);
+  LOG_ASSERT(!err, "Failed to generate JSON: ", err);
+  return text;
+}
 
-    if (!programs_text.empty()) {
-      programs_text += ",";
-    }
-    programs_text += text;
-  }
-  // Wrap the programs in a JSON array
-  programs_text = "[" + programs_text + "]";
-  return programs_text;
+std::string getProgramsAsJson(Flatbuffer binary) {
+  const auto *programs = getBinary(binary)->programs();
+  return asJsonFromParentTable(
+      programs, ::tt::target::metal::TTMetalBinaryBinarySchema::data(),
+      ::tt::target::metal::TTMetalBinaryBinarySchema::size());
 }
 
 static std::vector<TensorDesc>
@@ -407,17 +421,9 @@ std::string_view getTTMLIRGitHash(Flatbuffer binary) {
 }
 
 std::string asJson(Flatbuffer binary) {
-
-  std::string test = ::tt::runtime::asJson(
+  return ::tt::runtime::asJson(
       binary.handle.get(), ::tt::target::SystemDescRootBinarySchema::data(),
       ::tt::target::SystemDescRootBinarySchema::size());
-  return test;
-}
-
-std::string asNewJson(Flatbuffer binary) {
-  std::string test = "";
-
-  return test;
 }
 
 } // namespace system_desc
@@ -501,20 +507,31 @@ std::string_view Flatbuffer::getTTMLIRGitHash() const {
 std::string Flatbuffer::asJson() const {
   if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
           handle.get())) {
-    std::cout << "getting TTNN Binary Json" << std::endl;
     return ttnn::asJson(*this);
   }
 
   if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
           handle.get())) {
-    std::cout << "getting Metal Binary Json" << std::endl;
     return metal::asJson(*this);
   }
 
   if (::tt::target::SizePrefixedSystemDescRootBufferHasIdentifier(
           handle.get())) {
-    std::cout << "getting SystDesc Binary Json" << std::endl;
     return system_desc::asJson(*this);
+  }
+
+  LOG_FATAL("Unsupported binary format");
+}
+
+std::string Binary::getSystemDescAsJson() const {
+  if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
+          handle.get())) {
+    return ttnn::getSystemDescAsJson(*this);
+  }
+
+  if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
+          handle.get())) {
+    return metal::getSystemDescAsJson(*this);
   }
 
   LOG_FATAL("Unsupported binary format");

@@ -648,8 +648,7 @@ class Binary(Flatbuffer):
             self.fbb = ttrt.binary.load_binary_from_path(file_path)
         else:
             self.fbb = ttrt.binary.load_binary_from_capsule(capsule)
-        self.system_desc = self.fbb.get_system_desc()
-        self.system_desc_dict = ttrt.binary.as_dict(self.system_desc)
+        self.system_desc_dict = json.loads(self.fbb.get_system_desc_as_json())
         self.version = self.fbb.version
         self.program_indices = range(self.fbb.get_num_programs())
         self.programs = []

@@ -421,10 +421,7 @@ class Read:
 
     def system_desc(self, *binaries):
         return self._operate_on_binary(
-            binaries,
-            lambda binary: ttrt.binary.as_dict(binary.fbb.get_system_desc())[
-                "system_desc"
-            ],
+            binaries, lambda binary: ttrt.binary.as_dict(binary.fbb.get_system_desc())
         )
 
     def mlir(self, *binaries):
@@ -448,11 +445,6 @@ class Read:
         def _get_cpp(binary):
             results = []
             for index in range(binary.fbb.get_num_programs()):
-                if "debug_info" not in program:
-                    self.logging.info(
-                        f"no debug_info found for program:{program['name']}"
-                    )
-                    continue
                 results.append(
                     {
                         binary.fbb.get_program_name(

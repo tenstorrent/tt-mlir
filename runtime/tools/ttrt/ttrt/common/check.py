@@ -223,8 +223,8 @@ class Check:
                 else:
                     for desc in self.system_desc_binaries:
                         if (
-                            bin.fbb_dict["system_desc"]
-                            != desc.fbb_system_desc_dict["system_desc"]
+                            bin.system_desc_dict["system_desc"]
+                            != desc.system_desc_dict["system_desc"]
                         ):
                             self.logging.info(
                                 f"system desc for: {desc.file_path} did not match flatbuffer: {bin.file_path}"

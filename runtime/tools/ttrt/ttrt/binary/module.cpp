@@ -35,7 +35,7 @@ PYBIND11_MODULE(_C, m) {
       .def("store", &tt::runtime::Binary::store)
       .def("get_debug_info_golden", &::tt::runtime::Binary::getDebugInfoGolden,
            py::return_value_policy::reference)
-      .def("get_system_desc", &tt::runtime::Binary::getSystemDesc,
+      .def("get_system_desc_as_json", &tt::runtime::Binary::getSystemDescAsJson,
            py::return_value_policy::reference)
       .def("get_num_programs", &tt::runtime::Binary::getNumPrograms,
            py::return_value_policy::reference)
