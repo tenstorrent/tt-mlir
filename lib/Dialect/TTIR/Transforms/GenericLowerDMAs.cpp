@@ -73,12 +73,19 @@ public:
           loc, builder.getIndexType(), builder.getI64IntegerAttr(dim));
       Value index;
       if (isGridDim) {
+        // The grid dimension is always 1-1 with the result position.  Consider
+        // the case where interchange moves k to the outermost loop. We'd have
+        // output map: (k, m, n) -> (m, n)
+        // In this example we want (m, n) to map to grid dims (0, 1) (not their
+        // dim positions i.e. (1, 2)).
+        const unsigned gridDim = result;
+
         // gridI * blockFactorI + iterI
         Value blockFactor = builder.create<arith::ConstantOp>(
             loc, builder.getIndexType(),
             builder.getIndexAttr(blockFactors[dim]));
         index = builder.create<CoreIndexOp>(loc, builder.getIndexType(),
-                                            builder.getI64IntegerAttr(dim));
+                                            builder.getI64IntegerAttr(gridDim));
         index = builder.create<arith::MulIOp>(loc, builder.getIndexType(),
                                               index, blockFactor);
         index = builder.create<arith::AddIOp>(loc, builder.getIndexType(),

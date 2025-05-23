@@ -43,6 +43,13 @@ struct TTIRToTTMetalPipelineOptions
                        clEnumValN(tt::Arch::Blackhole, "blackhole",
                                   "Use mock blackhole system desc.")),
       llvm::cl::init(tt::Arch::WormholeB0)};
+
+  ListOption<int64_t> matmulInterchange{
+      *this, "matmul-interchange",
+      llvm::cl::desc(
+          "Set an interchange for generic ops that match matmul style indexing "
+          "maps and iterator types. The interchange indices here always "
+          "correspond to the innermost 3 dims.")};
 };
 
 void createTTIRBufferizationPipeline(OpPassManager &pm);
