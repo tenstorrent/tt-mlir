@@ -8,10 +8,6 @@
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
-#if defined(TTMLIR_ENABLE_RUNTIME_TESTS) && TTMLIR_ENABLE_RUNTIME_TESTS == 1
-#include "tt/runtime/detail/test/ttnn/utils.h"
-#include "tt/runtime/test/ttnn/dylib.h"
-#endif
 
 #include "tt/runtime/detail/python/nanobind_headers.h"
 
