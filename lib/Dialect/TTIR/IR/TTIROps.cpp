@@ -2056,8 +2056,10 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
     }
   }
 
+  // The resulting Op is conservative iff both typecast ops were conservative
   ttir::utils::replaceOpWithNewDPSOp<ttir::TypecastOp>(
-      rewriter, op, op.getType(), producerOp.getInput());
+      rewriter, op, op.getType(), producerOp.getInput(),
+      op.getConservativeFolding() && producerOp.getConservativeFolding());
 
   return mlir::success();
 }
