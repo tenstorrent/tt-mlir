@@ -32,3 +32,13 @@ target_link_libraries(_ttmlir_runtime
 )
 
 add_dependencies(_ttmlir_runtime TTMLIRRuntime)
+
+if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  target_compile_options("nanobind-static" PRIVATE
+      -Wno-cast-qual
+      -Wno-zero-length-array
+      -Wno-nested-anon-types
+      -Wno-c++98-compat-extra-semi
+      -Wno-covered-switch-default
+  )
+endif()
