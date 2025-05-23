@@ -36,7 +36,8 @@ getOperandTensorRanks(mlir::Operation *op) {
   // Iterate over operands (inputs)
   for (auto operand : op->getOperands()) {
     // Check if the operand is a tensor
-    if (auto tensorType = dyn_cast<mlir::RankedTensorType>(operand.getType())) {
+    if (auto tensorType =
+            mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
       // Add the rank of the tensor (number of dimensions)
       ranks.push_back(tensorType.getRank());
     }
@@ -51,7 +52,8 @@ static llvm::SmallString<16> generateHoistedFuncName(mlir::Operation *op) {
   uniqueName.append(op->getName().getStringRef());
 
   for (auto operand : op->getOperands()) {
-    if (auto tensorType = dyn_cast<mlir::RankedTensorType>(operand.getType())) {
+    if (auto tensorType =
+            mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
       uniqueName += "_";
       llvm::raw_svector_ostream os(uniqueName);
       llvm::interleave(tensorType.getShape(), os, "x");
@@ -67,7 +69,7 @@ static llvm::SmallString<16> generateHoistedFuncName(mlir::Operation *op) {
 static void tagBufferizationAccess(mlir::func::FuncOp funcOp, unsigned argIdx,
                                    mlir::Operation *origOp,
                                    mlir::OpBuilder &builder) {
-  if (auto dpsOp = dyn_cast<mlir::DestinationStyleOpInterface>(origOp)) {
+  if (auto dpsOp = mlir::dyn_cast<mlir::DestinationStyleOpInterface>(origOp)) {
     if (dpsOp.isDpsInit(&origOp->getOpOperand(argIdx))) {
       funcOp.setArgAttr(argIdx, "bufferization.access",
                         builder.getStringAttr("write"));
@@ -109,7 +111,8 @@ static Value hoistOperationToFunction(mlir::Operation *opToHoist,
   llvm::SmallVector<mlir::Value> convertedOperands;
 
   for (auto operand : opToHoist->getOperands()) {
-    if (auto tensorType = dyn_cast<mlir::RankedTensorType>(operand.getType())) {
+    if (auto tensorType =
+            mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
       if (!tensorType.getElementType().isF32()) {
         // Create f32 version of tensor type
         auto f32TensorType = RankedTensorType::get(
@@ -135,7 +138,7 @@ static Value hoistOperationToFunction(mlir::Operation *opToHoist,
   // Gather result types for function signature
   llvm::SmallVector<mlir::Type> resultTypes;
   for (auto result : opToHoist->getResultTypes()) {
-    if (auto tensorType = dyn_cast<mlir::RankedTensorType>(result)) {
+    if (auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(result)) {
       if (!tensorType.getElementType().isF32()) {
         resultTypes.push_back(RankedTensorType::get(
             tensorType.getShape(), f32Type, tensorType.getEncoding()));
@@ -184,7 +187,7 @@ static Value hoistOperationToFunction(mlir::Operation *opToHoist,
 >>>>>>> 28c6f9ff9 (feedback + cleanup)
     for (auto arg : llvm::enumerate(hoistedFunc.getArguments())) {
       if (auto tensorType =
-              dyn_cast<mlir::RankedTensorType>(arg.value().getType())) {
+              mlir::dyn_cast<mlir::RankedTensorType>(arg.value().getType())) {
         tagBufferizationAccess(hoistedFunc, arg.index(), opToHoist, builder);
 <<<<<<< HEAD
 =======
@@ -216,8 +219,8 @@ static Value hoistOperationToFunction(mlir::Operation *opToHoist,
     auto *clonedOp = builder.clone(*opToHoist, mapping);
 
     // Update operand types to f32 for tensor types
-    for (auto i : llvm::seq<unsigned>(0, clonedOp->getNumOperands())) {
-      if (auto tensorType = dyn_cast<mlir::RankedTensorType>(
+    for (size_t i = 0; i < clonedOp->getNumOperands(); i++) {
+      if (auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(
               clonedOp->getOperand(i).getType())) {
         if (!tensorType.getElementType().isF32()) {
           auto newType = RankedTensorType::get(tensorType.getShape(), f32Type,
@@ -228,8 +231,8 @@ static Value hoistOperationToFunction(mlir::Operation *opToHoist,
     }
 
     // Update result types to f32 for tensor types
-    for (auto i : llvm::seq<unsigned>(0, clonedOp->getNumResults())) {
-      if (auto tensorType = dyn_cast<mlir::RankedTensorType>(
+    for (size_t i = 0; i < clonedOp->getNumResults(); i++) {
+      if (auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(
               clonedOp->getResult(i).getType())) {
         if (!tensorType.getElementType().isF32()) {
           auto newType = RankedTensorType::get(tensorType.getShape(), f32Type,
@@ -241,7 +244,8 @@ static Value hoistOperationToFunction(mlir::Operation *opToHoist,
 
     // Add an attribute to the function that maps return values to output
     // arguments
-    if (auto dpsOp = dyn_cast<mlir::DestinationStyleOpInterface>(opToHoist)) {
+    if (auto dpsOp =
+            mlir::dyn_cast<mlir::DestinationStyleOpInterface>(opToHoist)) {
       // Ensure there's only a single output
       assert(dpsOp.getDpsInits().size() == 1 &&
              "Only operations with a single output are supported");
@@ -275,7 +279,7 @@ static Value hoistOperationToFunction(mlir::Operation *opToHoist,
 >>>>>>> 28c6f9ff9 (feedback + cleanup)
     for (auto arg : llvm::enumerate(localFunc.getArguments())) {
       if (auto tensorType =
-              dyn_cast<mlir::RankedTensorType>(arg.value().getType())) {
+              mlir::dyn_cast<mlir::RankedTensorType>(arg.value().getType())) {
         tagBufferizationAccess(localFunc, arg.index(), opToHoist, builder);
 <<<<<<< HEAD
 =======
@@ -314,7 +318,8 @@ static Value hoistOperationToFunction(mlir::Operation *opToHoist,
   llvm::SmallVector<mlir::Value> finalResults;
   for (auto [result, callResult] :
        llvm::zip(opToHoist->getResults(), callOp.getResults())) {
-    if (auto tensorType = dyn_cast<mlir::RankedTensorType>(result.getType())) {
+    if (auto tensorType =
+            mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
       if (!tensorType.getElementType().isF32()) {
         auto converted = opBuilder.create<mlir::tt::ttir::EmptyOp>(
             opToHoist->getLoc(), tensorType.getShape(),
@@ -511,12 +516,134 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
     // Handle different types of operations
     bool transformed = false;
 
+    // Handle tensor.expand_shape operations
+    if (auto expandOp = mlir::dyn_cast<tensor::ExpandShapeOp>(producer)) {
+      // Get the input to the expand_shape operation
+      Value expandInput = expandOp.getSrc();
+      Operation *expandInputProducer = expandInput.getDefiningOp();
+
+      // Check if the input is produced by a linalg.reduce operation
+      if (auto reduceOp =
+              mlir::dyn_cast_or_null<linalg::ReduceOp>(expandInputProducer)) {
+        // Find the tensor.empty operation that feeds into the linalg.reduce
+        for (OpOperand &output : reduceOp->getOpOperands()) {
+          // Check if this is an output operand (init tensor)
+          if (reduceOp.isInitTensor(&output)) {
+            Value outputBuffer = output.get();
+
+            // Check if it's defined by a linalg.fill operation
+            if (auto fillOp = mlir::dyn_cast_or_null<linalg::FillOp>(
+                    outputBuffer.getDefiningOp())) {
+              // Get the destination of the fill operation
+              Value fillDest = fillOp.getDpsInitOperand(0)->get();
+
+              // Check if it's defined by a tensor.empty operation
+              if (auto emptyOp = mlir::dyn_cast_or_null<tensor::EmptyOp>(
+                      fillDest.getDefiningOp())) {
+                // Get the output tensor from the function arguments
+                Value outputTensor = funcOp.getArgument(outputArgIdx);
+
+                // We need to reshape the output tensor to match the shape
+                // expected by the reduce operation This is because
+                // linalg.reduce expects a tensor with the reduced dimension
+                // removed
+                auto outputTensorType =
+                    mlir::cast<RankedTensorType>(outputTensor.getType());
+                auto emptyOpType =
+                    mlir::cast<RankedTensorType>(emptyOp.getType());
+
+                if (outputTensorType.getRank() != emptyOpType.getRank()) {
+                  // We need to collapse the output tensor to match the shape of
+                  // the empty op
+                  rewriter.setInsertionPoint(emptyOp);
+
+                  // Create a collapse_shape operation to get the right shape
+                  SmallVector<ReassociationIndices> reassociationIndices;
+
+                  // For a reduce along dimension 0 with keep_dim=true, we need
+                  // to collapse [0, 1] -> [0] This is the inverse of the
+                  // expand_shape operation
+                  SmallVector<int64_t> indices;
+                  for (size_t i = 0;
+                       i < expandOp.getReassociationIndices().size(); i++) {
+                    auto reassociation = expandOp.getReassociationIndices()[i];
+                    reassociationIndices.push_back(reassociation);
+                  }
+
+                  auto collapsedType =
+                      RankedTensorType::get(emptyOpType.getShape(),
+                                            outputTensorType.getElementType());
+
+                  Value collapsedTensor =
+                      rewriter.create<tensor::CollapseShapeOp>(
+                          emptyOp.getLoc(), collapsedType, outputTensor,
+                          reassociationIndices);
+
+                  // Replace the empty op with the collapsed tensor
+                  rewriter.replaceOp(emptyOp, collapsedTensor);
+                  transformed = true;
+                } else {
+                  // If ranks match, just replace directly
+                  rewriter.replaceOp(emptyOp, outputTensor);
+                  transformed = true;
+                }
+              }
+            } else if (auto emptyOp = mlir::dyn_cast_or_null<tensor::EmptyOp>(
+                           outputBuffer.getDefiningOp())) {
+              // Get the output tensor from the function arguments
+              Value outputTensor = funcOp.getArgument(outputArgIdx);
+
+              // We need to reshape the output tensor to match the shape
+              // expected by the reduce operation
+              auto outputTensorType =
+                  mlir::cast<RankedTensorType>(outputTensor.getType());
+              auto emptyOpType =
+                  mlir::cast<RankedTensorType>(emptyOp.getType());
+
+              if (outputTensorType.getRank() != emptyOpType.getRank()) {
+                // We need to collapse the output tensor to match the shape of
+                // the empty op
+                rewriter.setInsertionPoint(emptyOp);
+
+                // Create a collapse_shape operation to get the right shape
+                SmallVector<ReassociationIndices> reassociationIndices;
+
+                // For a reduce along dimension 0 with keep_dim=true, we need to
+                // collapse [0, 1] -> [0] This is the inverse of the
+                // expand_shape operation
+                for (size_t i = 0;
+                     i < expandOp.getReassociationIndices().size(); i++) {
+                  auto reassociation = expandOp.getReassociationIndices()[i];
+                  reassociationIndices.push_back(reassociation);
+                }
+
+                auto collapsedType = RankedTensorType::get(
+                    emptyOpType.getShape(), outputTensorType.getElementType());
+
+                Value collapsedTensor =
+                    rewriter.create<tensor::CollapseShapeOp>(
+                        emptyOp.getLoc(), collapsedType, outputTensor,
+                        reassociationIndices);
+
+                // Replace the empty op with the collapsed tensor
+                rewriter.replaceOp(emptyOp, collapsedTensor);
+                transformed = true;
+              } else {
+                // If ranks match, just replace directly
+                rewriter.replaceOp(emptyOp, outputTensor);
+                transformed = true;
+              }
+            }
+          }
+        }
+      }
+    }
     // Handle linalg.generic operations
-    if (auto linalgOp = dyn_cast<linalg::GenericOp>(producer)) {
+    else if (auto linalgOp = mlir::dyn_cast<linalg::GenericOp>(producer)) {
       // Find all tensor.empty operations that feed into this linalg.generic
       for (OpOperand &output : linalgOp.getDpsInitsMutable()) {
         Value outputBuffer = output.get();
-        if (auto emptyOp = dyn_cast_or_null<tensor::EmptyOp>(
+        if (auto emptyOp = mlir::dyn_cast_or_null<tensor::EmptyOp>(
                 outputBuffer.getDefiningOp())) {
           // Get the output tensor from the function arguments
           Value outputTensor = funcOp.getArgument(outputArgIdx);
@@ -529,10 +656,12 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
     }
     // Handle other operations that might create temporary tensors
     else {
-      // For now, we only handle linalg.generic operations
+      // For now, we only handle linalg.generic and tensor.expand_shape
+      // operations
       funcOp->emitWarning()
           << "Unhandled operation type: " << producer->getName().getStringRef()
-          << ". Only linalg.generic operations are currently supported.";
+          << ". Only linalg.generic and tensor.expand_shape operations are "
+             "currently supported.";
     }
 
     if (!transformed) {

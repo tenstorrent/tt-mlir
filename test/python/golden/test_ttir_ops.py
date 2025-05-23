@@ -1015,9 +1015,12 @@ def reduce_or(
     in0: Operand,
     builder: TTIRBuilder,
     dim_args: List[int],
+    keep_dim: bool = False,
     unit_attrs: List[str] = None,
 ):
-    return builder.reduce_or(in0, dim_args=dim_args, unit_attrs=unit_attrs)
+    return builder.reduce_or(
+        in0, dim_args=dim_args, keep_dim=keep_dim, unit_attrs=unit_attrs
+    )
 
 
 @pytest.mark.skip(
@@ -1029,7 +1032,7 @@ def test_reduce_or(shape: Shape, dim_args: List[int], request):
     def reduce_or_wrapper(
         in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
     ):
-        return reduce_or(in0, build, dim_args, unit_attrs)
+        return reduce_or(in0, builder, dim_args, unit_attrs)
 
     compile_to_flatbuffer(
         reduce_or_wrapper,
@@ -1420,6 +1423,25 @@ def create_hoisted_slice_op(op_func, name):
     return hoisted_op
 
 
+# Create a function for hoisted reduce operations
+def create_hoisted_reduce_op(op_func, name):
+    """Create a hoisted version of a reduce operation that requires dimension arguments"""
+
+    def hoisted_op(in0, builder, **kwargs):
+        # Default dimension arguments for the hoisted version
+        default_dim_args = [0]  # Use first dimension as default
+        return op_func(
+            in0,
+            builder,
+            dim_args=default_dim_args,
+            unit_attrs=["should_hoist"],
+            **kwargs,
+        )
+
+    hoisted_op.__name__ = f"hoisted_{name}"
+    return hoisted_op
+
+
 # Create hoisted versions of all hoistable operations with proper names
 hoisted_unary_ops = [
     create_hoisted_unary_op(exp, "exp"),
@@ -1437,17 +1459,14 @@ hoisted_unary_ops = [
     create_hoisted_unary_op(logical_not, "logical_not"),
     create_hoisted_unary_op(max, "max"),
     create_hoisted_unary_op(sum, "sum"),
-    create_hoisted_unary_op(reduce_or, "reduce_or"),
     pytest.param(
         create_hoisted_unary_op(reshape, "reshape"),
         marks=pytest.mark.xfail(reason="Softmax does not lower to loops properly"),
     ),
-    pytest.param(
-        create_hoisted_unary_op(reshape, "reshape"),
-        marks=pytest.mark.xfail(reason="Reshape not compiling properly"),
-    ),
+    create_hoisted_unary_op(reshape, "reshape"),
     create_hoisted_unary_op(transpose, "transpose"),
 ]
+
 
 hoisted_binary_ops = [
     create_hoisted_binary_op(add, "add"),
@@ -1462,6 +1481,7 @@ hoisted_binary_ops = [
     create_hoisted_binary_op(lt, "less_than"),
     create_hoisted_binary_op(le, "less_equal"),
 ]
+
 
 hoisted_ternary_ops = [
     create_hoisted_concat_op(concat, "concat"),
@@ -1884,6 +1904,63 @@ def test_slice(
         slice_op,
         [shape],
         test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize("shape", [(4, 4)])
+@pytest.mark.parametrize("dim_args", [[0]])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_reduce_or(shape: Shape, dim_args: List[int], target: str, request):
+    """Test the hoisted reduce_or operation with proper dimensions and keep_dim parameter"""
+
+    def hoisted_reduce_or_wrapper(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
+    ):
+        return reduce_or(in0, builder, dim_args, keep_dim=False, unit_attrs=unit_attrs)
+
+    compile_to_flatbuffer(
+        hoisted_reduce_or_wrapper,
+        inputs_shapes=[shape],
+        inputs_types=[
+            torch.int8
+        ],  # Use int8 instead of bool since bool isn't supported
+        test_base=request.node.name,
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes_and_broadcast_dims",
+    [
+        # [(input_shape, output_shape), broadcast_dimensions]
+        [[(1, 1, 32), (1, 16, 32)], [1, 16, 1]],
+        [[(128, 1), (128, 64)], [1, 64]],
+        [[(1, 128), (64, 128)], [64, 1]],
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_broadcast(shapes_and_broadcast_dims, request, target: str):
+    """Test broadcast operation with CPU hoisting enabled using the 'hoisted_' naming convention"""
+    shapes, broadcast_dimensions = shapes_and_broadcast_dims
+
+    def broadcast_wrapper(
+        in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
+    ):
+        return broadcast(
+            in0, in1, builder, broadcast_dimensions, unit_attrs=["should_hoist"]
+        )
+
+    broadcast_wrapper.__name__ = "hoisted_broadcast"
+
+    compile_to_flatbuffer(
+        broadcast_wrapper,
+        inputs_shapes=shapes,
+        test_base=f"{request.node.name}",
+        target=target,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
