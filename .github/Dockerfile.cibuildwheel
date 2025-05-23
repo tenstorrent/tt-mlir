@@ -47,8 +47,8 @@ ADD . $BUILD_DIR/$PROJECT_NAME
 # Build the toolchain
 WORKDIR $BUILD_DIR/$PROJECT_NAME
 
-# Show last commit
-RUN git log -1
+# Show last 2 commits
+RUN git log -2
 
 RUN cmake -B env/build env && \
     cmake --build env/build
