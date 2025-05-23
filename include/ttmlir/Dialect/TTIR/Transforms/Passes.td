@@ -364,6 +364,27 @@ def TTIRLowerToLayout: Pass<"ttir-lower-to-layout", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTIRGenericApplyInterchange : Pass<"ttir-generic-apply-interchange", "::mlir::ModuleOp"> {
+  let summary = "Apply loop interchange on generic ops.";
+  let description = [{
+    For example, the default matmul interchange looks like:
+      (m, n, k) -> (m, k)
+      (m, n, k) -> (k, n)
+      (m, n, k) -> (m, n)
+
+    This pass might choose a different interchange, such as
+    making the k dim the outermost loop, given interchange
+    (2, 0, 1):
+      (k, m, n) -> (m, k)
+      (k, m, n) -> (k, n)
+      (k, m, n) -> (m, n)
+  }];
+
+  list<Option> options = [
+      ListOption<"matmulInterchange", "matmul-interchange", "int64_t", "Set an interchange for generic ops that match matmul style indexing maps and iterator types. The interchange indices here always correspond to the innermost 3 dims.">,
+  ];
+}
+
 def TTIRPrepareTensorsForBufferization : Pass<"ttir-prepare-tensors-for-bufferization", "::mlir::ModuleOp"> {
   let summary = "Prepare tensor shapes for bufferization.";
   let description = [{
