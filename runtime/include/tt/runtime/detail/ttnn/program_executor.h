@@ -65,6 +65,8 @@ private:
   void runOperation(const ::tt::target::ttnn::Operation *op);
 
   void dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice);
+
+  void sampleDeviceDRAM(::ttnn::MeshDevice &meshDevice);
 };
 
 } // namespace tt::runtime::ttnn
