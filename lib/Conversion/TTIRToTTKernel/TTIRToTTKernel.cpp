@@ -360,7 +360,7 @@ public:
                 .getResult();
       }
 
-      auto reduceInitShortOp = rewriter.create<ttkernel::ReduceInitShortOp>(
+      auto reduceInitShortOp = rewriter.create<ttkernel::ExperimentalReduceInitShortOp>(
           op->getLoc(), cbA, cbB, cbC, condition, reduce_type,
           kernel_reduce_dim);
       rewriter.create<ttkernel::ReduceTileOp>(
