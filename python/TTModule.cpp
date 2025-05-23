@@ -10,6 +10,9 @@
 #include "mlir/CAPI/AffineMap.h"
 #include "mlir/CAPI/IR.h"
 
+#include "ttmlir-c/TTAttrs.h"
+#include "ttmlir-c/TTTypes.h"
+
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Utils.h"
@@ -23,13 +26,14 @@ void populateTTModule(nb::module_ &m) {
                      std::vector<std::pair<std::int64_t, std::int64_t>>
                          collapseIntervals,
                      uint32_t oobValValue) {
-                    return wrap(tt::MetalLayoutAttr::get(
-                        unwrap(ctx),
-                        mlir::cast<RankedTensorType>(unwrap(rankedTensorType)),
-                        static_cast<tt::MemorySpace>(memorySpaceValue),
-                        mlir::cast<tt::GridAttr>(unwrap(grid)),
-                        collapseIntervals,
-                        static_cast<tt::OOBVal>(oobValValue)));
+                    // Create AffineMap for linear mapping
+                    auto affineMap = mlir::AffineMap::getMultiDimIdentityMap(
+                        mlir::cast<RankedTensorType>(unwrap(rankedTensorType))
+                            .getRank(),
+                        unwrap(ctx));
+                    return ttmlirTTMetalLayoutAttrGet(ctx, wrap(affineMap),
+                                                      oobValValue, grid,
+                                                      rankedTensorType);
                   })
       .def_static("get",
                   [](MlirContext ctx, MlirType rankedTensorType,
@@ -125,18 +129,16 @@ void populateTTModule(nb::module_ &m) {
   tt_attribute_class<tt::GridAttr>(m, "GridAttr")
       .def_static("get",
                   [](MlirContext ctx, std::vector<int64_t> shape) {
-                    return wrap(tt::GridAttr::get(unwrap(ctx), shape));
+                    return ttmlirTTGridAttrGet(ctx, shape.data(), shape.size());
                   })
       .def_prop_ro("shape",
                    [](const tt::GridAttr &ga) { return ga.getShape().vec(); });
 
   tt_attribute_class<tt::ChipCapabilityAttr>(m, "ChipCapabilityAttr")
-      .def_static(
-          "get",
-          [](MlirContext ctx, uint32_t chipCapability) {
-            return wrap(tt::ChipCapabilityAttr::get(
-                unwrap(ctx), static_cast<tt::ChipCapability>(chipCapability)));
-          })
+      .def_static("get",
+                  [](MlirContext ctx, uint32_t chipCapability) {
+                    return ttmlirTTChipCapabilityAttrGet(ctx, chipCapability);
+                  })
       .def_prop_ro("capability_as_int", [](tt::ChipCapabilityAttr self) {
         return static_cast<uint32_t>(self.getValue());
       });
@@ -144,20 +146,17 @@ void populateTTModule(nb::module_ &m) {
   tt_attribute_class<tt::ArchAttr>(m, "ArchAttr")
       .def_static("get",
                   [](MlirContext ctx, uint32_t arch) {
-                    return wrap(tt::ArchAttr::get(unwrap(ctx),
-                                                  static_cast<tt::Arch>(arch)));
+                    return ttmlirTTArchAttrGet(ctx, arch);
                   })
       .def_prop_ro("arch_as_int", [](tt::ArchAttr self) {
         return static_cast<uint32_t>(self.getValue());
       });
 
   tt_attribute_class<tt::DataTypeAttr>(m, "DataTypeAttr")
-      .def_static(
-          "get",
-          [](MlirContext ctx, uint16_t *supportedDataTypes) {
-            return wrap(tt::DataTypeAttr::get(
-                unwrap(ctx), static_cast<tt::DataType>(*supportedDataTypes)));
-          })
+      .def_static("get",
+                  [](MlirContext ctx, uint16_t *supportedDataTypes) {
+                    return ttmlirTTDataTypeAttrGet(ctx, supportedDataTypes);
+                  })
       .def_prop_ro("data_type_as_int", [](tt::DataTypeAttr self) {
         return static_cast<uint16_t>(self.getValue());
       });
@@ -228,7 +227,7 @@ void populateTTModule(nb::module_ &m) {
   tt_attribute_class<tt::TileSizeAttr>(m, "TileSizeAttr")
       .def_static("get",
                   [](MlirContext ctx, int64_t y, int64_t x) {
-                    return wrap(tt::TileSizeAttr::get(unwrap(ctx), y, x));
+                    return ttmlirTTTileSizeAttrGet(ctx, y, x);
                   })
       .def_prop_ro("y", &tt::TileSizeAttr::getY)
       .def_prop_ro("x", &tt::TileSizeAttr::getX);
@@ -257,7 +256,7 @@ void populateTTModule(nb::module_ &m) {
   tt_attribute_class<tt::CoreCoordAttr>(m, "CoreCoordAttr")
       .def_static("get",
                   [](MlirContext ctx, int64_t y, int64_t x) {
-                    return wrap(tt::CoreCoordAttr::get(unwrap(ctx), y, x));
+                    return ttmlirTTCoreCoordAttrGet(ctx, y, x);
                   })
       .def_prop_ro("y", &tt::CoreCoordAttr::getY)
       .def_prop_ro("x", &tt::CoreCoordAttr::getX);
@@ -266,8 +265,7 @@ void populateTTModule(nb::module_ &m) {
       .def_static("get",
                   [](MlirContext ctx, unsigned rack, unsigned shelf, unsigned y,
                      unsigned x) {
-                    return wrap(
-                        tt::ChipCoordAttr::get(unwrap(ctx), rack, shelf, y, x));
+                    return ttmlirTTChipCoordAttrGet(ctx, rack, shelf, y, x);
                   })
       .def_prop_ro("rack", &tt::ChipCoordAttr::getRack)
       .def_prop_ro("shelf", &tt::ChipCoordAttr::getShelf)
@@ -356,12 +354,10 @@ void populateTTModule(nb::module_ &m) {
       });
 
   tt_attribute_class<tt::MemorySpaceAttr>(m, "MemorySpaceAttr")
-      .def_static(
-          "get",
-          [](MlirContext ctx, uint32_t memorySpace) {
-            return wrap(tt::MemorySpaceAttr::get(
-                unwrap(ctx), static_cast<tt::MemorySpace>(memorySpace)));
-          })
+      .def_static("get",
+                  [](MlirContext ctx, uint32_t memorySpace) {
+                    return ttmlirTTMemorySpaceAttrGet(ctx, memorySpace);
+                  })
       .def_prop_ro("memory_space_as_int", [](tt::MemorySpaceAttr self) {
         return static_cast<uint32_t>(self.getValue());
       });
@@ -369,20 +365,17 @@ void populateTTModule(nb::module_ &m) {
   tt_attribute_class<tt::OOBValAttr>(m, "OOBValAttr")
       .def_static("get",
                   [](MlirContext ctx, uint32_t oobVal) {
-                    return wrap(tt::OOBValAttr::get(
-                        unwrap(ctx), static_cast<tt::OOBVal>(oobVal)));
+                    return ttmlirTTOOBValAttrGet(ctx, oobVal);
                   })
       .def_prop_ro("oob_val_as_int", [](tt::OOBValAttr self) {
         return static_cast<uint32_t>(self.getValue());
       });
 
   tt_attribute_class<tt::IteratorTypeAttr>(m, "IteratorTypeAttr")
-      .def_static(
-          "get",
-          [](MlirContext ctx, uint32_t iteratorType) {
-            return wrap(tt::IteratorTypeAttr::get(
-                unwrap(ctx), static_cast<tt::IteratorType>(iteratorType)));
-          })
+      .def_static("get",
+                  [](MlirContext ctx, uint32_t iteratorType) {
+                    return ttmlirTTIteratorTypeAttrGet(ctx, iteratorType);
+                  })
       .def_prop_ro("iterator_type_as_int", [](tt::IteratorTypeAttr self) {
         return static_cast<uint32_t>(self.getValue());
       });
@@ -427,9 +420,7 @@ void populateTTModule(nb::module_ &m) {
       .def_static("get",
                   [](MlirContext ctx, std::int64_t height, std::int64_t width,
                      uint32_t dataType) {
-                    return wrap(tt::TileType::get(
-                        unwrap(ctx), SmallVector<std::int64_t>{height, width},
-                        static_cast<tt::DataType>(dataType)));
+                    return ttmlirTTTileTypeGet(ctx, height, width, dataType);
                   })
       .def_prop_ro("data_type_as_int",
                    [](tt::TileType self) {
@@ -437,6 +428,177 @@ void populateTTModule(nb::module_ &m) {
                    })
       .def_prop_ro("shape", [](const tt::TileType &tile) {
         return std::vector<int64_t>({tile.getHeight(), tile.getWidth()});
+      });
+  // Add missing attribute classes
+  tt_attribute_class<tt::CPURoleAttr>(m, "CPURoleAttr")
+      .def_static("get",
+                  [](MlirContext ctx, uint32_t cpuRole) {
+                    return ttmlirTTCPURoleAttrGet(ctx, cpuRole);
+                  })
+      .def_prop_ro("cpu_role_as_int", [](tt::CPURoleAttr self) {
+        return static_cast<uint32_t>(self.getValue());
+      });
+
+  tt_attribute_class<tt::CPUDescAttr>(m, "CPUDescAttr")
+      .def_static("get",
+                  [](MlirContext ctx, uint32_t cpuRole,
+                     const std::string &targetTriple) {
+                    return ttmlirTTCPUDescAttrGet(ctx, cpuRole,
+                                                  targetTriple.c_str());
+                  })
+      .def_prop_ro("role", &tt::CPUDescAttr::getRole)
+      .def_prop_ro("target_triple", [](tt::CPUDescAttr self) {
+        return self.getTargetTriple().str();
+      });
+
+  tt_attribute_class<tt::StreamLayoutAttr>(m, "StreamLayoutAttr")
+      .def_static("get",
+                  [](MlirContext ctx, MlirAffineMap affineMap) {
+                    return ttmlirTTStreamLayoutAttrGet(ctx, affineMap);
+                  })
+      .def_prop_ro("affine_map", [](tt::StreamLayoutAttr self) {
+        return wrap(self.getAffineMap());
+      });
+
+  tt_attribute_class<tt::ShardLayoutAttr>(m, "ShardLayoutAttr")
+      .def_static(
+          "get",
+          [](MlirContext ctx, std::vector<int64_t> stride, uint32_t buffers) {
+            return ttmlirTTShardLayoutAttrGet(ctx, stride.data(), stride.size(),
+                                              buffers);
+          })
+      .def_prop_ro(
+          "stride",
+          [](tt::ShardLayoutAttr self) { return self.getStride().vec(); })
+      .def_prop_ro("buffers", &tt::ShardLayoutAttr::getBuffers)
+      .def_prop_ro("affine_map", [](tt::ShardLayoutAttr self) {
+        return wrap(self.getAffineMap());
+      });
+
+  tt_attribute_class<tt::TensorMeshShardingAxisAttr>(
+      m, "TensorMeshShardingAxisAttr")
+      .def_static("get",
+                  [](MlirContext ctx, int64_t shardShape, int64_t shardDim) {
+                    return ttmlirTTTensorMeshShardingAxisAttrGet(
+                        ctx, shardShape, shardDim);
+                  })
+      .def_prop_ro("shard_shape",
+                   &tt::TensorMeshShardingAxisAttr::getShardShape);
+
+  tt_attribute_class<tt::TensorMeshShardingAttr>(m, "TensorMeshShardingAttr")
+      .def_static("get",
+                  [](MlirContext ctx, const std::string &name,
+                     std::vector<MlirAttribute> tensorMeshShardingAxis) {
+                    return ttmlirTTTensorMeshShardingAttrGet(
+                        ctx, name.c_str(), tensorMeshShardingAxis.data(),
+                        tensorMeshShardingAxis.size());
+                  })
+      .def_prop_ro(
+          "name",
+          [](tt::TensorMeshShardingAttr self) { return self.getName().str(); })
+      .def_prop_ro("tensor_mesh_sharding_axis",
+                   [](tt::TensorMeshShardingAttr self) {
+                     return self.getTensorMeshShardingAxis().vec();
+                   });
+
+  tt_attribute_class<tt::MeshAttr>(m, "MeshAttr")
+      .def_static("get",
+                  [](MlirContext ctx, const std::string &name,
+                     std::vector<int64_t> shape) {
+                    return ttmlirTTMeshAttrGet(ctx, name.c_str(), shape.data(),
+                                               shape.size());
+                  })
+      .def_prop_ro("name",
+                   [](tt::MeshAttr self) { return self.getName().str(); })
+      .def_prop_ro("shape",
+                   [](tt::MeshAttr self) { return self.getShape().vec(); });
+
+  tt_attribute_class<tt::MeshesAttr>(m, "MeshesAttr")
+      .def_static("get",
+                  [](MlirContext ctx, std::vector<MlirAttribute> meshes) {
+                    return ttmlirTTMeshesAttrGet(ctx, meshes.data(),
+                                                 meshes.size());
+                  })
+      .def_prop_ro("meshes",
+                   [](tt::MeshesAttr self) { return self.getMeshes().vec(); })
+      .def("get_mesh", [](tt::MeshesAttr self, const std::string &name) {
+        return wrap(self.getMesh(name));
+      });
+
+  tt_attribute_class<tt::ArgumentTypeAttr>(m, "ArgumentTypeAttr")
+      .def_static("get",
+                  [](MlirContext ctx, uint32_t argumentType) {
+                    return ttmlirTTArgumentTypeAttrGet(ctx, argumentType);
+                  })
+      .def_prop_ro("argument_type_as_int", [](tt::ArgumentTypeAttr self) {
+        return static_cast<uint32_t>(self.getValue());
+      });
+
+  tt_attribute_class<tt::ArgumentAllocationAttr>(m, "ArgumentAllocationAttr")
+      .def_static("get",
+                  [](MlirContext ctx, uint64_t address, uint64_t size,
+                     uint32_t memorySpace) {
+                    return ttmlirTTArgumentAllocationAttrGet(ctx, address, size,
+                                                             memorySpace);
+                  })
+      .def_prop_ro("address", &tt::ArgumentAllocationAttr::getAddress)
+      .def_prop_ro("size", &tt::ArgumentAllocationAttr::getSize)
+      .def_prop_ro("memory_space", &tt::ArgumentAllocationAttr::getMemorySpace)
+      .def_prop_ro("memory_space_as_int", [](tt::ArgumentAllocationAttr self) {
+        return static_cast<uint32_t>(self.getMemorySpace());
+      });
+
+  tt_attribute_class<tt::ReduceTypeAttr>(m, "ReduceTypeAttr")
+      .def_static("get",
+                  [](MlirContext ctx, uint32_t reduceType) {
+                    return ttmlirTTReduceTypeAttrGet(ctx, reduceType);
+                  })
+      .def_prop_ro("reduce_type_as_int", [](tt::ReduceTypeAttr self) {
+        return static_cast<uint32_t>(self.getValue());
+      });
+
+  // For ReduceTypeArrayAttr, we'll use a similar pattern as
+  // IteratorTypeArrayAttr
+  tt_attribute_class<mlir::ArrayAttr>(m, "ReduceTypeArrayAttr")
+      .def_static("get",
+                  [](MlirContext ctx, std::vector<uint32_t> reduceTypes) {
+                    return ttmlirTTReduceTypeArrayAttrGet(
+                        ctx, reduceTypes.data(), reduceTypes.size());
+                  });
+
+  tt_attribute_class<tt::MeshShardDirectionAttr>(m, "MeshShardDirectionAttr")
+      .def_static("get",
+                  [](MlirContext ctx, uint32_t meshShardDirection) {
+                    return ttmlirTTMeshShardDirectionAttrGet(
+                        ctx, meshShardDirection);
+                  })
+      .def_prop_ro("mesh_shard_direction_as_int",
+                   [](tt::MeshShardDirectionAttr self) {
+                     return static_cast<uint32_t>(self.getValue());
+                   });
+
+  tt_attribute_class<tt::MeshShardTypeAttr>(m, "MeshShardTypeAttr")
+      .def_static("get",
+                  [](MlirContext ctx, uint32_t meshShardType) {
+                    return ttmlirTTMeshShardTypeAttrGet(ctx, meshShardType);
+                  })
+      .def_prop_ro("mesh_shard_type_as_int", [](tt::MeshShardTypeAttr self) {
+        return static_cast<uint32_t>(self.getValue());
+      });
+
+  // Add TupleType
+  tt_type_class<mlir::TupleType>(m, "TupleType")
+      .def_static("get",
+                  [](MlirContext ctx, std::vector<MlirType> elements) {
+                    return ttmlirTTTupleTypeGet(ctx, elements.data(),
+                                                elements.size());
+                  })
+      .def_prop_ro("element_types", [](mlir::TupleType self) {
+        std::vector<MlirType> elements;
+        for (auto type : self.getTypes()) {
+          elements.push_back(wrap(type));
+        }
+        return elements;
       });
 }
 } // namespace mlir::ttmlir::python

@@ -4,14 +4,13 @@
 
 #include "ttmlir-c/TTAttrs.h"
 #include "mlir/CAPI/IR.h"
-#include "mlir/CAPI/Support.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 
 using namespace mlir::tt;
 
 MlirAttribute ttmlirTTGridAttrGet(MlirContext ctx, int64_t *shape,
-                                  int shapeSize) {
+                                  size_t shapeSize) {
   return wrap(GridAttr::get(unwrap(ctx), {shape, shape + shapeSize},
                             mlir::AffineMap::get(unwrap(ctx))));
 }
@@ -195,4 +194,126 @@ MlirAttribute ttmlirTTChipPhysicalHelperCoresAttrGet(
 
 MlirAttribute ttmlirTTCoreCoordAttrGet(MlirContext ctx, int64_t y, int64_t x) {
   return wrap(CoreCoordAttr::get(unwrap(ctx), y, x));
+}
+
+MlirAttribute ttmlirTTCPURoleAttrGet(MlirContext ctx, uint32_t cpuRole) {
+  return wrap(CPURoleAttr::get(unwrap(ctx), static_cast<CPURole>(cpuRole)));
+}
+
+MlirAttribute ttmlirTTCPUDescAttrGet(MlirContext ctx, uint32_t cpuRole,
+                                     const char *target_triple) {
+  auto targetTripleAttr = mlir::StringAttr::get(unwrap(ctx), target_triple);
+  return wrap(CPUDescAttr::get(unwrap(ctx), static_cast<CPURole>(cpuRole),
+                               targetTripleAttr));
+}
+
+MlirAttribute ttmlirTTStreamLayoutAttrGet(MlirContext ctx,
+                                          MlirAffineMap affineMap) {
+  return wrap(StreamLayoutAttr::get(
+      unwrap(ctx), mlir::AffineMap::getFromOpaquePointer(affineMap.ptr)));
+}
+
+MlirAttribute ttmlirTTShardLayoutAttrGet(MlirContext ctx, int64_t *stride,
+                                         size_t strideSize, uint32_t buffers) {
+  std::vector<int64_t> strideVec(stride, stride + strideSize);
+  return wrap(ShardLayoutAttr::get(unwrap(ctx), strideVec, buffers));
+}
+
+MlirAttribute ttmlirTTTensorMeshShardingAxisAttrGet(MlirContext ctx,
+                                                    int64_t shardShape,
+                                                    int64_t shardDim) {
+  return wrap(
+      TensorMeshShardingAxisAttr::get(unwrap(ctx), shardShape, shardDim));
+}
+
+MlirAttribute
+ttmlirTTTensorMeshShardingAttrGet(MlirContext ctx, const char *name,
+                                  MlirAttribute *tensorMeshShardingAxis,
+                                  size_t tensorMeshShardingAxisSize) {
+  auto nameAttr = mlir::StringAttr::get(unwrap(ctx), name);
+  std::vector<TensorMeshShardingAxisAttr> axisVec;
+
+  for (size_t i = 0; i < tensorMeshShardingAxisSize; i++) {
+    axisVec.push_back(mlir::cast<TensorMeshShardingAxisAttr>(
+        unwrap(tensorMeshShardingAxis[i])));
+  }
+
+  return wrap(TensorMeshShardingAttr::get(unwrap(ctx), nameAttr, axisVec));
+}
+
+MlirAttribute ttmlirTTMeshAttrGet(MlirContext ctx, const char *name,
+                                  int64_t *shape, size_t shapeSize) {
+  auto nameAttr = mlir::StringAttr::get(unwrap(ctx), name);
+  std::vector<int64_t> shapeVec(shape, shape + shapeSize);
+  return wrap(MeshAttr::get(unwrap(ctx), nameAttr, shapeVec));
+}
+
+MlirAttribute ttmlirTTMeshesAttrGet(MlirContext ctx, MlirAttribute *meshes,
+                                    size_t meshesSize) {
+  std::vector<MeshAttr> meshesVec;
+  for (size_t i = 0; i < meshesSize; i++) {
+    meshesVec.push_back(mlir::cast<MeshAttr>(unwrap(meshes[i])));
+  }
+  return wrap(MeshesAttr::get(unwrap(ctx), meshesVec));
+}
+
+MlirAttribute ttmlirTTArgumentTypeAttrGet(MlirContext ctx,
+                                          uint32_t argumentType) {
+  return wrap(ArgumentTypeAttr::get(unwrap(ctx),
+                                    static_cast<ArgumentType>(argumentType)));
+}
+
+MlirAttribute ttmlirTTDeviceAttrGet(MlirContext ctx, MlirAttribute workerGrid,
+                                    MlirAffineMap l1Map, MlirAffineMap dramMap,
+                                    int64_t *meshShape, size_t meshShapeSize,
+                                    unsigned *chipIds, size_t chipIdsSize) {
+  mlir::AffineMap l1AffineMap =
+      mlir::AffineMap::getFromOpaquePointer(l1Map.ptr);
+  mlir::AffineMap dramAffineMap =
+      mlir::AffineMap::getFromOpaquePointer(dramMap.ptr);
+  std::vector<int64_t> meshShapeVec(meshShape, meshShape + meshShapeSize);
+  std::vector<unsigned> chipIdsVec(chipIds, chipIds + chipIdsSize);
+
+  return wrap(
+      DeviceAttr::get(unwrap(ctx), mlir::cast<GridAttr>(unwrap(workerGrid)),
+                      l1AffineMap, dramAffineMap, meshShapeVec, chipIdsVec));
+}
+
+MlirAttribute ttmlirTTArgumentAllocationAttrGet(MlirContext ctx,
+                                                uint64_t address, uint64_t size,
+                                                uint32_t memorySpace) {
+  return wrap(ArgumentAllocationAttr::get(
+      unwrap(ctx), address, size, static_cast<MemorySpace>(memorySpace)));
+}
+
+MlirAttribute ttmlirTTReduceTypeAttrGet(MlirContext ctx, uint32_t reduceType) {
+  return wrap(
+      ReduceTypeAttr::get(unwrap(ctx), static_cast<ReduceType>(reduceType)));
+}
+
+MlirAttribute ttmlirTTReduceTypeArrayAttrGet(MlirContext ctx,
+                                             uint32_t *reduceTypes,
+                                             size_t reduceTypesSize) {
+  std::vector<uint32_t> reduceTypesEnumArray(reduceTypes,
+                                             reduceTypes + reduceTypesSize);
+  std::vector<mlir::Attribute> reduceTypesArray;
+
+  for (auto reduceEnum : reduceTypesEnumArray) {
+    reduceTypesArray.push_back(
+        ReduceTypeAttr::get(unwrap(ctx), static_cast<ReduceType>(reduceEnum)));
+  }
+
+  return wrap(mlir::ArrayAttr::get(unwrap(ctx), reduceTypesArray));
+}
+
+MlirAttribute ttmlirTTMeshShardDirectionAttrGet(MlirContext ctx,
+                                                uint32_t meshShardDirection) {
+  return wrap(MeshShardDirectionAttr::get(
+      unwrap(ctx), static_cast<MeshShardDirection>(meshShardDirection)));
+}
+
+MlirAttribute ttmlirTTMeshShardTypeAttrGet(MlirContext ctx,
+                                           uint32_t meshShardType) {
+  return wrap(MeshShardTypeAttr::get(
+      unwrap(ctx), static_cast<MeshShardType>(meshShardType)));
 }
