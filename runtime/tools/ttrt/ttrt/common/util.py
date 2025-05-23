@@ -651,23 +651,24 @@ class Binary(Flatbuffer):
         self.system_desc = (
             self.fbb.get_system_desc()
         )  # ttrt.binary.get_system_desc(self.fbb) = self.fbb.get
-        # self.fbb_dict = ttrt.binary.as_dict(self.fbb)
-        # self.system_desc_dict = ttrt.binary.as_dict(self.system_desc)
+        self.fbb_dict = ttrt.binary.as_dict(self.fbb)
+        self.system_desc_dict = ttrt.binary.as_dict(self.system_desc)
         self.version = self.fbb.version
-        self.programs = json.loads(ttrt.binary.get_programs_as_json(self.fbb))
-        # self.programs = []
+        self.programs = self.fbb.get_programs_as_json()
+        self.programs = []
 
-        # for i in range(len(self.fbb_dict["programs"])):
-        #    program = Binary.Program(i, self.fbb_dict["programs"][i])
-        #    self.programs.append(program)
+        for i in range(len(self.fbb_dict["programs"])):
+            program = Binary.Program(i, self.fbb_dict["programs"][i])
+            self.programs.append(program)
 
     def check_system_desc(self, query):
         import ttrt.binary
 
         try:
-            # fbb_system_desc = self.system_desc_dict["system_desc"] #self.fbb_dict["system_desc"]
+            fbb_system_desc = self.system_desc_dict["system_desc"]
+            # fbb_system_desc = self.fbb_dict["system_desc"]
             device_system_desc = query.get_system_desc_as_dict()["system_desc"]
-            fbb_system_desc = ttrt.binary.as_dict(self.system_desc)
+            # fbb_system_desc = ttrt.binary.as_dict(self.system_desc)
             # fbb_test_dict = json.loads(ttrt.binary.as_json(self.system_desc))
 
             if fbb_system_desc != device_system_desc:

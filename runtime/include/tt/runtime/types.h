@@ -168,13 +168,25 @@ struct SystemDesc : public Flatbuffer {
   using Flatbuffer::Flatbuffer;
 
   static SystemDesc loadFromPath(const char *path);
-  SystemDesc getSystemDescFromBinary(Flatbuffer binary);
 
   const ::tt::target::SystemDesc *get() const {
     return ::tt::target::GetSizePrefixedSystemDescRoot(handle.get())
         ->system_desc();
   }
   const ::tt::target::SystemDesc *operator->() const { return get(); }
+};
+
+struct Program : public Flatbuffer {
+  // Program(std::shared_ptr<void> handle);
+  // Program(const Program &) = default;
+  // Program(Program &&) = default;
+
+  // Program &operator=(const Program &other) = default;
+  // Program &operator=(Program &&other) = default;
+
+  using Flatbuffer::Flatbuffer;
+
+  std::string getName() const;
 };
 
 class TensorCache;

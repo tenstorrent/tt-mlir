@@ -7,7 +7,7 @@ from ._C import (
     load_binary_from_path,
     load_binary_from_capsule,
     load_system_desc_from_path,
-    get_programs_as_json,
+    # get_programs_as_json,
     Flatbuffer,
     GoldenTensor,
 )
