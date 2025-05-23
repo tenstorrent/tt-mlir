@@ -34,7 +34,7 @@ Scheduler::Scheduler(func::FuncOp *func) {
   for (auto &op : func->getOps()) {
     if (isTTSchedulableOp(&op)) {
       dependencies[&op] = {};
-      unscheduledOps.insert(&op);
+      funcOps.push_back(&op);
     }
   }
 
@@ -59,13 +59,13 @@ Scheduler::Scheduler(func::FuncOp *func) {
 
 Scheduler::Scheduler(const Scheduler &scheduler)
     : scheduledOpsMap(scheduler.scheduledOpsMap), schedule(scheduler.schedule),
-      unscheduledOps(scheduler.unscheduledOps),
+      funcOps(scheduler.funcOps),
       dependencies(scheduler.dependencies) {}
 
 llvm::SmallVector<mlir::Operation *> Scheduler::getScheduleableOps() {
   llvm::SmallVector<mlir::Operation *> scheduleableOps;
-  for (auto &op : unscheduledOps) {
-    if (canSchedule(op)) {
+  for (auto &op : funcOps) {
+    if (!scheduledOpsMap.contains(op) && canSchedule(op)) {
       scheduleableOps.push_back(op);
     }
   }
@@ -84,8 +84,8 @@ bool Scheduler::canSchedule(mlir::Operation *op) {
 }
 
 void Scheduler::scheduleOp(mlir::Operation *op) {
+  assert(!scheduledOpsMap.count(op) && "op is already scheduled");
   scheduledOpsMap.insert(op);
-  unscheduledOps.erase(op);
   schedule.push_back(op);
 }
 
@@ -97,5 +97,6 @@ llvm::SmallVector<mlir::Operation *> Scheduler::getSchedule() const {
   return schedule;
 }
 
-bool Scheduler::hasUnscheduledOps() const { return !unscheduledOps.empty(); }
+bool Scheduler::hasUnscheduledOps() const { return scheduledOpsMap.size() < funcOps.size(); }
+
 } // namespace mlir::tt::scheduler

@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
+#include <llvm/ADT/ArrayRef.h>
+#include <llvm/Support/Error.h>
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
@@ -501,6 +503,32 @@ getEltwiseBinaryOpConstraints(std::string_view opName, OpSymbol opSymbol,
     ::ttnn::TensorSpec outputSpec = outputSpecExp.get();
     outputDType = outputSpec.data_type();
     outputMemoryConfig = outputSpec.memory_config();
+  }
+
+  // auto shapeToStr = [](llvm::ArrayRef<int64_t> shape) {
+  //   std::stringstream ss;
+  //   ss << "[";
+  //   for (size_t i = 0; i < shape.size(); ++i) {
+  //     ss << shape[i];
+  //     if (i != shape.size() - 1) {
+  //       ss << ", ";
+  //     }
+  //   }
+  //   ss << "]";
+  //   return ss.str();
+  // };
+  // llvm::dbgs() << "inputLayoutA: " << inputLayoutA << "\n";
+  // llvm::dbgs() << "inputShapeA: " << shapeToStr(inputShapeA) << "\n";
+  // llvm::dbgs() << "inputLayoutB: " << inputLayoutB << "\n";
+  // llvm::dbgs() << "inputShapeB: " << shapeToStr(inputShapeB) << "\n";
+  // llvm::dbgs() << "outputLayout: " << outputLayout << "\n";
+  // llvm::dbgs() << "outputShape: " << shapeToStr(outputShape) << "\n";
+
+  int64_t batch = inputShapeA[0];
+  if (inputLayoutA.getMemLayout().getValue() == ::mlir::tt::ttnn::TensorMemoryLayout::BlockSharded &&
+      batch > inputLayoutA.getGrid().getShape()[0]) {
+    return llvm::createStringError(
+        "Batch size is greater than grid dimension X");
   }
 
   // Create query closure
