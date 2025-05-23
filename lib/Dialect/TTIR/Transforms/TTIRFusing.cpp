@@ -424,36 +424,20 @@ public:
 
     std::cout<< "Replacing scatter op with kv-cache update op" << std::endl;
 
-    //inputs -- this expects only 3 inputs 
+    // Extract the operands of the scatter operation.
+    Value cache = scatterOp.getInput();             // Cache tensor
+    Value updates = scatterOp.getUpdate();          // Updates tensor
 
-    // Replace scatter op with new UpdateCacheOp op.
-    // utils::replaceOpWithNewDPSOp<UpdateCacheOp>(
-    //   rewriter, 
-    //   scatterOp,
-    //   scatterOp.getInput().getType(),          // Cache tensor
-    //   scatterOp.getInput().getType(),          // Cache tensor
-    //   scatterOp.getScatterIndices().getType(), // Indices tensor
-    //   scatterOp.getUpdate().getType()          // Updates tensor
-    //   ,scatterOp.getInput().getType()
-    // );
+    // Create a constant batch offset (set to 0 for now).
+    auto batchOffsetAttr = rewriter.getI32IntegerAttr(0);
 
-    utils::replaceOpWithNewDPSOp<FillCacheOp>(
-      rewriter,
-      // scatterOp,
-      scatterOp.getOutput().getType(),  // Cache tensor output type
-      scatterOp.getInput().getType(),             // Cache tensor
-      scatterOp.getUpdate().getType(),   // Updates tensor
-      rewriter.getI32IntegerAttr(0)     // Batch offset (set to 0 as an example)
+    // Replace the scatter operation with the fill_cache operation.
+    rewriter.replaceOpWithNewOp<FillCacheOp>(
+        scatterOp, scatterOp.getResult().getType(),  // Result type
+        cache,                                       // Cache tensor
+        updates,                                     // Updates tensor
+        batchOffsetAttr                              // Batch offset
     );
-
-    // auto newOp = rewriter.create<ttir::UpdateCacheOp>(
-    //   );
-
-    // rewriter.replaceOp(op, newOp.getResult());
-
-    // The original scatter op will be removed by DCE since it's no longer
-    // used.+
-
 
     return mlir::success();
   }
