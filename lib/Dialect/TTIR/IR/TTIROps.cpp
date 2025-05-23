@@ -145,7 +145,7 @@ void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
 }
 
 // Helper function to extract constant value.
-static std::optional<mlir::APFloat> getConstantValue(mlir::Value value) {
+static mlir::FloatAttr getConstantValue(mlir::Value value) {
   mlir::Operation *op = value.getDefiningOp();
   while (mlir::isa_and_present<mlir::tt::ttir::BroadcastOp,
                                mlir::tt::ttir::ReshapeOp,
@@ -155,19 +155,20 @@ static std::optional<mlir::APFloat> getConstantValue(mlir::Value value) {
 
   auto fullOp = mlir::dyn_cast_if_present<mlir::tt::ttir::FullOp>(op);
   if (!fullOp) {
-    return std::nullopt;
+    return {};
   }
 
   mlir::Attribute fillValueAttr = fullOp.getFillValueAttr();
 
   if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(fillValueAttr)) {
-    return floatAttr.getValue();
+    return floatAttr;
   }
   if (auto integerAttr = mlir::dyn_cast<mlir::IntegerAttr>(fillValueAttr)) {
-    return mlir::APFloat(
-        static_cast<float>(integerAttr.getValue().getSExtValue()));
+    return mlir::FloatAttr::get(
+        mlir::Float32Type::get(integerAttr.getContext()),
+        static_cast<double>(integerAttr.getValue().getSExtValue()));
   }
-  return std::nullopt;
+  return {};
 }
 
 // ClampTensorOp canonicalization
@@ -177,15 +178,13 @@ void mlir::tt::ttir::ClampTensorOp::getCanonicalizationPatterns(
       +[](mlir::tt::ttir::ClampTensorOp op, mlir::PatternRewriter &rewriter) {
         RankedTensorType outputType = op.getResult().getType();
 
-        {
-          std::optional<mlir::APFloat> minValue = getConstantValue(op.getMin());
-          std::optional<mlir::APFloat> maxValue = getConstantValue(op.getMax());
-          if (minValue && maxValue) {
-            ttir::utils::replaceOpWithNewDPSOp<ttir::ClampScalarOp>(
-                rewriter, op, outputType, op.getInput(), *minValue, *maxValue);
+        FloatAttr minValue = getConstantValue(op.getMin());
+        FloatAttr maxValue = getConstantValue(op.getMax());
+        if (minValue && maxValue) {
+          ttir::utils::replaceOpWithNewDPSOp<ttir::ClampScalarOp>(
+              rewriter, op, outputType, op.getInput(), minValue, maxValue);
 
-            return success();
-          }
+          return success();
         }
 
         if (outputType.getShape() == op.getMin().getType().getShape() &&
