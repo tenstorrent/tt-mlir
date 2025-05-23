@@ -669,13 +669,11 @@ private:
                : (partial ? std::nullopt : std::optional<T>(defaultValue));
   }
 
-  mlir::BoolAttr getOrDefaultBool(mlir::BoolAttr attr,
-                                  bool defaultValue = false,
-                                  bool partial = true) {
+  mlir::BoolAttr getOrDefaultBool(mlir::BoolAttr attr, mlir::MLIRContext *ctx,
+                                  bool partial = true,
+                                  bool defaultValue = false) {
     return attr ? attr
-                : (partial
-                       ? nullptr
-                       : mlir::BoolAttr::get(attr.getContext(), defaultValue));
+                : (partial ? nullptr : mlir::BoolAttr::get(ctx, defaultValue));
   }
 
 public:
@@ -693,35 +691,36 @@ public:
     activation = attr.getActivation()
                      ? attr.getActivation()
                      : (partial ? nullptr : mlir::StringAttr::get(ctx, ""));
-    deallocateActivation = getOrDefaultBool(attr.getDeallocateActivation());
-    reallocateHaloOutput = getOrDefaultBool(attr.getReallocateHaloOutput(),
-                                            /*defaultValue=*/true, partial);
+    deallocateActivation =
+        getOrDefaultBool(attr.getDeallocateActivation(), ctx, partial);
+    reallocateHaloOutput = getOrDefaultBool(attr.getReallocateHaloOutput(), ctx,
+                                            partial, /*defaultValue=*/true);
     actBlockHOverride =
         getOrDefaultOpt<uint32_t>(attr.getActBlockHOverride(), 0, partial);
     actBlockWDiv =
         getOrDefaultOpt<uint32_t>(attr.getActBlockWDiv(), 1, partial);
     reshardIfNotOptimal =
-        getOrDefaultBool(attr.getReshardIfNotOptimal(), partial);
+        getOrDefaultBool(attr.getReshardIfNotOptimal(), ctx, partial);
     overrideShardingConfig =
-        getOrDefaultBool(attr.getOverrideShardingConfig(), partial);
+        getOrDefaultBool(attr.getOverrideShardingConfig(), ctx, partial);
     shardLayout = getOrDefaultOpt(attr.getShardLayout(),
                                   TensorMemoryLayout::HeightSharded, partial);
     coreGrid = attr.getCoreGrid() ? attr.getCoreGrid() : CoreRangeSetAttr{};
-    transposeShards = getOrDefaultBool(attr.getTransposeShards(),
-                                       /*defaultValue=*/true, partial);
+    transposeShards = getOrDefaultBool(attr.getTransposeShards(), ctx, partial);
     outputLayout =
         getOrDefaultOpt(attr.getOutputLayout(), Layout::Tile, partial);
     preprocessWeightsOnDevice =
-        getOrDefaultBool(attr.getPreprocessWeightsOnDevice(), partial);
+        getOrDefaultBool(attr.getPreprocessWeightsOnDevice(), ctx, partial);
     alwaysPreprocessWeights =
-        getOrDefaultBool(attr.getAlwaysPreprocessWeights(), partial);
+        getOrDefaultBool(attr.getAlwaysPreprocessWeights(), ctx, partial);
     enableActDoubleBuffer =
-        getOrDefaultBool(attr.getEnableActDoubleBuffer(), partial);
+        getOrDefaultBool(attr.getEnableActDoubleBuffer(), ctx, partial);
     enableWeightsDoubleBuffer =
-        getOrDefaultBool(attr.getEnableWeightsDoubleBuffer(), partial);
-    enableSplitReader = getOrDefaultBool(attr.getEnableSplitReader(), partial);
+        getOrDefaultBool(attr.getEnableWeightsDoubleBuffer(), ctx, partial);
+    enableSplitReader =
+        getOrDefaultBool(attr.getEnableSplitReader(), ctx, partial);
     enableSubblockPadding =
-        getOrDefaultBool(attr.getEnableSubblockPadding(), partial);
+        getOrDefaultBool(attr.getEnableSubblockPadding(), ctx, partial);
   }
 
   Conv2dConfigAttr buildConv2dConfig(mlir::MLIRContext *ctx) const {

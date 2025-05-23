@@ -34,6 +34,7 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
+#include <llvm/ADT/DenseMap.h>
 
 namespace mlir::tt::ttnn {
 
@@ -426,11 +427,13 @@ public:
         }
       });
 
+      llvm::DenseMap<Operation *, Operation *> insertedMemoryReconfigOps;
       if (memReconfigEnabled) {
-        processMemReconfigEdges(memReconfigEntryMap, deviceGrid);
+        insertedMemoryReconfigOps =
+          processMemReconfigEdges(memReconfigEntryMap, deviceGrid);
       }
 
-      processSpillOps(spillToDramOps, deviceGrid);
+      processSpillOps(spillToDramOps, deviceGrid, insertedMemoryReconfigOps);
 
       // Update the function type to reflect the updated return operation's
       // result types.
@@ -520,8 +523,8 @@ private:
     assert(overrideInputLayout.size() == overrideReshardEdges.size());
   }
 
-  mlir::TypedValue<DeviceType> getOrCreateDeviceOpValue(Operation *contextOp,
-                                                        OpBuilder &builder) {
+  static mlir::TypedValue<DeviceType>
+  getOrCreateDeviceOpValue(Operation *contextOp, OpBuilder &builder) {
     Block *block = contextOp->getBlock();
     for (auto &op : block->getOperations()) {
       if (GetDeviceOp deviceOp = dyn_cast<GetDeviceOp>(op)) {
@@ -551,9 +554,12 @@ private:
     return deviceOp;
   }
 
-  void processMemReconfigEdges(
+  static llvm::DenseMap<Operation *, Operation *> processMemReconfigEdges(
       const llvm::DenseMap<Edge, MemReconfigEntry> &memReconfigEntryMap,
       GridAttr deviceGrid) {
+
+    // Mapping from producer op to inserted memory reconfig op.
+    llvm::DenseMap<Operation *, Operation *> insertedMemoryReconfigOps;
 
     // Insert memory reconfig ops here based on results of memory layout
     // analysis.
@@ -634,19 +640,41 @@ private:
         consumerOp->setOperand(edge.operandIndex,
                                memoryReconfigOp->getResult(0));
         TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                     "Inserted memory reconfig op: {}",
-                     mlir::cast<ToLayoutOp>(memoryReconfigOp));
+                     "Inserted memory reconfig op: {} ({})",
+                     mlir::cast<ToLayoutOp>(memoryReconfigOp),
+                     memoryReconfigOp);
+        for (auto &consumer : producerOp->getUses()) {
+          Operation *consumerOp = consumer.getOwner();
+          TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                       "Producer {} op has use: {}@{} ({})",
+                       producerOp->getName(), consumerOp->getName(),
+                       consumerOp->getLoc(), consumerOp);
+        }
+        if (producerOp) {
+          insertedMemoryReconfigOps[producerOp] = memoryReconfigOp;
+        }
       }
     }
+    return insertedMemoryReconfigOps;
   }
 
   void processSpillOps(const std::vector<Operation *> &spillToDramOps,
-                       GridAttr deviceGrid) {
-    for (Operation *op : spillToDramOps) {
-      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "Processing spill op: {}",
-                   op->getName());
+                       GridAttr deviceGrid,
+                       const llvm::DenseMap<Operation *, Operation *>
+                           &insertedMemoryReconfigOps) {
+    for (Operation *spilledOp : spillToDramOps) {
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "Processing spill op: {} {} @{}", spilledOp,
+                   spilledOp->getName(), spilledOp->getLoc());
+      for (auto &use : spilledOp->getResult(0).getUses()) {
+        Operation *useOp = use.getOwner();
+        TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                     "Spilled op has use: {}@{} ({})", useOp->getName(),
+                     useOp->getLoc(), useOp);
+      }
+
       RankedTensorType tensorType =
-          mlir::cast<RankedTensorType>(op->getResult(0).getType());
+          mlir::cast<RankedTensorType>(spilledOp->getResult(0).getType());
       llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
       TTNNLayoutAttr layoutAttr =
           mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
@@ -659,32 +687,69 @@ private:
           tensorShape, tensorType.getElementType(), dramLayout);
 
       // Create a ToLayoutOp with the new DRAM layout.
-      OpBuilder builder(op->getContext());
+      OpBuilder builder(spilledOp->getContext());
       DataTypeAttr dataType =
-          DataTypeAttr::get(op->getContext(), dramLayout.getDataType());
+          DataTypeAttr::get(spilledOp->getContext(), dramLayout.getDataType());
       LayoutAttr newLayout =
-          LayoutAttr::get(op->getContext(), dramLayout.getLayout());
+          LayoutAttr::get(spilledOp->getContext(), dramLayout.getLayout());
 
       MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(
-          op->getContext(), dramLayout.getMemLayout(),
-          BufferTypeAttr::get(op->getContext(), BufferType::DRAM),
+          spilledOp->getContext(), dramLayout.getMemLayout(),
+          BufferTypeAttr::get(spilledOp->getContext(), BufferType::DRAM),
           utils::createShardSpecIfNeeded(dramLayout, deviceGrid));
 
-      builder.setInsertionPointAfter(op);
+      builder.setInsertionPointAfter(spilledOp);
       Location loc =
-          ttmlir::utils::appendLocationSuffix(op->getLoc(), "_spill");
-      Operation *toLayoutOp = builder.create<ToLayoutOp>(
-          loc, newTensorType, op->getResult(0), newLayout, dataType,
-          memConfigAttr, getOrCreateDeviceOpValue(op, builder));
-      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                   "Inserted spill to DRAM prevLayout: {}\nnewLayout: {}",
-                   layoutAttr, newLayout);
+          ttmlir::utils::appendLocationSuffix(spilledOp->getLoc(), "_spill");
 
-      for (auto &use : op->getResult(0).getUses()) {
-        if (use.getOwner() != toLayoutOp) {
-          use.getOwner()->setOperand(use.getOperandNumber(),
-                                     toLayoutOp->getResult(0));
-        }
+      // Step 1: Save all uses as (Operation*, operand index)
+      llvm::SmallVector<std::pair<Operation *, unsigned>> uses;
+      for (auto &use : spilledOp->getResult(0).getUses()) {
+        uses.emplace_back(use.getOwner(), use.getOperandNumber());
+
+        TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                     "Spilled op has use: {}@{} ({})",
+                     use.getOwner()->getName(), use.getOwner()->getLoc(),
+                     use.getOwner());
+      }
+
+      // here spilled op result is wired to layout op so we have to save uses
+      // before
+      Operation *toLayoutOp = builder.create<ToLayoutOp>(
+          loc, newTensorType, spilledOp->getResult(0), newLayout, dataType,
+          memConfigAttr, getOrCreateDeviceOpValue(spilledOp, builder));
+      TTMLIR_TRACE(
+          ttmlir::LogComponent::Optimizer,
+          "Inserted spill to DRAM prevLayout: {}\n\t new ToLayoutOp: {}",
+          layoutAttr, toLayoutOp);
+      for (auto &use : spilledOp->getResult(0).getUses()) {
+        TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                     "After creating spill op, has use: {}@{} ({})",
+                     use.getOwner()->getName(), use.getOwner()->getLoc(),
+                     use.getOwner());
+      }
+
+      for (auto &use : uses) {
+        Operation *useOp = use.first;
+        useOp->setOperand(use.second, toLayoutOp->getResult(0));
+      }
+
+      // Reconnect inserted memory reconfig ops for this spilled op
+      if (insertedMemoryReconfigOps.count(spilledOp)) {
+        Operation *consumer = insertedMemoryReconfigOps.at(spilledOp);
+        // TODO(rpavlovicTT) by reconnecting we get basically redundant toLayout
+        // op because fork op is sharded and we inserted reshard, so we're
+        // trying to shard already sharded tensor with same layout. If we don't
+        // reconnect we have slightly worse performance because we reshard from
+        // DRAM. One solution is to not insert reshard when producer is already
+        // in the same layout (we assume that tensor is in DRAM when starting
+        // new chain).
+
+        // consumer->setOperand(0, spilledOp->getResult(0));
+        TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                     "Reconnected {}@{} to {}@{}", spilledOp->getName(),
+                     spilledOp->getLoc(), consumer->getName(),
+                     consumer->getLoc());
       }
     }
   }
