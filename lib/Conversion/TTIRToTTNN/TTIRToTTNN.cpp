@@ -1225,11 +1225,13 @@ public:
         mlir::cast<mlir::RankedTensorType>(adaptor.getRhs().getType());
     Type outputType = this->getTypeConverter()->convertType(srcOp.getType());
 
+    // Check for implicit broadcast
     bool hasBroadcastedOperand = lhsType.getShape() != rhsType.getShape();
+    // Check for explicit broadcast
     hasBroadcastedOperand |=
-        isa_and_nonnull<ttnn::RepeatOp>(adaptor.getLhs().getDefiningOp());
+        isa_and_present<ttnn::RepeatOp>(adaptor.getLhs().getDefiningOp());
     hasBroadcastedOperand |=
-        isa_and_nonnull<ttnn::RepeatOp>(adaptor.getRhs().getDefiningOp());
+        isa_and_present<ttnn::RepeatOp>(adaptor.getRhs().getDefiningOp());
     if (!hasBroadcastedOperand) {
       rewriter.replaceOpWithNewOp<ttnn::SubtractOp>(
           srcOp, outputType, adaptor.getLhs(), adaptor.getRhs());
