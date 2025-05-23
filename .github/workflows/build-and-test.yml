@@ -441,9 +441,7 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- FBS_GENERATION mlir-headers mlir-generic-headers tt-metal-download tt-metal-update tt-metal-configure TTKernelGeneratedLLKHeaders
-        python3 tools/scripts/filter-compile-commands.py --diff ${{ steps.strings.outputs.build-output-dir }}/compile_commands.json
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- clang-tidy
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- clang-tidy-ci
 
     - name: Unique-ify clang-tidy fixes
       shell: bash
