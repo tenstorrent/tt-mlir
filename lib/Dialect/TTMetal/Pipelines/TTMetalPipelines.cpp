@@ -102,8 +102,8 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(mlir::emitc::createFormExpressionsPass());
 }
 
-void createTTIRToTTMetalPipeline(
-    OpPassManager &pm, const TTIRToTTMetalBackendPipelineOptions &options) {
+void createTTIRToTTMetalPipeline(OpPassManager &pm,
+                                 const TTIRToTTMetalPipelineOptions &options) {
   // Create DeviceModule to wrap all ops.
   pm.addPass(tt::createTTWrapDeviceModulePass());
   // Create CPUModuleOp to wrap hoisted ops (if any).

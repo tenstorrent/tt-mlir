@@ -79,18 +79,7 @@ static void tagBufferizationAccess(mlir::func::FuncOp funcOp, unsigned argIdx,
     }
   } else {
     funcOp.setArgAttr(argIdx, "bufferization.access",
-                      builder.getStringAttr("read_write"));
-  }
-// Helper function to determine if an operand is an output tensor
-static bool isOutputTensor(mlir::Operation *op, unsigned operandIdx) {
-  // Check if the operation implements DestinationStyleOpInterface
-  if (auto dpsOp = dyn_cast<mlir::DestinationStyleOpInterface>(op)) {
-    // For DPS operations, the outputs are at the end of the operand list
-    unsigned numOutputs = dpsOp.getNumDpsInits();
-    unsigned totalOperands = op->getNumOperands();
-
-    // The operand is an output if it's among the last numOutputs operands
-    return operandIdx >= (totalOperands - numOutputs);
+                      builder.getStringAttr("read-write"));
   }
 }
 
@@ -181,32 +170,10 @@ static Value hoistOperationToFunction(mlir::Operation *opToHoist,
     }
 
     // Add bufferization access attributes to function arguments
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> 28c6f9ff9 (feedback + cleanup)
     for (auto arg : llvm::enumerate(hoistedFunc.getArguments())) {
       if (auto tensorType =
               mlir::dyn_cast<mlir::RankedTensorType>(arg.value().getType())) {
         tagBufferizationAccess(hoistedFunc, arg.index(), opToHoist, builder);
-<<<<<<< HEAD
-=======
-    for (unsigned i = 0; i < hoistedFunc.getNumArguments(); ++i) {
-      if (auto tensorType = dyn_cast<mlir::RankedTensorType>(
-              hoistedFunc.getArgument(i).getType())) {
-        // Determine if this is an input or output tensor
-        if (isOutputTensor(opToHoist, i)) {
-          // Output tensors are only written to
-          hoistedFunc.setArgAttr(i, "bufferization.access",
-                                 builder.getStringAttr("write"));
-        } else {
-          // Input tensors are only read from
-          hoistedFunc.setArgAttr(i, "bufferization.access",
-                                 builder.getStringAttr("read"));
-        }
->>>>>>> 104660f39 (working)
-=======
->>>>>>> 28c6f9ff9 (feedback + cleanup)
       }
     }
 
@@ -272,33 +239,11 @@ static Value hoistOperationToFunction(mlir::Operation *opToHoist,
     sourceModule.push_back(localFunc);
 
     // Now that the function is in the module, add bufferization access
-    // attributes
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> 28c6f9ff9 (feedback + cleanup)
+    // attributes.
     for (auto arg : llvm::enumerate(localFunc.getArguments())) {
       if (auto tensorType =
               mlir::dyn_cast<mlir::RankedTensorType>(arg.value().getType())) {
         tagBufferizationAccess(localFunc, arg.index(), opToHoist, builder);
-<<<<<<< HEAD
-=======
-    for (unsigned i = 0; i < localFunc.getNumArguments(); ++i) {
-      if (auto tensorType = dyn_cast<mlir::RankedTensorType>(
-              localFunc.getFunctionType().getInput(i))) {
-        // Determine if this is an input or output tensor
-        if (isOutputTensor(opToHoist, i)) {
-          // Output tensors are only written to
-          localFunc.setArgAttr(i, "bufferization.access",
-                               builder.getStringAttr("write"));
-        } else {
-          // Input tensors are only read from
-          localFunc.setArgAttr(i, "bufferization.access",
-                               builder.getStringAttr("read"));
-        }
->>>>>>> 104660f39 (working)
-=======
->>>>>>> 28c6f9ff9 (feedback + cleanup)
       }
     }
 
@@ -641,6 +586,22 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
     // Handle linalg.generic operations
     else if (auto linalgOp = mlir::dyn_cast<linalg::GenericOp>(producer)) {
       // Find all tensor.empty operations that feed into this linalg.generic
+      for (OpOperand &output : linalgOp.getDpsInitsMutable()) {
+        Value outputBuffer = output.get();
+        if (auto emptyOp = mlir::dyn_cast_or_null<tensor::EmptyOp>(
+                outputBuffer.getDefiningOp())) {
+          // Get the output tensor from the function arguments
+          Value outputTensor = funcOp.getArgument(outputArgIdx);
+          // Replace the tensor.empty with the output tensor
+          rewriter.setInsertionPoint(emptyOp);
+          rewriter.replaceOp(emptyOp, outputTensor);
+          transformed = true;
+        }
+      }
+    }
+    // Handle linalg.transpose operations
+    else if (auto linalgOp = mlir::dyn_cast<linalg::TransposeOp>(producer)) {
+      // Find all tensor.empty operations that feed into this linalg.transpose
       for (OpOperand &output : linalgOp.getDpsInitsMutable()) {
         Value outputBuffer = output.get();
         if (auto emptyOp = mlir::dyn_cast_or_null<tensor::EmptyOp>(
