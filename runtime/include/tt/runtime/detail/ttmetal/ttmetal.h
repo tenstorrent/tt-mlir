@@ -5,7 +5,6 @@
 #ifndef TT_RUNTIME_DETAIL_TTMETAL_TTMETAL_H
 #define TT_RUNTIME_DETAIL_TTMETAL_TTMETAL_H
 
-#include <optional>
 #define FMT_HEADER_ONLY
 #include "tt-metalium/circular_buffer.hpp"
 #include "tt-metalium/event.hpp"
@@ -19,6 +18,8 @@
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTMetal/Target.h"
+
+#include <optional>
 
 namespace tt::runtime::ttmetal {
 

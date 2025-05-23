@@ -1316,7 +1316,7 @@ std::optional<Tensor> getTensor(CallbackContext programContextHandle,
           DeviceRuntime::TTNN);
   const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
 
-  const auto &tensorRefPtr =
+  const auto *tensorRefPtr =
       &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
 
   if (!tensorRefPtr) {
@@ -1329,15 +1329,22 @@ std::optional<Tensor> getTensor(CallbackContext programContextHandle,
     return std::nullopt;
   }
 
-  const auto &outPtr = &tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
+  ::tt::runtime::Tensor outTensor = utils::createRuntimeTensorFromTTNN(
+      tensorPool.getTTNNTensorAndValidate(tensorRefPtr));
 
-  // WHat happens if the tensor is not on device when you cann from device?
-  std::shared_ptr<::ttnn::Tensor> hostTensor =
-      std::make_shared<::ttnn::Tensor>(::ttnn::to_layout(
-          ::ttnn::from_device(*outPtr), ::ttnn::Layout::ROW_MAJOR, std::nullopt,
-          std::nullopt, static_cast<::ttnn::IDevice *>(nullptr)));
+  std::vector<tt::runtime::Tensor> hostTensors =
+      ::tt::runtime::ttnn::toHost(outTensor);
 
-  return utils::createRuntimeTensorFromTTNN(*hostTensor);
+  if (hostTensors.empty()) {
+    LOG_WARNING("Tensor not found in tensor pool");
+    return std::nullopt;
+  }
+
+  if (hostTensors.size() != 1) {
+    LOG_FATAL("Multi device tensor not supported");
+  }
+
+  return hostTensors[0];
 }
 
 void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef,

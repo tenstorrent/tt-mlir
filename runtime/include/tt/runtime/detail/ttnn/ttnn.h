@@ -5,9 +5,6 @@
 #ifndef TT_RUNTIME_DETAIL_TTNN_TTNN_H
 #define TT_RUNTIME_DETAIL_TTNN_TTNN_H
 
-#include <optional>
-#include <vector>
-
 #define FMT_HEADER_ONLY
 #include "hostdevcommon/common_values.hpp"
 #include "tt-metalium/hal.hpp"
@@ -54,6 +51,9 @@
 
 #include "tt/runtime/types.h"
 #include "ttmlir/Target/TTNN/Target.h"
+
+#include <optional>
+#include <vector>
 
 namespace tt::runtime::ttnn {
 
