@@ -537,6 +537,80 @@ public:
 };
 } // namespace
 
+namespace {
+// Conversion pattern for ttir.gather operation
+class GatherOpConversionPattern : public OpConversionPattern<ttir::GatherOp> {
+public:
+  using OpConversionPattern<ttir::GatherOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::GatherOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Get the input and indices tensors
+    Value input = adaptor.getInput();
+    Value indices = adaptor.getStartIndices();
+
+    // Get the result type
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    // Get gather operation attributes
+    auto startIndexMap = op.getStartIndexMap();
+
+    // Convert startIndexMap to a DenseI64ArrayAttr
+    SmallVector<int64_t> dims(startIndexMap.begin(), startIndexMap.end());
+    auto dimsAttr = DenseI64ArrayAttr::get(rewriter.getContext(), dims);
+
+    // Convert indices to integer type if needed
+    auto indicesType = dyn_cast<RankedTensorType>(indices.getType());
+    if (!indicesType) {
+      return failure();
+    }
+
+    // Check if the indices tensor is already of integer type
+    if (!indicesType.getElementType().isIntOrIndex()) {
+      // Create a new type with the same shape but i64 element type
+      auto newIndicesType =
+          RankedTensorType::get(indicesType.getShape(), rewriter.getI64Type());
+
+      // Convert the indices tensor to integer type
+      indices = rewriter.create<arith::FPToSIOp>(op.getLoc(), newIndicesType,
+                                                 indices);
+
+      // Update indicesType to reflect the new type
+      indicesType = dyn_cast<RankedTensorType>(indices.getType());
+    }
+
+    // For tensor.gather, the last dimension of indices must match the length of
+    // gather_dims If indices is 1D and gather_dims has one element, reshape
+    // indices to add a dimension
+    auto indicesShape = indicesType.getShape();
+    if (indicesShape.size() == 1 && dims.size() == 1) {
+      // Create a new shape with an additional dimension of size 1
+      SmallVector<int64_t> newShape(indicesShape.begin(), indicesShape.end());
+      newShape.push_back(1);
+
+      // Create a new type with the additional dimension
+      auto reshapedType =
+          RankedTensorType::get(newShape, indicesType.getElementType());
+
+      // Create a reshape operation to add the dimension
+      indices = rewriter.create<tensor::ExpandShapeOp>(
+          op.getLoc(), reshapedType, indices,
+          ArrayRef<ReassociationIndices>{{0, 1}});
+    }
+
+    // Create the tensor.gather operation
+    auto result = rewriter.create<tensor::GatherOp>(op.getLoc(), resultType,
+                                                    input, indices, dimsAttr);
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+} // namespace
+
 void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                   TypeConverter &typeConverter) {
   patterns.add<
@@ -559,7 +633,8 @@ void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       EmptyOpConversionPattern, ReshapeOpConversionPattern,
       PermuteOpConversionPattern, SliceOpConversionPattern,
       ConcatOpConversionPattern, ConstantOpConversionPattern,
-      EmbeddingOpConversionPattern>(typeConverter, ctx);
+      EmbeddingOpConversionPattern, GatherOpConversionPattern>(typeConverter,
+                                                               ctx);
 }
 
 } // namespace mlir::tt
