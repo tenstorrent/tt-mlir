@@ -28,20 +28,20 @@ repos:
 
   - repo: local
     hooks:
-      - id: download-file
-        name: Download File from Internet
-        description: Downloads a file from a specified URL to a local destination
-        entry: wget --no-clobber https://raw.githubusercontent.com/tenstorrent/tt-metal/main/scripts/check_license_headers.py
-        language: system
-        pass_filenames: false
+#      - id: download-file
+#        name: Download File from Internet
+#        description: Downloads a file from a specified URL to a local destination
+#        entry: wget --no-clobber https://raw.githubusercontent.com/tenstorrent/tt-metal/main/scripts/check_license_headers.py
+#        language: system
+#        pass_filenames: false
       - id: check-license-headers
         name: Check License Headers
         entry: python3 check_license_headers.py
         language: system
         types_or: [python, c++, c, header]
-      - id: rm-file
-        name: Remove File from Internet
-        description: Removes a file from a specified URL to a local destination
-        entry: rm check_license_headers.py
-        language: system
-        pass_filenames: false
+#      - id: rm-file
+#        name: Remove File from Internet
+#        description: Removes a file from a specified URL to a local destination
+#        entry: rm check_license_headers.py
+#        language: system
+#        pass_filenames: false
