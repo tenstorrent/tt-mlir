@@ -70,6 +70,8 @@ private:
    * Dumps device profile counters if needed
    */
   void dumpPerfCountersIfNeeded();
+  void sampleDeviceDRAM(::ttnn::MeshDevice &meshDevice);
+
 };
 
 } // namespace tt::runtime::ttnn
