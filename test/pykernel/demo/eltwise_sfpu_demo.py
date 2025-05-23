@@ -136,19 +136,24 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
         ]
 
     # KERNEL SELECTION
-    def select_kernels(self, tensors, options):
+    def assign_kernels_and_core_ranges(self, tensors, options):
         # Define the kernel types here to be passed into the config
-        return [
-            (EltwiseSFPUPyKernelOp.eltwise_sfpu, ttnn.ComputeConfigDescriptor),
-            (
-                EltwiseSFPUPyKernelOp.writer_unary_interleaved,
-                ttnn.WriterConfigDescriptor,
-            ),
-            (
-                EltwiseSFPUPyKernelOp.reader_unary_interleaved,
-                ttnn.ReaderConfigDescriptor,
-            ),
-        ]
+        core = ttnn.CoreCoord(0, 0)
+        core_ranges = ttnn.CoreRangeSet([ttnn.CoreRange(core, core)])
+
+        return {
+            core_ranges: [
+                (EltwiseSFPUPyKernelOp.eltwise_sfpu, ttnn.ComputeConfigDescriptor),
+                (
+                    EltwiseSFPUPyKernelOp.writer_unary_interleaved,
+                    ttnn.WriterConfigDescriptor,
+                ),
+                (
+                    EltwiseSFPUPyKernelOp.reader_unary_interleaved,
+                    ttnn.ReaderConfigDescriptor,
+                ),
+            ]
+        }
 
     # Circular Buffers  will be statically created and used for all kernels
     def define_cbs(self, tensors, options):
@@ -191,10 +196,6 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
 
 # Device Definitions
 device = ttnn.open_device(device_id=0)
-
-# Core Grid for 0, 0
-core = ttnn.CoreCoord(0, 0)
-core_ranges = ttnn.CoreRangeSet([ttnn.CoreRange(core, core)])
 
 # I/O Tensor Definitions
 num_tiles = 4
