@@ -421,14 +421,17 @@ class Read:
 
     def system_desc(self, *binaries):
         return self._operate_on_binary(
-            binaries, lambda binary: ttrt.binary.as_dict(binary.fbb)["system_desc"]
+            binaries,
+            lambda binary: ttrt.binary.as_dict(binary.fbb.get_system_desc())[
+                "system_desc"
+            ],
         )
 
     def mlir(self, *binaries):
         def _get_mlir(binary):
-            bin_dict = ttrt.binary.as_dict(binary.fbb)
+            program_list = json.loads(binary.fbb.get_programs_as_json())
             results = []
-            for program in bin_dict["programs"]:
+            for program in program_list:
                 if "debug_info" not in program:
                     self.logging.info(
                         f"no debug info found for program:{program['name']}"
@@ -447,9 +450,9 @@ class Read:
 
     def cpp(self, *binaries):
         def _get_cpp(binary):
-            bin_dict = ttrt.binary.as_dict(binary.fbb)
+            program_list = json.loads(binary.fbb.get_programs_as_json())
             results = []
-            for program in bin_dict["programs"]:
+            for program in program_list:
                 if "debug_info" not in program:
                     self.logging.info(
                         f"no debug_info found for program:{program['name']}"
@@ -465,7 +468,7 @@ class Read:
             binaries,
             lambda binary: [
                 {program["name"]: program["inputs"]}
-                for program in ttrt.binary.as_dict(binary.fbb)["programs"]
+                for program in json.loads(binary.fbb.get_programs_as_json())
             ],
         )
 
@@ -474,7 +477,7 @@ class Read:
             binaries,
             lambda binary: [
                 {program["name"]: program["outputs"]}
-                for program in ttrt.binary.as_dict(binary.fbb)["programs"]
+                for program in json.loads(binary.fbb.get_programs_as_json())
             ],
         )
 

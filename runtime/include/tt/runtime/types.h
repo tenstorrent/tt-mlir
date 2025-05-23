@@ -176,19 +176,6 @@ struct SystemDesc : public Flatbuffer {
   const ::tt::target::SystemDesc *operator->() const { return get(); }
 };
 
-struct Program : public Flatbuffer {
-  // Program(std::shared_ptr<void> handle);
-  // Program(const Program &) = default;
-  // Program(Program &&) = default;
-
-  // Program &operator=(const Program &other) = default;
-  // Program &operator=(Program &&other) = default;
-
-  using Flatbuffer::Flatbuffer;
-
-  std::string getName() const;
-};
-
 class TensorCache;
 struct Binary : public Flatbuffer {
   Binary(Flatbuffer fb);

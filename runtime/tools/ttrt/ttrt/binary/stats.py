@@ -48,28 +48,28 @@ def _parse_attributes(operation):
 
 def collect_op_stats(bin: Binary):
     assert bin.file_identifier == "TTNN", "Only supports TTNN binary files"
-    d = as_dict(bin)
-    program_index = 0
-    operations = []
+    # d = as_dict(bin)
+    for program in json.loads(self.fbb.get_programs_as_json()):
+        operations = []
 
-    pattern = re.compile(r"(?<!^)(?=[A-Z])")
+        pattern = re.compile(r"(?<!^)(?=[A-Z])")
 
-    def to_ttnn_name(name):
-        return "ttnn." + pattern.sub("_", name).lower().strip("_op")
+        def to_ttnn_name(name):
+            return "ttnn." + pattern.sub("_", name).lower().strip("_op")
 
-    for operation in d["programs"][program_index]["operations"]:
-        inputs, outputs = _parse_inputs_outputs(operation)
-        operations.append(
-            {
-                "op_name": to_ttnn_name(operation["type_type"]),
-                "framework_op_name": "",
-                "dialect_op_name": "",
-                "ttir_op_name": "",
-                "inputs": inputs,
-                "outputs": outputs,
-                "attributes": _parse_attributes(operation),
-            }
-        )
+        for operation in program["operations"]:
+            inputs, outputs = _parse_inputs_outputs(operation)
+            operations.append(
+                {
+                    "op_name": to_ttnn_name(operation["type_type"]),
+                    "framework_op_name": "",
+                    "dialect_op_name": "",
+                    "ttir_op_name": "",
+                    "inputs": inputs,
+                    "outputs": outputs,
+                    "attributes": _parse_attributes(operation),
+                }
+            )
 
     return operations
 

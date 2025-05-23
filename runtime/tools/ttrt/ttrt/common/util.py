@@ -648,17 +648,14 @@ class Binary(Flatbuffer):
             self.fbb = ttrt.binary.load_binary_from_path(file_path)
         else:
             self.fbb = ttrt.binary.load_binary_from_capsule(capsule)
-        self.system_desc = (
-            self.fbb.get_system_desc()
-        )  # ttrt.binary.get_system_desc(self.fbb) = self.fbb.get
-        self.fbb_dict = ttrt.binary.as_dict(self.fbb)
+        self.system_desc = self.fbb.get_system_desc()
         self.system_desc_dict = ttrt.binary.as_dict(self.system_desc)
         self.version = self.fbb.version
-        self.programs = self.fbb.get_programs_as_json()
+        self.program_list = json.loads(self.fbb.get_programs_as_json())
         self.programs = []
 
-        for i in range(len(self.fbb_dict["programs"])):
-            program = Binary.Program(i, self.fbb_dict["programs"][i])
+        for i in range(len(self.program_list)):
+            program = Binary.Program(i, self.program_list[i])
             self.programs.append(program)
 
     def check_system_desc(self, query):
@@ -666,10 +663,7 @@ class Binary(Flatbuffer):
 
         try:
             fbb_system_desc = self.system_desc_dict["system_desc"]
-            # fbb_system_desc = self.fbb_dict["system_desc"]
             device_system_desc = query.get_system_desc_as_dict()["system_desc"]
-            # fbb_system_desc = ttrt.binary.as_dict(self.system_desc)
-            # fbb_test_dict = json.loads(ttrt.binary.as_json(self.system_desc))
 
             if fbb_system_desc != device_system_desc:
                 # Serialize to JSON with pretty printing and split into lines
@@ -832,9 +826,9 @@ class SystemDesc(Flatbuffer):
 
         import ttrt.binary
 
-        self.fbb_system_desc = ttrt.binary.load_system_desc_from_path(file_path)
-        self.fbb_system_desc_dict = ttrt.binary.as_dict(self.fbb)
-        self.version = self.fbb.version
+        self.system_desc = ttrt.binary.load_system_desc_from_path(file_path)
+        self.system_desc_dict = ttrt.binary.as_dict(self.system_desc)
+        self.version = self.system_desc.version
 
         # temporary state value to check if test failed
         self.test_result = "pass"

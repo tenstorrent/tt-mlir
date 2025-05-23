@@ -43,23 +43,17 @@ Binary &Binary::operator=(std::shared_ptr<void> handle) {
 
 static std::string asJson(const void *fbb, const uint8_t *binarySchema,
                           size_t schemaSize) {
-  std::cout << "0" << std::endl;
   flatbuffers::IDLOptions opts;
   opts.size_prefixed = true;
   opts.strict_json = true;
   opts.output_default_scalars_in_json = true;
   flatbuffers::Parser parser(opts);
-  std::cout << "1" << std::endl;
-  std::cout << "Binary data: " << binarySchema << std::endl;
-  std::cout << "Binary size: " << schemaSize << std::endl;
   if (!parser.Deserialize(binarySchema, schemaSize)) {
     LOG_FATAL("Failed to deserialize schema");
   }
-  std::cout << "2" << std::endl;
   std::string text;
   const char *err = ::flatbuffers::GenerateText(parser, fbb, &text);
   LOG_ASSERT(!err, "Failed to generate JSON: ", err);
-  // std::cout << &err << " 3 " << err << std::endl;
 
   return text;
 }
@@ -88,24 +82,10 @@ std::string asJson(Flatbuffer binary) {
   std::string test = ::tt::runtime::asJson(
       binary.handle.get(), ::tt::target::ttnn::TTNNBinaryBinarySchema::data(),
       ::tt::target::ttnn::TTNNBinaryBinarySchema::size());
-  std::cout << "TTNN test length: " << test.length() << std::endl;
   return test;
 }
 
-/*
 std::string getProgramsAsJson(Flatbuffer binary) {
-  std::cout << "getting programs ttnn" << std::endl;
-  const auto *programs = getBinary(binary)->programs();
-  std::string test = ::tt::runtime::asJson(
-      &programs, ::tt::target::ttnn::TTNNBinaryBinarySchema::data(),
-      ::tt::target::ttnn::TTNNBinaryBinarySchema::size());
-  std::cout << "Program test length: " << test.length() << std::endl;
-  return test;
-}
-*/
-
-std::string getProgramsAsJson(Flatbuffer binary) {
-  std::cout << "getting programs ttnn" << std::endl;
   const auto *programs = getBinary(binary)->programs();
 
   flatbuffers::IDLOptions opts;
@@ -120,82 +100,21 @@ std::string getProgramsAsJson(Flatbuffer binary) {
     LOG_FATAL("Failed to deserialize schema");
   }
 
-  // Process each program
-  std::string programs_text;
-  try {
-    for (const auto *program : *programs) {
-      if (!program) {
-        LOG_FATAL("Null program encountered in programs list");
-      }
-
-      std::string text;
-      // const char* err = ::flatbuffers::GenerateText(parser, program, &text);
-      const char *err = ::flatbuffers::GenTextFromTable(
-          parser, program, program->GetFullyQualifiedName(), &text);
-      LOG_ASSERT(!err, "Failed to generate JSON: ", err);
-
-      if (!programs_text.empty()) {
-        programs_text += ",";
-      }
-      programs_text += text;
-    }
-  } catch (const std::exception &e) {
-    LOG_FATAL("Exception while processing programs: ", e.what());
-  }
-
-  // Wrap the programs in a JSON array
-  programs_text = "[" + programs_text + "]";
-  std::cout << "Program test length: " << programs_text.length() << std::endl;
-  return programs_text;
-}
-
-/*
-// Generate a text representation of a flatbuffer in JSON format.
-const char *GenTextFromTable(const Parser &parser, const void *table,
-  const std::string &table_name, std::string *_text) {
-auto struct_def = parser.LookupStruct(table_name);
-if (struct_def == nullptr) { return "unknown struct"; }
-auto root = static_cast<const Table *>(table);
-return GenerateTextImpl(parser, root, *struct_def, _text);
-}
-*/
-
-std::string getProgramsAsJson1(Flatbuffer binary) {
-  std::cout << "getting programs ttnn" << std::endl;
-
-  // First verify the binary format
-  if (!::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
-          binary.handle.get())) {
-    throw std::runtime_error("Invalid binary format - expected TTNN binary");
-  }
-
-  // Get the binary and check for null
-  const auto *ttnnBinary = getBinary(binary);
-  if (!ttnnBinary) {
-    throw std::runtime_error("Failed to get TTNN binary");
-  }
-
-  // Get programs and check for null
-  const auto *programs = ttnnBinary->programs();
-  if (!programs) {
-    throw std::runtime_error("No programs found in binary");
-  }
-
+  // Process programs
   std::string programs_text;
   for (const auto *program : *programs) {
-    //  for (const flatbuffers::Table* program : *programs) {
-    // Use the FlatBuffers GetBufferStartFromRootPointer to get the underlying
-    // buffer
-    const uint8_t *buffer = flatbuffers::GetBufferStartFromRootPointer(program);
-    if (!buffer) {
-      throw std::runtime_error("Failed to get buffer from programs");
-    }
-    programs_text += ::tt::runtime::asJson(
-        buffer, ::tt::target::ttnn::TTNNBinaryBinarySchema::data(),
-        ::tt::target::ttnn::TTNNBinaryBinarySchema::size());
-  }
+    std::string text;
+    const char *err = ::flatbuffers::GenTextFromTable(
+        parser, program, program->GetFullyQualifiedName(), &text);
+    LOG_ASSERT(!err, "Failed to generate JSON: ", err);
 
-  std::cout << "Program test length: " << programs_text.length() << std::endl;
+    if (!programs_text.empty()) {
+      programs_text += ",";
+    }
+    programs_text += text;
+  }
+  // Wrap the programs in a JSON array
+  programs_text = "[" + programs_text + "]";
   return programs_text;
 }
 
@@ -277,18 +196,41 @@ std::string asJson(Flatbuffer binary) {
       binary.handle.get(),
       ::tt::target::metal::TTMetalBinaryBinarySchema::data(),
       ::tt::target::metal::TTMetalBinaryBinarySchema::size());
-  std::cout << "METAL test length: " << test.length() << std::endl;
   return test;
 }
 
 std::string getProgramsAsJson(Flatbuffer binary) {
-  std::cout << "getting programs metal" << std::endl;
   const auto *programs = getBinary(binary)->programs();
-  std::string test = ::tt::runtime::asJson(
-      programs, ::tt::target::metal::TTMetalBinaryBinarySchema::data(),
-      ::tt::target::metal::TTMetalBinaryBinarySchema::size());
-  std::cout << "ProgramMetal test length: " << test.length() << std::endl;
-  return test;
+
+  flatbuffers::IDLOptions opts;
+  opts.size_prefixed = true;
+  opts.strict_json = true;
+  opts.output_default_scalars_in_json = true;
+  flatbuffers::Parser parser(opts);
+
+  // Deserialize schema
+  if (!parser.Deserialize(
+          ::tt::target::metal::TTMetalBinaryBinarySchema::data(),
+          ::tt::target::metal::TTMetalBinaryBinarySchema::size())) {
+    LOG_FATAL("Failed to deserialize schema");
+  }
+
+  // Process programs
+  std::string programs_text;
+  for (const auto *program : *programs) {
+    std::string text;
+    const char *err = ::flatbuffers::GenTextFromTable(
+        parser, program, program->GetFullyQualifiedName(), &text);
+    LOG_ASSERT(!err, "Failed to generate JSON: ", err);
+
+    if (!programs_text.empty()) {
+      programs_text += ",";
+    }
+    programs_text += text;
+  }
+  // Wrap the programs in a JSON array
+  programs_text = "[" + programs_text + "]";
+  return programs_text;
 }
 
 static std::vector<TensorDesc>
@@ -370,7 +312,6 @@ std::string asJson(Flatbuffer binary) {
   std::string test = ::tt::runtime::asJson(
       binary.handle.get(), ::tt::target::SystemDescRootBinarySchema::data(),
       ::tt::target::SystemDescRootBinarySchema::size());
-  std::cout << "SYSDESC test length: " << test.length() << std::endl;
   return test;
 }
 
@@ -461,16 +402,19 @@ std::string_view Flatbuffer::getTTMLIRGitHash() const {
 std::string Flatbuffer::asJson() const {
   if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
           handle.get())) {
+    std::cout << "getting TTNN Binary Json" << std::endl;
     return ttnn::asJson(*this);
   }
 
   if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
           handle.get())) {
+    std::cout << "getting Metal Binary Json" << std::endl;
     return metal::asJson(*this);
   }
 
   if (::tt::target::SizePrefixedSystemDescRootBufferHasIdentifier(
           handle.get())) {
+    std::cout << "getting SystDesc Binary Json" << std::endl;
     return system_desc::asJson(*this);
   }
 
@@ -478,7 +422,6 @@ std::string Flatbuffer::asJson() const {
 }
 
 std::string Binary::getProgramsAsJson() const {
-  std::cout << "getting programs runtime" << std::endl;
   if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
           handle.get())) {
     return ttnn::getProgramsAsJson(*this);
