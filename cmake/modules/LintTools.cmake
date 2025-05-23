@@ -7,4 +7,20 @@ add_custom_target(clang-tidy COMMAND run-clang-tidy.py -p ${PROJECT_BINARY_DIR} 
     tt-metal-configure
     FBS_GENERATION
 )
+
+# clang-tidy setup for CI run
+add_custom_target(clang-tidy-ci
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/scripts/filter-compile-commands.py --prefix ${CMAKE_SOURCE_DIR} --diff ${CMAKE_BINARY_DIR}/compile_commands.json
+  COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} -- clang-tidy
+  COMMENT "Running clang-tidy CI checks"
+  DEPENDS
+    FBS_GENERATION
+    mlir-headers
+    mlir-generic-headers
+    tt-metal-download
+    tt-metal-update
+    tt-metal-configure
+    TTKernelGeneratedLLKHeaders
+)
+
 add_custom_target(clang-format COMMAND git-clang-format)
