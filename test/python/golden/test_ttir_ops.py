@@ -2485,8 +2485,10 @@ def test_hoisted_gather(
         ([(10, 20), (20, 30), (10, 30)], [], [1], [], [0]),
         # Batched matrix multiplication: [B, M, K] x [B, K, N] -> [B, M, N]
         ([(5, 10, 20), (5, 20, 30), (5, 10, 30)], [0], [2], [0], [1]),
+        # 3D tensor @ 2D tensor: [B, M, K] x [K, N] -> [B, M, N]
+        ([(5, 10, 20), (20, 30), (5, 10, 30)], [], [2], [], [0]),
     ],
-    ids=["standard_matmul", "batched_matmul"],
+    ids=["standard_matmul", "batched_matmul", "3d_tensor_2d_tensor"],
 )
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_hoisted_dot_general(

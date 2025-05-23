@@ -575,6 +575,7 @@ public:
 } // namespace
 
 namespace {
+// Conversion pattern for ttir.gather operation
 class GatherOpConversionPattern : public OpConversionPattern<ttir::GatherOp> {
 public:
   using OpConversionPattern<ttir::GatherOp>::OpConversionPattern;
@@ -1138,7 +1139,8 @@ void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       EmptyOpConversionPattern, ReshapeOpConversionPattern,
       PermuteOpConversionPattern, SliceOpConversionPattern,
       ConcatOpConversionPattern, ConstantOpConversionPattern,
-      EmbeddingOpConversionPattern>(typeConverter, ctx);
+      EmbeddingOpConversionPattern, GatherOpConversionPattern>(typeConverter,
+                                                               ctx);
 }
 
 void populateTTIRToTosaPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
