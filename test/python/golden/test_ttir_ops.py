@@ -1198,28 +1198,12 @@ def reduce_or(
     in0: Operand,
     builder: TTIRBuilder,
     dim_args: List[int],
-<<<<<<< HEAD
-<<<<<<< HEAD
     keep_dim: bool = False,
     unit_attrs: Optional[List[str]] = None,
 ):
     return builder.reduce_or(
         in0, dim_args=dim_args, keep_dim=keep_dim, unit_attrs=unit_attrs
     )
-=======
-    unit_attrs: List[str] = None,
-):
-    return builder.reduce_or(in0, dim_args=dim_args, unit_attrs=unit_attrs)
->>>>>>> 9f303bf52 (more coverage)
-=======
-    keep_dim: bool = False,
-    unit_attrs: List[str] = None,
-):
-    return builder.reduce_or(
-        in0, dim_args=dim_args, keep_dim=keep_dim, unit_attrs=unit_attrs
-    )
->>>>>>> 4bc640e0a (several more ops working (pre LLVM uplift))
-
 
 @pytest.mark.skip(
     "Generated flatbuffer will currently fail to run due to only floats being supported by the runtime. See issue #1775"
@@ -1228,19 +1212,9 @@ def reduce_or(
 @pytest.mark.parametrize("dim_args", [[0, 1]])
 def test_reduce_or(shape: Shape, dim_args: List[int], request):
     def reduce_or_wrapper(
-<<<<<<< HEAD
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
         return reduce_or(in0, builder, dim_args=dim_args, unit_attrs=unit_attrs)
-=======
-        in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
-    ):
-<<<<<<< HEAD
-        return reduce_or(in0, build, dim_args, unit_attrs)
->>>>>>> 9f303bf52 (more coverage)
-=======
-        return reduce_or(in0, builder, dim_args, unit_attrs)
->>>>>>> 4bc640e0a (several more ops working (pre LLVM uplift))
 
     compile_to_flatbuffer(
         reduce_or_wrapper,
@@ -1702,11 +1676,7 @@ hoisted_unary_ops = [
         marks=pytest.mark.xfail(
             reason="Softmax does not lower to loops properly https://github.com/tenstorrent/tt-mlir/issues/3232"
         ),
-    ),
-<<<<<<< HEAD
-    pytest.param(
-        create_hoisted_unary_op(reshape, "reshape"),
-        marks=pytest.mark.xfail(reason="Reshape not compiling properly"),
+        marks=pytest.mark.xfail(reason="Softmax does not lower to loops properly"),
     ),
     pytest.param(
         create_hoisted_unary_op(max, "max"),
@@ -1714,9 +1684,7 @@ hoisted_unary_ops = [
             reason="max and torch max do not align, https://github.com/tenstorrent/tt-mlir/issues/3850"
         ),
     ),
-=======
     create_hoisted_unary_op(reshape, "reshape"),
->>>>>>> 4bc640e0a (several more ops working (pre LLVM uplift))
     create_hoisted_unary_op(transpose, "transpose"),
 ]
 
@@ -1725,8 +1693,6 @@ hoisted_binary_ops = [
     create_hoisted_binary_op(add, "add"),
     create_hoisted_binary_op(multiply, "multiply"),
     create_hoisted_binary_op(subtract, "subtract"),
-<<<<<<< HEAD
-=======
     create_hoisted_binary_op(div, "div"),
     create_hoisted_binary_op(pow, "pow"),
     create_hoisted_binary_op(eq, "equal"),
@@ -1735,7 +1701,6 @@ hoisted_binary_ops = [
     create_hoisted_binary_op(ge, "greater_equal"),
     create_hoisted_binary_op(lt, "less_than"),
     create_hoisted_binary_op(le, "less_equal"),
->>>>>>> 9f303bf52 (more coverage)
 ]
 
 
@@ -1847,10 +1812,8 @@ def test_hoisted_slice(
     request,
 ):
     def slice_wrapper(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
-        # Create a simple identity operation first to ensure we have a proper tensor
-        identity = builder.add(in0, builder.constant(shape, 0.0))
         # Now use the slice operation with the CPU hoisting attribute
-        return builder.slice(identity, begins, ends, step, unit_attrs=["should_hoist"])
+        return builder.slice(in0, begins, ends, step, unit_attrs=["should_hoist"])
 
     compile_to_flatbuffer(
         slice_wrapper,
@@ -2357,14 +2320,14 @@ def test_hoisted_reduce_or(shape: Shape, dim_args: List[int], target: str, reque
     def hoisted_reduce_or_wrapper(
         in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
     ):
-        return reduce_or(in0, builder, dim_args, keep_dim=False, unit_attrs=unit_attrs)
+        return reduce_or(
+            in0, builder, dim_args, keep_dim=True, unit_attrs=["should_hoist"]
+        )
 
     compile_to_flatbuffer(
         hoisted_reduce_or_wrapper,
         inputs_shapes=[shape],
-        inputs_types=[
-            torch.int8
-        ],  # Use int8 instead of bool since bool isn't supported
+        inputs_types=[torch.float32],
         test_base=request.node.name,
         target=target,
         output_root=request.config.getoption("--path"),
@@ -2399,6 +2362,164 @@ def test_hoisted_broadcast(shapes_and_broadcast_dims, request, target: str):
         broadcast_wrapper,
         inputs_shapes=shapes,
         test_base=f"{request.node.name}",
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+def gather(
+    in0: Operand,
+    builder: TTIRBuilder,
+    indices_shape: Shape,
+    start_index_map: List[int],
+    offset_dims: List[int],
+    slice_sizes: List[int],
+    unit_attrs: List[str] = None,
+):
+    # Create indices tensor
+    indices = builder.zeros(indices_shape)
+
+    # Set collapsed_slice_dims to be the same as start_index_map
+    # This is what the GatherToEmbeddingConversionPattern expects
+    collapsed_slice_dims = start_index_map
+
+    # Set remaining parameters to empty lists for simplicity
+    operand_batching_dims = []
+    start_indices_batching_dims = []
+
+    # Set index_vector_dim to the last dimension of indices
+    index_vector_dim = len(indices_shape) - 1
+
+    return builder.gather(
+        in0,
+        indices,
+        offset_dims=offset_dims,
+        collapsed_slice_dims=collapsed_slice_dims,
+        operand_batching_dims=operand_batching_dims,
+        start_indices_batching_dims=start_indices_batching_dims,
+        start_index_map=start_index_map,
+        index_vector_dim=index_vector_dim,
+        slice_sizes=slice_sizes,
+        unit_attrs=unit_attrs,
+    )
+
+
+@pytest.mark.parametrize(
+    "input_shape,indices_shape,start_index_map,offset_dims,slice_sizes",
+    [
+        ((8, 16, 32), (4, 2, 2), [0, 2], [1], [2, 16, 4]),  # Basic gather
+        ((100, 50), (10,), [0], [1], [5, 50]),  # Simple 1D indices
+        ((8, 16, 32), (4, 2, 2), [0, 2], [1], [2, 16, 4]),  # Complex indices
+    ],
+    ids=["basic_gather", "simple_1d", "complex_indices"],
+)
+def test_gather(
+    input_shape: Shape,
+    indices_shape: Shape,
+    start_index_map: List[int],
+    offset_dims: List[int],
+    slice_sizes: List[int],
+    request,
+):
+    def gather_wrapper(in0: Operand, builder: TTIRBuilder):
+        return gather(
+            in0, builder, indices_shape, start_index_map, offset_dims, slice_sizes
+        )
+
+    compile_to_flatbuffer(
+        gather_wrapper,
+        [input_shape],
+        test_base=request.node.name,
+        target="ttnn",
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "input_shape,indices_shape,start_index_map,offset_dims,slice_sizes",
+    [
+        ((8, 16, 32), (4, 2, 2), [0, 2], [1], [2, 16, 4]),  # Basic gather
+        ((100, 50), (10,), [0], [1], [5, 50]),  # Simple 1D indices
+    ],
+    ids=["basic_gather", "simple_1d"],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_hoisted_gather(
+    input_shape: Shape,
+    indices_shape: Shape,
+    start_index_map: List[int],
+    offset_dims: List[int],
+    slice_sizes: List[int],
+    target: str,
+    request,
+):
+    def gather_wrapper(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
+    ):
+        return gather(
+            in0,
+            builder,
+            indices_shape,
+            start_index_map,
+            offset_dims,
+            slice_sizes,
+            unit_attrs=["should_hoist"],
+        )
+
+    compile_to_flatbuffer(
+        gather_wrapper,
+        [input_shape],
+        test_base=request.node.name,
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes,batch_dims_lhs,contract_dims_lhs,batch_dims_rhs,contract_dims_rhs",
+    [
+        # Standard matrix multiplication: [M, K] x [K, N] -> [M, N]
+        ([(10, 20), (20, 30), (10, 30)], [], [1], [], [0]),
+        # Batched matrix multiplication: [B, M, K] x [B, K, N] -> [B, M, N]
+        ([(5, 10, 20), (5, 20, 30), (5, 10, 30)], [0], [2], [0], [1]),
+    ],
+    ids=["standard_matmul", "batched_matmul"],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_hoisted_dot_general(
+    shapes: List[Shape],
+    batch_dims_lhs: List[int],
+    contract_dims_lhs: List[int],
+    batch_dims_rhs: List[int],
+    contract_dims_rhs: List[int],
+    target: str,
+    request,
+):
+    def dot_general_wrapper(
+        in0: Operand,
+        in1: Operand,
+        out0: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: List[str] = None,
+    ):
+        return builder.dot_general(
+            in0,
+            in1,
+            out0,
+            batch_dims_lhs,
+            contract_dims_lhs,
+            batch_dims_rhs,
+            contract_dims_rhs,
+            unit_attrs=["should_hoist"],
+        )
+
+    compile_to_flatbuffer(
+        dot_general_wrapper,
+        shapes,
+        test_base=request.node.name,
         target=target,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),

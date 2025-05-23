@@ -478,6 +478,78 @@ public:
 } // namespace
 
 namespace {
+class EmbeddingOpConversionPattern
+    : public OpConversionPattern<ttir::EmbeddingOp> {
+public:
+  using OpConversionPattern<ttir::EmbeddingOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::EmbeddingOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Get the input tensor and weight
+    Value input = adaptor.getInput();
+    Value weight = adaptor.getWeight();
+
+    auto inputType = dyn_cast<RankedTensorType>(input.getType());
+    auto weightType = dyn_cast<RankedTensorType>(weight.getType());
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+
+    if (!inputType || !weightType || !resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Input, weight, or result is not a ranked tensor");
+    }
+
+    // For embedding, we're gathering along dimension 0
+    SmallVector<int64_t> dims{
+        0}; // Always gather along dimension 0 for embedding
+    auto dimsAttr = rewriter.getDenseI64ArrayAttr(dims);
+
+    // tensor.gather requires integer indices, so we need to cast if the input
+    // is not an integer type
+    if (!inputType.getElementType().isIntOrIndex()) {
+      // Create a new type with the same shape but i64 element type
+      auto newInputType =
+          RankedTensorType::get(inputType.getShape(), rewriter.getI64Type());
+
+      // Convert the input tensor to integer type
+      input =
+          rewriter.create<arith::FPToSIOp>(op.getLoc(), newInputType, input);
+
+      // Update inputType to reflect the new type
+      inputType = dyn_cast<RankedTensorType>(input.getType());
+    }
+
+    // For tensor.gather, the last dimension of indices must match the length of
+    // gather_dims If indices is 1D and gather_dims has one element, reshape
+    // indices to add a dimension
+    auto indicesShape = inputType.getShape();
+    if (indicesShape.size() == 1 && dims.size() == 1) {
+      // Create a new shape with an additional dimension of size 1
+      SmallVector<int64_t> newShape(indicesShape.begin(), indicesShape.end());
+      newShape.push_back(1);
+
+      // Create a new type with the additional dimension
+      auto reshapedType =
+          RankedTensorType::get(newShape, inputType.getElementType());
+
+      // Create a reshape operation to add the dimension
+      input = rewriter.create<tensor::ExpandShapeOp>(
+          op.getLoc(), reshapedType, input,
+          ArrayRef<ReassociationIndices>{{0, 1}});
+    }
+
+    // Create the tensor.gather operation
+    auto result = rewriter.create<tensor::GatherOp>(op.getLoc(), resultType,
+                                                    weight, input, dimsAttr);
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 // Conversion pattern for ttir.constant operation
 class ConstantOpConversionPattern
     : public OpConversionPattern<ttir::ConstantOp> {
@@ -1065,8 +1137,8 @@ void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       TransposeOpConversionPattern, SoftmaxOpConversionPattern,
       EmptyOpConversionPattern, ReshapeOpConversionPattern,
       PermuteOpConversionPattern, SliceOpConversionPattern,
-      ConcatOpConversionPattern, ConstantOpConversionPattern>(typeConverter,
-                                                              ctx);
+      ConcatOpConversionPattern, ConstantOpConversionPattern,
+      EmbeddingOpConversionPattern>(typeConverter, ctx);
 }
 
 void populateTTIRToTosaPatterns(MLIRContext *ctx, RewritePatternSet &patterns,

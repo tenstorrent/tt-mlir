@@ -115,18 +115,27 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
 void createTTIRToCPUPipeline(OpPassManager &manager,
                              const LinalgToLLVMPipelineOptions &options) {
   OpPassManager &cpuPm = manager.nest<tt::CPUModuleOp>().nest<mlir::ModuleOp>();
+  // Decomp TTIR to reduce number of conversions we need to support in
+  // Linalg/Tosa.
+  cpuPm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
+
   cpuPm.addPass(createConvertTTIRToTosaPass());
 
-  // Add tosa-to-tensor pass to handle tosa.const operations
-  cpuPm.addPass(tosa::createTosaToTensor());
+  // Add tosa-to-tensor/arith passes to handle tosa.const operations
+  cpuPm.addPass(createTosaToTensorPass());
+  cpuPm.addPass(createTosaToArithPass());
 
-  // Use the full TOSA to Linalg pipeline instead of just the single pass
-  tosa::addTosaToLinalgPasses(cpuPm, {}, {}, {});
-  // Workaround TTIR -> TOSA -> Linalg DPS issues by simple manual pass.
-  cpuPm.addPass(createTTIRWorkaroundReenableDPS());
+  TosaToLinalgOptions tosaToLinalgOptions;
+  tosaToLinalgOptions.aggressiveReduceConstant = true;
+  tosa::addTosaToLinalgPasses(cpuPm, tosaToLinalgOptions, {}, {});
 
   // Lower any outstanding TTIR ops directly to Linalg
   cpuPm.addPass(createConvertTTIRToLinalgPass());
+
+  // Workaround for any DPS assumptions broken by either TTIRToTTIRDecomp or
+  // TTIRToTosa + TosaToLinalg decomp.
+  cpuPm.addPass(createTTIRWorkaroundReenableDPS());
+
   // Cleanup the funcs s.t. they don't return values
   cpuPm.addPass(createTTIRRemoveReturnValues());
 
