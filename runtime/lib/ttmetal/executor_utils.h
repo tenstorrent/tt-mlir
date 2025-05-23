@@ -168,8 +168,7 @@ inline std::string kernelConfigTypeString(
                    std::underlying_type_t<tt_metal::DataMovementProcessor>>(
                    dataMovementConfig->processor)) +
            "_noc" + std::to_string(dataMovementConfig->noc);
-  } else if (const auto *computeConfig =
-                 std::get_if<tt_metal::ComputeConfig>(&kernelConfig)) {
+  } else if (std::holds_alternative<tt_metal::ComputeConfig>(kernelConfig)) {
     return "compute";
   } else if (const auto *ethernetConfig =
                  std::get_if<tt_metal::EthernetConfig>(&kernelConfig)) {

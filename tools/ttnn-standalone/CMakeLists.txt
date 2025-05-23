@@ -44,14 +44,10 @@ elseif(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Release build is the default" FORCE)
 endif()
 
-# Find clang 17
-#
-find_program(CLANG_17 clang++-17)
-if(CLANG_17)
-    message(STATUS "Found Clang-17 here: ${CLANG_17}")
-    set(CMAKE_CXX_COMPILER "${CLANG_17}")
-else()
-    message(WARNING "Clang++-17 not found!!!")
+if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  message(WARNING "Not using the Clang compiler!")
+elseif(CLANG_VERSION_MAJOR LESS 17)
+  message(WARNING "Clang version is less than 17!")
 endif()
 
 # TT_METAL_HOME env variable needs to be set
