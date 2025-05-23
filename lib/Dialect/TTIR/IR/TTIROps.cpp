@@ -164,7 +164,6 @@ static std::optional<mlir::APFloat> getConstantValue(mlir::Value value) {
     return floatAttr.getValue();
   }
   if (auto integerAttr = mlir::dyn_cast<mlir::IntegerAttr>(fillValueAttr)) {
-
     return mlir::APFloat(
         static_cast<float>(integerAttr.getValue().getSExtValue()));
   }
