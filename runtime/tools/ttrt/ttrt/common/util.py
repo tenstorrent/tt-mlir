@@ -660,7 +660,7 @@ class Binary(Flatbuffer):
         import ttrt.binary
 
         try:
-            fbb_system_desc = self.system_desc_dict["system_desc"]
+            fbb_system_desc = self.system_desc_dict
             device_system_desc = query.get_system_desc_as_dict()["system_desc"]
 
             if fbb_system_desc != device_system_desc:
