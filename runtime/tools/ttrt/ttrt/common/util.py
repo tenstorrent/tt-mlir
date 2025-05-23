@@ -658,6 +658,7 @@ class Binary(Flatbuffer):
         self.fbb_dict = ttrt.binary.as_dict(self.fbb)
         self.version = self.fbb.version
         self.programs = []
+        self.e2e_duration_milliseconds = 0
 
         for i in range(len(self.fbb_dict["programs"])):
             program = Binary.Program(i, self.fbb_dict["programs"][i])
