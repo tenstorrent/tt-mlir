@@ -9,6 +9,8 @@
 #include "llvm-gtest/gtest/gtest.h"
 
 #include <cstdint>
+#include <random>
+#include <type_traits>
 
 namespace mlir::tt::testing {
 
@@ -35,6 +37,39 @@ namespace mlir::tt::testing {
 //  </properties>
 // clang-format on
 extern std::uint64_t randomSeed();
+
+namespace impl {
+
+// TODO(#3531) replace this with xorshift impl
+template <typename ResultType, typename = void>
+struct select_default_RNG {};
+
+template <typename ResultType>
+struct select_default_RNG<ResultType,
+                          std::enable_if_t<std::is_integral_v<ResultType> &&
+                                           (sizeof(ResultType) == 4)>> {
+  using type = std::mt19937;
+};
+
+template <typename ResultType>
+struct select_default_RNG<ResultType,
+                          std::enable_if_t<std::is_integral_v<ResultType> &&
+                                           (sizeof(ResultType) == 8)>> {
+  using type = std::mt19937_64;
+};
+
+template <typename ResultType>
+using select_default_RNG_t =
+    typename impl::select_default_RNG<ResultType>::type;
+
+} // namespace impl
+
+// Return a new instance of a random number generator
+// suitable for use with <random> facilities.
+template <typename ResultType>
+auto createRNG(ResultType seed) -> impl::select_default_RNG_t<ResultType> {
+  return impl::select_default_RNG_t<ResultType>(seed);
+}
 
 } // namespace mlir::tt::testing
 

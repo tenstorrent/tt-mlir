@@ -75,9 +75,8 @@ TYPED_TEST(AllocationTest, Conflicts) {
   using Scenario = TypeParam;
 
   constexpr std::int32_t repeats = 3;
-  std::uint64_t seed = tt::testing::randomSeed();
-
-  std::mt19937 gen;
+  auto seed = tt::testing::randomSeed();
+  auto gen = tt::testing::createRNG(seed);
 
   constexpr AllocationPlanner::AllocSizeT sizeLimit = 1000;
   constexpr AllocationPlanner::SequenceT positionLimit = 1000; // Soft limit.
@@ -154,9 +153,8 @@ TYPED_TEST(AllocationTest, Conflicts) {
 TEST(GreedyAllocationTest, ConflictFree) {
 
   constexpr std::int32_t repeats = 3;
-  std::uint64_t seed = tt::testing::randomSeed();
-
-  std::mt19937 gen;
+  auto seed = tt::testing::randomSeed();
+  auto gen = tt::testing::createRNG(seed);
 
   constexpr AllocationPlanner::AllocSizeT sizeLimit = 1000;
   constexpr AllocationPlanner::SequenceT positionLimit = 1000; // Soft limit.
