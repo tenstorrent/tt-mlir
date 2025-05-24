@@ -421,24 +421,20 @@ class Read:
 
     def system_desc(self, *binaries):
         return self._operate_on_binary(
-            binaries, lambda binary: ttrt.binary.as_dict(binary.fbb)["system_desc"]
+            binaries, lambda binary: json.loads(binary.fbb.get_system_desc_as_json())
         )
 
     def mlir(self, *binaries):
         def _get_mlir(binary):
-            bin_dict = ttrt.binary.as_dict(binary.fbb)
             results = []
-            for program in bin_dict["programs"]:
-                if "debug_info" not in program:
-                    self.logging.info(
-                        f"no debug info found for program:{program['name']}"
-                    )
-                    continue
+            for index in range(binary.fbb.get_num_programs()):
                 results.append(
                     {
-                        program["debug_info"]["mlir"]["name"]: program["debug_info"][
-                            "mlir"
-                        ]["source"]
+                        binary.fbb.get_program_debug_info_as_json(index)["mlir"][
+                            "name"
+                        ]: binary.fbb.get_program_debug_info_as_json(index)["mlir"][
+                            "source"
+                        ]
                     }
                 )
             return results
@@ -447,15 +443,15 @@ class Read:
 
     def cpp(self, *binaries):
         def _get_cpp(binary):
-            bin_dict = ttrt.binary.as_dict(binary.fbb)
             results = []
-            for program in bin_dict["programs"]:
-                if "debug_info" not in program:
-                    self.logging.info(
-                        f"no debug_info found for program:{program['name']}"
-                    )
-                    continue
-                results.append({program["name"]: program["debug_info"]["cpp"]})
+            for index in range(binary.fbb.get_num_programs()):
+                results.append(
+                    {
+                        binary.fbb.get_program_name(
+                            index
+                        ): binary.fbb.get_program_debug_info_as_json(index)["cpp"]
+                    }
+                )
             return results
 
         return self._operate_on_binary(binaries, _get_cpp)
@@ -464,8 +460,12 @@ class Read:
         return self._operate_on_binary(
             binaries,
             lambda binary: [
-                {program["name"]: program["inputs"]}
-                for program in ttrt.binary.as_dict(binary.fbb)["programs"]
+                {
+                    binary.fbb.get_program_name(
+                        index
+                    ): binary.fbb.get_program_inputs_as_json(index)
+                }
+                for index in range(binary.fbb.get_num_programs())
             ],
         )
 
@@ -473,8 +473,12 @@ class Read:
         return self._operate_on_binary(
             binaries,
             lambda binary: [
-                {program["name"]: program["outputs"]}
-                for program in ttrt.binary.as_dict(binary.fbb)["programs"]
+                {
+                    binary.fbb.get_program_name(
+                        index
+                    ): binary.fbb.get_program_outputs_as_json(index)
+                }
+                for index in range(binary.fbb.get_num_programs())
             ],
         )
 
