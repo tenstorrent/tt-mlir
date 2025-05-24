@@ -7,6 +7,12 @@
 
 include "mlir/Pass/PassBase.td"
 
+def TTIRInsertAcquireDst: Pass<"ttir-insert-acquire-dst", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+  }];
+}
+
 def TTIRGenericLinearizeMemref: Pass<"ttir-generic-linearize-memref", "::mlir::ModuleOp"> {
   let summary = "Linearize memref operands for generic ops.";
   let description = [{
