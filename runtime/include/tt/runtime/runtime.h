@@ -190,7 +190,7 @@ std::string getOpDebugString(OpContext opContextHandle);
 std::string getOpLocInfo(OpContext opContextHandle);
 
 Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle);
+                         CallbackContext programContextHandle, bool untilize = true);
 
 // Returns the reference to the output tensor of the current operation.
 // In case that operation does not have an output tensor, returns nullopt
@@ -208,7 +208,7 @@ std::vector<TensorRef> getOpInputRefs(OpContext opContextHandle,
 // TODO(ndrakulicTT): Check what happens if the tensor is not live, and other
 // cases
 std::optional<Tensor> getTensor(CallbackContext programContextHandle,
-                                TensorRef tensorRef);
+                                TensorRef tensorRef, bool untilize);
 
 // Updates the tensor that is referenced by the given tensor reference.
 // TODO(ndrakulicTT): Check edge cases

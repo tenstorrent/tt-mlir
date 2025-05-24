@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
+import pytest
 import ttrt
 import ttmlir
 import torch
@@ -24,9 +25,7 @@ from ttrt.runtime import (
 )
 from ..utils import TT_MLIR_HOME
 
-FLATBUFFER_BASE_PATH = (
-    f"{TT_MLIR_HOME}/build/test/ttmlir/Silicon/TTNN/n150/chisel/Output"
-)
+DIRECTORY_PATH = f"{TT_MLIR_HOME}/build/test/ttmlir/Silicon/"
 
 DTYPE_TO_TORCH_DTYPE = {
     DataType.Float32: torch.float32,
@@ -66,26 +65,34 @@ def update_device_tensor(program_context, tensor_ref, dst_tensor, src_tensor):
     update_tensor(program_context, tensor_ref, tensor)
 
 
-in_counter = 0
-out_counter = 0
-
-
-def test_tensor_manipulation_apis():
-    check_in_tensors = {
-        0: torch.ones([10, 10]),
-        1: torch.ones([10, 10]),
-        2: torch.ones([10, 10]),
-        3: torch.ones([10, 10]),
-        4: torch.ones([10, 10]) * 10,
-        5: torch.ones([10]),
-        6: torch.ones([10, 10]) * 20,
-        7: torch.ones([10]),
-    }
-
-    update_in_tensors = {4: torch.ones([10, 10]) * 20}
+@pytest.mark.parametrize(
+    "flatbuffer_path,golden_input_tensors,golden_out_tensors,update_in_tensors",
+    [
+        (
+            f"{DIRECTORY_PATH}/n150/chisel/Output/test_tensor_manipulation.mlir.tmp.ttnn",
+            {
+                0: torch.ones([10, 10]),
+                1: torch.ones([10, 10]),
+                2: torch.ones([10, 10]),
+                3: torch.ones([10, 10]),
+                4: torch.ones([10, 10]) * 10,
+                5: torch.ones([10]),
+                6: torch.ones([10, 10]) * 20,
+                7: torch.ones([10]),
+            },
+            {0: torch.ones([10, 10]) * 10, 1: torch.ones([10, 10]) * 21},
+            {4: torch.ones([10, 10]) * 20},
+        ),
+    ],
+)
+def test_tensor_manipulation_apis(
+    flatbuffer_path, golden_input_tensors, golden_out_tensors, update_in_tensors
+):
+    in_counter = 0
+    out_counter = 0
 
     def preop(binary, programContext, opContext):
-        global in_counter
+        nonlocal in_counter
         tensor_refs = get_op_input_refs(opContext, programContext)
 
         for ref in tensor_refs:
@@ -99,10 +106,9 @@ def test_tensor_manipulation_apis():
                 )
             in_counter += 1
 
-    check_out_tensors = {0: torch.ones([10, 10]) * 10, 1: torch.ones([10, 10]) * 21}
-
     def postop(binary, programContext, opContext):
-        global out_counter
+        nonlocal out_counter
+
         tensor = get_op_output_tensor(opContext, programContext)
         if tensor is None:
             return
@@ -111,10 +117,6 @@ def test_tensor_manipulation_apis():
         if out_counter in check_out_tensors:
             assert torch.all(torch_tensor == check_out_tensors[out_counter])
         out_counter += 1
-
-    flatbuffer_path = os.path.join(
-        FLATBUFFER_BASE_PATH, "test_tensor_manipulation.mlir.tmp.ttnn"
-    )
 
     # output_dir = "./dump"
     args = {

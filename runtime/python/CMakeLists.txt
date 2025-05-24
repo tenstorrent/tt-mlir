@@ -19,6 +19,22 @@ nanobind_add_module(
   ${TTMLIR_RUNTIME_PYTHON_SRCS}
 )
 
+# nanobind_add_stub(
+#   _ttmlir_runtime_binary_stubs
+#   MODULE ttrt.runtime._ttmlir_runtime.binary
+#   OUTPUT binary.pyi
+#   PYTHON_PATH "python"
+#   DEPENDS _ttmlir_runtime
+# )
+
+# nanobind_add_stub(
+#   _ttmlir_runtime_runtime_stubs
+#   MODULE ttrt.runtime._ttmlir_runtime.runtime
+#   OUTPUT runtime.pyi
+#   PYTHON_PATH "python"
+#   DEPENDS _ttmlir_runtime
+# )
+
 target_include_directories(_ttmlir_runtime
   PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}
