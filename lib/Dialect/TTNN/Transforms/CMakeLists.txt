@@ -11,6 +11,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNPrepareConv2dWeights.cpp
         TTNNFusing.cpp
         Workarounds/Decomposition/ArgMaxOpRewritePattern.cpp
+        Workarounds/Decomposition/BroadcastingOpRewritePattern.cpp
         Workarounds/Decomposition/CumSumOpDimRewritePattern.cpp
         Workarounds/Decomposition/CumSumOpRankRewritePattern.cpp
         Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.cpp
