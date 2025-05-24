@@ -8,7 +8,7 @@ func.func @minimum_with_broadcast(%arg0: tensor<64x1xf32>, %arg1: tensor<1x128xf
   %1 = "ttir.minimum"(%arg0, %arg1, %0) : (tensor<64x1xf32>, tensor<1x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
   // CHECK: "ttnn.minimum"
   // CHECK-SAME: tensor<64x1xf32
-  // CHECK-SAME: tensor<1x128xf32
+  // CHECK-SAME: tensor<64x128xf32
   // CHECK-SAME: -> tensor<64x128xf32
   return %1 : tensor<64x128xf32>
 }
