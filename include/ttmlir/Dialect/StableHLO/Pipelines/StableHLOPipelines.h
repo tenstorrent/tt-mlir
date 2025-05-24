@@ -11,6 +11,7 @@
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
 #include "shardy/dialect/sdy/transforms/export/passes.h"
+#include "shardy/dialect/sdy/transforms/import/passes.h"
 #include "shardy/dialect/sdy/transforms/propagation/passes.h"
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
