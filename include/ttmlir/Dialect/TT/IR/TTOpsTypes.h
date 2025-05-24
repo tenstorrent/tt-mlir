@@ -298,7 +298,6 @@ inline uint8_t getNumberOfBits(const DataType dtype) {
   case DataType::BFP_BFloat2:
     return 2;
   }
-  llvm_unreachable("Unexpected DataType");
 }
 
 } // namespace mlir::tt
