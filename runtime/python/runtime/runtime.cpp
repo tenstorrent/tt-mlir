@@ -305,7 +305,7 @@ void registerRuntimeBindings(nb::module_ &m) {
       [](tt::runtime::OpContext &opContextHandle,
          tt::runtime::CallbackContext &programContextHandle) {
         tt::runtime::Tensor tensor = tt::runtime::getOpOutputTensor(
-            opContextHandle, programContextHandle);
+            opContextHandle, programContextHandle, true);
         return tensor.handle.get() == nullptr
                    ? std::nullopt
                    : std::optional<tt::runtime::Tensor>(tensor);
@@ -328,10 +328,9 @@ void registerRuntimeBindings(nb::module_ &m) {
   m.def(
       "get_tensor",
       [](tt::runtime::CallbackContext programContextHandle,
-         tt::runtime::TensorRef tensorRef) {
-        return tt::runtime::getTensor(programContextHandle, tensorRef);
-      },
-
+         tt::runtime::TensorRef tensorRef, bool untilize = true) {
+        return tt::runtime::getTensor(programContextHandle, tensorRef, untilize);
+      }, nb::arg("program_context_handle"), nb::arg("tensor_ref"), nb::arg("untilize") = true,
       "Get the tensor that corresponds to the tensor ref");
   m.def("update_tensor", [](tt::runtime::CallbackContext programContextHandle,
                             tt::runtime::TensorRef tensorRefHandle,

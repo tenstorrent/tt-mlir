@@ -470,7 +470,7 @@ std::string getOpLocInfo(OpContext opContextHandle) {
 }
 
 Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle) {
+                         CallbackContext programContextHandle, bool untilize) {
   // Not implemented
   LOG_WARNING("obtaining op output tensor for metal runtime not implemented");
   return createNullTensor();
@@ -494,7 +494,7 @@ getOpInputRefs(OpContext opContextHandle,
 }
 
 std::optional<Tensor> getTensor(CallbackContext programContextHandle,
-                                TensorRef tensorRef) {
+                                TensorRef tensorRef, bool untilize) {
   // Not implemented
   LOG_FATAL(
       "Obtaining tensor from device for metal runtime is not implemented");

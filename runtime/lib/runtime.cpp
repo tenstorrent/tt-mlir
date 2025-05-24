@@ -677,17 +677,17 @@ std::string getOpLocInfo(OpContext opContextHandle) {
 }
 
 Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle) {
+                         CallbackContext programContextHandle, bool untilize) {
   using RetType = Tensor;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
         return ::tt::runtime::ttnn::getOpOutputTensor(opContextHandle,
-                                                      programContextHandle);
+                                                      programContextHandle, untilize);
       },
       [&]() -> RetType {
         return ::tt::runtime::ttmetal::getOpOutputTensor(opContextHandle,
-                                                         programContextHandle);
+                                                         programContextHandle, untilize);
       });
 }
 
@@ -725,16 +725,16 @@ getOpInputRefs(OpContext opContextHandle,
 }
 
 std::optional<Tensor> getTensor(CallbackContext programContextHandle,
-                                TensorRef tensorRef) {
+                                TensorRef tensorRef, bool untilize) {
   using RetType = std::optional<Tensor>;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
-        return ::tt::runtime::ttnn::getTensor(programContextHandle, tensorRef);
+        return ::tt::runtime::ttnn::getTensor(programContextHandle, tensorRef, untilize);
       },
       [&]() -> RetType {
         return ::tt::runtime::ttmetal::getTensor(programContextHandle,
-                                                 tensorRef);
+                                                 tensorRef, untilize);
       });
 }
 
