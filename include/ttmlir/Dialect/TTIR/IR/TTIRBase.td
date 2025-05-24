@@ -82,4 +82,29 @@ def TTIR_Broadcastable : TTIR_Trait<"Broadcastable">;
 
 def AnyRankedTensorOrMemRef: AnyTypeOf<[AnyRankedTensor, AnyNon0RankedMemRef]>;
 
+def IsDeviceL1MemorySpace : CPred<"::llvm::cast<::mlir::tt::MemorySpaceAttr>(::llvm::cast<::mlir::MemRefType>($_self).getMemorySpace()).getValue() == ::mlir::tt::MemorySpace::DeviceL1">;
+
+def IsDeviceDRAMMemorySpace : CPred<"::llvm::cast<::mlir::tt::MemorySpaceAttr>(::llvm::cast<::mlir::MemRefType>($_self).getMemorySpace()).getValue() == ::mlir::tt::MemorySpace::DeviceDRAM">;
+
+def IsDeviceMemorySpace : Or<[IsDeviceL1MemorySpace, IsDeviceDRAMMemorySpace]>;
+
+def IsRegisterDstMemorySpace : CPred<"::llvm::cast<::mlir::tt::MemorySpaceAttr>(::llvm::cast<::mlir::MemRefType>($_self).getMemorySpace()).getValue() == ::mlir::tt::MemorySpace::RegisterDst">;
+
+def DeviceL1MemRef : Type<
+  And<[IsDeviceL1MemorySpace, HasRankGreaterOrEqualPred<1>]>,
+  "device l1 memoryspace memref type",
+  "::mlir::MemRefType">;
+
+def DeviceMemRef : Type<
+  And<[IsDeviceMemorySpace, HasRankGreaterOrEqualPred<1>]>,
+  "device memoryspace memref type",
+  "::mlir::MemRefType">;
+
+def RegisterMemRef : Type<
+  And<[IsRegisterDstMemorySpace, HasRankGreaterOrEqualPred<1>]>,
+  "register memoryspace memref type",
+  "::mlir::MemRefType">;
+
+def DeviceOrRegisterMemRef : AnyTypeOf<[DeviceMemRef, RegisterMemRef]>;
+
 #endif

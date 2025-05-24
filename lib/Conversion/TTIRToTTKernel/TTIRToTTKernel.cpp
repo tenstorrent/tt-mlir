@@ -74,114 +74,26 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
   return rewriter.getRemappedValue(loadOp.getMemref());
 }
 
+static Value getOutCB(ConversionPatternRewriter &rewriter, Operation *op) {
+  func::FuncOp func = op->getParentOfType<func::FuncOp>();
+  assert(func && "Expected func op.");
+  Value outCB = nullptr;
+  func.walk([&](memref::StoreOp store) {
+    if (tt::getMemorySpace(store.getMemRef()) == tt::MemorySpace::DeviceL1) {
+      outCB = store.getMemRef();
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  assert(outCB && "outCB not found.");
+  return rewriter.getRemappedValue(outCB);
+}
+
 static Value getLoadIndex(Value tile) {
   memref::LoadOp loadOp = mlir::cast<memref::LoadOp>(tile.getDefiningOp());
   assert(loadOp.getIndices().size() == 1 &&
          "Expected single index in load op, failing.");
   return loadOp.getIndices().front();
-}
-
-// This function finds the loop variables that are not used in the computation
-// of the copy tile index. These represent the loop variables that loop over the
-// inner dimension of the tensor. They may not be the innermost loops in the IR.
-static llvm::SmallVector<Value>
-findInnerTensorDimLoopVars(PatternRewriter &rewriter, memref::LoadOp loadOp) {
-  auto loopVars = llvm::SmallVector<Value>();
-
-  // Find all loop variables that are parents of the load operation.
-  scf::ForOp forOp = loadOp->getParentOfType<scf::ForOp>();
-  while (forOp != nullptr) {
-    loopVars.emplace_back(forOp.getInductionVar());
-    forOp = forOp->getParentOfType<scf::ForOp>();
-  }
-
-  llvm::SmallVector<Value> outerLoopVars;
-
-  // Check if the load index is directly a for loop argument, if so we have
-  // found the only one that participates.
-  auto blockArg = mlir::dyn_cast<BlockArgument>(loadOp.getIndices().front());
-  if (blockArg && mlir::isa<scf::ForOp>(blockArg.getOwner()->getParentOp())) {
-    outerLoopVars = {blockArg};
-  } else {
-    // Otherwise, we need to recurse through the definition of the load index to
-    // find the for loop variables that participate in its calculation.
-    llvm::SmallVector<Operation *> opsToInspect = {
-        loadOp.getIndices().front().getDefiningOp()};
-    while (!opsToInspect.empty()) {
-      Operation *op = opsToInspect.pop_back_val();
-      for (auto operand : op->getOperands()) {
-        if (operand.getDefiningOp()) {
-          opsToInspect.emplace_back(operand.getDefiningOp());
-        } else if (mlir::isa<BlockArgument>(operand) &&
-                   mlir::isa<scf::ForOp>(mlir::cast<BlockArgument>(operand)
-                                             .getOwner()
-                                             ->getParentOp())) {
-          outerLoopVars.emplace_back(operand);
-        }
-      }
-    }
-  }
-
-  llvm::SmallVector<Value> innerLoopVars;
-  // Find all loop variables that do NOT participate in the load index. i.e. NOT
-  // in outerLoopVars.
-  for (auto &loopVar : loopVars) {
-    if (std::find(outerLoopVars.begin(), outerLoopVars.end(), loopVar) ==
-        outerLoopVars.end()) {
-      innerLoopVars.emplace_back(loopVar);
-    }
-  }
-
-  return innerLoopVars;
-}
-
-static void lowerLoadToCopyTile(memref::LoadOp op, bool cbIdxAsDstIdx,
-                                bool guardFirstCopy,
-                                ConversionPatternRewriter &rewriter) {
-  auto index = [&](int64_t value) {
-    return rewriter
-        .create<arith::ConstantOp>(op.getLoc(), rewriter.getIndexType(),
-                                   rewriter.getIndexAttr(value))
-        .getResult();
-  };
-
-  auto cb = rewriter.getRemappedValue(op.getMemref());
-  auto cbType = mlir::cast<ttkernel::CBType>(cb.getType());
-  llvm::SmallVector<Value> innerLoopVars =
-      findInnerTensorDimLoopVars(rewriter, op);
-  // This early return is for the case where guardFirstCopy == true (indicating
-  // some sort of mm/reduction) and there is a single tile on the inner dim. In
-  // this case, we don't need to create a copy tile at all, so we just return.
-  if (guardFirstCopy && innerLoopVars.empty()) {
-    return;
-  }
-  auto copyInit = rewriter.create<ttkernel::CopyTileInitOp>(op.getLoc(), cb);
-  auto copyTile = rewriter.create<ttkernel::CopyTileOp>(
-      op.getLoc(), cb, op.getIndices().front(),
-      cbIdxAsDstIdx ? index(static_cast<uint32_t>(cbType.getPort()))
-                    : index(0));
-  if (guardFirstCopy) {
-    Value innerLoopVar = innerLoopVars.pop_back_val();
-    Value condition =
-        rewriter
-            .create<arith::CmpIOp>(op.getLoc(), arith::CmpIPredicate::ne,
-                                   innerLoopVar, index(0))
-            .getResult();
-    while (!innerLoopVars.empty()) {
-      auto innerLoopVar = innerLoopVars.pop_back_val();
-      condition =
-          rewriter
-              .create<arith::OrIOp>(op.getLoc(), condition,
-                                    rewriter.create<arith::CmpIOp>(
-                                        op.getLoc(), arith::CmpIPredicate::ne,
-                                        innerLoopVar, index(0)))
-              .getResult();
-    }
-    auto ifOp = rewriter.create<scf::IfOp>(op.getLoc(), condition);
-    auto *ifBlock = &ifOp.getThenRegion().front();
-    rewriter.moveOpBefore(copyInit, ifBlock, ifBlock->begin());
-    rewriter.moveOpAfter(copyTile, copyInit);
-  }
 }
 
 static void setInsertionPointAfterOperands(OpBuilder &rewriter,
@@ -201,7 +113,22 @@ static void setInsertionPointAfterOperands(OpBuilder &rewriter,
 } // namespace
 
 namespace {
+class AcquireDstRewriter : public OpConversionPattern<ttir::AcquireDstOp> {
+public:
+  using OpConversionPattern<ttir::AcquireDstOp>::OpConversionPattern;
 
+  LogicalResult
+  matchAndRewrite(ttir::AcquireDstOp op, ttir::AcquireDstOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.create<ttkernel::TileRegsAcquireOp>(op.getLoc());
+    rewriter.replaceOpWithNewOp<arith::ConstantOp>(op, rewriter.getIndexType(),
+                                                   rewriter.getIndexAttr(0));
+    return success();
+  };
+};
+} // namespace
+
+namespace {
 class MemrefStoreRewriter : public OpConversionPattern<memref::StoreOp> {
 public:
   using OpConversionPattern<memref::StoreOp>::OpConversionPattern;
@@ -209,16 +136,42 @@ public:
   LogicalResult
   matchAndRewrite(memref::StoreOp op, memref::StoreOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto cb = adaptor.getMemref();
+    if (tt::getMemorySpace(op.getMemRef()) == tt::MemorySpace::RegisterDst) {
+      return lowerCopyTilesOrErase(op, adaptor, rewriter);
+    }
+
+    auto dstLoad = mlir::cast<memref::LoadOp>(op.getValue().getDefiningOp());
+    assert(dstLoad.getIndices().size() == 1);
+    auto dst = dstLoad.getIndices().front();
+    auto outCB = getOutCB(rewriter, op);
     auto storeIdx = op.getIndices().front();
     rewriter.replaceOpWithNewOp<ttkernel::PackTileOp>(
-        op, index(rewriter, op->getLoc(), 0), cb, storeIdx,
+        op, dst, outCB, storeIdx,
         rewriter.getBoolAttr(true));
 
     return success();
   };
-};
 
+  static LogicalResult
+  lowerCopyTilesOrErase(memref::StoreOp op, memref::StoreOpAdaptor adaptor,
+                        ConversionPatternRewriter &rewriter) {
+    auto load = mlir::dyn_cast<memref::LoadOp>(op.getValue().getDefiningOp());
+
+    if (load) {
+      assert(load.getIndices().size() == 1 &&
+             "Expected single index in load op, failing.");
+      auto cb = rewriter.getRemappedValue(load.getMemRef());
+      auto dst = adaptor.getMemref();
+      rewriter.create<ttkernel::CopyTileInitOp>(op.getLoc(), cb);
+      rewriter.create<ttkernel::CopyTileOp>(
+          op.getLoc(), cb, rewriter.getRemappedValue(load.getIndices().front()),
+          dst);
+    }
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
 } // namespace
 
 namespace {
@@ -235,8 +188,7 @@ public:
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto store = mlir::cast<memref::StoreOp>(*op->user_begin());
-    auto outCB = rewriter.getRemappedValue(store.getMemref());
+    auto outCB = getOutCB(rewriter, op);
 
     assert(op->hasOneUse());
     if constexpr (arity == 1) {
@@ -258,23 +210,20 @@ public:
       auto insertionPoint = rewriter.getInsertionPoint();
       auto cbA = getCB(rewriter, adaptor.getA());
       auto cbB = getCB(rewriter, adaptor.getB());
-      auto cbC = getCB(rewriter, adaptor.getC());
-      setInsertionPointAfterOperands(rewriter, {cbA, cbB, cbC});
+      auto outCB = getOutCB(rewriter, op);
+      // setInsertionPointAfterOperands(rewriter, {cbA, cbB, cbC});
+      (void)setInsertionPointAfterOperands;
       rewriter.create<ttkernel::MatmulInitOp>(
-          op->getLoc(), cbA, cbB, cbC,
+          op->getLoc(), cbA, cbB, outCB,
           /* transpose */ i32(rewriter, op->getLoc(), 0));
       rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
-      auto mmInitShortOp = rewriter.create<ttkernel::MatmulInitShortOp>(
+      rewriter.create<ttkernel::MatmulInitShortOp>(
           op->getLoc(), cbA, cbB,
           /* transpose */ i32(rewriter, op->getLoc(), 0));
       rewriter.create<ttkernel::MatmulTilesOp>(
           op->getLoc(), cbA, cbB, getLoadIndex(adaptor.getA()),
           getLoadIndex(adaptor.getB()), dstIdx,
           /* transpose */ i32(rewriter, op->getLoc(), 0));
-      rewriter.setInsertionPoint(mmInitShortOp);
-      lowerLoadToCopyTile(
-          adaptor.getC().template getDefiningOp<memref::LoadOp>(), false, true,
-          rewriter);
     } else if constexpr (arity == 2) {
       rewriter.create<InitOp>(op->getLoc(), getCB(rewriter, adaptor.getLhs()),
                               getCB(rewriter, adaptor.getRhs()));
@@ -310,35 +259,13 @@ public:
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    Operation *newOp = nullptr;
-    Operation *initOp = nullptr;
-
     auto load =
         mlir::cast<memref::LoadOp>((*op->operand_begin()).getDefiningOp());
     auto inCB = rewriter.getRemappedValue(load.getMemref());
-    auto store = mlir::cast<memref::StoreOp>(*op->user_begin());
-    auto outCB = rewriter.getRemappedValue(store.getMemref());
+    auto outCB = getOutCB(rewriter, op);
     assert(inCB.getDefiningOp()->isBeforeInBlock(outCB.getDefiningOp()));
     rewriter.setInsertionPointAfter(outCB.getDefiningOp());
     rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), inCB, outCB);
-
-    if constexpr (arity == 1) {
-      initOp = rewriter.create<InitOp>(op->getLoc());
-      newOp =
-          rewriter.create<SFPUOp>(op->getLoc(), i32(rewriter, op->getLoc(), 0));
-    } else {
-      initOp = rewriter.create<InitOp>(op->getLoc());
-      newOp =
-          rewriter.create<SFPUOp>(op->getLoc(), i32(rewriter, op->getLoc(), 0),
-                                  i32(rewriter, op->getLoc(), 1));
-    }
-
-    rewriter.setInsertionPoint(initOp == nullptr ? newOp : initOp);
-    for (int i = 0; i < arity; i++) {
-      lowerLoadToCopyTile(
-          adaptor.getOperands()[i].template getDefiningOp<memref::LoadOp>(),
-          true, false, rewriter);
-    }
 
     rewriter.eraseOp(op);
     return success();
@@ -761,6 +688,10 @@ public:
   matchAndRewrite(memref::CollapseShapeOp op,
                   memref::CollapseShapeOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    if (tt::getMemorySpace(op.getSrc()) == tt::MemorySpace::RegisterDst) {
+      rewriter.replaceOp(op, adaptor.getSrc());
+      return success();
+    }
     rewriter.replaceOpWithNewOp<CBReinterpretShapeOp>(
         op, getTypeConverter()->convertType(op.getResult().getType()),
         adaptor.getSrc());
@@ -975,6 +906,7 @@ void populateTTIRToTTKernelPatterns(
       ttkernel::TTIRSFPUOpsRewriter<ttir::TileSinOp,     ttkernel::SinTileInitOp,        ttkernel::SinTileOp>,
 
       ttkernel::TTIRTilizeUntilizeRewriter,
+      ttkernel::AcquireDstRewriter,
       ttkernel::MemrefStoreRewriter,
       ttkernel::TTIRAwaitYieldRewriter<ttir::AwaitOp>,
       ttkernel::TTIRAwaitYieldRewriter<ttir::YieldOp>,
