@@ -68,7 +68,10 @@ struct ConvertTTIRToTTKernel
     typeConverter.addConversion([](ttir::MemTxType memtx) {
       return IndexType::get(memtx.getContext());
     });
-    typeConverter.addConversion([](MemRefType memref) {
+    typeConverter.addConversion([](MemRefType memref) -> Type {
+      if (tt::getMemorySpace(memref) == tt::MemorySpace::RegisterDst) {
+        return IndexType::get(memref.getContext());
+      }
       return ttkernel::CBType::get(
           memref.getContext(), ttkernel::symbolizeCBPort(0).value(), 0, memref);
     });

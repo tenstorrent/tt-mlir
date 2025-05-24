@@ -164,9 +164,9 @@ def TTIR_TileMatmulBlockOp : TTIR_GenericRegionComputeOp<"tile_matmul_block",
         The `tile_matmul_block` operation computes the matrix multiplication of two input blocks.
     }];
 
-    let arguments = (ins AnyNon0RankedMemRef:$a,
-                         AnyNon0RankedMemRef:$b,
-                         AnyNon0RankedMemRef:$output);
+    let arguments = (ins DeviceL1MemRef:$a,
+                         DeviceL1MemRef:$b,
+                         DeviceL1MemRef:$output);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -182,8 +182,8 @@ def TTIR_TileTilizeBlockOp : TTIR_GenericRegionComputeOp<"tile_tilize_block",
         The `tile_tilize_block` operation tilizes the input row major memref block and outputs the memref containing the tilized data.
     }];
 
-    let arguments = (ins AnyNon0RankedMemRef:$input,
-                         AnyNon0RankedMemRef:$output);
+    let arguments = (ins DeviceL1MemRef:$input,
+                         DeviceL1MemRef:$output);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -199,8 +199,8 @@ def TTIR_TileUntilizeBlockOp : TTIR_GenericRegionComputeOp<"tile_untilize_block"
         The `tile_untilize_block` operation untilizes the input tilized memref block and outputs the memref contianing the row major data.
     }];
 
-    let arguments = (ins AnyNon0RankedMemRef:$input,
-                         AnyNon0RankedMemRef:$output);
+    let arguments = (ins DeviceL1MemRef:$input,
+                         DeviceL1MemRef:$output);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -209,6 +209,19 @@ def TTIR_TileUntilizeBlockOp : TTIR_GenericRegionComputeOp<"tile_untilize_block"
     let hasVerifier = 1;
 }
 
+//===----------------------------------------------------------------------===//
+// TTIR Destination Control Ops (Used in TTMetal Lowering)
+//===----------------------------------------------------------------------===//
+
+def TTIR_AcquireDstOp : TTIR_GenericRegionComputeOp<"acquire_dst", [MemoryEffects<[MemRead, MemWrite]>]> {
+    let summary = "Acquire Destination Register op.";
+    let description = [{
+    }];
+
+    let results = (outs RegisterMemRef:$result);
+
+    let assemblyFormat = [{ `(` `)` attr-dict `:` type($result) }];
+}
 
 //===----------------------------------------------------------------------===//
 // TTIR Generic Region Datamovement Ops (Used in TTMetal Lowering)
@@ -502,7 +515,7 @@ def TTIR_AwaitOp : TTIR_GenericRegionOp<"await", [MemoryEffects<[MemRead, MemWri
       Await operation, await control flow from another thread. Corresponds to a circular buffer wait.
     }];
 
-    let arguments = (ins Variadic<AnyNon0RankedMemRef>:$values);
+    let arguments = (ins Variadic<DeviceL1MemRef>:$values);
 
     let assemblyFormat = [{ $values attr-dict `:` `(` type($values) `)` }];
 
@@ -580,7 +593,7 @@ def TTIR_GetGlobalOperandOp : TTIR_GenericRegionOp<"get_global_operand", [Pure]>
     }];
 
     let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$operand_index);
-    let results = (outs AnyNon0RankedMemRef:$result);
+    let results = (outs DeviceMemRef:$result);
 
     let assemblyFormat = [{ `(` $operand_index `)` attr-dict `:` type($result) }];
 }
