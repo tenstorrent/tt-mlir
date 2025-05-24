@@ -9,9 +9,9 @@ It is meant to simplify and abstract away all complexities of the infra.
 
 from typing import List, Optional
 
-import ttmlir.workflow_internal as workflow_internal
 from ttmlir.ir import Module
 
+from . import workflow_internal
 from .pydantic_models import OpTest
 
 
@@ -26,6 +26,8 @@ def run_op_by_op_workflow(
     """
     Unified function to process a module based on selected compilation and splitting
     strategy.
+
+    To enable showing progress of the workflow, set env var `SHOW_WORKFLOW_PROGRESS=ON`.
 
     Parameters
     ----------
