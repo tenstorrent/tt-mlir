@@ -94,7 +94,7 @@ public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TTNNOptimizerBase<DerivedT>)
 
   TTNNOptimizerBase(TTNNOptimizerOptions options) : TTNNOptimizerBase() {
-    overrideInputLayout = std::move(options.overrideInputLayout);
+    insertMemReconfig = std::move(options.insertMemReconfig);
     overrideOutputLayout = std::move(options.overrideOutputLayout);
     overrideConv2dConfig = std::move(options.overrideConv2dConfig);
     memoryLayoutAnalysisEnabled =
@@ -106,13 +106,13 @@ public:
   }
 
 protected:
-  ::mlir::Pass::Option<llvm::StringMap<InputLayoutOverrideParams>,
-                       mlir::tt::ttnn::InputLayoutOverrideParser>
-      overrideInputLayout{
-          *this, OptionNames::overrideInputLayout,
+  ::mlir::Pass::Option<llvm::StringMap<InsertMemReconfigParams>,
+                       mlir::tt::ttnn::InsertMemReconfigParser>
+      insertMemReconfig{
+          *this, OptionNames::insertMemReconfig,
           ::llvm::cl::desc(
               "Manually insert memory reconfig op for specific op's operand."),
-          ::llvm::cl::init(llvm::StringMap<InputLayoutOverrideParams>())};
+          ::llvm::cl::init(llvm::StringMap<InsertMemReconfigParams>())};
   ::mlir::Pass::Option<llvm::StringMap<OutputLayoutOverrideParams>,
                        mlir::tt::ttnn::OutputLayoutOverrideParser>
       overrideOutputLayout{
@@ -446,7 +446,7 @@ private:
     for (const auto &[opLoc, _] : overrideOutputLayout) {
       overridenOpExists[opLoc] = false;
     }
-    for (const auto &[opLoc, _] : overrideInputLayout) {
+    for (const auto &[opLoc, _] : insertMemReconfig) {
       overridenOpExists[opLoc] = false;
     }
     for (const auto &[opLoc, _] : overrideConv2dConfig) {
@@ -494,9 +494,9 @@ private:
       }
 
       StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
-      auto opInputOverride = overrideInputLayout.find(opLocName);
+      auto opInputOverride = insertMemReconfig.find(opLocName);
 
-      if (opInputOverride == overrideInputLayout.end()) {
+      if (opInputOverride == insertMemReconfig.end()) {
         return;
       }
 
@@ -511,7 +511,7 @@ private:
 
     // Check for non-existing ops in override
     //
-    assert(overrideInputLayout.size() == overrideReshardEdges.size());
+    assert(insertMemReconfig.size() == overrideReshardEdges.size());
   }
 
   mlir::TypedValue<DeviceType> getOrCreateDeviceOpValue(Operation *contextOp,
