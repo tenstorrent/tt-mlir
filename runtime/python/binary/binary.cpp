@@ -31,6 +31,29 @@ void registerBinaryBindings(nb::module_ &m) {
       .def("store", &tt::runtime::Binary::store)
       .def("get_debug_info_golden", &::tt::runtime::Binary::getDebugInfoGolden,
            nb::rv_policy::reference)
+      .def("get_system_desc_as_json", &tt::runtime::Binary::getSystemDescAsJson,
+          py::return_value_policy::reference)
+      .def("get_num_programs", &tt::runtime::Binary::getNumPrograms,
+          py::return_value_policy::reference)
+      .def("get_programs_as_json", &tt::runtime::Binary::getProgramsAsJson,
+          py::return_value_policy::reference)
+      .def("get_program_name", &tt::runtime::Binary::getProgramName,
+          py::return_value_policy::reference)
+      .def("get_program_ops_as_json", &tt::runtime::Binary::getProgramOpsAsJson,
+          py::return_value_policy::reference)
+      .def("get_program_inputs", &tt::runtime::Binary::getProgramInputs,
+          py::return_value_policy::reference)
+      .def("get_program_outputs", &tt::runtime::Binary::getProgramOutputs,
+          py::return_value_policy::reference)
+      .def("get_program_inputs_as_json",
+          &tt::runtime::Binary::getProgramInputsAsJson,
+          py::return_value_policy::reference)
+      .def("get_program_outputs_as_json",
+          &tt::runtime::Binary::getProgramOutputsAsJson,
+          py::return_value_policy::reference)
+      .def("get_program_debug_info_as_json",
+          &tt::runtime::Binary::getProgramDebugInfoAsJson,
+          py::return_value_policy::reference)
       .def(
           "get_tensor_cache",
           [](tt::runtime::Binary &bin) { return bin.getCache(); },
