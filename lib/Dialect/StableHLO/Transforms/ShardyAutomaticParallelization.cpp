@@ -368,6 +368,8 @@ convertShardyCCLToStableHLOCCL(MLIRContext *context,
   target.addLegalOp<mlir::func::CallOp>();
   target.addLegalOp<mlir::arith::ConstantOp>();
   target.addIllegalOp<mlir::sdy::AllGatherOp>();
+  target.addIllegalOp<mlir::sdy::ReduceScatterOp>();
+  target.addIllegalOp<mlir::sdy::AllReduceOp>();
 
   // Apply conversion.
   if (failed(applyFullConversion(rootModule, target, std::move(patterns)))) {

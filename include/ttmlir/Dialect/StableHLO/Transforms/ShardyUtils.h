@@ -232,7 +232,7 @@ getInShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
           argAttrDict.get(mlir::sdy::TensorShardingAttr::name));
 
       if (!shardingAttr) {
-        funcOp.emitWarning("In function")
+        funcOp.emitWarning("In function ")
             << funcOp.getName() << " argument #: " << arg.getArgNumber()
             << " is not annotated with sdy.sharding. Using default "
                "sharding annotation (ie all dimensions replicated).\n";
@@ -246,7 +246,7 @@ getInShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
         funcOp.setArgAttrs(arg.getArgNumber(), newDictAttr);
       }
     } else {
-      funcOp.emitWarning("In function")
+      funcOp.emitWarning("In function ")
           << funcOp.getName() << " argument #: " << arg.getArgNumber()
           << " does not have an attributes dictionary. Using default "
              "sharding annotation (ie all dimensions replicated).\n";
@@ -282,7 +282,7 @@ getOutShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
           resultAttrDict.get(mlir::sdy::TensorShardingAttr::name));
 
       if (!shardingAttr) {
-        funcOp.emitWarning("In function")
+        funcOp.emitWarning("In function ")
             << funcOp.getName() << " result #: " << i
             << " is not annotated with sdy.sharding. Using default "
                "sharding annotation (ie all dimensions replicated).\n";
@@ -290,7 +290,7 @@ getOutShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
             context, globalMeshOp.getSymName(), funcType.getResult(i));
       }
     } else {
-      funcOp.emitWarning("In function")
+      funcOp.emitWarning("In function ")
           << funcOp.getName() << " result #: " << i
           << " does not have an attributes dictionary. Using default "
              "sharding annotation (ie all dimensions replicated).\n";

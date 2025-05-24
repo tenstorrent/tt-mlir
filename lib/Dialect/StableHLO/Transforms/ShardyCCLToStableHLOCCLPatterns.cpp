@@ -98,7 +98,8 @@ populateReplicaGroups(mlir::tt::sdy_utils::MeshMap meshMap,
   return transposeReplicaGroups(replicaGroups);
 }
 
-static mlir::tt::sdy_utils::MeshMap getMeshMap(mlir::sdy::AllGatherOp &srcOp) {
+template <typename SrcOp>
+static mlir::tt::sdy_utils::MeshMap getMeshMap(SrcOp &srcOp) {
   // Get the mesh attr that relates to the sdy.all_gather.
   mlir::sdy::MeshAttr meshAttr;
   mlir::Attribute attr = srcOp.getOutSharding().getMeshOrRef();
@@ -109,7 +110,7 @@ static mlir::tt::sdy_utils::MeshMap getMeshMap(mlir::sdy::AllGatherOp &srcOp) {
   } else if (mlir::isa<mlir::SymbolRefAttr>(attr)) {
     mlir::SymbolRefAttr symbolRefAttr = mlir::cast<mlir::SymbolRefAttr>(attr);
     auto *symbolOp = mlir::SymbolTable::lookupSymbolIn(
-        srcOp->getParentOfType<ModuleOp>(), symbolRefAttr);
+        srcOp->template getParentOfType<ModuleOp>(), symbolRefAttr);
     mlir::sdy::MeshOp meshOp = mlir::cast<mlir::sdy::MeshOp>(symbolOp);
     meshAttr = meshOp.getMesh();
   }
@@ -119,6 +120,24 @@ static mlir::tt::sdy_utils::MeshMap getMeshMap(mlir::sdy::AllGatherOp &srcOp) {
   return meshMap;
 }
 
+template <typename SrcOp>
+static void addReductionBlock(ConversionPatternRewriter &rewriter, SrcOp &srcOp,
+                              mlir::RankedTensorType outputType) {
+  mlir::Location loc = srcOp.getLoc();
+
+  // Reduction type for stablehlo reduce scatter and all reduce requires an
+  // empty tensor shape.
+  mlir::RankedTensorType reductionType =
+      mlir::RankedTensorType::get({}, outputType.getElementType());
+  mlir::Block *block =
+      rewriter.createBlock(&srcOp.getRegion(), /*insertPt*/ {},
+                           {reductionType, reductionType}, {loc, loc});
+  mlir::stablehlo::AddOp addOp = rewriter.create<mlir::stablehlo::AddOp>(
+      loc, block->getArgument(0), block->getArgument(1));
+  rewriter.create<mlir::stablehlo::ReturnOp>(loc, addOp.getResult());
+}
+
+// AllGatherOp
 class ShardyToStableHLOAllGatherOpConversionPattern
     : public OpConversionPattern<mlir::sdy::AllGatherOp> {
   using OpConversionPattern<mlir::sdy::AllGatherOp>::OpConversionPattern;
@@ -138,7 +157,8 @@ public:
 
     // Iterate through gathering axes and create an all gather operation for
     // each axes that needs to be gathered.
-    mlir::tt::sdy_utils::MeshMap meshMap = getMeshMap(srcOp);
+    mlir::tt::sdy_utils::MeshMap meshMap =
+        getMeshMap<mlir::sdy::AllGatherOp>(srcOp);
 
     Value result = adaptor.getOperands()[0];
     for (auto [allGatherDim, axisRefListAttr] :
@@ -188,10 +208,143 @@ public:
   }
 };
 
+// ReduceScatterOp
+class ShardyToStableHLOReduceScatterOpConversionPattern
+    : public OpConversionPattern<mlir::sdy::ReduceScatterOp> {
+  using OpConversionPattern<mlir::sdy::ReduceScatterOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::sdy::ReduceScatterOp srcOp,
+                  mlir::sdy::ReduceScatterOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    MLIRContext *context = getContext();
+
+    // Set a default channel handle attr since we don't use it in tt-mlir stack
+    // but stablehlo::ReduceScatterOp rewriter requires it.
+    mlir::stablehlo::ChannelHandleAttr channelHandleAttr =
+        mlir::stablehlo::ChannelHandleAttr::get(context, /*handle*/ 1,
+                                                /*type*/ 1);
+
+    // Iterate through reduce scatter axes and create a reduce scatter operation
+    // for each axes that needs to be reduced.
+    mlir::tt::sdy_utils::MeshMap meshMap =
+        getMeshMap<mlir::sdy::ReduceScatterOp>(srcOp);
+
+    Value result = adaptor.getOperands()[0];
+    for (auto [reduceScatterDim, axisRefListAttr] :
+         llvm::enumerate(srcOp.getReduceScatterAxes())) {
+      llvm::ArrayRef<mlir::sdy::AxisRefAttr> axisRefList =
+          axisRefListAttr.getValue();
+
+      // If the tensor dimension doesn't have any sharding on it, skip it.
+      if (axisRefList.size() == 0) {
+        continue;
+      }
+
+      // Currently we don't support multi-sharding on a single tensor dimension
+      // across different mesh axes.
+      if (axisRefList.size() > 1) {
+        return rewriter.notifyMatchFailure(
+            srcOp,
+            "ReduceScatterOp does not support multi-sharding on a single "
+            "tensor dimension across different mesh axes.");
+      }
+
+      // Determine the output type based on the previous operand input and the
+      // reduce scatter dimension.
+      mlir::StringRef meshAxis = axisRefList[0].getName();
+      mlir::RankedTensorType prevOutputType =
+          mlir::cast<mlir::RankedTensorType>(
+              getTypeConverter()->convertType(result.getType()));
+      llvm::SmallVector<int64_t> newShape =
+          llvm::SmallVector<int64_t>(prevOutputType.getShape());
+      newShape[reduceScatterDim] /= meshMap[meshAxis];
+      mlir::RankedTensorType newOutputType = mlir::RankedTensorType::get(
+          newShape, prevOutputType.getElementType());
+
+      // Create new reduce scatter op and replace the previous op's uses with
+      // this new op.
+      mlir::stablehlo::ReduceScatterOp reduceScatterOp =
+          rewriter.create<mlir::stablehlo::ReduceScatterOp>(
+              srcOp.getLoc(), newOutputType, result, reduceScatterDim,
+              createDenseAttrFromReplicaGroups(
+                  context, populateReplicaGroups(meshMap, meshAxis)),
+              channelHandleAttr);
+      result = reduceScatterOp.getResult();
+
+      // Create a single block because stablehlo.reduce_scatter op is a region
+      // based op. Default the reduction type to sum since shardy does not have
+      // support for custom reduction types.
+      addReductionBlock<mlir::stablehlo::ReduceScatterOp>(
+          rewriter, reduceScatterOp, newOutputType);
+    }
+
+    rewriter.replaceAllUsesWith(srcOp, result);
+    srcOp->erase();
+    return success();
+  }
+};
+
+// AllReduceOp
+class ShardyToStableHLOAllReduceOpConversionPattern
+    : public OpConversionPattern<mlir::sdy::AllReduceOp> {
+  using OpConversionPattern<mlir::sdy::AllReduceOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::sdy::AllReduceOp srcOp,
+                  mlir::sdy::AllReduceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    MLIRContext *context = getContext();
+
+    // Set a default channel handle attr since we don't use it in tt-mlir stack
+    // but stablehlo::AllReduceOp rewriter requires it.
+    mlir::stablehlo::ChannelHandleAttr channelHandleAttr =
+        mlir::stablehlo::ChannelHandleAttr::get(context, /*handle*/ 1,
+                                                /*type*/ 1);
+
+    // Iterate through reduction axes and create a all reduce operation for
+    // each axes that needs to be reduced.
+    mlir::tt::sdy_utils::MeshMap meshMap =
+        getMeshMap<mlir::sdy::AllReduceOp>(srcOp);
+    Value result = adaptor.getOperands()[0];
+
+    for (auto reductionAxis : srcOp.getReductionAxes()) {
+      // Create new all reduce op and replace the previous op's uses with this
+      // new op. The shape of the all reduce will not change.
+      mlir::StringRef meshAxis = reductionAxis.getName();
+      mlir::RankedTensorType newOutputType = mlir::cast<mlir::RankedTensorType>(
+          getTypeConverter()->convertType(result.getType()));
+      mlir::stablehlo::AllReduceOp allReduceOp =
+          rewriter.create<mlir::stablehlo::AllReduceOp>(
+              srcOp.getLoc(), newOutputType, result,
+              createDenseAttrFromReplicaGroups(
+                  context, populateReplicaGroups(meshMap, meshAxis)),
+              channelHandleAttr);
+      result = allReduceOp.getResult(0);
+
+      // Create a single block because stablehlo.all_reduce op is a region based
+      // op. Default the reduction type to sum since shardy does not have
+      // support for custom reduction types.
+      addReductionBlock<mlir::stablehlo::AllReduceOp>(rewriter, allReduceOp,
+                                                      newOutputType);
+    }
+
+    rewriter.replaceAllUsesWith(srcOp, result);
+    srcOp->erase();
+    return success();
+  }
+};
+
 void populateShardyCCLToStableHLOCCLPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter) {
   patterns.add<ShardyToStableHLOAllGatherOpConversionPattern>(typeConverter,
+                                                              ctx);
+  patterns.add<ShardyToStableHLOReduceScatterOpConversionPattern>(typeConverter,
+                                                                  ctx);
+  patterns.add<ShardyToStableHLOAllReduceOpConversionPattern>(typeConverter,
                                                               ctx);
 }
 
