@@ -837,9 +837,9 @@ class SystemDesc(Flatbuffer):
 
         import ttrt.binary
 
-        self.system_desc = ttrt.binary.load_system_desc_from_path(file_path)
-        self.system_desc_dict = ttrt.binary.as_dict(self.system_desc)
-        self.version = self.system_desc.version
+        self.fbb = ttrt.binary.load_system_desc_from_path(file_path)
+        self.fbb_dict = ttrt.binary.as_dict(self.fbb)
+        self.version = self.fbb.version
 
         # temporary state value to check if test failed
         self.test_result = "pass"

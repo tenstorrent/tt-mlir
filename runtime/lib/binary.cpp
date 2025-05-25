@@ -56,7 +56,6 @@ static std::string asJson(const void *fbb, const uint8_t *binarySchema,
   std::string text;
   const char *err = ::flatbuffers::GenerateText(parser, fbb, &text);
   LOG_ASSERT(!err, "Failed to generate JSON: ", err);
-
   return text;
 }
 
@@ -111,8 +110,8 @@ std::string_view getTTMLIRGitHash(Flatbuffer binary) {
 
 std::string asJson(Flatbuffer binary) {
   return ::tt::runtime::asJson(
-      binary.handle.get(), ::tt::target::SystemDescRootBinarySchema::data(),
-      ::tt::target::SystemDescRootBinarySchema::size());
+      binary.handle.get(), ::tt::target::ttnn::TTNNBinaryBinarySchema::data(),
+      ::tt::target::ttnn::TTNNBinaryBinarySchema::size());
 }
 
 std::string getSystemDescAsJson(Flatbuffer binary) {
