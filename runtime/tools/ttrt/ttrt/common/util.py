@@ -741,6 +741,7 @@ class Binary(Flatbuffer):
         def __init__(self, index, binary):
             self.fbb = binary
             self.index = index
+            self.name = self.fbb.get_program_name(self.index)
             self.inputs_dict = json.loads(
                 self.fbb.get_program_inputs_as_json(self.index)
             )
