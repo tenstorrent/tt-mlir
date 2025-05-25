@@ -74,6 +74,8 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
   return rewriter.getRemappedValue(loadOp.getMemref());
 }
 
+// This is a workaround special case for getting the output CB. This whole
+// routine should go away with issue #TODO.
 static Value getOutCB(ConversionPatternRewriter &rewriter, Operation *op) {
   func::FuncOp func = op->getParentOfType<func::FuncOp>();
   assert(func && "Expected func op.");
@@ -188,16 +190,19 @@ public:
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto outCB = getOutCB(rewriter, op);
-
     assert(op->hasOneUse());
     if constexpr (arity == 1) {
       assert(op->getNumOperands() == 1u);
     } else if constexpr (arity == 2) {
       assert(op->getNumOperands() == 2u);
-      rewriter.create<ttkernel::BinaryOpInitCommonOp>(
-          op->getLoc(), getCB(rewriter, adaptor.getLhs()),
-          getCB(rewriter, adaptor.getRhs()), outCB);
+      auto insertionPoint = rewriter.getInsertionPoint();
+      auto cbA = getCB(rewriter, adaptor.getLhs());
+      auto cbB = getCB(rewriter, adaptor.getRhs());
+      auto outCB = getOutCB(rewriter, op);
+      setInsertionPointAfterOperands(rewriter, {cbA, cbB, outCB});
+      rewriter.create<ttkernel::BinaryOpInitCommonOp>(op->getLoc(), cbA, cbB,
+                                                      outCB);
+      rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
     } else {
       static_assert(arity == 3 && !ttmlir::utils::always_false<ConcreteOp>(),
                     "FPUOp must be unary, binary or ternary");
@@ -211,8 +216,7 @@ public:
       auto cbA = getCB(rewriter, adaptor.getA());
       auto cbB = getCB(rewriter, adaptor.getB());
       auto outCB = getOutCB(rewriter, op);
-      // setInsertionPointAfterOperands(rewriter, {cbA, cbB, cbC});
-      (void)setInsertionPointAfterOperands;
+      setInsertionPointAfterOperands(rewriter, {cbA, cbB, outCB});
       rewriter.create<ttkernel::MatmulInitOp>(
           op->getLoc(), cbA, cbB, outCB,
           /* transpose */ i32(rewriter, op->getLoc(), 0));
