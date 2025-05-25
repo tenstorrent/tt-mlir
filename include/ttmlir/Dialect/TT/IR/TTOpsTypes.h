@@ -238,6 +238,7 @@ inline bool isFloat(const DataType dtype) {
 }
 
 inline uint8_t getExponentSize(const DataType dtype) {
+  assert(isFloat(dtype));
   switch (dtype) {
   case DataType::Float16:
   case DataType::BFP_Float8:
@@ -256,6 +257,7 @@ inline uint8_t getExponentSize(const DataType dtype) {
 }
 
 inline uint8_t getMantissaSize(const DataType dtype) {
+  assert(isFloat(dtype));
   switch (dtype) {
   case DataType::Float32:
     return 23;
