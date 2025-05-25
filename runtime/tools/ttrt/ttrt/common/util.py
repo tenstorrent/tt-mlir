@@ -74,9 +74,15 @@ def get_atol_rtol_pcc(golden, calculated, logging):
     import numpy as np
     import torch
 
+    # abs() and masked_fill() don't support unsigned integers
+    if not torch.is_floating_point(golden):
+        golden = golden.to(torch.float64)
+    if not torch.is_floating_point(calculated):
+        calculated = calculated.to(torch.float64)
+
     # Calculate atol and rtol
     cal_atol = torch.max(torch.abs(golden - calculated)).item()
-    cal_rtol = torch.max(torch.abs(golden - calculated) / torch.abs(calculated)).item()
+    cal_rtol = torch.max(torch.abs((golden - calculated) / calculated)).item()
 
     # Calculate PCC
     def get_pcc(golden, calculated):

@@ -623,6 +623,7 @@ void populateTTIRToTTIRGenericPatterns(MLIRContext *ctx,
   patterns.add<
     // Elementwise.
     TTIRNamedElementwiseRewriter<ttir::AddOp,       ttir::TileAddOp>,
+    TTIRNamedElementwiseRewriter<ttir::CeilOp,      ttir::TileCeilOp>,
     TTIRNamedElementwiseRewriter<ttir::CosOp,       ttir::TileCosOp>,
     TTIRNamedElementwiseRewriter<ttir::DivOp,       ttir::TileDivOp>,
     TTIRNamedElementwiseRewriter<ttir::ExpOp,       ttir::TileExpOp>,
@@ -633,6 +634,7 @@ void populateTTIRToTTIRGenericPatterns(MLIRContext *ctx,
     TTIRNamedElementwiseRewriter<ttir::RsqrtOp,     ttir::TileRsqrtOp>,
     TTIRNamedElementwiseRewriter<ttir::SigmoidOp,   ttir::TileSigmoidOp>,
     TTIRNamedElementwiseRewriter<ttir::SinOp,       ttir::TileSinOp>,
+    TTIRNamedElementwiseRewriter<ttir::SubtractOp,  ttir::TileSubOp>,
     // Reductions.
     TTIRNamedReductionRewriter<ttir::MaxOp,         ttir::TileReduceMaxOp>,
     TTIRNamedReductionRewriter<ttir::SumOp,         ttir::TileReduceSumOp>,
