@@ -48,6 +48,7 @@
 #include <cassert>
 #include <cstddef>
 #include <iostream>
+#include <limits>
 #include <vector>
 
 namespace ttnn {
