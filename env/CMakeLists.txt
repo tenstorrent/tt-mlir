@@ -41,7 +41,6 @@ ExternalProject_Add(
     GIT_REPOSITORY https://github.com/google/flatbuffers.git
     GIT_TAG ${FLATBUFFERS_VERSION}
     GIT_REMOTE_UPDATE_STRATEGY CHECKOUT
-    UPDATE_DISCONNECTED ON
     DEPENDS python-venv
 )
 
@@ -70,7 +69,6 @@ ExternalProject_Add(
     GIT_TAG ${LLVM_PROJECT_VERSION}
     GIT_PROGRESS OFF
     GIT_REMOTE_UPDATE_STRATEGY CHECKOUT
-    UPDATE_DISCONNECTED ON
     DEPENDS python-venv
 )
 
