@@ -5,14 +5,18 @@
 #ifndef TTMLIR_DIALECT_TTNN_UTILS_UTILS_H
 #define TTMLIR_DIALECT_TTNN_UTILS_UTILS_H
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Value.h"
-
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
+#include "llvm/Support/CommandLine.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 
 namespace mlir::tt::ttnn::utils {
+
+constexpr inline llvm::StringLiteral g_TTNNTraceAttrName = "ttnn.trace";
 
 // Map tt::MemorySpace to ttnn::BufferType
 //
@@ -79,6 +83,8 @@ std::optional<ShardSpecAttr>
 createShardSpecIfNeeded(TensorMemoryLayoutAttr tensorMemoryLayout,
                         ShapeAttr shardShape, GridAttr shardGrid,
                         GridAttr deviceGrid);
+
+bool isTTNNTraceFunc(func::FuncOp funcOp);
 
 } // namespace mlir::tt::ttnn::utils
 

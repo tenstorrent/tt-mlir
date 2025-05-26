@@ -53,11 +53,18 @@ class Helper:
 
 
 class DeviceContext:
-    def __init__(self, mesh_shape, mesh_offset=None, enable_program_cache=False):
+    def __init__(
+        self,
+        mesh_shape,
+        mesh_offset=None,
+        enable_program_cache=False,
+        trace_region_size=0,
+    ):
         options = ttrt.runtime.MeshDeviceOptions()
         if mesh_offset is not None:
             options.mesh_offset = mesh_offset
         options.enable_program_cache = enable_program_cache
+        options.trace_region_size = trace_region_size
         self.device = ttrt.runtime.open_mesh_device(mesh_shape, options)
 
     def __enter__(self):

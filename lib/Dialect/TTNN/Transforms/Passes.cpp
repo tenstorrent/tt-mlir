@@ -80,9 +80,10 @@ public:
       const LivenessBlockInfo *livenessInfo =
           liveness.getLiveness(&func.getBody().front());
 
-      // Const eval subgraphs may not dealloc their params since they don't own
-      // them.
-      if (!ttmlir::utils::isConstEvalFunc(func)) {
+      // Const eval subgraphs and trace functions may not dealloc their params
+      // since they don't own them.
+      if (!ttmlir::utils::isConstEvalFunc(func) &&
+          !utils::isTTNNTraceFunc(func)) {
         // Handle func op input parameters
         for (BlockArgument arg : func.getArguments()) {
           if (!isa<RankedTensorType>(arg.getType())) {

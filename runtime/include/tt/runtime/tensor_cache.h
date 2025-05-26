@@ -6,6 +6,7 @@
 #define TT_RUNTIME_TENSOR_CACHE_H
 
 #include "tt/runtime/types.h"
+#include "tt/runtime/utils.h"
 
 #include <cstdint>
 #include <string>

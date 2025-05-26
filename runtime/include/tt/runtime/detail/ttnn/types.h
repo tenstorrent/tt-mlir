@@ -50,6 +50,9 @@ public:
   void updateVersion() {
     version.store(getLatestVersion(), std::memory_order_relaxed);
   }
+  void syncVersion(const TTNNTensorWrapper &other) {
+    version.store(other.getVersion(), std::memory_order_relaxed);
+  }
 
 private:
   ::ttnn::Tensor tensor;
@@ -148,13 +151,14 @@ public:
                  const std::vector<uint32_t> &programOutputIds,
                  TensorPtrMap &&liveTensors,
                  common::DylibManager &&programDylibManager,
-                 std::shared_ptr<::ttnn::MeshDevice> meshDevice,
+                 ::tt::runtime::Device deviceHandle,
                  const Binary &executableHandle, size_t programIndex = 0)
       : tensorPool(ProgramTensorPool(programInputIds, programOutputIds,
                                      std::move(liveTensors))),
-        dylibManager(std::move(programDylibManager)), meshDevice(meshDevice),
-        executableHandle(executableHandle), programIndex(programIndex) {
-    LOG_ASSERT(meshDevice, "Submesh cannot be null");
+        dylibManager(std::move(programDylibManager)),
+        deviceHandle(deviceHandle), executableHandle(executableHandle),
+        programIndex(programIndex) {
+    LOG_ASSERT(deviceHandle.handle, "DeviceHandle cannot be null");
   }
 
   ProgramContext(const ProgramContext &) = delete;
@@ -166,13 +170,23 @@ public:
   // Sub Mesh Operations
   //
 
-  ::ttnn::MeshDevice &getMeshDevice() { return *meshDevice; }
-  std::shared_ptr<::ttnn::MeshDevice> getMeshDevicePtr() { return meshDevice; }
+  const ::tt::runtime::Device &getDeviceHandle() const { return deviceHandle; }
+  ::tt::runtime::Device &getDeviceHandle() { return deviceHandle; }
 
-  size_t meshDeviceSize() const { return meshDevice->num_devices(); }
+  const ::ttnn::MeshDevice &getMeshDevice() const {
+    return deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  }
+  ::ttnn::MeshDevice &getMeshDevice() {
+    return deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  }
+  std::shared_ptr<::ttnn::MeshDevice> getMeshDevicePtr() {
+    return deviceHandle.asSharedPtr<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  }
+
+  size_t meshDeviceSize() const { return getMeshDevice().num_devices(); }
 
   const ::ttnn::MeshShape &meshDeviceShape() const {
-    return meshDevice->shape();
+    return getMeshDevice().shape();
   }
 
   //
@@ -190,8 +204,8 @@ public:
   //
   // Executable Handle Operations
   //
-  std::shared_ptr<TensorCache> getCache() {
-    return executableHandle.getCache();
+  std::shared_ptr<TensorCache> getConstEvalTensorCache() {
+    return executableHandle.getConstEvalTensorCache();
   }
 
   Binary &getExecutableHandle() { return executableHandle; }
@@ -206,7 +220,7 @@ private:
 
   common::DylibManager dylibManager;
 
-  std::shared_ptr<::ttnn::MeshDevice> meshDevice;
+  ::tt::runtime::Device deviceHandle;
 
   // The executable binary handle
   Binary executableHandle;

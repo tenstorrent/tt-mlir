@@ -1633,6 +1633,37 @@ createOp(FlatbufferObjectCache &cache, tt::LoadCachedOp op,
   return ::tt::target::ttnn::CreateLoadCachedOpDirect(
       *cache.fbb, &ins, op.getCallee().str().c_str(), programIdx, &outputs);
 }
+
+::flatbuffers::Offset<::tt::target::ttnn::TraceOp>
+createOp(FlatbufferObjectCache &cache, TraceOp op,
+         const llvm::StringMap<uint32_t> &programIndexMap) {
+
+  ::mlir::Value device = getOperandThroughDPSOps(op.getDevice());
+  uint32_t cqId = op.getCqId();
+  bool blocking = op.getBlocking();
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> inputs;
+  for (auto input : op.getInputs()) {
+    inputs.push_back(cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(input)));
+  }
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> outputs;
+  for (auto result : op.getResults()) {
+    outputs.push_back(
+        cache.getOrCreate(result, tensorValueToFlatbuffer, kHostAllocatedSize));
+  }
+
+  auto it = programIndexMap.find(op.getCallee().str());
+  assert(it != programIndexMap.end() &&
+         "Program name not found in program index map!");
+  const uint32_t programIdx = it->second;
+
+  return ::tt::target::ttnn::CreateTraceOpDirect(
+      *cache.fbb, cache.at<::tt::target::DeviceRef>(device), cqId, blocking,
+      op.getCallee().str().c_str(), programIdx, &inputs, &outputs);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   const llvm::StringMap<uint32_t> &programIndexMap,
@@ -1901,6 +1932,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createEltwiseUnaryOp(cache, atanOp),
                            debugString, locInfo);
   }
+  if (auto erfOp = dyn_cast<ErfOp>(op); erfOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, erfOp),
+                           debugString, locInfo);
+  }
   if (auto cbrtOp = dyn_cast<CbrtOp>(op); cbrtOp) {
     return createOperation(cache, createEltwiseUnaryCompositeOp(cache, cbrtOp),
                            debugString, locInfo);
@@ -2078,6 +2113,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            createOp(cache, loadCachedOp, programIndexMap),
                            debugString, locInfo);
   }
+  if (auto traceOp = dyn_cast<TraceOp>(op); traceOp) {
+    return createOperation(cache, createOp(cache, traceOp, programIndexMap),
+                           debugString, locInfo);
+  }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");
 }
@@ -2146,7 +2185,8 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   llvm::StringMap<uint32_t> programIdxMap;
   // Preserve original ordering by skipping const-eval in the first pass.
   module->walk([&](func::FuncOp func) {
-    if (ttmlir::utils::isConstEvalFunc(func)) {
+    if (ttmlir::utils::isConstEvalFunc(func) ||
+        ttnn::utils::isTTNNTraceFunc(func)) {
       return;
     }
     programIdxMap[func.getSymName().str()] = programIdx++;
@@ -2160,10 +2200,19 @@ std::shared_ptr<void> ttnnToFlatbuffer(
     programIdxMap[func.getSymName().str()] = programIdx++;
   });
 
+  // Add trace funcs after const-eval and normal funcs.
+  module->walk([&](func::FuncOp func) {
+    if (!ttnn::utils::isTTNNTraceFunc(func)) {
+      return;
+    }
+    programIdxMap[func.getSymName().str()] = programIdx++;
+  });
+
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::Program>> programs;
   // Again, process original funcs in order first to perserve input order.
   module->walk([&](func::FuncOp func) {
-    if (ttmlir::utils::isConstEvalFunc(func)) {
+    if (ttmlir::utils::isConstEvalFunc(func) ||
+        ttnn::utils::isTTNNTraceFunc(func)) {
       return;
     }
     Program<::tt::target::ttnn::Operation> program =
@@ -2177,6 +2226,20 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   // Then process const-eval funcs in 2nd pass.
   module->walk([&](func::FuncOp func) {
     if (!ttmlir::utils::isConstEvalFunc(func)) {
+      return;
+    }
+    Program<::tt::target::ttnn::Operation> program =
+        funcOpToProgram<::tt::target::ttnn::Operation>(
+            cache, func, emitTTNNOperation, tensorValueToFlatbuffer,
+            programIdxMap);
+    programs.push_back(::tt::target::ttnn::CreateProgramDirect(
+        fbb, program.name, &program.inputs, &program.outputs, &program.ops,
+        &dylibs, debugInfo, /*private=*/true));
+  });
+
+  // Finally, process trace op funcs
+  module->walk([&](func::FuncOp func) {
+    if (!ttnn::utils::isTTNNTraceFunc(func)) {
       return;
     }
     Program<::tt::target::ttnn::Operation> program =

@@ -21,6 +21,7 @@ set(TTNN_OPERATIONS_FBS_GEN_SOURCES
   operations/normalization.fbs
   operations/pool.fbs
   operations/reduction.fbs
+  operations/trace.fbs
 )
 
 set(TTNN_FBS_GEN_SOURCES

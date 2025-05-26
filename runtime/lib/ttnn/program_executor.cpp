@@ -53,6 +53,7 @@
 #include "operations/reduction/argmax.h"
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
+#include "operations/trace/trace.h"
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/ttnn/types.h"
 #include "tt/runtime/utils.h"
@@ -71,20 +72,11 @@ static void tracyLogOpLocation(const ::tt::target::ttnn::Operation *op) {
 #endif
 }
 
-static const ::tt::target::ttnn::Program *
-getProgram(const Binary &executableHandle, std::uint32_t programIndex) {
-  const ::tt::target::ttnn::TTNNBinary &fbb =
-      *utils::getBinary(executableHandle);
-  const ::tt::target::ttnn::Program *program =
-      fbb.programs()->Get(programIndex);
-  return program;
-}
-
 ProgramExecutor::ProgramExecutor(
-    const Binary &executableHandle,
-    std::vector<::tt::runtime::Tensor> &programInputs,
-    std::shared_ptr<::ttnn::MeshDevice> meshDevice, const size_t programIndex)
-    : program(getProgram(executableHandle, programIndex)),
+    ::tt::runtime::Device deviceHandle, ::tt::runtime::Binary &executableHandle,
+    const size_t programIndex,
+    std::vector<::tt::runtime::Tensor> &programInputs)
+    : program(utils::getProgram(executableHandle, programIndex)),
       executableHandle(executableHandle) {
   LOG_ASSERT(program, "Program must be provided for execution");
 
@@ -108,7 +100,7 @@ ProgramExecutor::ProgramExecutor(
 
   context = std::make_unique<ProgramContext>(
       programInputIds, programOutputIds, std::move(liveTensors),
-      common::DylibManager(program->dylibs()), std::move(meshDevice),
+      common::DylibManager(program->dylibs()), std::move(deviceHandle),
       executableHandle, programIndex);
 }
 
@@ -335,6 +327,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::BatchNormOp: {
     return operations::batch_norm::run(op->type_as_BatchNormOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::TraceOp: {
+    return operations::trace::run(op->type_as_TraceOp(), getContext());
   }
   default: {
     LOG_FATAL("Unsupported operation type: ",
