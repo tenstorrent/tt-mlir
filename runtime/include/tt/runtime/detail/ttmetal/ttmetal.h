@@ -127,7 +127,7 @@ std::string getOpDebugString(OpContext opContextHandle);
 std::string getOpLocInfo(OpContext opContextHandle);
 
 Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle, bool untilize=true);
+                         CallbackContext programContextHandle);
 
 std::optional<tt::runtime::TensorRef>
 getOpOutputRef(OpContext opContextHandle, CallbackContext programContextHandle);

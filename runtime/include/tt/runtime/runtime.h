@@ -188,7 +188,7 @@ std::string getOpDebugString(OpContext opContextHandle);
 std::string getOpLocInfo(OpContext opContextHandle);
 
 Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle, bool untilize = true);
+                         CallbackContext programContextHandle);
 
 // Returns the reference to the output tensor of the current operation.
 // In case that operation does not have an output tensor, returns nullopt

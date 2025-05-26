@@ -677,17 +677,17 @@ std::string getOpLocInfo(OpContext opContextHandle) {
 }
 
 Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle, bool untilize) {
+                         CallbackContext programContextHandle) {
   using RetType = Tensor;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
         return ::tt::runtime::ttnn::getOpOutputTensor(opContextHandle,
-                                                      programContextHandle, untilize);
+                                                      programContextHandle);
       },
       [&]() -> RetType {
         return ::tt::runtime::ttmetal::getOpOutputTensor(opContextHandle,
-                                                         programContextHandle, untilize);
+                                                         programContextHandle);
       });
 }
 

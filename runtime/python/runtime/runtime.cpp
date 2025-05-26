@@ -305,7 +305,7 @@ void registerRuntimeBindings(nb::module_ &m) {
       [](tt::runtime::OpContext &opContextHandle,
          tt::runtime::CallbackContext &programContextHandle) {
         tt::runtime::Tensor tensor = tt::runtime::getOpOutputTensor(
-            opContextHandle, programContextHandle, true);
+            opContextHandle, programContextHandle);
         return tensor.handle.get() == nullptr
                    ? std::nullopt
                    : std::optional<tt::runtime::Tensor>(tensor);

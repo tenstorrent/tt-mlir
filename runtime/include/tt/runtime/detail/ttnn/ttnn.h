@@ -201,11 +201,15 @@ std::string getOpDebugString(OpContext opContextHandle);
 std::string getOpLocInfo(OpContext opContextHandle);
 
 ::tt::runtime::Tensor getOpOutputTensor(OpContext opContextHandle,
-                                        CallbackContext programContextHandle, bool untilize=true);
+                                        CallbackContext programContextHandle);
 
+// Returns reference to the output tensor of the operation
+// if the operation does not have an output tensor, returns std::nullopt
 std::optional<tt::runtime::TensorRef>
 getOpOutputRef(OpContext opContextHandle, CallbackContext programContextHandle);
 
+// Returns list of references to the input tensors of the operation
+// if the operation does not have any input tensors, returns empty vector
 std::vector<tt::runtime::TensorRef>
 getOpInputRefs(OpContext opContextHandle, CallbackContext programContextHandle);
 

@@ -876,13 +876,13 @@ std::string getOpLocInfo(OpContext opContextHandle) {
 }
 
 Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle, bool untilize) {
+                         CallbackContext programContextHandle) {
   std::optional<tt::runtime::TensorRef> tensorRef =
       getOpOutputRef(opContextHandle, programContextHandle);
   if (!tensorRef) {
     return createNullTensor();
   }
-  auto tensor = getTensor(programContextHandle, *tensorRef, untilize);
+  auto tensor = getTensor(programContextHandle, *tensorRef, true);
   return tensor ? *tensor : createNullTensor();
 }
 
