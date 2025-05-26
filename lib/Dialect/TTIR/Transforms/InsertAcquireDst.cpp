@@ -9,6 +9,7 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/LoopUtils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include <numeric>
@@ -101,6 +102,10 @@ public:
 
     for (auto &[loopNest, copyInfo] : loopNests) {
       rewriter.setInsertionPoint(loopNest);
+      auto guard = insertGuardForLoopNest(rewriter, loopNest.getLoc(), {2});
+      if (guard) {
+        rewriter.setInsertionPointToStart(&guard.getThenRegion().front());
+      }
       dataCopyGenerate<affine::AffineLoadOp>(
           rewriter, loopNest, copyInfo.loads,
           [&](PatternRewriter &rewriter, ValueRange indices) {
@@ -120,6 +125,28 @@ public:
                                                    indices);
           });
     }
+  }
+
+  static scf::IfOp insertGuardForLoopNest(PatternRewriter &rewriter,
+                                          Location loc,
+                                          ArrayRef<int64_t> guardIndices) {
+    if (guardIndices.empty()) {
+      return nullptr;
+    }
+    auto zero = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getIndexType(),
+        rewriter.getIntegerAttr(rewriter.getIndexType(), 0));
+    auto cmp = rewriter
+                   .create<arith::ConstantOp>(loc, rewriter.getI1Type(),
+                                              rewriter.getBoolAttr(true))
+                   .getResult();
+    for (int64_t index : guardIndices) {
+      auto iterIndex = rewriter.create<ttir::IterIndexOp>(loc, index);
+      auto eq = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne,
+                                               iterIndex, zero);
+      cmp = rewriter.create<arith::AndIOp>(loc, cmp, eq).getResult();
+    }
+    return rewriter.create<scf::IfOp>(loc, cmp);
   }
 
   template <typename LoadStoreOpTy>

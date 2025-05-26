@@ -536,6 +536,14 @@ class TTIR_IndexOp<string mnemonic, list<Trait> traits = []> : TTIR_GenericRegio
     let results = (outs Index:$result);
     let assemblyFormat = [{ `(` $dim `)` attr-dict `:` type($result) }];
     let hasFolder = true;
+
+    let builders =
+    [
+      OpBuilder<(ins "int64_t":$dim),
+      [{
+        build($_builder, $_state, $_builder.getIndexType(), $_builder.getI64IntegerAttr(dim));
+      }]>
+    ];
 }
 
 def TTIR_IterIndexOp : TTIR_IndexOp<"iter_index"> {
