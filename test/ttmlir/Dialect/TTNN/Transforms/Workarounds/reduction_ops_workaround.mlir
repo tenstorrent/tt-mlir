@@ -5,17 +5,14 @@
 #ttnn_layout1 = #ttnn.ttnn_layout<(d0) -> (0, d0), <1x1>, memref<1x4x!tt.tile<32x32, si32>, #dram>, <interleaved>>
 func.func public @test_reduce_max(%arg0: tensor<128x32xsi32, #ttnn_layout>) -> tensor<128xsi32, #ttnn_layout1> {
   // CHECK-LABEL: @test_reduce_max
-  // CHECK: %[[ARG0:[0-9]+]] = "ttnn.to_layout"(%arg0, %{{[0-9]+}})
-  // CHECK-SAME: dtype = #tt.supportedDataTypes<bf16>,
-  // CHECK-SAME: tensor<128x32xsi32,
-  // CHECK-SAME: -> tensor<128x32xbf16,
-  // CHECK: %[[MAX:[0-9]+]] = "ttnn.max"(%[[ARG0]])
+  // CHECK: tensor<128x32xsi32,
+  // CHECK-SAME: -> tensor<128xsi32,
+  // CHECK: %[[MAX:[0-9]+]] = "ttnn.max"
   // CHECK-SAME: <{dim_arg = [1 : i32], keep_dim = false}>
   // CHECK-SAME: tensor<128x32xbf16,
   // CHECK-SAME: -> tensor<128xbf16,
   %0 = "ttnn.max"(%arg0) <{dim_arg = [1 : i32], keep_dim = false}> : (tensor<128x32xsi32, #ttnn_layout>) -> tensor<128xsi32, #ttnn_layout1>
-  // CHECK: %{{[0-9]+}} = "ttnn.to_layout"(%[[MAX]], %{{[0-9]+}})
-  // CHECK-SAME: dtype = #tt.supportedDataTypes<si32>,
+  // CHECK: "ttnn.to_layout"
   // CHECK-SAME: tensor<128xbf16,
   // CHECK-SAME: -> tensor<128xsi32,
   return %0 : tensor<128xsi32, #ttnn_layout1>
@@ -23,18 +20,14 @@ func.func public @test_reduce_max(%arg0: tensor<128x32xsi32, #ttnn_layout>) -> t
 
 func.func public @test_reduce_sum(%arg0: tensor<128x10xsi32, #ttnn_layout>) -> tensor<128xsi32, #ttnn_layout1> {
   // CHECK-LABEL: @test_reduce_sum
-  // CHECK: %[[ARG0:[0-9]+]] = "ttnn.to_layout"(%arg0, %{{[0-9]+}})
-  // CHECK-SAME: dtype = #tt.supportedDataTypes<bf16>,
-  // CHECK-SAME: tensor<128x10xsi32,
-  // CHECK-SAME: -> tensor<128x10xbf16,
-  // CHECK: %[[SUM:[0-9]+]] = "ttnn.sum"(%[[ARG0]])
+  // CHECK: tensor<128x10xsi32,
+  // CHECK-SAME: -> tensor<128xsi32,
+  // CHECK: %[[SUM:[0-9]+]] = "ttnn.sum"
   // CHECK-SAME: <{dim_arg = [1 : i32], keep_dim = false}>
-  // CHECK-SAME: tensor<128x10xbf16,
+  // CHECK-SAME: tensor<128x32xbf16,
   // CHECK-SAME: -> tensor<128xbf16,
   %0 = "ttnn.sum"(%arg0) <{dim_arg = [1 : i32], keep_dim = false}> : (tensor<128x10xsi32, #ttnn_layout>) -> tensor<128xsi32, #ttnn_layout1>
-  // CHECK: %{{[0-9]+}} = "ttnn.to_layout"(%[[SUM]], %{{[0-9]+}})
-  // CHECK-SAME: dtype = #tt.supportedDataTypes<si32>,
-  // CHECK-SAME: tensor<128xbf16,
+  // CHECK: tensor<128xbf16,
   // CHECK-SAME: -> tensor<128xsi32,
   return %0 : tensor<128xsi32, #ttnn_layout1>
 }
@@ -50,5 +43,17 @@ func.func public @test_reduce_max_requires_pad(%arg0: tensor<128x30xf32, #ttnn_l
   // CHECK-SAME: tensor<128x32xf32
   // CHECK-SAME: -> tensor<128xf32
   %0 = "ttnn.max"(%arg0) <{dim_arg = [1 : i32], keep_dim = false}> : (tensor<128x30xf32, #ttnn_layout2>) -> tensor<128xf32, #ttnn_layout3>
+  return %0 : tensor<128xf32, #ttnn_layout3>
+}
+
+func.func public @test_reduce_sum_requires_pad(%arg0: tensor<128x30xf32, #ttnn_layout2>) -> tensor<128xf32, #ttnn_layout3> {
+  // CHECK-LABEL: @test_reduce_sum_requires_pad
+  // CHECK: "ttnn.pad"
+  // CHECK-SAME: padding = array<i32: 0, 0, 0, 2>
+  // CHECK-SAME: value = 0.000000e+00
+  // CHECK: "ttnn.sum"
+  // CHECK-SAME: tensor<128x32xf32
+  // CHECK-SAME: -> tensor<128xf32
+  %0 = "ttnn.sum"(%arg0) <{dim_arg = [1 : i32], keep_dim = false}> : (tensor<128x30xf32, #ttnn_layout2>) -> tensor<128xf32, #ttnn_layout3>
   return %0 : tensor<128xf32, #ttnn_layout3>
 }
