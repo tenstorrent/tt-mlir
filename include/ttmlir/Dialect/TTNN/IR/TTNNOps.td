@@ -143,6 +143,13 @@ class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
     let results = (outs AnyRankedTensor:$result);
 
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createUnaryOpOperandsWorkarounds(*this);
+      }
+    }];
+
     let builders =
     [
       OpBuilder<(ins "Value": $input),
