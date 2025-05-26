@@ -402,8 +402,6 @@ jobs:
     if: github.event_name == 'pull_request'
     needs: build-image
     timeout-minutes: 120
-    strategy:
-      fail-fast: false
     name: Lint (clang-tidy)
     runs-on: ubuntu-latest
     container:
@@ -484,8 +482,6 @@ jobs:
   debug:
     needs: build-image
     timeout-minutes: 120
-    strategy:
-      fail-fast: false
     name: Debug Build
     runs-on: ubuntu-latest
     container:
