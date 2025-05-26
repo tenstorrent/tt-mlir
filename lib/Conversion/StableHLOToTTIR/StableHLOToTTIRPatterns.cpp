@@ -918,19 +918,18 @@ public:
     auto padding_ = adaptor.getPaddingAttr();
     auto ceilModeAttr = adaptor.getAttributes().get("ceil_mode");
     bool ceilMode = false;
-    auto ceilModePaddingAttr = adaptor.getAttributes().get("ceil_mode_padding");
     mlir::DenseElementsAttr ceilModePadding_;
 
-    if (ceilModePaddingAttr) {
-      if (auto denseAttr =
-              mlir::dyn_cast<mlir::DenseElementsAttr>(ceilModePaddingAttr)) {
-        ceilModePadding_ = denseAttr;
+    if (ceilModeAttr) {
+      if (auto ceilAttr = mlir::dyn_cast<mlir::BoolAttr>(ceilModeAttr)) {
+        ceilMode = ceilAttr.getValue();
       }
     }
-    if (ceilModeAttr) {
-      if (auto boolAttr = mlir::dyn_cast<mlir::BoolAttr>(ceilModeAttr)) {
-        ceilMode = boolAttr.getValue();
-      }
+    if (ceilMode) {
+      auto ceilModePaddingAttr =
+          adaptor.getAttributes().get("ceil_mode_padding");
+      ceilModePadding_ =
+          mlir::cast<mlir::DenseElementsAttr>(ceilModePaddingAttr);
     }
 
     // Generate defaults if they dont exist (these defaults are what the
