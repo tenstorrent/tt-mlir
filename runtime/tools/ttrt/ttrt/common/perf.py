@@ -222,10 +222,24 @@ class Perf:
                     return
             self.ttnn_binaries.append(bin)
         else:
-            ttnn_binary_paths = self.file_manager.find_ttnn_binary_paths(self["binary"])
-            ttmetal_binary_paths = self.file_manager.find_ttmetal_binary_paths(
-                self["binary"]
-            )
+            ttnn_binary_paths, ttmetal_binary_paths = [], []
+            try:
+                ttnn_binary_paths = self.file_manager.find_ttnn_binary_paths(
+                    self["binary"]
+                )
+                ttmetal_binary_paths = self.file_manager.find_ttmetal_binary_paths(
+                    self["binary"]
+                )
+            except Exception as e:
+                test_result = {
+                    "file_path": self["binary"],
+                    "result": "error",
+                    "exception": str(e),
+                    "log_file": self.logger.file_name,
+                    "artifacts": self.artifacts.artifacts_folder_path,
+                    "program_index": self["--program-index"],
+                }
+                self.results.add_result(test_result)
 
             self.logging.debug(f"ttnn_binary_paths={ttnn_binary_paths}")
             self.logging.debug(f"ttmetal_binary_paths={ttmetal_binary_paths}")
