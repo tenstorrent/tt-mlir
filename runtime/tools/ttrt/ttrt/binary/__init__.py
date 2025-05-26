@@ -17,11 +17,14 @@ import json
 import re
 
 
-def as_dict(bin):
-    json_txt = bin.as_json()
+def json_string_as_dict(json_string):
     # Flatbuffers emits 'nan' and 'inf'
     # But Python's JSON accepts only 'NaN' and 'Infinity' and nothing else
     # We include the comma to avoid replacing 'inf' in contexts like 'info'
-    json_txt = re.sub(r"\bnan\b", "NaN", json_txt)
-    json_txt = re.sub(r"\binf\b", "Infinity", json_txt)
-    return json.loads(json_txt)
+    json_string = re.sub(r"\bnan\b", "NaN", json_string)
+    json_string = re.sub(r"\binf\b", "Infinity", json_string)
+    return json.loads(json_string)
+
+
+def as_dict(bin):
+    return json_string_as_dict(bin.as_json())

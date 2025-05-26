@@ -655,7 +655,9 @@ class Binary(Flatbuffer):
             self.fbb = ttrt.binary.load_binary_from_path(file_path)
         else:
             self.fbb = ttrt.binary.load_binary_from_capsule(capsule)
-        self.system_desc_dict = json.loads(self.fbb.get_system_desc_as_json())
+        self.system_desc_dict = ttrt.binary.json_string_as_dict(
+            self.fbb.get_system_desc_as_json()
+        )
         self.version = self.fbb.version
         self.program_indices = range(self.fbb.get_num_programs())
         self.programs = []
@@ -739,35 +741,39 @@ class Binary(Flatbuffer):
 
     class Program:
         def __init__(self, index, binary):
+            import ttrt.binary
+
             self.fbb = binary
             self.index = index
             self.name = self.fbb.get_program_name(self.index)
-            self.inputs_dict = json.loads(
+            self.inputs = ttrt.binary.json_string_as_dict(
                 self.fbb.get_program_inputs_as_json(self.index)
             )
-            self.outputs_dict = json.loads(
+            self.outputs = ttrt.binary.json_string_as_dict(
                 self.fbb.get_program_outputs_as_json(self.index)
             )
-            self.operations = json.loads(self.fbb.get_program_ops_as_json(self.index))
+            self.operations = ttrt.binary.json_string_as_dict(
+                self.fbb.get_program_ops_as_json(self.index)
+            )
             self.input_tensors = []
             self.output_tensors = []
 
         def num_inputs(self):
-            return len(self.inputs_dict)
+            return len(self.inputs)
 
         def num_outputs(self):
-            return len(self.outputs_dict)
+            return len(self.outputs)
 
         def populate_inputs(self, init_fn, golden_inputs=[]):
             if len(golden_inputs) > 0:
-                assert len(golden_inputs) == len(self.inputs_dict)
-                for index, input_fb in enumerate(self.inputs_dict):
+                assert len(golden_inputs) == len(self.inputs)
+                for index, input_fb in enumerate(self.inputs):
                     reshaped = torch.reshape(
                         golden_inputs[index], input_fb["desc"]["shape"]
                     )
                     self.input_tensors.append(reshaped)
             else:
-                for i in self.inputs_dict:
+                for i in self.inputs:
                     torch_tensor = init_fn(
                         i["desc"]["shape"],
                         dtype=Binary.Program.from_data_type(
@@ -777,7 +783,7 @@ class Binary(Flatbuffer):
                     self.input_tensors.append(torch_tensor)
 
         def populate_outputs(self, init_fn):
-            for i in self.outputs_dict:
+            for i in self.outputs:
                 torch_tensor = init_fn(
                     i["desc"]["shape"],
                     dtype=Binary.Program.from_data_type(

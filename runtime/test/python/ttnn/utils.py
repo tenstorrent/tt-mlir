@@ -86,7 +86,7 @@ def get_runtime_tensor_from_torch(torch_tensor, storage=Storage.Borrowed):
 
 def get_torch_inputs(program):
     inputs_torch = []
-    for program_input in program.inputs_dict:
+    for program_input in program.inputs:
         torch_tensor = torch.randn(
             program_input["desc"]["shape"],
             dtype=Binary.Program.from_data_type(
@@ -99,9 +99,9 @@ def get_torch_inputs(program):
 
 def get_torch_output_container(program):
     torch_result_container = torch.randn(
-        program.outputs_dict[0]["desc"]["shape"],
+        program.outputs[0]["desc"]["shape"],
         dtype=Binary.Program.from_data_type(
-            program.outputs_dict[0]["desc"]["layout"]["memory_desc"]["data_type"]
+            program.outputs[0]["desc"]["layout"]["memory_desc"]["data_type"]
         ),
     )
     return torch_result_container
