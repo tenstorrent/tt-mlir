@@ -1266,6 +1266,10 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_Pool2dOp()->in()};
     break;
   }
+  case ::tt::target::ttnn::OpType::PrepareConv2dWeightsOp: {
+    tensorRefs = {opContext.type_as_PrepareConv2dWeightsOp()->weight_tensor()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     tensorRefs = {opContext.type_as_AllGatherOp()->in()};
     break;
@@ -1295,15 +1299,24 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_DeallocateOp()->in()};
     break;
   }
-  case ::tt::target::ttnn::OpType::NamedFullOp:
-  case ::tt::target::ttnn::OpType::UpdateCacheOp:
-  case ::tt::target::ttnn::OpType::FillCacheOp:
-  case ::tt::target::ttnn::OpType::LoadCachedOp: {
-    tensorRefs = {};
+  case ::tt::target::ttnn::OpType::UpdateCacheOp: {
+    tensorRefs = {opContext.type_as_UpdateCacheOp()->cache(),
+                  opContext.type_as_UpdateCacheOp()->input(),
+                  opContext.type_as_UpdateCacheOp()->update_index()};
     break;
   }
-  case ::tt::target::ttnn::OpType::PrepareConv2dWeightsOp: {
-    tensorRefs = {opContext.type_as_PrepareConv2dWeightsOp()->weight_tensor()};
+  case ::tt::target::ttnn::OpType::FillCacheOp: {
+    tensorRefs = {opContext.type_as_FillCacheOp()->cache(),
+                  opContext.type_as_FillCacheOp()->input()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::LoadCachedOp: {
+    tensorRefs = utils::convertFbTensorRefsToVector(
+        opContext.type_as_LoadCachedOp()->inputs());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::NamedFullOp: {
+    tensorRefs = {};
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
