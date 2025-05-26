@@ -325,9 +325,7 @@ void registerRuntimeBindings(nb::module_ &m) {
     Parameters
     ----------
     op_context_handle : tt.runtime.OpContext
-        Handle describing the operator instance that is being executed.
     program_context_handle : tt.runtime.CallbackContext
-        Current program/graph context used to resolve the tensor pool.
 
     Returns
     -------
@@ -350,9 +348,7 @@ void registerRuntimeBindings(nb::module_ &m) {
     Parameters
     ----------
     op_context_handle : ttrt.runtime.OpContext
-        Handle describing the operator instance that is being executed.
     program_context_handle : ttrt.runtime.CallbackContext
-        Current program/graph context used to resolve the tensor pool.
 
     Returns
     -------
@@ -377,16 +373,15 @@ void registerRuntimeBindings(nb::module_ &m) {
     Parameters
     ----------
     program_context_handle : ttrt.runtime.CallbackContext
-        Program context used to locate the tensor in the pool.
     tensor_ref : ttrt.runtime.TensorRef
         Reference to the tensor of interest (from get_op_output_ref/get_op_input_refs).
     untilize : bool, default ``True``
-        If the tensor is stored in a tilized format, de-tilize it before returning.
+        If the tensor is stored in a tilized format, de-tilize it before returning. If the untilize flag is ``False``, tensor will be with padding so shape will be different from the original shape
 
     Returns
     -------
     Optional[tt.runtime.Tensor]
-        The concrete tensor corresponding to *tensor_ref*, or ``None`` if the
+        The tensor corresponding to *tensor_ref*, or ``None`` if the
         tensor is not present in the pool (e.g., it was deallocated).
     )");
 
@@ -408,9 +403,7 @@ void registerRuntimeBindings(nb::module_ &m) {
     Parameters
     ----------
     program_context_handle : ttrt.runtime.CallbackContext
-        Program context used to resolve the tensor pool.
     tensor_ref_handle : ttrt.runtime.TensorRef
-        Reference to the tensor that will be updated.
     tensor_handle : ttrt.runtime.Tensor
         Source tensor which data will tensor_ref refer to.
 
