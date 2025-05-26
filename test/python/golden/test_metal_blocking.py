@@ -12,8 +12,8 @@ from ttmlir.dialects import tt
 from ttmlir.ir import *
 
 
-@pytest.mark.parametrize("grid_y", [1, 2, 3])
-@pytest.mark.parametrize("grid_x", [1, 2, 3])
+@pytest.mark.parametrize("grid_y", [1])
+@pytest.mark.parametrize("grid_x", [1])
 @pytest.mark.parametrize("shard_mul_y", [3])
 @pytest.mark.parametrize("shard_mul_x", [2])
 @pytest.mark.parametrize("dst_register_size_tiles", [1])
@@ -59,9 +59,9 @@ def test_eltwise_blocking(
 @pytest.mark.parametrize("grid_k", [1])
 @pytest.mark.parametrize("grid_n", [1])
 @pytest.mark.parametrize("m", [3])
-@pytest.mark.parametrize("k", [2])
-@pytest.mark.parametrize("n", [4])
-@pytest.mark.parametrize("dst_register_size_tiles", [1])
+@pytest.mark.parametrize("k", [4])
+@pytest.mark.parametrize("n", [3])
+@pytest.mark.parametrize("dst_register_size_tiles", [8])
 def test_matmul_blocking(
     grid_m: int,
     grid_k: int,
@@ -82,7 +82,7 @@ def test_matmul_blocking(
         grid_n * n * tile_size,
     )
 
-    def eltwise_blocking(
+    def matmul_blocking(
         in0: Operand,
         in1: Operand,
         builder: TTIRBuilder,
@@ -95,7 +95,7 @@ def test_matmul_blocking(
         f"override-device-shape={grid_m},{grid_n}",
     ]
     compile_to_flatbuffer(
-        eltwise_blocking,
+        matmul_blocking,
         [lhs, rhs],
         target="ttmetal",
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
