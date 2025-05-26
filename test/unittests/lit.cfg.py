@@ -55,3 +55,5 @@ if "ARCH_NAME" in os.environ:
     config.environment["ARCH_NAME"] = os.environ["ARCH_NAME"]
 else:
     raise OSError("ARCH_NAME environment variable is not set")
+
+config.excludes.add("Optimizer")
