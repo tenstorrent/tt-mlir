@@ -421,25 +421,15 @@ class Read:
 
     def system_desc(self, *binaries):
         return self._operate_on_binary(
-            binaries,
-            lambda binary: ttrt.binary.json_string_as_dict(
-                binary.fbb.get_system_desc_as_json()
-            ),
+            binaries, lambda binary: ttrt.binary.system_desc_as_dict(binary.fbb)
         )
 
     def mlir(self, *binaries):
         def _get_mlir(binary):
             results = []
             for index in range(binary.fbb.get_num_programs()):
-                results.append(
-                    {
-                        binary.fbb.get_program_debug_info_as_json(index)["mlir"][
-                            "name"
-                        ]: binary.fbb.get_program_debug_info_as_json(index)["mlir"][
-                            "source"
-                        ]
-                    }
-                )
+                mlir = ttrt.binary.program_mlir_as_dict(binary.fbb, index)
+                results.append({mlir["name"]: mlir["source"]})
             return results
 
         return self._operate_on_binary(binaries, _get_mlir)
@@ -450,9 +440,9 @@ class Read:
             for index in range(binary.fbb.get_num_programs()):
                 results.append(
                     {
-                        binary.fbb.get_program_name(
+                        binary.fbb.get_program_name(index): binary.fbb.get_program_cpp(
                             index
-                        ): binary.fbb.get_program_debug_info_as_json(index)["cpp"]
+                        )
                     }
                 )
             return results
@@ -466,7 +456,7 @@ class Read:
                 {
                     binary.fbb.get_program_name(
                         index
-                    ): binary.fbb.get_program_inputs_as_json(index)
+                    ): ttrt.binary.program_inputs_as_json(binary.fbb, index)
                 }
                 for index in range(binary.fbb.get_num_programs())
             ],
@@ -479,7 +469,7 @@ class Read:
                 {
                     binary.fbb.get_program_name(
                         index
-                    ): binary.fbb.get_program_outputs_as_json(index)
+                    ): ttrt.binary.program_outputs_as_json(binary.fbb, index)
                 }
                 for index in range(binary.fbb.get_num_programs())
             ],

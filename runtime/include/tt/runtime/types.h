@@ -201,6 +201,8 @@ struct Binary : public Flatbuffer {
   std::string getProgramInputsAsJson(std::uint32_t programIndex) const;
   std::string getProgramOutputsAsJson(std::uint32_t programIndex) const;
   std::string getProgramDebugInfoAsJson(std::uint32_t programIndex) const;
+  std::string getProgramMlirAsJson(std::uint32_t programIndex) const;
+  std::string getProgramCpp(std::uint32_t programIndex) const;
   const ::tt::target::GoldenTensor *getDebugInfoGolden(std::string &loc) const;
 
   // Get the tensor cache associated with this binary

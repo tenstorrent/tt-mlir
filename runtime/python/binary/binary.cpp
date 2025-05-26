@@ -54,6 +54,10 @@ void registerBinaryBindings(nb::module_ &m) {
       .def("get_program_debug_info_as_json",
            &tt::runtime::Binary::getProgramDebugInfoAsJson,
            nb::rv_policy::reference)
+      .def("get_program_mlir_as_json",
+           &tt::runtime::Binary::getProgramMlirAsJson, nb::rv_policy::reference)
+      .def("get_program_cpp", &tt::runtime::Binary::getProgramCpp,
+           nb::rv_policy::reference)
       .def(
           "get_tensor_cache",
           [](tt::runtime::Binary &bin) { return bin.getCache(); },

@@ -18,6 +18,9 @@ import re
 
 
 def json_string_as_dict(json_string):
+    if json_string == "":
+        return {}
+
     # Flatbuffers emits 'nan' and 'inf'
     # But Python's JSON accepts only 'NaN' and 'Infinity' and nothing else
     # We include the comma to avoid replacing 'inf' in contexts like 'info'
@@ -26,5 +29,33 @@ def json_string_as_dict(json_string):
     return json.loads(json_string)
 
 
-def as_dict(bin):
+def fbb_as_dict(bin):
     return json_string_as_dict(bin.as_json())
+
+
+def system_desc_as_dict(bin):
+    return json_string_as_dict(bin.get_system_desc_as_json())
+
+
+def programs_as_dict(bin):
+    return json_string_as_dict(bin.get_programs_as_json())
+
+
+def program_ops_as_dict(bin, index):
+    return json_string_as_dict(bin.get_program_ops_as_json(index))
+
+
+def program_inputs_as_dict(bin, index):
+    return json_string_as_dict(bin.get_program_inputs_as_json(index))
+
+
+def program_outputs_as_dict(bin, index):
+    return json_string_as_dict(bin.get_program_outputs_as_json(index))
+
+
+def program_debug_info_as_dict(bin, index):
+    return json_string_as_dict(bin.get_program_debug_info_as_json(index))
+
+
+def program_mlir_as_dict(bin, index):
+    return json_string_as_dict(bin.get_program_mlir_as_json(index))

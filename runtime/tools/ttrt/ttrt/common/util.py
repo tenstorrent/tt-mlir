@@ -655,9 +655,7 @@ class Binary(Flatbuffer):
             self.fbb = ttrt.binary.load_binary_from_path(file_path)
         else:
             self.fbb = ttrt.binary.load_binary_from_capsule(capsule)
-        self.system_desc_dict = ttrt.binary.json_string_as_dict(
-            self.fbb.get_system_desc_as_json()
-        )
+        self.system_desc_dict = ttrt.binary.system_desc_as_dict(self.fbb)
         self.version = self.fbb.version
         self.program_indices = range(self.fbb.get_num_programs())
         self.programs = []
@@ -735,7 +733,7 @@ class Binary(Flatbuffer):
 
         for i, p in enumerate(self.programs):
             print(f"\nProgram {i+1} operations:")
-            pprint(p.to_dict())
+            pprint(p.fbb_to_dict())
 
         print()
 
@@ -746,15 +744,8 @@ class Binary(Flatbuffer):
             self.fbb = binary
             self.index = index
             self.name = self.fbb.get_program_name(self.index)
-            self.inputs = ttrt.binary.json_string_as_dict(
-                self.fbb.get_program_inputs_as_json(self.index)
-            )
-            self.outputs = ttrt.binary.json_string_as_dict(
-                self.fbb.get_program_outputs_as_json(self.index)
-            )
-            self.operations = ttrt.binary.json_string_as_dict(
-                self.fbb.get_program_ops_as_json(self.index)
-            )
+            self.inputs = ttrt.binary.program_inputs_as_dict(self.fbb, self.index)
+            self.outputs = ttrt.binary.program_outputs_as_dict(self.fbb, self.index)
             self.input_tensors = []
             self.output_tensors = []
 
@@ -793,7 +784,12 @@ class Binary(Flatbuffer):
                 self.output_tensors.append(torch_tensor)
 
         def to_dict(self) -> dict:
-            return {i: op["debug_info"] for i, op in enumerate(self.operations)}
+            return {
+                i: op["debug_info"]
+                for i, op in enumerate(
+                    self.ttrt.binary.program_ops_as_dict(self.fbb, i)
+                )
+            }
 
         @staticmethod
         def to_data_type(dtype):
@@ -844,7 +840,7 @@ class SystemDesc(Flatbuffer):
         import ttrt.binary
 
         self.fbb = ttrt.binary.load_system_desc_from_path(file_path)
-        self.fbb_dict = ttrt.binary.as_dict(self.fbb)
+        self.fbb_dict = ttrt.binary.fbb_as_dict(self.fbb)
         self.version = self.fbb.version
 
         # temporary state value to check if test failed
