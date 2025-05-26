@@ -31,8 +31,6 @@ static void runEltwiseUnaryOp(
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
-// tanh has an accurate flag that I want to hardcode to true for testing
-// purposes
 static void runEltwiseUnaryTanhOp(
     const ::tt::target::ttnn::EltwiseUnaryOp *op, ProgramTensorPool &tensorPool,
     const std::function<::ttnn::Tensor(
