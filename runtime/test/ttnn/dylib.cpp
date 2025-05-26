@@ -99,8 +99,7 @@ runSoProgram(void *so, const std::string &funcName,
   for (auto &input : inputs) {
     LOG_ASSERT(input.matchesRuntime(DeviceRuntime::TTNN));
     ttnnInputs.push_back(
-        input.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
-            .getTensor());
+        ::tt::runtime::ttnn::utils::getTTNNTensorFromRuntimeTensor(input));
   }
 
   // Get function from the shared object.
@@ -239,13 +238,11 @@ bool compareOuts(std::vector<::tt::runtime::Tensor> &lhs,
 
   for (auto &tensor : lhs) {
     lhsTensors.push_back(
-        &(tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(getCurrentRuntime())
-              .getTensor()));
+        &::tt::runtime::ttnn::utils::getTTNNTensorFromRuntimeTensor(tensor));
   }
   for (auto &tensor : rhs) {
     rhsTensors.push_back(
-        &(tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(getCurrentRuntime())
-              .getTensor()));
+        &::tt::runtime::ttnn::utils::getTTNNTensorFromRuntimeTensor(tensor));
   }
   LOG_ASSERT(lhsTensors.size() == rhsTensors.size());
 

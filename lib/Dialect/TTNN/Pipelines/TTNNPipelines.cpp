@@ -155,6 +155,9 @@ void createTTIRToTTNNBackendPipeline(
     devicePm.addPass(transforms::createConstEvalHoistTransform());
   }
   createTTNNPipelineLayoutDecompositionPass(devicePm, options);
+  if (options.enableTrace) {
+    devicePm.addPass(tt::ttnn::createTTNNTraceHoistTransform());
+  }
   createTTNNPipelineDeallocPass(devicePm, options);
 
   // Run lowering to LLVM pass on hoisted funcs in CPUModule.
@@ -164,6 +167,10 @@ void createTTIRToTTNNBackendPipeline(
 
 void createTTIRToEmitCPipeline(OpPassManager &pm,
                                const TTIRToEmitCPipelineOptions &options) {
+  if (options.enableTrace) {
+    llvm::report_fatal_error(
+        "Trace currently not supported in createTTIRToEmitCPipeline");
+  }
   createTTIRToTTNNBackendPipeline(pm, options);
   pm.addPass(tt::createTTUnwrapDeviceModulePass());
   pm.addPass(createTTNNCreateInputGenerators());
@@ -172,6 +179,10 @@ void createTTIRToEmitCPipeline(OpPassManager &pm,
 
 void createTTIRToEmitCSOPipeline(OpPassManager &pm,
                                  const TTIRToEmitCSOPipelineOptions &options) {
+  if (options.enableTrace) {
+    llvm::report_fatal_error(
+        "Trace currently not supported in createTTIRToEmitCSOPipeline");
+  }
   createTTIRToTTNNBackendPipeline(pm, options);
   pm.addPass(tt::createTTUnwrapDeviceModulePass());
   pm.addPass(createTTNNModifySignaturesForDylib());

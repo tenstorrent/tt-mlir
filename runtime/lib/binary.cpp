@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <atomic>
 #include <fstream>
 
 #include "flatbuffers/idl.h"
@@ -20,26 +21,42 @@
 namespace tt::runtime {
 
 Binary::Binary(Flatbuffer fb)
-    : Flatbuffer(fb), cache(std::make_shared<TensorCache>()) {}
+    : Flatbuffer(fb), binaryId(nextBinaryId()),
+      tensorCache(std::make_shared<TensorCache>()) {}
 
 Binary::Binary(std::shared_ptr<void> handle)
-    : Flatbuffer(handle), cache(std::make_shared<TensorCache>()) {}
+    : Flatbuffer(handle), binaryId(nextBinaryId()),
+      tensorCache(std::make_shared<TensorCache>()) {}
 
 Binary &Binary::operator=(Flatbuffer fb) {
   this->handle = fb.handle;
-  if (!cache) {
-    cache = std::make_shared<TensorCache>();
-  }
+
+  binaryId = nextBinaryId();
+
+  // Reinitialize tensor cache since binary handle contents
+  // are now different
+  tensorCache = std::make_shared<TensorCache>();
+
   return *this;
 }
 
 Binary &Binary::operator=(std::shared_ptr<void> handle) {
   this->handle = handle;
-  if (!cache) {
-    cache = std::make_shared<TensorCache>();
-  }
+
+  binaryId = nextBinaryId();
+
+  // Reinitialize tensor cache since binary handle contents
+  // are now different
+  tensorCache = std::make_shared<TensorCache>();
+
   return *this;
 }
+
+std::uint64_t Binary::nextBinaryId() {
+  static std::atomic<uint64_t> id{0};
+  return id++;
+}
+std::uint64_t Binary::id() const { return binaryId; }
 
 static std::string asJson(const void *fbb, const uint8_t *binarySchema,
                           size_t schemaSize) {

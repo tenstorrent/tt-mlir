@@ -33,7 +33,9 @@ void registerBinaryBindings(nb::module_ &m) {
            nb::rv_policy::reference)
       .def(
           "get_tensor_cache",
-          [](tt::runtime::Binary &bin) { return bin.getCache(); },
+          [](tt::runtime::Binary &bin) {
+            return bin.getConstEvalTensorCache();
+          },
           nb::rv_policy::reference);
 
   nb::class_<tt::runtime::SystemDesc>(m, "SystemDesc")
