@@ -22,10 +22,11 @@ from ttrt.runtime import (
     memcpy,
     create_tensor,
     DataType,
+    unregister_hooks,
 )
 from ..utils import TT_MLIR_HOME
 
-DIRECTORY_PATH = f"{TT_MLIR_HOME}/build/test/ttmlir/Silicon/"
+DIRECTORY_PATH = f"{TT_MLIR_HOME}/build/test/ttmlir/Silicon"
 
 DTYPE_TO_TORCH_DTYPE = {
     DataType.Float32: torch.float32,
@@ -69,7 +70,7 @@ def update_device_tensor(program_context, tensor_ref, dst_tensor, src_tensor):
     "flatbuffer_path,golden_input_tensors,golden_out_tensors,update_in_tensors",
     [
         (
-            f"{DIRECTORY_PATH}/n150/chisel/Output/test_tensor_manipulation.mlir.tmp.ttnn",
+            f"{DIRECTORY_PATH}/TTNN/n150/chisel/Output/test_tensor_manipulation.mlir.tmp.ttnn",
             {
                 0: torch.ones([10, 10]),
                 1: torch.ones([10, 10]),
@@ -98,8 +99,8 @@ def test_tensor_manipulation_apis(
         for ref in tensor_refs:
             tensor = get_tensor(programContext, ref)
             torch_tensor = get_torch_tensor(tensor)
-            if in_counter in check_in_tensors:
-                assert torch.all(torch_tensor == check_in_tensors[in_counter])
+            if in_counter in golden_input_tensors:
+                assert torch.all(torch_tensor == golden_input_tensors[in_counter])
             if in_counter in update_in_tensors:
                 update_device_tensor(
                     programContext, ref, tensor, update_in_tensors[in_counter]
@@ -114,11 +115,12 @@ def test_tensor_manipulation_apis(
             return
         torch_tensor = get_torch_tensor(tensor)
         print(torch_tensor)
-        if out_counter in check_out_tensors:
-            assert torch.all(torch_tensor == check_out_tensors[out_counter])
+        if out_counter in golden_out_tensors:
+            assert torch.all(torch_tensor == golden_out_tensors[out_counter])
         out_counter += 1
 
-    # output_dir = "./dump"
+    assert os.path.exists(flatbuffer_path)
+
     args = {
         "binary": str(flatbuffer_path),
         "save-artifacts": True,
@@ -131,4 +133,5 @@ def test_tensor_manipulation_apis(
 
     callback_env_pre = DebugHooks.get(preop, postop)
     result_code, results = rt_api()
+    unregister_hooks()
     assert result_code == 0, "Test failed"
