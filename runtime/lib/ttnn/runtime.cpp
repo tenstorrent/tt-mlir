@@ -1135,7 +1135,7 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::PrepareConv2dWeightsOp: {
-    tensorRefs =  {opContext.type_as_PrepareConv2dWeightsOp()->weight_tensor()};
+    tensorRefs = {opContext.type_as_PrepareConv2dWeightsOp()->weight_tensor()};
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
@@ -1154,7 +1154,8 @@ getOpInputRefs(OpContext opContextHandle,
 }
 
 std::optional<Tensor> getTensor(CallbackContext programContextHandle,
-                                tt::runtime::TensorRef tensorRef, bool untilize) {
+                                tt::runtime::TensorRef tensorRef,
+                                bool untilize) {
   const auto &programContext =
       programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
           DeviceRuntime::TTNN);
@@ -1173,10 +1174,8 @@ std::optional<Tensor> getTensor(CallbackContext programContextHandle,
     return std::nullopt;
   }
 
-  auto tensor = tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
-  tensor.print();
-  ::tt::runtime::Tensor outTensor = utils::createRuntimeTensorFromTTNN(tensor);
-
+  ::tt::runtime::Tensor outTensor = utils::createRuntimeTensorFromTTNN(
+      tensorPool.getTTNNTensorAndValidate(tensorRefPtr));
 
   std::vector<tt::runtime::Tensor> hostTensors =
       ::tt::runtime::ttnn::toHost(outTensor, untilize);
@@ -1212,7 +1211,7 @@ void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef,
   }
 
   ::ttnn::Tensor &srcTensor = tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
-  ::ttnn::Tensor dstTensor = tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
+  ::ttnn::Tensor &dstTensor = tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
   srcTensor = srcTensor.pad_to_tile(0.0f);
   srcTensor = srcTensor.to_layout(dstTensor.layout());
   srcTensor = srcTensor.to_device(dstTensor.device());
