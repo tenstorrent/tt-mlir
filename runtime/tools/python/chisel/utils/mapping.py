@@ -19,7 +19,6 @@ ttir_dtype_maps = {
 
 def custom_max_pool2d(*args, **kwargs):
     I = args[0]  # Input is already in NHWC: [B, H, W, C]
-
     # Convert to NCHW for PyTorch
     I = I.permute(0, 3, 1, 2)
 
@@ -52,14 +51,21 @@ def custom_max_pool2d(*args, **kwargs):
             dilation=dilation,
             ceil_mode=ceil_mode,
         )
-
+    print("out_shape=", out.shape)
     # Convert back to NHWC
     return out.permute(0, 2, 3, 1)
 
 def custom_conv2d(*args, **kwargs):
     # Convert from channels last (NHWC) to channels first (NCHW) for PyTorch
+    # if args[0].shape == torch.Size([32, 224, 224, 3]):
+    #     torch.save(args[0], "I_original.pt")
+    #     torch.save(args[1], "weight_original.pt")
     I = args[0].permute(0, 3, 1, 2)
     weight = args[1].permute(0, 1, 2, 3)
+
+    # if I.shape == torch.Size([32, 3, 224, 224]):
+    #     torch.save(I, "I.pt")
+    #     torch.save(weight, "weight.pt")
 
     print(f"Debug: custom_conv2d {I}\n{weight}")
 
