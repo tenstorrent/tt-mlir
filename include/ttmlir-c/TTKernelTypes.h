@@ -12,8 +12,6 @@ extern "C" {
 #endif
 
 MLIR_CAPI_EXPORTED MlirType ttmlirTTKernelCBTypeGet(MlirContext ctx,
-                                                    uint64_t address,
-                                                    uint64_t port,
                                                     MlirType memrefType);
 
 MLIR_CAPI_EXPORTED MlirAttribute
