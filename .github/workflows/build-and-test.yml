@@ -243,7 +243,7 @@ jobs:
       run: |
         source env/activate
         pip show ttrt && pip uninstall -y ttrt
-        pip install ttrt-${{ env.version }}*.whl --force-reinstall
+        pip install ttrt*.whl --force-reinstall
         if [ "${{ matrix.build.type }}" == "pytest" ]; then
           pip install pytest
         fi
