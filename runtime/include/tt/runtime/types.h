@@ -122,7 +122,7 @@ struct RuntimeCheckedConstObjectImpl {
   ::tt::runtime::DeviceRuntime associatedRuntime;
 
   RuntimeCheckedConstObjectImpl(std::shared_ptr<const void> handle,
-                           ::tt::runtime::DeviceRuntime runtime)
+                                ::tt::runtime::DeviceRuntime runtime)
       : handle(handle), associatedRuntime(runtime) {}
 
   bool matchesRuntime(DeviceRuntime runtime) const {

@@ -338,7 +338,8 @@ createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor,
 }
 ::tt::runtime::TensorRef
 createRuntimeTensorRefFromTTNN(const ::tt::target::ttnn::TensorRef *tensorRef) {
-  std::shared_ptr<const void> tensorRefPtr = ::tt::runtime::utils::unsafe_borrow_shared(tensorRef);
+  std::shared_ptr<const void> tensorRefPtr =
+      ::tt::runtime::utils::unsafe_borrow_shared(tensorRef);
   return tt::runtime::TensorRef(tensorRefPtr, DeviceRuntime::TTNN);
 }
 

@@ -329,8 +329,11 @@ void registerRuntimeBindings(nb::module_ &m) {
       "get_tensor",
       [](tt::runtime::CallbackContext programContextHandle,
          tt::runtime::TensorRef tensorRef, bool untilize = true) {
-        return tt::runtime::getTensor(programContextHandle, tensorRef, untilize);
-      }, nb::arg("program_context_handle"), nb::arg("tensor_ref"), nb::arg("untilize") = true,
+        return tt::runtime::getTensor(programContextHandle, tensorRef,
+                                      untilize);
+      },
+      nb::arg("program_context_handle"), nb::arg("tensor_ref"),
+      nb::arg("untilize") = true,
       "Get the tensor that corresponds to the tensor ref");
   m.def("update_tensor", [](tt::runtime::CallbackContext programContextHandle,
                             tt::runtime::TensorRef tensorRefHandle,
