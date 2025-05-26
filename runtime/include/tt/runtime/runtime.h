@@ -205,18 +205,15 @@ std::optional<TensorRef> getOpOutputRef(OpContext opContextHandle,
 
 // Returns the vector of references to the input tensors of the current
 // operation
-// TODO(ndrakulicTT): Check if it is in correct order.
 std::vector<TensorRef> getOpInputRefs(OpContext opContextHandle,
                                       CallbackContext programContextHandle);
 
 // For the given tensor reference, returns the tensor that it refers to.
-// TODO(ndrakulicTT): Check what happens if the tensor is not live, and other
 // cases
 std::optional<Tensor> getTensor(CallbackContext programContextHandle,
                                 TensorRef tensorRef, bool untilize);
 
 // Updates the tensor that is referenced by the given tensor reference.
-// TODO(ndrakulicTT): Check edge cases
 void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef,
                   Tensor srcTensor);
 

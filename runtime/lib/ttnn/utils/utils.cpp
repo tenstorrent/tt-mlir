@@ -372,10 +372,12 @@ std::vector<const tt::target::ttnn::TensorRef *> convertFbTensorRefsToVector(
   if (!fbVector) {
     return stdVector;
   }
+
   stdVector.reserve(fbVector->size());
-  for (size_t i = 0; i < fbVector->size(); i++) {
-    stdVector.push_back(fbVector->Get(i));
+  for (const auto *tensorRef : *fbVector) {
+    stdVector.push_back(tensorRef);
   }
+
   return stdVector;
 }
 

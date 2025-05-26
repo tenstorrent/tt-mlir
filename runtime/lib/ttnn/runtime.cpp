@@ -1299,6 +1299,10 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_Pool2dOp()->in()};
     break;
   }
+  case ::tt::target::ttnn::OpType::PrepareConv2dWeightsOp: {
+    tensorRefs = {opContext.type_as_PrepareConv2dWeightsOp()->weight_tensor()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     tensorRefs = {opContext.type_as_AllGatherOp()->in()};
     break;
@@ -1328,15 +1332,24 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_DeallocateOp()->in()};
     break;
   }
-  case ::tt::target::ttnn::OpType::NamedFullOp:
-  case ::tt::target::ttnn::OpType::UpdateCacheOp:
-  case ::tt::target::ttnn::OpType::FillCacheOp:
-  case ::tt::target::ttnn::OpType::LoadCachedOp: {
-    tensorRefs = {};
+  case ::tt::target::ttnn::OpType::UpdateCacheOp: {
+    tensorRefs = {opContext.type_as_UpdateCacheOp()->cache(),
+                  opContext.type_as_UpdateCacheOp()->input(),
+                  opContext.type_as_UpdateCacheOp()->update_index()};
     break;
   }
-  case ::tt::target::ttnn::OpType::PrepareConv2dWeightsOp: {
-    tensorRefs = {opContext.type_as_PrepareConv2dWeightsOp()->weight_tensor()};
+  case ::tt::target::ttnn::OpType::FillCacheOp: {
+    tensorRefs = {opContext.type_as_FillCacheOp()->cache(),
+                  opContext.type_as_FillCacheOp()->input()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::LoadCachedOp: {
+    tensorRefs = utils::convertFbTensorRefsToVector(
+        opContext.type_as_LoadCachedOp()->inputs());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::NamedFullOp: {
+    tensorRefs = {};
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
@@ -1386,7 +1399,7 @@ std::optional<Tensor> getTensor(CallbackContext programContextHandle,
     LOG_WARNING("Tensor not found in tensor pool");
     return std::nullopt;
   }
-  // TODO(ndrakulicTT): Check what happens if the tensor is not live
+
   if (!tensorPool.contains(tensorRefPtr)) {
     LOG_WARNING("Tensor not found in tensor pool");
     return std::nullopt;
@@ -1441,11 +1454,11 @@ void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef,
       programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
           DeviceRuntime::TTNN);
   ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
-  const auto &tensorRefPtr =
+  const auto *tensorRefPtr =
       &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
 
   if (!tensorRefPtr) {
-    LOG_WARNING("Tensor not found in tensor pool");
+    LOG_WARNING("Null tensor ref pointer");
     return;
   }
   if (!tensorPool.contains(tensorRefPtr)) {
@@ -1457,7 +1470,9 @@ void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef,
   ::ttnn::Tensor &dstTensor = tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
   srcTensor = srcTensor.pad_to_tile(0.0f);
   srcTensor = srcTensor.to_layout(dstTensor.layout());
-  srcTensor = srcTensor.to_device(dstTensor.device());
+  if (dstTensor.mesh_device()) {
+    srcTensor = srcTensor.to_device(dstTensor.mesh_device());
+  }
   tensorPool.insertTTNNTensorAndValidate(tensorRefPtr, srcTensor);
 }
 
