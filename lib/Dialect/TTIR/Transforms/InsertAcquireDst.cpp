@@ -138,13 +138,13 @@ public:
         rewriter.getIntegerAttr(rewriter.getIndexType(), 0));
     auto cmp = rewriter
                    .create<arith::ConstantOp>(loc, rewriter.getI1Type(),
-                                              rewriter.getBoolAttr(true))
+                                              rewriter.getBoolAttr(false))
                    .getResult();
     for (int64_t index : guardIndices) {
       auto iterIndex = rewriter.create<ttir::IterIndexOp>(loc, index);
       auto eq = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne,
                                                iterIndex, zero);
-      cmp = rewriter.create<arith::AndIOp>(loc, cmp, eq).getResult();
+      cmp = rewriter.create<arith::OrIOp>(loc, cmp, eq).getResult();
     }
     return rewriter.create<scf::IfOp>(loc, cmp);
   }
