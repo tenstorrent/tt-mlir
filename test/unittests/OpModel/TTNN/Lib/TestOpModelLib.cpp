@@ -1197,7 +1197,7 @@ TEST_P(OpModelMaxPool2DParam, MaxPool2DParam) {
 
   SingletonDeviceContext::resetInstance();
 
-  auto constraintsExp = MaxPool2DInterface::getOpConstraints(
+  auto constraintsExp = MaxPool2DOpInterface::getOpConstraints(
       CreateWorkerGrid(), inputShape, inputLayout, batchSize, inputHeight,
       inputWidth, inputChannels, kernelSize, stride, padding, dilation,
       ceilMode, outputShape, outputLayout);
@@ -1220,7 +1220,7 @@ TEST_P(OpModelMaxPool2DParam, MaxPool2DParam) {
 
   SingletonDeviceContext::resetInstance();
 
-  auto runtimeExp = MaxPool2DInterface::getOpRuntime(
+  auto runtimeExp = MaxPool2DOpInterface::getOpRuntime(
       inputShape, inputLayout, batchSize, inputHeight, inputWidth,
       inputChannels, kernelSize, stride, padding, dilation, ceilMode,
       outputShape, outputLayout);
@@ -1292,7 +1292,7 @@ TEST_P(OpModelClampScalarParam, ClampScalarParam) {
 
   SingletonDeviceContext::resetInstance();
 
-  auto constraintsExp = ClampScalarInterface::getOpConstraints(
+  auto constraintsExp = ClampScalarOpInterface::getOpConstraints(
       CreateWorkerGrid(), inputShape, inputLayout, minVal, maxVal, outputShape,
       outputLayout);
   if (!constraintsExp) {
@@ -1314,7 +1314,7 @@ TEST_P(OpModelClampScalarParam, ClampScalarParam) {
 
   SingletonDeviceContext::resetInstance();
 
-  auto runtimeExp = ClampScalarInterface::getOpRuntime(
+  auto runtimeExp = ClampScalarOpInterface::getOpRuntime(
       inputShape, inputLayout, minVal, maxVal, outputShape, outputLayout);
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (runtimeExp) {
