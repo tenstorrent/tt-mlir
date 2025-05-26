@@ -371,6 +371,13 @@ jobs:
         name: ${{ matrix.build.runs-on }}_${{ matrix.build.image }}_${{ matrix.build.suite }}_results.json
         path: ${{ matrix.build.suite }}_results.json
 
+    - name: Log out files
+      shell: bash
+      run: |
+        ls
+        echo "---"
+        ls ${{ steps.strings.outputs.test_report_path }}
+
     - name: Upload Test Report xml
       uses: actions/upload-artifact@v4
       if: success() || failure()
