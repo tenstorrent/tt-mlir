@@ -278,6 +278,13 @@ class Run:
             choices=None,
             help="Random ones vs zeroes density, 1 = 100% ones, 2 = 50% ones, 3 = 33% ones, etc.",
         )
+        Run.register_arg(
+            name="--benchmark",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="Enable benchmark mode with warmup and e2e time measurements. Only one program is executed, specified by --program-index. If --program-index is set to 'all', the first program is used. (automatically enables program cache and disables golden comparison)",
+        )
 
     def __init__(self, args={}, logger=None, artifacts=None):
         for name, attributes in Run.registered_args.items():
@@ -508,6 +515,14 @@ class Run:
             if self["--disable-eth-dispatch"]:
                 dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
 
+            if self["--benchmark"]:
+                self["--enable-program-cache"] = True
+                self["--disable-golden"] = True
+
+                # In benchmark mode, only execute one program.
+                if self["--program-index"] == "all":
+                    self["--program-index"] = 0
+
             mesh_shape = [1, len(self.query.device_ids)]
             mesh_options = ttrt.runtime.MeshDeviceOptions()
             mesh_options.dispatch_core_type = dispatch_core_type
@@ -562,7 +577,6 @@ class Run:
                         self.logging.debug(f"opened emitc dylib={emitc_dylib_path}")
 
                     program_indices = []
-                    total_e2e_duration_milliseconds = 0
                     if self["--program-index"] == "all":
                         program_indices.extend(range(bin.get_num_programs()))
                     else:
@@ -698,6 +712,15 @@ class Run:
                             device, inputs, bin.fbb, program_index
                         )
 
+                        if self["--benchmark"]:
+                            self.logging.info("Warming up device.")
+                            ttrt.runtime.submit(
+                                device,
+                                bin.fbb,
+                                program_index,
+                                inputs,
+                            )
+
                         for loop in range(self["--loops"]):
                             self.logging.debug(
                                 f"starting loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
@@ -733,10 +756,6 @@ class Run:
                                 bin.fbb,
                                 program_index,
                                 inputs,
-                            )
-                            end = time.perf_counter()
-                            total_e2e_duration_milliseconds = (
-                                total_e2e_duration_milliseconds + ((end - start) * 1000)
                             )
 
                             if self["--check-cache-stats"]:
@@ -798,6 +817,21 @@ class Run:
 
                             self.logging.debug(
                                 f"finished loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
+                            )
+
+                        end = time.perf_counter()
+                        if self["--benchmark"]:
+                            bin.e2e_duration_milliseconds = (end - start) * 1000
+                            batch_size = inputs[0].get_shape()[0]
+                            samples_per_second = (
+                                batch_size / bin.e2e_duration_milliseconds * 1000
+                            )
+                            self.logging.info(
+                                f"Execution time: {bin.e2e_duration_milliseconds} ms"
+                            )
+                            self.logging.info(f"Batch size: {batch_size}")
+                            self.logging.info(
+                                f"Samples per second: {samples_per_second}"
                             )
 
                         if event is not None:
@@ -952,7 +986,6 @@ class Run:
                             if self["--check-memory-leak"]:
                                 post_op_callback_runtime_config.check_memory_leak()
 
-                    bin.e2e_duration_milliseconds = total_e2e_duration_milliseconds
                 except Exception as e:
                     result = "error"
                     if isinstance(e, TTRTTestException):
