@@ -224,6 +224,30 @@ public:
 };
 } // namespace
 
+namespace {
+class TosaToTTIRNegateOpConversionPattern
+    : public OpConversionPattern<tosa::NegateOp> {
+  using OpConversionPattern<tosa::NegateOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(tosa::NegateOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
+    Value input = adaptor.getOperands()[0]; // Only grab the tensor input.
+    Location loc = srcOp.getLoc();
+    auto empty = rewriter.create<ttir::EmptyOp>(loc, outputType.getShape(),
+                                                outputType.getElementType());
+
+    rewriter.replaceOpWithNewOp<ttir::NegOp>(srcOp, outputType, input,
+                                             empty.getResult());
+
+    return success();
+  }
+};
+} // namespace
+
 static void
 addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                          RewritePatternSet &patterns,
@@ -244,9 +268,7 @@ addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
       typeConverter, ctx);
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
       tosa::FloorOp, mlir::tt::ttir::FloorOp>>(typeConverter, ctx);
-  patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<tosa::NegateOp,
-                                                       mlir::tt::ttir::NegOp>>(
-      typeConverter, ctx);
+  patterns.add<TosaToTTIRNegateOpConversionPattern>(typeConverter, ctx);
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
       tosa::ReciprocalOp, mlir::tt::ttir::ReciprocalOp>>(typeConverter, ctx);
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
