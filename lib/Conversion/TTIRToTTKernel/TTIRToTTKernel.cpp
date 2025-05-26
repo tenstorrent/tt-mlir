@@ -91,10 +91,14 @@ static Value getOutCB(ConversionPatternRewriter &rewriter, Operation *op) {
   return rewriter.getRemappedValue(outCB);
 }
 
-static Value getLoadIndex(Value tile) {
+static Value
+getLoadIndex(Value tile,
+             tt::MemorySpace expectedMemorySpace = tt::MemorySpace::DeviceL1) {
   memref::LoadOp loadOp = mlir::cast<memref::LoadOp>(tile.getDefiningOp());
   assert(loadOp.getIndices().size() == 1 &&
          "Expected single index in load op, failing.");
+  assert(tt::getMemorySpace(loadOp.getMemRef()) == expectedMemorySpace &&
+         "Unexpected memory space");
   return loadOp.getIndices().front();
 }
 
@@ -209,8 +213,6 @@ public:
       assert(op->getNumOperands() == 3u);
     }
 
-    auto dstIdx = index(rewriter, op->getLoc(), 0);
-
     if constexpr (std::is_same_v<ConcreteOp, ttir::TileMatmulOp>) {
       auto insertionPoint = rewriter.getInsertionPoint();
       auto cbA = getCB(rewriter, adaptor.getA());
@@ -226,9 +228,11 @@ public:
           /* transpose */ i32(rewriter, op->getLoc(), 0));
       rewriter.create<ttkernel::MatmulTilesOp>(
           op->getLoc(), cbA, cbB, getLoadIndex(adaptor.getA()),
-          getLoadIndex(adaptor.getB()), dstIdx,
+          getLoadIndex(adaptor.getB()),
+          getLoadIndex(adaptor.getC(), tt::MemorySpace::RegisterDst),
           /* transpose */ i32(rewriter, op->getLoc(), 0));
     } else if constexpr (arity == 2) {
+      auto dstIdx = index(rewriter, op->getLoc(), 0);
       rewriter.create<InitOp>(op->getLoc(), getCB(rewriter, adaptor.getLhs()),
                               getCB(rewriter, adaptor.getRhs()));
       rewriter.create<FPUOp>(op->getLoc(), getCB(rewriter, adaptor.getLhs()),
