@@ -45,7 +45,7 @@ def filter_valid_mesh_shape(system_desc, params):
 def pytest_collection_modifyitems(config, items):
     valid_items = []
     deselected = []
-    system_desc = ttrt.binary.as_dict(
+    system_desc = ttrt.binary.fbb_as_dict(
         ttrt.binary.load_system_desc_from_path(config.option.sys_desc)
     )["system_desc"]
 
