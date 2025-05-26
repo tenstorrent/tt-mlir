@@ -154,6 +154,9 @@ void createTTIRToTTNNBackendPipeline(
   if (options.enableConstEval) {
     devicePm.addPass(transforms::createConstEvalHoistTransform());
   }
+  if (options.enableTrace) {
+    devicePm.addPass(tt::ttnn::createTTNNTraceHoistTransform());
+  }
   createTTNNPipelineLayoutDecompositionPass(devicePm, options);
   createTTNNPipelineDeallocPass(devicePm, options);
 
@@ -164,6 +167,10 @@ void createTTIRToTTNNBackendPipeline(
 
 void createTTIRToEmitCPipeline(OpPassManager &pm,
                                const TTIRToEmitCPipelineOptions &options) {
+  if (options.enableTrace) {
+    llvm::report_fatal_error(
+        "Trace currently not supported in createTTIRToEmitCPipeline");
+  }
   createTTIRToTTNNBackendPipeline(pm, options);
   pm.addPass(tt::createTTUnwrapDeviceModulePass());
   pm.addPass(createTTNNCreateInputGenerators());
@@ -172,6 +179,10 @@ void createTTIRToEmitCPipeline(OpPassManager &pm,
 
 void createTTIRToEmitCSOPipeline(OpPassManager &pm,
                                  const TTIRToEmitCSOPipelineOptions &options) {
+  if (options.enableTrace) {
+    llvm::report_fatal_error(
+        "Trace currently not supported in createTTIRToEmitCSOPipeline");
+  }
   createTTIRToTTNNBackendPipeline(pm, options);
   pm.addPass(tt::createTTUnwrapDeviceModulePass());
   pm.addPass(createTTNNModifySignaturesForDylib());

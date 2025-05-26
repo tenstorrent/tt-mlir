@@ -12,10 +12,11 @@ namespace tt::runtime::workaround {
 struct Env {
   static const Env &get(bool swapBinaryOperands = true,
                         bool readUpdateIndexFromDeviceForKVCache = true,
-                        bool rawHostDataPointerWrapper = true) {
+                        bool rawHostDataPointerWrapper = true,
+                        bool traceImplicitFromDevice = true) {
     static const Env config(swapBinaryOperands,
                             readUpdateIndexFromDeviceForKVCache,
-                            rawHostDataPointerWrapper);
+                            rawHostDataPointerWrapper, traceImplicitFromDevice);
     return config;
   }
 
@@ -38,14 +39,22 @@ struct Env {
   // added
   bool rawHostDataPointerWrapper;
 
+  // TODO(bug #0000): Currently ttnn only supports writing to a pre-allocated
+  // device tensor from host. Therefore, the trace op implicitly reads any
+  // device input back to host, then writes it to the designated buffer. This
+  // should be updated in the future either when ttnn supports device to device
+  // memcpy or when we model this behaviour in the compiler.
+  bool traceImplicitFromDevice;
+
 private:
   constexpr Env(bool swapBinaryOperands,
                 bool readUpdateIndexFromDeviceForKVCache,
-                bool rawHostDataPointerWrapper)
+                bool rawHostDataPointerWrapper, bool traceImplicitFromDevice)
       : swapBinaryOperands(swapBinaryOperands),
         readUpdateIndexFromDeviceForKVCache(
             readUpdateIndexFromDeviceForKVCache),
-        rawHostDataPointerWrapper(rawHostDataPointerWrapper) {}
+        rawHostDataPointerWrapper(rawHostDataPointerWrapper),
+        traceImplicitFromDevice(traceImplicitFromDevice) {}
 };
 
 inline std::ostream &operator<<(std::ostream &os, const Env &env) {
@@ -57,6 +66,8 @@ inline std::ostream &operator<<(std::ostream &os, const Env &env) {
      << env.readUpdateIndexFromDeviceForKVCache << "\n";
   os << "\t"
      << "rawHostDataPointerWrapper: " << env.rawHostDataPointerWrapper << "\n";
+  os << "\t"
+     << "traceImplicitFromDevice: " << env.traceImplicitFromDevice << "\n";
   os << "}";
   return os;
 }

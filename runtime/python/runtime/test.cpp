@@ -32,6 +32,9 @@ void registerRuntimeTestBindings(nb::module_ &m) {
         "Run a program from a shared object file");
   m.def("compare_outs", &tt::runtime::test::ttnn::compareOuts, nb::arg("lhs"),
         nb::arg("rhs"));
+  m.def("get_trace_cache_debug_stat",
+        &tt::runtime::test::ttnn::getTraceCacheDebugStat, nb::arg("device"),
+        nb::arg("stat_name"));
 }
 } // namespace tt::runtime::python
 
