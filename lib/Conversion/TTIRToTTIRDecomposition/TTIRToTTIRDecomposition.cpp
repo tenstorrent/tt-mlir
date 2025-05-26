@@ -1645,11 +1645,11 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(op.getResult().getType()));
 
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::BatchNormOp>(
-        op, outputType, adaptor.getOperand(), reshapeScale, reshapeOffset,
-        reshapeMean, reshapeVariance, adaptor.getEpsilonAttr(),
-        adaptor.getDimensionAttr(), rewriter.getBoolAttr(adaptor.getTraining()),
-        adaptor.getOutput());
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::BatchNormOp>(
+        rewriter, op, outputType, adaptor.getOperand(), reshapeScale,
+        reshapeOffset, reshapeMean, reshapeVariance, adaptor.getEpsilonAttr(),
+        adaptor.getDimensionAttr(),
+        rewriter.getBoolAttr(adaptor.getTraining()));
 
     return success();
   }

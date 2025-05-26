@@ -566,19 +566,17 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
-    ttir::EmptyOp outputTensor = rewriter.create<ttir::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
     mlir::Type floatType = mlir::Float32Type::get(getContext());
     mlir::Type integerType = mlir::IntegerType::get(getContext(), 32);
-    mlir::FloatAttr epsilonAttr =
-        mlir::FloatAttr::get(floatType, srcOp.getEpsilon());
-    mlir::IntegerAttr dimensionAttr =
+
+    FloatAttr epsilonAttr = mlir::FloatAttr::get(floatType, srcOp.getEpsilon());
+    IntegerAttr dimensionAttr =
         mlir::IntegerAttr::get(integerType, srcOp.getFeatureIndex());
-    BoolAttr trainingAttr = rewriter.getBoolAttr(false);
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::BatchNormOp>(
-        srcOp, outputType, adaptor.getOperand(), adaptor.getScale(),
+    BoolAttr trainingAttr = mlir::BoolAttr::get(rewriter.getContext(), false);
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::BatchNormOp>(
+        rewriter, srcOp, outputType, adaptor.getOperand(), adaptor.getScale(),
         adaptor.getOffset(), adaptor.getMean(), adaptor.getVariance(),
-        epsilonAttr, dimensionAttr, trainingAttr, outputTensor);
+        epsilonAttr, dimensionAttr, trainingAttr);
     return success();
   }
 };

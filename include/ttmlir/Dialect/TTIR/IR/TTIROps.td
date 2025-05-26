@@ -985,10 +985,10 @@ def TTIR_BatchNormOp : TTIR_DPSOp<"batch_norm"> {
                        AnyRankedTensor:$offset,
                        AnyRankedTensor:$mean,
                        AnyRankedTensor:$variance,
+                       AnyRankedTensor:$output,
                        F32Attr:$epsilon,
                        I32Attr:$dimension,
-                       BoolAttr:$training,
-                       AnyRankedTensor:$output);
+                       BoolAttr:$training);
 
   let results = (outs AnyRankedTensor:$result);
 
