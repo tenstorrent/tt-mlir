@@ -12,7 +12,7 @@ func.func public @test_reduce_max(%arg0: tensor<128x32xsi32, #ttnn_layout>) -> t
   // CHECK-SAME: tensor<128x32xbf16,
   // CHECK-SAME: -> tensor<128xbf16,
   %0 = "ttnn.max"(%arg0) <{dim_arg = [1 : i32], keep_dim = false}> : (tensor<128x32xsi32, #ttnn_layout>) -> tensor<128xsi32, #ttnn_layout1>
-  // CHECK: "ttnn.to_layout"
+  // CHECK: "ttnn.typecast"
   // CHECK-SAME: tensor<128xbf16,
   // CHECK-SAME: -> tensor<128xsi32,
   return %0 : tensor<128xsi32, #ttnn_layout1>
@@ -27,6 +27,7 @@ func.func public @test_reduce_sum(%arg0: tensor<128x10xsi32, #ttnn_layout>) -> t
   // CHECK-SAME: tensor<128x32xbf16,
   // CHECK-SAME: -> tensor<128xbf16,
   %0 = "ttnn.sum"(%arg0) <{dim_arg = [1 : i32], keep_dim = false}> : (tensor<128x10xsi32, #ttnn_layout>) -> tensor<128xsi32, #ttnn_layout1>
+  // CHECK: "ttnn.typecast"
   // CHECK: tensor<128xbf16,
   // CHECK-SAME: -> tensor<128xsi32,
   return %0 : tensor<128xsi32, #ttnn_layout1>
