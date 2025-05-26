@@ -185,47 +185,6 @@ public:
 } // namespace
 
 namespace {
-class TTKernelToEmitCFuncArgsRewriter
-    : public OpConversionPattern<func::FuncOp> {
-public:
-  TTKernelToEmitCFuncArgsRewriter(TTKernelToEmitCTypeConverter &typeConverter,
-                                  MLIRContext *ctx)
-      : OpConversionPattern<func::FuncOp>(typeConverter, ctx) {}
-
-  LogicalResult
-  matchAndRewrite(func::FuncOp op, func::FuncOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    assert(op.getCallableRegion());
-    assert(op.getCallableRegion()->hasOneBlock());
-    Block *block = &op.getCallableRegion()->front();
-    auto blockArgs = block->getArguments();
-    if (blockArgs.empty()) {
-      return rewriter.notifyMatchFailure(op, "No block arguments");
-    }
-
-    TypeConverter::SignatureConversion signatureConverter(op.getNumArguments());
-    OpBuilder::InsertionGuard funcInsertionGuard(rewriter);
-    rewriter.setInsertionPointToStart(block);
-    for (auto arg : blockArgs) {
-      auto cb = cast<ttkernel::CBType>(arg.getType());
-      auto cbType = getTypeConverter()->convertType(cb);
-      auto cbPort = rewriter.create<emitc::ConstantOp>(
-          op.getLoc(), cbType, convertCBPort(rewriter, cb.getPort()));
-      signatureConverter.remapInput(arg.getArgNumber(), cbPort.getResult());
-    }
-
-    rewriter.applySignatureConversion(block, signatureConverter,
-                                      getTypeConverter());
-    rewriter.modifyOpInPlace(op, [&]() {
-      op.setType(rewriter.getFunctionType(TypeRange(), TypeRange()));
-    });
-
-    return success();
-  }
-};
-} // namespace
-
-namespace {
 template <typename SourceOp, typename Adaptor = typename SourceOp::Adaptor>
 class TTKernelToEmitCOpaqueRewriter : public OpConversionPattern<SourceOp> {
 public:
@@ -549,7 +508,6 @@ public:
     populateMemRefToEmitCConversionPatterns(patterns, typeConverter);
 
     patterns.add<
-        TTKernelToEmitCFuncArgsRewriter,
         TTKernelToEmitCGetCompileArgValRewriter, TTKernelToEmitCDPrintRewriter,
         TTKernelToEmitCPassthroughRewriter<ttkernel::CBReinterpretShapeOp>,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosBaseOp>,
