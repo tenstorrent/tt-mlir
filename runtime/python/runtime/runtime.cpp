@@ -313,34 +313,111 @@ void registerRuntimeBindings(nb::module_ &m) {
       "Get the output tensor of the op");
   m.def(
       "get_op_output_ref",
-      [](tt::runtime::OpContext &opContextHandle,
-         tt::runtime::CallbackContext &programContextHandle) {
-        return tt::runtime::getOpOutputRef(opContextHandle,
-                                           programContextHandle);
+      [](tt::runtime::OpContext &op_context_handle,
+         tt::runtime::CallbackContext &program_context_handle) {
+        return tt::runtime::getOpOutputRef(op_context_handle,
+                                           program_context_handle);
       },
-      "Get the reference to the output tensor");
-  m.def("get_op_input_refs",
-        [](tt::runtime::OpContext &opContextHandle,
-           tt::runtime::CallbackContext &programContextHandle) {
-          return tt::runtime::getOpInputRefs(opContextHandle,
-                                             programContextHandle);
-        });
+      nb::arg("op_context_handle"), nb::arg("program_context_handle"),
+      R"(
+    Return a reference to the *output* tensor produced by an operator.
+
+    Parameters
+    ----------
+    op_context_handle : tt.runtime.OpContext
+        Handle describing the operator instance that is being executed.
+    program_context_handle : tt.runtime.CallbackContext
+        Current program/graph context used to resolve the tensor pool.
+
+    Returns
+    -------
+    Optional[tt.runtime.TensorRef]
+        A reference that uniquely identifies the output tensor, or ``None`` if the
+        operator has no outputs.
+    )");
+
+  m.def(
+      "get_op_input_refs",
+      [](tt::runtime::OpContext &op_context_handle,
+         tt::runtime::CallbackContext &program_context_handle) {
+        return tt::runtime::getOpInputRefs(op_context_handle,
+                                           program_context_handle);
+      },
+      nb::arg("op_context_handle"), nb::arg("program_context_handle"),
+      R"(
+    Return a list of references to the *input* tensors consumed by an operator.
+
+    Parameters
+    ----------
+    op_context_handle : ttrt.runtime.OpContext
+        Handle describing the operator instance that is being executed.
+    program_context_handle : ttrt.runtime.CallbackContext
+        Current program/graph context used to resolve the tensor pool.
+
+    Returns
+    -------
+    List[tt.runtime.TensorRef]
+        A possibly empty list of tensor references. The list is empty when the
+        operator has no inputs.
+    )");
+
   m.def(
       "get_tensor",
-      [](tt::runtime::CallbackContext programContextHandle,
-         tt::runtime::TensorRef tensorRef, bool untilize = true) {
-        return tt::runtime::getTensor(programContextHandle, tensorRef,
+      [](tt::runtime::CallbackContext program_context_handle,
+         tt::runtime::TensorRef tensor_ref, bool untilize = true) {
+        return tt::runtime::getTensor(program_context_handle, tensor_ref,
                                       untilize);
       },
       nb::arg("program_context_handle"), nb::arg("tensor_ref"),
       nb::arg("untilize") = true,
-      "Get the tensor that corresponds to the tensor ref");
-  m.def("update_tensor", [](tt::runtime::CallbackContext programContextHandle,
-                            tt::runtime::TensorRef tensorRefHandle,
-                            tt::runtime::Tensor tensorHandle) {
-    return tt::runtime::updateTensor(programContextHandle, tensorRefHandle,
-                                     tensorHandle);
-  });
+      R"(
+    Returns tensor from tensor pool to which tensor_ref refers
+    For now only supports single device tensors
+
+    Parameters
+    ----------
+    program_context_handle : ttrt.runtime.CallbackContext
+        Program context used to locate the tensor in the pool.
+    tensor_ref : ttrt.runtime.TensorRef
+        Reference to the tensor of interest (from get_op_output_ref/get_op_input_refs).
+    untilize : bool, default ``True``
+        If the tensor is stored in a tilized format, de-tilize it before returning.
+
+    Returns
+    -------
+    Optional[tt.runtime.Tensor]
+        The concrete tensor corresponding to *tensor_ref*, or ``None`` if the
+        tensor is not present in the pool (e.g., it was deallocated).
+    )");
+
+  m.def(
+      "update_tensor",
+      [](tt::runtime::CallbackContext program_context_handle,
+         tt::runtime::TensorRef tensor_ref_handle,
+         tt::runtime::Tensor tensor_handle) {
+        tt::runtime::updateTensor(program_context_handle, tensor_ref_handle,
+                                  tensor_handle);
+      },
+      nb::arg("program_context_handle"), nb::arg("tensor_ref_handle"),
+      nb::arg("tensor_handle"),
+      R"(
+    Overwrite the data associated with an existing tensor reference.
+    Prefered to be owned tensor to avoid unexpected behavior in case of
+    deallocation.
+
+    Parameters
+    ----------
+    program_context_handle : ttrt.runtime.CallbackContext
+        Program context used to resolve the tensor pool.
+    tensor_ref_handle : ttrt.runtime.TensorRef
+        Reference to the tensor that will be updated.
+    tensor_handle : ttrt.runtime.Tensor
+        Source tensor which data will tensor_ref refer to.
+
+    Returns
+    -------
+    None
+    )");
   m.def("get_op_debug_str", &tt::runtime::getOpDebugString,
         "Get the debug string of the op");
   m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,
