@@ -32,8 +32,7 @@ You should now have the required dependencies installed.
 > **NOTE:** If you intend to build with runtime enabled
 > (`-DTTMLIR_ENABLE_RUNTIME=ON`), you also need to install tt-metal
 > dependencies which can be found
-> [here](https://docs.tenstorrent.com/tt-metal/latest/ttnn/ttnn/installing.
-> html#install-system-level-dependencies).
+> [here](https://docs.tenstorrent.com/tt-metal/latest/ttnn/ttnn/installing.html#install-system-level-dependencies).
 
 #### Mac OS
 On MacOS we need to install the latest version of [cmake](https://cmake.org/), and [ninja](https://ninja-build.org/) which can be done using Homebrew with (Docs for installing Homebrew: https://brew.sh).
