@@ -731,7 +731,8 @@ std::optional<Tensor> getTensor(CallbackContext programContextHandle,
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
-        return ::tt::runtime::ttnn::getTensor(programContextHandle, tensorRef, untilize);
+        return ::tt::runtime::ttnn::getTensor(programContextHandle, tensorRef,
+                                              untilize);
       },
       [&]() -> RetType {
         return ::tt::runtime::ttmetal::getTensor(programContextHandle,
