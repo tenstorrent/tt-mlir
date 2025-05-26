@@ -20,7 +20,7 @@ from ttrt.runtime import (
     get_tensor,
     update_tensor,
     memcpy,
-    create_tensor,
+    create_owned_tensor,
     DataType,
     unregister_hooks,
 )
@@ -62,7 +62,7 @@ def update_device_tensor(program_context, tensor_ref, dst_tensor, src_tensor):
     stride = dst_tensor.get_stride()
     dtype = dst_tensor.get_dtype()
     size = torch.numel(src_tensor)
-    tensor = create_tensor(data_ptr, shape, stride, size, dtype)
+    tensor = create_owned_tensor(data_ptr, shape, stride, size, dtype)
     update_tensor(program_context, tensor_ref, tensor)
 
 
@@ -114,7 +114,6 @@ def test_tensor_manipulation_apis(
         if tensor is None:
             return
         torch_tensor = get_torch_tensor(tensor)
-        print(torch_tensor)
         if out_counter in golden_out_tensors:
             assert torch.all(torch_tensor == golden_out_tensors[out_counter])
         out_counter += 1
