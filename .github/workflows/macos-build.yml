@@ -89,7 +89,7 @@ jobs:
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build.build_type }} -- check-ttmlir
         echo "Running optimizer tests"
-        ${{ steps.strings.outputs.build-output-dir }}/test/unittests/Optimizer/OptimizerTests
+        ${{ steps.strings.outputs.build-output-dir }}/test/unittests/Optimizer/OptimizerTests --gtest_brief=1
 
     - name: Build ttrt
       shell: bash
