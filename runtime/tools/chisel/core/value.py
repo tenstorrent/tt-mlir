@@ -7,7 +7,7 @@ from enum import Enum
 import numpy as np
 import torch
 
-from ttrt.runtime import create_tensor, memcpy, DataType
+from ttrt.runtime import create_owned_tensor, memcpy, DataType, update_tensor
 
 
 class TensorStatus(Enum):
@@ -43,6 +43,7 @@ class TensorValue:
     def __init__(self, name, tensor_ref=None):
         self.name = name
         self.tensor_ref = tensor_ref
+        self.tensor = None
         self.current_data: Optional[np.ndarray] = None
         self._tt_data: Optional[np.ndarray] = None
         self._cpu_data: Optional[torch.Tensor] = None
@@ -67,11 +68,10 @@ class TensorValue:
         shape = list(data.shape)
         size = np.prod(data.shape)
         dtype = self.tensor_ref.tensor.get_dtype()
-        src_rtensor = create_tensor(data_ptr, shape, stride, size, dtype)
-        memcpy(self.tensor_ref.tensor, src_rtensor)
+        src_rtensor = create_owned_tensor(data_ptr, shape, stride, size, dtype)
 
         # Update pool
-        self.tensor_ref.update_tensor(program_context)
+        update_tensor(program_context, self.tensor_ref, src_rtensor)
         self._tt_data = data
         self.status = TensorStatus.TT_OVERWRITTEN
 
@@ -82,9 +82,9 @@ class TensorValue:
         if self._tt_data is not None:
             return self._tt_data
 
-        buffer = self.tensor_ref.tensor.get_data_buffer()
-        dtype = self.tensor_ref.tensor.get_dtype()
-        shape = self.tensor_ref.tensor.get_shape()
+        buffer = self.tensor.get_data_buffer()
+        dtype = self.tensor.get_dtype()
+        shape = self.tensor.get_shape()
 
         if dtype == DataType.BFloat16:
             raw_data = np.frombuffer(buffer, dtype=np.uint16)

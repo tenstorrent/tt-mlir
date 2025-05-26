@@ -26,9 +26,10 @@ from ttrt.common.util import Logger as RtLogger
 from ttrt.common.util import Artifacts as RtArtifacts
 from ttrt.runtime import (
     DebugHooks,
-    get_op_input_tensors,
-    get_op_output_tensor,
+    get_op_input_refs,
+    get_op_output_ref,
     get_op_debug_str,
+    get_tensor,
     DataType,
 )
 
@@ -154,15 +155,17 @@ class ChiselContext:
             logger.debug(self.ttnn_op_idx)
             if self.ttnn_op_idx >= len(self.ttnn_ops_list):
                 return
-            tensors_in = get_op_input_tensors(opContext, programContext)
+            tensor_refs = get_op_input_refs(opContext, programContext)
             self.current_ttnn_op = self.ttnn_ops_list[self.ttnn_op_idx]
             self.ttnn_manager.populate_op(self.current_ttnn_op)
 
             if not self.current_ttnn_op.inputs:
                 return
-            for i, tensor_in in enumerate(tensors_in):
+            for i, tensor_ref in enumerate(tensor_refs):
+                tensor = get_tensor(programContext, tensor_ref) if tensor_ref else None
                 op_input: TensorValue = self.current_ttnn_op.inputs[i]
-                op_input.tensor_ref = tensor_in
+                op_input.tensor_ref = tensor_ref
+                op_input.tensor = tensor
                 input_name = op_input.name
                 if (
                     input_name not in self.tensor_inputs
@@ -180,14 +183,14 @@ class ChiselContext:
                 if op_input.status != TensorStatus.NOT_INITIALIZED:
                     continue
                 logger.debug(
-                    f"Input {i}: {tensor_in.tensor.get_shape() if tensor_in is not None else None}"
+                    f"Input {i}: {tensor.get_shape() if tensor is not None else None}"
                 )
                 logger.debug(
                     f"Op input {i}: {input_tensor.shape if input_tensor is not None else None}"
                 )
-                assert tensor_in.tensor.get_shape() == list(
+                assert tensor.get_shape() == list(
                     input_tensor.shape
-                ), f"Input {i} shape mismatch. Got {input_tensor.shape}, expected {tensor_in.tensor.get_shape()}"
+                ), f"Input {i} shape mismatch. Got {input_tensor.shape}, expected {tensor.get_shape()}"
                 op_input.set_device_data(input_tensor, programContext)
 
         def postop(binary, programContext, opContext):
@@ -195,9 +198,11 @@ class ChiselContext:
             logger.debug(self.current_ttnn_op.name)
             logger.debug(get_op_debug_str(opContext))
 
-            tensor_out = get_op_output_tensor(opContext, programContext)
-            if tensor_out.tensor is not None and len(self.current_ttnn_op.outputs) > 0:
-                self.current_ttnn_op.outputs[0].tensor_ref = tensor_out
+            tensor_ref = get_op_output_ref(opContext, programContext)
+            tensor = get_tensor(programContext, tensor_ref) if tensor_ref else None
+            if tensor is not None and len(self.current_ttnn_op.outputs) > 0:
+                self.current_ttnn_op.outputs[0].tensor_ref = tensor_ref
+                self.current_ttnn_op.outputs[0].tensor = tensor
 
             target_groups = []
             # see if there are previous groups with no ttnn ops that need to be recomputed
@@ -226,11 +231,10 @@ class ChiselContext:
 
             if self.current_ttnn_op.name == "ttnn.add":
                 # check for dtype of the output tensor
-                if tensor_out.tensor.get_dtype() in [DataType.Int32]:
+                if tensor.get_dtype() in [DataType.Int32]:
                     self.should_skip.add(self.current_ttnn_op.outputs[0].name)
 
             self.ttnn_op_idx += 1
-            return tensor_out
 
         def debug_preop(binary, programContext, opContext):
             try:
