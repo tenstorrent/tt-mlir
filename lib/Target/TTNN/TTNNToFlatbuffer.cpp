@@ -780,9 +780,7 @@ createOp(FlatbufferObjectCache &cache, BatchNormOp op) {
   std::vector<::tt::target::Dim2dRange> coreRangeSet =
       getTensorValueCoreRangeSet(cache, op.getResult());
   ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
-      op.getMemoryConfig()
-          ? toFlatbuffer(cache, *op.getMemoryConfig())
-          : 0;
+      op.getMemoryConfig() ? toFlatbuffer(cache, *op.getMemoryConfig()) : 0;
 
   return ::tt::target::ttnn::CreateBatchNormOp(
       *cache.fbb, input, runningMean, runningVar, op.getTraining(),
