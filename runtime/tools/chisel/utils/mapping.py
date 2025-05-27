@@ -65,6 +65,8 @@ class OpMapping:
                     torch_args[v] = val
                 elif isinstance(ir_op.attributes[k], ttmlir.ir.DenseI64ArrayAttr):
                     torch_args[v] = [x for x in ir_op.attributes[k]]
+                elif isinstance(ir_op.attributes[k], ttmlir.ir.DenseI32ArrayAttr):
+                    torch_args[v] = [x for x in ir_op.attributes[k]]
                 elif isinstance(ir_op.attributes[k], ttmlir.ir.ArrayAttr):
                     torch_args[v] = [x.value for x in ir_op.attributes[k]]
                 else:
@@ -130,6 +132,50 @@ def custom_constant(*args, **kwargs):
     return res
 
 
+def custom_conv2d(*args, **kwargs):
+    # Convert from channels last (NHWC) to channels first (NCHW) for PyTorch
+    I = args[0].permute(0, 3, 1, 2)
+    weight = args[1].permute(0, 1, 2, 3)
+
+    print(f"Debug: custom_conv2d {I}\n{weight}")
+
+    # Get and validate kwargs with defaults
+    padding = kwargs.get("padding", 0)
+    if isinstance(padding, list):
+        if all(e == padding[0] for e in padding):
+            padding = (padding[0], padding[0])
+        else:
+            raise ValueError("Unsupported padding format")
+
+    stride = kwargs.get("stride", 1)
+    if isinstance(stride, list):
+        if all(e == stride[0] for e in stride):
+            stride = stride[0]
+        else:
+            raise ValueError("Unsupported stride format")
+
+    dilation = kwargs.get("dilation", 1)
+    if isinstance(dilation, list):
+        if all(e == dilation[0] for e in dilation):
+            dilation = dilation[0]
+        else:
+            raise ValueError("Unsupported dilation format")
+
+    groups = kwargs.get("groups", 1)
+    if isinstance(groups, list):
+        if len(groups) == 1:
+            groups = groups[0]
+        else:
+            raise ValueError("Unsupported groups format")
+
+    result = torch.nn.functional.conv2d(
+        I, weight, stride=stride, padding=padding, dilation=dilation, groups=groups
+    )
+
+    # Convert back to channels last (NHWC)
+    return result.permute(0, 2, 3, 1)
+
+
 def custom_reduce_and(x, dim=None, keepdim=False):
     if dim is None:
         return torch.all(x)
@@ -172,11 +218,75 @@ def custom_slice(x, begins=None, ends=None, step=None):
 
     slice = slice[:-1]
     slice = "x[" + slice + "]"
-    print(f"Debugging slice: {slice}")
     result = eval(slice)
 
-    print(f"Debugging slice result: {result.shape}, {result}")
     return result
+
+
+def custom_max_pool2d(*args, **kwargs):
+    I = args[0]  # Input is already in NHWC: [B, H, W, C]
+    # Convert to NCHW for PyTorch
+    I = I.permute(0, 3, 1, 2)
+    # Extract pooling parameters
+    kernel_size = [kwargs["kernel_height"], kwargs["kernel_width"]]
+    stride = [kwargs["stride_height"], kwargs["stride_width"]]
+    dilation = [kwargs["dilation_height"], kwargs["dilation_width"]]
+    pt, pb = kwargs["padding_top"], kwargs["padding_bottom"]
+    pl, pr = kwargs["padding_left"], kwargs["padding_right"]
+    ceil_mode = kwargs["ceil_mode"]
+    if (pt == pb) and (pl == pr):
+        padding = [pt, pl]
+        out = torch.nn.functional.max_pool2d(
+            I,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            ceil_mode=ceil_mode,
+        )
+    else:
+        pad = [pl, pr, pt, pb]  # left, right, top, bottom
+        I = torch.nn.functional.pad(I, pad)
+        out = torch.nn.functional.max_pool2d(
+            I,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=0,
+            dilation=dilation,
+            ceil_mode=ceil_mode,
+        )
+    # Convert back to NHWC
+    return out.permute(0, 2, 3, 1)
+
+
+def custom_avg_pool2d(*args, **kwargs):
+    I = args[0]  # Input is already in NHWC: [B, H, W, C]
+    # Convert to NCHW for PyTorch
+    I = I.permute(0, 3, 1, 2)
+    # Extract pooling parameters
+    kernel_size = [kwargs["kernel_height"], kwargs["kernel_width"]]
+    stride = [kwargs["stride_height"], kwargs["stride_width"]]
+    pt, pb = kwargs["padding_top"], kwargs["padding_bottom"]
+    pl, pr = kwargs["padding_left"], kwargs["padding_right"]
+    if (pt == pb) and (pl == pr):
+        padding = [pt, pl]
+        out = torch.nn.functional.avg_pool2d(
+            I,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+        )
+    else:
+        pad = [pl, pr, pt, pb]  # left, right, top, bottom
+        I = torch.nn.functional.pad(I, pad)
+        out = torch.nn.functional.avg_pool2d(
+            I,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=0,
+        )
+    # Convert back to NHWC
+    return out.permute(0, 2, 3, 1)
 
 
 ttir_to_torch_mapping = {
@@ -235,6 +345,51 @@ ttir_to_torch_mapping = {
     "ttir.reduce_and": OpMapping(
         custom_reduce_and,
         {"dim_arg": "dim", "keep_dim": "keepdim"},
+        unpack_inputs=False,
+    ),
+    "ttir.neg": OpMapping(torch.neg, unpack_inputs=False),
+    "ttir.abs": OpMapping(torch.abs, unpack_inputs=False),
+    "ttir.eq": OpMapping(torch.eq),
+    "ttir.conv2d": OpMapping(
+        custom_conv2d,
+        {
+            "stride": "stride",
+            "padding": "padding",
+            "dilation": "dilation",
+            "groups": "groups",
+        },
+    ),
+    "ttir.max_pool2d": OpMapping(
+        custom_max_pool2d,
+        {
+            "kernel_height": "kernel_height",
+            "kernel_width": "kernel_width",
+            "stride_height": "stride_height",
+            "stride_width": "stride_width",
+            "padding_top": "padding_top",
+            "padding_bottom": "padding_bottom",
+            "padding_left": "padding_left",
+            "padding_right": "padding_right",
+            "dilation_height": "dilation_height",
+            "dilation_width": "dilation_width",
+            "ceil_mode": "ceil_mode",
+        },
+        unpack_inputs=False,
+    ),
+    "ttir.avg_pool2d": OpMapping(
+        custom_avg_pool2d,
+        {
+            "kernel_height": "kernel_height",
+            "kernel_width": "kernel_width",
+            "stride_height": "stride_height",
+            "stride_width": "stride_width",
+            "padding_top": "padding_top",
+            "padding_bottom": "padding_bottom",
+            "padding_left": "padding_left",
+            "padding_right": "padding_right",
+            "dilation_height": "dilation_height",
+            "dilation_width": "dilation_width",
+        },
         unpack_inputs=False,
     ),
 }
