@@ -45,6 +45,8 @@ declare_mlir_dialect_python_bindings(
   ADD_TO_PARENT TTMLIRPythonSources.Dialects
   ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
   TD_FILE dialects/TTKernelBinding.td
+  GEN_ENUM_BINDINGS ON
+  GEN_ENUM_BINDINGS_TD_FILE dialects/TTKernelEnumBinding.td
   SOURCES dialects/ttkernel.py
   DIALECT_NAME ttkernel
 )
