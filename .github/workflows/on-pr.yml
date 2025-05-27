@@ -23,6 +23,9 @@ jobs:
       - spdx
     if: github.event.pull_request.draft == false
     uses: ./.github/workflows/build-and-test.yml
+    permissions:
+      checks: write
+      packages: write
     secrets: inherit
 
   # When a PR runs on the uplift branch trigger the downstream checks
