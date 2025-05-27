@@ -1979,7 +1979,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
             programIdxMap);
     programs.push_back(::tt::target::ttnn::CreateProgramDirect(
         fbb, program.name, &program.inputs, &program.outputs, &program.ops,
-        &dylibs, debugInfo));
+        &dylibs, debugInfo, true));
   });
   // Then process const-eval funcs in 2nd pass.
   module->walk([&](func::FuncOp func) {
@@ -1992,7 +1992,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
             programIdxMap);
     programs.push_back(::tt::target::ttnn::CreateProgramDirect(
         fbb, program.name, &program.inputs, &program.outputs, &program.ops,
-        &dylibs, debugInfo));
+        &dylibs, debugInfo, false));
   });
 
   auto binary = ::tt::target::ttnn::CreateTTNNBinaryDirect(

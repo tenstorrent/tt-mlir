@@ -90,4 +90,5 @@ table Program {
   operations: [Operation];
   dylibs: [DynamicLib];
   debug_info: DebugInfo;
+  public: bool;
 }
