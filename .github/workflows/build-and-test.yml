@@ -284,7 +284,7 @@ jobs:
         if [ "${{ matrix.build.suite }}" == "op_model" || [ "${{ matrix.build.suite }}" == "unit" ]; then
           echo "Running optimizer tests"
           ${{ steps.strings.outputs.build-output-dir }}/test/unittests/Optimizer/OptimizerTests --gtest_brief=1
-        fi 
+        fi
 
         if [ "${{ matrix.build.suite }}" == "op_model" ]; then
           export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
