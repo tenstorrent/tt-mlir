@@ -111,12 +111,12 @@ class ModelRunner:
 
     def get_overrides(self, model_path):
         if model_path in self.model_state:
-            return self.model_state[model_path].overrides
+            return self.model_state[model_path].runs[-1].overrides
         return None
 
     def get_generate_cpp_code(self, model_path):
         if model_path in self.model_state:
-            return self.model_state[model_path].generate_cpp_code
+            return self.model_state[model_path].runs[-1].generate_cpp_code
         return False
 
     def get_error(self):
@@ -453,11 +453,11 @@ class ModelRunner:
 
         # Set the EmitC State
         generate_cpp_code = settings.get("generateCppCode", False)
-        self.model_state[model_path].generate_cpp_code = generate_cpp_code
+        self.model_state[model_path].runs[-1].generate_cpp_code = generate_cpp_code
 
         # Set overrides state from settings
         overrides = settings.get("overrides", None)
-        self.model_state[model_path].overrides = overrides
+        self.model_state[model_path].runs[-1].overrides = overrides
 
         # Start compile and run in a new thread
         self.runner_thread = threading.Thread(
