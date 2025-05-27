@@ -401,12 +401,16 @@ void closeMeshDevice(Device parentMesh) {
                 " that has ", numSubMeshes, " unreleased submeshes.");
   }
 #endif
-
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-  for (::ttnn::IDevice *ttnnDevice : ttnnMeshDevice.get_devices()) {
-    ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
-  }
-#endif
+  /*
+  #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+    auto originalMeshShape = ttnnMeshDevice.shape();
+    ttnnMeshDevice.reshape(::ttnn::MeshShape(1, originalMeshShape.mesh_size()));
+    for (auto *ttnnDevice : ttnnMeshDevice.get_devices()) {
+      ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
+    }
+    ttnnMeshDevice.reshape(originalMeshShape);
+  #endif
+  */
   ttnnMeshDevice.close();
 }
 
@@ -516,9 +520,26 @@ void deallocateBuffers(Device deviceHandle) {
 }
 
 void dumpMemoryReport(Device deviceHandle) {
-  const ::ttnn::MeshDevice &meshDevice =
+  ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
   ::tt::tt_metal::detail::DumpDeviceMemoryState(&meshDevice);
+}
+
+void dumpDeviceProfileResults(Device deviceHandle) {
+  ::ttnn::MeshDevice &ttnnMeshDevice =
+      deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+
+  LOG_ASSERT(ttnnMeshDevice.is_parent_mesh(),
+             "Mesh device must be a parent mesh");
+
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
+  auto originalMeshShape = ttnnMeshDevice.shape();
+  ttnnMeshDevice.reshape(::ttnn::MeshShape(1, originalMeshShape.mesh_size()));
+  for (auto *ttnnDevice : ttnnMeshDevice.get_devices()) {
+    ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
+  }
+  ttnnMeshDevice.reshape(originalMeshShape);
+#endif
 }
 
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>

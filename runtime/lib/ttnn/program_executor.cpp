@@ -154,11 +154,14 @@ void ProgramExecutor::dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice) {
   static uint32_t counter = 0;
   if (counter++ >= debug::PerfEnv::get().dumpDeviceRate) {
     LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +
-                                           std::to_string(counter) +
+                                           std::to_string(counter - 1) +
                                            " operations");
-    for (::ttnn::IDevice *ttnnDevice : meshDevice.get_devices()) {
+    auto originalMeshShape = meshDevice.shape();
+    meshDevice.reshape(::ttnn::MeshShape(1, originalMeshShape.mesh_size()));
+    for (auto *ttnnDevice : meshDevice.get_devices()) {
       ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
     }
+    meshDevice.reshape(originalMeshShape);
     counter = 0;
   }
 #endif

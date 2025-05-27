@@ -278,6 +278,29 @@ void dumpMemoryReport(Device deviceHandle) {
   }
 }
 
+void dumpDeviceProfileResults(Device deviceHandle) {
+  tt_metal::distributed::MeshDevice &metalMeshDevice =
+      deviceHandle.as<tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+
+  LOG_ASSERT(metalMeshDevice.is_parent_mesh(),
+             "Mesh device must be a parent mesh");
+
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
+  std::vector<uint32_t> originalMeshShape(
+      metalMeshDevice.shape().view().begin(),
+      metalMeshDevice.shape().view().end());
+  uint32_t originalMeshSize = originalMeshShape[0] * originalMeshShape[1];
+  metalMeshDevice.reshape(
+      ::tt::tt_metal::distributed::MeshShape(1, originalMeshSize));
+  for (auto *metalDevice : metalMeshDevice.get_devices()) {
+    ::tt::tt_metal::detail::DumpDeviceProfileResults(metalDevice);
+  }
+  metalMeshDevice.reshape(::tt::tt_metal::distributed::MeshShape(
+      originalMeshShape[0], originalMeshShape[1]));
+#endif
+}
+
 std::unordered_map<MemoryBufferType, MemoryView>
 getMemoryView(Device deviceHandle, int deviceID) {
   std::unordered_map<MemoryBufferType, MemoryView> memoryMap;
