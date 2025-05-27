@@ -6,6 +6,9 @@
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 
+#include "mlir/Conversion/TosaToArith/TosaToArith.h"
+#include "mlir/Conversion/TosaToLinalg/TosaToLinalg.h"
+#include "mlir/Conversion/TosaToTensor/TosaToTensor.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
@@ -49,9 +52,12 @@ struct ConvertTTIRToLinalgPass
     typeConverter.addConversion([](Type type) { return type; });
 
     RewritePatternSet patterns(&getContext());
-
-    // Add TTIR to Tosa patterns.
+    
+    // Add TTIR to Tosa to Linalg (+ Tensor and Arith, as needed) patterns.
     populateTTIRToTosaPatterns(&getContext(), patterns, typeConverter);
+    tosa::populateTosaToLinalgConversionPatterns(typeConverter, &patterns);
+    tosa::populateTosaToTensorConversionPatterns(typeConverter, &patterns);
+    tosa::populateTosaToArithConversionPatterns(&patterns);
 
     // Add direct TTIR to Linalg patterns.
     populateTTIRToLinalgPatterns(&getContext(), patterns, typeConverter);

@@ -17,7 +17,6 @@
 #include "ttmlir/Conversion/TTIRToTTKernel/TTIRToTTKernel.h"
 #include "ttmlir/Conversion/TTIRToTTMetal/TTIRToTTMetal.h"
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
-#include "ttmlir/Conversion/TTIRToTosa/TTIRToTosa.h"
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 #include "ttmlir/Conversion/TosaToTTIR/TosaToTTIR.h"
