@@ -11,6 +11,7 @@ from ttrt import API as ttrt
 from ttmlir import passes
 from . import utils, mlir
 import pandas as pd
+from datetime import datetime, timezone
 import threading
 import queue
 import json
