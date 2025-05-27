@@ -113,14 +113,29 @@ class ModelRunner:
     def get_output_dir(self, model_path):
         return self.model_state[model_path].model_output_dir
 
-    def get_overrides(self, model_path):
+    def get_last_run(self, model_path):
         if model_path in self.model_state:
-            return self.model_state[model_path].runs[-1].overrides
+            if self.model_state[model_path].runs:
+                return self.model_state[model_path].runs[-1]
         return None
 
+    def get_attr_from_last_run(self, model_path: str, attr: str):
+        last_run = self.get_last_run(model_path)
+
+        if last_run:
+            if attr in last_run:
+                return last_run[attr]
+        return None
+
+    def get_overrides(self, model_path):
+        return self.get_attr_from_last_run(model_path, "overrides")
+
     def get_generate_cpp_code(self, model_path):
-        if model_path in self.model_state:
-            return self.model_state[model_path].runs[-1].generate_cpp_code
+        last_run = self.get_last_run(model_path)
+
+        if last_run:
+            if "generate_cpp_code" in last_run:
+                return last_run.generate_cpp_code
         return False
 
     def get_error(self):
@@ -156,6 +171,8 @@ class ModelRunner:
         self.init_model_state(model_path)
 
         self.model_state[model_path].runs.append(ModelRun())
+
+        return self.model_state[model_path].runs[-1]
 
     def log(self, message, severity=logging.info):
         severity(message)
@@ -453,15 +470,15 @@ class ModelRunner:
                 "A model is already being processed. Please wait for it to finish."
             )
         self.reset_state()
-        self.update_model_state(model_path)
+        last_run = self.update_model_state(model_path)
 
         # Set the EmitC State
         generate_cpp_code = settings.get("generateCppCode", False)
-        self.model_state[model_path].runs[-1].generate_cpp_code = generate_cpp_code
+        last_run.generate_cpp_code = generate_cpp_code
 
         # Set overrides state from settings
         overrides = settings.get("overrides", None)
-        self.model_state[model_path].runs[-1].overrides = overrides
+        last_run.overrides = overrides
 
         # Start compile and run in a new thread
         self.runner_thread = threading.Thread(
