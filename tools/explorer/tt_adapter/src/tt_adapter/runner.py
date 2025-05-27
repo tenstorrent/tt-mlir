@@ -136,15 +136,21 @@ class ModelRunner:
             logs.append(self.log_queue.get())
         return "\n".join(logs)
 
-    def reset_state(self, model_path):
+    def reset_state(self):
         assert not self.is_busy()
         self.runner_thread = None
         self.runner_error = None
         self.progress = 0
         self.log_queue.queue.clear()
 
-        if model_path in self.model_state:
-            del self.model_state[model_path]
+    def init_model_state(self, model_path: str):
+        if model_path not in self.model_state:
+            self.model_state[model_path] = ModelState()
+
+    def update_model_state(self, model_path: str):
+        self.init_model_state(model_path)
+
+        self.model_state[model_path].runs.append(ModelRun())
 
     def log(self, message, severity=logging.info):
         severity(message)
@@ -441,8 +447,8 @@ class ModelRunner:
             raise RuntimeError(
                 "A model is already being processed. Please wait for it to finish."
             )
-        self.reset_state(model_path)
-        self.model_state[model_path] = ModelState()
+        self.reset_state()
+        self.update_model_state(model_path)
 
         # Set the EmitC State
         generate_cpp_code = settings.get("generateCppCode", False)
