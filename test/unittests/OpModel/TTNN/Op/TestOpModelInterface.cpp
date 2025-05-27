@@ -14,6 +14,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "gtest/gtest.h"
 
+#include "mlir/IR/BuiltinAttributes.h"
 #include <cstdint>
 
 namespace mlir::tt::ttnn {
@@ -1002,6 +1003,54 @@ TEST_F(OpModelBase, clampScalarOp) {
   op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(clampScalarOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, upsampleOp) {
+  // Create UpsampleOp with flattened input tensor
+  llvm::SmallVector<int64_t> inputShape = {2, 128, 16, 8};
+  llvm::SmallVector<int64_t> outputShape = {2, 256, 32, 8};
+  int scaleFactor = 2;
+  std::string mode = "nearest";
+
+  auto input = createEmptyTensor(
+      inputShape, builder.getBF16Type(),
+      CreateRowMajorLayout(inputShape, mlir::tt::ttnn::BufferType::DRAM,
+                           mlir::tt::ttnn::TensorMemoryLayout::Interleaved));
+  auto outputType = createRankedTensorType(
+      outputShape, builder.getBF16Type(),
+      CreateRowMajorLayout(outputShape, mlir::tt::ttnn::BufferType::DRAM,
+                           mlir::tt::ttnn::TensorMemoryLayout::Interleaved));
+
+  // Convert to Attr
+  mlir::IntegerAttr scaleFactorAttr = builder.getI32IntegerAttr(scaleFactor);
+  mlir::StringAttr modeAttr = builder.getStringAttr(mode);
+
+  UpsampleOp upsampleOp =
+      builder.create<UpsampleOp>(builder.getUnknownLoc(), outputType, input,
+                                 scaleFactorAttr, modeAttr, nullptr);
+  upsampleOp->setAttr(DeviceAttr::name, getFakeDeviceAttr());
+
+  op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  auto constraintsExp = getOpConstraints(upsampleOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GT(peakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp = getOpRuntime(upsampleOp.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
