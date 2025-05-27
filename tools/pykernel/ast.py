@@ -5,6 +5,7 @@
 import ast
 import inspect
 import functools
+import textwrap
 import os
 from ttmlir.ir import *
 from ttmlir.dialects import tt, ttkernel, func, scf, arith, memref, emitc
@@ -108,6 +109,8 @@ class TTKernelCompiler(ast.NodeVisitor):
         "noc_async_read_barrier": ttkernel.noc_async_read_barrier,
         "noc_async_write_barrier": ttkernel.noc_async_write_barrier,
         "get_interleaved_addr_gen_fast": ttkernel.get_interleaved_addr_gen_fast,
+        "exp_tile_init": ttkernel.exp_tile_init,
+        "exp_tile": ttkernel.exp_tile,
     }
 
     def __init__(self, name, kernel_type=None, *args, **kwargs):
@@ -122,11 +125,24 @@ class TTKernelCompiler(ast.NodeVisitor):
         self.supported_nodes = get_supported_nodes()
         self.kernel_type = kernel_type
 
+        self.args = args
         self.cb_args = args
         self.rt_args = None
+        self.ct_args = kwargs.get("ct_args")
 
-        self.verbose = kwargs.get("verbose", False)
-        self.source_code = kwargs.get("source_code", "")
+        # if not isinstance(self.ct_args, dict):
+        #    raise TypeError("ct_args must be a dict!")
+
+        # Get rid of appended metadata sent into compiler
+        self.verbose = False
+        self.source_code = ""
+        if "_verbose" in kwargs:
+            self.verbose = kwargs["_verbose"]
+            del kwargs["_verbose"]
+
+        if "source_code" in kwargs:
+            self.source_code = kwargs["_source_code"]
+            del kwargs["_source_code"]
 
     def get_source_comment(self, node):
         """
@@ -210,6 +226,10 @@ class TTKernelCompiler(ast.NodeVisitor):
                 # We don't want this to be defined in the EmitC module since it's bootstrapped to call get_arg_val
                 # Instead set a flag for ast.Subscript to check if this value is being called.
                 self.rt_args = arg
+                continue
+            elif arg.arg == "ct_args":
+                if self.ct_args is None:
+                    raise ValueError("ct_args must be defined")
                 continue
 
             if not arg.annotation:
@@ -745,6 +765,22 @@ class TTKernelCompiler(ast.NodeVisitor):
                     int_type = IntegerType.get_signless(32, self.ctx)
                     result.append(ttkernel.get_arg_val(int_type, arg_index))
                 return result
+        elif node.value.id == "ct_args":
+            # TODO(vprajapati): error checking, support slicing
+            # assume only single integer values is passed into subscript for now
+            ct_args_index = node.slice.value
+            ct_args_value = self.ct_args[ct_args_index]
+            if isinstance(ct_args_value, bool):
+                # have to look for bool first, or else it'll be picked up as an integer :/
+                return arith.ConstantOp(
+                    IntegerType.get_signless(1, self.ctx), ct_args_value
+                )
+            elif isinstance(ct_args_value, int):
+                return arith.ConstantOp(
+                    IntegerType.get_signless(32, self.ctx), ct_args_value
+                )
+            else:
+                raise TypeError("ct_args must be int or bool")
 
         # Now process accessing elements from array types
         # Accesses are done through numpy style tuple indices or constants
@@ -911,16 +947,25 @@ class TTKernelCompiler(ast.NodeVisitor):
             raise NotImplementedError(f"visit {type(node).__name__} not supported")
 
 
-def ttkernel_compile(kernel_type=None, verbose: bool = False, optimize: bool = True):
+def ttkernel_compile(kernel_type=None, verbose: bool = False, optimize: bool = False):
     def _decorator(f):
         @functools.wraps(f)
         def _wrapper(*args, **kwargs):
+            # Code to deal with identation issues
+            source_code = inspect.getsource(f)
+            source_code = textwrap.dedent(source_code)
+            cleaned = [
+                line
+                for line in source_code.splitlines()
+                if not line.strip().startswith("@")
+            ]
+            source_code = "\n".join(cleaned)
+
             if verbose is True:
                 # Create easily index-able object to store source code:
-                source_code = inspect.getsource(f).split("\n")
-                kwargs["source_code"] = source_code
+                kwargs["source_code"] = source_code.splitlines()
                 kwargs["verbose"] = True
-            m = ast.parse(inspect.getsource(f))
+            m = ast.parse(source_code)
             b = TTKernelCompiler(f.__name__, kernel_type, *args, **kwargs)
             print(ast.dump(m, indent=4) + "\n")
             b.visit(m)
@@ -943,9 +988,9 @@ def ttkernel_compile(kernel_type=None, verbose: bool = False, optimize: bool = T
     return _decorator
 
 
-def ttkernel_tensix_compile(verbose: bool = False, optimize: bool = True):
+def ttkernel_tensix_compile(verbose: bool = False, optimize: bool = False):
     return ttkernel_compile(kernel_type="compute", verbose=verbose, optimize=optimize)
 
 
-def ttkernel_noc_compile(verbose: bool = False, optimize: bool = True):
+def ttkernel_noc_compile(verbose: bool = False, optimize: bool = False):
     return ttkernel_compile(kernel_type="noc", verbose=verbose, optimize=optimize)
