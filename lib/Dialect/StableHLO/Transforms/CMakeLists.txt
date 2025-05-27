@@ -1,5 +1,6 @@
 add_mlir_dialect_library(MLIRSTABLEHLOTransforms
   ShardyAutomaticParallelization.cpp
+  ShardyCCLToStableHLOCCLPatterns.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/ttmlir

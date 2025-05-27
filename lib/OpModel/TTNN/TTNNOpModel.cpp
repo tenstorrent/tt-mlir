@@ -1480,7 +1480,7 @@ llvm::Expected<size_t> Conv2dOpInterface::getOpRuntime(
 //===----------------------------------------------------------------------===//
 llvm::Expected<
     std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
-MaxPool2DInterface::getOpConstraints(
+MaxPool2DOpInterface::getOpConstraints(
     GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout, int32_t batchSize,
     int32_t inputHeight, int32_t inputWidth, int32_t inputChannels,
@@ -1521,7 +1521,7 @@ MaxPool2DInterface::getOpConstraints(
         std::nullopt /* applied_shard_scheme */, ceilMode);
   };
 
-  return operation::getOpConstraints("MaxPool2DInterface",
+  return operation::getOpConstraints("MaxPool2DOpInterface",
                                      inputLayout.getContext(), deviceGrid,
                                      maxPool2DQuery);
 #else
@@ -1529,7 +1529,7 @@ MaxPool2DInterface::getOpConstraints(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-llvm::Expected<size_t> MaxPool2DInterface::getOpRuntime(
+llvm::Expected<size_t> MaxPool2DOpInterface::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout, int32_t batchSize,
     int32_t inputHeight, int32_t inputWidth, int32_t inputChannels,
@@ -1569,7 +1569,7 @@ llvm::Expected<size_t> MaxPool2DInterface::getOpRuntime(
         std::nullopt /* applied_shard_scheme */, ceilMode);
   };
 
-  return operation::getOpRuntime("MaxPool2DInterface", maxPool2DQuery);
+  return operation::getOpRuntime("MaxPool2DOpInterface", maxPool2DQuery);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -1580,7 +1580,7 @@ llvm::Expected<size_t> MaxPool2DInterface::getOpRuntime(
 //===----------------------------------------------------------------------===//
 llvm::Expected<
     std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
-ClampScalarInterface::getOpConstraints(
+ClampScalarOpInterface::getOpConstraints(
     GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout, llvm::APFloat min,
     llvm::APFloat max, llvm::ArrayRef<int64_t> outputShape,
@@ -1608,7 +1608,7 @@ ClampScalarInterface::getOpConstraints(
         detail::getNullableMemoryConfig(outputLayout));
   };
 
-  return operation::getOpConstraints("ClampScalarInterface",
+  return operation::getOpConstraints("ClampScalarOpInterface",
                                      inputLayout.getContext(), deviceGrid,
                                      clampScalarQuery);
 #else
@@ -1616,7 +1616,7 @@ ClampScalarInterface::getOpConstraints(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-llvm::Expected<size_t> ClampScalarInterface::getOpRuntime(
+llvm::Expected<size_t> ClampScalarOpInterface::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout, llvm::APFloat min,
     llvm::APFloat max, llvm::ArrayRef<int64_t> outputShape,
@@ -1644,7 +1644,7 @@ llvm::Expected<size_t> ClampScalarInterface::getOpRuntime(
         detail::getNullableMemoryConfig(outputLayout));
   };
 
-  return operation::getOpRuntime("ClampScalarInterface", clampScalarQuery);
+  return operation::getOpRuntime("ClampScalarOpInterface", clampScalarQuery);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL

@@ -1224,7 +1224,6 @@ public:
     RankedTensorType rhsType =
         mlir::cast<mlir::RankedTensorType>(adaptor.getRhs().getType());
     Type outputType = this->getTypeConverter()->convertType(srcOp.getType());
-
     if (lhsType.getShape() == rhsType.getShape()) {
       rewriter.replaceOpWithNewOp<ttnn::SubtractOp>(
           srcOp, outputType, adaptor.getLhs(), adaptor.getRhs());
