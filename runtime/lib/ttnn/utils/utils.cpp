@@ -335,7 +335,8 @@ void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
             return static_cast<void *>(hostBuffer.view_bytes().data());
           },
           [&](const ::tt::tt_metal::MultiDeviceHostStorage &storage) -> void * {
-            LOG_ASSERT(storage.num_buffers() == 1);
+            LOG_ASSERT(storage.num_buffers() == 1,
+                       "Expected 1 buffer, but got ", storage.num_buffers());
             ::tt::tt_metal::HostBuffer hostBuffer = storage.get_buffer(0);
             return static_cast<void *>(hostBuffer.view_bytes().data());
           },
