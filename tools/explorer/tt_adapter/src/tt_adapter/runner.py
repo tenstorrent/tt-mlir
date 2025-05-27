@@ -21,10 +21,12 @@ import glob
 class ExplorerRunException(Exception):
     pass
 
+
 class ModelRun:
-    """"
+    """
     The run information for this model, containing metadata about the run.
     """
+
     # The execution UTC timestamp, in ISO 8601 format
     timestamp: str = None
     # Overrides, changes that the user made to op configurations.
@@ -34,6 +36,7 @@ class ModelRun:
 
     def __init__(self):
         self.timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
 
 class ModelState:
     """
@@ -46,6 +49,7 @@ class ModelState:
     model_output_dir = None
     # List of previous runs for this model
     runs: list[ModelRun] = []
+
 
 class ModelRunner:
     """
@@ -67,7 +71,7 @@ class ModelRunner:
 
     # State for models that have been executed.
     # Contains a mapping from model path to ModelState.
-    model_state = dict()
+    model_state: dict[ModelState] = dict()
 
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
