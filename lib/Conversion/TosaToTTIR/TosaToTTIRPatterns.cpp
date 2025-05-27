@@ -235,13 +235,9 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
-    Value input = adaptor.getOperands()[0]; // Only grab the tensor input.
-    Location loc = srcOp.getLoc();
-    auto empty = rewriter.create<ttir::EmptyOp>(loc, outputType.getShape(),
-                                                outputType.getElementType());
-
-    rewriter.replaceOpWithNewOp<ttir::NegOp>(srcOp, outputType, input,
-                                             empty.getResult());
+    Value input = adaptor.getInput1(); // Only grab the tensor input.
+    ttir::utils::replaceOpWithNewDPSOp<ttir::NegOp>(rewriter, srcOp, outputType,
+                                                    input);
 
     return success();
   }
