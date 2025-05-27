@@ -199,7 +199,9 @@ class TTKernelCompiler(ast.NodeVisitor):
         # TODO: add alloca args name into symbol table
         assert not self.func_entry, "Cannot declare function within a function"
 
-        arg_types = []
+        # Compile all of the CB args
+        cb_args = []
+        operand_index = 0
         for i in range(len(node.args.args)):
             arg = node.args.args[i]
 
@@ -220,28 +222,34 @@ class TTKernelCompiler(ast.NodeVisitor):
             tile_type = tt.ir.TileType.get(
                 self.ctx, 32, 32, getattr(tt.DataType, self.cb_args[i].dtype)
             )
-            cb_type = ttkernel.ir.CBType.get(
-                self.ctx,  # mlir context
-                0,  # address
-                self.cb_args[i].cb_id,
-                MemRefType.get(
-                    self.cb_args[i].tilized_shape, tile_type
-                ),  # hardcoded dimensions for now - this is usually lowered from tensors?
-            )
-            arg_types.append(cb_type)
 
-        func_sym_table = {}
-        self.func_entry = func.FuncOp(name=node.name, type=(arg_types, []))
+            # Create the CB Type here
+            cb_arg = ttkernel.ir.ArgAttr.get(
+                self.ctx,
+                ttkernel.ArgType.CBPort.value,  # Arg Type is CB
+                operand_index,  # Operand Index here
+            )
+
+            cb_args.append(cb_arg)
+
+            # Increment since there are more CBs being added
+            operand_index += 1
+
+        self.func_entry = func.FuncOp(name=node.name, type=([], []))
         if self.kernel_type:
             self.func_entry.attributes[
                 ttkernel.ir.ThreadTypeAttr.name
             ] = ttkernel.ir.ThreadTypeAttr.get(self.ctx, self.kernel_type)
+
+        # Add the CBs to the function attributes here
+        # Create the ArgSpec
+        arg_spec = ttkernel.ir.ArgSpecAttr.get(self.ctx, [], cb_args)  # Runtime args
+        self.func_entry.attributes[ttkernel.ir.ArgSpecAttr.name] = arg_spec
+
         func_bb = self.func_entry.add_entry_block()
-        for i in range(len(func_bb.arguments)):
-            func_sym_table[node.args.args[i].arg] = func_bb.arguments[i]
 
         # update basic block
-        self.symbol_tables.append(func_sym_table)
+        self.symbol_tables.append({})
         with InsertionPoint(func_bb), Location.unknown():
             # Insert verbose comment for function, to be picked up by Compiler pass it must exist within function region
             # Need a bit of custom logic to make the function def look pretty:
@@ -249,6 +257,19 @@ class TTKernelCompiler(ast.NodeVisitor):
             if self.verbose and self.source_code:
                 comment = f"// --- Python Function Declaration for Above --- \n{self.get_source_comment_block(node)}\n// -- End Function Declaration"
                 emitc.verbatim(comment)
+
+            # Use CB Args to define CBs here:
+            for i in range(len(self.cb_args)):
+                # Create CB Type
+                tile_type = tt.ir.TileType.get(
+                    self.ctx, 32, 32, getattr(tt.DataType, self.cb_args[i].dtype)
+                )
+                cb_type = ttkernel.ir.CBType.get(
+                    self.ctx, MemRefType.get(self.cb_args[i].tilized_shape, tile_type)
+                )
+                res = ttkernel.get_compile_time_arg_val(cb_type, i)
+                self.symbol_tables[-1][node.args.args[i].arg] = res
+                print("!" * 88, i)
 
             for target in node.body:
                 self.visit(target)
