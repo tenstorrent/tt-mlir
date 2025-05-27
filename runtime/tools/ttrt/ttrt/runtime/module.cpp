@@ -42,8 +42,8 @@ PYBIND11_MODULE(_C, m) {
       .def("get_trace_region_size", &tt::runtime::getTraceRegionSize)
       .def("deallocate_buffers", &tt::runtime::detail::deallocateBuffers)
       .def("dump_memory_report", &tt::runtime::detail::dumpMemoryReport)
-      .def("get_memory_view", &tt::runtime::detail::getMemoryView,
-           py::arg("device_id") = 0);
+      .def("get_memory_view", &tt::runtime::detail::getMemoryView);
+
   py::class_<tt::runtime::Event>(m, "Event");
   py::class_<tt::runtime::TensorDesc>(m, "TensorDesc")
       .def_readonly("shape", &tt::runtime::TensorDesc::shape)

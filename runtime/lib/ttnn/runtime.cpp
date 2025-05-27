@@ -504,22 +504,20 @@ void dumpMemoryReport(Device deviceHandle) {
 }
 
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
-getMemoryView(Device deviceHandle, int deviceID) {
+getMemoryView(Device deviceHandle) {
   std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
       memoryMap;
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
 
-  auto *device = meshDevice.get_device(deviceID);
-
-  auto dramMemoryView =
-      ::tt::tt_metal::detail::GetMemoryView(device, ::ttnn::BufferType::DRAM);
-  auto l1MemoryView =
-      ::tt::tt_metal::detail::GetMemoryView(device, ::ttnn::BufferType::L1);
+  auto dramMemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      &meshDevice, ::ttnn::BufferType::DRAM);
+  auto l1MemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      &meshDevice, ::ttnn::BufferType::L1);
   auto l1SmallMemoryView = ::tt::tt_metal::detail::GetMemoryView(
-      device, ::ttnn::BufferType::L1_SMALL);
-  auto traceMemoryView =
-      ::tt::tt_metal::detail::GetMemoryView(device, ::ttnn::BufferType::TRACE);
+      &meshDevice, ::ttnn::BufferType::L1_SMALL);
+  auto traceMemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      &meshDevice, ::ttnn::BufferType::TRACE);
 
   memoryMap[tt::runtime::MemoryBufferType::DRAM] =
       createMemoryView(dramMemoryView);
