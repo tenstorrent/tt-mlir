@@ -48,8 +48,9 @@ struct ConvertTTIRToTosaPass
 
     moduleOp.walk([&](func::FuncOp funcOp) {
       // Skip functions that already have the attribute
-      if (funcOp->hasAttr("ttir.processed_by_tosa"))
+      if (funcOp->hasAttr("ttir.processed_by_tosa")) {
         return;
+      }
 
       // Skip functions with no TTIR ops
       bool hasTTIROps = false;
@@ -61,8 +62,9 @@ struct ConvertTTIRToTosaPass
         return WalkResult::advance();
       });
 
-      if (!hasTTIROps)
+      if (!hasTTIROps) {
         return;
+      }
 
       // Create a new pattern set for this function
       RewritePatternSet functionPatterns(&getContext());
