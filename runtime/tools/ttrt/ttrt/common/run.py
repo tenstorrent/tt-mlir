@@ -582,6 +582,7 @@ class Run:
                         # Skip private programs (e.g. subgraphs created by const-eval)
                         if not program.program["public"]:
                             continue
+
                         golden_inputs = []
 
                         for i in range(len(program.program["inputs"])):
