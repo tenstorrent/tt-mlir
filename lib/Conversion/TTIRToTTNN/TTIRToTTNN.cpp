@@ -886,7 +886,7 @@ public:
   LogicalResult
   matchAndRewrite(ttir::BatchNormOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Check if the operand is a 4-dimensional tensor
+    // Check if the operand is a 4-dimensional tensor.
     if (mlir::cast<RankedTensorType>(adaptor.getOperand().getType())
             .getRank() != 4) {
       return rewriter.notifyMatchFailure(

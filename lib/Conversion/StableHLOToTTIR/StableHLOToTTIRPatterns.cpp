@@ -566,17 +566,14 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
-    mlir::Type floatType = mlir::Float32Type::get(getContext());
     mlir::Type integerType = mlir::IntegerType::get(getContext(), 32);
-
-    FloatAttr epsilonAttr = mlir::FloatAttr::get(floatType, srcOp.getEpsilon());
     IntegerAttr dimensionAttr =
         mlir::IntegerAttr::get(integerType, srcOp.getFeatureIndex());
     BoolAttr trainingAttr = mlir::BoolAttr::get(rewriter.getContext(), false);
     ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::BatchNormOp>(
         rewriter, srcOp, outputType, adaptor.getOperand(), adaptor.getScale(),
         adaptor.getOffset(), adaptor.getMean(), adaptor.getVariance(),
-        epsilonAttr, dimensionAttr, trainingAttr);
+        adaptor.getEpsilonAttr(), dimensionAttr, trainingAttr);
     return success();
   }
 };

@@ -777,8 +777,6 @@ createOp(FlatbufferObjectCache &cache, BatchNormOp op) {
       cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                         kHostAllocatedSize);
 
-  std::vector<::tt::target::Dim2dRange> coreRangeSet =
-      getTensorValueCoreRangeSet(cache, op.getResult());
   ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
       op.getMemoryConfig() ? toFlatbuffer(cache, *op.getMemoryConfig()) : 0;
 

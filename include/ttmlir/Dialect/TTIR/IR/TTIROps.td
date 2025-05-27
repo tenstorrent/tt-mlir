@@ -992,10 +992,6 @@ def TTIR_BatchNormOp : TTIR_DPSOp<"batch_norm"> {
 
   let results = (outs AnyRankedTensor:$result);
 
-  let extraClassDeclaration = [{
-    MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-  }];
-
   let hasVerifier = 1;
 }
 
