@@ -39,9 +39,20 @@ static std::uint64_t getRandomSeed() {
                   .time_since_epoch()
                   .count() |
               (1L << 53) | (1 << 13));
+
+      // scramble `seed` some more, this is scheme M8+A2(a=8,b=31,c=17)
+      // from Table V of "An experimental exploration of Marsaglia’s xorshift
+      // generators, scrambled" (https://arxiv.org/pdf/1402.6246)
+      constexpr std::uint64_t M8 = 1181783497276652981;
+      for (int32_t i = 0; i < 100; ++i) {
+        seed ^= seed << 17; // c
+        seed ^= seed >> 31; // b
+        seed ^= seed << 8;  // a
+        seed *= M8;
+      }
     } else {
       // (b) Otherwise, use a hardcoded const.
-      seed = 1756947448940470413L;
+      seed = 16986427154618410377UL;
     }
   }
 
