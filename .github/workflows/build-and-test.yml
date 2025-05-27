@@ -4,6 +4,10 @@ on:
   workflow_dispatch:
   workflow_call:
 
+permissions:
+  checks: write
+  packages: write
+
 jobs:
 
   ignore-files:
