@@ -456,7 +456,7 @@ jobs:
     - name: Clang-tidy PR Comments
       continue-on-error: true
       uses: platisd/clang-tidy-pr-comments@a8811fa17cd6bd02c52a3791b44f9840777e396a
-      # if: failure() && steps.lint.outcome == 'failure'
+      if: failure() && steps.lint.outcome == 'failure'
       with:
         # The GitHub token (or a personal access token)
         github_token: ${{ secrets.GITHUB_TOKEN }}
