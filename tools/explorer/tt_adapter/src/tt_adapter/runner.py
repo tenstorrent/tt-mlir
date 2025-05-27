@@ -20,6 +20,19 @@ import glob
 class ExplorerRunException(Exception):
     pass
 
+class ModelRun:
+    """"
+    The run information for this model, containing metadata about the run.
+    """
+    # The execution UTC timestamp, in ISO 8601 format
+    timestamp: str = None
+    # Overrides, changes that the user made to op configurations.
+    overrides = None
+    # EmitC Call to Generate C Code
+    generate_cpp_code = False
+
+    def __init__(self):
+        self.timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 class ModelState:
     """
@@ -30,11 +43,8 @@ class ModelState:
     optimized_model_path = None
     # Path to the output directory where ttrt dumps all model files (perf trace, memory state, etc)
     model_output_dir = None
-    # Overrides, changes that the user made to op configurations.
-    overrides = None
-    # EmitC Call to Generate C Code
-    generate_cpp_code = False
-
+    # List of previous runs for this model
+    runs: list[ModelRun] = []
 
 class ModelRunner:
     """
