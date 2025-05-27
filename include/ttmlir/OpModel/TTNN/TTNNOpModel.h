@@ -12,6 +12,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/Error.h"
+#include <cstdint>
 #include <tuple>
 
 namespace mlir::tt::op_model::ttnn {
@@ -323,6 +324,45 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
              mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 
 }; // namespace Conv2dOpInterface
+
+//===----------------------------------------------------------------------===//
+// ConvTranspose2d
+//===----------------------------------------------------------------------===//
+namespace ConvTranspose2dOpInterface {
+llvm::Expected<
+    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+getOpConstraints(GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                 llvm::ArrayRef<int64_t> weightShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr weightLayout,
+                 std::optional<llvm::ArrayRef<int64_t>> biasShape,
+                 std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout,
+                 uint32_t in_channels, uint32_t out_channels,
+                 uint32_t batch_size, uint32_t input_height,
+                 uint32_t input_width, llvm::ArrayRef<int32_t> kernel_size,
+                 llvm::ArrayRef<int32_t> stride,
+                 llvm::ArrayRef<int32_t> padding,
+                 llvm::ArrayRef<int32_t> output_padding,
+                 llvm::ArrayRef<int32_t> dilation, uint32_t groups,
+                 llvm::ArrayRef<int64_t> outputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+llvm::Expected<size_t>
+getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+             llvm::ArrayRef<int64_t> weightShape,
+             mlir::tt::ttnn::TTNNLayoutAttr weightLayout,
+             std::optional<llvm::ArrayRef<int64_t>> biasShape,
+             std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout,
+             uint32_t in_channels, uint32_t out_channels, uint32_t batch_size,
+             uint32_t input_height, uint32_t input_width,
+             llvm::ArrayRef<int32_t> kernel_size,
+             llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
+             llvm::ArrayRef<int32_t> output_padding,
+             llvm::ArrayRef<int32_t> dilation, uint32_t groups,
+             llvm::ArrayRef<int64_t> outputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+}; // namespace ConvTranspose2dOpInterface
 
 //===----------------------------------------------------------------------===//
 // MaxPool2D
