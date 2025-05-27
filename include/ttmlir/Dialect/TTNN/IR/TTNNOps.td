@@ -1337,7 +1337,9 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d",
     }];
 }
 
-def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d"> {
+def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "ConvTranspose2d operation.";
     let description = [{
       Applies a 2D transposed convolution operator over an input image composed of several input planes.

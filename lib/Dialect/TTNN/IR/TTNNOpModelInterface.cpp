@@ -803,6 +803,90 @@ Conv2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// ConvTranspose2dOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+ConvTranspose2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                    const OpConfig &opConfig) {
+  assert(inputs.size() == 2 || inputs.size() == 3);
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto weightShape = getWeight().getType().getShape();
+  std::optional<llvm::ArrayRef<int64_t>> biasShape;
+  std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout;
+
+  if (inputs.size() == 3) {
+    biasShape = getBias().getType().getShape();
+    biasLayout = inputs[2];
+  }
+
+  const auto outputShape = getResult().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();
+
+  /*
+  // If a conv config has been specified, use that. If not, read the op property
+  std::optional<Conv2dConfigAttr> conv2dConfig = std::nullopt;
+  if (opConfig.opSpecificAttr) {
+    assert(mlir::isa<Conv2dConfigAttr>(opConfig.opSpecificAttr) &&
+           "Unexpected type for OpConfig.opSpecificAttr. Expected "
+           "Conv2ConfigAttr");
+    conv2dConfig = mlir::cast<Conv2dConfigAttr>(opConfig.opSpecificAttr);
+  } else {
+    conv2dConfig = Conv2dOp::getConv2dConfig();
+  */
+  return op_model::ttnn::ConvTranspose2dOpInterface::getOpConstraints(
+      deviceGrid, inputShape, inputs[0], weightShape, inputs[1], biasShape,
+      biasLayout, getInChannels(), getOutChannels(), getBatchSize(),
+      getInputHeight(), getInputWidth(), getKernelSize(), getStride(),
+      getPadding(), getOutputPadding(), getDilation(), getGroups(), outputShape,
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+ConvTranspose2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                const OpConfig &opConfig) {
+  assert(inputs.size() == 2 || inputs.size() == 3);
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto weightShape = getWeight().getType().getShape();
+  std::optional<llvm::ArrayRef<int64_t>> biasShape;
+  std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout;
+
+  if (inputs.size() == 3) {
+    biasShape = getBias().getType().getShape();
+    biasLayout = inputs[2];
+  }
+
+  const auto outputShape = getResult().getType().getShape();
+
+  /*
+  // If a conv config has been specified, use that. If not, read the op property
+  std::optional<Conv2dConfigAttr> conv2dConfig = std::nullopt;
+  if (opConfig.opSpecificAttr) {
+    assert(mlir::isa<Conv2dConfigAttr>(opConfig.opSpecificAttr) &&
+           "Unexpected type for OpConfig.confopSpecificAttrig. Expected "
+           "Conv2ConfigAttr");
+    conv2dConfig = mlir::cast<Conv2dConfigAttr>(opConfig.opSpecificAttr);
+  } else {
+    conv2dConfig = Conv2dOp::getConv2dConfig();
+  }
+  */
+
+  return op_model::ttnn::ConvTranspose2dOpInterface::getOpRuntime(
+      inputShape, inputs[0], weightShape, inputs[1], biasShape, biasLayout,
+      getInChannels(), getOutChannels(), getBatchSize(), getInputHeight(),
+      getInputWidth(), getKernelSize(), getStride(), getPadding(),
+      getOutputPadding(), getDilation(), getGroups(), outputShape,
+      opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // MaxPool2dOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
