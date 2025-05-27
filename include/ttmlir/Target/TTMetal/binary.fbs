@@ -41,6 +41,7 @@ table Program {
   outputs: [TensorRef];
   device_programs: [DeviceProgram];
   debug_info: DebugInfo;
+  public: bool;
 }
 
 table TTMetalBinary {

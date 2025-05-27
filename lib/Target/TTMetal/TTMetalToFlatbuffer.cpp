@@ -32,8 +32,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <mlir/IR/BuiltinTypeInterfaces.h>
-#include <mlir/IR/BuiltinTypes.h>
+#include "mlir/IR/BuiltinTypeInterfaces.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include <vector>
 
 namespace mlir::tt::ttmetal {
@@ -677,7 +677,7 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
 
     programs.push_back(target::metal::CreateProgramDirect(
         fbb, cqBuilder.name, &tensorInputs, &tensorOutputs, &devicePrograms,
-        debugInfo));
+        debugInfo, /*public=*/true));
   });
 
   auto binary = target::metal::CreateTTMetalBinaryDirect(
