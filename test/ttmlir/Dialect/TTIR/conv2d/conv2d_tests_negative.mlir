@@ -119,7 +119,7 @@ module {
 module {
   func.func @conv2d_invalid_stride_values(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
     %0 = ttir.empty() : tensor<1x30x30x64xbf16>
-    // CHECK: error: 'ttir.conv2d' op Stride attribute values must be greater than 0
+    // CHECK: error: 'ttir.conv2d' op Stride attribute values must be > 0.
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               stride = array<i32: 2, -2>,
@@ -135,7 +135,7 @@ module {
 module {
   func.func @conv2d_invalid_padding_values(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
     %0 = ttir.empty() : tensor<1x30x30x64xbf16>
-    // CHECK: error: 'ttir.conv2d' op Padding attribute values must be greater than or equal to 0
+    // CHECK: error: 'ttir.conv2d' op Padding attribute values must be >= 0.
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               stride = 1: i32,
@@ -151,7 +151,7 @@ module {
 module {
   func.func @conv2d_invalid_dilation_values(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
     %0 = ttir.empty() : tensor<1x30x30x64xbf16>
-    // CHECK: error: 'ttir.conv2d' op Dilation attribute values must be greater than 0
+    // CHECK: error: 'ttir.conv2d' op Dilation attribute values must be > 0.
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               stride = 1: i32,
@@ -168,7 +168,7 @@ module {
 module {
   func.func @conv2d_input_channels_not_divisible_by_groups(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x100xbf16> {
     %0 = ttir.empty() : tensor<1x30x30x100xbf16>
-    // CHECK: error: 'ttir.conv2d' op Number of input channels from input tensor must be divisible by the number of groups. Got 64 input channels and 10 groups
+    // CHECK: error: 'ttir.conv2d' op The number of input channels from the input tensor (64) is not divisible by the number of groups (10).
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               stride = 1: i32,
@@ -182,25 +182,25 @@ module {
 
 // -----
 module {
-  func.func @conv2d_output_channels_not_divisible_by_groups(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<128x64x3x3xbf16>, %arg2: tensor<1x1x1x128xbf16>) -> tensor<1x30x30x102xbf16> {
-    %0 = ttir.empty() : tensor<1x30x30x102xbf16>
-    // CHECK: error: 'ttir.conv2d' op Number of output channels from output tensor must be divisible by the number of groups. Got 102 output channels and 8 groups
+  func.func @conv2d_output_channels_not_divisible_by_groups(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<102x64x3x3xbf16>, %arg2: tensor<1x1x1x128xbf16>) -> tensor<1x30x30x128xbf16> {
+    %0 = ttir.empty() : tensor<1x30x30x128xbf16>
+    // CHECK: error: 'ttir.conv2d' op The number of output channels from the weight tensor (102) is not divisible by the number of groups (8).
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               stride = 1: i32,
               padding = 0: i32,
               dilation = 1: i32,
               groups = 8: i32
-            }> : (tensor<1x32x32x64xbf16>, tensor<128x64x3x3xbf16>, tensor<1x1x1x128xbf16>, tensor<1x30x30x102xbf16>) -> tensor<1x30x30x102xbf16>
-    return %1 : tensor<1x30x30x102xbf16>
+            }> : (tensor<1x32x32x64xbf16>, tensor<102x64x3x3xbf16>, tensor<1x1x1x128xbf16>, tensor<1x30x30x128xbf16>) -> tensor<1x30x30x128xbf16>
+    return %1 : tensor<1x30x30x128xbf16>
   }
 }
 
 // -----
 module {
-  func.func @conv2d_input_channels_missmatch_with_weight(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x128x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
+  func.func @conv2d_input_channels_mismatch_with_weight(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x128x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
     %0 = ttir.empty() : tensor<1x30x30x64xbf16>
-    // CHECK: error: 'ttir.conv2d' op Number of input channels per group must match the second dimension of the weight tensor. Got 64 input channels per group and 128 in the weight tensor
+    // CHECK: error: 'ttir.conv2d' op The number of input channels per group (64) must match the number of input channels in the weight tensor (128).
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               stride = 1: i32,
@@ -214,9 +214,9 @@ module {
 
 // -----
 module {
-  func.func @conv2d_output_channels_missmatch_with_weight(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<128x64x3x3xbf16>, %arg2: tensor<1x1x1x128xbf16>) -> tensor<1x30x30x64xbf16> {
+  func.func @conv2d_output_channels_mismatch_with_weight(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<128x64x3x3xbf16>, %arg2: tensor<1x1x1x128xbf16>) -> tensor<1x30x30x64xbf16> {
     %0 = ttir.empty() : tensor<1x30x30x64xbf16>
-    // CHECK:  error: 'ttir.conv2d' op Number of output channels from output tensor must match the first dimension of the weight tensor. Got 64 output channels and 128 in the weight tensor
+    // CHECK:  error: 'ttir.conv2d' op The number of output channels from the output tensor (64) must match the number of output channels in the weight tensor (128).
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               stride = 1: i32,
@@ -230,9 +230,9 @@ module {
 
 // -----
 module {
-  func.func @conv2d_weight_and_bias_missmatch(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x128xbf16>) -> tensor<1x30x30x64xbf16> {
+  func.func @conv2d_weight_and_bias_mismatch(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x128xbf16>) -> tensor<1x30x30x64xbf16> {
     %0 = ttir.empty() : tensor<1x30x30x64xbf16>
-    // CHECK: error: 'ttir.conv2d' op Bias should have shape [1, 1, 1, 64] but got [1, 1, 1, 128]
+    // CHECK: error: 'ttir.conv2d' op The number of output channels from the weight tensor (64) must match the number of output channels in the bias tensor (128).
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               stride = 1: i32,
@@ -248,7 +248,7 @@ module {
 module {
   func.func @conv2d_input_size_smaller_than_kernel_size(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
     %0 = ttir.empty() : tensor<1x30x30x64xbf16>
-    // CHECK: error: 'ttir.conv2d' op Calculated padded input size per channel: (56 x 56). Kernel size: (65 x 65). Kernel size can't be greater than actual input size
+    // CHECK: error: 'ttir.conv2d' op The effective kernel size (65, 65) cannot be greater than the padded input size per channel (56, 56).
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               stride = 1: i32,
@@ -262,9 +262,9 @@ module {
 
 // -----
 module {
-  func.func @conv2d_calculated_output_size_per_channel_missmatch_with_output_tensor(%arg0: tensor<1x128x256x36xbf16>, %arg1: tensor<72x6x16x32xbf16>, %arg2: tensor<1x1x1x72xbf16>) -> tensor<1x32x32x72xbf16> {
+  func.func @conv2d_calculated_output_size_per_channel_mismatch_with_output_tensor(%arg0: tensor<1x128x256x36xbf16>, %arg1: tensor<72x6x16x32xbf16>, %arg2: tensor<1x1x1x72xbf16>) -> tensor<1x32x32x72xbf16> {
     %0 = ttir.empty() : tensor<1x32x32x72xbf16>
-    // CHECK: error: 'ttir.conv2d' op  Mismatch between calculated and got output height and width. Calculated: (9 x 9). Got output tensor height and width: (32 x 32)
+    // CHECK: error: 'ttir.conv2d' op  The output tensor height and width dimension (32, 32) do not match the expected dimensions (9, 9).
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               stride = 10: i32,
