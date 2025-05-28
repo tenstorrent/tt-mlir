@@ -111,8 +111,26 @@ class ChiselContext:
             dtype = ttir_dtype_maps[data_format]
             shape = input.shape
             name = f"%arg{i}"
-            # Check it dtype is int
-            tensor = torch.ones(shape, dtype=dtype) * (i + 1)
+            # Heuristics for principled init
+            # Please prefer to load tensors from disk if available
+            if dtype in (torch.float32, torch.bfloat16):
+                # Assume that 2D float tensors are weights, apply LeCun init
+                tensor = torch.randn(shape)
+                if len(shape) == 2:
+                    tensor.mul_(shape[0] ** -0.5)
+                elif len(shape) == 4:
+                    # Assume that 4D float tensors are conv kernels,
+                    # we don't know which axis is which(conventions differ between torch and jax)
+                    # so we assume two largest axes are in and out channels
+                    # and apply Glorot init to be agnostic to which is which
+                    sorted_shape = sorted(shape)
+                    a = sorted_shape[-2]
+                    b = sorted_shape[-1]
+                    factor = (2 / (a + b)) ** 0.5
+                    tensor.mul_(factor)
+            else:
+                # random ones ought to work good enough for both masks and indices
+                tensor = (torch.randn(shape) > 0.5).to(dtype)
             self.tensor_inputs[name] = tensor
         self.ttir_executor.tensor_pool.update(self.tensor_inputs)
 
