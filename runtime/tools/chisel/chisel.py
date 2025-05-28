@@ -76,6 +76,11 @@ class ChiselContext:
         logger.debug("Setting up TTRT hooks...")
         self.setup_ttrt_hooks()
 
+        if not (self.output_dir / "intermediates").exists():
+            (self.output_dir / "intermediates").mkdir(parents=True, exist_ok=True)
+        if not (self.output_dir / "goldens").exists():
+            (self.output_dir / "goldens").mkdir(parents=True, exist_ok=True)
+
         self.current_ttir_loc = None
         self.current_ttnn_loc = None
 
@@ -245,8 +250,20 @@ class ChiselContext:
                     self.ttir_manager.populate_op(op)
                     self.ttir_executor.execute_op(op, programContext)
                 group.computed_ttir = True
-            self.validator.validate(self.current_ttnn_op, target_group)
+            self.validator.validate(self.current_ttnn_op, target_group, self, False)
             self.validator.export_csv(self.output_dir / csvfile)
+
+            for tensor_value in self.current_ttnn_op.outputs:
+                if tensor_value.tt_data is not None:
+                    data = tensor_value.tt_data
+                    if data.dtype == torch.uint32:
+                        data = data.clone().float()
+                    torch.save(
+                        data,
+                        self.output_dir
+                        / "intermediates"
+                        / f"{tensor_value.name[1:]}.pt",
+                    )
 
             # if self.current_ttnn_op.name == "ttnn.add":
             #     # check for dtype of the output tensor

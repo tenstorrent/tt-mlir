@@ -5,6 +5,8 @@ import csv
 from dataclasses import dataclass
 from utils.metrics import compute_abs_err, compute_rel_err, compute_pcc
 
+import torch
+
 
 @dataclass
 class ValidatorInfo:
@@ -30,10 +32,12 @@ class Validator:
         self.ttir2ttnn_map = {}
         self.ttnn2ttir_tensor = {}
 
-    def validate(self, ttnn_op, op_group, intermediate=False):
+    def validate(self, ttnn_op, op_group, chisel_context=None, intermediate=False):
         if op_group.line_no not in self.pcc_data:
             self.pcc_data[op_group.line_no] = []
-        self.compare_group(ttnn_op, op_group, intermediate)
+        self.compare_group(
+            ttnn_op, op_group, chisel_context=chisel_context, intermediate=intermediate
+        )
 
     def export_csv(self, filename):
         mode = "w" if self._first_export else "a"
@@ -84,7 +88,9 @@ class Validator:
 
             self._exported_count = total_items
 
-    def compare_group(self, ttnn_op, op_group, intermediate=False):
+    def compare_group(
+        self, ttnn_op, op_group, chisel_context, intermediate=False
+    ):  # context is only needed to get output_dir
         last_ttir_result = None
         last_ttir_op = None
         # find if ttnn op doesn't have an output, just set None everywhere
@@ -123,6 +129,15 @@ class Validator:
             abs_err = compute_abs_err(last_ttir_result, last_ttnn_result)
             rel_err = compute_rel_err(last_ttir_result, last_ttnn_result)
             pcc = compute_pcc(last_ttir_result, last_ttnn_result)
+
+            if last_ttir_result is not None:
+                torch.save(
+                    last_ttir_result,
+                    chisel_context.output_dir
+                    / "goldens"
+                    / f"{op.ir_op.result.get_name()[1:]}.pt",
+                )
+
             if pcc is None:
                 continue
             # import pdb; pdb.set_trace()
