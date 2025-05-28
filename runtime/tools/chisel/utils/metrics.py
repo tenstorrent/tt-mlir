@@ -4,13 +4,41 @@
 import torch
 
 
-def compute_abs_err(ttir_result, ttnn_result):
-    if ttir_result.shape != ttnn_result.shape:
-        # if it's just unsqueezing, unsqueeze the result
+def _to_common_shape(x, y):
+    if x.shape == y.shape:
+        return x, y
+
+    x = x.squeeze()
+    y = y.squeeze()
+    if x.shape == y.shape:
+        return x, y
+    try:
+        x = torch.broadcast_to(x, y.shape)
         try:
-            ttir_result = torch.broadcast_to(ttir_result, ttnn_result.shape)
+            y = torch.broadcast_to(y, x.shape)
         except Exception:
-            return None
+            pass
+        return x, y
+    except Exception:
+        pass
+    try:
+        y = torch.broadcast_to(y, x.shape)
+        try:
+            x = torch.broadcast_to(x, y.shape)
+        except Exception:
+            pass
+        return x, y
+    except Exception:
+        pass
+
+    return None, None
+
+
+def compute_abs_err(ttir_result, ttnn_result):
+    ttir_result, ttnn_result = _to_common_shape(ttir_result, ttnn_result)
+    if ttir_result is None or ttnn_result is None:
+        return -1
+
     ttir_result = ttir_result.to(torch.float32)
     ttnn_result = ttnn_result.to(torch.float32)
 
@@ -27,12 +55,31 @@ def compute_abs_err(ttir_result, ttnn_result):
     return abs_err.item()
 
 
+def compute_rel_err(ttir_result, ttnn_result):
+    ttir_result, ttnn_result = _to_common_shape(ttir_result, ttnn_result)
+    if ttir_result is None or ttnn_result is None:
+        return -1
+
+    ttir_result = ttir_result.to(torch.float32)
+    ttnn_result = ttnn_result.to(torch.float32)
+
+    if torch.all(torch.isnan(ttir_result)) and torch.all(torch.isnan(ttnn_result)):
+        return 0.0
+
+    # compare if inf
+    if torch.all(torch.isinf(ttir_result)) and torch.all(torch.isinf(ttnn_result)):
+        if torch.all(ttir_result == ttnn_result):
+            return 0.0
+        return torch.inf
+
+    rel_err = torch.max(torch.abs((ttir_result - ttnn_result) / (ttir_result + 1e-8)))
+    return rel_err.item()
+
+
 def compute_pcc(ttir_result, ttnn_result):
-    if ttir_result.shape != ttnn_result.shape:
-        try:
-            ttir_result = torch.broadcast_to(ttir_result, ttnn_result.shape)
-        except Exception:
-            return None
+    ttir_result, ttnn_result = _to_common_shape(ttir_result, ttnn_result)
+    if ttir_result is None or ttnn_result is None:
+        return -1
 
     x = ttir_result.to(torch.float32).flatten()
     y = ttnn_result.to(torch.float32).flatten()
