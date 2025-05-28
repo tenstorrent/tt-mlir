@@ -131,6 +131,13 @@ source env/activate
 cmake --build build -- clang-tidy
 ```
 
+> **Note for developers:** You can run:
+> ```bash
+> source env/activate
+> cmake --build build -- clang-tidy-ci
+> ```
+> This reproduces the `Lint (clang-tidy)` CI job. It runs `clang-tidy` only on committed files that have been modified relative to the `origin/main` branch.
+
 ### Pre-Commit
 Pre-Commit applies a git hook to the local repository such that linting is checked and applied on every `git commit` action. Install from the root of the repository using:
 
