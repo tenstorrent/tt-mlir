@@ -79,7 +79,7 @@ jobs:
       matrix:
         build: [
           {runs-on: ubuntu-latest, enable_op_model: ON, enable_emitc: ON, name: "speedy"},
-          {runs-on: ubuntu-latest, enable_perf: ON, enable_emitc: ON, enable_runtime_debug: ON, enable_explorer: ON, name: "tracy"},
+          {runs-on: ubuntu-latest, enable_perf: ON, enable_emitc: ON, enable_runtime_debug: ON, enable_explorer: ON, enable_pykernel: ON, name: "tracy"},
         ]
 
     name: Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})
@@ -135,6 +135,7 @@ jobs:
         enable-emitc: ${{ matrix.build.enable_emitc }}
         enable-explorer: ${{ matrix.build.enable_explorer }}
         enable-runtime-debug: ${{ matrix.build.enable_runtime_debug }}
+        enable-pykernel: ${{ matrix.build.enable_pykernel }}
         build-name: ${{ matrix.build.name }}
         build-output-dir: ${{ steps.strings.outputs.build-output-dir }}
         install-output-dir: ${{ steps.strings.outputs.install-output-dir }}
@@ -180,6 +181,7 @@ jobs:
           {runs-on: n150,   sh-run: false, name: "perf", suite: "explorer",          image: "tracy",  type: "pytest",  path: "tools/explorer/test/run_tests.py"},
           {runs-on: n150,   sh-run: false, name: "run",  suite: "op_by_op_infra",    image: "tracy",  type: "pytest",  path: "test/python/op_by_op_infra"},
           {runs-on: n300,   sh-run: true,  name: "run",  suite: "ttnn_runtime",      image: "speedy", type: "pytest",  path: "runtime/test/python/ttnn/multi_device"},
+          {runs-on: n300,   sh-run: true,  name: "run",  suite: "run",               image: "tracy",  type: "pykernel"},
         ]
     name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ matrix.build.suite }},${{ matrix.build.type }},${{ strategy.job-index }})"
 
@@ -439,9 +441,7 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- FBS_GENERATION mlir-headers mlir-generic-headers tt-metal-download tt-metal-update tt-metal-configure TTKernelGeneratedLLKHeaders
-        python3 tools/scripts/filter-compile-commands.py --diff ${{ steps.strings.outputs.build-output-dir }}/compile_commands.json
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- clang-tidy
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- clang-tidy-ci
 
     - name: Unique-ify clang-tidy fixes
       shell: bash

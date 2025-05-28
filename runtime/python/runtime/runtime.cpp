@@ -41,8 +41,7 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def("dump_memory_report", &tt::runtime::detail::dumpMemoryReport)
       .def("dump_device_profile_results",
            &tt::runtime::detail::dumpDeviceProfileResults)
-      .def("get_memory_view", &tt::runtime::detail::getMemoryView,
-           nb::arg("device_id") = 0);
+      .def("get_memory_view", &tt::runtime::detail::getMemoryView);
 
   nb::class_<tt::runtime::Event>(m, "Event");
 

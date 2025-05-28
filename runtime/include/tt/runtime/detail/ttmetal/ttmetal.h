@@ -94,7 +94,7 @@ void dumpMemoryReport(Device device);
 void dumpDeviceProfileResults(Device device);
 
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
-getMemoryView(Device device, int deviceID = 0);
+getMemoryView(Device device);
 
 void wait(Event event);
 

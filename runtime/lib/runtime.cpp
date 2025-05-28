@@ -106,15 +106,13 @@ void dumpDeviceProfileResults(Device device) {
 
 using MemoryViewResult = std::unordered_map<::tt::runtime::MemoryBufferType,
                                             ::tt::runtime::MemoryView>;
-MemoryViewResult getMemoryView(Device device, int deviceID) {
+MemoryViewResult getMemoryView(Device device) {
   using RetType = MemoryViewResult;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
+      [&]() -> RetType { return ::tt::runtime::ttnn::getMemoryView(device); },
       [&]() -> RetType {
-        return ::tt::runtime::ttnn::getMemoryView(device, deviceID);
-      },
-      [&]() -> RetType {
-        return ::tt::runtime::ttmetal::getMemoryView(device, deviceID);
+        return ::tt::runtime::ttmetal::getMemoryView(device);
       });
 }
 } // namespace detail
