@@ -2,11 +2,11 @@
 
 module attributes {} {
   func.func @test_abs(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
-    // CHECK: {{%[0-9]+}} = tensor.empty() : {{tensor<.*>}}
+    // CHECK:  = tensor.empty() : [[SIZE:tensor<64x128xf32>]]
     %0 = ttir.empty() : tensor<64x128xf32>
-    // CHECK: {{%[0-9]+}} = linalg.generic
+    // CHECK: [[VAL1:%[0-9]+]] = tosa.abs
     %1 = "ttir.abs"(%arg0, %0) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
-    // CHECK: return {{%[0-9]+}} : {{tensor<.*>}}
+    // CHECK: return [[VAL1]] : [[SIZE]]
     return %1 : tensor<64x128xf32>
   }
 }
