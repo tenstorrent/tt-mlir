@@ -263,8 +263,7 @@ public:
   static TTNNOperandsWorkarounds
   createBinaryOpOperandsWorkarounds(mlir::Operation *op);
 
-  static TTNNOperandsWorkarounds
-  createUnaryOpOperandsWorkarounds(mlir::Operation *op);
+  static TTNNOperandsWorkarounds createTanhOpOperandsWorkarounds();
 
   // Create workarounds for ArgMax op operands.
   static TTNNOperandsWorkarounds createArgMaxOpOperandsWorkarounds();
