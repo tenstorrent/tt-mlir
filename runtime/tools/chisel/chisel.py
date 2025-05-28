@@ -39,6 +39,9 @@ logger = logging.getLogger("chisel")
 
 import pdb
 
+timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
+csvfile = f"pccdata_{timestamp}.csv"
+
 # sys.excepthook = lambda *args: pdb.pm()
 
 
@@ -227,7 +230,7 @@ class ChiselContext:
                     self.ttir_executor.execute_op(op, programContext)
                 group.computed_ttir = True
             self.validator.validate(self.current_ttnn_op, target_group)
-            self.validator.export_csv("pcc_data.csv")
+            self.validator.export_csv(self.output_dir / csvfile)
 
             if self.current_ttnn_op.name == "ttnn.add":
                 # check for dtype of the output tensor
