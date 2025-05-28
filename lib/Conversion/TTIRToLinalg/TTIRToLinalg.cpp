@@ -340,18 +340,9 @@ public:
     permutation[dim1] = static_cast<int32_t>(dim0);
     permutation[dim0] = static_cast<int32_t>(dim1);
 
-    // Calculate the transposed shape
-    SmallVector<int64_t> transposedShape;
-    for (size_t i = 0; i < permutation.size(); ++i) {
-      transposedShape.push_back(inputType.getShape()[permutation[i]]);
-    }
-
-    // Create TransposeOp directly with the permutation array - it expects an
-    // ArrayRef<int32_t>
-    auto transposedType =
-        RankedTensorType::get(transposedShape, inputType.getElementType());
-    auto result = rewriter.create<tosa::TransposeOp>(
-        op.getLoc(), transposedType, input, permutation);
+    // Create TransposeOp directly with the permutation array
+    auto result = rewriter.create<tosa::TransposeOp>(op.getLoc(), resultType,
+                                                     input, permutation);
 
     rewriter.replaceOp(op, result);
     return success();

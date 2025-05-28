@@ -52,12 +52,9 @@ struct ConvertTTIRToLinalgPass
     typeConverter.addConversion([](Type type) { return type; });
 
     RewritePatternSet patterns(&getContext());
-    
+
     // Add TTIR to Tosa to Linalg (+ Tensor and Arith, as needed) patterns.
     populateTTIRToTosaPatterns(&getContext(), patterns, typeConverter);
-    tosa::populateTosaToLinalgConversionPatterns(typeConverter, &patterns);
-    tosa::populateTosaToTensorConversionPatterns(typeConverter, &patterns);
-    tosa::populateTosaToArithConversionPatterns(&patterns);
 
     // Add direct TTIR to Linalg patterns.
     populateTTIRToLinalgPatterns(&getContext(), patterns, typeConverter);
