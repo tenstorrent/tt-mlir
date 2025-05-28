@@ -79,6 +79,7 @@ class OpGroup:
             return self._ttnn[-1]
 
         for op in self._ttnn[::-1]:
-            if len(op.outputs) > 0:
+            ir_op = op.ir_op
+            if hasattr(ir_op, "results") and len(ir_op.results) > 0:
                 return op
         return None
