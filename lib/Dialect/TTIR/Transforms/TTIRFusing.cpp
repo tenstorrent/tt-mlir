@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/IR/Operation.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include <cstdint>
 #include <iostream>
@@ -422,21 +423,21 @@ public:
       return mlir::failure();
     }
 
-    std::cout<< "Replacing scatter op with kv-cache update op" << std::endl;
+    std::cout << "Replacing scatter op with kv-cache update op" << std::endl;
 
     // Extract the operands of the scatter operation.
-    Value cache = scatterOp.getInput();             // Cache tensor
-    Value updates = scatterOp.getUpdate();          // Updates tensor
+    Value cache = scatterOp.getInput();    // Cache tensor
+    Value updates = scatterOp.getUpdate(); // Updates tensor
 
     // Create a constant batch offset (set to 0 for now).
     auto batchOffsetAttr = rewriter.getI32IntegerAttr(0);
 
     // Replace the scatter operation with the fill_cache operation.
     rewriter.replaceOpWithNewOp<FillCacheOp>(
-        scatterOp, scatterOp.getResult().getType(),  // Result type
-        cache,                                       // Cache tensor
-        updates,                                     // Updates tensor
-        batchOffsetAttr                              // Batch offset
+        scatterOp, scatterOp.getResult().getType(), // Result type
+        cache,                                      // Cache tensor
+        updates,                                    // Updates tensor
+        batchOffsetAttr                             // Batch offset
     );
 
     return mlir::success();
@@ -453,8 +454,6 @@ private:
 
   static bool isKvCacheUpdate(ttir::ScatterOp scatterOp) {
     auto scatterIndices = scatterOp.getScatterIndices();
-
-    return true;
 
     ArrayRef<int64_t> inputShape =
         mlir::cast<RankedTensorType>(scatterOp.getInput().getType()).getShape();
@@ -517,11 +516,11 @@ private:
     auto thirdInput = inputs[2];
     auto fourthInput = inputs[3];
 
-    if (isBroadcastedDimIndeces(firstInput, 0, true) ||
-        isBroadcastedDimIndeces(secondInput, 1, true) ||
-        isBroadcastedDimIndeces(thirdInput, 2,
-                                false) || // the cache_position tensor
-        isBroadcastedDimIndeces(fourthInput, 3, true)) {
+    if (!isBroadcastedDimIndeces(firstInput, 0, true) ||
+        !isBroadcastedDimIndeces(secondInput, 1, true) ||
+        !isBroadcastedDimIndeces(thirdInput, 2,
+                                 false) || // the cache_position tensor
+        !isBroadcastedDimIndeces(fourthInput, 3, true)) {
       return false;
     }
 
@@ -529,11 +528,12 @@ private:
   }
 
   // For each input of the concat op we check for a pattern like to this (from
-  // bottom up): %137 = "ttir.reshape"(%135, %136) -> (kv-heads, 1) %139 =
-  // "ttir.reshape"(%137, %138) -> (kv-heads, 1, 1) %169 = "ttir.reshape"(%139,
-  // %168) -> (1, kv-heads, 1, 1) %171 = "ttir.broadcast"(%169, %170) -> (batch,
-  // N, seq_len, hidden_dim) %173 = "ttir.reshape"(%171, %172) -> (batch, N,
-  // seq_len, hidden_dim, 1)
+  // bottom up):
+  // %137 = "ttir.reshape"(%135, %136) -> (N, 1)
+  // %139 = "ttir.reshape"(%137, %138) -> (N, 1, 1)
+  // %169 = "ttir.reshape"(%139, %168) -> (1, N, 1, 1)
+  // %171 = "ttir.broadcast"(%169, %170) -> (batch, N, seq_len, hidden_dim)
+  // %173 = "ttir.reshape"(%171, %172) -> (batch, N, seq_len, hidden_dim, 1)
   static bool isBroadcastedDimIndeces(mlir::Value value, int64_t dimIdx,
                                       bool isConst) {
     // Get the tensor shape of value
@@ -546,8 +546,10 @@ private:
     if (!reshapeOp) {
       return false;
     }
-    // check that the reshape input shape is the same as the first output shape
-    // dims.
+    // check that the reshape's input and output shapes are compatible:
+    // 1. Output.rank() = input.rank() + 1
+    // 2. All the input dims are the same as the output dims except the
+    //    last one which is 1.
     auto reshapeInput = reshapeOp.getInput();
 
     auto inputShape =
@@ -575,6 +577,9 @@ private:
     outputShape =
         mlir::cast<RankedTensorType>(broadcastOp.getOutput().getType())
             .getShape();
+    if (inputShape.size() != outputShape.size()) {
+      return false;
+    }
     // Check that all dims in broadcast input are 1 except one dim and that dim
     // is the same as the output dim.
     for (size_t i = 0; i < inputShape.size(); ++i) {
@@ -625,48 +630,12 @@ private:
     if (!addOp) {
       return false;
     }
-    // Check that first input and output have the same values.
-    auto addInputType = mlir::cast<RankedTensorType>(addOp.getLhs().getType());
-    auto addOutputType =
-        mlir::cast<RankedTensorType>(addOp.getOutput().getType());
-    auto addInputShape = addInputType.getShape();
-    auto addOutputShape = addOutputType.getShape();
-    if (addInputType.getRank() != addOutputType.getRank()) {
-      return false;
-    }
-    for (size_t i = 0; i < addInputShape.size(); ++i) {
-      if (addInputShape[i] != addOutputShape[i]) {
-        return false;
-      }
-    }
 
     // Check that the add op LHS producer is a broadcast op.
     // addBroadcastOp is the broadcast op, which serves as the input to the add
     // op.
-    auto addBroadcastOp = addOp.getLhs().getDefiningOp<BroadcastOp>();
-    if (!addBroadcastOp) {
-      return false;
-    }
-    // Check that the broadcast op's input and output shape is the same.
-    auto addBroadcastInputType =
-        mlir::cast<RankedTensorType>(addBroadcastOp.getInput().getType());
-    auto addBroadcastOutputType =
-        mlir::cast<RankedTensorType>(addBroadcastOp.getOutput().getType());
-    auto addBroadcastInputShape = addBroadcastInputType.getShape();
-    auto addBroadcastOutputShape = addBroadcastOutputType.getShape();
-
-    if (addBroadcastInputType.getRank() != addBroadcastOutputType.getRank()) {
-      return false;
-    }
-    for (size_t i = 0; i < addBroadcastInputType.getShape().size(); ++i) {
-      if (addBroadcastInputShape[i] != addBroadcastOutputShape[i]) {
-        return false;
-      }
-    }
-
-    // Check that addBroadcastOp's input is a multiply op.
-    auto BroadcastInput = addBroadcastOp.getInput();
-    auto multiplyOp = BroadcastInput.getDefiningOp<MultiplyOp>();
+    auto addInput = addOp.getLhs();
+    auto multiplyOp = addInput.getDefiningOp<MultiplyOp>();
     if (!multiplyOp) {
       return false;
     }
@@ -689,41 +658,41 @@ private:
 };
 
 class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
-  public:
-    using impl::TTIRFusingBase<TTIRFusingPass>::TTIRFusingBase;
-    void runOnOperation() final {
-      {
-        RewritePatternSet patterns(&getContext());
-        patterns.add<Conv2dTagWeights>(&getContext());
-        if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
-          signalPassFailure();
-          return;
-        }
-      }
-      {
-        RewritePatternSet patterns(&getContext());
-        patterns.add<TTIRConv2dWithBias>(&getContext());
-  
-        // Add patterns for each reduction op type.
-        patterns.add<ReductionWithReshapePattern<SumOp>>(&getContext());
-        patterns.add<ReductionWithReshapePattern<MeanOp>>(&getContext());
-        patterns.add<ReductionWithReshapePattern<MaxOp>>(&getContext());
-        patterns.add<ReductionWithReshapePattern<MinOp>>(&getContext());
-        patterns.add<ReductionWithReshapePattern<ProdOp>>(&getContext());
-        patterns.add<ReductionWithReshapePattern<ReduceAndOp>>(&getContext());
-        patterns.add<ReductionWithReshapePattern<ReduceOrOp>>(&getContext());
-        patterns.add<ReductionWithReshapePattern<ArgMaxOp>>(&getContext());
-  
-        patterns.add<SoftmaxFusionPattern>(&getContext());
-        patterns.add<Conv2dWithMultiply>(&getContext());
-
-        patterns.add<KvCacheUpdatePattern>(&getContext());
-  
-        GreedyRewriteConfig config;
-        config.setUseTopDownTraversal(true);
-        (void)applyPatternsGreedily(getOperation(), std::move(patterns), config);
+public:
+  using impl::TTIRFusingBase<TTIRFusingPass>::TTIRFusingBase;
+  void runOnOperation() final {
+    {
+      RewritePatternSet patterns(&getContext());
+      patterns.add<Conv2dTagWeights>(&getContext());
+      if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
+        signalPassFailure();
+        return;
       }
     }
-  };
-  } // namespace
-  } // namespace mlir::tt::ttir
+    {
+      RewritePatternSet patterns(&getContext());
+      patterns.add<TTIRConv2dWithBias>(&getContext());
+
+      // Add patterns for each reduction op type.
+      patterns.add<ReductionWithReshapePattern<SumOp>>(&getContext());
+      patterns.add<ReductionWithReshapePattern<MeanOp>>(&getContext());
+      patterns.add<ReductionWithReshapePattern<MaxOp>>(&getContext());
+      patterns.add<ReductionWithReshapePattern<MinOp>>(&getContext());
+      patterns.add<ReductionWithReshapePattern<ProdOp>>(&getContext());
+      patterns.add<ReductionWithReshapePattern<ReduceAndOp>>(&getContext());
+      patterns.add<ReductionWithReshapePattern<ReduceOrOp>>(&getContext());
+      patterns.add<ReductionWithReshapePattern<ArgMaxOp>>(&getContext());
+
+      patterns.add<SoftmaxFusionPattern>(&getContext());
+      patterns.add<Conv2dWithMultiply>(&getContext());
+
+      patterns.add<KvCacheUpdatePattern>(&getContext());
+
+      GreedyRewriteConfig config;
+      config.setUseTopDownTraversal(true);
+      (void)applyPatternsGreedily(getOperation(), std::move(patterns), config);
+    }
+  }
+};
+} // namespace
+} // namespace mlir::tt::ttir

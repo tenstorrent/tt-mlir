@@ -34,7 +34,7 @@ fi
 
 # Step 3: Convert TTIR to TTNN backend
 echo "Running ttmlir-opt --ttir-to-ttnn-backend-pipeline..."
-ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=/localdev/jameszianxu/shlo/tt-mlir/ttrt-artifacts/system_desc.ttsys" "$TTIR_FUSED_FILE" -o "$TTNN_FILE"
+ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=/localdev/jazpur/tt-mlir/ttrt-artifacts/system_desc.ttsys" "$TTIR_FUSED_FILE" -o "$TTNN_FILE"
 if [ $? -ne 0 ]; then
   echo "Error: Failed to convert TTIR to TTNN backend."
   exit 1
