@@ -295,10 +295,13 @@ jobs:
       if: matrix.build.type == 'unit'
       shell: bash
       run: |
+        echo "Copy unit test report: begin"
+        ls -alF ${{ steps.strings.outputs.build-output-dir }}/test/
         if [ -f ${{ steps.strings.outputs.build-output-dir }}/test/report.xml ]; then
           cp ${{ steps.strings.outputs.build-output-dir }}/test/report.xml ${{ steps.strings.outputs.test_report_path }}
           echo "Unit test report copied"
         fi
+        echo "Copy unit test report: end"
 
     - name: Run TTNN-Standalone test
       shell: bash
