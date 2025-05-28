@@ -852,23 +852,25 @@ class TTIRKernelFunctionArgsRewriter
 public:
   using OpConversionPattern<func::FuncOp>::OpConversionPattern;
 
+  static ThreadType getThreadType(func::FuncOp op) {
+    ttir::ThreadAttr threadAttr =
+        op->getAttrOfType<ttir::ThreadAttr>(ttir::ThreadAttr::name);
+    switch (threadAttr.getThreadType()) {
+    case ttir::ThreadType::Compute: {
+      return ThreadType::Compute;
+    }
+    case ttir::ThreadType::Datamovement: {
+      return ThreadType::Noc;
+    }
+    }
+  }
+
   static void convertFunctionAttrs(Builder &builder, func::FuncOp op,
                                    ArrayRef<ArgAttr> rtArgs,
                                    ArrayRef<ArgAttr> ctArgs) {
-    ttir::ThreadAttr threadAttr =
-        op->getAttrOfType<ttir::ThreadAttr>(ttir::ThreadAttr::name);
+
+    ThreadType threadType = getThreadType(op);
     op->removeAttr(ttir::ThreadAttr::name);
-    ThreadType threadType;
-    switch (threadAttr.getThreadType()) {
-    case ttir::ThreadType::Compute: {
-      threadType = ThreadType::Compute;
-      break;
-    }
-    case ttir::ThreadType::Datamovement: {
-      threadType = ThreadType::Noc;
-      break;
-    }
-    }
     op->setAttr(ThreadTypeAttr::name,
                 builder.getAttr<ThreadTypeAttr>(threadType));
     ArgSpecAttr::setArgSpec(op, builder.getAttr<ArgSpecAttr>(rtArgs, ctArgs));
@@ -902,6 +904,9 @@ public:
         ctArgSpecVector.push_back(
             rewriter.getAttr<ArgAttr>(ArgType::CBPort, arg.getArgNumber()));
       } else if (mlir::isa<SemaphoreType>(argType)) {
+        if (getThreadType(op) != ThreadType::Noc) {
+          continue;
+        }
         size_t ctArgIndex = ctArgSpecVector.size();
         auto semaphoreIndex = rewriter.create<GetCompileArgValOp>(
             op.getLoc(), rewriter.getI32Type(),
