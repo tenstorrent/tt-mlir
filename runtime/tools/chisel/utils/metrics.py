@@ -31,6 +31,32 @@ def _to_common_shape(x, y):
     except Exception:
         pass
 
+    # Last ditch attempt, we try to permute the dimensions
+    # to match the other tensor
+    ttir_shapes = list(x.shape)
+    ttnn_shapes = list(y.shape)
+    if x.ndim == y.ndim and not len(set(ttir_shapes)) < len(ttir_shapes):
+        try:
+            permutation = [ttir_shapes.index(i) for i in ttnn_shapes]
+            y = y.permute(permutation)
+            return x, y
+        except Exception:
+            pass
+
+    # Last Last ditch attempt, try to merge the last two dimensions to match
+    # the other tensor
+    if len(ttir_shapes) - len(ttnn_shapes) == 1:
+        sz = ttir_shapes[-1] * ttir_shapes[-2]
+        if sz == ttnn_shapes[-1]:
+            y = y.view(x.shape)
+            return x, y
+
+    # Last Last Last ditch attempt, flatten both
+    if x.numel() == y.numel():
+        x = x.flatten()
+        y = y.flatten()
+        return x, y
+
     return None, None
 
 
