@@ -93,8 +93,8 @@ public:
         .getResult();
   }
 
-  static std::tuple<SmallVector<Value>, SmallVector<Value>, unsigned,
-                    SmallVector<Value>>
+  static std::tuple<SmallVector<Value>, SmallVector<Value>, SmallVector<Value>,
+                    unsigned, SmallVector<Value>>
   calculateGatherMcastArguments(PatternRewriter &rewriter, Location loc,
                                 GridAttr grid,
                                 ArrayRef<IteratorType> mcastIterators) {
@@ -103,27 +103,31 @@ public:
     Value one = rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexType(),
                                                    rewriter.getIndexAttr(1));
 
-    SmallVector<Value> coreIndex;
+    SmallVector<Value> senderCoreIndex;
+    SmallVector<Value> mcastCoreIndex;
     SmallVector<Value> mcastShape;
     unsigned mcastVolume = 1;
     SmallVector<Value> conditions;
-    coreIndex.reserve(grid.getShape().size());
+    senderCoreIndex.reserve(grid.getShape().size());
+    mcastCoreIndex.reserve(grid.getShape().size());
     mcastShape.reserve(grid.getShape().size());
 
     for (auto [dim, iteratorType] : llvm::enumerate(mcastIterators)) {
-      Value gridDim = rewriter.create<arith::ConstantOp>(
-          loc, rewriter.getIndexType(),
-          rewriter.getIndexAttr(grid.getShape()[dim]));
       Value core = rewriter.create<CoreIndexOp>(
           loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(dim));
       if (iteratorType == IteratorType::Parallel) {
-        coreIndex.push_back(Value(core));
+        senderCoreIndex.push_back(Value(core));
+        mcastCoreIndex.push_back(Value(core));
         mcastShape.push_back(Value(one));
       } else {
+        int64_t numDests = grid.getShape()[dim] - 1;
+        Value gridDimMinusOne = rewriter.create<arith::ConstantOp>(
+            loc, rewriter.getIndexType(), rewriter.getIndexAttr(numDests));
         assert(iteratorType == IteratorType::Reduction);
-        coreIndex.push_back(zero);
-        mcastShape.push_back(gridDim);
-        mcastVolume *= grid.getShape()[dim];
+        senderCoreIndex.push_back(zero);
+        mcastCoreIndex.push_back(one);
+        mcastShape.push_back(gridDimMinusOne);
+        mcastVolume *= numDests;
 
         Value condition = rewriter.create<arith::CmpIOp>(
             loc, rewriter.getI1Type(), mlir::arith::CmpIPredicate::eq, core,
@@ -132,7 +136,8 @@ public:
       }
     }
 
-    return std::make_tuple(coreIndex, mcastShape, mcastVolume, conditions);
+    return std::make_tuple(senderCoreIndex, mcastCoreIndex, mcastShape,
+                           mcastVolume, conditions);
   }
 
   // One implementation of mcast by which one core (the 0th core for the
@@ -143,20 +148,21 @@ public:
                                    AffineMap operandIndexingMap, GridAttr grid,
                                    ArrayRef<IteratorType> mcastIterators,
                                    MutableArrayRef<Region> regions) {
-    SmallVector<Value> coreIndex, mcastShape, conditions;
+    SmallVector<Value> senderCoreIndex, mcastCoreIndex, mcastShape, conditions;
     unsigned mcastVolume;
-    std::tie(coreIndex, mcastShape, mcastVolume, conditions) =
+    std::tie(senderCoreIndex, mcastCoreIndex, mcastShape, mcastVolume,
+             conditions) =
         calculateGatherMcastArguments(builder, loc, grid, mcastIterators);
     Value zero = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
                                                    builder.getIndexAttr(0));
     Value one = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
                                                   builder.getIndexAttr(1));
     assert(mcastVolume > 0);
-    Value mcastVolumeMinusOne = builder.create<arith::ConstantOp>(
-        loc, builder.getIndexType(), builder.getIndexAttr(mcastVolume - 1));
+    Value mcastVolumeVal = builder.create<arith::ConstantOp>(
+        loc, builder.getIndexType(), builder.getIndexAttr(mcastVolume));
     Value receiversReadySemaphore = createSemaphore(builder, loc, regions);
     Value senderFinishedSemaphore = createSemaphore(builder, loc, regions);
-    assert(coreIndex.size() == mcastShape.size());
+    assert(mcastCoreIndex.size() == mcastShape.size());
     assert(conditions.size() == 1 && "Exactly one condition supported");
     builder.create<scf::IfOp>(
         loc, conditions[0],
@@ -165,17 +171,17 @@ public:
               createDMA(builder, loc, src, dst, operandIndexingMap);
           builder.create<ttir::DMAWaitOp>(loc, gatherMemTx);
           builder.create<ttir::SemaphoreWaitOp>(loc, receiversReadySemaphore,
-                                                mcastVolumeMinusOne, zero);
+                                                mcastVolumeVal, zero);
           Value mcastMemTx = createDMA(builder, loc, dst, dst, std::nullopt,
-                                       coreIndex, mcastShape);
+                                       mcastCoreIndex, mcastShape);
           builder.create<ttir::DMAWaitOp>(loc, mcastMemTx);
           builder.create<ttir::SemaphoreSetOp>(loc, senderFinishedSemaphore,
-                                               one, coreIndex, mcastShape);
+                                               one, mcastCoreIndex, mcastShape);
           builder.create<scf::YieldOp>(loc);
         },
         [&](OpBuilder &builder, Location loc) {
           builder.create<ttir::SemaphoreIncOp>(loc, receiversReadySemaphore,
-                                               one, coreIndex);
+                                               one, senderCoreIndex);
           builder.create<ttir::SemaphoreWaitOp>(loc, senderFinishedSemaphore,
                                                 one, zero);
           builder.create<scf::YieldOp>(loc);
