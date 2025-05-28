@@ -295,8 +295,8 @@ jobs:
       if: matrix.build.type == 'unit'
       shell: bash
       run: |
-        if [ -f build/test/report.xml ]; then
-          cp build/test/report.xml ${{ steps.strings.outputs.test_report_path }}
+        if [ -f ${{ steps.strings.outputs.build-output-dir }}/test/report.xml ]; then
+          cp ${{ steps.strings.outputs.build-output-dir }}/test/report.xml ${{ steps.strings.outputs.test_report_path }}
           echo "Unit test report copied"
         fi
 
