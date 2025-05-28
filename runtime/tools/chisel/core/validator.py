@@ -176,8 +176,8 @@ class Validator:
             abs_err=min_abs_err,
             rel_err=min_rel_err,
             pcc=max_pcc,
-            dev_res=f"{last_ttir_result}",
-            gold_res=f"{last_ttnn_result}",
+            dev_res=f"{last_ttnn_result}",
+            gold_res=f"{last_ttir_result}",
             line_no=op_group.line_no,
             lig=(ttnn_op == op_group.get_last_ttnn_op(with_output=True)),
         )
@@ -188,11 +188,11 @@ class Validator:
         if intermediate:
             op_group.status[
                 -1
-            ].info = f"abs_err={op_group.status[-1].abs_err}, rel_err={op_group.status[-1].rel_err}, pcc={op_group.status[-1].pcc}, dev_res={op_group.status[-1].dev_res}, gold_res={op_group.status[-1].gold_res}, info={op_group.status[-1].info}"
+            ].info = f"abs_err={op_group.status[-1].abs_err}, rel_err={op_group.status[-1].rel_err}, pcc={op_group.status[-1].pcc}, dev_res={op_group.status[-1].dev_res}, gold_res={op_group.status[-1].gold_res}"
             op_group.status[-1].pcc = None
             op_group.status[-1].abs_err = None
 
             pcc_data_entry = self.pcc_data[op_group.line_no][-1]
-            pcc_data_entry.info = f"abs_err={pcc_data_entry.abs_err}, rel_err={pcc_data_entry.rel_err}, pcc={pcc_data_entry.pcc}, dev_res={pcc_data_entry.dev_res}, gold_res={pcc_data_entry.gold_res}, info={pcc_data_entry.info}"
+            pcc_data_entry.info = f"abs_err={pcc_data_entry.abs_err}, rel_err={pcc_data_entry.rel_err}, pcc={pcc_data_entry.pcc}, dev_res={pcc_data_entry.dev_res}, gold_res={pcc_data_entry.gold_res}"
             pcc_data_entry.pcc = None
             pcc_data_entry.abs_err = None
