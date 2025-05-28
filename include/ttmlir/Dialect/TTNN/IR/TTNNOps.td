@@ -1885,7 +1885,7 @@ def TTNN_QuantizeOp : TTNN_Op<"quantize"> {
         - `input` AnyRankedTensor: The input tensor to be quantized. Must have floating-point element type.
         - `scale` AnyRankedTensor: The scale factor (or factors for per-axis quantization). Must be either a scalar (for per-tensor quantization) or a 1D tensor with size matching the dimension of the specified axis (for per-axis quantization).
         - `zero_point` AnyRankedTensor: The zero point value (or values for per-axis quantization). Must be in range of the quantized storage type.
-        - `axis` Optional<i32>: The axis along which quantization is applied. Must be in range [-rank, rank-1] where rank is the rank of the input tensor.
+        - `axis` Optional<i32>: The axis along which quantization is applied. Must be in range [0, rank) where rank is the rank of the input tensor.
         - `output_dtype` Optional<TT_DataTypeAttr>: The data type of the output tensor.
         - `memory_config` Optional<TTNN_MemoryConfigAttr>: The memory configuration for the output tensor.
 
@@ -1924,7 +1924,7 @@ def TTNN_DequantizeOp : TTNN_Op<"dequantize"> {
         - `input` AnyRankedTensor: The input tensor to be dequantized. Must have quantized element type.
         - `scale` AnyRankedTensor: The scale factor (or factors for per-axis quantization).
         - `zero_point` AnyRankedTensor: The zero point value (or values for per-axis quantization). Must be in range of the quantized storage type.
-        - `axis` Optional<i32>: The axis along which quantization is applied. Must be in range [-rank, rank-1] where rank is the rank of the input tensor.
+        - `axis` Optional<i32>: The axis along which quantization is applied. Must be in range [0, rank) where rank is the rank of the input tensor.
         - `output_dtype` Optional<TT_DataTypeAttr>: The data type of the output tensor.
         - `memory_config` Optional<TTNN_MemoryConfigAttr>: The memory configuration for the output tensor.
       ```
@@ -1964,7 +1964,7 @@ def TTNN_RequantizeOp : TTNN_Op<"requantize"> {
         - `in_zero_point` AnyRankedTensor: The input zero point value (or values for per-axis quantization). Must be in range of the quantized storage type.
         - `out_scale` AnyRankedTensor: The output scale factor (or factors for per-axis quantization). Must be either a scalar (for per-tensor quantization) or a 1D tensor with size matching the dimension of the specified axis (for per-axis quantization).
         - `out_zero_point` AnyRankedTensor: The output zero point value (or values for per-axis quantization). Must be in range of the quantized storage type.
-        - `axis` Optional<i32>: The axis along which quantization is applied. Must be in range [-rank, rank-1] where rank is the rank of the input tensor.
+        - `axis` Optional<i32>: The axis along which quantization is applied. Must be in range [0, rank) where rank is the rank of the input tensor.
         - `output_dtype` Optional<TT_DataTypeAttr>: The data type of the output tensor.
         - `memory_config` Optional<TTNN_MemoryConfigAttr>: The memory configuration for the output tensor.
       ```

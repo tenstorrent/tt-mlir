@@ -673,12 +673,12 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
   }
 
   if (axis.has_value()) {
-    uint32_t axisValue = axis.value();
+    int32_t axisValue = axis.value();
     if (axisValue < 0 || axisValue >= inputType.getRank()) {
-      return emitOpError()
-             << "Axis value " << axisValue
-             << " is out of the range for the input tensor of rank "
-             << inputType.getRank();
+      return emitOpError() << "Axis value " << axisValue
+                           << " is out of the range [0, " << inputType.getRank()
+                           << ") for the input tensor of rank "
+                           << inputType.getRank();
     }
   }
   for (auto tensorType : {inputType, outputType}) {

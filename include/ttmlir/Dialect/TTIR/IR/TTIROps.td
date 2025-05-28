@@ -2370,6 +2370,12 @@ def TTIR_QuantizeUnrolledOp : TTIR_NamedOp<"quantize_unrolled"> {
   let summary = "Quantize operation unrolled (scale and zero point as input operands).";
   let description = [{
     The QuantizeUnrolledOp quantizes a tensor using the scale and zero point provided as input operands.
+
+    Inputs:
+      - `input` AnyRankedTensor: The input tensor to be quantized. Must have floating-point element type.
+      - `scale` AnyRankedTensor: The scale factor (or factors for per-axis quantization). Must be either a scalar (for per-tensor quantization) or a 1D tensor with size matching the dimension of the specified axis (for per-axis quantization).
+      - `zero_point` AnyRankedTensor: The zero point value (or values for per-axis quantization). Must be in range of the quantized storage type.
+      - `axis` Optional<i32>: The axis along which quantization is applied. Must be in range [0, rank) where rank is the rank of the input tensor.
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
@@ -2387,6 +2393,12 @@ def TTIR_DequantizeUnrolledOp : TTIR_NamedOp<"dequantize_unrolled"> {
   let summary = "Dequantize operation unrolled (scale and zero point as input operands).";
   let description = [{
     The DequantizeUnrolledOp dequantizes a tensor using the scale and zero point provided as input operands.
+
+    Inputs:
+      - `input` AnyRankedTensor: The input tensor to be dequantized. Must have quantized element type.
+      - `scale` AnyRankedTensor: The scale factor (or factors for per-axis quantization).
+      - `zero_point` AnyRankedTensor: The zero point value (or values for per-axis quantization). Must be in range of the quantized storage type.
+      - `axis` Optional<i32>: The axis along which quantization is applied. Must be in range [0, rank) where rank is the rank of the input tensor.
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
@@ -2430,6 +2442,14 @@ def TTIR_RequantizeUnrolledOp : TTIR_NamedOp<"requantize_unrolled"> {
   let summary = "Requantize operation unrolled (scale and zero point as input operands).";
   let description = [{
     The RequantizeUnrolledOp requantizes a tensor using the scale and zero point provided as input operands.
+
+    Inputs:
+      - `input` AnyRankedTensor: The input tensor to be requantized. Must have quantized element type.
+      - `in_scale` AnyRankedTensor: The input scale factor (or factors for per-axis quantization). Must be either a scalar (for per-tensor quantization) or a 1D tensor with size matching the dimension of the specified axis (for per-axis quantization).
+      - `in_zero_point` AnyRankedTensor: The input zero point value (or values for per-axis quantization). Must be in range of the quantized storage type.
+      - `out_scale` AnyRankedTensor: The output scale factor (or factors for per-axis quantization). Must be either a scalar (for per-tensor quantization) or a 1D tensor with size matching the dimension of the specified axis (for per-axis quantization).
+      - `out_zero_point` AnyRankedTensor: The output zero point value (or values for per-axis quantization). Must be in range of the quantized storage type.
+      - `axis` Optional<i32>: The axis along which quantization is applied. Must be in range [0, rank) where rank is the rank of the input tensor.
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
