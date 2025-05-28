@@ -5,19 +5,27 @@
 #include "ttnn-precompiled.hpp"
 #include "ttnn/core.hpp"
 
-
 ttnn::Tensor mnist_fwd(ttnn::Tensor in, ttnn::Tensor v2, ttnn::Tensor v3, ttnn::Tensor v4, ttnn::Tensor v5) {
-  ttnn::distributed::MeshDevice* v6 = ttnn::DeviceGetter::getInstance();
+  ttnn::distributed::MeshDevice *v6 = ttnn::DeviceGetter::getInstance();
   ttnn::Tensor v7 = ttnn::matmul(in, v5, false, false, ttnn::MemoryConfig{ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM, ::std::nullopt});
-  ttnn::Tensor v8 = ttnn::add(v7, v4, ::std::nullopt, ttnn::MemoryConfig{ttnn::TensorMemoryLayout::WIDTH_SHARDED, ttnn::BufferType::L1, ::tt::tt_metal::ShardSpec(ttnn::CoreRangeSet {std::set<CoreRange> {ttnn::CoreRange {ttnn::CoreCoord {0, 0}, ttnn::CoreCoord {7, 0}}, }}, {32, 32}, ttnn::ShardOrientation::ROW_MAJOR)});
+  ttnn::Tensor v8 = ttnn::add(v7, v4, ::std::nullopt, ttnn::MemoryConfig{ttnn::TensorMemoryLayout::WIDTH_SHARDED, ttnn::BufferType::L1, ::tt::tt_metal::ShardSpec(ttnn::CoreRangeSet{std::set<CoreRange>{
+                                                                                                                                                                      ttnn::CoreRange{ttnn::CoreCoord{0, 0}, ttnn::CoreCoord{7, 0}},
+                                                                                                                                                                  }},
+                                                                                                                                                                  {32, 32}, ttnn::ShardOrientation::ROW_MAJOR)});
   ttnn::deallocate(v7, false);
-  ttnn::Tensor v9 = ttnn::relu(v8, ttnn::MemoryConfig{ttnn::TensorMemoryLayout::WIDTH_SHARDED, ttnn::BufferType::L1, ::tt::tt_metal::ShardSpec(ttnn::CoreRangeSet {std::set<CoreRange> {ttnn::CoreRange {ttnn::CoreCoord {0, 0}, ttnn::CoreCoord {7, 0}}, }}, {32, 32}, ttnn::ShardOrientation::ROW_MAJOR)});
+  ttnn::Tensor v9 = ttnn::relu(v8, ttnn::MemoryConfig{ttnn::TensorMemoryLayout::WIDTH_SHARDED, ttnn::BufferType::L1, ::tt::tt_metal::ShardSpec(ttnn::CoreRangeSet{std::set<CoreRange>{
+                                                                                                                                                   ttnn::CoreRange{ttnn::CoreCoord{0, 0}, ttnn::CoreCoord{7, 0}},
+                                                                                                                                               }},
+                                                                                                                                               {32, 32}, ttnn::ShardOrientation::ROW_MAJOR)});
   ttnn::deallocate(v8, false);
   ttnn::Tensor v10 = ttnn::to_memory_config(v9, ttnn::MemoryConfig{ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM, ::std::nullopt});
   ttnn::deallocate(v9, false);
   ttnn::Tensor v11 = ttnn::matmul(v10, v3, false, false, ttnn::MemoryConfig{ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM, ::std::nullopt});
   ttnn::deallocate(v10, false);
-  ttnn::Tensor v12 = ttnn::add(v11, v2, ::std::nullopt, ttnn::MemoryConfig{ttnn::TensorMemoryLayout::WIDTH_SHARDED, ttnn::BufferType::L1, ::tt::tt_metal::ShardSpec(ttnn::CoreRangeSet {std::set<CoreRange> {ttnn::CoreRange {ttnn::CoreCoord {0, 0}, ttnn::CoreCoord {0, 0}}, }}, {32, 32}, ttnn::ShardOrientation::ROW_MAJOR)});
+  ttnn::Tensor v12 = ttnn::add(v11, v2, ::std::nullopt, ttnn::MemoryConfig{ttnn::TensorMemoryLayout::WIDTH_SHARDED, ttnn::BufferType::L1, ::tt::tt_metal::ShardSpec(ttnn::CoreRangeSet{std::set<CoreRange>{
+                                                                                                                                                                        ttnn::CoreRange{ttnn::CoreCoord{0, 0}, ttnn::CoreCoord{0, 0}},
+                                                                                                                                                                    }},
+                                                                                                                                                                    {32, 32}, ttnn::ShardOrientation::ROW_MAJOR)});
   ttnn::deallocate(v11, false);
   ttnn::Tensor v13 = ttnn::to_memory_config(v12, ttnn::MemoryConfig{ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM, ::std::nullopt});
   ttnn::deallocate(v12, false);
@@ -27,7 +35,7 @@ ttnn::Tensor mnist_fwd(ttnn::Tensor in, ttnn::Tensor v2, ttnn::Tensor v3, ttnn::
 }
 
 std::tuple<ttnn::Tensor, ttnn::Tensor, ttnn::Tensor, ttnn::Tensor, ttnn::Tensor> create_inputs_for_mnist_fwd() {
-  ttnn::distributed::MeshDevice* v1 = ttnn::DeviceGetter::getInstance();
+  ttnn::distributed::MeshDevice *v1 = ttnn::DeviceGetter::getInstance();
   ttnn::Tensor v2 = ttnn::ones(ttnn::Shape({1, 784}), ttnn::DataType::FLOAT32, ttnn::Layout::TILE, ::std::nullopt, ttnn::MemoryConfig{ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM, ::std::nullopt});
   ttnn::Tensor v3 = ttnn::to_device(v2, v1, ttnn::MemoryConfig{ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM, ::std::nullopt});
   ttnn::Tensor v4 = ttnn::ones(ttnn::Shape({1, 10}), ttnn::DataType::FLOAT32, ttnn::Layout::TILE, ::std::nullopt, ttnn::MemoryConfig{ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM, ::std::nullopt});
@@ -42,8 +50,8 @@ std::tuple<ttnn::Tensor, ttnn::Tensor, ttnn::Tensor, ttnn::Tensor, ttnn::Tensor>
 }
 
 void time_run(
-  const std::function<ttnn::Tensor(ttnn::Tensor, ttnn::Tensor, ttnn::Tensor, ttnn::Tensor, ttnn::Tensor)>& fn,
-  const std::string& run_name, ttnn::Tensor arg1, ttnn::Tensor arg2, ttnn::Tensor arg3, ttnn::Tensor arg4, ttnn::Tensor arg5) {
+    const std::function<ttnn::Tensor(ttnn::Tensor, ttnn::Tensor, ttnn::Tensor, ttnn::Tensor, ttnn::Tensor)> &fn,
+    const std::string &run_name, ttnn::Tensor arg1, ttnn::Tensor arg2, ttnn::Tensor arg3, ttnn::Tensor arg4, ttnn::Tensor arg5) {
 
   // Measure execution time
   //
@@ -58,11 +66,6 @@ void time_run(
 }
 
 int32_t main() {
-  // Setup the device
-  //
-  ttnn::MeshDevice* device = ttnn::DeviceGetter::getInstance();
-  device->enable_program_cache();  // compiled kernels stored on device
-
   // Set print options
   //
   ttnn::set_printoptions("full");
@@ -74,29 +77,11 @@ int32_t main() {
 
   // Forward
   //
-  time_run(mnist_fwd, "warm-up", v1, v2, v3, v4, v5);
-  tt::tt_metal::detail::DumpDeviceProfileResults(device->get_device(0));
-  time_run(mnist_fwd, "second", v1, v2, v3, v4, v5);
-  tt::tt_metal::detail::DumpDeviceProfileResults(device->get_device(0));
+  ttnn::Tensor out = mnist_fwd(v1, v2, v3, v4, v5);
 
-  // Record trace
+  // Print output
   //
-  ttnn::operations::core::allocate_tensor_on_device(v1.tensor_spec(), device);
-  ttnn::MeshTraceId trace = ttnn::operations::trace::begin_trace_capture(device, ttnn::DefaultQueueId);
-  time_run(mnist_fwd, "record trace", v1, v2, v3, v4, v5);
-  ttnn::operations::trace::end_trace_capture(device, trace, ttnn::DefaultQueueId);
-  tt::tt_metal::detail::DumpDeviceProfileResults(device->get_device(0));
-
-  // Execute trace
-  //
-  auto start = std::chrono::high_resolution_clock::now();
-  for (int i = 0; i < 100; i++) {
-    ttnn::operations::trace::execute_trace(device, trace, ttnn::DefaultQueueId, /*blocking=*/true);
-  }
-  auto end = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double> duration = end - start;
-  std::cout << duration.count() << " seconds for run: " << "trace" << std::endl;
-  tt::tt_metal::detail::DumpDeviceProfileResults(device->get_device(0));
+  out.print();
 
   return 0;
 }

@@ -12,7 +12,7 @@ fi
 
 # Build
 echo "==================== BUILDING TTNN STANDALONE ==================="
-cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++
+cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++
 cmake --build build -- ttnn-standalone
 echo "================ FINISH BUILDING TTNN STANDALONE ================"
 set +e  # unset exit on error

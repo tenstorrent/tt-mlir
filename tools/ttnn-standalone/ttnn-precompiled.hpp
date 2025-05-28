@@ -35,6 +35,7 @@
 #include "operations/reduction/argmax/argmax.hpp"
 #include "operations/reduction/generic/generic_reductions.hpp"
 #include "operations/reduction/prod/prod.hpp"
+#include "operations/trace.hpp"
 #include "tensor/tensor.hpp"
 #include "tensor/types.hpp"
 #include "tt-metalium/bfloat16.hpp"
@@ -62,7 +63,7 @@ public:
 
   static ttnn::MeshDevice *getInstance() {
     static std::shared_ptr<ttnn::MeshDevice> instance =
-        ::ttnn::MeshDevice::create_unit_mesh(0, l1SmallSize);
+        ::ttnn::MeshDevice::create_unit_mesh(0, l1SmallSize, 22528);
 
     return instance.get();
   }
