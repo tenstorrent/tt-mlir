@@ -125,8 +125,11 @@ def custom_constant(*args, **kwargs):
     data = kwargs["data"]
     kwargs.pop("data")
     shape = kwargs.get("shape", None)
+    dtype = kwargs.get("dtype", None)
 
     res = torch.tensor([data])
+    if dtype is not None:
+        res = res.to(dtype)
     if shape is not None:
         # Special case, if res is a scalar, we broadcast
         if res.numel() == 1:
