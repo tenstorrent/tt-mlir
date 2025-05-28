@@ -116,10 +116,8 @@ class ChiselContext:
             if dtype in (torch.float32, torch.bfloat16):
                 # Assume that 2D float tensors are weights, apply LeCun init
                 tensor = torch.randn(shape)
-                if len(shape) == 2:
-                    tensor.mul_(shape[0] ** -0.5)
-                elif len(shape) == 4:
-                    # Assume that 4D float tensors are conv kernels,
+                if len(shape) == 2 or len(shape) == 4:
+                    # Assume that 4D float tensors are conv kernels, and 2D linear weights
                     # we don't know which axis is which(conventions differ between torch and jax)
                     # so we assume two largest axes are in and out channels
                     # and apply Glorot init to be agnostic to which is which
