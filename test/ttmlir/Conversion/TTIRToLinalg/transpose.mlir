@@ -31,6 +31,4 @@ module {
     %3 = "ttir.transpose"(%1, %2) <{dim0 = 1 : si32, dim1 = 2 : si32}> : (tensor<1x64x32x16xbf16>, tensor<1x32x64x16xbf16>) -> tensor<1x32x64x16xbf16>
     return %3 : tensor<1x32x64x16xbf16>
   }
-
-
 }
