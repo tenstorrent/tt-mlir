@@ -595,8 +595,8 @@ class Run:
                         # Implement optional pre_op_callback functionality here
 
                         program = bin.get_program(program_index)
-                        # Skip private programs (e.g. subgraphs created by const-eval)
-                        if not program.program["public"]:
+                        # Skip hoisted programs (e.g. subgraphs created by const-eval)
+                        if program.program["hoisted"]:
                             continue
 
                         golden_inputs = []
