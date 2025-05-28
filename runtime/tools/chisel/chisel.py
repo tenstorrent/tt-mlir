@@ -248,10 +248,10 @@ class ChiselContext:
             self.validator.validate(self.current_ttnn_op, target_group)
             self.validator.export_csv(self.output_dir / csvfile)
 
-            if self.current_ttnn_op.name == "ttnn.add":
-                # check for dtype of the output tensor
-                if tensor.get_dtype() in [DataType.Int32]:
-                    self.should_skip.add(self.current_ttnn_op.outputs[0].name)
+            # if self.current_ttnn_op.name == "ttnn.add":
+            #     # check for dtype of the output tensor
+            #     if tensor.get_dtype() in [DataType.Int32]:
+            #         self.should_skip.add(self.current_ttnn_op.outputs[0].name)
 
             self.ttnn_op_idx += 1
 
