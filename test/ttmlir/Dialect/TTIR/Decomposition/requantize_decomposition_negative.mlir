@@ -3,7 +3,7 @@
 // -----
 module {
   func.func @test_axis_out_of_range_requantize(%arg0: tensor<1x3x320x320x!quant.uniform<i32:f32:4, {0.1, 0.2, 0.3}>>) -> tensor<1x3x320x320x!quant.uniform<i32:f32:4, {0.2, 0.3, 0.4}>> {
-    // CHECK: error: 'ttir.requantize_unrolled' op Axis value 4 is out of the range for the input tensor of rank 4
+    // CHECK: error: 'ttir.requantize_unrolled' op Axis value 4 is out of the range [0, 4) for the input tensor of rank 4
     %0 = ttir.empty() : tensor<1x3x320x320x!quant.uniform<i32:f32:4, {0.2, 0.3, 0.4}>>
     %1 = "ttir.requantize"(%arg0, %0) : (tensor<1x3x320x320x!quant.uniform<i32:f32:4, {0.1, 0.2, 0.3}>>, tensor<1x3x320x320x!quant.uniform<i32:f32:4, {0.2, 0.3, 0.4}>>) -> tensor<1x3x320x320x!quant.uniform<i32:f32:4, {0.2, 0.3, 0.4}>>
     return %1 : tensor<1x3x320x320x!quant.uniform<i32:f32:4, {0.2, 0.3, 0.4}>>

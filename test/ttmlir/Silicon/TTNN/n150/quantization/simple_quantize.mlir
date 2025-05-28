@@ -7,10 +7,10 @@ module {
     // CHECK-LABEL: func.func @quantize_per_tensor_scale_per_tensor_zp(
     %0 = ttir.empty() : tensor<1x3x224x224x!quant.uniform<i32:f32, 2.000000e-02>>
     // CHECK: "ttnn.full"
-    // CHECK-SAME: fillValue = 0.000000e+00 : f32
+    // CHECK-SAME: fill_value = 0
     // CHECK-SAME: -> tensor<1xui32,
     // CHECK: "ttnn.full"
-    // CHECK-SAME: fillValue = 2.000000e-02 : f32
+    // CHECK-SAME: fill_value = 2.000000e-02 : f32
     // CHECK-SAME: -> tensor<1xf32,
     // CHECK: "ttnn.quantize"
     // CHECK-SAME: {output_dtype = #tt.supportedDataTypes<si32>}
@@ -25,12 +25,12 @@ module {
   func.func @quantize_per_axis_scale_per_tensor_zp(%arg0: tensor<1x3x224x224xf32>) -> tensor<1x3x224x224x!quant.uniform<i32:f32:1, {1.000000e-02,2.000000e-02,3.000000e-02}>> {
     // CHECK-LABEL: func.func @quantize_per_axis_scale_per_tensor_zp(
     %0 = ttir.empty() : tensor<1x3x224x224x!quant.uniform<i32:f32:1, {1.000000e-02,2.000000e-02,3.000000e-02}>>
-    // CHECK: "ttnn.full"
-    // CHECK-SAME: fillValue = 0.000000e+00 : f32
-    // CHECK-SAME: -> tensor<3xui32,
     // CHECK: "ttnn.constant"
     // CHECK-SAME: value = dense<[0.00999999977, 2.000000e-02, 3.000000e-02]> : tensor<3xf32>
     // CHECK-SAME: -> tensor<3xf32,
+    // CHECK: "ttnn.full"
+    // CHECK-SAME: fill_value = 0
+    // CHECK-SAME: -> tensor<3xui32,
     // CHECK: "ttnn.quantize"
     // CHECK-SAME: axis = 1 : i32
     // CHECK-SAME: output_dtype = #tt.supportedDataTypes<si32>

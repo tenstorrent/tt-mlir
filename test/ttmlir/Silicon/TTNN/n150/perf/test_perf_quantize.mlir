@@ -7,10 +7,10 @@ module {
     // CHECK-LABEL: func.func @quantize_per_tensor_scale_per_tensor_zp(
     %0 = ttir.empty() : tensor<1x3x224x224x!quant.uniform<i32:f32, 2.000000e-02>>
     // CHECK: "ttnn.full"
-    // CHECK-SAME: fillValue = 0.000000e+00 : f32
+    // CHECK-SAME: fill_value = 0
     // CHECK-SAME: -> tensor<1xui32,
     // CHECK: "ttnn.full"
-    // CHECK-SAME: fillValue = 2.000000e-02 : f32
+    // CHECK-SAME: fill_value = 2.000000e-02 : f32
     // CHECK-SAME: -> tensor<1xf32,
     // CHECK: "ttnn.quantize"
     // CHECK-SAME: {output_dtype = #tt.supportedDataTypes<si32>}

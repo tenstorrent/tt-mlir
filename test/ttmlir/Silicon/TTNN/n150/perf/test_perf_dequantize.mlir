@@ -8,13 +8,13 @@ module {
     %0 = ttir.empty() : tensor<1x3x224x224xf32>
     // CHECK: "ttnn.get_device"
     // CHECK: "ttnn.full"
-    // CHECK-SAME: fillValue = 0.000000e+00 : f32
+    // CHECK-SAME: fill_value = 0
     // CHECK-SAME: -> tensor<1xui32,
     // CHECK: "ttnn.typecast"
     // CHECK-SAME: dtype = #tt.supportedDataTypes<si32>
     // CHECK-SAME: -> tensor<1xsi32,
     // CHECK: "ttnn.full"
-    // CHECK-SAME: fillValue = 2.000000e-02 : f32
+    // CHECK-SAME: fill_value = 2.000000e-02
     // CHECK-SAME: -> tensor<1xf32,
     // CHECK: "ttnn.dequantize"
     // CHECK-SAME: output_dtype = #tt.supportedDataTypes<f32>
