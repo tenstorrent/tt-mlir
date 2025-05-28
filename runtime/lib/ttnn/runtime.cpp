@@ -401,16 +401,6 @@ void closeMeshDevice(Device parentMesh) {
                 " that has ", numSubMeshes, " unreleased submeshes.");
   }
 #endif
-  /*
-  #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-    auto originalMeshShape = ttnnMeshDevice.shape();
-    ttnnMeshDevice.reshape(::ttnn::MeshShape(1, originalMeshShape.mesh_size()));
-    for (auto *ttnnDevice : ttnnMeshDevice.get_devices()) {
-      ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
-    }
-    ttnnMeshDevice.reshape(originalMeshShape);
-  #endif
-  */
   ttnnMeshDevice.close();
 }
 
