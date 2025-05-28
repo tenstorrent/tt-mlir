@@ -79,9 +79,7 @@ class OpMapping:
             torch_args["shape"] = ir_op.attributes[0].attr.type.shape
 
         if ir_op.name == "ttir.typecast":
-            torch_args["dtype"] = ttir_dtype_maps[
-                str(ir_op.outputs[0].type.element_type)
-            ]
+            torch_args["dtype"] = ttir_dtype_maps[str(ir_op.output.type.element_type)]
 
         if not self.unpack_inputs:
             print("torch op", self.torch_op, result_inputs, torch_args)
