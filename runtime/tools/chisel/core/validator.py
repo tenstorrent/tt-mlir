@@ -14,9 +14,10 @@ class ValidatorInfo:
     abs_err: float
     info: str
     line_no: int
+    lig: bool  # TTNN last with output in its group; used as an easy way to filter the output log
 
     def __repr__(self) -> str:
-        return f"ValidatorInfo({self.ttir_op=}, {self.ttnn_op=}, {self.pcc=}, {self.abs_err=}, {self.info=}, {self.line_no=})"
+        return f"ValidatorInfo({self.ttir_op=}, {self.ttnn_op=}, {self.pcc=}, {self.abs_err=}, {self.info=}, {self.line_no=}, {self.lig=})"
 
 
 class Validator:
@@ -44,7 +45,7 @@ class Validator:
 
             if self._first_export:
                 writer.writerow(
-                    ["TTIR Line", "TTIR Op", "TTNN Op", "PCC", "Abs Err", "Info"]
+                    ["TTIR Line", "TTIR Op", "TTNN Op", "PCC", "Abs Err", "Info", "LIG"]
                 )
                 self._first_export = False
 
@@ -63,6 +64,7 @@ class Validator:
                         item.pcc,
                         item.abs_err,
                         item.info,
+                        item.lig,
                     ]
                 )
 
@@ -82,6 +84,7 @@ class Validator:
                 abs_err=None,
                 info="No output",
                 line_no=op_group.line_no,
+                lig=(ttnn_op == op_group.get_last_ttnn_op(with_output=True)),
             )
             op_group.status.append(validator_info)
             self.pcc_data[op_group.line_no].append(validator_info)
@@ -119,6 +122,7 @@ class Validator:
                     abs_err=abs_err,
                     info="",
                     line_no=op_group.line_no,
+                    lig=(ttnn_op == op_group.get_last_ttnn_op(with_output=True)),
                 )
             )
             max_pcc = max(max_pcc, pcc)
@@ -137,6 +141,7 @@ class Validator:
             abs_err=min_abs_err,
             info=f"{last_ttir_result}, {last_ttnn_result}",
             line_no=op_group.line_no,
+            lig=(ttnn_op == op_group.get_last_ttnn_op(with_output=True)),
         )
 
         op_group.status.append(validator_info)
