@@ -7,7 +7,13 @@ from enum import Enum
 import numpy as np
 import torch
 
-from ttrt.runtime import create_owned_tensor, memcpy, DataType, update_tensor
+from ttrt.runtime import (
+    create_owned_tensor,
+    memcpy,
+    DataType,
+    update_tensor,
+    get_tensor,
+)
 
 
 class TensorStatus(Enum):
@@ -53,21 +59,21 @@ class TensorValue:
     def set_device_data(self, data: np.ndarray, program_context):
         # TODO: handle bfloat16
         self.current_data = data
+        tensor = get_tensor(program_context, self.tensor_ref)
         if type(data) == np.ndarray:
             data_ptr = data.ctypes.data
-            golden_dtype = np_dtype_mapping[self.tensor_ref.tensor.get_dtype()]
+            golden_dtype = np_dtype_mapping[tensor.get_dtype()]
             golden_stride = data.strides
             stride = list(np.array(golden_stride, dtype=golden_dtype) // data.itemsize)
-        if type(data) == torch.Tensor:
+        elif type(data) == torch.Tensor:
             data_ptr = data.data_ptr()
-            golden_dtype = torch_dtype_mapping[self.tensor_ref.tensor.get_dtype()]
             golden_stride = data.stride()
             stride = golden_stride
         else:
             raise ValueError(f"Unsupported data type: {type(data)}")
         shape = list(data.shape)
         size = np.prod(data.shape)
-        dtype = self.tensor_ref.tensor.get_dtype()
+        dtype = tensor.get_dtype()
         src_rtensor = create_owned_tensor(data_ptr, shape, stride, size, dtype)
 
         # Update pool
