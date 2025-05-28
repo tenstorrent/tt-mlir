@@ -2334,7 +2334,7 @@ def TTIR_QuantizeOp : TTIR_NamedOp<"quantize"> {
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
-                   AnyRankedTensor:$output);
+                       AnyRankedTensor:$output);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -2433,12 +2433,12 @@ def TTIR_RequantizeUnrolledOp : TTIR_NamedOp<"requantize_unrolled"> {
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
-                      AnyRankedTensor:$in_scale,
-                      AnyRankedTensor:$in_zero_point,
-                      AnyRankedTensor:$out_scale,
-                      AnyRankedTensor:$out_zero_point,
-                      OptionalAttr<I32Attr>:$axis,
-                      AnyRankedTensor:$output);
+                       AnyRankedTensor:$in_scale,
+                       AnyRankedTensor:$in_zero_point,
+                       AnyRankedTensor:$out_scale,
+                       AnyRankedTensor:$out_zero_point,
+                       OptionalAttr<I32Attr>:$axis,
+                       AnyRankedTensor:$output);
 
   let results = (outs AnyRankedTensor:$result);
 
