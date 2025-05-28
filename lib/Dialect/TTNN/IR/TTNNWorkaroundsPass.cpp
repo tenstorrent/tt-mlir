@@ -491,16 +491,11 @@ TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(
 }
 
 TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createUnaryOpOperandsWorkarounds(
-    mlir::Operation *op) {
-  assert(op->getNumOperands() == 1 && "Expected unary op");
-
+TTNNOperandsWorkaroundsFactory::createTanhOpOperandsWorkarounds() {
   TTNNOperandWorkarounds operandWorkaround;
-  if (mlir::isa<ttnn::TanhOp>(op)) {
-    // Tanh op accurate mode requires bfloat16 data type.
-    // Issue: https://github.com/tenstorrent/tt-metal/issues/22593
-    operandWorkaround.tensorDataTypeWorkaround = DataType::BFloat16;
-  }
+  // Tanh op accurate mode requires bfloat16 data type.
+  // Issue: https://github.com/tenstorrent/tt-metal/issues/22593
+  operandWorkaround.tensorDataTypeWorkaround = DataType::BFloat16;
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(operandWorkaround)
