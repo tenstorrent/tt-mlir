@@ -644,10 +644,8 @@ public:
         if (adaptor.getSrc() == adaptor.getDst()) {
           // If src and dst refer to the same memref, we do not loopback mcast
           // Dests are one less because the sender core is not included
-          auto numDestsLessOne = rewriter.create<arith::SubIOp>(
-              op.getLoc(), numDests, i32(rewriter, op->getLoc(), 1));
           rewriter.create<ttkernel::NocAsyncWriteMulticastOp>(
-              op.getLoc(), srcL1Start, mcastAddr, transferSize, numDestsLessOne,
+              op.getLoc(), srcL1Start, mcastAddr, transferSize, numDests,
               nullptr, nullptr, nullptr);
         } else {
           // If src != dst, we loopback mcast
