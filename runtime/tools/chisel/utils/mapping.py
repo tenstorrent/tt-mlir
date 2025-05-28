@@ -128,6 +128,13 @@ def custom_constant(*args, **kwargs):
 
     res = torch.tensor([data])
     if shape is not None:
+        # Special case, if res is a scalar, we broadcast
+        if res.numel() == 1:
+            while len(shape) - len(res.shape) > 0:
+                res = res.unsqueeze(0)
+            res = res.broadcast_to(shape)
+            return res
+
         res = res.reshape(shape)
     return res
 
