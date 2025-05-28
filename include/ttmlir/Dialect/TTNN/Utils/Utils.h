@@ -26,29 +26,26 @@ toTTNNBufferType(const mlir::tt::MemorySpace memorySpace);
 mlir::tt::MemorySpace
 toTTMemorySpace(const mlir::tt::ttnn::BufferType bufferType);
 
-// Helper method to create a RankedTensorType with the given encoding.
-RankedTensorType
-createRankedTensorTypeWithEncoding(RankedTensorType tensorType,
-                                   ttnn::TTNNLayoutAttr encoding);
+struct RankedTensorTypeFactory {
+  static RankedTensorType create(RankedTensorType tensorType,
+                                 ttnn::TTNNLayoutAttr encoding);
 
-// Helper method to create a RankedTensorType with the given element type.
-RankedTensorType
-createRankedTensorTypeWithElementType(RankedTensorType tensorType,
-                                      Type elementType);
+  static RankedTensorType create(RankedTensorType tensorType,
+                                 Type memrefElementType);
 
-// Helper method to create a RankedTensorType with the given buffer type.
-RankedTensorType
-createRankedTensorTypeWithBufferType(RankedTensorType tensorType,
-                                     ttnn::BufferType bufferType);
+  static RankedTensorType create(RankedTensorType tensorType,
+                                 ttnn::BufferType bufferType);
 
-// Helper method to create a RankedTensorType with the given memory layout.
-RankedTensorType
-createRankedTensorTypeWithMemoryLayout(RankedTensorType tensorType,
-                                       ttnn::TensorMemoryLayout memoryLayout);
+  static RankedTensorType create(RankedTensorType tensorType,
+                                 ttnn::TensorMemoryLayout memoryLayout);
 
-// Helper method to create a RankedTensorType with the given grid.
-RankedTensorType createRankedTensorTypeWithGrid(RankedTensorType tensorType,
-                                                GridAttr grid);
+  static RankedTensorType create(RankedTensorType tensorType,
+                                 ttnn::Layout layout);
+
+  static RankedTensorType create(RankedTensorType tensorType, GridAttr grid);
+
+  static RankedTensorType create(RankedTensorType tensorType, DataType);
+};
 
 // Return the L1 memory usage of the output tensor of the given op.
 // Used within L1 interleaved policies.

@@ -75,6 +75,8 @@ def TTIR_GenericRegionComputeOpTrait : TTIR_Trait<"TTIRGenericRegionComputeOpTra
 // GenericRegionDatamovementOpTrait is a trait that verifies that the operation is inside a datamovement thread.
 def TTIR_GenericRegionDatamovementOpTrait : TTIR_Trait<"TTIRGenericRegionDatamovementOpTrait">;
 
+def TTIR_Broadcastable : TTIR_Trait<"Broadcastable">;
+
 //===----------------------------------------------------------------------===//
 // TTIR common types.
 //===----------------------------------------------------------------------===//
