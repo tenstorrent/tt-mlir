@@ -1010,8 +1010,8 @@ TEST_F(OpModelBase, clampScalarOp) {
 }
 
 TEST_F(OpModelBase, permuteOp) {
-  llvm::SmallVector<int64_t> inputShape = {64, 128, 256, 512};
-  llvm::SmallVector<int64_t> outputShape = {64, 512, 128, 256};
+  llvm::SmallVector<int64_t> inputShape = {4, 64, 128, 256};
+  llvm::SmallVector<int64_t> outputShape = {4, 256, 64, 128};
 
   auto input = createEmptyTensor(inputShape);
   auto outputType = createRankedTensorType(outputShape);
