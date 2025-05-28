@@ -152,8 +152,7 @@ public:
     auto outCB = getOutCB(rewriter, op);
     auto storeIdx = op.getIndices().front();
     rewriter.replaceOpWithNewOp<ttkernel::PackTileOp>(
-        op, dst, outCB, storeIdx,
-        rewriter.getBoolAttr(true));
+        op, dst, outCB, storeIdx, rewriter.getBoolAttr(true));
 
     return success();
   };
@@ -494,9 +493,10 @@ public:
             op.getLoc(), op.getMcastShape()[0], op.getMcastShape()[1]);
         auto numDests = rewriter.create<arith::IndexCastOp>(
             op.getLoc(), rewriter.getI32Type(), numDestsIdx);
-        auto mcastAddr = rewriter.create<ttkernel::GetNocMulticastAddrOp>(
-            op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, dstL1Start,
-            nullptr);
+        auto mcastAddr =
+            rewriter.create<ttkernel::ExperimentalGetNocMulticastAddrOp>(
+                op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, dstL1Start,
+                nullptr);
         if (adaptor.getSrc() == adaptor.getDst()) {
           // If src and dst refer to the same memref, we do not loopback mcast
           // Dests are one less because the sender core is not included
@@ -840,9 +840,10 @@ public:
           op.getLoc(), op.getMcastShape()[0], op.getMcastShape()[1]);
       Value numDests = rewriter.create<arith::IndexCastOp>(
           op.getLoc(), rewriter.getI32Type(), numDestsIdx);
-      auto mcastAddr = rewriter.create<ttkernel::GetNocMulticastAddrOp>(
-          op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, semaphoreAddr,
-          nullptr);
+      auto mcastAddr =
+          rewriter.create<ttkernel::ExperimentalGetNocMulticastAddrOp>(
+              op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, semaphoreAddr,
+              nullptr);
 
       auto semaphorePtr =
           rewriter.create<ttkernel::CastToL1PtrOp>(op.getLoc(), semaphoreAddr);
