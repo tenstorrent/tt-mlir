@@ -58,20 +58,19 @@ private:
 
 namespace {
 class TosaToTTIRMultiplyOpConversionPattern
-    : public TosaToTTIRDefaultDPSOpConversionPattern<
-          tosa::MulOp, mlir::tt::ttir::MultiplyOp> {
-  using TosaToTTIRDefaultDPSOpConversionPattern<
-      tosa::MulOp,
-      mlir::tt::ttir::MultiplyOp>::TosaToTTIRDefaultDPSOpConversionPattern;
+    : public OpConversionPattern<tosa::MulOp> {
+  using OpConversionPattern<tosa::MulOp>::OpConversionPattern;
 
-private:
+public:
   LogicalResult
-  checkConversionLegality(tosa::MulOp srcOp, tosa::MulOp::Adaptor adaptor,
-                          ConversionPatternRewriter &rewriter) const override {
-    if (srcOp.getShift() != 0) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "TTIR MultiplyOp doesn't support shifted multiply.");
-    }
+  matchAndRewrite(tosa::MulOp srcOp, tosa::MulOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    ttir::utils::replaceOpWithNewDPSOp<ttir::MultiplyOp>(
+        rewriter, srcOp, outputType, adaptor.getInput1(), adaptor.getInput2());
+
     return success();
   }
 };
@@ -235,9 +234,8 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
-    Value input = adaptor.getInput1(); // Only grab the tensor input.
     ttir::utils::replaceOpWithNewDPSOp<ttir::NegOp>(rewriter, srcOp, outputType,
-                                                    input);
+                                                    adaptor.getInput1());
 
     return success();
   }
