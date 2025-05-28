@@ -15,6 +15,7 @@
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRGENERICGENERATEDATAMOVEMENT
@@ -167,23 +168,33 @@ public:
     builder.create<scf::IfOp>(
         loc, conditions[0],
         [&](OpBuilder &builder, Location loc) {
+          builder.create<ttkernel::DPrintOp>(loc, "sender start\\n");
           Value gatherMemTx =
               createDMA(builder, loc, src, dst, operandIndexingMap);
           builder.create<ttir::DMAWaitOp>(loc, gatherMemTx);
           builder.create<ttir::SemaphoreWaitOp>(loc, receiversReadySemaphore,
                                                 mcastVolumeVal, zero);
+          builder.create<ttkernel::DPrintOp>(loc,
+                                             "sender received go signal\\n");
           Value mcastMemTx = createDMA(builder, loc, dst, dst, std::nullopt,
                                        mcastCoreIndex, mcastShape);
           builder.create<ttir::DMAWaitOp>(loc, mcastMemTx);
+          builder.create<ttkernel::DPrintOp>(loc, "sender sent data\\n");
           builder.create<ttir::SemaphoreSetOp>(loc, senderFinishedSemaphore,
                                                one, mcastCoreIndex, mcastShape);
+          builder.create<ttkernel::DPrintOp>(loc, "sender sent go signall\\n");
           builder.create<scf::YieldOp>(loc);
         },
         [&](OpBuilder &builder, Location loc) {
+          builder.create<ttkernel::DPrintOp>(loc, "receiver start\\n");
           builder.create<ttir::SemaphoreIncOp>(loc, receiversReadySemaphore,
                                                one, senderCoreIndex);
+          builder.create<ttkernel::DPrintOp>(loc,
+                                             "receiver sent inc signal\\n");
           builder.create<ttir::SemaphoreWaitOp>(loc, senderFinishedSemaphore,
                                                 one, zero);
+          builder.create<ttkernel::DPrintOp>(loc,
+                                             "receiver received go signal\\n");
           builder.create<scf::YieldOp>(loc);
         });
   }
