@@ -1671,10 +1671,13 @@ PermuteOpInterface::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Convert float
-  std::optional<float> pad = 0.0f;
+  // Convert permutations of TTNN_PermuteOp to dims of ttnn::permute
+  ::ttnn::SmallVector<int64_t> dims(permutation.size());
+  std::copy(permutation.begin(), permutation.end(), dims.begin());
+
+  std::optional<float> defaultedPadValue = 0.0f;
   if (padValue.has_value()) {
-    pad = padValue->convertToFloat();
+    defaultedPadValue = padValue->convertToFloat();
   }
 
   auto inputSpecExp =
@@ -1686,13 +1689,9 @@ PermuteOpInterface::getOpConstraints(
 
   // Create query closure
   auto permuteQuery = [=]() {
-    // std::size_t n = permutation.size();
-    ::ttnn::SmallVector<int64_t> dims(permutation.size());
-    std::copy(permutation.begin(), permutation.end(), dims.begin());
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::permute, device, inputSpec,
-        // conversion::convertLLVMArrayRefToStdArray<int64_t, n>(permutation),
-        dims, detail::getNullableMemoryConfig(outputLayout), pad);
+        ::ttnn::permute, device, inputSpec, dims,
+        detail::getNullableMemoryConfig(outputLayout), defaultedPadValue);
   };
 
   return operation::getOpConstraints(
@@ -1713,10 +1712,14 @@ PermuteOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
+  // Convert permutations of TTNN_PermuteOp to dims of ttnn::permute
+  ::ttnn::SmallVector<int64_t> dims(permutation.size());
+  std::copy(permutation.begin(), permutation.end(), dims.begin());
+
   // Convert float
-  std::optional<float> pad = 0.0f;
+  std::optional<float> defaultedPadValue = 0.0f;
   if (padValue.has_value()) {
-    pad = padValue->convertToFloat();
+    defaultedPadValue = padValue->convertToFloat();
   }
 
   auto inputSpecExp =
@@ -1728,13 +1731,9 @@ PermuteOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 
   // Create query closure
   auto permuteQuery = [=]() {
-    // std::size_t n = permutation.size();
-    ::ttnn::SmallVector<int64_t> dims(permutation.size());
-    std::copy(permutation.begin(), permutation.end(), dims.begin());
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::permute, device, inputSpec,
-        // conversion::convertLLVMArrayRefToStdArray<int64_t, n>(permutation),
-        dims, detail::getNullableMemoryConfig(outputLayout), pad);
+        ::ttnn::permute, device, inputSpec, dims,
+        detail::getNullableMemoryConfig(outputLayout), defaultedPadValue);
   };
 
   return operation::getOpRuntime("PermuteOpInterface", permuteQuery);
