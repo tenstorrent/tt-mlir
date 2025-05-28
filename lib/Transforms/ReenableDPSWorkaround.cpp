@@ -139,8 +139,9 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
     // Helper lambda to find and replace empty ops in DPS init operands
     auto processInitOperands = [&](Operation *op) {
       auto dpsInterface = dyn_cast<DestinationStyleOpInterface>(op);
-      if (!dpsInterface)
+      if (!dpsInterface) {
         return false;
+      }
 
       bool found = false;
       for (OpOperand &initOperand : dpsInterface.getDpsInitsMutable()) {

@@ -49,28 +49,8 @@ static Value convertToBooleanTensor(Value input, Location loc,
 
   // Create a constant tensor with 0.0 for comparison
   auto elementType = inputType.getElementType();
-  TypedAttr zeroAttr;
-
-  if (elementType.isF32()) {
-    zeroAttr = rewriter.getF32FloatAttr(0.0f);
-  } else if (elementType.isF64()) {
-    zeroAttr = rewriter.getF64FloatAttr(0.0);
-  } else if (elementType.isF16()) {
-    zeroAttr = rewriter.getF16FloatAttr(0.0);
-  } else if (elementType.isBF16()) {
-    zeroAttr = rewriter.getFloatAttr(elementType, 0.0);
-  } else if (elementType.isInteger(32)) {
-    zeroAttr = rewriter.getI32IntegerAttr(0);
-  } else if (elementType.isInteger(64)) {
-    zeroAttr = rewriter.getI64IntegerAttr(0);
-  } else if (elementType.isInteger(16)) {
-    zeroAttr = rewriter.getI16IntegerAttr(0);
-  } else if (elementType.isInteger(8)) {
-    zeroAttr = rewriter.getI8IntegerAttr(0);
-  } else {
-    // Default to i32 for unsupported types
-    zeroAttr = rewriter.getI32IntegerAttr(0);
-  }
+  assert(elementType.isF32());
+  TypedAttr zeroAttr = rewriter.getF32FloatAttr(0.0f);
 
   // Create a constant scalar with the zero value
   auto zeroValue = rewriter.create<arith::ConstantOp>(loc, zeroAttr);
@@ -90,41 +70,9 @@ static std::pair<Value, Value>
 createTrueAndFalseSplatConstants(RankedTensorType resultType, Location loc,
                                  ConversionPatternRewriter &rewriter) {
   auto elementType = resultType.getElementType();
-  TypedAttr trueAttr, falseAttr;
-
-  if (elementType.isF32()) {
-    trueAttr = rewriter.getF32FloatAttr(1.0f);
-    falseAttr = rewriter.getF32FloatAttr(0.0f);
-  } else if (elementType.isF64()) {
-    trueAttr = rewriter.getF64FloatAttr(1.0);
-    falseAttr = rewriter.getF64FloatAttr(0.0);
-  } else if (elementType.isF16()) {
-    trueAttr = rewriter.getF16FloatAttr(1.0);
-    falseAttr = rewriter.getF16FloatAttr(0.0);
-  } else if (elementType.isBF16()) {
-    // Use FloatAttr with BF16 type instead of getBF16FloatAttr
-    trueAttr = rewriter.getFloatAttr(elementType, 1.0);
-    falseAttr = rewriter.getFloatAttr(elementType, 0.0);
-  } else if (elementType.isInteger(32)) {
-    trueAttr = rewriter.getI32IntegerAttr(1);
-    falseAttr = rewriter.getI32IntegerAttr(0);
-  } else if (elementType.isInteger(64)) {
-    trueAttr = rewriter.getI64IntegerAttr(1);
-    falseAttr = rewriter.getI64IntegerAttr(0);
-  } else if (elementType.isInteger(16)) {
-    trueAttr = rewriter.getI16IntegerAttr(1);
-    falseAttr = rewriter.getI16IntegerAttr(0);
-  } else if (elementType.isInteger(8)) {
-    trueAttr = rewriter.getI8IntegerAttr(1);
-    falseAttr = rewriter.getI8IntegerAttr(0);
-  } else if (elementType.isInteger(1)) {
-    trueAttr = rewriter.getBoolAttr(true);
-    falseAttr = rewriter.getBoolAttr(false);
-  } else {
-    // Default to i32 for unsupported types
-    trueAttr = rewriter.getI32IntegerAttr(1);
-    falseAttr = rewriter.getI32IntegerAttr(0);
-  }
+  assert(elementType.isF32());
+  TypedAttr trueAttr = rewriter.getF32FloatAttr(1.0f);
+  TypedAttr falseAttr = rewriter.getF32FloatAttr(0.0f);
 
   // Create constant scalars with the true/false values
   auto trueValue = rewriter.create<arith::ConstantOp>(loc, trueAttr);
@@ -297,11 +245,9 @@ public:
         this->getTypeConverter()->convertType(op.getResult().getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
 
-    // Create the TOSA operation
     auto result = rewriter.create<TosaOpTy>(op.getLoc(), resultType,
                                             ValueRange{lhs, rhs});
 
-    // Replace the original operation with the result
     rewriter.replaceOp(op, result);
     return success();
   }
@@ -324,10 +270,8 @@ public:
         this->getTypeConverter()->convertType(op.getResult().getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
 
-    // Convert the condition to a boolean tensor
     condition = convertToBooleanTensor(condition, op.getLoc(), rewriter);
 
-    // Create the TOSA select operation (equivalent to where)
     auto result = rewriter.create<tosa::SelectOp>(
         op.getLoc(), resultType, condition, trueValue, falseValue);
 
@@ -351,19 +295,12 @@ public:
 
     auto newShape = resultType.getShape();
     SmallVector<int64_t> newShapeValues(newShape.begin(), newShape.end());
-
-    // Create the shape type
     auto shapeType =
         mlir::tosa::shapeType::get(rewriter.getContext(), newShape.size());
-
-    // Create the index tensor attribute for the shape
     auto attr = rewriter.getIndexTensorAttr(newShapeValues);
-
-    // Create the tosa.const_shape operation
     auto shapeOp =
         rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
 
-    // Create the reshape operation with the shape operand
     auto result = rewriter.create<tosa::ReshapeOp>(op.getLoc(), resultType,
                                                    adaptor.getInput(), shapeOp);
 
@@ -438,22 +375,20 @@ public:
         this->getTypeConverter()->convertType(op.getResult().getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
 
-    // Get the dimension to concatenate along
-    int64_t dim = op.getDim();
+    const int64_t dim = op.getDim();
 
-    // TOSA concat requires at least two inputs
+    // TOSA concat requires at least two inputs.
     if (inputs.size() < 2) {
       return failure();
     }
 
-    // Start with the first two inputs
+    // Start with the first two inputs.
     Value result = rewriter.create<tosa::ConcatOp>(
         op.getLoc(),
         RankedTensorType::get(resultType.getShape().take_front(inputs.size()),
                               resultType.getElementType()),
         ValueRange{inputs[0], inputs[1]}, dim);
-
-    // Add remaining inputs one by one
+    // Add remaining inputs one by one.
     for (size_t i = 2; i < inputs.size(); ++i) {
       result = rewriter.create<tosa::ConcatOp>(
           op.getLoc(),
@@ -505,7 +440,8 @@ public:
   }
 };
 
-// Swapped comparison operations (where TTIR and TOSA ops have swapped operands)
+// Swapped comparison operations (where TTIR and TOSA ops have swapped operands
+// e.g. ttir.lt must use inverted tosa.greater).
 template <typename TTIROpTy, typename TosaOpTy>
 class SwappedComparisonOpConversionPattern
     : public OpConversionPattern<TTIROpTy> {
@@ -541,7 +477,8 @@ public:
   }
 };
 
-// Negated comparison operations (where TTIR op is the negation of a TOSA op)
+// Negated comparison operations (where TTIR op is the negation of a TOSA op,
+// e.g. ttir.not_equal)
 template <typename TTIROpTy, typename TosaOpTy>
 class NegatedComparisonOpConversionPattern
     : public OpConversionPattern<TTIROpTy> {
@@ -602,26 +539,9 @@ public:
 
     // Create a tensor of ones with the result shape
     auto elementType = resultType.getElementType();
-    DenseElementsAttr onesAttr;
-
-    if (elementType.isF32()) {
-      // Create a splat attribute with value 1.0f
-      float oneValue = 1.0f;
-      onesAttr = DenseElementsAttr::get(resultType, ArrayRef<float>(oneValue));
-    } else if (elementType.isF64()) {
-      // Create a splat attribute with value 1.0
-      double oneValue = 1.0;
-      onesAttr = DenseElementsAttr::get(resultType, ArrayRef<double>(oneValue));
-    } else if (elementType.isInteger(32)) {
-      // Create a splat attribute with value 1
-      int32_t oneValue = 1;
-      onesAttr =
-          DenseElementsAttr::get(resultType, ArrayRef<int32_t>(oneValue));
-    } else {
-      // Default to F32 for other types
-      float oneValue = 1.0f;
-      onesAttr = DenseElementsAttr::get(resultType, ArrayRef<float>(oneValue));
-    }
+    assert(elementType.isF32());
+    DenseElementsAttr onesAttr =
+        DenseElementsAttr::get(resultType, ArrayRef<float>(1.0f));
 
     auto onesConst =
         rewriter.create<tosa::ConstOp>(op.getLoc(), resultType, onesAttr);
@@ -699,26 +619,288 @@ public:
 } // namespace
 
 namespace {
-class DotGeneralOpConversionPattern
-    : public OpConversionPattern<ttir::DotGeneralOp> {
+class MatmulOpConversionPattern : public OpConversionPattern<ttir::MatmulOp> {
 public:
-  using OpConversionPattern<ttir::DotGeneralOp>::OpConversionPattern;
+  using OpConversionPattern<ttir::MatmulOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::DotGeneralOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::MatmulOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    Value lhs = adaptor.getLhs();
-    Value rhs = adaptor.getRhs();
+    Value lhs = adaptor.getA();
+    Value rhs = adaptor.getB();
 
+    auto lhsType = dyn_cast<RankedTensorType>(lhs.getType());
+    auto rhsType = dyn_cast<RankedTensorType>(rhs.getType());
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
 
-    // For simple matrix multiplication
-    auto result =
-        rewriter.create<tosa::MatMulOp>(op.getLoc(), resultType, lhs, rhs);
+    if (!lhsType || !rhsType || !resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Operands or result is not a ranked tensor");
+    }
 
-    rewriter.replaceOp(op, result);
+    bool transposeA = op.getTransposeA();
+    bool transposeB = op.getTransposeB();
+
+    // Handle transposition if needed
+    if (transposeA) {
+      auto lhsShape = lhsType.getShape();
+      SmallVector<int64_t> transposedShape;
+
+      if (lhsShape.size() >= 2) {
+        // For 2D+ tensors, transpose the last two dimensions
+        for (size_t i = 0; i < lhsShape.size() - 2; ++i) {
+          transposedShape.push_back(lhsShape[i]);
+        }
+        transposedShape.push_back(lhsShape[lhsShape.size() - 1]);
+        transposedShape.push_back(lhsShape[lhsShape.size() - 2]);
+
+        auto transposedType =
+            RankedTensorType::get(transposedShape, lhsType.getElementType());
+
+        // Create permutation attribute
+        SmallVector<int32_t> permutation;
+        for (size_t i = 0; i < lhsShape.size() - 2; ++i) {
+          permutation.push_back(static_cast<int32_t>(i));
+        }
+        permutation.push_back(static_cast<int32_t>(lhsShape.size() - 1));
+        permutation.push_back(static_cast<int32_t>(lhsShape.size() - 2));
+
+        // Create transpose op
+        lhs = rewriter.create<tosa::TransposeOp>(op.getLoc(), transposedType,
+                                                 lhs, permutation);
+        lhsType = transposedType;
+      }
+    }
+
+    if (transposeB) {
+      auto rhsShape = rhsType.getShape();
+      SmallVector<int64_t> transposedShape;
+
+      if (rhsShape.size() >= 2) {
+        // For 2D+ tensors, transpose the last two dimensions
+        for (size_t i = 0; i < rhsShape.size() - 2; ++i) {
+          transposedShape.push_back(rhsShape[i]);
+        }
+        transposedShape.push_back(rhsShape[rhsShape.size() - 1]);
+        transposedShape.push_back(rhsShape[rhsShape.size() - 2]);
+
+        auto transposedType =
+            RankedTensorType::get(transposedShape, rhsType.getElementType());
+
+        // Create permutation attribute
+        SmallVector<int32_t> permutation;
+        for (size_t i = 0; i < rhsShape.size() - 2; ++i) {
+          permutation.push_back(static_cast<int32_t>(i));
+        }
+        permutation.push_back(static_cast<int32_t>(rhsShape.size() - 1));
+        permutation.push_back(static_cast<int32_t>(rhsShape.size() - 2));
+
+        // Create transpose op
+        rhs = rewriter.create<tosa::TransposeOp>(op.getLoc(), transposedType,
+                                                 rhs, permutation);
+        rhsType = transposedType;
+      }
+    }
+
+    // Ensure both tensors are 3D for tosa.matmul
+    unsigned lhsRank = lhsType.getRank();
+    unsigned rhsRank = rhsType.getRank();
+
+    // Convert to 3D tensors if needed
+    Value lhs3D = lhs;
+    Value rhs3D = rhs;
+    RankedTensorType lhs3DType = lhsType;
+    RankedTensorType rhs3DType = rhsType;
+
+    // If LHS is 2D, reshape to 3D with batch size 1
+    if (lhsRank == 2) {
+      SmallVector<int64_t> newShape = {1, lhsType.getDimSize(0),
+                                       lhsType.getDimSize(1)};
+      auto newType = RankedTensorType::get(newShape, lhsType.getElementType());
+
+      // Create shape tensor for reshape
+      auto shapeType = mlir::tosa::shapeType::get(rewriter.getContext(), 3);
+      SmallVector<int64_t> shapeValues = {1, lhsType.getDimSize(0),
+                                          lhsType.getDimSize(1)};
+      auto attr = rewriter.getIndexTensorAttr(shapeValues);
+      auto shapeOp =
+          rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
+
+      // Reshape LHS to 3D
+      lhs3D = rewriter.create<tosa::ReshapeOp>(op.getLoc(), newType, lhs,
+                                               shapeOp.getResult());
+      lhs3DType = newType;
+    } else if (lhsRank > 3) {
+      // For tensors with rank > 3, collapse all but the last two dimensions
+      int64_t collapsedBatchSize = 1;
+      for (uint32_t i = 0; i < lhsRank - 2; ++i) {
+        collapsedBatchSize *= lhsType.getShape()[i];
+      }
+
+      SmallVector<int64_t> newShape = {collapsedBatchSize,
+                                       lhsType.getShape()[lhsRank - 2],
+                                       lhsType.getShape()[lhsRank - 1]};
+      auto newType = RankedTensorType::get(newShape, lhsType.getElementType());
+
+      // Create shape tensor for reshape
+      auto shapeType = mlir::tosa::shapeType::get(rewriter.getContext(), 3);
+      SmallVector<int64_t> shapeValues = newShape;
+      auto attr = rewriter.getIndexTensorAttr(shapeValues);
+      auto shapeOp =
+          rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
+
+      // Reshape LHS to 3D
+      lhs3D = rewriter.create<tosa::ReshapeOp>(op.getLoc(), newType, lhs,
+                                               shapeOp.getResult());
+      lhs3DType = newType;
+    }
+
+    // If RHS is 2D, reshape to 3D with batch size 1
+    if (rhsRank == 2) {
+      SmallVector<int64_t> newShape = {1, rhsType.getDimSize(0),
+                                       rhsType.getDimSize(1)};
+      auto newType = RankedTensorType::get(newShape, rhsType.getElementType());
+
+      // Create shape tensor for reshape
+      auto shapeType = mlir::tosa::shapeType::get(rewriter.getContext(), 3);
+      SmallVector<int64_t> shapeValues = {1, rhsType.getDimSize(0),
+                                          rhsType.getDimSize(1)};
+      auto attr = rewriter.getIndexTensorAttr(shapeValues);
+      auto shapeOp =
+          rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
+
+      // Reshape RHS to 3D
+      rhs3D = rewriter.create<tosa::ReshapeOp>(op.getLoc(), newType, rhs,
+                                               shapeOp.getResult());
+      rhs3DType = newType;
+    } else if (rhsRank > 3) {
+      // For tensors with rank > 3, collapse all but the last two dimensions
+      int64_t collapsedBatchSize = 1;
+      for (uint32_t i = 0; i < rhsRank - 2; ++i) {
+        collapsedBatchSize *= rhsType.getShape()[i];
+      }
+
+      SmallVector<int64_t> newShape = {collapsedBatchSize,
+                                       rhsType.getShape()[rhsRank - 2],
+                                       rhsType.getShape()[rhsRank - 1]};
+      auto newType = RankedTensorType::get(newShape, rhsType.getElementType());
+
+      // Create shape tensor for reshape
+      auto shapeType = mlir::tosa::shapeType::get(rewriter.getContext(), 3);
+      SmallVector<int64_t> shapeValues = newShape;
+      auto attr = rewriter.getIndexTensorAttr(shapeValues);
+      auto shapeOp =
+          rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
+
+      // Reshape RHS to 3D
+      rhs3D = rewriter.create<tosa::ReshapeOp>(op.getLoc(), newType, rhs,
+                                               shapeOp.getResult());
+      rhs3DType = newType;
+    }
+
+    // Check if we need to broadcast batch dimensions
+    if (lhs3DType.getShape()[0] != rhs3DType.getShape()[0]) {
+      // We need to broadcast one of the inputs to match the other's batch
+      // dimension
+      if (lhs3DType.getShape()[0] == 1 && rhs3DType.getShape()[0] > 1) {
+        // Create a scalar zero attribute
+        auto elementType = lhs3DType.getElementType();
+        TypedAttr zeroAttr;
+
+        if (elementType.isF32()) {
+          zeroAttr = rewriter.getF32FloatAttr(0.0f);
+        } else if (elementType.isF64()) {
+          zeroAttr = rewriter.getF64FloatAttr(0.0);
+        } else if (elementType.isInteger(32)) {
+          zeroAttr = rewriter.getI32IntegerAttr(0);
+        } else if (elementType.isInteger(64)) {
+          zeroAttr = rewriter.getI64IntegerAttr(0);
+        } else if (elementType.isInteger(16)) {
+          zeroAttr = rewriter.getI16IntegerAttr(0);
+        } else if (elementType.isInteger(8)) {
+          zeroAttr = rewriter.getI8IntegerAttr(0);
+        } else if (elementType.isInteger(1)) {
+          zeroAttr = rewriter.getBoolAttr(false);
+        } else {
+          // Default to F32 for other types
+          zeroAttr = rewriter.getF32FloatAttr(0.0f);
+        }
+
+        // Create a scalar value using arith.constant
+        auto scalarZero = rewriter.create<arith::ConstantOp>(
+            op.getLoc(), elementType, zeroAttr);
+
+        // Create a tensor filled with zeros of the result shape
+        auto zeroType = RankedTensorType::get({rhs3DType.getShape()[0],
+                                               lhs3DType.getShape()[1],
+                                               lhs3DType.getShape()[2]},
+                                              lhs3DType.getElementType());
+        auto zeroTensor = rewriter.create<tensor::SplatOp>(
+            op.getLoc(), zeroType, scalarZero.getResult());
+
+        // Use addition with the zero tensor to achieve broadcasting
+        lhs3D = rewriter.create<tosa::AddOp>(op.getLoc(), zeroType, lhs3D,
+                                             zeroTensor);
+
+        // Update lhs3DType
+        lhs3DType = cast<RankedTensorType>(lhs3D.getType());
+      } else if (rhs3DType.getShape()[0] == 1 && lhs3DType.getShape()[0] > 1) {
+        // Create a scalar zero attribute
+        auto elementType = rhs3DType.getElementType();
+        assert(elementType.isF32());
+        TypedAttr zeroAttr = rewriter.getF32FloatAttr(0.0f);
+
+        // Create a scalar value using arith.constant
+        auto scalarZero = rewriter.create<arith::ConstantOp>(
+            op.getLoc(), elementType, zeroAttr);
+
+        // Create a tensor filled with zeros of the result shape
+        auto zeroType = RankedTensorType::get({lhs3DType.getShape()[0],
+                                               rhs3DType.getShape()[1],
+                                               rhs3DType.getShape()[2]},
+                                              rhs3DType.getElementType());
+        auto zeroTensor = rewriter.create<tensor::SplatOp>(
+            op.getLoc(), zeroType, scalarZero.getResult());
+
+        // Use addition with the zero tensor to achieve broadcasting
+        rhs3D = rewriter.create<tosa::AddOp>(op.getLoc(), zeroType, rhs3D,
+                                             zeroTensor);
+
+        // Update rhs3DType
+        rhs3DType = cast<RankedTensorType>(rhs3D.getType());
+      }
+    }
+
+    // Now both tensors should have the same batch dimension
+    auto matmulResultType =
+        RankedTensorType::get({lhs3DType.getShape()[0], lhs3DType.getShape()[1],
+                               rhs3DType.getShape()[2]},
+                              resultType.getElementType());
+
+    // Perform matrix multiplication using tosa.matmul
+    Value matmulResult = rewriter.create<tosa::MatMulOp>(
+        op.getLoc(), matmulResultType, lhs3D, rhs3D);
+
+    // Reshape result back to original rank if needed
+    if (resultType.getRank() != matmulResultType.getRank()) {
+      // Create shape tensor for reshape
+      auto shapeType = mlir::tosa::shapeType::get(rewriter.getContext(),
+                                                  resultType.getRank());
+      SmallVector<int64_t> shapeValues;
+      for (auto dim : resultType.getShape()) {
+        shapeValues.push_back(dim);
+      }
+      auto attr = rewriter.getIndexTensorAttr(shapeValues);
+      auto shapeOp =
+          rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
+
+      // Reshape result
+      matmulResult = rewriter.create<tosa::ReshapeOp>(
+          op.getLoc(), resultType, matmulResult, shapeOp.getResult());
+    }
+
+    rewriter.replaceOp(op, matmulResult);
     return success();
   }
 };
@@ -1257,7 +1439,7 @@ void populateTTIRToTosaPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       typeConverter, ctx);
 
   patterns.add<BroadcastOpConversionPattern, SinOpConversionPattern,
-               CosOpConversionPattern, DotGeneralOpConversionPattern,
+               CosOpConversionPattern, MatmulOpConversionPattern,
                GatherOpConversionPattern, LogicalNotOpConversionPattern,
                MaxOpConversionPattern, SumOpConversionPattern,
                ReduceOrOpConversionPattern>(typeConverter, ctx);
