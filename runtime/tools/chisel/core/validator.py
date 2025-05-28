@@ -3,21 +3,23 @@
 # SPDX-License-Identifier: Apache-2.0
 import csv
 from dataclasses import dataclass
-from utils.metrics import compute_pcc, compute_abs_err
+from utils.metrics import compute_abs_err, compute_rel_err, compute_pcc
 
 
 @dataclass
 class ValidatorInfo:
     ttir_op: str
     ttnn_op: str
-    pcc: float
     abs_err: float
-    info: str
+    rel_err: float
+    pcc: float
+    dev_res: str
+    gold_res: str
     line_no: int
     lig: bool  # TTNN last with output in its group; used as an easy way to filter the output log
 
     def __repr__(self) -> str:
-        return f"ValidatorInfo({self.ttir_op=}, {self.ttnn_op=}, {self.pcc=}, {self.abs_err=}, {self.info=}, {self.line_no=}, {self.lig=})"
+        return f"ValidatorInfo({self.ttir_op=}, {self.ttnn_op=}, {self.abs_err=}, {self.rel_err=}, {self.pcc=}, {self.dev_res=}, {self.gold_res=}, {self.line_no=}, {self.lig=})"
 
 
 class Validator:
@@ -45,7 +47,17 @@ class Validator:
 
             if self._first_export:
                 writer.writerow(
-                    ["TTIR Line", "TTIR Op", "TTNN Op", "PCC", "Abs Err", "Info", "LIG"]
+                    [
+                        "TTIR Line",
+                        "TTIR Op",
+                        "TTNN Op",
+                        "Abs Err",
+                        "Rel Err",
+                        "PCC",
+                        "Device result",
+                        "Golden result",
+                        "LIG",
+                    ]
                 )
                 self._first_export = False
 
@@ -61,9 +73,11 @@ class Validator:
                         line_no,
                         item.ttir_op,
                         item.ttnn_op,
-                        item.pcc,
                         item.abs_err,
-                        item.info,
+                        item.rel_err,
+                        item.pcc,
+                        item.dev_res,
+                        item.gold_res,
                         item.lig,
                     ]
                 )
@@ -80,9 +94,11 @@ class Validator:
             validator_info = ValidatorInfo(
                 ttir_op=str(op_group.ttir[0].ir_op),
                 ttnn_op=str(ttnn_op.ir_op),
-                pcc=None,
                 abs_err=None,
-                info="No output",
+                rel_err=None,
+                pcc=None,
+                dev_res="No output",
+                gold_res="No output",
                 line_no=op_group.line_no,
                 lig=(ttnn_op == op_group.get_last_ttnn_op(with_output=True)),
             )
@@ -92,8 +108,9 @@ class Validator:
         last_ttnn_result = ttnn_op.outputs[0].tt_data
 
         pccs = []
-        max_pcc = 0.0
         min_abs_err = float("inf")
+        min_rel_err = float("inf")
+        max_pcc = 0.0
         # will be reworked
 
         for op in op_group.ttir[::-1]:
@@ -103,8 +120,9 @@ class Validator:
             if output.cpu_data is None:
                 continue
             last_ttir_result = output.cpu_data
-            pcc = compute_pcc(last_ttir_result, last_ttnn_result)
             abs_err = compute_abs_err(last_ttir_result, last_ttnn_result)
+            rel_err = compute_rel_err(last_ttir_result, last_ttnn_result)
+            pcc = compute_pcc(last_ttir_result, last_ttnn_result)
             if pcc is None:
                 continue
             # import pdb; pdb.set_trace()
@@ -118,15 +136,18 @@ class Validator:
                 ValidatorInfo(
                     ttir_op=str(op.ir_op),
                     ttnn_op=str(ttnn_op.ir_op),
-                    pcc=pcc,
                     abs_err=abs_err,
-                    info="",
+                    rel_err=rel_err,
+                    pcc=pcc,
+                    dev_res="",
+                    gold_res="",
                     line_no=op_group.line_no,
                     lig=(ttnn_op == op_group.get_last_ttnn_op(with_output=True)),
                 )
             )
-            max_pcc = max(max_pcc, pcc)
             min_abs_err = min(min_abs_err, abs_err)
+            min_rel_err = min(min_rel_err, rel_err)
+            max_pcc = max(max_pcc, pcc)
 
         self.ttir2ttnn_map[str(op.ir_op.result.get_name())] = str(
             ttnn_op.ir_op.result.get_name()
@@ -137,9 +158,11 @@ class Validator:
         validator_info = ValidatorInfo(
             ttir_op=str(op.ir_op),
             ttnn_op=str(ttnn_op.ir_op),
-            pcc=max_pcc,
             abs_err=min_abs_err,
-            info=f"{last_ttir_result}, {last_ttnn_result}",
+            rel_err=min_rel_err,
+            pcc=max_pcc,
+            dev_res=f"{last_ttir_result}",
+            gold_res=f"{last_ttnn_result}",
             line_no=op_group.line_no,
             lig=(ttnn_op == op_group.get_last_ttnn_op(with_output=True)),
         )
@@ -150,11 +173,11 @@ class Validator:
         if intermediate:
             op_group.status[
                 -1
-            ].info = f"pcc={op_group.status[-1].pcc}, abs_err={op_group.status[-1].abs_err}, info={op_group.status[-1].info}"
+            ].info = f"abs_err={op_group.status[-1].abs_err}, rel_err={op_group.status[-1].rel_err}, pcc={op_group.status[-1].pcc}, dev_res={op_group.status[-1].dev_res}, gold_res={op_group.status[-1].gold_res}, info={op_group.status[-1].info}"
             op_group.status[-1].pcc = None
             op_group.status[-1].abs_err = None
 
             pcc_data_entry = self.pcc_data[op_group.line_no][-1]
-            pcc_data_entry.info = f"pcc={pcc_data_entry.pcc}, abs_err={pcc_data_entry.abs_err}, info={pcc_data_entry.info}"
+            pcc_data_entry.info = f"abs_err={pcc_data_entry.abs_err}, rel_err={pcc_data_entry.rel_err}, pcc={pcc_data_entry.pcc}, dev_res={pcc_data_entry.dev_res}, gold_res={pcc_data_entry.gold_res}, info={pcc_data_entry.info}"
             pcc_data_entry.pcc = None
             pcc_data_entry.abs_err = None
