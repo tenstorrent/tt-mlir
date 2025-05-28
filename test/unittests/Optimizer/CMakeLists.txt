@@ -1,24 +1,14 @@
-# Generate a standalone binary instead an mlir_unittest since TestLayoutAnalysis tests
-# needs to run serially. llvm-lit runs tests in parallel
-add_executable(OptimizerTests
+add_mlir_unittest(OptimizerTests
     TestShardSolver.cpp
     TestOptimizerOverrides.cpp
     TestGreedyL1InterleavedPolicy.cpp
     TestLayoutAnalysis.cpp
-)
-
-target_compile_options(OptimizerTests
-    PRIVATE
-    -fno-rtti
+    PARTIAL_SOURCES_INTENDED
 )
 
 target_link_libraries(OptimizerTests
     PRIVATE
-    gtest
-    gtest_main
     MLIRTTDialect
     MLIRTTNNAnalysis
-    MLIRTTNNDialect
-    MLIRTTTransforms
-    TTMLIRTTNNUtils
+    MLIRTTNNPipelines
 )
