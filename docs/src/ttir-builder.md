@@ -10,14 +10,14 @@ For a full list of supported ops, see [`ttir-builder-ops`](./ttir-builder-ops.md
 Build [ttmlir](./build.md).
 
 ### Import ttir-builder as a python package
-The package `ttir_builder` contains everything needed to create and store ops in the TTIRBuilder object. `ttir_builder.utils` contains functions for wrapping op-creating-functions into MLIR modules, straight into flatbuffers, and everything in between.
+The package `ttir_builder` contains everything needed to create ops for a TTIRBuilder object. `ttir_builder.utils` contains APIs for wrapping op-creating-functions into MLIR modules, `.mlir` files, and straight into flatbuffers files.
 ```bash
 from ttir_builder import TTIRBuilder, Operand, Shape
 from ttir_builder.utils import compile_to_flatbuffer
 ```
 
 ## Creating an op
-There are essentially two ways to go about using ttir-builder. We recommend the second if the eventual goal is to convert `TTIRBuilder` objects to other files  (it's more streamlined), but we will lay out both for you.
+There are essentially two ways to go about using ttir-builder. We recommend the second if the eventual goal is to convert `TTIRBuilder` objects to other files (it's more streamlined), but we will lay out both for you.
 
 ### Creating standalone TTIRBuilder objects
 It's entirely doable to use this method to transform ops into modules, `.mlir` files, and flatbuffers, but there currently isn't support in `ttir_builder.utils` to do so. It requires the `ttmlir.ir`, `ttmlir.dialects`, and `ttmlir.passes` packages and a little more elbow grease.
@@ -71,10 +71,28 @@ compile_to_flatbuffer(
 
 ## `ttir_builder` APIs
 get_loc_of_extra_file_callee
-class Golden
-class TypeInfo
-class GoldenCheckLevel
-class TTIRBuilder
+*class Golden
+*class TypeInfo
+*class GoldenCheckLevel
+*class TTIRBuilder:
+
+what does @ do, what does static mean in this context, why do some start with _?
+
+### Public helpers
+goldens, golden_check_level, get_context, get_next_global_id, print_goldens, get_shape, generate_and_store_random_golden, generate_input_golden, get_golden_map, set_mesh_shape, set_graph_input_output
+
+### Utility conversions
+```bash
+get_type_from_torch_dtype(self, dtype: Union[torch.dtype, TypeInfo]) -> Type : converts PyTorch dtype or TypeInfo to corresponding MLIR Type
+```
+### Utility factories
+```bash
+ranked_tensor_type(self, shape: Shape, data_type: Optional[Type] = None, encoding: Optional[Attribute] = None) -> RankedTensorType : convenience wrapper constructing RankedTensorType
+metal_tensor_layout(self, shape: Shape, grid) -> RankedTensorType : convenience wrapper constructing RankedTensorType with layout as a MetalLayoutAttr type
+```
+
+### TTIR op factories
+ _organize_eltwise_ttir, _organize_eltwise_golden, op_proxy, eltwise_proxy, ccl_proxy
 
 ### Golden functions
 
