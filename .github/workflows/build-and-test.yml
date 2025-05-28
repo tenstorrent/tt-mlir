@@ -281,7 +281,7 @@ jobs:
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
 
-        if [ "${{ matrix.build.suite }}" == "op_model" || [ "${{ matrix.build.suite }}" == "unit" ]; then
+        if [ "${{ matrix.build.suite }}" == "op_model" ] || [ "${{ matrix.build.suite }}" == "unit" ]; then
           echo "Running optimizer tests"
           ${{ steps.strings.outputs.build-output-dir }}/test/unittests/Optimizer/OptimizerTests --gtest_brief=1
         fi
@@ -548,8 +548,6 @@ jobs:
         source env/activate
         lcov --directory ${{ steps.strings.outputs.build-output-dir }} --capture --initial --output-file baseline.info --gcov-tool ${{ steps.strings.outputs.work-dir }}/.github/workflows/gcov_for_clang.sh
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --target check-ttmlir
-        echo "Running optimizer tests"
-        ${{ steps.strings.outputs.build-output-dir }}/test/unittests/Optimizer/OptimizerTests --gtest_brief=1
 
     - name: Prepare code coverage report
       run: |
