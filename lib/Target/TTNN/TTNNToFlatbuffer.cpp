@@ -1033,16 +1033,15 @@ static AttrType getAttrFromConstantChain(mlir::Value tensorVal,
     llvm_unreachable(
         "Expected ttnn.full as defining op for per-tensor scale/zp.");
   }
-  llvm::APFloat valueAttr = fullOp.getFillValue();
   if constexpr (std::is_same_v<AttrType, float>) {
-    return valueAttr.convertToDouble();
+    if (auto fillValueAttr =
+            mlir::dyn_cast<mlir::FloatAttr>(fullOp.getFillValue())) {
+      return fillValueAttr.getValue().convertToDouble();
+    }
   } else if constexpr (std::is_same_v<AttrType, int32_t>) {
-    llvm::APSInt result;
-    bool isExact = false;
-    bool isOverflow = valueAttr.convertToInteger(
-        result, llvm::APFloat::rmTowardZero, &isExact);
-    if (!isOverflow && isExact) {
-      return result.getSExtValue();
+    if (auto fillValueAttr =
+            mlir::dyn_cast<mlir::IntegerAttr>(fullOp.getFillValue())) {
+      return fillValueAttr.getValue().getSExtValue();
     }
   }
   llvm_unreachable(expectedTypeMsg);
