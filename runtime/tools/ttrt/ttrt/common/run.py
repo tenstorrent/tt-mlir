@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+import time
 
 from ttrt.common.util import *
 from ttrt.common.query import Query
@@ -277,6 +278,13 @@ class Run:
             choices=None,
             help="Random ones vs zeroes density, 1 = 100% ones, 2 = 50% ones, 3 = 33% ones, etc.",
         )
+        Run.register_arg(
+            name="--benchmark",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="Enable benchmark mode with warmup and e2e time measurements. Only one program is executed, specified by --program-index. If --program-index is set to 'all', the first program is used. (automatically enables program cache and disables golden comparison)",
+        )
 
     def __init__(self, args={}, logger=None, artifacts=None):
         for name, attributes in Run.registered_args.items():
@@ -507,6 +515,14 @@ class Run:
             if self["--disable-eth-dispatch"]:
                 dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
 
+            if self["--benchmark"]:
+                self["--enable-program-cache"] = True
+                self["--disable-golden"] = True
+
+                # In benchmark mode, only execute one program.
+                if self["--program-index"] == "all":
+                    self["--program-index"] = 0
+
             mesh_shape = [1, len(self.query.device_ids)]
             mesh_options = ttrt.runtime.MeshDeviceOptions()
             mesh_options.dispatch_core_type = dispatch_core_type
@@ -691,6 +707,15 @@ class Run:
                             device, inputs, bin.fbb, program_index
                         )
 
+                        if self["--benchmark"]:
+                            self.logging.info("Warming up device.")
+                            ttrt.runtime.submit(
+                                device,
+                                bin.fbb,
+                                program_index,
+                                inputs,
+                            )
+
                         for loop in range(self["--loops"]):
                             self.logging.debug(
                                 f"starting loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
@@ -720,12 +745,14 @@ class Run:
                                             f"Cannot dirty input tensor {input_idx}, only {len(inputs)} inputs available"
                                         )
 
+                            start = time.perf_counter()
                             runtime_outputs = ttrt.runtime.submit(
                                 device,
                                 bin.fbb,
                                 program_index,
                                 inputs,
                             )
+
                             if self["--check-cache-stats"]:
                                 # Log cache stats after execution
                                 cache_stats = bin.fbb.get_tensor_cache().get_stats()
@@ -785,6 +812,21 @@ class Run:
 
                             self.logging.debug(
                                 f"finished loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
+                            )
+
+                        end = time.perf_counter()
+                        if self["--benchmark"]:
+                            bin.e2e_duration_milliseconds = (end - start) * 1000
+                            batch_size = inputs[0].get_shape()[0]
+                            samples_per_second = (
+                                batch_size / bin.e2e_duration_milliseconds * 1000
+                            )
+                            self.logging.info(
+                                f"Execution time: {bin.e2e_duration_milliseconds} ms"
+                            )
+                            self.logging.info(f"Batch size: {batch_size}")
+                            self.logging.info(
+                                f"Samples per second: {samples_per_second}"
                             )
 
                         if event is not None:
@@ -993,6 +1035,7 @@ class Run:
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
                     "program_index": self["--program-index"],
+                    "e2e_duration_milliseconds": bin.e2e_duration_milliseconds,
                 }
                 self.results.add_result(test_result)
                 self.logging.info(f"PASS: test case={bin.file_path}")
@@ -1008,6 +1051,7 @@ class Run:
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
                     "program_index": self["--program-index"],
+                    "e2e_duration_milliseconds": bin.e2e_duration_milliseconds,
                 }
                 self.results.add_result(test_result)
                 self.logging.info(f"PASS: test case={bin.file_path}")

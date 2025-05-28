@@ -9,6 +9,8 @@
 #include "mlir/IR/MLIRContext.h"
 #include "gtest/gtest.h"
 
+#include <limits>
+
 namespace mlir {
 namespace tt {
 namespace ttnn_to_emitc {
@@ -162,6 +164,24 @@ TEST_F(EmitCConversionTest, ConvertCFPType) {
 
   converted = EmitCTypeConverter<double>::convert(f32Val);
   EXPECT_EQ(converted, "42.000000");
+}
+
+TEST_F(EmitCConversionTest, ConvertCFPTypeNonFiniteValues) {
+  float nanValue = std::numeric_limits<float>::quiet_NaN();
+  std::string converted = EmitCTypeConverter<float>::convert(nanValue);
+  EXPECT_EQ(converted, "::std::numeric_limits<float>::quiet_NaN()");
+
+  float infValue = std::numeric_limits<float>::infinity();
+  converted = EmitCTypeConverter<float>::convert(infValue);
+  EXPECT_EQ(converted, "::std::numeric_limits<float>::infinity()");
+
+  double inf64Value = std::numeric_limits<double>::infinity();
+  converted = EmitCTypeConverter<float>::convert(inf64Value);
+  EXPECT_EQ(converted, "::std::numeric_limits<float>::infinity()");
+
+  float negInfValue = -std::numeric_limits<float>::infinity();
+  converted = EmitCTypeConverter<double>::convert(negInfValue);
+  EXPECT_EQ(converted, "-::std::numeric_limits<double>::infinity()");
 }
 
 TEST_F(EmitCConversionTest, FloatingPointExpectedFailure) {

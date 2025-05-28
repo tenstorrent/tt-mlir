@@ -210,8 +210,8 @@ getDefaultTensorSdyShardingAttr(MLIRContext *context, llvm::StringRef meshName,
   llvm::SmallVector<mlir::sdy::DimensionShardingAttr> dimShardings;
 
   for (uint32_t i = 0; i < rankedTensorType.getShape().size(); i++) {
-    dimShardings.push_back(
-        mlir::sdy::DimensionShardingAttr::get(context, {}, true));
+    dimShardings.push_back(mlir::sdy::DimensionShardingAttr::get(
+        context, {}, /*is_closed*/ false));
   }
 
   return mlir::sdy::TensorShardingAttr::get(context, meshName, dimShardings, {},

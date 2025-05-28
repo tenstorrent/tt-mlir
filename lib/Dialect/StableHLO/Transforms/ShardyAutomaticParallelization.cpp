@@ -517,15 +517,18 @@ public:
       mlir::sdy::AxisRefAttr axisAttr =
           mlir::sdy::AxisRefAttr::get(context, "batch");
       mlir::sdy::DimensionShardingAttr dimShardingAttr =
-          mlir::sdy::DimensionShardingAttr::get(context, {axisAttr}, true);
+          mlir::sdy::DimensionShardingAttr::get(context, {axisAttr},
+                                                /*is_closed*/ false);
       dimShardings.push_back(dimShardingAttr);
 
       mlir::sdy::DimensionShardingAttr full =
-          mlir::sdy::DimensionShardingAttr::get(context, {}, true);
+          mlir::sdy::DimensionShardingAttr::get(context, {},
+                                                /*is_closed*/ false);
       dimShardings.append(argType.getRank() - 1, full);
     } else {
       mlir::sdy::DimensionShardingAttr full =
-          mlir::sdy::DimensionShardingAttr::get(context, {}, true);
+          mlir::sdy::DimensionShardingAttr::get(context, {},
+                                                /*is_closed*/ false);
       dimShardings.append(argType.getRank(), full);
     }
 
@@ -593,7 +596,8 @@ public:
     }
 
     // Determine sdy.sharding annotation to add to this argument based on tt
-    // argument type.
+    // argument type. If it's an input, we annotate it. Otherwise, we keep it
+    // open for shardy propogation to fill it in if required.
     mlir::RankedTensorType argType =
         mlir::cast<mlir::RankedTensorType>(arg->getType());
     llvm::SmallVector<mlir::sdy::DimensionShardingAttr> dimShardings;
@@ -603,15 +607,18 @@ public:
       mlir::sdy::AxisRefAttr axisAttr =
           mlir::sdy::AxisRefAttr::get(context, "batch");
       mlir::sdy::DimensionShardingAttr dimShardingAttr =
-          mlir::sdy::DimensionShardingAttr::get(context, {axisAttr}, true);
+          mlir::sdy::DimensionShardingAttr::get(context, {axisAttr},
+                                                /*is_closed*/ false);
       dimShardings.push_back(dimShardingAttr);
 
       mlir::sdy::DimensionShardingAttr full =
-          mlir::sdy::DimensionShardingAttr::get(context, {}, true);
+          mlir::sdy::DimensionShardingAttr::get(context, {},
+                                                /*is_closed*/ false);
       dimShardings.append(argType.getRank() - 1, full);
     } else {
       mlir::sdy::DimensionShardingAttr full =
-          mlir::sdy::DimensionShardingAttr::get(context, {}, true);
+          mlir::sdy::DimensionShardingAttr::get(context, {},
+                                                /*is_closed*/ false);
       dimShardings.append(argType.getRank(), full);
     }
 
