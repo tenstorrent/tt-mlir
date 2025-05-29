@@ -29,7 +29,7 @@ def test_to_layout(
     tiled: bool,
     request,
 ):
-    tile_size = 32 if tiled else 4  # 4 becuase of 16byte noc alignment
+    tile_size = 32 if tiled else 4  # 4 because of 16byte noc alignment
     input_grid = (input_grid_y, input_grid_x)
     output_grid = (output_grid_y, output_grid_x)
     shape = (

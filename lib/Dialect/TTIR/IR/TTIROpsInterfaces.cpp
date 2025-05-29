@@ -68,6 +68,16 @@ mlir::tt::ttir::detail::verifyGenericParent(mlir::Operation *op) {
                    "TTIR Generic Ops must be inside a generic region");
 }
 
+// This routine calculates the reblock map for a view op. Reblocking is the
+// process of going from one grid/shard shape to another grid/shard shape.
+//
+// While this routine is doing the correct calculation and the calculation
+// itself is not a workaround, the placement of this calculation is a
+// workaround.  We should not be calculating the reblock map here, instead the
+// reblock calculations should be part of the view ops to begin with, however
+// the tensor + metal_layout representation will need a significant refactor to
+// support this, tracked here:
+// https://github.com/tenstorrent/tt-mlir/issues/3389
 static mlir::AffineMap reblockViewWorkaround(mlir::MemRefType inputMemref,
                                              mlir::MemRefType resultMemref) {
   assert(inputMemref.getRank() == resultMemref.getRank());
@@ -89,12 +99,12 @@ static mlir::AffineMap reblockViewWorkaround(mlir::MemRefType inputMemref,
 
   // Canonicalize.
   for (size_t i = 0; i < resultGridShape.size(); i++) {
+    // Grid dimension calculations.
     auto dG = getAffineDimExpr(i, ctx);
     mapExprs[i] = dG.floorDiv(resultGridShape[i]);
-  }
-  for (size_t i = 0; i < resultGridShape.size(); i++) {
+
+    // Shard dimension calculations.
     size_t j = i + resultGridShape.size();
-    auto dG = getAffineDimExpr(i, ctx);
     auto dS = getAffineDimExpr(j, ctx);
     mapExprs[j] = dG * resultShardShape[i] + dS;
   }
@@ -102,13 +112,12 @@ static mlir::AffineMap reblockViewWorkaround(mlir::MemRefType inputMemref,
 
   // Uncanonicalize.
   for (size_t i = 0; i < inputGridShape.size(); i++) {
+    // Grid dimension calculations.
     size_t j = i + inputGridShape.size();
     auto dS = getAffineDimExpr(j, ctx);
     mapExprs[i] = dS.floorDiv(inputShardShape[i]);
-  }
-  for (size_t i = 0; i < inputGridShape.size(); i++) {
-    size_t j = i + inputGridShape.size();
-    auto dS = getAffineDimExpr(j, ctx);
+
+    // Shard dimension calculations.
     mapExprs[j] = dS % inputShardShape[i];
   }
   auto canonicalToInput = mlir::AffineMap::get(rank, 0, mapExprs, ctx);
