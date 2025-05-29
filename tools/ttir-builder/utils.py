@@ -208,8 +208,8 @@ def build_mlir_module(
 
 def run_pipeline(
     module,
-    target: Literal["ttnn", "ttmetal"],
-    pipeline_fn: Callable,
+    target: Literal["ttnn", "ttmetal"] = "ttnn",
+    pipeline_fn: Callable = ttir_to_ttnn_backend_pipeline,
     pipeline_options: List[str] = None,
     dump_to_file: bool = True,
     output_file_name: str = "test.mlir",
