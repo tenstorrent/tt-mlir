@@ -637,13 +637,13 @@ private:
                      "Inserted memory reconfig op: {} ({})",
                      mlir::cast<ToLayoutOp>(memoryReconfigOp),
                      memoryReconfigOp);
-        for (auto &consumer : producerOp->getUses()) {
-          Operation *consumerOp = consumer.getOwner();
-          TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                       "Producer {} op has use: {}@{} ({})",
-                       producerOp->getName(), consumerOp->getName(),
-                       consumerOp->getLoc(), consumerOp);
-        }
+        // for (auto &consumer : producerOp->getUses()) {
+        //   Operation *consumerOp = consumer.getOwner();
+        //   TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+        //                "Producer {} op has use: {}@{} ({})",
+        //                producerOp->getName(), consumerOp->getName(),
+        //                consumerOp->getLoc(), consumerOp);
+        // }
         if (producerOp) {
           insertedMemoryReconfigOps[producerOp] = memoryReconfigOp;
         }
@@ -660,12 +660,12 @@ private:
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                    "Processing spill op: {} {} @{}", spilledOp,
                    spilledOp->getName(), spilledOp->getLoc());
-      for (auto &use : spilledOp->getResult(0).getUses()) {
-        Operation *useOp = use.getOwner();
-        TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                     "Spilled op has use: {}@{} ({})", useOp->getName(),
-                     useOp->getLoc(), useOp);
-      }
+      // for (auto &use : spilledOp->getResult(0).getUses()) {
+      //   Operation *useOp = use.getOwner();
+      //   TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+      //                "Spilled op has use: {}@{} ({})", useOp->getName(),
+      //                useOp->getLoc(), useOp);
+      // }
 
       RankedTensorType tensorType =
           mlir::cast<RankedTensorType>(spilledOp->getResult(0).getType());
@@ -716,12 +716,12 @@ private:
           ttmlir::LogComponent::Optimizer,
           "Inserted spill to DRAM prevLayout: {}\n\t new ToLayoutOp: {}",
           layoutAttr, toLayoutOp);
-      for (auto &use : spilledOp->getResult(0).getUses()) {
-        TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                     "After creating spill op, has use: {}@{} ({})",
-                     use.getOwner()->getName(), use.getOwner()->getLoc(),
-                     use.getOwner());
-      }
+      // for (auto &use : spilledOp->getResult(0).getUses()) {
+      //   TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+      //                "After creating spill op, has use: {}@{} ({})",
+      //                use.getOwner()->getName(), use.getOwner()->getLoc(),
+      //                use.getOwner());
+      // }
 
       for (auto &use : uses) {
         Operation *useOp = use.first;
@@ -730,7 +730,7 @@ private:
 
       // Reconnect inserted memory reconfig ops for this spilled op
       if (insertedMemoryReconfigOps.count(spilledOp)) {
-        Operation *consumer = insertedMemoryReconfigOps.at(spilledOp);
+        [[maybe_unused]] Operation *consumer = insertedMemoryReconfigOps.at(spilledOp);
         // TODO(rpavlovicTT) by reconnecting we get basically redundant toLayout
         // op because fork op is sharded and we inserted reshard, so we're
         // trying to shard already sharded tensor with same layout. If we don't

@@ -70,6 +70,43 @@ llvm::SmallVector<mlir::Operation *> Scheduler::getScheduleableOps() {
     }
   }
 
+  // Only sort if more than one schedulable op
+  if (scheduleableOps.size() > 1) {
+    auto has_blocked_successor = [&](mlir::Operation *op) -> bool {
+      // A successor is any op for which 'op' is a dependency
+      for (auto &succ : funcOps) {
+        if (succ == op) continue;
+        auto it = dependencies.find(succ);
+        if (it == dependencies.end()) continue;
+        const auto &succ_deps = it->second;
+        // Is 'op' a dependency of 'succ'?
+        if (std::find(succ_deps.begin(), succ_deps.end(), op) != succ_deps.end()) {
+          // Simulate scheduling 'op': would 'succ' still have unscheduled deps?
+          bool still_blocked = false;
+          for (auto *dep : succ_deps) {
+            if (dep == op) continue;
+            if (!scheduledOpsMap.contains(dep)) {
+              still_blocked = true;
+              break;
+            }
+          }
+          if (still_blocked) {
+            return true; // Found a successor that would still be blocked
+          }
+        }
+      }
+      return false;
+    };
+    std::stable_sort(scheduleableOps.begin(), scheduleableOps.end(),
+      [&](mlir::Operation *a, mlir::Operation *b) {
+        bool a_blocked = has_blocked_successor(a);
+        bool b_blocked = has_blocked_successor(b);
+        // Prioritize ops with blocked successors
+        if (a_blocked != b_blocked) return a_blocked > b_blocked;
+        return false;
+      });
+  }
+
   return scheduleableOps;
 }
 

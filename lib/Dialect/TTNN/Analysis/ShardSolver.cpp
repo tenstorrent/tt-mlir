@@ -206,6 +206,12 @@ bool ShardSolver::resolveStep() {
                  ++consumerId) {
 
               if (consumerConfigs[consumerId].outputLayout != consumerLayout) {
+                TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                             "OpName: {} Generated consumer layout {} does not match "
+                             "backend returned layout {}",
+                             consumerOp->getName(),
+                             consumerConfigs[consumerId].outputLayout,
+                             consumerLayout);
                 continue;
               }
 

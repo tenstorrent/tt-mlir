@@ -243,7 +243,7 @@ void DFShardingPolicy::run() {
     l1ChainConfigs->pop_back();
   }
 
-  for (L1ChainConfig &l1ChainConfig : *l1ChainConfigs) {
+  for ([[maybe_unused]] L1ChainConfig &l1ChainConfig : *l1ChainConfigs) {
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "L1 chain config {}",
                  l1ChainConfig);
   }
