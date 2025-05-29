@@ -1017,6 +1017,9 @@ TEST_F(OpModelBase, upsampleOp) {
   int scaleFactor = 2;
   std::string mode = "nearest";
 
+  // ttnn::upsample requires input tensor layout to be RowMajor
+  // Meanwhile L1 RowMajor does not work, see
+  // https://github.com/tenstorrent/tt-mlir/issues/2976
   auto input = createEmptyTensor(
       inputShape, builder.getBF16Type(),
       CreateRowMajorLayout(inputShape, mlir::tt::ttnn::BufferType::DRAM,
@@ -1037,7 +1040,10 @@ TEST_F(OpModelBase, upsampleOp) {
 
   op_model::ttnn::SingletonDeviceContext::resetInstance();
 
-  auto constraintsExp = getOpConstraints(upsampleOp.getOperation());
+  // getOutputLayout() hardcodes L1, so we cannot use it
+  OpModel backend = dyn_cast<OpModel>(upsampleOp.getOperation());
+  auto constraintsExp =
+      backend.getOpConstraints(getInputLayouts(upsampleOp), OpConfig());
   if (!constraintsExp) {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
@@ -1045,8 +1051,8 @@ TEST_F(OpModelBase, upsampleOp) {
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
-  EXPECT_GT(peakSize, 0);
-  EXPECT_GT(outputSize, 0);
+  EXPECT_EQ(peakSize, 0);
+  EXPECT_EQ(outputSize, 0);
 
   op_model::ttnn::SingletonDeviceContext::resetInstance();
 

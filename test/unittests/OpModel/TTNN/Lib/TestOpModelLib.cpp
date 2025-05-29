@@ -1378,8 +1378,8 @@ TEST_P(OpModelUpsampleParam, UpsampleParam) {
     const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
         constraintsExp.get();
     EXPECT_GT(cbSize, 0);
-    EXPECT_GT(peakSize, 0);
-    EXPECT_GT(outputSize, 0);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
   } else {
     // Must clean up the error
     llvm::consumeError(constraintsExp.takeError());
