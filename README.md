@@ -30,7 +30,7 @@ For more information on the project, see https://tenstorrent.github.io/tt-mlir/.
 -----
 # What is this Repo?
 
-The tt-mlir repository contains details about Tenstorrent's MLIR based, open-source compiler. Built on top of the MLIR compiler, tt-mlir acts as a bridge between various machine learning frameworks and Tenstorrent hardware. Developers can use the TTIR (Tenstorrent Intermediate Representation) dialect defined by tt-mlir. This dialect serves as an intermediate representation that is specifically optimized for use with Tenstorrent's AI accelerators.
+tt-mlir is an open-source compiler framework that is used to compile and optimize machine learning models for Tenstorrent's custom AI hardware, such as Wormhole and Blackhole. Built on top of LLVM’s MLIR, it defines custom dialects and transformation passes tailored for Tenstorrent's architectures. It enables efficient translation of models from front-end dialects, such as StableHLO, into binaries optimized for Tenstorrent accelerators.
 
 -----
 # Project Goals
