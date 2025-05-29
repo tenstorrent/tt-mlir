@@ -85,15 +85,15 @@ bool ShardSolver::resolveStep() {
   bitsetIds.reserve(shardedOps->size());
   selectedOpConfig.reserve(shardedOps->size());
 
-  if (shardSpecs->size() == 1) {
-    // Only one op, no need to resolve, we'll anyway spill last op to DRAM, so
-    // just skip.
-    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                 "Skipping L1 chain config, just single op {}",
-                 shardSpecs->begin()->op->getName());
-    earlyExit = true;
-    return false;
-  }
+  // if (shardSpecs->size() == 1) {
+  //   // Only one op, no need to resolve, we'll anyway spill last op to DRAM, so
+  //   // just skip.
+  //   TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+  //                "Skipping L1 chain config, just single op {}",
+  //                shardSpecs->begin()->op->getName());
+  //   earlyExit = true;
+  //   return false;
+  // }
 
   // We need special handling for the first op in the chain.
   //
