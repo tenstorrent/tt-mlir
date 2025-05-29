@@ -233,7 +233,7 @@ def run_pipeline(
 
     Returns
     -------
-    MLIR module containing MLIR op graph defined by `module` and instance of TTIRBuilder.
+    MLIR module containing MLIR op graph defined by `module` and pipeline_fn.
     """
 
     if pipeline_options is None:

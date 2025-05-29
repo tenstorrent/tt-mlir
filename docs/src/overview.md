@@ -240,7 +240,7 @@ This is one of two operations that's crucial to understand the intended optimiza
 
 The layout operation is key in describing the storage of memory throughout the execution graph. Layout determines the sharding spec, location of the memory, data types, and tile sizes of some tensor. While generic describes the dispatch for some data-wise transformation to take place, the data itself is laid out across the chip through the layout operation.
 
-Both of these operations describe the key functionality of the TTIR dialect and the optimization space that it provides.
+Both of these operations describe the key functionality of the TTIR dialect and the optimization space that it provides. `ttir-builder` creates these types of operations for module and flatbuffer generation.
 
 ## Built-in MLIR Dialects
 

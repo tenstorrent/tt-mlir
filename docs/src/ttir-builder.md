@@ -52,8 +52,8 @@ Those builder functions create the following TTIR ops.
 
 `TTIRBuilder` types can be transformed into modules, `.mlir` files, and flatbuffers, but there currently isn't support for this method. Doing so requires the `ttmlir.ir`, `ttmlir.dialects`, and `ttmlir.passes` packages and a little more elbow grease. See `tools/ttir-builder/utils.py` for guidance on how to use those packages.
 
-### Using `ttir_builder.utils`
-The `ttir_builder.utils` APIs (detailed below) process given functions that build MLIR op graphs into MLIR modules and go on to process those modules. For example, we will use a basic implementation of the API `compile_to_flatbuffer` that writes a processed model to a `.ttnn` file.
+### Using `ttir_builder.utils` to create ops
+The `ttir_builder.utils` APIs (detailed below) provide support to wrap functions that build MLIR op graphs into MLIR modules and to process those modules. For example, we will use a basic implementation of the API `compile_to_flatbuffer` that writes a TTIRBuilder wrapper function (the example function `model`) to a `.ttnn` file.
 ```bash
 from ttir_builder.utils import compile_to_flatbuffer,
 from ttir_builder import Operand, TTIRBuilder
@@ -67,6 +67,7 @@ def model(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
 compile_to_flatbuffer(
     model,
     shapes,
+    target="ttnn",
 )
 ```
 
@@ -161,6 +162,7 @@ module {
 ```
 
 ### Run a pipeline over a module
+`run_pipeline` runs a pass on the TTIR module to lower it into a backend, using `pipeline_fn`. The pipeline can be one of the following: `ttir_to_ttnn_backend_pipeline`, `ttir_to_ttmetal_backend_pipeline` (both found in `ttmlir.passes`), or a custom pipeline built with `create_custom_pipeline_fn`. The TTNN backend is the default.
 ```bash
 def run_pipeline(
     module,
@@ -176,10 +178,10 @@ def run_pipeline(
 ```
 
 #### Returns
-MLIR module containing MLIR op graph defined by `module` and instance of TTIRBuilder.
+MLIR module containing MLIR op graph defined by `module` and `pipeline_fn`.
 
 ### Put it all together and compile to flatbuffer
-`compile_to_flatbuffer` combines `build_mlir_module` and `run_pipeline` and compiles the result straight to a flatbuffer file. The choice of TTNN vs. TTMetal is controlled by the `target` parameter.
+`compile_to_flatbuffer` combines `build_mlir_module`, `run_pipeline`, and `ttnn_to_flatbuffer_file` or `ttnn_to_flatbuffer_file`. The choice of TTNN or TTMetal is controlled by the `target` parameter.
 
 ```bash
 def compile_to_flatbuffer(
@@ -266,3 +268,16 @@ def ccl_proxy(
 
 ### Golden functions
 Setting the various inputs, outputs, arguments, shapes, and types are all fairly straightforward. Find the TTIR op in `include/ttmlir/Dialect/TTIR/IR/TTIROps.td` and replicate the pertinents. If there is necessary information that is not included, you may have to take it upon yourself to do some detective work and trial and error. The tricky part can be the finding or writing a golden function. It must perform exactly the same operation as the TTIR op and be written using PyTorch operations.
+
+
+Builder util apis:
+
+
+Provides three(ish) functionalities
+
+    1. `build_mlir_module`
+    2. `run_pipeline` Union[create_custom_pipeline_fn, ttir_to_ttnn_backend_pipeline, ttir_to_ttmetal_backend_pipeline]
+    3. `to_flatbuffer` : Union[ttnn_to_flatbuffer_file, ttmetal_to_flatbuffer_file]
+
+^wrong format
+    compile_to_flatbuffer is mainly a wrapper
