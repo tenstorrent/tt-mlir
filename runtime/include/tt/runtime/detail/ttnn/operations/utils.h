@@ -8,7 +8,6 @@
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
-#include "ttmlir/Target/TTNN/operations/configs_generated.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "types_generated.h"
 #include <concepts>

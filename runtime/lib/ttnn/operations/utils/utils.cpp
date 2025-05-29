@@ -5,7 +5,6 @@
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/workarounds.h"
-#include <operations/core/compute_kernel/compute_kernel_config.hpp>
 
 namespace tt::runtime::ttnn::operations::utils {
 
