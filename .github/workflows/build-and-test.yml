@@ -279,7 +279,6 @@ jobs:
         export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-        # TODO why aren't these run via `check-ttmlir` cmake target?
         llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test
 
         if [ "${{ matrix.build.suite }}" == "op_model" ]; then
@@ -534,7 +533,16 @@ jobs:
       run: |
         source env/activate
         lcov --directory ${{ steps.strings.outputs.build-output-dir }} --capture --initial --output-file baseline.info --gcov-tool ${{ steps.strings.outputs.work-dir }}/.github/workflows/gcov_for_clang.sh
+        # this will output `test/report.xml` in the build dir:
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --target check-ttmlir
+
+    - name: Upload Check Test Report xml
+      uses: actions/upload-artifact@v4
+      if: success() || failure()
+      with:
+        name: check_test_report.xml
+        path: ${{ steps.strings.outputs.build-output-dir }}/test/report.xml
+        if-no-files-found: 'ignore'
 
     - name: Prepare code coverage report
       run: |
