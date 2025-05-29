@@ -14,7 +14,6 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceOpsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RepeatOpRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -23,8 +22,6 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Value.h"
-#include "mlir/IR/ValueRange.h"
-#include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -170,8 +167,8 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
 
   // Create the new output result type with the updated data type and layout.
   RankedTensorType newOutputResultType =
-      ttnn::utils::createRankedTensorTypeWithEncoding(
-          ttnn::utils::createRankedTensorTypeWithElementType(
+      ttnn::utils::RankedTensorTypeFactory::create(
+          ttnn::utils::RankedTensorTypeFactory::create(
               opResultType,
               mlir::tt::dataTypeToElementType(
                   rewriter.getContext(),
