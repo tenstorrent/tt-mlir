@@ -1276,6 +1276,47 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
   return nullptr;
 }
 
+// Fold reshape of a constant into a new constant with the reshaped data.
+static mlir::OpFoldResult foldConstantReshape(mlir::tt::ttir::ReshapeOp op) {
+  // Check if the input is a constant operation
+  auto constantOp = op.getInput().getDefiningOp<mlir::tt::ttir::ConstantOp>();
+  if (!constantOp) {
+    return nullptr;
+  }
+
+  // Get the constant value and the target reshaped type
+  mlir::Attribute constAttr = constantOp.getValue();
+  auto reshapedType = mlir::cast<mlir::RankedTensorType>(op.getType());
+
+  if (auto denseAttr = mlir::dyn_cast<mlir::DenseElementsAttr>(constAttr)) {
+    // Reshape DenseElementsAttr directly
+    return denseAttr.reshape(reshapedType);
+  }
+
+  if (auto resourceAttr =
+          mlir::dyn_cast<mlir::DenseResourceElementsAttr>(constAttr)) {
+    // For DenseResourceElementsAttr, materialize it to DenseElementsAttr first,
+    // then reshape.
+
+    // Get the original type of the resource attribute
+    auto originalResourceType =
+        mlir::cast<mlir::RankedTensorType>(resourceAttr.getType());
+
+    // Get raw data using getData()
+    mlir::ArrayRef<char> rawData = resourceAttr.getData();
+
+    // Create a temporary DenseElementsAttr from the raw buffer.
+    mlir::DenseElementsAttr tempDenseAttr =
+        mlir::DenseElementsAttr::getFromRawBuffer(originalResourceType,
+                                                  rawData);
+
+    // Reshape the materialized DenseElementsAttr
+    return tempDenseAttr.reshape(reshapedType);
+  }
+
+  return nullptr;
+}
+
 // ReshapeOp folder
 ::mlir::OpFoldResult mlir::tt::ttir::ReshapeOp::fold(FoldAdaptor adaptor) {
   if (auto foldResult = foldIdentityReshape(*this)) {
@@ -1283,6 +1324,10 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
   }
 
   if (auto foldResult = foldConsecutiveReshape(*this)) {
+    return foldResult;
+  }
+
+  if (auto foldResult = foldConstantReshape(*this)) {
     return foldResult;
   }
 
