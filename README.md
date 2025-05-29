@@ -21,17 +21,18 @@ For more information on the project, see https://tenstorrent.github.io/tt-mlir/.
 </div>
 <br>
 
+-----
 # Quick Links
 - [Getting Started](https://docs.tenstorrent.com/tt-mlir/getting-started.html)
 - [Tools](https://tenstorrent.github.io/tt-mlir/tools.html)
 - [Additional Reading](https://tenstorrent.github.io/tt-mlir/additional-reading.html)
 
+-----
 # What is this Repo?
 
-The tt-mlir repository contains one of Tenstorrent's open-source compiler projects. Built on top of the MLIR compiler, tt-mlir acts as a bridge between various machine learning frameworks and Tenstorrent hardware. Developers can use the TTIR (Tenstorrent Intermediate Representation) dialect defined by the tt-mlir project. This dialect serves as an intermediate representation that is specifically optimized for use with Tenstorrent's AI accelerators.
+The tt-mlir repository contains details about Tenstorrent's MLIR based, open-source compiler. Built on top of the MLIR compiler, tt-mlir acts as a bridge between various machine learning frameworks and Tenstorrent hardware. Developers can use the TTIR (Tenstorrent Intermediate Representation) dialect defined by tt-mlir. This dialect serves as an intermediate representation that is specifically optimized for use with Tenstorrent's AI accelerators.
 
-# Getting Started Guide
-
+-----
 # Project Goals
 
 - **Generality**: Support a wide range of AI models and workloads including training
@@ -45,6 +46,16 @@ The tt-mlir repository contains one of Tenstorrent's open-source compiler projec
 [codecov badge]: https://codecov.io/gh/tenstorrent/tt-mlir/graph/badge.svg
 [tests badge]: https://github.com/tenstorrent/tt-mlir/actions/workflows/on-push.yml/badge.svg?query=branch%3Amain
 
+-----
+# Related Tenstorrent Projects
+- [tt-forge-fe](https://github.com/tenstorrent/tt-forge-fe)
+- [tt-xla](https://github.com/tenstorrent/tt-xla)
+- [tt-torch](https://github.com/tenstorrent/tt-torch)
+- [tt-forge](https://github.com/tenstorrent/tt-forge)
+- [tt-metalium](https://github.com/tenstorrent/tt-metal)
+- [tt-tvm](https://github.com/tenstorrent/tt-tvm)
+
+-----
 # Tenstorrent Bounty Program Terms and Conditions
 
 This repo is a part of Tenstorrent’s bounty program. If you are interested in helping to improve tt-forge, please make sure to read the [Tenstorrent Bounty Program Terms and Conditions](https://docs.tenstorrent.com/bounty_terms.html) before heading to the issues tab. Look for the issues that are tagged with both “bounty” and difficulty level!
