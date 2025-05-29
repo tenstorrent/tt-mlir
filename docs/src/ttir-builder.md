@@ -1,8 +1,8 @@
 # `ttir-builder`
 
-ttir-builder is a tool for creating TTIR operations. It provides support for ops to be transformed into MLIR modules, then into `.ttnn` or `.ttmetal` `.mlir` files, and finally into executable flatbuffers. Or you can do all three steps at once!
+`ttir-builder` is a tool for creating TTIR operations. It provides support for ops to be transformed into MLIR modules, then into TTNN or TTMetal `.mlir` files, and finally into executable flatbuffers. Or you can do all three steps at once!
 
-For a full list of supported ops, see [`ttir-builder-ops`](./ttir-builder-ops.md)
+For a full list of supported ops, see `tools/ttir-builder/builder.py`.
 
 ## Getting started
 
@@ -17,7 +17,7 @@ from ttir_builder.utils import compile_to_flatbuffer
 ```
 
 ## Creating an op
-There are essentially two ways to go about using ttir-builder. We recommend the second if the eventual goal is to convert `TTIRBuilder` objects to other files (it's more streamlined), but we will lay out both for you.
+There are essentially two ways to go about using ttir-builder. `TTIRBuilder` objects can be instantiated and used directly, however we recommend writing functions that take a `TTIRBuilder` object as an argument to use for op creation. These functions can be passed into `ttir_builder.utils` APIs that will wrap your function into MLIR FuncOps then into MLIR modules. The second provides a more streamlined, user-friendly way to build modules and flatbuffers, but we will lay out both for you.
 
 ### Creating standalone TTIRBuilder objects
 
@@ -50,10 +50,10 @@ Those builder functions create the following TTIR ops.
 %3 = "ttir.multiply"(%1, %arg0, %2) : (tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
 ```
 
-It's entirely doable to use this method to then transform ops into modules, `.mlir` files, and flatbuffers, but there currently isn't support in `ttir_builder.utils` to do so. It requires the `ttmlir.ir`, `ttmlir.dialects`, and `ttmlir.passes` packages and a little more elbow grease. See `tools/ttir-builder/utils.py` for implementation examples.
+`TTIRBuilder` types can be transformed into modules, `.mlir` files, and flatbuffers, but there currently isn't support for this method. Doing so requires the `ttmlir.ir`, `ttmlir.dialects`, and `ttmlir.passes` packages and a little more elbow grease. See `tools/ttir-builder/utils.py` for guidance on how to use those packages.
 
 ### Using `ttir_builder.utils`
-The `ttir_builder.utils` package provides the most-user friendly way to create and transform ops. It works by passing op-creating functions as arguments into `ttir_builder.utils` APIs and letting the APIs do the rest for you. We will use a basic implementation of the API `compile_to_flatbuffer` as an example.
+The `ttir_builder.utils` APIs (detailed below) process given functions that build MLIR op graphs into MLIR modules and go on to process those modules. For example, we will use a basic implementation of the API `compile_to_flatbuffer` that writes a processed model to a `.ttnn` file.
 ```bash
 from ttir_builder.utils import compile_to_flatbuffer,
 from ttir_builder import Operand, TTIRBuilder
