@@ -23,7 +23,8 @@ namespace mlir::tt::ttnn {
 // desired grid. This is not necessarily a requirement, but it is a good
 // heuristic to reduce the search space.
 static bool tensorShapeCompatibleWithShard(RankedTensorType tensorType,
-                                           TTNNLayoutAttr layout) {
+                                           TTNNLayoutAttr layout,
+                                           GridAttr maxGrid) {
 
   if (!layout.hasShardedTensorMemoryLayout()) {
     return true;
@@ -31,7 +32,8 @@ static bool tensorShapeCompatibleWithShard(RankedTensorType tensorType,
 
   llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
 
-  if (!op_model::ttnn::isLayoutLegalForTensorShape(tensorShape, layout)) {
+  if (!op_model::ttnn::isLayoutLegalForTensorShape(tensorShape, layout,
+                                                   maxGrid)) {
     return false;
   }
 
@@ -186,9 +188,9 @@ static std::vector<TTNNLayoutAttr> generateAllPossibleLayouts(
   // Filter layouts based on output tensor legality for current op.
   shardedResults.erase(
       std::remove_if(shardedResults.begin(), shardedResults.end(),
-                     [tensorType](TTNNLayoutAttr layout) {
+                     [tensorType, maxGrid](TTNNLayoutAttr layout) {
                        return !tensorShapeCompatibleWithShard(tensorType,
-                                                              layout);
+                                                              layout, maxGrid);
                      }),
       shardedResults.end());
 
