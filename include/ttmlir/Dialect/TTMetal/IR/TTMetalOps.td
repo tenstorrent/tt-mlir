@@ -73,4 +73,11 @@ def TTMetal_DeallocateBufferOp : TTMetal_Op<"deallocate_buffer", [MemoryEffects<
     let arguments = (ins AnyNon0RankedMemRef:$input);
 }
 
+def TTMetal_FinishOp : TTMetal_Op<"finish", [MemoryEffects<[MemRead, MemWrite]>]> {
+    let summary = "Finish op for command queue.";
+    let description = [{
+      Global barrier op, used to wait for all commands on queue to finish.
+    }];
+}
+
 #endif

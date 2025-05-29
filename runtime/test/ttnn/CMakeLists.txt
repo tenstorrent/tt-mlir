@@ -18,14 +18,15 @@ target_include_directories(TTRuntimeTTNNTestLib SYSTEM PUBLIC "$<BUILD_INTERFACE
 add_dependencies(TTRuntimeTTNNTestLib TTRuntimeTTNNUtils FBS_GENERATION)
 target_link_libraries(TTRuntimeTTNNTestLib PUBLIC TTRuntimeTTNNUtils)
 
-set(TTMLIR_RUNTIME_TEST_PUBLIC_HEADERS
-  "${PROJECT_SOURCE_DIR}/runtime/include/tt/runtime/detail/ttnn/test/dylib.h"
+set(TTMLIR_RUNTIME_TEST_TTNN_PUBLIC_HEADERS
+  "${PROJECT_SOURCE_DIR}/runtime/include/tt/runtime/test/ttnn/dylib.h"
 )
-set_target_properties(TTRuntimeTTNNTestLib PROPERTIES PUBLIC_HEADER "${TTMLIR_RUNTIME_TEST_PUBLIC_HEADERS}")
+set_target_properties(TTRuntimeTTNNTestLib PROPERTIES PUBLIC_HEADER "${TTMLIR_RUNTIME_TEST_TTNN_PUBLIC_HEADERS}")
+include(GNUInstallDirs)
 install(TARGETS TTRuntimeTTNNTestLib
+  COMPONENT TTNNStandalone
   PUBLIC_HEADER
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/tt/runtime/test
-    COMPONENT TTNNStandalone
 )
 
 add_subdirectory(gtest)

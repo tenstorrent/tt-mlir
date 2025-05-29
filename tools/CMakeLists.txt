@@ -1,7 +1,17 @@
 add_subdirectory(ttmlir-opt)
 add_subdirectory(ttmlir-lsp-server)
-add_subdirectory(ttmlir-translate)
-if (TTMLIR_ENABLE_EXPLORER)
-  add_subdirectory(explorer)
+if(TTMLIR_ENABLE_BINDINGS_PYTHON AND MLIR_ENABLE_BINDINGS_PYTHON)
+  add_subdirectory(ttir-builder)
+
+  if (TTMLIR_ENABLE_PYKERNEL)
+    add_subdirectory(pykernel)
+  endif()
+
+  if (TTMLIR_ENABLE_EXPLORER)
+    add_subdirectory(explorer)
+  endif()
+
 endif()
+add_subdirectory(ttmlir-translate)
+
 add_subdirectory(ttnn-standalone)

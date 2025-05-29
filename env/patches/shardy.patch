@@ -61,10 +61,10 @@ index 0000000..a2d940d
 +add_subdirectory(shardy/round_trip_import)
 diff --git a/shardy/common/CMakeLists.txt b/shardy/common/CMakeLists.txt
 new file mode 100644
-index 0000000..8f29e99
+index 0000000..e35e927
 --- /dev/null
 +++ b/shardy/common/CMakeLists.txt
-@@ -0,0 +1,16 @@
+@@ -0,0 +1,17 @@
 +# Shardy MLIR Common
 +
 +add_mlir_library(SdyCommonFileUtils
@@ -80,13 +80,14 @@ index 0000000..8f29e99
 +  MLIRIR
 +  MLIRPass
 +  MLIRSupport
++  SdyDialect
 +)
 diff --git a/shardy/dialect/sdy/ir/CMakeLists.txt b/shardy/dialect/sdy/ir/CMakeLists.txt
 new file mode 100755
-index 0000000..dd44e0f
+index 0000000..b2c87de
 --- /dev/null
 +++ b/shardy/dialect/sdy/ir/CMakeLists.txt
-@@ -0,0 +1,99 @@
+@@ -0,0 +1,106 @@
 +# Shardy MLIR dialect.
 +
 +set(LLVM_TARGET_DEFINITIONS dialect.td)
@@ -125,7 +126,13 @@ index 0000000..dd44e0f
 +add_public_tablegen_target(SdyCanonicalizationIncGen)
 +add_dependencies(mlir-headers SdyCanonicalizationIncGen)
 +
++set(LLVM_TARGET_DEFINITIONS bytecode.td)
++mlir_tablegen(bytecode.cc.inc -gen-bytecode -bytecode-dialect=sdy)
++add_public_tablegen_target(SdyBytecodeIncGen)
++add_dependencies(mlir-headers SdyBytecodeIncGen)
++
 +add_mlir_dialect_library(SdyDialect
++  bytecode.cc
 +  canonicalization.cc
 +  dialect.cc
 +  extensions/stablehlo_extensions.cc
@@ -141,6 +148,7 @@ index 0000000..dd44e0f
 +  SdyEnumsIncGen
 +  SdyOpInterfaceIncGen
 +  SdyCanonicalizationIncGen
++  SdyBytecodeIncGen
 +
 +  LINK_LIBS PUBLIC
 +  LLVMSupport
@@ -188,10 +196,10 @@ index 0000000..dd44e0f
 +)
 diff --git a/shardy/dialect/sdy/transforms/CMakeLists.txt b/shardy/dialect/sdy/transforms/CMakeLists.txt
 new file mode 100755
-index 0000000..e9ec387
+index 0000000..90e2fc5
 --- /dev/null
 +++ b/shardy/dialect/sdy/transforms/CMakeLists.txt
-@@ -0,0 +1,23 @@
+@@ -0,0 +1,26 @@
 +# Shardy MLIR Transforms Passes
 +
 +add_subdirectory(common)
@@ -209,6 +217,9 @@ index 0000000..e9ec387
 +
 +  LINK_LIBS PUBLIC
 +  MLIRPass
++  SdyTransformsExportPasses
++  SdyTransformsImportPasses
++  SdyTransformsPropagationPasses
 +)
 +
 +target_include_directories(SdyTransformsPasses INTERFACE
@@ -217,10 +228,10 @@ index 0000000..e9ec387
 +)
 diff --git a/shardy/dialect/sdy/transforms/common/CMakeLists.txt b/shardy/dialect/sdy/transforms/common/CMakeLists.txt
 new file mode 100755
-index 0000000..9a67afc
+index 0000000..3b414d1
 --- /dev/null
 +++ b/shardy/dialect/sdy/transforms/common/CMakeLists.txt
-@@ -0,0 +1,27 @@
+@@ -0,0 +1,29 @@
 +# Shardy MLIR Transforms Common
 +
 +add_mlir_library(SdyTransformsCommonOpProperties
@@ -234,6 +245,7 @@ index 0000000..9a67afc
 +  MLIRSupport
 +  StablehloBase
 +  StablehloOps
++  SdyDialect
 +)
 +
 +add_mlir_library(SdyTransformsCommonShardingWalker
@@ -247,13 +259,14 @@ index 0000000..9a67afc
 +  MLIRFuncDialect
 +  MLIRIR
 +  MLIRSupport
++  SdyDialect
 +)
 diff --git a/shardy/dialect/sdy/transforms/export/CMakeLists.txt b/shardy/dialect/sdy/transforms/export/CMakeLists.txt
 new file mode 100755
-index 0000000..79b71df
+index 0000000..097780a
 --- /dev/null
 +++ b/shardy/dialect/sdy/transforms/export/CMakeLists.txt
-@@ -0,0 +1,47 @@
+@@ -0,0 +1,93 @@
 +# Shardy MLIR Transform Export Passes and Pipeline
 +
 +set(LLVM_TARGET_DEFINITIONS passes.td)
@@ -262,19 +275,10 @@ index 0000000..79b71df
 +add_dependencies(mlir-headers SdyExportPassesIncGen)
 +add_mlir_doc(Passes SdyTransformsExportPasses ./ -gen-pass-doc)
 +
-+add_mlir_library(SdyTransformsExportPasses
-+  close_shardings.cc
-+  drop_sharding_rules.cc
-+  export_pipeline.cc
-+  insert_explicit_reshards.cc
-+  remove_sharding_groups.cc
-+  reshard_to_collectives.cc
-+  sharding_constraint_to_reshard.cc
-+  sink_data_flow_edges.cc
-+  update_non_divisible_input_output_shardings.cc
++add_mlir_library(SdyExplicitReshardsUtil
++  explicit_reshards_util.cc
 +
 +  DEPENDS
-+  SdyExportPassesIncGen
 +  SdyCommonFileUtils
 +  SdyAxisListRef
 +  SdyDialect
@@ -297,16 +301,71 @@ index 0000000..79b71df
 +  StablehloOps
 +)
 +
++add_mlir_library(SdyTransformsExportPasses
++  close_shardings.cc
++  constant_merger.cc
++  drop_sharding_rules.cc
++  export_pipeline.cc
++  insert_explicit_reshards.cc
++  remove_sharding_groups.cc
++  reshard_to_collectives.cc
++  sharding_constraint_to_reshard.cc
++  sink_data_flow_edges.cc
++  temp_explicit_reshards_for_optimizations.cc
++  update_non_divisible_input_output_shardings.cc
++
++  DEPENDS
++  SdyExplicitReshardsUtil
++  SdyExportPassesIncGen
++  SdyCommonFileUtils
++  SdyAxisListRef
++  SdyDialect
++  SdyTransformsCommonOpProperties
++  SdyTransformsCommonShardingWalker
++  SdyTransformsPropagationOpShardingRuleRegistry
++  SdyTransformsPropagationShardingProjection
++  SdyTransformsPropagationUtils
++  SdyTransformsPropagationDebuggingSourceSharding
++  SdyTransformsImportPasses
++
++  LINK_LIBS PUBLIC
++  LLVMSupport
++  MLIRFuncDialect
++  MLIRIR
++  MLIRPass
++  MLIRRewrite
++  MLIRSideEffectInterfaces
++  MLIRSupport
++  MLIRTransformUtils
++  StablehloOps
++  SdyCommonFileUtils
++  SdyAxisListRef
++  SdyDialect
++  SdyTransformsCommonOpProperties
++  SdyTransformsCommonShardingWalker
++  SdyTransformsPropagationOpShardingRuleRegistry
++  SdyTransformsPropagationShardingProjection
++  SdyTransformsPropagationUtils
++  SdyTransformsPropagationDebuggingSourceSharding
++  SdyExplicitReshardsUtil
++  SdyTransformsImportPasses
++)
++
 +target_include_directories(SdyTransformsExportPasses INTERFACE
++  $<BUILD_INTERFACE:${SHARDY_SOURCE_DIR}>
++  $<BUILD_INTERFACE:${SHARDY_BINARY_DIR}>
++)
++
++target_include_directories(SdyExplicitReshardsUtil INTERFACE
 +  $<BUILD_INTERFACE:${SHARDY_SOURCE_DIR}>
 +  $<BUILD_INTERFACE:${SHARDY_BINARY_DIR}>
 +)
 diff --git a/shardy/dialect/sdy/transforms/import/CMakeLists.txt b/shardy/dialect/sdy/transforms/import/CMakeLists.txt
 new file mode 100755
-index 0000000..c609ff5
+index 0000000..9415122
 --- /dev/null
 +++ b/shardy/dialect/sdy/transforms/import/CMakeLists.txt
-@@ -0,0 +1,41 @@
+@@ -0,0 +1,46 @@
 +# Shardy MLIR Transforms Import Passes and Pipeline
 +
 +set(LLVM_TARGET_DEFINITIONS passes.td)
@@ -320,6 +379,7 @@ index 0000000..c609ff5
 +  apply_sharding_constraints.cc
 +  constant_splitter.cc
 +  import_pipeline.cc
++  inline_meshes.cc
 +  lift_inlined_meshes.cc
 +  manual_axes_cleanup.cc
 +  sharding_group_import.cc
@@ -342,6 +402,10 @@ index 0000000..c609ff5
 +  MLIRTransformUtils
 +  MLIRTransforms
 +  StablehloOps
++  SdyCommonFileUtils
++  SdyDialect
++  SdyTransformsCommonOpProperties
++  SdyTransformsCommonShardingWalker
 +)
 +
 +target_include_directories(SdyTransformsImportPasses INTERFACE
@@ -350,10 +414,10 @@ index 0000000..c609ff5
 +)
 diff --git a/shardy/dialect/sdy/transforms/propagation/CMakeLists.txt b/shardy/dialect/sdy/transforms/propagation/CMakeLists.txt
 new file mode 100755
-index 0000000..c149531
+index 0000000..02948f6
 --- /dev/null
 +++ b/shardy/dialect/sdy/transforms/propagation/CMakeLists.txt
-@@ -0,0 +1,157 @@
+@@ -0,0 +1,188 @@
 +# Shardy MLIR Transform Propagation System
 +
 +add_subdirectory(debugging)
@@ -401,6 +465,21 @@ index 0000000..c149531
 +  MLIRSupport
 +  MLIRTransformUtils
 +  StablehloOps
++  SdyTransformsPropagationAggressiveFactorPropagation
++  SdyTransformsPropagationAutoPartitionerRegistry
++  SdyTransformsPropagationBasicFactorPropagation
++  SdyTransformsPropagationOpShardingRuleBuilder
++  SdyTransformsPropagationOpShardingRuleRegistry
++  SdyTransformsPropagationShardingGroupMap
++  SdyTransformsPropagationShardingProjection
++  SdyTransformsPropagationUtils
++  SdyCommonFileUtils
++  SdyDialect
++  SdyTransformsCommonOpProperties
++  SdyTransformsCommonShardingWalker
++  SdyTransformsExportPasses
++  SdyTransformsImportPasses
++  SdyTransformsPropagationDebuggingSourceSharding
 +)
 +
 +target_include_directories(SdyTransformsPropagationPasses INTERFACE
@@ -419,6 +498,7 @@ index 0000000..c149531
 +  MLIRIR
 +  MLIRSupport
 +  StablehloOps
++  SdyDialect
 +)
 +
 +add_mlir_library(SdyTransformsPropagationOpShardingRuleRegistry
@@ -434,6 +514,8 @@ index 0000000..c149531
 +  MLIRIR
 +  MLIRSupport
 +  StablehloOps
++  SdyTransformsPropagationOpShardingRuleBuilder
++  SdyDialect
 +)
 +
 +add_mlir_library(SdyTransformsPropagationShardingGroupMap
@@ -447,6 +529,8 @@ index 0000000..c149531
 +  LLVMSupport
 +  MLIRIR
 +  MLIRSupport
++  SdyTransformsPropagationUtils
++  SdyDialect
 +)
 +
 +add_mlir_library(SdyTransformsPropagationShardingProjection
@@ -461,6 +545,9 @@ index 0000000..c149531
 +  LLVMSupport
 +  MLIRIR
 +  MLIRSupport
++  SdyTransformsPropagationUtils
++  SdyAxisListRef
++  SdyDialect
 +)
 +
 +add_mlir_library(SdyTransformsPropagationAutoPartitionerRegistry
@@ -481,6 +568,7 @@ index 0000000..c149531
 +  LINK_LIBS PUBLIC
 +  LLVMSupport
 +  MLIRSupport
++  SdyDialect
 +)
 +
 +add_mlir_library(SdyTransformsPropagationBasicFactorPropagation
@@ -494,6 +582,8 @@ index 0000000..c149531
 +  LLVMSupport
 +  MLIRIR
 +  MLIRSupport
++  SdyTransformsPropagationShardingProjection
++  SdyDialect
 +)
 +
 +add_mlir_library(SdyTransformsPropagationAggressiveFactorPropagation
@@ -510,13 +600,18 @@ index 0000000..c149531
 +  LLVMSupport
 +  MLIRIR
 +  MLIRSupport
++  SdyTransformsPropagationBasicFactorPropagation
++  SdyTransformsPropagationShardingProjection
++  SdyTransformsPropagationUtils
++  SdyDialect
++  SdyTransformsCommonOpProperties
 +)
 diff --git a/shardy/dialect/sdy/transforms/propagation/debugging/CMakeLists.txt b/shardy/dialect/sdy/transforms/propagation/debugging/CMakeLists.txt
 new file mode 100644
-index 0000000..1ae03c6
+index 0000000..dc33501
 --- /dev/null
 +++ b/shardy/dialect/sdy/transforms/propagation/debugging/CMakeLists.txt
-@@ -0,0 +1,15 @@
+@@ -0,0 +1,17 @@
 +# Shardy MLIR Transforms Propagation Debugging System
 +
 +add_mlir_library(SdyTransformsPropagationDebuggingSourceSharding
@@ -531,13 +626,15 @@ index 0000000..1ae03c6
 +  MLIRFuncDialect
 +  MLIRIR
 +  MLIRSupport
++  SdyDialect
++  SdyTransformsPropagationShardingProjection
 +)
 diff --git a/shardy/round_trip_import/CMakeLists.txt b/shardy/round_trip_import/CMakeLists.txt
 new file mode 100644
-index 0000000..e7972a5
+index 0000000..1afbf24
 --- /dev/null
 +++ b/shardy/round_trip_import/CMakeLists.txt
-@@ -0,0 +1,128 @@
+@@ -0,0 +1,125 @@
 +# Shardy MLIR Roundtrip Import Passes
 +
 +add_mlir_translation_library(SdyRoundtripUtils
@@ -555,6 +652,8 @@ index 0000000..e7972a5
 +  MLIRIR
 +  MLIRSupport
 +  StablehloOps
++  SdyDialect
++  SdyRegister
 +)
 +
 +add_mlir_translation_library(SdyRoundtripImportSdyCustomCalls
@@ -571,10 +670,12 @@ index 0000000..e7972a5
 +  MLIRSupport
 +  MLIRTransformUtils
 +  StablehloOps
++  SdyRoundtripUtils
++  SdyDialect
 +)
 +
-+add_mlir_translation_library(SdyRoundtripImportBackendFuncCalls
-+  import_backend_func_calls.cc
++add_mlir_translation_library(SdyRoundtripImportUninlineableFuncCalls
++  import_uninlineable_func_calls.cc
 +
 +  DEPENDS
 +  SdyRoundtripUtils
@@ -589,6 +690,8 @@ index 0000000..e7972a5
 +  MLIRTransformUtils
 +  MLIRTransforms
 +  StablehloOps
++  SdyRoundtripUtils
++  SdyDialect
 +)
 +
 +add_mlir_translation_library(SdyRoundtripImportShardyAttrs
@@ -608,22 +711,8 @@ index 0000000..e7972a5
 +  MLIRSupport
 +  MLIRTransformUtils
 +  StablehloOps
-+)
-+
-+add_mlir_translation_library(SdyRoundtripImportCallbackCustomCalls
-+  import_callback_custom_calls.cc
-+
-+  DEPENDS
 +  SdyRoundtripUtils
 +  SdyDialect
-+
-+  LINK_LIBS PUBLIC
-+  LLVMSupport
-+  MLIRIR
-+  MLIRPass
-+  MLIRSupport
-+  MLIRTransformUtils
-+  StablehloOps
 +)
 +
 +add_mlir_translation_library(SdyRoundtripShardMapImport
@@ -641,14 +730,15 @@ index 0000000..e7972a5
 +  MLIRSupport
 +  MLIRTransformUtils
 +  StablehloOps
++  SdyRoundtripUtils
++  SdyDialect
 +)
 +
 +add_mlir_translation_library(SdyRoundtripPipelines
 +  pipelines.cc
 +
 +  DEPENDS
-+  SdyRoundtripImportBackendFuncCalls
-+  SdyRoundtripImportCallbackCustomCalls
++  SdyRoundtripImportUninlineableFuncCalls
 +  SdyRoundtripImportSdyCustomCalls
 +  SdyRoundtripImportShardyAttrs
 +  SdyRoundtripShardMapImport
@@ -660,6 +750,10 @@ index 0000000..e7972a5
 +  MLIRTransformUtils
 +  MLIRTransforms
 +  StablehloPasses
++  SdyRoundtripImportUninlineableFuncCalls
++  SdyRoundtripImportSdyCustomCalls
++  SdyRoundtripImportShardyAttrs
++  SdyRoundtripShardMapImport
 +)
 +
 +target_include_directories(SdyRoundtripPipelines INTERFACE

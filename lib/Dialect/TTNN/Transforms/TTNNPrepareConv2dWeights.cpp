@@ -31,16 +31,16 @@ public:
     moduleOp.walk([&](ttnn::Conv2dOp conv2dOp) {
       mlir::RankedTensorType inputType = conv2dOp.getInput().getType();
 
+      GridAttr deviceGrid = lookupDevice(moduleOp).getWorkerGrid();
+
       ttnn::TTNNLayoutAttr inputLayoutAttr =
           mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
       ttnn::MemoryConfigAttr inputMemConfigAttr =
           rewriter.getAttr<ttnn::MemoryConfigAttr>(
+              inputLayoutAttr.getMemLayout(),
               rewriter.getAttr<ttnn::BufferTypeAttr>(
                   inputLayoutAttr.getBufferType()),
-              rewriter.getAttr<ttnn::ShardSpecAttr>(
-                  rewriter.getAttr<ttnn::ShapeAttr>(
-                      inputLayoutAttr.getShardShape())),
-              inputLayoutAttr.getMemLayout());
+              utils::createShardSpecIfNeeded(inputLayoutAttr, deviceGrid));
 
       rewriter.setInsertionPoint(conv2dOp);
       ttnn::PrepareConv2dWeightsOp prepareConv2dWeightsOp =

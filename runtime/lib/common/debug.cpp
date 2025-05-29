@@ -27,8 +27,9 @@ Hooks::get(std::optional<debug::Hooks::CallbackFn> preOperatorCallback,
 
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
 
-const PerfEnv &PerfEnv::get(std::uint32_t dumpDeviceRate) {
-  static PerfEnv config(dumpDeviceRate);
+const PerfEnv &PerfEnv::get(std::uint32_t dumpDeviceRate,
+                            bool enablePerfTrace) {
+  static PerfEnv config(dumpDeviceRate, enablePerfTrace);
   return config;
 }
 

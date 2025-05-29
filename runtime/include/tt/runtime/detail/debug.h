@@ -63,25 +63,29 @@ struct PerfEnv {
 #else
   constexpr static PerfEnv
 #endif
-  get(std::uint32_t dumpDeviceRate = 1000)
+  get(std::uint32_t dumpDeviceRate = 1000, bool enablePerfTrace = false)
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
       ;
 #else
   {
-    return PerfEnv(1000);
+    return PerfEnv(1000, false);
   }
 #endif
 
   std::uint32_t dumpDeviceRate;
+  bool enablePerfTrace;
 
 private:
-  constexpr PerfEnv(std::uint32_t dumpDeviceRate)
-      : dumpDeviceRate(dumpDeviceRate) {}
+  constexpr PerfEnv(std::uint32_t dumpDeviceRate, bool enablePerfTrace)
+      : dumpDeviceRate(dumpDeviceRate), enablePerfTrace(enablePerfTrace) {}
 };
 
 inline std::ostream &operator<<(std::ostream &os, const PerfEnv &perfEnv) {
   os << "debug::PerfEnv{\n"
-     << "\t" << "dumpDeviceRate: " << perfEnv.dumpDeviceRate << "\n"
+     << "\t"
+     << "dumpDeviceRate: " << perfEnv.dumpDeviceRate << "\n"
+     << "\t"
+     << "enablePerfTrace: " << perfEnv.enablePerfTrace << "\n"
      << "}";
   return os;
 }

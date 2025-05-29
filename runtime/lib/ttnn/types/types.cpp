@@ -18,8 +18,8 @@ LayoutDesc LayoutDesc::fromTensor(const ::tt::runtime::Tensor &tensor) {
       tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
           .getTensor();
   ::ttnn::StorageType storageType = ttnnTensor.storage_type();
-  ::ttnn::Layout layout = ttnnTensor.get_layout();
-  ::ttnn::DataType dtype = ttnnTensor.get_dtype();
+  ::ttnn::Layout layout = ttnnTensor.layout();
+  ::ttnn::DataType dtype = ttnnTensor.dtype();
 
   std::optional<::ttnn::MemoryConfig> memoryConfig = std::nullopt;
   if (storageType == ::ttnn::StorageType::DEVICE) {

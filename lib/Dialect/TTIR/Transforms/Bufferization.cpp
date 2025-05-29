@@ -65,21 +65,4 @@ class TTIRPrepareTensorsForBufferization
 };
 } // namespace
 
-void initializeOneShotBufferizationOptions(
-    mlir::bufferization::OneShotBufferizationOptions &options) {
-  options.bufferizeFunctionBoundaries = true;
-  options.functionArgTypeConverterFn =
-      [](mlir::TensorType tensorType, mlir::Attribute memorySpace,
-         func::FuncOp funcOp,
-         const bufferization::BufferizationOptions &options)
-      -> ::mlir::BaseMemRefType {
-    auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(tensorType);
-    if (rankedTensorType.getEncoding()) {
-      return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
-          .getBufferType();
-    }
-    return bufferization::getMemRefTypeWithStaticIdentityLayout(tensorType);
-  };
-}
-
 } // namespace mlir::tt::ttir

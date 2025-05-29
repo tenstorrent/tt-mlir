@@ -2,12 +2,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
-#include "llvm/Support/CommandLine.h"
-#include <gtest/gtest.h>
-
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
+
+#include "llvm-gtest/gtest/gtest.h"
+#include "llvm/Support/CommandLine.h"
 
 using namespace mlir::tt::ttnn;
 
@@ -35,7 +35,6 @@ TEST_F(Conv2dConfigOverrideTest, ParseFullConv2dConfigOverride) {
                     "dtype#bf16:"
                     "weights_dtype#bf16:"
                     "activation#relu:"
-                    "input_channels_alignment#32:"
                     "deallocate_activation#false:"
                     "reallocate_halo_output#true:"
                     "act_block_h_override#32:"
@@ -65,8 +64,6 @@ TEST_F(Conv2dConfigOverrideTest, ParseFullConv2dConfigOverride) {
   ASSERT_EQ(params.weightsDtype.value(), mlir::tt::DataType::BFloat16);
   ASSERT_TRUE(params.activation.has_value());
   ASSERT_EQ(params.activation.value(), "relu");
-  ASSERT_TRUE(params.inputChannelsAlignment.has_value());
-  ASSERT_EQ(params.inputChannelsAlignment.value(), 32);
   ASSERT_TRUE(params.deallocateActivation.has_value());
   ASSERT_FALSE(params.deallocateActivation.value());
   ASSERT_TRUE(params.reallocateHaloOutput.has_value());
@@ -116,7 +113,6 @@ TEST_F(Conv2dConfigOverrideTest, ParsePartialConv2dConfigOverride) {
   ASSERT_TRUE(params.activation.has_value());
   ASSERT_EQ(params.activation.value(), "");
   ASSERT_FALSE(params.weightsDtype.has_value());
-  ASSERT_FALSE(params.inputChannelsAlignment.has_value());
   ASSERT_FALSE(params.deallocateActivation.has_value());
   ASSERT_FALSE(params.reallocateHaloOutput.has_value());
   ASSERT_FALSE(params.actBlockHOverride.has_value());
@@ -139,8 +135,7 @@ TEST_F(Conv2dConfigOverrideTest, ParseMultipleOps) {
                     ","
                     "op1=dtype#bf16:"
                     "weights_dtype#bf16:"
-                    "activation#relu:"
-                    "input_channels_alignment#32";
+                    "activation#relu";
 
   bool result = parser.parse(OverrideConv2dConfigOption,
                              "override-conv2d-config", arg, parsedOverride);
@@ -162,8 +157,6 @@ TEST_F(Conv2dConfigOverrideTest, ParseMultipleOps) {
   ASSERT_EQ(params1.weightsDtype.value(), mlir::tt::DataType::BFloat16);
   ASSERT_TRUE(params1.activation.has_value());
   ASSERT_EQ(params1.activation.value(), "relu");
-  ASSERT_TRUE(params1.inputChannelsAlignment.has_value());
-  ASSERT_EQ(params1.inputChannelsAlignment.value(), 32);
 }
 
 TEST_F(Conv2dConfigOverrideTest, ParseInvalidActivation) {
@@ -689,7 +682,7 @@ TEST_F(TestOptimizerOverrideHandler, TestToString) {
       "enable-optimizer=true "; // The optimizer pass is enabled by default.
   options += "memreconfig-enabled=true ";
   options += "memory-layout-analysis-enabled=true ";
-  options += "insert-memreconfig=add_0_1_2=0 ";
+  options += "override-input-layout=add_0_1_2=0 ";
   options +=
       "override-output-layout=add_1_2=1x1:dram:interleaved:row_major:f32";
 

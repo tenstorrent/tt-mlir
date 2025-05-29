@@ -9,7 +9,10 @@
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Target/LLVMIR/Dialect/All.h"
+#include "mlir/Target/LLVMIR/Export.h"
 #include "mlir/Tools/mlir-translate/Translation.h"
 
 using namespace mlir;
@@ -26,7 +29,8 @@ void registerTTMetalToFlatbuffer() {
         registry.insert<mlir::tt::TTDialect, mlir::tt::ttmetal::TTMetalDialect,
                         mlir::tt::ttkernel::TTKernelDialect,
                         mlir::emitc::EmitCDialect, mlir::memref::MemRefDialect,
-                        mlir::func::FuncDialect>();
+                        mlir::LLVM::LLVMDialect, mlir::func::FuncDialect>();
+        registerAllToLLVMIRTranslations(registry);
       });
 }
 

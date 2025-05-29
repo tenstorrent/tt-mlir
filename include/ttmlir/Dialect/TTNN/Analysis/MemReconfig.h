@@ -69,11 +69,9 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
     }
     os << ")";
   }
-  os << "\n";
-  os << "SelectedReshardOutputConfigBitIndex: "
-     << memReconfigEntry.selectedReshardOutputConfigBitIndex << "\n";
-  os << "\n";
-  os << "OverridenReconfig: " << memReconfigEntry.hasOverridenReconfig()
+  os << " SelectedReshardOutputConfigBitIndex: "
+     << memReconfigEntry.selectedReshardOutputConfigBitIndex;
+  os << " OverridenReconfig: " << memReconfigEntry.hasOverridenReconfig()
      << "\n";
   return os;
 }

@@ -126,9 +126,24 @@ public:
            "No memref memory space found, failing.");
     auto memrefType = op.getMemref().getType();
     assert(mlir::isa<tt::ShardLayoutAttr>(memrefType.getLayout()));
-    auto createBufferOp = rewriter.create<ttmetal::CreateBufferOp>(
-        op->getLoc(), memrefType, address);
-    rewriter.replaceOp(op, createBufferOp);
+    rewriter.replaceOpWithNewOp<ttmetal::CreateBufferOp>(op, memrefType,
+                                                         address);
+
+    return success();
+  };
+};
+} // namespace
+
+namespace {
+class MemrefDeallocRewriter : public OpConversionPattern<memref::DeallocOp> {
+public:
+  using OpConversionPattern<memref::DeallocOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(memref::DeallocOp op, memref::DeallocOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<ttmetal::DeallocateBufferOp>(op,
+                                                             op.getMemref());
 
     return success();
   };
@@ -143,8 +158,20 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ToLayoutOp op, ttir::ToLayoutOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    Value input = op.getInput();
-    Value output = op.getOutput();
+    Value input;
+    if (auto view = mlir::dyn_cast_if_present<ttir::ViewLayoutOp>(
+            adaptor.getInput().getDefiningOp())) {
+      input = view.getInput();
+    } else {
+      input = adaptor.getInput();
+    }
+    Value output;
+    if (auto view = mlir::dyn_cast_if_present<ttir::ViewLayoutOp>(
+            adaptor.getOutput().getDefiningOp())) {
+      output = view.getInput();
+    } else {
+      output = adaptor.getOutput();
+    }
     MemRefType inputTy = mlir::cast<MemRefType>(input.getType());
     MemRefType outputTy = mlir::cast<MemRefType>(output.getType());
     tt::MemorySpaceAttr inputMemorySpace =
@@ -162,6 +189,9 @@ public:
     if (inputMemorySpace) {
       rewriter.replaceOpWithNewOp<ttmetal::EnqueueReadBufferOp>(op, input,
                                                                 output);
+      // Insert global barrier to ensure the read completes before subsequent
+      // ops use it.
+      rewriter.create<ttmetal::FinishOp>(op->getLoc());
     } else {
       rewriter.replaceOpWithNewOp<ttmetal::EnqueueWriteBufferOp>(op, input,
                                                                  output);
@@ -179,7 +209,8 @@ void populateTTIRToTTMetalPatterns(MLIRContext *ctx,
                                    RewritePatternSet &patterns,
                                    TypeConverter & /*typeConverter*/) {
   patterns.add<ttmetal::TTIRGenericRewriter, ttmetal::MemrefAllocRewriter,
-               ttmetal::TTIRToLayoutRewriter>(ctx);
+               ttmetal::MemrefDeallocRewriter, ttmetal::TTIRToLayoutRewriter>(
+      ctx);
 }
 
 } // namespace mlir::tt

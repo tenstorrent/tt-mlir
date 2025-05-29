@@ -7,8 +7,10 @@
 
 #include "ttmlir/Conversion/TTNNToEmitC/Utils.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TT/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/IR/Attributes.h"
@@ -20,6 +22,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <array>
+#include <cmath>
 #include <optional>
 #include <string>
 #include <type_traits>
@@ -304,25 +307,31 @@ struct EmitCTypeConverter<T,
   }
 
   static std::string convert(mlir::APFloat value) {
-    if constexpr (std::is_same_v<T, float>) {
-      // Add 'f' suffix for float literals to ensure correct type in C++.
-      std::string result = std::to_string(value.convertToDouble());
-      result.append("f");
-      return result;
-    } else {
-      return std::to_string(value.convertToDouble());
-    }
+    return convert(value.convertToDouble());
   }
 
   template <typename U>
   static std::enable_if_t<std::is_floating_point_v<U>, std::string>
   convert(U value) {
-    // Add 'f' suffix for float literals to ensure correct type in C++.
-    std::string result = std::to_string(static_cast<T>(value));
-    if constexpr (std::is_same_v<T, float>) {
-      result.append("f");
+    if (std::isfinite(value)) {
+      std::string result = std::to_string(static_cast<T>(value));
+      if constexpr (std::is_same_v<T, float>) {
+        result.append("f");
+      }
+      return result;
     }
-    return result;
+
+    if (std::isinf(value)) {
+      std::string result = value > 0 ? "" : "-";
+      result.append("::std::numeric_limits<" + TypeNameV<T> + ">::infinity()");
+      return result;
+    }
+
+    if (std::isnan(value)) {
+      return "::std::numeric_limits<" + TypeNameV<T> + ">::quiet_NaN()";
+    }
+
+    llvm_unreachable("Unknown class of floating point value");
   }
 };
 
@@ -783,6 +792,14 @@ public:
     return rewriter.getAttr<emitc::OpaqueAttr>(convert(attr));
   }
 
+  mlir::Attribute emit(ttnn::TensorMemoryLayout attr) {
+    return rewriter.getAttr<emitc::OpaqueAttr>(convert(attr));
+  }
+
+  mlir::Attribute emit(ttnn::TensorMemoryLayoutAttr attr) {
+    return rewriter.getAttr<emitc::OpaqueAttr>(convert(attr));
+  }
+
   mlir::Attribute emit(tt::ttnn::MemoryConfigAttr attr) {
     return rewriter.getType<emitc::OpaqueAttr>(convert(attr));
   }
@@ -975,11 +992,13 @@ public:
     ttnn::BufferTypeAttr bufferTypeAttr = ttnn::BufferTypeAttr::get(
         layoutAttr.getContext(), layoutAttr.getBufferType());
     ttnn::TensorMemoryLayoutAttr tensorMemoryLayout = layoutAttr.getMemLayout();
-    // TODO (azecevic): Currently we don't model ShardSpec properly so we are
-    // ingoring it for now.
-    ttnn::MemoryConfigAttr memoryConfigAttr =
-        ttnn::MemoryConfigAttr::get(layoutAttr.getContext(), bufferTypeAttr,
-                                    /*shardSpec=*/nullptr, tensorMemoryLayout);
+
+    DeviceAttr deviceAttr = lookupDevice(op);
+
+    ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
+        layoutAttr.getContext(), tensorMemoryLayout, bufferTypeAttr,
+        ttnn::utils::createShardSpecIfNeeded(layoutAttr,
+                                             deviceAttr.getWorkerGrid()));
 
     return emit(memoryConfigAttr);
   }

@@ -20,7 +20,11 @@ LICENSE @nsmithtt
 /include/ttmlir-c/ @ctodTT @tapspatel @vprajapati-tt @vcanicTT
 /lib/CAPI/ @ctodTT @tapspatel @vprajapati-tt @vcanicTT
 /python/ @ctodTT @tapspatel @vprajapati-tt @vcanicTT
-/python/pykernel/ @xanderchin @vprajapati-tt
+
+# StableHLO Dialect
+include/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
+lib/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
+test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 
 # StableHLO Conversion
 /include/ttmlir/Conversion/ArithToStableHLO/ @tenstorrent/forge-developers-mlir-stablehlo
@@ -61,6 +65,9 @@ LICENSE @nsmithtt
 /lib/Conversion/TTIRToTTMetal/ @tenstorrent/forge-developers-mlir-d2m
 /lib/Conversion/TTKernelToEmitC/ @tenstorrent/forge-developers-mlir-d2m
 /test/ttmlir/Conversion/TTKernelToEmitC/ @tenstorrent/forge-developers-mlir-d2m
+/include/ttmlir/Conversion/TTIRToTTKernel/ @tenstorrent/forge-developers-mlir-d2m
+/lib/Conversion/TTIRToTTKernel/ @tenstorrent/forge-developers-mlir-d2m
+/test/ttmlir/Conversion/TTIRToTTKernel/ @tenstorrent/forge-developers-mlir-d2m
 
 # LLVM Dialect
 /include/ttmlir/Dialect/LLVM/ @vwellsTT @mtopalovicTT
@@ -131,8 +138,11 @@ LICENSE @nsmithtt
 /runtime/ @tenstorrent/forge-developers-mlir-runtime
 /runtime/tools/ @tapspatel @ctodTT
 
+# PyKernel
+/tools/pykernel/ @xanderchin @vprajapati-tt
+
 # TTIRBuilder
-/python/test_infra @ctodTT @tapspatel
+/tools/ttir-builder @ctodTT @tapspatel
 
 # tt-explorer
 /tools/explorer/ @tenstorrent/forge-developers-mlir-explorer

@@ -6,6 +6,7 @@ namespace tt.target.metal;
 
 table HostAllocCommand {
   dst: BufferRef;
+  data: [ubyte];
 }
 
 table ReturnCommand {
@@ -56,6 +57,18 @@ table EventQueryCommand {
   ref: EventRef;
 }
 
+table MemrefCopyCommand {
+  src: BufferRef;
+  dst: BufferRef;
+}
+
+table CpuCommand {
+  ins: [BufferRef];
+  out: BufferRef;
+  func_name: string;
+  dylib_id: uint32;
+}
+
 table FinishCommand {
 }
 
@@ -72,11 +85,14 @@ union CommandType {
   EnqueueWaitForEventCommand,
   EventSynchronizeCommand,
   EventQueryCommand,
+  MemrefCopyCommand,
+  CpuCommand,
   FinishCommand,
 }
 
 table Command {
   type: CommandType;
+  loc: string;
   debug_info: string;
 }
 

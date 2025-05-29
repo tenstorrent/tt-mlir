@@ -568,9 +568,10 @@ public:
         emitter.template emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
         emitter.template emit<std::array<uint32_t, 2>>(srcOp.getPaddingAttr()),
         emitter.template emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
-        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-        /*applied_shard_scheme=*/emitter.emit(std::nullopt),
+        emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getAppliedShardScheme()),
         emitter.emit(srcOp.getCeilMode()),
+        emitter.emit(srcOp.getInPlaceHalo()),
     };
 
     emitter.replaceOp(*this, args);
@@ -850,8 +851,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getAllDimensions()),
-        emitter.emit<int64_t>(srcOp.getDimArg()),
+        emitter.emit(srcOp.getDimArg()),
         emitter.emit(srcOp.getKeepDim()),
         emitter.emit(srcOp.getMemoryConfig()) |
             emitter.getMemoryConfig(srcOp.getResult()),
@@ -1463,6 +1463,58 @@ public:
 };
 } // namespace
 
+// FullOp conversion pattern
+//
+namespace {
+class FullOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::FullOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::ttnn::FullOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::FullOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (auto fillValueAttr = mlir::dyn_cast<FloatAttr>(srcOp.getFillValue())) {
+      auto fillValue = fillValueAttr.getValue().convertToFloat();
+      return matchAndRewriteImpl(srcOp, fillValue, adaptor, rewriter);
+    }
+    if (auto fillValueAttr =
+            mlir::dyn_cast<IntegerAttr>(srcOp.getFillValue())) {
+      auto fillValue =
+          static_cast<int32_t>(fillValueAttr.getValue().getSExtValue());
+      return matchAndRewriteImpl(srcOp, fillValue, adaptor, rewriter);
+    }
+    return failure();
+  }
+
+private:
+  template <typename FillValueT,
+            typename = std::void_t<llvm::is_one_of<FillValueT, float, int32_t>>>
+  LogicalResult matchAndRewriteImpl(tt::ttnn::FullOp srcOp,
+                                    FillValueT fillValue, OpAdaptor adaptor,
+                                    ConversionPatternRewriter &rewriter) const {
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::FullOp> emitter(srcOp, adaptor,
+                                                              rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getShape()),
+        emitter.emit(fillValue),
+        emitter.emit(srcOp.getDtype()),
+        emitter.emit(srcOp.getLayout()),
+        emitter.emit<::ttnn::operations::creation::detail::OptionalMeshDevice>(
+            srcOp.getDevice()),
+        emitter.emit(srcOp.getMemoryConfig()) |
+            emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // DeallocateOp conversion pattern
 //
 namespace {
@@ -1957,7 +2009,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<EmptyOpConversionPattern,
                NamedFullOpConversionPattern<tt::ttnn::ZerosOp>,
                NamedFullOpConversionPattern<tt::ttnn::OnesOp>,
-               DefaultOpConversionPattern<tt::ttnn::FullOp>,
+               FullOpConversionPattern,
                DefaultOpConversionPattern<tt::ttnn::ArangeOp>,
                DefaultOpConversionPattern<tt::ttnn::ConstantOp>>(typeConverter, ctx);
   // clang-format on

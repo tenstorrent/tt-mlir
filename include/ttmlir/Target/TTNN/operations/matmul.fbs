@@ -42,6 +42,7 @@ table MatmulMultiCoreReuseMultiCast1DProgramConfig {
   gather_in0: bool;
   hop_cores: tt.target.ttnn.CoreRangeSet;
   num_global_cb_receivers: uint64;
+  untilize_out: bool;
 }
 
 table MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig {

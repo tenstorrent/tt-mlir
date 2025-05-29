@@ -63,6 +63,12 @@ getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
     std::unordered_set<CoreCoord> activeEthernetCores =
         device->get_active_ethernet_cores(true);
     for (const CoreCoord &ethernetCore : activeEthernetCores) {
+      // Skip on blackhole. When link is down, get_connected_ethernet_core
+      // will throw an exception.
+      // See https://github.com/tenstorrent/tt-mlir/issues/3423
+      if (device->arch() == ::tt::ARCH::BLACKHOLE) {
+        continue;
+      }
       std::tuple<chip_id_t, CoreCoord> connectedDevice =
           device->get_connected_ethernet_core(ethernetCore);
       addConnection(device->id(), ethernetCore, std::get<0>(connectedDevice),
@@ -181,17 +187,14 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
   ::flatbuffers::FlatBufferBuilder fbb;
 
   std::uint32_t pcieAlignment = ::tt::tt_metal::hal::get_pcie_alignment();
+  std::uint32_t l1Alignment = ::tt::tt_metal::hal::get_l1_alignment();
+  std::uint32_t dramAlignment = ::tt::tt_metal::hal::get_dram_alignment();
 
   for (const ::tt::tt_metal::IDevice *device : devices) {
     size_t l1UnreservedBase =
         device->allocator()->get_base_allocator_addr(HalMemType::L1);
     size_t dramUnreservedBase =
         device->allocator()->get_base_allocator_addr(HalMemType::DRAM);
-    std::uint32_t l1Alignment =
-        device->allocator()->get_alignment(BufferType::L1);
-    std::uint32_t dramAlignment =
-        device->allocator()->get_alignment(BufferType::DRAM);
-
     // Construct chip descriptor
     ::tt::target::Dim2d deviceGrid =
         toFlatbuffer(device->compute_with_storage_grid_size());
@@ -296,10 +299,9 @@ createNewMeshDevice(size_t numDevices,
       DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1, type);
 }
 
-std::pair<::tt::runtime::SystemDesc, DeviceIds>
+::tt::runtime::SystemDesc
 getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
                      std::optional<Device> meshDevice) {
-  const size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
 
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevicePtr;
   if (meshDevice.has_value()) {
@@ -307,6 +309,7 @@ getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
         meshDevice.value().asSharedPtr<::tt::tt_metal::distributed::MeshDevice>(
             getCurrentRuntime());
   } else {
+    const size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
     meshDevicePtr = createNewMeshDevice(numDevices, dispatchCoreType);
   }
 
@@ -316,12 +319,8 @@ getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
 
   std::exception_ptr eptr = nullptr;
   std::unique_ptr<::tt::runtime::SystemDesc> desc;
-  std::vector<chip_id_t> deviceIds;
   try {
     desc = getCurrentSystemDescImpl(*meshDevicePtr);
-
-    deviceIds = meshDevicePtr->get_device_ids();
-    std::sort(deviceIds.begin(), deviceIds.end());
   } catch (...) {
     eptr = std::current_exception();
   }
@@ -330,9 +329,10 @@ getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
     meshDevicePtr->close();
   }
   if (eptr) {
+    LOG_ERROR("Exception occured when getting system descriptor");
     std::rethrow_exception(eptr);
   }
-  return std::make_pair(*desc, deviceIds);
+  return *desc;
 }
 
 } // namespace tt::runtime::system_desc

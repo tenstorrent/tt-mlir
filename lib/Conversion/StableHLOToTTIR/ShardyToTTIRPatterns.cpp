@@ -197,7 +197,9 @@ public:
     // ManualComputationOp include one mesh for all in/out shardings, so we can
     // pick up first sharding and get mesh info.
     mlir::sdy::TensorShardingAttr firstSharding = *shardings.begin();
-    mlir::sdy::MeshAttr targetMesh = firstSharding.getMesh(symbolTable);
+    mlir::sdy::MeshAttr targetMesh =
+        mlir::tt::sharding_utils::adjustSdyMeshAttr(
+            srcOp, firstSharding.getMesh(symbolTable));
     if (!targetMesh) {
       llvm_unreachable(
           "mlir::sdy::TensorShardingAttr requires mesh definition.");
@@ -237,7 +239,7 @@ public:
     // Add mesh_shard (FullToShardShape) for inputs.
     llvm::SmallVector<mlir::Value> fullToShardResults;
     for (auto [globalOperand, argSharding, localArgType] : llvm::zip_equal(
-             srcOp.getOperands(), srcOp.getInShardings().getShardings(),
+             adaptor.getOperands(), srcOp.getInShardings().getShardings(),
              srcOp.getBody().getArgumentTypes())) {
 
       mlir::tt::sharding_utils::MeshSharding meshSharding;
@@ -348,16 +350,16 @@ public:
     }
 
     mlir::StringAttr meshName = srcOp.getSymNameAttr();
-    llvm::SmallVector<int64_t> meshShape;
-    mlir::sdy::MeshAttr sdyMesh = srcOp.getMesh();
-    for (auto meshAxisAttr : sdyMesh.getAxes()) {
-      meshShape.push_back(meshAxisAttr.getSize());
+    mlir::sdy::MeshAttr sdyMesh =
+        mlir::tt::sharding_utils::adjustSdyMeshAttr(srcOp, srcOp.getMesh());
+    if (!sdyMesh.empty()) {
+      llvm::SmallVector<int64_t> meshShape;
+      for (auto meshAxisAttr : sdyMesh.getAxes()) {
+        meshShape.push_back(meshAxisAttr.getSize());
+      }
+      mlir::tt::utils::addMeshToModuleAttribute(rewriter, module, meshName,
+                                                meshShape);
     }
-    if (meshShape.size() < 2) {
-      llvm_unreachable("1d hardware mesh is not supported.");
-    }
-    mlir::tt::utils::addMeshToModuleAttribute(rewriter, module, meshName,
-                                              meshShape);
 
     // Before erasing MeshOp, visit public functions and properly handle
     // argument and return sharding attributes that are not used or defined by

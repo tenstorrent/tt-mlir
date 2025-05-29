@@ -32,6 +32,7 @@
 #include "mlir/IR/Visitors.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
 
 namespace mlir::tt::ttnn {
 
@@ -185,7 +186,7 @@ public:
 
     // Get the max grid size from the system description.
     //
-    GridAttr maxGrid = lookupDevice(moduleOp).getWorkerGrid();
+    GridAttr deviceGrid = lookupDevice(moduleOp).getWorkerGrid();
 
     SystemDescAttr systemDesc = mlir::cast<tt::SystemDescAttr>(
         moduleOp->getAttr(tt::SystemDescAttr::name));
@@ -209,44 +210,51 @@ public:
     mlir::tt::ttnn::AllPossibleLayoutsAnalysis allPossibleLayoutsAnalysis =
         getAnalysis<mlir::tt::ttnn::AllPossibleLayoutsAnalysis>();
     allPossibleLayoutsAnalysis.init(
-        mlir::tt::ttnn::AllPossibleLayoutsAnalysisInput(maxGrid, &scalarTypes,
-                                                        rowMajorEnabled));
+        mlir::tt::ttnn::AllPossibleLayoutsAnalysisInput(
+            deviceGrid, &scalarTypes, rowMajorEnabled));
     TensorTypeLayoutsMap tensorTypePossibleLayouts =
         allPossibleLayoutsAnalysis.getResult();
 
     tracePossibleLayouts(tensorTypePossibleLayouts);
 
-    moduleOp->walk([&](Operation *op) {
-      if (op->getNumResults() == 0) {
+    moduleOp->walk([&](func::FuncOp func) {
+      // Filter out all const-eval functions.
+      if (ttmlir::utils::isConstEvalFunc(func)) {
         return;
       }
 
-      if (!isa<RankedTensorType>(op->getResult(0).getType())) {
-        return;
-      }
+      func->walk([&](Operation *op) {
+        if (op->getNumResults() == 0) {
+          return;
+        }
 
-      if (llvm::isa<ttnn::EmptyOp>(op)) {
-        return;
-      }
+        if (!isa<RankedTensorType>(op->getResult(0).getType())) {
+          return;
+        }
 
-      RankedTensorType tensorType =
-          mlir::cast<RankedTensorType>(op->getResult(0).getType());
+        if (llvm::isa<ttnn::EmptyOp>(op)) {
+          return;
+        }
 
-      // Get all possible layouts for this tensor type
-      // Use layouts from the global analysis instead of regenerating per-op
-      auto tensorLayouts = tensorTypePossibleLayouts.find(tensorType);
-      bool hasLayoutsForTensorType =
-          (tensorLayouts != tensorTypePossibleLayouts.end());
+        RankedTensorType tensorType =
+            mlir::cast<RankedTensorType>(op->getResult(0).getType());
 
-      assert(hasLayoutsForTensorType && "No layouts found for tensor type");
+        // Get all possible layouts for this tensor type
+        // Use layouts from the global analysis instead of regenerating per-op
+        auto tensorLayouts = tensorTypePossibleLayouts.find(tensorType);
+        bool hasLayoutsForTensorType =
+            (tensorLayouts != tensorTypePossibleLayouts.end());
 
-      // Run legal layout analysis to select the best layouts
-      LegalLayoutAnalysis legalLayoutAnalysis =
-          getChildAnalysis<LegalLayoutAnalysis>(op);
-      legalLayoutAnalysis.init(LegalLayoutAnalysisInput(
-          &tensorLayouts->getSecond(), maxLegalLayouts, &overrideOutputLayout,
-          &overrideConv2dConfig, rowMajorEnabled));
-      legalConfigs[op] = legalLayoutAnalysis.getResult();
+        assert(hasLayoutsForTensorType && "No layouts found for tensor type");
+
+        // Run legal layout analysis to select the best layouts
+        LegalLayoutAnalysis legalLayoutAnalysis =
+            getChildAnalysis<LegalLayoutAnalysis>(op);
+        legalLayoutAnalysis.init(LegalLayoutAnalysisInput(
+            &tensorLayouts->getSecond(), maxLegalLayouts, &overrideOutputLayout,
+            &overrideConv2dConfig, rowMajorEnabled));
+        legalConfigs[op] = legalLayoutAnalysis.getResult();
+      });
     });
 
     llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> opSchedule;
@@ -293,6 +301,10 @@ public:
     // No further analysis.
     //
     moduleOp->walk([&](func::FuncOp func) {
+      if (ttmlir::utils::isConstEvalFunc(func)) {
+        return;
+      }
+
       SmallVector<Type> funcResultTypes;
 
       // If schedule is set, apply order of operations to func.
@@ -371,14 +383,11 @@ public:
             } else {
               emptyOp.setLayout(ttnn::Layout::RowMajor);
             }
+
             emptyOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
-                op->getContext(),
+                op->getContext(), tensorMemoryLayoutAttr,
                 BufferTypeAttr::get(op->getContext(), bufferType),
-                ShardSpecAttr::get(
-                    op->getContext(),
-                    ShapeAttr::get(op->getContext(),
-                                   layoutAttr.getMemref().getShape())),
-                tensorMemoryLayoutAttr));
+                utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
           }
           // TODO(mtopalovic): Temp workaround for generic ToLayoutOp. Allign
           // MemoryConfigAttr with layout attribute of its output tensor. This
@@ -389,17 +398,14 @@ public:
             BufferType bufferType = layoutAttr.getBufferType();
             TensorMemoryLayoutAttr tensorMemoryLayoutAttr =
                 layoutAttr.getMemLayout();
+
             // Update the device op with the new tensor type.
             //
             ttnn::ToLayoutOp toLayoutOp = llvm::cast<ttnn::ToLayoutOp>(op);
             toLayoutOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
-                op->getContext(),
+                op->getContext(), tensorMemoryLayoutAttr,
                 ttnn::BufferTypeAttr::get(op->getContext(), bufferType),
-                ttnn::ShardSpecAttr::get(
-                    op->getContext(),
-                    ttnn::ShapeAttr::get(op->getContext(),
-                                         layoutAttr.getMemref().getShape())),
-                tensorMemoryLayoutAttr));
+                utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
           }
 
           // Set specific Conv2d Op configuration if it is exists.
@@ -415,10 +421,10 @@ public:
       });
 
       if (memReconfigEnabled) {
-        processMemReconfigEdges(memReconfigEntryMap);
+        processMemReconfigEdges(memReconfigEntryMap, deviceGrid);
       }
 
-      processSpillOps(spillToDramOps);
+      processSpillOps(spillToDramOps, deviceGrid);
 
       // Update the function type to reflect the updated return operation's
       // result types.
@@ -468,8 +474,8 @@ private:
 
     for (const auto &[opLoc, opOverridenAndExists] : overridenOpExists) {
       if (!opOverridenAndExists) {
-        llvm::errs() << "Trying to override non-existing op: " << opLoc << "\n";
-        assert(false && "Trying to override non-existing op");
+        llvm::report_fatal_error("Trying to override non-existing op: " +
+                                 opLoc + ". Check logs for details");
       }
     }
   }
@@ -540,7 +546,8 @@ private:
   }
 
   void processMemReconfigEdges(
-      const llvm::DenseMap<Edge, MemReconfigEntry> &memReconfigEntryMap) {
+      const llvm::DenseMap<Edge, MemReconfigEntry> &memReconfigEntryMap,
+      GridAttr deviceGrid) {
 
     // Insert memory reconfig ops here based on results of memory layout
     // analysis.
@@ -590,13 +597,10 @@ private:
           producerOpLayout);
 
       MemoryConfigAttr outputMemConfigAttr = MemoryConfigAttr::get(
-          consumerOp->getContext(),
+          consumerOp->getContext(), producerOpLayout.getMemLayout(),
           BufferTypeAttr::get(consumerOp->getContext(),
                               producerOpLayout.getBufferType()),
-          ShardSpecAttr::get(consumerOp->getContext(),
-                             ShapeAttr::get(consumerOp->getContext(),
-                                            producerOpLayout.getShardShape())),
-          producerOpLayout.getMemLayout());
+          utils::createShardSpecIfNeeded(producerOpLayout, deviceGrid));
 
       // If producerOp is a toLayoutOp, adjust its output layout(update
       // inplace) to reflect consumerOp's output layout. If producerOp is not a
@@ -609,7 +613,6 @@ private:
         toLayoutOp.getResult().setType(newTensorType);
       } else {
         OpBuilder builder(consumerOp);
-
         Location loc = ttmlir::utils::appendLocationSuffix(consumerOp->getLoc(),
                                                            "_mem_reconfig");
         Operation *memoryReconfigOp = builder.create<ToLayoutOp>(
@@ -631,7 +634,8 @@ private:
     }
   }
 
-  void processSpillOps(const std::vector<Operation *> &spillToDramOps) {
+  void processSpillOps(const std::vector<Operation *> &spillToDramOps,
+                       GridAttr deviceGrid) {
     for (Operation *op : spillToDramOps) {
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "Processing spill op: {}",
                    op->getName());
@@ -654,13 +658,11 @@ private:
           DataTypeAttr::get(op->getContext(), dramLayout.getDataType());
       LayoutAttr newLayout =
           LayoutAttr::get(op->getContext(), dramLayout.getLayout());
+
       MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(
-          op->getContext(),
+          op->getContext(), dramLayout.getMemLayout(),
           BufferTypeAttr::get(op->getContext(), BufferType::DRAM),
-          ShardSpecAttr::get(
-              op->getContext(),
-              ShapeAttr::get(op->getContext(), dramLayout.getShardShape())),
-          dramLayout.getMemLayout());
+          utils::createShardSpecIfNeeded(dramLayout, deviceGrid));
 
       builder.setInsertionPointAfter(op);
       Location loc =

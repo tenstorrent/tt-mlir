@@ -14,7 +14,7 @@
 namespace tt::runtime {
 
 namespace system_desc {
-std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc(
+SystemDesc getCurrentSystemDesc(
     std::optional<DispatchCoreType> dispatchCoreType = std::nullopt,
     std::optional<Device> meshDevice = std::nullopt);
 } // namespace system_desc
@@ -33,19 +33,19 @@ This function get the memory view per device
   }
 */
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
-getMemoryView(Device device, int deviceID = 0);
+getMemoryView(Device device);
 
 } // namespace detail
 
-DeviceRuntime getCurrentRuntime();
-
 std::vector<DeviceRuntime> getAvailableRuntimes();
+
+DeviceRuntime getCurrentRuntime();
 
 void setCurrentRuntime(const DeviceRuntime &runtime);
 
 void setCompatibleRuntime(const Binary &binary);
 
-std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc(
+SystemDesc getCurrentSystemDesc(
     std::optional<DispatchCoreType> dispatchCoreType = std::nullopt,
     std::optional<Device> meshDevice = std::nullopt);
 
@@ -131,6 +131,8 @@ TensorDesc getTensorDesc(Tensor tensor);
 bool getTensorRetain(Tensor tensor);
 void setTensorRetain(Tensor tensor, bool retain);
 
+Arch getArch();
+
 size_t getNumAvailableDevices();
 
 Device openMeshDevice(const std::vector<uint32_t> &meshShape,
@@ -147,6 +149,16 @@ void releaseSubMeshDevice(Device subMesh);
 
 void reshapeMeshDevice(Device meshDevice,
                        const std::vector<uint32_t> &meshShape);
+
+std::vector<uint32_t> getMeshShape(Device meshDevice);
+std::vector<int> getDeviceIds(Device meshDevice);
+size_t getNumHwCqs(Device meshDevice);
+bool isProgramCacheEnabled(Device meshDevice);
+size_t getL1SmallSize(Device meshDevice);
+size_t getTraceRegionSize(Device meshDevice);
+size_t getNumDramChannels(Device meshDevice);
+size_t getDramSizePerChannel(Device meshDevice);
+size_t getL1SizePerCore(Device meshDevice);
 
 void wait(Event event);
 
