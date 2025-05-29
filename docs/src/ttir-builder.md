@@ -1,6 +1,6 @@
 # `ttir-builder`
 
-ttir-builder is a tool for creating ttir operations. It provides support for ops or a series of ops to be transformed into MLIR modules, then into `.ttnn` or `.ttmetal` `.mlir` files, and finally into executable flatbuffers. Or you can do all three steps at once!
+ttir-builder is a tool for creating TTIR operations. It provides support for ops to be transformed into MLIR modules, then into `.ttnn` or `.ttmetal` `.mlir` files, and finally into executable flatbuffers. Or you can do all three steps at once!
 
 For a full list of supported ops, see [`ttir-builder-ops`](./ttir-builder-ops.md)
 
@@ -20,7 +20,6 @@ from ttir_builder.utils import compile_to_flatbuffer
 There are essentially two ways to go about using ttir-builder. We recommend the second if the eventual goal is to convert `TTIRBuilder` objects to other files (it's more streamlined), but we will lay out both for you.
 
 ### Creating standalone TTIRBuilder objects
-It's entirely doable to use this method to transform ops into modules, `.mlir` files, and flatbuffers, but there currently isn't support in `ttir_builder.utils` to do so. It requires the `ttmlir.ir`, `ttmlir.dialects`, and `ttmlir.passes` packages and a little more elbow grease.
 
 #### Instantiate TTIRBuilder object
 ```bash
@@ -45,14 +44,16 @@ TTIR ops created through builder can also be passed as arguments for new ops, se
 multiply_1 = builder.multiply(add_0, in0)
 ```
 
-Those builder functions create the following ttir ops.
+Those builder functions create the following TTIR ops.
 ```bash
 %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
 %3 = "ttir.multiply"(%1, %arg0, %2) : (tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
 ```
 
+It's entirely doable to use this method to then transform ops into modules, `.mlir` files, and flatbuffers, but there currently isn't support in `ttir_builder.utils` to do so. It requires the `ttmlir.ir`, `ttmlir.dialects`, and `ttmlir.passes` packages and a little more elbow grease. See `tools/ttir-builder/utils.py` for implementation examples.
+
 ### Using `ttir_builder.utils`
-The `ttir_builder.utils` package provides the most-user friendly way to transform ops. It works by passing op-creating functions as arguments into `ttir_builder.utils` APIs and let the APIs do the work for you. We will use a basic implementation of the API `compile_to_flatbuffer` as an example.
+The `ttir_builder.utils` package provides the most-user friendly way to create and transform ops. It works by passing op-creating functions as arguments into `ttir_builder.utils` APIs and letting the APIs do the rest for you. We will use a basic implementation of the API `compile_to_flatbuffer` as an example.
 ```bash
 from ttir_builder.utils import compile_to_flatbuffer,
 from ttir_builder import Operand, TTIRBuilder
@@ -70,37 +71,50 @@ compile_to_flatbuffer(
 ```
 
 ## `ttir_builder` APIs
-get_loc_of_extra_file_callee
-*class Golden
-*class TypeInfo
-*class GoldenCheckLevel
-*class TTIRBuilder:
 
-what does @ do, what does static mean in this context, why do some start with _?
+### Golden
+`Golden` is a dataclass used to store information about the golden tensor which will be used for comparison with TT device output. Each TTIR op should have a matching torch op, and for same inputs, they should generate same outputs. You can use `TTIRBuilder` helper functions to store input, output, and golden data within the flatbuffer. The choice of the map `key` for inputs/outputs is left to the golden implementor. The intermediate tensor key is derived from loc data for ttrt. External users can implement their own key/value logic.
 
-### Public helpers
-goldens, golden_check_level, get_context, get_next_global_id, print_goldens, get_shape, generate_and_store_random_golden, generate_input_golden, get_golden_map, set_mesh_shape, set_graph_input_output
+### TypeInfo
+`TypeInfo` is a dataclass that encapsulates required type information for quantized tensors: `dtype`, `scale` and `zero_point`. For non-quantized types, a plain torch.dtype can be used.
 
-### Utility conversions
+### GoldenCheckLevel
+`TTIRBuilder` stores an instance of `GoldenCheckLevel` that dictates golden handling.
+```bash
+DISABLED : do not store goldens
+OP_LEVEL : check every single op level goldens
+GRAPH_LEVEL : check graph level goldens only
+```
+
+### TTIRBuilder
+`TTIRBuilder` is a builder class providing the API for creating TTIR ops and exposes the following functions.
+
+#### Helper functions
+```bash
+goldens(self) -> Dict : gets dictionary mapping each `Golden` to its respective `Operand`
+golden_check_level(self) -> GoldenCheckLevel : gets the `GoldenCheckLevel`
+golden_check_level(self, level: GoldenCheckLevel) : sets the `GoldenCheckLevel`
+get_context(self) -> Context : gets the `Context`
+get_next_global_id(self) -> int : increments and gets the `_global_id` for the next op
+print_goldens(self) : prints saved operands and their respective goldens in descriptive form which follows SSA ordering from MLIR graph
+get_shape(self, input: Operand) -> Shape : retrieves shape of operand as a `Shape` type
+generate_and_store_random_golden(self, operand: Operand, dtype: Union[torch.dtype, TypeInfo] = torch.float32) -> Golden : generates and returns random tensor following the shape of `operand`, assigns it to a golden, and maps `operand` to that golden
+generate_input_golden(self, operand: Operand, dtype: Union[torch.dtype, TypeInfo], index: int, override: bool = False) : generates random tensor following the shape of `operand`, assigns it to a golden, maps `operand` to that golden, and maps it in the `id_golden_map` to `index`
+get_golden_map(self) -> Dict : gets a dictionary of `GoldenTensor` types mapped to tensor names
+set_mesh_shape(self, mesh_shape: Tuple[int, int]) : set mesh_shape for a multi-device environment
+set_graph_input_output(self, inputs: List[torch.Tensor], outputs: Optional[List[torch.Tensor]] = None, override: bool = False) : records the input and output tensors for the graph.
+```
+
+#### Utility functions
 ```bash
 get_type_from_torch_dtype(self, dtype: Union[torch.dtype, TypeInfo]) -> Type : converts PyTorch dtype or TypeInfo to corresponding MLIR Type
-```
-### Utility factories
-```bash
 ranked_tensor_type(self, shape: Shape, data_type: Optional[Type] = None, encoding: Optional[Attribute] = None) -> RankedTensorType : convenience wrapper constructing RankedTensorType
 metal_tensor_layout(self, shape: Shape, grid) -> RankedTensorType : convenience wrapper constructing RankedTensorType with layout as a MetalLayoutAttr type
 ```
 
-### TTIR op factories
- _organize_eltwise_ttir, _organize_eltwise_golden, op_proxy, eltwise_proxy, ccl_proxy
-
-### Golden functions
-
-
-
 ## `ttir_builder.utils` APIs
 
-### Basics
+### Helper functions
 ```bash
 shape_str(shape) : returns a shape as a string of integers separated by "x"
 set_output_path(path) : sets a global output path
@@ -184,9 +198,9 @@ def compile_to_flatbuffer(
 )
 ```
 
-## Bonus
+## Bonus Section: Integrating with other tools
 
-### Other file creation methods
+### Alternatives for file creation
 1. The [`ttmlir-opt`](./ttmlir-opt.md) tool runs a compiler pass on an `.mlir` file.
 2. The [`ttmlir-translate`](./ttmlir-translate.md) allows for flattbuffer generation from MLIR.
 3. [`llvm-lit`](
@@ -206,6 +220,49 @@ https://github.com/tenstorrent/tt-mlir/blob/2064844f8140de7d38ba55f8acac107a016f
 #### llvm-lit
 [`llvm-lit`](./lit-testing.md) can also be used for MLIR testing.
 
+## Bonus Section: Add a new op type
+`ttir-builder` is only designed to create ops supported in TTIR. At the moment, most but not all ops are supported, and new ops are still being added to TTIR here and there. Creating `ttir-builder` support for an op entails writing a function for it in `tools/ttir-builder/builder.py` that will create the op and its golden counterpart.
 
+### TTIR op factories
+All ops are created when their relevant information is run through the `op_proxy` function which provides a general interface for proxy-ing and creating ops.
+```bash
+def op_proxy(
+    self,
+    op_golden_function: Callable,
+    op_ttir_function: Callable,
+    inputs: List[Operand],
+    unit_attrs: List[str] = None,
+    organize_ttir_args: Optional[Callable] = None,
+    organize_golden_args: Optional[Callable] = None,
+    output_shape: Optional[Shape] = None,
+    output_type: Optional[Type] = None,
+    output_create_fn: Optional[Callable] = None,
+    golden_kwargs: dict = {},
+    ttir_kwargs: dict = {},
+)
+```
 
-See `python/Passes.cpp` - specifically `ttnn_to_flatbuffer_file` function for an example. This is used by `tools/ttir-builder/builder.py` to construct flatbuffers with embedded golden data. You can store input/output/intermediate data within the flatbuffer. The choice of the map `key` for inputs/outputs is left to the golden implementor. The intermediate tensor key is derived from loc data for ttrt. External users can implement their own key/value logic.
+Eltwise ops require less specialized handling and call `op_proxy` through `eltwise_proxy`.
+```bash
+def eltwise_proxy(
+    self,
+    op_golden_function: Callable,
+    op_ttir_function: Callable,
+    inputs: List[Operand],
+    unit_attrs: List[str] = None,
+)
+```
+
+CCL ops require `GoldenCheckLevel` to be set to `GRAPH_LEVEL` and integrate that into their own proxy function.
+```bash
+def ccl_proxy(
+    self,
+    op_golden_function: Callable,
+    op_ttir_function: Callable,
+    inputs: List[Operand],
+    kwargs: dict = {},
+)
+```
+
+### Golden functions
+Setting the various inputs, outputs, arguments, shapes, and types are all fairly straightforward. Find the TTIR op in `include/ttmlir/Dialect/TTIR/IR/TTIROps.td` and replicate the pertinents. If there is necessary information that is not included, you may have to take it upon yourself to do some detective work and trial and error. The tricky part can be the finding or writing a golden function. It must perform exactly the same operation as the TTIR op and be written using PyTorch operations.
