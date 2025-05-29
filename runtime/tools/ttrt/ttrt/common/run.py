@@ -595,6 +595,10 @@ class Run:
                         # Implement optional pre_op_callback functionality here
 
                         program = bin.get_program(program_index)
+                        # Skip private programs (e.g. subgraphs created by const-eval)
+                        if program.program["private"]:
+                            continue
+
                         golden_inputs = []
 
                         for i in range(len(program.program["inputs"])):
