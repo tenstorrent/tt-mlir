@@ -323,6 +323,8 @@ TEST_F(OpModelBase, AddOpInterfaceNullOutput) {
   EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
   EXPECT_TRUE(outputLayout.hasInterleavedL1TensorMemoryLayout());
   std::cout << "Some change...\n";
+  size_t x = 12;
+  std::cout << "x = " << x << std::endl;
 }
 
 TEST_F(OpModelBase, MultiplyOpInterface) {
