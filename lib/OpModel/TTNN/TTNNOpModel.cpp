@@ -1664,7 +1664,7 @@ llvm::Expected<
 PermuteOpInterface::getOpConstraints(
     GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-    llvm::ArrayRef<int64_t> permutation, std::optional<llvm::APFloat> padValue,
+    llvm::ArrayRef<int64_t> permutation, llvm::APFloat padValue,
     llvm::ArrayRef<int64_t> outputShape,
     mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -1675,10 +1675,7 @@ PermuteOpInterface::getOpConstraints(
   ::ttnn::SmallVector<int64_t> dims(permutation.size());
   std::copy(permutation.begin(), permutation.end(), dims.begin());
 
-  std::optional<float> defaultedPadValue = 0.0f;
-  if (padValue.has_value()) {
-    defaultedPadValue = padValue->convertToFloat();
-  }
+  float defaultedPadValue = padValue.convertToFloat();
 
   auto inputSpecExp =
       detail::convertToTensorSpec(device, inputShape, inputLayout);
@@ -1705,7 +1702,7 @@ llvm::Expected<size_t>
 PermuteOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                  mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
                                  llvm::ArrayRef<int64_t> permutation,
-                                 std::optional<llvm::APFloat> padValue,
+                                 llvm::APFloat padValue,
                                  llvm::ArrayRef<int64_t> outputShape,
                                  mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -1717,10 +1714,7 @@ PermuteOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   std::copy(permutation.begin(), permutation.end(), dims.begin());
 
   // Convert float
-  std::optional<float> defaultedPadValue = 0.0f;
-  if (padValue.has_value()) {
-    defaultedPadValue = padValue->convertToFloat();
-  }
+  float defaultedPadValue = padValue.convertToFloat();
 
   auto inputSpecExp =
       detail::convertToTensorSpec(device, inputShape, inputLayout);
