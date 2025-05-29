@@ -33,7 +33,7 @@ This function get the memory view per device
   }
 */
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
-getMemoryView(Device device, int deviceID = 0);
+getMemoryView(Device device);
 
 } // namespace detail
 
