@@ -80,3 +80,12 @@ func.func @dot_compatible_contracting_dim_sharded(
 // CHECK: sdy.manual_computation(%arg0, %arg1) in_shardings=[<@mesh, [{"batch"}, {"model"}]>, <@mesh, [{"model"}, {}]>] out_shardings=[<@mesh, [{"batch"}, {}]>]
 // CHECK: stablehlo.all_reduce
 // CHECK: sdy.return %2 : tensor<2x16xf32>
+
+func.func @all_to_all_single_axis(%arg0 : tensor<8x8x8xf32> {sdy.sharding=#sdy.sharding<@mesh, [{"batch"}, {"model"}, {}]>}) -> tensor<8x8x8xf32> {
+  %0 = sdy.reshard %arg0 <@mesh, [{}, {"model"}, {"batch"}]> : tensor<8x8x8xf32>
+  return %0 : tensor<8x8x8xf32>
+}
+
+// CHECK: sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"batch"}, {"model"}, {}]>] out_shardings=[<@mesh, [{}, {"model"}, {"batch"}]>]
+// CHECK: stablehlo.all_to_all
+// CHECK: sdy.return %1 : tensor<8x4x2xf32>
