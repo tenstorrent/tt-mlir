@@ -55,3 +55,8 @@ if "ARCH_NAME" in os.environ:
     config.environment["ARCH_NAME"] = os.environ["ARCH_NAME"]
 else:
     raise OSError("ARCH_NAME environment variable is not set")
+
+# Some optimizer unittests must be run serially. There is no way to that in llvm-lit
+# without running all tests serially which will take a long time. Exclude them and
+# run them in CI separately.
+config.excludes.add("Optimizer")
