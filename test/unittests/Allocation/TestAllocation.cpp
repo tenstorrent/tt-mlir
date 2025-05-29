@@ -78,6 +78,8 @@ TYPED_TEST(AllocationTest, Conflicts) {
   auto seed = tt::testing::randomSeed();
   auto gen = tt::testing::createRNG(seed);
 
+  ASSERT_EQ(seed, 16986427154618410377UL);
+
   constexpr AllocationPlanner::AllocSizeT sizeLimit = 1000;
   constexpr AllocationPlanner::SequenceT positionLimit = 1000; // Soft limit.
 
@@ -155,6 +157,8 @@ TEST(GreedyAllocationTest, ConflictFree) {
   constexpr std::int32_t repeats = 3;
   auto seed = tt::testing::randomSeed();
   auto gen = tt::testing::createRNG(seed);
+
+  ASSERT_EQ(seed, 16986427154618410377UL);
 
   constexpr AllocationPlanner::AllocSizeT sizeLimit = 1000;
   constexpr AllocationPlanner::SequenceT positionLimit = 1000; // Soft limit.
