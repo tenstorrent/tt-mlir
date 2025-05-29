@@ -61,7 +61,7 @@ void createTTNNPipelineAnalysisPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   if (options.optimizerPassEnabled) {
     ttnn::TTNNOptimizerOptions optimizerOptions;
-    optimizerOptions.overrideInputLayout = options.overrideInputLayout;
+    optimizerOptions.insertMemReconfig = options.insertMemReconfig;
     optimizerOptions.overrideOutputLayout = options.overrideOutputLayout;
     optimizerOptions.overrideConv2dConfig = options.overrideConv2dConfig;
     optimizerOptions.memoryLayoutAnalysisEnabled =
