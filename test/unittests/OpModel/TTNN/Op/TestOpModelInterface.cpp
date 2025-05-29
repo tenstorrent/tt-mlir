@@ -14,7 +14,6 @@
 #include "llvm/ADT/SmallVector.h"
 #include "gtest/gtest.h"
 
-#include "mlir/IR/BuiltinAttributes.h"
 #include <cstdint>
 
 namespace mlir::tt::ttnn {

@@ -3,9 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
-#include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/Support/LLVM.h"
-#include "llvm/Support/Error.h"
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 

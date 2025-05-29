@@ -13,8 +13,6 @@
 #include "llvm/Support/Error.h"
 #include "gtest/gtest.h"
 
-#include "mlir/IR/BuiltinAttributes.h"
-#include "llvm/ADT/APInt.h"
 #include <cstdint>
 #include <functional>
 #include <iostream>
@@ -1342,7 +1340,7 @@ class OpModelUpsampleParam : public OpModelTest,
                                  std::tuple<detail::TestTensor, // input
                                             detail::TestTensor, // output
                                             int,                // scale factor
-                                                 // TODO add tuple
+                                                 // note: could also be a tuple
                                             std::string, // mode
                                             bool         // expected legal
                                             >> {};
