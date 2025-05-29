@@ -88,7 +88,12 @@ def main(input_csv, output_csv):
 
 if __name__ == "__main__":
     # Usage: python attach_input_metrics.py input.csv output.csv
-    if len(sys.argv) != 3:
-        print("Usage: python attach_input_metrics.py input.csv output.csv")
+    if len(sys.argv) not in (2, 3):
+        print("Usage: python attach_input_metrics.py input.csv [output.csv]")
         sys.exit(1)
-    main(sys.argv[1], sys.argv[2])
+    if len(sys.argv) == 2:
+        inf = sys.argv[1]
+        outf = inf.replace(".csv", "_processed.csv")
+    else:
+        inf, outf = sys.argv[1], sys.argv[2]
+    main(inf, outf)
