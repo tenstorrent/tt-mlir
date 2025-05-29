@@ -6,6 +6,8 @@
 
 #include "tt/runtime/detail/logger.h"
 
+#include <dlfcn.h>
+
 namespace tt::runtime::common {
 
 void *loadLibraryFromMemory(const uint8_t *data, size_t size) {
@@ -76,6 +78,23 @@ DylibManager &DylibManager::operator=(DylibManager &&other) noexcept {
     other.handles.clear();
   }
   return *this;
+}
+
+WrappedFunc DylibManager::getFunc(const uint32_t dylibId,
+                                  const std::string &funcName) const {
+  auto *dylibHandle = getHandle(dylibId);
+  if (!dylibHandle) {
+    LOG_FATAL("could not find dylib corresponding to id: " +
+              std::to_string(dylibId));
+  }
+
+  WrappedFunc fn =
+      reinterpret_cast<WrappedFunc>(dlsym(dylibHandle, funcName.c_str()));
+  if (!fn) {
+    LOG_FATAL("could not find requested op: \"" + funcName +
+              "\" in dylib with id: " + std::to_string(dylibId));
+  }
+  return fn;
 }
 
 } // namespace tt::runtime::common

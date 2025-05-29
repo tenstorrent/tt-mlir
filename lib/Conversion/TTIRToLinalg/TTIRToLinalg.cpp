@@ -292,40 +292,6 @@ public:
 } // namespace
 
 namespace {
-// Conversion pattern for ttir.broadcast operation
-class BroadcastOpConversionPattern
-    : public OpConversionPattern<ttir::BroadcastOp> {
-public:
-  using OpConversionPattern<ttir::BroadcastOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::BroadcastOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    Value input = adaptor.getInput();
-    auto inputType = dyn_cast<RankedTensorType>(input.getType());
-    auto outputType = dyn_cast<RankedTensorType>(adaptor.getOutput().getType());
-
-    if (!inputType || !outputType) {
-      return failure();
-    }
-
-    // Calculate broadcast dimensions
-    SmallVector<int64_t> broadcastDims =
-        getBroadcastDims(inputType.getShape(), outputType.getShape());
-
-    // Create DenseI64ArrayAttr from the broadcast dimensions
-    auto broadcastDimsAttr = rewriter.getDenseI64ArrayAttr(broadcastDims);
-
-    // Use the correct builder signature
-    rewriter.replaceOpWithNewOp<linalg::BroadcastOp>(
-        op, input, adaptor.getOutput(), broadcastDimsAttr);
-
-    return success();
-  }
-};
-} // namespace
-
-namespace {
 // Conversion pattern for ttir.reshape operation
 class ReshapeOpConversionPattern : public OpConversionPattern<ttir::ReshapeOp> {
 public:
@@ -337,7 +303,6 @@ public:
     Value input = adaptor.getInput();
     Value output = adaptor.getOutput();
 
-    // Get the result type
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
@@ -383,29 +348,23 @@ public:
     auto inputType = dyn_cast<RankedTensorType>(input.getType());
     assert(inputType && "Input must be a ranked tensor type.");
 
-    // Convert begins, ends, and steps to the format expected by
-    // tensor.extract_slice
     SmallVector<OpFoldResult> offsets, sizes, strides;
 
-    // Extract the actual integer values from the attributes
     ArrayAttr begins = op.getBegins();
     ArrayAttr ends = op.getEnds();
     ArrayAttr steps = op.getStep();
 
-    // Make sure all arrays have the same size
     assert(begins.size() == ends.size() && begins.size() == steps.size() &&
            "Invalid slice attributes.");
 
     for (unsigned i = 0; i < begins.size(); ++i) {
-      // Convert attribute to actual integer values using proper attribute
-      // casting
       const int32_t beginVal = llvm::cast<IntegerAttr>(begins[i]).getInt();
       const int32_t endVal = llvm::cast<IntegerAttr>(ends[i]).getInt();
       const int32_t stepVal = llvm::cast<IntegerAttr>(steps[i]).getInt();
 
       offsets.push_back(rewriter.getI64IntegerAttr(beginVal));
 
-      // Calculate size: (end - begin) / step
+      // Calculate size: (end - begin) / step.
       int64_t size = (endVal - beginVal);
       if (stepVal != 0) {
         size = (size + stepVal - 1) / stepVal;
@@ -436,13 +395,13 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ConcatOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Get the dimension to concatenate along
+    // Get the dimension to concatenate along.
     int64_t dim = op.getDim();
     static_assert(ttir::utils::has_dps_trait_v<ttir::ConcatOp>);
     auto inputs =
         ttir::utils::getDpsInputsFromAdaptor(adaptor, op.getNumDpsInits());
 
-    // Create a tensor.empty for the result
+    // Create a tensor.empty for the result.
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
@@ -450,7 +409,7 @@ public:
     auto emptyTensor = rewriter.create<tensor::EmptyOp>(
         op.getLoc(), resultType.getShape(), resultType.getElementType());
 
-    // Insert each input tensor into the result tensor
+    // Insert each input tensor into the result tensor.
     Value result = emptyTensor;
     int64_t offset = 0;
 
@@ -471,7 +430,6 @@ public:
         strides.push_back(rewriter.getI64IntegerAttr(1));
       }
 
-      // Insert this input into the result
       result = rewriter.create<tensor::InsertSliceOp>(
           op.getLoc(), input, result, offsets, sizes, strides);
     }
@@ -492,15 +450,12 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ConstantOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Get the constant value
     auto value = op.getValue();
 
-    // Get the result type
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
 
-    // Create a new constant op with the converted type
     auto newConstant =
         rewriter.create<arith::ConstantOp>(op.getLoc(), resultType, value);
 
@@ -529,10 +484,10 @@ void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       ElementwiseOpConversionPattern<ttir::ReciprocalOp, linalg::ReciprocalOp>,
       ElementwiseOpConversionPattern<ttir::NegOp, linalg::NegFOp>,
       TransposeOpConversionPattern, SoftmaxOpConversionPattern,
-      EmptyOpConversionPattern, BroadcastOpConversionPattern,
-      ReshapeOpConversionPattern, PermuteOpConversionPattern,
-      SliceOpConversionPattern, ConcatOpConversionPattern,
-      ConstantOpConversionPattern>(typeConverter, ctx);
+      EmptyOpConversionPattern, ReshapeOpConversionPattern,
+      PermuteOpConversionPattern, SliceOpConversionPattern,
+      ConcatOpConversionPattern, ConstantOpConversionPattern>(typeConverter,
+                                                              ctx);
 }
 
 } // namespace mlir::tt

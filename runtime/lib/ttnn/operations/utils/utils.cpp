@@ -48,7 +48,7 @@ bool isTilized(const ::tt::target::ttnn::TensorRef *tensorRef) {
 bool shouldSwapBinaryOperands(const ::ttnn::Tensor &lhs,
                               const ::ttnn::Tensor &rhs) {
   return (workaround::Env::get().swapBinaryOperands) &&
-         (lhs.volume() < rhs.volume());
+         (lhs.padded_volume() < rhs.padded_volume());
 }
 
 ::ttnn::operations::unary::UnaryOpType
@@ -127,9 +127,8 @@ toTTNNUnaryOpType(::tt::target::ttnn::UnaryOpType unaryOpType) {
       {FbUnaryOpType::BitwiseOr, TTNNUnaryOpType::BITWISE_OR},
       {FbUnaryOpType::RightShift, TTNNUnaryOpType::RIGHT_SHIFT},
       {FbUnaryOpType::Floor, TTNNUnaryOpType::FLOOR},
-      {FbUnaryOpType::FloorFloat32, TTNNUnaryOpType::FLOOR_FLOAT32},
       {FbUnaryOpType::Ceil, TTNNUnaryOpType::CEIL},
-      {FbUnaryOpType::CeilFloat32, TTNNUnaryOpType::CEIL_FLOAT32},
+      {FbUnaryOpType::Round, TTNNUnaryOpType::ROUND},
       {FbUnaryOpType::LeftShift, TTNNUnaryOpType::LEFT_SHIFT},
       {FbUnaryOpType::Remainder, TTNNUnaryOpType::REMAINDER},
       {FbUnaryOpType::Fmod, TTNNUnaryOpType::FMOD},
@@ -227,7 +226,8 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::MatmulOp *op) {
             .gather_in0 = config->gather_in0(),
             .hop_cores = ::tt::runtime::ttnn::utils::toTTNNCoreRangeSet(
                 *config->hop_cores()),
-            .num_global_cb_receivers = config->num_global_cb_receivers()};
+            .num_global_cb_receivers = config->num_global_cb_receivers(),
+            .untilize_out = config->untilize_out()};
   }
   case ::tt::target::ttnn::MatmulProgramConfig::
       MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig: {
@@ -266,10 +266,6 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
 
   if (config->activation()) {
     conv2dConfig.activation = config->activation()->str();
-  }
-
-  if (config->input_channels_alignment()) {
-    conv2dConfig.input_channels_alignment = *config->input_channels_alignment();
   }
 
   if (config->deallocate_activation()) {

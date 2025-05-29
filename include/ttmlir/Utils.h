@@ -27,6 +27,10 @@
 
 namespace ttmlir::utils {
 
+constexpr inline llvm::StringLiteral g_constEvalAttrName = "const_eval";
+constexpr inline llvm::StringLiteral g_conv2dWeightAttrName =
+    "ttir.conv2d_weight";
+
 template <typename T>
 T alignUp(T ptr, T alignment) {
   return (ptr + alignment - 1) & ~(alignment - 1);
@@ -480,6 +484,13 @@ populateConstParams(mlir::func::FuncOp funcOp) {
   }
 
   return constParams;
+}
+
+inline bool isConstEvalFunc(mlir::Operation *op) {
+  if (auto funcOp = mlir::dyn_cast<mlir::func::FuncOp>(op)) {
+    return funcOp->hasAttr(g_constEvalAttrName);
+  }
+  return false;
 }
 
 template <typename T, typename From>

@@ -27,11 +27,17 @@ public:
     Value reluInput = reluOp.getInput();
 
     mlir::StringAttr activation = rewriter.getStringAttr("relu");
+    DataType inputDtype =
+        elementTypeToDataType(srcOp.getInput().getType().getElementType());
+    DataType weightDtype =
+        elementTypeToDataType(srcOp.getWeight().getType().getElementType());
     Conv2dConfigAttr conv2dConfigAttr =
         srcOp.getConv2dConfigAttr()
             ? srcOp.getConv2dConfigAttr()
             : Conv2dConfigAttr::get(rewriter.getContext());
-    conv2dConfigAttr = conv2dConfigAttr.withActivation(activation);
+    conv2dConfigAttr = conv2dConfigAttr.withActivation(activation)
+                           .withDtype(inputDtype)
+                           .withWeightsDtype(weightDtype);
 
     rewriter.modifyOpInPlace(
         srcOp, [&]() { srcOp.setConv2dConfigAttr(conv2dConfigAttr); });
@@ -100,7 +106,7 @@ public:
     RewritePatternSet patterns(&getContext());
     patterns.add<TTNNConv2dWithActivation>(&getContext());
     GreedyRewriteConfig config;
-    config.useTopDownTraversal = true;
+    config.setUseTopDownTraversal(true);
     (void)applyPatternsGreedily(getOperation(), std::move(patterns));
   }
 };

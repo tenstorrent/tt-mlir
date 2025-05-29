@@ -11,13 +11,13 @@ module attributes {} {
     // CHECK-NEXT: %[[TO_LAYOUT_INPUT:.*]] = "ttnn.to_layout"
     // CHECK-SAME: dtype = #tt.supportedDataTypes<u32>
     // CHECK-SAME: layout = #ttnn.layout<row_major>
-    // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <<32x32>>, <interleaved>>
+    // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <interleaved>>
     // CHECK-SAME: -> tensor<32x32xui32
     // Check that the data type of the weight operand is transformed in bf16.
     // CHECK-NEXT: %[[TO_LAYOUT_WEIGHTS:.*]] = "ttnn.to_layout"
     // CHECK-SAME: dtype = #tt.supportedDataTypes<bf16>
     // CHECK-SAME: layout = #ttnn.layout<tile>
-    // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <<16x4>>, <interleaved>>
+    // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <interleaved>>
     // CHECK-SAME: -> tensor<512x128xbf16
     %0 = "ttnn.embedding"(%arg0, %arg1) : (tensor<32x32xf32, #ttnn_layout>, tensor<512x128xf32, #ttnn_layout1>) -> tensor<32x32x128xf32, #ttnn_layout2>
     // CHECK-NEXT: %[[EMBEDDING_OP:.*]] = "ttnn.embedding"(%[[TO_LAYOUT_INPUT]], %[[TO_LAYOUT_WEIGHTS]])
@@ -25,7 +25,7 @@ module attributes {} {
     // CHECK-NEXT: "ttnn.to_layout"(%[[EMBEDDING_OP]], %[[DEVICE_OP]])
     // CHECK-SAME: dtype = #tt.supportedDataTypes<f32>
     // CHECK-SAME: layout = #ttnn.layout<tile>
-    // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <<32x4>>, <interleaved>>
+    // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <interleaved>>
     return %0 : tensor<32x32x128xf32, #ttnn_layout2>
   }
 }

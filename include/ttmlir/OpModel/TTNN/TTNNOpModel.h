@@ -18,7 +18,8 @@ namespace mlir::tt::op_model::ttnn {
 
 // Checks if the tensor layout is legal for the given tensor shape.
 bool isLayoutLegalForTensorShape(llvm::ArrayRef<int64_t> tensorShape,
-                                 mlir::tt::ttnn::TTNNLayoutAttr layout);
+                                 mlir::tt::ttnn::TTNNLayoutAttr layout,
+                                 GridAttr maxGrid);
 
 // Calculate the output tensor type of the prepared weights for a conv2d op.
 mlir::RankedTensorType
@@ -327,7 +328,7 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 // MaxPool2D
 //===----------------------------------------------------------------------===//
-namespace MaxPool2DInterface {
+namespace MaxPool2DOpInterface {
 llvm::Expected<
     std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
 getOpConstraints(GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
@@ -349,12 +350,12 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
              bool ceilMode, llvm::ArrayRef<int64_t> outputShape,
              mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 
-}; // namespace MaxPool2DInterface
+}; // namespace MaxPool2DOpInterface
 
 //===----------------------------------------------------------------------===//
 // ClampScalar
 //===----------------------------------------------------------------------===//
-namespace ClampScalarInterface {
+namespace ClampScalarOpInterface {
 llvm::Expected<
     std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
 getOpConstraints(GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
@@ -367,7 +368,7 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
              mlir::tt::ttnn::TTNNLayoutAttr inputLayout, llvm::APFloat min,
              llvm::APFloat max, llvm::ArrayRef<int64_t> outputShape,
              mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
-}; // namespace ClampScalarInterface
+}; // namespace ClampScalarOpInterface
 
 } // namespace mlir::tt::op_model::ttnn
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H

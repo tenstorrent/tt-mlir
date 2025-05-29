@@ -27,7 +27,6 @@ MemoryBlockTable is a list of memory blocks in the following format:
 */
 using MemoryBlockTable =
     std::vector<std::unordered_map<std::string, std::string>>;
-using DeviceIds = std::vector<int>;
 
 enum class MemoryBufferType {
   DRAM,
@@ -42,10 +41,23 @@ enum class DeviceRuntime {
   TTMetal,
 };
 
+inline std::string toString(DeviceRuntime runtime) {
+  switch (runtime) {
+  case DeviceRuntime::TTNN:
+    return "TTNN";
+  case DeviceRuntime::TTMetal:
+    return "TTMetal";
+  case DeviceRuntime::Disabled:
+    return "Disabled";
+  }
+}
+
 enum class DispatchCoreType {
   WORKER,
   ETH,
 };
+
+enum class Arch { GRAYSKULL = 1, WORMHOLE_B0 = 2, BLACKHOLE = 3, QUASAR = 4 };
 
 namespace detail {
 struct ObjectImpl {
@@ -113,12 +125,11 @@ struct TensorDesc {
              ::tt::target::DataType dataType)
       : shape(shape), stride(stride), itemsize(itemsize), dataType(dataType) {}
 
-  std::uint32_t size() const { return shape[0] * stride[0] * itemsize; }
-  std::size_t volume() const {
-    return std::accumulate(shape.begin(), shape.end(),
-                           static_cast<std::size_t>(1),
-                           std::multiplies<std::size_t>());
+  std::int64_t volume() const {
+    return std::accumulate(shape.begin(), shape.end(), static_cast<int64_t>(1),
+                           std::multiplies<int64_t>());
   }
+  std::int64_t sizeBytes() const { return volume() * itemsize; }
 };
 
 struct MemoryView {
@@ -136,6 +147,7 @@ struct MeshDeviceOptions {
   size_t numHWCQs = 1;
   bool enableProgramCache = false;
   std::optional<size_t> l1SmallSize = std::nullopt;
+  std::optional<size_t> traceRegionSize = std::nullopt;
   std::optional<DispatchCoreType> dispatchCoreType = std::nullopt;
 };
 
@@ -192,9 +204,6 @@ private:
 };
 
 struct Device : public detail::RuntimeCheckedObjectImpl {
-  Device(std::shared_ptr<void> handle, DeviceRuntime runtime,
-         std::shared_ptr<TensorCache> tensorCache)
-      : detail::RuntimeCheckedObjectImpl(handle, runtime) {}
   using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
 };
 

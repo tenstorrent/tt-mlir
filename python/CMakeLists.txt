@@ -59,12 +59,6 @@ declare_mlir_dialect_python_bindings(
   DIALECT_NAME ttnn
 )
 
-declare_mlir_python_sources(TTMLIRPythonSources.Overrides
-  ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
-  ADD_TO_PARENT TTMLIRPythonSources
-  SOURCES overrides.py
-)
-
 declare_mlir_python_sources(TTMLIRPythonSources.OptimizerOverrides
   ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
   ADD_TO_PARENT TTMLIRPythonSources
@@ -102,10 +96,8 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
   SOURCES
     TTMLIRModule.cpp
     TTModule.cpp
-    TTIRModule.cpp
     TTKernelModule.cpp
     TTNNModule.cpp
-    Overrides.cpp
     OptimizerOverrides.cpp
     Passes.cpp
     Util.cpp
@@ -128,7 +120,7 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     MLIRSPIRVToLLVMIRTranslation
     MLIRTestToLLVMIRTranslation
     MLIRVCIXToLLVMIRTranslation
-    MLIRX86VectorToLLVMIRTranslation
+    MLIRX86VectorTransforms
   PYTHON_BINDINGS_LIBRARY nanobind
 )
 
@@ -163,16 +155,6 @@ declare_mlir_python_sources(TTMLIRPythonOpByOpInfra.Main
     workflow.py
 )
 
-declare_mlir_python_sources(TTMLIRPythonTestInfra)
-
-declare_mlir_python_sources(TTMLIRPythonTestInfra.Main
-  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/test_infra"
-  ADD_TO_PARENT TTMLIRPythonTestInfra
-  SOURCES
-    ccl_golden.py
-    test_utils.py
-    ttir_builder.py
-)
 
 ################################################################################
 # Generate packages and shared library
@@ -195,7 +177,6 @@ set(TTMLIR_PYTHON_SOURCES
   TTMLIRPythonExtensions
   TTMLIRPythonCommon
   TTMLIRPythonOpByOpInfra
-  TTMLIRPythonTestInfra
   TTMLIRPythonSiteInitialize
 )
 
@@ -230,21 +211,6 @@ add_mlir_python_modules(TTMLIRPythonModules
   COMMON_CAPI_LINK_LIBS
     TTMLIRPythonCAPI
 )
-
-if(TTMLIR_ENABLE_PYKERNEL)
-  set(TTPYKERNEL_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/pykernel")
-  declare_mlir_python_sources(TTPykernelSources
-    ROOT_DIR "${TTPYKERNEL_ROOT_DIR}"
-    SOURCES
-      ast.py
-      types.py
-  )
-  add_mlir_python_modules(TTPykernelModules
-    ROOT_PREFIX "${TTMLIR_PYTHON_PACKAGES_DIR}/pykernel"
-    INSTALL_PREFIX "python_packages/pykernel"
-    DECLARED_SOURCES TTPykernelSources
-  )
-endif()
 
 # PyWheel Component to create install directives for the packaged TTMLIR bindings wheel:
 install(DIRECTORY ${CMAKE_BINARY_DIR}/python_packages/ DESTINATION . COMPONENT TTMLIRPythonWheel EXCLUDE_FROM_ALL)

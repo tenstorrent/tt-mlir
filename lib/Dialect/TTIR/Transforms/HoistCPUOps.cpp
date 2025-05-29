@@ -60,6 +60,24 @@ static llvm::SmallString<16> generateHoistedFuncName(mlir::Operation *op) {
   return uniqueName;
 }
 
+// Tag bufferization access options based on operand semantics.
+static void tagBufferizationAccess(mlir::func::FuncOp funcOp, unsigned argIdx,
+                                   mlir::Operation *origOp,
+                                   mlir::OpBuilder &builder) {
+  if (auto dpsOp = dyn_cast<mlir::DestinationStyleOpInterface>(origOp)) {
+    if (dpsOp.isDpsInit(&origOp->getOpOperand(argIdx))) {
+      funcOp.setArgAttr(argIdx, "bufferization.access",
+                        builder.getStringAttr("write"));
+    } else {
+      funcOp.setArgAttr(argIdx, "bufferization.access",
+                        builder.getStringAttr("read"));
+    }
+  } else {
+    funcOp.setArgAttr(argIdx, "bufferization.access",
+                      builder.getStringAttr("read_write"));
+  }
+}
+
 // Helper function to hoist an arbitrary op into a new function in targetModule,
 // generate a matching extern prototype in the sourceModule, and replace the
 // original op with a callOp to the extern function.
@@ -145,6 +163,14 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
       newOperands.push_back(block->getArgument(operand.index()));
     }
 
+    // Add bufferization access attributes to function arguments
+    for (auto arg : llvm::enumerate(hoistedFunc.getArguments())) {
+      if (auto tensorType =
+              dyn_cast<mlir::RankedTensorType>(arg.value().getType())) {
+        tagBufferizationAccess(hoistedFunc, arg.index(), opToHoist, builder);
+      }
+    }
+
     mlir::IRMapping mapping;
     for (auto operand : llvm::zip(opToHoist->getOperands(), newOperands)) {
       mapping.map(std::get<0>(operand), std::get<1>(operand));
@@ -184,7 +210,18 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
     localFunc = func::FuncOp::create(opToHoist->getLoc(),
                                      localFunctionName.str(), localFuncType);
     localFunc.setPrivate();
+
+    // Add the function to the module first
     sourceModule.push_back(localFunc);
+
+    // Now that the function is in the module, add bufferization access
+    // attributes
+    for (auto arg : llvm::enumerate(localFunc.getArguments())) {
+      if (auto tensorType =
+              dyn_cast<mlir::RankedTensorType>(arg.value().getType())) {
+        tagBufferizationAccess(localFunc, arg.index(), opToHoist, builder);
+      }
+    }
 
     hoistedFunc->setAttr("arg_ranks", builder.getI64ArrayAttr(ranks));
   }
@@ -193,6 +230,10 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
   mlir::OpBuilder opBuilder(opToHoist);
   auto callOp = opBuilder.create<mlir::func::CallOp>(
       opToHoist->getLoc(), localFunc, convertedOperands);
+
+  // Add the hoisted_call attribute
+  callOp->setAttr(HoistedCallAttr::name,
+                  UnitAttr::get(opToHoist->getContext()));
 
   // Convert results back to original types if needed
   llvm::SmallVector<mlir::Value> finalResults;
@@ -213,10 +254,6 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
       finalResults.push_back(callResult);
     }
   }
-
-  // Add the hoisted_call attribute
-  callOp->setAttr(HoistedCallAttr::name,
-                  UnitAttr::get(opToHoist->getContext()));
 
   // Replace original op with the converted results
   opToHoist->replaceAllUsesWith(finalResults);

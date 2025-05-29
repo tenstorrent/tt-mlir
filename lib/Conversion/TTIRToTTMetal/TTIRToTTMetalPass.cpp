@@ -51,8 +51,13 @@ struct ConvertTTIRToTTMetal
     target.addIllegalDialect<ttir::TTIRDialect>();
 
     target.addLegalOp<ttir::StreamLayoutOp>();
+    target.addLegalOp<ttir::ViewLayoutOp>();
 
     target.addDynamicallyLegalOp<memref::AllocOp>([&](memref::AllocOp op) {
+      return !mlir::dyn_cast_if_present<tt::MemorySpaceAttr>(
+          op.getMemref().getType().getMemorySpace());
+    });
+    target.addDynamicallyLegalOp<memref::DeallocOp>([&](memref::DeallocOp op) {
       return !mlir::dyn_cast_if_present<tt::MemorySpaceAttr>(
           op.getMemref().getType().getMemorySpace());
     });

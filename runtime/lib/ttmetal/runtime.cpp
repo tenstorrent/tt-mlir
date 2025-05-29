@@ -6,6 +6,7 @@
 
 #include "tracy/Tracy.hpp"
 #include "tt/runtime/detail/common.h"
+#include "tt/runtime/detail/dylib.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttmetal/ttmetal.h"
 #include "tt/runtime/runtime.h"
@@ -90,6 +91,10 @@ void setTensorRetain(Tensor tensor, bool retain) {
   LOG_FATAL("setTensorRetain not implemented for metal runtime");
 }
 
+Arch getArch() {
+  return ::tt::runtime::common::toRuntimeArch(::tt::tt_metal::hal::get_arch());
+}
+
 size_t getNumAvailableDevices() { return tt_metal::GetNumAvailableDevices(); }
 
 Device openMeshDevice(const std::vector<uint32_t> &meshShape,
@@ -101,6 +106,8 @@ Device openMeshDevice(const std::vector<uint32_t> &meshShape,
   tt_metal::distributed::MeshCoordinate offset(options.meshOffset);
 
   size_t l1SmallSize = options.l1SmallSize.value_or(DEFAULT_L1_SMALL_SIZE);
+  size_t traceRegionSize =
+      options.traceRegionSize.value_or(DEFAULT_TRACE_REGION_SIZE);
   tt_metal::DispatchCoreType dispatchCoreType =
       common::getDispatchCoreType(options.dispatchCoreType);
 
@@ -109,7 +116,7 @@ Device openMeshDevice(const std::vector<uint32_t> &meshShape,
 
   std::shared_ptr<tt_metal::distributed::MeshDevice> meshDevice =
       tt_metal::distributed::MeshDevice::create(
-          meshConfig, l1SmallSize, DEFAULT_TRACE_REGION_SIZE, options.numHWCQs,
+          meshConfig, l1SmallSize, traceRegionSize, options.numHWCQs,
           dispatchCoreType);
 
   LOG_DEBUG("Device grid size = { ",
@@ -132,7 +139,7 @@ void closeMeshDevice(Device parentMesh) {
                 " that has ", numSubMeshes, " unreleased submeshes.");
   }
 
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
   for (tt_metal::IDevice *ttmetalDevice : metalMeshDevice.get_devices()) {
     tt_metal::detail::DumpDeviceProfileResults(ttmetalDevice);
   }
@@ -186,6 +193,71 @@ void reshapeMeshDevice(Device meshDevice,
       ::tt::tt_metal::distributed::MeshShape(meshShape[0], meshShape[1]));
 }
 
+std::vector<uint32_t> getMeshShape(Device meshDevice) {
+  ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
+      meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+  std::vector<uint32_t> shape(metalMeshDevice.shape().view().begin(),
+                              metalMeshDevice.shape().view().end());
+  return shape;
+}
+
+std::vector<int> getDeviceIds(Device meshDevice) {
+  ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
+      meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+  return metalMeshDevice.get_device_ids();
+}
+
+size_t getNumHwCqs(Device meshDevice) {
+  ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
+      meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+  return static_cast<size_t>(metalMeshDevice.num_hw_cqs());
+}
+
+bool isProgramCacheEnabled(Device meshDevice) {
+  ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
+      meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+  return metalMeshDevice.get_program_cache().is_enabled();
+}
+
+size_t getL1SmallSize(Device meshDevice) {
+  ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
+      meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+  return metalMeshDevice.allocator()->get_config().l1_small_size;
+}
+
+size_t getTraceRegionSize(Device meshDevice) {
+  ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
+      meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+  return metalMeshDevice.allocator()->get_config().trace_region_size;
+}
+
+size_t getNumDramChannels(Device meshDevice) {
+  ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
+      meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+  return metalMeshDevice.num_dram_channels();
+}
+
+size_t getDramSizePerChannel(Device meshDevice) {
+  ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
+      meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+  return metalMeshDevice.dram_size_per_channel();
+}
+
+size_t getL1SizePerCore(Device meshDevice) {
+  ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
+      meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+  return metalMeshDevice.l1_size_per_core();
+}
+
 void deallocateBuffers(Device deviceHandle) {
   tt_metal::distributed::MeshDevice &meshDevice =
       deviceHandle.as<tt_metal::distributed::MeshDevice>(
@@ -207,22 +279,20 @@ void dumpMemoryReport(Device deviceHandle) {
 }
 
 std::unordered_map<MemoryBufferType, MemoryView>
-getMemoryView(Device deviceHandle, int deviceID) {
+getMemoryView(Device deviceHandle) {
   std::unordered_map<MemoryBufferType, MemoryView> memoryMap;
   tt_metal::distributed::MeshDevice &meshDevice =
       deviceHandle.as<tt_metal::distributed::MeshDevice>(
           DeviceRuntime::TTMetal);
 
-  auto *device = meshDevice.get_device(deviceID);
-
   auto dramMemoryView =
-      tt_metal::detail::GetMemoryView(device, tt_metal::BufferType::DRAM);
+      tt_metal::detail::GetMemoryView(&meshDevice, tt_metal::BufferType::DRAM);
   auto l1MemoryView =
-      tt_metal::detail::GetMemoryView(device, tt_metal::BufferType::L1);
-  auto l1SmallMemoryView =
-      tt_metal::detail::GetMemoryView(device, tt_metal::BufferType::L1_SMALL);
+      tt_metal::detail::GetMemoryView(&meshDevice, tt_metal::BufferType::L1);
+  auto l1SmallMemoryView = tt_metal::detail::GetMemoryView(
+      &meshDevice, tt_metal::BufferType::L1_SMALL);
   auto traceMemoryView =
-      tt_metal::detail::GetMemoryView(device, tt_metal::BufferType::TRACE);
+      tt_metal::detail::GetMemoryView(&meshDevice, tt_metal::BufferType::TRACE);
 
   memoryMap[MemoryBufferType::DRAM] = createMemoryView(dramMemoryView);
   memoryMap[MemoryBufferType::L1] = createMemoryView(l1MemoryView);
@@ -265,7 +335,7 @@ void memcpy(void *dst, Tensor src) {
   LOG_ASSERT(std::holds_alternative<TensorDesc>(metalSrc),
              "Only TensorDesc supported for now");
   const auto &hostSrc = std::get<TensorDesc>(metalSrc);
-  std::memcpy(dst, src.data.get(), hostSrc.size());
+  std::memcpy(dst, src.data.get(), hostSrc.sizeBytes());
 }
 
 void memcpy(Tensor dst, Tensor src) {
@@ -277,7 +347,8 @@ void memcpy(Tensor dst, Tensor src) {
              "Only TensorDesc supported for now");
   auto &hostDst = std::get<TensorDesc>(metalDst);
   const auto &hostSrc = std::get<TensorDesc>(metalSrc);
-  LOG_ASSERT(hostDst.size() == hostSrc.size(), "Tensor size mismatch");
+  LOG_ASSERT(hostDst.sizeBytes() == hostSrc.sizeBytes(),
+             "Tensor size mismatch");
   LOG_ASSERT(hostDst.dataType == hostSrc.dataType, "Tensor data type mismatch");
   return ::tt::runtime::ttmetal::memcpy(dst.data.get(), src);
 }
@@ -319,7 +390,7 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
 
     LOG_ASSERT(outputs.empty(), "Multi-device outputs not supported");
     outputs = executeDeviceProgram(device, program->device_programs()->Get(i),
-                                   inputs);
+                                   inputs, common::DylibManager(fbb.dylibs()));
     LOG_ASSERT(outputs.size() == program->outputs()->size(),
                "Outputs size mismatch");
   }
@@ -353,7 +424,7 @@ std::vector<std::byte> getTensorDataBuffer(Tensor tensor) {
             const std::byte *data =
                 static_cast<const std::byte *>(tensor.data.get());
             assert(data);
-            return std::vector<std::byte>(data, data + desc.size());
+            return std::vector<std::byte>(data, data + desc.sizeBytes());
           },
           [&](const DeviceBuffer &buffer) {
             LOG_FATAL("getTensorDataBuffer from DeviceBuffer not supported.");

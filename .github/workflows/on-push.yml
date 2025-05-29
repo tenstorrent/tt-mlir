@@ -5,6 +5,10 @@ on:
   push:
     branches: [ "main" ]
 
+permissions:
+  checks: write
+  packages: write
+
 jobs:
   pre-commit:
     uses: ./.github/workflows/pre-commit.yml

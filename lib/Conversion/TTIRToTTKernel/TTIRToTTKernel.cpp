@@ -13,6 +13,7 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -81,7 +82,62 @@ static Value getLoadIndex(Value tile) {
   return loadOp.getIndices().front();
 }
 
+// This function finds the loop variables that are not used in the computation
+// of the copy tile index. These represent the loop variables that loop over the
+// inner dimension of the tensor. They may not be the innermost loops in the IR.
+static llvm::SmallVector<Value>
+findInnerTensorDimLoopVars(PatternRewriter &rewriter, memref::LoadOp loadOp) {
+  auto loopVars = llvm::SmallVector<Value>();
+
+  // Find all loop variables that are parents of the load operation.
+  scf::ForOp forOp = loadOp->getParentOfType<scf::ForOp>();
+  while (forOp != nullptr) {
+    loopVars.emplace_back(forOp.getInductionVar());
+    forOp = forOp->getParentOfType<scf::ForOp>();
+  }
+
+  llvm::SmallVector<Value> outerLoopVars;
+
+  // Check if the load index is directly a for loop argument, if so we have
+  // found the only one that participates.
+  auto blockArg = mlir::dyn_cast<BlockArgument>(loadOp.getIndices().front());
+  if (blockArg && mlir::isa<scf::ForOp>(blockArg.getOwner()->getParentOp())) {
+    outerLoopVars = {blockArg};
+  } else {
+    // Otherwise, we need to recurse through the definition of the load index to
+    // find the for loop variables that participate in its calculation.
+    llvm::SmallVector<Operation *> opsToInspect = {
+        loadOp.getIndices().front().getDefiningOp()};
+    while (!opsToInspect.empty()) {
+      Operation *op = opsToInspect.pop_back_val();
+      for (auto operand : op->getOperands()) {
+        if (operand.getDefiningOp()) {
+          opsToInspect.emplace_back(operand.getDefiningOp());
+        } else if (mlir::isa<BlockArgument>(operand) &&
+                   mlir::isa<scf::ForOp>(mlir::cast<BlockArgument>(operand)
+                                             .getOwner()
+                                             ->getParentOp())) {
+          outerLoopVars.emplace_back(operand);
+        }
+      }
+    }
+  }
+
+  llvm::SmallVector<Value> innerLoopVars;
+  // Find all loop variables that do NOT participate in the load index. i.e. NOT
+  // in outerLoopVars.
+  for (auto &loopVar : loopVars) {
+    if (std::find(outerLoopVars.begin(), outerLoopVars.end(), loopVar) ==
+        outerLoopVars.end()) {
+      innerLoopVars.emplace_back(loopVar);
+    }
+  }
+
+  return innerLoopVars;
+}
+
 static void lowerLoadToCopyTile(memref::LoadOp op, bool cbIdxAsDstIdx,
+                                bool guardFirstCopy,
                                 ConversionPatternRewriter &rewriter) {
   auto index = [&](int64_t value) {
     return rewriter
@@ -92,11 +148,55 @@ static void lowerLoadToCopyTile(memref::LoadOp op, bool cbIdxAsDstIdx,
 
   auto cb = rewriter.getRemappedValue(op.getMemref());
   auto cbType = mlir::cast<ttkernel::CBType>(cb.getType());
-  rewriter.create<ttkernel::CopyTileInitOp>(op.getLoc(), cb);
-  rewriter.create<ttkernel::CopyTileOp>(
+  llvm::SmallVector<Value> innerLoopVars =
+      findInnerTensorDimLoopVars(rewriter, op);
+  // This early return is for the case where guardFirstCopy == true (indicating
+  // some sort of mm/reduction) and there is a single tile on the inner dim. In
+  // this case, we don't need to create a copy tile at all, so we just return.
+  if (guardFirstCopy && innerLoopVars.empty()) {
+    return;
+  }
+  auto copyInit = rewriter.create<ttkernel::CopyTileInitOp>(op.getLoc(), cb);
+  auto copyTile = rewriter.create<ttkernel::CopyTileOp>(
       op.getLoc(), cb, op.getIndices().front(),
       cbIdxAsDstIdx ? index(static_cast<uint32_t>(cbType.getPort()))
                     : index(0));
+  if (guardFirstCopy) {
+    Value innerLoopVar = innerLoopVars.pop_back_val();
+    Value condition =
+        rewriter
+            .create<arith::CmpIOp>(op.getLoc(), arith::CmpIPredicate::ne,
+                                   innerLoopVar, index(0))
+            .getResult();
+    while (!innerLoopVars.empty()) {
+      auto innerLoopVar = innerLoopVars.pop_back_val();
+      condition =
+          rewriter
+              .create<arith::OrIOp>(op.getLoc(), condition,
+                                    rewriter.create<arith::CmpIOp>(
+                                        op.getLoc(), arith::CmpIPredicate::ne,
+                                        innerLoopVar, index(0)))
+              .getResult();
+    }
+    auto ifOp = rewriter.create<scf::IfOp>(op.getLoc(), condition);
+    auto *ifBlock = &ifOp.getThenRegion().front();
+    rewriter.moveOpBefore(copyInit, ifBlock, ifBlock->begin());
+    rewriter.moveOpAfter(copyTile, copyInit);
+  }
+}
+
+static void setInsertionPointAfterOperands(OpBuilder &rewriter,
+                                           llvm::ArrayRef<Value> operands) {
+  Operation *latestDefOp = nullptr;
+  for (Value operand : operands) {
+    Operation *definingOp = operand.getDefiningOp();
+    if (!latestDefOp ||
+        (definingOp && !definingOp->isBeforeInBlock(latestDefOp))) {
+      latestDefOp = definingOp;
+    }
+  }
+
+  rewriter.setInsertionPointAfter(latestDefOp);
 }
 
 } // namespace
@@ -124,7 +224,7 @@ public:
 
 namespace {
 
-template <typename ConcreteOp, typename FPUOp>
+template <typename ConcreteOp, typename InitOp, typename FPUOp>
 class TTIRFPUOpsRewriter : public OpConversionPattern<ConcreteOp> {
 public:
   using OpConversionPattern<ConcreteOp>::OpConversionPattern;
@@ -155,28 +255,34 @@ public:
 
     auto dstIdx = index(rewriter, op->getLoc(), 0);
 
-    if constexpr (std::is_same_v<ConcreteOp, ttir::TileAddOp>) {
-      rewriter.create<ttkernel::AddTilesInitOp>(
-          op->getLoc(), getCB(rewriter, adaptor.getLhs()),
-          getCB(rewriter, adaptor.getRhs()));
-      rewriter.create<ttkernel::AddTilesOp>(
-          op->getLoc(), getCB(rewriter, adaptor.getLhs()),
-          getCB(rewriter, adaptor.getRhs()), getLoadIndex(adaptor.getLhs()),
-          getLoadIndex(adaptor.getRhs()), dstIdx);
-    } else if constexpr (std::is_same_v<ConcreteOp, ttir::TileMatmulOp>) {
-      auto mmInitOp = rewriter.create<ttkernel::MatmulInitOp>(
-          op->getLoc(), getCB(rewriter, adaptor.getA()),
-          getCB(rewriter, adaptor.getB()), getCB(rewriter, adaptor.getC()),
+    if constexpr (std::is_same_v<ConcreteOp, ttir::TileMatmulOp>) {
+      auto insertionPoint = rewriter.getInsertionPoint();
+      auto cbA = getCB(rewriter, adaptor.getA());
+      auto cbB = getCB(rewriter, adaptor.getB());
+      auto cbC = getCB(rewriter, adaptor.getC());
+      setInsertionPointAfterOperands(rewriter, {cbA, cbB, cbC});
+      rewriter.create<ttkernel::MatmulInitOp>(
+          op->getLoc(), cbA, cbB, cbC,
+          /* transpose */ i32(rewriter, op->getLoc(), 0));
+      rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+      auto mmInitShortOp = rewriter.create<ttkernel::MatmulInitShortOp>(
+          op->getLoc(), cbA, cbB,
           /* transpose */ i32(rewriter, op->getLoc(), 0));
       rewriter.create<ttkernel::MatmulTilesOp>(
-          op->getLoc(), getCB(rewriter, adaptor.getA()),
-          getCB(rewriter, adaptor.getB()), getLoadIndex(adaptor.getA()),
+          op->getLoc(), cbA, cbB, getLoadIndex(adaptor.getA()),
           getLoadIndex(adaptor.getB()), dstIdx,
           /* transpose */ i32(rewriter, op->getLoc(), 0));
-      rewriter.setInsertionPoint(mmInitOp);
+      rewriter.setInsertionPoint(mmInitShortOp);
       lowerLoadToCopyTile(
-          adaptor.getC().template getDefiningOp<memref::LoadOp>(), false,
+          adaptor.getC().template getDefiningOp<memref::LoadOp>(), false, true,
           rewriter);
+    } else if constexpr (arity == 2) {
+      rewriter.create<InitOp>(op->getLoc(), getCB(rewriter, adaptor.getLhs()),
+                              getCB(rewriter, adaptor.getRhs()));
+      rewriter.create<FPUOp>(op->getLoc(), getCB(rewriter, adaptor.getLhs()),
+                             getCB(rewriter, adaptor.getRhs()),
+                             getLoadIndex(adaptor.getLhs()),
+                             getLoadIndex(adaptor.getRhs()), dstIdx);
     } else {
       return llvm::failure();
     }
@@ -190,7 +296,7 @@ public:
 
 namespace {
 
-template <typename ConcreteOp, typename SFPUOp>
+template <typename ConcreteOp, typename InitOp, typename SFPUOp>
 class TTIRSFPUOpsRewriter : public OpConversionPattern<ConcreteOp> {
 public:
   using OpConversionPattern<ConcreteOp>::OpConversionPattern;
@@ -208,22 +314,31 @@ public:
     Operation *newOp = nullptr;
     Operation *initOp = nullptr;
 
-    if constexpr (std::is_same_v<ConcreteOp, ttir::TileMaximumOp>) {
-      initOp = rewriter.create<ttkernel::MaxTilesInitOp>(op->getLoc());
-      newOp = rewriter.create<ttkernel::MaxTilesOp>(
-          op->getLoc(), i32(rewriter, op->getLoc(), 0),
-          i32(rewriter, op->getLoc(), 1));
-    } else if constexpr (std::is_same_v<ConcreteOp, ttir::TileSinOp>) {
-      initOp = rewriter.create<ttkernel::SinTileInitOp>(op->getLoc());
-      newOp = rewriter.create<ttkernel::SinTileOp>(
-          op->getLoc(), i32(rewriter, op->getLoc(), 0));
+    auto load =
+        mlir::cast<memref::LoadOp>((*op->operand_begin()).getDefiningOp());
+    auto inCB = rewriter.getRemappedValue(load.getMemref());
+    auto store = mlir::cast<memref::StoreOp>(*op->user_begin());
+    auto outCB = rewriter.getRemappedValue(store.getMemref());
+    assert(inCB.getDefiningOp()->isBeforeInBlock(outCB.getDefiningOp()));
+    rewriter.setInsertionPointAfter(outCB.getDefiningOp());
+    rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), inCB, outCB);
+
+    if constexpr (arity == 1) {
+      initOp = rewriter.create<InitOp>(op->getLoc());
+      newOp =
+          rewriter.create<SFPUOp>(op->getLoc(), i32(rewriter, op->getLoc(), 0));
+    } else {
+      initOp = rewriter.create<InitOp>(op->getLoc());
+      newOp =
+          rewriter.create<SFPUOp>(op->getLoc(), i32(rewriter, op->getLoc(), 0),
+                                  i32(rewriter, op->getLoc(), 1));
     }
 
     rewriter.setInsertionPoint(initOp == nullptr ? newOp : initOp);
     for (int i = 0; i < arity; i++) {
       lowerLoadToCopyTile(
           adaptor.getOperands()[i].template getDefiningOp<memref::LoadOp>(),
-          true, rewriter);
+          true, false, rewriter);
     }
 
     rewriter.eraseOp(op);
@@ -243,29 +358,47 @@ public:
       mlir::tt::ttir::TTIRGenericRegionComputeOpTrait>::
       OpTraitConversionPattern;
 
+  static Value findUncollapsedMemref(Value memref) {
+    if (auto funcArg = mlir::dyn_cast<BlockArgument>(memref)) {
+      return funcArg;
+    }
+    if (auto collapseOp =
+            mlir::dyn_cast<memref::CollapseShapeOp>(memref.getDefiningOp())) {
+      return findUncollapsedMemref(collapseOp.getSrc());
+    }
+    llvm_unreachable("Expected BlockArgument or CollapseShapeOp");
+  }
+
   LogicalResult
   matchAndRewrite(Operation *op, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const final {
-    if (mlir::isa<ttir::TileTilizeBlockOp>(op)) {
+    if (auto tilizeOp = mlir::dyn_cast<ttir::TileTilizeBlockOp>(op)) {
       assert(operands.size() == 2);
       Value src = operands[0];
       Value dst = operands[1];
-      auto numTiles =
-          i32(rewriter, op->getLoc(),
-              mlir::cast<ttkernel::CBType>(dst.getType()).getNumTiles());
-      rewriter.create<ttkernel::TilizeInitOp>(op->getLoc(), src, numTiles, dst);
-      rewriter.create<ttkernel::TilizeBlockOp>(op->getLoc(), src, numTiles,
-                                               dst);
-    } else if (mlir::isa<ttir::TileUntilizeBlockOp>(op)) {
+      auto uncollapsedMemrefType = mlir::cast<MemRefType>(
+          findUncollapsedMemref(tilizeOp.getOutput()).getType());
+      auto blockR =
+          i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[0]);
+      auto blockC =
+          i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[1]);
+      rewriter.create<ttkernel::TilizeInitOp>(op->getLoc(), src, blockC, dst);
+      rewriter.create<ttkernel::ExperimentalTilizeBlockOp>(op->getLoc(), src,
+                                                           dst, blockR, blockC);
+    } else if (auto untilizeOp =
+                   mlir::dyn_cast<ttir::TileUntilizeBlockOp>(op)) {
       assert(operands.size() == 2);
       Value src = operands[0];
       Value dst = operands[1];
-      auto numTiles =
-          i32(rewriter, op->getLoc(),
-              mlir::cast<ttkernel::CBType>(src.getType()).getNumTiles());
+      auto uncollapsedMemrefType = mlir::cast<MemRefType>(
+          findUncollapsedMemref(untilizeOp.getInput()).getType());
+      auto blockR =
+          i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[0]);
+      auto blockC =
+          i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[1]);
       rewriter.create<ttkernel::UntilizeInitOp>(op->getLoc(), src, dst);
-      rewriter.create<ttkernel::UntilizeBlockOp>(op->getLoc(), src, numTiles,
-                                                 dst);
+      rewriter.create<ttkernel::ExperimentalUntilizeBlockOp>(
+          op->getLoc(), src, dst, blockR, blockC);
     } else {
       return failure();
     }
@@ -759,7 +892,7 @@ public:
         auto cb = rewriter.create<GetCompileArgValOp>(
             op.getLoc(), getTypeConverter()->convertType(arg.getType()),
             rewriter.getI32IntegerAttr(arg.getArgNumber()));
-        signatureConverter.remapInput(arg.getArgNumber(), cb);
+        signatureConverter.remapInput(arg.getArgNumber(), {cb});
         ctArgSpecVector.push_back(
             rewriter.getAttr<ArgAttr>(ArgType::CBPort, arg.getArgNumber()));
       } else if (mlir::isa<SemaphoreType>(argType)) {
@@ -901,12 +1034,15 @@ void populateTTIRToTTKernelPatterns(
       ttkernel::TTIRKernelFunctionArgsRewriter,
 
       // Elementwise FPU.
-      ttkernel::TTIRFPUOpsRewriter<ttir::TileAddOp,      ttkernel::AddTilesOp>,
-      ttkernel::TTIRFPUOpsRewriter<ttir::TileMatmulOp,   ttkernel::MatmulTilesOp>,
+      ttkernel::TTIRFPUOpsRewriter<ttir::TileAddOp,      ttkernel::AddTilesInitOp, ttkernel::AddTilesOp>,
+      ttkernel::TTIRFPUOpsRewriter<ttir::TileMulOp,      ttkernel::MulTilesInitOp, ttkernel::MulTilesOp>,
+      ttkernel::TTIRFPUOpsRewriter<ttir::TileMatmulOp,   ttkernel::MatmulInitOp,   ttkernel::MatmulTilesOp>,
 
       // Elementwise SFPU.
-      ttkernel::TTIRSFPUOpsRewriter<ttir::TileMaximumOp, ttkernel::MaxTilesOp>,
-      ttkernel::TTIRSFPUOpsRewriter<ttir::TileSinOp,     ttkernel::SinTileOp>,
+      ttkernel::TTIRSFPUOpsRewriter<ttir::TileDivOp,     ttkernel::DivBinaryTilesInitOp, ttkernel::DivBinaryTilesOp>,
+      ttkernel::TTIRSFPUOpsRewriter<ttir::TileMaximumOp, ttkernel::MaxTilesInitOp,       ttkernel::MaxTilesOp>,
+      ttkernel::TTIRSFPUOpsRewriter<ttir::TileExpOp,     ttkernel::ExpTileInitOp,        ttkernel::ExpTileOp>,
+      ttkernel::TTIRSFPUOpsRewriter<ttir::TileSinOp,     ttkernel::SinTileInitOp,        ttkernel::SinTileOp>,
 
       ttkernel::TTIRTilizeUntilizeRewriter,
       ttkernel::MemrefStoreRewriter,

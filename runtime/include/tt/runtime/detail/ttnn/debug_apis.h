@@ -7,6 +7,7 @@
 
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
+#include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTNN/Target.h"
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
@@ -60,6 +61,22 @@ inline std::string toString(const ::ttnn::StorageType &storageType) {
   case ::ttnn::StorageType::MULTI_DEVICE_HOST:
     return "MULTI_DEVICE_HOST";
   }
+}
+
+inline std::string toString(const ::tt::tt_metal::Storage &storage) {
+  return std::visit(
+      ::tt::runtime::utils::overloaded{
+          [](const ::tt::tt_metal::HostStorage &) -> std::string {
+            return "HOST";
+          },
+          [](const ::tt::tt_metal::DeviceStorage &) -> std::string {
+            return "DEVICE";
+          },
+          [](const ::tt::tt_metal::MultiDeviceHostStorage &) -> std::string {
+            return "MULTI_DEVICE_HOST";
+          },
+      },
+      storage);
 }
 
 RUNTIME_DEBUG_MAYBE_INLINE void

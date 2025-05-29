@@ -214,8 +214,8 @@ def TT_SystemDescAttr : TT_Attr<"SystemDesc", "system_desc"> {
   let assemblyFormat = "`<` `[` $cpuDescs `]` `,` `[` $chipDescs `]` `,` `[` $chipDescIndices `]` `,` `[` $chipCapabilities `]` `,` `[` $chipCoords `]` (`,` `[` $chipChannels^ `]`)? `>`";
 
   let extraClassDeclaration = [{
-    static tt::SystemDescAttr getDefault(MLIRContext *context, const llvm::SmallVector<int64_t> &meshShape = {1});
-    static tt::SystemDescAttr getFromPath(MLIRContext *context, std::string& path);
+    static tt::SystemDescAttr getDefault(MLIRContext *context, tt::Arch arch = tt::Arch::WormholeB0, const llvm::SmallVector<int64_t> &meshShape = {1});
+    static tt::SystemDescAttr getFromPath(MLIRContext *context, StringRef path);
     unsigned getAddressAlignBytes(unsigned chipIndex = 0) const;
     unsigned getAddressAlignBytes(MemorySpace memorySpace, unsigned chipIndex = 0) const;
     unsigned getNocL1AddressAlignBytes(unsigned chipIndex = 0) const;
@@ -347,6 +347,13 @@ def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout"> {
       static MetalLayoutAttr get(::mlir::MLIRContext *context,
                             RankedTensorType ty,
                             uint64_t gridRank,
+                            bool tiled = false,
+                            MemorySpace memorySpace = MemorySpace::System,
+                            ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}},
+                            OOBVal oobVal = OOBVal::Undef);
+      static MetalLayoutAttr get(::mlir::MLIRContext *context,
+                            RankedTensorType ty,
+                            GridAttr grid,
                             bool tiled = false,
                             MemorySpace memorySpace = MemorySpace::System,
                             ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}},

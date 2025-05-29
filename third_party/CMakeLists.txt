@@ -1,10 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "c43020c7219c1ab2037c6b84a6e9923ca892e544")
-
-file(GLOB XTENSOR_INCLUDE_DIRS "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/xtensor/*/include")
-file(GLOB XTENSOR_BLAS_INCLUDE_DIRS "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/xtensor-blas/*/include")
-file(GLOB XTL_INCLUDE_DIRS "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/xtl/*/include")
+set(TT_METAL_VERSION "992b7feaff4f8d05445969fe9c0070e89e53c0d1")
 
 set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
 
@@ -28,10 +24,12 @@ else()
 endif()
 message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
 
-set(METAL_INSTALL_PREFIX "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal-build/")
 set(TTMETAL_INCLUDE_DIRS
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn
+  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/api
+  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/core
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/cpp
+  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/cpp/ttnn
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/cpp/ttnn/deprecated
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/api
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal
@@ -48,20 +46,20 @@ set(TTMETAL_INCLUDE_DIRS
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_stl
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_stl/tt_stl
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_eager
-  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal-build/include
-  ${CPM_SOURCE_CACHE}/reflect/e75434c4c5f669e4a74e4d84e0a30d7249c1e66f
+  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build/include
+  ${CPM_SOURCE_CACHE}/reflect/f93e77475670eaeacf332927dfe8b50e3f3812e0
   ${CPM_SOURCE_CACHE}/nanomsg/28cc32d5bdb6a858fe53b3ccf7e923957e53eada/include
   ${CPM_SOURCE_CACHE}/fmt/69912fb6b71fcb1f7e5deca191a2bb4748c4e7b6/include
   ${CPM_SOURCE_CACHE}/magic_enum/4d76fe0a5b27a0e62d6c15976d02b33c54207096/include
   ${CPM_SOURCE_CACHE}/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
   ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
-  ${XTENSOR_INCLUDE_DIRS}
-  ${XTENSOR_BLAS_INCLUDE_DIRS}
-  ${XTL_INCLUDE_DIRS}
+  ${CPM_SOURCE_CACHE}/xtl/0_8_0_patched/include
+  ${CPM_SOURCE_CACHE}/xtensor/0_26_0_patched/include
+  ${CPM_SOURCE_CACHE}/xtensor-blas/0_22_0_patched/include
   PARENT_SCOPE
 )
 
-set(TTMETAL_LIBRARY_DIR ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal-build/lib)
+set(TTMETAL_LIBRARY_DIR ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build/lib)
 set(TTNN_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/_ttnn.so)
 set(TTMETAL_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtt_metal.so)
 set(DEVICE_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libdevice.so)
@@ -89,9 +87,15 @@ set(TTMETAL_BUILD_TYPE "Release")
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
   set(TTMETAL_BUILD_TYPE "Debug")
 endif()
+
+set(METAL_BUILD_DIR ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
+set(METAL_INSTALL_PREFIX "${METAL_BUILD_DIR}")
 ExternalProject_Add(
   tt-metal
   PREFIX ${TTMLIR_SOURCE_DIR}/third_party/tt-metal
+  BINARY_DIR ${METAL_BUILD_DIR}
+  # This patch command creates the build dir that otherwise doesn't get created
+  PATCH_COMMAND ${CMAKE_COMMAND} -E make_directory ${METAL_BUILD_DIR}
   CMAKE_ARGS
     -DCMAKE_INSTALL_MESSAGE=LAZY
   CMAKE_GENERATOR Ninja
@@ -113,8 +117,9 @@ ExternalProject_Add(
   BUILD_BYPRODUCTS ${TTNN_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH} ${TRACY_LIBRARY_PATH} ${DEVICE_LIBRARY_PATH}
 )
 
-ExternalProject_Add_StepTargets(tt-metal download configure)
+ExternalProject_Add_StepTargets(tt-metal download update configure)
 set_target_properties(tt-metal-download PROPERTIES EXCLUDE_FROM_ALL TRUE)
+set_target_properties(tt-metal-update PROPERTIES EXCLUDE_FROM_ALL TRUE)
 set_target_properties(tt-metal-configure PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 set_target_properties(tt-metal PROPERTIES EXCLUDE_FROM_ALL TRUE)
@@ -227,5 +232,6 @@ else() # TTMLIR_ENABLE_RUNTIME
   add_library(TTMETAL_LIBRARY INTERFACE)
   add_library(DEVICE_LIBRARY INTERFACE)
   add_library(tt-metal-download INTERFACE EXCLUDE_FROM_ALL)
+  add_library(tt-metal-update INTERFACE EXCLUDE_FROM_ALL)
   add_library(tt-metal-configure INTERFACE EXCLUDE_FROM_ALL)
 endif() # TTMLIR_ENABLE_RUNTIME

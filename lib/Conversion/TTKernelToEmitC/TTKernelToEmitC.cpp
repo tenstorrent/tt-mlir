@@ -291,6 +291,13 @@ public:
       template_args.push_back(
           emitc::OpaqueAttr::get(op.getContext(), "true")); // default to DRAM
       return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::PackTileOp>) {
+      SmallVector<Attribute, 1> template_args;
+
+      auto packTileOp = mlir::cast<ttkernel::PackTileOp>(op);
+
+      template_args.push_back(packTileOp.getOutOfOrderAttr());
+      return ArrayAttr::get(op.getContext(), template_args);
     }
     return ArrayAttr();
   }
@@ -576,17 +583,21 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::UntilizeInitShortOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UntilizeUninitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TilizeBlockOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalTilizeBlockOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UntilizeBlockOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalUntilizeBlockOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryOpInitCommonOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AddTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulTilesInitOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::MulTilesInitFOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::DivBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MaxTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SinTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulInitShortOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AddTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::DivBinaryTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MaxTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SinTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ReduceInitOp>,
@@ -608,6 +619,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteMulticastOp>,
         TTKernelToEmitCOpaqueRewriter<
             ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::InitSFPUOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryOpInitCommonOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExpTileInitOp>,

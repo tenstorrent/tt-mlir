@@ -550,6 +550,15 @@ private:
         return true;
       }
     }
+
+    // For block arguments which are maked as conv2d weights leave them on host.
+    func::FuncOp owningFunc = cast<func::FuncOp>(arg.getOwner()->getParentOp());
+    uint32_t argIdx = arg.getArgNumber();
+
+    if (owningFunc.getArgAttr(argIdx, ttmlir::utils::g_conv2dWeightAttrName)) {
+      return true;
+    }
+
     return false;
   }
 
@@ -657,7 +666,7 @@ public:
       patterns.add<TTNNLayoutHoistedFuncCallRewriter>(&getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
       GreedyRewriteConfig config = GreedyRewriteConfig();
-      config.useTopDownTraversal = true;
+      config.setUseTopDownTraversal(true);
       if (failed(applyPatternsGreedily(getOperation(), patternSet, config))) {
         signalPassFailure();
         return;

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TT/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
@@ -89,6 +90,34 @@ llvm::LogicalResult verifyBufferAndMemoryLayout(
            << "Memory layout is required for non-SystemMemory buffer type.";
   }
 
+  return ::llvm::success();
+}
+
+// Checks:
+// 1. If shard spec is present then:
+//   - Buffer type must be L1
+//   - Tensor memory layout must be sharded: HeightSharded, WidthSharded,
+//   BlockSharded
+llvm::LogicalResult
+verifySharding(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+               BufferType bufferType, TensorMemoryLayoutAttr memLayoutAttr,
+               std::optional<ShardSpecAttr> shardSpec) {
+  if (shardSpec && *shardSpec) {
+    if (bufferType != BufferType::L1) {
+      return emitError() << "Sharding is only valid for L1 buffer type";
+    }
+
+    if (!memLayoutAttr) {
+      return emitError() << "Tensor memory layout is required for sharding";
+    }
+
+    if (memLayoutAttr.getValue() != TensorMemoryLayout::BlockSharded &&
+        memLayoutAttr.getValue() != TensorMemoryLayout::HeightSharded &&
+        memLayoutAttr.getValue() != TensorMemoryLayout::WidthSharded) {
+      return emitError() << "Sharding is only valid for block sharded, height "
+                            "sharded, or width sharded tensor memory layout";
+    }
+  }
   return ::llvm::success();
 }
 
@@ -518,9 +547,9 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
 // param buffer type The new buffer type.
 // return The new MemoryConfigAttr with the given buffer type.
 MemoryConfigAttr MemoryConfigAttr::withBufferType(BufferType bufferType) {
-  return MemoryConfigAttr::get(getContext(),
+  return MemoryConfigAttr::get(getContext(), getTensorMemoryLayout(),
                                BufferTypeAttr::get(getContext(), bufferType),
-                               getShardSpec(), getTensorMemoryLayout());
+                               getShardSpec());
 }
 
 // Construct a new MemoryConfig
@@ -534,20 +563,23 @@ MemoryConfigAttr MemoryConfigAttr::withBufferType(BufferType bufferType) {
 MemoryConfigAttr
 MemoryConfigAttr::withMemoryLayout(TensorMemoryLayout memLayout) {
   return MemoryConfigAttr::get(
-      getContext(), getBufferType(), getShardSpec(),
-      TensorMemoryLayoutAttr::get(getContext(), memLayout));
+      getContext(), TensorMemoryLayoutAttr::get(getContext(), memLayout),
+      getBufferType(), getShardSpec());
 }
 
 // Verify memory config attribute
 ::llvm::LogicalResult MemoryConfigAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-    BufferTypeAttr bufferType, ShardSpecAttr shardSpec,
-    TensorMemoryLayoutAttr tensorMemoryLayout) {
-  return verifyBufferAndMemoryLayout(emitError, bufferType.getValue(),
-                                     tensorMemoryLayout);
-
-  // TODO(#2140): Once we complete #1628, we should add a verifier for
-  // ShardSpecAttr. ShardSpecAttr is only valid if the buffer type is L1.
+    TensorMemoryLayoutAttr tensorMemoryLayout, BufferTypeAttr bufferType,
+    std::optional<ShardSpecAttr> shardSpec) {
+  // Verify buffer type, memory layout and sharding
+  return ::llvm::success(verifyBufferAndMemoryLayout(emitError,
+                                                     bufferType.getValue(),
+                                                     tensorMemoryLayout)
+                             .succeeded() &&
+                         verifySharding(emitError, bufferType.getValue(),
+                                        tensorMemoryLayout, shardSpec)
+                             .succeeded());
 }
 
 bool CoreRangeAttr::intersects(CoreRangeAttr other) const {
@@ -607,14 +639,13 @@ struct Conv2dConfigAttrParams {
   mlir::tt::DataType dtype;
   mlir::tt::DataType weightsDtype;
   mlir::StringAttr activation;
-  uint32_t inputChannelsAlignment;
   mlir::BoolAttr deallocateActivation;
   mlir::BoolAttr reallocateHaloOutput;
   uint32_t actBlockHOverride;
   uint32_t actBlockWDiv;
   mlir::BoolAttr reshardIfNotOptimal;
   mlir::BoolAttr overrideShardingConfig;
-  TensorMemoryLayout shardLayout;
+  std::optional<TensorMemoryLayout> shardLayout;
   CoreRangeSetAttr coreGrid;
   mlir::BoolAttr transposeShards;
   Layout outputLayout;
@@ -629,8 +660,8 @@ struct Conv2dConfigAttrParams {
 
   Conv2dConfigAttrParams(Conv2dConfigAttr attr) {
     mlir::MLIRContext *ctx = attr.getContext();
-    auto getOrDefault = [ctx](mlir::BoolAttr attr) {
-      return attr ? attr : mlir::BoolAttr::get(ctx, false);
+    auto getOrDefault = [ctx](mlir::BoolAttr attr, bool defaultValue = false) {
+      return attr ? attr : mlir::BoolAttr::get(ctx, defaultValue);
     };
 
     dtype = attr.getDtype().value_or(mlir::tt::DataType::BFloat16);
@@ -638,17 +669,17 @@ struct Conv2dConfigAttrParams {
         attr.getWeightsDtype().value_or(mlir::tt::DataType::BFloat16);
     activation = attr.getActivation() ? attr.getActivation()
                                       : mlir::StringAttr::get(ctx, "");
-    inputChannelsAlignment = attr.getInputChannelsAlignment().value_or(32);
     deallocateActivation = getOrDefault(attr.getDeallocateActivation());
-    reallocateHaloOutput = getOrDefault(attr.getReallocateHaloOutput());
+    reallocateHaloOutput =
+        getOrDefault(attr.getReallocateHaloOutput(), /*defaultValue=*/true);
     actBlockHOverride = attr.getActBlockHOverride().value_or(0);
     actBlockWDiv = attr.getActBlockWDiv().value_or(1);
     reshardIfNotOptimal = getOrDefault(attr.getReshardIfNotOptimal());
     overrideShardingConfig = getOrDefault(attr.getOverrideShardingConfig());
-    shardLayout =
-        attr.getShardLayout().value_or(TensorMemoryLayout::HeightSharded);
+    shardLayout = attr.getShardLayout();
     coreGrid = attr.getCoreGrid() ? attr.getCoreGrid() : CoreRangeSetAttr{};
-    transposeShards = getOrDefault(attr.getTransposeShards());
+    transposeShards =
+        getOrDefault(attr.getTransposeShards(), /*defaultValue=*/true);
     outputLayout = attr.getOutputLayout().value_or(Layout::Tile);
     preprocessWeightsOnDevice =
         getOrDefault(attr.getPreprocessWeightsOnDevice());
@@ -662,21 +693,22 @@ struct Conv2dConfigAttrParams {
 
   Conv2dConfigAttr buildConv2dConfig(mlir::MLIRContext *ctx) const {
     return Conv2dConfigAttr::get(
-        ctx, dtype, weightsDtype, activation, inputChannelsAlignment,
-        deallocateActivation, reallocateHaloOutput, actBlockHOverride,
-        actBlockWDiv, reshardIfNotOptimal, overrideShardingConfig, shardLayout,
-        coreGrid, transposeShards, outputLayout, preprocessWeightsOnDevice,
+        ctx, dtype, weightsDtype, activation, deallocateActivation,
+        reallocateHaloOutput, actBlockHOverride, actBlockWDiv,
+        reshardIfNotOptimal, overrideShardingConfig, shardLayout, coreGrid,
+        transposeShards, outputLayout, preprocessWeightsOnDevice,
         alwaysPreprocessWeights, enableActDoubleBuffer,
         enableWeightsDoubleBuffer, enableSplitReader, enableSubblockPadding);
   }
 };
 
 Conv2dConfigAttr Conv2dConfigAttr::get(::mlir::MLIRContext *context) {
-  return Conv2dConfigAttr::get(context, std::nullopt, std::nullopt, nullptr,
-                               std::nullopt, nullptr, nullptr, std::nullopt,
-                               std::nullopt, nullptr, nullptr, std::nullopt,
-                               nullptr, nullptr, std::nullopt, nullptr, nullptr,
-                               nullptr, nullptr, nullptr, nullptr);
+  auto convConfig = Conv2dConfigAttr::get(
+      context, std::nullopt, std::nullopt, nullptr, nullptr, nullptr,
+      std::nullopt, std::nullopt, nullptr, nullptr, std::nullopt, nullptr,
+      nullptr, std::nullopt, nullptr, nullptr, nullptr, nullptr, nullptr,
+      nullptr);
+  return Conv2dConfigAttrParams(convConfig).buildConv2dConfig(context);
 }
 
 Conv2dConfigAttr Conv2dConfigAttr::withActivation(StringRef activation) const {
@@ -685,6 +717,139 @@ Conv2dConfigAttr Conv2dConfigAttr::withActivation(StringRef activation) const {
   return params.buildConv2dConfig(getContext());
 }
 
+Conv2dConfigAttr Conv2dConfigAttr::withDtype(DataType dtype) const {
+  Conv2dConfigAttrParams params(*this);
+  params.dtype = dtype;
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withWeightsDtype(DataType dtype) const {
+  Conv2dConfigAttrParams params(*this);
+  params.weightsDtype = dtype;
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withDeallocateActivation(bool value) const {
+  Conv2dConfigAttrParams params(*this);
+  params.deallocateActivation = BoolAttr::get(getContext(), value);
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withReallocateHaloOutput(bool value) const {
+  Conv2dConfigAttrParams params(*this);
+  params.reallocateHaloOutput = BoolAttr::get(getContext(), value);
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withActBlockHOverride(uint32_t value) const {
+  Conv2dConfigAttrParams params(*this);
+  params.actBlockHOverride = value;
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withActBlockWDiv(uint32_t value) const {
+  Conv2dConfigAttrParams params(*this);
+  params.actBlockWDiv = value;
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withReshardIfNotOptimal(bool value) const {
+  Conv2dConfigAttrParams params(*this);
+  params.reshardIfNotOptimal = BoolAttr::get(getContext(), value);
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr
+Conv2dConfigAttr::withOverrideShardingConfig(bool value) const {
+  Conv2dConfigAttrParams params(*this);
+  params.overrideShardingConfig = BoolAttr::get(getContext(), value);
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr
+Conv2dConfigAttr::withShardLayout(TensorMemoryLayout layout) const {
+  Conv2dConfigAttrParams params(*this);
+  params.shardLayout = layout;
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withCoreGrid(CoreRangeSetAttr grid) const {
+  Conv2dConfigAttrParams params(*this);
+  params.coreGrid = grid;
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withTransposeShards(bool value) const {
+  Conv2dConfigAttrParams params(*this);
+  params.transposeShards = BoolAttr::get(getContext(), value);
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withOutputLayout(Layout layout) const {
+  Conv2dConfigAttrParams params(*this);
+  params.outputLayout = layout;
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr
+Conv2dConfigAttr::withPreprocessWeightsOnDevice(bool value) const {
+  Conv2dConfigAttrParams params(*this);
+  params.preprocessWeightsOnDevice = BoolAttr::get(getContext(), value);
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr
+Conv2dConfigAttr::withAlwaysPreprocessWeights(bool value) const {
+  Conv2dConfigAttrParams params(*this);
+  params.alwaysPreprocessWeights = BoolAttr::get(getContext(), value);
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withEnableActDoubleBuffer(bool value) const {
+  Conv2dConfigAttrParams params(*this);
+  params.enableActDoubleBuffer = BoolAttr::get(getContext(), value);
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr
+Conv2dConfigAttr::withEnableWeightsDoubleBuffer(bool value) const {
+  Conv2dConfigAttrParams params(*this);
+  params.enableWeightsDoubleBuffer = BoolAttr::get(getContext(), value);
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withEnableSplitReader(bool value) const {
+  Conv2dConfigAttrParams params(*this);
+  params.enableSplitReader = BoolAttr::get(getContext(), value);
+  return params.buildConv2dConfig(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withEnableSubblockPadding(bool value) const {
+  Conv2dConfigAttrParams params(*this);
+  params.enableSubblockPadding = BoolAttr::get(getContext(), value);
+  return params.buildConv2dConfig(getContext());
+}
+
 bool Conv2dConfigAttr::hasActivation() const {
   return getActivation() != nullptr && getActivation().getValue() != "";
+}
+
+CoreRangeSetAttr ShardSpecAttr::getCoreRangeSet(mlir::MLIRContext *context,
+                                                GridAttr shardGrid,
+                                                GridAttr deviceGrid) {
+  llvm::SmallVector<CoreRangeAttr> coreRangeSet;
+  AffineMap mapping = (shardGrid.getMapping().isEmpty() == true)
+                          ? deviceGrid.getMapping()
+                          : shardGrid.getMapping();
+
+  for (const auto &locsize2d :
+       mlir::tt::utils::toCoreRangeSet(shardGrid.getShape(), mapping)) {
+    const auto &[loc, size] = locsize2d;
+    coreRangeSet.push_back(
+        CoreRangeAttr::get(context, CoreCoordAttr::get(context, loc[0], loc[1]),
+                           CoreCoordAttr::get(context, loc[0] + size[0] - 1,
+                                              loc[1] + size[1] - 1)));
+  }
+
+  return CoreRangeSetAttr::get(context, coreRangeSet);
 }

@@ -56,7 +56,7 @@
 #include "tt/runtime/detail/ttnn/types.h"
 #include "tt/runtime/utils.h"
 
-#ifdef TT_RUNTIME_ENABLE_PERF_TRACE
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
 #include "tracy/Tracy.hpp"
 #endif
 
@@ -65,16 +65,26 @@ namespace tt::runtime::ttnn {
 using LogType = ::tt::runtime::logger::LogType;
 
 static void tracyLogOpLocation(const ::tt::target::ttnn::Operation *op) {
-#ifdef TT_RUNTIME_ENABLE_PERF_TRACE
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
   TracyMessage(op->loc_info()->c_str(), op->loc_info()->size());
 #endif
 }
 
+static const ::tt::target::ttnn::Program *
+getProgram(const Binary &executableHandle, std::uint32_t programIndex) {
+  const ::tt::target::ttnn::TTNNBinary &fbb =
+      *utils::getBinary(executableHandle);
+  const ::tt::target::ttnn::Program *program =
+      fbb.programs()->Get(programIndex);
+  return program;
+}
+
 ProgramExecutor::ProgramExecutor(
-    const ::tt::target::ttnn::Program *program, const Binary &executableHandle,
+    const Binary &executableHandle,
     std::vector<::tt::runtime::Tensor> &programInputs,
     std::shared_ptr<::ttnn::MeshDevice> meshDevice, const size_t programIndex)
-    : program(program), executableHandle(executableHandle) {
+    : program(getProgram(executableHandle, programIndex)),
+      executableHandle(executableHandle) {
   LOG_ASSERT(program, "Program must be provided for execution");
 
   std::vector<uint32_t> programInputIds;
@@ -140,7 +150,7 @@ std::vector<::tt::runtime::Tensor> ProgramExecutor::gatherOutputTensors() {
 }
 
 void ProgramExecutor::dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice) {
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
   static uint32_t counter = 0;
   if (counter++ >= debug::PerfEnv::get().dumpDeviceRate) {
     LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +

@@ -11,12 +11,14 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Arith/Utils/Utils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Iterators.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/TypeRange.h"
@@ -80,7 +82,7 @@ public:
 
       // Const eval subgraphs may not dealloc their params since they don't own
       // them.
-      if (!func->hasAttr("const_eval")) {
+      if (!ttmlir::utils::isConstEvalFunc(func)) {
         // Handle func op input parameters
         for (BlockArgument arg : func.getArguments()) {
           if (!isa<RankedTensorType>(arg.getType())) {
@@ -336,100 +338,80 @@ public:
       TTNNModifySignaturesForDylib>::TTNNModifySignaturesForDylibBase;
 
   void runOnOperation() final {
-    ModuleOp module = getOperation();
+    ModuleOp moduleOp = getOperation();
 
     // If we have a nested module structure, we want to use nested module inside
     // DeviceModule.
     tt::DeviceModuleOp deviceModule;
-    for (auto &op : module.getBody()->getOperations()) {
+    for (auto &op : moduleOp.getBody()->getOperations()) {
       deviceModule = llvm::dyn_cast<tt::DeviceModuleOp>(op);
       if (deviceModule) {
         break;
       }
     }
     if (deviceModule) {
-      module = dyn_cast_if_present<mlir::ModuleOp>(
+      moduleOp = dyn_cast_if_present<mlir::ModuleOp>(
           deviceModule.getBodyRegion().front().front());
-      assert(module &&
+      assert(moduleOp &&
              "Found tt::DeviceModuleOp but it didn't contain a single "
              "mlir::ModuleOp!");
     }
     IRRewriter rewriter(&getContext());
 
     // Ensure that the module has a single region and a single block within that
-    // region
-    assert(module->getRegions().size() == 1);
-    assert(module->getRegion(0).getBlocks().size() == 1);
-
-    // Get the first block of the region at index 0
+    // region.
     //
-    Block *firstBlock = module.getBody(0);
+    assert(moduleOp->getRegions().size() == 1);
+    assert(moduleOp->getRegion(0).getBlocks().size() == 1);
 
-    // Find all the func.func ops in the module that are "forward" functions
+    // Get the the only existing block.
+    //
+    Block *block = moduleOp.getBody(0);
+
+    // Find all the func.func ops in the module that are "forward" functions.
     //
     SmallVector<func::FuncOp, 1> forwardFuncOps;
-    for (mlir::Operation &op : firstBlock->getOperations()) {
-      if (mlir::func::FuncOp funcOp = dyn_cast<func::FuncOp>(op)) {
-
-        // Skip functions that are called elsewhere in the IR
-        //
-        // This will skip utility functions that are used by other functions,
-        // only top-level "forward" functions should be considered
-        //
-        if (!funcOp->getUses().empty()) {
-          continue;
-        }
-
-        forwardFuncOps.push_back(funcOp);
+    block->walk([&](func::FuncOp funcOp) {
+      // Rename the function if it's named `main` to `_main`. This is done
+      // as compiler will complain that `main` must return `int` and that
+      // it's first parameter must also be an `int`.
+      if (funcOp.getName() == "main") {
+        rewriter.modifyOpInPlace(funcOp, [&]() { funcOp.setSymName("_main"); });
       }
-    }
 
-    // Iterate over all the func ops and modify the signatures
+      if (!funcOp->getUses().empty()) {
+        mlir::WalkResult::skip();
+      }
+
+      forwardFuncOps.push_back(funcOp);
+    });
+
+    // Iterate over all the func ops and modify the signatures.
     //
     for (mlir::func::FuncOp forwardFuncOp : forwardFuncOps) {
       // Replace the signature of the forward function so that all the tensor
-      // arguments are packed into a single tuple, and device type is appended
+      // arguments are packed into a single tuple, and device type is appended.
       //
       mlir::FunctionType originalFuncType = forwardFuncOp.getFunctionType();
       assert(
-          std::all_of(originalFuncType.getInputs().begin(),
-                      originalFuncType.getInputs().end(),
-                      [](Type t) { return mlir::isa<RankedTensorType>(t); }) &&
+          llvm::all_of(originalFuncType.getInputs(),
+                       [](Type t) { return mlir::isa<RankedTensorType>(t); }) &&
           "Expected all inputs must be of type RankedTensorType");
-
-      // Find device op
-      //
-      ttnn::GetDeviceOp getDeviceOp = nullptr;
-      forwardFuncOp.walk([&](ttnn::GetDeviceOp currGDOp) {
-        assert(!getDeviceOp &&
-               "Only one device expected, but found more than one!");
-        getDeviceOp = currGDOp;
-      });
 
       // Create Type objects for modified function signature:
       // 1. tuplifiedInputTensors: TupleType of all input tensors
-      // 2. deviceType: DeviceType
-      // 3. tuplifiedOutputTensors: TupleType of all output tensors
+      // 2. tuplifiedOutputTensors: TupleType of all output tensors
       //
       mlir::TupleType tuplifiedInputTensors =
           mlir::TupleType::get(&getContext(), originalFuncType.getInputs());
-      std::optional<ttnn::DeviceType> deviceType = std::nullopt;
-      if (getDeviceOp) {
-        deviceType = getDeviceOp.getResult().getType();
-      }
       mlir::TupleType tuplifiedOutputTensors =
           mlir::TupleType::get(&getContext(), originalFuncType.getResults());
 
       // Create modified function type (signature) that takes the input tuple
-      // and device as operands, and returns the output tuple
+      // as an operand, and returns the output tuple.
       //
-      SmallVector<Type> modifiedInputTypes;
-      modifiedInputTypes.push_back(tuplifiedInputTensors);
-      if (deviceType.has_value()) {
-        modifiedInputTypes.push_back(*deviceType);
-      }
       FunctionType modifiedFuncType =
-          originalFuncType.clone(modifiedInputTypes, tuplifiedOutputTensors);
+          originalFuncType.clone(tuplifiedInputTensors, tuplifiedOutputTensors);
 
       rewriter.modifyOpInPlace(forwardFuncOp,
                                [&forwardFuncOp, &modifiedFuncType]() {
@@ -443,56 +425,44 @@ public:
       // start of the block in order to unpack tuple elements, and then
       // replacing all uses of the original block arguments with the
       // GetTupleElementOp results - after this it's finally safe to remove
-      // original block arguments as they have no live uses anymore
+      // original block arguments as they have no live uses anymore.
       //
       // Additionally, the Device is added as the second argument, and the
-      // GetDeviceOp that creates Device is removed
+      // GetDeviceOp that creates Device is removed.
       //
-      // The return statement is modified to return a tuple
+      // The return statement is modified to return a tuple.
       //
       Block &entryBlock = forwardFuncOp.getBlocks().front();
-      size_t paramOffset = 1;
+      constexpr size_t paramOffset = 1;
       entryBlock.insertArgument(/*index=*/0u, tuplifiedInputTensors,
                                 forwardFuncOp.getLoc());
-      if (deviceType.has_value()) {
-        entryBlock.insertArgument(/*index=*/1u, *deviceType,
-                                  forwardFuncOp.getLoc());
-        paramOffset++;
-      }
 
       rewriter.setInsertionPointToStart(&entryBlock);
-      for (size_t idx = 0; idx < originalFuncType.getInputs().size(); idx++) {
-        ::mlir::tt::GetTupleElementOp getTupleElementOp =
-            rewriter.create<mlir::tt::GetTupleElementOp>(
+      for (size_t idx = 0; idx < originalFuncType.getNumInputs(); idx++) {
+        tt::GetTupleElementOp getTupleElementOp =
+            rewriter.create<tt::GetTupleElementOp>(
                 forwardFuncOp.getLoc(), forwardFuncOp.getArgument(0), idx);
 
         rewriter.replaceAllUsesWith(entryBlock.getArgument(paramOffset + idx),
                                     getTupleElementOp);
       }
 
-      // Erase original arguments
+      // Erase original arguments.
       //
       entryBlock.eraseArguments(paramOffset,
                                 originalFuncType.getInputs().size());
 
-      // Remove device usage and remove the original GetDeviceOp
+      // Find return statement and replace with tuple.
       //
-      if (getDeviceOp) {
-        rewriter.replaceAllUsesWith(getDeviceOp.getResult(),
-                                    entryBlock.getArgument(1));
-        rewriter.eraseOp(getDeviceOp);
-      }
-
-      // Find return statement and replace with tuple
-      //
-      forwardFuncOp->walk([&](mlir::func::ReturnOp returnOp) {
-        rewriter.setInsertionPointAfter(returnOp);
-        TupleOp tupleOp = rewriter.create<mlir::tt::TupleOp>(
-            returnOp.getLoc(), returnOp.getOperands());
-
-        rewriter.replaceOpWithNewOp<mlir::func::ReturnOp>(returnOp,
-                                                          tupleOp.getResult());
-      });
+      forwardFuncOp.walk<WalkOrder::PostOrder, ReverseIterator>(
+          [&](mlir::func::ReturnOp returnOp) {
+            rewriter.setInsertionPoint(returnOp);
+            TupleOp tupleOp = rewriter.create<mlir::tt::TupleOp>(
+                returnOp.getLoc(), returnOp.getOperands());
+            rewriter.modifyOpInPlace(returnOp, [&]() {
+              returnOp.getOperandsMutable().assign(tupleOp);
+            });
+          });
     }
   }
 };

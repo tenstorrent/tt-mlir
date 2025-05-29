@@ -2398,3 +2398,40 @@ module @SyncTensorsGraph.8 attributes {mhlo.cross_program_prefetches = [], mhlo.
     return %2 : tensor<8x128xf32>
   }
 }
+
+// -----
+
+module @SyncTensorsGraph.13 attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
+  func.func @main(%arg0: tensor<f32> {mhlo.sharding = "{replicated}"}, %arg1: tensor<8192x4096xf32>, %arg2: tensor<1024x8192xf32>) -> tensor<1024x4096xf32> {
+    %0 = stablehlo.custom_call @Sharding(%arg2) {backend_config = "", mhlo.sharding = "{devices=[2,4]0,1,2,3,4,5,6,7}"} : (tensor<1024x8192xf32>) -> tensor<1024x8192xf32>
+    %1 = stablehlo.custom_call @SPMDFullToShardShape(%0) {backend_config = "", mhlo.sharding = "{manual}"} : (tensor<1024x8192xf32>) -> tensor<512x2048xf32>
+    // CHECK: "ttir.mesh_shard"
+    // CHECK-SAME: shard_dims = array<i64: 0, 1>
+    // CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+    // CHECK-SAME: shard_shape = array<i64: 2, 4>
+    // CHECK-SAME: shard_type = #tt.shard_type<devices>
+    %2 = stablehlo.custom_call @Sharding(%arg1) {backend_config = "", mhlo.sharding = "{devices=[4,1,2]0,4,1,5,2,6,3,7 last_tile_dim_replicate}"} : (tensor<8192x4096xf32>) -> tensor<8192x4096xf32>
+    %3 = stablehlo.custom_call @SPMDFullToShardShape(%2) {backend_config = "", mhlo.sharding = "{manual}"} : (tensor<8192x4096xf32>) -> tensor<2048x4096xf32>
+    // CHECK: "ttir.mesh_shard"
+    // CHECK-SAME: shard_dims = array<i64: -1, 0>
+    // CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+    // CHECK-SAME: shard_shape = array<i64: 4, 1>
+    // CHECK-SAME: shard_type = #tt.shard_type<devices>
+    %4 = stablehlo.dot_general %1, %3, contracting_dims = [1] x [0] : (tensor<512x2048xf32>, tensor<2048x4096xf32>) -> tensor<512x4096xf32>
+    %5 = stablehlo.broadcast_in_dim %arg0, dims = [] : (tensor<f32>) -> tensor<512x4096xf32>
+    %6 = stablehlo.add %4, %5 : tensor<512x4096xf32>
+    %7 = "stablehlo.all_reduce"(%6) <{channel_handle = #stablehlo.channel_handle<handle = 1, type = 1>, replica_groups = dense<[[0, 1, 2, 3], [4, 5, 6, 7]]> : tensor<2x4xi64>, use_global_device_ids}> ({
+    ^bb0(%arg3: tensor<f32>, %arg4: tensor<f32>):
+      %8 = stablehlo.add %arg3, %arg4 : tensor<f32>
+      stablehlo.return %8 : tensor<f32>
+    }) : (tensor<512x4096xf32>) -> tensor<512x4096xf32>
+    %9 = stablehlo.custom_call @Sharding(%7) {backend_config = "", mhlo.sharding = "{manual}"} : (tensor<512x4096xf32>) -> tensor<512x4096xf32>
+    %10 = stablehlo.custom_call @SPMDShardToFullShape(%9) {backend_config = "", mhlo.sharding = "{devices=[2,1,4]<=[8] last_tile_dim_replicate}"} : (tensor<512x4096xf32>) -> tensor<1024x4096xf32>
+    // CHECK: "ttir.mesh_shard"
+    // CHECK-SAME: shard_dims = array<i64: 0, -1>
+    // CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
+    // CHECK-SAME: shard_shape = array<i64: 2, 1>
+    // CHECK-SAME: shard_type = #tt.shard_type<devices>
+    return %10 : tensor<1024x4096xf32>
+  }
+}

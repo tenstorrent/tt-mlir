@@ -294,13 +294,14 @@ private:
     mlir::func::FuncOp funcOp = conv2dOp->getParentOfType<mlir::func::FuncOp>();
     llvm::SmallPtrSet<BlockArgument, 4> constParams =
         ttmlir::utils::populateConstParams(funcOp);
-    auto isConstant = [&constParams](mlir::Value value) {
+    auto isConstant = [&constParams, conv2dOp](mlir::Value value) {
       if (auto blockArg = mlir::dyn_cast<BlockArgument>(value)) {
         return constParams.contains(blockArg);
       }
 
-      // TODO(milant): Check for TT_CreationOpTrait after issue #3180 lands.
-      return false;
+      Operation *op = value.getDefiningOp();
+      return op->hasTrait<mlir::tt::Trait::TTCreationOpTrait>() &&
+             op->isBeforeInBlock(conv2dOp);
     };
 
     // Both scale and weight must be constant.
@@ -335,9 +336,9 @@ private:
 
     // Create and return the reshape operation.
     return ttir::utils::createDPSOp<ttir::ReshapeOp>(
-        rewriter, loc, newShape, scaleType.getElementType(),
-        scaleType.getEncoding(), scaleValue,
-        rewriter.getI32ArrayAttr(newShapeI32));
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshape"),
+        newShape, scaleType.getElementType(), scaleType.getEncoding(),
+        scaleValue, rewriter.getI32ArrayAttr(newShapeI32));
   }
 
   /// Create pre-multiplied weights.
@@ -346,8 +347,48 @@ private:
                                    Value reshapedScale) {
     // Create a multiplication of the weights by the reshaped scale.
     return utils::createDPSOp<MultiplyOp>(
-        rewriter, loc, mlir::cast<RankedTensorType>(weightValue.getType()),
-        weightValue, reshapedScale);
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_multiply"),
+        mlir::cast<RankedTensorType>(weightValue.getType()), weightValue,
+        reshapedScale);
+  }
+};
+
+// Tag all block arguments which are direct inputs to Conv2dOp with
+// discardable attribute. This is used during Layouting to check if
+// function argument need to be put to Host/RM. This is temporary
+// solution until we complete refactor of TTNNLayout see:
+// https://github.com/tenstorrent/tt-mlir/issues/3432.
+class Conv2dTagWeights : public mlir::OpRewritePattern<Conv2dOp> {
+public:
+  Conv2dTagWeights(MLIRContext *context)
+      : OpRewritePattern(context, PatternBenefit(2)) {}
+
+  mlir::LogicalResult
+  matchAndRewrite(Conv2dOp conv2d,
+                  mlir::PatternRewriter &rewriter) const final {
+    if (BlockArgument blockArg = dyn_cast<BlockArgument>(conv2d.getWeight())) {
+      // Get the function that owns this block argument.
+      func::FuncOp owningFunc =
+          cast<func::FuncOp>(blockArg.getOwner()->getParentOp());
+
+      // Get the argument index.
+      uint32_t argIdx = blockArg.getArgNumber();
+
+      // Check if the argument already has the g_conv2dWeight attribute.
+      if (owningFunc.getArgAttr(argIdx,
+                                ttmlir::utils::g_conv2dWeightAttrName)) {
+        return failure();
+      }
+
+      // Create the g_conv2dWeight attribute.
+      auto gConv2dWeightAttr = rewriter.getUnitAttr();
+      owningFunc.setArgAttr(argIdx, ttmlir::utils::g_conv2dWeightAttrName,
+                            gConv2dWeightAttr);
+
+      return success();
+    }
+
+    return failure();
   }
 };
 
@@ -355,25 +396,35 @@ class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
 public:
   using impl::TTIRFusingBase<TTIRFusingPass>::TTIRFusingBase;
   void runOnOperation() final {
-    RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRConv2dWithBias>(&getContext());
+    {
+      RewritePatternSet patterns(&getContext());
+      patterns.add<Conv2dTagWeights>(&getContext());
+      if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
+        signalPassFailure();
+        return;
+      }
+    }
+    {
+      RewritePatternSet patterns(&getContext());
+      patterns.add<TTIRConv2dWithBias>(&getContext());
 
-    // Add patterns for each reduction op type.
-    patterns.add<ReductionWithReshapePattern<SumOp>>(&getContext());
-    patterns.add<ReductionWithReshapePattern<MeanOp>>(&getContext());
-    patterns.add<ReductionWithReshapePattern<MaxOp>>(&getContext());
-    patterns.add<ReductionWithReshapePattern<MinOp>>(&getContext());
-    patterns.add<ReductionWithReshapePattern<ProdOp>>(&getContext());
-    patterns.add<ReductionWithReshapePattern<ReduceAndOp>>(&getContext());
-    patterns.add<ReductionWithReshapePattern<ReduceOrOp>>(&getContext());
-    patterns.add<ReductionWithReshapePattern<ArgMaxOp>>(&getContext());
+      // Add patterns for each reduction op type.
+      patterns.add<ReductionWithReshapePattern<SumOp>>(&getContext());
+      patterns.add<ReductionWithReshapePattern<MeanOp>>(&getContext());
+      patterns.add<ReductionWithReshapePattern<MaxOp>>(&getContext());
+      patterns.add<ReductionWithReshapePattern<MinOp>>(&getContext());
+      patterns.add<ReductionWithReshapePattern<ProdOp>>(&getContext());
+      patterns.add<ReductionWithReshapePattern<ReduceAndOp>>(&getContext());
+      patterns.add<ReductionWithReshapePattern<ReduceOrOp>>(&getContext());
+      patterns.add<ReductionWithReshapePattern<ArgMaxOp>>(&getContext());
 
-    patterns.add<SoftmaxFusionPattern>(&getContext());
-    patterns.add<Conv2dWithMultiply>(&getContext());
+      patterns.add<SoftmaxFusionPattern>(&getContext());
+      patterns.add<Conv2dWithMultiply>(&getContext());
 
-    GreedyRewriteConfig config;
-    config.useTopDownTraversal = true;
-    (void)applyPatternsGreedily(getOperation(), std::move(patterns));
+      GreedyRewriteConfig config;
+      config.setUseTopDownTraversal(true);
+      (void)applyPatternsGreedily(getOperation(), std::move(patterns), config);
+    }
   }
 };
 } // namespace

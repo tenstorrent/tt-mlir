@@ -6,7 +6,9 @@
 
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
+#include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 #include "ttmlir/Dialect/TT/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
 
@@ -26,10 +28,14 @@ namespace mlir::tt::ttmetal {
 
 void createTTIRBufferizationPipeline(OpPassManager &pm) {
   pm.addPass(ttir::createTTIRPrepareTensorsForBufferization());
-  mlir::bufferization::OneShotBufferizationOptions bufferizationOptions;
-  ttir::initializeOneShotBufferizationOptions(bufferizationOptions);
+  bufferization::OneShotBufferizePassOptions bufferizePassOptions;
+  bufferizePassOptions.bufferizeFunctionBoundaries = true;
+  bufferizePassOptions.functionBoundaryTypeConversion =
+      bufferization::LayoutMapOption::IdentityLayoutMap;
+  bufferizePassOptions.unknownTypeConversion =
+      bufferization::LayoutMapOption::IdentityLayoutMap;
   pm.addPass(
-      mlir::bufferization::createOneShotBufferizePass(bufferizationOptions));
+      mlir::bufferization::createOneShotBufferizePass(bufferizePassOptions));
   // TODO(#2246)
   // bufferization::BufferDeallocationPipelineOptions
   // bufferDeallocationOptions;
@@ -45,11 +51,12 @@ void createOptimizationPasses(OpPassManager &pm) {
   pm.addPass(mlir::arith::createIntRangeOptimizationsPass());
 }
 
-void createTTIRToTTMetalBackendPipeline(
-    OpPassManager &pm, const TTIRToTTMetalBackendPipelineOptions &options) {
+void createTTIRToTTMetalFrontendPipeline(
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
   tt::TTRegisterDevicePassOptions registerDeviceOptions;
   {
     registerDeviceOptions.systemDescPath = options.systemDescPath;
+    registerDeviceOptions.mockSystemDescArch = options.mockSystemDescArch;
     registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
   }
   pm.addPass(tt::createTTRegisterDevicePass(registerDeviceOptions));
@@ -65,6 +72,10 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(ttir::createTTIROptimizeTensorLayout(optimizeTensorLayoutOptions));
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(ttir::createTTIRLowerToLayout());
+}
+
+void createTTIRToTTMetalMiddleendPipeline(
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
   createTTIRBufferizationPipeline(pm);
   pm.addPass(ttir::createTTIRAllocate());
   pm.addPass(mlir::createCanonicalizerPass());
@@ -77,6 +88,10 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(ttir::createTTIRGenericGenerateLoops());
   createOptimizationPasses(pm);
   pm.addPass(ttir::createTTIRGenericRegionsToFuncs());
+}
+
+void createTTIRToTTMetalBackendPipeline(
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
   pm.addPass(tt::createConvertTTIRToTTKernelPass());
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(ttkernel::createTTKernelControlDstSection());
@@ -87,15 +102,41 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(mlir::emitc::createFormExpressionsPass());
 }
 
+void createTTIRToTTMetalPipeline(OpPassManager &pm,
+                                 const TTIRToTTMetalPipelineOptions &options) {
+  // Create DeviceModule to wrap all ops.
+  pm.addPass(tt::createTTWrapDeviceModulePass());
+  // Create CPUModuleOp to wrap hoisted ops (if any).
+  pm.addPass(ttir::createTTIRHoistTransform());
+
+  // Run regular ttir to ttmetal pipelines on IR in DeviceModule.
+  OpPassManager &devicePm =
+      pm.nest<tt::DeviceModuleOp>().nest<mlir::ModuleOp>();
+  createTTIRToTTMetalFrontendPipeline(devicePm, options);
+  createTTIRToTTMetalMiddleendPipeline(devicePm, options);
+  createTTIRToTTMetalBackendPipeline(devicePm, options);
+
+  // Run lowering to LLVM pass on hoisted funcs in CPUModule.
+  ttir::LinalgToLLVMPipelineOptions linalgToLLVMOptions;
+  ttir::createTTIRToCPUPipeline(pm, linalgToLLVMOptions);
+}
+
 //===----------------------------------------------------------------------===//
 // Pipeline registration.
 //===----------------------------------------------------------------------===//
 
 void registerTTMetalPipelines() {
-  mlir::PassPipelineRegistration<
-      tt::ttmetal::TTIRToTTMetalBackendPipelineOptions>(
-      "ttir-to-ttmetal-backend-pipeline",
-      "Pipeline lowering ttir to ttmetal backend.",
+  mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
+      "ttir-to-ttmetal-pipeline", "Pipeline lowering ttir to ttmetal.",
+      tt::ttmetal::createTTIRToTTMetalPipeline);
+  mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
+      "ttir-to-ttmetal-fe-pipeline", "Frontend lowering passes.",
+      tt::ttmetal::createTTIRToTTMetalFrontendPipeline);
+  mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
+      "ttir-to-ttmetal-me-pipeline", "Middleend lowering passes.",
+      tt::ttmetal::createTTIRToTTMetalMiddleendPipeline);
+  mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
+      "ttir-to-ttmetal-be-pipeline", "Backend lowering passes.",
       tt::ttmetal::createTTIRToTTMetalBackendPipeline);
   mlir::PassPipelineRegistration<>(
       "ttir-bufferization-pipeline",

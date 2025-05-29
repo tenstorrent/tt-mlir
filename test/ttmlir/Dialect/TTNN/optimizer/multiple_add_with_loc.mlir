@@ -1,3 +1,4 @@
+// REQUIRES: opmodel
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-optimizer=true" %s | FileCheck %s
 #loc = loc("test_ops.py:17_0_0":0:0)
 module attributes {} {

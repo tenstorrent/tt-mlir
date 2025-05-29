@@ -66,6 +66,7 @@ module {
     %collapse_shape = memref.collapse_shape %arg0 [[0, 1]] : memref<1x3x!tt.tile<32x32, f32>, #l1_> into memref<3x!tt.tile<32x32, f32>, #l1_>
     %collapse_shape_0 = memref.collapse_shape %arg1 [[0, 1]] : memref<3x4x!tt.tile<32x32, f32>, #l1_> into memref<12x!tt.tile<32x32, f32>, #l1_>
     %collapse_shape_1 = memref.collapse_shape %arg2 [[0, 1]] : memref<1x4x!tt.tile<32x32, f32>, #l1_> into memref<4x!tt.tile<32x32, f32>, #l1_>
+    // CHECK: "ttkernel.mm_init"
     // CHECK: "ttkernel.cb_wait_front"
     // CHECK: "ttkernel.cb_wait_front"
     ttir.await %arg0, %arg1 : (memref<1x3x!tt.tile<32x32, f32>, #l1_>, memref<3x4x!tt.tile<32x32, f32>, #l1_>)
@@ -84,7 +85,7 @@ module {
           // CHECK: "ttkernel.copy_tile_init"
           // CHECK: "ttkernel.copy_tile"
           %8 = memref.load %collapse_shape_1[%7] : memref<4x!tt.tile<32x32, f32>, #l1_>
-          // CHECK: "ttkernel.mm_init"
+          // CHECK: "ttkernel.mm_init_short"
           // CHECK: "ttkernel.matmul_tiles"
           // CHECK: "ttkernel.tile_regs_commit"
           %9 = "ttir.tile_matmul"(%2, %5, %8) : (!tt.tile<32x32, f32>, !tt.tile<32x32, f32>, !tt.tile<32x32, f32>) -> !tt.tile<32x32, f32>

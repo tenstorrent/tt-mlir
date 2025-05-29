@@ -26,6 +26,7 @@ foreach(OPTION ${TT_RUNTIME_OPTIONS})
 endforeach()
 
 add_subdirectory(lib)
+add_subdirectory(python)
 add_subdirectory(tools)
 
 # Ensure coverage_config is applied to runtime tests if enabled

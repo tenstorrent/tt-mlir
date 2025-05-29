@@ -13,10 +13,10 @@ OVERRIDE_PARAMETER_DISABLED_STR = "None"
 OPTIMIZER_DISABLED_POLICY = "Optimizer Disabled"
 
 OPTIMIZATION_POLICIES = {
+    OPTIMIZER_DISABLED_POLICY: False,
     "DF Sharding": optimizer_overrides.MemoryLayoutAnalysisPolicyType.DFSharding,
     "Greedy L1 Interleaved": optimizer_overrides.MemoryLayoutAnalysisPolicyType.GreedyL1Interleaved,
     "BF Interleaved": optimizer_overrides.MemoryLayoutAnalysisPolicyType.BFInterleaved,
-    OPTIMIZER_DISABLED_POLICY: False,
 }
 
 
@@ -74,10 +74,6 @@ def settings_to_overrides(settings, artifacts_dir):
                             "none"
                             if attr["value"] == OVERRIDE_PARAMETER_DISABLED_STR
                             else attr["value"]
-                        )
-                    case "input_channels_alignment":
-                        conv2d_config_override.set_input_channels_alignment_from_str(
-                            attr["value"].strip("[]")
                         )
                     case "deallocate_activation":
                         conv2d_config_override.set_deallocate_activation_from_str(
@@ -183,6 +179,7 @@ class TTAdapter(model_explorer.Adapter):
             perf_trace = self.model_runner.get_perf_trace(model_path)
             memory_trace = self.model_runner.get_memory_usage(model_path)
             golden_results = self.model_runner.get_golden_results(model_path)
+            cpp_code = self.model_runner.get_cpp_code(model_path)
 
             with open(optimized_model_path, "r") as model_file:
                 module = utils.parse_mlir_str(model_file.read())
@@ -197,6 +194,9 @@ class TTAdapter(model_explorer.Adapter):
 
             if overrides := self.model_runner.get_overrides(model_path):
                 graph = utils.add_to_dataclass(graph, "overrides", overrides)
+
+            if cpp_code:
+                graph = utils.add_to_dataclass(graph, "cppCode", cpp_code)
         else:
             if model_path.endswith(".ttnn"):
                 # Executing on a Flatbuffer so we should parse through that path
@@ -223,9 +223,7 @@ class TTAdapter(model_explorer.Adapter):
         override_handler = settings_to_overrides(
             settings, self.model_runner.get_artifacts_dir()
         )
-        self.model_runner.run(
-            model_path, override_handler.to_string(), settings.get("overrides", None)
-        )
+        self.model_runner.run(model_path, override_handler.to_string(), settings)
 
         return {"graphs": []}
 

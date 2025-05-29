@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-const-eval=false" %s | FileCheck %s
 module {
     // CHECK-DAG: #{{.*}} = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<64x128xf32, #system_memory>>
     // CHECK-DAG: #{{.*}} = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x4x!tt.tile<32x32, f32>, #dram>, <interleaved>>
