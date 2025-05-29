@@ -1043,6 +1043,7 @@ void populateTTIRToTTKernelPatterns(
       ttkernel::TTIRSFPUOpsRewriter<ttir::TileMaximumOp, ttkernel::MaxTilesInitOp,       ttkernel::MaxTilesOp>,
       ttkernel::TTIRSFPUOpsRewriter<ttir::TileExpOp,     ttkernel::ExpTileInitOp,        ttkernel::ExpTileOp>,
       ttkernel::TTIRSFPUOpsRewriter<ttir::TileSinOp,     ttkernel::SinTileInitOp,        ttkernel::SinTileOp>,
+      ttkernel::TTIRSFPUOpsRewriter<ttir::TileSigmoidOp, ttkernel::SigmoidTileInitOp,    ttkernel::SigmoidTileOp>,
 
       ttkernel::TTIRTilizeUntilizeRewriter,
       ttkernel::MemrefStoreRewriter,

@@ -112,6 +112,16 @@ def TTIR_TileSinOp : TTIR_GenericRegionComputeOp<"tile_sin"> {
     let results = (outs TT_Tile:$result);
 }
 
+def TTIR_TileSigmoidOp : TTIR_GenericRegionComputeOp<"tile_sigmoid"> {
+    let summary = "TTIR Tile Sigmoid Op";
+    let description = [{
+        The `tile_sigmoid` operation computes the sigmoid of each element in the input tile.
+    }];
+
+    let arguments = (ins TT_Tile:$input);
+    let results = (outs TT_Tile:$result);
+}
+
 def TTIR_TileMaximumOp : TTIR_GenericRegionComputeOp<"tile_maximum">{
     let summary = "TTIR Tile Maximum Op";
     let description = [{
