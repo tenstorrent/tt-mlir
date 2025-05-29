@@ -552,6 +552,7 @@ jobs:
         report_paths: ${{ steps.strings.outputs.build-output-dir }}/test/report.xml
         check_name: Check Tests
         detailed_summary: true
+        include_passed: true
 
     - name: Prepare code coverage report
       run: |
