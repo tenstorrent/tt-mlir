@@ -166,14 +166,13 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
           .withMemoryLayout(outputMemLayoutAttr);
 
   // Create the new output result type with the updated data type and layout.
-  RankedTensorType newOutputResultType =
-      ttnn::utils::RankedTensorTypeFactory::create(
-          ttnn::utils::RankedTensorTypeFactory::create(
-              opResultType,
-              mlir::tt::dataTypeToElementType(
-                  rewriter.getContext(),
-                  outputWorkaroundResults.tensorDataTypeResult.targetValue)),
-          newOutputLayoutAttr);
+  RankedTensorType newOutputResultType = utils::RankedTensorTypeFactory::create(
+      utils::RankedTensorTypeFactory::create(
+          opResultType,
+          mlir::tt::dataTypeToElementType(
+              rewriter.getContext(),
+              outputWorkaroundResults.tensorDataTypeResult.targetValue)),
+      newOutputLayoutAttr);
 
   // Update the type of result with applied workarounds.
   rewriter.modifyOpInPlace(op, [&]() {

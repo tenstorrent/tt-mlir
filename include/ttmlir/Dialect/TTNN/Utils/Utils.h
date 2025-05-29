@@ -43,6 +43,9 @@ struct RankedTensorTypeFactory {
   static RankedTensorType create(RankedTensorType tensorType, GridAttr grid);
 
   static RankedTensorType create(RankedTensorType tensorType, DataType);
+
+  static RankedTensorType create(RankedTensorType tensorType,
+                                 ArrayRef<int64_t> tensorShape);
 };
 
 // Return the L1 memory usage of the output tensor of the given op.

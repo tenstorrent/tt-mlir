@@ -110,6 +110,15 @@ RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
   return create(tensorType, nmemrefElementType);
 }
 
+RankedTensorType
+RankedTensorTypeFactory::create(RankedTensorType tensorType,
+                                ArrayRef<int64_t> tensorShape) {
+  TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
+  TTNNLayoutAttr newEncoding = oldEncoding.withTensorShape(tensorShape);
+  return RankedTensorType::get(tensorShape, tensorType.getElementType(),
+                               newEncoding);
+}
+
 // Return the L1 memory usage of the output tensor of the given op.
 // Used within L1 interleaved policies.
 //
