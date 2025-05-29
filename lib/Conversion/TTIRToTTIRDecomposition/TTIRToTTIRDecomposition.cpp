@@ -1692,6 +1692,7 @@ private:
         inputType.getEncoding(), input, shapeAttr);
   }
 };
+} // namespace
 
 // Utility function to get scale and zero point for quantized types.
 static std::pair<mlir::Value, mlir::Value>
