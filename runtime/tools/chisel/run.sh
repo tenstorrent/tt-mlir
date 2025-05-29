@@ -5,7 +5,10 @@ if [ -z "$1" ]; then
     exit 1
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
 python3 chisel.py \
-    --input_dir $1/ \
-    --op_config $1/op_config.json \
-    --output_dir $1/output
+    --input_dir "$1/" \
+    --op_config "$1/op_config.json" \
+    --output_dir "$1/output"
