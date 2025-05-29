@@ -1950,6 +1950,42 @@ public:
 };
 } // namespace
 
+// BatchNormOp conversion pattern
+//
+namespace {
+class BatchNormOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::BatchNormOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::ttnn::BatchNormOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::BatchNormOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::BatchNormOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getRunningMean()),
+        emitter.emit(srcOp.getRunningVar()),
+        emitter.emit(srcOp.getTraining()),
+        emitter.emit(srcOp.getEpsilon()),
+        emitter.emit(srcOp.getMomentum()),
+        emitter.emit(srcOp.getWeight()),
+        emitter.emit(srcOp.getBias()),
+        emitter.emit(/* output= */ std::nullopt),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // PermuteOp conversion pattern
 //
 namespace {
@@ -2160,6 +2196,10 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Module op
   //
   patterns.add<ModuleOpConversionPattern>(typeConverter, ctx);
+
+  // BatchNorm op
+  //
+  patterns.add<BatchNormOpConversionPattern>(typeConverter, ctx);
 }
 // ANCHOR_END: op_rewriter_pattern_set_emitc
 
