@@ -62,12 +62,11 @@ module {
 ```
 
 ## Running a pipeline
-`run_pipeline` runs a pass on the TTIR module to lower it into a backend, using `pipeline_fn`. You can pass `pipeline_fn` in as one of the following: `ttir_to_ttnn_backend_pipeline`, `ttir_to_ttmetal_backend_pipeline` (both found in `ttmlir.passes`), or a custom pipeline built with `create_custom_pipeline_fn`. You can alternatively pass `"ttnn"` for `target` to instruct `run_pipeline` to run a TTNN pass or `"ttmetal"` for a TTMetal pass. Passing neither argument defaults to the TTNN pipeline.
+`run_pipeline` runs a pass on the TTIR module to lower it into a backend, using `pipeline_fn`. You can pass `pipeline_fn` in as one of the following: `ttir_to_ttnn_backend_pipeline`, `ttir_to_ttmetal_backend_pipeline` (both found in `ttmlir.passes`), or a custom pipeline built with `create_custom_pipeline_fn`. The default if none is provided is the TTNN pipeline.
 
 ```bash
 def run_pipeline(
     module,
-    target: Literal["ttnn", "ttmetal"] = "ttnn",
     pipeline_fn: Callable = ttir_to_ttnn_backend_pipeline,
     pipeline_options: List[str] = None,
     dump_to_file: bool = True,
@@ -83,6 +82,7 @@ Let's expand on our previous example
 ```bash
 from ttir_builder.utils import build_mlir_module, run_pipeline
 from ttir_builder import Operand, TTIRBuilder
+from ttmlir.passes import ttir_to_ttnn_backend_pipeline
 
 shapes = [(32, 32), (32, 32), (32, 32)]
 
@@ -92,7 +92,7 @@ def model(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
     return builder.multiply(multiply_1, in2)
 
 module, builder = build_mlir_module(model, shapes)
-ttnn_module = run_pipeline(module, "ttnn")
+ttnn_module = run_pipeline(module, ttir_to_ttnn_backend_pipeline)
 ```
 
 #### Returns
@@ -127,9 +127,10 @@ module {
 </details>
 
 ### TTMetal example
-Let's use the same code for TTMetal that was used in the TTNN example but change the `target` to `"ttmetal"`. Only one or the other can be run on a module since `pipeline_fn` modifies the module in place. Note that while all TTIR ops supported by builder can be lowered to TTNN, not all can be lowered to TTMetal yet. Adding documentation to specify what ops can be lowered to TTMetal is in the works.
+Let's use the same code for TTMetal that was used in the TTNN example but change the `pipeline_fn` to `ttir_to_ttmetal_backend_pipeline`. Only one or the other can be run on a module since `run_pipeline` modifies the module in place. Note that while all TTIR ops supported by builder can be lowered to TTNN, not all can be lowered to TTMetal yet. Adding documentation to specify what ops can be lowered to TTMetal is in the works.
 ```bash
-ttmetal_module = run_pipeline(module, "ttmetal")
+from ttmlir.passes import ttir_to_ttmetal_backend_pipeline
+ttmetal_module = run_pipeline(module, ttir_to_ttmetal_backend_pipeline)
 ```
 
 #### Returns

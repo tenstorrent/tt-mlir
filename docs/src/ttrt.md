@@ -383,7 +383,7 @@ op_golden_tensor = ttrt.runtime.get_debug_info_golden(binary, loc) : get the gol
 op_output_tensor = ttrt.runtime.get_op_output_tensor(op_context, program_context) : get the currently running output tensor from device as a ttrt.runtime Tensor object, if this is called in a preOp function or the op doesn't output a tensor, an empty tensor will be returned.
 ```
 
-5. A potential application for this callback function is implementing a golden callback. TTRT achieves this by first storing the golden data within the flatbuffer binary. This embedding is done through [`ttir-builder`] (./ttir-builder.md). See `runtime/tools/ttrt/ttrt/common/golden.py` for how ttrt implement the golden callback function.
+5. A potential application for this callback function is implementing a golden callback. TTRT achieves this by first storing the golden data within the flatbuffer binary. This embedding is done through [`ttir-builder`] (./ttir-builder.md). See `runtime/tools/ttrt/ttrt/common/callback.py` for how ttrt implements the golden callback function.
 ```bash
 std::unordered_map<std::string, mlir::tt::GoldenTensor> goldenMap
 mlir::tt::ttnn::translateTTNNToFlatbuffer(moduleOp, file, goldenMap)

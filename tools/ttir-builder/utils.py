@@ -208,7 +208,6 @@ def build_mlir_module(
 
 def run_pipeline(
     module,
-    target: Literal["ttnn", "ttmetal"] = "ttnn",
     pipeline_fn: Callable = ttir_to_ttnn_backend_pipeline,
     pipeline_options: List[str] = None,
     dump_to_file: bool = True,
@@ -378,7 +377,6 @@ def compile_to_flatbuffer(
     # Compile TTIR MLIR -> TT{Metal,NN} MLIR
     module = run_pipeline(
         module,
-        target,
         pipeline_fn,
         pipeline_options=pipeline_options,
         dump_to_file=module_dump,
