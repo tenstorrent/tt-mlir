@@ -285,17 +285,13 @@ void dumpDeviceProfileResults(Device deviceHandle) {
 // number of device ids) tt-metal's DumpDeviceProfileResults expects the
 // mesh_shape in the SystemDesc This was throwing errors in llmbox tests
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
-  std::vector<uint32_t> originalMeshShape(
-      metalMeshDevice.shape().view().begin(),
-      metalMeshDevice.shape().view().end());
-  uint32_t originalMeshSize = originalMeshShape[0] * originalMeshShape[1];
+  auto originalMeshShape = metalMeshDevice.shape();
   metalMeshDevice.reshape(
-      ::tt::tt_metal::distributed::MeshShape(1, originalMeshSize));
-  for (auto *metalDevice : metalMeshDevice.get_devices()) {
+      ::tt::tt_metal::distributed::MeshShape(1, originalMeshShape.mesh_size()));
+  for (tt_metal::IDevice *metalDevice : metalMeshDevice.get_devices()) {
     ::tt::tt_metal::detail::DumpDeviceProfileResults(metalDevice);
   }
-  metalMeshDevice.reshape(::tt::tt_metal::distributed::MeshShape(
-      originalMeshShape[0], originalMeshShape[1]));
+  metalMeshDevice.reshape(originalMeshShape);
 #endif
 }
 

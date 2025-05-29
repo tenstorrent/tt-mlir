@@ -156,7 +156,7 @@ void ProgramExecutor::dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice) {
     LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +
                                            std::to_string(counter - 1) +
                                            " operations");
-    for (auto *ttnnDevice : meshDevice.get_devices()) {
+    for (::ttnn::IDevice *ttnnDevice : meshDevice.get_devices()) {
       ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
     }
     counter = 0;

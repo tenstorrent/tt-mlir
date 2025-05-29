@@ -529,7 +529,7 @@ void dumpDeviceProfileResults(Device deviceHandle) {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
   auto originalMeshShape = ttnnMeshDevice.shape();
   ttnnMeshDevice.reshape(::ttnn::MeshShape(1, originalMeshShape.mesh_size()));
-  for (auto *ttnnDevice : ttnnMeshDevice.get_devices()) {
+  for (::ttnn::IDevice *ttnnDevice : ttnnMeshDevice.get_devices()) {
     ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
   }
   ttnnMeshDevice.reshape(originalMeshShape);
