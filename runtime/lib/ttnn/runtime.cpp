@@ -312,6 +312,13 @@ std::vector<std::uint32_t> getTensorStride(::tt::runtime::Tensor tensor) {
   return stride;
 }
 
+bool isTensorMultiDevice(::tt::runtime::Tensor tensor) {
+  const ::ttnn::Tensor &ttnnTensor =
+      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
+          .getTensor();
+  return ttnnTensor.storage_type() == ::ttnn::StorageType::MULTI_DEVICE_HOST;
+}
+
 std::uint32_t getTensorElementSize(::tt::runtime::Tensor tensor) {
   const ::ttnn::Tensor &ttnnTensor =
       tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)

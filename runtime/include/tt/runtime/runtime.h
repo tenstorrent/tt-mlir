@@ -127,6 +127,7 @@ std::uint32_t getTensorElementSize(Tensor tensor);
 std::uint32_t getTensorVolume(Tensor tensor);
 std::vector<std::uint32_t> getTensorShape(Tensor tensor);
 std::vector<std::uint32_t> getTensorStride(Tensor tensor);
+bool isTensorMultiDevice(Tensor tensor);
 TensorDesc getTensorDesc(Tensor tensor);
 bool getTensorRetain(Tensor tensor);
 void setTensorRetain(Tensor tensor, bool retain);

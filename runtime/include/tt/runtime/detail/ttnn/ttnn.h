@@ -117,6 +117,7 @@ tt::target::DataType getTensorDataType(::tt::runtime::Tensor tensor);
 std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor tensor);
 std::vector<std::uint32_t> getTensorShape(::tt::runtime::Tensor tensor);
 std::vector<std::uint32_t> getTensorStride(::tt::runtime::Tensor tensor);
+bool isTensorMultiDevice(::tt::runtime::Tensor tensor);
 std::uint32_t getTensorElementSize(::tt::runtime::Tensor tensor);
 std::uint32_t getTensorVolume(::tt::runtime::Tensor tensor);
 TensorDesc getTensorDesc(::tt::runtime::Tensor tensor);
