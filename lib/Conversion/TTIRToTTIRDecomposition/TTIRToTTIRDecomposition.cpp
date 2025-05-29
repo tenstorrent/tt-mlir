@@ -1610,61 +1610,70 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     auto meanType = mlir::cast<RankedTensorType>(adaptor.getMean().getType());
-    if (meanType.getRank() != 1) {
+    if (!getIsInputTypeValid(meanType)) {
       return rewriter.notifyMatchFailure(
           op, "BatchNormInferenceOp mean must be 1D tensor");
     }
-    ttir::ReshapeOp reshapeMean =
-        reshapeTo4DTensor(rewriter, op.getLoc(), adaptor.getMean());
+    mlir::Value mean_4d = get4DTensor(rewriter, op.getLoc(), adaptor.getMean());
 
     auto varType =
         mlir::cast<RankedTensorType>(adaptor.getVariance().getType());
-    if (varType.getRank() != 1 && varType.getRank() != 4) {
+    if (!getIsInputTypeValid(varType)) {
       return rewriter.notifyMatchFailure(
           op, "BatchNormInferenceOp var must be 1D or 4D tensor");
     }
-    mlir::Value reshapeVariance =
-        varType.getRank() == 1
-            ? reshapeTo4DTensor(rewriter, op.getLoc(), adaptor.getVariance())
-            : adaptor.getVariance();
+    mlir::Value variance_4d =
+        get4DTensor(rewriter, op.getLoc(), adaptor.getVariance());
 
     auto weightType =
         mlir::cast<RankedTensorType>(adaptor.getScale().getType());
-    if (weightType.getRank() != 1 && weightType.getRank() != 4) {
+    if (!getIsInputTypeValid(weightType)) {
       return rewriter.notifyMatchFailure(
           op, "BatchNormInferenceOp weight must be 1D or 4D tensor");
     }
-    mlir::Value reshapeScale =
-        weightType.getRank() == 1
-            ? reshapeTo4DTensor(rewriter, op.getLoc(), adaptor.getScale())
-            : adaptor.getScale();
+    mlir::Value scale_4d =
+        get4DTensor(rewriter, op.getLoc(), adaptor.getScale());
 
     auto biasType = mlir::cast<RankedTensorType>(adaptor.getOffset().getType());
-    if (biasType.getRank() != 1 && biasType.getRank() != 4) {
+    if (!getIsInputTypeValid(biasType)) {
       return rewriter.notifyMatchFailure(
           op, "BatchNormInferenceOp bias must be 1D or 4D tensor");
     }
-    mlir::Value reshapeOffset =
-        (biasType.getRank() == 1)
-            ? reshapeTo4DTensor(rewriter, op.getLoc(), adaptor.getOffset())
-            : adaptor.getOffset();
+    mlir::Value offset_4d =
+        get4DTensor(rewriter, op.getLoc(), adaptor.getOffset());
 
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(op.getResult().getType()));
 
     ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::BatchNormOp>(
-        rewriter, op, outputType, adaptor.getOperand(), reshapeScale,
-        reshapeOffset, reshapeMean, reshapeVariance, adaptor.getEpsilonAttr(),
+        rewriter, op, outputType, adaptor.getOperand(), scale_4d, offset_4d,
+        mean_4d, variance_4d, adaptor.getEpsilonAttr(),
         adaptor.getDimensionAttr(), adaptor.getTrainingAttr());
 
     return success();
   }
 
 private:
-  ttir::ReshapeOp reshapeTo4DTensor(PatternRewriter &rewriter, Location loc,
-                                    mlir::Value batchNormInput) const {
+  bool getIsInputTypeValid(RankedTensorType inputType) const {
+    if (inputType.getRank() == 1) {
+      return true;
+    }
+    if (inputType.getRank() == 4) {
+      auto shape = inputType.getShape();
+      return shape[0] == 1 && shape[2] == 1 && shape[3] == 1;
+    }
+    return false;
+  }
+
+  mlir::Value get4DTensor(PatternRewriter &rewriter, Location loc,
+                          mlir::Value batchNormInput) const {
     auto inputType =
         mlir::cast<mlir::RankedTensorType>(batchNormInput.getType());
+
+    if (inputType.getRank() == 4) {
+      return batchNormInput;
+    }
+
     auto newShape =
         llvm::SmallVector<int64_t>{1, inputType.getDimSize(0), 1, 1};
     return createReshapeOp(rewriter, loc, batchNormInput, newShape);
