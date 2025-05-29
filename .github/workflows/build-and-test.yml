@@ -534,14 +534,7 @@ jobs:
       run: |
         source env/activate
         lcov --directory ${{ steps.strings.outputs.build-output-dir }} --capture --initial --output-file baseline.info --gcov-tool ${{ steps.strings.outputs.work-dir }}/.github/workflows/gcov_for_clang.sh
-        echo "ENV --- begin"
-        env
-        echo "ENV --- end"
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} -v --target check-ttmlir
-        echo "CHECK-TTMLIR DIR: $(pwd)"
-        find $(pwd) -name "*.xml" -or -name "*.json"
-        find ${{ steps.strings.outputs.build-output-dir }} -name "*.xml" -or -name "*.json"
-
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} --target check-ttmlir
 
     - name: Prepare code coverage report
       run: |
