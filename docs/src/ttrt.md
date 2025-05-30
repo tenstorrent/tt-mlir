@@ -47,7 +47,7 @@ pip install ttrt-0.0.235-cp310-cp310-linux_x86_64.whl
 ```
 
 ## Generate a flatbuffer file from ttir-builder
-[`ttir-builder`] (./ttir-builder.md) is a tool for creating TTIR ops and converting them into MLIR modules, running passes to lower into backends, and translate to flatbuffers.
+[`ttir-builder`](./ttir-builder.md) is a tool for creating TTIR ops and converting them into MLIR modules, running passes to lower into backends, and translate to flatbuffers.
 
 ## Generate a flatbuffer file from compiler
 The compiler supports a pass to load a system descriptor to compile against. You can feed this pass into ttmlir-opt.
