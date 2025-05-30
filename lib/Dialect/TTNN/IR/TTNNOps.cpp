@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
+#include "ttmlir/Dialect/TT/IR/TTOps.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TT/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -148,7 +149,7 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
     return emitOpError("Expected dilation attribute to be a 2D tensor");
   }
 
-  if (getPadding().size() != 2) {
+  if (getPadding().size() != 2 && getPadding().size() != 4) {
     return emitOpError("Expected padding attribute to be a 2D tensor");
   }
 
@@ -475,7 +476,8 @@ getAndVerifyConv2dParams(mlir::tt::ttnn::Conv2dOp *op) {
   }
   Conv2dParams params = *expectedParams;
 
-  if (!getWeight().getDefiningOp<mlir::tt::ttnn::PrepareConv2dWeightsOp>()) {
+  if (!getWeight().getDefiningOp<mlir::tt::ttnn::PrepareConv2dWeightsOp>() &&
+      !getWeight().getDefiningOp<mlir::tt::LoadCachedOp>()) {
     // Only check when the weight is not prepared because it changes the shape
     // and ordering of dims.
     if (getWeight().getType().getDimSize(WEIGHT_OUT_CHANNEL) !=
