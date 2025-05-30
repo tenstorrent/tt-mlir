@@ -74,6 +74,11 @@ void mlir::tt::ttir::TileMatmulBlockOp::getEffects(
   return mlir::tt::ttir::getDpsEffects(*this, effects);
 }
 
+void mlir::tt::ttir::AcquireDstOp::getAsmResultNames(
+    function_ref<void(Value, StringRef)> setNameFn) {
+  setNameFn(getResult(), "dst");
+}
+
 //===----------------------------------------------------------------------===//
 // DMAOp
 //===----------------------------------------------------------------------===//

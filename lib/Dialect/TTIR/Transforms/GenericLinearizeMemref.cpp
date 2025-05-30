@@ -57,6 +57,31 @@ public:
     return linearResult.compose(map);
   }
 
+  static void linearizeMemref(mlir::PatternRewriter &rewriter,
+                              mlir::Location loc, mlir::Value val) {
+    auto memref = mlir::cast<MemRefType>(val.getType());
+    auto shape = memref.getShape();
+    SmallVector<ReassociationIndices, 4> collapsedDims = {
+        llvm::to_vector(llvm::seq<int64_t>(0, shape.size()))};
+    assert(memref::CollapseShapeOp::isGuaranteedCollapsible(memref,
+                                                            collapsedDims) &&
+           "linearizeAffineMap assumes that the shape is collapsible aka "
+           "has contiguous memory layout");
+    auto linearMap = linearizeAffineMap(
+        rewriter.getContext(), memref.getLayout().getAffineMap(), shape);
+    auto linearizedArg =
+        rewriter.create<memref::CollapseShapeOp>(loc, val, collapsedDims);
+    rewriter.replaceAllUsesExcept(val, linearizedArg->getResult(0),
+                                  linearizedArg);
+    for (auto *user : linearizedArg->getUsers()) {
+      if (auto load = mlir::dyn_cast<affine::AffineLoadOp>(user)) {
+        load.setMap(linearMap.compose(load.getMap()));
+      } else if (auto store = mlir::dyn_cast<affine::AffineStoreOp>(user)) {
+        store.setMap(linearMap.compose(store.getMap()));
+      }
+    }
+  }
+
   LogicalResult matchAndRewrite(GenericOp op,
                                 PatternRewriter &rewriter) const final {
     assert(op.getNumRegions() == 1 &&
@@ -73,28 +98,13 @@ public:
         if (isLinearizedMemref(arg)) {
           continue;
         }
-        auto memref = mlir::cast<MemRefType>(arg.getType());
-        auto shape = memref.getShape();
-        SmallVector<ReassociationIndices, 4> collapsedDims = {
-            llvm::to_vector(llvm::seq<int64_t>(0, shape.size()))};
-        assert(memref::CollapseShapeOp::isGuaranteedCollapsible(
-                   memref, collapsedDims) &&
-               "linearizeAffineMap assumes that the shape is collapsible aka "
-               "has contiguous memory layout");
-        auto linearMap = linearizeAffineMap(
-            rewriter.getContext(), memref.getLayout().getAffineMap(), shape);
-        auto linearizedArg = rewriter.create<memref::CollapseShapeOp>(
-            arg.getLoc(), arg, collapsedDims);
-        rewriter.replaceAllUsesExcept(arg, linearizedArg->getResult(0),
-                                      linearizedArg);
-        for (auto *user : linearizedArg->getUsers()) {
-          if (auto load = mlir::dyn_cast<affine::AffineLoadOp>(user)) {
-            load.setMap(linearMap.compose(load.getMap()));
-          } else if (auto store = mlir::dyn_cast<affine::AffineStoreOp>(user)) {
-            store.setMap(linearMap.compose(store.getMap()));
-          }
-        }
+        linearizeMemref(rewriter, arg.getLoc(), arg);
       }
+
+      op->walk([&](ttir::AcquireDstOp acquireDst) {
+        rewriter.setInsertionPointAfter(acquireDst);
+        linearizeMemref(rewriter, acquireDst.getLoc(), acquireDst.getResult());
+      });
     });
 
     return success();
