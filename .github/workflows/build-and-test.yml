@@ -279,7 +279,7 @@ jobs:
         export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-        llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
+        llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test
 
         if [ "${{ matrix.build.suite }}" == "op_model" ] || [ "${{ matrix.build.suite }}" == "unit" ]; then
           echo "Running optimizer tests"
@@ -294,15 +294,6 @@ jobs:
           ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Lib/TestOpModelLib
           echo "Running op-model test Interface"
           ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Op/TestOpModelInterface
-        fi
-
-    - name: Copy unit test report
-      if: matrix.build.type == 'unit'
-      shell: bash
-      run: |
-        if [ -f build/test/report.xml ]; then
-          cp build/test/report.xml ${{ steps.strings.outputs.test_report_path }}
-          echo "Unit test report copied"
         fi
 
     - name: Run TTNN-Standalone test
@@ -547,7 +538,27 @@ jobs:
       run: |
         source env/activate
         lcov --directory ${{ steps.strings.outputs.build-output-dir }} --capture --initial --output-file baseline.info --gcov-tool ${{ steps.strings.outputs.work-dir }}/.github/workflows/gcov_for_clang.sh
+        # this will output `test/report.xml` in the build dir:
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --target check-ttmlir
+
+    - name: Upload Check Test Report xml
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: check_test_report.xml
+        path: ${{ steps.strings.outputs.build-output-dir }}/test/report.xml
+        if-no-files-found: 'ignore'
+
+    - name: Show Check Test Report
+      continue-on-error: true
+      uses: mikepenz/action-junit-report@v5
+      if: always()
+      with:
+        report_paths: ${{ steps.strings.outputs.build-output-dir }}/test/report.xml
+        check_name: Debug
+        detailed_summary: true
+        include_time_in_summary: true
+        include_passed: true
 
     - name: Prepare code coverage report
       run: |
