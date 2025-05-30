@@ -328,12 +328,12 @@ static mlir::OpFoldResult foldConstantOpHelper(OpTy op, TransformFn transform) {
     return nullptr;
 
   mlir::Attribute constAttr = constantOp.getValue();
-  // Handle DenseElementsAttr
+  // Handle DenseElementsAttr.
   if (auto denseAttr = mlir::dyn_cast<mlir::DenseElementsAttr>(constAttr)) {
     return transform(denseAttr);
   }
 
-  // Handle DenseResourceElementsAttr by materializing to DenseElementsAttr
+  // Handle DenseResourceElementsAttr by materializing to DenseElementsAttr.
   if (auto resourceAttr =
           mlir::dyn_cast<mlir::DenseResourceElementsAttr>(constAttr)) {
     auto originalType =
