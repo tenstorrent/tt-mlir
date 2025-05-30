@@ -8,6 +8,7 @@
 #include "tt/runtime/detail/ttnn/debug_apis.h"
 #include "tt/runtime/detail/ttnn/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
+#include "tt/runtime/types.h"
 #include "tt/runtime/workarounds.h"
 
 namespace tt::runtime::ttnn::utils {
@@ -295,6 +296,29 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
       std::make_shared<::tt::runtime::ttnn::TTNNTensorWrapper>(tensor, retain);
   return ::tt::runtime::Tensor(std::static_pointer_cast<void>(tensorPtr),
                                nullptr, DeviceRuntime::TTNN);
+}
+
+::tt::runtime::TensorRef
+createRuntimeTensorRefFromTTNN(const ::tt::target::ttnn::TensorRef *tensorRef) {
+  std::shared_ptr<const void> tensorRefPtr =
+      ::tt::runtime::utils::unsafe_borrow_shared(tensorRef);
+  return tt::runtime::TensorRef(tensorRefPtr, DeviceRuntime::TTNN);
+}
+
+std::vector<const tt::target::ttnn::TensorRef *> convertFbTensorRefsToVector(
+    const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
+        *fbVector) {
+  std::vector<const tt::target::ttnn::TensorRef *> stdVector;
+  if (!fbVector) {
+    return stdVector;
+  }
+
+  stdVector.reserve(fbVector->size());
+  for (const auto *tensorRef : *fbVector) {
+    stdVector.push_back(tensorRef);
+  }
+
+  return stdVector;
 }
 
 void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
