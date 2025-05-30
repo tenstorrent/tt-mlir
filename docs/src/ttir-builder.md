@@ -67,7 +67,8 @@ module {
 ```bash
 def run_pipeline(
     module,
-    pipeline_fn: Callable = ttir_to_ttnn_backend_pipeline,
+    target: Literal["ttnn", "ttmetal"],
+    pipeline_fn: Callable,
     pipeline_options: List[str] = None,
     dump_to_file: bool = True,
     output_file_name: str = "test.mlir",
@@ -92,7 +93,7 @@ def model(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
     return builder.multiply(multiply_1, in2)
 
 module, builder = build_mlir_module(model, shapes)
-ttnn_module = run_pipeline(module, ttir_to_ttnn_backend_pipeline)
+ttnn_module = run_pipeline(module, "ttnn", ttir_to_ttnn_backend_pipeline)
 ```
 
 #### Returns
@@ -130,7 +131,7 @@ module {
 Let's use the same code for TTMetal that was used in the TTNN example but change the `pipeline_fn` to `ttir_to_ttmetal_backend_pipeline`. Only one or the other can be run on a module since `run_pipeline` modifies the module in place. Note that while all TTIR ops supported by builder can be lowered to TTNN, not all can be lowered to TTMetal yet. Adding documentation to specify what ops can be lowered to TTMetal is in the works.
 ```bash
 from ttmlir.passes import ttir_to_ttmetal_backend_pipeline
-ttmetal_module = run_pipeline(module, ttir_to_ttmetal_backend_pipeline)
+ttmetal_module = run_pipeline(module, "ttmetal", ttir_to_ttmetal_backend_pipeline)
 ```
 
 #### Returns
@@ -489,7 +490,7 @@ https://github.com/tenstorrent/tt-mlir/blob/2064844f8140de7d38ba55f8acac107a016f
 ## Golden mode
 
 ### Golden dataclass
-`TTIRBuilder` provides support to code golden tensors into flatbuffers which will be used for comparison with TT device output in `ttrt` runtime. `Golden` is the dataclass used to store information about a golden tensor. Each TTIR op should have a matching PyTorch op (or golden function built from PyTorch ops) which should perform exactly the same operation, generating the same outputs given the same inputs. You can use `TTIRBuilder` helper functions to store input and output tensors within the flatbuffer. Goldens are mapped with names "input_" and "output_" followed by a tensor index: `input_0`.
+`TTIRBuilder` provides support to code golden tensors into flatbuffers which will be used for comparison with TT device output in `ttrt` runtime. `Golden` is the dataclass used to store information about a golden tensor. Each TTIR op should have a matching PyTorch op (or golden function built from PyTorch ops) which should perform exactly the same operation, generating the same outputs given the same inputs. You can use `TTIRBuilder` helper functions to store input, intermediate, and output tensors within the flatbuffer. Input and output goldens are mapped with keys "input_" and "output_" followed by a tensor index: `input_0`. Intermediate output tensors
 
 ### GoldenCheckLevel Enum
 `TTIRBuilder` stores an instance of the class `GoldenCheckLevel(Enum)` that dictates golden handling. It defaults to `GoldenCheckLevel.OP_LEVEL`. The exception is that `TTIRBuilder` CCL ops force the golden level to be set to `GRAPH_LEVEL`.
