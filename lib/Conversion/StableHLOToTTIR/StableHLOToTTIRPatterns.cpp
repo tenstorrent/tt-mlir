@@ -731,7 +731,7 @@ public:
     }
 
     // Call the Requantize op if the input type is quantized
-    // per-tensor/per-channel.
+    // per-tensor/per-axis.
     if (mlir::isa<mlir::quant::UniformQuantizedType,
                   mlir::quant::UniformQuantizedPerAxisType>(
             inputType.getElementType())) {
