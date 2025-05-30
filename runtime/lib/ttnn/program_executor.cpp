@@ -131,7 +131,7 @@ void ProgramExecutor::execute() {
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Starting execution of program: ", program->name()->c_str());
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
-    LOG_INFO(LogType::LogRuntimeTTNN,
+    LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
     tracyLogOpLocation(op);
     runCallback(debug::Hooks::get().getPreOperatorCallback(), executableHandle,
