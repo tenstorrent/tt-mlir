@@ -7,10 +7,17 @@
 
 #include "mlir/IR/OpDefinition.h"
 
-namespace mlir {
-namespace tt {
-namespace ttir {
+namespace mlir::tt::ttir {
 namespace impl {
+template <size_t N>
+LogicalResult verifyNOperands(Operation *op) {
+  if (op->getNumOperands() != N) {
+    return op->emitOpError() << "expected " << N << " operands, but found "
+                             << op->getNumOperands();
+  }
+  return success();
+}
+
 bool verifyInvolution(mlir::Operation *op);
 bool verifyIdempotence(mlir::Operation *op);
 bool verifyBinaryIdempotence(mlir::Operation *op);
@@ -26,6 +33,10 @@ template <typename ConcreteType>
 class TTIRInvolution
     : public mlir::OpTrait::TraitBase<ConcreteType, TTIRInvolution> {
 public:
+  static mlir::LogicalResult verifyTrait(mlir::Operation *op) {
+    return impl::verifyNOperands<2>(op);
+  }
+
   static mlir::LogicalResult foldTrait(mlir::Operation *op, ArrayRef<Attribute>,
                                        SmallVectorImpl<OpFoldResult> &results) {
     if (!impl::verifyInvolution(op)) {
@@ -41,6 +52,10 @@ template <typename ConcreteType>
 class TTIRIdempotence
     : public mlir::OpTrait::TraitBase<ConcreteType, TTIRIdempotence> {
 public:
+  static mlir::LogicalResult verifyTrait(mlir::Operation *op) {
+    return impl::verifyNOperands<2>(op);
+  }
+
   static mlir::LogicalResult foldTrait(mlir::Operation *op, ArrayRef<Attribute>,
                                        SmallVectorImpl<OpFoldResult> &results) {
     if (!impl::verifyIdempotence(op)) {
@@ -56,6 +71,10 @@ template <typename ConcreteType>
 class TTIRBinaryIdempotence
     : public mlir::OpTrait::TraitBase<ConcreteType, TTIRBinaryIdempotence> {
 public:
+  static mlir::LogicalResult verifyTrait(mlir::Operation *op) {
+    return impl::verifyNOperands<3>(op);
+  }
+
   static mlir::LogicalResult foldTrait(mlir::Operation *op, ArrayRef<Attribute>,
                                        SmallVectorImpl<OpFoldResult> &results) {
     if (!impl::verifyBinaryIdempotence(op)) {
@@ -92,8 +111,6 @@ public:
   }
 };
 
-} // namespace ttir
-} // namespace tt
-} // namespace mlir
+} // namespace mlir::tt::ttir
 
 #endif // TTMLIR_DIALECT_TTIR_IR_TTIRTRAITS_H

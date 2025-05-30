@@ -331,7 +331,7 @@ private:
         mlir::cast<RankedTensorType>(currentInput.getType()),
         info.output.layoutEnum);
     BufferType bufferType =
-        cast<TTNNLayoutAttr>(newResultType.getEncoding()).getBufferType();
+        mlir::cast<TTNNLayoutAttr>(newResultType.getEncoding()).getBufferType();
     mlir::Value device =
         bufferType == ttnn::BufferType::SystemMemory ? nullptr : info.device;
 
