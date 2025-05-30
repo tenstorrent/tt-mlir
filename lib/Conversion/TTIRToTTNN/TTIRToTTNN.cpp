@@ -1002,7 +1002,8 @@ public:
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(), device,
         inChannelsAttr, outChannelsAttr, batchSizeAttr, inputHeightAttr,
         inputWidthAttr, kernelSizeAttr, *strideAttr, reducedPaddingAttr,
-        *dilationAttr, groupsAttr, nullptr);
+        *dilationAttr, groupsAttr, /*conv2d_config=*/nullptr,
+        /*compute_config=*/nullptr);
 
     return success();
   }
