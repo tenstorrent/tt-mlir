@@ -704,13 +704,4 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
 #undef IF_TTMETAL_ENABLED
 #undef DISPATCH_TO_CURRENT_RUNTIME
 
-bool isTensorMultiDevice(::tt::runtime::Tensor tensor) {
-#if defined(TT_RUNTIME_ENABLE_TTNN)
-  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::isTensorMultiDevice(tensor);
-  }
-#endif
-  LOG_FATAL("runtime is not enabled");
-}
-
 } // namespace tt::runtime
