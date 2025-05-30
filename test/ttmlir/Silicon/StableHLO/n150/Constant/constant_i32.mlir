@@ -9,7 +9,7 @@ module @jit_constant attributes {} {
   func.func public @test_int32_scalar() -> tensor<i32> {
     // CHECK-LABEL: func.func public @test_int32_scalar
     // CHECK: ttnn.full
-    // CHECK-SAME: fillValue = 3.000000e+00 : f32
+    // CHECK-SAME: fill_value = 3 : i32
     // CHECK-SAME: -> tensor<1xui32
     // CHECK: ttnn.typecast
     // CHECK-SAME: -> tensor<1xsi32
@@ -20,6 +20,7 @@ module @jit_constant attributes {} {
   func.func public @test_int32_scalar_empty() -> tensor<i32> {
     // CHECK-LABEL: func.func public @test_int32_scalar_empty
     // CHECK: ttnn.full
+    // CHECK-SAME: fill_value = 0 : i32
     // CHECK-SAME: -> tensor<1xui32
     // CHECK: ttnn.typecast
     // CHECK-SAME: -> tensor<1xsi32
@@ -30,6 +31,7 @@ module @jit_constant attributes {} {
   func.func public @test_int32_empty() -> tensor<64x128xi32> {
     // CHECK-LABEL: func.func public @test_int32_empty
     // CHECK: ttnn.full
+    // CHECK-SAME: fill_value = 0 : i32
     // CHECK-SAME: -> tensor<64x128xui32
     // CHECK: ttnn.typecast
     // CHECK-SAME: -> tensor<64x128xsi32
@@ -40,7 +42,7 @@ module @jit_constant attributes {} {
   func.func public @test_int32_splat() -> tensor<64x128xi32> {
     // CHECK-LABEL: func.func public @test_int32_splat
     // CHECK: ttnn.full
-    // CHECK-SAME: fillValue = 3.000000e+00 : f32
+    // CHECK-SAME: fill_value = 3 : i32
     // CHECK-SAME: -> tensor<64x128xui32
     // CHECK: ttnn.typecast
     // CHECK-SAME: -> tensor<64x128xsi32

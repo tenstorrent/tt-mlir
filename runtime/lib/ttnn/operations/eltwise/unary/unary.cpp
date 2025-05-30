@@ -7,7 +7,7 @@
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
-#include "ttnn/operations/copy.hpp"
+#include "ttnn/operations/copy/typecast/typecast.hpp"
 #include "ttnn/operations/eltwise/unary/common/unary_op_types.hpp"
 
 namespace tt::runtime::ttnn::operations::eltwise::unary {

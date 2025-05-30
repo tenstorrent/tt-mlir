@@ -7,14 +7,16 @@
 
 #define FMT_HEADER_ONLY
 #include "hostdevcommon/common_values.hpp"
+#include "tt-metalium/hal.hpp"
 #include "tt-metalium/host_api.hpp"
 #include "tt-metalium/host_buffer.hpp"
 #include "tt-metalium/memory_reporter.hpp"
 #include "tt-metalium/mesh_device.hpp"
+#include "tt-metalium/program_cache.hpp"
 #include "ttnn/device.hpp"
 #include "ttnn/operations/ccl/all_gather/all_gather.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
-#include "ttnn/operations/copy.hpp"
+#include "ttnn/operations/copy/typecast/typecast.hpp"
 #include "ttnn/operations/core/core.hpp"
 #include "ttnn/operations/creation.hpp"
 #include "ttnn/operations/data_movement/clone/clone.hpp"
@@ -33,6 +35,7 @@
 #include "ttnn/operations/kv_cache/kv_cache.hpp"
 #include "ttnn/operations/matmul/matmul.hpp"
 #include "ttnn/operations/moreh/moreh_cumsum/moreh_cumsum.hpp"
+#include "ttnn/operations/normalization/batch_norm/batch_norm.hpp"
 #include "ttnn/operations/normalization/softmax/softmax.hpp"
 #include "ttnn/operations/pool/generic/generic_pools.hpp"
 #include "ttnn/operations/pool/upsample/upsample.hpp"
@@ -121,6 +124,8 @@ TensorDesc getTensorDesc(::tt::runtime::Tensor tensor);
 bool getTensorRetain(::tt::runtime::Tensor tensor);
 void setTensorRetain(::tt::runtime::Tensor tensor, bool retain);
 
+Arch getArch();
+
 size_t getNumAvailableDevices();
 
 Device openMeshDevice(const std::vector<uint32_t> &meshShape,
@@ -138,12 +143,25 @@ void releaseSubMeshDevice(Device subMesh);
 void reshapeMeshDevice(Device meshDevice,
                        const std::vector<uint32_t> &meshShape);
 
+std::vector<uint32_t> getMeshShape(Device meshDevice);
+std::vector<uint32_t> getMeshOffset(Device meshDevice);
+std::vector<int> getDeviceIds(Device meshDevice);
+size_t getNumHwCqs(Device meshDevice);
+bool isProgramCacheEnabled(Device meshDevice);
+size_t getL1SmallSize(Device meshDevice);
+size_t getTraceRegionSize(Device meshDevice);
+size_t getNumDramChannels(Device meshDevice);
+size_t getDramSizePerChannel(Device meshDevice);
+size_t getL1SizePerCore(Device meshDevice);
+
 void deallocateBuffers(Device device);
 
 void dumpMemoryReport(Device device);
 
+void dumpDeviceProfileResults(Device device);
+
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
-getMemoryView(Device device, int deviceID = 0);
+getMemoryView(Device device);
 
 void wait(Event event);
 

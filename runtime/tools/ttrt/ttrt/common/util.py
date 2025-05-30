@@ -42,7 +42,7 @@ def ttrt_datatype_to_torch_dtype(dtype) -> torch.dtype:
     A `ValueError` if `dtype` is not one of `Float32`, `UInt32`, `UInt16`, or `UInt8`
 
     """
-    from ttrt.runtime._C import DataType
+    from ttrt.runtime import DataType
 
     if dtype == DataType.Float32:
         return torch.float32
@@ -151,6 +151,14 @@ def get_atol_rtol_pcc(golden, calculated, logging):
         cal_pcc,
         f"Max ATOL Delta: {cal_atol}, Max RTOL Delta: {cal_rtol}, PCC: {cal_pcc}",
     )
+
+
+def golden_tensor_to_torch(golden_tensor: "ttrt.binary.GoldenTensor"):
+    dtype = ttrt_datatype_to_torch_dtype(golden_tensor.dtype)
+    torch_tensor = torch.frombuffer(
+        golden_tensor.get_data_buffer(), dtype=dtype
+    ).reshape(golden_tensor.shape)
+    return torch_tensor
 
 
 class Logger:
@@ -650,6 +658,7 @@ class Binary(Flatbuffer):
         self.fbb_dict = ttrt.binary.as_dict(self.fbb)
         self.version = self.fbb.version
         self.programs = []
+        self.e2e_duration_milliseconds = 0
 
         for i in range(len(self.fbb_dict["programs"])):
             program = Binary.Program(i, self.fbb_dict["programs"][i])

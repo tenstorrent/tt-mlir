@@ -24,8 +24,6 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_REGISTRATION
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
-void initializeOneShotBufferizationOptions(
-    mlir::bufferization::OneShotBufferizationOptions &options);
 } // namespace mlir::tt::ttir
 
 #endif

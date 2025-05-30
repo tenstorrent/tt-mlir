@@ -37,6 +37,10 @@ void populateUtilModule(nb::module_ &m) {
 
     return locationStr;
   });
+
+  m.def("is_dps", [](MlirOperation op) {
+    return mlir::isa<DestinationStyleOpInterface>(unwrap(op));
+  });
 }
 
 } // namespace mlir::ttmlir::python

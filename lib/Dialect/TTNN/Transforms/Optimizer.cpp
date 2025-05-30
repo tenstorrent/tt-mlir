@@ -94,7 +94,7 @@ public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TTNNOptimizerBase<DerivedT>)
 
   TTNNOptimizerBase(TTNNOptimizerOptions options) : TTNNOptimizerBase() {
-    overrideInputLayout = std::move(options.overrideInputLayout);
+    insertMemReconfig = std::move(options.insertMemReconfig);
     overrideOutputLayout = std::move(options.overrideOutputLayout);
     overrideConv2dConfig = std::move(options.overrideConv2dConfig);
     memoryLayoutAnalysisEnabled =
@@ -106,13 +106,13 @@ public:
   }
 
 protected:
-  ::mlir::Pass::Option<llvm::StringMap<InputLayoutOverrideParams>,
-                       mlir::tt::ttnn::InputLayoutOverrideParser>
-      overrideInputLayout{
-          *this, OptionNames::overrideInputLayout,
+  ::mlir::Pass::Option<llvm::StringMap<InsertMemReconfigParams>,
+                       mlir::tt::ttnn::InsertMemReconfigParser>
+      insertMemReconfig{
+          *this, OptionNames::insertMemReconfig,
           ::llvm::cl::desc(
               "Manually insert memory reconfig op for specific op's operand."),
-          ::llvm::cl::init(llvm::StringMap<InputLayoutOverrideParams>())};
+          ::llvm::cl::init(llvm::StringMap<InsertMemReconfigParams>())};
   ::mlir::Pass::Option<llvm::StringMap<OutputLayoutOverrideParams>,
                        mlir::tt::ttnn::OutputLayoutOverrideParser>
       overrideOutputLayout{
@@ -186,7 +186,7 @@ public:
 
     // Get the max grid size from the system description.
     //
-    GridAttr maxGrid = lookupDevice(moduleOp).getWorkerGrid();
+    GridAttr deviceGrid = lookupDevice(moduleOp).getWorkerGrid();
 
     SystemDescAttr systemDesc = mlir::cast<tt::SystemDescAttr>(
         moduleOp->getAttr(tt::SystemDescAttr::name));
@@ -210,8 +210,8 @@ public:
     mlir::tt::ttnn::AllPossibleLayoutsAnalysis allPossibleLayoutsAnalysis =
         getAnalysis<mlir::tt::ttnn::AllPossibleLayoutsAnalysis>();
     allPossibleLayoutsAnalysis.init(
-        mlir::tt::ttnn::AllPossibleLayoutsAnalysisInput(maxGrid, &scalarTypes,
-                                                        rowMajorEnabled));
+        mlir::tt::ttnn::AllPossibleLayoutsAnalysisInput(
+            deviceGrid, &scalarTypes, rowMajorEnabled));
     TensorTypeLayoutsMap tensorTypePossibleLayouts =
         allPossibleLayoutsAnalysis.getResult();
 
@@ -383,14 +383,11 @@ public:
             } else {
               emptyOp.setLayout(ttnn::Layout::RowMajor);
             }
+
             emptyOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
-                op->getContext(),
+                op->getContext(), tensorMemoryLayoutAttr,
                 BufferTypeAttr::get(op->getContext(), bufferType),
-                ShardSpecAttr::get(
-                    op->getContext(),
-                    ShapeAttr::get(op->getContext(),
-                                   layoutAttr.getMemref().getShape())),
-                tensorMemoryLayoutAttr));
+                utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
           }
           // TODO(mtopalovic): Temp workaround for generic ToLayoutOp. Allign
           // MemoryConfigAttr with layout attribute of its output tensor. This
@@ -401,17 +398,14 @@ public:
             BufferType bufferType = layoutAttr.getBufferType();
             TensorMemoryLayoutAttr tensorMemoryLayoutAttr =
                 layoutAttr.getMemLayout();
+
             // Update the device op with the new tensor type.
             //
             ttnn::ToLayoutOp toLayoutOp = llvm::cast<ttnn::ToLayoutOp>(op);
             toLayoutOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
-                op->getContext(),
+                op->getContext(), tensorMemoryLayoutAttr,
                 ttnn::BufferTypeAttr::get(op->getContext(), bufferType),
-                ttnn::ShardSpecAttr::get(
-                    op->getContext(),
-                    ttnn::ShapeAttr::get(op->getContext(),
-                                         layoutAttr.getMemref().getShape())),
-                tensorMemoryLayoutAttr));
+                utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
           }
 
           // Set specific Conv2d Op configuration if it is exists.
@@ -427,10 +421,10 @@ public:
       });
 
       if (memReconfigEnabled) {
-        processMemReconfigEdges(memReconfigEntryMap);
+        processMemReconfigEdges(memReconfigEntryMap, deviceGrid);
       }
 
-      processSpillOps(spillToDramOps);
+      processSpillOps(spillToDramOps, deviceGrid);
 
       // Update the function type to reflect the updated return operation's
       // result types.
@@ -452,7 +446,7 @@ private:
     for (const auto &[opLoc, _] : overrideOutputLayout) {
       overridenOpExists[opLoc] = false;
     }
-    for (const auto &[opLoc, _] : overrideInputLayout) {
+    for (const auto &[opLoc, _] : insertMemReconfig) {
       overridenOpExists[opLoc] = false;
     }
     for (const auto &[opLoc, _] : overrideConv2dConfig) {
@@ -500,9 +494,9 @@ private:
       }
 
       StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
-      auto opInputOverride = overrideInputLayout.find(opLocName);
+      auto opInputOverride = insertMemReconfig.find(opLocName);
 
-      if (opInputOverride == overrideInputLayout.end()) {
+      if (opInputOverride == insertMemReconfig.end()) {
         return;
       }
 
@@ -517,7 +511,7 @@ private:
 
     // Check for non-existing ops in override
     //
-    assert(overrideInputLayout.size() == overrideReshardEdges.size());
+    assert(insertMemReconfig.size() == overrideReshardEdges.size());
   }
 
   mlir::TypedValue<DeviceType> getOrCreateDeviceOpValue(Operation *contextOp,
@@ -552,7 +546,8 @@ private:
   }
 
   void processMemReconfigEdges(
-      const llvm::DenseMap<Edge, MemReconfigEntry> &memReconfigEntryMap) {
+      const llvm::DenseMap<Edge, MemReconfigEntry> &memReconfigEntryMap,
+      GridAttr deviceGrid) {
 
     // Insert memory reconfig ops here based on results of memory layout
     // analysis.
@@ -602,13 +597,10 @@ private:
           producerOpLayout);
 
       MemoryConfigAttr outputMemConfigAttr = MemoryConfigAttr::get(
-          consumerOp->getContext(),
+          consumerOp->getContext(), producerOpLayout.getMemLayout(),
           BufferTypeAttr::get(consumerOp->getContext(),
                               producerOpLayout.getBufferType()),
-          ShardSpecAttr::get(consumerOp->getContext(),
-                             ShapeAttr::get(consumerOp->getContext(),
-                                            producerOpLayout.getShardShape())),
-          producerOpLayout.getMemLayout());
+          utils::createShardSpecIfNeeded(producerOpLayout, deviceGrid));
 
       // If producerOp is a toLayoutOp, adjust its output layout(update
       // inplace) to reflect consumerOp's output layout. If producerOp is not a
@@ -642,7 +634,8 @@ private:
     }
   }
 
-  void processSpillOps(const std::vector<Operation *> &spillToDramOps) {
+  void processSpillOps(const std::vector<Operation *> &spillToDramOps,
+                       GridAttr deviceGrid) {
     for (Operation *op : spillToDramOps) {
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "Processing spill op: {}",
                    op->getName());
@@ -665,13 +658,11 @@ private:
           DataTypeAttr::get(op->getContext(), dramLayout.getDataType());
       LayoutAttr newLayout =
           LayoutAttr::get(op->getContext(), dramLayout.getLayout());
+
       MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(
-          op->getContext(),
+          op->getContext(), dramLayout.getMemLayout(),
           BufferTypeAttr::get(op->getContext(), BufferType::DRAM),
-          ShardSpecAttr::get(
-              op->getContext(),
-              ShapeAttr::get(op->getContext(), dramLayout.getShardShape())),
-          dramLayout.getMemLayout());
+          utils::createShardSpecIfNeeded(dramLayout, deviceGrid));
 
       builder.setInsertionPointAfter(op);
       Location loc =

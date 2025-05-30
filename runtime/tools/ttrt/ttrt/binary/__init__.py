@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from ._C import (
+from ttrt.runtime._ttmlir_runtime.binary import (
     load_from_path,
     load_binary_from_path,
     load_binary_from_capsule,
@@ -10,16 +10,18 @@ from ._C import (
     Flatbuffer,
     GoldenTensor,
 )
+
 from . import stats
 
 import json
+import re
 
 
 def as_dict(bin):
-    tmp = bin.as_json()
+    json_txt = bin.as_json()
     # Flatbuffers emits 'nan' and 'inf'
     # But Python's JSON accepts only 'NaN' and 'Infinity' and nothing else
     # We include the comma to avoid replacing 'inf' in contexts like 'info'
-    tmp = tmp.replace("nan,", "NaN,")
-    tmp = tmp.replace("inf,", "Infinity,")
-    return json.loads(tmp)
+    json_txt = re.sub(r"\bnan\b", "NaN", json_txt)
+    json_txt = re.sub(r"\binf\b", "Infinity", json_txt)
+    return json.loads(json_txt)

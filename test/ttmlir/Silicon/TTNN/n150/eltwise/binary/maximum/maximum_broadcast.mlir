@@ -7,8 +7,8 @@ func.func @maximum_with_broadcast(%arg0: tensor<64x1xf32>, %arg1: tensor<1x128xf
   %0 = ttir.empty() : tensor<64x128xf32>
   %1 = "ttir.maximum"(%arg0, %arg1, %0) : (tensor<64x1xf32>, tensor<1x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
   // CHECK: "ttnn.maximum"
-  // CHECK-SAME: tensor<64x1xf32
-  // CHECK-SAME: tensor<1x128xf32
+  // CHECK-SAME: tensor<64x128xf32
+  // CHECK-SAME: tensor<64x128xf32
   // CHECK-SAME: -> tensor<64x128xf32
   return %1 : tensor<64x128xf32>
 }

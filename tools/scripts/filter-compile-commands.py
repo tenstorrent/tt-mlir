@@ -11,11 +11,17 @@ import sys
 
 
 def get_diff_files(compile_commands):
+    subprocess.check_call(["git", "fetch", "origin", "main"])
     diff = subprocess.check_output(
         ["git", "diff", "--name-only", "origin/main...@"]
     ).decode("utf-8")
-    cwd = os.getcwd()
-    processed = map(lambda x: os.path.join(cwd, x.strip()), diff.split("\n"))
+    home_dir = os.getenv(
+        "TT_MLIR_HOME",
+        subprocess.check_output(["git", "rev-parse", "--show-toplevel"])
+        .decode("utf-8")
+        .strip(),
+    )
+    processed = map(lambda x: os.path.join(home_dir, x.strip()), diff.split("\n"))
     return set(
         filter(
             lambda x: x.endswith(".c")
@@ -50,7 +56,9 @@ def main(args):
         compile_commands = json.load(f)
 
     filtered_commands = []
-    m = re.compile(r"^{}/((?!third_party).)*$".format(args.prefix))
+    m = re.compile(
+        r"^{}/((?!third_party|tools/ttnn-standalone).)*$".format(args.prefix)
+    )
     diff_files = get_diff_files(compile_commands) if args.diff else set()
     compile_commands = sorted(
         compile_commands, key=lambda x: x["file"] not in diff_files

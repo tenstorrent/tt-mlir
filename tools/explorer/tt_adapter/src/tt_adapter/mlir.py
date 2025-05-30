@@ -312,12 +312,14 @@ def parse_memory_config(attr):
             value=str(ttnn.BufferType(memory_config.buffer_type.value)),
         )
     )
-    result.append(
-        graph_builder.KeyValue(
-            key="shard-shape",
-            value="x".join(map(str, memory_config.shard_spec.shard_shape.shape)),
+
+    if memory_config.shard_spec:
+        result.append(
+            graph_builder.KeyValue(
+                key="shard-shape",
+                value="x".join(map(str, memory_config.shard_spec.shard_shape.shape)),
+            )
         )
-    )
 
     result.append(
         graph_builder.KeyValue(
@@ -835,7 +837,12 @@ FILTERED_OPS = [
 
 
 def build_graph(
-    module_path: str, module, perf_trace=None, memory_trace=None, golden_results=None
+    module_path: str,
+    module,
+    perf_trace=None,
+    memory_trace=None,
+    golden_results=None,
+    cpp_code=None,
 ):
     graph_id = Path(module_path).name
     output_connections = defaultdict(int)
@@ -867,20 +874,18 @@ def build_graph(
             loc = memory_trace[node]["loc"]
             memory_data[loc] = {}
             memory_data[loc]["dram"] = round(
-                memory_trace[node]["dram"]["device_0"]["total_bytes_allocated_per_bank"]
-                / memory_trace[node]["dram"]["device_0"]["total_bytes_per_bank"],
+                memory_trace[node]["dram"]["total_bytes_allocated_per_bank"]
+                / memory_trace[node]["dram"]["total_bytes_per_bank"],
                 4,
             )
             memory_data[loc]["l1"] = round(
-                memory_trace[node]["l1"]["device_0"]["total_bytes_allocated_per_bank"]
-                / memory_trace[node]["l1"]["device_0"]["total_bytes_per_bank"],
+                memory_trace[node]["l1"]["total_bytes_allocated_per_bank"]
+                / memory_trace[node]["l1"]["total_bytes_per_bank"],
                 4,
             )
             memory_data[loc]["l1_small"] = round(
-                memory_trace[node]["l1_small"]["device_0"][
-                    "total_bytes_allocated_per_bank"
-                ]
-                / memory_trace[node]["l1_small"]["device_0"]["total_bytes_per_bank"],
+                memory_trace[node]["l1_small"]["total_bytes_allocated_per_bank"]
+                / memory_trace[node]["l1_small"]["total_bytes_per_bank"],
                 4,
             )
 

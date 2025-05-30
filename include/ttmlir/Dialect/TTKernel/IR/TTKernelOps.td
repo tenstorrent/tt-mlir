@@ -449,6 +449,17 @@ def TTKernel_TilizeBlockOp : TTKernel_Op<"tilize_block"> {
     let hasVerifier = 1;
 }
 
+def TTKernel_ExperimentalTilizeBlockOp : TTKernel_Op<"experimental::tilize_block"> {
+    let summary = "Experimental TilizeBlockOp call.";
+    let description = [{
+      This is a custom tilize block LLK that takes the dimensions of the block, and properly tilizes each row.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut, I32:$blockR, I32:$blockC);
+
+    let hasVerifier = 1;
+}
+
 def TTKernel_TilizeInitOp : TTKernel_Op<"tilize_init"> {
     let summary = "TilizeInitOp call.";
     let description = [{
@@ -487,6 +498,17 @@ def TTKernel_UntilizeBlockOp : TTKernel_Op<"untilize_block"> {
     }];
 
     let arguments = (ins TTKernel_CB:$cbIn, I32:$numTiles, TTKernel_CB:$cbOut);
+
+    let hasVerifier = 1;
+}
+
+def TTKernel_ExperimentalUntilizeBlockOp : TTKernel_Op<"experimental::untilize_block"> {
+    let summary = "Experimental UntilizeBlockOp call.";
+    let description = [{
+      This is a custom untilize block LLK that takes the dimensions of the block.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut, I32:$blockR, I32:$blockC);
 
     let hasVerifier = 1;
 }

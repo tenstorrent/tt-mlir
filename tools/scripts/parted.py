@@ -49,7 +49,7 @@ def get_op_operands(op):
         ins, outs = segments
         assert ins + outs == len(op.operands)
         return (op.operands[:ins], op.operands[ins:])
-    elif ttir.ir.is_dps(op):
+    elif ttmlir.util.is_dps(op):
         return (op.operands[:-1], op.operands[-1:])
     return (op.operands, [])
 

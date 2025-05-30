@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+import time
 
 from ttrt.common.util import *
 from ttrt.common.query import Query
@@ -250,6 +251,20 @@ class Run:
             help="enable program cache in ttnn runtime",
         )
         Run.register_arg(
+            name="--dump-device-rate",
+            type=int,
+            default=1000,
+            choices=None,
+            help="Rate at which to flush device perf information",
+        )
+        Run.register_arg(
+            name="--enable-perf-trace",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="enable performance tracing",
+        )
+        Run.register_arg(
             name="binary",
             type=str,
             default="",
@@ -262,6 +277,13 @@ class Run:
             default=1,
             choices=None,
             help="Random ones vs zeroes density, 1 = 100% ones, 2 = 50% ones, 3 = 33% ones, etc.",
+        )
+        Run.register_arg(
+            name="--benchmark",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="Enable benchmark mode with warmup and e2e time measurements. Only one program is executed, specified by --program-index. If --program-index is set to 'all', the first program is used. (automatically enables program cache and disables golden comparison)",
         )
 
     def __init__(self, args={}, logger=None, artifacts=None):
@@ -478,6 +500,11 @@ class Run:
                 not self["--disable-raw-host-data-pointer-wrapper"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
+            perf_env = ttrt.runtime.DebugPerfEnv.get(
+                self["--dump-device-rate"],
+                self["--enable-perf-trace"],
+            )
+            self.logging.debug(f"setting tt runtime perf env={perf_env}")
             self.logging.debug(f"setting torch manual seed={self['--seed']}")
             torch.manual_seed(self["--seed"])
             ttrt.runtime.set_compatible_runtime(binaries[0].fbb)
@@ -487,6 +514,14 @@ class Run:
 
             if self["--disable-eth-dispatch"]:
                 dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
+
+            if self["--benchmark"]:
+                self["--enable-program-cache"] = True
+                self["--disable-golden"] = True
+
+                # In benchmark mode, only execute one program.
+                if self["--program-index"] == "all":
+                    self["--program-index"] = 0
 
             mesh_shape = [1, len(self.query.device_ids)]
             mesh_options = ttrt.runtime.MeshDeviceOptions()
@@ -536,9 +571,7 @@ class Run:
                         emitc_dylib_path = bin.file_path.replace(".ttnn", ".so")
 
                         # Open the dylib
-                        emitc_dylib_handle = ttrt.runtime.testing.open_so(
-                            emitc_dylib_path
-                        )
+                        emitc_dylib_handle = ttrt.runtime.test.open_so(emitc_dylib_path)
                         self.logging.debug(f"opened emitc dylib={emitc_dylib_path}")
 
                     program_indices = []
@@ -562,6 +595,10 @@ class Run:
                         # Implement optional pre_op_callback functionality here
 
                         program = bin.get_program(program_index)
+                        # Skip private programs (e.g. subgraphs created by const-eval)
+                        if program.program["private"]:
+                            continue
+
                         golden_inputs = []
 
                         for i in range(len(program.program["inputs"])):
@@ -578,8 +615,8 @@ class Run:
                                     golden_tensor.dtype
                                 )
 
-                                golden_tensor_torch = torch.frombuffer(
-                                    golden_tensor, dtype=dtype
+                                golden_tensor_torch = golden_tensor_to_torch(
+                                    golden_tensor
                                 )
                                 golden_inputs.append(golden_tensor_torch)
 
@@ -621,12 +658,9 @@ class Run:
                                     f"output_{idx}"
                                 )
                                 if golden_tensor is not None:
-                                    golden_tensor_torch = torch.frombuffer(
-                                        golden_tensor,
-                                        dtype=ttrt_datatype_to_torch_dtype(
-                                            golden_tensor.dtype
-                                        ),
-                                    ).reshape(golden_tensor.shape)
+                                    golden_tensor_torch = golden_tensor_to_torch(
+                                        golden_tensor
+                                    )
                                     golden_outputs_torch.append(golden_tensor_torch)
 
                         event = None
@@ -677,6 +711,15 @@ class Run:
                             device, inputs, bin.fbb, program_index
                         )
 
+                        if self["--benchmark"]:
+                            self.logging.info("Warming up device.")
+                            ttrt.runtime.submit(
+                                device,
+                                bin.fbb,
+                                program_index,
+                                inputs,
+                            )
+
                         for loop in range(self["--loops"]):
                             self.logging.debug(
                                 f"starting loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
@@ -706,12 +749,14 @@ class Run:
                                             f"Cannot dirty input tensor {input_idx}, only {len(inputs)} inputs available"
                                         )
 
+                            start = time.perf_counter()
                             runtime_outputs = ttrt.runtime.submit(
                                 device,
                                 bin.fbb,
                                 program_index,
                                 inputs,
                             )
+
                             if self["--check-cache-stats"]:
                                 # Log cache stats after execution
                                 cache_stats = bin.fbb.get_tensor_cache().get_stats()
@@ -765,12 +810,27 @@ class Run:
                                         raise PCCErrorException(
                                             f"Failed: prgram-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={post_op_callback_runtime_config.pcc}"
                                         )
-                                    self.logging.debug(
+                                    self.logging.info(
                                         f"Program level golden for output_{idx} matched. pcc={cal_pcc}"
                                     )
 
                             self.logging.debug(
                                 f"finished loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
+                            )
+
+                        end = time.perf_counter()
+                        if self["--benchmark"]:
+                            bin.e2e_duration_milliseconds = (end - start) * 1000
+                            batch_size = inputs[0].get_shape()[0]
+                            samples_per_second = (
+                                batch_size / bin.e2e_duration_milliseconds * 1000
+                            )
+                            self.logging.info(
+                                f"Execution time: {bin.e2e_duration_milliseconds} ms"
+                            )
+                            self.logging.info(f"Batch size: {batch_size}")
+                            self.logging.info(
+                                f"Samples per second: {samples_per_second}"
                             )
 
                         if event is not None:
@@ -780,8 +840,6 @@ class Run:
                         if self["--emitc"]:
                             # Create symbol string to read from dylib
                             fwd_func_name = program.program["name"]
-                            fwd_func_name_len = len(fwd_func_name)
-                            fwd_func_sym = f"_Z{fwd_func_name_len}{fwd_func_name}St6vectorIN2tt8tt_metal6TensorESaIS2_EE"
 
                             # pre-upload inputs
                             inputs = convert_input_layouts(
@@ -789,9 +847,9 @@ class Run:
                             )
 
                             for loop in range(self["--loops"]):
-                                emitc_outs = ttrt.runtime.testing.run_so_program(
+                                emitc_outs = ttrt.runtime.test.run_so_program(
                                     emitc_dylib_handle,
-                                    fwd_func_sym,
+                                    fwd_func_name,
                                     inputs,
                                     device,
                                 )
@@ -803,7 +861,7 @@ class Run:
                                     f"got emitc outputs for program_index={program_index}, loop={loop}"
                                 )
 
-                                all_tensors_match = ttrt.runtime.testing.compare_outs(
+                                all_tensors_match = ttrt.runtime.test.compare_outs(
                                     outputs, emitc_outs
                                 )
 
@@ -850,6 +908,9 @@ class Run:
                         )
                         for tensor in program.output_tensors:
                             self.logging.debug(f"{tensor}\n")
+
+                        # Dump the perf data before deallocating buffers
+                        device.dump_device_profile_results()
 
                         device.deallocate_buffers()
 
@@ -947,8 +1008,9 @@ class Run:
                     ttrt.runtime.reshape_mesh_device(device, mesh_shape)
 
                     if self["--emitc"]:
-                        ttrt.runtime.testing.close_so(emitc_dylib_handle)
+                        ttrt.runtime.test.close_so(emitc_dylib_handle)
 
+            ttrt.runtime.unregister_hooks()
             ttrt.runtime.close_mesh_device(device)
 
         self.logging.debug(f"executing ttnn binaries")
@@ -980,6 +1042,7 @@ class Run:
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
                     "program_index": self["--program-index"],
+                    "e2e_duration_milliseconds": bin.e2e_duration_milliseconds,
                 }
                 self.results.add_result(test_result)
                 self.logging.info(f"PASS: test case={bin.file_path}")
@@ -995,6 +1058,7 @@ class Run:
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
                     "program_index": self["--program-index"],
+                    "e2e_duration_milliseconds": bin.e2e_duration_milliseconds,
                 }
                 self.results.add_result(test_result)
                 self.logging.info(f"PASS: test case={bin.file_path}")

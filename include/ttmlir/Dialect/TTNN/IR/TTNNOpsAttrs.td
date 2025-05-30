@@ -136,28 +136,91 @@ def TTNN_ShapeAttr : TTNN_Attr<"Shape", "shape"> {
   let assemblyFormat = "`<` custom<DimensionList>($shape) `>`";
 }
 
+def TTNN_ShardOrientationAttr : EnumAttr<TTNN_Dialect, TTNN_ShardOrientation, "shard_orientation"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def TTNN_ShardModeAttr : EnumAttr<TTNN_Dialect, TTNN_ShardMode, "shard_mode"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
 def TTNN_ShardSpecAttr : TTNN_Attr<"ShardSpec", "shard_spec"> {
   let summary = "TTNN ShardSpec attribute";
   let description = [{
-    TTNN ShardSpec attribute
+    The `ShardSpecAttr` defines how a tensor is sharded across multiple cores in the Tenstorrent hardware.
+
+    This attribute specifies:
+    - Which cores the tensor is distributed across (via CoreRangeSet)
+    - The shape of each shard
+    - The orientation of the sharding (row_major, column_major, etc.)
+    - The sharding mode (physical, logical)
+    - The physical shard shape that is only present if the sharding mode isn't physical
+
+    ShardSpec is used within MemoryConfigAttr to specify sharding information for tensors
+    stored in L1 memory with sharded memory layouts (block_sharded, width_sharded, or height_sharded).
+
+    Example:
+    ```mlir
+    #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0,0), (7, 0)>]>, <32x128>, <row_major>, <physical>>
+    #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0,0), (7, 0)>]>, <32x128>, <row_major>, <logical>, <32x128>>
+    ```
+
+    This attribute is optional in the MemoryConfigAttr and should only be present
+    when the tensor memory layout is one of the sharded layouts.
   }];
 
-  // TODO (#620): Add other fields like core_ranges, shard orientation etc.
-  let parameters = (ins AttrParameter<"ShapeAttr", "">:$shardShape);
+  let parameters = (ins "CoreRangeSetAttr": $coreRangeSet,
+                    "ShapeAttr":$shape,
+                    "ShardOrientationAttr":$shardOrientation,
+                    "ShardModeAttr":$shardMode,
+                    OptionalParameter<"ShapeAttr">:$physical_shard_shape);
+
+  let builders =
+    [
+      AttrBuilder<(ins "ShapeAttr": $shape, "GridAttr": $shardGrid, "GridAttr": $deviceGrid),
+      [{
+        CoreRangeSetAttr coreRangeSet = getCoreRangeSet($_ctxt, shardGrid, deviceGrid);
+        return Base::get($_ctxt, coreRangeSet, shape, ShardOrientationAttr::get($_ctxt, ::mlir::tt::ttnn::ShardOrientation::RowMajor), ShardModeAttr::get($_ctxt, ::mlir::tt::ttnn::ShardMode::Physical), ShapeAttr());
+      }]>,
+      AttrBuilder<(ins "TTNNLayoutAttr": $layout, "GridAttr": $deviceGrid),
+      [{
+        GridAttr shardGrid = layout.getGrid();
+        CoreRangeSetAttr coreRangeSet = getCoreRangeSet($_ctxt, shardGrid, deviceGrid);
+        return Base::get($_ctxt, coreRangeSet, ShapeAttr::get($_ctxt,layout.getScalarShardShape()), ShardOrientationAttr::get($_ctxt, ::mlir::tt::ttnn::ShardOrientation::RowMajor), ShardModeAttr::get($_ctxt, ::mlir::tt::ttnn::ShardMode::Physical), ShapeAttr());
+      }]>
+    ];
+
   let assemblyFormat = "`<` params `>`";
+  let extraClassDeclaration = [{
+    static CoreRangeSetAttr getCoreRangeSet(mlir::MLIRContext *context, GridAttr shardGrid, GridAttr deviceGrid);
+  }];
 }
 
 def TTNN_MemoryConfigAttr : TTNN_Attr<"MemoryConfig", "memory_config"> {
   let summary = "TTNN MemoryConfig attribute";
   let description = [{
-    TTNN memory config attribute
+    The `MemoryConfigAttr` defines how a tensor is stored in memory on Tenstorrent hardware.
+
+    This attribute specifies:
+    - `bufferType` - specifies which memory type to use (L1, DRAM, System Memory).
+    - `tensorMemoryLayout` - defines how the tensor is laid out in memory (interleaved, single_bank, block_sharded, width_sharded, height_sharded)
+    - `shardSpec` - optional parameter is only used with sharded memory layouts and defines how the tensor is distributed across multiple cores.
+
+    Examples:
+    ```mlir
+    // Simple interleaved memory in DRAM
+    #ttnn.memory_config<#dram, <interleaved>>
+
+    // L1 memory with block sharding across cores
+    #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0,0), (7, 0)>]>, <32x128>, <row_major>, <physical>>>
+    ```
   }];
 
-  let parameters = (ins AttrParameter<"BufferTypeAttr", "">:$bufferType,
-                        AttrParameter<"ShardSpecAttr", "">:$shardSpec,
-                        OptionalParameter<"TensorMemoryLayoutAttr">:$tensorMemoryLayout);
+  let parameters = (ins OptionalParameter<"TensorMemoryLayoutAttr">:$tensorMemoryLayout,
+                    "BufferTypeAttr":$bufferType,
+                    OptionalParameter<"std::optional<ShardSpecAttr>">:$shardSpec);
 
-  let assemblyFormat = "`<` params `>`";
+  let assemblyFormat = "`<` $bufferType (`,` $tensorMemoryLayout^ )? (`,` $shardSpec^ )? `>`";
 
   let extraClassDeclaration = [{
     llvm::ArrayRef<int64_t> getShardShape(bool convertTileToScalar = true) const;
@@ -308,7 +371,8 @@ def TTNN_MatmulMultiCoreReuseMultiCast1DProgramConfigAttr : TTNN_Attr<"MatmulMul
       mcast_in0 = true,
       gather_in0 = false,
       hop_cores = #ttnn.core_range_set<>,
-      num_global_cb_receivers = 0
+      num_global_cb_receivers = 0,
+      untilize_out = false
     >
     ```
   }];
@@ -326,7 +390,8 @@ def TTNN_MatmulMultiCoreReuseMultiCast1DProgramConfigAttr : TTNN_Attr<"MatmulMul
                         "bool":$mcast_in0,
                         "bool":$gather_in0,
                         "CoreRangeSetAttr":$hop_cores,
-                        "uint64_t":$num_global_cb_receivers);
+                        "uint64_t":$num_global_cb_receivers,
+                        "bool":$untilize_out);
 
   let assemblyFormat = [{
     `<` struct(
@@ -343,7 +408,8 @@ def TTNN_MatmulMultiCoreReuseMultiCast1DProgramConfigAttr : TTNN_Attr<"MatmulMul
       $mcast_in0,
       $gather_in0,
       qualified($hop_cores),
-      $num_global_cb_receivers
+      $num_global_cb_receivers,
+      $untilize_out
     ) `>`
   }];
 }
@@ -405,6 +471,24 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
 
   let extraClassDeclaration = [{
     Conv2dConfigAttr withActivation(StringRef activation) const;
+    Conv2dConfigAttr withDtype(DataType dtype) const;
+    Conv2dConfigAttr withWeightsDtype(DataType dtype) const;
+    Conv2dConfigAttr withDeallocateActivation(bool value) const;
+    Conv2dConfigAttr withReallocateHaloOutput(bool value) const;
+    Conv2dConfigAttr withActBlockHOverride(uint32_t value) const;
+    Conv2dConfigAttr withActBlockWDiv(uint32_t value) const;
+    Conv2dConfigAttr withReshardIfNotOptimal(bool value) const;
+    Conv2dConfigAttr withOverrideShardingConfig(bool value) const;
+    Conv2dConfigAttr withShardLayout(TensorMemoryLayout layout) const;
+    Conv2dConfigAttr withCoreGrid(CoreRangeSetAttr grid) const;
+    Conv2dConfigAttr withTransposeShards(bool value) const;
+    Conv2dConfigAttr withOutputLayout(Layout layout) const;
+    Conv2dConfigAttr withPreprocessWeightsOnDevice(bool value) const;
+    Conv2dConfigAttr withAlwaysPreprocessWeights(bool value) const;
+    Conv2dConfigAttr withEnableActDoubleBuffer(bool value) const;
+    Conv2dConfigAttr withEnableWeightsDoubleBuffer(bool value) const;
+    Conv2dConfigAttr withEnableSplitReader(bool value) const;
+    Conv2dConfigAttr withEnableSubblockPadding(bool value) const;
     bool hasActivation() const;
   }];
 

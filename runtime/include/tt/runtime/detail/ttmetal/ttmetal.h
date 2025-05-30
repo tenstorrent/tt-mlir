@@ -8,9 +8,11 @@
 #define FMT_HEADER_ONLY
 #include "tt-metalium/circular_buffer.hpp"
 #include "tt-metalium/event.hpp"
+#include "tt-metalium/hal.hpp"
 #include "tt-metalium/host_api.hpp"
 #include "tt-metalium/memory_reporter.hpp"
 #include "tt-metalium/mesh_device.hpp"
+#include "tt-metalium/program_cache.hpp"
 #include "tt-metalium/tt_metal.hpp"
 
 #include "tt/runtime/types.h"
@@ -56,6 +58,8 @@ TensorDesc getTensorDesc(::tt::runtime::Tensor tensor);
 bool getTensorRetain(Tensor tensor);
 void setTensorRetain(Tensor tensor, bool retain);
 
+Arch getArch();
+
 size_t getNumAvailableDevices();
 
 Device openMeshDevice(const std::vector<uint32_t> &meshShape,
@@ -73,12 +77,24 @@ void releaseSubMeshDevice(Device subMesh);
 void reshapeMeshDevice(Device meshDevice,
                        const std::vector<uint32_t> &meshShape);
 
+std::vector<uint32_t> getMeshShape(Device meshDevice);
+std::vector<int> getDeviceIds(Device meshDevice);
+size_t getNumHwCqs(Device meshDevice);
+bool isProgramCacheEnabled(Device meshDevice);
+size_t getL1SmallSize(Device meshDevice);
+size_t getTraceRegionSize(Device meshDevice);
+size_t getNumDramChannels(Device meshDevice);
+size_t getDramSizePerChannel(Device meshDevice);
+size_t getL1SizePerCore(Device meshDevice);
+
 void deallocateBuffers(Device device);
 
 void dumpMemoryReport(Device device);
 
+void dumpDeviceProfileResults(Device device);
+
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
-getMemoryView(Device device, int deviceID = 0);
+getMemoryView(Device device);
 
 void wait(Event event);
 

@@ -81,15 +81,15 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
                                               targetTensorDataType)),
           toLayoutOpResultEncoding);
 
+  DeviceAttr deviceAttr = lookupDevice(op);
+
   // Create the output memory config attribute.
   ttnn::MemoryConfigAttr outputMemConfigAttr = ttnn::MemoryConfigAttr::get(
-      rewriter.getContext(),
+      rewriter.getContext(), outputMemLayoutAttr,
       ttnn::BufferTypeAttr::get(rewriter.getContext(), targetTensorBufferType),
-      ttnn::ShardSpecAttr::get(
-          op->getContext(),
-          ttnn::ShapeAttr::get(rewriter.getContext(),
-                               toLayoutOpResultEncoding.getShardShape())),
-      outputMemLayoutAttr);
+      utils::createShardSpecIfNeeded(
+          mlir::cast<TTNNLayoutAttr>(toLayoutOpResultType.getEncoding()),
+          deviceAttr.getWorkerGrid()));
 
   // Get the device value if the tensor output is not on the host.
   auto deviceValue = targetTensorBufferType == ttnn::BufferType::SystemMemory

@@ -114,14 +114,13 @@ class CallbackRuntimeConfig:
 def golden(callback_runtime_config, binary, program_context, op_context):
     import torch
     import ttrt.runtime
-    import ttrt.binary
 
     logging = callback_runtime_config.logging
     logging.debug("executing golden comparison")
 
     loc = ttrt.runtime.get_op_loc_info(op_context)
 
-    op_golden_tensor = binary.get_debug_info_golden(loc)
+    op_golden_tensor = ttrt.runtime.get_debug_info_golden(binary, loc)
 
     if op_golden_tensor is None:
         logging.debug("Golden tensor is None - skipping golden comparison")
@@ -136,7 +135,7 @@ def golden(callback_runtime_config, binary, program_context, op_context):
     rt_buffer = op_output_tensor.get_data_buffer()
     dtype = ttrt_datatype_to_torch_dtype(op_golden_tensor.dtype)
     assert ttrt_datatype_to_torch_dtype(op_output_tensor.get_dtype()) == dtype
-    golden_tensor_torch = torch.frombuffer(op_golden_tensor, dtype=dtype).flatten()
+    golden_tensor_torch = golden_tensor_to_torch(op_golden_tensor).flatten()
 
     output_tensor_torch = torch.frombuffer(rt_buffer, dtype=dtype).flatten()
     if callback_runtime_config.save_golden_tensors:
@@ -213,16 +212,14 @@ def create_memory_dictionary(memory_view):
 
 def memory(callback_runtime_config, binary, program_context, op_context):
     import ttrt.runtime
-    import ttrt.binary
 
     device = callback_runtime_config.device
     logging = callback_runtime_config.logging
     logging.debug("executing memory dump")
     loc = ttrt.runtime.get_op_loc_info(op_context)
     debug_str = ttrt.runtime.get_op_debug_str(op_context)
-    device_id = 0
 
-    memory_views = device.get_memory_view(device_id)
+    memory_views = device.get_memory_view()
     dram_memory_view = memory_views[ttrt.runtime.MemoryBufferType.DRAM]
     l1_memory_view = memory_views[ttrt.runtime.MemoryBufferType.L1]
     l1_small_memory_view = memory_views[ttrt.runtime.MemoryBufferType.L1_SMALL]
@@ -231,31 +228,10 @@ def memory(callback_runtime_config, binary, program_context, op_context):
     op_memory_report = {}
     op_memory_report["loc"] = loc
     op_memory_report["debug_str"] = debug_str
-
-    dram_op_device_memory_report = {}
-    dram_op_device_memory_report["device_" + str(device_id)] = create_memory_dictionary(
-        dram_memory_view
-    )
-
-    l1_op_device_memory_report = {}
-    l1_op_device_memory_report["device_" + str(device_id)] = create_memory_dictionary(
-        l1_memory_view
-    )
-
-    l1_small_op_device_memory_report = {}
-    l1_small_op_device_memory_report[
-        "device_" + str(device_id)
-    ] = create_memory_dictionary(l1_small_memory_view)
-
-    trace_op_device_memory_report = {}
-    trace_op_device_memory_report[
-        "device_" + str(device_id)
-    ] = create_memory_dictionary(trace_memory_view)
-
-    op_memory_report["dram"] = dram_op_device_memory_report
-    op_memory_report["l1"] = l1_op_device_memory_report
-    op_memory_report["l1_small"] = l1_small_op_device_memory_report
-    op_memory_report["trace"] = trace_op_device_memory_report
+    op_memory_report["dram"] = create_memory_dictionary(dram_memory_view)
+    op_memory_report["l1"] = create_memory_dictionary(l1_memory_view)
+    op_memory_report["l1_small"] = create_memory_dictionary(l1_small_memory_view)
+    op_memory_report["trace"] = create_memory_dictionary(trace_memory_view)
 
     callback_runtime_config.memory_report[
         callback_runtime_config.callback_counter()
@@ -270,7 +246,6 @@ def memory(callback_runtime_config, binary, program_context, op_context):
 def debugger(callback_runtime_config, binary, program_context, op_context):
     import pdb
     import ttrt.runtime
-    import ttrt.binary
 
     device = callback_runtime_config.device
     logging = callback_runtime_config.logging

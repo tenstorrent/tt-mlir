@@ -8,6 +8,7 @@
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include <optional>
 
 using namespace mlir::tt::ttnn;
 
@@ -69,14 +70,14 @@ MlirAttribute ttmlirTTNNMatmulMultiCoreReuseMultiCast1DProgramConfigAttrGet(
     uint64_t outBlockH, uint64_t outBlockW, uint64_t perCoreM,
     uint64_t perCoreN, bool fuseBatch, MlirAttribute fusedActivation,
     bool mcastIn0, bool gatherIn0, MlirAttribute hopCores,
-    uint64_t numGlobalCbReceivers) {
+    uint64_t numGlobalCbReceivers, bool untilizeOut) {
   return wrap(MatmulMultiCoreReuseMultiCast1DProgramConfigAttr::get(
       unwrap(ctx),
       mlir::cast<CoreCoordAttr>(unwrap(computeWithStorageGridSize)), in0BlockW,
       outSubblockH, outSubblockW, outBlockH, outBlockW, perCoreM, perCoreN,
       fuseBatch, mlir::cast<UnaryWithParamAttr>(unwrap(fusedActivation)),
       mcastIn0, gatherIn0, mlir::cast<CoreRangeSetAttr>(unwrap(hopCores)),
-      numGlobalCbReceivers));
+      numGlobalCbReceivers, untilizeOut));
 }
 
 MlirAttribute
@@ -123,18 +124,30 @@ MlirAttribute ttmlirTTNNBufferTypeAttrGet(MlirContext ctx,
 }
 
 MlirAttribute ttmlirTTNNShardSpecAttrGet(MlirContext ctx,
-                                         MlirAttribute shardShapeAttr) {
+                                         MlirAttribute coreRangeSetAttr,
+                                         MlirAttribute shapeAttr,
+                                         MlirAttribute shardOrientationAttr,
+                                         MlirAttribute shardModeAttr,
+                                         MlirAttribute physicalShardShapeAttr) {
   return wrap(ShardSpecAttr::get(
-      unwrap(ctx), mlir::cast<ShapeAttr>(unwrap(shardShapeAttr))));
+      unwrap(ctx), mlir::cast<CoreRangeSetAttr>(unwrap(coreRangeSetAttr)),
+      mlir::cast<ShapeAttr>(unwrap(shapeAttr)),
+      mlir::cast<ShardOrientationAttr>(unwrap(shardOrientationAttr)),
+      mlir::cast<ShardModeAttr>(unwrap(shardModeAttr)),
+      mlir::cast<ShapeAttr>(unwrap(physicalShardShapeAttr))));
 }
 
 MlirAttribute ttmlirTTNNMemoryConfigAttrGet(
     MlirContext ctx, MlirAttribute tensorMemoryLayoutAttr,
     MlirAttribute bufferTypeAttr, MlirAttribute shardSpecAttr) {
   return wrap(MemoryConfigAttr::get(
-      unwrap(ctx), mlir::cast<BufferTypeAttr>(unwrap(bufferTypeAttr)),
-      mlir::cast<ShardSpecAttr>(unwrap(shardSpecAttr)),
-      mlir::cast<TensorMemoryLayoutAttr>(unwrap(tensorMemoryLayoutAttr))));
+      unwrap(ctx),
+      mlir::cast<TensorMemoryLayoutAttr>(unwrap(tensorMemoryLayoutAttr)),
+      mlir::cast<BufferTypeAttr>(unwrap(bufferTypeAttr)),
+      mlirAttributeIsNull(shardSpecAttr)
+          ? std::nullopt
+          : std::optional<mlir::tt::ttnn::ShardSpecAttr>(
+                mlir::cast<ShardSpecAttr>(unwrap(shardSpecAttr)))));
 }
 
 MlirAttribute ttmlirTTNNShapeAttrGet(MlirContext ctx, int64_t *shape,

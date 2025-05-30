@@ -66,12 +66,6 @@ void populatePassesModule(nb::module_ &m) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         mlir::PassManager pm(moduleOp->getName());
 
-        mlir::DialectRegistry registry;
-        mlir::tt::registerAllDialects(registry);
-        mlir::tt::registerAllExtensions(registry);
-        mlir::MLIRContext *ctx = unwrap(mlirModuleGetContext(module));
-        ctx->appendDialectRegistry(registry);
-
         const auto *pipeline =
             mlir::PassPipelineInfo::lookup("ttir-to-ttnn-backend-pipeline");
 
@@ -93,13 +87,9 @@ void populatePassesModule(nb::module_ &m) {
       [](MlirModule module, std::string options = "") {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         mlir::PassManager pm(moduleOp->getName());
-        mlir::DialectRegistry registry;
-        mlir::tt::registerAllDialects(registry);
-        mlir::tt::registerAllExtensions(registry);
-        mlir::MLIRContext *ctx = unwrap(mlirModuleGetContext(module));
-        ctx->appendDialectRegistry(registry);
+
         const auto *pipeline =
-            mlir::PassPipelineInfo::lookup("ttir-to-ttmetal-backend-pipeline");
+            mlir::PassPipelineInfo::lookup("ttir-to-ttmetal-pipeline");
         std::function<mlir::LogicalResult(const llvm::Twine &)> err_handler =
             [](const llvm::Twine &) { return mlir::failure(); };
         if (mlir::failed(pipeline->addToPipeline(pm, options, err_handler))) {
@@ -119,12 +109,6 @@ void populatePassesModule(nb::module_ &m) {
         // func.call conversion.
         mlir::PassManager pm(moduleOp->getName(),
                              mlir::PassManager::Nesting::Implicit);
-
-        mlir::DialectRegistry registry;
-        mlir::tt::registerAllDialects(registry);
-        mlir::tt::registerAllExtensions(registry);
-        mlir::MLIRContext *ctx = unwrap(mlirModuleGetContext(module));
-        ctx->appendDialectRegistry(registry);
 
         const auto *pipeline =
             mlir::PassPipelineInfo::lookup("stablehlo-to-ttir-pipeline");
@@ -196,6 +180,17 @@ void populatePassesModule(nb::module_ &m) {
            const std::vector<std::pair<std::string, std::string>> &moduleCache =
                {}) {
           mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+
+          // Create a dialect registry and register all necessary dialects and
+          // translations
+          mlir::DialectRegistry registry;
+
+          // Register all LLVM IR translations
+          registerAllToLLVMIRTranslations(registry);
+
+          // Apply the registry to the module's context
+          moduleOp->getContext()->appendDialectRegistry(registry);
+
           std::error_code fileError;
           llvm::raw_fd_ostream file(filepath, fileError);
           if (fileError) {
@@ -238,12 +233,6 @@ void populatePassesModule(nb::module_ &m) {
       [](MlirModule module, std::string options = "") {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         mlir::PassManager pm(moduleOp->getName());
-
-        mlir::DialectRegistry registry;
-        mlir::tt::registerAllDialects(registry);
-        mlir::tt::registerAllExtensions(registry);
-        mlir::MLIRContext *ctx = unwrap(mlirModuleGetContext(module));
-        ctx->appendDialectRegistry(registry);
 
         const auto *pipeline =
             mlir::PassPipelineInfo::lookup("pykernel-compile-pipeline");

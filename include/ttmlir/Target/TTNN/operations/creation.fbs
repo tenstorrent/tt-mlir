@@ -27,9 +27,26 @@ table EmptyOp {
   out: tt.target.ttnn.TensorRef;
 }
 
+table FloatingPointType {
+  value: float;
+}
+
+table IntegralType {
+  value: int32;
+}
+
+union FillValueType {
+  FP: FloatingPointType,
+  I32: IntegralType,
+}
+
 table FullOp {
+  shape: [int64];
+  fill_value: FillValueType;
+  dtype: tt.target.DataType = null;
+  layout: tt.target.TensorLayout = null;
   device: tt.target.DeviceRef;
-  fill_value: float;
+  memcfg: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
 }
 

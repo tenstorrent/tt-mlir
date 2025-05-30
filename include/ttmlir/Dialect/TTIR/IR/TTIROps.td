@@ -324,6 +324,7 @@ def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
 
       Additional notes/constraints:
       - It is not capable of changing the data type nor the memory space of the tensor.
+      - If reinterpretLayout is true, the layout view change can include a data type cast, but note this does not actually change the format of the data in memory.
       - All ViewLayout ops can trivially be converted to ToLayout ops.
 
       ```llvm
@@ -333,7 +334,7 @@ def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
       ```
     }];
 
-    let arguments = (ins AnyRankedTensorOrMemRef:$input);
+    let arguments = (ins AnyRankedTensorOrMemRef:$input, DefaultValuedAttr<BoolAttr, "false">:$reinterpretLayout);
     let results = (outs AnyRankedTensorOrMemRef:$result);
 
     let hasVerifier = 1;
@@ -421,7 +422,7 @@ class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTIR_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, [FourOperands] # traits> {
+    TTIR_ElementwiseOp<mnemonic, [FourOperands, TTIR_ElementwiseTernary] # traits> {
     let summary = "Eltwise ternary op.";
     let description = [{
       Eltwise ternary op.
@@ -883,7 +884,7 @@ def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract", [TTIR_PartiallyBroadc
     }];
 }
 
-def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder", [TTIR_PartiallyBroadcastable]> {
+def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder"> {
     let summary = "Eltwise remainder.";
     let description = [{
       Performs element-wise remainder of dividend lhs and divisor rhs tensors and produces a
@@ -947,7 +948,7 @@ def TTIR_MultiplyOp : TTIR_ElementwiseBinaryOp<"multiply", [TTIR_PartiallyBroadc
     }];
 }
 
-def TTIR_DivOp : TTIR_ElementwiseBinaryOp<"div", [TTIR_PartiallyBroadcastable]> {
+def TTIR_DivOp : TTIR_ElementwiseBinaryOp<"div"> {
     let summary = "Eltwise divide.";
     let description = [{
       Eltwise divide operation.
@@ -964,6 +965,34 @@ def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum"> {
         %rhs: [[1, 4, 2], [1, 2, 3]]
         "ttir.maximum"(%lhs, %rhs, %out) -> %out: [[3, 4, 7], [1, 4, 4]]
     }];
+}
+
+def TTIR_BatchNormOp : TTIR_DPSOp<"batch_norm"> {
+  let summary = "BatchNormInference operation";
+  let description = [{
+    Normalizes the `operand` tensor across all dimensions except for the
+    `feature_index` dimension and puts the result in the `output` tensor.
+
+    Example:
+    ```mlir
+    "ttir.batch_norm"(%operand, %scale, %offset, %mean, %variance, epsilon = dense<f32>, feature_index = dense<i64>, %out) {
+    } : (tensor<2x2x2xf64>, tensor<2xf64>, tensor<2xf64>, tensor<2xf64>, tensor<2xf64>, dense<f32>, dense<i64>, tensor<2x2x2xf64>) -> tensor<2x2x2xf64>
+    ```
+  }];
+
+  let arguments = (ins AnyRankedTensor:$operand,
+                       AnyRankedTensor:$scale,
+                       AnyRankedTensor:$offset,
+                       AnyRankedTensor:$mean,
+                       AnyRankedTensor:$variance,
+                       AnyRankedTensor:$output,
+                       F32Attr:$epsilon,
+                       I32Attr:$dimension,
+                       BoolAttr:$training);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
 }
 
 class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
@@ -1499,7 +1528,6 @@ def TTIR_ConvolutionOp : TTIR_NamedOp<"convolution"> {
     AnyRankedTensor:$weight,
     Optional<AnyRankedTensor>:$bias,
     AnyRankedTensor:$output,
-
     DenseI64ArrayAttr:$window_strides,
     DenseI64ArrayAttr:$padding,
     DenseI64ArrayAttr:$input_dilation,
@@ -2025,6 +2053,35 @@ def TTIR_ArangeOp : TTIR_CreationOp<"arange"> {
   let hasVerifier = 1;
 }
 
+def TTIR_FullOp : TTIR_CreationOp<"full"> {
+  let summary = "Creates a tensor filled with the specified value";
+  let description = [{
+    Tensor operation to create a tensor filled with a specified value.
+
+    Given a `shape` and a `fill_value`, produces a tensor with the shape, filled with the specified value.
+
+    Example:
+      %0 = "ttir.full"() <{shape = array<i32: 64, 32, 32>, fill_value = 7 : i32}> : () -> tensor<64x32x32xi32>
+      // %0: [[[7, 7, 7, ..., 7], [7, 7, 7, ..., 7], ..., [7, 7, 7, ..., 7]]]
+  }];
+
+  let arguments = (ins DenseI32ArrayAttr:$shape,
+                       AnyAttrOf<[F32Attr, I32Attr]>:$fill_value);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let builders =
+  [
+    OpBuilder<(ins "Type": $resultType, "Attribute": $fillValue),
+    [{
+      RankedTensorType tensorType = cast<RankedTensorType>(resultType);
+      build($_builder, $_state, tensorType, llvm::to_vector_of<int32_t>(tensorType.getShape()), fillValue);
+    }]>
+  ];
+
+  let hasVerifier = 1;
+}
+
 class TTIR_NamedFullOp<string mnemonic, list<Trait> traits = []> :
   TTIR_CreationOp<mnemonic, traits> {
   let arguments = (ins DenseI32ArrayAttr:$shape);
@@ -2115,6 +2172,8 @@ def TTIR_ConstantOp : TTIR_CreationOp<"constant",
     let results = (outs AnyRankedTensor:$result);
 
     let hasFolder = 1;
+
+    let hasCanonicalizer = 1;
 
     let hasVerifier = 1;
 }
