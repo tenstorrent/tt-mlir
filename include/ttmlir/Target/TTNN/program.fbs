@@ -31,6 +31,7 @@ union OpType {
   ReduceScatterOp,
   GetDeviceOp,
   PrepareConv2dWeightsOp,
+  PrepareConv2dBiasOp,
   Conv2dOp,
   ConvTranspose2dOp,
   CpuOp,

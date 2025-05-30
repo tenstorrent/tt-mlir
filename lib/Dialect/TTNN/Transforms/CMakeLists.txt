@@ -8,7 +8,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNLayout.cpp
         TTNNDecomposeLayouts.cpp
         TTNNToCpp.cpp
-        TTNNPrepareConv2dWeights.cpp
+        TTNNPrepareConv2dWeightsAndBias.cpp
         TTNNFusing.cpp
         TTNNTraceHoistTransform.cpp
         Workarounds/Decomposition/ArgMaxOpRewritePattern.cpp
@@ -17,6 +17,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.cpp
         Workarounds/Decomposition/ReduceOpsRewritePattern.cpp
         Workarounds/Decomposition/RepeatOpRewritePattern.cpp
+        Workarounds/Decomposition/Conv2dOpRewritePattern.cpp
         Workarounds/TTNNWorkaroundsPatterns.cpp
 
         ADDITIONAL_HEADER_DIRS

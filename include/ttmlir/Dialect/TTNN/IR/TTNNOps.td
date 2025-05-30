@@ -1230,6 +1230,30 @@ def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights"> {
     let hasVerifier = 1;
 }
 
+def TTNN_PrepareConv2dBiasOp : TTNN_Op<"prepare_conv2d_bias"> {
+    let summary = "Prepares conv2d bias so that it can be consumed by the conv2d op.";
+
+    let arguments = (ins AnyRankedTensor:$bias_tensor,
+                         TTNN_MemoryConfigAttr:$input_memory_config,
+                         TTNN_LayoutAttr:$input_tensor_layout,
+                         I32Attr:$in_channels,
+                         I32Attr:$out_channels,
+                         I32Attr:$batch_size,
+                         I32Attr:$input_height,
+                         I32Attr:$input_width,
+                         DenseI32ArrayAttr:$kernel_size,
+                         DenseI32ArrayAttr:$stride,
+                         DenseI32ArrayAttr:$padding,
+                         DenseI32ArrayAttr:$dilation,
+                         I32Attr:$groups,
+                         TTNN_Device:$device,
+                         OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_Conv2dOp : TTNN_Op<"conv2d",
       [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
       > {
@@ -1315,11 +1339,6 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d",
       // Get number of output channels.
       int64_t getOutputChannelSize();
       bool isBiasCompatible(llvm::ArrayRef<int64_t> biasDims);
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        return wa::TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
-            getBias() != nullptr
-        );
-      }
     }];
 }
 
@@ -1401,14 +1420,6 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
-
-    let extraClassDeclaration = [{
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        return wa::TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
-            getBias() != nullptr
-        );
-      }
-    }];
 }
 
 class TTNN_PoolingOp<string mnemonic, list<Trait> traits = []> :
