@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #ifndef TTMLIR_OPMODEL_TTNN_CONVERSION_H
 #define TTMLIR_OPMODEL_TTNN_CONVERSION_H
+#include "llvm/Support/raw_ostream.h"
 #ifdef TTMLIR_ENABLE_OPMODEL
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -89,6 +90,25 @@ std::array<To, N> convertLLVMArrayRefToStdArray(::llvm::ArrayRef<From> vec) {
   std::array<To, N> stdArray;
   std::copy(vec.begin(), vec.end(), stdArray.begin());
   return stdArray;
+}
+
+template <typename To, size_t... Sizes, typename From>
+std::variant<std::array<To, Sizes>...>
+convertLLVMArrayRefToMultiSizeStdArray(::llvm::ArrayRef<From> vec) {
+  std::variant<std::array<To, Sizes>...> stdVariantArray;
+
+  bool matched =
+      ((vec.size() == Sizes &&
+        (stdVariantArray = convertLLVMArrayRefToStdArray<To, Sizes>(vec),
+         true)) ||
+       ...);
+
+  if (!matched) {
+    throw std::runtime_error(
+        "Size of LLVM ArrayRef does not match any expected size");
+  }
+
+  return stdVariantArray;
 }
 
 llvm::SmallVector<int64_t>
