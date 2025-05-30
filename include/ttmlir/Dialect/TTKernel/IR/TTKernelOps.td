@@ -361,6 +361,31 @@ def TTKernel_SinTileOp : TTKernel_SFPUOp<"sin_tile", [TTKernel_UnaryOpTrait]> {
     let arguments = (ins IndexLike:$dst0_index);
 }
 
+def TTKernel_FillTileInitOp : TTKernel_InitOp<"fill_tile_init"> {
+    let summary = "Init function for fill_tile operation. Refer to documentation for any init function.";
+    let description = [{
+      Must be run before fill_tile.
+    }];
+
+    let arguments = (ins);
+}
+
+def TTKernel_FillTileOp : TTKernel_Op<"fill_tile"> {
+    let summary = "Fill tile with specified value.";
+    let description = [{
+      Fills supplied DST register tile with a supplied f32 value. The DST
+      register must be in acquired state via *tile_regs_acquire* call.
+
+      Example:
+      ```
+      ttkernel.fill_tile(%dst_index, %value);
+      ```
+    }];
+    let arguments = (ins  IndexLike: $dst_index,
+                          F32:$value
+                    );
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel CB operations
 //===----------------------------------------------------------------------===//

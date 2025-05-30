@@ -592,6 +592,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::DivBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MaxTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SinTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::FillTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulInitShortOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulTilesOp>,
@@ -628,7 +629,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetReadPtrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetTileSizeOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrFromBankIDOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::GetDataFormatOp>>(
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GetDataFormatOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::FillTileOp>>(
         typeConverter, funcOp.getContext());
 
     patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>>(
