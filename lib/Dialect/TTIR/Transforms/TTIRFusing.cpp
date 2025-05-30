@@ -392,18 +392,30 @@ public:
   }
 };
 
-class ErfApproximation : public mlir::OpRewritePattern<DivOp> {
+class ErfApproximation : public mlir::OpRewritePattern<ClampScalarOp> {
 public:
   ErfApproximation(MLIRContext *context)
       : OpRewritePattern(context, PatternBenefit(2)) {}
 
   mlir::LogicalResult
-  matchAndRewrite(DivOp div, mlir::PatternRewriter &rewriter) const final {
+  matchAndRewrite(ClampScalarOp clamp,
+                  mlir::PatternRewriter &rewriter) const final {
+    // This RewritePattern will fuse the following approximation of `erf` to
+    // ttir::ErfOp
+    //
+    // x = clamp(x, -4.0, 4.0)
+    //              Factored polynomial (x^2)
+    // x = x * ------------------------------------
+    //          Different factored polynomial(x^2)
+    // x = clamp(x, -1.0 , 1.0)
+
+    DivOp div = dyn_cast_or_null<DivOp>(clamp.getInput().getDefiningOp());
+    if (!div) {
+      return failure();
+    }
 
     // The denominator is a the input sacaled followed by factored polynomial
     // with constants (in order from closest to the div to furthest):
-    // [-0.014264739, -0.00737332925, -0.00168282702, -0.000213374049,
-    // -0.0000145660715]
     AddOp denominator =
         mlir::dyn_cast_or_null<AddOp>(div.getRhs().getDefiningOp());
     if (!denominator) {
@@ -411,11 +423,10 @@ public:
     }
 
     Value polynomialArg = nullptr;
-
-    if (mlir::failed(matchFactoredPolynomial(denominator,
-                                             {-0.014264739, -0.00737332925,
-                                              -0.00168282702, -0.000213374049,
-                                              -0.0000145660715},
+    SmallVector<float> polynomialValues = {-0.014264739, -0.00737332925,
+                                           -0.00168282702, -0.000213374049,
+                                           -0.0000145660715};
+    if (mlir::failed(matchFactoredPolynomial(denominator, polynomialValues,
                                              polynomialArg))) {
       return failure();
     }
@@ -428,7 +439,13 @@ public:
       return failure();
     }
 
-    Value erfInput = numerator.getLhs();
+    // The numerator polynomial is multiplied by the clamped erf input on the
+    // left hand side.
+    ClampScalarOp clampedErfInput =
+        dyn_cast_or_null<ClampScalarOp>(numerator.getLhs().getDefiningOp());
+    if (!clampedErfInput) {
+      return failure();
+    }
 
     AddOp numeratorPolynomial =
         mlir::dyn_cast_or_null<AddOp>(numerator.getRhs().getDefiningOp());
@@ -436,23 +453,34 @@ public:
       return failure();
     }
 
-    // The denominator is a factored polynomial with constants (in order from
+    // The numerator is a factored polynomial with constants (in order from
     // closest to the div to furthest):
-    // [-0.0160960332, -0.0029546, -0.000734990637, -0.0000569250624,
-    // -0.00000210102394, 0.0000000277068146, -0.000000000272614237]
+    polynomialValues = {-0.0160960332,        -0.0029546,
+                        -0.000734990637,      -0.0000569250624,
+                        -0.00000210102394,    0.0000000277068146,
+                        -0.000000000272614237};
     if (mlir::failed(matchFactoredPolynomial(
-            numeratorPolynomial,
-            {-0.0160960332, -0.0029546, -0.000734990637, -0.0000569250624,
-             -0.00000210102394, 0.0000000277068146, -0.000000000272614237},
-            polynomialArg))) {
+            numeratorPolynomial, polynomialValues, polynomialArg))) {
       return failure();
     }
+
+    // The polynomial argument is the square if the (clamped) erf input
+    MultiplyOp polynomialArgOp =
+        dyn_cast_or_null<MultiplyOp>(polynomialArg.getDefiningOp());
+    if (!polynomialArgOp) {
+      return failure();
+    }
+    if (polynomialArgOp.getLhs() != polynomialArgOp.getRhs()) {
+      return failure();
+    }
+
+    Value erfInput = clampedErfInput.getInput();
 
     ErfOp erf = utils::createDPSOp<ErfOp>(
         rewriter,
         ttmlir::utils::appendLocationSuffix(div.getLoc(), "_multiply"),
         mlir::cast<RankedTensorType>(div.getType()), erfInput);
-    rewriter.replaceOp(div, erf);
+    rewriter.replaceOp(clamp, erf);
     return success();
   }
 
