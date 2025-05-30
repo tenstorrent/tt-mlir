@@ -909,6 +909,9 @@ class Run:
                         for tensor in program.output_tensors:
                             self.logging.debug(f"{tensor}\n")
 
+                        # Dump the perf data before deallocating buffers
+                        device.dump_device_profile_results()
+
                         device.deallocate_buffers()
 
                         # if golden comparison is enabled, check golden results json file to see if test passed
