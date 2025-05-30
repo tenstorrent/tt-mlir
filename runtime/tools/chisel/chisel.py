@@ -186,6 +186,7 @@ class ChiselContext:
             if not self.current_ttnn_op.inputs:
                 return
             for i, tensor_ref in enumerate(tensor_refs):
+                skipped = False
                 tensor = get_tensor(programContext, tensor_ref) if tensor_ref else None
                 op_input: TensorValue = self.current_ttnn_op.inputs[i]
                 op_input.tensor_ref = tensor_ref
@@ -204,6 +205,9 @@ class ChiselContext:
                     input_tensor = self.ttir_executor.tensor_pool[
                         self.validator.ttnn2ttir_tensor[input_name]
                     ]
+                    # It might happen that when skipping. the shapes don't match even tho the data is right
+                    # fetch the shape from the TTIR ir op and reshape the tensor
+                    skipped = True
                 if op_input.status != TensorStatus.NOT_INITIALIZED:
                     continue
                 logger.debug(
@@ -212,9 +216,12 @@ class ChiselContext:
                 logger.debug(
                     f"Op input {i}: {input_tensor.shape if input_tensor is not None else None}"
                 )
-                assert tensor.get_shape() == list(
-                    input_tensor.shape
-                ), f"Input {i} shape mismatch. Got {input_tensor.shape}, expected {tensor.get_shape()}"
+                if not skipped:
+                    assert tensor.get_shape() == list(
+                        input_tensor.shape
+                    ), f"Input {i} shape mismatch. Got {input_tensor.shape}, expected {tensor.get_shape()}"
+                else:
+                    input_tensor = input_tensor.reshape(tensor.get_shape())
                 op_input.set_device_data(input_tensor, programContext)
 
         def postop(binary, programContext, opContext):
@@ -269,6 +276,9 @@ class ChiselContext:
             #     # check for dtype of the output tensor
             #     if tensor.get_dtype() in [DataType.Int32]:
             #         self.should_skip.add(self.current_ttnn_op.outputs[0].name)
+
+            # if self.current_ttnn_op.name == "ttnn.conv2d":
+            #     self.should_skip.add(self.current_ttnn_op.outputs[0].name)
 
             self.ttnn_op_idx += 1
 
@@ -396,7 +406,8 @@ def main():
 
     chisel_context = ChiselContext(args)
     # chisel_context.set_inputs(inputs)
-    chisel_context.generate_inputs()
+    with Context():
+        chisel_context.generate_inputs()
     chisel_context.run()
 
     logger.debug(chisel_context.pcc_data)
