@@ -952,6 +952,8 @@ createEltwiseBinaryCompositeOp(FlatbufferObjectCache &cache,
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::BitwiseOr;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, BitwiseXorOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::BitwiseXor;
+  } else if (std::is_same_v<EltwiseBinaryCompositeOp, BitwiseRightShiftOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::BitwiseRightShift;
   } else {
     llvm_unreachable("unhandled EltwiseBinaryCompositeOp");
   }
@@ -1919,6 +1921,12 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache,
                            createOp(cache, loadCachedOp, programIndexMap),
                            debugString, locInfo);
+  }
+  if (auto bitwiseRightShiftOp = dyn_cast<BitwiseRightShiftOp>(op);
+      bitwiseRightShiftOp) {
+    return createOperation(
+        cache, createEltwiseBinaryCompositeOp(cache, bitwiseRightShiftOp),
+        debugString, locInfo);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");

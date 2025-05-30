@@ -41,7 +41,8 @@ enum EltwiseBinaryCompositeOpType: uint32 {
   Atan2,
   BitwiseAnd,
   BitwiseOr,
-  BitwiseXor
+  BitwiseXor,
+  BitwiseRightShift
 }
 
 table EltwiseBinaryCompositeOp {

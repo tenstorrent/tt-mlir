@@ -967,6 +967,22 @@ def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum"> {
     }];
 }
 
+def TTIR_ShiftRightLogicalOp : TTIR_ElementwiseBinaryOp<"shift_right_logical"> {
+    let summary = "Logical right shift.";
+    let description = [{
+      Performs element-wise logical right-shift operation on the lhs tensor by rhs
+      number of bits and produces a result tensor.
+
+      Example
+      ```
+      // %lhs: [-1, 0, 8]
+      // %rhs: [1, 2, 3]
+      %result = "stablehlo.shift_right_logical"(%lhs, %rhs): (tensor<3xi64>, tensor<3xi64>) -> tensor<3xi64>
+      // %result: [9223372036854775807, 0, 1]
+      ```
+    }];
+}
+
 def TTIR_BatchNormOp : TTIR_DPSOp<"batch_norm"> {
   let summary = "BatchNormInference operation";
   let description = [{

@@ -2089,30 +2089,31 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Eltwise binary ops
   //
-  patterns
-      .add<EltwiseBinaryOpConversionPattern<tt::ttnn::AddOp>,
-           EltwiseBinaryOpConversionPattern<tt::ttnn::SubtractOp>,
-           EltwiseBinaryOpConversionPattern<tt::ttnn::MultiplyOp>,
-           EltwiseBinaryOpConversionPattern<tt::ttnn::LogicalAndOp>,
-           EltwiseBinaryOpConversionPattern<tt::ttnn::LogicalOrOp>,
-           EltwiseBinaryOpConversionPattern<tt::ttnn::LogicalXorOp>,
-           EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::BitwiseAndOp>,
-           EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::BitwiseOrOp>,
-           EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::BitwiseXorOp>,
-           EltwiseBinaryOpConversionPattern<tt::ttnn::EqualOp>,
-           EltwiseBinaryOpConversionPattern<tt::ttnn::NotEqualOp>,
-           EltwiseBinaryOpConversionPattern<tt::ttnn::GreaterEqualOp>,
-           EltwiseBinaryOpConversionPattern<tt::ttnn::GreaterThanOp>,
-           EltwiseBinaryOpConversionPattern<tt::ttnn::LessEqualOp>,
-           EltwiseBinaryOpConversionPattern<tt::ttnn::LessThanOp>,
-           EltwiseBinaryNGCompositeOpConversionPattern<tt::ttnn::MaximumOp>,
-           EltwiseBinaryNGCompositeOpConversionPattern<tt::ttnn::MinimumOp>,
-           EltwiseBinaryOpConversionPattern<tt::ttnn::DivideOp>,
-           EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::ScatterOp>,
-           EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::RemainderOp>,
-           EltwiseBinaryNGCompositeOpConversionPattern<tt::ttnn::PowOp>,
-           EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::Atan2Op>>(
-          typeConverter, ctx);
+  patterns.add<
+      EltwiseBinaryOpConversionPattern<tt::ttnn::AddOp>,
+      EltwiseBinaryOpConversionPattern<tt::ttnn::SubtractOp>,
+      EltwiseBinaryOpConversionPattern<tt::ttnn::MultiplyOp>,
+      EltwiseBinaryOpConversionPattern<tt::ttnn::LogicalAndOp>,
+      EltwiseBinaryOpConversionPattern<tt::ttnn::LogicalOrOp>,
+      EltwiseBinaryOpConversionPattern<tt::ttnn::LogicalXorOp>,
+      EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::BitwiseAndOp>,
+      EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::BitwiseOrOp>,
+      EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::BitwiseXorOp>,
+      EltwiseBinaryOpConversionPattern<tt::ttnn::EqualOp>,
+      EltwiseBinaryOpConversionPattern<tt::ttnn::NotEqualOp>,
+      EltwiseBinaryOpConversionPattern<tt::ttnn::GreaterEqualOp>,
+      EltwiseBinaryOpConversionPattern<tt::ttnn::GreaterThanOp>,
+      EltwiseBinaryOpConversionPattern<tt::ttnn::LessEqualOp>,
+      EltwiseBinaryOpConversionPattern<tt::ttnn::LessThanOp>,
+      EltwiseBinaryNGCompositeOpConversionPattern<tt::ttnn::MaximumOp>,
+      EltwiseBinaryNGCompositeOpConversionPattern<tt::ttnn::MinimumOp>,
+      EltwiseBinaryOpConversionPattern<tt::ttnn::DivideOp>,
+      EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::ScatterOp>,
+      EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::RemainderOp>,
+      EltwiseBinaryNGCompositeOpConversionPattern<tt::ttnn::PowOp>,
+      EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::Atan2Op>,
+      EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::BitwiseRightShiftOp>>(
+      typeConverter, ctx);
 
   // Eltwise ternary ops
   //

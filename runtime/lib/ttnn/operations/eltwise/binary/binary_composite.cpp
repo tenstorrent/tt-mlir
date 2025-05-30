@@ -117,6 +117,10 @@ void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
     runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::bitwise_xor);
     break;
   }
+  case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::BitwiseRightShift: {
+    runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::bitwise_right_shift);
+    break;
+  }
   }
 }
 
