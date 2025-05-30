@@ -2053,7 +2053,14 @@ def TTIR_ArangeOp : TTIR_CreationOp<"arange"> {
   let hasVerifier = 1;
 }
 
-def TTIR_FullOp : TTIR_CreationOp<"full"> {
+def TTIR_FullOp : TTIR_CreationOp<"full",
+  [ DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  ]> {
   let summary = "Creates a tensor filled with the specified value";
   let description = [{
     Tensor operation to create a tensor filled with a specified value.
