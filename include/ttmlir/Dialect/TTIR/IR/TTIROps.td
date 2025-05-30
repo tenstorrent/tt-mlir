@@ -686,6 +686,13 @@ def TTIR_ExpOp: TTIR_ElementwiseUnaryOp<"exp"> {
     }];
 }
 
+def TTIR_ErfOp: TTIR_ElementwiseUnaryOp<"erf"> {
+  let summary = "Eltwise erf op.";
+  let description = [{
+      Eltwise erf operation. Calculates erf(x) for each element of the in the input tensor.
+    }];
+}
+
 class TTIR_ElementwiseUnaryWithFloatParameterOp<string mnemonic, list<Trait> traits = []> :
     TTIR_ElementwiseUnaryOp<mnemonic, traits> {
     let summary = "Eltwise unary op with the float parameter.";
