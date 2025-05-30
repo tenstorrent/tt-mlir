@@ -46,7 +46,7 @@ public:
       ttnn::PrepareConv2dWeightsOp prepareConv2dWeightsOp =
           rewriter.create<ttnn::PrepareConv2dWeightsOp>(
               ttmlir::utils::appendLocationSuffix(conv2dOp.getLoc(),
-                                                  "_prepare_conv2d"),
+                                                  "_prepare_conv2d_weight"),
               getPreparedWeightsType(conv2dOp), conv2dOp.getWeight(),
               inputMemConfigAttr,
               rewriter.getAttr<ttnn::LayoutAttr>(inputLayoutAttr.getLayout()),
@@ -59,10 +59,25 @@ public:
               conv2dOp.getGroupsAttr(), conv2dOp.getDevice(),
               conv2dOp.getConv2dConfigAttr());
 
+      ttnn::PrepareConv2dBiasOp prepareConv2dBiasOp =
+          rewriter.create<ttnn::PrepareConv2dBiasOp>(
+              ttmlir::utils::appendLocationSuffix(conv2dOp.getLoc(),
+                                                  "_prepare_conv2d_bias"),
+              conv2dOp.getBias().getType(), conv2dOp.getBias(),
+              inputMemConfigAttr,
+              rewriter.getAttr<ttnn::LayoutAttr>(inputLayoutAttr.getLayout()),
+              conv2dOp.getInChannelsAttr(), conv2dOp.getOutChannelsAttr(),
+              conv2dOp.getBatchSizeAttr(), conv2dOp.getInputHeightAttr(),
+              conv2dOp.getInputWidthAttr(), conv2dOp.getKernelSizeAttr(),
+              conv2dOp.getStrideAttr(), conv2dOp.getPaddingAttr(),
+              conv2dOp.getDilationAttr(), conv2dOp.getGroupsAttr(),
+              conv2dOp.getDevice(), conv2dOp.getConv2dConfigAttr());
+
       // Update only the weight operand since PrepareConv2dWeightsOp will change
       // the shape and layout of the weight
       rewriter.modifyOpInPlace(conv2dOp, [&]() {
         conv2dOp.getWeightMutable().assign(prepareConv2dWeightsOp);
+        conv2dOp.getBiasMutable().assign(prepareConv2dBiasOp);
       });
     });
 
