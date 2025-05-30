@@ -16,7 +16,7 @@ from ttmlir.ir import *
 @pytest.mark.parametrize("grid_x", [1])
 @pytest.mark.parametrize("shard_mul_y", [3])
 @pytest.mark.parametrize("shard_mul_x", [2])
-@pytest.mark.parametrize("dst_register_size_tiles", [1])
+@pytest.mark.parametrize("dst_register_size_tiles", [8])
 def test_eltwise_blocking(
     grid_y: int,
     grid_x: int,
