@@ -124,7 +124,7 @@ Device openMeshDevice(const std::vector<uint32_t> &meshShape,
             meshDevice->compute_with_storage_grid_size().y, " }");
 
   return Device(std::static_pointer_cast<void>(meshDevice),
-                DeviceRuntime::TTMetal);
+                /*traceCache=*/nullptr, DeviceRuntime::TTMetal);
 }
 
 void closeMeshDevice(Device parentMesh) {
@@ -164,7 +164,7 @@ Device createSubMeshDevice(
       parentMeshDevice.create_submesh(shape, offset);
 
   return Device(std::static_pointer_cast<void>(subMeshDevice),
-                DeviceRuntime::TTMetal);
+                /*traceCache=*/nullptr, DeviceRuntime::TTMetal);
 }
 
 void releaseSubMeshDevice(Device subMesh) {

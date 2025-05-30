@@ -42,6 +42,7 @@
 #include "ttnn/operations/reduction/argmax/argmax.hpp"
 #include "ttnn/operations/reduction/generic/generic_reductions.hpp"
 #include "ttnn/operations/reduction/prod/prod.hpp"
+#include "ttnn/operations/trace.hpp"
 #include "ttnn/tensor/host_buffer/functions.hpp"
 #include "ttnn/tensor/shape/shape.hpp"
 #include "ttnn/tensor/tensor.hpp"
@@ -154,6 +155,8 @@ size_t getNumDramChannels(Device meshDevice);
 size_t getDramSizePerChannel(Device meshDevice);
 size_t getL1SizePerCore(Device meshDevice);
 
+bool releaseTrace(Device meshDevice, std::uint64_t binaryId, size_t programId);
+
 void deallocateBuffers(Device device);
 
 void dumpMemoryReport(Device device);
@@ -195,11 +198,6 @@ std::string getOpLocInfo(OpContext opContextHandle);
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs);
-
-std::vector<::tt::runtime::Tensor>
-runProgram(std::shared_ptr<::ttnn::MeshDevice> meshDevice,
-           Binary executableHandle, std::uint32_t programIndex,
-           std::vector<::tt::runtime::Tensor> &inputs);
 
 } // namespace tt::runtime::ttnn
 

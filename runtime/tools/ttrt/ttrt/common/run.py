@@ -160,11 +160,11 @@ class Run:
             help="disable runtime raw host data pointer wrapper workaround",
         )
         Run.register_arg(
-            name="--disable-manual-device-storage-from-borrowed-storage",
+            name="--disable-trace-implicit-from-device",
             type=bool,
             default=False,
             choices=[True, False],
-            help="disable converting a borrowed storage tensor to device storage tensor workaround",
+            help="disable trace from implicitly bouncing tensors off of host",
         )
         Run.register_arg(
             name="--result-file",
@@ -498,6 +498,7 @@ class Run:
                 not self["--disable-swap-binary-operands"],
                 not self["--disable-read-update-index-for-kv-cache"],
                 not self["--disable-raw-host-data-pointer-wrapper"],
+                not self["--disable-trace-implicit-from-device"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
             perf_env = ttrt.runtime.DebugPerfEnv.get(

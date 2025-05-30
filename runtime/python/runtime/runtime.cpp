@@ -37,6 +37,7 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def("get_num_dram_channels", &tt::runtime::getNumDramChannels)
       .def("get_dram_size_per_channel", &tt::runtime::getDramSizePerChannel)
       .def("get_l1_size_per_core", &tt::runtime::getL1SizePerCore)
+      .def("release_trace", &tt::runtime::releaseTrace)
       .def("deallocate_buffers", &tt::runtime::detail::deallocateBuffers)
       .def("dump_memory_report", &tt::runtime::detail::dumpMemoryReport)
       .def("dump_device_profile_results",
