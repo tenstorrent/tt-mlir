@@ -128,4 +128,20 @@ def TTIR_ViewOpInterface : OpInterface<"ViewOpInterface"> {
   ];
 }
 
+def TTIR_OperandLoadRegisterOpInterface : OpInterface<"OperandLoadRegisterOpInterface"> {
+  let cppNamespace = "::mlir::tt::ttir";
+  let methods = [
+    InterfaceMethod<
+      /*desc=*/[{
+        Get the input of the view op.
+      }],
+      /*retTy=*/"::mlir::SmallVector<int64_t>",
+      /*methodName=*/"getOperandsLoadFromDstRegister",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return ::mlir::SmallVector<int64_t>{};"
+    >,
+  ];
+}
+
 #endif

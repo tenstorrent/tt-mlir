@@ -23,23 +23,38 @@ public:
 
   LogicalResult matchAndRewrite(ttkernel::PackTileOp op,
                                 PatternRewriter &rewriter) const final {
-    if (!op->getBlock()->getOps<ttkernel::TileRegsCommitOp>().empty()) {
+    Block *acquireBlock = findBlockContaining<ttkernel::TileRegsAcquireOp>(op);
+    if (!acquireBlock->getOps<ttkernel::TileRegsCommitOp>().empty()) {
       return failure();
     }
 
-    rewriter.moveOpAfter(
-        rewriter.create<ttkernel::TileRegsReleaseOp>(op->getLoc()), op);
-    auto regsWait = rewriter.create<ttkernel::TileRegsWaitOp>(op->getLoc());
-    rewriter.moveOpBefore(regsWait, op);
-    rewriter.moveOpBefore(
-        rewriter.create<ttkernel::TileRegsCommitOp>(op->getLoc()), regsWait);
-
-    rewriter.moveOpBefore(
-        rewriter.create<ttkernel::TileRegsAcquireOp>(op->getLoc()),
-        op->getBlock(), op->getBlock()->begin());
+    Operation *parent = parentOpAtBlock(op, acquireBlock);
+    rewriter.setInsertionPoint(parent);
+    rewriter.create<ttkernel::TileRegsCommitOp>(op->getLoc());
+    rewriter.create<ttkernel::TileRegsWaitOp>(op->getLoc());
+    rewriter.setInsertionPointAfter(parent);
+    rewriter.create<ttkernel::TileRegsReleaseOp>(op->getLoc());
 
     return success();
   };
+
+  template <typename ConcreteOp>
+  static Block *findBlockContaining(Operation *op) {
+    Block *block = op->getBlock();
+    while (block->getOps<ConcreteOp>().empty()) {
+      block = block->getParentOp()->getBlock();
+    }
+    return block;
+  }
+
+  static Operation *parentOpAtBlock(Operation *child, Block *atBlock) {
+    Operation *parent = child;
+    while (parent->getBlock() != atBlock) {
+      parent = parent->getParentOp();
+      assert(parent);
+    }
+    return parent;
+  }
 };
 
 } // namespace
