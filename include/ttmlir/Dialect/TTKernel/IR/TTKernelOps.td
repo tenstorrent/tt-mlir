@@ -389,7 +389,7 @@ def TTKernel_FillTileOp : TTKernel_Op<"fill_tile"> {
 def TTKernel_SigmoidTileInitOp : TTKernel_InitOp<"sigmoid_tile_init"> {
     let summary = "Short init function which configures compute unit for execution of sigmoid_tile.";
     let description = [{
-      Must be run before exp_tile.
+      Must be run before sigmoid_tile.
     }];
 }
 
