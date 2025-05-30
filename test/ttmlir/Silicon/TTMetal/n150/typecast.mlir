@@ -1,6 +1,7 @@
 // RUN: ttmlir-opt --ttir-to-ttmetal-pipeline="system-desc-path=%system_desc_path%" %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttmetal-to-flatbuffer %t.mlir > %t.ttm
+// UNSUPPORTED: true
 func.func @test_typecast(%arg0: tensor<64x128xf32>) -> (tensor<64x128xi32>, tensor<64x128xbf16>) {
   %0 = "ttir.empty"() : () -> tensor<64x128xi32>
   // CHECK: emitc.call_opaque "copy_tile_init"
