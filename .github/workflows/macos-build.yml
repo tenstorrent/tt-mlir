@@ -14,7 +14,7 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: macos-latest, c_compiler: clang, cpp_compiler: clang++, build_type: Release, enable_runtime: OFF}
+          {runs-on: tt-beta-ubuntu-2204-xlarge, c_compiler: clang, cpp_compiler: clang++, build_type: Release, enable_runtime: OFF}
         ]
     runs-on: ${{ matrix.build.runs-on }}
     steps:
