@@ -4,6 +4,7 @@
 
 #include "OpModelFixture.h"
 
+#include "TTNNOpConstraint.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
@@ -83,8 +84,7 @@ protected:
       };
   std::map<
       UnaryEltwiseOpType,
-      std::function<llvm::Expected<
-          std::tuple<size_t, size_t, size_t, mlir::tt::ttnn::TTNNLayoutAttr>>(
+      std::function<llvm::Expected<op_model::ttnn::OpConstraints>(
           GridAttr, llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr,
           llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr)>>
       constraintsMap = {
@@ -314,41 +314,37 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
       CreateWorkerGrid(), tensorShape, inputLayout_dram, -1, tensorShape,
       inputLayout_l1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  std::tie(cb_size, peak_size, output_size, outputLayoutReadBack) =
-      constraintsExp.get();
-  EXPECT_EQ(cb_size, 137216);
-  EXPECT_EQ(output_size, 2048);
-  EXPECT_EQ(peak_size, 2048);
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 137216);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 2048);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 2048);
 
   constraintsExp = SoftmaxOpInterface::getOpConstraints(
       CreateWorkerGrid(), tensorShape, inputLayout_l1, -1, tensorShape,
       inputLayout_dram);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  std::tie(cb_size, peak_size, output_size, outputLayoutReadBack) =
-      constraintsExp.get();
-  EXPECT_EQ(cb_size, 137216);
-  EXPECT_EQ(output_size, 0);
-  EXPECT_EQ(peak_size, 0);
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 137216);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   constraintsExp = SoftmaxOpInterface::getOpConstraints(
       CreateWorkerGrid(), tensorShape, inputLayout_l1, -1, tensorShape,
       inputLayout_l1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  std::tie(cb_size, peak_size, output_size, outputLayoutReadBack) =
-      constraintsExp.get();
-  EXPECT_EQ(cb_size, 137216);
-  EXPECT_EQ(output_size, 2048);
-  EXPECT_EQ(peak_size, 2048);
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 137216);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 2048);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 2048);
 
   constraintsExp = SoftmaxOpInterface::getOpConstraints(
       CreateWorkerGrid(), tensorShape, inputLayout_dram, -1, tensorShape,
       inputLayout_dram);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  std::tie(cb_size, peak_size, output_size, outputLayoutReadBack) =
-      constraintsExp.get();
-  EXPECT_EQ(cb_size, 137216);
-  EXPECT_EQ(output_size, 0);
-  EXPECT_EQ(peak_size, 0);
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 137216);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   std::vector<std::tuple<mlir::tt::ttnn::TTNNLayoutAttr,
                          mlir::tt::ttnn::TTNNLayoutAttr>>
@@ -380,11 +376,10 @@ TEST_F(OpModelTest, Reshape) {
       CreateWorkerGrid(), tensorShape, layoutDRAM, {workerCoresN300 * 4, 256},
       layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cb_size, peak_size, output_size, outputLayoutReadBack] =
-      constraintsExp.get();
-  EXPECT_EQ(cb_size, 5120);
-  EXPECT_EQ(output_size, 0);
-  EXPECT_EQ(peak_size, 0);
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 5120);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = ReshapeOpInterface::getOpRuntime(
       tensorShape, layoutDRAM, {workerCoresN300 * 4, 256}, layoutDRAM);
@@ -395,11 +390,10 @@ TEST_F(OpModelTest, Reshape) {
       CreateWorkerGrid(), tensorShape, layoutDRAM, {workerCoresN300 * 4, 256},
       layoutL1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  std::tie(cb_size, peak_size, output_size, outputLayoutReadBack) =
-      constraintsExp.get();
-  EXPECT_EQ(cb_size, 5120);
-  EXPECT_EQ(output_size, 2048);
-  EXPECT_EQ(peak_size, 2048);
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 5120);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 2048);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 2048);
 
   runtimeExp = ReshapeOpInterface::getOpRuntime(
       tensorShape, layoutDRAM, {workerCoresN300 * 4, 256}, layoutL1);
@@ -426,12 +420,11 @@ TEST_F(OpModelTest, ToLayout) {
       CreateWorkerGrid(), tensorShape, layoutDRAMTiled, std::nullopt,
       layoutDRAMRowMajor, true);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cb_size, peak_size, output_size, outputLayoutReadBack] =
-      constraintsExp.get();
-  EXPECT_EQ(cb_size, 262144);
-  EXPECT_EQ(output_size, 0);
-  EXPECT_EQ(peak_size, 0);
-  ExpectLayoutsEQ(layoutDRAMRowMajor, outputLayoutReadBack);
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 262144);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+  ExpectLayoutsEQ(layoutDRAMRowMajor, opCstr.outputLayout);
 
   auto runtimeExp = ToLayoutOpInterface::getOpRuntime(
       tensorShape, layoutDRAMTiled, std::nullopt, layoutDRAMRowMajor, true);
@@ -453,12 +446,11 @@ TEST_F(OpModelTest, ToLayout) {
       CreateWorkerGrid(), tensorShape, layoutDRAMTiled, std::nullopt,
       layoutDRAMRowMajor, false);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  std::tie(cb_size, peak_size, output_size, outputLayoutReadBack) =
-      constraintsExp.get();
-  EXPECT_EQ(cb_size, 262144);
-  EXPECT_EQ(output_size, 0);
-  EXPECT_EQ(peak_size, 0);
-  ExpectLayoutsEQ(layoutDRAMRowMajor, outputLayoutReadBack);
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 262144);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+  ExpectLayoutsEQ(layoutDRAMRowMajor, opCstr.outputLayout);
 
   runtimeExp = ToLayoutOpInterface::getOpRuntime(
       tensorShape, layoutDRAMTiled, std::nullopt, layoutDRAMRowMajor, false);
@@ -485,11 +477,10 @@ TEST_F(OpModelTest, Transpose) {
   auto constraintsExp = TransposeOpInterface::getOpConstraints(
       CreateWorkerGrid(), tensorShape, layoutDRAM, 0, 1, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cb_size, peak_size, output_size, outputLayoutReadBack] =
-      constraintsExp.get();
-  EXPECT_EQ(cb_size, 8192);
-  EXPECT_EQ(output_size, 0);
-  EXPECT_EQ(peak_size, 0);
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 8192);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = TransposeOpInterface::getOpRuntime(tensorShape, layoutDRAM,
                                                        0, 1, layoutDRAM);
@@ -499,11 +490,10 @@ TEST_F(OpModelTest, Transpose) {
   constraintsExp = TransposeOpInterface::getOpConstraints(
       CreateWorkerGrid(), tensorShape, layoutDRAM, 0, 1, layoutL1Interleaved);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  std::tie(cb_size, peak_size, output_size, outputLayoutReadBack) =
-      constraintsExp.get();
-  EXPECT_EQ(cb_size, 8192);
-  EXPECT_EQ(output_size, 2048);
-  EXPECT_EQ(peak_size, 2048);
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 8192);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 2048);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 2048);
 
   runtimeExp = TransposeOpInterface::getOpRuntime(tensorShape, layoutDRAM, 0, 1,
                                                   layoutL1Interleaved);
@@ -540,31 +530,28 @@ TEST_F(OpModelTest, SoftmaxSharded) {
       CreateWorkerGrid(), tensorShape, inputLayout_l1_hs, -2, tensorShape,
       inputLayout_l1_hs);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cb_size, peak_size, output_size, outputLayoutReadBack] =
-      constraintsExp.get();
-  EXPECT_EQ(cb_size, 24576);
-  EXPECT_EQ(output_size, 32768);
-  EXPECT_EQ(peak_size, 32768);
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 24576);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 32768);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 32768);
 
   constraintsExp = SoftmaxOpInterface::getOpConstraints(
       CreateWorkerGrid(), tensorShape, inputLayout_l1_hs, -2, tensorShape,
       inputLayout_l1_i);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  std::tie(cb_size, peak_size, output_size, outputLayoutReadBack) =
-      constraintsExp.get();
-  EXPECT_EQ(cb_size, 24576);
-  EXPECT_EQ(output_size, 32768);
-  EXPECT_EQ(peak_size, 32768);
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 24576);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 32768);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 32768);
 
   constraintsExp = SoftmaxOpInterface::getOpConstraints(
       CreateWorkerGrid(), tensorShape, inputLayout_l1_i, -2, tensorShape,
       inputLayout_l1_hs);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  std::tie(cb_size, peak_size, output_size, outputLayoutReadBack) =
-      constraintsExp.get();
-  EXPECT_EQ(cb_size, 24576);
-  EXPECT_EQ(output_size, 32768);
-  EXPECT_EQ(peak_size, 32768);
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 24576);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 32768);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 32768);
 
   auto runtimeExp = SoftmaxOpInterface::getOpRuntime(
       tensorShape, inputLayout_l1_i, -2, tensorShape, inputLayout_l1_hs);
@@ -594,11 +581,10 @@ TEST_F(OpModelTest, Typecast) {
       DataTypeAttr::get(&context, DataType::Float32), tensorShape,
       inputLayoutDRAMIF32);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cb_size, peak_size, output_size, outputLayoutReadBack] =
-      constraintsExp.get();
-  EXPECT_EQ(cb_size, 12288);
-  EXPECT_EQ(output_size, 0);
-  EXPECT_EQ(peak_size, 0);
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 12288);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = TypecastOpInterface::getOpRuntime(
       tensorShape, inputLayoutDRAMIBF16,
@@ -644,8 +630,7 @@ protected:
 
   std::map<
       BinaryEltwiseOpType,
-      std::function<llvm::Expected<
-          std::tuple<size_t, size_t, size_t, mlir::tt::ttnn::TTNNLayoutAttr>>(
+      std::function<llvm::Expected<OpConstraints>(
           GridAttr, llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr,
           llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr,
           llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr)>>
