@@ -6,7 +6,10 @@
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/Support/Casting.h"
+#include "llvm/Support/LogicalResult.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRFUSING
@@ -392,6 +395,20 @@ public:
   }
 };
 
+mlir::LogicalResult matchConstantValue(FullOp full, float constant) {
+  FloatAttr valueAttr = mlir::dyn_cast_or_null<FloatAttr>(full.getFillValue());
+  if (!valueAttr) {
+    return failure();
+  }
+
+  float constValue = valueAttr.getValue().convertToFloat();
+  if (constValue != constant) {
+    return failure();
+  }
+
+  return success();
+}
+
 class ErfApproximationFusionPattern
     : public mlir::OpRewritePattern<ClampScalarOp> {
 public:
@@ -479,28 +496,13 @@ public:
 
     ErfOp erf = utils::createDPSOp<ErfOp>(
         rewriter,
-        ttmlir::utils::appendLocationSuffix(div.getLoc(), "_multiply"),
-        mlir::cast<RankedTensorType>(div.getType()), erfInput);
+        ttmlir::utils::appendLocationSuffix(clamp.getLoc(), "_multiply"),
+        mlir::cast<RankedTensorType>(clamp.getType()), erfInput);
     rewriter.replaceOp(clamp, erf);
     return success();
   }
 
 private:
-  mlir::LogicalResult matchConstantValue(FullOp full, float constant) const {
-    FloatAttr valueAttr =
-        mlir::dyn_cast_or_null<FloatAttr>(full.getFillValue());
-    if (!valueAttr) {
-      return failure();
-    }
-
-    float constValue = valueAttr.getValue().convertToFloat();
-    if (constValue != constant) {
-      return failure();
-    }
-
-    return success();
-  }
-
   mlir::LogicalResult matchFactoredPolynomial(AddOp lastOp,
                                               SmallVector<float> scales,
                                               Value &polynomialArg) const {
@@ -556,6 +558,97 @@ private:
   }
 };
 
+class GeluFusionPattern : public mlir::OpRewritePattern<MultiplyOp> {
+public:
+  GeluFusionPattern(MLIRContext *context)
+      : OpRewritePattern(context, PatternBenefit(2)) {}
+
+  LogicalResult matchAndRewrite(MultiplyOp multiply,
+                                PatternRewriter &rewriter) const final {
+    // gelu can be presented as this pattern:
+    //
+    // gelu(x) = (0.5*x)*(1 + erf(x*rsqrt(2)))
+    //
+    // This fusion pattern will fuse this representation of gelu
+
+    // The RHS of the multiply shall be 0.5*x
+
+    MultiplyOp multiplyByHalf =
+        dyn_cast_or_null<MultiplyOp>(multiply.getRhs().getDefiningOp());
+    if (!multiplyByHalf) {
+      return failure();
+    }
+
+    // The LHS of multiplyByHalf will be the input to gelu, the RHS will be a
+    // 0.5 constant
+    FullOp half =
+        dyn_cast_or_null<FullOp>(multiplyByHalf.getRhs().getDefiningOp());
+    if (!half) {
+      return failure();
+    }
+
+    if (mlir::failed(matchConstantValue(half, 0.5))) {
+      return failure();
+    }
+    Value geluInput = multiplyByHalf.getLhs();
+
+    // LHS of multiply should be add(erf(multiply(geluInput, rsqrt(2))), 1)
+
+    AddOp plusOne = dyn_cast_or_null<AddOp>(multiply.getLhs().getDefiningOp());
+    if (!plusOne) {
+      return failure();
+    }
+
+    FullOp one = dyn_cast_or_null<FullOp>(plusOne.getRhs().getDefiningOp());
+    if (!one) {
+      return failure();
+    }
+
+    if (mlir::failed(matchConstantValue(one, 1.0))) {
+      return failure();
+    }
+
+    ErfOp erf = dyn_cast_or_null<ErfOp>(plusOne.getLhs().getDefiningOp());
+    if (!erf) {
+      return failure();
+    }
+
+    MultiplyOp multiplyByRsqrt2 =
+        dyn_cast_or_null<MultiplyOp>(erf.getInput().getDefiningOp());
+    if (!multiplyByRsqrt2) {
+      return failure();
+    }
+
+    // The LHS of this multiply must be the gelu input
+    if (multiplyByRsqrt2.getLhs() != geluInput) {
+      return failure();
+    }
+
+    RsqrtOp rsqrt2 =
+        dyn_cast_or_null<RsqrtOp>(multiplyByRsqrt2.getRhs().getDefiningOp());
+    if (!rsqrt2) {
+      return failure();
+    }
+
+    FullOp two = dyn_cast_or_null<FullOp>(rsqrt2.getInput().getDefiningOp());
+    if (!two) {
+      return failure();
+    }
+
+    if (mlir::failed(matchConstantValue(two, 2.0))) {
+      return failure();
+    }
+
+    GeluOp gelu = utils::createDPSOp<GeluOp>(
+        rewriter,
+        ttmlir::utils::appendLocationSuffix(multiply.getLoc(), "_multiply"),
+        mlir::cast<RankedTensorType>(multiply.getType()), geluInput);
+    rewriter.replaceOp(multiply, gelu);
+
+    return success();
+  }
+};
+
 class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
 public:
   using impl::TTIRFusingBase<TTIRFusingPass>::TTIRFusingBase;
@@ -585,6 +678,7 @@ public:
       patterns.add<SoftmaxFusionPattern>(&getContext());
       patterns.add<Conv2dWithMultiply>(&getContext());
       patterns.add<ErfApproximationFusionPattern>(&getContext());
+      patterns.add<GeluFusionPattern>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);
