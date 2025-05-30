@@ -401,12 +401,6 @@ void closeMeshDevice(Device parentMesh) {
                 " that has ", numSubMeshes, " unreleased submeshes.");
   }
 #endif
-
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-  for (::ttnn::IDevice *ttnnDevice : ttnnMeshDevice.get_devices()) {
-    ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
-  }
-#endif
   ttnnMeshDevice.close();
 }
 
@@ -491,6 +485,24 @@ size_t getTraceRegionSize(Device meshDevice) {
   return ttnnMeshDevice.allocator()->get_config().trace_region_size;
 }
 
+size_t getNumDramChannels(Device meshDevice) {
+  ::ttnn::MeshDevice &ttnnMeshDevice =
+      meshDevice.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  return ttnnMeshDevice.num_dram_channels();
+}
+
+size_t getDramSizePerChannel(Device meshDevice) {
+  ::ttnn::MeshDevice &ttnnMeshDevice =
+      meshDevice.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  return ttnnMeshDevice.dram_size_per_channel();
+}
+
+size_t getL1SizePerCore(Device meshDevice) {
+  ::ttnn::MeshDevice &ttnnMeshDevice =
+      meshDevice.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  return ttnnMeshDevice.l1_size_per_core();
+}
+
 void deallocateBuffers(Device deviceHandle) {
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
@@ -498,28 +510,47 @@ void deallocateBuffers(Device deviceHandle) {
 }
 
 void dumpMemoryReport(Device deviceHandle) {
-  const ::ttnn::MeshDevice &meshDevice =
+  ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
   ::tt::tt_metal::detail::DumpDeviceMemoryState(&meshDevice);
 }
 
+void dumpDeviceProfileResults(Device deviceHandle) {
+  ::ttnn::MeshDevice &ttnnMeshDevice =
+      deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+
+  LOG_ASSERT(ttnnMeshDevice.is_parent_mesh(),
+             "Mesh device must be a parent mesh");
+
+// NOTE: Reshaping the device before and after this dump is a temporary
+// workaround for tt-metal issue #22285 ttrt.common.run reshapes devices to (1,
+// number of device ids) tt-metal's DumpDeviceProfileResults expects the
+// mesh_shape in the SystemDesc This was throwing errors in llmbox tests
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
+  auto originalMeshShape = ttnnMeshDevice.shape();
+  ttnnMeshDevice.reshape(::ttnn::MeshShape(1, originalMeshShape.mesh_size()));
+  for (::ttnn::IDevice *ttnnDevice : ttnnMeshDevice.get_devices()) {
+    ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
+  }
+  ttnnMeshDevice.reshape(originalMeshShape);
+#endif
+}
+
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
-getMemoryView(Device deviceHandle, int deviceID) {
+getMemoryView(Device deviceHandle) {
   std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
       memoryMap;
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
 
-  auto *device = meshDevice.get_device(deviceID);
-
-  auto dramMemoryView =
-      ::tt::tt_metal::detail::GetMemoryView(device, ::ttnn::BufferType::DRAM);
-  auto l1MemoryView =
-      ::tt::tt_metal::detail::GetMemoryView(device, ::ttnn::BufferType::L1);
+  auto dramMemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      &meshDevice, ::ttnn::BufferType::DRAM);
+  auto l1MemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      &meshDevice, ::ttnn::BufferType::L1);
   auto l1SmallMemoryView = ::tt::tt_metal::detail::GetMemoryView(
-      device, ::ttnn::BufferType::L1_SMALL);
-  auto traceMemoryView =
-      ::tt::tt_metal::detail::GetMemoryView(device, ::ttnn::BufferType::TRACE);
+      &meshDevice, ::ttnn::BufferType::L1_SMALL);
+  auto traceMemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      &meshDevice, ::ttnn::BufferType::TRACE);
 
   memoryMap[tt::runtime::MemoryBufferType::DRAM] =
       createMemoryView(dramMemoryView);

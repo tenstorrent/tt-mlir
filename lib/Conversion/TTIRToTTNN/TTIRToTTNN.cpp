@@ -122,20 +122,13 @@ public:
         rewriter.getContext(), llvm::SmallVector<int64_t, 4>(
                                    op.getShape().begin(), op.getShape().end()));
 
-    // Get memref
-    //
-    mlir::MemRefType memref = layoutAttr.getMemref();
-
     // Get data type, tensor layout, device and memory config
     //
     DataTypeAttr dTypeAttr =
         DataTypeAttr::get(rewriter.getContext(), layoutAttr.getDataType());
     ttnn::BufferType bufferType = layoutAttr.getBufferType();
-    ttnn::Layout ttnnLayoutEnum = llvm::isa<TileType>(memref.getElementType())
-                                      ? ttnn::Layout::Tile
-                                      : ttnn::Layout::RowMajor;
     ttnn::LayoutAttr tensorLayoutAttr =
-        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
+        ttnn::LayoutAttr::get(op.getContext(), layoutAttr.getLayout());
     ttnn::TensorMemoryLayoutAttr memLayout = layoutAttr.getMemLayout();
 
     // Device only exists if memLayout is *not* null
@@ -156,6 +149,31 @@ public:
     rewriter.replaceOpWithNewOp<TTNNType>(
         op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
         dTypeAttr, tensorLayoutAttr, device, memoryConfigAttr);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class FullOpConversionPattern : public OpConversionPattern<ttir::FullOp> {
+public:
+  using OpConversionPattern<ttir::FullOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::FullOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto ttnnLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(op.getType().getEncoding());
+    bool isOnDevice =
+        ttnnLayoutAttr.getBufferType() != ttnn::BufferType::SystemMemory;
+    ttnn::GetDeviceOp deviceOp;
+    if (isOnDevice) {
+      deviceOp = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    }
+    rewriter.replaceOpWithNewOp<ttnn::FullOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getFillValue(), deviceOp);
 
     return success();
   }
@@ -275,7 +293,7 @@ public:
   matchAndRewrite(ttir::ProdOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     int64_t inputRank = op.getInput().getType().getRank();
-    auto dimArg = op.getDimArg();
+    std::optional<::mlir::ArrayAttr> dimArg = op.getDimArg();
     int64_t size = dimArg ? dimArg->size() : inputRank;
 
     // [TODO](mmanzoor) Decompose ttnn.prod op into multiple ttnn.prod to handle
@@ -287,15 +305,21 @@ public:
               "dimensions.");
     }
 
-    bool allDimensions = (size == inputRank) ? true : false;
-    int64_t dimension =
-        dimArg ? (mlir::cast<mlir::IntegerAttr>(dimArg->getValue()[0])).getInt()
-               : 0;
+    // TTNN only supports reduce(prod) along one dimension or all dimensions.
+    // That is controlled by dimArg. If dimArg is not present, then all
+    // dimensions are reduced. Otherwise, only the specified dimension is
+    // reduced.
+    mlir::IntegerAttr newDimArg = nullptr;
+    if (dimArg && dimArg->size() == 1) {
+      auto int32Attr = mlir::cast<mlir::IntegerAttr>(dimArg->getValue()[0]);
+      newDimArg =
+          mlir::IntegerAttr::get(rewriter.getI64Type(), int32Attr.getInt());
+    }
 
     rewriter.replaceOpWithNewOp<ttnn::ProdOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), allDimensions, adaptor.getKeepDim(), dimension,
-        /*memoryConfig*/ nullptr);
+        adaptor.getInput(), newDimArg, adaptor.getKeepDim(),
+        /*memoryConfig=*/nullptr);
     return success();
   }
 };
@@ -596,7 +620,7 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::ConcatOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInputs(), dim,
-        /* memory_config */ nullptr);
+        /*memory_config=*/nullptr);
     return success();
   }
 };
@@ -612,7 +636,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getShape(), /* memory_config */ nullptr);
+        adaptor.getInput(), adaptor.getShape(), /*memory_config=*/nullptr);
     return success();
   }
 };
@@ -672,7 +696,7 @@ public:
     // Replace the SqueezeOp with a ReshapeOp
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), shapeAttr, /* memory_config */ nullptr);
+        adaptor.getInput(), shapeAttr, /*memory_config=*/nullptr);
 
     return success();
   }
@@ -741,7 +765,7 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::PadOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getPaddingAttr(), adaptor.getValue(),
-        /* use_multicore */ true, memcfg);
+        /*use_multicore=*/true, memcfg);
 
     return success();
   }
@@ -791,7 +815,7 @@ public:
     // Replace the UnsqueezeOp with a ReshapeOp
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), shapeAttr, /* memory_config */ nullptr);
+        adaptor.getInput(), shapeAttr, /*memory_config=*/nullptr);
 
     return success();
   }
@@ -814,32 +838,9 @@ public:
       return legalityResult;
     }
 
-    // If the value is a splat (i.e. single value), we can use the ttnn::FullOp
-    // to create the tensor.
-    if (valueAttr.isSplat()) {
-      auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
-
-      mlir::APFloat fillValue(mlir::APFloat::IEEEsingle());
-      if (valueAttr.getElementType().isInteger()) {
-        // Both signed and signless integer can have negative values.
-        bool isSigned = valueAttr.getElementType().isSignedInteger() ||
-                        valueAttr.getElementType().isSignlessInteger();
-        fillValue.convertFromAPInt(valueAttr.getSplatValue<llvm::APInt>(),
-                                   isSigned, llvm::RoundingMode::TowardZero);
-      } else {
-        fillValue = valueAttr.getSplatValue<mlir::APFloat>();
-      }
-
-      rewriter.replaceOpWithNewOp<ttnn::FullOp>(
-          op, this->getTypeConverter()->convertType(op.getType()), device,
-          rewriter.getF32FloatAttr(fillValue.convertToFloat()));
-
-      // Otherwise, we use the ttnn::ConstantOp to create the tensor.
-    } else {
-      rewriter.replaceOpWithNewOp<ttnn::ConstantOp>(
-          op, this->getTypeConverter()->convertType(op.getType()),
-          adaptor.getValue());
-    }
+    rewriter.replaceOpWithNewOp<ttnn::ConstantOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getValue());
 
     return success();
   }
@@ -871,6 +872,40 @@ public:
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
         adaptor.getB(), adaptor.getBias(), adaptor.getTransposeA(),
         adaptor.getTransposeB());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class BatchNormOpConversionPattern
+    : public OpConversionPattern<ttir::BatchNormOp> {
+public:
+  using OpConversionPattern<ttir::BatchNormOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::BatchNormOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Check if the operand is a 4-dimensional tensor.
+    if (mlir::cast<RankedTensorType>(adaptor.getOperand().getType())
+            .getRank() != 4) {
+      return rewriter.notifyMatchFailure(
+          op, "Operand must be a 4-dimensional tensor");
+    }
+
+    // We only support excluded_dimension=1 for ttnn::batch_norm
+    if (adaptor.getDimension() != 1) {
+      return rewriter.notifyMatchFailure(op, "We can only exclude dimension 1");
+    }
+
+    mlir::APFloat defaultMomentum(0.1f);
+
+    rewriter.replaceOpWithNewOp<ttnn::BatchNormOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getOperand(), adaptor.getMean(), adaptor.getVariance(),
+        adaptor.getTraining(), adaptor.getEpsilon(), defaultMomentum,
+        adaptor.getScale(), adaptor.getOffset(),
+        /*memoryConfig*/ nullptr);
     return success();
   }
 };
@@ -1085,7 +1120,7 @@ public:
         adaptor.getBias(), device, inChannelsAttr, outChannelsAttr,
         batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
         *strideAttr, reducedPaddingAttr, *outputPaddingAttr, *dilationAttr,
-        groupsAttr, /*memoryConfig*/ nullptr);
+        groupsAttr, /*memoryConfig=*/nullptr);
 
     // Restore the normal shape (N x H x W x C).
     Value output =
@@ -1178,7 +1213,9 @@ public:
         adaptor.getFlattenedCompatInfo().getInputHeight(),
         adaptor.getFlattenedCompatInfo().getInputWidth(), channels,
         kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
-        adaptor.getCeilMode());
+        /*memory_config=*/nullptr,
+        /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
+        /* in_place_halo=*/false);
 
     return success();
   }
@@ -1221,7 +1258,6 @@ public:
     RankedTensorType rhsType =
         mlir::cast<mlir::RankedTensorType>(adaptor.getRhs().getType());
     Type outputType = this->getTypeConverter()->convertType(srcOp.getType());
-
     if (lhsType.getShape() == rhsType.getShape()) {
       rewriter.replaceOpWithNewOp<ttnn::SubtractOp>(
           srcOp, outputType, adaptor.getLhs(), adaptor.getRhs());
@@ -1609,6 +1645,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       .add<TensorEmptyConversionPattern,
            NamedFullConversionPattern<ttir::ZerosOp, ttnn::ZerosOp>,
            NamedFullConversionPattern<ttir::OnesOp, ttnn::OnesOp>,
+           FullOpConversionPattern,
            ToLayoutOpConversionPattern,
            QuantizeOpConversionPattern,
            DequantizeOpConversionPattern,
@@ -1686,6 +1723,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            UnsqueezeOpConversionPattern,
            ConstantOpConversionPattern,
            LinearOpConversionPattern,
+           BatchNormOpConversionPattern,
            MatmulOpConversionPattern,
            Conv2dOpConversionPattern,
            ConvTranspose2dOpConversionPattern,

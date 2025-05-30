@@ -874,20 +874,18 @@ def build_graph(
             loc = memory_trace[node]["loc"]
             memory_data[loc] = {}
             memory_data[loc]["dram"] = round(
-                memory_trace[node]["dram"]["device_0"]["total_bytes_allocated_per_bank"]
-                / memory_trace[node]["dram"]["device_0"]["total_bytes_per_bank"],
+                memory_trace[node]["dram"]["total_bytes_allocated_per_bank"]
+                / memory_trace[node]["dram"]["total_bytes_per_bank"],
                 4,
             )
             memory_data[loc]["l1"] = round(
-                memory_trace[node]["l1"]["device_0"]["total_bytes_allocated_per_bank"]
-                / memory_trace[node]["l1"]["device_0"]["total_bytes_per_bank"],
+                memory_trace[node]["l1"]["total_bytes_allocated_per_bank"]
+                / memory_trace[node]["l1"]["total_bytes_per_bank"],
                 4,
             )
             memory_data[loc]["l1_small"] = round(
-                memory_trace[node]["l1_small"]["device_0"][
-                    "total_bytes_allocated_per_bank"
-                ]
-                / memory_trace[node]["l1_small"]["device_0"]["total_bytes_per_bank"],
+                memory_trace[node]["l1_small"]["total_bytes_allocated_per_bank"]
+                / memory_trace[node]["l1_small"]["total_bytes_per_bank"],
                 4,
             )
 

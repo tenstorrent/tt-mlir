@@ -75,7 +75,7 @@ def ttir_to_ttmetal(
     ),
 ) -> Module:
     """
-    Runs `ttir-to-ttmetal-backend-pipeline` compiler pass on `module` in a safe way.
+    Runs `ttir-to-ttmetal-pipeline` compiler pass on `module` in a safe way.
 
     This is a segfault resistant function. It runs the pybound compiler pass in a
     separate process, thus protecting the caller of this function from any unpredictable

@@ -97,17 +97,22 @@ void dumpMemoryReport(Device device) {
       [&]() { ::tt::runtime::ttmetal::dumpMemoryReport(device); });
 }
 
+void dumpDeviceProfileResults(Device device) {
+  using RetType = void;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType, [&]() { ::tt::runtime::ttnn::dumpDeviceProfileResults(device); },
+      [&]() { ::tt::runtime::ttmetal::dumpDeviceProfileResults(device); });
+}
+
 using MemoryViewResult = std::unordered_map<::tt::runtime::MemoryBufferType,
                                             ::tt::runtime::MemoryView>;
-MemoryViewResult getMemoryView(Device device, int deviceID) {
+MemoryViewResult getMemoryView(Device device) {
   using RetType = MemoryViewResult;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
+      [&]() -> RetType { return ::tt::runtime::ttnn::getMemoryView(device); },
       [&]() -> RetType {
-        return ::tt::runtime::ttnn::getMemoryView(device, deviceID);
-      },
-      [&]() -> RetType {
-        return ::tt::runtime::ttmetal::getMemoryView(device, deviceID);
+        return ::tt::runtime::ttmetal::getMemoryView(device);
       });
 }
 } // namespace detail
@@ -162,7 +167,7 @@ void setCompatibleRuntime(const Binary &binary) {
   LOG_FATAL("Unsupported binary file identifier or runtime not enabled");
 }
 
-std::pair<SystemDesc, DeviceIds>
+SystemDesc
 getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
                      std::optional<Device> meshDevice) {
 #if (defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)) ||      \
@@ -526,6 +531,42 @@ size_t getTraceRegionSize(Device meshDevice) {
       },
       [&]() -> RetType {
         return ::tt::runtime::ttmetal::getTraceRegionSize(meshDevice);
+      });
+}
+
+size_t getNumDramChannels(Device meshDevice) {
+  using RetType = size_t;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::getNumDramChannels(meshDevice);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::getNumDramChannels(meshDevice);
+      });
+}
+
+size_t getDramSizePerChannel(Device meshDevice) {
+  using RetType = size_t;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::getDramSizePerChannel(meshDevice);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::getDramSizePerChannel(meshDevice);
+      });
+}
+
+size_t getL1SizePerCore(Device meshDevice) {
+  using RetType = size_t;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::getL1SizePerCore(meshDevice);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::getL1SizePerCore(meshDevice);
       });
 }
 

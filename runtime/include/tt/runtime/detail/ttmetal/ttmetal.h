@@ -83,13 +83,18 @@ size_t getNumHwCqs(Device meshDevice);
 bool isProgramCacheEnabled(Device meshDevice);
 size_t getL1SmallSize(Device meshDevice);
 size_t getTraceRegionSize(Device meshDevice);
+size_t getNumDramChannels(Device meshDevice);
+size_t getDramSizePerChannel(Device meshDevice);
+size_t getL1SizePerCore(Device meshDevice);
 
 void deallocateBuffers(Device device);
 
 void dumpMemoryReport(Device device);
 
+void dumpDeviceProfileResults(Device device);
+
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
-getMemoryView(Device device, int deviceID = 0);
+getMemoryView(Device device);
 
 void wait(Event event);
 

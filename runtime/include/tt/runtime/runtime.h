@@ -14,7 +14,7 @@
 namespace tt::runtime {
 
 namespace system_desc {
-std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc(
+SystemDesc getCurrentSystemDesc(
     std::optional<DispatchCoreType> dispatchCoreType = std::nullopt,
     std::optional<Device> meshDevice = std::nullopt);
 } // namespace system_desc
@@ -22,6 +22,7 @@ std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc(
 namespace detail {
 void deallocateBuffers(Device device);
 void dumpMemoryReport(Device device);
+void dumpDeviceProfileResults(Device device);
 
 /*
 This function get the memory view per device
@@ -33,7 +34,7 @@ This function get the memory view per device
   }
 */
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
-getMemoryView(Device device, int deviceID = 0);
+getMemoryView(Device device);
 
 } // namespace detail
 
@@ -45,7 +46,7 @@ void setCurrentRuntime(const DeviceRuntime &runtime);
 
 void setCompatibleRuntime(const Binary &binary);
 
-std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc(
+SystemDesc getCurrentSystemDesc(
     std::optional<DispatchCoreType> dispatchCoreType = std::nullopt,
     std::optional<Device> meshDevice = std::nullopt);
 
@@ -156,6 +157,9 @@ size_t getNumHwCqs(Device meshDevice);
 bool isProgramCacheEnabled(Device meshDevice);
 size_t getL1SmallSize(Device meshDevice);
 size_t getTraceRegionSize(Device meshDevice);
+size_t getNumDramChannels(Device meshDevice);
+size_t getDramSizePerChannel(Device meshDevice);
+size_t getL1SizePerCore(Device meshDevice);
 
 void wait(Event event);
 

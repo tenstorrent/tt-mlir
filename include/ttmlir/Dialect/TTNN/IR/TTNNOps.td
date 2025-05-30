@@ -822,9 +822,8 @@ def TTNN_ProdOp : TTNN_Op<"prod"> {
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
-                       BoolAttr:$all_dimensions,
+                       OptionalAttr<I64Attr>:$dim_arg,
                        BoolAttr:$keep_dim,
-                       I64Attr:$dim_arg,
                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
   let results = (outs AnyRankedTensor:$result);
@@ -1371,7 +1370,39 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d"> {
     }];
 }
 
-def TTNN_AvgPool2dOp : TTNN_Op<"avg_pool2d"> {
+class TTNN_PoolingOp<string mnemonic, list<Trait> traits = []> :
+    TTNN_Op<mnemonic, [HasMemoryConfigTrait] # traits> {
+    let summary = "Generic pooling op.";
+    let description = [{
+      Generic pooling op.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         SI32Attr:$batch_size,
+                         SI32Attr:$input_height,
+                         SI32Attr:$input_width,
+                         SI32Attr:$channels,
+                         DenseI32ArrayAttr:$kernel_size,
+                         DenseI32ArrayAttr:$stride,
+                         DenseI32ArrayAttr:$padding,
+                         DenseI32ArrayAttr:$dilation,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_TensorMemoryLayoutAttr>:$applied_shard_scheme,
+                         BoolAttr:$ceil_mode,
+                         BoolAttr:$in_place_halo);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createPool2DOpOperandsWorkarounds();
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_AvgPool2dOp : TTNN_PoolingOp<"avg_pool2d"> {
   let summary = "Applies a 2D average pooling over an input signal composed of several input planes.";
   let description = [{
     It is a downsampling operation to reduce the spatial dimensions (height and width) of a input tensor by computing averages with in a window.
@@ -1390,55 +1421,34 @@ def TTNN_AvgPool2dOp : TTNN_Op<"avg_pool2d"> {
       output: [[3, 4],
                [6, 7]]
   }];
-
-  let arguments = (ins AnyRankedTensor:$input,
-                       UI32Attr:$batch_size,
-                       UI32Attr:$input_height,
-                       UI32Attr:$input_width,
-                       UI32Attr:$channels,
-                       DenseI32ArrayAttr:$kernel_size,
-                       DenseI32ArrayAttr:$stride,
-                       DenseI32ArrayAttr:$padding,
-                       DenseI32ArrayAttr:$dilation,
-                       BoolAttr:$ceil_mode);
-
-  let results = (outs AnyRankedTensor:$result);
-
-  let extraClassDeclaration = [{
-    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-      return wa::TTNNOperandsWorkaroundsFactory::createPool2DOpOperandsWorkarounds();
-    }
-  }];
-
-  let hasVerifier = 1;
 }
 
-def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d",
+def TTNN_MaxPool2dOp : TTNN_PoolingOp<"max_pool2d",
       [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
       > {
     let summary = "Applies a 2D max pooling over an input signal composed of several input planes.";
     let description = [{
       Applies a 2D max pooling over an input signal composed of several input planes.
     }];
+}
+
+def TTNN_BatchNormOp : TTNN_Op<"batch_norm", [AttrSizedOperandSegments]> {
+    let summary = "Batch normalization op.";
+    let description = [{
+      Batch normalization operation over each channel on input tensor.
+    }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         SI32Attr:$batch_size,
-                         SI32Attr:$input_height,
-                         SI32Attr:$input_width,
-                         SI32Attr:$channels,
-                         DenseI32ArrayAttr:$kernel_size,
-                         DenseI32ArrayAttr:$stride,
-                         DenseI32ArrayAttr:$padding,
-                         DenseI32ArrayAttr:$dilation,
-                         BoolAttr:$ceil_mode);
+                         Optional<AnyRankedTensor>:$running_mean,
+                         Optional<AnyRankedTensor>:$running_var,
+                         DefaultValuedAttr<BoolAttr, "false">:$training,
+                         DefaultValuedAttr<F32Attr, "1e-05">:$epsilon,
+                         DefaultValuedAttr<F32Attr, "0.1">:$momentum,
+                         Optional<AnyRankedTensor>:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        return wa::TTNNOperandsWorkaroundsFactory::createPool2DOpOperandsWorkarounds();
-      }
-    }];
 
     let hasVerifier = 1;
 }
@@ -1583,6 +1593,12 @@ def TTNN_ZerosOp : TTNN_NamedFullOp<"zeros"> {
       %0 = "ttnn.zeros"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
       // %0: [[[0, 0, 0, ..., 0], [0, 0, 0, ..., 0], ..., [0, 0, 0, ..., 0]]]
   }];
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createZerosOpOperandsWorkarounds(getType());
+    }
+  }];
 }
 
 def TTNN_OnesOp : TTNN_NamedFullOp<"ones"> {
@@ -1599,21 +1615,42 @@ def TTNN_OnesOp : TTNN_NamedFullOp<"ones"> {
 }
 
 def TTNN_FullOp : TTNN_CreationOp<"full"> {
-    let summary = "Full op.";
-    let description = [{
-      Tensor full operation
-    }];
+  let summary = "Creates a tensor filled with the specified value";
+  let description = [{
+    Tensor operation to create a tensor filled with a specified value.
 
-    let arguments = (ins TTNN_Device:$device, F32Attr:$fillValue);
-    let results = (outs AnyRankedTensor:$result);
+    Given a `shape` and a `fill_value`, produces a tensor with the shape, filled with the specified value.
 
-    let extraClassDeclaration = [{
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        mlir::tt::ttnn::FullOp op = mlir::cast<mlir::tt::ttnn::FullOp>(this->getOperation());
-        auto outputType = mlir::cast<RankedTensorType>(op.getType());
-        return wa::TTNNOperandsWorkaroundsFactory::createFullOpOperandsWorkarounds(outputType);
-      }
-    }];
+    Example:
+      %0 = "ttnn.full"() <{
+        dtype = #tt.supportedDataTypes<u32>,
+        fill_value = 3 : i32,
+        layout = #ttnn.layout<tile>,
+        shape = #ttnn.shape<64x128>
+      }> : () -> tensor<64x128xui32>
+      // %0: [[[7, 7, 7, ..., 7], [7, 7, 7, ..., 7], ..., [7, 7, 7, ..., 7]]]
+  }];
+
+  let arguments = (ins TTNN_ShapeAttr:$shape,
+                       AnyAttrOf<[F32Attr, I32Attr]>:$fill_value,
+                       OptionalAttr<TT_DataTypeAttr>:$dtype,
+                       OptionalAttr<TTNN_LayoutAttr>:$layout,
+                       Optional<TTNN_Device>:$device,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let builders =
+  [
+    OpBuilder<(ins "Type": $resultType, "Attribute": $fillValue, "Value": $device)>
+  ];
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      auto outputType = getType();
+      return wa::TTNNOperandsWorkaroundsFactory::createFullOpOperandsWorkarounds(outputType);
+    }
+  }];
 }
 
 def TTNN_ConstantOp : TTNN_CreationOp<"constant", [AllShapesMatch<["value", "result"]>]> {

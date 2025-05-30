@@ -145,7 +145,7 @@ void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
 }
 
 // Helper function to extract constant value.
-static std::optional<float> getConstantValue(mlir::Value value) {
+static mlir::FloatAttr getConstantValue(mlir::Value value) {
   mlir::Operation *op = value.getDefiningOp();
   while (mlir::isa_and_present<mlir::tt::ttir::BroadcastOp,
                                mlir::tt::ttir::ReshapeOp,
@@ -153,30 +153,22 @@ static std::optional<float> getConstantValue(mlir::Value value) {
     op = op->getOperand(0).getDefiningOp();
   }
 
-  auto constantOp = mlir::dyn_cast_if_present<mlir::tt::ttir::ConstantOp>(op);
-  if (!constantOp) {
-    return std::nullopt;
+  auto fullOp = mlir::dyn_cast_if_present<mlir::tt::ttir::FullOp>(op);
+  if (!fullOp) {
+    return {};
   }
 
-  mlir::ElementsAttr attr = constantOp.getValueAttr();
-  if (!attr.isSplat()) {
-    return std::nullopt;
-  }
+  mlir::Attribute fillValueAttr = fullOp.getFillValueAttr();
 
-  mlir::Type elementType = attr.getElementType();
-  mlir::APFloat fillValue(mlir::APFloat::IEEEsingle());
-  if (mlir::isa<mlir::IntegerType>(elementType)) {
-    fillValue.convertFromAPInt(attr.getSplatValue<llvm::APInt>(),
-                               attr.getElementType().isSignedInteger(),
-                               llvm::RoundingMode::TowardZero);
-    return fillValue.convertToFloat();
+  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(fillValueAttr)) {
+    return floatAttr;
   }
-  if (mlir::isa<mlir::FloatType>(elementType)) {
-    return static_cast<float>(
-        attr.getSplatValue<mlir::APFloat>().convertToDouble());
+  if (auto integerAttr = mlir::dyn_cast<mlir::IntegerAttr>(fillValueAttr)) {
+    return mlir::FloatAttr::get(
+        mlir::Float32Type::get(integerAttr.getContext()),
+        static_cast<double>(integerAttr.getValue().getSExtValue()));
   }
-
-  return std::nullopt;
+  return {};
 }
 
 // ClampTensorOp canonicalization
@@ -186,12 +178,11 @@ void mlir::tt::ttir::ClampTensorOp::getCanonicalizationPatterns(
       +[](mlir::tt::ttir::ClampTensorOp op, mlir::PatternRewriter &rewriter) {
         RankedTensorType outputType = op.getResult().getType();
 
-        std::optional<float> minValue = getConstantValue(op.getMin());
-        std::optional<float> maxValue = getConstantValue(op.getMax());
+        FloatAttr minValue = getConstantValue(op.getMin());
+        FloatAttr maxValue = getConstantValue(op.getMax());
         if (minValue && maxValue) {
           ttir::utils::replaceOpWithNewDPSOp<ttir::ClampScalarOp>(
-              rewriter, op, outputType, op.getInput(), mlir::APFloat(*minValue),
-              mlir::APFloat(*maxValue));
+              rewriter, op, outputType, op.getInput(), minValue, maxValue);
 
           return success();
         }
@@ -307,8 +298,47 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::EmptyOp::getBufferType(
 //===----------------------------------------------------------------------===//
 
 // ConstantOp folder
-::mlir::OpFoldResult mlir::tt::ttir::ConstantOp::fold(FoldAdaptor adaptor) {
+::mlir::OpFoldResult mlir::tt::ttir::ConstantOp::fold(FoldAdaptor) {
   return getValueAttr();
+}
+
+// ConstantOp canonicalization
+void mlir::tt::ttir::ConstantOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
+
+  // Canonicalize ConstantOp to FullOp when the value is a splat value (i.e. all
+  // elements are the same).
+  patterns.add(+[](mlir::tt::ttir::ConstantOp op,
+                   mlir::PatternRewriter &rewriter) {
+    auto valueAttr = op.getValueAttr();
+    if (!valueAttr.isSplat()) {
+      return failure();
+    }
+
+    mlir::Attribute fillValueAttr;
+    if (auto integerType =
+            mlir::dyn_cast<mlir::IntegerType>(valueAttr.getElementType())) {
+      auto fillValue = valueAttr.getSplatValue<llvm::APInt>();
+      if (integerType.isSigned()) {
+        fillValueAttr = rewriter.getI32IntegerAttr(fillValue.getSExtValue());
+      } else {
+        fillValueAttr = rewriter.getI32IntegerAttr(fillValue.getZExtValue());
+      }
+    } else if (valueAttr.getElementType().isIntOrFloat()) {
+      auto fillValue = valueAttr.getSplatValue<mlir::APFloat>();
+      fillValueAttr = rewriter.getF32FloatAttr(fillValue.convertToDouble());
+    } else {
+      return failure();
+    }
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::FullOp>(
+        op, op.getType(),
+        rewriter.getDenseI32ArrayAttr(
+            llvm::to_vector_of<int32_t>(op.getType().getShape())),
+        fillValueAttr);
+
+    return success();
+  });
 }
 
 ::mlir::LogicalResult mlir::tt::ttir::ConstantOp::verify() {
@@ -2277,9 +2307,11 @@ mlir::tt::ttir::StreamLayoutOp::getBufferType(
 
 // ViewLayoutOp verificatin
 mlir::LogicalResult mlir::tt::ttir::ViewLayoutOp::verify() {
-  return verifyLayoutOp(*this, getInput().getType(), getResult().getType(),
-                        /*allowFormatChange*/ false,
-                        /*allowMemorySpaceChange*/ false);
+  return verifyLayoutOp(
+      *this, getInput().getType(), getResult().getType(),
+      /*allowFormatChange - reinterpretLayout allows format change */
+      getReinterpretLayout(),
+      /*allowMemorySpaceChange*/ false);
 }
 
 void mlir::tt::ttir::ViewLayoutOp::getAsmResultNames(
@@ -2316,7 +2348,7 @@ mlir::LogicalResult mlir::tt::ttir::ViewLayoutOp::bufferize(
   mlir::bufferization::replaceOpWithNewBufferizedOp<
       mlir::tt::ttir::ViewLayoutOp>(
       rewriter, *this, *getBufferType(getResult(), options, invocationStack),
-      *maybeInput);
+      *maybeInput, getReinterpretLayout());
   return mlir::success();
 }
 
@@ -3369,6 +3401,21 @@ mlir::OpFoldResult mlir::tt::ttir::PermuteOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// FullOp
+//===----------------------------------------------------------------------===//
+
+// FullOp verification
+mlir::LogicalResult mlir::tt::ttir::FullOp::verify() {
+  // Verify that the shape is the shape of the output.
+  if (!llvm::equal(getShape(), getType().getShape())) {
+    return emitOpError() << "expected shape (" << getType().getShape()
+                         << "), got (" << getShape() << ")";
+  }
+
+  return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
 // GenericOp
 //===----------------------------------------------------------------------===//
 
@@ -3610,7 +3657,8 @@ mlir::tt::ttir::GenericOp::getOperandGridShapes() {
     auto memrefType = mlir::dyn_cast<MemRefType>(operand.getType());
     if (memrefType) {
       mlir::tt::DeviceLayoutInterface layout =
-          mlir::cast<mlir::tt::DeviceLayoutInterface>(memrefType.getLayout());
+          mlir::dyn_cast<mlir::tt::DeviceLayoutInterface>(
+              memrefType.getLayout());
       gridShapes.emplace_back(layout.getGridShape(memrefType));
     } else {
       auto tensorType = mlir::cast<RankedTensorType>(operand.getType());
@@ -3910,6 +3958,17 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
     return getResult();
   }
   return {};
+}
+
+//===----------------------------------------------------------------------===//
+// BatchNormOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttir::BatchNormOp::verify() {
+  if (getOperand().getType().getRank() != 4) {
+    return emitOpError("input tensor must be a 4D tensor");
+  }
+
+  return success();
 }
 
 //===----------------------------------------------------------------------===//

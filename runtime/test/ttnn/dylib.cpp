@@ -19,10 +19,34 @@ static constexpr const char *POTENTIAL_MANGLING_ADDITIONS[] = {
     "PNS1_11distributed10MeshDeviceE",
 };
 
-void *openSo(std::string path) {
+// If the model function name is `main`, it can't be emitted as such, because
+// compiler will complain about the parameter and return type, as `main` has a
+// special semantics in C/C++. Hence, in `TTNNModifySignaturesForDylib` pass,
+// the `main` is prepended with a `_`.
+static std::string getEmittedFuncName(std::string_view funcName) {
+  if (funcName == "main") {
+    return "_main";
+  }
+  return std::string(funcName);
+}
+
+static std::string getMangledName(std::string_view funcName,
+                                  std::string_view suffix) {
+  std::string mangledName = "_Z";
+  // The function name and the name with which it is emitted can be different
+  // (see the explanation in the `getEmittedFuncName`).
+  std::string emittedFuncName = getEmittedFuncName(funcName);
+  mangledName += std::to_string(emittedFuncName.size());
+  mangledName += emittedFuncName;
+  mangledName += "St6vectorIN2tt8tt_metal6TensorESaIS2_EE";
+  mangledName += suffix;
+  return mangledName;
+}
+
+void *openSo(const std::string &path) {
   LOG_ASSERT(getCurrentRuntime() == DeviceRuntime::TTNN);
 
-  void *handle = dlopen(path.c_str(), RTLD_LAZY);
+  void *handle = dlopen(path.data(), RTLD_LAZY);
   if (!handle) {
     std::cerr << "Failed to load shared object: " << dlerror() << std::endl;
     throw std::runtime_error("Failed to load shared object");
@@ -36,12 +60,13 @@ void closeSo(void *handle) {
   int ret = dlclose(handle);
 
   if (ret != 0) {
+    std::cerr << "Failed to close shared object: " << dlerror() << std::endl;
     exit(ret);
   }
 }
 
 std::vector<::tt::runtime::Tensor>
-runSoProgram(void *so, std::string func_name,
+runSoProgram(void *so, const std::string &funcName,
              std::vector<::tt::runtime::Tensor> inputs, Device device) {
   LOG_ASSERT(getCurrentRuntime() == DeviceRuntime::TTNN);
 
@@ -51,6 +76,22 @@ runSoProgram(void *so, std::string func_name,
   // In this path, we only ever test with a single device (for now) in CI, but
   // locally we may have 2 devices.
   assert(ttnnMeshDevice.get_devices().size() > 0);
+
+  // Clear any previous errors.
+  //
+  dlerror();
+
+  // Call setDevice function from dylib.
+  //
+  void *setDeviceSymbol = dlsym(so, "setDevice");
+  const char *setDeviceError = dlerror();
+  if (setDeviceError) {
+    dlclose(so);
+    LOG_FATAL("Failed to find setDevice function in dylib.");
+  }
+  using SetDeviceFunction = void (*)(::ttnn::MeshDevice *);
+  auto setDeviceFunc = reinterpret_cast<SetDeviceFunction>(setDeviceSymbol);
+  setDeviceFunc(&ttnnMeshDevice);
 
   // Convert inputs to TTNN tensors using .as method
   //
@@ -62,45 +103,34 @@ runSoProgram(void *so, std::string func_name,
             .getTensor());
   }
 
-  // Clear previous errors
+  // Get function from the shared object.
   //
-  dlerror();
-
-  // Get function from the shared object
-  //
-  using ForwardFunctionWithDevice = std::vector<::ttnn::Tensor> (*)(
-      std::vector<::ttnn::Tensor>, ::ttnn::MeshDevice *);
-  using ForwardFunctionNoDevice =
+  using ForwardFunction =
       std::vector<::ttnn::Tensor> (*)(std::vector<::ttnn::Tensor>);
 
-  const char *dlsym_error;
+  const char *dlsymError;
   void *symbol;
   std::string mangledName;
   for (const char *addition : POTENTIAL_MANGLING_ADDITIONS) {
-    mangledName = func_name + addition;
+    mangledName = getMangledName(funcName, addition);
     symbol = dlsym(so, mangledName.c_str());
-    dlsym_error = dlerror();
-    if (!dlsym_error) {
+    dlsymError = dlerror();
+    if (!dlsymError) {
       break;
     }
   }
-  if (dlsym_error) {
+  if (dlsymError) {
     dlclose(so);
-    LOG_FATAL("Failed to load symbol: ", dlsym_error);
+    LOG_FATAL("Failed to load symbol: ", dlsymError);
   }
 
-  // Call program/function
+  // Call program/function.
   //
   std::vector<::ttnn::Tensor> ttnnOutputs;
-  if (mangledName.find("MeshDevice") != std::string::npos) {
-    auto forwardFunc = reinterpret_cast<ForwardFunctionWithDevice>(symbol);
-    ttnnOutputs = forwardFunc(ttnnInputs, &ttnnMeshDevice);
-  } else {
-    auto forwardFunc = reinterpret_cast<ForwardFunctionNoDevice>(symbol);
-    ttnnOutputs = forwardFunc(ttnnInputs);
-  }
+  auto forwardFunc = reinterpret_cast<ForwardFunction>(symbol);
+  ttnnOutputs = forwardFunc(ttnnInputs);
 
-  // Convert TTNN Tensors to Runtime Tensors
+  // Convert TTNN Tensors to Runtime Tensors.
   //
   std::vector<::tt::runtime::Tensor> outputs;
   for (::ttnn::Tensor &output : ttnnOutputs) {

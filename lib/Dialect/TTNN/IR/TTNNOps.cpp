@@ -838,6 +838,30 @@ static ::mlir::LogicalResult namedOpVerify(Op op) {
 }
 
 //===----------------------------------------------------------------------===//
+// FullOp
+//===----------------------------------------------------------------------===//
+
+void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
+                                   mlir::OperationState &state,
+                                   mlir::Type resultType,
+                                   mlir::Attribute fillValue,
+                                   mlir::Value device) {
+  mlir::MLIRContext *ctx = builder.getContext();
+  mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(resultType);
+  ttnn::TTNNLayoutAttr layoutAttr =
+      mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+
+  ttnn::ShapeAttr shapeAttr = ttnn::ShapeAttr::get(ctx, tensorType.getShape());
+  tt::DataTypeAttr dtypeAttr =
+      tt::DataTypeAttr::get(ctx, layoutAttr.getDataType());
+  ttnn::LayoutAttr tensorLayoutAttr =
+      ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout());
+
+  build(builder, state, resultType, shapeAttr, fillValue, dtypeAttr,
+        tensorLayoutAttr, device, /*memory_config=*/nullptr);
+}
+
+//===----------------------------------------------------------------------===//
 // EmptyOp
 //===----------------------------------------------------------------------===//
 
@@ -1878,6 +1902,33 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// BatchNormOp
+//===----------------------------------------------------------------------===//
+
+// BatchNormOp verification
+::mlir::LogicalResult mlir::tt::ttnn::BatchNormOp::verify() {
+
+  // Verify that all inputs have dimension 4.
+  if (getInput().getType().getRank() != 4) {
+    return emitOpError("Input tensor must have rank 4");
+  }
+  if (getRunningMean().getType().getRank() != 4) {
+    return emitOpError("Scale tensor must have rank 4");
+  }
+  if (getRunningVar().getType().getRank() != 4) {
+    return emitOpError("Bias tensor must have rank 4");
+  }
+  if (getWeight().getType().getRank() != 4) {
+    return emitOpError("Weight tensor must have rank 4");
+  }
+  if (getBias().getType().getRank() != 4) {
+    return emitOpError("Bias tensor must have rank 4");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // AllGatherOp
 //===----------------------------------------------------------------------===//
 
@@ -2396,9 +2447,9 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 }
 
 // Verifier for Reduce ProdOp.
-static mlir::LogicalResult verifyReduceProdOp(mlir::Operation *reduceOp,
-                                              mlir::RankedTensorType inputType,
-                                              bool allDimensions) {
+static mlir::LogicalResult
+verifyReduceProdOp(tt::ttnn::ProdOp *reduceOp,
+                   mlir::RankedTensorType inputType) {
   int64_t inputTensorRank = inputType.getRank();
   mlir::Type elementType = inputType.getElementType();
 
@@ -2406,6 +2457,8 @@ static mlir::LogicalResult verifyReduceProdOp(mlir::Operation *reduceOp,
     return reduceOp->emitOpError(
         "Input tensor rank is greater than 4 for reduce(product).");
   }
+
+  bool allDimensions = !reduceOp->getDimArg();
   // [TODO](mmanzoor) Add workaround to typecast the input tensor to bfloat16
   // then typecast the output again to match the requirements.
   // https://github.com/tenstorrent/tt-mlir/issues/1864
@@ -2467,8 +2520,7 @@ static mlir::LogicalResult verifyReduceProdOp(mlir::Operation *reduceOp,
 
 // ProdOp verification.
 ::mlir::LogicalResult ProdOp::verify() {
-  return verifyReduceProdOp(getOperation(), getInput().getType(),
-                            getAllDimensions());
+  return verifyReduceProdOp(this, getInput().getType());
 }
 
 } // namespace mlir::tt::ttnn

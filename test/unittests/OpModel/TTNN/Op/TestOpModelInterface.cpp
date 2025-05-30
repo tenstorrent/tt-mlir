@@ -234,10 +234,6 @@ TEST_F(OpModelBase, SigmoidOpInterface) {
 }
 
 TEST_F(OpModelBase, SoftmaxOpInterface) {
-  // Disabled due to segfault after reshape op called with program cache enabled
-  // TODO(brataTT): Re-enable after
-  // https://github.com/tenstorrent/tt-mlir/issues/3054
-  GTEST_SKIP();
   // create SoftmaxOp
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
 
@@ -461,10 +457,6 @@ TEST_F(OpModelBase, MeanOpInterface) {
 }
 
 TEST_F(OpModelBase, ReshapeOpInterface) {
-  // Disabled due to segfault after reshape op called with program cache enabled
-  // TODO(brataTT): Re-enable after
-  // https://github.com/tenstorrent/tt-mlir/issues/3054
-  GTEST_SKIP();
   // create ReshapeOp
   llvm::SmallVector<int64_t> tensorShapeA = {64, 1024};
   llvm::SmallVector<int64_t> tensorShapeO = {64 * 4, 1024 / 4};
@@ -482,8 +474,8 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
-    EXPECT_EQ(cbSize, 262144);
-    EXPECT_EQ(peakSize, 4096);
+    EXPECT_EQ(cbSize, 5120);
+    EXPECT_EQ(peakSize, 2048);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -553,10 +545,6 @@ TEST_F(OpModelBase, toLayoutOp) {
 }
 
 TEST_F(OpModelBase, transposeOp) {
-  // Disabled due to segfault after reshape op called with program cache enabled
-  // TODO(brataTT): Re-enable after
-  // https://github.com/tenstorrent/tt-mlir/issues/3054
-  GTEST_SKIP();
   // create TransposeOp
   llvm::SmallVector<int64_t> tensorShapeA = {64, 1024};
   llvm::SmallVector<int64_t> tensorShapeO = {1024, 64};
@@ -937,9 +925,12 @@ TEST_F(OpModelBase, maxPool2DOp) {
   int32_t strideWidth = 2;
   int32_t dilationHeight = 1;
   int32_t dilationWidth = 1;
-  bool ceilMode = false;
   int32_t paddingHeight = 0;
   int32_t paddingWidth = 0;
+  MemoryConfigAttr memoryConfigAttr = nullptr;
+  TensorMemoryLayoutAttr appliedShardScheme = nullptr;
+  bool ceilMode = false;
+  bool inPlaceHalo = false;
 
   llvm::SmallVector<int32_t, 2> kernelSize = {kernelHeight, kernelWidth};
   llvm::SmallVector<int32_t, 2> stride = {strideHeight, strideWidth};
@@ -948,7 +939,8 @@ TEST_F(OpModelBase, maxPool2DOp) {
 
   auto maxPool2DOp = builder.create<MaxPool2dOp>(
       builder.getUnknownLoc(), output.getType(), input, batchSize, inputHeight,
-      inputWidth, numChannels, kernelSize, stride, padding, dilation, ceilMode);
+      inputWidth, numChannels, kernelSize, stride, padding, dilation,
+      memoryConfigAttr, appliedShardScheme, ceilMode, inPlaceHalo);
   maxPool2DOp->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   constexpr int32_t numRuns = 10;

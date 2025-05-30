@@ -113,3 +113,10 @@ func.func public @multiple_output(%arg0: tensor<64x128xf32> {sdy.sharding = #sdy
 // CHECK: %1 = stablehlo.cbrt %arg1 : tensor<32x128xf32>
 // CHECK: %2 = stablehlo.cbrt %arg1 : tensor<32x128xf32>
 // CHECK: sdy.return %1, %2 : tensor<32x128xf32>, tensor<32x128xf32>
+
+func.func public @constant_operand(%arg0: tensor<f32> {sdy.sharding = #sdy.sharding<@mesh, []>}) -> (tensor<f32>) {
+  return %arg0 :tensor<f32>
+}
+
+// CHECK: %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, []>] out_shardings=[<@mesh, []>]
+// CHECK: sdy.return %arg1 : tensor<f32>

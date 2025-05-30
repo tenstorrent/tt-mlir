@@ -17,7 +17,7 @@ namespace mlir::tt::ttnn {
 struct OptionNames {
 
   static constexpr StringRef optimizerPassEnabled = "enable-optimizer";
-  static constexpr StringRef overrideInputLayout = "override-input-layout";
+  static constexpr StringRef insertMemReconfig = "insert-memreconfig";
   static constexpr StringRef overrideOutputLayout = "override-output-layout";
   static constexpr StringRef overrideConv2dConfig = "override-conv2d-config";
   static constexpr StringRef memoryLayoutAnalysisEnabled =
@@ -26,6 +26,7 @@ struct OptionNames {
   static constexpr StringRef memoryLayoutAnalysisPolicy =
       "memory-layout-analysis-policy";
   static constexpr StringRef systemDescPath = "system-desc-path";
+  static constexpr StringRef mockSystemDescArch = "mock-system-desc-arch";
   static constexpr StringRef maxLegalLayouts = "max-legal-layouts";
   static constexpr StringRef meshShape = "mesh-shape";
 };
@@ -153,11 +154,11 @@ struct OutputLayoutOverrideParams {
   }
 };
 
-struct InputLayoutOverrideParams {
+struct InsertMemReconfigParams {
 
   SmallVector<int64_t> operandIdxes;
 
-  bool operator==(const InputLayoutOverrideParams &rhs) const {
+  bool operator==(const InsertMemReconfigParams &rhs) const {
     if (operandIdxes.size() != rhs.operandIdxes.size()) {
       return false;
     }
@@ -169,7 +170,7 @@ struct InputLayoutOverrideParams {
     return true;
   }
 
-  bool operator!=(const InputLayoutOverrideParams &rhs) const {
+  bool operator!=(const InsertMemReconfigParams &rhs) const {
     return !(*this == rhs);
   }
 };
@@ -213,20 +214,19 @@ public:
                     const llvm::StringMap<OutputLayoutOverrideParams> &value);
 };
 
-struct InputLayoutOverrideParser
-    : public llvm::cl::parser<llvm::StringMap<InputLayoutOverrideParams>> {
+struct InsertMemReconfigParser
+    : public llvm::cl::parser<llvm::StringMap<InsertMemReconfigParams>> {
 public:
-  InputLayoutOverrideParser(llvm::cl::Option &opt)
-      : llvm::cl::parser<llvm::StringMap<InputLayoutOverrideParams>>(opt) {}
+  InsertMemReconfigParser(llvm::cl::Option &opt)
+      : llvm::cl::parser<llvm::StringMap<InsertMemReconfigParams>>(opt) {}
 
   bool parse(llvm::cl::Option &opt, StringRef argName, StringRef arg,
-             llvm::StringMap<InputLayoutOverrideParams> &value);
+             llvm::StringMap<InsertMemReconfigParams> &value);
 
-  static std::string
-  toString(const llvm::StringMap<InputLayoutOverrideParams> &);
+  static std::string toString(const llvm::StringMap<InsertMemReconfigParams> &);
 
   static void print(llvm::raw_ostream &os,
-                    const llvm::StringMap<InputLayoutOverrideParams> &value);
+                    const llvm::StringMap<InsertMemReconfigParams> &value);
 };
 
 } // namespace mlir::tt::ttnn

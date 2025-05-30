@@ -58,4 +58,7 @@ def test_open_mesh_device(
     assert device.is_program_cache_enabled() == enable_program_cache
     assert device.get_l1_small_size() == l1_small_size
     assert device.get_trace_region_size() == trace_region_size
+    assert device.get_num_dram_channels() != 0
+    assert device.get_dram_size_per_channel() != 0
+    assert device.get_l1_size_per_core() != 0
     ttrt.runtime.close_mesh_device(device)

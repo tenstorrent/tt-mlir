@@ -29,6 +29,7 @@ void createTTNNPipelineTTIRPasses(
   tt::TTRegisterDevicePassOptions registerDeviceOptions;
   {
     registerDeviceOptions.systemDescPath = options.systemDescPath;
+    registerDeviceOptions.mockSystemDescArch = options.mockSystemDescArch;
     registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
   }
   pm.addPass(mlir::tt::createTTRegisterDevicePass(registerDeviceOptions));
@@ -51,6 +52,7 @@ void createTTNNPipelineTTIRPasses(
   // Add pass to erase inverse ops. This is enabled by default
   // while the pass is experimental.
   if (options.eraseInverseOpsEnabled) {
+    pm.addPass(mlir::tt::ttir::createTTIRExplicateTMs());
     pm.addPass(mlir::tt::ttir::createTTIREraseInverseOps());
   }
 }
@@ -59,7 +61,7 @@ void createTTNNPipelineAnalysisPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   if (options.optimizerPassEnabled) {
     ttnn::TTNNOptimizerOptions optimizerOptions;
-    optimizerOptions.overrideInputLayout = options.overrideInputLayout;
+    optimizerOptions.insertMemReconfig = options.insertMemReconfig;
     optimizerOptions.overrideOutputLayout = options.overrideOutputLayout;
     optimizerOptions.overrideConv2dConfig = options.overrideConv2dConfig;
     optimizerOptions.memoryLayoutAnalysisEnabled =

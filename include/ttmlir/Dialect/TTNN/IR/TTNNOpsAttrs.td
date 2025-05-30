@@ -371,7 +371,8 @@ def TTNN_MatmulMultiCoreReuseMultiCast1DProgramConfigAttr : TTNN_Attr<"MatmulMul
       mcast_in0 = true,
       gather_in0 = false,
       hop_cores = #ttnn.core_range_set<>,
-      num_global_cb_receivers = 0
+      num_global_cb_receivers = 0,
+      untilize_out = false
     >
     ```
   }];
@@ -389,7 +390,8 @@ def TTNN_MatmulMultiCoreReuseMultiCast1DProgramConfigAttr : TTNN_Attr<"MatmulMul
                         "bool":$mcast_in0,
                         "bool":$gather_in0,
                         "CoreRangeSetAttr":$hop_cores,
-                        "uint64_t":$num_global_cb_receivers);
+                        "uint64_t":$num_global_cb_receivers,
+                        "bool":$untilize_out);
 
   let assemblyFormat = [{
     `<` struct(
@@ -406,7 +408,8 @@ def TTNN_MatmulMultiCoreReuseMultiCast1DProgramConfigAttr : TTNN_Attr<"MatmulMul
       $mcast_in0,
       $gather_in0,
       qualified($hop_cores),
-      $num_global_cb_receivers
+      $num_global_cb_receivers,
+      $untilize_out
     ) `>`
   }];
 }
