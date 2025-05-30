@@ -9,6 +9,7 @@
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttnn/operations/copy/typecast/typecast.hpp"
 #include "ttnn/operations/eltwise/unary/common/unary_op_types.hpp"
+#include <operations/eltwise/unary/unary.hpp>
 
 namespace tt::runtime::ttnn::operations::eltwise::unary {
 
@@ -189,6 +190,9 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::BitwiseNot: {
     runEltwiseUnaryOp(op, tensorPool, ::ttnn::bitwise_not);
+    break;
+  } case ::tt::target::ttnn::EltwiseUnaryOpType::Erf: {
+    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool, ::ttnn::erf);
     break;
   }
   }

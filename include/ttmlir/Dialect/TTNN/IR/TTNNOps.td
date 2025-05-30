@@ -269,6 +269,13 @@ def TTNN_ExpOp : TTNN_ElementwiseUnaryOp<"exp"> {
     }];
 }
 
+def TTNN_ErfOp : TTNN_ElementwiseUnaryOp<"erf"> {
+    let summary = "Eltwise error function.";
+    let description = [{
+      Eltwise error function operation.
+    }];
+}
+
 def TTNN_FloorOp: TTNN_ElementwiseUnaryOp<"floor"> {
     let summary = "Eltwise floor op.";
     let description = [{
