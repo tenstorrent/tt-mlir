@@ -97,6 +97,13 @@ void dumpMemoryReport(Device device) {
       [&]() { ::tt::runtime::ttmetal::dumpMemoryReport(device); });
 }
 
+void dumpDeviceProfileResults(Device device) {
+  using RetType = void;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType, [&]() { ::tt::runtime::ttnn::dumpDeviceProfileResults(device); },
+      [&]() { ::tt::runtime::ttmetal::dumpDeviceProfileResults(device); });
+}
+
 using MemoryViewResult = std::unordered_map<::tt::runtime::MemoryBufferType,
                                             ::tt::runtime::MemoryView>;
 MemoryViewResult getMemoryView(Device device) {

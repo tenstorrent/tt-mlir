@@ -139,11 +139,6 @@ void closeMeshDevice(Device parentMesh) {
                 " that has ", numSubMeshes, " unreleased submeshes.");
   }
 
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-  for (tt_metal::IDevice *ttmetalDevice : metalMeshDevice.get_devices()) {
-    tt_metal::detail::DumpDeviceProfileResults(ttmetalDevice);
-  }
-#endif
   metalMeshDevice.close();
 }
 
@@ -276,6 +271,28 @@ void dumpMemoryReport(Device deviceHandle) {
   for (tt_metal::IDevice *device : meshDevice.get_devices()) {
     tt_metal::detail::DumpDeviceMemoryState(device);
   }
+}
+
+void dumpDeviceProfileResults(Device deviceHandle) {
+  tt_metal::distributed::MeshDevice &metalMeshDevice =
+      deviceHandle.as<tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+
+  LOG_ASSERT(metalMeshDevice.is_parent_mesh(),
+             "Mesh device must be a parent mesh");
+// NOTE: Reshaping the device before and after this dump is a temporary
+// workaround for tt-metal issue #22285 ttrt.common.run reshapes devices to (1,
+// number of device ids) tt-metal's DumpDeviceProfileResults expects the
+// mesh_shape in the SystemDesc This was throwing errors in llmbox tests
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
+  auto originalMeshShape = metalMeshDevice.shape();
+  metalMeshDevice.reshape(
+      ::tt::tt_metal::distributed::MeshShape(1, originalMeshShape.mesh_size()));
+  for (tt_metal::IDevice *metalDevice : metalMeshDevice.get_devices()) {
+    ::tt::tt_metal::detail::DumpDeviceProfileResults(metalDevice);
+  }
+  metalMeshDevice.reshape(originalMeshShape);
+#endif
 }
 
 std::unordered_map<MemoryBufferType, MemoryView>

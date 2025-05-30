@@ -320,6 +320,16 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
            << ", output_width = " << calculatedWOut;
   }
 
+  if (getConv2dConfig() && getConv2dConfig()->getDeallocateActivation() &&
+      getConv2dConfig()->getDeallocateActivation().getValue()) {
+    for (auto *user : getInput().getUsers()) {
+      if (this->getOperation()->isBeforeInBlock(user)) {
+        return emitOpError()
+               << "Conv2dOp with `deallocate_activation` set to true "
+                  "must be the last user of the input tensor. ";
+      }
+    }
+  }
   return success();
 }
 
