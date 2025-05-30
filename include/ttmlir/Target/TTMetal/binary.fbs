@@ -41,6 +41,8 @@ table Program {
   outputs: [TensorRef];
   device_programs: [DeviceProgram];
   debug_info: DebugInfo;
+  // Flag to indicate if this program is intended to be called or only for internal use (e.g. hoisted const-eval func).
+  private: bool;
 }
 
 table TTMetalBinary {

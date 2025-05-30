@@ -22,6 +22,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <array>
+#include <cmath>
 #include <optional>
 #include <string>
 #include <type_traits>
@@ -306,25 +307,31 @@ struct EmitCTypeConverter<T,
   }
 
   static std::string convert(mlir::APFloat value) {
-    if constexpr (std::is_same_v<T, float>) {
-      // Add 'f' suffix for float literals to ensure correct type in C++.
-      std::string result = std::to_string(value.convertToDouble());
-      result.append("f");
-      return result;
-    } else {
-      return std::to_string(value.convertToDouble());
-    }
+    return convert(value.convertToDouble());
   }
 
   template <typename U>
   static std::enable_if_t<std::is_floating_point_v<U>, std::string>
   convert(U value) {
-    // Add 'f' suffix for float literals to ensure correct type in C++.
-    std::string result = std::to_string(static_cast<T>(value));
-    if constexpr (std::is_same_v<T, float>) {
-      result.append("f");
+    if (std::isfinite(value)) {
+      std::string result = std::to_string(static_cast<T>(value));
+      if constexpr (std::is_same_v<T, float>) {
+        result.append("f");
+      }
+      return result;
     }
-    return result;
+
+    if (std::isinf(value)) {
+      std::string result = value > 0 ? "" : "-";
+      result.append("::std::numeric_limits<" + TypeNameV<T> + ">::infinity()");
+      return result;
+    }
+
+    if (std::isnan(value)) {
+      return "::std::numeric_limits<" + TypeNameV<T> + ">::quiet_NaN()";
+    }
+
+    llvm_unreachable("Unknown class of floating point value");
   }
 };
 

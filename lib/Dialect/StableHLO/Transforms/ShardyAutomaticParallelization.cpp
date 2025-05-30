@@ -284,26 +284,76 @@ static inline mlir::LogicalResult updateShapes(MLIRContext *context,
         state.operands.append(op->operand_begin(), op->operand_end());
         llvm::SmallVector<mlir::NamedAttribute> namedAttrs(op->getAttrs());
 
-        // stablehlo.constant also needs its argument dictionary
-        // updated.
-        if (auto constant = mlir::dyn_cast<mlir::stablehlo::ConstantOp>(*op)) {
+        // stablehlo.constant needs its argument dictionary updated.
+        if (auto constantOp =
+                mlir::dyn_cast<mlir::stablehlo::ConstantOp>(*op)) {
           for (auto &namedAttr : namedAttrs) {
-            if (namedAttr.getName() == "value") {
-              mlir::DenseElementsAttr denseElementsAttr =
-                  mlir::dyn_cast<mlir::DenseElementsAttr>(namedAttr.getValue());
+            if (namedAttr.getName() != "value") {
+              continue;
+            }
 
-              // If the element is not a splat value (ie. the same value
-              // for the entire constant) we fail as this is currently
-              // not supported.
-              if (!denseElementsAttr.isSplat()) {
-                op->emitError("Shardy automatic parallelization currently does "
-                              "not support non-splat constant tensors.\n");
+            mlir::DenseElementsAttr denseElementsAttr =
+                mlir::dyn_cast<mlir::DenseElementsAttr>(namedAttr.getValue());
+
+            // If the element is not a splat value (ie. the same value
+            // for the entire constant) we fail as this is currently
+            // not supported.
+            if (!denseElementsAttr.isSplat()) {
+              constantOp->emitError(
+                  "Shardy automatic parallelization currently does "
+                  "not support non-splat constant tensors.\n");
+              return mlir::failure();
+            }
+            mlir::DenseElementsAttr newAttr = mlir::DenseElementsAttr::get(
+                newTypes[0],
+                denseElementsAttr.getSplatValue<mlir::Attribute>());
+            namedAttr.setValue(newAttr);
+          }
+        }
+
+        // stablehlo.slice needs its argument dictionary updated.
+        if (auto sliceOp = mlir::dyn_cast<mlir::stablehlo::SliceOp>(*op)) {
+          llvm::SmallVector<int64_t> startIndices(sliceOp.getStartIndices());
+          llvm::SmallVector<int64_t> limitIndices(sliceOp.getLimitIndices());
+
+          // Iterate through start and limit indices and update them based on
+          // the sharding annotation for that dimension.
+          for (uint32_t i = 0; i < tensorShardings.size(); i++) {
+            llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> dimShardings =
+                tensorShardings[i].getDimShardings();
+
+            for (const auto [index, dimShardingAttr] :
+                 llvm::enumerate(dimShardings)) {
+              FailureOr<int64_t> updatedStartShapeDim =
+                  sdy_utils::calculateUpdatedShapeDim(globalMeshOp.getMesh(),
+                                                      dimShardingAttr,
+                                                      startIndices[index]);
+              FailureOr<int64_t> updatedLimitShapeDim =
+                  sdy_utils::calculateUpdatedShapeDim(globalMeshOp.getMesh(),
+                                                      dimShardingAttr,
+                                                      limitIndices[index]);
+
+              if (failed(updatedStartShapeDim) ||
+                  failed(updatedLimitShapeDim)) {
+                sliceOp->emitError(
+                    "Could not apply propagated tensor shardings "
+                    "to attribute dictionary for slice op.\n");
                 return mlir::failure();
               }
-              mlir::DenseElementsAttr newAttr = mlir::DenseElementsAttr::get(
-                  newTypes[0],
-                  denseElementsAttr.getSplatValue<mlir::Attribute>());
-              namedAttr.setValue(newAttr);
+
+              startIndices[index] = *updatedStartShapeDim;
+              limitIndices[index] = *updatedLimitShapeDim;
+            }
+          }
+
+          // Update start and limit indices in op named attributes.
+          for (auto &namedAttr : namedAttrs) {
+            if (namedAttr.getName() == "start_indices") {
+              namedAttr.setValue(
+                  mlir::DenseI64ArrayAttr::get(context, startIndices));
+            } else if (namedAttr.getName() == "limit_indices") {
+              namedAttr.setValue(
+                  mlir::DenseI64ArrayAttr::get(context, limitIndices));
             }
           }
         }
@@ -368,6 +418,8 @@ convertShardyCCLToStableHLOCCL(MLIRContext *context,
   target.addLegalOp<mlir::func::CallOp>();
   target.addLegalOp<mlir::arith::ConstantOp>();
   target.addIllegalOp<mlir::sdy::AllGatherOp>();
+  target.addIllegalOp<mlir::sdy::ReduceScatterOp>();
+  target.addIllegalOp<mlir::sdy::AllReduceOp>();
 
   // Apply conversion.
   if (failed(applyFullConversion(rootModule, target, std::move(patterns)))) {
@@ -473,15 +525,18 @@ public:
       mlir::sdy::AxisRefAttr axisAttr =
           mlir::sdy::AxisRefAttr::get(context, "batch");
       mlir::sdy::DimensionShardingAttr dimShardingAttr =
-          mlir::sdy::DimensionShardingAttr::get(context, {axisAttr}, true);
+          mlir::sdy::DimensionShardingAttr::get(context, {axisAttr},
+                                                /*is_closed*/ false);
       dimShardings.push_back(dimShardingAttr);
 
       mlir::sdy::DimensionShardingAttr full =
-          mlir::sdy::DimensionShardingAttr::get(context, {}, true);
+          mlir::sdy::DimensionShardingAttr::get(context, {},
+                                                /*is_closed*/ false);
       dimShardings.append(argType.getRank() - 1, full);
     } else {
       mlir::sdy::DimensionShardingAttr full =
-          mlir::sdy::DimensionShardingAttr::get(context, {}, true);
+          mlir::sdy::DimensionShardingAttr::get(context, {},
+                                                /*is_closed*/ false);
       dimShardings.append(argType.getRank(), full);
     }
 
@@ -549,7 +604,8 @@ public:
     }
 
     // Determine sdy.sharding annotation to add to this argument based on tt
-    // argument type.
+    // argument type. If it's an input, we annotate it. Otherwise, we keep it
+    // open for shardy propogation to fill it in if required.
     mlir::RankedTensorType argType =
         mlir::cast<mlir::RankedTensorType>(arg->getType());
     llvm::SmallVector<mlir::sdy::DimensionShardingAttr> dimShardings;
@@ -559,15 +615,18 @@ public:
       mlir::sdy::AxisRefAttr axisAttr =
           mlir::sdy::AxisRefAttr::get(context, "batch");
       mlir::sdy::DimensionShardingAttr dimShardingAttr =
-          mlir::sdy::DimensionShardingAttr::get(context, {axisAttr}, true);
+          mlir::sdy::DimensionShardingAttr::get(context, {axisAttr},
+                                                /*is_closed*/ false);
       dimShardings.push_back(dimShardingAttr);
 
       mlir::sdy::DimensionShardingAttr full =
-          mlir::sdy::DimensionShardingAttr::get(context, {}, true);
+          mlir::sdy::DimensionShardingAttr::get(context, {},
+                                                /*is_closed*/ false);
       dimShardings.append(argType.getRank() - 1, full);
     } else {
       mlir::sdy::DimensionShardingAttr full =
-          mlir::sdy::DimensionShardingAttr::get(context, {}, true);
+          mlir::sdy::DimensionShardingAttr::get(context, {},
+                                                /*is_closed*/ false);
       dimShardings.append(argType.getRank(), full);
     }
 

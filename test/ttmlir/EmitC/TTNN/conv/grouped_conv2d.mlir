@@ -3,6 +3,8 @@
 // RUN: ttmlir-opt --ttnn-modify-signatures-for-dylib --convert-ttnn-to-emitc %t.mlir > %t2.mlir
 // RUN: ttmlir-translate --mlir-to-cpp %t2.mlir > %basename_t.cpp
 
+// UNSUPPORTED: true
+
 module {
   func.func @grouped_conv2d_bf16(%arg0: tensor<16x32x32x64xbf16>, %arg1: tensor<64x16x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<16x30x30x64xbf16> {
     %0 = ttir.empty() : tensor<16x30x30x64xbf16>

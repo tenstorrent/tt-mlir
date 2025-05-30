@@ -17,7 +17,7 @@ set(TTNN_OPERATIONS_FBS_GEN_SOURCES
   operations/matmul.fbs
   # ANCHOR_END: adding_an_op_matmul_fbs_cmake
   operations/moreh_cumsum.fbs
-  operations/softmax.fbs
+  operations/normalization.fbs
   operations/pool.fbs
   operations/reduction.fbs
 )

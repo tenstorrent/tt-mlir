@@ -659,6 +659,8 @@ class Binary(Flatbuffer):
         self.version = self.fbb.version
         self.program_indices = range(self.fbb.get_num_programs())
         self.programs = []
+        self.e2e_duration_milliseconds = 0
+        
         for i in self.program_indices:
             program = Binary.Program(i, self.fbb)
             self.programs.append(program)
