@@ -137,6 +137,7 @@ declare_mlir_python_sources(TTMLIRPythonCommon.Main
   ADD_TO_PARENT TTMLIRPythonCommon
   SOURCES
     compile_and_run_internal.py
+    compile_and_run_utils.py
     compile_and_run.py
 )
 
