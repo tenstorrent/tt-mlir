@@ -319,6 +319,34 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::EmptyOp::getBufferType(
 // ConstantOp
 //===----------------------------------------------------------------------===//
 
+// Common Utilities
+template <typename OpTy, typename TransformFn>
+static mlir::OpFoldResult foldConstantOpHelper(OpTy op, TransformFn transform) {
+  auto constantOp =
+      op.getInput().template getDefiningOp<mlir::tt::ttir::ConstantOp>();
+  if (!constantOp)
+    return nullptr;
+
+  mlir::Attribute constAttr = constantOp.getValue();
+  // Handle DenseElementsAttr
+  if (auto denseAttr = mlir::dyn_cast<mlir::DenseElementsAttr>(constAttr)) {
+    return transform(denseAttr);
+  }
+
+  // Handle DenseResourceElementsAttr by materializing to DenseElementsAttr
+  if (auto resourceAttr =
+          mlir::dyn_cast<mlir::DenseResourceElementsAttr>(constAttr)) {
+    auto originalType =
+        mlir::cast<mlir::RankedTensorType>(resourceAttr.getType());
+    mlir::ArrayRef<char> rawData = resourceAttr.getData();
+    mlir::DenseElementsAttr tempDenseAttr =
+        mlir::DenseElementsAttr::getFromRawBuffer(originalType, rawData);
+    return transform(tempDenseAttr);
+  }
+
+  return nullptr;
+}
+
 // ConstantOp folder
 ::mlir::OpFoldResult mlir::tt::ttir::ConstantOp::fold(FoldAdaptor) {
   return getValueAttr();
@@ -1278,43 +1306,11 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
 
 // Fold reshape of a constant into a new constant with the reshaped data.
 static mlir::OpFoldResult foldConstantReshape(mlir::tt::ttir::ReshapeOp op) {
-  // Check if the input is a constant operation
-  auto constantOp = op.getInput().getDefiningOp<mlir::tt::ttir::ConstantOp>();
-  if (!constantOp) {
-    return nullptr;
-  }
-
-  // Get the constant value and the target reshaped type
-  mlir::Attribute constAttr = constantOp.getValue();
   auto reshapedType = mlir::cast<mlir::RankedTensorType>(op.getType());
-
-  if (auto denseAttr = mlir::dyn_cast<mlir::DenseElementsAttr>(constAttr)) {
-    // Reshape DenseElementsAttr directly
-    return denseAttr.reshape(reshapedType);
-  }
-
-  if (auto resourceAttr =
-          mlir::dyn_cast<mlir::DenseResourceElementsAttr>(constAttr)) {
-    // For DenseResourceElementsAttr, materialize it to DenseElementsAttr first,
-    // then reshape.
-
-    // Get the original type of the resource attribute
-    auto originalResourceType =
-        mlir::cast<mlir::RankedTensorType>(resourceAttr.getType());
-
-    // Get raw data using getData()
-    mlir::ArrayRef<char> rawData = resourceAttr.getData();
-
-    // Create a temporary DenseElementsAttr from the raw buffer.
-    mlir::DenseElementsAttr tempDenseAttr =
-        mlir::DenseElementsAttr::getFromRawBuffer(originalResourceType,
-                                                  rawData);
-
-    // Reshape the materialized DenseElementsAttr
-    return tempDenseAttr.reshape(reshapedType);
-  }
-
-  return nullptr;
+  return foldConstantOpHelper(
+      op, [&](mlir::DenseElementsAttr attr) -> mlir::Attribute {
+        return attr.reshape(reshapedType);
+      });
 }
 
 // ReshapeOp folder
@@ -1821,7 +1817,7 @@ foldIdentityTranspose(mlir::tt::ttir::TransposeOp op) {
 
 // Rewrite a transpose op to a canonical form where the 'dim0' is less than
 // 'dim1'.
-static mlir::OpFoldResult sortTansposeDims(mlir::tt::ttir::TransposeOp op) {
+static mlir::OpFoldResult sortTransposeDims(mlir::tt::ttir::TransposeOp op) {
   if (op.getDim0() < op.getDim1()) {
     return nullptr;
   }
@@ -1869,7 +1865,7 @@ mlir::OpFoldResult mlir::tt::ttir::TransposeOp::fold(FoldAdaptor adaptor) {
     return foldResult;
   }
 
-  if (auto foldResult = sortTansposeDims(*this)) {
+  if (auto foldResult = sortTransposeDims(*this)) {
     return foldResult;
   }
 
