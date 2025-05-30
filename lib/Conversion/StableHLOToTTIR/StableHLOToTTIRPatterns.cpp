@@ -944,6 +944,21 @@ public:
     auto baseDilations = adaptor.getBaseDilationsAttr();
     auto window_dilations = adaptor.getWindowDilationsAttr();
     auto padding_ = adaptor.getPaddingAttr();
+    auto ceilModeAttr = adaptor.getAttributes().get("ceil_mode");
+    bool ceilMode = false;
+    mlir::DenseElementsAttr ceilModePadding_;
+
+    if (ceilModeAttr) {
+      if (auto ceilAttr = mlir::dyn_cast<mlir::BoolAttr>(ceilModeAttr)) {
+        ceilMode = ceilAttr.getValue();
+      }
+    }
+    if (ceilMode) {
+      auto ceilModePaddingAttr =
+          adaptor.getAttributes().get("ceil_mode_padding");
+      ceilModePadding_ =
+          mlir::cast<mlir::DenseElementsAttr>(ceilModePaddingAttr);
+    }
 
     // Generate defaults if they dont exist (these defaults are what the
     // stablehlo dialect intends when they are not provided)
@@ -964,12 +979,17 @@ public:
                        SmallVector<int64_t>(padding_.getValues<int64_t>()))
                  : rewriter.getDenseI64ArrayAttr(
                        SmallVector<int64_t>(windowDimensions.size() * 2, 0));
-
+    auto ceilModePadding =
+        ceilModePadding_
+            ? rewriter.getDenseI64ArrayAttr(
+                  SmallVector<int64_t>(ceilModePadding_.getValues<int64_t>()))
+            : rewriter.getDenseI64ArrayAttr(
+                  SmallVector<int64_t>(windowDimensions.size() * 2, 0));
     if (isMaxPool(srcOp, *initValue, frontOp)) {
       rewriter.replaceOpWithNewOp<ttir::PoolingOp>(
           srcOp, outputType, adaptor.getInputs(), outputs,
           mlir::tt::ttir::PoolingMethod::Max, windowDimensions, windowStrides,
-          baseDilations, window_dilations, padding);
+          baseDilations, window_dilations, padding, ceilMode, ceilModePadding);
       return success();
     }
     std::optional<int64_t> dimension =
@@ -987,7 +1007,8 @@ public:
         auto newOp = rewriter.replaceOpWithNewOp<ttir::PoolingOp>(
             srcOp, outputType, adaptor.getInputs(), outputs,
             mlir::tt::ttir::PoolingMethod::Average, windowDimensions,
-            windowStrides, baseDilations, window_dilations, padding);
+            windowStrides, baseDilations, window_dilations, padding, ceilMode,
+            ceilModePadding);
         (*divOp)->replaceAllUsesWith(newOp);
         rewriter.eraseOp(*divOp);
         return success();
@@ -996,7 +1017,7 @@ public:
       rewriter.replaceOpWithNewOp<ttir::PoolingOp>(
           srcOp, outputType, adaptor.getInputs(), outputs,
           mlir::tt::ttir::PoolingMethod::Sum, windowDimensions, windowStrides,
-          baseDilations, window_dilations, padding);
+          baseDilations, window_dilations, padding, ceilMode, ceilModePadding);
 
       return success();
     }
