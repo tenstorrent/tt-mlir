@@ -191,7 +191,8 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
   case ::tt::target::ttnn::EltwiseUnaryOpType::BitwiseNot: {
     runEltwiseUnaryOp(op, tensorPool, ::ttnn::bitwise_not);
     break;
-  } case ::tt::target::ttnn::EltwiseUnaryOpType::Erf: {
+  }
+  case ::tt::target::ttnn::EltwiseUnaryOpType::Erf: {
     runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool, ::ttnn::erf);
     break;
   }

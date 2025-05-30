@@ -394,53 +394,72 @@ public:
 
 class ErfApproximation : public mlir::OpRewritePattern<DivOp> {
 public:
-  ErfApproximation(MLIRContext *context) : OpRewritePattern(context, PatternBenefit(2)) {}
+  ErfApproximation(MLIRContext *context)
+      : OpRewritePattern(context, PatternBenefit(2)) {}
 
   mlir::LogicalResult
   matchAndRewrite(DivOp div, mlir::PatternRewriter &rewriter) const final {
 
-    // The denominator is a the input sacaled followed by factored polynomial with constants (in order from closest to the div to furthest):
-    // [-0.014264739, -0.00737332925, -0.00168282702, -0.000213374049, -0.0000145660715]
-    AddOp denominator = mlir::dyn_cast_or_null<AddOp>(div.getRhs().getDefiningOp());
+    // The denominator is a the input sacaled followed by factored polynomial
+    // with constants (in order from closest to the div to furthest):
+    // [-0.014264739, -0.00737332925, -0.00168282702, -0.000213374049,
+    // -0.0000145660715]
+    AddOp denominator =
+        mlir::dyn_cast_or_null<AddOp>(div.getRhs().getDefiningOp());
     if (!denominator) {
       return failure();
     }
 
     Value polynomialArg = nullptr;
 
-    if(mlir::failed(matchFactoredPolynomial(denominator, {-0.014264739, -0.00737332925, -0.00168282702, -0.000213374049, -0.0000145660715}, polynomialArg))) {
+    if (mlir::failed(matchFactoredPolynomial(denominator,
+                                             {-0.014264739, -0.00737332925,
+                                              -0.00168282702, -0.000213374049,
+                                              -0.0000145660715},
+                                             polynomialArg))) {
       return failure();
     }
 
-    // The numerator is another factored polynomial which is multiplied by the erf input
-    MultiplyOp numerator = mlir::dyn_cast_or_null<MultiplyOp>(div.getLhs().getDefiningOp());
+    // The numerator is another factored polynomial which is multiplied by the
+    // erf input
+    MultiplyOp numerator =
+        mlir::dyn_cast_or_null<MultiplyOp>(div.getLhs().getDefiningOp());
     if (!numerator) {
       return failure();
     }
 
     Value erfInput = numerator.getLhs();
 
-    AddOp numeratorPolynomial = mlir::dyn_cast_or_null<AddOp>(numerator.getRhs().getDefiningOp());
+    AddOp numeratorPolynomial =
+        mlir::dyn_cast_or_null<AddOp>(numerator.getRhs().getDefiningOp());
     if (!numeratorPolynomial) {
       return failure();
     }
 
-    // The denominator is a factored polynomial with constants (in order from closest to the div to furthest):
-    // [-0.0160960332, -0.0029546, -0.000734990637, -0.0000569250624, -0.00000210102394, 0.0000000277068146, -0.000000000272614237]
-    if(mlir::failed(matchFactoredPolynomial(numeratorPolynomial, {-0.0160960332, -0.0029546, -0.000734990637, -0.0000569250624, -0.00000210102394, 0.0000000277068146, -0.000000000272614237}, polynomialArg))) {
+    // The denominator is a factored polynomial with constants (in order from
+    // closest to the div to furthest):
+    // [-0.0160960332, -0.0029546, -0.000734990637, -0.0000569250624,
+    // -0.00000210102394, 0.0000000277068146, -0.000000000272614237]
+    if (mlir::failed(matchFactoredPolynomial(
+            numeratorPolynomial,
+            {-0.0160960332, -0.0029546, -0.000734990637, -0.0000569250624,
+             -0.00000210102394, 0.0000000277068146, -0.000000000272614237},
+            polynomialArg))) {
       return failure();
     }
 
-    ErfOp erf = utils::createDPSOp<ErfOp>(rewriter, ttmlir::utils::appendLocationSuffix(div.getLoc(), "_multiply"), mlir::cast<RankedTensorType>(div.getType()), erfInput);
+    ErfOp erf = utils::createDPSOp<ErfOp>(
+        rewriter,
+        ttmlir::utils::appendLocationSuffix(div.getLoc(), "_multiply"),
+        mlir::cast<RankedTensorType>(div.getType()), erfInput);
     rewriter.replaceOp(div, erf);
     return success();
   }
 
 private:
-
-  mlir::LogicalResult
-  matchConstantValue(FullOp full, float constant) const {
-    FloatAttr valueAttr = mlir::dyn_cast_or_null<FloatAttr>(full.getFillValue());
+  mlir::LogicalResult matchConstantValue(FullOp full, float constant) const {
+    FloatAttr valueAttr =
+        mlir::dyn_cast_or_null<FloatAttr>(full.getFillValue());
     if (!valueAttr) {
       return failure();
     }
@@ -453,18 +472,20 @@ private:
     return success();
   }
 
-  mlir::LogicalResult
-  matchFactoredPolynomial(AddOp lastOp, SmallVector<float> scales, Value& polynomialArg) const {
+  mlir::LogicalResult matchFactoredPolynomial(AddOp lastOp,
+                                              SmallVector<float> scales,
+                                              Value &polynomialArg) const {
     AddOp current = lastOp;
     MultiplyOp finalMul = nullptr;
-    for (uint32_t i = 0 ; i < scales.size() - 1; i++) {
+    for (uint32_t i = 0; i < scales.size() - 1; i++) {
       float scale = scales[i];
       if (!current) {
         return failure();
       }
       // Rhs of add must be a constant with a single value matching `scale`
 
-      FullOp constScale = mlir::dyn_cast_or_null<FullOp>(current.getRhs().getDefiningOp());
+      FullOp constScale =
+          mlir::dyn_cast_or_null<FullOp>(current.getRhs().getDefiningOp());
       if (!constScale) {
         return failure();
       }
@@ -473,7 +494,8 @@ private:
         return failure();
       }
 
-      MultiplyOp multiply = mlir::dyn_cast_or_null<MultiplyOp>(current.getLhs().getDefiningOp());
+      MultiplyOp multiply =
+          mlir::dyn_cast_or_null<MultiplyOp>(current.getLhs().getDefiningOp());
       if (!multiply) {
         return failure();
       }
@@ -484,14 +506,15 @@ private:
         return failure();
       }
 
-      current = mlir::dyn_cast_or_null<AddOp>(multiply.getLhs().getDefiningOp());
+      current =
+          mlir::dyn_cast_or_null<AddOp>(multiply.getLhs().getDefiningOp());
       finalMul = multiply;
-
     }
 
     // Last scale is applied via a multiply, not add
-    float scale = scales[scales.size()-1];
-    FullOp constScale = mlir::dyn_cast_or_null<FullOp>(finalMul.getLhs().getDefiningOp());
+    float scale = scales[scales.size() - 1];
+    FullOp constScale =
+        mlir::dyn_cast_or_null<FullOp>(finalMul.getLhs().getDefiningOp());
     if (!constScale) {
       return failure();
     }
