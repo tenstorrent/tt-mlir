@@ -62,7 +62,10 @@ static Value convertToBooleanTensor(Value input, Location loc,
   // Compare input with zero to get a boolean tensor
   auto boolType =
       RankedTensorType::get(inputType.getShape(), rewriter.getIntegerType(1));
-  return rewriter.create<tosa::GreaterOp>(loc, boolType, input, zeroSplat);
+  auto boolResult =
+      rewriter.create<tosa::GreaterOp>(loc, boolType, input, zeroSplat);
+
+  return boolResult;
 }
 
 // Create a tensor of all ones or zeros with the given type
@@ -946,6 +949,86 @@ public:
 } // namespace
 
 namespace {
+// Helper function to get dimensions from the dim_arg attribute
+// If the attribute is not present or empty, return all dimensions
+static SmallVector<int64_t> getDimsFromAttribute(Operation *op, int64_t rank) {
+  if (auto dimAttr = op->getAttrOfType<ArrayAttr>("dim_arg")) {
+    if (dimAttr.size() == 0) {
+      // If dim_arg is present but empty, reduce along all dimensions
+      SmallVector<int64_t> allDims(rank);
+      std::iota(allDims.begin(), allDims.end(), 0);
+      return allDims;
+    }
+
+    // Otherwise, use the provided dimensions
+    SmallVector<int64_t> dims;
+    for (auto dim : dimAttr) {
+      if (auto intAttr = dyn_cast<IntegerAttr>(dim)) {
+        dims.push_back(intAttr.getInt());
+      }
+    }
+    return dims;
+  }
+
+  // If no dim_arg attribute, reduce along all dimensions
+  SmallVector<int64_t> allDims(rank);
+  std::iota(allDims.begin(), allDims.end(), 0);
+  return allDims;
+}
+
+// Helper function to get keep_dim attribute
+static bool getKeepDimFromAttribute(Operation *op) {
+  if (auto keepDimAttr = op->getAttrOfType<BoolAttr>("keep_dim")) {
+    return keepDimAttr.getValue();
+  }
+  return false;
+}
+
+// Helper function to create a chain of reduction operations for multiple
+// dimensions
+template <typename ReductionOp>
+static Value createReductionOpChain(Value input, RankedTensorType resultType,
+                                    ArrayRef<int64_t> dims, bool keepDim,
+                                    Location loc,
+                                    ConversionPatternRewriter &rewriter) {
+  // Sort dimensions in descending order to avoid changing indices during
+  // reduction
+  SmallVector<int64_t> sortedDims(dims.begin(), dims.end());
+  std::sort(sortedDims.begin(), sortedDims.end(), std::greater<int64_t>());
+
+  Value result = input;
+  auto inputType = cast<RankedTensorType>(input.getType());
+
+  // For each dimension, create a reduction operation
+  for (size_t i = 0; i < sortedDims.size(); ++i) {
+    int64_t dim = sortedDims[i];
+
+    // Create the axis attribute for this dimension
+    auto axisAttr = rewriter.getI64IntegerAttr(dim);
+
+    // For the last dimension in our chain, use the final result type
+    // For intermediate dimensions, calculate the intermediate shape
+    RankedTensorType opResultType;
+    if (i == sortedDims.size() - 1) {
+      opResultType = resultType;
+    } else {
+      SmallVector<int64_t> shape(inputType.getShape().begin(),
+                                 inputType.getShape().end());
+      if (keepDim) {
+        shape[dim] = 1;
+      } else {
+        shape.erase(shape.begin() + dim);
+      }
+      opResultType = RankedTensorType::get(shape, inputType.getElementType());
+    }
+
+    // Create the reduction operation
+    result = rewriter.create<ReductionOp>(loc, opResultType, result, axisAttr);
+  }
+
+  return result;
+}
+
 class MaxOpConversionPattern : public OpConversionPattern<ttir::MaxOp> {
 public:
   using OpConversionPattern<ttir::MaxOp>::OpConversionPattern;
@@ -954,24 +1037,20 @@ public:
   matchAndRewrite(ttir::MaxOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     Value input = adaptor.getInput();
+    auto inputType = cast<RankedTensorType>(input.getType());
+    int64_t rank = inputType.getRank();
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
 
-    // Create a constant for the axis - assuming 0 as default if not specified
-    int64_t axis = 0;
-    // Check if the op has an axis attribute
-    if (auto axisAttr = op->getAttrOfType<IntegerAttr>("axis")) {
-      axis = axisAttr.getInt();
-    }
+    // Get dimensions to reduce and keep_dim attribute
+    SmallVector<int64_t> dims = getDimsFromAttribute(op, rank);
+    bool keepDim = getKeepDimFromAttribute(op);
 
-    // TOSA's ReduceMaxOp takes an integer attribute for the axis
-    auto axisAttr = rewriter.getI32IntegerAttr(static_cast<int32_t>(axis));
-
-    // Create the ReduceMaxOp with the axis attribute
-    auto result = rewriter.create<tosa::ReduceMaxOp>(op.getLoc(), resultType,
-                                                     input, axisAttr);
+    // Create a chain of reduction operations
+    Value result = createReductionOpChain<tosa::ReduceMaxOp>(
+        input, resultType, dims, keepDim, op.getLoc(), rewriter);
 
     rewriter.replaceOp(op, result);
     return success();
@@ -988,24 +1067,20 @@ public:
   matchAndRewrite(ttir::SumOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     Value input = adaptor.getInput();
+    auto inputType = cast<RankedTensorType>(input.getType());
+    int64_t rank = inputType.getRank();
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
 
-    // Create a constant for the axis - assuming 0 as default if not specified
-    int64_t axis = 0;
-    // Check if the op has an axis attribute
-    if (auto axisAttr = op->getAttrOfType<IntegerAttr>("axis")) {
-      axis = axisAttr.getInt();
-    }
+    // Get dimensions to reduce and keep_dim attribute
+    SmallVector<int64_t> dims = getDimsFromAttribute(op, rank);
+    bool keepDim = getKeepDimFromAttribute(op);
 
-    // TOSA's ReduceSumOp takes an integer attribute for the axis
-    auto axisAttr = rewriter.getI32IntegerAttr(static_cast<int32_t>(axis));
-
-    // Create the ReduceSumOp with the axis attribute
-    auto result = rewriter.create<tosa::ReduceSumOp>(op.getLoc(), resultType,
-                                                     input, axisAttr);
+    // Create a chain of reduction operations
+    Value result = createReductionOpChain<tosa::ReduceSumOp>(
+        input, resultType, dims, keepDim, op.getLoc(), rewriter);
 
     rewriter.replaceOp(op, result);
     return success();
@@ -1024,23 +1099,23 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     Value input = adaptor.getInput();
 
+    // Convert input to boolean tensor if needed
+    input = convertToBooleanTensor(input, op.getLoc(), rewriter);
+
+    auto inputType = cast<RankedTensorType>(input.getType());
+    int64_t rank = inputType.getRank();
+
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
 
-    // Create a constant for the axis - assuming 0 as default if not specified
-    int64_t axis = 0;
-    // Check if the op has an axis attribute
-    if (auto axisAttr = op->getAttrOfType<IntegerAttr>("axis")) {
-      axis = axisAttr.getInt();
-    }
+    // Get dimensions to reduce and keep_dim attribute
+    SmallVector<int64_t> dims = getDimsFromAttribute(op, rank);
+    bool keepDim = getKeepDimFromAttribute(op);
 
-    // TOSA's ReduceAnyOp takes an integer attribute for the axis
-    auto axisAttr = rewriter.getI32IntegerAttr(static_cast<int32_t>(axis));
-
-    // Create the ReduceAnyOp with the axis attribute
-    auto result = rewriter.create<tosa::ReduceAnyOp>(op.getLoc(), resultType,
-                                                     input, axisAttr);
+    // Create a chain of reduction operations
+    Value result = createReductionOpChain<tosa::ReduceAnyOp>(
+        input, resultType, dims, keepDim, op.getLoc(), rewriter);
 
     rewriter.replaceOp(op, result);
     return success();
