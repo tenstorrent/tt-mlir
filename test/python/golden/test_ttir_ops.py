@@ -1428,42 +1428,49 @@ def test_hoisted_permute(shapes_and_perms, request, target: str):
 
 unary_ops = [
     exp,
-    expm1,
-    floor,
-    abs,
-    pytest.param(logical_not, marks=pytest.mark.fails_golden),
-    neg,
-    sign,
-    cos,
+    expm1 | Marks(pytest.mark.skip_target("ttmetal")),
+    floor | Marks(pytest.mark.skip_target("ttmetal")),
+    abs | Marks(pytest.mark.skip_target("ttmetal")),
+    logical_not | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
+    neg | Marks(pytest.mark.skip_target("ttmetal")),
+    sign | Marks(pytest.mark.skip_target("ttmetal")),
+    cos | Marks(pytest.mark.skip_target("ttmetal")),
     sin,
-    pytest.param(tan, marks=pytest.mark.fails_golden),
-    atan,
-    tanh,
-    pytest.param(log, marks=pytest.mark.fails_golden),
-    pytest.param(log1p, marks=pytest.mark.fails_golden),
-    relu,
-    gelu,
-    leaky_relu,
-    sqrt,
-    pytest.param(cbrt, marks=pytest.mark.fails_golden),
-    rsqrt,
-    sigmoid,
-    reciprocal,
-    is_finite,
+    tan | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
+    atan | Marks(pytest.mark.skip_target("ttmetal")),
+    tanh | Marks(pytest.mark.skip_target("ttmetal")),
+    log | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
+    log1p | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
+    relu | Marks(pytest.mark.skip_target("ttmetal")),
+    gelu | Marks(pytest.mark.skip_target("ttmetal")),
+    leaky_relu | Marks(pytest.mark.skip_target("ttmetal")),
+    sqrt | Marks(pytest.mark.skip_target("ttmetal")),
+    cbrt | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
+    rsqrt | Marks(pytest.mark.skip_target("ttmetal")),
+    sigmoid | Marks(pytest.mark.skip_target("ttmetal")),
+    reciprocal | Marks(pytest.mark.skip_target("ttmetal")),
+    is_finite | Marks(pytest.mark.skip_target("ttmetal")),
     ceil,
-    sum,
-    mean,
-    pytest.param(max, marks=pytest.mark.fails_golden),
-    pytest.param(min, marks=pytest.mark.fails_golden),
-    pytest.param(get_dimension_size, marks=pytest.mark.run_error),
+    sum | Marks(pytest.mark.skip_target("ttmetal")),
+    mean | Marks(pytest.mark.skip_target("ttmetal")),
+    max | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
+    min | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
+    get_dimension_size
+    | Marks(pytest.mark.run_error, pytest.mark.skip_target("ttmetal")),
 ]
 
 
-@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 @pytest.mark.parametrize("test_fn", unary_ops)
 def test_unary_ops(
-    test_fn: Callable, shape: Shape, request, dtype: torch.dtype = torch.float32
+    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request
 ):
+    pipeline_options = []
+    # Workaround for ttmetal, only support 1x1 grid atm
+    if target == "ttmetal":
+        pipeline_options.append("override-device-shape=1,1")
     compile_to_flatbuffer(
         test_fn,
         inputs_shapes=[shape],
@@ -1471,6 +1478,8 @@ def test_unary_ops(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        pipeline_options=pipeline_options,
     )
 
 
@@ -1481,17 +1490,17 @@ def test_unary_ops(
     "test_fn",
     [
         add,
-        multiply | Marks(pytest.mark.skip_target("ttmetal")),
-        subtract | Marks(pytest.mark.skip_target("ttmetal")),
+        multiply,
+        subtract,
         eq | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
         ne | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
         le | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
         lt | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
         ge | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
         gt | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
-        div | Marks(pytest.mark.skip_target("ttmetal")),
+        div,
         remainder | Marks(pytest.mark.skip_target("ttmetal")),
-        maximum | Marks(pytest.mark.skip_target("ttmetal")),
+        maximum,
         minimum | Marks(pytest.mark.skip_target("ttmetal")),
         pow | Marks(pytest.mark.skip_target("ttmetal")),
         matmul | Marks(pytest.mark.skip_target("ttmetal")),
