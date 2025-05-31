@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --tt-register-device --convert-ttir-to-ttkernel --ttkernel-control-dst-section %s > %t.mlir
+// RUN: ttmlir-opt --tt-register-device --ttir-generic-lower-dmas --convert-ttir-to-ttkernel --ttkernel-control-dst-section %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 
 #l1_ = #tt.memory_space<l1>
@@ -18,8 +18,8 @@ module {
       scf.if %0 {
         // CHECK: %{{[0-9]+}} = "ttkernel.get_compile_time_arg_val"
         %1 = ttir.get_global_operand(0) : memref<8x8x1x3x!tt.tile<32x32, f32>, #tt.shard<12288x4096>, #l1_>
-        // CHECK: %{{[0-9]+}} = "ttkernel.get_write_ptr"
         // CHECK: %{{[0-9]+}} = "ttkernel.get_noc_addr"
+        // CHECK: %{{[0-9]+}} = "ttkernel.get_write_ptr"
         // CHECK: "ttkernel.noc_async_read"
         %tx = ttir.dma %1 [%c0, %arg7, %c0, %c0], %arg0 [%c0, %c0] : (memref<8x8x1x3x!tt.tile<32x32, f32>, #tt.shard<12288x4096>, #l1_>, memref<1x3x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
         // CHECK: "ttkernel.noc_async_read_barrier"

@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::ttir {
@@ -59,11 +60,20 @@ public:
                                           op.getInput())
                     .getResult();
 
+    assert(inputLayout.getRank() == outputLayout.getRank());
+    ArrayAttr indexingMaps, iteratorTypes;
+    std::tie(indexingMaps, iteratorTypes) =
+        GenericOp::buildParallelAffineMapsAndIteratorTypes(
+            rewriter, /*arity=*/2, inputLayout.getRank());
     rewriter.replaceOpWithNewOp<GenericOp>(
         op, view, op.getOutput(),
         [&](OpBuilder &builder, Location loc, ValueRange blockArgs) {
-          builder.create<YieldOp>(loc, blockArgs[0]);
-        });
+          auto dma = builder.create<ttir::DMAOp>(
+              loc, view, mlir::cast<AffineMapAttr>(indexingMaps[0]),
+              blockArgs[1]);
+          builder.create<ttir::DMAWaitOp>(loc, dma);
+        },
+        ThreadType::Datamovement);
 
     return success();
   }

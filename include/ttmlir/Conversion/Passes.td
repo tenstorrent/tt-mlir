@@ -96,7 +96,7 @@ def ConvertTTIRToTTMetal: Pass<"convert-ttir-to-ttmetal", "::mlir::ModuleOp"> {
 def ConvertTTIRToTTKernel: Pass<"convert-ttir-to-ttkernel", "::mlir::ModuleOp"> {
   let summary = "Convert TTIR dialect to TTKernel dialect.";
   let constructor = "createConvertTTIRToTTKernelPass()";
-  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::tt::ttmetal::TTMetalDialect", "mlir::tt::ttkernel::TTKernelDialect", "mlir::arith::ArithDialect", "mlir::affine::AffineDialect"];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::tt::ttmetal::TTMetalDialect", "mlir::tt::ttkernel::TTKernelDialect", "mlir::arith::ArithDialect"];
 }
 
 def ConvertTTNNToEmitC : Pass<"convert-ttnn-to-emitc", "::mlir::ModuleOp"> {

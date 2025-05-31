@@ -121,8 +121,8 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
                      "ValueRange": $outputs,
                      "ArrayAttr": $indexingMaps,
                      "ArrayAttr": $iteratorTypes,
-                     CArg<"GridAttr", "nullptr">: $grid,
-                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType),
+                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
+                     CArg<"GridAttr", "nullptr">: $grid),
       [{
         assert(!indexingMaps.empty() && "expected non-empty indexing maps");
         assert(outputs.size() == 1 && "expected single output");
@@ -144,10 +144,10 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
                      "ArrayAttr": $indexingMaps,
                      "ArrayAttr": $iteratorTypes,
                      "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
-                     CArg<"GridAttr", "nullptr">: $grid,
-                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType),
+                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
+                     CArg<"GridAttr", "nullptr">: $grid),
       [{
-        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, grid, singleThreadType);
+        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadType, grid);
         llvm::SmallVector<Type> blockTypes = llvm::map_to_vector(TypeRange($_state.operands), [&](Type t) -> Type {
           mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
           return mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding()).getMemref();
@@ -161,14 +161,14 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
       OpBuilder<(ins "ValueRange": $inputs,
                      "ValueRange": $outputs,
                      "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
-                     CArg<"GridAttr", "nullptr">: $grid,
-                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType),
+                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
+                     CArg<"GridAttr", "nullptr">: $grid),
       [{
         assert(outputs.size() == 1 && "expected single output");
         RankedTensorType tensorType = mlir::cast<RankedTensorType>(outputs[0].getType());
         MetalLayoutAttr layout = mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding());
         auto [indexingMaps, iteratorTypes] = buildParallelAffineMapsAndIteratorTypes($_builder, inputs.size() + outputs.size(), layout.getRank());
-        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadRegionBuilder, grid, singleThreadType);
+        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadRegionBuilder, singleThreadType, grid);
       }]>,
     ];
 
@@ -241,9 +241,7 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
         bool isMemorySpaceChange = false;
 
         bool isCompound() {
-          return (static_cast<int>(isLayoutChange) +
-                  static_cast<int>(isGridChange || isMemorySpaceChange) +
-                  static_cast<int>(isFormatChange)) > 1;
+          return isLayoutChange + isGridChange + isFormatChange + isMemorySpaceChange > 1;
         }
       };
 

@@ -87,12 +87,18 @@ public:
     llvm::SmallVector<int64_t> cbPorts;
     int64_t cbPort = 0;
     for (auto operand : adaptor.getOperands()) {
-      auto stream = mlir::dyn_cast_if_present<ttir::StreamLayoutOp>(
-          operand.getDefiningOp());
-      if (stream) {
+      if (auto stream = mlir::dyn_cast_if_present<ttir::StreamLayoutOp>(
+              operand.getDefiningOp());
+          stream) {
         buffers.push_back(stream.getInput());
         remappedBuffers.push_back(rewriter.getRemappedValue(stream.getInput()));
         cbs.push_back(stream.getStorage());
+      } else if (auto view = mlir::dyn_cast_if_present<ttir::ViewLayoutOp>(
+                     operand.getDefiningOp());
+                 view) {
+        buffers.push_back(view.getInput());
+        remappedBuffers.push_back(rewriter.getRemappedValue(view.getInput()));
+        cbs.push_back(view.getInput());
       } else {
         buffers.push_back(operand);
         remappedBuffers.push_back(rewriter.getRemappedValue(operand));

@@ -58,7 +58,9 @@ def get_target_path(output_path, filename, target):
     return os.path.join(target_dir, filename)
 
 
-def create_custom_pipeline_fn(pipeline: str, verify: bool = True) -> Callable:
+def create_custom_pipeline_fn(
+    pipeline: str, verify: bool = True, print_ir: Union[bool, str] = False
+) -> Callable:
     def wrapper(module, device_register_options):
         register_device = "tt-register-device"
         if device_register_options:
@@ -69,6 +71,9 @@ def create_custom_pipeline_fn(pipeline: str, verify: bool = True) -> Callable:
             pm = PassManager.parse(pipeline_str)
             pm.enable_verifier(verify)
             print("Running custom pipeline:", pm)
+            if print_ir:
+                print_ir_path = print_ir if isinstance(print_ir, str) else None
+                pm.enable_ir_printing(tree_printing_dir_path=print_ir_path)
             pm.run(module.operation)
 
     return wrapper
@@ -277,6 +282,7 @@ def compile_to_flatbuffer(
     argument_types_string: Optional[str] = None,
     custom_pipeline: Union[Callable, str] = None,
     pipeline_options: List[str] = None,
+    print_ir: Union[bool, str] = False,
 ):
     """
     Compiles a TTIRBuilder function `fn` to TTIR MLIR -> TT{Metal,NN} MLIR -> Flatbuffer
@@ -328,13 +334,17 @@ def compile_to_flatbuffer(
 
     module_dump: bool
         Set to `True` to print out generated TTIR MLIR module.
+
+    print_ir: Union[bool, str]
+        Set to `True` to print IR to stdout.  Set to dir path to print IR after
+        each pass to its own file under _this_ directory.
     """
 
     if inputs_types is not None:
         assert len(inputs_shapes) == len(inputs_types)
 
     if type(custom_pipeline) is str:
-        custom_pipeline = create_custom_pipeline_fn(custom_pipeline)
+        custom_pipeline = create_custom_pipeline_fn(custom_pipeline, print_ir=print_ir)
 
     if pipeline_options is None:
         pipeline_options = []

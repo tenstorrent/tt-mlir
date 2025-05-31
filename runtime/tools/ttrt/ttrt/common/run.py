@@ -807,8 +807,14 @@ class Run:
                                         self.logging,
                                     )
                                     if cal_pcc < post_op_callback_runtime_config.pcc:
+                                        self.logging.info(
+                                            f"Golden:\n{golden_tensor_torch}"
+                                        )
+                                        self.logging.info(
+                                            f"Actual:\n{output_tensor_torch}"
+                                        )
                                         raise PCCErrorException(
-                                            f"Failed: prgram-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={post_op_callback_runtime_config.pcc}"
+                                            f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={post_op_callback_runtime_config.pcc}"
                                         )
                                     self.logging.info(
                                         f"Program level golden for output_{idx} matched. pcc={cal_pcc}"
