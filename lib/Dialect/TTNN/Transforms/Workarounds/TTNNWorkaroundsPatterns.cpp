@@ -389,7 +389,8 @@ public:
 
       // Create a new reshape op.
       ttnn::ReshapeOp preReshapeOp = rewriter.create<ttnn::ReshapeOp>(
-          loc, Type(reshapedInputType), op.getInput(), reshapedInputShapeAttr,
+          ttmlir::utils::appendLocationSuffix(loc, "_preReshape"),
+          Type(reshapedInputType), op.getInput(), reshapedInputShapeAttr,
           /* memory_config */ nullptr);
 
       // Determine new dimension since entire tensor shape got shifted.
@@ -406,8 +407,9 @@ public:
       // Create a new reduce scatter op.
       ttnn::ReduceScatterOp reduceScatterOp =
           rewriter.create<ttnn::ReduceScatterOp>(
-              loc, Type(scatteredInputType), preReshapeOp.getResult(),
-              deviceValue, op.getReduceType(), dimension, clusterAxis);
+              ttmlir::utils::appendLocationSuffix(loc, "_reduceScatter"),
+              Type(scatteredInputType), preReshapeOp.getResult(), deviceValue,
+              op.getReduceType(), dimension, clusterAxis);
 
       // We need to reshape the output to tensor rank=4 as well.
       RankedTensorType outputType = mlir::cast<RankedTensorType>(op.getType());
@@ -425,8 +427,9 @@ public:
 
       // Create a new all gather op.
       ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
-          loc, Type(reshapedOutputType), reduceScatterOp.getResult(),
-          deviceValue, dimension, clusterAxis);
+          ttmlir::utils::appendLocationSuffix(loc, "_allGather"),
+          Type(reshapedOutputType), reduceScatterOp.getResult(), deviceValue,
+          dimension, clusterAxis);
 
       rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
           op, Type(outputType), allGatherOp.getResult(),
@@ -447,7 +450,8 @@ public:
       // Create a new reducer scatter op.
       ttnn::ReduceScatterOp reduceScatterOp =
           rewriter.create<ttnn::ReduceScatterOp>(
-              loc, Type(scatteredInputType), op.getInput(), deviceValue,
+              ttmlir::utils::appendLocationSuffix(loc, "_reduceScatter"),
+              Type(scatteredInputType), op.getInput(), deviceValue,
               op.getReduceType(), dimension, clusterAxis);
 
       // Replace all_reduce op with all_gather op.
@@ -480,7 +484,8 @@ private:
         RankedTensorType::Builder(inputType).setShape(expandedInputShape);
 
     ttnn::ReshapeOp leadingReshapeOp = rewriter.create<ttnn::ReshapeOp>(
-        loc, reshapedInputType, op.getInput(), reshapedInputShapeAttr,
+        ttmlir::utils::appendLocationSuffix(loc, "_reshape"), reshapedInputType,
+        op.getInput(), reshapedInputShapeAttr,
         /* memory_config */ nullptr);
 
     // Create a new all gather op.
@@ -489,7 +494,8 @@ private:
         RankedTensorType::Builder(reshapedInputType)
             .setShape(expandedInputShape);
     ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
-        loc, allGatherOutputType, leadingReshapeOp.getResult(), deviceValue, 0,
+        ttmlir::utils::appendLocationSuffix(loc, "_allGather"),
+        allGatherOutputType, leadingReshapeOp.getResult(), deviceValue, 0,
         clusterAxis);
     // Create a new reduce op.
     ArrayAttr reduceDimAttr =

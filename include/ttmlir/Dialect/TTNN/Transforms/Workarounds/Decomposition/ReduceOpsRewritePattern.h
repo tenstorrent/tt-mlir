@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_TTNN_TRANSFORMS_WORKAROUNDS_DECOMPOSITION_REDUCEOPSREWRITEPATTERN_H
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -156,8 +157,8 @@ public:
     auto resultType = RankedTensorType::get(
         newShape, inputType.getElementType(), inputType.getEncoding());
     auto padOp = rewriter.create<mlir::tt::ttnn::PadOp>(
-        srcOp.getLoc(), resultType, srcOp.getInput(),
-        rewriter.getDenseI32ArrayAttr(paddingArray),
+        ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_pad"), resultType,
+        srcOp.getInput(), rewriter.getDenseI32ArrayAttr(paddingArray),
         rewriter.getFloatAttr(rewriter.getF32Type(), getPaddingValue()),
         /*use_multicore=*/rewriter.getBoolAttr(true),
         /*memory_config=*/nullptr);
