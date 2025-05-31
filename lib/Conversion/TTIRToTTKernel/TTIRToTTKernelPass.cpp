@@ -45,20 +45,30 @@ struct ConvertTTIRToTTKernel
     target.addLegalDialect<BuiltinDialect>();
     target.addLegalDialect<arith::ArithDialect>();
     target.addLegalDialect<func::FuncDialect>();
-    target.addLegalDialect<memref::MemRefDialect>();
     target.addLegalDialect<ttmetal::TTMetalDialect>();
     target.addLegalDialect<tt::TTDialect>();
     target.addLegalDialect<ttkernel::TTKernelDialect>();
     target.addLegalDialect<scf::SCFDialect>();
     target.addIllegalDialect<math::MathDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
+    target.addIllegalDialect<memref::MemRefDialect>();
 
     target.addLegalOp<ttir::ToLayoutOp>();
     target.addLegalOp<ttir::StreamLayoutOp>();
     target.addLegalOp<ttir::ViewLayoutOp>();
     target.addLegalOp<ttir::GenericOp>();
-    target.addIllegalOp<memref::CollapseShapeOp>();
-    target.addIllegalOp<memref::StoreOp>();
+
+    // Allow loads and stores to integer element types.
+    //   i.e. riscv accesses to L1.
+    target.addDynamicallyLegalOp<memref::LoadOp>([&](memref::LoadOp op) {
+      return op.getMemRefType().getElementType().isIntOrIndex();
+    });
+    target.addDynamicallyLegalOp<memref::StoreOp>([&](memref::StoreOp op) {
+      return op.getMemRefType().getElementType().isIntOrIndex();
+    });
+    target.addLegalOp<memref::AllocOp>();
+    target.addLegalOp<memref::DeallocOp>();
+    target.addLegalOp<memref::CopyOp>();
 
     target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
       return !op->hasAttr(ttir::ThreadAttr::name) ||
@@ -67,10 +77,15 @@ struct ConvertTTIRToTTKernel
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });
+    typeConverter.addConversion(
+        [](tt::TileType tile) { return IndexType::get(tile.getContext()); });
     typeConverter.addConversion([](ttir::MemTxType memtx) {
       return IndexType::get(memtx.getContext());
     });
-    typeConverter.addConversion([](MemRefType memref) {
+    typeConverter.addConversion([](MemRefType memref) -> Type {
+      if (tt::getMemorySpace(memref) == tt::MemorySpace::RegisterDst) {
+        return IndexType::get(memref.getContext());
+      }
       return ttkernel::CBType::get(
           memref.getContext(), ttkernel::symbolizeCBPort(0).value(), 0, memref);
     });

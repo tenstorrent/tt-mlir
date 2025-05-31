@@ -15,11 +15,40 @@ include "mlir/IR/OpAsmInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferIntRangeInterface.td"
 
+//===----------------------------------------------------------------------===//
+// Generic Region Op Traits and Classes
+//===----------------------------------------------------------------------===//
+
+def IsDeviceL1MemorySpace : CPred<"::llvm::cast<::mlir::tt::MemorySpaceAttr>(::llvm::cast<::mlir::MemRefType>($_self).getMemorySpace()).getValue() == ::mlir::tt::MemorySpace::DeviceL1">;
+
+def IsDeviceDRAMMemorySpace : CPred<"::llvm::cast<::mlir::tt::MemorySpaceAttr>(::llvm::cast<::mlir::MemRefType>($_self).getMemorySpace()).getValue() == ::mlir::tt::MemorySpace::DeviceDRAM">;
+
+def IsDeviceMemorySpace : Or<[IsDeviceL1MemorySpace, IsDeviceDRAMMemorySpace]>;
+
+def IsRegisterDstMemorySpace : CPred<"::llvm::cast<::mlir::tt::MemorySpaceAttr>(::llvm::cast<::mlir::MemRefType>($_self).getMemorySpace()).getValue() == ::mlir::tt::MemorySpace::RegisterDst">;
+
+def DeviceL1MemRef : Type<
+  And<[IsDeviceL1MemorySpace, HasRankGreaterOrEqualPred<1>]>,
+  "device l1 memoryspace memref type",
+  "::mlir::MemRefType">;
+
+def DeviceMemRef : Type<
+  And<[IsDeviceMemorySpace, HasRankGreaterOrEqualPred<1>]>,
+  "device memoryspace memref type",
+  "::mlir::MemRefType">;
+
+def RegisterMemRef : Type<
+  And<[IsRegisterDstMemorySpace, HasRankGreaterOrEqualPred<1>]>,
+  "register memoryspace memref type",
+  "::mlir::MemRefType">;
+
+def DeviceOrRegisterMemRef : AnyTypeOf<[DeviceMemRef, RegisterMemRef]>;
+
 class TTIR_GenericRegionOp<string mnemonic, list<Trait> traits = []> :
     TTIR_Op<mnemonic, [TTIR_GenericParent] # traits> {}
 
 class TTIR_GenericRegionComputeOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_GenericRegionOp<mnemonic, [TTIR_GenericRegionComputeOpTrait] # traits> {}
+    TTIR_GenericRegionOp<mnemonic, [TTIR_GenericRegionComputeOpTrait, TTIR_OperandLoadRegisterOpInterface] # traits> {}
 
 class TTIR_GenericRegionDatamovementOp<string mnemonic, list<Trait> traits = []> :
     TTIR_GenericRegionOp<mnemonic, [TTIR_GenericRegionDatamovementOpTrait] # traits> {}
@@ -70,6 +99,12 @@ def TTIR_TileDivOp : TTIR_GenericRegionComputeOp<"tile_div"> {
     let arguments = (ins TT_Tile:$lhs,
                          TT_Tile:$rhs);
     let results = (outs TT_Tile:$result);
+
+    let extraClassDeclaration = [{
+      mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+        return {0, 1};
+      }
+    }];
 }
 
 def TTIR_TileRecipOp : TTIR_GenericRegionComputeOp<"tile_recip"> {
@@ -80,6 +115,12 @@ def TTIR_TileRecipOp : TTIR_GenericRegionComputeOp<"tile_recip"> {
 
     let arguments = (ins TT_Tile:$input);
     let results = (outs TT_Tile:$result);
+
+    let extraClassDeclaration = [{
+      mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+        return {0};
+      }
+    }];
 }
 
 def TTIR_TileExpOp : TTIR_GenericRegionComputeOp<"tile_exp"> {
@@ -90,6 +131,12 @@ def TTIR_TileExpOp : TTIR_GenericRegionComputeOp<"tile_exp"> {
 
     let arguments = (ins TT_Tile:$input);
     let results = (outs TT_Tile:$result);
+
+    let extraClassDeclaration = [{
+      mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+        return {0};
+      }
+    }];
 }
 
 def TTIR_TileLogOp : TTIR_GenericRegionComputeOp<"tile_log"> {
@@ -100,6 +147,12 @@ def TTIR_TileLogOp : TTIR_GenericRegionComputeOp<"tile_log"> {
 
     let arguments = (ins TT_Tile:$input);
     let results = (outs TT_Tile:$result);
+
+    let extraClassDeclaration = [{
+      mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+        return {0};
+      }
+    }];
 }
 
 def TTIR_TileSinOp : TTIR_GenericRegionComputeOp<"tile_sin"> {
@@ -110,6 +163,12 @@ def TTIR_TileSinOp : TTIR_GenericRegionComputeOp<"tile_sin"> {
 
     let arguments = (ins TT_Tile:$input);
     let results = (outs TT_Tile:$result);
+
+    let extraClassDeclaration = [{
+      mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+        return {0};
+      }
+    }];
 }
 
 def TTIR_TileMaximumOp : TTIR_GenericRegionComputeOp<"tile_maximum">{
@@ -120,6 +179,12 @@ def TTIR_TileMaximumOp : TTIR_GenericRegionComputeOp<"tile_maximum">{
 
     let arguments = (ins TT_Tile:$lhs, TT_Tile:$rhs);
     let results = (outs TT_Tile:$result);
+
+    let extraClassDeclaration = [{
+      mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+        return {0, 1};
+      }
+    }];
 }
 
 def TTIR_TileReduceSumOp : TTIR_GenericRegionComputeOp<"tile_reduce_sum">{
@@ -154,6 +219,12 @@ def TTIR_TileMatmulOp : TTIR_GenericRegionComputeOp<"tile_matmul"> {
 
   let arguments = (ins TT_Tile:$a, TT_Tile:$b, TT_Tile:$c);
   let results = (outs TT_Tile:$result);
+
+    let extraClassDeclaration = [{
+      mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+        return {2};
+      }
+    }];
 }
 
 def TTIR_TileMatmulBlockOp : TTIR_GenericRegionComputeOp<"tile_matmul_block",
@@ -163,9 +234,9 @@ def TTIR_TileMatmulBlockOp : TTIR_GenericRegionComputeOp<"tile_matmul_block",
         The `tile_matmul_block` operation computes the matrix multiplication of two input blocks.
     }];
 
-    let arguments = (ins AnyNon0RankedMemRef:$a,
-                         AnyNon0RankedMemRef:$b,
-                         AnyNon0RankedMemRef:$output);
+    let arguments = (ins DeviceL1MemRef:$a,
+                         DeviceL1MemRef:$b,
+                         DeviceL1MemRef:$output);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -181,8 +252,8 @@ def TTIR_TileTilizeBlockOp : TTIR_GenericRegionComputeOp<"tile_tilize_block",
         The `tile_tilize_block` operation tilizes the input row major memref block and outputs the memref containing the tilized data.
     }];
 
-    let arguments = (ins AnyNon0RankedMemRef:$input,
-                         AnyNon0RankedMemRef:$output);
+    let arguments = (ins DeviceL1MemRef:$input,
+                         DeviceL1MemRef:$output);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -198,8 +269,8 @@ def TTIR_TileUntilizeBlockOp : TTIR_GenericRegionComputeOp<"tile_untilize_block"
         The `tile_untilize_block` operation untilizes the input tilized memref block and outputs the memref contianing the row major data.
     }];
 
-    let arguments = (ins AnyNon0RankedMemRef:$input,
-                         AnyNon0RankedMemRef:$output);
+    let arguments = (ins DeviceL1MemRef:$input,
+                         DeviceL1MemRef:$output);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -208,6 +279,22 @@ def TTIR_TileUntilizeBlockOp : TTIR_GenericRegionComputeOp<"tile_untilize_block"
     let hasVerifier = 1;
 }
 
+//===----------------------------------------------------------------------===//
+// TTIR Destination Control Ops (Used in TTMetal Lowering)
+//===----------------------------------------------------------------------===//
+
+def TTIR_AcquireDstOp : TTIR_GenericRegionComputeOp<"acquire_dst",
+  [ MemoryEffects<[MemRead, MemWrite]>
+  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  ]> {
+    let summary = "Acquire Destination Register op.";
+    let description = [{
+    }];
+
+    let results = (outs RegisterMemRef:$result);
+
+    let assemblyFormat = [{ `(` `)` attr-dict `:` type($result) }];
+}
 
 //===----------------------------------------------------------------------===//
 // TTIR Generic Region Datamovement Ops (Used in TTMetal Lowering)
@@ -496,7 +583,7 @@ def TTIR_AwaitOp : TTIR_GenericRegionOp<"await", [MemoryEffects<[MemRead, MemWri
       Await operation, await control flow from another thread. Corresponds to a circular buffer wait.
     }];
 
-    let arguments = (ins Variadic<AnyNon0RankedMemRef>:$values);
+    let arguments = (ins Variadic<DeviceL1MemRef>:$values);
 
     let assemblyFormat = [{ $values attr-dict `:` `(` type($values) `)` }];
 
@@ -516,6 +603,14 @@ class TTIR_IndexOp<string mnemonic, list<Trait> traits = []> : TTIR_GenericRegio
     let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$dim);
     let results = (outs Index:$result);
     let assemblyFormat = [{ `(` $dim `)` attr-dict `:` type($result) }];
+
+    let builders =
+    [
+      OpBuilder<(ins "int64_t":$dim),
+      [{
+        build($_builder, $_state, $_builder.getIndexType(), $_builder.getI64IntegerAttr(dim));
+      }]>
+    ];
 }
 
 def TTIR_IterIndexOp : TTIR_IndexOp<"iter_index"> {
@@ -574,7 +669,7 @@ def TTIR_GetGlobalOperandOp : TTIR_GenericRegionOp<"get_global_operand", [Pure]>
     }];
 
     let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$operand_index);
-    let results = (outs AnyNon0RankedMemRef:$result);
+    let results = (outs DeviceMemRef:$result);
 
     let assemblyFormat = [{ `(` $operand_index `)` attr-dict `:` type($result) }];
 }

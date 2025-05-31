@@ -231,6 +231,8 @@ inline ::tt::target::MemorySpace toFlatbuffer(FlatbufferObjectCache &,
     return ::tt::target::MemorySpace::DeviceDRAM;
   case MemorySpace::DeviceL1:
     return ::tt::target::MemorySpace::DeviceL1;
+  case MemorySpace::RegisterDst:
+    llvm_unreachable("MemorySpace::RegisterDst not supported");
   }
 }
 

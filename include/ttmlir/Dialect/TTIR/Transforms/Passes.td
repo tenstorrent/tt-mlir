@@ -7,6 +7,71 @@
 
 include "mlir/Pass/PassBase.td"
 
+def TTIRInsertDstRegisterAccess : Pass<"ttir-insert-dst-register-access", "::mlir::ModuleOp"> {
+  let summary = "Insert dst register access.";
+  let description = [{
+    This pass inserts a high level representation of the destination
+    register, manages load and store accesses to it, and has primitive
+    support for register allocation.  It's also capable of tracking accesses
+    over affine loop nests and correctly cloning them into copy loop nests.
+
+    Example, this pass will convert the following code:
+    ```mlir
+    ^compute0(%cb0: memref<3x3x!tt.tile<32x32, f32>, #tt.memory_space<l1>>, %cb1: memref<3x2x!tt.tile<32x32, f32>, #tt.memory_space<l1>>, %cb2: memref<3x2x!tt.tile<32x32, f32>, #tt.memory_space<l1>>):
+      affine.for %i2 = 0 to 3 {
+        affine.for %i3 = 0 to 2 {
+          affine.for %i4 = 0 to 3 {
+            %0 = affine.load %cb0[%i2, %i4] : memref<3x3x!tt.tile<32x32, f32>, #tt.memory_space<l1>>
+            %1 = affine.load %cb1[%i4, %i3] : memref<3x2x!tt.tile<32x32, f32>, #tt.memory_space<l1>>
+            %2 = affine.load %cb2[%i2, %i3] : memref<3x2x!tt.tile<32x32, f32>, #tt.memory_space<l1>>
+            %3 = "ttir.tile_matmul"(%0, %1, %2) : (!tt.tile<32x32, f32>, !tt.tile<32x32, f32>, !tt.tile<32x32, f32>) -> !tt.tile<32x32, f32>
+            affine.store %3, %cb2[%i2, %i3] : memref<3x2x!tt.tile<32x32, f32>, #tt.memory_space<l1>>
+          }
+        }
+      }
+    ```
+
+    Into:
+    ```mlir
+    ^compute0(%cb0: memref<3x3x!tt.tile<32x32, f32>, #l1>, %cb1: memref<3x2x!tt.tile<32x32, f32>, #l1>, %cb2: memref<3x2x!tt.tile<32x32, f32>, #l1>):
+      %c0 = arith.constant 0 : index
+      %dst = ttir.acquire_dst() : memref<3x2x!tt.tile<32x32, f32>, #dst>
+      %iter2 = ttir.iter_index(2) : index
+      %0 = arith.cmpi ne, %iter2, %c0 : index
+      scf.if %0 {
+        affine.for %arg3 = 0 to 3 {
+          affine.for %arg4 = 0 to 2 {
+            %1 = affine.load %cb2[%arg3, %arg4] : memref<3x2x!tt.tile<32x32, f32>, #l1>
+            affine.store %1, %dst[%arg3, %arg4] : memref<3x2x!tt.tile<32x32, f32>, #dst>
+          }
+        }
+      }
+      affine.for %arg3 = 0 to 3 {
+        affine.for %arg4 = 0 to 2 {
+          affine.for %arg5 = 0 to 3 {
+            %1 = affine.load %cb0[%arg3, %arg5] : memref<3x3x!tt.tile<32x32, f32>, #l1>
+            %2 = affine.load %cb1[%arg5, %arg4] : memref<3x2x!tt.tile<32x32, f32>, #l1>
+            %3 = affine.load %dst[%arg3, %arg4] : memref<3x2x!tt.tile<32x32, f32>, #dst>
+            %4 = "ttir.tile_matmul"(%1, %2, %3) : (!tt.tile<32x32, f32>, !tt.tile<32x32, f32>, !tt.tile<32x32, f32>) -> !tt.tile<32x32, f32>
+            affine.store %4, %dst[%arg3, %arg4] : memref<3x2x!tt.tile<32x32, f32>, #dst>
+          }
+        }
+      }
+      affine.for %arg3 = 0 to 3 {
+        affine.for %arg4 = 0 to 2 {
+          %1 = affine.load %dst[%arg3, %arg4] : memref<3x2x!tt.tile<32x32, f32>, #dst>
+          affine.store %1, %cb2[%arg3, %arg4] : memref<3x2x!tt.tile<32x32, f32>, #l1>
+        }
+      }
+    ```
+
+    Notes:
+       - All loads and stores to L1 are replaced with ones to dst.
+       - Generic op automatically inserts conditional guard for reload.
+       - This pass only works on affine ops.
+  }];
+}
+
 def TTIRGenericLinearizeMemref: Pass<"ttir-generic-linearize-memref", "::mlir::ModuleOp"> {
   let summary = "Linearize memref operands for generic ops.";
   let description = [{

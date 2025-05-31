@@ -80,6 +80,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(ttir::createTTIRAllocate());
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
+  pm.addPass(ttir::createTTIRInsertDstRegisterAccess());
   pm.addPass(ttir::createTTIRGenericLinearizeMemref());
   pm.addPass(mlir::createLowerAffinePass());
   pm.addPass(ttir::createTTIRGenericGenerateDatamovement());
