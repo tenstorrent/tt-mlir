@@ -40,7 +40,7 @@ namespace mlir::tt::testing {
 // JUnit-compatible reports which do not propagate generic key/value properties
 // of test/suites. In such setups, however, the seed should be recoverable from
 // the stdout capture of test failure messages.
-extern std::uint64_t randomSeed();
+std::uint64_t randomSeed();
 
 namespace impl {
 
