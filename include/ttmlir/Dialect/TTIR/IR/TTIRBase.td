@@ -57,15 +57,18 @@ class TTIR_Trait<string name, list<Trait> traits = []> : NativeOpTrait<name, tra
   let cppNamespace = "::mlir::tt::ttir";
 }
 
+def TwoOperands : ParamNativeOpTrait<"NOperands", "2">;
+def ThreeOperands : ParamNativeOpTrait<"NOperands", "3">;
+
 // Involution is property of an operation where applying the operation twice results in the original value.
 // Example: not(not(x)) == x
-def TTIR_Involution : TTIR_Trait<"TTIRInvolution", [DestinationStyleOpInterface, NoMemoryEffect]>;
+def TTIR_Involution : TTIR_Trait<"TTIRInvolution", [DestinationStyleOpInterface, TwoOperands, NoMemoryEffect]>;
 // Idempotence is property of an operation where applying the operation twice results in the same value as applying it once.
 // Example: abs(abs(x)) == abs(x)
-def TTIR_Idempotence : TTIR_Trait<"TTIRIdempotence", [DestinationStyleOpInterface, NoMemoryEffect]>;
+def TTIR_Idempotence : TTIR_Trait<"TTIRIdempotence", [DestinationStyleOpInterface, TwoOperands, NoMemoryEffect]>;
 // BinaryIdempotence is property of a binary operation where applying the operation on the same value results in the same value.
 // Example: and(x, x) == x
-def TTIR_BinaryIdempotence : TTIR_Trait<"TTIRBinaryIdempotence", [DestinationStyleOpInterface, NoMemoryEffect]>;
+def TTIR_BinaryIdempotence : TTIR_Trait<"TTIRBinaryIdempotence", [DestinationStyleOpInterface, ThreeOperands, NoMemoryEffect]>;
 // GenericRegionComputeOpTrait is a trait that verifies that the operation is inside a compute thread.
 def TTIR_GenericRegionComputeOpTrait : TTIR_Trait<"TTIRGenericRegionComputeOpTrait">;
 // GenericRegionDatamovementOpTrait is a trait that verifies that the operation is inside a datamovement thread.
