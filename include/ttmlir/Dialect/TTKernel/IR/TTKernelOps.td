@@ -386,6 +386,25 @@ def TTKernel_FillTileOp : TTKernel_Op<"fill_tile"> {
                     );
 }
 
+def TTKernel_SigmoidTileInitOp : TTKernel_InitOp<"sigmoid_tile_init"> {
+    let summary = "Short init function which configures compute unit for execution of sigmoid_tile.";
+    let description = [{
+      Must be run before sigmoid_tile.
+    }];
+}
+
+def TTKernel_SigmoidTileOp : TTKernel_SFPUOp<"sigmoid_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Sigmoid operation";
+    let description = [{
+      Performs element-wise computation of sigmoid on each element of a tile
+      in DST register at index tile_index. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call. This call is blocking and is only
+      available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$tile_index);
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel CB operations
 //===----------------------------------------------------------------------===//
