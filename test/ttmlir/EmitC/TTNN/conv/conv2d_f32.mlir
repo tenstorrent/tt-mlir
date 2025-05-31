@@ -3,7 +3,6 @@
 // RUN: ttmlir-opt --ttnn-modify-signatures-for-dylib --convert-ttnn-to-emitc %t.mlir > %t2.mlir
 // RUN: ttmlir-translate --mlir-to-cpp %t2.mlir > %basename_t.cpp
 
-// UNSUPPORTED: true
 // TODO (#2507): conv2d currently fails when run in group. Merge this with
 // conv2d_bf16 once resolved
 
