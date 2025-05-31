@@ -40,9 +40,9 @@ static std::uint64_t getRandomSeed() {
                   .count() |
               (1L << 53) | (1 << 13));
 
-      // scramble `seed` some more, this is scheme M8+A2(a=8,b=31,c=17)
+      // Scramble `seed` some more, this is scheme M8+A2(a=8,b=31,c=17)
       // from Table V of "An experimental exploration of Marsaglia’s xorshift
-      // generators, scrambled" (https://arxiv.org/pdf/1402.6246)
+      // generators, scrambled" (https://arxiv.org/pdf/1402.6246).
       constexpr std::uint64_t M8 = 1181783497276652981;
       for (int32_t i = 0; i < 100; ++i) {
         seed ^= seed << 17; // c
