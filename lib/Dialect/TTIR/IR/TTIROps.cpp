@@ -324,8 +324,9 @@ template <typename OpTy, typename TransformFn>
 static mlir::OpFoldResult foldConstantOpHelper(OpTy op, TransformFn transform) {
   auto constantOp =
       op.getInput().template getDefiningOp<mlir::tt::ttir::ConstantOp>();
-  if (!constantOp)
+  if (!constantOp) {
     return nullptr;
+  }
 
   mlir::Attribute constAttr = constantOp.getValue();
   // Handle DenseElementsAttr.
