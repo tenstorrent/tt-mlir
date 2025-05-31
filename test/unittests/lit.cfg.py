@@ -40,6 +40,10 @@ if "TEMP" in os.environ:
 if "HOME" in os.environ:
     config.environment["HOME"] = os.environ["HOME"]
 
+# Propagate testlib env variables.
+for var in ("TTMLIR_TEST_WORKFLOW", "TTMLIR_TEST_SEED"):
+    if var in os.environ:
+        config.environment[var] = os.environ[var]
 
 if "TT_MLIR_HOME" in os.environ:
     config.environment["TT_MLIR_HOME"] = os.environ["TT_MLIR_HOME"]
