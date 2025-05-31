@@ -12,7 +12,6 @@
 namespace mlir::tt::ttir {
 
 namespace detail {
-mlir::LogicalResult verifyBroadcastable(mlir::Operation *op);
 mlir::LogicalResult verifyGenericParent(mlir::Operation *op);
 } // namespace detail
 

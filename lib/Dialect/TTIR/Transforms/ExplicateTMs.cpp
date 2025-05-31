@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIRTraits.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
@@ -86,7 +87,7 @@ public:
     // Check that the operands have broadcast-compatible shapes.
     // After ExplicateRankChangeRewriters are applied, all operands must have
     // the same rank.
-    assert(op->template hasTrait<Broadcastable::Trait>());
+    assert(op->template hasTrait<Broadcastable>());
     assert(checkAllOperandsEqualRank(op));
     llvm::SmallVector<int64_t> broadcastedShape =
         getBroadcastedShapeForOperands(op);

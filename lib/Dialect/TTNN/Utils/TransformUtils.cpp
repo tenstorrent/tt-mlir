@@ -73,13 +73,12 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
           .withMemoryLayout(outputMemLayoutAttr);
 
   // Create the output result type with the new data type and encoding.
-  RankedTensorType toLayoutOpResultType =
-      ttnn::utils::createRankedTensorTypeWithEncoding(
-          ttnn::utils::createRankedTensorTypeWithElementType(
-              inputToLayoutOpType,
-              mlir::tt::dataTypeToElementType(rewriter.getContext(),
-                                              targetTensorDataType)),
-          toLayoutOpResultEncoding);
+  RankedTensorType toLayoutOpResultType = RankedTensorTypeFactory::create(
+      RankedTensorTypeFactory::create(
+          inputToLayoutOpType,
+          mlir::tt::dataTypeToElementType(rewriter.getContext(),
+                                          targetTensorDataType)),
+      toLayoutOpResultEncoding);
 
   DeviceAttr deviceAttr = lookupDevice(op);
 
