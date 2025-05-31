@@ -6,10 +6,14 @@
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 
+#include "mlir/Conversion/TosaToArith/TosaToArith.h"
+#include "mlir/Conversion/TosaToLinalg/TosaToLinalg.h"
+#include "mlir/Conversion/TosaToTensor/TosaToTensor.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
@@ -36,6 +40,7 @@ struct ConvertTTIRToLinalgPass
     target.addLegalDialect<func::FuncDialect>();
     target.addLegalDialect<tensor::TensorDialect>();
     target.addLegalDialect<linalg::LinalgDialect>();
+    target.addLegalDialect<tosa::TosaDialect>();
     target.addLegalDialect<arith::ArithDialect>();
     target.addLegalDialect<math::MathDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
@@ -47,9 +52,16 @@ struct ConvertTTIRToLinalgPass
     typeConverter.addConversion([](Type type) { return type; });
 
     RewritePatternSet patterns(&getContext());
+
+    // Add TTIR to Tosa to Linalg (+ Tensor and Arith, as needed) patterns.
+    populateTTIRToTosaPatterns(&getContext(), patterns, typeConverter);
+    // tosa::populateTosaToLinalgConversionPatterns(typeConverter, &patterns);
+    // tosa::populateTosaToTensorConversionPatterns(typeConverter, &patterns);
+    // tosa::populateTosaToArithConversionPatterns(&patterns);
+    // Add direct TTIR to Linalg patterns.
     populateTTIRToLinalgPatterns(&getContext(), patterns, typeConverter);
 
-    // Apply full conversion
+    // Apply full conversion for both paths.
     //
     if (failed(
             applyFullConversion(getOperation(), target, std::move(patterns)))) {

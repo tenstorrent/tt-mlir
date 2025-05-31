@@ -15,6 +15,8 @@ namespace mlir::tt {
 
 void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                   TypeConverter &typeConverter);
+void populateTTIRToTosaPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
+                                TypeConverter &typeConverter);
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertTTIRToLinalgPass();
 
