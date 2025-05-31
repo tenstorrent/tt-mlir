@@ -284,6 +284,22 @@ module {
       return
     }
 
+    func.func @fill_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "fill_tile_init"()
+      "ttkernel.fill_tile_init"() : () -> ()
+      return
+    }
+
+    func.func @fill_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      %dst_index = arith.constant 3 : i32
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %val = arith.constant 1.0 : f32
+      // CHECK: %[[VAL:.*]] = "emitc.constant"
+      "ttkernel.fill_tile"(%dst_index, %val) : (i32, f32) -> ()
+      // CHECK: emitc.call_opaque "fill_tile"(%[[DST_INDEX]], %[[VAL]])
+      return
+    }
+
   } // module
 
   //===----------------------------------------------------------------------===//

@@ -677,7 +677,7 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
 
     programs.push_back(target::metal::CreateProgramDirect(
         fbb, cqBuilder.name, &tensorInputs, &tensorOutputs, &devicePrograms,
-        debugInfo, /*private=*/true));
+        debugInfo, /*private=*/false));
   });
 
   auto binary = target::metal::CreateTTMetalBinaryDirect(

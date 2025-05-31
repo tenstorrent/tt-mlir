@@ -62,6 +62,14 @@ struct TTIRToTTIRDecompositionPass
       return (static_cast<int64_t>(op.getArangeDimension()) == 0 &&
               shape.size() == 1);
     });
+    target.addDynamicallyLegalOp<ttir::BatchNormOp>([&](ttir::BatchNormOp op) {
+      auto scaleType = op.getScale().getType();
+      auto offsetType = op.getOffset().getType();
+      auto meanType = op.getMean().getType();
+      auto varType = op.getVariance().getType();
+      return (scaleType.getRank() == 4 && offsetType.getRank() == 4 &&
+              meanType.getRank() == 4 && varType.getRank() == 4);
+    });
 
     TypeConverter typeConverter;
     // All types map 1:1.

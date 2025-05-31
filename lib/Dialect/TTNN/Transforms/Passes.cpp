@@ -132,6 +132,19 @@ public:
             continue;
           }
 
+          // Don't deallocate the activation after conv2d op if
+          // 'deallocate_activation' in Conv2dConfig is set to true.
+          if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(lastOp)) {
+            if (conv2dOp.getInput() == result &&
+                conv2dOp.getConv2dConfigAttr() &&
+                conv2dOp.getConv2dConfigAttr().getDeallocateActivation() &&
+                conv2dOp.getConv2dConfigAttr()
+                    .getDeallocateActivation()
+                    .getValue()) {
+              continue;
+            }
+          }
+
           rewriter.setInsertionPointAfter(lastOp);
           rewriter.create<DeallocateOp>(lastOp->getLoc(), result);
         }

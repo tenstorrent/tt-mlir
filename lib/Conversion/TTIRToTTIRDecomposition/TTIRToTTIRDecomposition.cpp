@@ -1597,6 +1597,103 @@ public:
 };
 } // namespace
 
+// This pattern reshapes the non input tensots of the BatchNormOp to 4D
+// tensors, by adding additional dimensions of size 1 so that the only
+// non-1 dimension is the second dimension. This is done so that the
+// op is compatible with ttnn op call.
+namespace {
+struct BatchNormPattern : public OpConversionPattern<ttir::BatchNormOp> {
+public:
+  using OpConversionPattern<ttir::BatchNormOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::BatchNormOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    auto meanType = mlir::cast<RankedTensorType>(adaptor.getMean().getType());
+    if (!getIsInputTypeValid(meanType)) {
+      return rewriter.notifyMatchFailure(
+          op, "BatchNormInferenceOp mean must be 1D tensor");
+    }
+    mlir::Value mean_4d = get4DTensor(rewriter, op.getLoc(), adaptor.getMean());
+
+    auto varType =
+        mlir::cast<RankedTensorType>(adaptor.getVariance().getType());
+    if (!getIsInputTypeValid(varType)) {
+      return rewriter.notifyMatchFailure(
+          op, "BatchNormInferenceOp var must be 1D or 4D tensor");
+    }
+    mlir::Value variance_4d =
+        get4DTensor(rewriter, op.getLoc(), adaptor.getVariance());
+
+    auto weightType =
+        mlir::cast<RankedTensorType>(adaptor.getScale().getType());
+    if (!getIsInputTypeValid(weightType)) {
+      return rewriter.notifyMatchFailure(
+          op, "BatchNormInferenceOp weight must be 1D or 4D tensor");
+    }
+    mlir::Value scale_4d =
+        get4DTensor(rewriter, op.getLoc(), adaptor.getScale());
+
+    auto biasType = mlir::cast<RankedTensorType>(adaptor.getOffset().getType());
+    if (!getIsInputTypeValid(biasType)) {
+      return rewriter.notifyMatchFailure(
+          op, "BatchNormInferenceOp bias must be 1D or 4D tensor");
+    }
+    mlir::Value offset_4d =
+        get4DTensor(rewriter, op.getLoc(), adaptor.getOffset());
+
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(op.getResult().getType()));
+
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::BatchNormOp>(
+        rewriter, op, outputType, adaptor.getOperand(), scale_4d, offset_4d,
+        mean_4d, variance_4d, adaptor.getEpsilonAttr(),
+        adaptor.getDimensionAttr(), adaptor.getTrainingAttr());
+
+    return success();
+  }
+
+private:
+  bool getIsInputTypeValid(RankedTensorType inputType) const {
+    if (inputType.getRank() == 1) {
+      return true;
+    }
+    if (inputType.getRank() == 4) {
+      auto shape = inputType.getShape();
+      return shape[0] == 1 && shape[2] == 1 && shape[3] == 1;
+    }
+    return false;
+  }
+
+  mlir::Value get4DTensor(PatternRewriter &rewriter, Location loc,
+                          mlir::Value batchNormInput) const {
+    auto inputType =
+        mlir::cast<mlir::RankedTensorType>(batchNormInput.getType());
+
+    if (inputType.getRank() == 4) {
+      return batchNormInput;
+    }
+
+    auto newShape =
+        llvm::SmallVector<int64_t>{1, inputType.getDimSize(0), 1, 1};
+    return createReshapeOp(rewriter, loc, batchNormInput, newShape);
+  }
+
+  ttir::ReshapeOp createReshapeOp(PatternRewriter &rewriter, Location loc,
+                                  Value input,
+                                  ::llvm::ArrayRef<int64_t> targetShape) const {
+    auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
+    auto shapeAttr =
+        rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(targetShape));
+
+    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, loc, targetShape, inputType.getElementType(),
+        inputType.getEncoding(), input, shapeAttr);
+  }
+};
+} // namespace
+
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter) {
@@ -1610,6 +1707,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<DotGeneralToMatmulConversionPattern>(typeConverter, ctx);
   patterns.add<ReductionAndPattern>(typeConverter, ctx);
   patterns.add<ReductionOrPattern>(typeConverter, ctx);
+  patterns.add<BatchNormPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

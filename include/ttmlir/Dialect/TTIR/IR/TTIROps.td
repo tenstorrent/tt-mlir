@@ -121,8 +121,8 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
                      "ValueRange": $outputs,
                      "ArrayAttr": $indexingMaps,
                      "ArrayAttr": $iteratorTypes,
-                     CArg<"GridAttr", "nullptr">: $grid,
-                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType),
+                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
+                     CArg<"GridAttr", "nullptr">: $grid),
       [{
         assert(!indexingMaps.empty() && "expected non-empty indexing maps");
         assert(outputs.size() == 1 && "expected single output");
@@ -144,10 +144,10 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
                      "ArrayAttr": $indexingMaps,
                      "ArrayAttr": $iteratorTypes,
                      "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
-                     CArg<"GridAttr", "nullptr">: $grid,
-                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType),
+                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
+                     CArg<"GridAttr", "nullptr">: $grid),
       [{
-        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, grid, singleThreadType);
+        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadType, grid);
         llvm::SmallVector<Type> blockTypes = llvm::map_to_vector(TypeRange($_state.operands), [&](Type t) -> Type {
           mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
           return mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding()).getMemref();
@@ -161,14 +161,14 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
       OpBuilder<(ins "ValueRange": $inputs,
                      "ValueRange": $outputs,
                      "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
-                     CArg<"GridAttr", "nullptr">: $grid,
-                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType),
+                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
+                     CArg<"GridAttr", "nullptr">: $grid),
       [{
         assert(outputs.size() == 1 && "expected single output");
         RankedTensorType tensorType = mlir::cast<RankedTensorType>(outputs[0].getType());
         MetalLayoutAttr layout = mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding());
         auto [indexingMaps, iteratorTypes] = buildParallelAffineMapsAndIteratorTypes($_builder, inputs.size() + outputs.size(), layout.getRank());
-        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadRegionBuilder, grid, singleThreadType);
+        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadRegionBuilder, singleThreadType, grid);
       }]>,
     ];
 
@@ -241,9 +241,7 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
         bool isMemorySpaceChange = false;
 
         bool isCompound() {
-          return (static_cast<int>(isLayoutChange) +
-                  static_cast<int>(isGridChange || isMemorySpaceChange) +
-                  static_cast<int>(isFormatChange)) > 1;
+          return isLayoutChange + isGridChange + isFormatChange + isMemorySpaceChange > 1;
         }
       };
 
@@ -965,6 +963,34 @@ def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum"> {
         %rhs: [[1, 4, 2], [1, 2, 3]]
         "ttir.maximum"(%lhs, %rhs, %out) -> %out: [[3, 4, 7], [1, 4, 4]]
     }];
+}
+
+def TTIR_BatchNormOp : TTIR_DPSOp<"batch_norm"> {
+  let summary = "BatchNormInference operation";
+  let description = [{
+    Normalizes the `operand` tensor across all dimensions except for the
+    `feature_index` dimension and puts the result in the `output` tensor.
+
+    Example:
+    ```mlir
+    "ttir.batch_norm"(%operand, %scale, %offset, %mean, %variance, epsilon = dense<f32>, feature_index = dense<i64>, %out) {
+    } : (tensor<2x2x2xf64>, tensor<2xf64>, tensor<2xf64>, tensor<2xf64>, tensor<2xf64>, dense<f32>, dense<i64>, tensor<2x2x2xf64>) -> tensor<2x2x2xf64>
+    ```
+  }];
+
+  let arguments = (ins AnyRankedTensor:$operand,
+                       AnyRankedTensor:$scale,
+                       AnyRankedTensor:$offset,
+                       AnyRankedTensor:$mean,
+                       AnyRankedTensor:$variance,
+                       AnyRankedTensor:$output,
+                       F32Attr:$epsilon,
+                       I32Attr:$dimension,
+                       BoolAttr:$training);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
 }
 
 class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :

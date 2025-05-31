@@ -1264,7 +1264,8 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d",
                          DenseI32ArrayAttr:$padding,
                          DenseI32ArrayAttr:$dilation,
                          I32Attr:$groups,
-                         OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config);
+                         OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1430,6 +1431,27 @@ def TTNN_MaxPool2dOp : TTNN_PoolingOp<"max_pool2d",
     let description = [{
       Applies a 2D max pooling over an input signal composed of several input planes.
     }];
+}
+
+def TTNN_BatchNormOp : TTNN_Op<"batch_norm", [AttrSizedOperandSegments]> {
+    let summary = "Batch normalization op.";
+    let description = [{
+      Batch normalization operation over each channel on input tensor.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         Optional<AnyRankedTensor>:$running_mean,
+                         Optional<AnyRankedTensor>:$running_var,
+                         DefaultValuedAttr<BoolAttr, "false">:$training,
+                         DefaultValuedAttr<F32Attr, "1e-05">:$epsilon,
+                         DefaultValuedAttr<F32Attr, "0.1">:$momentum,
+                         Optional<AnyRankedTensor>:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
 }
 
 def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar", [HasMemoryConfigTrait,
@@ -1792,7 +1814,9 @@ def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
     let hasVerifier = 1;
 }
 
-def TTNN_PermuteOp : TTNN_Op<"permute"> {
+def TTNN_PermuteOp : TTNN_Op<"permute",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Permute operation.";
     let description = [{
       Permute input tensor dimensions.
