@@ -9,22 +9,85 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
+#include "mlir/Pass/Pass.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
 
+#include <cstdint>
+
 namespace mlir::tt {
+//===----------------------------------------------------------------------===//
+// Utility functions
+//===----------------------------------------------------------------------===//
 namespace {
+// Convert a tensor of floating-point values to a tensor of boolean values
+// by comparing with zero
+static Value convertToBooleanTensor(Value input, Location loc,
+                                    ConversionPatternRewriter &rewriter) {
+  auto inputType = dyn_cast<RankedTensorType>(input.getType());
+  if (!inputType) {
+    return input;
+  }
+
+  // If it's already a boolean tensor, return it as is
+  if (inputType.getElementType().isInteger(1)) {
+    return input;
+  }
+
+  // Create a constant tensor with 0.0 for comparison
+  auto elementType = inputType.getElementType();
+  assert(elementType.isF32());
+  TypedAttr zeroAttr = rewriter.getF32FloatAttr(0.0f);
+
+  // Create a constant scalar with the zero value
+  auto zeroValue = rewriter.create<arith::ConstantOp>(loc, zeroAttr);
+
+  // Create a splat tensor with the zero value
+  auto zeroSplat =
+      rewriter.create<tensor::SplatOp>(loc, inputType, zeroValue.getResult());
+
+  // Compare input with zero to get a boolean tensor
+  auto boolType =
+      RankedTensorType::get(inputType.getShape(), rewriter.getIntegerType(1));
+  return rewriter.create<tosa::GreaterOp>(loc, boolType, input, zeroSplat);
+}
+
+// Create a tensor of all ones or zeros with the given type
+static std::pair<Value, Value>
+createTrueAndFalseSplatConstants(RankedTensorType resultType, Location loc,
+                                 ConversionPatternRewriter &rewriter) {
+  auto elementType = resultType.getElementType();
+  assert(elementType.isF32());
+  TypedAttr trueAttr = rewriter.getF32FloatAttr(1.0f);
+  TypedAttr falseAttr = rewriter.getF32FloatAttr(0.0f);
+
+  // Create constant scalars with the true/false values
+  auto trueValue = rewriter.create<arith::ConstantOp>(loc, trueAttr);
+  auto falseValue = rewriter.create<arith::ConstantOp>(loc, falseAttr);
+
+  // Create splat tensors with the true/false values
+  auto trueValueSplat =
+      rewriter.create<tensor::SplatOp>(loc, resultType, trueValue.getResult());
+
+  auto falseValueSplat =
+      rewriter.create<tensor::SplatOp>(loc, resultType, falseValue.getResult());
+
+  return {trueValueSplat, falseValueSplat};
+}
+
 // Get the dimensions to broadcast.
 //
 // This function calculates the dimensions to broadcast. We assume that input
@@ -98,8 +161,861 @@ getCollapseDims(ArrayRef<int64_t> inputShape, ArrayRef<int64_t> targetShape) {
 
   return reassocIndexes;
 }
+
 } // namespace
 
+//===----------------------------------------------------------------------===//
+// TOSA Conversions Patterns
+//===----------------------------------------------------------------------===//
+
+namespace {
+template <typename TTIROpTy, typename TosaOpTy>
+class ElementwiseUnaryOpConversionPattern
+    : public OpConversionPattern<TTIROpTy> {
+public:
+  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(TTIROpTy op, typename TTIROpTy::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value input = adaptor.getInput();
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    auto result = rewriter.create<TosaOpTy>(op.getLoc(), resultType, input);
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+template <typename TTIROpTy, typename TosaOpTy>
+class TosaElementwiseBinaryOpConversionPattern
+    : public OpConversionPattern<TTIROpTy> {
+public:
+  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(TTIROpTy op, typename TTIROpTy::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value lhs = adaptor.getLhs();
+    Value rhs = adaptor.getRhs();
+    Value output = adaptor.getOutput();
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    auto result = rewriter.create<TosaOpTy>(op.getLoc(), resultType,
+                                            ValueRange{lhs, rhs});
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class WhereOpConversionPattern : public OpConversionPattern<ttir::WhereOp> {
+public:
+  using OpConversionPattern<ttir::WhereOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::WhereOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value condition = adaptor.getFirst();
+    Value trueValue = adaptor.getSecond();
+    Value falseValue = adaptor.getThird();
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    condition = convertToBooleanTensor(condition, op.getLoc(), rewriter);
+
+    auto result = rewriter.create<tosa::SelectOp>(
+        op.getLoc(), resultType, condition, trueValue, falseValue);
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class ReshapeOpConversionPattern : public OpConversionPattern<ttir::ReshapeOp> {
+public:
+  using OpConversionPattern<ttir::ReshapeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ReshapeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    auto newShape = resultType.getShape();
+    SmallVector<int64_t> newShapeValues(newShape.begin(), newShape.end());
+    auto shapeType =
+        mlir::tosa::shapeType::get(rewriter.getContext(), newShape.size());
+    auto attr = rewriter.getIndexTensorAttr(newShapeValues);
+    auto shapeOp =
+        rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
+
+    auto result = rewriter.create<tosa::ReshapeOp>(op.getLoc(), resultType,
+                                                   adaptor.getInput(), shapeOp);
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class TransposeOpConversionPattern
+    : public OpConversionPattern<ttir::TransposeOp> {
+public:
+  using OpConversionPattern<ttir::TransposeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::TransposeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value input = adaptor.getInput();
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    const size_t permSize = inputType.getShape().size();
+    SmallVector<int32_t> permutation(permSize);
+    for (size_t i = 0; i < permSize; i++) {
+      permutation[i] = static_cast<int32_t>(i);
+    }
+
+    const int64_t dim0 =
+        (op.getDim0() < 0) ? op.getDim0() + permSize : op.getDim0();
+    const int64_t dim1 =
+        (op.getDim1() < 0) ? op.getDim1() + permSize : op.getDim1();
+
+    permutation[dim1] = static_cast<int32_t>(dim0);
+    permutation[dim0] = static_cast<int32_t>(dim1);
+
+    // Create TransposeOp directly with the permutation array
+    auto result = rewriter.create<tosa::TransposeOp>(op.getLoc(), resultType,
+                                                     input, permutation);
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class ConcatOpConversionPattern : public OpConversionPattern<ttir::ConcatOp> {
+public:
+  using OpConversionPattern<ttir::ConcatOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ConcatOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    static_assert(ttir::utils::has_dps_trait_v<ttir::ConcatOp>);
+    auto inputs =
+        ttir::utils::getDpsInputsFromAdaptor(adaptor, op.getNumDpsInits());
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    const int64_t dim = op.getDim();
+
+    // TOSA concat requires at least two inputs.
+    if (inputs.size() < 2) {
+      return failure();
+    }
+
+    // Start with the first two inputs.
+    Value result = rewriter.create<tosa::ConcatOp>(
+        op.getLoc(),
+        RankedTensorType::get(resultType.getShape().take_front(inputs.size()),
+                              resultType.getElementType()),
+        ValueRange{inputs[0], inputs[1]}, dim);
+    // Add remaining inputs one by one.
+    for (size_t i = 2; i < inputs.size(); ++i) {
+      result = rewriter.create<tosa::ConcatOp>(
+          op.getLoc(),
+          RankedTensorType::get(resultType.getShape().take_front(i + 1),
+                                resultType.getElementType()),
+          ValueRange{result, inputs[i]}, dim);
+    }
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+// Direct comparison operations (where TTIR and TOSA ops match directly)
+template <typename TTIROpTy, typename TosaOpTy>
+class DirectComparisonOpConversionPattern
+    : public OpConversionPattern<TTIROpTy> {
+public:
+  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(TTIROpTy op, typename TTIROpTy::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value lhs = adaptor.getLhs();
+    Value rhs = adaptor.getRhs();
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    // Create the TOSA comparison operation
+    auto boolType = RankedTensorType::get(resultType.getShape(),
+                                          rewriter.getIntegerType(1));
+    auto boolResult =
+        rewriter.create<TosaOpTy>(op.getLoc(), boolType, lhs, rhs);
+
+    // Create true and false constants for the select operation
+    auto [trueValueSplat, falseValueSplat] =
+        createTrueAndFalseSplatConstants(resultType, op.getLoc(), rewriter);
+
+    // Convert boolean result to original type using select
+    auto result = rewriter.create<tosa::SelectOp>(
+        op.getLoc(), resultType, boolResult, trueValueSplat, falseValueSplat);
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
+// Swapped comparison operations (where TTIR and TOSA ops have swapped operands
+// e.g. ttir.lt must use inverted tosa.greater).
+template <typename TTIROpTy, typename TosaOpTy>
+class SwappedComparisonOpConversionPattern
+    : public OpConversionPattern<TTIROpTy> {
+public:
+  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(TTIROpTy op, typename TTIROpTy::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value lhs = adaptor.getLhs();
+    Value rhs = adaptor.getRhs();
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    // Create the TOSA comparison operation with swapped operands
+    auto boolType = RankedTensorType::get(resultType.getShape(),
+                                          rewriter.getIntegerType(1));
+    auto boolResult =
+        rewriter.create<TosaOpTy>(op.getLoc(), boolType, rhs, lhs);
+
+    // Create true and false constants for the select operation
+    auto [trueValueSplat, falseValueSplat] =
+        createTrueAndFalseSplatConstants(resultType, op.getLoc(), rewriter);
+
+    // Convert boolean result to original type using select
+    auto result = rewriter.create<tosa::SelectOp>(
+        op.getLoc(), resultType, boolResult, trueValueSplat, falseValueSplat);
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
+// Negated comparison operations (where TTIR op is the negation of a TOSA op,
+// e.g. ttir.not_equal)
+template <typename TTIROpTy, typename TosaOpTy>
+class NegatedComparisonOpConversionPattern
+    : public OpConversionPattern<TTIROpTy> {
+public:
+  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(TTIROpTy op, typename TTIROpTy::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value lhs = adaptor.getLhs();
+    Value rhs = adaptor.getRhs();
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    // Create the TOSA comparison operation
+    auto boolType = RankedTensorType::get(resultType.getShape(),
+                                          rewriter.getIntegerType(1));
+    auto boolResult =
+        rewriter.create<TosaOpTy>(op.getLoc(), boolType, lhs, rhs);
+
+    // Negate the boolean result
+    auto notResult =
+        rewriter.create<tosa::LogicalNotOp>(op.getLoc(), boolType, boolResult);
+
+    // Create true and false constants for the select operation
+    auto [trueValueSplat, falseValueSplat] =
+        createTrueAndFalseSplatConstants(resultType, op.getLoc(), rewriter);
+
+    // Convert boolean result to original type using select
+    auto result = rewriter.create<tosa::SelectOp>(
+        op.getLoc(), resultType, notResult, trueValueSplat, falseValueSplat);
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class BroadcastOpConversionPattern
+    : public OpConversionPattern<ttir::BroadcastOp> {
+public:
+  using OpConversionPattern<ttir::BroadcastOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::BroadcastOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value input = adaptor.getInput();
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    // For TOSA, we can use arithmetic operations that have implicit
+    // broadcasting
+
+    // Create a tensor of ones with the result shape
+    auto elementType = resultType.getElementType();
+    assert(elementType.isF32());
+    DenseElementsAttr onesAttr =
+        DenseElementsAttr::get(resultType, ArrayRef<float>(1.0f));
+
+    auto onesConst =
+        rewriter.create<tosa::ConstOp>(op.getLoc(), resultType, onesAttr);
+
+    // Multiply by ones to implicitly broadcast
+    auto result = rewriter.create<tosa::MulOp>(op.getLoc(), resultType, input,
+                                               onesConst, /*shift=*/nullptr);
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class SinOpConversionPattern : public OpConversionPattern<ttir::SinOp> {
+public:
+  using OpConversionPattern<ttir::SinOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SinOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value input = adaptor.getInput();
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    auto result = rewriter.create<tosa::SinOp>(op.getLoc(), resultType, input);
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+// Cos operation - TOSA doesn't have a direct cos operation
+class CosOpConversionPattern : public OpConversionPattern<ttir::CosOp> {
+public:
+  using OpConversionPattern<ttir::CosOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::CosOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value input = adaptor.getInput();
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    // Create a scalar constant for π/2 using arith.constant
+    auto elementType = resultType.getElementType();
+    auto piOver2 = rewriter.create<arith::ConstantOp>(
+        op.getLoc(), elementType, rewriter.getFloatAttr(elementType, M_PI_2));
+
+    // Create a tensor with the same shape as input filled with π/2
+    auto inputShape = cast<RankedTensorType>(input.getType()).getShape();
+    auto piOver2Tensor = rewriter.create<tensor::SplatOp>(
+        op.getLoc(), RankedTensorType::get(inputShape, elementType),
+        piOver2.getResult());
+
+    // Add π/2 to the input
+    auto shifted = rewriter.create<tosa::AddOp>(op.getLoc(), resultType, input,
+                                                piOver2Tensor);
+
+    // Take the sin of the shifted input
+    auto result =
+        rewriter.create<tosa::SinOp>(op.getLoc(), resultType, shifted);
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class MatmulOpConversionPattern : public OpConversionPattern<ttir::MatmulOp> {
+public:
+  using OpConversionPattern<ttir::MatmulOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::MatmulOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value lhs = adaptor.getA();
+    Value rhs = adaptor.getB();
+
+    auto lhsType = dyn_cast<RankedTensorType>(lhs.getType());
+    auto rhsType = dyn_cast<RankedTensorType>(rhs.getType());
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+
+    if (!lhsType || !rhsType || !resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Operands or result is not a ranked tensor");
+    }
+
+    bool transposeA = op.getTransposeA();
+    bool transposeB = op.getTransposeB();
+
+    // Handle transposition if needed
+    if (transposeA) {
+      auto lhsShape = lhsType.getShape();
+      SmallVector<int64_t> transposedShape;
+
+      if (lhsShape.size() >= 2) {
+        // For 2D+ tensors, transpose the last two dimensions
+        for (size_t i = 0; i < lhsShape.size() - 2; ++i) {
+          transposedShape.push_back(lhsShape[i]);
+        }
+        transposedShape.push_back(lhsShape[lhsShape.size() - 1]);
+        transposedShape.push_back(lhsShape[lhsShape.size() - 2]);
+
+        auto transposedType =
+            RankedTensorType::get(transposedShape, lhsType.getElementType());
+
+        // Create permutation attribute
+        SmallVector<int32_t> permutation;
+        for (size_t i = 0; i < lhsShape.size() - 2; ++i) {
+          permutation.push_back(static_cast<int32_t>(i));
+        }
+        permutation.push_back(static_cast<int32_t>(lhsShape.size() - 1));
+        permutation.push_back(static_cast<int32_t>(lhsShape.size() - 2));
+
+        // Create transpose op
+        lhs = rewriter.create<tosa::TransposeOp>(op.getLoc(), transposedType,
+                                                 lhs, permutation);
+        lhsType = transposedType;
+      }
+    }
+
+    if (transposeB) {
+      auto rhsShape = rhsType.getShape();
+      SmallVector<int64_t> transposedShape;
+
+      if (rhsShape.size() >= 2) {
+        // For 2D+ tensors, transpose the last two dimensions
+        for (size_t i = 0; i < rhsShape.size() - 2; ++i) {
+          transposedShape.push_back(rhsShape[i]);
+        }
+        transposedShape.push_back(rhsShape[rhsShape.size() - 1]);
+        transposedShape.push_back(rhsShape[rhsShape.size() - 2]);
+
+        auto transposedType =
+            RankedTensorType::get(transposedShape, rhsType.getElementType());
+
+        // Create permutation attribute
+        SmallVector<int32_t> permutation;
+        for (size_t i = 0; i < rhsShape.size() - 2; ++i) {
+          permutation.push_back(static_cast<int32_t>(i));
+        }
+        permutation.push_back(static_cast<int32_t>(rhsShape.size() - 1));
+        permutation.push_back(static_cast<int32_t>(rhsShape.size() - 2));
+
+        // Create transpose op
+        rhs = rewriter.create<tosa::TransposeOp>(op.getLoc(), transposedType,
+                                                 rhs, permutation);
+        rhsType = transposedType;
+      }
+    }
+
+    // Ensure both tensors are 3D for tosa.matmul
+    unsigned lhsRank = lhsType.getRank();
+    unsigned rhsRank = rhsType.getRank();
+
+    // Convert to 3D tensors if needed
+    Value lhs3D = lhs;
+    Value rhs3D = rhs;
+    RankedTensorType lhs3DType = lhsType;
+    RankedTensorType rhs3DType = rhsType;
+
+    // If LHS is 2D, reshape to 3D with batch size 1
+    if (lhsRank == 2) {
+      SmallVector<int64_t> newShape = {1, lhsType.getDimSize(0),
+                                       lhsType.getDimSize(1)};
+      auto newType = RankedTensorType::get(newShape, lhsType.getElementType());
+
+      // Create shape tensor for reshape
+      auto shapeType = mlir::tosa::shapeType::get(rewriter.getContext(), 3);
+      SmallVector<int64_t> shapeValues = {1, lhsType.getDimSize(0),
+                                          lhsType.getDimSize(1)};
+      auto attr = rewriter.getIndexTensorAttr(shapeValues);
+      auto shapeOp =
+          rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
+
+      // Reshape LHS to 3D
+      lhs3D = rewriter.create<tosa::ReshapeOp>(op.getLoc(), newType, lhs,
+                                               shapeOp.getResult());
+      lhs3DType = newType;
+    } else if (lhsRank > 3) {
+      // For tensors with rank > 3, collapse all but the last two dimensions
+      int64_t collapsedBatchSize = 1;
+      for (uint32_t i = 0; i < lhsRank - 2; ++i) {
+        collapsedBatchSize *= lhsType.getShape()[i];
+      }
+
+      SmallVector<int64_t> newShape = {collapsedBatchSize,
+                                       lhsType.getShape()[lhsRank - 2],
+                                       lhsType.getShape()[lhsRank - 1]};
+      auto newType = RankedTensorType::get(newShape, lhsType.getElementType());
+
+      // Create shape tensor for reshape
+      auto shapeType = mlir::tosa::shapeType::get(rewriter.getContext(), 3);
+      SmallVector<int64_t> shapeValues = newShape;
+      auto attr = rewriter.getIndexTensorAttr(shapeValues);
+      auto shapeOp =
+          rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
+
+      // Reshape LHS to 3D
+      lhs3D = rewriter.create<tosa::ReshapeOp>(op.getLoc(), newType, lhs,
+                                               shapeOp.getResult());
+      lhs3DType = newType;
+    }
+
+    // If RHS is 2D, reshape to 3D with batch size 1
+    if (rhsRank == 2) {
+      SmallVector<int64_t> newShape = {1, rhsType.getDimSize(0),
+                                       rhsType.getDimSize(1)};
+      auto newType = RankedTensorType::get(newShape, rhsType.getElementType());
+
+      // Create shape tensor for reshape
+      auto shapeType = mlir::tosa::shapeType::get(rewriter.getContext(), 3);
+      SmallVector<int64_t> shapeValues = {1, rhsType.getDimSize(0),
+                                          rhsType.getDimSize(1)};
+      auto attr = rewriter.getIndexTensorAttr(shapeValues);
+      auto shapeOp =
+          rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
+
+      // Reshape RHS to 3D
+      rhs3D = rewriter.create<tosa::ReshapeOp>(op.getLoc(), newType, rhs,
+                                               shapeOp.getResult());
+      rhs3DType = newType;
+    } else if (rhsRank > 3) {
+      // For tensors with rank > 3, collapse all but the last two dimensions
+      int64_t collapsedBatchSize = 1;
+      for (uint32_t i = 0; i < rhsRank - 2; ++i) {
+        collapsedBatchSize *= rhsType.getShape()[i];
+      }
+
+      SmallVector<int64_t> newShape = {collapsedBatchSize,
+                                       rhsType.getShape()[rhsRank - 2],
+                                       rhsType.getShape()[rhsRank - 1]};
+      auto newType = RankedTensorType::get(newShape, rhsType.getElementType());
+
+      // Create shape tensor for reshape
+      auto shapeType = mlir::tosa::shapeType::get(rewriter.getContext(), 3);
+      SmallVector<int64_t> shapeValues = newShape;
+      auto attr = rewriter.getIndexTensorAttr(shapeValues);
+      auto shapeOp =
+          rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
+
+      // Reshape RHS to 3D
+      rhs3D = rewriter.create<tosa::ReshapeOp>(op.getLoc(), newType, rhs,
+                                               shapeOp.getResult());
+      rhs3DType = newType;
+    }
+
+    // Check if we need to broadcast batch dimensions
+    if (lhs3DType.getShape()[0] != rhs3DType.getShape()[0]) {
+      // We need to broadcast one of the inputs to match the other's batch
+      // dimension
+      if (lhs3DType.getShape()[0] == 1 && rhs3DType.getShape()[0] > 1) {
+        // Create a scalar zero attribute
+        auto elementType = lhs3DType.getElementType();
+        TypedAttr zeroAttr;
+
+        if (elementType.isF32()) {
+          zeroAttr = rewriter.getF32FloatAttr(0.0f);
+        } else if (elementType.isF64()) {
+          zeroAttr = rewriter.getF64FloatAttr(0.0);
+        } else if (elementType.isInteger(32)) {
+          zeroAttr = rewriter.getI32IntegerAttr(0);
+        } else if (elementType.isInteger(64)) {
+          zeroAttr = rewriter.getI64IntegerAttr(0);
+        } else if (elementType.isInteger(16)) {
+          zeroAttr = rewriter.getI16IntegerAttr(0);
+        } else if (elementType.isInteger(8)) {
+          zeroAttr = rewriter.getI8IntegerAttr(0);
+        } else if (elementType.isInteger(1)) {
+          zeroAttr = rewriter.getBoolAttr(false);
+        } else {
+          // Default to F32 for other types
+          zeroAttr = rewriter.getF32FloatAttr(0.0f);
+        }
+
+        // Create a scalar value using arith.constant
+        auto scalarZero = rewriter.create<arith::ConstantOp>(
+            op.getLoc(), elementType, zeroAttr);
+
+        // Create a tensor filled with zeros of the result shape
+        auto zeroType = RankedTensorType::get({rhs3DType.getShape()[0],
+                                               lhs3DType.getShape()[1],
+                                               lhs3DType.getShape()[2]},
+                                              lhs3DType.getElementType());
+        auto zeroTensor = rewriter.create<tensor::SplatOp>(
+            op.getLoc(), zeroType, scalarZero.getResult());
+
+        // Use addition with the zero tensor to achieve broadcasting
+        lhs3D = rewriter.create<tosa::AddOp>(op.getLoc(), zeroType, lhs3D,
+                                             zeroTensor);
+
+        // Update lhs3DType
+        lhs3DType = cast<RankedTensorType>(lhs3D.getType());
+      } else if (rhs3DType.getShape()[0] == 1 && lhs3DType.getShape()[0] > 1) {
+        // Create a scalar zero attribute
+        auto elementType = rhs3DType.getElementType();
+        assert(elementType.isF32());
+        TypedAttr zeroAttr = rewriter.getF32FloatAttr(0.0f);
+
+        // Create a scalar value using arith.constant
+        auto scalarZero = rewriter.create<arith::ConstantOp>(
+            op.getLoc(), elementType, zeroAttr);
+
+        // Create a tensor filled with zeros of the result shape
+        auto zeroType = RankedTensorType::get({lhs3DType.getShape()[0],
+                                               rhs3DType.getShape()[1],
+                                               rhs3DType.getShape()[2]},
+                                              rhs3DType.getElementType());
+        auto zeroTensor = rewriter.create<tensor::SplatOp>(
+            op.getLoc(), zeroType, scalarZero.getResult());
+
+        // Use addition with the zero tensor to achieve broadcasting
+        rhs3D = rewriter.create<tosa::AddOp>(op.getLoc(), zeroType, rhs3D,
+                                             zeroTensor);
+
+        // Update rhs3DType
+        rhs3DType = cast<RankedTensorType>(rhs3D.getType());
+      }
+    }
+
+    // Now both tensors should have the same batch dimension
+    auto matmulResultType =
+        RankedTensorType::get({lhs3DType.getShape()[0], lhs3DType.getShape()[1],
+                               rhs3DType.getShape()[2]},
+                              resultType.getElementType());
+
+    // Perform matrix multiplication using tosa.matmul
+    Value matmulResult = rewriter.create<tosa::MatMulOp>(
+        op.getLoc(), matmulResultType, lhs3D, rhs3D);
+
+    // Reshape result back to original rank if needed
+    if (resultType.getRank() != matmulResultType.getRank()) {
+      // Create shape tensor for reshape
+      auto shapeType = mlir::tosa::shapeType::get(rewriter.getContext(),
+                                                  resultType.getRank());
+      SmallVector<int64_t> shapeValues;
+      for (auto dim : resultType.getShape()) {
+        shapeValues.push_back(dim);
+      }
+      auto attr = rewriter.getIndexTensorAttr(shapeValues);
+      auto shapeOp =
+          rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
+
+      // Reshape result
+      matmulResult = rewriter.create<tosa::ReshapeOp>(
+          op.getLoc(), resultType, matmulResult, shapeOp.getResult());
+    }
+
+    rewriter.replaceOp(op, matmulResult);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class GatherOpConversionPattern : public OpConversionPattern<ttir::GatherOp> {
+public:
+  using OpConversionPattern<ttir::GatherOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::GatherOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value input = adaptor.getInput();
+    Value indices = adaptor.getOperands()[1];
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    auto result = rewriter.create<tosa::GatherOp>(op.getLoc(), resultType,
+                                                  input, indices);
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class LogicalNotOpConversionPattern
+    : public OpConversionPattern<ttir::LogicalNotOp> {
+public:
+  using OpConversionPattern<ttir::LogicalNotOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::LogicalNotOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value input = adaptor.getInput();
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    auto result =
+        rewriter.create<tosa::LogicalNotOp>(op.getLoc(), resultType, input);
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class MaxOpConversionPattern : public OpConversionPattern<ttir::MaxOp> {
+public:
+  using OpConversionPattern<ttir::MaxOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::MaxOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value input = adaptor.getInput();
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    // Create a constant for the axis - assuming 0 as default if not specified
+    int64_t axis = 0;
+    // Check if the op has an axis attribute
+    if (auto axisAttr = op->getAttrOfType<IntegerAttr>("axis")) {
+      axis = axisAttr.getInt();
+    }
+
+    // TOSA's ReduceMaxOp takes an integer attribute for the axis
+    auto axisAttr = rewriter.getI32IntegerAttr(static_cast<int32_t>(axis));
+
+    // Create the ReduceMaxOp with the axis attribute
+    auto result = rewriter.create<tosa::ReduceMaxOp>(op.getLoc(), resultType,
+                                                     input, axisAttr);
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class SumOpConversionPattern : public OpConversionPattern<ttir::SumOp> {
+public:
+  using OpConversionPattern<ttir::SumOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SumOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value input = adaptor.getInput();
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    // Create a constant for the axis - assuming 0 as default if not specified
+    int64_t axis = 0;
+    // Check if the op has an axis attribute
+    if (auto axisAttr = op->getAttrOfType<IntegerAttr>("axis")) {
+      axis = axisAttr.getInt();
+    }
+
+    // TOSA's ReduceSumOp takes an integer attribute for the axis
+    auto axisAttr = rewriter.getI32IntegerAttr(static_cast<int32_t>(axis));
+
+    // Create the ReduceSumOp with the axis attribute
+    auto result = rewriter.create<tosa::ReduceSumOp>(op.getLoc(), resultType,
+                                                     input, axisAttr);
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class ReduceOrOpConversionPattern
+    : public OpConversionPattern<ttir::ReduceOrOp> {
+public:
+  using OpConversionPattern<ttir::ReduceOrOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ReduceOrOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value input = adaptor.getInput();
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    // Create a constant for the axis - assuming 0 as default if not specified
+    int64_t axis = 0;
+    // Check if the op has an axis attribute
+    if (auto axisAttr = op->getAttrOfType<IntegerAttr>("axis")) {
+      axis = axisAttr.getInt();
+    }
+
+    // TOSA's ReduceAnyOp takes an integer attribute for the axis
+    auto axisAttr = rewriter.getI32IntegerAttr(static_cast<int32_t>(axis));
+
+    // Create the ReduceAnyOp with the axis attribute
+    auto result = rewriter.create<tosa::ReduceAnyOp>(op.getLoc(), resultType,
+                                                     input, axisAttr);
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+} // namespace
+
+//===----------------------------------------------------------------------===//
+// Linalg Conversions Patterns
+//===----------------------------------------------------------------------===//
 namespace {
 // Conversion pattern of operations which have exactly 2 input and 1 output
 // operands.
@@ -219,39 +1135,6 @@ public:
 } // namespace
 
 namespace {
-class TransposeOpConversionPattern
-    : public OpConversionPattern<ttir::TransposeOp> {
-public:
-  using OpConversionPattern<ttir::TransposeOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::TransposeOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-
-    Value input = adaptor.getInput();
-    const size_t permSize =
-        dyn_cast<RankedTensorType>(input.getType()).getShape().size();
-    SmallVector<int64_t> permutation;
-    permutation.resize(permSize);
-    for (size_t i = 0; i < permSize; i++) {
-      permutation[i] = i;
-    }
-
-    const int64_t dim0 =
-        (op.getDim0() < 0) ? op.getDim0() + permSize : op.getDim0();
-    const int64_t dim1 =
-        (op.getDim1() < 0) ? op.getDim1() + permSize : op.getDim1();
-
-    permutation[dim1] = dim0;
-    permutation[dim0] = dim1;
-    rewriter.replaceOpWithNewOp<linalg::TransposeOp>(
-        op, input, adaptor.getOutput(), permutation);
-    return success();
-  }
-};
-} // namespace
-
-namespace {
 class SoftmaxOpConversionPattern : public OpConversionPattern<ttir::SoftmaxOp> {
 public:
   using OpConversionPattern<ttir::SoftmaxOp>::OpConversionPattern;
@@ -286,30 +1169,6 @@ public:
     rewriter.replaceOpWithNewOp<tensor::EmptyOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         /*dynamicSizes*/ ValueRange());
-    return success();
-  }
-};
-} // namespace
-
-namespace {
-// Conversion pattern for ttir.reshape operation
-class ReshapeOpConversionPattern : public OpConversionPattern<ttir::ReshapeOp> {
-public:
-  using OpConversionPattern<ttir::ReshapeOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::ReshapeOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    Value input = adaptor.getInput();
-    Value output = adaptor.getOutput();
-
-    auto resultType = dyn_cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
-
-    rewriter.replaceOpWithNewOp<tensor::ReshapeOp>(op, resultType, input,
-                                                   output);
-
     return success();
   }
 };
@@ -387,52 +1246,70 @@ public:
 } // namespace
 
 namespace {
-// Conversion pattern for ttir.concat operation
-class ConcatOpConversionPattern : public OpConversionPattern<ttir::ConcatOp> {
+class EmbeddingOpConversionPattern
+    : public OpConversionPattern<ttir::EmbeddingOp> {
 public:
-  using OpConversionPattern<ttir::ConcatOp>::OpConversionPattern;
+  using OpConversionPattern<ttir::EmbeddingOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::ConcatOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::EmbeddingOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Get the dimension to concatenate along.
-    int64_t dim = op.getDim();
-    static_assert(ttir::utils::has_dps_trait_v<ttir::ConcatOp>);
-    auto inputs =
-        ttir::utils::getDpsInputsFromAdaptor(adaptor, op.getNumDpsInits());
+    // Get the input tensor and weight
+    Value input = adaptor.getInput();
+    Value weight = adaptor.getWeight();
 
-    // Create a tensor.empty for the result.
+    auto inputType = dyn_cast<RankedTensorType>(input.getType());
+    auto weightType = dyn_cast<RankedTensorType>(weight.getType());
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
 
-    auto emptyTensor = rewriter.create<tensor::EmptyOp>(
-        op.getLoc(), resultType.getShape(), resultType.getElementType());
-
-    // Insert each input tensor into the result tensor.
-    Value result = emptyTensor;
-    int64_t offset = 0;
-
-    for (auto input : inputs) {
-      auto inputType = dyn_cast<RankedTensorType>(input.getType());
-      assert(inputType && "Input must be a ranked tensor type.");
-
-      // Calculate offsets, sizes, and strides for this input
-      SmallVector<OpFoldResult> offsets, sizes, strides;
-      for (unsigned i = 0; i < inputType.getRank(); ++i) {
-        if (i == dim) {
-          offsets.push_back(rewriter.getI64IntegerAttr(offset));
-          offset += inputType.getDimSize(i);
-        } else {
-          offsets.push_back(rewriter.getI64IntegerAttr(0));
-        }
-        sizes.push_back(rewriter.getI64IntegerAttr(inputType.getDimSize(i)));
-        strides.push_back(rewriter.getI64IntegerAttr(1));
-      }
-
-      result = rewriter.create<tensor::InsertSliceOp>(
-          op.getLoc(), input, result, offsets, sizes, strides);
+    if (!inputType || !weightType || !resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Input, weight, or result is not a ranked tensor");
     }
+
+    // For embedding, we're gathering along dimension 0
+    SmallVector<int64_t> dims{
+        0}; // Always gather along dimension 0 for embedding
+    auto dimsAttr = rewriter.getDenseI64ArrayAttr(dims);
+
+    // tensor.gather requires integer indices, so we need to cast if the input
+    // is not an integer type
+    if (!inputType.getElementType().isIntOrIndex()) {
+      // Create a new type with the same shape but i64 element type
+      auto newInputType =
+          RankedTensorType::get(inputType.getShape(), rewriter.getI64Type());
+
+      // Convert the input tensor to integer type
+      input =
+          rewriter.create<arith::FPToSIOp>(op.getLoc(), newInputType, input);
+
+      // Update inputType to reflect the new type
+      inputType = dyn_cast<RankedTensorType>(input.getType());
+    }
+
+    // For tensor.gather, the last dimension of indices must match the length of
+    // gather_dims If indices is 1D and gather_dims has one element, reshape
+    // indices to add a dimension
+    auto indicesShape = inputType.getShape();
+    if (indicesShape.size() == 1 && dims.size() == 1) {
+      // Create a new shape with an additional dimension of size 1
+      SmallVector<int64_t> newShape(indicesShape.begin(), indicesShape.end());
+      newShape.push_back(1);
+
+      // Create a new type with the additional dimension
+      auto reshapedType =
+          RankedTensorType::get(newShape, inputType.getElementType());
+
+      // Create a reshape operation to add the dimension
+      input = rewriter.create<tensor::ExpandShapeOp>(
+          op.getLoc(), reshapedType, input,
+          ArrayRef<ReassociationIndices>{{0, 1}});
+    }
+
+    // Create the tensor.gather operation
+    auto result = rewriter.create<tensor::GatherOp>(op.getLoc(), resultType,
+                                                    weight, input, dimsAttr);
 
     rewriter.replaceOp(op, result);
     return success();
@@ -465,29 +1342,68 @@ public:
 };
 } // namespace
 
+//===----------------------------------------------------------------------===//
+// Pattern Population
+//===----------------------------------------------------------------------===//
+
+void populateTTIRToTosaPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
+                                TypeConverter &typeConverter) {
+  // Elementwise unary operations
+  patterns.add<
+      ElementwiseUnaryOpConversionPattern<ttir::AbsOp, tosa::AbsOp>,
+      ElementwiseUnaryOpConversionPattern<ttir::CeilOp, tosa::CeilOp>,
+      ElementwiseUnaryOpConversionPattern<ttir::ExpOp, tosa::ExpOp>,
+      ElementwiseUnaryOpConversionPattern<ttir::FloorOp, tosa::FloorOp>,
+      ElementwiseUnaryOpConversionPattern<ttir::LogOp, tosa::LogOp>,
+      ElementwiseUnaryOpConversionPattern<ttir::NegOp, tosa::NegateOp>,
+      ElementwiseUnaryOpConversionPattern<ttir::ReciprocalOp,
+                                          tosa::ReciprocalOp>,
+      ElementwiseUnaryOpConversionPattern<ttir::RsqrtOp, tosa::RsqrtOp>,
+      ElementwiseUnaryOpConversionPattern<ttir::SigmoidOp, tosa::SigmoidOp>,
+      ElementwiseUnaryOpConversionPattern<ttir::TanhOp, tosa::TanhOp>>(
+      typeConverter, ctx);
+
+  // Elementwise binary operations
+  patterns.add<
+      TosaElementwiseBinaryOpConversionPattern<ttir::AddOp, tosa::AddOp>,
+      TosaElementwiseBinaryOpConversionPattern<ttir::SubtractOp, tosa::SubOp>>(
+      typeConverter, ctx);
+
+  // Comparison operations
+  patterns.add<
+      DirectComparisonOpConversionPattern<ttir::EqualOp, tosa::EqualOp>,
+      DirectComparisonOpConversionPattern<ttir::GreaterThanOp, tosa::GreaterOp>,
+      DirectComparisonOpConversionPattern<ttir::GreaterEqualOp,
+                                          tosa::GreaterEqualOp>,
+      SwappedComparisonOpConversionPattern<ttir::LessThanOp, tosa::GreaterOp>,
+      SwappedComparisonOpConversionPattern<ttir::LessEqualOp,
+                                           tosa::GreaterEqualOp>,
+      NegatedComparisonOpConversionPattern<ttir::NotEqualOp, tosa::EqualOp>>(
+      typeConverter, ctx);
+
+  patterns.add<BroadcastOpConversionPattern, SinOpConversionPattern,
+               CosOpConversionPattern, MatmulOpConversionPattern,
+               GatherOpConversionPattern, LogicalNotOpConversionPattern,
+               MaxOpConversionPattern, SumOpConversionPattern,
+               ReduceOrOpConversionPattern>(typeConverter, ctx);
+
+  // Special operations
+  patterns.add<WhereOpConversionPattern, ReshapeOpConversionPattern,
+               TransposeOpConversionPattern, ConcatOpConversionPattern>(
+      typeConverter, ctx);
+}
+
 void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                   TypeConverter &typeConverter) {
   patterns.add<
-      ElementwiseBinaryOpConversionPattern<ttir::AddOp, linalg::AddOp>,
       ElementwiseBinaryOpConversionPattern<ttir::MultiplyOp, linalg::MulOp>,
-      ElementwiseBinaryOpConversionPattern<ttir::SubtractOp, linalg::SubOp>,
       ElementwiseBinaryOpConversionPattern<ttir::DivOp, linalg::DivOp>,
       ElementwiseBinaryOpConversionPattern<ttir::PowOp, linalg::PowFOp>,
-      ElementwiseOpConversionPattern<ttir::AbsOp, linalg::AbsOp>,
       ElementwiseOpConversionPattern<ttir::SqrtOp, linalg::SqrtOp>,
-      ElementwiseOpConversionPattern<ttir::RsqrtOp, linalg::RsqrtOp>,
-      ElementwiseOpConversionPattern<ttir::ExpOp, linalg::ExpOp>,
-      ElementwiseOpConversionPattern<ttir::LogOp, linalg::LogOp>,
-      ElementwiseOpConversionPattern<ttir::CeilOp, linalg::CeilOp>,
-      ElementwiseOpConversionPattern<ttir::FloorOp, linalg::FloorOp>,
-      ElementwiseOpConversionPattern<ttir::TanhOp, linalg::TanhOp>,
-      ElementwiseOpConversionPattern<ttir::ReciprocalOp, linalg::ReciprocalOp>,
-      ElementwiseOpConversionPattern<ttir::NegOp, linalg::NegFOp>,
-      TransposeOpConversionPattern, SoftmaxOpConversionPattern,
-      EmptyOpConversionPattern, ReshapeOpConversionPattern,
+      SoftmaxOpConversionPattern, EmptyOpConversionPattern,
       PermuteOpConversionPattern, SliceOpConversionPattern,
-      ConcatOpConversionPattern, ConstantOpConversionPattern>(typeConverter,
-                                                              ctx);
+      ConstantOpConversionPattern, EmbeddingOpConversionPattern>(typeConverter,
+                                                                 ctx);
 }
 
 } // namespace mlir::tt

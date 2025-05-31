@@ -1153,7 +1153,7 @@ class TTIRBuilder:
             torch.any,
             ttir.ReduceOrOp,
             [in0],
-            golden_kwargs={"dim": tuple(dim_args)},
+            golden_kwargs={"dim": tuple(dim_args), "keepdim": keep_dim},
             ttir_kwargs={"dim_arg": dim_args, "keep_dim": keep_dim},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             unit_attrs=unit_attrs,
@@ -1221,7 +1221,7 @@ class TTIRBuilder:
             ttir.SoftmaxOp,
             [in0],
             golden_kwargs={"dim": dimension},
-            organize_ttir_args=lambda i, o, _: (
+            organize_ttir_args=lambda i, o, shape: (
                 self._get_type(o),
                 i[0],
                 o,
@@ -2135,10 +2135,7 @@ class TTIRBuilder:
             ttir_kwargs={"reinterpretLayout": reinterpret_layout},
             output_type=output_type,
             output_create_fn=self.empty_from_tensor_type,
-            organize_ttir_args=lambda i, o, _: (
-                self._get_type(o),
-                i[0],
-            ),
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
             unit_attrs=unit_attrs,
         )
 
@@ -2267,4 +2264,233 @@ class TTIRBuilder:
             ttir.CollectivePermuteOp,
             [input],
             kwargs=kwargs,
+        )
+
+    def slice(
+        self,
+        in0: Operand,
+        begins: List[int],
+        ends: List[int],
+        step: List[int] = None,
+        unit_attrs: List[str] = None,
+    ) -> OpView:
+        # If step is not provided, use 1 for each dimension
+        if step is None:
+            step = [1] * len(begins)
+
+        # Ensure begins, ends, and step have the same length
+        assert (
+            len(begins) == len(ends) == len(step)
+        ), "begins, ends, and step must have the same length"
+
+        # Get the input shape
+        input_shape = self.get_shape(in0)
+
+        # Calculate the output shape
+        output_shape = []
+        for i, (b, e, s) in enumerate(zip(begins, ends, step)):
+            # Handle negative indices
+            if b < 0:
+                b += input_shape[i]
+            if e < 0:
+                e += input_shape[i]
+
+            # Clamp to valid range
+            b = max(0, min(b, input_shape[i]))
+            e = max(0, min(e, input_shape[i]))
+
+            # Calculate dimension size
+            dim_size = max(0, (e - b + s - 1) // s)
+            output_shape.append(dim_size)
+
+        # Create the attributes using a different approach
+        from ttmlir.ir import ArrayAttr, IntegerAttr, IntegerType
+
+        # Create integer attributes for each value
+        begins_int_attrs = [
+            IntegerAttr.get(IntegerType.get_signless(32), b) for b in begins
+        ]
+        ends_int_attrs = [
+            IntegerAttr.get(IntegerType.get_signless(32), e) for e in ends
+        ]
+        step_int_attrs = [
+            IntegerAttr.get(IntegerType.get_signless(32), s) for s in step
+        ]
+
+        # Create array attributes
+        begins_attr = ArrayAttr.get(begins_int_attrs, self._ctx)
+        ends_attr = ArrayAttr.get(ends_int_attrs, self._ctx)
+        step_attr = ArrayAttr.get(step_int_attrs, self._ctx)
+
+        # Golden function for slicing
+        def slice_golden_fn(x, begins, ends, step):
+            if len(begins) == 1:
+                return torch.narrow(x, 0, begins[0], ends[0] - begins[0])
+            else:
+                slices = [slice(b, e, s) for b, e, s in zip(begins, ends, step)]
+                return x[tuple(slices)]
+
+        # Define a custom organize_ttir_args function that prints its output for debugging
+        def custom_organize_ttir_args(inputs, output, output_shape):
+            args = (inputs[0], output, begins_attr, ends_attr, step_attr)
+            print(f"SliceOp args: {args}")
+            return args
+
+        # Use op_proxy with the custom organize_ttir_args function
+        return self.op_proxy(
+            slice_golden_fn,
+            ttir.SliceOp,
+            [in0],
+            golden_kwargs={"begins": begins, "ends": ends, "step": step},
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+            output_shape=output_shape,
+            unit_attrs=unit_attrs,
+            ttir_kwargs={"begins": begins_attr, "ends": ends_attr, "step": step_attr},
+        )
+
+    def gather(
+        self,
+        input: Operand,
+        start_indices: Operand,
+        offset_dims: List[int],
+        collapsed_slice_dims: List[int],
+        operand_batching_dims: List[int],
+        start_indices_batching_dims: List[int],
+        start_index_map: List[int],
+        index_vector_dim: int,
+        slice_sizes: List[int],
+        indices_are_sorted: bool = False,
+        unit_attrs: List[str] = None,
+    ) -> OpView:
+        """
+        Gathers slices from input tensor from offsets specified in start_indices.
+        Based on StableHLO Gather Op: https://openxla.org/stablehlo/spec#gather
+
+        Parameters
+        ----------
+        input : Operand
+            The tensor from which to gather values.
+        start_indices : Operand
+            The tensor containing the starting indices for the slices.
+        offset_dims : List[int]
+            The dimensions in the output that offset into the slices.
+        collapsed_slice_dims : List[int]
+            The dimensions in the input that are collapsed in the output.
+        operand_batching_dims : List[int]
+            The dimensions in the input that are batched.
+        start_indices_batching_dims : List[int]
+            The dimensions in the start_indices that are batched.
+        start_index_map : List[int]
+            Maps indices in start_indices to dimensions in the input.
+        index_vector_dim : int
+            The dimension in start_indices that contains the index vectors.
+        slice_sizes : List[int]
+            The size of the slice to extract from the input.
+        indices_are_sorted : bool, optional
+            Whether the indices are sorted, by default False.
+        unit_attrs : List[str], optional
+            Unit attributes to attach to the operation, by default None.
+
+        Returns
+        -------
+        OpView
+            The result of the gather operation.
+        """
+        # Create the attributes
+        from ttmlir.ir import ArrayAttr, IntegerAttr, IntegerType, BoolAttr
+
+        # Create DenseI64ArrayAttr attributes directly from lists
+        offset_dims_attr = DenseI64ArrayAttr.get(offset_dims, self._ctx)
+        collapsed_slice_dims_attr = DenseI64ArrayAttr.get(
+            collapsed_slice_dims, self._ctx
+        )
+        operand_batching_dims_attr = DenseI64ArrayAttr.get(
+            operand_batching_dims, self._ctx
+        )
+        start_indices_batching_dims_attr = DenseI64ArrayAttr.get(
+            start_indices_batching_dims, self._ctx
+        )
+        start_index_map_attr = DenseI64ArrayAttr.get(start_index_map, self._ctx)
+        slice_sizes_attr = DenseI64ArrayAttr.get(slice_sizes, self._ctx)
+
+        # Create boolean attribute
+        indices_are_sorted_attr = BoolAttr.get(indices_are_sorted, self._ctx)
+
+        # Create integer attribute for index_vector_dim
+        index_vector_dim_attr = IntegerAttr.get(
+            IntegerType.get_signed(64), index_vector_dim
+        )
+
+        # Calculate output shape
+        input_shape = self.get_shape(input)
+        indices_shape = self.get_shape(start_indices)
+
+        # Determine the output shape based on gather semantics
+        output_shape = []
+
+        # For 1D indices with 1D start_index_map, the output shape should be:
+        # [batch_size, ...slice_sizes for offset_dims]
+        if len(indices_shape) == 1 and len(start_index_map) == 1:
+            # Add the batch dimension (number of indices)
+            output_shape.append(indices_shape[0])
+
+            # Add the dimensions from slice_sizes that correspond to offset_dims
+            for dim in offset_dims:
+                output_shape.append(slice_sizes[dim])
+        else:
+            # Standard case: add batch dimensions from indices
+            for i in range(len(indices_shape)):
+                if i != index_vector_dim:
+                    output_shape.append(indices_shape[i])
+
+            # Add offset dimensions
+            for dim in offset_dims:
+                output_shape.append(slice_sizes[dim])
+
+        # Golden function for gather operation
+        def gather_golden_fn(input_tensor, start_indices_tensor):
+            # This is a simplified implementation that works for basic gather operations
+            # For more complex cases, a more sophisticated implementation would be needed
+            import torch
+
+            # Convert tensors to numpy for easier indexing
+            input_np = input_tensor.numpy()
+            indices_np = start_indices_tensor.numpy()
+
+            # Handle the simplest case: gather along a single dimension
+            if len(start_index_map) == 1 and len(collapsed_slice_dims) == 0:
+                dim = start_index_map[0]
+                return torch.index_select(
+                    input_tensor,
+                    dim,
+                    torch.tensor(indices_np.flatten(), dtype=torch.long),
+                )
+
+            # For more complex cases, we would need to implement the full gather semantics
+            # This is a placeholder that returns the input tensor
+            # In a real implementation, this would need to be expanded
+            return input_tensor
+
+        # Define kwargs for the TTIR operation
+        ttir_kwargs = {
+            "offset_dims": offset_dims_attr,
+            "collapsed_slice_dims": collapsed_slice_dims_attr,
+            "operand_batching_dims": operand_batching_dims_attr,
+            "start_indices_batching_dims": start_indices_batching_dims_attr,
+            "start_index_map": start_index_map_attr,
+            "index_vector_dim": index_vector_dim_attr,
+            "slice_sizes": slice_sizes_attr,
+            "indices_are_sorted": indices_are_sorted_attr,
+        }
+
+        # Use op_proxy to create the operation
+        return self.op_proxy(
+            gather_golden_fn,
+            ttir.GatherOp,
+            [input, start_indices],
+            golden_kwargs={},
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], o),
+            output_shape=output_shape,
+            unit_attrs=unit_attrs,
+            ttir_kwargs=ttir_kwargs,
         )
