@@ -241,10 +241,7 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
         bool isMemorySpaceChange = false;
 
         bool isCompound() {
-          return ((isLayoutChange ? 1 : 0) +
-                  (isGridChange ? 1 : 0) +
-                  (isFormatChange ? 1 : 0) +
-                  (isMemorySpaceChange ? 1 : 0)) > 1;
+          return isLayoutChange + isGridChange + isFormatChange + isMemorySpaceChange > 1;
         }
       };
 
