@@ -410,23 +410,23 @@ public:
 
 namespace {
 template <typename Op, typename Adaptor = typename Op::Adaptor>
-class TTKernelLiteralRewriter : public OpConversionPattern<Op> {
+class TTKernelConstantRewriter : public OpConversionPattern<Op> {
 public:
-  TTKernelLiteralRewriter(TTKernelToEmitCTypeConverter &typeConverter,
-                          MLIRContext *ctx, std::string literal)
-      : OpConversionPattern<Op>(typeConverter, ctx), literal(literal) {}
+  TTKernelConstantRewriter(TTKernelToEmitCTypeConverter &typeConverter,
+                           MLIRContext *ctx, std::string opaque)
+      : OpConversionPattern<Op>(typeConverter, ctx), opaque(opaque) {}
 
   LogicalResult
   matchAndRewrite(Op op, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<emitc::LiteralOp>(
+    rewriter.replaceOpWithNewOp<emitc::ConstantOp>(
         op, this->getTypeConverter()->convertType(op->getResultTypes()[0]),
-        literal);
+        rewriter.getAttr<emitc::OpaqueAttr>(opaque));
     return success();
   }
 
 private:
-  std::string literal;
+  std::string opaque;
 };
 } // namespace
 
@@ -636,10 +636,10 @@ public:
     patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>>(
         typeConverter, funcOp.getContext(), "get_noc_addr");
 
-    patterns.add<TTKernelLiteralRewriter<ttkernel::MyXOp>>(
-        typeConverter, funcOp.getContext(), "NOC_X(my_x[noc_index])");
-    patterns.add<TTKernelLiteralRewriter<ttkernel::MyYOp>>(
-        typeConverter, funcOp.getContext(), "NOC_Y(my_y[noc_index])");
+    patterns.add<TTKernelConstantRewriter<ttkernel::MyXOp>>(
+        typeConverter, funcOp.getContext(), "my_x[noc_index]");
+    patterns.add<TTKernelConstantRewriter<ttkernel::MyYOp>>(
+        typeConverter, funcOp.getContext(), "my_y[noc_index]");
 
     patterns.add<TTKernelStoreToL1OpToEmitCOpRewriter>(typeConverter,
                                                        funcOp.getContext());
