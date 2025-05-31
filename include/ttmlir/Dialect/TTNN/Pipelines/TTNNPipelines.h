@@ -24,6 +24,14 @@ struct TTIRToTTNNBackendPipelineOptions
       llvm::cl::desc("Determine and set max valid grid for Op execution."),
       llvm::cl::init(false)};
 
+  // If this option is true, run a pass that checks if all operations relevant
+  // to the optimizer have unique locations. If not, it will emit an error. This
+  // is necessary for the overrides to be applied correctly.
+  Option<bool> checkUniqueLocations{
+      *this, "check-unique-locs",
+      llvm::cl::desc("Check if all operations have unique locations."),
+      llvm::cl::init(true)};
+
   // Option to manually insert TTNN_ToLayoutOp for specific op's operand.
   // The format is a comma separated list of op names and operand index
   // separated by ':' separator.

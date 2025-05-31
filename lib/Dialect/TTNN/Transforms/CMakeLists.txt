@@ -9,6 +9,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNDecomposeLayouts.cpp
         TTNNToCpp.cpp
         TTNNPrepareConv2dWeights.cpp
+        TTNNUniqueLocs.cpp
         TTNNFusing.cpp
         Workarounds/Decomposition/ArgMaxOpRewritePattern.cpp
         Workarounds/Decomposition/CumSumOpDimRewritePattern.cpp

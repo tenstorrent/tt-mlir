@@ -10,8 +10,10 @@
 
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/Location.h"
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
 
 #include <type_traits>
 #include <utility>
@@ -215,12 +217,14 @@ template <typename OpTy, typename... ArgsTy>
 OpTy replaceOpWithNewDPSOp(mlir::PatternRewriter &rewriter, mlir::Operation *op,
                            llvm::ArrayRef<int64_t> outputShape,
                            mlir::Type outputElementType,
-                           mlir::Attribute outputEncoding, ArgsTy &&...args) {
+                           mlir::Attribute outputEncoding,
+                           llvm::StringRef loc_suffix = "", ArgsTy &&...args) {
   static_assert(has_dps_trait_v<OpTy>);
 
-  auto newOp =
-      createDPSOp<OpTy>(rewriter, op->getLoc(), outputShape, outputElementType,
-                        outputEncoding, std::forward<ArgsTy>(args)...);
+  auto newOp = createDPSOp<OpTy>(
+      rewriter, ttmlir::utils::appendLocationSuffix(op->getLoc(), loc_suffix),
+      outputShape, outputElementType, outputEncoding,
+      std::forward<ArgsTy>(args)...);
   rewriter.replaceOp(op, newOp.getOperation());
   return newOp;
 }

@@ -40,7 +40,8 @@ CumSumOpDimRewritePattern::matchAndRewrite(ttnn::MorehCumSumOp srcOp,
                            .withTensorShape(adaptedShape));
 
   auto adaptedInput = rewriter.create<ttnn::PermuteOp>(
-      srcOp.getLoc(), adaptedInputType, srcOp.getInput(),
+      ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_permute"),
+      adaptedInputType, srcOp.getInput(),
       rewriter.getDenseI64ArrayAttr(permutation),
       /*memory_config=*/ttnn::MemoryConfigAttr(),
       /*pad_value=*/mlir::FloatAttr());
