@@ -136,9 +136,9 @@ findInnerTensorDimLoopVars(PatternRewriter &rewriter, memref::LoadOp loadOp) {
   return innerLoopVars;
 }
 
-static void lowerLoadToCopyTile(memref::LoadOp op, bool cbIdxAsDstIdx,
-                                bool guardFirstCopy,
-                                ConversionPatternRewriter &rewriter) {
+static void lowerLoadToCopyTile(ConversionPatternRewriter &rewriter,
+                                memref::LoadOp op, Value dstIdx,
+                                bool guardFirstCopy) {
   auto index = [&](int64_t value) {
     return rewriter
         .create<arith::ConstantOp>(op.getLoc(), rewriter.getIndexType(),
@@ -147,7 +147,6 @@ static void lowerLoadToCopyTile(memref::LoadOp op, bool cbIdxAsDstIdx,
   };
 
   auto cb = rewriter.getRemappedValue(op.getMemref());
-  auto cbType = mlir::cast<ttkernel::CBType>(cb.getType());
   llvm::SmallVector<Value> innerLoopVars =
       findInnerTensorDimLoopVars(rewriter, op);
   // This early return is for the case where guardFirstCopy == true (indicating
@@ -158,9 +157,7 @@ static void lowerLoadToCopyTile(memref::LoadOp op, bool cbIdxAsDstIdx,
   }
   auto copyInit = rewriter.create<ttkernel::CopyTileInitOp>(op.getLoc(), cb);
   auto copyTile = rewriter.create<ttkernel::CopyTileOp>(
-      op.getLoc(), cb, op.getIndices().front(),
-      cbIdxAsDstIdx ? index(static_cast<uint32_t>(cbType.getPort()))
-                    : index(0));
+      op.getLoc(), cb, op.getIndices().front(), dstIdx);
   if (guardFirstCopy) {
     Value innerLoopVar = innerLoopVars.pop_back_val();
     Value condition =
@@ -274,8 +271,8 @@ public:
           /* transpose */ i32(rewriter, op->getLoc(), 0));
       rewriter.setInsertionPoint(mmInitShortOp);
       lowerLoadToCopyTile(
-          adaptor.getC().template getDefiningOp<memref::LoadOp>(), false, true,
-          rewriter);
+          rewriter, adaptor.getC().template getDefiningOp<memref::LoadOp>(),
+          dstIdx, true);
     } else if constexpr (arity == 2) {
       rewriter.create<InitOp>(op->getLoc(), getCB(rewriter, adaptor.getLhs()),
                               getCB(rewriter, adaptor.getRhs()));
@@ -336,9 +333,11 @@ public:
 
     rewriter.setInsertionPoint(initOp == nullptr ? newOp : initOp);
     for (int i = 0; i < arity; i++) {
+      Value dstIdx = index(rewriter, op->getLoc(), i);
       lowerLoadToCopyTile(
+          rewriter,
           adaptor.getOperands()[i].template getDefiningOp<memref::LoadOp>(),
-          true, false, rewriter);
+          dstIdx, false);
     }
 
     rewriter.eraseOp(op);

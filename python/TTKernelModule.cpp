@@ -15,10 +15,8 @@ namespace mlir::ttmlir::python {
 void populateTTKernelModule(nb::module_ &m) {
   tt_type_class<tt::ttkernel::CBType>(m, "CBType")
       .def_static("get",
-                  [](MlirContext ctx, uint64_t address, uint64_t port,
-                     MlirType memrefType) {
-                    return ttmlirTTKernelCBTypeGet(ctx, address, port,
-                                                   memrefType);
+                  [](MlirContext ctx, MlirType memrefType) {
+                    return ttmlirTTKernelCBTypeGet(ctx, memrefType);
                   })
       .def_static("cast",
                   [](MlirType &ty) {
