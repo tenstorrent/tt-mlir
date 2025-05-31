@@ -672,4 +672,43 @@ ClampScalarOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       opConfig.outputLayout);
 }
 
+//===----------------------------------------------------------------------===//
+// PermuteOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<
+    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+PermuteOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                            const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  const auto outputShape = getResult().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();
+
+  return op_model::ttnn::PermuteOpInterface::getOpConstraints(
+      deviceGrid, inputShape, inputs[0], getPermutation(), getPadValue(),
+      outputShape, opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+PermuteOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                        const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  const auto outputShape = getResult().getType().getShape();
+
+  return op_model::ttnn::PermuteOpInterface::getOpRuntime(
+      inputShape, inputs[0], getPermutation(), getPadValue(), outputShape,
+      opConfig.outputLayout);
+}
+
 } // namespace mlir::tt::ttnn

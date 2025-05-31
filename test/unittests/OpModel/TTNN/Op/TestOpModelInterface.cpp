@@ -1011,4 +1011,39 @@ TEST_F(OpModelBase, clampScalarOp) {
   }
 }
 
+TEST_F(OpModelBase, permuteOp) {
+  llvm::SmallVector<int64_t> inputShape = {4, 64, 128, 256};
+  llvm::SmallVector<int64_t> outputShape = {4, 256, 64, 128};
+
+  auto input = createEmptyTensor(inputShape);
+  auto outputType = createRankedTensorType(outputShape);
+
+  PermuteOp permuteOp = builder.create<PermuteOp>(
+      builder.getUnknownLoc(), outputType, input,
+      llvm::ArrayRef<int64_t>({0, 3, 1, 2}), nullptr, llvm::APFloat(0.0f));
+  permuteOp->setAttr(DeviceAttr::name, getFakeDeviceAttr());
+
+  op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  auto constraintsExp = getOpConstraints(permuteOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GT(peakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp = getOpRuntime(permuteOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 } // namespace mlir::tt::ttnn

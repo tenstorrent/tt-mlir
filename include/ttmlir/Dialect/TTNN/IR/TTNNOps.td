@@ -1814,7 +1814,9 @@ def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
     let hasVerifier = 1;
 }
 
-def TTNN_PermuteOp : TTNN_Op<"permute"> {
+def TTNN_PermuteOp : TTNN_Op<"permute",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Permute operation.";
     let description = [{
       Permute input tensor dimensions.
