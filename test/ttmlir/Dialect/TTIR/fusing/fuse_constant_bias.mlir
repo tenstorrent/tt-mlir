@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --canonicalize %s | ttmlir-opt --ttir-fusing %s | FileCheck %s
+// RUN: ttmlir-opt --canonicalize --ttir-fusing %s | FileCheck %s
 
 // Fuse constant bias + reshape + add into conv. We also check that all uses of add are updated.
 module {
