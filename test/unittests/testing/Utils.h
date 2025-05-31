@@ -6,7 +6,7 @@
 #define TT_TESTING_UTILS_H
 
 // A convenience include so that tests only need "testing/Utils.h".
-#include "llvm-gtest/gtest/gtest.h"
+#include "gtest/gtest.h"
 
 #include <cstdint>
 #include <random>
@@ -30,12 +30,16 @@ namespace mlir::tt::testing {
 //
 // This function also ensures that the seed is captured in gtest reports as test
 // properties at the scope (test/suite/etc) from which it is invoked. These will
-// show up in the XML report as
+// show up in the JUnit XML report as
 // clang-format off
 //  <properties>
 //    <property name="seed" value="1756947448940470413"/>
 //  </properties>
 // clang-format on
+// When gtest is driven by llvm-lit, the latter tool builds its own
+// JUnit-compatible reports which do not propagate generic key/value properties
+// of test/suites. In such setups, however, the seed should be recoverable from
+// the stdout capture of test failure messages.
 extern std::uint64_t randomSeed();
 
 namespace impl {
