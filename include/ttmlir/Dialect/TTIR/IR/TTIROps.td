@@ -121,8 +121,8 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
                      "ValueRange": $outputs,
                      "ArrayAttr": $indexingMaps,
                      "ArrayAttr": $iteratorTypes,
-                     CArg<"GridAttr", "nullptr">: $grid,
-                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType),
+                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
+                     CArg<"GridAttr", "nullptr">: $grid),
       [{
         assert(!indexingMaps.empty() && "expected non-empty indexing maps");
         assert(outputs.size() == 1 && "expected single output");
@@ -144,10 +144,10 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
                      "ArrayAttr": $indexingMaps,
                      "ArrayAttr": $iteratorTypes,
                      "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
-                     CArg<"GridAttr", "nullptr">: $grid,
-                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType),
+                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
+                     CArg<"GridAttr", "nullptr">: $grid),
       [{
-        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, grid, singleThreadType);
+        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadType, grid);
         llvm::SmallVector<Type> blockTypes = llvm::map_to_vector(TypeRange($_state.operands), [&](Type t) -> Type {
           mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
           return mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding()).getMemref();
@@ -161,14 +161,14 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
       OpBuilder<(ins "ValueRange": $inputs,
                      "ValueRange": $outputs,
                      "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
-                     CArg<"GridAttr", "nullptr">: $grid,
-                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType),
+                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
+                     CArg<"GridAttr", "nullptr">: $grid),
       [{
         assert(outputs.size() == 1 && "expected single output");
         RankedTensorType tensorType = mlir::cast<RankedTensorType>(outputs[0].getType());
         MetalLayoutAttr layout = mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding());
         auto [indexingMaps, iteratorTypes] = buildParallelAffineMapsAndIteratorTypes($_builder, inputs.size() + outputs.size(), layout.getRank());
-        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadRegionBuilder, grid, singleThreadType);
+        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadRegionBuilder, singleThreadType, grid);
       }]>,
     ];
 
@@ -241,9 +241,7 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
         bool isMemorySpaceChange = false;
 
         bool isCompound() {
-          return (static_cast<int>(isLayoutChange) +
-                  static_cast<int>(isGridChange || isMemorySpaceChange) +
-                  static_cast<int>(isFormatChange)) > 1;
+          return isLayoutChange + isGridChange + isFormatChange + isMemorySpaceChange > 1;
         }
       };
 
@@ -422,7 +420,7 @@ class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTIR_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, [FourOperands, TTIR_ElementwiseTernary] # traits> {
+    TTIR_ElementwiseOp<mnemonic, [TTIR_ElementwiseTernary] # traits> {
     let summary = "Eltwise ternary op.";
     let description = [{
       Eltwise ternary op.
@@ -683,6 +681,13 @@ def TTIR_ExpOp: TTIR_ElementwiseUnaryOp<"exp"> {
     let summary = "Eltwise exponential op.";
     let description = [{
       Eltwise exponential operation. Calculates e^x for all elements x in input tensor.
+    }];
+}
+
+def TTIR_ErfOp: TTIR_ElementwiseUnaryOp<"erf"> {
+  let summary = "Eltwise erf op.";
+  let description = [{
+      Eltwise erf operation. Calculates erf(x) for each element of the input tensor.
     }];
 }
 
@@ -965,6 +970,34 @@ def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum"> {
         %rhs: [[1, 4, 2], [1, 2, 3]]
         "ttir.maximum"(%lhs, %rhs, %out) -> %out: [[3, 4, 7], [1, 4, 4]]
     }];
+}
+
+def TTIR_BatchNormOp : TTIR_DPSOp<"batch_norm"> {
+  let summary = "BatchNormInference operation";
+  let description = [{
+    Normalizes the `operand` tensor across all dimensions except for the
+    `feature_index` dimension and puts the result in the `output` tensor.
+
+    Example:
+    ```mlir
+    "ttir.batch_norm"(%operand, %scale, %offset, %mean, %variance, epsilon = dense<f32>, feature_index = dense<i64>, %out) {
+    } : (tensor<2x2x2xf64>, tensor<2xf64>, tensor<2xf64>, tensor<2xf64>, tensor<2xf64>, dense<f32>, dense<i64>, tensor<2x2x2xf64>) -> tensor<2x2x2xf64>
+    ```
+  }];
+
+  let arguments = (ins AnyRankedTensor:$operand,
+                       AnyRankedTensor:$scale,
+                       AnyRankedTensor:$offset,
+                       AnyRankedTensor:$mean,
+                       AnyRankedTensor:$variance,
+                       AnyRankedTensor:$output,
+                       F32Attr:$epsilon,
+                       I32Attr:$dimension,
+                       BoolAttr:$training);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
 }
 
 class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
@@ -2338,6 +2371,52 @@ def TTIR_DequantizeOp : TTIR_NamedOp<"dequantize"> {
   let hasVerifier = 1;
 }
 
+def TTIR_QuantizeUnrolledOp : TTIR_NamedOp<"quantize_unrolled"> {
+  let summary = "Quantize operation unrolled (scale and zero point as input operands).";
+  let description = [{
+    The QuantizeUnrolledOp quantizes a tensor using the scale and zero point provided as input operands.
+
+    Inputs:
+      - `input` AnyRankedTensor: The input tensor to be quantized. Must have floating-point element type.
+      - `scale` AnyRankedTensor: The scale factor (or factors for per-axis quantization). Must be either a scalar (for per-tensor quantization) or a 1D tensor with size matching the dimension of the specified axis (for per-axis quantization).
+      - `zero_point` AnyRankedTensor: The zero point value (or values for per-axis quantization). Must be in range of the quantized storage type.
+      - `axis` Optional<i32>: The axis along which quantization is applied. Must be in range [0, rank) where rank is the rank of the input tensor.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$scale,
+                       AnyRankedTensor:$zero_point,
+                       OptionalAttr<I32Attr>:$axis,
+                       AnyRankedTensor:$output);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
+def TTIR_DequantizeUnrolledOp : TTIR_NamedOp<"dequantize_unrolled"> {
+  let summary = "Dequantize operation unrolled (scale and zero point as input operands).";
+  let description = [{
+    The DequantizeUnrolledOp dequantizes a tensor using the scale and zero point provided as input operands.
+
+    Inputs:
+      - `input` AnyRankedTensor: The input tensor to be dequantized. Must have quantized element type.
+      - `scale` AnyRankedTensor: The scale factor (or factors for per-axis quantization).
+      - `zero_point` AnyRankedTensor: The zero point value (or values for per-axis quantization). Must be in range of the quantized storage type.
+      - `axis` Optional<i32>: The axis along which quantization is applied. Must be in range [0, rank) where rank is the rank of the input tensor.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$scale,
+                       AnyRankedTensor:$zero_point,
+                       OptionalAttr<I32Attr>:$axis,
+                       AnyRankedTensor:$output);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_RequantizeOp : TTIR_NamedOp<"requantize"> {
   let summary = "Requantize operation.";
   let description = [{
@@ -2357,6 +2436,33 @@ def TTIR_RequantizeOp : TTIR_NamedOp<"requantize"> {
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$output);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
+def TTIR_RequantizeUnrolledOp : TTIR_NamedOp<"requantize_unrolled"> {
+  let summary = "Requantize operation unrolled (scale and zero point as input operands).";
+  let description = [{
+    The RequantizeUnrolledOp requantizes a tensor using the scale and zero point provided as input operands.
+
+    Inputs:
+      - `input` AnyRankedTensor: The input tensor to be requantized. Must have quantized element type.
+      - `in_scale` AnyRankedTensor: The input scale factor (or factors for per-axis quantization). Must be either a scalar (for per-tensor quantization) or a 1D tensor with size matching the dimension of the specified axis (for per-axis quantization).
+      - `in_zero_point` AnyRankedTensor: The input zero point value (or values for per-axis quantization). Must be in range of the quantized storage type.
+      - `out_scale` AnyRankedTensor: The output scale factor (or factors for per-axis quantization). Must be either a scalar (for per-tensor quantization) or a 1D tensor with size matching the dimension of the specified axis (for per-axis quantization).
+      - `out_zero_point` AnyRankedTensor: The output zero point value (or values for per-axis quantization). Must be in range of the quantized storage type.
+      - `axis` Optional<i32>: The axis along which quantization is applied. Must be in range [0, rank) where rank is the rank of the input tensor.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$in_scale,
+                       AnyRankedTensor:$in_zero_point,
+                       AnyRankedTensor:$out_scale,
+                       AnyRankedTensor:$out_zero_point,
+                       OptionalAttr<I32Attr>:$axis,
                        AnyRankedTensor:$output);
 
   let results = (outs AnyRankedTensor:$result);

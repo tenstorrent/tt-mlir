@@ -67,6 +67,13 @@ def get_loc_of_extra_file_callee(id: int = 0) -> Location:
     return Location.name(f"{stack[0].filename}:{str(stack[0].lineno)}:id({str(id)})")
 
 
+def get_loc_from_str(loc: Union[str, Location]) -> Location:
+    if isinstance(loc, str):
+        return Location.name(loc)
+    else:
+        return loc
+
+
 @dataclass(frozen=True)
 class Golden:
     """
@@ -526,6 +533,7 @@ class TTIRBuilder:
         output_create_fn: Optional[Callable] = None,
         golden_kwargs: dict = {},
         ttir_kwargs: dict = {},
+        loc: Optional[Union[str, Location]] = None,
     ) -> Any:
         """
         Provides a general interface for proxy-ing OPs and creating them.
@@ -609,7 +617,11 @@ class TTIRBuilder:
             else:
                 output = self.empty(output_shape, output_type)
             id = self.get_next_global_id()
-            loc = get_loc_of_extra_file_callee(id=id)
+            loc = (
+                get_loc_from_str(loc)
+                if loc is not None
+                else get_loc_of_extra_file_callee(id=id)
+            )
             # Account for cases in which ttir_arg organization is not needed:
             if (
                 not isinstance(
@@ -2092,6 +2104,7 @@ class TTIRBuilder:
         in0: Operand,
         output_type: RankedTensorType,
         unit_attrs: List[str] = None,
+        **kwargs,
     ) -> OpView:
         return self.op_proxy(
             lambda *args, **kwargs: args[0],
@@ -2105,6 +2118,7 @@ class TTIRBuilder:
                 o,
             ),
             unit_attrs=unit_attrs,
+            **kwargs,
         )
 
     def view_layout(

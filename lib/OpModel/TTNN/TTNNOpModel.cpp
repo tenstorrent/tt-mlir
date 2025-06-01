@@ -21,6 +21,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -199,12 +200,17 @@ getNullableMemoryConfig(::mlir::tt::ttnn::TTNNLayoutAttr layout) {
 #endif // TTMLIR_ENABLE_OPMODEL
 
 bool isLayoutLegalForTensorShape(llvm::ArrayRef<int64_t> tensorShape,
-                                 mlir::tt::ttnn::TTNNLayoutAttr layout) {
+                                 mlir::tt::ttnn::TTNNLayoutAttr layout,
+                                 GridAttr maxGrid) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   // Conversion to TensorSpec may throw if the layout is invalid, in which case
   // we return false.
   try {
-    conversion::getTensorSpec(tensorShape, layout);
+    auto tensorSpec = conversion::getTensorSpec(tensorShape, layout);
+    auto computeGridSize = ::tt::tt_metal::CoreCoord{
+        static_cast<std::size_t>(maxGrid.getShape()[0]),
+        static_cast<std::size_t>(maxGrid.getShape()[1])};
+    return conversion::validateTensorSpec(tensorSpec, computeGridSize);
   } catch (const std::exception &e) {
     return false;
   }
@@ -1645,6 +1651,86 @@ llvm::Expected<size_t> ClampScalarOpInterface::getOpRuntime(
   };
 
   return operation::getOpRuntime("ClampScalarOpInterface", clampScalarQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// Permute
+//===----------------------------------------------------------------------===//
+llvm::Expected<
+    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+PermuteOpInterface::getOpConstraints(
+    GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> permutation, llvm::APFloat padValue,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // Convert permutations of TTNN_PermuteOp to dims of ttnn::permute
+  ::ttnn::SmallVector<int64_t> dims(permutation.size());
+  std::copy(permutation.begin(), permutation.end(), dims.begin());
+
+  float defaultedPadValue = padValue.convertToFloat();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto permuteQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::permute, device, inputSpec, dims,
+        detail::getNullableMemoryConfig(outputLayout), defaultedPadValue);
+  };
+
+  return operation::getOpConstraints(
+      "PermuteOpInterface", inputLayout.getContext(), deviceGrid, permuteQuery);
+#else
+  return std::make_tuple(0, 0, 0, nullptr);
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+PermuteOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                                 llvm::ArrayRef<int64_t> permutation,
+                                 llvm::APFloat padValue,
+                                 llvm::ArrayRef<int64_t> outputShape,
+                                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // Convert permutations of TTNN_PermuteOp to dims of ttnn::permute
+  ::ttnn::SmallVector<int64_t> dims(permutation.size());
+  std::copy(permutation.begin(), permutation.end(), dims.begin());
+
+  // Convert float
+  float defaultedPadValue = padValue.convertToFloat();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto permuteQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::permute, device, inputSpec, dims,
+        detail::getNullableMemoryConfig(outputLayout), defaultedPadValue);
+  };
+
+  return operation::getOpRuntime("PermuteOpInterface", permuteQuery);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL

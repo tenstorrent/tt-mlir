@@ -21,6 +21,8 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/BuiltinTypeInterfaces.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/STLForwardCompat.h"
@@ -32,8 +34,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <mlir/IR/BuiltinTypeInterfaces.h>
-#include <mlir/IR/BuiltinTypes.h>
 #include <vector>
 
 namespace mlir::tt::ttmetal {
@@ -677,7 +677,7 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
 
     programs.push_back(target::metal::CreateProgramDirect(
         fbb, cqBuilder.name, &tensorInputs, &tensorOutputs, &devicePrograms,
-        debugInfo));
+        debugInfo, /*private=*/false));
   });
 
   auto binary = target::metal::CreateTTMetalBinaryDirect(

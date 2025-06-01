@@ -319,23 +319,31 @@ static inline mlir::LogicalResult updateShapes(MLIRContext *context,
           // Iterate through start and limit indices and update them based on
           // the sharding annotation for that dimension.
           for (uint32_t i = 0; i < tensorShardings.size(); i++) {
-            mlir::sdy::DimensionShardingAttr dimShardingAttr =
-                tensorShardings[i].getDimShardings()[i];
-            FailureOr<int64_t> updatedStartShapeDim =
-                sdy_utils::calculateUpdatedShapeDim(
-                    globalMeshOp.getMesh(), dimShardingAttr, startIndices[i]);
-            FailureOr<int64_t> updatedLimitShapeDim =
-                sdy_utils::calculateUpdatedShapeDim(
-                    globalMeshOp.getMesh(), dimShardingAttr, limitIndices[i]);
+            llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> dimShardings =
+                tensorShardings[i].getDimShardings();
 
-            if (failed(updatedStartShapeDim) || failed(updatedLimitShapeDim)) {
-              sliceOp->emitError("Could not apply propagated tensor shardings "
-                                 "to attribute dictionary for slice op.\n");
-              return mlir::failure();
+            for (const auto [index, dimShardingAttr] :
+                 llvm::enumerate(dimShardings)) {
+              FailureOr<int64_t> updatedStartShapeDim =
+                  sdy_utils::calculateUpdatedShapeDim(globalMeshOp.getMesh(),
+                                                      dimShardingAttr,
+                                                      startIndices[index]);
+              FailureOr<int64_t> updatedLimitShapeDim =
+                  sdy_utils::calculateUpdatedShapeDim(globalMeshOp.getMesh(),
+                                                      dimShardingAttr,
+                                                      limitIndices[index]);
+
+              if (failed(updatedStartShapeDim) ||
+                  failed(updatedLimitShapeDim)) {
+                sliceOp->emitError(
+                    "Could not apply propagated tensor shardings "
+                    "to attribute dictionary for slice op.\n");
+                return mlir::failure();
+              }
+
+              startIndices[index] = *updatedStartShapeDim;
+              limitIndices[index] = *updatedLimitShapeDim;
             }
-
-            startIndices[i] = *updatedStartShapeDim;
-            limitIndices[i] = *updatedLimitShapeDim;
           }
 
           // Update start and limit indices in op named attributes.

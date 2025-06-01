@@ -47,6 +47,9 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::MatmulOp *op);
 ::ttnn::operations::conv::conv2d::Conv2dConfig
 createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *memcfg);
 
+::ttnn::DeviceComputeKernelConfig createDeviceComputeKernelConfig(
+    const ::tt::target::ttnn::DeviceComputeKernelConfig *config);
+
 ::ttnn::Tensor toTTNNTensor(const ::flatbuffers::Vector<uint8_t> *data,
                             const ::ttnn::Shape &shape,
                             const ::ttnn::DataType &dataType);

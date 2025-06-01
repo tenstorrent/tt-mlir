@@ -57,11 +57,29 @@ public:
     return linearResult.compose(map);
   }
 
+  static std::optional<std::size_t> getComputeThreadIndex(ArrayAttr threads) {
+    auto isComputeThread = [](Attribute threadAttr) {
+      return mlir::cast<ThreadAttr>(threadAttr).getThreadType() ==
+             ThreadType::Compute;
+    };
+    const auto *computeThread =
+        std::find_if(threads.begin(), threads.end(), isComputeThread);
+    if (computeThread == threads.end()) {
+      return std::nullopt;
+    }
+    assert(std::find_if(computeThread + 1, threads.end(), isComputeThread) ==
+               threads.end() &&
+           "Unexpected multiple compute threads");
+    return std::distance(threads.begin(), computeThread);
+  }
+
   LogicalResult matchAndRewrite(GenericOp op,
                                 PatternRewriter &rewriter) const final {
-    assert(op.getNumRegions() == 1 &&
-           "expected single compute region at this stage");
-    Block *entry = &op.getRegion(0).front();
+    auto computeThreadIndex = getComputeThreadIndex(op.getThreads());
+    if (!computeThreadIndex) {
+      return failure();
+    }
+    Block *entry = &op.getRegion(*computeThreadIndex).front();
     rewriter.setInsertionPointToStart(entry);
     auto args = entry->getArguments();
     if (llvm::all_of(args, isLinearizedMemref)) {

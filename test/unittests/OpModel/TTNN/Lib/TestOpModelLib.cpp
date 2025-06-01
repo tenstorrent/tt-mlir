@@ -1335,4 +1335,92 @@ INSTANTIATE_TEST_SUITE_P(
                            mlir::tt::ttnn::BufferType::L1},
         1.0, 5.0, true)));
 
+class OpModelPermuteParam
+    : public OpModelTest,
+      public testing::WithParamInterface<
+          std::tuple<detail::TestTensor,         // input
+                     detail::TestTensor,         // output
+                     llvm::SmallVector<int64_t>, // permutation
+                     float,                      // pad_value
+                     bool                        // expected legal
+                     >> {};
+
+TEST_P(OpModelPermuteParam, PermuteParam) {
+  auto params = GetParam();
+  const auto [inputShape, inputTensorLayout, inputBufferType,
+              inputVirtualGrid] = std::get<0>(params);
+  const auto [outputShape, outputTensorLayout, outputBufferType,
+              outputVirtualGrid] = std::get<1>(params);
+  const auto permutation = std::get<2>(params);
+  const auto padValue = llvm::APFloat(std::get<3>(params));
+  const auto expectedLegal = std::get<4>(params);
+
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+  const mlir::tt::ttnn::TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+  SingletonDeviceContext::resetInstance();
+
+  auto constraintsExp = PermuteOpInterface::getOpConstraints(
+      CreateWorkerGrid(), inputShape, inputLayout, permutation, padValue,
+      outputShape, outputLayout);
+  if (!constraintsExp) {
+    std::cout << "Error: " << llvm::toString(constraintsExp.takeError())
+              << std::endl;
+  }
+  EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+
+  if (constraintsExp) {
+    const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+        constraintsExp.get();
+    EXPECT_GT(cbSize, 0);
+    EXPECT_GT(peakSize, 0);
+    EXPECT_GT(outputSize, 0);
+  } else {
+    // Must clean up the error
+    llvm::consumeError(constraintsExp.takeError());
+  }
+
+  SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp =
+      PermuteOpInterface::getOpRuntime(inputShape, inputLayout, permutation,
+                                       padValue, outputShape, outputLayout);
+  EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    llvm::consumeError(runtimeExp.takeError());
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    PermuteTests, OpModelPermuteParam,
+    ::testing::Values(
+        std::make_tuple(
+            detail::TestTensor{{1, 64, 128, 256},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::DRAM},
+            detail::TestTensor{{1, 256, 64, 128},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::L1},
+            llvm::SmallVector<int64_t>{0, 3, 1, 2}, 0.0f, true),
+        std::make_tuple(
+            detail::TestTensor{{2, 1280, 8, 8},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::DRAM},
+            detail::TestTensor{{8, 8, 2, 1280},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::L1},
+            llvm::SmallVector<int64_t>{2, 3, 0, 1}, 0.0f, true),
+        std::make_tuple(
+            detail::TestTensor{{1, 2, 32, 64},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::DRAM},
+            detail::TestTensor{{1, 2, 64, 32},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::L1},
+            llvm::SmallVector<int64_t>{0, -3, -1, -2}, 0.0f, true)));
+
 } // namespace mlir::tt::op_model::ttnn
