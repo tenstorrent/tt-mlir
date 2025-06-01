@@ -22,6 +22,8 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::ttkernel {
 
@@ -74,12 +76,10 @@ static const llvm::StringMap<llvm::StringRef> includeMapping{
 
     // Tile operations
     {"tilize_block", "compute_kernel_api/tilize.h"},
-    // {"experimental::tilize_block", ???},  // see below question
     {"tilize_init", "compute_kernel_api/tilize.h"},
     {"tilize_init_short", "compute_kernel_api/tilize.h"},
     {"tilize_uninit", "compute_kernel_api/tilize.h"},
     {"untilize_block", "compute_kernel_api/untilize.h"},
-    // {"experimental::untilize_block", ???},  // see below question
     {"untilize_init", "compute_kernel_api/untilize.h"},
     {"untilize_init_short", "compute_kernel_api/untilize.h"},
     {"untilize_uninit", "compute_kernel_api/untilize.h"},
@@ -115,7 +115,6 @@ static const llvm::StringMap<llvm::StringRef> includeMapping{
     {"noc_async_write_multicast_loopback_src", NOC_INCLUDE},
 
     // Misc operations
-    // {"unreachable", ???},
     {"mem_zeros_base", "dev_mem_map.h"}, // Is this the correct path?
     {"mem_zeros_size", "dev_mem_map.h"}, // Is this the correct path?
     {"get_write_ptr", "dataflow_api.h"},
@@ -140,63 +139,9 @@ public:
                                       /*isStandard=*/true);
 
     emitDebugPrint();
+    emitIncludes();
 
-    if (threadType == ThreadType::Noc) {
-
-      builder->create<emitc::IncludeOp>(loc, "dataflow_api.h",
-                                        /*isStandard=*/false);
-    }
     if (threadType == ThreadType::Compute) {
-      builder->create<emitc::IncludeOp>(loc, "llk_defs.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/common.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/matmul.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/tilize.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/untilize.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc,
-                                        "compute_kernel_api/eltwise_binary.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_binary_sfpu.h",
-          /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api.h", // max ops
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc,
-                                        "compute_kernel_api/tile_move_copy.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_unary/eltwise_unary.h",
-          /*isStandard=*/false);
-      // TODO (kmitrovic) exp.h is an ExpOp-specific include. Every op has one,
-      // should be handled in general, not like this.
-      // Issue: https://github.com/tenstorrent/tt-mlir/issues/772
-      builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_unary/exp.h",
-          /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_unary/sfpu_split_includes.h",
-          /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_unary/recip.h",
-          /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_unary/fill.h",
-          /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_unary/trigonometry.h",
-          /*isStandard=*/false);
-      // Must define macros REDUCE_OP and REDUCE_DIM before including reduce.h
-      // because they are default template parameters values in reduce api.
-      builder->create<emitc::VerbatimOp>(loc,
-                                         "#define REDUCE_OP PoolType::SUM");
-      builder->create<emitc::VerbatimOp>(
-          loc, "#define REDUCE_DIM ReduceDim::REDUCE_COL");
-      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/reduce.h",
-                                        /*isStandard=*/false);
       emitExperimentalLLKs();
       builder->create<emitc::VerbatimOp>(loc, "namespace NAMESPACE {");
     }
@@ -207,6 +152,24 @@ public:
       builder->create<emitc::VerbatimOp>(loc, "void MAIN { kernel_main(); }");
       builder->create<emitc::VerbatimOp>(loc,
                                          "}"); // close namespace NAMESPACE
+    }
+  }
+
+  void emitIncludes() {
+    llvm::SmallSet<llvm::StringRef, 8> collectedIncludes;
+    region->walk([&](emitc::CallOpaqueOp op) {
+      if (auto itr = includeMapping.find(op.getCallee());
+          itr != includeMapping.end()) {
+        collectedIncludes.insert(itr->getValue());
+      }
+      return WalkResult::advance();
+    });
+
+    llvm::SmallVector<llvm::StringRef, 8> sortedIncludes(
+        collectedIncludes.begin(), collectedIncludes.end());
+    std::sort(sortedIncludes.begin(), sortedIncludes.end());
+    for (auto sr : sortedIncludes) {
+      builder->create<emitc::IncludeOp>(loc, sr, /*isStandard=*/false);
     }
   }
 
