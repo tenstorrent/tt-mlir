@@ -420,7 +420,7 @@ class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTIR_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, [FourOperands, TTIR_ElementwiseTernary] # traits> {
+    TTIR_ElementwiseOp<mnemonic, [TTIR_ElementwiseTernary] # traits> {
     let summary = "Eltwise ternary op.";
     let description = [{
       Eltwise ternary op.

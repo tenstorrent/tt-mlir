@@ -6,7 +6,7 @@
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Value.h"
@@ -35,13 +35,8 @@ CumSumOpRankRewritePattern::matchAndRewrite(ttnn::MorehCumSumOp srcOp,
       srcOp.getInput(), adaptedShape, rewriter);
 
   RankedTensorType outputType = srcOp.getResult().getType();
-  mlir::RankedTensorType adaptedOutputType =
-      mlir::RankedTensorType::Builder(outputType)
-          .setShape(adaptedShape)
-          .setEncoding(
-              mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding())
-                  .withTensorShape(adaptedShape));
-
+  RankedTensorType adaptedOutputType =
+      utils::RankedTensorTypeFactory::create(outputType, adaptedShape);
   MorehCumSumOp adaptedCumSumOp =
       rewriter.create<mlir::tt::ttnn::MorehCumSumOp>(
           srcOp->getLoc(), adaptedOutputType, adaptedInput, srcOp.getDim(),

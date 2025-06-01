@@ -5,10 +5,8 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ArgMaxOpRewritePattern.h"
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Value.h"
@@ -48,11 +46,8 @@ ArgMaxOpRewritePattern::matchAndRewrite(ttnn::ArgMaxOp srcOp,
 
   // Create output layout attribute with new output tensor shape and create new
   // output type.
-  ttnn::TTNNLayoutAttr newOutputLayoutAttr =
-      mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding())
-          .withTensorShape(argMaxOutputShape);
-  RankedTensorType newOutputType = RankedTensorType::get(
-      argMaxOutputShape, outputType.getElementType(), newOutputLayoutAttr);
+  RankedTensorType newOutputType =
+      utils::RankedTensorTypeFactory::create(outputType, argMaxOutputShape);
 
   // Update the dimension according to reshaped input (if required). The dim
   // attribute will be incremented exactly as increase in input tensor rank due
