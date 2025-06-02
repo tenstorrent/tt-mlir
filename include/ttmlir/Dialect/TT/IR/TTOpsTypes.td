@@ -129,6 +129,7 @@ def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
                     "ChipPhysicalHelperCoresAttr":$chipPhysicalHelperCores,
                     ArrayRefParameter<"DataTypeAttr">:$supportedDataTypes,
                     ArrayRefParameter<"TileSizeAttr">:$supportedTileSizes,
+                    "unsigned":$dstRegisterSizeTiles,
                     "unsigned":$numCBs,
                     "unsigned":$numComputeThreads,
                     "unsigned":$numDatamovementThreads);
@@ -148,6 +149,7 @@ def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
                              `physical_helper_cores` `=` $chipPhysicalHelperCores `,`
                              `supported_data_types` `=` `[` $supportedDataTypes `]` `,`
                              `supported_tile_sizes` `=` `[` $supportedTileSizes `]` `,`
+                             `dst_register_size_tiles` `=` $dstRegisterSizeTiles `,`
                              `num_cbs` `=` $numCBs `,`
                              `num_compute_threads` `=` $numComputeThreads `,`
                              `num_datamovement_threads` `=` $numDatamovementThreads `}`}];
