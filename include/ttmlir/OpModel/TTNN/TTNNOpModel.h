@@ -390,5 +390,25 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
              mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 }; // namespace PermuteOpInterface
 
+//===----------------------------------------------------------------------===//
+// Upsample
+//===----------------------------------------------------------------------===//
+namespace UpsampleOpInterface {
+llvm::Expected<
+    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+getOpConstraints(GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                 mlir::Attribute scaleFactor, llvm::StringRef mode,
+                 llvm::ArrayRef<int64_t> outputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+llvm::Expected<size_t>
+getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+             mlir::Attribute scaleFactor, llvm::StringRef mode,
+             llvm::ArrayRef<int64_t> outputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+}; // namespace UpsampleOpInterface
+
 } // namespace mlir::tt::op_model::ttnn
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H
