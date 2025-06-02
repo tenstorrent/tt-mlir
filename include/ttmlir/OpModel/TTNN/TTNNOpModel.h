@@ -8,7 +8,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpModelInterface.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/OpModel/TTNN/TTNNOpConstraint.h"
+#include "ttmlir/OpModel/TTNN/TTNNOpConstraints.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -357,8 +357,7 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 // Permute
 //===----------------------------------------------------------------------===//
 namespace PermuteOpInterface {
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<OpConstraints>
 getOpConstraints(GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
                  mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
                  llvm::ArrayRef<int64_t> permutation, llvm::APFloat padValue,

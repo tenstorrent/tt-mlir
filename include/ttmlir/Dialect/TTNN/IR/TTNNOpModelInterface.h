@@ -10,7 +10,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 // Required for OpConstraints definition to be used by tablegen'd
 // TTNNOpModelInterface:
-#include "ttmlir/OpModel/TTNN/TTNNOpConstraint.h"
+#include "ttmlir/OpModel/TTNN/TTNNOpConstraints.h"
 // This include is required for llvm::Expected in the tablegen'd
 // TTNNOpModelInterface methods
 #include "llvm/Support/Error.h"

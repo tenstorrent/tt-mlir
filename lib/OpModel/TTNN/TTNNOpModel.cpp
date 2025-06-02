@@ -580,7 +580,7 @@ ReluOpInterface::getOpConstraints(GridAttr deviceGrid,
                                       deviceGrid, inputShape, inputLayout,
                                       outputShape, outputLayout);
 #else
-  return OpConstraints{0, 0, 0, nullptr};
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -611,7 +611,7 @@ SqrtOpInterface::getOpConstraints(GridAttr deviceGrid,
                                       deviceGrid, inputShape, inputLayout,
                                       outputShape, outputLayout);
 #else
-  return OpConstraints{0, 0, 0, nullptr};
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -662,7 +662,7 @@ llvm::Expected<OpConstraints> SigmoidOpInterface::getOpConstraints(
   return operation::getOpConstraints(
       "SigmoidOpInterface", inputLayout.getContext(), deviceGrid, query);
 #else
-  return OpConstraints{0, 0, 0, nullptr};
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -716,7 +716,7 @@ AddOpInterface::getOpConstraints(GridAttr deviceGrid,
       "AddOpInterface", ::ttnn::add, deviceGrid, inputShapeA, inputLayoutA,
       inputShapeB, inputLayoutB, outputShape, outputLayout);
 #else
-  return OpConstraints{0, 0, 0, nullptr};
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -766,7 +766,7 @@ llvm::Expected<OpConstraints> SoftmaxOpInterface::getOpConstraints(
                                      inputLayout.getContext(), deviceGrid,
                                      softmaxOpQuery);
 #else
-  return OpConstraints{0, 0, 0, nullptr};
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -909,7 +909,7 @@ llvm::Expected<OpConstraints> ReshapeOpInterface::getOpConstraints(
                                      inputLayout.getContext(), deviceGrid,
                                      reshapeOpQuery);
 #else
-  return OpConstraints{0, 0, 0, nullptr};
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -973,7 +973,7 @@ llvm::Expected<OpConstraints> TypecastOpInterface::getOpConstraints(
                                      inputLayout.getContext(), deviceGrid,
                                      typecastOpQuery);
 #else
-  return OpConstraints{0, 0, 0, nullptr};
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -1046,7 +1046,7 @@ llvm::Expected<OpConstraints> ToLayoutOpInterface::getOpConstraints(
                                      inputLayout.getContext(), deviceGrid,
                                      toLayoutOpQuery);
 #else
-  return OpConstraints{0, 0, 0, nullptr};
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -1118,7 +1118,7 @@ llvm::Expected<OpConstraints> TransposeOpInterface::getOpConstraints(
                                      inputLayout.getContext(), deviceGrid,
                                      transposeOpQuery);
 #else
-  return OpConstraints{0, 0, 0, nullptr};
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -1204,7 +1204,7 @@ MatmulOpInterface::getOpConstraints(GridAttr deviceGrid,
                                      inputLayoutA.getContext(), deviceGrid,
                                      matmulOpQuery);
 #else
-  return OpConstraints{0, 0, 0, nullptr};
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -1272,7 +1272,7 @@ llvm::Expected<OpConstraints> MultiplyOpInterface::getOpConstraints(
       "MultiplyOpInterface", ::ttnn::multiply, deviceGrid, inputShapeA,
       inputLayoutA, inputShapeB, inputLayoutB, outputShape, outputLayout);
 #else
-  return OpConstraints{0, 0, 0, nullptr};
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -1372,7 +1372,7 @@ llvm::Expected<OpConstraints> Conv2dOpInterface::getOpConstraints(
   return operation::getOpConstraints(
       "Conv2dOpInterface", inputLayout.getContext(), deviceGrid, conv2dOpQuery);
 #else
-  return OpConstraints{0, 0, 0, nullptr};
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -1503,7 +1503,7 @@ llvm::Expected<OpConstraints> MaxPool2DOpInterface::getOpConstraints(
                                      inputLayout.getContext(), deviceGrid,
                                      maxPool2DQuery);
 #else
-  return OpConstraints{0, 0, 0, nullptr};
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -1588,7 +1588,7 @@ llvm::Expected<OpConstraints> ClampScalarOpInterface::getOpConstraints(
                                      inputLayout.getContext(), deviceGrid,
                                      clampScalarQuery);
 #else
-  return OpConstraints{0, 0, 0, nullptr};
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -1629,8 +1629,7 @@ llvm::Expected<size_t> ClampScalarOpInterface::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // Permute
 //===----------------------------------------------------------------------===//
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<op_model::ttnn::OpConstraints>
 PermuteOpInterface::getOpConstraints(
     GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
@@ -1664,7 +1663,7 @@ PermuteOpInterface::getOpConstraints(
   return operation::getOpConstraints(
       "PermuteOpInterface", inputLayout.getContext(), deviceGrid, permuteQuery);
 #else
-  return std::make_tuple(0, 0, 0, nullptr);
+  return op_model::ttnn::OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
