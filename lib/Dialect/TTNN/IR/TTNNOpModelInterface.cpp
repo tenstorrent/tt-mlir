@@ -408,6 +408,50 @@ ToLayoutOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// ConcatOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+ConcatOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  assert(inputs.size() >= 1);
+
+  std::vector<llvm::ArrayRef<int64_t>> inputShapes;
+  mlir::OperandRange opInputs = getInputs();
+  for (auto opInput : opInputs.drop_front()) {
+    mlir::RankedTensorType inputType =
+        mlir::cast<mlir::RankedTensorType>(opInput.getType());
+    inputShapes.push_back(inputType.getShape());
+  }
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();
+
+  return op_model::ttnn::ConcatOpInterface::getOpConstraints(
+      deviceGrid, inputShapes, inputs, getDim(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+ConcatOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                       const OpConfig &opConfig) {
+  assert(inputs.size() >= 1);
+
+  std::vector<llvm::ArrayRef<int64_t>> inputShapes;
+  mlir::OperandRange opInputs = getInputs();
+  for (auto opInput : opInputs.drop_front()) {
+    mlir::RankedTensorType inputType =
+        mlir::cast<mlir::RankedTensorType>(opInput.getType());
+    inputShapes.push_back(inputType.getShape());
+  }
+
+  return op_model::ttnn::ConcatOpInterface::getOpRuntime(
+      inputShapes, inputs, getDim(), opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // TransposeOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
