@@ -19,11 +19,11 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Target/Cpp/CppEmitter.h"
 #include "llvm/ADT/ScopeExit.h"
+#include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/ADT/SmallSet.h"
-#include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::ttkernel {
 
@@ -142,6 +142,14 @@ public:
     emitIncludes();
 
     if (threadType == ThreadType::Compute) {
+      // Must define macros REDUCE_OP and REDUCE_DIM before including reduce.h
+      // because they are default template parameters values in reduce api.
+      builder->create<emitc::VerbatimOp>(loc,
+                                         "#define REDUCE_OP PoolType::SUM");
+      builder->create<emitc::VerbatimOp>(
+          loc, "#define REDUCE_DIM ReduceDim::REDUCE_COL");
+      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/reduce.h",
+                                        /*isStandard=*/false);
       emitExperimentalLLKs();
       builder->create<emitc::VerbatimOp>(loc, "namespace NAMESPACE {");
     }
