@@ -148,8 +148,6 @@ public:
                                          "#define REDUCE_OP PoolType::SUM");
       builder->create<emitc::VerbatimOp>(
           loc, "#define REDUCE_DIM ReduceDim::REDUCE_COL");
-      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/reduce.h",
-                                        /*isStandard=*/false);
       emitExperimentalLLKs();
       builder->create<emitc::VerbatimOp>(loc, "namespace NAMESPACE {");
     }
