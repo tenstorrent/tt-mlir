@@ -410,6 +410,18 @@ def main():
         chisel_context.generate_inputs()
     chisel_context.run()
 
+    import subprocess
+    import os
+
+    # Get the directory of the current script
+    script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+    attach_script = os.path.join(script_dir, "attach_input_metrics.py")
+
+    # Run attach_input_metrics.py from the same directory
+    subprocess.run(
+        [sys.executable, attach_script, str(chisel_context.output_dir / csvfile)]
+    )
+
     logger.debug(chisel_context.pcc_data)
 
     # chisel_context.liveness_analysis()
