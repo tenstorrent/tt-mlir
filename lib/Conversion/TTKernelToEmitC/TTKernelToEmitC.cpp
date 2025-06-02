@@ -625,6 +625,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExpTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExpTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::SigmoidTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::SigmoidTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetWritePtrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetReadPtrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetTileSizeOp>,
