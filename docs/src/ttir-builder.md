@@ -489,7 +489,7 @@ https://github.com/tenstorrent/tt-mlir/blob/2064844f8140de7d38ba55f8acac107a016f
 ## Golden mode
 
 ### Golden dataclass
-`TTIRBuilder` provides support to code golden tensors into flatbuffers which will be used for comparison with TT device output in `ttrt` runtime. `Golden` is the dataclass used to store information about a golden tensor. Each TTIR op should have a matching PyTorch op (or golden function built from PyTorch ops) which should perform exactly the same operation, generating the same outputs given the same inputs. You can use `TTIRBuilder` helper functions to store input, intermediate, and output tensors within the flatbuffer. Input and output goldens are mapped with keys "input_" and "output_" followed by a tensor index: `input_0`. Intermediate output tensors
+`TTIRBuilder` provides support to code golden tensors into flatbuffers which will be used for comparison with TT device output in `ttrt` runtime. `Golden` is the dataclass used to store information about a golden tensor. Each TTIR op should have a matching PyTorch op (or golden function built from PyTorch ops) which should perform exactly the same operation, generating the same outputs given the same inputs. You can use `TTIRBuilder` helper functions to store input, intermediate, and output tensors within the flatbuffer. Input and output goldens are mapped with keys "input_" and "output_" followed by a tensor index: `input_0`. Intermediate output tensors are mapped to the location of the respecive op creation.
 
 ### GoldenCheckLevel Enum
 `TTIRBuilder` stores an instance of the class `GoldenCheckLevel(Enum)` that dictates golden handling. It defaults to `GoldenCheckLevel.OP_LEVEL`. The exception is that `TTIRBuilder` CCL ops force the golden level to be set to `GRAPH_LEVEL`.
@@ -571,18 +571,18 @@ ttrt query --save-artifacts
 export SYSTEM_DESC_PATH=$(pwd)/ttrt-artifacts/system_desc.ttsys
 ```
 
-Set environment variable `TTRT_LOGGER_LEVEL` to `DEBUG` so ttrt logs golden comparison results and prints graph level golden tensors.
+Set environment variable `TTRT_LOGGER_LEVEL` to `DEBUG` so `ttrt` logs golden comparison results and prints graph level golden tensors.
 ```bash
 export TTRT_LOGGER_LEVEL=DEBUG
 ```
 
-Finally run ttrt. Our example flatbuffer file (since we didn't specify otherwise) defaulted to file path `./ttnn/test_ttnn.mlir.ttnn`. `--log-file ttrt.log` and `--save-golden-tensors` are both optional flags. They ensure that all golden data produced by the ttrt run gets written to files.
+Finally run ttrt. Our example flatbuffer file (since we didn't specify otherwise) defaulted to file path `./ttnn/test_ttnn.mlir.ttnn`. `--log-file ttrt.log` and `--save-golden-tensors` are both optional flags. They ensure that all golden data produced by the `ttrt` run gets written to files.
 ```bash
 ttrt run ttnn/test_ttnn.mlir --log-file ttrt.log --save-golden-tensors
 ```
 
 #### Golden callbacks
-The `ttrt` documentation contains a [section](https://github.com/tenstorrent/tt-mlir/blob/jgrim/ttir-builder-doc/docs/src/ttrt.md#bonus-section-extending-runtime-to-other-fes) on the callback function feature. Callback functions run between each op execution during runtime and contain op level golden analysis. They are also customizable and provide the flexibility for you to get creative with you golden usage.
+The `ttrt` documentation contains a [section](https://github.com/tenstorrent/tt-mlir/blob/main/docs/src/ttrt.md#bonus-section-extending-runtime-to-other-fes) on the callback function feature. Callback functions run between each op execution during runtime and contain op level golden analysis. They are also customizable and provide the flexibility for you to get creative with your golden usage.
 
 ## Adding a new op to `ttir-builder`
 `ttir-builder` is designed to only create ops supported in TTIR. At the moment, most but not all ops are supported, and new ops are still occasionally added to TTIR. Creating `ttir-builder` support for an op entails writing a function in `tools/ttir-builder/builder.py` that will create the op and its golden counterpart.
