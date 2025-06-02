@@ -25,6 +25,11 @@ public:
       return failure();
     }
 
+    // if it's a WhereOp, bail
+    if (isa<ttir::WhereOp>(op)) {
+      return failure();
+    }
+
     if (op->getNumOperands() < 2) {
       // This optimization is only applicable to binary ops.
       assert(op->getNumOperands() < 2 &&

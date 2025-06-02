@@ -27,7 +27,19 @@ runEltwiseTernaryWhereOp(const ::tt::target::ttnn::EltwiseTernaryWhereOp *op,
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
-  ::ttnn::Tensor out = ::ttnn::where(first, second, third, outputMemoryConfig);
+  //::ttnn::Tensor out = ::ttnn::where(first, second, third,
+  //: outputMemoryConfig);
+
+  auto first_cpu = first.to_vector<float>();
+  auto second_cpu = second.to_vector<float>();
+  auto third_cpu = third.to_vector<float>();
+
+  auto result_cpu = std::vector<float>(first_cpu.size());
+  for (size_t i = 0; i < first_cpu.size(); ++i) {
+    result_cpu[i] = first_cpu[i] ? second_cpu[i] : third_cpu[i];
+  }
+  ::ttnn::Tensor out = ::ttnn::Tensor::from_vector<float>(
+      result_cpu, first.tensor_spec(), first.mesh_device());
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
