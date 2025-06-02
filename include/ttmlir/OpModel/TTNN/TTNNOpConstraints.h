@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_OPMODEL_TTNN_TTNNOPCONSTRAINT_H
-#define TTMLIR_OPMODEL_TTNN_TTNNOPCONSTRAINT_H
+#ifndef TTMLIR_OPMODEL_TTNN_TTNNOPCONSTRAINTS_H
+#define TTMLIR_OPMODEL_TTNN_TTNNOPCONSTRAINTS_H
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
@@ -38,4 +38,4 @@ struct OpConstraints {
 
 } // namespace mlir::tt::op_model::ttnn
 
-#endif // TTMLIR_OPMODEL_TTNN_TTNNOPCONSTRAINT_H
+#endif // TTMLIR_OPMODEL_TTNN_TTNNOPCONSTRAINTS_H
