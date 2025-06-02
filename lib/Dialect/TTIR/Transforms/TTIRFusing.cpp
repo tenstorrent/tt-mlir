@@ -6,7 +6,9 @@
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/Support/LogicalResult.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRFUSING
@@ -410,6 +412,60 @@ mlir::LogicalResult matchConstantValue(FullOp full, float constant) {
   return matchFloatAttr(valueAttr, constant);
 }
 
+// Matches: (((ax + coefficients[-1])x + coefficients[-2])x + ...)
+mlir::LogicalResult matchNestedPolynomial(AddOp polynomial, float a,
+                                          SmallVector<float> coefficients,
+                                          Value &polynomialArg) {
+  AddOp current = polynomial;
+  MultiplyOp finalMul = nullptr;
+  for (uint32_t i = 0; i < coefficients.size(); i++) {
+    float coefficient = coefficients[i];
+    if (!current) {
+      return failure();
+    }
+
+    // Rhs of add must be a constant with a single value matching
+    // `coefficient`
+    FullOp constCoefficient =
+        mlir::dyn_cast_or_null<FullOp>(current.getRhs().getDefiningOp());
+    if (!constCoefficient) {
+      return failure();
+    }
+
+    if (mlir::failed(matchConstantValue(constCoefficient, coefficient))) {
+      return failure();
+    }
+
+    MultiplyOp multiply =
+        mlir::dyn_cast_or_null<MultiplyOp>(current.getLhs().getDefiningOp());
+    if (!multiply) {
+      return failure();
+    }
+
+    if (!polynomialArg) {
+      polynomialArg = multiply.getRhs();
+    } else if (polynomialArg != multiply.getRhs()) {
+      return failure();
+    }
+
+    current = mlir::dyn_cast_or_null<AddOp>(multiply.getLhs().getDefiningOp());
+    finalMul = multiply;
+  }
+
+  // Match the final "ax" part of the nested polynomial
+  FullOp constA =
+      mlir::dyn_cast_or_null<FullOp>(finalMul.getLhs().getDefiningOp());
+  if (!constA) {
+    return failure();
+  }
+
+  if (mlir::failed(matchConstantValue(constA, a))) {
+    return failure();
+  }
+
+  return success();
+}
+
 class ErfApproximationFusionPattern
     : public mlir::OpRewritePattern<ClampScalarOp> {
 public:
@@ -528,57 +584,364 @@ public:
     rewriter.replaceOp(clamp, erf);
     return success();
   }
+};
 
-private:
-  // Matches: (((ax + coefficients[-1])x + coefficients[-2])x + ...)
-  mlir::LogicalResult matchNestedPolynomial(AddOp polynomial, float a,
-                                            SmallVector<float> coefficients,
-                                            Value &polynomialArg) const {
-    AddOp current = polynomial;
-    MultiplyOp finalMul = nullptr;
-    for (uint32_t i = 0; i < coefficients.size(); i++) {
-      float coefficient = coefficients[i];
-      if (!current) {
-        return failure();
-      }
-      // Rhs of add must be a constant with a single value matching
-      // `coefficient`
+class ErfcApproximationFusionPattern : public mlir::OpRewritePattern<WhereOp> {
+public:
+  ErfcApproximationFusionPattern(MLIRContext *context)
+      : OpRewritePattern(context, PatternBenefit(2)) {}
 
-      FullOp constCoefficient =
-          mlir::dyn_cast_or_null<FullOp>(current.getRhs().getDefiningOp());
-      if (!constCoefficient) {
-        return failure();
-      }
+  LogicalResult matchAndRewrite(WhereOp where,
+                                PatternRewriter &rewriter) const final {
+    // Erfc may be presented as this pattern:
+    //
+    // erf_approx_small_x(x) = ...
+    // erfc_approx_large_x(x) = ...
+    // erfc_approx_small_x(x) = 1 - erf_approx_small_x(x)
+    // where(|x| < 1, erf_approx_small_x(x), erfc_approx_large_x(x))
+    //
+    // This fusion pattern will fuse this representation of erfc
 
-      if (mlir::failed(matchConstantValue(constCoefficient, coefficient))) {
-        return failure();
-      }
-
-      MultiplyOp multiply =
-          mlir::dyn_cast_or_null<MultiplyOp>(current.getLhs().getDefiningOp());
-      if (!multiply) {
-        return failure();
-      }
-
-      if (!polynomialArg) {
-        polynomialArg = multiply.getRhs();
-      } else if (polynomialArg != multiply.getRhs()) {
-        return failure();
-      }
-
-      current =
-          mlir::dyn_cast_or_null<AddOp>(multiply.getLhs().getDefiningOp());
-      finalMul = multiply;
-    }
-
-    // Match the final "ax" part of the nested polynomial
-    FullOp constA =
-        mlir::dyn_cast_or_null<FullOp>(finalMul.getLhs().getDefiningOp());
-    if (!constA) {
+    LessThanOp lessThanOne =
+        mlir::dyn_cast_or_null<LessThanOp>(where.getFirst().getDefiningOp());
+    if (!lessThanOne) {
       return failure();
     }
 
-    if (mlir::failed(matchConstantValue(constA, a))) {
+    FullOp one =
+        mlir::dyn_cast_or_null<FullOp>(lessThanOne.getRhs().getDefiningOp());
+    if (!one) {
+      return failure();
+    }
+
+    if (mlir::failed(matchConstantValue(one, 1.0))) {
+      return failure();
+    }
+
+    AbsOp absX =
+        mlir::dyn_cast_or_null<AbsOp>(lessThanOne.getLhs().getDefiningOp());
+    if (!absX) {
+      return failure();
+    }
+
+    Value erfInput = absX.getInput();
+
+    // Confirm that the true branch of the where is erfc_approx_small_x(x) (aka
+    // 1 - erf_approx_small_x(x))
+    SubtractOp subtract =
+        mlir::dyn_cast_or_null<SubtractOp>(where.getSecond().getDefiningOp());
+    if (!subtract) {
+      return failure();
+    }
+
+    Value polynomialArg = nullptr;
+    if (mlir::failed(matchErfcSmallInputApproximation(subtract, erfInput,
+                                                      polynomialArg))) {
+      return failure();
+    }
+
+    // Confirm that the false branch of the where is erfc_approx_large_x(x)
+    WhereOp largeErfcApproximation =
+        mlir::dyn_cast_or_null<WhereOp>(where.getThird().getDefiningOp());
+    if (!largeErfcApproximation) {
+      return failure();
+    }
+
+    if (mlir::failed(matchErfcLargeInputApproximation(largeErfcApproximation,
+                                                      erfInput))) {
+      return failure();
+    }
+
+    ErfOp erf = utils::createDPSOp<ErfOp>(
+        rewriter, ttmlir::utils::appendLocationSuffix(where.getLoc(), "_erf"),
+        mlir::cast<RankedTensorType>(where.getType()), erfInput);
+
+    SubtractOp oneMinusErf = utils::createDPSOp<SubtractOp>(
+        rewriter,
+        ttmlir::utils::appendLocationSuffix(where.getLoc(), "_subtract"),
+        mlir::cast<RankedTensorType>(where.getType()), one, erf);
+    rewriter.replaceOp(where, oneMinusErf);
+    return success();
+  }
+
+private:
+  LogicalResult matchErfcLargeInputApproximation(WhereOp erfcResult,
+                                                 Value erfInput) const {
+    // Condition is x < 0
+    // True branch of the where is 2 - erfc_approx_clamped
+    // False branch of the where is erfc_approx_clamped
+
+    LessThanOp lessThanZero = mlir::dyn_cast_or_null<LessThanOp>(
+        erfcResult.getFirst().getDefiningOp());
+    if (!lessThanZero) {
+      return failure();
+    }
+
+    FullOp zero =
+        mlir::dyn_cast_or_null<FullOp>(lessThanZero.getRhs().getDefiningOp());
+    if (!zero or mlir::failed(matchConstantValue(zero, 0.0))) {
+      return failure();
+    }
+
+    // True branch of the where is 2 - erfc_approx_clamped
+    SubtractOp subtract = mlir::dyn_cast_or_null<SubtractOp>(
+        erfcResult.getSecond().getDefiningOp());
+    if (!subtract) {
+      return failure();
+    }
+
+    FullOp two =
+        mlir::dyn_cast_or_null<FullOp>(subtract.getLhs().getDefiningOp());
+    if (!two or mlir::failed(matchConstantValue(two, 2.0))) {
+      return failure();
+    }
+
+    // erfc_approx_clamped
+    // Condition: -x^2 < -88.72283905206835 (this is the negation of the natural
+    // log of the maximum f32 value) True branch: 0 False branch:
+    // erfc_approx_large_x
+    WhereOp erfcApproxClamped =
+        mlir::dyn_cast_or_null<WhereOp>(subtract.getRhs().getDefiningOp());
+    if (!erfcApproxClamped) {
+      return failure();
+    }
+
+    // erfc_approx_clamped condition
+    LessThanOp lessThan = mlir::dyn_cast_or_null<LessThanOp>(
+        erfcApproxClamped.getFirst().getDefiningOp());
+    if (!lessThan) {
+      return failure();
+    }
+
+    FullOp negMaxLog =
+        mlir::dyn_cast_or_null<FullOp>(lessThan.getRhs().getDefiningOp());
+    if (!negMaxLog) {
+      return failure();
+    }
+
+    if (mlir::failed(matchConstantValue(negMaxLog, -88.72283905206835))) {
+      return failure();
+    }
+
+    NegOp negativeXSquared =
+        mlir::dyn_cast_or_null<NegOp>(lessThan.getLhs().getDefiningOp());
+    if (!negativeXSquared) {
+      return failure();
+    }
+
+    // The operand to negativeXSquared ought to be multiply(x, x)
+    MultiplyOp multiply = mlir::dyn_cast_or_null<MultiplyOp>(
+        negativeXSquared.getInput().getDefiningOp());
+    if (!multiply) {
+      return failure();
+    }
+
+    if (multiply.getLhs() != multiply.getRhs() or
+        multiply.getLhs() != erfInput) {
+      return failure();
+    }
+
+    // True branch of erfc_approx_clamped is 0
+    zero = mlir::dyn_cast_or_null<FullOp>(
+        erfcApproxClamped.getSecond().getDefiningOp());
+    if (!zero or mlir::failed(matchConstantValue(zero, 0.0))) {
+      return failure();
+    }
+
+    // False branch of erfc_approx_clamped is
+    // (e^(-x^2) * (1/|x|)) * Polynomial(1/x^2)
+    MultiplyOp falseBranch = mlir::dyn_cast_or_null<MultiplyOp>(
+        erfcApproxClamped.getThird().getDefiningOp());
+    if (!falseBranch) {
+      return failure();
+    }
+
+    // Matching (e^(-x^2) * (1/x))
+    multiply = mlir::dyn_cast_or_null<MultiplyOp>(
+        falseBranch.getLhs().getDefiningOp());
+    if (!multiply) {
+      return failure();
+    }
+
+    // Matching e^(-x^2)
+    ExpOp exp =
+        mlir::dyn_cast_or_null<ExpOp>(multiply.getLhs().getDefiningOp());
+    if (!exp) {
+      return failure();
+    }
+
+    // The operand to exp ought to be -x^2
+    if (exp.getInput().getDefiningOp() != negativeXSquared) {
+      return failure();
+    }
+
+    // Matching (1/x)
+    DivOp div =
+        mlir::dyn_cast_or_null<DivOp>(multiply.getRhs().getDefiningOp());
+    if (!div) {
+      return failure();
+    }
+
+    // The numerator ought to be 1
+    FullOp one = mlir::dyn_cast_or_null<FullOp>(div.getLhs().getDefiningOp());
+    if (!one or mlir::failed(matchConstantValue(one, 1.0))) {
+      return failure();
+    }
+
+    // The denominator ought to be |x|
+    AbsOp absX = mlir::dyn_cast_or_null<AbsOp>(div.getRhs().getDefiningOp());
+    if (!absX or absX.getInput() != erfInput) {
+      return failure();
+    }
+
+    // Matching Polynomial(1/x^2)
+    // This polynomial is actually going to be one of two different polynomials
+    // based on the value of x
+    // Condition: |x| < 2
+    // True branch: polynomial #1
+    // False branch: polynomial #2
+
+    WhereOp whichPolynomial =
+        mlir::dyn_cast_or_null<WhereOp>(falseBranch.getRhs().getDefiningOp());
+    if (!whichPolynomial) {
+      return failure();
+    }
+    // Condition: |x| < 2
+    LessThanOp absXLessThanTwo = mlir::dyn_cast_or_null<LessThanOp>(
+        whichPolynomial.getFirst().getDefiningOp());
+    if (!absXLessThanTwo) {
+      return failure();
+    }
+
+    two = mlir::dyn_cast_or_null<FullOp>(
+        absXLessThanTwo.getRhs().getDefiningOp());
+    if (!two or mlir::failed(matchConstantValue(two, 2.0))) {
+      return failure();
+    }
+
+    // True branch
+    AddOp trueBranchPolynomial = mlir::dyn_cast_or_null<AddOp>(
+        whichPolynomial.getSecond().getDefiningOp());
+    if (!trueBranchPolynomial) {
+      return failure();
+    }
+
+    Value polynomialArg = nullptr;
+    SmallVector<float> nestedPolynomialCoefficients = {
+        5.638259427386472E-1f,  -2.741127028184656E-1f, 3.404879937665872E-1f,
+        -4.944515323274145E-1f, 6.210004621745983E-1f,  -5.824733027278666E-1f,
+        3.687424674597105E-1f,  -1.387039388740657E-1f};
+    float polynomialA = 2.326819970068386E-2f;
+    if (mlir::failed(matchNestedPolynomial(trueBranchPolynomial, polynomialA,
+                                           nestedPolynomialCoefficients,
+                                           polynomialArg))) {
+      return failure();
+    }
+
+    // False branch
+    AddOp falseBranchPolynomial = mlir::dyn_cast_or_null<AddOp>(
+        whichPolynomial.getThird().getDefiningOp());
+    if (!falseBranchPolynomial) {
+      return failure();
+    }
+    //   const float kErfcRCoefficients[] = {
+    //     -1.047766399936249E+1f, +1.297719955372516E+1f,
+    //     -7.495518717768503E+0f, +2.921019019210786E+0f,
+    //     -1.015265279202700E+0f, +4.218463358204948E-1f,
+    //     -2.820767439740514E-1f, +5.641895067754075E-1f,
+    // };
+    SmallVector<float> falseBranchNestedPolynomialCoefficients = {
+        5.641895067754075E-1f,  -2.820767439740514E-1f, 4.218463358204948E-1f,
+        -1.015265279202700E+0f, 2.921019019210786E+0f,  -7.495518717768503E+0f,
+        1.297719955372516E+1f};
+    float falseBranchPolynomialA = -1.047766399936249E+1f;
+    if (mlir::failed(matchNestedPolynomial(
+            falseBranchPolynomial, falseBranchPolynomialA,
+            falseBranchNestedPolynomialCoefficients, polynomialArg))) {
+      return failure();
+    }
+
+    // polynomialArg ought to be 1/x^2
+    div = mlir::dyn_cast_or_null<DivOp>(polynomialArg.getDefiningOp());
+    if (!div) {
+      return failure();
+    }
+
+    // The numerator ought to be 1
+    one = mlir::dyn_cast_or_null<FullOp>(div.getLhs().getDefiningOp());
+    if (!one or mlir::failed(matchConstantValue(one, 1.0))) {
+      return failure();
+    }
+
+    // The denominator ought to be x^2
+    multiply = mlir::dyn_cast_or_null<MultiplyOp>(div.getRhs().getDefiningOp());
+    if (!multiply) {
+      return failure();
+    }
+
+    // The left operand ought to be erfInput
+    if (multiply.getLhs() != multiply.getRhs() or
+        multiply.getLhs() != erfInput) {
+      return failure();
+    }
+
+    return success();
+  }
+
+  LogicalResult matchErfcSmallInputApproximation(SubtractOp erfcResult,
+                                                 Value erfInput,
+                                                 Value &polynomialArg) const {
+    FullOp one =
+        mlir::dyn_cast_or_null<FullOp>(erfcResult.getLhs().getDefiningOp());
+    if (!one) {
+      return failure();
+    }
+
+    if (mlir::failed(matchConstantValue(one, 1.0))) {
+      return failure();
+    }
+
+    // The LHS of this multiply ought to be erfInput
+    MultiplyOp multiply =
+        mlir::dyn_cast_or_null<MultiplyOp>(erfcResult.getRhs().getDefiningOp());
+    if (!multiply) {
+      return failure();
+    }
+
+    if (multiply.getLhs() != erfInput) {
+      return failure();
+    }
+
+    // Nested polynomial ends with an AddOp
+    AddOp nestedPolynomialResult =
+        mlir::dyn_cast_or_null<AddOp>(multiply.getRhs().getDefiningOp());
+    if (!nestedPolynomialResult) {
+      return failure();
+    }
+
+    // Nested polynomial is a nested polynomial with constants (in order from
+    // closest to the div to furthest):
+    SmallVector<float> nestedPolynomialCoefficients = {
+        1.128379165726710E+0f,  -3.761262582423300E-1f, 1.128358514861418E-1f,
+        -2.685381193529856E-2f, 5.188327685732524E-3f,  -8.010193625184903E-4f};
+    float nestedPolynomialA = +7.853861353153693E-5f;
+
+    if (mlir::failed(matchNestedPolynomial(
+            nestedPolynomialResult, nestedPolynomialA,
+            nestedPolynomialCoefficients, polynomialArg))) {
+      return failure();
+    }
+
+    // The polynomialArg ought to be the square of erfInput applied via a
+    // MultiplyOp
+    MultiplyOp polynomialArgOp =
+        mlir::dyn_cast_or_null<MultiplyOp>(polynomialArg.getDefiningOp());
+    if (!polynomialArgOp) {
+      return failure();
+    }
+
+    if (polynomialArgOp.getLhs() != polynomialArgOp.getRhs() or
+        polynomialArgOp.getLhs() != erfInput) {
       return failure();
     }
 
@@ -722,6 +1085,7 @@ public:
       patterns.add<SoftmaxFusionPattern>(&getContext());
       patterns.add<Conv2dWithMultiply>(&getContext());
       patterns.add<ErfApproximationFusionPattern>(&getContext());
+      patterns.add<ErfcApproximationFusionPattern>(&getContext());
       patterns.add<GeluFusionPattern>(&getContext());
 
       GreedyRewriteConfig config;
