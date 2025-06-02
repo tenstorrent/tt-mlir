@@ -173,8 +173,9 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
         MetalLayoutAttr viewMetalLayout;
         std::tie(view, viewMetalLayout) =
             blockedView(rewriter, op->getLoc(), operand.get(), newOperandType,
+                        metalLayout.getGrid(),
                         op.getIndexingMapsValue()[operand.getOperandNumber()],
-                        blockFactors);
+                        blockFactors, op.getIteratorTypesValue());
         rewriter.modifyOpInPlace(op, [&]() { operand.set(view); });
 
         if (dpsOp.isDpsInit(&operand)) {
@@ -214,32 +215,48 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
 
   static std::pair<Value, MetalLayoutAttr>
   blockedView(PatternRewriter &rewriter, Location loc, Value tensor,
-              RankedTensorType newOperandType, AffineMap indexingMap,
-              ArrayRef<int64_t> blockFactors) {
-    auto emptyOp = rewriter.create<EmptyOp>(loc, newOperandType);
+              RankedTensorType newTensorType, GridAttr computeGrid,
+              AffineMap indexingMap, ArrayRef<int64_t> blockFactors,
+              SmallVector<IteratorType> iteratorType) {
+    auto emptyOp = rewriter.create<EmptyOp>(loc, newTensorType);
     auto toLayoutOp =
         rewriter.create<ToLayoutOp>(loc, tensor, emptyOp.getResult());
-    MetalLayoutAttr metalLayout =
-        mlir::cast<MetalLayoutAttr>(newOperandType.getEncoding());
-    SmallVector<int64_t> blockShape = indexingMap.compose(blockFactors);
-    for (auto [i, dim] : llvm::enumerate(metalLayout.getGrid().getShape())) {
-      // Handle the edge case where a 0 constant appears in the affine map, i.e.
-      // some kind of reduction or broadcast:
-      //   (d0, d1) -> (d0, 0)
-      if (blockShape[i] == 0) {
-        blockShape[i] = 1;
+
+    auto tensorType = mlir::cast<RankedTensorType>(tensor.getType());
+    auto tensorLayout = mlir::cast<MetalLayoutAttr>(tensorType.getEncoding());
+    SmallVector<int64_t> numBlocks = indexingMap.compose(blockFactors);
+
+    // Map iterator types according to the affine map
+    // For example: (d0, d1, d2) -> (d0, d2) with [parallel, parallel,
+    // reduction] should give [parallel, reduction]
+    SmallVector<IteratorType> mappedIteratorTypes;
+
+    // Get the results of the indexing map
+    for (auto expr : indexingMap.getResults()) {
+      // Check if this is a dimension expression
+      if (auto dimExpr = mlir::dyn_cast<mlir::AffineDimExpr>(expr)) {
+        mappedIteratorTypes.push_back(iteratorType[dimExpr.getPosition()]);
       }
-      blockShape[i] *= dim;
     }
-    MetalLayoutAttr viewLayout = metalLayout.withGrid(blockShape);
+
+    for (auto [i, dim] : llvm::enumerate(computeGrid.getShape())) {
+      if (numBlocks[i] == 0) {
+        numBlocks[i] = 1;
+      }
+      int multiple = mappedIteratorTypes[i] == IteratorType::Parallel ? dim : 1;
+      numBlocks[i] *= multiple;
+    }
+
+    MetalLayoutAttr viewLayout = tensorLayout.withGrid(
+        tensorLayout.getContext(), tensorType,
+        GridAttr::get(tensorLayout.getContext(), numBlocks));
     return std::make_pair(
         rewriter
             .create<ViewLayoutOp>(
                 loc,
-                RankedTensorType::get(newOperandType.getShape(),
-                                      newOperandType.getElementType(),
-                                      viewLayout),
-                toLayoutOp.getResult(0))
+                RankedTensorType::get(tensorType.getShape(),
+                                      tensorType.getElementType(), viewLayout),
+                toLayoutOp->getResult(0))
             .getResult(),
         viewLayout);
   }
