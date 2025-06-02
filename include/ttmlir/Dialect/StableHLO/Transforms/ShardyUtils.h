@@ -5,6 +5,8 @@
 #ifndef TTMLIR_DIALECT_STABLEHLO_TRANSFORMS_SHARDYUTILS_H
 #define TTMLIR_DIALECT_STABLEHLO_TRANSFORMS_SHARDYUTILS_H
 
+#include "ttmlir/Dialect/StableHLO/Transforms/ShardyCCLToStableHLOCCL.h"
+
 #include "mlir/Analysis/TopologicalSortUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -200,7 +202,7 @@ inline mlir::DictionaryAttr addDictionaryAttrSdyShardingAnnotation(
 
 // Get a default sdy.sharding annotation (ie all dimensions are open and
 // replicated).
-mlir::sdy::TensorShardingAttr
+inline mlir::sdy::TensorShardingAttr
 getDefaultTensorSdyShardingAttr(MLIRContext *context, llvm::StringRef meshName,
                                 mlir::Type type) {
   mlir::RankedTensorType rankedTensorType =
@@ -208,8 +210,8 @@ getDefaultTensorSdyShardingAttr(MLIRContext *context, llvm::StringRef meshName,
   llvm::SmallVector<mlir::sdy::DimensionShardingAttr> dimShardings;
 
   for (uint32_t i = 0; i < rankedTensorType.getShape().size(); i++) {
-    dimShardings.push_back(
-        mlir::sdy::DimensionShardingAttr::get(context, {}, true));
+    dimShardings.push_back(mlir::sdy::DimensionShardingAttr::get(
+        context, {}, /*is_closed*/ false));
   }
 
   return mlir::sdy::TensorShardingAttr::get(context, meshName, dimShardings, {},
@@ -217,7 +219,7 @@ getDefaultTensorSdyShardingAttr(MLIRContext *context, llvm::StringRef meshName,
 }
 
 // Get the argument sharding attributes.
-llvm::SmallVector<mlir::sdy::TensorShardingAttr>
+inline llvm::SmallVector<mlir::sdy::TensorShardingAttr>
 getInShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
                    mlir::sdy::MeshOp &globalMeshOp) {
   llvm::SmallVector<mlir::sdy::TensorShardingAttr> inShardingAttrs;
@@ -230,7 +232,7 @@ getInShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
           argAttrDict.get(mlir::sdy::TensorShardingAttr::name));
 
       if (!shardingAttr) {
-        funcOp.emitWarning("In function")
+        funcOp.emitWarning("In function ")
             << funcOp.getName() << " argument #: " << arg.getArgNumber()
             << " is not annotated with sdy.sharding. Using default "
                "sharding annotation (ie all dimensions replicated).\n";
@@ -244,7 +246,7 @@ getInShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
         funcOp.setArgAttrs(arg.getArgNumber(), newDictAttr);
       }
     } else {
-      funcOp.emitWarning("In function")
+      funcOp.emitWarning("In function ")
           << funcOp.getName() << " argument #: " << arg.getArgNumber()
           << " does not have an attributes dictionary. Using default "
              "sharding annotation (ie all dimensions replicated).\n";
@@ -265,7 +267,7 @@ getInShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
 }
 
 // Get the result sharding attributes.
-llvm::SmallVector<mlir::sdy::TensorShardingAttr>
+inline llvm::SmallVector<mlir::sdy::TensorShardingAttr>
 getOutShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
                     mlir::sdy::MeshOp &globalMeshOp) {
   llvm::SmallVector<mlir::sdy::TensorShardingAttr> outShardingAttrs;
@@ -280,7 +282,7 @@ getOutShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
           resultAttrDict.get(mlir::sdy::TensorShardingAttr::name));
 
       if (!shardingAttr) {
-        funcOp.emitWarning("In function")
+        funcOp.emitWarning("In function ")
             << funcOp.getName() << " result #: " << i
             << " is not annotated with sdy.sharding. Using default "
                "sharding annotation (ie all dimensions replicated).\n";
@@ -288,7 +290,7 @@ getOutShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
             context, globalMeshOp.getSymName(), funcType.getResult(i));
       }
     } else {
-      funcOp.emitWarning("In function")
+      funcOp.emitWarning("In function ")
           << funcOp.getName() << " result #: " << i
           << " does not have an attributes dictionary. Using default "
              "sharding annotation (ie all dimensions replicated).\n";
@@ -302,33 +304,48 @@ getOutShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
   return outShardingAttrs;
 }
 
+// Calculate the updated shape based on the tensor sharding annotation.
+inline FailureOr<int64_t>
+calculateUpdatedShapeDim(mlir::sdy::MeshAttr meshAttr,
+                         mlir::sdy::DimensionShardingAttr dimShardingAttr,
+                         int64_t oldShapeDim) {
+  int64_t updatedShapeDim = oldShapeDim;
+  MeshMap meshMap = createMeshMapFromMeshAttr(meshAttr);
+  llvm::ArrayRef<mlir::sdy::AxisRefAttr> shardingAxes =
+      dimShardingAttr.getAxes();
+
+  for (auto shardingAxis : shardingAxes) {
+    llvm::StringRef axisName = shardingAxis.getName();
+    if (meshMap.find(axisName) == meshMap.end() ||
+        oldShapeDim % meshMap[axisName] != 0) {
+      return failure();
+    }
+
+    updatedShapeDim = updatedShapeDim / meshMap[axisName];
+  }
+
+  return updatedShapeDim;
+}
+
 // Calculate the new sharded output based on the sdy tensor sharding attribute.
 inline FailureOr<mlir::RankedTensorType>
 populateShardedOutputType(mlir::sdy::MeshAttr meshAttr,
                           mlir::RankedTensorType oldType,
                           mlir::sdy::TensorShardingAttr tensorShardingAttr) {
-  MeshMap meshMap = createMeshMapFromMeshAttr(meshAttr);
-
   llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> dimShardings =
       tensorShardingAttr.getDimShardings();
   llvm::SmallVector<int64_t> newShape(oldType.getShape().begin(),
                                       oldType.getShape().end());
 
   for (uint32_t i = 0; i < newShape.size(); i++) {
-    int64_t currIndexShape = newShape[i];
-    llvm::ArrayRef<mlir::sdy::AxisRefAttr> shardingAxes =
-        dimShardings[i].getAxes();
+    FailureOr<int64_t> updatedShapeDim =
+        calculateUpdatedShapeDim(meshAttr, dimShardings[i], newShape[i]);
 
-    for (auto shardingAxis : shardingAxes) {
-      llvm::StringRef axisName = shardingAxis.getName();
-      if (meshMap.find(axisName) == meshMap.end() ||
-          currIndexShape % meshMap[axisName] != 0) {
-        return failure();
-      }
-
-      currIndexShape = currIndexShape / meshMap[axisName];
+    if (failed(updatedShapeDim)) {
+      return failure();
     }
-    newShape[i] = currIndexShape;
+
+    newShape[i] = *updatedShapeDim;
   }
 
   return RankedTensorType::get(newShape, oldType.getElementType());

@@ -247,7 +247,7 @@ bool validateTensorSpec(const ::ttnn::TensorSpec &tensorSpec,
   try {
     tensorSpec.compute_packed_buffer_size_bytes();
     tensorSpec.compute_page_size_bytes();
-    tensorSpec.compute_shard_spec_buffer();
+    tensorSpec.compute_distribution_spec();
   } catch (const std::exception &e) {
     return false;
   }

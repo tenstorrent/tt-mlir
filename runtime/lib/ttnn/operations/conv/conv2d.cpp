@@ -46,16 +46,20 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
     conv2dConfig.weights_dtype = utils::getDataType(op->weight());
   }
 
-  // Use defaults for now, until compiler drives this.
-  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig = std::nullopt;
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
+
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
+  if (op->compute_config()) {
+    computeConfig =
+        utils::createDeviceComputeKernelConfig(op->compute_config());
+  }
+
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
   LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
-
-  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
   ResultWithOptions result = ::ttnn::conv2d(
       input, weight, &targetDevice, op->in_channels(), op->out_channels(),

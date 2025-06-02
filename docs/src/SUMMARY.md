@@ -13,6 +13,7 @@
   - [ttmlir-opt](./ttmlir-opt.md)
   - [ttmlir-translate](./ttmlir-translate.md)
   - [ttrt](./ttrt.md)
+  - [ttir-builder](./ttir-builder.md)
   - [tt-explorer](./tt-explorer.md)
     - [Usage & API](./tt-explorer-usage-api.md)
     - [Roadmap](./tt-explorer-roadmap.md)

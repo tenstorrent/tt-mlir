@@ -611,7 +611,7 @@ MaxPool2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   }
   GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();
 
-  return op_model::ttnn::MaxPool2DInterface::getOpConstraints(
+  return op_model::ttnn::MaxPool2DOpInterface::getOpConstraints(
       deviceGrid, inputShape, inputs[0], getBatchSize(), getInputHeight(),
       getInputWidth(), getChannels(), getKernelSize(), getStride(),
       getPadding(), getDilation(), getCeilMode(), outputShape,
@@ -627,7 +627,7 @@ MaxPool2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto outputShape = getResult().getType().getShape();
 
-  return op_model::ttnn::MaxPool2DInterface::getOpRuntime(
+  return op_model::ttnn::MaxPool2DOpInterface::getOpRuntime(
       inputShape, inputs[0], getBatchSize(), getInputHeight(), getInputWidth(),
       getChannels(), getKernelSize(), getStride(), getPadding(), getDilation(),
       getCeilMode(), outputShape, opConfig.outputLayout);
@@ -653,7 +653,7 @@ ClampScalarOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   }
   GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();
 
-  return op_model::ttnn::ClampScalarInterface::getOpConstraints(
+  return op_model::ttnn::ClampScalarOpInterface::getOpConstraints(
       deviceGrid, inputShape, inputs[0], getMin(), getMax(), outputShape,
       opConfig.outputLayout);
 }
@@ -667,8 +667,86 @@ ClampScalarOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto outputShape = getResult().getType().getShape();
 
-  return op_model::ttnn::ClampScalarInterface::getOpRuntime(
+  return op_model::ttnn::ClampScalarOpInterface::getOpRuntime(
       inputShape, inputs[0], getMin(), getMax(), outputShape,
+      opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
+// PermuteOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<
+    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+PermuteOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                            const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  const auto outputShape = getResult().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();
+
+  return op_model::ttnn::PermuteOpInterface::getOpConstraints(
+      deviceGrid, inputShape, inputs[0], getPermutation(), getPadValue(),
+      outputShape, opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+PermuteOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                        const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  const auto outputShape = getResult().getType().getShape();
+
+  return op_model::ttnn::PermuteOpInterface::getOpRuntime(
+      inputShape, inputs[0], getPermutation(), getPadValue(), outputShape,
+      opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
+// UpsampleOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<
+    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+UpsampleOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                             const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  const auto outputShape = getResult().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();
+
+  return op_model::ttnn::UpsampleOpInterface::getOpConstraints(
+      deviceGrid, inputShape, inputs[0], getScaleFactor(), getMode(),
+      outputShape, opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+UpsampleOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  const auto outputShape = getResult().getType().getShape();
+
+  return op_model::ttnn::UpsampleOpInterface::getOpRuntime(
+      inputShape, inputs[0], getScaleFactor(), getMode(), outputShape,
       opConfig.outputLayout);
 }
 

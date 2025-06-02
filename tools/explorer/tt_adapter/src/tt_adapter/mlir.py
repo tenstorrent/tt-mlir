@@ -19,10 +19,17 @@ def parse_loc_string(loc_str):
     """
     This can be replaced by ttmlir.ir.Module.parse, but requires some further work to extract the actual location object from the module.
     """
+    if not isinstance(loc_str, str):
+        logging.error(
+            "Invalid LOC type in perf_trace: %s, expected string", type(loc_str)
+        )
+        # raise IndexError("Invalid LOC type in perf_trace: %s, expected string", type(loc_str))
+        return None
     match = re.match(r'^loc\("([^"]+)"', loc_str)
-    # https://github.com/tenstorrent/tt-mlir/issues/3255
-    # assert match, f"Failed to parse location string: {loc_str}"
-    return match.group(1) if match else None
+    if not match:
+        logging.error("Failed to match location string: %s", loc_str)
+        return None
+    return match.group(1)
 
 
 class AttrHandler:
@@ -597,7 +604,7 @@ def parse_conv2d_config(attr):
         )
     )
     shard_layout = OVERRIDE_PARAMETER_DISABLED_STR
-    if conv2d_config.override_sharding_config:
+    if conv2d_config.shard_layout_as_int:
         shard_layout = str(ttnn.TensorMemoryLayout(conv2d_config.shard_layout_as_int))
     result.append(
         utils.make_editable_kv(
@@ -874,20 +881,18 @@ def build_graph(
             loc = memory_trace[node]["loc"]
             memory_data[loc] = {}
             memory_data[loc]["dram"] = round(
-                memory_trace[node]["dram"]["device_0"]["total_bytes_allocated_per_bank"]
-                / memory_trace[node]["dram"]["device_0"]["total_bytes_per_bank"],
+                memory_trace[node]["dram"]["total_bytes_allocated_per_bank"]
+                / memory_trace[node]["dram"]["total_bytes_per_bank"],
                 4,
             )
             memory_data[loc]["l1"] = round(
-                memory_trace[node]["l1"]["device_0"]["total_bytes_allocated_per_bank"]
-                / memory_trace[node]["l1"]["device_0"]["total_bytes_per_bank"],
+                memory_trace[node]["l1"]["total_bytes_allocated_per_bank"]
+                / memory_trace[node]["l1"]["total_bytes_per_bank"],
                 4,
             )
             memory_data[loc]["l1_small"] = round(
-                memory_trace[node]["l1_small"]["device_0"][
-                    "total_bytes_allocated_per_bank"
-                ]
-                / memory_trace[node]["l1_small"]["device_0"]["total_bytes_per_bank"],
+                memory_trace[node]["l1_small"]["total_bytes_allocated_per_bank"]
+                / memory_trace[node]["l1_small"]["total_bytes_per_bank"],
                 4,
             )
 
@@ -939,8 +944,8 @@ def build_graph(
 
     # Check if all perf locations match some graph node
     for loc in loc_to_perf.keys():
-        pass  # https://github.com/tenstorrent/tt-mlir/issues/3255
-        # assert loc in processed_locs, f"Perf location {loc} not found in graph nodes"
+        if loc not in processed_locs:
+            logging.error(f"Perf location {loc} not found in graph nodes")
 
     # Add Overlay Data if it exists
     overlays = {}
@@ -1045,7 +1050,7 @@ def process_operations(
 
         # Create graph node for this operation
         operation = OpHandler(op)
-        processed_locs.add(operation.named_location)
+        processed_locs.add(operation.full_location)
 
         if (
             operation.full_location in loc_to_perf

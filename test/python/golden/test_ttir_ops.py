@@ -1172,12 +1172,14 @@ def test_quantize(
     def quantize(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
         return builder.quantize(in0, scale, zero_point, dtype, unit_attrs=unit_attrs)
 
+    pipeline_options = ["enable-const-eval=false"]  # temporary workaround. Issue #3505.
     compile_to_flatbuffer(
         quantize,
         [shape],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        pipeline_options=pipeline_options,
     )
 
 
@@ -1197,6 +1199,7 @@ def test_dequantize(
     def dequantize(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
         return builder.dequantize(in0, scale, zero_point, dtype, unit_attrs=unit_attrs)
 
+    pipeline_options = ["enable-const-eval=false"]  # temporary workaround. Issue #3505.
     compile_to_flatbuffer(
         dequantize,
         [shape],
@@ -1204,6 +1207,7 @@ def test_dequantize(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        pipeline_options=pipeline_options,
     )
 
 
@@ -1223,6 +1227,7 @@ def test_requantize(
     def requantize(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
         return builder.requantize(in0, scale, zero_point, dtype, unit_attrs=unit_attrs)
 
+    pipeline_options = ["enable-const-eval=false"]  # temporary workaround. Issue #3505.
     compile_to_flatbuffer(
         requantize,
         [shape],
@@ -1230,6 +1235,7 @@ def test_requantize(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        pipeline_options=pipeline_options,
     )
 
 

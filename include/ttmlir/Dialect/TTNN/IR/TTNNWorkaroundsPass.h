@@ -226,6 +226,10 @@ public:
   // Create workarounds for upsample op operands.
   static TTNNOperandsWorkarounds createUpsampleOpOperandsWorkarounds();
 
+  // Create workarounds for zeros op operands.
+  static TTNNOperandsWorkarounds
+  createZerosOpOperandsWorkarounds(RankedTensorType outputType);
+
   // Create workarounds for full op operands.
   static TTNNOperandsWorkarounds
   createFullOpOperandsWorkarounds(RankedTensorType outputType);
@@ -262,6 +266,8 @@ public:
   // Create workarounds for binary op operands.
   static TTNNOperandsWorkarounds
   createBinaryOpOperandsWorkarounds(mlir::Operation *op);
+
+  static TTNNOperandsWorkarounds createTanhOpOperandsWorkarounds();
 
   // Create workarounds for ArgMax op operands.
   static TTNNOperandsWorkarounds createArgMaxOpOperandsWorkarounds();

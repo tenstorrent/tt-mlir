@@ -274,7 +274,7 @@ class TTKernelCompiler(ast.NodeVisitor):
             # Get the source code from the main function decl:
             if self.verbose and self.source_code:
                 comment = f"// --- Python Function Declaration for Above --- \n{self.get_source_comment_block(node)}\n// -- End Function Declaration"
-                emitc.verbatim(comment)
+                emitc.verbatim(comment, [])
 
             # Insert a point to create all of the relevant rt_args and ct_args
             int_type = IntegerType.get_signless(32, self.ctx)
@@ -381,7 +381,7 @@ class TTKernelCompiler(ast.NodeVisitor):
 
         if self.verbose:
             comment = self.get_source_comment_block(node)
-            emitc.verbatim(comment)
+            emitc.verbatim(comment, [])
 
         for_op = scf.ForOp(lower_bound, upper_bound, step)
         with InsertionPoint(for_op.body), Location.unknown():
@@ -964,7 +964,7 @@ class TTKernelCompiler(ast.NodeVisitor):
             ):
                 # Create a verbatim Op here to store the comment
                 source_code = self.get_source_comment(node)
-                emitc.verbatim(source_code)
+                emitc.verbatim(source_code, [])
             return super().visit(node)
         else:
             raise NotImplementedError(f"visit {type(node).__name__} not supported")

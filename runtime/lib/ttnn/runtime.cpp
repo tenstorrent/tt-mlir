@@ -19,6 +19,7 @@
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Version.h"
+#include "ttnn/tensor/tensor_utils.hpp"
 #include "ttnn/tensor/types.hpp"
 
 namespace tt::runtime::ttnn {
@@ -401,12 +402,6 @@ void closeMeshDevice(Device parentMesh) {
                 " that has ", numSubMeshes, " unreleased submeshes.");
   }
 #endif
-
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-  for (::ttnn::IDevice *ttnnDevice : ttnnMeshDevice.get_devices()) {
-    ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
-  }
-#endif
   ttnnMeshDevice.close();
 }
 
@@ -516,28 +511,47 @@ void deallocateBuffers(Device deviceHandle) {
 }
 
 void dumpMemoryReport(Device deviceHandle) {
-  const ::ttnn::MeshDevice &meshDevice =
+  ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
   ::tt::tt_metal::detail::DumpDeviceMemoryState(&meshDevice);
 }
 
+void dumpDeviceProfileResults(Device deviceHandle) {
+  ::ttnn::MeshDevice &ttnnMeshDevice =
+      deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+
+  LOG_ASSERT(ttnnMeshDevice.is_parent_mesh(),
+             "Mesh device must be a parent mesh");
+
+// NOTE: Reshaping the device before and after this dump is a temporary
+// workaround for tt-metal issue #22285 ttrt.common.run reshapes devices to (1,
+// number of device ids) tt-metal's DumpDeviceProfileResults expects the
+// mesh_shape in the SystemDesc This was throwing errors in llmbox tests
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
+  auto originalMeshShape = ttnnMeshDevice.shape();
+  ttnnMeshDevice.reshape(::ttnn::MeshShape(1, originalMeshShape.mesh_size()));
+  for (::ttnn::IDevice *ttnnDevice : ttnnMeshDevice.get_devices()) {
+    ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
+  }
+  ttnnMeshDevice.reshape(originalMeshShape);
+#endif
+}
+
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
-getMemoryView(Device deviceHandle, int deviceID) {
+getMemoryView(Device deviceHandle) {
   std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
       memoryMap;
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
 
-  auto *device = meshDevice.get_device(deviceID);
-
-  auto dramMemoryView =
-      ::tt::tt_metal::detail::GetMemoryView(device, ::ttnn::BufferType::DRAM);
-  auto l1MemoryView =
-      ::tt::tt_metal::detail::GetMemoryView(device, ::ttnn::BufferType::L1);
+  auto dramMemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      &meshDevice, ::ttnn::BufferType::DRAM);
+  auto l1MemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      &meshDevice, ::ttnn::BufferType::L1);
   auto l1SmallMemoryView = ::tt::tt_metal::detail::GetMemoryView(
-      device, ::ttnn::BufferType::L1_SMALL);
-  auto traceMemoryView =
-      ::tt::tt_metal::detail::GetMemoryView(device, ::ttnn::BufferType::TRACE);
+      &meshDevice, ::ttnn::BufferType::L1_SMALL);
+  auto traceMemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      &meshDevice, ::ttnn::BufferType::TRACE);
 
   memoryMap[tt::runtime::MemoryBufferType::DRAM] =
       createMemoryView(dramMemoryView);
@@ -576,11 +590,19 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
   bool shouldRetain = tensorWrapper.shouldRetain();
 
   std::vector<::tt::runtime::Tensor> hostTensors;
+  ::tt::runtime::Tensor hostMultideviceTensor =
+      ::tt::runtime::ttnn::toHostSingleTensor(
+          utils::createRuntimeTensorFromTTNN(multiDeviceTensor, shouldRetain),
+          untilize);
+  ::tt::runtime::ttnn::TTNNTensorWrapper &hostMultideviceTensorWrapper =
+      hostMultideviceTensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(
+          DeviceRuntime::TTNN);
   std::vector<::ttnn::Tensor> singleTensors =
-      ::ttnn::distributed::get_device_tensors(multiDeviceTensor);
+      ::ttnn::distributed::get_device_tensors(
+          hostMultideviceTensorWrapper.getTensor());
   for (auto &tensor : singleTensors) {
-    hostTensors.push_back(::tt::runtime::ttnn::toHostSingleTensor(
-        utils::createRuntimeTensorFromTTNN(tensor, shouldRetain), untilize));
+    hostTensors.push_back(
+        utils::createRuntimeTensorFromTTNN(tensor, shouldRetain));
   }
   return hostTensors;
 }

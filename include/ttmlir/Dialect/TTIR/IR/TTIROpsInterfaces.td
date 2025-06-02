@@ -54,14 +54,6 @@ def TTIROpInterface : OpInterface<"TTIROp"> {
   ];
 }
 
-def TTIR_Broadcastable : OpInterface<"Broadcastable"> {
-  let cppNamespace = "::mlir::tt::ttir";
-
-  let verify = [{
-    return detail::verifyBroadcastable($_op);
-  }];
-}
-
 def TTIR_PartiallyBroadcastable : OpInterface<"PartiallyBroadcastable"> {
   // Supports implicit broadcast for first operand only.
   let cppNamespace = "::mlir::tt::ttir";
@@ -85,6 +77,10 @@ def TTIR_ElementwiseUnary : OpInterface<"ElementwiseUnary"> {
 }
 
 def TTIR_ElementwiseBinary : OpInterface<"ElementwiseBinary"> {
+  let cppNamespace = "::mlir::tt::ttir";
+}
+
+def TTIR_ElementwiseTernary : OpInterface<"ElementwiseTernary"> {
   let cppNamespace = "::mlir::tt::ttir";
 }
 

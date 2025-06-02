@@ -39,8 +39,9 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def("get_l1_size_per_core", &tt::runtime::getL1SizePerCore)
       .def("deallocate_buffers", &tt::runtime::detail::deallocateBuffers)
       .def("dump_memory_report", &tt::runtime::detail::dumpMemoryReport)
-      .def("get_memory_view", &tt::runtime::detail::getMemoryView,
-           nb::arg("device_id") = 0);
+      .def("dump_device_profile_results",
+           &tt::runtime::detail::dumpDeviceProfileResults)
+      .def("get_memory_view", &tt::runtime::detail::getMemoryView);
 
   nb::class_<tt::runtime::Event>(m, "Event");
 

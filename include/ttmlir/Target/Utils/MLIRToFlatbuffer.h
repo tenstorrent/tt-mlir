@@ -158,6 +158,20 @@ inline ::tt::target::DataType toFlatbuffer(FlatbufferObjectCache &,
   }
 }
 
+inline ::tt::target::MathFidelity
+toFlatbuffer(FlatbufferObjectCache &, ttnn::MathFidelity mathFidelity) {
+  switch (mathFidelity) {
+  case ttnn::MathFidelity::LoFi:
+    return ::tt::target::MathFidelity::LoFi;
+  case ttnn::MathFidelity::HiFi2:
+    return ::tt::target::MathFidelity::HiFi2;
+  case ttnn::MathFidelity::HiFi3:
+    return ::tt::target::MathFidelity::HiFi3;
+  case ttnn::MathFidelity::HiFi4:
+    return ::tt::target::MathFidelity::HiFi4;
+  }
+}
+
 inline ::tt::target::ttnn::TensorMemoryLayout
 toFlatbuffer(FlatbufferObjectCache &, ttnn::TensorMemoryLayout memLayout) {
   switch (memLayout) {
@@ -394,8 +408,8 @@ toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
       toFlatbuffer(cache, chipDesc.getChipPhysicalHelperCores()),
       toFlatbuffer(cache, chipDesc.getSupportedDataTypes()),
       toFlatbuffer(cache, chipDesc.getSupportedTileSizes()),
-      chipDesc.getNumCBs(), chipDesc.getNumComputeThreads(),
-      chipDesc.getNumDatamovementThreads());
+      chipDesc.getDstRegisterSizeTiles(), chipDesc.getNumCBs(),
+      chipDesc.getNumComputeThreads(), chipDesc.getNumDatamovementThreads());
 }
 
 inline ::tt::target::CPURole toFlatbuffer(FlatbufferObjectCache &,
@@ -610,9 +624,8 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::UnaryOpType unaryOpType) {
       {MlirUnaryOpType::BitwiseOr, FbUnaryOpType::BitwiseOr},
       {MlirUnaryOpType::RightShift, FbUnaryOpType::RightShift},
       {MlirUnaryOpType::Floor, FbUnaryOpType::Floor},
-      {MlirUnaryOpType::FloorFloat32, FbUnaryOpType::FloorFloat32},
       {MlirUnaryOpType::Ceil, FbUnaryOpType::Ceil},
-      {MlirUnaryOpType::CeilFloat32, FbUnaryOpType::CeilFloat32},
+      {MlirUnaryOpType::Round, FbUnaryOpType::Round},
       {MlirUnaryOpType::LeftShift, FbUnaryOpType::LeftShift},
       {MlirUnaryOpType::Remainder, FbUnaryOpType::Remainder},
       {MlirUnaryOpType::Fmod, FbUnaryOpType::Fmod},
@@ -751,6 +764,17 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
       toFlatbuffer(cache, config.getEnableWeightsDoubleBuffer()),
       toFlatbuffer(cache, config.getEnableSplitReader()),
       toFlatbuffer(cache, config.getEnableSubblockPadding()));
+}
+
+inline ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ttnn::DeviceComputeKernelConfigAttr computeConfigAttr) {
+  return ::tt::target::ttnn::CreateDeviceComputeKernelConfig(
+      *cache.fbb, toFlatbuffer(cache, computeConfigAttr.getMathFidelity()),
+      toFlatbuffer(cache, computeConfigAttr.getMathApproxMode()),
+      toFlatbuffer(cache, computeConfigAttr.getFp32DestAccEn()),
+      toFlatbuffer(cache, computeConfigAttr.getPackerL1Acc()),
+      toFlatbuffer(cache, computeConfigAttr.getDstFullSyncEn()));
 }
 
 template <typename T>
