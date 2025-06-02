@@ -575,14 +575,19 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
   bool shouldRetain = tensorWrapper.shouldRetain();
 
   std::vector<::tt::runtime::Tensor> hostTensors;
-  ::tt::runtime::Tensor hostMultideviceTensor = ::tt::runtime::ttnn::toHostSingleTensor(
-    utils::createRuntimeTensorFromTTNN(multiDeviceTensor, shouldRetain), untilize);
+  ::tt::runtime::Tensor hostMultideviceTensor =
+      ::tt::runtime::ttnn::toHostSingleTensor(
+          utils::createRuntimeTensorFromTTNN(multiDeviceTensor, shouldRetain),
+          untilize);
   ::tt::runtime::ttnn::TTNNTensorWrapper &hostMultideviceTensorWrapper =
-  hostMultideviceTensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
+      hostMultideviceTensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(
+          DeviceRuntime::TTNN);
   std::vector<::ttnn::Tensor> singleTensors =
-      ::ttnn::distributed::get_device_tensors(hostMultideviceTensorWrapper.getTensor());
+      ::ttnn::distributed::get_device_tensors(
+          hostMultideviceTensorWrapper.getTensor());
   for (auto &tensor : singleTensors) {
-    hostTensors.push_back(utils::createRuntimeTensorFromTTNN(tensor, shouldRetain));
+    hostTensors.push_back(
+        utils::createRuntimeTensorFromTTNN(tensor, shouldRetain));
   }
   return hostTensors;
 }
