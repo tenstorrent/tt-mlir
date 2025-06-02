@@ -352,6 +352,14 @@ def TTNN_AtanOp: TTNN_ElementwiseUnaryOp<"atan"> {
 
 def TTNN_TanhOp: TTNN_ElementwiseUnaryOp<"tanh"> {
     let summary = "Eltwise tanh op.";
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createTanhOpOperandsWorkarounds();
+      }
+    }];
+
     let description = [{
       Eltwise tanh operation.
     }];
