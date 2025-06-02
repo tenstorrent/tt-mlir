@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #ifndef TTMLIR_OPMODEL_TTNN_CONVERSION_H
 #define TTMLIR_OPMODEL_TTNN_CONVERSION_H
-#include "llvm/Support/raw_ostream.h"
 #ifdef TTMLIR_ENABLE_OPMODEL
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
