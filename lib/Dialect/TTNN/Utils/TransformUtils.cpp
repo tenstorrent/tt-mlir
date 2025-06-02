@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 
+#include "mlir/IR/PatternMatch.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TT/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -44,7 +45,7 @@ GetDeviceOp getOrInsertDevice(RewriterBase &rewriter, Operation *op) {
 // desired tensor layout, buffer type and memory layout.
 ToLayoutOp
 createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
-                 PatternRewriter &rewriter, Layout targetTensorLayout,
+                 RewriterBase &rewriter, Layout targetTensorLayout,
                  BufferType targetTensorBufferType,
                  std::optional<TensorMemoryLayout> targetTensorMemoryLayout,
                  DataType targetTensorDataType, llvm::StringRef locSuffix) {
