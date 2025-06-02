@@ -688,9 +688,9 @@ def TTNN_Atan2Op :  TTNN_ElementwiseBinaryOp<"atan2"> {
 }
 
 def TTNN_BitwiseRightShiftOp : TTNN_ElementwiseBinaryOp<"bitwise_right_shift"> {
-    let summary = "Bitwise right shift.";
+    let summary = "Arithmetic right shift.";
     let description = [{
-      Performs element-wise bitwise right-shift operation on the lhs tensor by rhs
+      Performs element-wise arithmetic right-shift operation on the lhs tensor by rhs
       number of bits and produces a result tensor.
     }];
 }

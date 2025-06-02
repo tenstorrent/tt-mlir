@@ -34,6 +34,7 @@
 #include "llvm/ADT/STLExtras.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <limits>
 #include <vector>
@@ -2200,6 +2201,7 @@ public:
   }
 };
 } // namespace
+
 namespace {
 class StableHLOToTTIROpPadOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::PadOp> {
@@ -2289,6 +2291,70 @@ private:
 };
 } // namespace
 
+namespace {
+// Converts SHLO logical right shift to an equivalent TTIR arithmetic right
+// shift. For uints as inputs to SHLO right shift, arithmetic and logical shift
+// are equivalent. For singed ints, however, a typecast to uint needs to be done
+// before performing arithmetic shift to make it perform a shift with leading
+// zeros.
+class StableHLOToTTIRShiftRightLogicalOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::ShiftRightLogicalOp> {
+
+  using OpConversionPattern<
+      mlir::stablehlo::ShiftRightLogicalOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::ShiftRightLogicalOp srcOp,
+                  mlir::stablehlo::ShiftRightLogicalOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = srcOp.getLoc();
+
+    // Grab operands
+    auto lhs = adaptor.getLhs();
+    auto rhs = adaptor.getRhs();
+
+    // Determine unsigned type for lhs and rhs. They are the same.
+    auto inputType = mlir::cast<RankedTensorType>(lhs.getType());
+    auto elementType = inputType.getElementType();
+    auto unsignedElementType = mlir::IntegerType::get(
+        elementType.getContext(), elementType.getIntOrFloatBitWidth(),
+        mlir::IntegerType::Unsigned);
+    auto unsignedOutputType =
+        mlir::RankedTensorType::get(inputType.getShape(), unsignedElementType);
+
+    ttir::EmptyOp lhsOutputTensor = rewriter.create<ttir::EmptyOp>(
+        srcOp.getLoc(), unsignedOutputType.getShape(),
+        unsignedOutputType.getElementType(), unsignedOutputType.getEncoding());
+
+    ttir::EmptyOp rhsOutputTensor = rewriter.create<ttir::EmptyOp>(
+        srcOp.getLoc(), unsignedOutputType.getShape(),
+        unsignedOutputType.getElementType(), unsignedOutputType.getEncoding());
+
+    // Typecast lhs to unsigned
+    auto lhsUnsigned =
+        rewriter.create<ttir::TypecastOp>(loc, inputType, lhs, lhsOutputTensor);
+
+    // Typecast rhs to unsigned
+    auto rhsUnsigned =
+        rewriter.create<ttir::TypecastOp>(loc, inputType, rhs, rhsOutputTensor);
+
+    // Perform arithmetic shift on unsigned data
+    auto shiftedUnsigned = rewriter.create<ttir::ArithmeticRightShiftOp>(
+        loc, lhsUnsigned, rhsUnsigned);
+
+    // Typecast result back to original type
+    auto result = rewriter.create<ttir::TypecastOp>(loc, unsignedOutputType,
+                                                    shiftedUnsigned, inputType);
+
+    // Replace the original op
+    rewriter.replaceOp(srcOp, result);
+
+    return success();
+  }
+};
+} // namespace
+
 static void
 addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                          RewritePatternSet &patterns,
@@ -2365,7 +2431,7 @@ addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
       mlir::stablehlo::Atan2Op, mlir::tt::ttir::Atan2Op>>(typeConverter, ctx);
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::ShiftRightLogicalOp,
-      mlir::tt::ttir::ShiftRightLogicalOp>>(typeConverter, ctx);
+      mlir::tt::ttir::ArithmeticRightShiftOp>>(typeConverter, ctx);
 }
 
 static void addReduceOpsConversionPatterns(MLIRContext *ctx,

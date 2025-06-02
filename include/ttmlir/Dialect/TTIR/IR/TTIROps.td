@@ -967,17 +967,19 @@ def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum"> {
     }];
 }
 
-def TTIR_ShiftRightLogicalOp : TTIR_ElementwiseBinaryOp<"shift_right_logical"> {
-    let summary = "Logical right shift.";
+def TTIR_ArithmeticRightShiftOp : TTIR_ElementwiseBinaryOp<"arithmetic_right_shift"> {
+    let summary = "Arithmetic right shift.";
     let description = [{
-      Performs element-wise logical right-shift operation on the lhs tensor by rhs
+      Performs element-wise arithmetic right-shift operation on the lhs tensor by rhs
       number of bits and produces a result tensor.
+
+      TODO implement verification that type(lhs) == type(rhs) == type(result)
 
       Example
       ```
       // %lhs: [-1, 0, 8]
       // %rhs: [1, 2, 3]
-      %result = "stablehlo.shift_right_logical"(%lhs, %rhs): (tensor<3xi64>, tensor<3xi64>) -> tensor<3xi64>
+      %result = "ttir.arithmetic_right_shift"(%lhs, %rhs): (tensor<3xi64>, tensor<3xi64>) -> tensor<3xi64>
       // %result: [9223372036854775807, 0, 1]
       ```
     }];
