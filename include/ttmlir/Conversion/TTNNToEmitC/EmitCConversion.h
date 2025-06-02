@@ -443,6 +443,10 @@ template <typename T>
 struct EmitCTypeConverter<::ttnn::SmallVector<T>>
     : public EmitCContainerTypeConverter<::ttnn::SmallVector<T>> {};
 
+template <typename T>
+struct EmitCTypeConverter<std::set<T>>
+    : public EmitCContainerTypeConverter<std::set<T>> {};
+
 template <typename T, size_t k>
 struct EmitCTypeConverter<std::array<T, k>> {
 
@@ -735,6 +739,27 @@ inline std::string convert(ttnn::BufferTypeAttr attr) {
   return convert(attr.getValue());
 }
 
+inline std::string convert(ttnn::ShardSpecAttr attr) {
+  if (!attr) {
+    return TypeNameV<std::nullopt_t>;
+  }
+
+  std::string buf;
+  llvm::raw_string_ostream rso(buf);
+
+  rso << "::ttnn::ShardSpec{";
+  rso << convert(attr.getCoreRangeSet()) << ", ";
+  rso << convert(attr.getShape()) << ", ";
+  rso << convert(attr.getShardOrientation());
+  // ShardMode is modeled as optional in TTNN dialect, but it's either required
+  // or defaulted to `Physical` in TTNN library.
+  if (attr.getShardMode()) {
+    rso << ", " << convert(attr.getShardMode());
+  }
+  rso << "}";
+  return buf;
+}
+
 inline std::string convert(ttnn::MemoryConfigAttr attr) {
   if (!attr) {
     return TypeNameV<std::nullopt_t>;
@@ -745,7 +770,8 @@ inline std::string convert(ttnn::MemoryConfigAttr attr) {
   llvm::raw_string_ostream rso(buf);
   rso << "::ttnn::MemoryConfig{";
   rso << convert(attr.getTensorMemoryLayout()) << ", ";
-  rso << convert(attr.getBufferType());
+  rso << convert(attr.getBufferType()) << ", ";
+  rso << convert(attr.getShardSpec());
   rso << "}";
   return buf;
 }
