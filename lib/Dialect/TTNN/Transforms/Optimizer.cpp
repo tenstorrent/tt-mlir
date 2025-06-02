@@ -30,10 +30,10 @@
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/Visitors.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
-#include <llvm/ADT/DenseMap.h>
 
 namespace mlir::tt::ttnn {
 
@@ -424,7 +424,7 @@ public:
       llvm::DenseMap<Operation *, Operation *> insertedMemoryReconfigOps;
       if (memReconfigEnabled) {
         insertedMemoryReconfigOps =
-          processMemReconfigEdges(memReconfigEntryMap, deviceGrid);
+            processMemReconfigEdges(memReconfigEntryMap, deviceGrid);
       }
 
       processSpillOps(spillToDramOps, deviceGrid, insertedMemoryReconfigOps);
@@ -707,43 +707,81 @@ private:
                      use.getOwner());
       }
 
-      // here spilled op result is wired to layout op so we have to save uses
-      // before
-      Operation *toLayoutOp = builder.create<ToLayoutOp>(
+      Operation *spillToDRAMOp = builder.create<ToLayoutOp>(
           loc, newTensorType, spilledOp->getResult(0), newLayout, dataType,
           memConfigAttr, getOrCreateDeviceOpValue(spilledOp, builder));
       TTMLIR_TRACE(
           ttmlir::LogComponent::Optimizer,
           "Inserted spill to DRAM prevLayout: {}\n\t new ToLayoutOp: {}",
-          layoutAttr, toLayoutOp);
-      // for (auto &use : spilledOp->getResult(0).getUses()) {
-      //   TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-      //                "After creating spill op, has use: {}@{} ({})",
-      //                use.getOwner()->getName(), use.getOwner()->getLoc(),
-      //                use.getOwner());
-      // }
+          layoutAttr, spillToDRAMOp);
 
+      // Step 2: Reconnect uses.
       for (auto &use : uses) {
         Operation *useOp = use.first;
-        useOp->setOperand(use.second, toLayoutOp->getResult(0));
+        useOp->setOperand(use.second, spillToDRAMOp->getResult(0));
       }
 
-      // Reconnect inserted memory reconfig ops for this spilled op
+      // Spilling fork op's result.
+      // Since we end L1 sharded chains with fork ops, they will naturally be
+      // spilled to DRAM. There are 2 approaches how we can handle this:
+      //
+      // 1. ToLayoutOp (DRAM) inserted before both branches
+      //
+      //   [fork op]
+      //      |
+      //  [ToLayoutOp (DRAM)]
+      //      |
+      //      +-------------------+
+      //      |                   |
+      //      v                   v
+      //  [branch 1]          [branch 2]
+      //      |                   |
+      //      v                   v
+      //  [consumer op 1]     [consumer op 2]
+      //
+      // In this case, the output of the fork op is first spilled to DRAM via
+      // ToLayoutOp, and then both branches consume the DRAM-backed tensor. This
+      // is less optimal if only one branch truly needs DRAM, as both branches
+      // are forced to use the DRAM layout.
+      //
+      // 2. ToLayoutOp (DRAM) inserted only for one branch
+      //
+      //   [fork op]
+      //      |
+      //      +-------------------+
+      //      |                   |
+      //      |                   v
+      //      |                 * [mem reconfig op]
+      //      |                   |
+      //      v                   v
+      //  [ToLayoutOp (DRAM)]   [direct consumer op]
+      //      |
+      //      v
+      //  [consumer op operand]
+      //
+      // One outgoing branch from the fork op is spilled to DRAM (via
+      // ToLayoutOp), while the other branch goes directly to the consumer op
+      // operand. Problem with this approach is that we probably have mem
+      // reconfig op inserted on the right branch as it is the first op of a
+      // chain. Then this mem reconfig op will possibly be redundant as it tries
+      // to reconfigure fork op's result (L1 tensor) to same layout. We can
+      // avoid this by not inserting mem reconfig op on the right branch.
+      // However, then we have to ensure that left branch is executed first to
+      // avoid losing data if right branch is executed first.
+      //
       if (insertedMemoryReconfigOps.count(spilledOp)) {
-        [[maybe_unused]] Operation *consumer = insertedMemoryReconfigOps.at(spilledOp);
-        // TODO(rpavlovicTT) by reconnecting we get basically redundant toLayout
-        // op because fork op is sharded and we inserted reshard, so we're
-        // trying to shard already sharded tensor with same layout. If we don't
-        // reconnect we have slightly worse performance because we reshard from
-        // DRAM. One solution is to not insert reshard when producer is already
-        // in the same layout (we assume that tensor is in DRAM when starting
-        // new chain).
+        [[maybe_unused]] Operation *consumer =
+            insertedMemoryReconfigOps.at(spilledOp);
+        // Currently disabling wiring spilled op's result to mem
+        // reconfig op because we don't detect if mem reconfig op is redundant.
+        // TODO(rpavlovicTT) detect if mem reconfig op is redundant, eliminate it and
+        // make sure other branch is executed first.
 
         // consumer->setOperand(0, spilledOp->getResult(0));
-        TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                     "Reconnected {}@{} to {}@{}", spilledOp->getName(),
-                     spilledOp->getLoc(), consumer->getName(),
-                     consumer->getLoc());
+        // TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+        //              "Reconnected {}@{} to {}@{}", spilledOp->getName(),
+        //              spilledOp->getLoc(), consumer->getName(),
+        //              consumer->getLoc());
       }
     }
   }
