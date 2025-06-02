@@ -647,7 +647,9 @@ def TTNN_MultiplyOp : TTNN_ElementwiseBinaryOp<"multiply",
     }];
 }
 
-def TTNN_SubtractOp : TTNN_ElementwiseBinaryOp<"subtract"> {
+def TTNN_SubtractOp : TTNN_ElementwiseBinaryOp<"subtract",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise subtract.";
     let description = [{
       Eltwise subtract operation.

@@ -608,7 +608,7 @@ TEST_F(OpModelTest, Typecast) {
 }
 
 // ==== Binary Eltwise Ops Starts ====
-enum class BinaryEltwiseOpType { Add, Mul };
+enum class BinaryEltwiseOpType { Add, Mul, Subtract };
 class OpModelBinaryEltwiseParam : public OpModelTest,
                                   public testing::WithParamInterface<
                                       std::tuple<BinaryEltwiseOpType,
@@ -626,6 +626,7 @@ protected:
       runtimeMap = {
           {BinaryEltwiseOpType::Add, AddOpInterface::getOpRuntime},
           {BinaryEltwiseOpType::Mul, MultiplyOpInterface::getOpRuntime},
+          {BinaryEltwiseOpType::Subtract, SubtractOpInterface::getOpRuntime},
       };
 
   std::map<
@@ -637,6 +638,8 @@ protected:
       constraintsMap = {
           {BinaryEltwiseOpType::Add, AddOpInterface::getOpConstraints},
           {BinaryEltwiseOpType::Mul, MultiplyOpInterface::getOpConstraints},
+          {BinaryEltwiseOpType::Subtract,
+           SubtractOpInterface::getOpConstraints},
       };
 
   void RunTest() {
@@ -801,6 +804,11 @@ INSTANTIATE_TEST_SUITE_P(AddTests, OpModelBinaryEltwiseParam,
 INSTANTIATE_TEST_SUITE_P(MulTests, OpModelBinaryEltwiseParam,
                          generateBinaryEltwiseParams(BinaryEltwiseOpType::Mul,
                                                      binaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(
+    SubtractTests, OpModelBinaryEltwiseParam,
+    generateBinaryEltwiseParams(BinaryEltwiseOpType::Subtract,
+                                binaryEltwiseParams));
 
 // ==== Binary Eltwise Ops Ends ====
 
