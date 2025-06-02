@@ -33,7 +33,7 @@ public:
 
     moduleOp.walk([&](ttnn::Conv2dOp conv2dOp) {
       rewriter.setInsertionPoint(conv2dOp);
-      // changeTheLayoutsIfNeeded(conv2dOp, rewriter);
+      changeTheLayoutsIfNeeded(conv2dOp, rewriter);
 
       mlir::RankedTensorType inputType = conv2dOp.getInput().getType();
 
@@ -52,7 +52,7 @@ public:
           rewriter.create<ttnn::PrepareConv2dWeightsOp>(
               ttmlir::utils::appendLocationSuffix(conv2dOp.getLoc(),
                                                   "_prepare_conv2d_weight"),
-              getPreparedWeightsType(conv2dOp), conv2dOp.getInput(),
+              getPreparedWeightsType(conv2dOp), conv2dOp.getWeight(),
               inputMemConfigAttr,
               rewriter.getAttr<ttnn::LayoutAttr>(inputLayoutAttr.getLayout()),
               rewriter.getStringAttr("OIHW"), conv2dOp.getInChannelsAttr(),
@@ -87,18 +87,6 @@ public:
             conv2dOp.getDilationAttr(), conv2dOp.getGroupsAttr(),
             conv2dOp.getDevice(), conv2dConfig);
       }
-
-      llvm::outs() << "******************************** Prepared types\n";
-      getPreparedWeightsType(conv2dOp).dump();
-      getPreparedBiasType(conv2dOp).dump();
-
-      // With TO-LAYOUT ops
-      // tensor<1x1x576x64xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 576
-      // + d1 * 576 + d2, d3), <8x8, (d0, d1) -> (0, d0, d1)>,
-      // memref<3x1x!tt.tile<32x32, bf16>, #ttnn.buffer_type<dram>>,
-      // <interleaved>>> tensor<1x1x1x64xbf16, #ttnn.ttnn_layout<(d0, d1, d2,
-      // d3) -> (d0 * 32 + d1 * 32 + d2, d3), <1x1>, memref<1x2x!tt.tile<32x32,
-      // bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>
 
       // Update only the weight operand since PrepareConv2dWeightsOp will change
       // the shape and layout of the weight
