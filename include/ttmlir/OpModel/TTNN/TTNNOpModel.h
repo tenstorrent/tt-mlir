@@ -376,8 +376,7 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 // Upsample
 //===----------------------------------------------------------------------===//
 namespace UpsampleOpInterface {
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<OpConstraints>
 getOpConstraints(GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
                  mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
                  mlir::Attribute scaleFactor, llvm::StringRef mode,

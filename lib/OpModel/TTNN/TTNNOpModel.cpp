@@ -1629,8 +1629,7 @@ llvm::Expected<size_t> ClampScalarOpInterface::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // Permute
 //===----------------------------------------------------------------------===//
-llvm::Expected<op_model::ttnn::OpConstraints>
-PermuteOpInterface::getOpConstraints(
+llvm::Expected<OpConstraints> PermuteOpInterface::getOpConstraints(
     GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> permutation, llvm::APFloat padValue,
@@ -1663,7 +1662,7 @@ PermuteOpInterface::getOpConstraints(
   return operation::getOpConstraints(
       "PermuteOpInterface", inputLayout.getContext(), deviceGrid, permuteQuery);
 #else
-  return op_model::ttnn::OpConstraints{};
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -1708,9 +1707,7 @@ PermuteOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 // Upsample
 //===----------------------------------------------------------------------===//
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
-UpsampleOpInterface::getOpConstraints(
+llvm::Expected<OpConstraints> UpsampleOpInterface::getOpConstraints(
     GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout, mlir::Attribute scaleFactor,
     llvm::StringRef mode, llvm::ArrayRef<int64_t> outputShape,
@@ -1754,7 +1751,7 @@ UpsampleOpInterface::getOpConstraints(
                                      inputLayout.getContext(), deviceGrid,
                                      upsampleQuery);
 #else
-  return std::make_tuple(0, 0, 0, nullptr);
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 

@@ -699,8 +699,7 @@ PermuteOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // UpsampleOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<op_model::ttnn::OpConstraints>
 UpsampleOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                              const OpConfig &opConfig) {
   assert(inputs.size() == 1);
