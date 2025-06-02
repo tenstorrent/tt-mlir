@@ -11,12 +11,13 @@ import torch
 
 class EltwiseSFPUPyKernelOp(PyKernelOp):
     # KERNEL DEFINITIONS
-    @staticmethod
-    @ttkernel_tensix_compile()
-    def eltwise_sfpu(cb_in: CircularBuffer, cb_out: CircularBuffer, ct_args=[]):
-        per_core_block_cnt = ct_args[0]
-        per_core_block_dim = ct_args[1]
-
+    @compute_thread()
+    def eltwise_sfpu(
+        cb_in: CircularBuffer,
+        cb_out: CircularBuffer,
+        per_core_block_cnt: CompiledValue,
+        per_core_block_dim: CompiledValue,
+    ):
         unary_op_init_common(cb_in, cb_out)
         for i in range(0, per_core_block_cnt, 1):
             cb_reserve_back(cb_out, per_core_block_dim)
@@ -39,29 +40,15 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
             cb_push_back(cb_out, per_core_block_dim)
         return
 
-    def eltwise_sfpu_CT_ARGS(self, tensors, options):
-        # Create the CT Args for the eltwise_sfpu kernel
-        return [
-            options["num_tiles"],  # per_core_block_cnt
-            1,  # per_core_block_dim = ct_args[1]
-        ]
-
-    def eltwise_sfpu_DEFINES(self, tensors, options):
-        return [
-            ("SFPU_OP_EXP_INCLUDE", "1"),
-            ("SFPU_OP_CHAIN_0", "exp_tile_init(); exp_tile(0);"),
-        ]
-
-    @staticmethod
-    @ttkernel_noc_compile()
+    @writer_thread()
     def writer_unary_interleaved(
-        cb_in: CircularBuffer, cb_out: CircularBuffer, rt_args, ct_args=[]
+        cb_in: CircularBuffer,
+        cb_out: CircularBuffer,
+        dst_addr,
+        num_tiles,
+        start_id,
+        dst_is_dram: CompiledValue,
     ):
-        dst_addr: int = rt_args[0]
-        num_tiles = rt_args[1]
-        start_id = rt_args[2]
-
-        dst_is_dram = ct_args[0]
         onetile = 1
         tile_bytes = get_tile_size(cb_out)
         dataformat = get_dataformat(cb_out)
@@ -81,28 +68,15 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
             ii += onetile
         return
 
-    def writer_unary_interleaved_CT_ARGS(self, tensors, options):
-        return [
-            options["is_dram_input"],
-        ]
-
-    def writer_unary_interleaved_RT_ARGS(self, tensors, options):
-        return [
-            tensors[1].buffer_address(),
-            options["num_tiles"],
-            0,  # start_id
-        ]
-
-    @staticmethod
-    @ttkernel_noc_compile()
+    @reader_thread()
     def reader_unary_interleaved(
-        cb_in: CircularBuffer, cb_out: CircularBuffer, rt_args, ct_args=[]
+        cb_in: CircularBuffer,
+        cb_out: CircularBuffer,
+        src_addr,
+        num_tiles,
+        start_id,
+        src_is_dram: CompiledValue,
     ):
-        src_addr: int = rt_args[0]
-        num_tiles = rt_args[1]
-        start_id = rt_args[2]
-
-        src_is_dram = ct_args[0]  # True
         onetile = 1
         tile_bytes = get_tile_size(cb_in)
         dataformat = get_dataformat(cb_in)
@@ -122,35 +96,43 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
             ii += onetile
         return
 
-    def reader_unary_interleaved_CT_ARGS(self, tensors, options):
-        return [
-            options["is_dram_input"],
-        ]
+    def invoke(self, tensors, options):
+        in_tensor, out_tensor = tensors
+        cb_in = self.create_cb(in_tensor, 0)
+        cb_out = self.create_cb(out_tensor, 1)
+        start_id = 0
+        is_dram_input = in_tensor.memory_config().buffer_type == ttnn.BufferType.DRAM
+        num_tiles = options["num_tiles"]
 
-    def reader_unary_interleaved_RT_ARGS(self, tensors, options):
-        return [
-            tensors[0].buffer_address(),
-            options["num_tiles"],
-            0,  # start_id
-        ]
-
-    # KERNEL SELECTION
-    def select_kernels(self, tensors, options):
-        return [
-            (EltwiseSFPUPyKernelOp.eltwise_sfpu, ttnn.ComputeConfigDescriptor),
-            (
+        kernels = [
+            self.create_kernel(
+                EltwiseSFPUPyKernelOp.eltwise_sfpu,
+                cb_in,
+                cb_out,
+                per_core_block_cnt=num_tiles,
+                per_core_block_dim=1,
+            ),
+            self.create_kernel(
                 EltwiseSFPUPyKernelOp.writer_unary_interleaved,
-                ttnn.WriterConfigDescriptor,
+                cb_in,
+                cb_out,
+                out_tensor.buffer_address(),
+                num_tiles,
+                start_id,
+                dst_is_dram=is_dram_input,
             ),
-            (
+            self.create_kernel(
                 EltwiseSFPUPyKernelOp.reader_unary_interleaved,
-                ttnn.ReaderConfigDescriptor,
+                cb_in,
+                cb_out,
+                in_tensor.buffer_address(),
+                num_tiles,
+                start_id,
+                src_is_dram=is_dram_input,
             ),
         ]
 
-    def define_core_ranges(self, tensors, options):
-        core = ttnn.CoreCoord(0, 0)
-        return ttnn.CoreRangeSet([ttnn.CoreRange(core, core)])
+        return self.create_program(kernels, [cb_in, cb_out])
 
 
 # Device Definitions
@@ -182,7 +164,7 @@ output_tensor = ttnn.allocate_tensor_on_device(
 io_tensors = [input_tensor, output_tensor]
 
 # Define Custom Generic Op
-eltwise_exp_op = EltwiseSFPUPyKernelOp(ttnn)
+eltwise_exp_op = EltwiseSFPUPyKernelOp()
 
 # Run tests against the golden "exp" op.
 output = eltwise_exp_op(*io_tensors, num_tiles=num_tiles)

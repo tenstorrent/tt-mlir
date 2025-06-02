@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+from enum import Enum, auto
 
 
 class CircularBuffer:
@@ -37,3 +38,9 @@ class Kernel:
             f.write(self.kernel_string)
 
         return file_path
+
+
+class CompiledValue:
+    def __init__(self, key, value):
+        self.key = key
+        self.value = value

@@ -126,12 +126,12 @@ class TTKernelCompiler(ast.NodeVisitor):
         self.kernel_type = kernel_type
 
         self.args = args
-        self.cb_args = args
-        self.rt_args = None
-        self.ct_args = kwargs.get("ct_args")
+        self.ct_args = {}
 
-        # if not isinstance(self.ct_args, dict):
-        #    raise TypeError("ct_args must be a dict!")
+        for arg in args:
+            if hasattr(arg, "value") and hasattr(arg, "key"):
+                # This is a CompiledValue
+                self.ct_args[arg.key] = arg.value
 
         # Get rid of appended metadata sent into compiler
         self.verbose = False
@@ -143,6 +143,8 @@ class TTKernelCompiler(ast.NodeVisitor):
         if "source_code" in kwargs:
             self.source_code = kwargs["_source_code"]
             del kwargs["_source_code"]
+
+        self.kwargs = kwargs
 
     def get_source_comment(self, node):
         """
@@ -216,36 +218,40 @@ class TTKernelCompiler(ast.NodeVisitor):
         assert not self.func_entry, "Cannot declare function within a function"
 
         arg_types = []
+        rt_args = []
+        ct_args = []
         for i in range(len(node.args.args)):
+            # We know that all cb_args will be annotated with CircularBuffer
+            # After that we will have the positional rt_args
+            # Finally we will have the kwarg ct_args, we have to intelligently parse all of these
             arg = node.args.args[i]
 
-            # Check for rt_args
-            # TODO: Decide between strict rt_args name _or_ type of list[int] defining argument as rt_args.
-            if arg.arg == "rt_args":
-                # This is a valid defined rt_args object
-                # We don't want this to be defined in the EmitC module since it's bootstrapped to call get_arg_val
-                # Instead set a flag for ast.Subscript to check if this value is being called.
-                self.rt_args = arg
-                continue
-            elif arg.arg == "ct_args":
-                if self.ct_args is None:
-                    raise ValueError("ct_args must be defined")
-                continue
-
             if not arg.annotation:
-                raise ValueError("Function arguments must have type annotations")
+                # This is a runtime arg now, wire it up into the function statement
+                # Add the name and the index
+                rt_args.append((arg.arg, len(rt_args)))
+                continue
+            elif arg.annotation.id == "CompiledValue":
+                # This is a CT Arg, we can package the metadata needed for passing this value in
+                if arg.arg not in self.ct_args:
+                    raise ValueError(
+                        f"Argument {arg.arg} not provided into kernel call."
+                    )
+                ct_args.append((arg.arg, self.ct_args[arg.arg]))
+                continue
             elif not arg.annotation.id == "CircularBuffer":
                 raise TypeError(f"cannot pass {arg.annotation.id} to a pykernel")
 
+            # Follow normal logic to construct CBs
             tile_type = tt.ir.TileType.get(
-                self.ctx, 32, 32, getattr(tt.DataType, self.cb_args[i].dtype)
+                self.ctx, 32, 32, getattr(tt.DataType, self.args[i].dtype)
             )
             cb_type = ttkernel.ir.CBType.get(
                 self.ctx,  # mlir context
                 0,  # address
-                self.cb_args[i].cb_id,
+                self.args[i].cb_id,
                 MemRefType.get(
-                    self.cb_args[i].tilized_shape, tile_type
+                    self.args[i].tilized_shape, tile_type
                 ),  # hardcoded dimensions for now - this is usually lowered from tensors?
             )
             arg_types.append(cb_type)
@@ -269,6 +275,23 @@ class TTKernelCompiler(ast.NodeVisitor):
             if self.verbose and self.source_code:
                 comment = f"// --- Python Function Declaration for Above --- \n{self.get_source_comment_block(node)}\n// -- End Function Declaration"
                 emitc.verbatim(comment)
+
+            # Insert a point to create all of the relevant rt_args and ct_args
+            int_type = IntegerType.get_signless(32, self.ctx)
+            for name, idx in rt_args:
+                _idx = arith.ConstantOp(IndexType.get(self.ctx), idx)
+                self.symbol_tables[-1][name] = ttkernel.get_arg_val(int_type, _idx)
+
+            for name, value in ct_args:
+                if isinstance(value, bool):
+                    res = arith.ConstantOp(IntegerType.get_signless(1, self.ctx), value)
+                elif isinstance(value, int):
+                    res = arith.ConstantOp(
+                        IntegerType.get_signless(32, self.ctx), value
+                    )
+                else:
+                    raise TypeError("ct_args must be int or bool")
+                self.symbol_tables[-1][name] = res
 
             for target in node.body:
                 self.visit(target)
@@ -947,7 +970,9 @@ class TTKernelCompiler(ast.NodeVisitor):
             raise NotImplementedError(f"visit {type(node).__name__} not supported")
 
 
-def ttkernel_compile(kernel_type=None, verbose: bool = False, optimize: bool = False):
+def ttkernel_compile(
+    kernel_type=None, verbose: bool = False, optimize: bool = False, thread_type=""
+):
     def _decorator(f):
         @functools.wraps(f)
         def _wrapper(*args, **kwargs):
@@ -963,8 +988,8 @@ def ttkernel_compile(kernel_type=None, verbose: bool = False, optimize: bool = F
 
             if verbose is True:
                 # Create easily index-able object to store source code:
-                kwargs["source_code"] = source_code.splitlines()
-                kwargs["verbose"] = True
+                kwargs["_source_code"] = source_code.splitlines()
+                kwargs["_verbose"] = True
             m = ast.parse(source_code)
             b = TTKernelCompiler(f.__name__, kernel_type, *args, **kwargs)
             print(ast.dump(m, indent=4) + "\n")
@@ -983,9 +1008,31 @@ def ttkernel_compile(kernel_type=None, verbose: bool = False, optimize: bool = F
                 kernel_string = ttkernel_to_cpp(b.module)
                 return kernel_string
 
+        # Make the decorator apply staticmethod for class methods defined using op.py
+        _wrapper._decorator_name = thread_type + "_thread"
+        if inspect.ismethod(f):
+            return staticmethod(_wrapper)
         return _wrapper
 
     return _decorator
+
+
+def compute_thread(verbose: bool = False, optimize: bool = False):
+    return ttkernel_compile(
+        kernel_type="compute", verbose=verbose, optimize=optimize, thread_type="compute"
+    )
+
+
+def reader_thread(verbose: bool = False, optimize: bool = False):
+    return ttkernel_compile(
+        kernel_type="noc", verbose=verbose, optimize=optimize, thread_type="reader"
+    )
+
+
+def writer_thread(verbose: bool = False, optimize: bool = False):
+    return ttkernel_compile(
+        kernel_type="noc", verbose=verbose, optimize=optimize, thread_type="writer"
+    )
 
 
 def ttkernel_tensix_compile(verbose: bool = False, optimize: bool = False):
