@@ -719,6 +719,10 @@ private:
       for (auto &use : uses) {
         Operation *useOp = use.first;
         useOp->setOperand(use.second, spillToDRAMOp->getResult(0));
+        llvm::errs() << "Reconnected user of spilled op " << useOp->getName()
+                     << "@" << useOp->getLoc() << " to "
+                     << spillToDRAMOp->getName() << "@"
+                     << spillToDRAMOp->getLoc() << "\n";
       }
 
       // Spilling fork op's result.
@@ -770,18 +774,65 @@ private:
       // avoid losing data if right branch is executed first.
       //
       if (insertedMemoryReconfigOps.count(spilledOp)) {
-        [[maybe_unused]] Operation *consumer =
+        [[maybe_unused]] Operation *memoryReconfigOp =
             insertedMemoryReconfigOps.at(spilledOp);
         // Currently disabling wiring spilled op's result to mem
         // reconfig op because we don't detect if mem reconfig op is redundant.
-        // TODO(rpavlovicTT) detect if mem reconfig op is redundant, eliminate it and
-        // make sure other branch is executed first.
+        // TODO(rpavlovicTT) detect if mem reconfig op is redundant, eliminate
+        // it and make sure other branch is executed first.
 
         // consumer->setOperand(0, spilledOp->getResult(0));
         // TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
         //              "Reconnected {}@{} to {}@{}", spilledOp->getName(),
         //              spilledOp->getLoc(), consumer->getName(),
         //              consumer->getLoc());
+
+        auto spilledOpResultLayout = mlir::cast<TTNNLayoutAttr>(
+            mlir::cast<RankedTensorType>(spilledOp->getResult(0).getType())
+                .getEncoding());
+        assert(spilledOpResultLayout &&
+               "Expected spilled op result to have layout");
+        auto memoryReconfigOpLayout = mlir::cast<TTNNLayoutAttr>(
+            mlir::cast<RankedTensorType>(
+                memoryReconfigOp->getResult(0).getType())
+                .getEncoding());
+        assert(memoryReconfigOpLayout &&
+               "Expected memory reconfig op result to have layout");
+
+        if (memoryReconfigOpLayout == spilledOpResultLayout) {
+          // Erase memory reconfig op
+          assert(memoryReconfigOp->hasOneUse() &&
+                 "Expected memory reconfig op to have one use");
+          auto memoryReconfigOpConsumer =
+              memoryReconfigOp->getResult(0).getUses().begin();
+
+          Operation *memoryReconfigOpConsumerOwner =
+              memoryReconfigOpConsumer->getOwner();
+          memoryReconfigOpConsumerOwner->setOperand(
+              memoryReconfigOpConsumer->getOperandNumber(),
+              spilledOp->getResult(0));
+          TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                       "Erased memory reconfig op: {}@{}",
+                       memoryReconfigOp->getName(), memoryReconfigOp->getLoc());
+
+          memoryReconfigOpConsumerOwner->moveAfter(spillToDRAMOp);
+          TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                       "Moved memory reconfig op consumer to be after spill to "
+                       "DRAM: {}@{}",
+                       memoryReconfigOpConsumerOwner->getName(),
+                       memoryReconfigOpConsumerOwner->getLoc());
+
+          memoryReconfigOp->erase();
+        } else {
+          // MemoryReconfigOp has only one operand and we will wire it to
+          // spilled op's result.
+          memoryReconfigOp->setOperand(0, spilledOp->getResult(0));
+          llvm::errs() << "Reconnected reshard op "
+                       << memoryReconfigOp->getName() << "@"
+                       << memoryReconfigOp->getLoc() << " to "
+                       << spilledOp->getName() << "@" << spilledOp->getLoc()
+                       << "\n";
+        }
       }
     }
   }
