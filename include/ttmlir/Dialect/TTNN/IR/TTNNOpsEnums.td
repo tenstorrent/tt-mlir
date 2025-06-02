@@ -267,4 +267,20 @@ def TTNN_ShardMode : I32EnumAttr<"ShardMode", "TTNN ShardMode",
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
+def TTNN_MathFidelityLoFi : I32EnumAttrCase<"LoFi", 0, "lofi">;
+def TTNN_MathFidelityHiFi2 : I32EnumAttrCase<"HiFi2", 2, "hifi2">;
+def TTNN_MathFidelityHiFi3 : I32EnumAttrCase<"HiFi3", 3, "hifi3">;
+def TTNN_MathFidelityHiFi4 : I32EnumAttrCase<"HiFi4", 4, "hifi4">;
+
+def TTNN_MathFidelity : I32EnumAttr<"MathFidelity", "TT MathFidelity",
+                           [
+                            TTNN_MathFidelityLoFi,
+                            TTNN_MathFidelityHiFi2,
+                            TTNN_MathFidelityHiFi3,
+                            TTNN_MathFidelityHiFi4,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
 #endif

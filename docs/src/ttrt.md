@@ -46,6 +46,9 @@ source ttrt_env/bin/activate
 pip install ttrt-0.0.235-cp310-cp310-linux_x86_64.whl
 ```
 
+## Generate a flatbuffer file from ttir-builder
+[`ttir-builder`](./ttir-builder.md) is a tool for creating TTIR ops and converting them into MLIR modules, running passes to lower into backends, and translate to flatbuffers.
+
 ## Generate a flatbuffer file from compiler
 The compiler supports a pass to load a system descriptor to compile against. You can feed this pass into ttmlir-opt.
 
@@ -380,7 +383,7 @@ op_golden_tensor = ttrt.runtime.get_debug_info_golden(binary, loc) : get the gol
 op_output_tensor = ttrt.runtime.get_op_output_tensor(op_context, program_context) : get the currently running output tensor from device as a ttrt.runtime Tensor object, if this is called in a preOp function or the op doesn't output a tensor, an empty tensor will be returned.
 ```
 
-5. A potential application for this callback function is implementing a golden callback. TTRT achieves this by first storing the golden data within the flatbuffer binary. See `python/Passes.cpp` - specifically `ttnn_to_flatbuffer_file` function for an example. This is used by `tools/ttir-builder/builder.py` to construct flatbuffers with embedded golden data. You can store input/output/intermediate data within the flatbuffer. The choice of the map `key` for inputs/outputs is left to the golden implementor. The intermediate tensor key is derived from loc data for ttrt. External users can implement their own key/value logic. See `runtime/tools/ttrt/ttrt/common/golden.py` for how ttrt implement the golden callback function.
+5. A potential application for this callback function is implementing a golden callback. TTRT achieves this by first storing the golden data within the flatbuffer binary. This embedding is done through [`ttir-builder`](./ttir-builder.md). See `runtime/tools/ttrt/ttrt/common/callback.py` for how ttrt implements the golden callback function.
 ```bash
 std::unordered_map<std::string, mlir::tt::GoldenTensor> goldenMap
 mlir::tt::ttnn::translateTTNNToFlatbuffer(moduleOp, file, goldenMap)

@@ -342,6 +342,27 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
   return conv2dConfig;
 }
 
+::ttnn::DeviceComputeKernelConfig createDeviceComputeKernelConfig(
+    const ::tt::target::ttnn::DeviceComputeKernelConfig *config) {
+  ::ttnn::WormholeComputeKernelConfig computeKernelConfig;
+
+  if (config->math_fidelity()) {
+    computeKernelConfig.math_fidelity =
+        ::tt::runtime::ttnn::utils::toTTNNMathFidelity(
+            *config->math_fidelity());
+  }
+
+  if (config->math_approx_mode()) {
+    computeKernelConfig.math_approx_mode = *config->math_approx_mode();
+  }
+
+  if (config->dst_full_sync_en()) {
+    computeKernelConfig.dst_full_sync_en = *config->dst_full_sync_en();
+  }
+
+  return computeKernelConfig;
+}
+
 template <typename T>
 static ::ttnn::Tensor
 toTTNNTensorImpl(const ::flatbuffers::Vector<uint8_t> *data,

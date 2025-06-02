@@ -269,6 +269,13 @@ def TTNN_ExpOp : TTNN_ElementwiseUnaryOp<"exp"> {
     }];
 }
 
+def TTNN_ErfOp : TTNN_ElementwiseUnaryOp<"erf"> {
+    let summary = "Eltwise erf op.";
+    let description = [{
+        Eltwise erf operation. Calculates erf(x) for each element of the input tensor.
+      }];
+}
+
 def TTNN_FloorOp: TTNN_ElementwiseUnaryOp<"floor"> {
     let summary = "Eltwise floor op.";
     let description = [{
@@ -345,6 +352,14 @@ def TTNN_AtanOp: TTNN_ElementwiseUnaryOp<"atan"> {
 
 def TTNN_TanhOp: TTNN_ElementwiseUnaryOp<"tanh"> {
     let summary = "Eltwise tanh op.";
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createTanhOpOperandsWorkarounds();
+      }
+    }];
+
     let description = [{
       Eltwise tanh operation.
     }];
@@ -1264,7 +1279,8 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d",
                          DenseI32ArrayAttr:$padding,
                          DenseI32ArrayAttr:$dilation,
                          I32Attr:$groups,
-                         OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config);
+                         OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1813,7 +1829,9 @@ def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
     let hasVerifier = 1;
 }
 
-def TTNN_PermuteOp : TTNN_Op<"permute"> {
+def TTNN_PermuteOp : TTNN_Op<"permute",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Permute operation.";
     let description = [{
       Permute input tensor dimensions.
@@ -1882,14 +1900,18 @@ def TTNN_QuantizeOp : TTNN_Op<"quantize"> {
       Applies quantization to the input tensor.
 
       Inputs:
-        - `input` AnyRankedTensor: The input tensor to be quantized.
-        - `scale` f32: The scale factor.
-        - `zero_point` i32: The zero point value.
-        - `axis` Optional<i32>: The axis along which quantization is applied.
+        - `input` AnyRankedTensor: The input tensor to be quantized. Must have floating-point element type.
+        - `scale` AnyRankedTensor: The scale factor (or factors for per-axis quantization). Must be either a scalar (for per-tensor quantization) or a 1D tensor with size matching the dimension of the specified axis (for per-axis quantization).
+        - `zero_point` AnyRankedTensor: The zero point value (or values for per-axis quantization). Must be in range of the quantized storage type.
+        - `axis` Optional<i32>: The axis along which quantization is applied. Must be in range [0, rank) where rank is the rank of the input tensor.
         - `output_dtype` Optional<TT_DataTypeAttr>: The data type of the output tensor.
         - `memory_config` Optional<TTNN_MemoryConfigAttr>: The memory configuration for the output tensor.
+
       ```
-      output[i] = (input[i] / scale) + zero_point
+      // For per-tensor quantization:
+      output[i] = round(input[i] / scale) + zero_point
+      // For per-axis quantization:
+      output[i0, i1, ..., ia, ..., in] = round(input[i0, i1, ..., ia, ..., in] / scale[ia]) + zero_point[ia]
       ```
       Example:
       ```mlir
@@ -1900,8 +1922,8 @@ def TTNN_QuantizeOp : TTNN_Op<"quantize"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         F32Attr:$scale,
-                         I32Attr:$zero_point,
+                         AnyRankedTensor:$scale,
+                         AnyRankedTensor:$zero_point,
                          OptionalAttr<I32Attr>:$axis,
                          OptionalAttr<TT_DataTypeAttr>:$output_dtype,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
@@ -1917,14 +1939,17 @@ def TTNN_DequantizeOp : TTNN_Op<"dequantize"> {
       Applies dequantization to the input tensor.
 
       Inputs:
-        - `input` AnyRankedTensor: The input tensor to be dequantized.
-        - `scale` f32: The scale factor.
-        - `zero_point` i32: The zero point value.
-        - `axis` Optional<i32>: The axis along which quantization is applied.
+        - `input` AnyRankedTensor: The input tensor to be dequantized. Must have quantized element type.
+        - `scale` AnyRankedTensor: The scale factor (or factors for per-axis quantization).
+        - `zero_point` AnyRankedTensor: The zero point value (or values for per-axis quantization). Must be in range of the quantized storage type.
+        - `axis` Optional<i32>: The axis along which quantization is applied. Must be in range [0, rank) where rank is the rank of the input tensor.
         - `output_dtype` Optional<TT_DataTypeAttr>: The data type of the output tensor.
         - `memory_config` Optional<TTNN_MemoryConfigAttr>: The memory configuration for the output tensor.
       ```
+      // For per-tensor dequantization:
       output[i] = (input[i] - zero_point) * scale
+      // For per-axis dequantization:
+      output[i0, i1, ..., ia, ..., in] = (input[i0, i1, ..., ia, ..., in] - zero_point[ia]) * scale[ia]
       ```
       Example:
       ```mlir
@@ -1935,8 +1960,8 @@ def TTNN_DequantizeOp : TTNN_Op<"dequantize"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         F32Attr:$scale,
-                         I32Attr:$zero_point,
+                         AnyRankedTensor:$scale,
+                         AnyRankedTensor:$zero_point,
                          OptionalAttr<I32Attr>:$axis,
                          OptionalAttr<TT_DataTypeAttr>:$output_dtype,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
@@ -1952,16 +1977,19 @@ def TTNN_RequantizeOp : TTNN_Op<"requantize"> {
       Applies requantization to the input tensor.
 
       Inputs:
-        - `input` AnyRankedTensor: The input tensor to be requantized.
-        - `in_scale` f32: The input scale factor.
-        - `in_zero_point` i32: The input zero point value.
-        - `out_scale` f32: The output scale factor.
-        - `out_zero_point` i32: The output zero point value.
-        - `axis` Optional<i32>: The axis along which quantization is applied.
+        - `input` AnyRankedTensor: The input tensor to be requantized. Must have quantized element type.
+        - `in_scale` AnyRankedTensor: The input scale factor (or factors for per-axis quantization). Must be either a scalar (for per-tensor quantization) or a 1D tensor with size matching the dimension of the specified axis (for per-axis quantization).
+        - `in_zero_point` AnyRankedTensor: The input zero point value (or values for per-axis quantization). Must be in range of the quantized storage type.
+        - `out_scale` AnyRankedTensor: The output scale factor (or factors for per-axis quantization). Must be either a scalar (for per-tensor quantization) or a 1D tensor with size matching the dimension of the specified axis (for per-axis quantization).
+        - `out_zero_point` AnyRankedTensor: The output zero point value (or values for per-axis quantization). Must be in range of the quantized storage type.
+        - `axis` Optional<i32>: The axis along which quantization is applied. Must be in range [0, rank) where rank is the rank of the input tensor.
         - `output_dtype` Optional<TT_DataTypeAttr>: The data type of the output tensor.
         - `memory_config` Optional<TTNN_MemoryConfigAttr>: The memory configuration for the output tensor.
       ```
+      // For per-tensor requantization:
       output[i] = round((input[i] - input_zero_point) * (input_scale / output_scale)) + output_zero_point
+      // For per-axis requantization:
+      output[i0, i1, ..., ia, ..., in] = round((input[i0, i1, ..., ia, ..., in] - in_zero_point[ia]) * (in_scale[ia] / out_scale[ia])) + out_zero_point[ia]
       ```
       Example:
       ```mlir
@@ -1972,10 +2000,10 @@ def TTNN_RequantizeOp : TTNN_Op<"requantize"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         F32Attr:$in_scale,
-                         I32Attr:$in_zero_point,
-                         F32Attr:$out_scale,
-                         I32Attr:$out_zero_point,
+                         AnyRankedTensor:$in_scale,
+                         AnyRankedTensor:$in_zero_point,
+                         AnyRankedTensor:$out_scale,
+                         AnyRankedTensor:$out_zero_point,
                          OptionalAttr<I32Attr>:$axis,
                          OptionalAttr<TT_DataTypeAttr>:$output_dtype,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);

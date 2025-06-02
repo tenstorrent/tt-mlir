@@ -54,6 +54,7 @@ mlir::tt::SystemDescAttr createDefaultBlackholeSystemDesc(
   constexpr auto eriscL1UnreservedBase = 100032;
   constexpr auto dramUnreservedBase = 64;
   constexpr auto dramUnreservedEnd = 4276383744;
+  constexpr auto dstRegisterSizeTiles = 8;
   constexpr auto numCBs = 32;
   constexpr auto numComputeThreads = 1;
   constexpr auto numDatamovementThreads = 2;
@@ -115,8 +116,8 @@ mlir::tt::SystemDescAttr createDefaultBlackholeSystemDesc(
         l1UnreservedBase, eriscL1UnreservedBase, dramUnreservedBase,
         dramUnreservedEnd,
         ChipPhysicalHelperCoresAttr::get(context, dramCores, {}, {}),
-        supported_data_types, supported_tile_sizes, numCBs, numComputeThreads,
-        numDatamovementThreads));
+        supported_data_types, supported_tile_sizes, dstRegisterSizeTiles,
+        numCBs, numComputeThreads, numDatamovementThreads));
   }
 
   // Duplicate number of chip capabilities based on number of chips.
@@ -176,6 +177,7 @@ createDefaultWormholeSystemDesc(mlir::MLIRContext *context,
   constexpr auto eriscL1UnreservedBase = 1024;
   constexpr auto dramUnreservedBase = 1024;
   constexpr auto dramUnreservedEnd = 1 << 30;
+  constexpr auto dstRegisterSizeTiles = 8;
   constexpr auto numCBs = 32;
   constexpr auto numComputeThreads = 1;
   constexpr auto numDatamovementThreads = 2;
@@ -238,8 +240,8 @@ createDefaultWormholeSystemDesc(mlir::MLIRContext *context,
         l1UnreservedBase, eriscL1UnreservedBase, dramUnreservedBase,
         dramUnreservedEnd,
         ChipPhysicalHelperCoresAttr::get(context, dramCores, {}, {}),
-        supportedDataTypes, supportedTileSizes, numCBs, numComputeThreads,
-        numDatamovementThreads));
+        supportedDataTypes, supportedTileSizes, dstRegisterSizeTiles, numCBs,
+        numComputeThreads, numDatamovementThreads));
   }
 
   // Duplicate number of chip capabilities based on number of chips.
@@ -449,7 +451,8 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, StringRef path) {
         element->noc_dram_address_align_bytes(), element->l1_unreserved_base(),
         element->erisc_l1_unreserved_base(), element->dram_unreserved_base(),
         element->dram_unreserved_end(), chipPhysicalHelperCoresAttr,
-        supportedDataTypesAttr, supportedTileSizesAttr, element->num_cbs(),
+        supportedDataTypesAttr, supportedTileSizesAttr,
+        element->dst_register_size_tiles(), element->num_cbs(),
         element->num_compute_threads(), element->num_datamovement_threads());
     chipDescList.push_back(currentChipDescAttr);
   }
