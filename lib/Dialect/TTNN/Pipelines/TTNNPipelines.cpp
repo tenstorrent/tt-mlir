@@ -105,6 +105,8 @@ void createTTNNPipelineWorkaroundPass(
 
 void createTTNNPipelineLayoutDecompositionPass(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  pm.addPass(createTTNNMergeLayoutsWithFuncArgs());
+  pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(createTTNNDecomposeLayouts());
 }
 

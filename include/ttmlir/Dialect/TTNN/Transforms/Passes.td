@@ -149,4 +149,32 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
   let description = "This pass tries to fuse operations together with goal to reduce the number of operations in the graph.";
 }
 
+def TTNNMergeLayoutsWithFuncArgs: Pass<"ttnn-merge-layouts-with-func-args", "::mlir::ModuleOp"> {
+  let summary = "Merge to_layout ops with function arguments.";
+  let description = [{
+    This pass identifies to_layout operations that are applied directly to function arguments
+    and merges their layout attributes with the function argument types. Please note that pass
+    itself doesn't remove redundant to_layout operations, this is later done using canonicalization
+    pass. This eliminates redundant to_layout operations at the beginning of functions, making the IR
+    cleaner and potentially more efficient.
+
+    For example, given a function like this:
+
+    ```mlir
+    func.func @example(%arg0: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
+      %0 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<row_major>}> : (tensor<32x32xbf16>) -> tensor<32x32xbf16, #ttnn_layout>
+      // ... rest of function ...
+    }
+    ```
+
+    The pass will transform it to:
+
+    ```mlir
+    func.func @example(%arg0: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16> {
+      // ... rest of function with %arg0 directly used instead of %0 ...
+    }
+    ```
+  }];
+}
+
 #endif

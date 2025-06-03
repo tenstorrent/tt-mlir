@@ -5,11 +5,12 @@ endif()
 add_mlir_dialect_library(MLIRTTNNTransforms
         Optimizer.cpp
         Passes.cpp
-        TTNNLayout.cpp
         TTNNDecomposeLayouts.cpp
-        TTNNToCpp.cpp
-        TTNNPrepareConv2dWeights.cpp
         TTNNFusing.cpp
+        TTNNLayout.cpp
+        TTNNMergeLayoutsWithFuncArgsPass.cpp
+        TTNNPrepareConv2dWeights.cpp
+        TTNNToCpp.cpp
         Workarounds/Decomposition/ArgMaxOpRewritePattern.cpp
         Workarounds/Decomposition/CumSumOpDimRewritePattern.cpp
         Workarounds/Decomposition/CumSumOpRankRewritePattern.cpp
