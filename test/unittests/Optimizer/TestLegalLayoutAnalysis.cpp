@@ -3,11 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
-#include "ttmlir/Dialect/TTNN/Analysis/AllPossibleLayoutsAnalysis.h"
-#include "ttmlir/Dialect/TTNN/Analysis/LegalLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Analysis/LegalOpLayoutAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/LegalTensorLayoutAnalysis.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
@@ -140,12 +140,12 @@ TEST_P(LegalLayoutAnalysisTest, LegalLayoutAnalysisVariants) {
                ", maxSharded=" + std::to_string(getMaxShardedConfigs()));
   createTestOps();
 
-  // Step 1: Run AllPossibleLayoutsAnalysis
+  // Step 1: Run LegalTensorLayoutAnalysis
   auto scalarTypes = createScalarTypeSet();
   auto gridAttr = mlir::tt::ttcore::GridAttr::get(&context, getMaxGrid());
-  AllPossibleLayoutsAnalysisInput allLayoutsInput(gridAttr, &scalarTypes,
+  LegalTensorLayoutAnalysisInput allLayoutsInput(gridAttr, &scalarTypes,
                                                   /*rowMajorAllowed=*/true);
-  AllPossibleLayoutsAnalysis allLayoutsAnalysis(module.get());
+  LegalTensorLayoutAnalysis allLayoutsAnalysis(module.get());
   allLayoutsAnalysis.init(allLayoutsInput);
   auto allLayoutsResult = allLayoutsAnalysis.getResult();
 
@@ -158,7 +158,7 @@ TEST_P(LegalLayoutAnalysisTest, LegalLayoutAnalysisVariants) {
   // Step 2: Walk function ops and their sub-ops
   module->walk([&](mlir::func::FuncOp funcOp) {
     funcOp->walk([&](mlir::Operation *op) {
-      if (!LegalLayoutAnalysis::isValidAnalysisTarget(op)) {
+      if (!LegalOpLayoutAnalysis::isValidAnalysisTarget(op)) {
         return;
       }
 
@@ -172,11 +172,11 @@ TEST_P(LegalLayoutAnalysisTest, LegalLayoutAnalysisVariants) {
       // Verify that layouts are not empty
       EXPECT_FALSE(layoutsForTensor.empty());
       // Step 3: Run LegalLayoutAnalysis for this tensor type
-      LegalLayoutAnalysisInput legalLayoutsInput(
+      LegalOpLayoutAnalysisInput legalLayoutsInput(
           &layoutsForTensor, maxShardedConfigs,
           /*outputLayoutOverrides=*/nullptr,
-          /*conv2dConfigOverrides=*/nullptr, rowMajorEnabled);
-      LegalLayoutAnalysis legalLayoutsAnalysis(op);
+          rowMajorEnabled);
+      LegalOpLayoutAnalysis legalLayoutsAnalysis(op);
       legalLayoutsAnalysis.init(legalLayoutsInput);
       auto legalLayoutsResult = legalLayoutsAnalysis.getResult();
 

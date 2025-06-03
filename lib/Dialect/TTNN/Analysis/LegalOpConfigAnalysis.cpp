@@ -14,20 +14,7 @@
 namespace mlir::tt::ttnn {
 
 static bool isOpEnabledForAnalysis(Operation *op) {
-  // Check if op belongs to TTNN dialect.
-  if (!isa<TTNNDialect>(op->getDialect())) {
-    return false;
-  }
-
-  // Skip empty and to layout ops.
-  if (llvm::isa<EmptyOp>(op)) {
-    return false;
-  }
-  if (llvm::isa<ToLayoutOp>(op)) {
-    return false;
-  }
-
-  // Enable for specific ops.
+  // Enable only for specific ops.
   if (llvm::isa<ttnn::Conv2dOp>(op)) {
     return true;
   }
@@ -41,21 +28,6 @@ applyConv2dConfigOverrides(ttnn::Conv2dOp op,
                            std::vector<OpConfig> &analysisResult) {
   // Apply conv2d config overrides to all legal (layout) configurations of
   // current op.
-  // TODO(vkovacevic): Currently conv2d config overrides are applied without any
-  // analysis, but will need to go through analysis in the future to check if
-  // they are valid.
-  //
-
-  // vkovacevic: This is needed to get through a tt-metal assert in
-  // prepare_conv2d_weights.cpp where `weight_tensor_.dtype() ==
-  // weights_bias_dtype`.
-  //
-  ttcore::DataType dtype = ttcore::elementTypeToDataType(
-      mlir::cast<RankedTensorType>(op->getOperand(0).getType())
-          .getElementType());
-  ttcore::DataType weightsDtype = ttcore::elementTypeToDataType(
-      mlir::cast<RankedTensorType>(op->getOperand(1).getType())
-          .getElementType());
 
   // If conv2d config is not set get default conv2d config.
   Conv2dConfigAttr conv2dConfigAttr = op.getConv2dConfigAttr();
@@ -68,9 +40,14 @@ applyConv2dConfigOverrides(ttnn::Conv2dOp op,
                "Conv2d config before overrides: {}", conv2dConfigAttr);
   TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "Overrides: {}", overrides);
 
-  conv2dConfigAttr = conv2dConfigAttr.withDtype(dtype);
+  if (overrides.dtype.has_value()) {
+    conv2dConfigAttr = conv2dConfigAttr.withDtype(*overrides.dtype);
+  }
 
-  conv2dConfigAttr = conv2dConfigAttr.withWeightsDtype(weightsDtype);
+  if (overrides.weightsDtype.has_value()) {
+    conv2dConfigAttr =
+        conv2dConfigAttr.withWeightsDtype(*overrides.weightsDtype);
+  }
 
   if (overrides.activation.has_value()) {
     conv2dConfigAttr = conv2dConfigAttr.withActivation(*overrides.activation);
@@ -205,7 +182,9 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
     // base config is empty.
     Conv2dConfigAttr conv2dConfigAttrBase =
         analysisResult.begin()->isAttrUninitialized()
-            ? Conv2dConfigAttr::getEmpty(op->getContext())
+            ? (conv2dOp.getConv2dConfigAttr()
+                   ? conv2dOp.getConv2dConfigAttr()
+                   : Conv2dConfigAttr::getEmpty(op->getContext()))
             : std::get<Conv2dAttrs>(analysisResult.begin()->opSpecificAttrs)
                   .conv2dConfig.value();
 
@@ -213,21 +192,42 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
                  "Op {} Base conv2d config: {}", conv2dOp.getLoc(),
                  conv2dConfigAttrBase);
 
+    auto filterOut = [](const Conv2dConfigAttr &config) {
+      //
+      // Combinations that are invalid:
+      // 1. reshard_if_not_optimal = true and shard_layout is not set.
+      // 2. enable_split_reader = true and act_block_h_override < 64.
+      //
+      return (config.hasReshardIfNotOptimal() &&
+              config.getReshardIfNotOptimal().getValue() &&
+              !config.hasShardLayout()) ||
+             (config.hasEnableSplitReader() &&
+              config.getEnableSplitReader().getValue() &&
+              config.getActBlockHOverride().value_or(0) < 64);
+    };
+
     Conv2dConfigGenerator configGenerator(&conv2dOp, conv2dConfigAttrBase,
-                                          searchSpace);
-    if (configGenerator.searchDone()) {
-      // If search is done before any configs are generated, we can return. This
-      // means base config already defines attributes that can be searched.
-      return;
-    }
+                                          searchSpace, filterOut);
 
     std::vector<OpConfig> newLegalConfigs;
-    while (Conv2dConfigAttr configAttr = configGenerator.getNextConfig()) {
+    auto addConfigs = [&](const Conv2dConfigAttr &configAttr) {
       for (const OpConfig &existingOpConfig : analysisResult) {
         // Create a new OpConfig pairing the existing layout with the new conv
         // config.
         newLegalConfigs.emplace_back(existingOpConfig.outputLayout,
-                                     Conv2dAttrs{configAttr, nullptr});
+                                     Conv2dAttrs{configAttr, std::nullopt});
+      }
+    };
+
+    if (configGenerator.searchDone()) {
+      // If search is done before any configs are generated, we will just
+      // put base config in all possible layouts. This way we are ensuring
+      // dtype and weights_dtype will be set.
+      addConfigs(conv2dConfigAttrBase);
+    } else {
+      // Otherwise, generate all possible configs and add them to the result.
+      while (Conv2dConfigAttr configAttr = configGenerator.getNextConfig()) {
+        addConfigs(configAttr);
       }
     }
 
@@ -240,6 +240,7 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
     return;
   }
 
+  op->emitError("Unsupported op type");
   llvm::llvm_unreachable_internal("Unsupported op type");
 }
 
@@ -251,6 +252,7 @@ void LegalOpConfigAnalysis::analysisImplementation() {
   fillOpSpecificAttrs();
 
   if (analysisResult.empty()) {
+    op->emitError("No legal config found for the operation");
     llvm::llvm_unreachable_internal("No legal config found for the operation");
   }
 }
