@@ -839,6 +839,7 @@ FILTERED_OPS = [
 def build_graph(
     model_path: str,
     module,
+    model_runner,
     perf_trace=None,
     memory_trace=None,
     golden_results=None,
