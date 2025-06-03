@@ -350,7 +350,7 @@ jobs:
 
     # PyKernel Test Runner
     - name: Prepare and run PyKernel Test
-      if: matrix.build.suite == 'pykernel'
+      if: matrix.build.type == 'pykernel'
       shell: bash
       run: |
         source env/activate

@@ -96,7 +96,7 @@ class PyKernelOp:
         hash_input += str(options)
         return hashlib.md5(hash_input.encode()).hexdigest()
 
-    def invoke(self, tensors, options):
+    def invoke(self, *tensors, **options):
         # Default Implementation - Returns None and throws error
         return None
 
@@ -203,7 +203,7 @@ class PyKernelOp:
 
         # Check if kernel is already cached
         if input_hash not in self.kernel_cache:
-            program_descriptor = self.invoke(tensors, options)
+            program_descriptor = self.invoke(*tensors, **options)
             if program_descriptor is None:
                 raise Exception("invoke method must be defined for PyKernelOp.")
 

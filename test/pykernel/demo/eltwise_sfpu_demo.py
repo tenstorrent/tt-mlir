@@ -96,7 +96,7 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
             ii += onetile
         return
 
-    def invoke(self, tensors, options):
+    def invoke(self, *tensors, **options):
         in_tensor, out_tensor = tensors
         cb_in = self.create_cb(in_tensor, 0)
         cb_out = self.create_cb(out_tensor, 1)

@@ -127,6 +127,7 @@ class TTKernelCompiler(ast.NodeVisitor):
 
         self.args = args
         self.ct_args = {}
+        self.rt_args = None
 
         for arg in args:
             if hasattr(arg, "value") and hasattr(arg, "key"):
@@ -134,17 +135,8 @@ class TTKernelCompiler(ast.NodeVisitor):
                 self.ct_args[arg.key] = arg.value
 
         # Get rid of appended metadata sent into compiler
-        self.verbose = False
-        self.source_code = ""
-        if "_verbose" in kwargs:
-            self.verbose = kwargs["_verbose"]
-            del kwargs["_verbose"]
-
-        if "source_code" in kwargs:
-            self.source_code = kwargs["_source_code"]
-            del kwargs["_source_code"]
-
-        self.kwargs = kwargs
+        self.verbose = kwargs.get("_verbose", False)
+        self.source_code = kwargs.get("_source_code", "")
 
     def get_source_comment(self, node):
         """
