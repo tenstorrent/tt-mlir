@@ -43,8 +43,11 @@ struct ShardSpec;
 struct CoreRangeSet;
 struct CoreRange;
 struct CoreCoord;
+
+namespace types {
 struct ShardOrientation;
 struct ShardMode;
+} // namespace types
 
 namespace distributed {
 struct MeshDevice;
@@ -239,6 +242,16 @@ struct TypeName<::ttnn::ShardSpec> {
 };
 
 template <>
+struct TypeName<::ttnn::types::ShardOrientation> {
+  inline static const std::string value = "::ttnn::types::ShardOrientation";
+};
+
+template <>
+struct TypeName<::ttnn::types::ShardMode> {
+  inline static const std::string value = "::ttnn::types::ShardMode";
+};
+
+template <>
 struct JoinTypeNames<> {
   inline static const std::string value = "";
 };
@@ -422,6 +435,65 @@ struct EmitCTypeConverter<::ttnn::CoreRange> {
     rso << "}";
 
     return buf;
+  }
+};
+
+template <>
+struct EmitCTypeConverter<::ttnn::types::ShardOrientation> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto shardOrientationAttr =
+            mlir::dyn_cast_if_present<ttnn::ShardOrientationAttr>(attr)) {
+      return convert(shardOrientationAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::ShardOrientationAttr attr) {
+    assert(attr &&
+           "expected non-null attribute, call "
+           "EmitCTypeConverter<std::optional<::ttnn::types::ShardOrientation>>:"
+           ":convert(attr) if attribute is optional");
+    return convert(attr.getValue());
+  }
+
+  static std::string convert(ttnn::ShardOrientation attr) {
+    switch (attr) {
+    case ttnn::ShardOrientation::RowMajor:
+      return TypeNameV<::ttnn::types::ShardOrientation> + "::ROW_MAJOR";
+    case ttnn::ShardOrientation::ColMajor:
+      return TypeNameV<::ttnn::types::ShardOrientation> + "::COL_MAJOR";
+    }
+
+    llvm_unreachable("Unknown ttnn::ShardOrientation");
+  }
+};
+
+template <>
+struct EmitCTypeConverter<::ttnn::types::ShardMode> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto shardModeAttr =
+            mlir::dyn_cast_if_present<ttnn::ShardModeAttr>(attr)) {
+      return convert(shardModeAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::ShardModeAttr attr) {
+    assert(attr && "expected non-null attribute, call "
+                   "EmitCTypeConverter<std::optional<::ttnn::types::ShardMode>>"
+                   "::convert(attr) if attribute is optional");
+    return convert(attr.getValue());
+  }
+
+  static std::string convert(ttnn::ShardMode attr) {
+    switch (attr) {
+    case ttnn::ShardMode::Physical:
+      return TypeNameV<::ttnn::types::ShardMode> + "::PHYSICAL";
+    case ttnn::ShardMode::Logical:
+      return TypeNameV<::ttnn::types::ShardMode> + "::LOGICAL";
+    }
+
+    llvm_unreachable("Unknown ttnn::ShardMode");
   }
 };
 
@@ -732,11 +804,14 @@ struct EmitCTypeConverter<::ttnn::ShardSpec> {
     rso << EmitCTypeConverter<std::array<uint32_t, 2>>::convert(
                attr.getShape().getShape())
         << ", ";
-    rso << convert(attr.getShardOrientation());
+    rso << EmitCTypeConverter<::ttnn::types::ShardOrientation>::convert(
+        attr.getShardOrientation());
     // ShardMode is modeled as optional in TTNN dialect, but it's either
     // required or defaulted to `Physical` in TTNN library.
     if (attr.getShardMode()) {
-      rso << ", " << convert(attr.getShardMode());
+      rso << ", "
+          << EmitCTypeConverter<::ttnn::types::ShardMode>::convert(
+                 attr.getShardMode());
     }
     rso << "}";
 
@@ -908,44 +983,6 @@ inline std::string convert(ttnn::BufferType attr) {
 }
 
 inline std::string convert(ttnn::BufferTypeAttr attr) {
-  if (!attr) {
-    return TypeNameV<std::nullopt_t>;
-  }
-
-  return convert(attr.getValue());
-}
-
-inline std::string convert(ttnn::ShardOrientation attr) {
-  switch (attr) {
-  case ttnn::ShardOrientation::RowMajor:
-    return "::ttnn::ShardOrientation::ROW_MAJOR";
-  case ttnn::ShardOrientation::ColMajor:
-    return "::ttnn::ShardOrientation::COL_MAJOR";
-  }
-
-  llvm_unreachable("Unknown ttnn::ShardOrientation");
-}
-
-inline std::string convert(ttnn::ShardOrientationAttr attr) {
-  if (!attr) {
-    return TypeNameV<std::nullopt_t>;
-  }
-
-  return convert(attr.getValue());
-}
-
-inline std::string convert(ttnn::ShardMode attr) {
-  switch (attr) {
-  case ttnn::ShardMode::Physical:
-    return "::ttnn::ShardMode::PHYSICAL";
-  case ttnn::ShardMode::Logical:
-    return "::ttnn::ShardMode::LOGICAL";
-  }
-
-  llvm_unreachable("Unknown ttnn::ShardMode");
-}
-
-inline std::string convert(ttnn::ShardModeAttr attr) {
   if (!attr) {
     return TypeNameV<std::nullopt_t>;
   }
