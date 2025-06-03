@@ -319,35 +319,6 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::EmptyOp::getBufferType(
 // ConstantOp
 //===----------------------------------------------------------------------===//
 
-// Common Utilities
-template <typename OpTy, typename TransformFn>
-static mlir::OpFoldResult foldConstantOpHelper(OpTy op, TransformFn transform) {
-  auto constantOp =
-      op.getInput().template getDefiningOp<mlir::tt::ttir::ConstantOp>();
-  if (!constantOp) {
-    return nullptr;
-  }
-
-  mlir::Attribute constAttr = constantOp.getValue();
-  // Handle DenseElementsAttr.
-  if (auto denseAttr = mlir::dyn_cast<mlir::DenseElementsAttr>(constAttr)) {
-    return transform(denseAttr);
-  }
-
-  // Handle DenseResourceElementsAttr by materializing to DenseElementsAttr.
-  if (auto resourceAttr =
-          mlir::dyn_cast<mlir::DenseResourceElementsAttr>(constAttr)) {
-    auto originalType =
-        mlir::cast<mlir::RankedTensorType>(resourceAttr.getType());
-    mlir::ArrayRef<char> rawData = resourceAttr.getData();
-    mlir::DenseElementsAttr tempDenseAttr =
-        mlir::DenseElementsAttr::getFromRawBuffer(originalType, rawData);
-    return transform(tempDenseAttr);
-  }
-
-  return nullptr;
-}
-
 // ConstantOp folder
 ::mlir::OpFoldResult mlir::tt::ttir::ConstantOp::fold(FoldAdaptor) {
   return getValueAttr();
@@ -1308,6 +1279,8 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
 // Fold reshape of a constant into a new constant with the reshaped data.
 static mlir::OpFoldResult foldConstantReshape(mlir::tt::ttir::ReshapeOp op) {
   auto reshapedType = mlir::cast<mlir::RankedTensorType>(op.getType());
+  // foldConstantOpHelper checks if the input is a constant and returns a
+  // constant with the reshaped data using the DenseElementsAttr.reshape API.
   return foldConstantOpHelper(
       op, [&](mlir::DenseElementsAttr attr) -> mlir::Attribute {
         return attr.reshape(reshapedType);
@@ -1860,8 +1833,38 @@ foldInverseTransposeOperand(mlir::tt::ttir::TransposeOp op) {
   return nullptr;
 }
 
+// Fold transpose of a constant into a new constant with permuted data.
+static mlir::OpFoldResult
+foldConstantTranspose(mlir::tt::ttir::TransposeOp op) {
+  auto resultType = mlir::cast<mlir::RankedTensorType>(op.getType());
+  int64_t rank = resultType.getRank();
+
+  // Build the permutation vector: [0, 1, 2, ...] with dim0 and dim1 swapped.
+  // Example: [0, 1, 2] -> [0, 2, 1] with dim0 = 1 and dim1 = 2.
+  llvm::SmallVector<int32_t, 4> perm(rank);
+  std::iota(perm.begin(), perm.end(), 0);
+  int32_t dim0 = op.getDim0();
+  int32_t dim1 = op.getDim1();
+  std::swap(perm[dim0], perm[dim1]);
+
+  llvm::SmallVector<int64_t, 4> outputShape(resultType.getShape().begin(),
+                                            resultType.getShape().end());
+
+  // foldConstantOpHelper checks if the input is a constant and returns a
+  // constant with permuted data using the ComputePermutation function.
+  return foldConstantOpHelper(
+      op, [&](mlir::DenseElementsAttr inputAttr) -> mlir::Attribute {
+        std::vector<mlir::Attribute> newValues;
+        std::vector<uint64_t> inputIndices(rank, 0);
+        ttmlir::utils::ComputePermutation(inputAttr, perm, outputShape, rank, 0,
+                                          &inputIndices, &newValues);
+        return mlir::DenseElementsAttr::get(resultType, newValues);
+      });
+}
+
 // TransposeOp folder
 mlir::OpFoldResult mlir::tt::ttir::TransposeOp::fold(FoldAdaptor adaptor) {
+
   if (auto foldResult = foldIdentityTranspose(*this)) {
     return foldResult;
   }
@@ -1875,6 +1878,10 @@ mlir::OpFoldResult mlir::tt::ttir::TransposeOp::fold(FoldAdaptor adaptor) {
   }
 
   if (auto foldResult = foldInverseTransposeOperand(*this)) {
+    return foldResult;
+  }
+
+  if (auto foldResult = foldConstantTranspose(*this)) {
     return foldResult;
   }
 
@@ -3606,8 +3613,39 @@ static mlir::OpFoldResult foldConsecutivePermute(mlir::tt::ttir::PermuteOp op) {
   return nullptr;
 }
 
+// Fold permute of a constant into a new constant with permuted data.
+static mlir::OpFoldResult foldConstantPermute(mlir::tt::ttir::PermuteOp op) {
+  auto resultType = mlir::cast<mlir::RankedTensorType>(op.getType());
+  int64_t rank = resultType.getRank();
+
+  // Extract permutation values as integers.
+  auto permVals = op.getPermutation();
+  llvm::SmallVector<int32_t, 4> perm;
+  for (auto v : permVals) {
+    perm.push_back(static_cast<int32_t>(v));
+  }
+
+  llvm::SmallVector<int64_t, 4> outputShape(resultType.getShape().begin(),
+                                            resultType.getShape().end());
+
+  // foldConstantOpHelper checks if the input is a constant and returns a
+  // constant with permuted data using the ComputePermutation function.
+  return foldConstantOpHelper(
+      op, [&](mlir::DenseElementsAttr inputAttr) -> mlir::Attribute {
+        std::vector<mlir::Attribute> newValues;
+        std::vector<uint64_t> inputIndices(rank, 0);
+        ttmlir::utils::ComputePermutation(inputAttr, perm, outputShape, rank, 0,
+                                          &inputIndices, &newValues);
+        return mlir::DenseElementsAttr::get(resultType, newValues);
+      });
+}
+
 // PermuteOp folder
 mlir::OpFoldResult mlir::tt::ttir::PermuteOp::fold(FoldAdaptor adaptor) {
+
+  if (auto foldResult = foldConstantPermute(*this)) {
+    return foldResult;
+  }
 
   if (auto foldResult = foldIdentityPermute(*this)) {
     return foldResult;
@@ -3616,7 +3654,6 @@ mlir::OpFoldResult mlir::tt::ttir::PermuteOp::fold(FoldAdaptor adaptor) {
   if (auto foldResult = foldConsecutivePermute(*this)) {
     return foldResult;
   }
-
   return nullptr;
 }
 
