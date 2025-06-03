@@ -3,6 +3,7 @@ add_mlir_unittest(OptimizerTests
     TestOptimizerOverrides.cpp
     TestGreedyL1InterleavedPolicy.cpp
     TestLegalTensorLayoutAnalysis.cpp
+    TestConv2dConfigGenerator.cpp
     PARTIAL_SOURCES_INTENDED
 )
 
