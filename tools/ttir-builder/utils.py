@@ -20,7 +20,7 @@ from ttmlir.passes import (
     MLIRModuleLogger,
 )
 
-from .builder import Shape, TTIRBuilder, TypeInfo, GoldenCheckLevel
+from .builder import Shape, TTIRBuilder, TypeInfo
 
 TT_MLIR_HOME = os.environ.get("TT_MLIR_HOME", "")
 
@@ -194,9 +194,7 @@ def build_mlir_module(
                 result = test_fn(*inputs, builder=builder)
                 output_ops = result if hasattr(result, "__iter__") else (result,)
                 output_goldens = [builder._get_golden_tensor(op) for op in output_ops]
-                builder.set_graph_input_output(
-                    input_goldens, output_goldens, check_level=GoldenCheckLevel.OP_LEVEL
-                )
+                builder.set_graph_input_output(input_goldens, output_goldens)
                 return result
 
         print(f"`{test_fn.__name__}` sucessfully transformed into a MLIR module.")
