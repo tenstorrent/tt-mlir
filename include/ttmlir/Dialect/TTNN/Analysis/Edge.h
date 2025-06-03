@@ -26,8 +26,15 @@ struct Edge {
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const Edge &edge) {
   auto producerName =
       edge.producerOp ? edge.producerOp->getName().getStringRef() : "nullptr";
-  os << "Edge(" << producerName << ", " << edge.consumerOp->getName() << ", "
-     << edge.operandIndex << ")";
+  auto consumerName =
+      edge.consumerOp ? edge.consumerOp->getName().getStringRef() : "nullptr";
+  os << "Edge(" << producerName << " (" << edge.producerOp << " @ "
+     << (edge.producerOp ? edge.producerOp->getLoc()
+                         : mlir::UnknownLoc::get(edge.consumerOp->getContext()))
+     << "), " << consumerName << " (" << edge.consumerOp << " @ "
+     << (edge.consumerOp ? edge.consumerOp->getLoc()
+                         : mlir::UnknownLoc::get(edge.consumerOp->getContext()))
+     << "), " << edge.operandIndex << ")";
   return os;
 }
 
