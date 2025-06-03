@@ -369,7 +369,7 @@ mlir::LogicalResult mlir::tt::ttir::ConstantOp::bufferize(
     const mlir::bufferization::BufferizationOptions &options) {
   ::llvm::SmallVector<mlir::Value> invocationStack;
   auto memrefType = mlir::cast<mlir::MemRefType>(
-      *getBufferType(getResult(), options, invocationStack));
+      getBufferType(getResult(), options, invocationStack).value());
 
   mlir::memref::GlobalOp global = createGlobal(
       getOperation()->getParentOfType<ModuleOp>(), memrefType, getValue());
@@ -3430,7 +3430,7 @@ mlir::LogicalResult mlir::tt::ttir::FullOp::bufferize(
     const mlir::bufferization::BufferizationOptions &options) {
   ::llvm::SmallVector<mlir::Value> invocationStack;
   auto memrefType = mlir::cast<mlir::MemRefType>(
-      *getBufferType(getResult(), options, invocationStack));
+      getBufferType(getResult(), options, invocationStack).value());
 
   auto denseAttr =
       mlir::DenseElementsAttr::get(getResult().getType(), getFillValueAttr());
