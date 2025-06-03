@@ -354,6 +354,7 @@ jobs:
       shell: bash
       run: |
         source env/activate
+        cmake --build build
         cmake --build build -- pykernel-demo
 
     # pytest runner
