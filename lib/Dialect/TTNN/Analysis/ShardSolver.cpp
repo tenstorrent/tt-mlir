@@ -292,6 +292,8 @@ bool ShardSolver::supportsInterleavedInputShardedOutput(Operation *op,
                "Checking if interleaved to sharded is possible for op : {}",
                op->getName());
 
+  // TODO(rpavlovicTT) this is bad as we are hardcoding this layout, while it
+  // could be overriden.
   inputLayout = inputLayout.withBufferType(BufferType::DRAM)
                     .withMemoryLayout(TensorMemoryLayout::Interleaved);
 
