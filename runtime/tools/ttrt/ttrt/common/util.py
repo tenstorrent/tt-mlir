@@ -753,7 +753,6 @@ class Binary(Flatbuffer):
             return len(self.program["outputs"])
 
         def mesh_shape(self) -> Tuple[int, int]:
-            print(self.program["mesh_shape"])
             return tuple(self.program["mesh_shape"].values())
 
         def populate_inputs(self, init_fn, golden_inputs=[]):
