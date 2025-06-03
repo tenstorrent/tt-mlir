@@ -87,6 +87,7 @@ jobs:
       shell: bash
       run: |
         source env/activate
+        export TTMLIR_TEST_WORKFLOW=nightly # turn on randomized mode for participating gtests
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build.build_type }} -- check-ttmlir
 
     - name: Build ttrt
