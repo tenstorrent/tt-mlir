@@ -1115,7 +1115,9 @@ def TTNN_PadOp: TTNN_Op<"pad"> {
   }];
 }
 
-def TTNN_SliceOp: TTNN_Op<"slice"> {
+def TTNN_SliceOp: TTNN_Op<"slice",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Slice op.";
     let description = [{
       Extract a portion of a tensor based on the specified start (`begins`), stop (`ends`), and step
