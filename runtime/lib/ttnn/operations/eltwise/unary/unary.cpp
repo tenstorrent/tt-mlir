@@ -215,6 +215,10 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool, ::ttnn::erf);
     break;
   }
+  case ::tt::target::ttnn::EltwiseUnaryOpType::Erfc: {
+    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool, ::ttnn::erfc);
+    break;
+  }
   }
 }
 

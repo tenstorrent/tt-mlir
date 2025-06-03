@@ -276,6 +276,13 @@ def TTNN_ErfOp : TTNN_ElementwiseUnaryOp<"erf"> {
       }];
 }
 
+def TTNN_ErfcOp : TTNN_ElementwiseUnaryOp<"erfc"> {
+    let summary = "Eltwise erfc op.";
+    let description = [{
+        Eltwise erfc operation. Calculates erfc(x) for each element of the input tensor.
+      }];
+}
+
 def TTNN_FloorOp: TTNN_ElementwiseUnaryOp<"floor"> {
     let summary = "Eltwise floor op.";
     let description = [{
