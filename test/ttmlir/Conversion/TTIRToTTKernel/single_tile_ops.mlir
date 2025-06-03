@@ -125,6 +125,69 @@ module {
     return
   }
 
+  // CHECK-LABEL: func.func @test_cos_lowering
+  func.func @test_cos_lowering(%arg0: memref<1x1x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<1x1x!tt.tile<32x32, f32>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
+    %c0 = arith.constant 0 : index
+    ttir.await %arg0 : (memref<1x1x!tt.tile<32x32, f32>, #l1_>)
+    %collapse_shape = memref.collapse_shape %arg0 [[0, 1]] : memref<1x1x!tt.tile<32x32, f32>, #l1_> into memref<1x!tt.tile<32x32, f32>, #l1_>
+    %collapse_shape_0 = memref.collapse_shape %arg1 [[0, 1]] : memref<1x1x!tt.tile<32x32, f32>, #l1_> into memref<1x!tt.tile<32x32, f32>, #l1_>
+    %0 = memref.load %collapse_shape[%c0] : memref<1x!tt.tile<32x32, f32>, #l1_>
+    // CHECK-NOT: ttir.tile_cos
+    // CHECK: ttkernel.init_sfpu
+    // CHECK: ttkernel.copy_tile_init
+    // CHECK: ttkernel.copy_tile
+    // CHECK: ttkernel.cos_tile_init
+    // CHECK: ttkernel.cos_tile
+    %1 = "ttir.tile_cos"(%0) : (!tt.tile<32x32, f32>) -> !tt.tile<32x32, f32>
+    // CHECK: ttkernel.pack_tile
+    memref.store %1, %collapse_shape_0[%c0] : memref<1x!tt.tile<32x32, f32>, #l1_>
+    ttir.yield %arg1 : (memref<1x1x!tt.tile<32x32, f32>, #l1_>)
+    ttir.await %arg1 : (memref<1x1x!tt.tile<32x32, f32>, #l1_>)
+    return
+  }
+
+  // CHECK-LABEL: func.func @test_negative_lowering
+  func.func @test_negative_lowering(%arg0: memref<1x1x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<1x1x!tt.tile<32x32, f32>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
+    %c0 = arith.constant 0 : index
+    ttir.await %arg0 : (memref<1x1x!tt.tile<32x32, f32>, #l1_>)
+    %collapse_shape = memref.collapse_shape %arg0 [[0, 1]] : memref<1x1x!tt.tile<32x32, f32>, #l1_> into memref<1x!tt.tile<32x32, f32>, #l1_>
+    %collapse_shape_0 = memref.collapse_shape %arg1 [[0, 1]] : memref<1x1x!tt.tile<32x32, f32>, #l1_> into memref<1x!tt.tile<32x32, f32>, #l1_>
+    %0 = memref.load %collapse_shape[%c0] : memref<1x!tt.tile<32x32, f32>, #l1_>
+    // CHECK-NOT: ttir.tile_neg
+    // CHECK: ttkernel.init_sfpu
+    // CHECK: ttkernel.copy_tile_init
+    // CHECK: ttkernel.copy_tile
+    // CHECK: ttkernel.negative_tile_init
+    // CHECK: ttkernel.negative_tile
+    %1 = "ttir.tile_negative"(%0) : (!tt.tile<32x32, f32>) -> !tt.tile<32x32, f32>
+    // CHECK: ttkernel.pack_tile
+    memref.store %1, %collapse_shape_0[%c0] : memref<1x!tt.tile<32x32, f32>, #l1_>
+    ttir.yield %arg1 : (memref<1x1x!tt.tile<32x32, f32>, #l1_>)
+    ttir.await %arg1 : (memref<1x1x!tt.tile<32x32, f32>, #l1_>)
+    return
+  }
+
+  // CHECK-LABEL: func.func @test_rsqrt_lowering
+  func.func @test_rsqrt_lowering(%arg0: memref<1x1x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<1x1x!tt.tile<32x32, f32>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
+    %c0 = arith.constant 0 : index
+    ttir.await %arg0 : (memref<1x1x!tt.tile<32x32, f32>, #l1_>)
+    %collapse_shape = memref.collapse_shape %arg0 [[0, 1]] : memref<1x1x!tt.tile<32x32, f32>, #l1_> into memref<1x!tt.tile<32x32, f32>, #l1_>
+    %collapse_shape_0 = memref.collapse_shape %arg1 [[0, 1]] : memref<1x1x!tt.tile<32x32, f32>, #l1_> into memref<1x!tt.tile<32x32, f32>, #l1_>
+    %0 = memref.load %collapse_shape[%c0] : memref<1x!tt.tile<32x32, f32>, #l1_>
+    // CHECK-NOT: ttir.tile_neg
+    // CHECK: ttkernel.init_sfpu
+    // CHECK: ttkernel.copy_tile_init
+    // CHECK: ttkernel.copy_tile
+    // CHECK: ttkernel.rsqrt_tile_init
+    // CHECK: ttkernel.rsqrt_tile
+    %1 = "ttir.tile_rsqrt"(%0) : (!tt.tile<32x32, f32>) -> !tt.tile<32x32, f32>
+    // CHECK: ttkernel.pack_tile
+    memref.store %1, %collapse_shape_0[%c0] : memref<1x!tt.tile<32x32, f32>, #l1_>
+    ttir.yield %arg1 : (memref<1x1x!tt.tile<32x32, f32>, #l1_>)
+    ttir.await %arg1 : (memref<1x1x!tt.tile<32x32, f32>, #l1_>)
+    return
+  }
+
   // CHECK-LABEL: func.func @test_sin_lowering
   func.func @test_sin_lowering(%arg0: memref<1x1x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<1x1x!tt.tile<32x32, f32>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
     %c0 = arith.constant 0 : index
