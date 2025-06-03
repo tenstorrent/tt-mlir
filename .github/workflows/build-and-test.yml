@@ -572,14 +572,6 @@ jobs:
         disable_search: true
         token: ${{ secrets.CODECOV_TOKEN }}
 
-    - name: Upload test results to Codecov
-      if: success() || failure()
-      uses: codecov/test-results-action@v1
-      with:
-        files: ${{ steps.strings.outputs.test_report_path }}
-        disable_search: true
-        token: ${{ secrets.CODECOV_TOKEN }}
-
   # Call wheel-build workflow to build the ttmlir wheel
   build-ttmlir-wheel:
     needs:
