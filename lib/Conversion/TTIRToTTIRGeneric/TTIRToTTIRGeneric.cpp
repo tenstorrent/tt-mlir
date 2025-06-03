@@ -166,15 +166,32 @@ protected:
       tt::MetalLayoutAttr layout =
           mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding());
 
-      // New approach: Create memref with same shape as tensor
-      // The tensor already has the physical shape (including grid dimensions)
+      MLIRContext *ctx = tensorType.getContext();
+
+      // Get shard shape and element type
+      auto shardShape = layout.getShardShape();
+      Type elementType = tensorType.getElementType();
+
+      // If the layout is tiled, we need to adjust the shape and element type
+      if (layout.isTiled()) {
+        auto tileShape = layout.getTileShape();
+
+        // Create TileType for the element
+        if (!mlir::isa<TileType>(elementType)) {
+          elementType = TileType::get(elementType, tileShape);
+        }
+
+        // Adjust shard shape - remove the tile dimensions since they're now in
+        // the element type E.g., [2, 4, 32, 32] with tile [32, 32] -> [2, 4]
+        size_t tiledDims = tileShape.size();
+        shardShape.resize(shardShape.size() - tiledDims);
+      }
+
+      // Create memref with appropriate type
       mlir::MemRefType memrefType = mlir::MemRefType::get(
-          tensorType.getShape(), tensorType.getElementType(),
-          // Optional: Add layout attribute if needed (e.g., ShardLayoutAttr)
-          ShardLayoutAttr::get(loc.getContext(),
-                               layout.getEffectiveStride(tensorType),
-                               layout.getBuffers()),
-          MemorySpaceAttr::get(loc.getContext(), layout.getMemorySpace()));
+          shardShape, elementType,
+          MemRefLayoutAttrInterface{}, // No layout attribute
+          MemorySpaceAttr::get(ctx, layout.getMemorySpace()));
 
       block->addArgument(memrefType, loc);
     };
@@ -258,6 +275,9 @@ private:
             getAffineMapsArray(rewriter, numOperands, rank);
         SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
             iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
+
+        llvm::errs() << "dumping op: " << op;
+        op->dump();
 
         rewriter.create<mlir::linalg::GenericOp>(
             loc, /* inputs */ blockArgs.take_front(numInputs),
