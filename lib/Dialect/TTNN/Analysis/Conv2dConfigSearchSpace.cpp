@@ -11,13 +11,15 @@ namespace mlir::tt::ttnn {
 
 Conv2dConfigGenerator::Conv2dConfigGenerator(
     ttnn::Conv2dOp *op, Conv2dConfigAttr baseConfig,
-    const Conv2dConfigSearchSpace &space)
-    : op(op), baseConfig(baseConfig), searchSpace(space) {
+    const Conv2dConfigSearchSpace &space,
+    std::function<bool(const Conv2dConfigAttr &)> filterOutFn)
+    : op(op), baseConfig(baseConfig), searchSpace(space),
+      filterOutFn(filterOutFn) {
 
   // Populate activeSearchFields from searchSpace.
   if (searchSpace.isDtypeSetForSearch() && !baseConfig.hasDtype()) {
     activeSearchFields.emplace_back(
-        Conv2dConfigGeneratorSearchFieldInfo(std::move(*searchSpace.dtype)),
+        Conv2dConfigGeneratorSearchFieldInfo(searchSpace.dtype),
         [](Conv2dConfigAttr attr,
            const Conv2dConfigGeneratorSearchFieldInfo &info)
             -> Conv2dConfigAttr {
@@ -27,8 +29,7 @@ Conv2dConfigGenerator::Conv2dConfigGenerator(
   if (searchSpace.isWeightsDtypeSetForSearch() &&
       !baseConfig.hasWeightsDtype()) {
     activeSearchFields.emplace_back(
-        Conv2dConfigGeneratorSearchFieldInfo(
-            std::move(*searchSpace.weightsDtype)),
+        Conv2dConfigGeneratorSearchFieldInfo(searchSpace.weightsDtype),
         [](Conv2dConfigAttr attr,
            const Conv2dConfigGeneratorSearchFieldInfo &info)
             -> Conv2dConfigAttr {
@@ -37,8 +38,7 @@ Conv2dConfigGenerator::Conv2dConfigGenerator(
   }
   if (searchSpace.isActivationSetForSearch() && !baseConfig.hasActivation()) {
     activeSearchFields.emplace_back(
-        Conv2dConfigGeneratorSearchFieldInfo(
-            std::move(*searchSpace.activation)),
+        Conv2dConfigGeneratorSearchFieldInfo(searchSpace.activation),
         [](Conv2dConfigAttr attr,
            const Conv2dConfigGeneratorSearchFieldInfo &info)
             -> Conv2dConfigAttr {
@@ -48,8 +48,7 @@ Conv2dConfigGenerator::Conv2dConfigGenerator(
   if (searchSpace.isDeallocateActivationSetForSearch() &&
       !baseConfig.hasDeallocateActivation()) {
     activeSearchFields.emplace_back(
-        Conv2dConfigGeneratorSearchFieldInfo(
-            std::move(*searchSpace.deallocateActivation)),
+        Conv2dConfigGeneratorSearchFieldInfo(searchSpace.deallocateActivation),
         [](Conv2dConfigAttr attr,
            const Conv2dConfigGeneratorSearchFieldInfo &info)
             -> Conv2dConfigAttr {
@@ -59,8 +58,7 @@ Conv2dConfigGenerator::Conv2dConfigGenerator(
   if (searchSpace.isReallocateHaloOutputSetForSearch() &&
       !baseConfig.hasReallocateHaloOutput()) {
     activeSearchFields.emplace_back(
-        Conv2dConfigGeneratorSearchFieldInfo(
-            std::move(*searchSpace.reallocateHaloOutput)),
+        Conv2dConfigGeneratorSearchFieldInfo(searchSpace.reallocateHaloOutput),
         [](Conv2dConfigAttr attr,
            const Conv2dConfigGeneratorSearchFieldInfo &info)
             -> Conv2dConfigAttr {
@@ -70,8 +68,7 @@ Conv2dConfigGenerator::Conv2dConfigGenerator(
   if (searchSpace.isActBlockHOverrideSetForSearch() &&
       !baseConfig.hasActBlockHOverride()) {
     activeSearchFields.emplace_back(
-        Conv2dConfigGeneratorSearchFieldInfo(
-            std::move(*searchSpace.actBlockHOverride)),
+        Conv2dConfigGeneratorSearchFieldInfo(searchSpace.actBlockHOverride),
         [](Conv2dConfigAttr attr,
            const Conv2dConfigGeneratorSearchFieldInfo &info)
             -> Conv2dConfigAttr {
@@ -81,8 +78,7 @@ Conv2dConfigGenerator::Conv2dConfigGenerator(
   if (searchSpace.isActBlockWDivSetForSearch() &&
       !baseConfig.hasActBlockWDiv()) {
     activeSearchFields.emplace_back(
-        Conv2dConfigGeneratorSearchFieldInfo(
-            std::move(*searchSpace.actBlockWDiv)),
+        Conv2dConfigGeneratorSearchFieldInfo(searchSpace.actBlockWDiv),
         [](Conv2dConfigAttr attr,
            const Conv2dConfigGeneratorSearchFieldInfo &info)
             -> Conv2dConfigAttr {
@@ -92,8 +88,7 @@ Conv2dConfigGenerator::Conv2dConfigGenerator(
   if (searchSpace.isReshardIfNotOptimalSetForSearch() &&
       !baseConfig.hasReshardIfNotOptimal()) {
     activeSearchFields.emplace_back(
-        Conv2dConfigGeneratorSearchFieldInfo(
-            std::move(*searchSpace.reshardIfNotOptimal)),
+        Conv2dConfigGeneratorSearchFieldInfo(searchSpace.reshardIfNotOptimal),
         [](Conv2dConfigAttr attr,
            const Conv2dConfigGeneratorSearchFieldInfo &info)
             -> Conv2dConfigAttr {
@@ -104,7 +99,7 @@ Conv2dConfigGenerator::Conv2dConfigGenerator(
       !baseConfig.hasOverrideShardingConfig()) {
     activeSearchFields.emplace_back(
         Conv2dConfigGeneratorSearchFieldInfo(
-            std::move(*searchSpace.overrideShardingConfig)),
+            searchSpace.overrideShardingConfig),
         [](Conv2dConfigAttr attr,
            const Conv2dConfigGeneratorSearchFieldInfo &info)
             -> Conv2dConfigAttr {
@@ -113,8 +108,7 @@ Conv2dConfigGenerator::Conv2dConfigGenerator(
   }
   if (searchSpace.isShardLayoutSetForSearch() && !baseConfig.hasShardLayout()) {
     activeSearchFields.emplace_back(
-        Conv2dConfigGeneratorSearchFieldInfo(
-            std::move(*searchSpace.shardLayout)),
+        Conv2dConfigGeneratorSearchFieldInfo(searchSpace.shardLayout),
         [](Conv2dConfigAttr attr,
            const Conv2dConfigGeneratorSearchFieldInfo &info)
             -> Conv2dConfigAttr {
@@ -123,7 +117,7 @@ Conv2dConfigGenerator::Conv2dConfigGenerator(
   }
   if (searchSpace.isCoreGridSetForSearch() && !baseConfig.hasCoreGrid()) {
     activeSearchFields.emplace_back(
-        Conv2dConfigGeneratorSearchFieldInfo(std::move(*searchSpace.coreGrid)),
+        Conv2dConfigGeneratorSearchFieldInfo(searchSpace.coreGrid),
         [](Conv2dConfigAttr attr,
            const Conv2dConfigGeneratorSearchFieldInfo &info)
             -> Conv2dConfigAttr {
@@ -133,8 +127,7 @@ Conv2dConfigGenerator::Conv2dConfigGenerator(
   if (searchSpace.isTransposeShardsSetForSearch() &&
       !baseConfig.hasTransposeShards()) {
     activeSearchFields.emplace_back(
-        Conv2dConfigGeneratorSearchFieldInfo(
-            std::move(*searchSpace.transposeShards)),
+        Conv2dConfigGeneratorSearchFieldInfo(searchSpace.transposeShards),
         [](Conv2dConfigAttr attr,
            const Conv2dConfigGeneratorSearchFieldInfo &info)
             -> Conv2dConfigAttr {
@@ -144,8 +137,7 @@ Conv2dConfigGenerator::Conv2dConfigGenerator(
   if (searchSpace.isOutputLayoutSetForSearch() &&
       !baseConfig.hasOutputLayout()) {
     activeSearchFields.emplace_back(
-        Conv2dConfigGeneratorSearchFieldInfo(
-            std::move(*searchSpace.outputLayout)),
+        Conv2dConfigGeneratorSearchFieldInfo(searchSpace.outputLayout),
         [](Conv2dConfigAttr attr,
            const Conv2dConfigGeneratorSearchFieldInfo &info)
             -> Conv2dConfigAttr {
@@ -156,7 +148,7 @@ Conv2dConfigGenerator::Conv2dConfigGenerator(
       !baseConfig.hasPreprocessWeightsOnDevice()) {
     activeSearchFields.emplace_back(
         Conv2dConfigGeneratorSearchFieldInfo(
-            std::move(*searchSpace.preprocessWeightsOnDevice)),
+            searchSpace.preprocessWeightsOnDevice),
         [](Conv2dConfigAttr attr,
            const Conv2dConfigGeneratorSearchFieldInfo &info)
             -> Conv2dConfigAttr {
@@ -167,7 +159,7 @@ Conv2dConfigGenerator::Conv2dConfigGenerator(
       !baseConfig.hasAlwaysPreprocessWeights()) {
     activeSearchFields.emplace_back(
         Conv2dConfigGeneratorSearchFieldInfo(
-            std::move(*searchSpace.alwaysPreprocessWeights)),
+            searchSpace.alwaysPreprocessWeights),
         [](Conv2dConfigAttr attr,
            const Conv2dConfigGeneratorSearchFieldInfo &info)
             -> Conv2dConfigAttr {
@@ -177,8 +169,7 @@ Conv2dConfigGenerator::Conv2dConfigGenerator(
   if (searchSpace.isEnableActDoubleBufferSetForSearch() &&
       !baseConfig.hasEnableActDoubleBuffer()) {
     activeSearchFields.emplace_back(
-        Conv2dConfigGeneratorSearchFieldInfo(
-            std::move(*searchSpace.enableActDoubleBuffer)),
+        Conv2dConfigGeneratorSearchFieldInfo(searchSpace.enableActDoubleBuffer),
         [](Conv2dConfigAttr attr,
            const Conv2dConfigGeneratorSearchFieldInfo &info)
             -> Conv2dConfigAttr {
@@ -189,7 +180,7 @@ Conv2dConfigGenerator::Conv2dConfigGenerator(
       !baseConfig.hasEnableWeightsDoubleBuffer()) {
     activeSearchFields.emplace_back(
         Conv2dConfigGeneratorSearchFieldInfo(
-            std::move(*searchSpace.enableWeightsDoubleBuffer)),
+            searchSpace.enableWeightsDoubleBuffer),
         [](Conv2dConfigAttr attr,
            const Conv2dConfigGeneratorSearchFieldInfo &info)
             -> Conv2dConfigAttr {
@@ -199,8 +190,7 @@ Conv2dConfigGenerator::Conv2dConfigGenerator(
   if (searchSpace.isEnableSplitReaderSetForSearch() &&
       !baseConfig.hasEnableSplitReader()) {
     activeSearchFields.emplace_back(
-        Conv2dConfigGeneratorSearchFieldInfo(
-            std::move(*searchSpace.enableSplitReader)),
+        Conv2dConfigGeneratorSearchFieldInfo(searchSpace.enableSplitReader),
         [](Conv2dConfigAttr attr,
            const Conv2dConfigGeneratorSearchFieldInfo &info)
             -> Conv2dConfigAttr {
@@ -210,8 +200,7 @@ Conv2dConfigGenerator::Conv2dConfigGenerator(
   if (searchSpace.isEnableSubblockPaddingSetForSearch() &&
       !baseConfig.hasEnableSubblockPadding()) {
     activeSearchFields.emplace_back(
-        Conv2dConfigGeneratorSearchFieldInfo(
-            std::move(*searchSpace.enableSubblockPadding)),
+        Conv2dConfigGeneratorSearchFieldInfo(searchSpace.enableSubblockPadding),
         [](Conv2dConfigAttr attr,
            const Conv2dConfigGeneratorSearchFieldInfo &info)
             -> Conv2dConfigAttr {
@@ -265,25 +254,13 @@ Conv2dConfigGenerator::Conv2dConfigGenerator(
   TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "Next conv2d config: {}",
                generatedAttr);
 
-  if (filterOut(generatedAttr)) {
+  if (filterOutFn(generatedAttr)) {
     TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "Filtered out {}",
                  generatedAttr);
     return getNextConfig();
   }
 
   return generatedAttr;
-}
-
-bool Conv2dConfigGenerator::filterOut(const Conv2dConfigAttr &config) const {
-  //
-  // Combinations that are invalid:
-  // 1. reshard_if_not_optimal = true and shard_layout is not set.
-  // 2. enable_split_reader = true and act_block_h_override < 64.
-  //
-  return (config.getReshardIfNotOptimal().getValue() &&
-          !config.getShardLayout().has_value()) ||
-         (config.getEnableSplitReader().getValue() &&
-          config.getActBlockHOverride().value_or(0) < 64);
 }
 
 } // namespace mlir::tt::ttnn
