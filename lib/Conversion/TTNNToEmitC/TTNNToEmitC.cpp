@@ -34,6 +34,8 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/LogicalResult.h"
 
+#include <optional>
+
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TT/IR/TTOpsDialect.h.inc"
 
@@ -173,6 +175,36 @@ public:
         emitter.emit(srcOp.getInput()),
         /*parameter=*/emitter.emit(false),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+template <typename SourceOp>
+class EltwiseUnaryWithAccuracyModeOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      SourceOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = typename SourceOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(SourceOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        /*output=*/emitter.emit(std::nullopt),
+        /*accuracy=*/emitter.emit(true),
     };
 
     emitter.replaceOp(*this, args);
@@ -2077,12 +2109,16 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            EltwiseUnaryOpConversionPattern<tt::ttnn::ReciprocalOp>,
            EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
                tt::ttnn::ExpOp>,
+           EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
+               tt::ttnn::ErfOp>,
+           EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
+               tt::ttnn::ErfcOp>,
            EltwiseUnaryOpConversionPattern<tt::ttnn::CeilOp>,
            EltwiseUnaryOpConversionPattern<tt::ttnn::SinOp>,
            EltwiseUnaryOpConversionPattern<tt::ttnn::CosOp>,
            EltwiseUnaryOpConversionPattern<tt::ttnn::Expm1Op>,
            EltwiseUnaryOpConversionPattern<tt::ttnn::TanOp>,
-           EltwiseUnaryOpConversionPattern<tt::ttnn::TanhOp>,
+           EltwiseUnaryWithAccuracyModeOpConversionPattern<tt::ttnn::TanhOp>,
            EltwiseUnaryOpConversionPattern<tt::ttnn::AtanOp>,
            EltwiseUnaryOpConversionPattern<tt::ttnn::LogOp>>(typeConverter,
                                                              ctx);

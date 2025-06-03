@@ -490,6 +490,18 @@ TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(
       .addOutputOperandWorkaround(operandWorkaround);
 }
 
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createTanhOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds operandWorkaround;
+  // Tanh op accurate mode requires bfloat16 data type.
+  // Issue: https://github.com/tenstorrent/tt-metal/issues/22593
+  operandWorkaround.tensorDataTypeWorkaround = DataType::BFloat16;
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(operandWorkaround)
+      .addOutputOperandWorkaround(operandWorkaround);
+}
+
 // Factory method to create a set of workarounds for ArgMax op operands.
 // Input tensor must have BFLOAT16 data type and ROW_MAJOR layout.
 // No need for data type workaround for output tensor; only layout workaround is

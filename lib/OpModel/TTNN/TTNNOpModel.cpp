@@ -21,6 +21,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -93,8 +94,7 @@ executeConstraintQuery(Callable &callable) {
  * @return A tuple containing query results or a string error.
  */
 template <class Callable>
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<OpConstraints>
 getOpConstraints(std::string_view name, MLIRContext *context,
                  GridAttr deviceGrid, Callable &callable) {
 
@@ -106,7 +106,7 @@ getOpConstraints(std::string_view name, MLIRContext *context,
 
   ::ttnn::graph::ConstraintQueryResponse response = query.get();
 
-  return std::make_tuple(
+  return OpConstraints(
       response.resource_usage.cb_peak_size_per_core,
       response.resource_usage.l1_buffers_peak_per_core,
       response.resource_usage.l1_output_buffer_per_core,
@@ -405,8 +405,7 @@ Device::getDeviceConstraints(mlir::tt::GridAttr workerGrid) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 template <typename OpSymbol>
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<OpConstraints>
 getEltwiseUnaryOpConstraints(std::string_view opName, OpSymbol opSymbol,
                              GridAttr deviceGrid,
                              llvm::ArrayRef<int64_t> inputShape,
@@ -468,8 +467,7 @@ getEltwiseUnaryOpRuntime(std::string_view opName, OpSymbol opSymbol,
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 template <typename OpSymbol>
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<OpConstraints>
 getEltwiseBinaryOpConstraints(std::string_view opName, OpSymbol opSymbol,
                               GridAttr deviceGrid,
                               llvm::ArrayRef<int64_t> inputShapeA,
@@ -571,8 +569,7 @@ getEltwiseBinaryOpRuntime(std::string_view opName, OpSymbol opSymbol,
 //===----------------------------------------------------------------------===//
 // ReluOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<OpConstraints>
 ReluOpInterface::getOpConstraints(GridAttr deviceGrid,
                                   llvm::ArrayRef<int64_t> inputShape,
                                   mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
@@ -583,7 +580,7 @@ ReluOpInterface::getOpConstraints(GridAttr deviceGrid,
                                       deviceGrid, inputShape, inputLayout,
                                       outputShape, outputLayout);
 #else
-  return std::make_tuple(0, 0, 0, nullptr);
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -603,8 +600,7 @@ ReluOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 // SqrtOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<OpConstraints>
 SqrtOpInterface::getOpConstraints(GridAttr deviceGrid,
                                   llvm::ArrayRef<int64_t> inputShape,
                                   mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
@@ -615,7 +611,7 @@ SqrtOpInterface::getOpConstraints(GridAttr deviceGrid,
                                       deviceGrid, inputShape, inputLayout,
                                       outputShape, outputLayout);
 #else
-  return std::make_tuple(0, 0, 0, nullptr);
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -635,9 +631,7 @@ SqrtOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 // SigmoidOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
-SigmoidOpInterface::getOpConstraints(
+llvm::Expected<OpConstraints> SigmoidOpInterface::getOpConstraints(
     GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> outputShape,
@@ -668,7 +662,7 @@ SigmoidOpInterface::getOpConstraints(
   return operation::getOpConstraints(
       "SigmoidOpInterface", inputLayout.getContext(), deviceGrid, query);
 #else
-  return std::make_tuple(0, 0, 0, nullptr);
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -709,8 +703,7 @@ SigmoidOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 // AddOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<OpConstraints>
 AddOpInterface::getOpConstraints(GridAttr deviceGrid,
                                  llvm::ArrayRef<int64_t> inputShapeA,
                                  mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
@@ -723,7 +716,7 @@ AddOpInterface::getOpConstraints(GridAttr deviceGrid,
       "AddOpInterface", ::ttnn::add, deviceGrid, inputShapeA, inputLayoutA,
       inputShapeB, inputLayoutB, outputShape, outputLayout);
 #else
-  return std::make_tuple(0, 0, 0, nullptr);
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -746,9 +739,7 @@ AddOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
 //===----------------------------------------------------------------------===//
 // SoftmaxOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
-SoftmaxOpInterface::getOpConstraints(
+llvm::Expected<OpConstraints> SoftmaxOpInterface::getOpConstraints(
     GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout, const int dimArg,
     llvm::ArrayRef<int64_t> outputShape,
@@ -775,7 +766,7 @@ SoftmaxOpInterface::getOpConstraints(
                                      inputLayout.getContext(), deviceGrid,
                                      softmaxOpQuery);
 #else
-  return std::make_tuple(0, 0, 0, nullptr);
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -812,14 +803,11 @@ SoftmaxOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 // MeanOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
-MeanOpInterface::getOpConstraints(GridAttr deviceGrid,
-                                  llvm::ArrayRef<int64_t> inputShape,
-                                  mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-                                  std::optional<llvm::ArrayRef<int64_t>> dimArg,
-                                  bool keepDim,
-                                  mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+llvm::Expected<OpConstraints> MeanOpInterface::getOpConstraints(
+    GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> dimArg, bool keepDim,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -894,9 +882,7 @@ MeanOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 // ReshapeOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
-ReshapeOpInterface::getOpConstraints(
+llvm::Expected<OpConstraints> ReshapeOpInterface::getOpConstraints(
     GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> outputShape,
@@ -923,7 +909,7 @@ ReshapeOpInterface::getOpConstraints(
                                      inputLayout.getContext(), deviceGrid,
                                      reshapeOpQuery);
 #else
-  return std::make_tuple(0, 0, 0, nullptr);
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -959,9 +945,7 @@ ReshapeOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 // TypecastOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
-TypecastOpInterface::getOpConstraints(
+llvm::Expected<OpConstraints> TypecastOpInterface::getOpConstraints(
     GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout, mlir::tt::DataTypeAttr dtype,
     llvm::ArrayRef<int64_t> outputShape,
@@ -989,7 +973,7 @@ TypecastOpInterface::getOpConstraints(
                                      inputLayout.getContext(), deviceGrid,
                                      typecastOpQuery);
 #else
-  return std::make_tuple(0, 0, 0, nullptr);
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -1027,9 +1011,7 @@ TypecastOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 // ToLayoutOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
-ToLayoutOpInterface::getOpConstraints(
+llvm::Expected<OpConstraints> ToLayoutOpInterface::getOpConstraints(
     GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
     std::optional<mlir::tt::DataType> outputDtype,
@@ -1064,7 +1046,7 @@ ToLayoutOpInterface::getOpConstraints(
                                      inputLayout.getContext(), deviceGrid,
                                      toLayoutOpQuery);
 #else
-  return std::make_tuple(0, 0, 0, nullptr);
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -1110,9 +1092,7 @@ ToLayoutOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 // TransposeOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
-TransposeOpInterface::getOpConstraints(
+llvm::Expected<OpConstraints> TransposeOpInterface::getOpConstraints(
     GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout, const int dim0, const int dim1,
     mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
@@ -1138,7 +1118,7 @@ TransposeOpInterface::getOpConstraints(
                                      inputLayout.getContext(), deviceGrid,
                                      transposeOpQuery);
 #else
-  return std::make_tuple(0, 0, 0, nullptr);
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -1173,8 +1153,7 @@ llvm::Expected<size_t> TransposeOpInterface::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // MatmulOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<OpConstraints>
 MatmulOpInterface::getOpConstraints(GridAttr deviceGrid,
                                     llvm::ArrayRef<int64_t> inputShapeA,
                                     mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
@@ -1225,7 +1204,7 @@ MatmulOpInterface::getOpConstraints(GridAttr deviceGrid,
                                      inputLayoutA.getContext(), deviceGrid,
                                      matmulOpQuery);
 #else
-  return std::make_tuple(0, 0, 0, nullptr);
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -1281,9 +1260,7 @@ MatmulOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
-MultiplyOpInterface::getOpConstraints(
+llvm::Expected<OpConstraints> MultiplyOpInterface::getOpConstraints(
     GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
     llvm::ArrayRef<int64_t> inputShapeB,
@@ -1295,7 +1272,7 @@ MultiplyOpInterface::getOpConstraints(
       "MultiplyOpInterface", ::ttnn::multiply, deviceGrid, inputShapeA,
       inputLayoutA, inputShapeB, inputLayoutB, outputShape, outputLayout);
 #else
-  return std::make_tuple(0, 0, 0, nullptr);
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -1318,9 +1295,7 @@ MultiplyOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
 //===----------------------------------------------------------------------===//
 // Conv2dOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
-Conv2dOpInterface::getOpConstraints(
+llvm::Expected<OpConstraints> Conv2dOpInterface::getOpConstraints(
     GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> weightShape,
@@ -1397,7 +1372,7 @@ Conv2dOpInterface::getOpConstraints(
   return operation::getOpConstraints(
       "Conv2dOpInterface", inputLayout.getContext(), deviceGrid, conv2dOpQuery);
 #else
-  return std::make_tuple(0, 0, 0, nullptr);
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -1483,9 +1458,7 @@ llvm::Expected<size_t> Conv2dOpInterface::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // MaxPool2D
 //===----------------------------------------------------------------------===//
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
-MaxPool2DOpInterface::getOpConstraints(
+llvm::Expected<OpConstraints> MaxPool2DOpInterface::getOpConstraints(
     GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout, int32_t batchSize,
     int32_t inputHeight, int32_t inputWidth, int32_t inputChannels,
@@ -1530,7 +1503,7 @@ MaxPool2DOpInterface::getOpConstraints(
                                      inputLayout.getContext(), deviceGrid,
                                      maxPool2DQuery);
 #else
-  return std::make_tuple(0, 0, 0, nullptr);
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -1583,9 +1556,7 @@ llvm::Expected<size_t> MaxPool2DOpInterface::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // ClampScalar
 //===----------------------------------------------------------------------===//
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
-ClampScalarOpInterface::getOpConstraints(
+llvm::Expected<OpConstraints> ClampScalarOpInterface::getOpConstraints(
     GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout, llvm::APFloat min,
     llvm::APFloat max, llvm::ArrayRef<int64_t> outputShape,
@@ -1617,7 +1588,7 @@ ClampScalarOpInterface::getOpConstraints(
                                      inputLayout.getContext(), deviceGrid,
                                      clampScalarQuery);
 #else
-  return std::make_tuple(0, 0, 0, nullptr);
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -1650,6 +1621,181 @@ llvm::Expected<size_t> ClampScalarOpInterface::getOpRuntime(
   };
 
   return operation::getOpRuntime("ClampScalarOpInterface", clampScalarQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// Permute
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> PermuteOpInterface::getOpConstraints(
+    GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> permutation, llvm::APFloat padValue,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // Convert permutations of TTNN_PermuteOp to dims of ttnn::permute
+  ::ttnn::SmallVector<int64_t> dims(permutation.size());
+  std::copy(permutation.begin(), permutation.end(), dims.begin());
+
+  float defaultedPadValue = padValue.convertToFloat();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto permuteQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::permute, device, inputSpec, dims,
+        detail::getNullableMemoryConfig(outputLayout), defaultedPadValue);
+  };
+
+  return operation::getOpConstraints(
+      "PermuteOpInterface", inputLayout.getContext(), deviceGrid, permuteQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+PermuteOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                                 llvm::ArrayRef<int64_t> permutation,
+                                 llvm::APFloat padValue,
+                                 llvm::ArrayRef<int64_t> outputShape,
+                                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // Convert permutations of TTNN_PermuteOp to dims of ttnn::permute
+  ::ttnn::SmallVector<int64_t> dims(permutation.size());
+  std::copy(permutation.begin(), permutation.end(), dims.begin());
+
+  // Convert float
+  float defaultedPadValue = padValue.convertToFloat();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto permuteQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::permute, device, inputSpec, dims,
+        detail::getNullableMemoryConfig(outputLayout), defaultedPadValue);
+  };
+
+  return operation::getOpRuntime("PermuteOpInterface", permuteQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// Upsample
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> UpsampleOpInterface::getOpConstraints(
+    GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout, mlir::Attribute scaleFactor,
+    llvm::StringRef mode, llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // Convert params
+  std::variant<int, ::tt::tt_metal::Array2D> convertedScaleFactor;
+  if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(scaleFactor)) {
+    convertedScaleFactor = static_cast<int>(value.getInt());
+  } else if (auto tuple =
+                 mlir::dyn_cast<::mlir::detail::DenseArrayAttrImpl<int32_t>>(
+                     scaleFactor);
+             tuple.size() == 2) {
+    std::array<uint32_t, 2> arr;
+    arr[0] = static_cast<uint32_t>(tuple[0]);
+    arr[1] = static_cast<uint32_t>(tuple[1]);
+    convertedScaleFactor = ::tt::tt_metal::Array2D(arr);
+  } else {
+    return llvm::createStringError("Invalid scaleFactor");
+  }
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto upsampleQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::upsample, device, inputSpec, convertedScaleFactor,
+        std::string(mode), detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints("UpsampleOpInterface",
+                                     inputLayout.getContext(), deviceGrid,
+                                     upsampleQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> UpsampleOpInterface::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout, mlir::Attribute scaleFactor,
+    llvm::StringRef mode, llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // Convert parameters
+  std::variant<int, ::tt::tt_metal::Array2D> convertedScaleFactor;
+  if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(scaleFactor)) {
+    convertedScaleFactor = static_cast<int>(value.getInt());
+  } else if (auto tuple =
+                 mlir::dyn_cast<::mlir::detail::DenseArrayAttrImpl<int32_t>>(
+                     scaleFactor);
+             tuple.size() == 2) {
+    std::array<uint32_t, 2> arr;
+    arr[0] = static_cast<uint32_t>(tuple[0]);
+    arr[1] = static_cast<uint32_t>(tuple[1]);
+    convertedScaleFactor = ::tt::tt_metal::Array2D(arr);
+  } else {
+    return llvm::createStringError("Invalid scaleFactor");
+  }
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto upsampleQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::upsample, device, inputSpec, convertedScaleFactor,
+        std::string(mode), detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime("UpsampleOpInterface", upsampleQuery);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL

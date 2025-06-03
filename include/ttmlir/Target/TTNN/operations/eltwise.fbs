@@ -58,16 +58,42 @@ enum EltwiseQuantizationOpType: uint32 {
   Requantize
 }
 
-table QuantizeDequantizeOpParams {
+table PerTensorScale {
   scale: float;
+}
+
+table PerAxisScale {
+  scale: tt.target.ttnn.TensorRef;
+}
+
+union QuantizationScale {
+  PerTensorScale,
+  PerAxisScale,
+}
+
+table PerTensorZeroPoint {
   zero_point: int32;
 }
 
+table PerAxisZeroPoint {
+  zero_point: tt.target.ttnn.TensorRef;
+}
+
+union QuantizationZeroPoint {
+  PerTensorZeroPoint,
+  PerAxisZeroPoint,
+}
+
+table QuantizeDequantizeOpParams {
+  scale: QuantizationScale;
+  zero_point: QuantizationZeroPoint;
+}
+
 table RequantizeOpParams {
-  in_scale: float;
-  in_zero_point: int32;
-  out_scale: float;
-  out_zero_point: int32;
+  in_scale: QuantizationScale;
+  in_zero_point: QuantizationZeroPoint;
+  out_scale: QuantizationScale;
+  out_zero_point: QuantizationZeroPoint;
 }
 
 union EltwiseQuantizationOpParams {
@@ -113,6 +139,8 @@ enum EltwiseUnaryOpType: uint32 {
   Tanh,
   Atan,
   Exp,
+  Erf,
+  Erfc,
   Log,
   Expm1,
   LeakyRelu,
