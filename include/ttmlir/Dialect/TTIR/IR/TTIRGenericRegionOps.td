@@ -219,6 +219,16 @@ def TTIR_TileUntilizeBlockOp : TTIR_GenericRegionComputeOp<"tile_untilize_block"
     let hasVerifier = 1;
 }
 
+def TTIR_TileTypecastOp : TTIR_GenericRegionComputeOp<"tile_typecast"> {
+    let summary = "TTIR Tile Typecast Op";
+    let description = [{
+        The `tile_typecast` operation casts the input tile to the desired dataformat.
+    }];
+
+    let arguments = (ins TT_Tile:$input);
+    let results = (outs TT_Tile:$result);
+}
+
 
 //===----------------------------------------------------------------------===//
 // TTIR Generic Region Datamovement Ops (Used in TTMetal Lowering)
