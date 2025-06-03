@@ -523,15 +523,27 @@ class Run:
                 if self["--program-index"] == "all":
                     self["--program-index"] = 0
 
-            mesh_shape = [1, len(self.query.device_ids)]
+            device_mesh_shape = [1, len(self.query.device_ids)]
             mesh_options = ttrt.runtime.MeshDeviceOptions()
             mesh_options.dispatch_core_type = dispatch_core_type
             mesh_options.enable_program_cache = self["--enable-program-cache"]
-            parent_device = ttrt.runtime.open_mesh_device(mesh_shape, mesh_options)
 
             for bin in binaries:
+
+                fb_mesh_shape = bin.get_program(0).mesh_shape()
+                parent_device = ttrt.runtime.open_mesh_device(
+                    device_mesh_shape, mesh_options
+                )
+
+                # Only open a submesh if the flatbuffer expects a different mesh shape than the device
+                if list(fb_mesh_shape) != list(device_mesh_shape):
+                    device = ttrt.runtime.create_sub_mesh_device(
+                        parent_device, fb_mesh_shape
+                    )
+                else:
+                    device = parent_device
+
                 try:
-                    device = ttrt.runtime.create_sub_mesh_device(parent_device, [1, 1])
                     self.logging.info(f"evaluating binary={bin.file_path}")
 
                     pre_op_callback_runtime_config = CallbackRuntimeConfig(
@@ -1012,13 +1024,17 @@ class Run:
                     self.results.add_result(test_result)
                     bin.test_result = result
                 finally:
-                    # ttrt.runtime.reshape_mesh_device(device, mesh_shape)
 
                     if self["--emitc"]:
                         ttrt.runtime.test.close_so(emitc_dylib_handle)
 
-            ttrt.runtime.unregister_hooks()
-            ttrt.runtime.close_mesh_device(parent_device)
+                # Only need to release submesh if we created one
+                if list(fb_mesh_shape) != list(device_mesh_shape):
+                    ttrt.runtime.release_sub_mesh_device(device)
+
+                # Always need to close the parent device
+                ttrt.runtime.unregister_hooks()
+                ttrt.runtime.close_mesh_device(parent_device)
 
         self.logging.debug(f"executing ttnn binaries")
         _execute(self.ttnn_binaries)
