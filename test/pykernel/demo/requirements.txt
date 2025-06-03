@@ -1,3 +1,5 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 loguru
 graphviz==0.20.3
 pytest==7.2.2
