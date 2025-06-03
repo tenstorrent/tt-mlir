@@ -17,4 +17,14 @@ module {
     %1 = "ttir.transpose"(%arg0, %0) <{dim0 = -1 : si32, dim1 = -2 : si32}> : (tensor<32x64x128xbf16>, tensor<32x128x64xbf16>) -> tensor<32x128x64xbf16>
     return %1 : tensor<32x128x64xbf16>
   }
+
+  func.func @transpose_constant() -> tensor<3x2xf32> {
+    // CHECK-NOT: "ttir.transpose"
+    %cst = "ttir.constant"() <{
+      value = dense<[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]> : tensor<2x3xf32>
+    }> : () -> tensor<2x3xf32>
+    %0 = ttir.empty() : tensor<3x2xf32>
+    %1 = "ttir.transpose"(%cst, %0) <{dim0 = 0 : si32, dim1 = 1 : si32}> : (tensor<2x3xf32>, tensor<3x2xf32>) -> tensor<3x2xf32>
+    return %1 : tensor<3x2xf32>
+  }
 }
