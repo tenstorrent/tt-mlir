@@ -369,7 +369,7 @@ mlir::LogicalResult mlir::tt::ttir::ConstantOp::bufferize(
     const mlir::bufferization::BufferizationOptions &options) {
   ::llvm::SmallVector<mlir::Value> invocationStack;
   auto memrefType = mlir::cast<mlir::MemRefType>(
-      *getBufferType(getResult(), options, invocationStack));
+      getBufferType(getResult(), options, invocationStack).value());
 
   mlir::memref::GlobalOp global = createGlobal(
       getOperation()->getParentOfType<ModuleOp>(), memrefType, getValue());
@@ -3561,6 +3561,47 @@ mlir::LogicalResult mlir::tt::ttir::FullOp::verify() {
   }
 
   return mlir::success();
+}
+
+bool mlir::tt::ttir::FullOp::bufferizesToMemoryRead(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+bool mlir::tt::ttir::FullOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+mlir::LogicalResult mlir::tt::ttir::FullOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options) {
+  ::llvm::SmallVector<mlir::Value> invocationStack;
+  auto memrefType = mlir::cast<mlir::MemRefType>(
+      getBufferType(getResult(), options, invocationStack).value());
+
+  auto denseAttr =
+      mlir::DenseElementsAttr::get(getResult().getType(), getFillValueAttr());
+
+  mlir::memref::GlobalOp global = createGlobal(
+      getOperation()->getParentOfType<ModuleOp>(), memrefType, denseAttr);
+  mlir::bufferization::replaceOpWithNewBufferizedOp<memref::GetGlobalOp>(
+      rewriter, *this, global.getType(), global.getName());
+
+  return mlir::success();
+}
+
+mlir::bufferization::AliasingValueList
+mlir::tt::ttir::FullOp::getAliasingValues(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  bufferization::AliasingValueList result;
+  return result;
+}
+
+mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::FullOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false);
 }
 
 //===----------------------------------------------------------------------===//
