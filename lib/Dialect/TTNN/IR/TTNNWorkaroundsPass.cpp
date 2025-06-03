@@ -384,7 +384,7 @@ TTNNOperandsWorkaroundsFactory::createReshapeOpOperandsWorkarounds(
   TTNNOperandWorkarounds typeWorkarounds;
   mlir::tt::DataType dataType = elementTypeToDataType(inputElementType);
   if (dataType == mlir::tt::DataType::Int32) {
-    typeWorkarounds.tensorDataTypeWorkaround = mlir::tt::DataType::UInt32;
+    typeWorkarounds.tensorDataTypeWorkaround = mlir::tt::DataType::Float32;
   }
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(typeWorkarounds)
