@@ -282,135 +282,91 @@ def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceL
 def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout"> {
   let summary = "Tensor layout attribute";
   let description = [{
-    The tensor layout attribute captures how tensor data is sharded across a grid of devices, cores, and
-    is laid out in memory.
+    The tensor layout attribute captures how tensor data is sharded across a grid of devices/cores
+    and is laid out in memory.
 
-    Some high level goals
-      - **Logical shapes**: Keep the original tensor shape and rank intact and agnostic
-        to underlying storage layout.
-        Keeping the logical shapes not only makes some graph transformations vastly
-        simpler, in particular convs, but it makes the lowered IR much easier to read
-        and reason about.  The original tensor shapes leave breadcrumbs that make it
-        much easier to map back to the input representation.
-      - **Flexible sharding**: Enable flexibility in choosing grid shape, to get better
-        parallelization and avoid resharding. This is particularly important in cases
-        where tensor shapes are not clean powers of two and would otherwise force our
-        hand in choosing non-optimal grid shapes.
-      - **Logical-Physical Isomorphism**: Encode this information with just a few
-        attributes to enable derived conversions from logical to physical layout and back.
-      - **Explicit**: A single source of truth.
-      - Enable a direct way to query padded regions.
+    Key change: The tensor shape now directly represents the physical layout including grid dimensions.
 
-    Please refer to the [Tensor Layout Spec](https://tenstorrent.github.io/tt-mlir/specs/tensor-layout.html) for more in depth documentation.
+    For a logical tensor of shape [H, W] distributed across a grid [GY, GX], the tensor shape would be:
+    - Without tiling: [GY, GX, H/GY, W/GX]
+    - With tiling: [GY, GX, H/GY/TH, W/GX/TW, TH, TW] where TH,TW are tile dimensions
+
+    This makes the representation 1:1 with memrefs and eliminates the need for shape conversion passes.
 
     Examples:
     ```mlir
-    tensor<8x300xf32,
-      #ttcore.metal_layout<(d0, d1) -> (d0, d1),
-        undef,
-        <1x2>,
-        memref<8x150xf32, #ttcore.memory_space<l1>>
-      >
-    >
+    // Logical 8x300 tensor distributed across 1x2 grid
+    // Old: tensor<8x300xf32, #tt.metal_layout<..., <1x2>, memref<8x150xf32>>>
+    // New: tensor<1x2x8x150xf32, #tt.metal_layout<logical_shape=[8, 300], ...>>
 
-    tensor<8x96x32xf32,
-      #ttcore.metal_layout<(d0, d1, d2) -> (d0 * 96 + d1, d2),
-        undef,
-        <2x1>,
-        memref<384x32xf32, #ttcore.memory_space<l1>>
-      >
-    >
-
-    tensor<8x96x32xf32,
-      #ttcore.metal_layout<(d0, d1, d2) -> (d0 * 96 + d1, d1, d2),
-        undef,
-        <2x1x2>,
-        memref<384x96x16xf32, #ttcore.memory_space<l1>>
-      >
-    >
-
-    tensor<5x3x2x2x7x32x32xf32,
-      #ttcore.metal_layout<
-        (d0, d1, d2, d3, d4, d5, d6)
-          -> (d0 * 2688 + d1 * 896 + d2 * 448 + d3 * 224 + d4 * 32 + d5, d4, d5, d6),
-        undef,
-        <3x2x2x2>,
-        memref<4480x4x16x16xf32, #ttcore.memory_space<l1>>
-      >
-    >
+    // Logical 1024x1024 tensor distributed across 2x2 grid with 32x32 tiles
+    // Old: tensor<1024x1024xf32, #tt.metal_layout<..., <2x2>, memref<16x16x32x32xf32>>>
+    // New: tensor<2x2x16x16x32x32xf32, #tt.metal_layout<logical_shape=[1024, 1024], tile_shape=[32, 32], ...>>
     ```
   }];
 
-  let parameters = (ins AttrParameter<"AffineMap", "An affine map that defines how the logical tensor dimensions map to a grid shape.">:$linear,
-                        AttrParameter<"OOBVal", "A tracked out of bounds value that fills padding space.">:$oob_val,
-                        AttrParameter<"GridAttr", "The grid shape that this tensor is divided onto.">:$grid,
-                        AttrParameter<"MemRefType", "A memref that describes the physical footprint allocation of the shard. It must also have a shape with rank equal to grid.">:$memref);
-  let assemblyFormat = "`<` $linear`,` $oob_val`,` $grid`,` $memref `>`";
+  let parameters = (ins
+    // The logical tensor shape before distribution
+    ArrayRefParameter<"int64_t">:$logical_shape,
+
+    // The grid shape that this tensor is distributed across
+    ArrayRefParameter<"int64_t">:$grid_shape,
+
+    // Optional tile shape if data is tiled (e.g., [32, 32] for tt.tile<32x32>)
+    // Using ArrayRef with empty as "not present" since OptionalParameter doesn't work well with ArrayRef
+    OptionalArrayRefParameter<"int64_t">:$tile_shape,
+
+    // Out of bounds value
+    AttrParameter<"OOBVal", "Out of bounds fill value">:$oob_val,
+
+    // Memory space for the tensor
+    DefaultValuedParameter<"MemorySpace", "MemorySpace::System">:$memory_space,
+
+    // Optional stride information (in bytes) for each dimension of the physical layout
+    OptionalArrayRefParameter<"int64_t">:$stride,
+
+    // Number of buffers for double buffering
+    DefaultValuedParameter<"uint32_t", "1">:$buffers
+  );
+
+  let assemblyFormat = "`<` `logical_shape` `=` `[` $logical_shape `]` `,` `grid_shape` `=` `[` $grid_shape `]` (`,` `tile_shape` `=` `[` $tile_shape^ `]`)? `,` $oob_val (`,` $memory_space^)? (`,` `stride` `=` `[` $stride^ `]`)? (`,` `buffers` `=` $buffers^)? `>`";
 
   let extraClassDeclaration = [{
-      static MetalLayoutAttr get(::mlir::MLIRContext *context,
-                            RankedTensorType ty,
-                            uint64_t gridRank,
-                            bool tiled = false,
-                            MemorySpace memorySpace = MemorySpace::System,
-                            ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}},
-                            OOBVal oobVal = OOBVal::Undef);
-      static MetalLayoutAttr get(::mlir::MLIRContext *context,
-                            RankedTensorType ty,
-                            GridAttr grid,
-                            bool tiled = false,
-                            MemorySpace memorySpace = MemorySpace::System,
-                            ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}},
-                            OOBVal oobVal = OOBVal::Undef);
-      static MetalLayoutAttr get(::mlir::MLIRContext *context,
-                            ArrayRef<int64_t> tensorShape,
-                            Type elementType,
-                            MemorySpace memorySpace = MemorySpace::System,
-                            GridAttr grid = {},
-                            ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}},
-                            OOBVal oobVal = OOBVal::Undef);
-      static MetalLayoutAttr get(::mlir::MLIRContext *context,
-                            RankedTensorType ty,
-                            MemorySpace memorySpace = MemorySpace::System,
-                            GridAttr grid = {},
-                            ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}},
-                            OOBVal oobVal = OOBVal::Undef);
-      static MetalLayoutAttr get(::mlir::MLIRContext *context,
-                            RankedTensorType ty,
-                            MemorySpace memorySpace,
-                            GridAttr grid,
-                            Type elementType);
-      MetalLayoutAttr withGrid(::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape, GridAttr grid, ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
-      MetalLayoutAttr withGrid(::mlir::MLIRContext *context,
-                          RankedTensorType ty,
-                          GridAttr grid,
-                          ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
-      MetalLayoutAttr withElementType(::mlir::MLIRContext *context, Type elementType);
-      MetalLayoutAttr withMemorySpace(::mlir::MLIRContext *context, MemorySpace memorySpace);
-      MetalLayoutAttr withShardShape(::mlir::MLIRContext *context, llvm::SmallVector<int64_t> shardShape);
+    // Factory methods
+    static MetalLayoutAttr get(::mlir::MLIRContext *context,
+                              ArrayRef<int64_t> logicalShape,
+                              ArrayRef<int64_t> gridShape,
+                              Type elementType,
+                              ArrayRef<int64_t> tileShape = {},
+                              OOBVal oobVal = OOBVal::Undef,
+                              MemorySpace memorySpace = MemorySpace::System);
 
-      uint64_t getMemrefSizeBytes() const;
-      MemorySpace getMemorySpace() const;
-      bool isSystemMemorySpace() const { return ::mlir::tt::isSystemMemorySpace(getMemorySpace()); }
-      bool isDeviceMemorySpace() const { return ::mlir::tt::isDeviceMemorySpace(getMemorySpace()); }
-      bool isTiled() const;
-      Type getElementType() const;
-      Type getScalarElementType() const;
-      uint64_t getElementSizeBytes() const;
-      llvm::SmallVector<int64_t> getStride(ArrayRef<int64_t> logicalShape) const;
-      llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> logicalShape) const;
-      llvm::SmallVector<int64_t> getShardShape(bool convertTileToScalar = true) const;
-      llvm::SmallVector<int64_t> getShardStride() const;
-      uint64_t getRank() const { return getLinear().getNumResults(); }
-      AffineMap replaceMemoryMapSymbolsWithShardShape(AffineMap physicalMemoryMap) const;
-      AffineMap projectOnto(AffineMap linearMap, AffineMap physicalMemoryMap) const;
-      AffineMap getIdentityTileLinearMap() const;
-      llvm::SmallVector<int64_t> getTiledShape(ArrayRef<int64_t> logicalTensorShape) const;
-      // Concatenates the grid shape with the memref shape to form an all in one memref shape,
-      // used as the buffer type for bufferization, e.g.:
-      //   metal_layout<..., <2x3>, memref<4x5xttcore.tile<32x32, f32>>>
-      //     -> memref<2x3x4x5xttcore.tile<32x32, f32>>
-      MemRefType getBufferType(bool isView = false) const;
+    // Derive the physical tensor shape from logical shape and grid
+    static llvm::SmallVector<int64_t> derivePhysicalShape(
+        ArrayRef<int64_t> logicalShape,
+        ArrayRef<int64_t> gridShape,
+        ArrayRef<int64_t> tileShape = {});
+
+    // Query methods - now simpler since grid is stored
+    llvm::SmallVector<int64_t> getShardShape() const;
+    bool isTiled() const { return !getTileShape().empty(); }
+    bool isDistributed() const { return !getGridShape().empty(); }
+
+    // Get the corresponding memref type (essentially just drops grid dimensions)
+    MemRefType getMemRefType(RankedTensorType tensorType) const;
+
+    // Affine map from logical indices to physical buffer indices
+    AffineMap getLogicalToPhysicalMap() const;
+
+    // Affine map from physical tensor indices to buffer indices (drops grid dims)
+    AffineMap getPhysicalToBufferMap(unsigned physicalRank) const;
+
+    // Size calculations
+    uint64_t getShardSizeBytes(Type elementType) const;
+    uint64_t getTotalSizeBytes(Type elementType) const;
+
+    // Stride calculations (returns stride or computes from shape if not specified)
+    llvm::SmallVector<int64_t> getEffectiveStride(RankedTensorType tensorType) const;
   }];
 }
 

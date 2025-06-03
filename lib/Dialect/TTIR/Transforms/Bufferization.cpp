@@ -19,24 +19,22 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRPREPARETENSORSFORBUFFERIZATION
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
-namespace {
 class TTIRTensorBufferizeShapeConverter : public TypeConverter {
 public:
   TTIRTensorBufferizeShapeConverter(MLIRContext *ctx) {
     addConversion([](Type type) { return type; });
-    addConversion([](RankedTensorType type) -> Type {
-      auto layout =
-          mlir::dyn_cast_if_present<MetalLayoutAttr>(type.getEncoding());
-      if (!layout) {
-        return type;
-      }
-      auto bufferType = layout.getBufferType();
-      return RankedTensorType::get(bufferType.getShape(),
-                                   bufferType.getElementType(), layout);
-    });
+    // addConversion([](RankedTensorType type) -> Type {
+    //   // auto layout =
+    //   mlir::dyn_cast_if_present<MetalLayoutAttr>(type.getEncoding());
+    //   // if (!layout) {
+    //   //   return type;
+    //   // }
+    //   // // New: Just convert to memref with same shape
+    //   // return MemRefType::get(type.getShape(), type.getElementType(),
+    //   //                       layout.getMemorySpace());
+    // });
   }
 };
-} // namespace
 
 namespace {
 class TTIRPrepareTensorsForBufferization

@@ -361,6 +361,7 @@ inline MemorySpace getMemorySpace(Value memrefTypedValue) {
   return getMemorySpace(memrefTypedValue.getType());
 }
 
+
 } // namespace mlir::tt
 
 #endif

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -38,25 +39,38 @@ static RankedTensorType calculateOptimalLayoutForTensorType(
   auto resultEncoding =
       mlir::cast_if_present<MetalLayoutAttr>(resultType.getEncoding());
   assert(resultEncoding && "Tensor type must have a MetalLayoutAttr encoding");
-  assert(resultEncoding.getGrid().getShape().size() ==
-             resultEncoding.getMemref().getShape().size() &&
-         "Grid rank must match memref rank.");
 
-  SmallVector<int64_t> canonicalShape;
-  canonicalShape.reserve(resultEncoding.getMemref().getShape().size());
+  // New: In the new design, we work with logical shapes directly
+  auto logicalShape = resultEncoding.getLogicalShape();
 
-  for (size_t i = 0; i < resultEncoding.getMemref().getShape().size(); i++) {
-    canonicalShape.push_back(resultEncoding.getMemref().getShape()[i] *
-                             resultEncoding.getGrid().getShape()[i]);
-  }
+  // The assertion about grid rank matching memref rank is no longer needed
+  // since that relationship is implicit in the new design
 
+  // Calculate the canonical (undistributed) shape
+  // This is just the logical shape in the new design
+  SmallVector<int64_t> canonicalShape(logicalShape.begin(), logicalShape.end());
+
+  // Get the optimal grid for this logical shape
   auto optimalOutputGrid =
       getOptimalGrid(rewriter, canonicalShape, workerGridShape);
-  auto newResultEncoding = resultEncoding.withGrid(
-      tensor.getContext(), resultType, optimalOutputGrid);
 
-  return RankedTensorType::get(resultType.getShape(),
-                               resultType.getElementType(), newResultEncoding);
+  // Create new layout with the optimal grid
+  auto newResultEncoding = MetalLayoutAttr::get(
+      tensor.getContext(), logicalShape,
+      optimalOutputGrid.getShape(), // Extract shape from GridAttr
+      resultType.getElementType(),
+      resultEncoding.getTileShape(), // Just pass it directly
+      resultEncoding.getOobVal(), resultEncoding.getMemorySpace());
+
+  // Calculate the new physical shape based on the new grid
+  auto newPhysicalShape = MetalLayoutAttr::derivePhysicalShape(
+      logicalShape,
+      optimalOutputGrid.getShape(),   // Extract shape from GridAttr
+      resultEncoding.getTileShape()); // Just pass it directly
+
+  // Return tensor with new physical shape and layout
+  return RankedTensorType::get(newPhysicalShape, resultType.getElementType(),
+                               newResultEncoding);
 }
 
 namespace {
@@ -81,8 +95,8 @@ struct TTIRGenericTensorLayoutRewriter
     Type originalType = op->getResult(0).getType();
     rewriter.modifyOpInPlace(op, [&]() {
       // Update generic grid (match worker cores to output grid)
-      op.setGridAttr(
-          mlir::cast<MetalLayoutAttr>(newTensorType.getEncoding()).getGrid());
+      auto layout = mlir::cast<MetalLayoutAttr>(newTensorType.getEncoding());
+      op.setGridAttr(rewriter.getAttr<GridAttr>(layout.getGridShape()));
     });
 
     auto dpsOp = mlir::cast<DestinationStyleOpInterface>(op.getOperation());
@@ -138,16 +152,19 @@ struct TTIRMemrefLayoutRewriter : public OpRewritePattern<ttir::GenericOp> {
              "operands");
       for (size_t i = 0; i < genericBlock.getNumArguments(); i++) {
         auto arg = genericBlock.getArgument(i);
-        auto operand =
+        auto operandType =
             mlir::cast<RankedTensorType>(op->getOperand(i).getType());
-        auto operandEncoding =
-            mlir::cast<MetalLayoutAttr>(operand.getEncoding());
-        if (arg.getType() == operandEncoding.getMemref()) {
+
+        // New: Create memref type using the common utility function
+        auto expectedMemrefType =
+            ttir::getBufferType(operandType, /*isView=*/false);
+
+        if (arg.getType() == expectedMemrefType) {
           continue;
         }
         modified = true;
-        rewriter.modifyOpInPlace(
-            op, [&]() { arg.setType(operandEncoding.getMemref()); });
+        rewriter.modifyOpInPlace(op,
+                                 [&]() { arg.setType(expectedMemrefType); });
       }
     }
 

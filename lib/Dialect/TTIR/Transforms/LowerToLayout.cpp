@@ -60,11 +60,15 @@ public:
                                           op.getInput())
                     .getResult();
 
-    assert(inputLayout.getRank() == outputLayout.getRank());
+    // New: Get rank from logical shape
+    assert(inputLayout.getLogicalShape().size() ==
+           outputLayout.getLogicalShape().size());
+    size_t logicalRank = inputLayout.getLogicalShape().size();
+
     ArrayAttr indexingMaps, iteratorTypes;
     std::tie(indexingMaps, iteratorTypes) =
         GenericOp::buildParallelAffineMapsAndIteratorTypes(
-            rewriter, /*arity=*/2, inputLayout.getRank());
+            rewriter, /*arity=*/2, logicalRank);
     rewriter.replaceOpWithNewOp<GenericOp>(
         op, view, op.getOutput(),
         [&](OpBuilder &builder, Location loc, ValueRange blockArgs) {
@@ -129,21 +133,52 @@ public:
 
   ttir::ToLayoutOp createToLayoutOp(PatternRewriter &rewriter, Location loc,
                                     Value input,
-                                    MetalLayoutAttr desiredLayout) const {
-    auto ty = mlir::cast<RankedTensorType>(input.getType());
+                                    RankedTensorType desiredType) const {
+    // Create empty tensor with desired type and layout
+    auto layout = mlir::cast<MetalLayoutAttr>(desiredType.getEncoding());
     auto output = rewriter.create<ttir::EmptyOp>(
-        loc, ty.getShape(), ty.getElementType(), desiredLayout);
+        loc, desiredType.getShape(), desiredType.getElementType(), layout);
     return rewriter.create<ttir::ToLayoutOp>(loc, input, output);
   }
 
   Value bounce(PatternRewriter &rewriter, ToLayoutOp op,
-               MetalLayoutAttr bounceLayout) const {
+               RankedTensorType bounceType) const {
     auto bounced =
-        createToLayoutOp(rewriter, op.getLoc(), op.getInput(), bounceLayout);
+        createToLayoutOp(rewriter, op.getLoc(), op.getInput(), bounceType);
     return rewriter
         .replaceOpWithNewOp<ttir::ToLayoutOp>(op, bounced->getResult(0),
                                               op.getOutput())
         ->getResult(0);
+  }
+
+  // Helper to create a new tensor type with modified layout
+  RankedTensorType
+  createModifiedType(MLIRContext *ctx, RankedTensorType baseType,
+                     MetalLayoutAttr baseLayout,
+                     std::optional<MemorySpace> newMemSpace = {},
+                     std::optional<ArrayRef<int64_t>> newGrid = {},
+                     std::optional<Type> newElementType = {},
+                     std::optional<ArrayRef<int64_t>> newTileShape = {}) const {
+    // Use existing values if not overridden
+    auto memSpace = newMemSpace.value_or(baseLayout.getMemorySpace());
+    auto gridShape = newGrid.value_or(baseLayout.getGridShape());
+    auto elementType = newElementType.value_or(baseType.getElementType());
+    auto tileShape =
+        newTileShape.has_value()
+            ? *newTileShape
+            : (!baseLayout.getTileShape().empty() ? baseLayout.getTileShape()
+                                                  : ArrayRef<int64_t>{});
+
+    // Create new layout
+    auto newLayout = MetalLayoutAttr::get(ctx, baseLayout.getLogicalShape(),
+                                          gridShape, elementType, tileShape,
+                                          baseLayout.getOobVal(), memSpace);
+
+    // Derive physical shape
+    auto physicalShape = MetalLayoutAttr::derivePhysicalShape(
+        baseLayout.getLogicalShape(), gridShape, tileShape);
+
+    return RankedTensorType::get(physicalShape, elementType, newLayout);
   }
 
   LogicalResult matchAndRewrite(ToLayoutOp op,
@@ -153,6 +188,7 @@ public:
       return failure();
     }
 
+    auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
     auto outputType = mlir::cast<RankedTensorType>(op.getOutput().getType());
     auto inputLayout = op.getInputLayout();
     auto outputLayout = op.getOutputLayout();
@@ -163,41 +199,55 @@ public:
     // First prioritize moving the data into L1 so we can work with it in L1
     if (!inputL1) {
       // read first into L1, then format convert
-      bounce(rewriter, op,
-             inputLayout.withMemorySpace(rewriter.getContext(),
-                                         MemorySpace::DeviceL1));
+      auto bounceType = createModifiedType(rewriter.getContext(), inputType,
+                                           inputLayout, MemorySpace::DeviceL1);
+      bounce(rewriter, op, bounceType);
     } else if (!outputL1) {
       // format convert first in L1 first, then write
       assert(inputL1 && "input should guaranteed be in L1 because of the "
                         "previous case");
-      bounce(rewriter, op,
-             outputLayout.withMemorySpace(rewriter.getContext(),
-                                          MemorySpace::DeviceL1));
+      auto bounceType = createModifiedType(rewriter.getContext(), outputType,
+                                           outputLayout, MemorySpace::DeviceL1);
+      bounce(rewriter, op, bounceType);
     } else if (inputLayout.isTiled() != outputLayout.isTiled()) {
       // Prioritize moving tiled data
       if (inputLayout.isTiled()) {
-        bounce(rewriter, op,
-               outputLayout.withElementType(rewriter.getContext(),
-                                            inputLayout.getElementType()));
+        // Keep output layout but with input's element type
+        auto bounceType = createModifiedType(
+            rewriter.getContext(), outputType, outputLayout,
+            /*memSpace=*/{}, /*grid=*/{}, inputType.getElementType());
+        bounce(rewriter, op, bounceType);
       } else {
         assert(outputLayout.isTiled());
-        bounce(rewriter, op,
-               inputLayout.withElementType(rewriter.getContext(),
-                                           outputLayout.getElementType()));
+        // Keep input layout but with output's element type
+        auto bounceType = createModifiedType(
+            rewriter.getContext(), inputType, inputLayout,
+            /*memSpace=*/{}, /*grid=*/{}, outputType.getElementType());
+        bounce(rewriter, op, bounceType);
       }
     } else if (components.isLayoutChange && inputLayout.isTiled()) {
       // For now to flexibly support layout changes, we need to bounce to scalar
-      // first
-      bounce(rewriter, op,
-             inputLayout.withElementType(rewriter.getContext(),
-                                         inputLayout.getScalarElementType()));
+      // first Get scalar element type
+      Type scalarType = inputType.getElementType();
+      if (auto tileType = mlir::dyn_cast<TileType>(scalarType)) {
+        scalarType = tileType.getElementType();
+      }
+
+      // Create untiled version with scalar type
+      auto bounceType = createModifiedType(
+          rewriter.getContext(), inputType, inputLayout,
+          /*memSpace=*/{}, /*grid=*/{}, scalarType,
+          /*tileShape=*/ArrayRef<int64_t>{}); // Empty means no tiling
+      bounce(rewriter, op, bounceType);
     } else if (components.isGridChange) {
       assert(!components.isLayoutChange &&
              "Changing layout and grid at the same time is currently "
              "not supported");
-      bounce(rewriter, op,
-             outputLayout.withGrid(rewriter.getContext(), outputType,
-                                   inputLayout.getGrid()));
+      // Keep output layout but with input's grid
+      auto bounceType =
+          createModifiedType(rewriter.getContext(), outputType, outputLayout,
+                             /*memSpace=*/{}, inputLayout.getGridShape());
+      bounce(rewriter, op, bounceType);
     } else {
       // Note we should eventually support DRAM <-> DRAM, or System <-> System
       // w/ format conversion via streaming supported

@@ -36,14 +36,35 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
 
 namespace mlir::tt::ttir {
-static MemRefType getBufferType(Type type, bool isView) {
-  auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(type);
-  if (!rankedTensorType.getEncoding()) {
-    return MemRefType::get(rankedTensorType.getShape(),
-                           rankedTensorType.getElementType());
+MemRefType getBufferType(Type type, bool isView) {
+  auto tensorType = mlir::cast<mlir::RankedTensorType>(type);
+
+  // Handle tensors without encoding
+  if (!tensorType.getEncoding()) {
+    return mlir::MemRefType::get(tensorType.getShape(),
+                                 tensorType.getElementType());
   }
-  return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
-      .getBufferType(isView);
+
+  auto layout = mlir::cast<MetalLayoutAttr>(tensorType.getEncoding());
+  mlir::MLIRContext *ctx = tensorType.getContext();
+
+  // In the new design, tensor shape is already the physical buffer shape
+  // We just need to create the appropriate memref with layout attributes
+  mlir::MemRefLayoutAttrInterface layoutAttr;
+
+  if (isView) {
+    // View layout for DMA operations
+    layoutAttr = ViewLayoutAttr::get(ctx, /*rank=*/tensorType.getRank());
+  } else if (!layout.getStride().empty()) {
+    // If stride information is available, use ShardLayoutAttr
+    layoutAttr =
+        ShardLayoutAttr::get(ctx, layout.getStride(), layout.getBuffers());
+  }
+  // else: no layout attribute (using default/dense layout)
+
+  return mlir::MemRefType::get(
+      tensorType.getShape(), tensorType.getElementType(), layoutAttr,
+      MemorySpaceAttr::get(ctx, layout.getMemorySpace()));
 }
 } // namespace mlir::tt::ttir
 
@@ -2072,11 +2093,12 @@ verifyLayoutOp(mlir::Operation *op, mlir::Type inputTensorOrMemrefTy,
       return mlir::success();
     }
 
-    bool isFormatChange =
-        inputLayout.getElementType() != outputLayout.getElementType();
+    // New: Check element type - need to get from tensor type since layout
+    // doesn't store element type directly in the new design
+    bool isFormatChange = inputTy.getElementType() != outputTy.getElementType();
     if (isFormatChange && !allowFormatChange) {
       return op->emitOpError(
-          "Input and output layout element types must be the same");
+          "Input and output tensor element types must be the same");
     }
 
     bool isMemorySpaceChange =
@@ -2148,13 +2170,27 @@ mlir::tt::ttir::ToLayoutOp::CompoundComponents
 mlir::tt::ttir::ToLayoutOp::compoundComponents() {
   CompoundComponents components;
   if (mlir::isa<mlir::RankedTensorType>(getInput().getType())) {
+    auto inputTensor = mlir::cast<mlir::RankedTensorType>(getInput().getType());
+    auto outputTensor =
+        mlir::cast<mlir::RankedTensorType>(getOutput().getType());
     auto inputLayout = getInputLayout();
     auto outputLayout = getOutputLayout();
+
+    // New design comparisons:
+    // Layout change: logical shapes or tile configurations differ
     components.isLayoutChange =
-        inputLayout.getLinear() != outputLayout.getLinear();
-    components.isGridChange = inputLayout.getGrid() != outputLayout.getGrid();
+        inputLayout.getLogicalShape() != outputLayout.getLogicalShape() ||
+        inputLayout.getTileShape() != outputLayout.getTileShape();
+
+    // Grid change: grid shapes differ
+    components.isGridChange =
+        inputLayout.getGridShape() != outputLayout.getGridShape();
+
+    // Format change: element types differ (from tensor, not layout)
     components.isFormatChange =
-        inputLayout.getElementType() != outputLayout.getElementType();
+        inputTensor.getElementType() != outputTensor.getElementType();
+
+    // Memory space change: memory spaces differ
     components.isMemorySpaceChange =
         inputLayout.getMemorySpace() != outputLayout.getMemorySpace();
   } else {
@@ -2175,16 +2211,37 @@ mlir::tt::MetalLayoutAttr mlir::tt::ttir::ToLayoutOp::getInputLayout() {
   auto tensorType = mlir::cast<mlir::RankedTensorType>(getInput().getType());
   auto inputLayout =
       mlir::dyn_cast_if_present<tt::MetalLayoutAttr>(tensorType.getEncoding());
-  return inputLayout ? inputLayout
-                     : tt::MetalLayoutAttr::get(getContext(), tensorType);
+  if (inputLayout) {
+    return inputLayout;
+  }
+
+  // Create default layout for tensor without encoding
+  // New: Need to provide logical shape and grid shape for default layout
+  llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
+  llvm::SmallVector<int64_t> gridShape(tensorType.getRank(),
+                                       1); // Default: no distribution
+
+  return tt::MetalLayoutAttr::get(
+      getContext(), logicalShape, gridShape, tensorType.getElementType(),
+      /*tileShape=*/{}, tt::OOBVal::Undef, tt::MemorySpace::System);
 }
 
 mlir::tt::MetalLayoutAttr mlir::tt::ttir::ToLayoutOp::getOutputLayout() {
   auto tensorType = mlir::cast<mlir::RankedTensorType>(getOutput().getType());
   auto outputLayout =
       mlir::dyn_cast_if_present<tt::MetalLayoutAttr>(tensorType.getEncoding());
-  return outputLayout ? outputLayout
-                      : tt::MetalLayoutAttr::get(getContext(), tensorType);
+  if (outputLayout) {
+    return outputLayout;
+  }
+
+  // Create default layout for tensor without encoding
+  llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
+  llvm::SmallVector<int64_t> gridShape(tensorType.getRank(),
+                                       1); // Default: no distribution
+
+  return tt::MetalLayoutAttr::get(
+      getContext(), logicalShape, gridShape, tensorType.getElementType(),
+      /*tileShape=*/{}, tt::OOBVal::Undef, tt::MemorySpace::System);
 }
 
 mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::fold(
@@ -2942,9 +2999,7 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
     return emitOpError("Alloc size must be non-zero");
   }
 
-  auto memref = layout.getMemref();
-  auto memspace =
-      mlir::cast<mlir::tt::MemorySpaceAttr>(memref.getMemorySpace()).getValue();
+  auto memspace = layout.getMemorySpace();
   if (memspace != getMemorySpace()) {
     return emitOpError(
         "Input tensor layout memory space must match alloc memory space");
@@ -3691,7 +3746,7 @@ static mlir::LogicalResult verifyAffineBlocking(
       }
       MetalLayoutAttr layout =
           mlir::cast<MetalLayoutAttr>(tensorType.getEncoding());
-      outputGridShape = layout.getGrid().getShape();
+      outputGridShape = layout.getGridShape();
     } else {
       auto memref = mlir::cast<MemRefType>(operandType);
       // If the top level operand is a memref, the front half of its shape
@@ -3811,8 +3866,9 @@ static mlir::LogicalResult verifyAffineBlocking(
         }
         MetalLayoutAttr layout =
             mlir::cast<MetalLayoutAttr>(tensorType.getEncoding());
-        expectedMemorySpace = layout.getMemref().getMemorySpace();
-        expectedShardShape = layout.getMemref().getShape();
+        expectedMemorySpace =
+            MemorySpaceAttr::get(getContext(), layout.getMemorySpace());
+        expectedShardShape = layout.getShardShape();
       } else {
         auto memref = mlir::cast<MemRefType>(operandType);
         expectedMemorySpace = memref.getMemorySpace();
@@ -3909,7 +3965,7 @@ mlir::tt::ttir::GenericOp::getOperandGridShapes() {
       auto tensorType = mlir::cast<RankedTensorType>(operand.getType());
       MetalLayoutAttr layout =
           mlir::cast<MetalLayoutAttr>(tensorType.getEncoding());
-      gridShapes.emplace_back(layout.getGrid().getShape());
+      gridShapes.emplace_back(layout.getGridShape());
     }
   }
   return gridShapes;
