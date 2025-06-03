@@ -1998,12 +1998,16 @@ static bool isNarrowingConversion(const ::mlir::tt::DataType srcDtype,
   assert(!srcIsFloat && !dstIsFloat);
   const auto srcIsSigned = isSignedInteger(srcDtype);
   const auto dstIsSigned = isSignedInteger(dstDtype);
+  // When signedness are the same, reducing the number of bits is narrowing
   if (srcIsSigned == dstIsSigned) {
     return srcNumberOfBits > dstNumberOfBits;
   }
+  // Unsigned->Signed is narrowing when the signed type can't hold the largest
+  // value of the unsigned type
   if (!srcIsSigned && dstIsSigned) {
     return srcNumberOfBits >= dstNumberOfBits;
   }
+  // Signed->Unsigned is always narrowing
   assert(srcIsSigned && !dstIsSigned);
   return true;
 }
@@ -2026,28 +2030,28 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
   if (conservativeFolding) {
     // Disable folding if it has the potential to cause too much numerical
     // differences.
-    auto dtypeA = elementTypeToDataType(
-        mlir::cast<mlir::RankedTensorType>(producerOp->getOperand(0).getType())
-            .getElementType());
-    auto dtypeB = elementTypeToDataType(
-        mlir::cast<mlir::RankedTensorType>(op->getOperand(0).getType())
-            .getElementType());
-    auto dtypeC = elementTypeToDataType(
-        mlir::cast<mlir::RankedTensorType>(op->getResult(0).getType())
-            .getElementType());
+    auto dtypeIn =
+        elementTypeToDataType(mlir::cast<ttir::TypecastOp>(producerOp)
+                                  .getInput()
+                                  .getType()
+                                  .getElementType());
+    auto dtypeMid = elementTypeToDataType(
+        mlir::cast<ttir::TypecastOp>(op).getInput().getType().getElementType());
+    auto dtypeOut = elementTypeToDataType(
+        mlir::cast<ttir::TypecastOp>(op).getType().getElementType());
 
-    assert(dtypeB ==
-           elementTypeToDataType(mlir::cast<mlir::RankedTensorType>(
-                                     producerOp->getResult(0).getType())
+    assert(dtypeMid ==
+           elementTypeToDataType(mlir::cast<ttir::TypecastOp>(producerOp)
+                                     .getType()
                                      .getElementType()));
 
     // If the 1st Op is narrowing and the 2nd Op is widening, we shouldn't fold.
     // FP->Int->FP is special and should never fold, due to its truncation
     // semantics and application in QDQ models.
-    const bool isNarrowingProducer = isNarrowingConversion(dtypeA, dtypeB);
-    const bool isNarrowingConsumer = isNarrowingConversion(dtypeB, dtypeC);
+    const bool isNarrowingProducer = isNarrowingConversion(dtypeIn, dtypeMid);
+    const bool isNarrowingConsumer = isNarrowingConversion(dtypeMid, dtypeOut);
     const bool isFpIntFp =
-        isFloat(dtypeA) && !isFloat(dtypeB) && isFloat(dtypeC);
+        isFloat(dtypeIn) && !isFloat(dtypeMid) && isFloat(dtypeOut);
     if (isFpIntFp || (isNarrowingProducer && !isNarrowingConsumer)) {
       return mlir::failure();
     }
