@@ -397,7 +397,7 @@ jobs:
     strategy:
       fail-fast: false
     name: Lint (clang-tidy)
-    runs-on: ubuntu-latest
+    runs-on: tt-beta-ubuntu-2204-xlarge
     container:
       image: ${{ needs.build-image.outputs.docker-image }}
 
@@ -477,15 +477,11 @@ jobs:
     strategy:
       fail-fast: false
     name: Debug Build
-    runs-on: ubuntu-latest
+    runs-on: tt-beta-ubuntu-2204-xlarge
     container:
       image: ${{ needs.build-image.outputs.docker-image }}
 
     steps:
-
-    - name: Maximize space
-      if: ${{ matrix.build.runs-on }} == 'ubuntu-latest'
-      uses: tenstorrent/tt-github-actions/.github/actions/maximize_space@main
 
     - uses: actions/checkout@v4
       with:
