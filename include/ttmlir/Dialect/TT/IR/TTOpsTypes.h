@@ -215,7 +215,7 @@ inline DataType elementTypeToDataType(Type elementType) {
 }
 
 // The BFP formats are TT home-brew, if not for them we could have used MLIR's
-// built-in FloatTypes and getWidth()/getFPMantissaWidth()
+// built-in FloatTypes and getWidth()/getFPMantissaWidth().
 inline bool isSignedInteger(const DataType dtype) {
   return dtype == DataType::Int32;
 }
