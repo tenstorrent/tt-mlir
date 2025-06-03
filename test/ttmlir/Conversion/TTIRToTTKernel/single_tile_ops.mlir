@@ -174,7 +174,7 @@ module {
     %collapse_shape = memref.collapse_shape %arg0 [[0, 1]] : memref<1x1x!tt.tile<32x32, f32>, #l1_> into memref<1x!tt.tile<32x32, f32>, #l1_>
     %collapse_shape_0 = memref.collapse_shape %arg1 [[0, 1]] : memref<1x1x!tt.tile<32x32, f32>, #l1_> into memref<1x!tt.tile<32x32, f32>, #l1_>
     %0 = memref.load %collapse_shape[%c0] : memref<1x!tt.tile<32x32, f32>, #l1_>
-    // CHECK-NOT: ttir.tile_neg
+    // CHECK-NOT: ttir.tile_rsqrt
     // CHECK: ttkernel.init_sfpu
     // CHECK: ttkernel.copy_tile_init
     // CHECK: ttkernel.copy_tile
