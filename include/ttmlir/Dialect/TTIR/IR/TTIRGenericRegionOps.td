@@ -103,6 +103,36 @@ def TTIR_TileLogOp : TTIR_GenericRegionComputeOp<"tile_log"> {
     let results = (outs TT_Tile:$result);
 }
 
+def TTIR_TileNegativeOp : TTIR_GenericRegionComputeOp<"tile_negative"> {
+    let summary = "TTIR Tile Negative Op";
+    let description = [{
+        The `tile_negative` operation computes the negative of each element in the input tile.
+    }];
+
+    let arguments = (ins TT_Tile:$input);
+    let results = (outs TT_Tile:$result);
+}
+
+def TTIR_TileCosOp : TTIR_GenericRegionComputeOp<"tile_cos"> {
+    let summary = "TTIR Tile Cos Op";
+    let description = [{
+        The `tile_cos` operation computes the cosine function of each element in the input tile.
+    }];
+
+    let arguments = (ins TT_Tile:$input);
+    let results = (outs TT_Tile:$result);
+}
+
+def TTIR_TileRsqrtOp : TTIR_GenericRegionComputeOp<"tile_rsqrt"> {
+    let summary = "TTIR Tile Rsqrt Op";
+    let description = [{
+        The `tile_rsqrt` operation computes the reciprocal sqrt function of each element in the input tile.
+    }];
+
+    let arguments = (ins TT_Tile:$input);
+    let results = (outs TT_Tile:$result);
+}
+
 def TTIR_TileSinOp : TTIR_GenericRegionComputeOp<"tile_sin"> {
     let summary = "TTIR Tile Sin Op";
     let description = [{
