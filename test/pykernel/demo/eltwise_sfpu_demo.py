@@ -96,13 +96,16 @@ class EltwiseSFPUPyKernelOp(PyKernelOp):
             ii += onetile
         return
 
-    def invoke(self, *tensors, **options):
-        in_tensor, out_tensor = tensors
+    def invoke(
+        self,  # super() has invoke signature (*tensors, **options)
+        in_tensor,
+        out_tensor,  # Tensor Definitions are positional args
+        num_tiles=None,  # num_tiles is a kwarg since it is an "option" passed into the function call
+    ):
         cb_in = self.create_cb(in_tensor, 0)
         cb_out = self.create_cb(out_tensor, 1)
         start_id = 0
         is_dram_input = in_tensor.memory_config().buffer_type == ttnn.BufferType.DRAM
-        num_tiles = options["num_tiles"]
 
         kernels = [
             self.create_kernel(
@@ -167,7 +170,7 @@ io_tensors = [input_tensor, output_tensor]
 eltwise_exp_op = EltwiseSFPUPyKernelOp()
 
 # Run tests against the golden "exp" op.
-output = eltwise_exp_op(*io_tensors, num_tiles=num_tiles)
+output = eltwise_exp_op(input_tensor, output_tensor, num_tiles=num_tiles)
 golden = ttnn.exp(input_tensor)
 
 torch_golden = ttnn.to_torch(golden)
