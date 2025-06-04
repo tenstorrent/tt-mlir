@@ -58,3 +58,8 @@ add_custom_target(run-ttmlir-tests COMMAND ${CMAKE_CTEST_COMMAND} -R check-ttmli
 add_lit_testsuites(TTMLIRCompiler ${CMAKE_CURRENT_SOURCE_DIR} DEPENDS ${TTMLIR_TEST_DEPENDS})
 
 install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/ DESTINATION test COMPONENT Test EXCLUDE_FROM_ALL)
+
+# Process CMakeLists for PyKernel Demo Target
+if (TTMLIR_ENABLE_PYKERNEL)
+    add_subdirectory(pykernel)
+endif()

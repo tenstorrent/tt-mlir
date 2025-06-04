@@ -6,6 +6,7 @@ declare_mlir_python_sources(TTPykernelSources
     ROOT_DIR "${TTPYKERNEL_ROOT_DIR}"
     SOURCES
         ast.py
+        op.py
         types.py
 )
 

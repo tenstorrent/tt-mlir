@@ -348,6 +348,15 @@ jobs:
         pip install --upgrade ${{ steps.strings.outputs.build-output-dir }}/bin/wheels/tt_adapter*.whl
         pip install --upgrade ${{ steps.strings.outputs.build-output-dir }}/bin/wheels/ai_edge_model_explorer*.whl
 
+    # PyKernel Test Runner
+    - name: Prepare and run PyKernel Test
+      if: matrix.build.type == 'pykernel'
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build build
+        cmake --build build -- pykernel-demo
+
     # pytest runner
     - name: Run pytest ttrt tests
       if: matrix.build.type == 'pytest'
