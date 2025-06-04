@@ -619,7 +619,9 @@ def TTNN_BitwiseXorOp : TTNN_ElementwiseBinaryOp<"bitwise_xor"> {
     }];
 }
 
-def TTNN_MaximumOp :  TTNN_ElementwiseBinaryOp<"maximum"> {
+def TTNN_MaximumOp :  TTNN_ElementwiseBinaryOp<"maximum",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise maximum OP.";
     let description = [{
       Calculates maximum of input tensors' values element-wise and stores result in output tensor.
@@ -631,7 +633,9 @@ def TTNN_MaximumOp :  TTNN_ElementwiseBinaryOp<"maximum"> {
     }];
 }
 
-def TTNN_MinimumOp :  TTNN_ElementwiseBinaryOp<"minimum"> {
+def TTNN_MinimumOp :  TTNN_ElementwiseBinaryOp<"minimum",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise minimum OP.";
     let description = [{
       Calculates minimum of input tensors' values element-wise and stores result
