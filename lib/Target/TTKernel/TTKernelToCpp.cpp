@@ -25,6 +25,8 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <algorithm>
+
 namespace mlir::tt::ttkernel {
 
 static constexpr llvm::StringRef SFPU_INCLUDE =
