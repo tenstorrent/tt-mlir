@@ -235,24 +235,16 @@ def test_unary_ops():
 
     a = 1
 
-    # CHECK: %{{.*}} = emitc.expression : i1 {{.*}}
-    # CHECK: %{{.*}} = logical_not {{.*}}
-    # CHECK: yield %{{.*}}
+    # CHECK: %{{.*}} = emitc.logical_not {{.*}} : i32
     not a
 
-    # CHECK: %{{.*}} = emitc.expression {{.*}}
-    # CHECK: %{{.*}} = bitwise_not {{.*}}
-    # CHECK: yield %{{.*}}
+    # CHECK: %{{.*}} = emitc.bitwise_not {{.*}} : (i32) -> i32
     ~a
 
-    # CHECK: %{{.*}} = emitc.expression {{.*}}
-    # CHECK: %{{.*}} = unary_minus {{.*}}
-    # CHECK: yield %{{.*}}
+    # CHECK: %{{.*}} = emitc.unary_minus {{.*}} : (i32) -> i32
     -a
 
-    # CHECK: %{{.*}} = emitc.expression {{.*}}
-    # CHECK: %{{.*}} = unary_plus {{.*}}
-    # CHECK: yield %{{.*}}
+    # CHECK: %{{.*}} = emitc.unary_plus {{.*}} : (i32) -> i32
     +a
 
     return
