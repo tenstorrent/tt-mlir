@@ -5072,6 +5072,8 @@ def TTIR_QuantizeOp : TTIR_NamedOp<"quantize"> {
   let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;
+
+  let hasFolder = 1;
 }
 
 def TTIR_DequantizeOp : TTIR_NamedOp<"dequantize"> {

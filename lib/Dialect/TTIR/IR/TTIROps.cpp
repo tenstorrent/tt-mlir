@@ -632,6 +632,32 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
                                 /*axis=*/std::nullopt, /*isUnrolled=*/false);
 }
 
+// Fold the operation if the quantize is preceded by a dequantize that uses the
+// same scale factor, zeroPoint and has the same types.
+static mlir::OpFoldResult foldIdentityQuantize(mlir::tt::ttir::QuantizeOp op) {
+  auto dequantizeOp = mlir::dyn_cast<mlir::tt::ttir::DequantizeOp>(
+      op.getInput().getDefiningOp());
+  if (!dequantizeOp) {
+    return nullptr;
+  }
+  auto dequantizeInput = dequantizeOp.getInput();
+  if (op.getOutput().getType() != dequantizeOp.getInput().getType()) {
+    return nullptr;
+  }
+  if (op.getInput().getType() != dequantizeOp.getOutput().getType()) {
+    return nullptr;
+  }
+  return dequantizeInput;
+}
+
+// QuantizeOp folder
+::mlir::OpFoldResult mlir::tt::ttir::QuantizeOp::fold(FoldAdaptor adaptor) {
+  if (auto foldResult = foldIdentityQuantize(*this)) {
+    return foldResult;
+  }
+  return nullptr;
+}
+
 // QuantizeUnrolledOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::QuantizeUnrolledOp::verify() {
   auto inputElemType = getInput().getType().getElementType();
