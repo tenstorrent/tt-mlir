@@ -37,10 +37,6 @@ def system_desc_as_dict(bin):
     return json_string_as_dict(bin.get_system_desc_as_json())
 
 
-def programs_as_dict(bin):
-    return json_string_as_dict(bin.get_programs_as_json())
-
-
 def program_ops_as_dict(bin, index):
     return json_string_as_dict(bin.get_program_ops_as_json(index))
 
@@ -51,10 +47,6 @@ def program_inputs_as_dict(bin, index):
 
 def program_outputs_as_dict(bin, index):
     return json_string_as_dict(bin.get_program_outputs_as_json(index))
-
-
-def program_debug_info_as_dict(bin, index):
-    return json_string_as_dict(bin.get_program_debug_info_as_json(index))
 
 
 def program_mlir_as_dict(bin, index):

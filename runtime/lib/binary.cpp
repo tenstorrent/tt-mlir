@@ -132,13 +132,6 @@ std::string getSystemDescAsJson(Flatbuffer binary) {
                          ::tt::target::ttnn::TTNNBinaryBinarySchema::size());
 }
 
-std::string getProgramsAsJson(Flatbuffer binary) {
-  const auto *programs = getBinary(binary)->programs();
-  return asJsonFromParentTable(
-      programs, ::tt::target::ttnn::TTNNBinaryBinarySchema::data(),
-      ::tt::target::ttnn::TTNNBinaryBinarySchema::size());
-}
-
 std::string getProgramOpsAsJson(Flatbuffer binary, std::uint32_t programIndex) {
   const auto *programs = getBinary(binary)->programs();
   LOG_ASSERT(programIndex < programs->size(), "Program index out of bounds");
@@ -146,40 +139,6 @@ std::string getProgramOpsAsJson(Flatbuffer binary, std::uint32_t programIndex) {
   return asJsonFromParentTable(
       operations, ::tt::target::ttnn::TTNNBinaryBinarySchema::data(),
       ::tt::target::ttnn::TTNNBinaryBinarySchema::size());
-}
-
-std::vector<TensorDesc> getProgramInputs(Flatbuffer binary,
-                                         std::uint32_t programIndex) {
-  std::vector<TensorDesc> inputs;
-  const auto *program = getBinary(binary)->programs()->Get(programIndex);
-  for (const auto *input : *program->inputs()) {
-    TensorDesc desc;
-    desc.shape = {input->desc()->shape()->begin(),
-                  input->desc()->shape()->end()};
-    desc.stride = utils::calculateStride(desc.shape);
-    desc.itemsize = ::tt::runtime::utils::dataTypeElementSize(
-        input->desc()->layout()->memory_desc()->data_type());
-    desc.dataType = input->desc()->layout()->memory_desc()->data_type();
-    inputs.push_back(desc);
-  }
-  return inputs;
-}
-
-std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
-                                          std::uint32_t programIndex) {
-  std::vector<TensorDesc> outputs;
-  const auto *program = getBinary(binary)->programs()->Get(programIndex);
-  for (const auto *output : *program->outputs()) {
-    TensorDesc desc;
-    desc.shape = {output->desc()->shape()->begin(),
-                  output->desc()->shape()->end()};
-    desc.stride = utils::calculateStride(desc.shape);
-    desc.itemsize = ::tt::runtime::utils::dataTypeElementSize(
-        output->desc()->layout()->memory_desc()->data_type());
-    desc.dataType = output->desc()->layout()->memory_desc()->data_type();
-    outputs.push_back(desc);
-  }
-  return outputs;
 }
 
 std::string getProgramInputsAsJson(Flatbuffer binary,
@@ -200,16 +159,6 @@ std::string getProgramOutputsAsJson(Flatbuffer binary,
   return asJsonFromParentTable(
       outputs, ::tt::target::ttnn::TTNNBinaryBinarySchema::data(),
       ::tt::target::ttnn::TTNNBinaryBinarySchema::size());
-}
-
-std::string getProgramDebugInfoAsJson(Flatbuffer binary,
-                                      std::uint32_t programIndex) {
-  const auto *programs = getBinary(binary)->programs();
-  LOG_ASSERT(programIndex < programs->size(), "Program index out of bounds");
-  const auto *debug_info = programs->Get(programIndex)->debug_info();
-  return asJsonFromTable(debug_info,
-                         ::tt::target::ttnn::TTNNBinaryBinarySchema::data(),
-                         ::tt::target::ttnn::TTNNBinaryBinarySchema::size());
 }
 
 std::string getProgramMlirAsJson(Flatbuffer binary,
@@ -281,48 +230,6 @@ std::string getSystemDescAsJson(Flatbuffer binary) {
       ::tt::target::metal::TTMetalBinaryBinarySchema::size());
 }
 
-std::string getProgramsAsJson(Flatbuffer binary) {
-  const auto *programs = getBinary(binary)->programs();
-  return asJsonFromParentTable(
-      programs, ::tt::target::metal::TTMetalBinaryBinarySchema::data(),
-      ::tt::target::metal::TTMetalBinaryBinarySchema::size());
-}
-
-static std::vector<TensorDesc>
-getTensorDescs(const ::flatbuffers::Vector<
-               ::flatbuffers::Offset<tt::target::metal::TensorRef>> *tensors) {
-  std::vector<TensorDesc> tensorDescs;
-  tensorDescs.reserve(tensors->size());
-  for (const auto *tensor : *tensors) {
-    TensorDesc desc;
-    desc.shape = {tensor->desc()->shape()->begin(),
-                  tensor->desc()->shape()->end()};
-    desc.stride = utils::calculateStride(desc.shape);
-    desc.dataType = tensor->desc()->layout()->memory_desc()->data_type();
-    desc.itemsize = utils::dataTypeElementSize(desc.dataType);
-    tensorDescs.push_back(desc);
-  }
-  return tensorDescs;
-}
-
-std::vector<TensorDesc> getProgramInputs(Flatbuffer binary,
-                                         std::uint32_t programIndex) {
-  const auto *program = getBinary(binary)->programs()->Get(programIndex);
-  LOG_ASSERT(program->device_programs()->size() == 1,
-             "Currently only one device program is supported, got: ",
-             program->device_programs()->size());
-  return getTensorDescs(program->inputs());
-}
-
-std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
-                                          std::uint32_t programIndex) {
-  const auto *program = getBinary(binary)->programs()->Get(programIndex);
-  LOG_ASSERT(program->device_programs()->size() == 1,
-             "Currently only one device program is supported, got: ",
-             program->device_programs()->size());
-  return getTensorDescs(program->outputs());
-}
-
 std::string getProgramInputsAsJson(Flatbuffer binary,
                                    std::uint32_t programIndex) {
   const auto *programs = getBinary(binary)->programs();
@@ -340,16 +247,6 @@ std::string getProgramOutputsAsJson(Flatbuffer binary,
   const auto *outputs = programs->Get(programIndex)->outputs();
   return asJsonFromParentTable(
       outputs, ::tt::target::metal::TTMetalBinaryBinarySchema::data(),
-      ::tt::target::metal::TTMetalBinaryBinarySchema::size());
-}
-
-std::string getProgramDebugInfoAsJson(Flatbuffer binary,
-                                      std::uint32_t programIndex) {
-  const auto *programs = getBinary(binary)->programs();
-  LOG_ASSERT(programIndex < programs->size(), "Program index out of bounds");
-  const auto *debug_info = programs->Get(programIndex)->debug_info();
-  return asJsonFromTable(
-      debug_info, ::tt::target::metal::TTMetalBinaryBinarySchema::data(),
       ::tt::target::metal::TTMetalBinaryBinarySchema::size());
 }
 
@@ -576,20 +473,6 @@ bool Binary::isProgramPrivate(std::uint32_t programIndex) const {
   return false;
 }
 
-std::string Binary::getProgramsAsJson() const {
-  if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
-          handle.get())) {
-    return ttnn::getProgramsAsJson(*this);
-  }
-
-  if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
-          handle.get())) {
-    return metal::getProgramsAsJson(*this);
-  }
-
-  LOG_FATAL("Unsupported binary format");
-}
-
 std::string Binary::getProgramOpsAsJson(std::uint32_t programIndex) const {
   if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
           handle.get())) {
@@ -600,36 +483,6 @@ std::string Binary::getProgramOpsAsJson(std::uint32_t programIndex) const {
           handle.get())) {
     LOG_WARNING("getProgramOpsAsJson not supported for TTMetal");
     return "";
-  }
-
-  LOG_FATAL("Unsupported binary format");
-}
-
-std::vector<TensorDesc>
-Binary::getProgramInputs(std::uint32_t programIndex) const {
-  if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
-          handle.get())) {
-    return ttnn::getProgramInputs(*this, programIndex);
-  }
-
-  if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
-          handle.get())) {
-    return metal::getProgramInputs(*this, programIndex);
-  }
-
-  LOG_FATAL("Unsupported binary format");
-}
-
-std::vector<TensorDesc>
-Binary::getProgramOutputs(std::uint32_t programIndex) const {
-  if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
-          handle.get())) {
-    return ttnn::getProgramOutputs(*this, programIndex);
-  }
-
-  if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
-          handle.get())) {
-    return metal::getProgramOutputs(*this, programIndex);
   }
 
   LOG_FATAL("Unsupported binary format");
@@ -658,21 +511,6 @@ std::string Binary::getProgramOutputsAsJson(std::uint32_t programIndex) const {
   if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
           handle.get())) {
     return metal::getProgramOutputsAsJson(*this, programIndex);
-  }
-
-  LOG_FATAL("Unsupported binary format");
-}
-
-std::string
-Binary::getProgramDebugInfoAsJson(std::uint32_t programIndex) const {
-  if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
-          handle.get())) {
-    return ttnn::getProgramDebugInfoAsJson(*this, programIndex);
-  }
-
-  if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
-          handle.get())) {
-    return metal::getProgramDebugInfoAsJson(*this, programIndex);
   }
 
   LOG_FATAL("Unsupported binary format");
