@@ -2,8 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from ttmlir.execution_result import ExecutionPhase
-from ttmlir.workflow_internal import (
+from op_by_op_infra.execution_result import ExecutionPhase
+from op_by_op_infra.workflow_internal import (
     compile_split_and_execute,
     split_and_execute,
     split_compile_split_and_execute,
