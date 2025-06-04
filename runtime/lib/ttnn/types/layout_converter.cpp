@@ -49,12 +49,12 @@ bool LayoutConverter::canUntilizeDataTypeOnDevice(
   if (shouldTilize) {
     return ::ttnn::to_layout(input, ::ttnn::Layout::TILE, std::nullopt,
                              std::nullopt,
-                             static_cast<::ttnn::IDevice *>(nullptr));
+                             static_cast<::ttnn::MeshDevice *>(nullptr));
   }
   if (shouldUntilize) {
     return ::ttnn::to_layout(input, ::ttnn::Layout::ROW_MAJOR, std::nullopt,
                              std::nullopt,
-                             static_cast<::ttnn::IDevice *>(nullptr));
+                             static_cast<::ttnn::MeshDevice *>(nullptr));
   }
   return input;
 }
