@@ -194,6 +194,7 @@ struct Binary : public Flatbuffer {
   std::uint32_t getNumPrograms() const;
   std::string getSystemDescAsJson() const;
   std::string getProgramName(std::uint32_t programIndex) const;
+  bool isProgramPrivate(std::uint32_t programIndex) const;
   std::string getProgramsAsJson() const;
   std::string getProgramOpsAsJson(std::uint32_t programIndex) const;
   std::vector<TensorDesc> getProgramInputs(std::uint32_t programIndex) const;

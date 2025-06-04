@@ -39,6 +39,8 @@ void registerBinaryBindings(nb::module_ &m) {
            nb::rv_policy::reference)
       .def("get_program_name", &tt::runtime::Binary::getProgramName,
            nb::rv_policy::reference)
+      .def("is_program_private", &tt::runtime::Binary::isProgramPrivate,
+           nb::rv_policy::reference)
       .def("get_program_ops_as_json", &tt::runtime::Binary::getProgramOpsAsJson,
            nb::rv_policy::reference)
       .def("get_program_inputs", &tt::runtime::Binary::getProgramInputs,

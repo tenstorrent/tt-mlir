@@ -41,8 +41,8 @@ Binary &Binary::operator=(std::shared_ptr<void> handle) {
   return *this;
 }
 
-static std::string asJson(const void *fbb, const uint8_t *binarySchema,
-                          size_t schemaSize) {
+static flatbuffers::Parser getParser(const uint8_t *binarySchema,
+                                     size_t schemaSize) {
   flatbuffers::IDLOptions opts;
   opts.size_prefixed = true;
   opts.strict_json = true;
@@ -53,6 +53,12 @@ static std::string asJson(const void *fbb, const uint8_t *binarySchema,
     LOG_FATAL("Failed to deserialize schema");
   }
 
+  return parser;
+}
+
+static std::string asJson(const void *fbb, const uint8_t *binarySchema,
+                          size_t schemaSize) {
+  flatbuffers::Parser parser = getParser(binarySchema, schemaSize);
   std::string text;
   const char *err = ::flatbuffers::GenerateText(parser, fbb, &text);
   LOG_ASSERT(!err, "Failed to generate JSON: ", err);
@@ -62,16 +68,7 @@ static std::string asJson(const void *fbb, const uint8_t *binarySchema,
 template <typename T>
 static std::string asJsonFromTable(const T *table, const uint8_t *binarySchema,
                                    size_t schemaSize) {
-  flatbuffers::IDLOptions opts;
-  opts.size_prefixed = true;
-  opts.strict_json = true;
-  opts.output_default_scalars_in_json = true;
-  flatbuffers::Parser parser(opts);
-
-  if (!parser.Deserialize(binarySchema, schemaSize)) {
-    LOG_FATAL("Failed to deserialize schema");
-  }
-
+  flatbuffers::Parser parser = getParser(binarySchema, schemaSize);
   std::string text;
   const char *err = ::flatbuffers::GenTextFromTable(
       parser, table, table->GetFullyQualifiedName(), &text);
@@ -84,14 +81,7 @@ template <typename T>
 static std::string asJsonFromParentTable(const T *parent_table,
                                          const uint8_t *binarySchema,
                                          size_t schemaSize) {
-  flatbuffers::IDLOptions opts;
-  opts.size_prefixed = true;
-  opts.strict_json = true;
-  opts.output_default_scalars_in_json = true;
-  flatbuffers::Parser parser(opts);
-  if (!parser.Deserialize(binarySchema, schemaSize)) {
-    LOG_FATAL("Failed to deserialize schema");
-  }
+  flatbuffers::Parser parser = getParser(binarySchema, schemaSize);
   std::string result_text;
   for (const auto *table : *parent_table) {
     std::string text;
@@ -569,6 +559,21 @@ std::string Binary::getProgramName(std::uint32_t programIndex) const {
   }
 
   LOG_FATAL("Unsupported binary format");
+}
+
+bool Binary::isProgramPrivate(std::uint32_t programIndex) const {
+  if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
+          handle.get())) {
+    return ttnn::getBinary(*this)->programs()->Get(programIndex)->private_();
+  }
+
+  if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
+          handle.get())) {
+    return metal::getBinary(*this)->programs()->Get(programIndex)->private_();
+  }
+
+  LOG_FATAL("Unsupported binary format");
+  return false;
 }
 
 std::string Binary::getProgramsAsJson() const {

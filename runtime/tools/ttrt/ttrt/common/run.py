@@ -596,7 +596,7 @@ class Run:
 
                         program = bin.get_program(program_index)
                         # Skip private programs (e.g. subgraphs created by const-eval)
-                        if program.program["private"]:
+                        if program.is_private():
                             continue
 
                         golden_inputs = []
