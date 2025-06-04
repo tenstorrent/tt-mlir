@@ -523,7 +523,6 @@ class Run:
                 if self["--program-index"] == "all":
                     self["--program-index"] = 0
 
-            device_mesh_shape = [1, len(self.query.device_ids)]
             mesh_options = ttrt.runtime.MeshDeviceOptions()
             mesh_options.dispatch_core_type = dispatch_core_type
             mesh_options.enable_program_cache = self["--enable-program-cache"]
@@ -531,17 +530,7 @@ class Run:
             for bin in binaries:
 
                 fb_mesh_shape = bin.get_program(0).mesh_shape()
-                parent_device = ttrt.runtime.open_mesh_device(
-                    device_mesh_shape, mesh_options
-                )
-
-                # Only open a submesh if the flatbuffer expects a different mesh shape than the device
-                if list(fb_mesh_shape) != list(device_mesh_shape):
-                    device = ttrt.runtime.create_sub_mesh_device(
-                        parent_device, fb_mesh_shape
-                    )
-                else:
-                    device = parent_device
+                device = ttrt.runtime.open_mesh_device(fb_mesh_shape, mesh_options)
 
                 try:
                     self.logging.info(f"evaluating binary={bin.file_path}")
@@ -931,8 +920,6 @@ class Run:
                         # Dump the perf data before deallocating buffers
                         device.dump_device_profile_results()
 
-                        device.deallocate_buffers()
-
                         # if golden comparison is enabled, check golden results json file to see if test passed
                         if not self["--disable-golden"]:
                             if self["--save-artifacts"]:
@@ -1024,17 +1011,10 @@ class Run:
                     self.results.add_result(test_result)
                     bin.test_result = result
                 finally:
-
                     if self["--emitc"]:
                         ttrt.runtime.test.close_so(emitc_dylib_handle)
-
-                # Only need to release submesh if we created one
-                if list(fb_mesh_shape) != list(device_mesh_shape):
-                    ttrt.runtime.release_sub_mesh_device(device)
-
-                # Always need to close the parent device
-                ttrt.runtime.unregister_hooks()
-                ttrt.runtime.close_mesh_device(parent_device)
+                    ttrt.runtime.unregister_hooks()
+                    ttrt.runtime.close_mesh_device(device)
 
         self.logging.debug(f"executing ttnn binaries")
         _execute(self.ttnn_binaries)
