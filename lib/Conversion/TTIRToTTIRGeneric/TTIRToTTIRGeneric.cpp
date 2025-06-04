@@ -378,7 +378,7 @@ private:
                 mlir::ValueRange bbArgs) {
               mlir::Value yield = bbBuilder.create<TileOp>(
                   loc, /* resultTypes */ bbArgs.take_back(numOutputs),
-                  /* operands */ bbArgs.take_front(numInputs), attributes);
+                  /* operands */ bbArgs, attributes);
               bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
             });
       }
@@ -477,9 +477,9 @@ private:
 
     switch (bits) {
     case 1:
-      return ttir::ReduceDim::R;
-    case 2:
       return ttir::ReduceDim::C;
+    case 2:
+      return ttir::ReduceDim::R;
     case 3:
       return ttir::ReduceDim::RC;
     }

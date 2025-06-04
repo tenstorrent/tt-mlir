@@ -265,7 +265,34 @@ def TTKernel_ReduceInitOp : TTKernel_InitOp<"reduce_init"> {
                          TTKernel_ReduceDimAttr:$reduce_dim);
 }
 
-def TTKernel_ReduceTileOp : TTKernel_FPUOp<"reduce_tile", [TTKernel_BinaryOpTrait]> {
+def TTKernel_ReduceInitShortOp : TTKernel_InitOp<"reduce_init_short"> {
+    let summary = "Init short function";
+    let description = [{
+      Must be run before reduce_tile.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in_cb,
+                         TTKernel_CB:$scaling_cb,
+                         TTKernel_CB:$out_cb,
+                         TTKernel_ReduceTypeAttr:$reduce_type,
+                         TTKernel_ReduceDimAttr:$reduce_dim);
+}
+
+def TTKernel_ExperimentalReduceInitShortOp : TTKernel_InitOp<"experimental::reduce_init_short"> {
+    let summary = "Init short function";
+    let description = [{
+      Must be run before reduce_tile.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in_cb,
+                         TTKernel_CB:$scaling_cb,
+                         TTKernel_CB:$out_cb,
+                         I1:$disableMask,
+                         TTKernel_ReduceTypeAttr:$reduce_type,
+                         TTKernel_ReduceDimAttr:$reduce_dim);
+}
+
+def TTKernel_ReduceTileOp : TTKernel_FPUOp<"reduce_tile", [TTKernel_TernaryOpTrait]> {
     let summary = "Reduce operation";
     let description = [{
       Performs a reduction operation *B = reduce(A)* using reduce_func for
