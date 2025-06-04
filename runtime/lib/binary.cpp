@@ -621,6 +621,36 @@ Binary Binary::loadFromPath(const char *path) {
   return Binary(Flatbuffer::loadFromPath(path).handle);
 }
 
+std::vector<TensorDesc>
+Binary::getProgramInputs(std::uint32_t programIndex) const {
+  if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
+          handle.get())) {
+    return ttnn::getProgramInputs(*this, programIndex);
+  }
+
+  if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
+          handle.get())) {
+    return metal::getProgramInputs(*this, programIndex);
+  }
+
+  LOG_FATAL("Unsupported binary format");
+}
+
+std::vector<TensorDesc>
+Binary::getProgramOutputs(std::uint32_t programIndex) const {
+  if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
+          handle.get())) {
+    return ttnn::getProgramOutputs(*this, programIndex);
+  }
+
+  if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
+          handle.get())) {
+    return metal::getProgramOutputs(*this, programIndex);
+  }
+
+  LOG_FATAL("Unsupported binary format");
+}
+
 const ::tt::target::GoldenTensor *
 Binary::getDebugInfoGolden(std::string &loc) const {
   if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
