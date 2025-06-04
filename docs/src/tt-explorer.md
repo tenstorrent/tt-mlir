@@ -9,8 +9,9 @@ TT-Explorer comes packaged as a tool in the `tt-mlir` repo.
 2. Ensure `tt-mlir` is built with atleast these flags:
     - `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON -DTTMLIR_ENABLE_RUNTIME=ON -DTT_RUNTIME_DEBUG=ON`
 3. Build `explorer` target in `tt-mlir` using `cmake --build build -- explorer`
-4. Run `tt-explorer` in terminal to start tt-explorer instance. (Refer to CLI section in API for specifics)
-5. Ensure server has started in `tt-explorer` shell instance (check for message below)
+5. Run `tt-explorer` in terminal to start tt-explorer instance. (Refer to CLI section in API for specifics)
+    - Note that tt-explorer requires [Pandas](https://pypi.org/project/pandas/) in addition to the `tt-mlir` [System Dependencies](https://docs.tenstorrent.com/tt-mlir/getting-started.html#system-dependencies).
+6. Ensure server has started in `tt-explorer` shell instance (check for message below)
 ```sh
 Starting Model Explorer server at:
 http://localhost:8080
