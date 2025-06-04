@@ -357,7 +357,6 @@ TEST_F(OpModelBase, MultiplyOpInterface) {
 }
 
 TEST_F(OpModelBase, MatmulOpInterface) {
-  GTEST_SKIP_("Skipping since this test hangs!");
   // create MatmulOp
   llvm::SmallVector<int64_t> tensorShapeA = {2048, 1024};
   llvm::SmallVector<int64_t> tensorShapeB = {1024, 2048};
