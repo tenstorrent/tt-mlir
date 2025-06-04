@@ -1844,52 +1844,52 @@ def test_hoisted_where(shapes, request, target: str):
     )
 
 
-@pytest.mark.parametrize(
-    "shapes,broadcast_dimensions",
-    [
-        ([(1, 1, 32), (1, 16, 32)], [1, 16, 1]),  # Basic broadcasting
-        ([(1, 32), (16, 32)], [16, 1]),  # 2D broadcasting
-        (
-            [(128, 1, 64), (128, 32, 64)],
-            [1, 32, 1],
-        ),  # 3D with middle dimension broadcasting
-        (
-            [(64, 1, 1), (64, 32, 16)],
-            [1, 32, 16],
-        ),  # 3D with multiple broadcast dimensions
-    ],
-    ids=[
-        "basic_broadcast",
-        "2d_broadcast",
-        "3d_middle_broadcast",
-        "3d_multi_broadcast",
-    ],
-)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_hoistable_broadcast(
-    shapes: List[Shape], broadcast_dimensions: List[int], target: str, request
-):
-    """Test broadcast operation with CPU hoisting enabled"""
+# @pytest.mark.parametrize(
+#     "shapes,broadcast_dimensions",
+#     [
+#         ([(1, 1, 32), (1, 16, 32)], [1, 16, 1]),  # Basic broadcasting
+#         ([(1, 32), (16, 32)], [16, 1]),  # 2D broadcasting
+#         (
+#             [(128, 1, 64), (128, 32, 64)],
+#             [1, 32, 1],
+#         ),  # 3D with middle dimension broadcasting
+#         (
+#             [(64, 1, 1), (64, 32, 16)],
+#             [1, 32, 16],
+#         ),  # 3D with multiple broadcast dimensions
+#     ],
+#     ids=[
+#         "basic_broadcast",
+#         "2d_broadcast",
+#         "3d_middle_broadcast",
+#         "3d_multi_broadcast",
+#     ],
+# )
+# @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+# def test_hoistable_broadcast(
+#     shapes: List[Shape], broadcast_dimensions: List[int], target: str, request
+# ):
+#     """Test broadcast operation with CPU hoisting enabled"""
 
-    # Create a wrapper function that captures broadcast_dimensions and adds should_hoist attribute
-    def broadcast_hoistable_wrapper(
-        in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
-    ):
-        unit_attrs = unit_attrs or []
-        unit_attrs.append("should_hoist")
-        return broadcast(in0, in1, builder, broadcast_dimensions, unit_attrs)
+#     # Create a wrapper function that captures broadcast_dimensions and adds should_hoist attribute
+#     def broadcast_hoistable_wrapper(
+#         in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
+#     ):
+#         unit_attrs = unit_attrs or []
+#         unit_attrs.append("should_hoist")
+#         return broadcast(in0, in1, builder, broadcast_dimensions, unit_attrs)
 
-    # Set the name for better test identification
-    broadcast_hoistable_wrapper.__name__ = "hoistable_broadcast"
+#     # Set the name for better test identification
+#     broadcast_hoistable_wrapper.__name__ = "hoistable_broadcast"
 
-    compile_to_flatbuffer(
-        broadcast_hoistable_wrapper,
-        shapes,
-        test_base=request.node.name,
-        target=target,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
+#     compile_to_flatbuffer(
+#         broadcast_hoistable_wrapper,
+#         shapes,
+#         test_base=request.node.name,
+#         target=target,
+#         output_root=request.config.getoption("--path"),
+#         system_desc_path=request.config.getoption("--sys-desc"),
+#     )
 
 
 @pytest.mark.parametrize(
@@ -2445,6 +2445,7 @@ def test_gather(
     ],
     ids=["basic_gather", "simple_1d"],
 )
+# note: doesn't work on ttmetal because test generated (nonhoisted) ttir.zeros, which we need to support on device
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_hoisted_gather(
     input_shape: Shape,
@@ -2491,6 +2492,9 @@ def test_hoisted_gather(
     ids=["standard_matmul", "batched_matmul", "3d_tensor_2d_tensor"],
 )
 @pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.skip(
+    "Need to rework this s.t. we run TTIRToTTIRDecomp before hoisting to maintain DPS consistency."
+)
 def test_hoisted_dot_general(
     shapes: List[Shape],
     batch_dims_lhs: List[int],

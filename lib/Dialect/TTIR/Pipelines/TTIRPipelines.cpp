@@ -123,16 +123,15 @@ void createTTIRToCPUPipeline(OpPassManager &manager,
 
   // cpuPm.addPass(createConvertTTIRToTosaPass());
 
-  // Add tosa-to-tensor/arith passes to handle tosa.const operations
-  // cpuPm.addPass(createTosaToTensorPass());
-  // cpuPm.addPass(createTosaToArithPass());
-
   // Lower any outstanding TTIR ops directly to Linalg
   cpuPm.addPass(createConvertTTIRToLinalgPass());
 
   TosaToLinalgOptions tosaToLinalgOptions;
   tosaToLinalgOptions.aggressiveReduceConstant = true;
   tosa::addTosaToLinalgPasses(cpuPm, tosaToLinalgOptions, {}, {});
+  // Add tosa-to-tensor/arith passes to handle tosa.const operations
+  cpuPm.addPass(createTosaToTensorPass());
+  cpuPm.addPass(createTosaToArithPass());
 
   // Workaround for any DPS assumptions broken by either TTIRToTTIRDecomp or
   // TTIRToTosa + TosaToLinalg decomp.

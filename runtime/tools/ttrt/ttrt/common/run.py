@@ -560,9 +560,7 @@ class Run:
             device = None
 
             for bin in binaries:
-
                 try:
-
                     fb_mesh_shape = bin.get_program(0).mesh_shape
                     num_mesh_devices = reduce(operator.mul, fb_mesh_shape, 1)
 
@@ -1082,16 +1080,30 @@ class Run:
                     self.results.add_result(test_result)
                     bin.test_result = result
                 finally:
+<<<<<<< HEAD
+=======
+                    # ttrt.runtime.reshape_mesh_device(device, mesh_shape)
+>>>>>>> f557f140f (back to passing all pytest (disabled dot_general, which needs special treatment follow-up))
 
                     if self["--emitc"]:
                         ttrt.runtime.test.close_so(emitc_dylib_handle)
 
+<<<<<<< HEAD
                     ttrt.runtime.unregister_hooks()
 
                     # Only close the device it if was opened
                     if device is not None:
                         ttrt.runtime.close_mesh_device(device)
                         device = None
+=======
+            # Only need to release submesh if we created one
+            if list(fb_mesh_shape) != list(device_mesh_shape):
+                ttrt.runtime.release_sub_mesh_device(device)
+
+            # Always need to close the parent device
+            ttrt.runtime.unregister_hooks()
+            ttrt.runtime.close_mesh_device(parent_device)
+>>>>>>> f557f140f (back to passing all pytest (disabled dot_general, which needs special treatment follow-up))
 
         self.logging.debug(f"executing ttnn binaries")
         _execute(self.ttnn_binaries)

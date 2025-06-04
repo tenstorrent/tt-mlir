@@ -833,6 +833,9 @@ class Binary(Flatbuffer):
         def num_outputs(self):
             return len(self.outputs)
 
+        def mesh_shape(self) -> Tuple[int, int]:
+            return tuple(self.program["mesh_shape"].values())
+
         def populate_inputs(self, init_fn, golden_inputs=[]):
             if len(golden_inputs) > 0:
                 assert len(golden_inputs) == len(self.inputs)
