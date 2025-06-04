@@ -139,6 +139,12 @@ void closeMeshDevice(Device parentMesh) {
                 " that has ", numSubMeshes, " unreleased submeshes.");
   }
 
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+  for (tt_metal::IDevice *ttmetalDevice : metalMeshDevice.get_devices()) {
+    tt_metal::detail::DumpDeviceProfileResults(ttmetalDevice);
+  }
+#endif
+
   metalMeshDevice.close();
 }
 

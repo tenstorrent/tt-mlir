@@ -7,3 +7,4 @@ setuptools
 black
 pre-commit
 pydantic
+tqdm

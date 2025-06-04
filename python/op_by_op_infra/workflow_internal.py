@@ -2,14 +2,48 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import os
 from typing import List, Optional
 
+from tqdm import tqdm
 from ttmlir.ir import Module
 
 from .execution_result import convert_to_pydantic_model
 from .mlir_module_executor import ExecutionResult, MLIRModuleExecutor
 from .mlir_module_splitter import MLIRModuleSplitter
 from .pydantic_models import OpTest
+
+# ---------- Utils ----------
+
+
+def show_workflow_progress() -> bool:
+    return os.environ.get("SHOW_WORKFLOW_PROGRESS", "false").lower() in [
+        1,
+        "1",
+        "true",
+        "on",
+    ]
+
+
+def progress_bar(*args, **kwargs) -> tqdm:
+    """
+    Wrapper around `tqdm` that takes an iterable and displays progress bar in console
+    showing how iterations of that iterable are progressing.
+
+    Disabled by default. To enable set env var `SHOW_WORKFLOW_PROGRESS=ON`.
+    """
+    kwargs["disable"] = show_workflow_progress() == False
+    return tqdm(*args, **kwargs)
+
+
+def progress_msg(*args, **kwargs) -> None:
+    """
+    Wrapper around `tqdm.write` that displays a message in console.
+
+    Disabled by default. To enable set env var `SHOW_WORKFLOW_PROGRESS=ON`.
+    """
+    if show_workflow_progress():
+        tqdm.write(*args, **kwargs)
 
 
 def convert_results_to_pydantic_models(
@@ -68,6 +102,9 @@ def add_missing_attributes(
     pydantic_model.model_name = model_name
 
 
+# ---------- Workflows ----------
+
+
 def split_and_execute(module: Module | str) -> List[ExecutionResult]:
     """
     Splits the original `module` (SHLO/TTIR/TTNN) into constituent operations, compiles
@@ -79,14 +116,18 @@ def split_and_execute(module: Module | str) -> List[ExecutionResult]:
     Returns list of `ExecutionResult`s, each holding info for one particular
     constituent op about how far down the execution pipeline it managed to get.
     """
+    progress_msg("\nChosen workflow:")
+    progress_msg(split_and_execute.__doc__)
+
     splitter = MLIRModuleSplitter()
     executor = MLIRModuleExecutor()
 
     results = []
 
+    progress_msg("Splitting module...")
     sub_modules = splitter.split(module)
 
-    for sub_module in sub_modules:
+    for sub_module in progress_bar(sub_modules, desc="Executing submodules..."):
         execution_result = executor.execute(sub_module)
         results.append(execution_result)
 
@@ -104,15 +145,20 @@ def compile_split_and_execute(module: Module | str) -> List[ExecutionResult]:
     Returns list of `OpTest`s, each holding info for one particular
     constituent op about how far down the execution pipeline it managed to get.
     """
+    progress_msg("\nChosen workflow:")
+    progress_msg(compile_split_and_execute.__doc__)
+
     splitter = MLIRModuleSplitter()
     executor = MLIRModuleExecutor()
 
     results = []
 
+    progress_msg("Compiling module...")
     ttnn_module = executor.compile(module)
+    progress_msg("Splitting module...")
     sub_modules = splitter.split(ttnn_module)
 
-    for sub_module in sub_modules:
+    for sub_module in progress_bar(sub_modules, desc="Executing submodules..."):
         execution_result = executor.execute(sub_module)
         results.append(execution_result)
 
@@ -131,18 +177,28 @@ def split_compile_split_and_execute(module: Module | str) -> List[ExecutionResul
     Returns list of `ExecutionResult`s, each holding info for one particular
     constituent TTNN op about how far down the execution pipeline it managed to get.
     """
+    progress_msg("\nChosen workflow:")
+    progress_msg(split_and_execute.__doc__)
+
     splitter = MLIRModuleSplitter()
     executor = MLIRModuleExecutor()
 
     results = []
 
+    progress_msg("Splitting module...")
     sub_modules = splitter.split(module)
 
-    for sub_module in sub_modules:
+    for sub_module in progress_bar(
+        sub_modules, desc="Compiling, splitting and executing submodules..."
+    ):
+        progress_msg("Compiling submodule...")
         ttnn_module = executor.compile(sub_module)
+        progress_msg("Splitting submodule...")
         ttnn_sub_modules = splitter.split(ttnn_module)
 
-        for ttnn_sub_module in ttnn_sub_modules:
+        for ttnn_sub_module in progress_bar(
+            ttnn_sub_modules, desc="Executing submodules...", leave=False
+        ):
             execution_result = executor.execute(ttnn_sub_module)
             results.append(execution_result)
 

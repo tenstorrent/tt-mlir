@@ -82,7 +82,7 @@ def TTKernel_PackTileOp : TTKernel_Op<"pack_tile"> {
     let arguments = (ins IndexLike:$dst_index, TTKernel_CB:$out_cb, IndexLike:$out_index, DefaultValuedAttr<BoolAttr, "false">:$out_of_order);
 }
 
-def TTKernel_CopyTileInitOp : TTKernel_Op<"copy_tile_init"> {
+def TTKernel_CopyTileInitOp : TTKernel_InitOp<"copy_tile_init"> {
     let summary = "Perform the init for copy tile. This does not reconfigure the unpacker data types.";
     let description = [{
       Must be called before copy_tile.
@@ -106,6 +106,29 @@ def TTKernel_CopyTileOp : TTKernel_Op<"copy_tile"> {
     }];
 
     let arguments = (ins TTKernel_CB:$cb0, IndexLike:$tile_index_cb, IndexLike:$tile_index_dst);
+}
+
+def TTKernel_TypecastTileInitOp : TTKernel_InitOp<"typecast_tile_init"> {
+    let summary = "Init function for typecast_tile operation. Refer to documentation for any init function.";
+    let description = [{
+      Must be run before typecast_tile.
+    }];
+
+    let arguments = (ins);
+}
+
+def TTKernel_TypecastTileOp : TTKernel_SFPUOp<"typecast_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Cast the dataformat of the tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise typecast operation
+      DST[dst0_index] <- typecast<in_dataformat, out_dataformat>(DST[dst0_index])
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index,
+                         TT_DataTypeAttr:$in_dtype,
+                         TT_DataTypeAttr:$out_dtype);
 }
 
 //===----------------------------------------------------------------------===//

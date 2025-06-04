@@ -733,4 +733,44 @@ UpsampleOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       opConfig.outputLayout);
 }
 
+//===----------------------------------------------------------------------===//
+// SubtractOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+SubtractOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                             const OpConfig &opConfig) {
+  assert(inputs.size() == 2);
+
+  const auto inputShapeA = getLhs().getType().getShape();
+  const auto inputShapeB = getRhs().getType().getShape();
+
+  const auto outputShape = getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();
+
+  return op_model::ttnn::SubtractOpInterface::getOpConstraints(
+      deviceGrid, inputShapeA, inputs[0], inputShapeB, inputs[1], outputShape,
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+SubtractOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  assert(inputs.size() == 2);
+
+  const auto inputShapeA = getLhs().getType().getShape();
+  const auto inputShapeB = getRhs().getType().getShape();
+
+  const auto outputShape = getType().getShape();
+
+  return op_model::ttnn::SubtractOpInterface::getOpRuntime(
+      inputShapeA, inputs[0], inputShapeB, inputs[1], outputShape,
+      opConfig.outputLayout);
+}
+
 } // namespace mlir::tt::ttnn

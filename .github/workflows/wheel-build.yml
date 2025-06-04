@@ -95,7 +95,7 @@ jobs:
       - name: Update ttmlir Requirement
         shell: bash
         run: |
-          URL=$(curl -s https://api.github.com/repos/tenstorrent/tt-forge/releases | jq -r 'map(select(.prerelease)) | first | .assets | map(select(.browser_download_url | contains("mlir"))) | .[].browser_download_url')
+          URL=$(curl -s https://api.github.com/repos/tenstorrent/tt-forge/releases | jq -r 'map(select(.name | contains("tt-mlir nightly"))) | first | .assets | map(select(.browser_download_url | contains("ttmlir"))) | .[].browser_download_url')
           echo "ttmlir @ $URL" > tools/pykernel/requirements.txt
           echo "Updated requirements.txt with: $URL"
 
