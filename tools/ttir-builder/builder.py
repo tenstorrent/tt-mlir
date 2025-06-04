@@ -861,10 +861,10 @@ class TTIRBuilder:
     ) -> OpView:
         output_type = self.get_type_from_torch_dtype(self._get_golden_tensor(out).dtype)
         return self.op_proxy(
-            torch.Tensor.type,
+            torch.Tensor.to,
             ttir.TypecastOp,
             [in0],
-            golden_kwargs={"dtype": self._get_golden_tensor(out).type()},
+            golden_kwargs={"dtype": self._get_golden_tensor(out).dtype},
             output_type=output_type,
             unit_attrs=unit_attrs,
         )

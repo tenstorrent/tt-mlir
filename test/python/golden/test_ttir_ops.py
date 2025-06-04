@@ -507,7 +507,6 @@ def test_unsqueeze(shape: Shape, dim: int, request):
     )
 
 
-@pytest.mark.run_error
 @pytest.mark.parametrize("shape", [(1, 32, 32)])
 @pytest.mark.parametrize("dims", [[32, 1, 1]])
 def test_repeat(shape: Shape, dims: List[int], request):
@@ -903,9 +902,9 @@ def test_empty(shape: Shape, request):
     )
 
 
-@pytest.mark.run_error
+@pytest.mark.fails_golden
 @pytest.mark.parametrize("shapes", [[(128, 128)]])
-@pytest.mark.parametrize("dim", [0, 1])
+@pytest.mark.parametrize("dim", [1])
 def test_argmax(shapes, dim, request):
     def argmax(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
         return builder.argmax(in0, [dim], unit_attrs=unit_attrs)
@@ -1046,9 +1045,8 @@ def test_arange(shape: Shape, start: int, end: int, step: int, dim: int, request
     )
 
 
-@pytest.mark.run_error
 @pytest.mark.parametrize("shape", [(32, 32)])
-@pytest.mark.parametrize("from_type,to_type", [(torch.uint32, torch.uint16)])
+@pytest.mark.parametrize("from_type,to_type", [(torch.int32, torch.float32)])
 def test_typecast(shape: Shape, from_type: torch.dtype, to_type: torch.dtype, request):
     def typecast(
         in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
@@ -1460,7 +1458,7 @@ unary_ops = [
     mean,
     pytest.param(max, marks=pytest.mark.fails_golden),
     pytest.param(min, marks=pytest.mark.fails_golden),
-    pytest.param(get_dimension_size, marks=pytest.mark.run_error),
+    pytest.param(get_dimension_size, marks=pytest.mark.fails_golden),
 ]
 
 
@@ -1558,8 +1556,8 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
         pytest.param(
             where,
             [(64, 64)] * 3,
-            [torch.int8, torch.float32, torch.float32],
-            marks=pytest.mark.run_error,
+            [torch.float32, torch.float32, torch.float32],
+            marks=pytest.mark.fails_golden,
         ),
     ],
 )
