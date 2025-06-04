@@ -11,4 +11,5 @@ target_link_libraries(OptimizerTests
     MLIRTTDialect
     MLIRTTNNAnalysis
     MLIRTTNNPipelines
+    Python3::Python
 )

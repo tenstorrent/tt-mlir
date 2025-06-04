@@ -1,3 +1,6 @@
+
+find_package(Python3 COMPONENTS Development REQUIRED)
+
 add_subdirectory(ttmlir-opt)
 add_subdirectory(ttmlir-lsp-server)
 if(TTMLIR_ENABLE_BINDINGS_PYTHON AND MLIR_ENABLE_BINDINGS_PYTHON)

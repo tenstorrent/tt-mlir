@@ -95,9 +95,12 @@ else()
   set(REEXPORT_TTMLIR_LIBS -Wl,--whole-archive ${TTMLIR_LIBS} -Wl,--no-whole-archive)
 endif()
 
+find_package(Python3 COMPONENTS Development.Module REQUIRED)
+
 target_link_libraries(TTMLIRCompiler PRIVATE
     ${REEXPORT_TTMLIR_LIBS}
     flatbuffers
+    Python3::Module
 )
 
 target_link_libraries(TTMLIRCompiler PUBLIC coverage_config)

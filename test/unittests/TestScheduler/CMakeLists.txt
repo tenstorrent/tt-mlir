@@ -8,4 +8,5 @@ target_link_libraries(SchedulerTests
     MLIRTTIRDialect
     MLIRTTNNPipelines
     MLIRScheduler
+    Python3::Python
 )
