@@ -388,7 +388,14 @@ public:
         emitter.emit(srcOp.getRhs()),
         /*dtype=*/emitter.emit(std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-    };
+        emitter.emit(std::nullopt),
+        rewriter.getAttr<emitc::OpaqueAttr>(
+            "tt::stl::Span<const ttnn::operations::unary::UnaryWithParam>{}"),
+        rewriter.getAttr<emitc::OpaqueAttr>(
+            "tt::stl::Span<const ttnn::operations::unary::UnaryWithParam>{}"),
+        rewriter.getAttr<emitc::OpaqueAttr>(
+            "tt::stl::Span<const ttnn::operations::unary::UnaryWithParam>{}"),
+        emitter.emit(srcOp.getUseLegacy())};
 
     emitter.replaceOp(*this, args);
 
@@ -2141,12 +2148,12 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            EltwiseBinaryOpConversionPattern<tt::ttnn::GreaterThanOp>,
            EltwiseBinaryOpConversionPattern<tt::ttnn::LessEqualOp>,
            EltwiseBinaryOpConversionPattern<tt::ttnn::LessThanOp>,
-           EltwiseBinaryNGCompositeOpConversionPattern<tt::ttnn::MaximumOp>,
-           EltwiseBinaryNGCompositeOpConversionPattern<tt::ttnn::MinimumOp>,
+           EltwiseBinaryOpConversionPattern<tt::ttnn::MaximumOp>,
+           EltwiseBinaryOpConversionPattern<tt::ttnn::MinimumOp>,
            EltwiseBinaryOpConversionPattern<tt::ttnn::DivideOp>,
            EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::ScatterOp>,
            EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::RemainderOp>,
-           EltwiseBinaryNGCompositeOpConversionPattern<tt::ttnn::PowOp>,
+           EltwiseBinaryOpConversionPattern<tt::ttnn::PowOp>,
            EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::Atan2Op>>(
           typeConverter, ctx);
 
