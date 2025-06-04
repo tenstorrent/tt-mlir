@@ -281,7 +281,9 @@ def test_collective_permute(shape: Shape, mesh_shape: Tuple[int, int], request):
         [(256, 128), (128, 128)],
         [(256, 128), (128, 124)],
         [(256, 128), (128, 120)],
-        [(256, 130), (130, 128)],
+        # TODO (#3662), re-enable once tensor spec check
+        # accounts for non-uniform shapes due to non-divisibility
+        # [(256, 130), (130, 128)],
         [(254, 128), (128, 128)],
         [(252, 128), (128, 128)],
         pytest.param(
