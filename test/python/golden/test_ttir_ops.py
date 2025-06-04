@@ -751,7 +751,6 @@ def test_conv_transpose2d(
     )
 
 
-@pytest.mark.run_error
 @pytest.mark.parametrize(
     "kernel_height,kernel_width,stride_height,stride_width,dilation_height,dilation_width,ceil_mode,padding_left,padding_right,padding_top, padding_bottom",
     [(2, 2, 2, 2, 1, 1, False, 0, 0, 0, 0)],
@@ -1135,7 +1134,7 @@ def test_softmax(shape: Shape, dimension: int, request):
 
 @pytest.mark.run_error
 @pytest.mark.parametrize("shapes", [[(1, 32, 64, 512), (1, 32, 1, 512), (1,)]])
-@pytest.mark.parametrize("dtypes", [[torch.bfloat16, torch.bfloat16, torch.int32]])
+@pytest.mark.parametrize("dtypes", [[torch.float32, torch.float32, torch.int32]])
 def test_update_cache(shapes: List[Shape], dtypes: List[torch.dtype], request):
     def update_cache(
         in0: Operand,
@@ -1553,8 +1552,8 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
         pytest.param(
             embedding,
             [(33, 32), (512, 128)],
-            [torch.bfloat16] * 2,
-            marks=pytest.mark.run_error,
+            [torch.float32] * 2,
+            marks=pytest.mark.fails_golden,
         ),
         pytest.param(
             where,
