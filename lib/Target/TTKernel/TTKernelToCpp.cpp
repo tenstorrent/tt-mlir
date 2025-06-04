@@ -87,7 +87,6 @@ static const llvm::StringMap<llvm::StringRef> includeMapping{
     {"untilize_uninit", "compute_kernel_api/untilize.h"},
 
     // NOC operations
-    // {"get_noc_addr", ???},
     {"get_noc_addr_from_bank_id", NOC_INCLUDE},
     {"noc_async_read", NOC_INCLUDE},
     {"noc_async_read_tile", NOC_INCLUDE},
@@ -108,7 +107,7 @@ static const llvm::StringMap<llvm::StringRef> includeMapping{
     // Compile/runtime arg ops
     {"get_arg_val", "compute_kernel_api/common.h"},
     {"get_compile_time_arg_val",
-     "accessor/sharded_accessor.h"}, // is this include path correct?
+     "accessor/sharded_accessor.h"},
 
     // Multicast NoC
     {"get_noc_multicast_addr", NOC_INCLUDE},
@@ -117,13 +116,12 @@ static const llvm::StringMap<llvm::StringRef> includeMapping{
     {"noc_async_write_multicast_loopback_src", NOC_INCLUDE},
 
     // Misc operations
-    {"mem_zeros_base", "dev_mem_map.h"}, // Is this the correct path?
-    {"mem_zeros_size", "dev_mem_map.h"}, // Is this the correct path?
+    {"mem_zeros_base", "dev_mem_map.h"},
+    {"mem_zeros_size", "dev_mem_map.h"},
     {"get_write_ptr", "dataflow_api.h"},
     {"get_read_ptr", "dataflow_api.h"},
     {"get_tile_size", "dataflow_api.h"},
     {"get_dataformat", "dataflow_api.h"},
-    // {"cb_reinterpret_shape", ???}
 };
 
 // Class used to add includes and other boilerplate code to the generated
