@@ -95,8 +95,30 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
       return;
     }
 
-    // Get the return value
     Value returnVal = returnOp.getOperands()[0];
+
+    // Check if the return value is a block argument--this indicates the hoisted
+    // op has been optimized away, and we must replace it with a copy s.t. the
+    // output tensor gets the proper value.
+    if (auto blockArg = dyn_cast<BlockArgument>(returnVal)) {
+      // This is a NOOP case - we need to copy the input to the output.
+      Value outputTensor = funcOp.getArgument(outputArgIdx);
+
+      rewriter.setInsertionPoint(returnOp);
+
+      if (auto inputType = dyn_cast<RankedTensorType>(returnVal.getType())) {
+        auto outputType = dyn_cast<RankedTensorType>(outputTensor.getType());
+
+        assert(inputType == outputType);
+
+        rewriter.create<linalg::CopyOp>(returnOp.getLoc(), returnVal,
+                                        outputTensor);
+      }
+
+      // Remove the mapping attribute since we've applied it
+      funcOp->removeAttr("ttir.return_to_output_mapping");
+      return;
+    }
 
     // Find the operation that produces the return value
     Operation *producer = returnVal.getDefiningOp();
@@ -211,16 +233,6 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
           << "Could not find any tensor.empty operations to replace";
       return;
     }
-
-    // Replace the return operation with an empty return
-    rewriter.setInsertionPoint(returnOp);
-    rewriter.replaceOpWithNewOp<func::ReturnOp>(returnOp);
-
-    // Update the function type to remove the return value
-    auto funcType = funcOp.getFunctionType();
-    auto newFuncType =
-        FunctionType::get(funcOp.getContext(), funcType.getInputs(), {});
-    funcOp.setType(newFuncType);
 
     // Remove the mapping attribute since we've applied it
     funcOp->removeAttr("ttir.return_to_output_mapping");

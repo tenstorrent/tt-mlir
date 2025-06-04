@@ -30,6 +30,8 @@
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include "mlir/IR/BuiltinTypeInterfaces.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -674,6 +676,14 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
 
     flatbuffers::Offset<target::DebugInfo> debugInfo =
         debugInfoToFlatbuffer(fbb, "ttmetal", module, goldenMap, moduleCache);
+
+    DeviceAttr deviceAttr = lookupDevice(module);
+    assert(deviceAttr);
+
+    ArrayRef<int64_t> meshShapeArr = deviceAttr.getMeshShape();
+    assert(meshShapeArr.size() == 2 && "Ill-Sized Mesh Shape");
+
+    const ::tt::target::Dim2d meshShape(meshShapeArr[0], meshShapeArr[1]);
 
     programs.push_back(target::metal::CreateProgramDirect(
         fbb, cqBuilder.name, &tensorInputs, &tensorOutputs, &devicePrograms,
