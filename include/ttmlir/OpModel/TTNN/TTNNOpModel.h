@@ -391,5 +391,26 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
              mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 }; // namespace UpsampleOpInterface
 
+//===----------------------------------------------------------------------===//
+// Subtract
+//===----------------------------------------------------------------------===//
+namespace SubtractOpInterface {
+llvm::Expected<OpConstraints>
+getOpConstraints(GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+                 llvm::ArrayRef<int64_t> inputShapeB,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+                 llvm::ArrayRef<int64_t> outputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+llvm::Expected<size_t>
+getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+             llvm::ArrayRef<int64_t> inputShapeB,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+             llvm::ArrayRef<int64_t> outputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+} // namespace SubtractOpInterface
+
 } // namespace mlir::tt::op_model::ttnn
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H
