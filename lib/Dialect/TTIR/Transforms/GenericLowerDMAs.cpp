@@ -37,7 +37,7 @@ public:
     assert(dmaIndexingMap.getNumDims() == gridIndexingMap.getNumDims());
     assert(dmaIndexingMap.getNumResults() == gridIndexingMap.getNumResults());
     assert(dmaIndexingMap.getNumResults() == shardShape.size());
-    assert(gridIndexingMap.isProjectedPermutation() &&
+    assert(gridIndexingMap.isProjectedPermutation(true) &&
            "Grid indexing map must be a permutation");
 
     SmallVector<Value> streamIndex;
@@ -46,37 +46,57 @@ public:
     indexBounds.reserve(dmaIndexingMap.getNumResults());
     for (unsigned result = 0; result < dmaIndexingMap.getNumResults();
          result++) {
-      unsigned dim = dmaIndexingMap.getDimPosition(result);
-      std::optional<unsigned> gridResult =
-          gridIndexingMap.getResultPosition(dmaIndexingMap.getResult(result));
-      //
-      // The following assert is pretty subtle. If this operand dimension
-      // participates in the grid, for now we must assert that the relative grid
-      // result is the same as the operand result. This protects against
-      // permutations of the grid, ie. transposes.  For example, let's consider
-      // a matmul case:
-      //   dmaIndexingMap:  (m, n, k) -> (m, k)
-      //   dmaIndexingMap:  (m, n, k) -> (k, n)
-      //   gridIndexingMap: (m, n, k) -> (m, n)
-      //                                     ^
-      // This assert ensures that the m's line up. A counter example would be:
-      //   dmaIndexingMap:  (m, n, k) -> (m, k)
-      //   gridIndexingMap: (m, n, k) -> (n, m)
-      //
-      // Not currently supported.
-      //
-      assert(!gridResult || *gridResult == result);
-      bool isGridDim = gridResult.has_value();
-      Value iterIndex = builder.create<IterIndexOp>(
-          loc, builder.getIndexType(), builder.getI64IntegerAttr(dim));
+
+      AffineExpr dimOrConstant = dmaIndexingMap.getResult(result);
+      assert(mlir::isa<AffineDimExpr>(dimOrConstant) ||
+             mlir::isa<AffineConstantExpr>(dimOrConstant));
+
       Value index;
-      if (isGridDim) {
-        // TODO(#3231): Support blocked inputs that are multiples of the grid
-        // shape. Should be added as part of blocking support.
-        index = builder.create<CoreIndexOp>(loc, builder.getIndexType(),
-                                            builder.getI64IntegerAttr(dim));
+      if (AffineConstantExpr constant =
+              mlir::dyn_cast<AffineConstantExpr>(dimOrConstant)) {
+        assert(constant.getValue() == 0);
+        assert(gridShape[result] ==
+               1); // this is too conservative, I think there will be bcast
+        // cases in the future where this isn't true.  Probably best
+        // to have it as a canary when we hit this case tho
+
+        index = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
+                                                  builder.getIndexAttr(0));
       } else {
-        index = iterIndex;
+        unsigned dim = mlir::cast<AffineDimExpr>(dimOrConstant).getPosition();
+
+        std::optional<unsigned> gridResult =
+            gridIndexingMap.getResultPosition(dmaIndexingMap.getResult(result));
+
+        //
+        // The following assert is pretty subtle. If this operand dimension
+        // participates in the grid, for now we must assert that the relative
+        // grid result is the same as the operand result. This protects against
+        // permutations of the grid, ie. transposes.  For example, let's
+        // consider a matmul case:
+        //   dmaIndexingMap:  (m, n, k) -> (m, k)
+        //   dmaIndexingMap:  (m, n, k) -> (k, n)
+        //   gridIndexingMap: (m, n, k) -> (m, n)
+        //                                     ^
+        // This assert ensures that the m's line up. A counter example would be:
+        //   dmaIndexingMap:  (m, n, k) -> (m, k)
+        //   gridIndexingMap: (m, n, k) -> (n, m)
+        //
+        // Not currently supported.
+        //
+        assert(!gridResult || *gridResult == result);
+        bool isGridDim = gridResult.has_value();
+        Value iterIndex = builder.create<IterIndexOp>(
+            loc, builder.getIndexType(), builder.getI64IntegerAttr(dim));
+
+        if (isGridDim) {
+          // TODO(#3231): Support blocked inputs that are multiples of the grid
+          // shape. Should be added as part of blocking support.
+          index = builder.create<CoreIndexOp>(loc, builder.getIndexType(),
+                                              builder.getI64IntegerAttr(dim));
+        } else {
+          index = iterIndex;
+        }
       }
       streamIndex.push_back(index);
       indexBounds.push_back(gridShape[result]);

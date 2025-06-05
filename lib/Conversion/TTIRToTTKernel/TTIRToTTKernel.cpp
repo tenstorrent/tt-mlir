@@ -16,6 +16,12 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include <algorithm>
+#include <llvm/IR/Constants.h>
+#include <llvm/Support/raw_ostream.h>
+#include <mlir/IR/BuiltinTypes.h>
+#include <mlir/IR/Operation.h>
+#include <mlir/IR/Value.h>
 
 namespace mlir::tt::ttkernel {
 
@@ -84,14 +90,26 @@ static Value getLoadIndex(Value tile) {
 // This function finds the loop variables that are not used in the computation
 // of the copy tile index. These represent the loop variables that loop over the
 // inner dimension of the tensor. They may not be the innermost loops in the IR.
-static llvm::SmallVector<Value>
-findInnerTensorDimLoopVars(PatternRewriter &rewriter, memref::LoadOp loadOp) {
-  auto loopVars = llvm::SmallVector<Value>();
+struct LoopSpec {
+  LoopSpec(Value var, int64_t upperBound) : var(var), upperBound(upperBound) {}
+  Value var;
+  int64_t upperBound;
+};
+
+static llvm::SmallVector<LoopSpec>
+findInnerTensorDimLoopSpecs(memref::LoadOp loadOp) {
+  auto loopSpecs = llvm::SmallVector<LoopSpec>();
 
   // Find all loop variables that are parents of the load operation.
   scf::ForOp forOp = loadOp->getParentOfType<scf::ForOp>();
   while (forOp != nullptr) {
-    loopVars.emplace_back(forOp.getInductionVar());
+    int64_t upperBound =
+        llvm::cast<IntegerAttr>(forOp.getUpperBound()
+                                    .template getDefiningOp<arith::ConstantOp>()
+                                    .getValue())
+            .getInt();
+
+    loopSpecs.emplace_back(forOp.getInductionVar(), upperBound);
     forOp = forOp->getParentOfType<scf::ForOp>();
   }
 
@@ -103,8 +121,8 @@ findInnerTensorDimLoopVars(PatternRewriter &rewriter, memref::LoadOp loadOp) {
   if (blockArg && mlir::isa<scf::ForOp>(blockArg.getOwner()->getParentOp())) {
     outerLoopVars = {blockArg};
   } else {
-    // Otherwise, we need to recurse through the definition of the load index to
-    // find the for loop variables that participate in its calculation.
+    // Otherwise, we need to recurse through the definition of the load index
+    // to find the for loop variables that participate in its calculation.
     llvm::SmallVector<Operation *> opsToInspect = {
         loadOp.getIndices().front().getDefiningOp()};
     while (!opsToInspect.empty()) {
@@ -122,15 +140,27 @@ findInnerTensorDimLoopVars(PatternRewriter &rewriter, memref::LoadOp loadOp) {
     }
   }
 
-  llvm::SmallVector<Value> innerLoopVars;
-  // Find all loop variables that do NOT participate in the load index. i.e. NOT
-  // in outerLoopVars.
-  for (auto &loopVar : loopVars) {
-    if (std::find(outerLoopVars.begin(), outerLoopVars.end(), loopVar) ==
+  llvm::SmallVector<LoopSpec> innerLoopSpecs;
+  // Find all loop variables that do NOT participate in the load index. i.e.
+  // NOT in outerLoopVars.
+  for (auto &loopSpec : loopSpecs) {
+    if (std::find(outerLoopVars.begin(), outerLoopVars.end(), loopSpec.var) ==
         outerLoopVars.end()) {
-      innerLoopVars.emplace_back(loopVar);
+      innerLoopSpecs.emplace_back(loopSpec);
     }
   }
+
+  return innerLoopSpecs;
+}
+
+static llvm::SmallVector<Value>
+findInnerTensorDimLoopVars(PatternRewriter &rewriter, memref::LoadOp loadOp) {
+  auto innerLoopSpecs = findInnerTensorDimLoopSpecs(loadOp);
+  llvm::SmallVector<Value> innerLoopVars(innerLoopSpecs.size());
+
+  std::transform(innerLoopSpecs.begin(), innerLoopSpecs.end(),
+                 innerLoopVars.begin(),
+                 [&](LoopSpec loopSpec) { return loopSpec.var; });
 
   return innerLoopVars;
 }
@@ -275,6 +305,68 @@ public:
       lowerLoadToCopyTile(
           adaptor.getC().template getDefiningOp<memref::LoadOp>(), false, true,
           rewriter);
+    } else if constexpr (std::is_same_v<ConcreteOp, ttir::TileReduceSumOp> ||
+                         std::is_same_v<ConcreteOp, ttir::TileReduceMaxOp>) {
+      ttkernel::ReduceType reduce_type;
+      ttir::ReduceDim reduce_dim = op.getReduceDim();
+      if constexpr (std::is_same_v<ConcreteOp, ttir::TileReduceSumOp>) {
+        reduce_type = ttkernel::ReduceType::Sum;
+      } else {
+        reduce_type = ttkernel::ReduceType::Max;
+      }
+      ttkernel::ReduceDim kernel_reduce_dim;
+      switch (reduce_dim) {
+      case ttir::ReduceDim::C:
+        kernel_reduce_dim = ttkernel::ReduceDim::Col;
+        break;
+      case ttir::ReduceDim::R:
+        kernel_reduce_dim = ttkernel::ReduceDim::Row;
+        break;
+      case ttir::ReduceDim::RC:
+        kernel_reduce_dim = ttkernel::ReduceDim::Scalar;
+        break;
+      }
+
+      auto insertionPoint = rewriter.getInsertionPoint();
+      auto cbA = getCB(rewriter, adaptor.getA());
+      auto cbB = getCB(rewriter, adaptor.getB());
+      auto cbC = getCB(rewriter, adaptor.getC());
+      setInsertionPointAfterOperands(rewriter, {cbA, cbB, cbC});
+      rewriter.create<ttkernel::ReduceInitOp>(op->getLoc(), cbA, cbB, cbC,
+                                              reduce_type, kernel_reduce_dim);
+      rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+
+      auto loadOp = adaptor.getC().template getDefiningOp<memref::LoadOp>();
+      auto innerLoopSpecs = findInnerTensorDimLoopSpecs(loadOp);
+
+      LoopSpec innerLoopSpec = innerLoopSpecs.pop_back_val();
+      Value condition =
+          rewriter
+              .create<arith::CmpIOp>(
+                  op.getLoc(), arith::CmpIPredicate::ne, innerLoopSpec.var,
+                  index(rewriter, op.getLoc(), innerLoopSpec.upperBound - 1))
+              .getResult();
+      while (!innerLoopSpecs.empty()) {
+        LoopSpec innerLoopSpec = innerLoopSpecs.pop_back_val();
+        condition =
+            rewriter
+                .create<arith::OrIOp>(op.getLoc(), condition,
+                                      rewriter.create<arith::CmpIOp>(
+                                          op.getLoc(), arith::CmpIPredicate::ne,
+                                          innerLoopSpec.var,
+                                          index(rewriter, op.getLoc(),
+                                                innerLoopSpec.upperBound - 1)))
+                .getResult();
+      }
+
+      auto reduceInitShortOp = rewriter.create<ttkernel::ExperimentalReduceInitShortOp>(
+          op->getLoc(), cbA, cbB, cbC, condition, reduce_type,
+          kernel_reduce_dim);
+      rewriter.create<ttkernel::ReduceTileOp>(
+          op->getLoc(), cbA, cbB, getLoadIndex(adaptor.getA()),
+          getLoadIndex(adaptor.getB()), dstIdx, reduce_type, kernel_reduce_dim);
+      rewriter.setInsertionPoint(reduceInitShortOp);
+      lowerLoadToCopyTile(loadOp, false, true, rewriter);
     } else if constexpr (arity == 2) {
       rewriter.create<InitOp>(op->getLoc(), getCB(rewriter, adaptor.getLhs()),
                               getCB(rewriter, adaptor.getRhs()));
@@ -1002,6 +1094,8 @@ void populateTTIRToTTKernelPatterns(
       ttkernel::TTIRFPUOpsRewriter<ttir::TileAddOp,      ttkernel::AddTilesInitOp, ttkernel::AddTilesOp>,
       ttkernel::TTIRFPUOpsRewriter<ttir::TileMulOp,      ttkernel::MulTilesInitOp, ttkernel::MulTilesOp>,
       ttkernel::TTIRFPUOpsRewriter<ttir::TileMatmulOp,   ttkernel::MatmulInitOp,   ttkernel::MatmulTilesOp>,
+      ttkernel::TTIRFPUOpsRewriter<ttir::TileReduceSumOp,   ttkernel::ReduceInitOp, ttkernel::ReduceTileOp>,
+      ttkernel::TTIRFPUOpsRewriter<ttir::TileReduceMaxOp,   ttkernel::ReduceInitOp, ttkernel::ReduceTileOp>,
 
       // Elementwise SFPU.
       ttkernel::TTIRSFPUOpsRewriter<ttir::TileDivOp,     ttkernel::DivBinaryTilesInitOp, ttkernel::DivBinaryTilesOp>,
