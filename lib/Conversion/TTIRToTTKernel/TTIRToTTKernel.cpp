@@ -17,6 +17,9 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#include <type_traits>
+#include <utility>
+
 namespace mlir::tt::ttkernel {
 
 namespace {
@@ -230,7 +233,7 @@ using ComputeOpMap = OpMap<
   std::pair<ttir::TileSubOp,      std::pair<ttkernel::SubTilesInitOp, ttkernel::SubTilesOp>>,
 
   // Elementwise SFPU
-  std::pair<ttir::TileCeilOp,     std::pair<ttkernel::RoundTileInitOp,      ttkernel::CeilTileOp>>,
+  std::pair<ttir::TileCeilOp,     std::pair<ttkernel::RoundingTileInitOp,   ttkernel::CeilTileOp>>,
   std::pair<ttir::TileCosOp,      std::pair<ttkernel::CosTileInitOp,        ttkernel::CosTileOp>>,
   std::pair<ttir::TileDivOp,      std::pair<ttkernel::DivBinaryTilesInitOp, ttkernel::DivBinaryTilesOp>>,
   std::pair<ttir::TileExpOp,      std::pair<ttkernel::ExpTileInitOp,        ttkernel::ExpTileOp>>,
@@ -1056,6 +1059,7 @@ namespace mlir::tt {
 void populateTTIRToTTKernelPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
     const ttir::AssociatedDMAWaits &associatedDMAWaits) {
+  // clang-format off
   patterns.add<ttkernel::TTIRKernelFunctionArgsRewriter,
 
                // Elementwise FPU.
@@ -1076,18 +1080,21 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileSinOp>,
 
                ttkernel::TTIRTilizeUntilizeRewriter,
-               ttkernel::TTIRTypecastRewriter, ttkernel::MemrefStoreRewriter,
+               ttkernel::TTIRTypecastRewriter,
+               ttkernel::MemrefStoreRewriter,
                ttkernel::TTIRAwaitYieldRewriter<ttir::AwaitOp>,
                ttkernel::TTIRAwaitYieldRewriter<ttir::YieldOp>,
-               ttkernel::TTIRDMAWaitRewriter, ttkernel::TTIRCoreIndexRewriter,
+               ttkernel::TTIRDMAWaitRewriter,
+               ttkernel::TTIRCoreIndexRewriter,
                ttkernel::TTIRGetGlobalOperandRewriter,
-               ttkernel::TTIRNullTxRewriter, ttkernel::MemRefCollapseRewriter,
+               ttkernel::TTIRNullTxRewriter,
+               ttkernel::MemRefCollapseRewriter,
                ttkernel::TTIRSemaphoreUpdateRewriter<ttir::SemaphoreSetOp>,
                ttkernel::TTIRSemaphoreUpdateRewriter<ttir::SemaphoreIncOp>,
                ttkernel::TTIRSemaphoreWaitRewriter>(typeConverter, ctx);
 
-  patterns.add<ttkernel::TTIRDMARewriter>(typeConverter, ctx,
-                                          &associatedDMAWaits);
+  patterns.add<ttkernel::TTIRDMARewriter>(typeConverter, ctx, &associatedDMAWaits);
+  // clang-format on
 }
 
 } // namespace mlir::tt

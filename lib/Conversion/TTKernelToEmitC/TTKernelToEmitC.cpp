@@ -679,7 +679,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::SigmoidTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SinTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SinTileOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::RoundTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::RoundingTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CeilTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CeilTileF32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FillTileInitOp>,

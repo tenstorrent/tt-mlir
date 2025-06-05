@@ -462,7 +462,7 @@ def TTKernel_SinTileOp : TTKernel_SFPUOp<"sin_tile", [TTKernel_UnaryOpTrait]> {
     let arguments = (ins IndexLike:$dst0_index);
 }
 
-def TTKernel_RoundTileInitOp : TTKernel_InitOp<"rounding_op_tile_init"> {
+def TTKernel_RoundingTileInitOp : TTKernel_InitOp<"rounding_op_tile_init"> {
     let summary = "Init function for ceil/floor/round_tile operation. Refer to documentation for any init function.";
     let description = [{
       Must be run before ceil/floor/round_tile.
