@@ -296,6 +296,48 @@ struct TTIRMemrefLayoutRewriter : public OpRewritePattern<ttir::GenericOp> {
 } // namespace
 
 namespace {
+struct TTIRHostTxsRewriter : public OpRewritePattern<ToLayoutOp> {
+  TTIRHostTxsRewriter(MLIRContext *context,
+                      SmallVector<int64_t> workerGridShape)
+      : OpRewritePattern<ToLayoutOp>(context),
+        workerGridShape(workerGridShape) {}
+
+public:
+  LogicalResult matchAndRewrite(ToLayoutOp op,
+                                PatternRewriter &rewriter) const override {
+
+    auto inputTy = mlir::cast<RankedTensorType>(op.getInput().getType());
+    auto outputTy = mlir::cast<RankedTensorType>(op.getOutput().getType());
+    tt::MetalLayoutAttr inputMemoryLayout =
+        mlir::dyn_cast_if_present<tt::MetalLayoutAttr>(inputTy.getEncoding());
+    tt::MetalLayoutAttr outputMemoryLayout =
+        mlir::dyn_cast_if_present<tt::MetalLayoutAttr>(outputTy.getEncoding());
+    if (inputMemoryLayout && outputMemoryLayout) {
+      // Not a host tx
+      return failure();
+    }
+
+    auto deviceTensor = inputMemoryLayout ? op.getInput() : op.getOutput();
+    auto optimalDeviceLayout = calculateOptimalLayoutForTensorType(
+        rewriter, deviceTensor, workerGridShape);
+    if (deviceTensor.getType() == optimalDeviceLayout) {
+      return failure();
+    }
+
+    // Update device tensor type
+    rewriter.modifyOpInPlace(
+        op, [&]() { deviceTensor.setType(optimalDeviceLayout); });
+    if (outputMemoryLayout) {
+      rewriter.modifyOpInPlace(
+          op, [&]() { op->getResult(0).setType(optimalDeviceLayout); });
+    }
+    return success();
+  }
+
+  SmallVector<int64_t> workerGridShape;
+};
+} // namespace
+
 class TTIROptimizeTensorLayout
     : public impl::TTIROptimizeTensorLayoutBase<TTIROptimizeTensorLayout> {
 
@@ -324,6 +366,7 @@ class TTIROptimizeTensorLayout
     RewritePatternSet patterns(&getContext());
     patterns.add<TTIRGenericTensorLayoutRewriter>(
         &getContext(), workerGridShape, dstRegisterSizeTiles);
+    patterns.add<TTIRHostTxsRewriter>(&getContext(), workerGridShape);
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
       return;
@@ -335,6 +378,5 @@ class TTIROptimizeTensorLayout
     registry.insert<mlir::tt::TTCoreDialect>();
   }
 };
-} // namespace
 
 } // namespace mlir::tt::ttir
