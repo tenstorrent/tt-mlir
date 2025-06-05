@@ -38,18 +38,11 @@ convertArrayAttrToSmallVec(mlir::ArrayAttr arrayAttr) {
 }
 
 std::optional<llvm::SmallVector<int64_t>>
-convertReductionArg(std::optional<mlir::ArrayAttr> arrayOpt) {
-  if (!arrayOpt.has_value()) {
+convertOptionalArrayAttrToSmallVec(std::optional<mlir::ArrayAttr> arrayAttr) {
+  if (!arrayAttr.has_value()) {
     return std::nullopt;
   }
-
-  llvm::SmallVector<int64_t> reduceDims;
-
-  for (const mlir::Attribute &reduceDim : *arrayOpt) {
-    reduceDims.push_back(mlir::cast<mlir::IntegerAttr>(reduceDim).getInt());
-  }
-
-  return reduceDims;
+  return convertArrayAttrToSmallVec(arrayAttr.value());
 }
 
 } // namespace detail
@@ -263,7 +256,7 @@ MeanOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return op_model::ttnn::MeanOpInterface::getOpConstraints(
       deviceGrid, inputShape, inputs[0],
-      detail::convertReductionArg(getDimArg()), getKeepDim(),
+      detail::convertOptionalArrayAttrToSmallVec(getDimArg()), getKeepDim(),
       opConfig.outputLayout);
 }
 
@@ -275,8 +268,9 @@ MeanOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   const auto inputShape = getInput().getType().getShape();
 
   return op_model::ttnn::MeanOpInterface::getOpRuntime(
-      inputShape, inputs[0], detail::convertReductionArg(getDimArg()),
-      getKeepDim(), opConfig.outputLayout);
+      inputShape, inputs[0],
+      detail::convertOptionalArrayAttrToSmallVec(getDimArg()), getKeepDim(),
+      opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
