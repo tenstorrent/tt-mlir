@@ -231,6 +231,27 @@ def TTKernel_MulTilesOp : TTKernel_FPUOp<"mul_tiles", [TTKernel_BinaryOpTrait]> 
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, IndexLike:$in0_tile_index, IndexLike:$in1_tile_index, IndexLike:$dst_index);
 }
 
+def TTKernel_SubTilesInitOp : TTKernel_InitOp<"sub_tiles_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before sub_tiles.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb);
+}
+
+def TTKernel_SubTilesOp : TTKernel_FPUOp<"sub_tiles", [TTKernel_BinaryOpTrait]> {
+    let summary = "Subtract operation";
+    let description = [{
+      Performs element-wise subtraction C=A-B of tiles in two CBs at given indices
+      and writes the result to the DST register at index dst_tile_index. The DST
+      register buffer must be in acquired state via *tile_regs_acquire* call. This call
+      is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, IndexLike:$in0_tile_index, IndexLike:$in1_tile_index, IndexLike:$dst_index);
+}
+
 def TTKernel_ReduceInitOp : TTKernel_InitOp<"reduce_init"> {
     let summary = "Init function";
     let description = [{

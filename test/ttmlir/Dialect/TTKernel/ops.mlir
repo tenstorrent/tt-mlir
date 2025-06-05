@@ -24,3 +24,15 @@ func.func @test_untilize_uninit(%tilized_cb : !ttkernel.cb<cb_in0, 0, memref<4x4
   "ttkernel.untilize_uninit"(%tilized_cb) : (!ttkernel.cb<cb_in0, 0, memref<4x4x!tt.tile<32x32, f32>, #l1_>, 4096, 1>) -> ()
   return
 }
+
+// CHECK-LABEL: func.func @test_sub_tiles
+func.func @test_sub_tiles(%lhs : !ttkernel.cb<cb_in0, 0, memref<4x4x!tt.tile<32x32, f32>, #l1_>, 4096, 1>, %rhs : !ttkernel.cb<cb_in0, 0, memref<4x4x!tt.tile<32x32, f32>, #l1_>, 4096, 1>, %lhs_idx : index, %rhs_idx : index, %dst_idx : index) -> () {
+  "ttkernel.sub_tiles"(%lhs, %rhs, %lhs_idx, %rhs_idx, %dst_idx) : (!ttkernel.cb<cb_in0, 0, memref<4x4x!tt.tile<32x32, f32>, #l1_>, 4096, 1>, !ttkernel.cb<cb_in0, 0, memref<4x4x!tt.tile<32x32, f32>, #l1_>, 4096, 1>, index, index, index) -> ()
+  return
+}
+
+// CHECK-LABEL: func.func @test_sub_tiles_init
+func.func @test_sub_tiles_init(%lhs : !ttkernel.cb<cb_in0, 0, memref<4x4x!tt.tile<32x32, f32>, #l1_>, 4096, 1>, %rhs : !ttkernel.cb<cb_in0, 0, memref<4x4x!tt.tile<32x32, f32>, #l1_>, 4096, 1>) -> () {
+  "ttkernel.sub_tiles_init"(%lhs, %rhs) : (!ttkernel.cb<cb_in0, 0, memref<4x4x!tt.tile<32x32, f32>, #l1_>, 4096, 1>, !ttkernel.cb<cb_in0, 0, memref<4x4x!tt.tile<32x32, f32>, #l1_>, 4096, 1>) -> ()
+  return
+}
