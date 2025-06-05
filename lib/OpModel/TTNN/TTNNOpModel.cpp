@@ -408,7 +408,7 @@ getPrepareConvTranspose2dWeightsOpOutputTensorSpec(
 
     return ::ttnn::graph::query_op_constraints(
         prepare_fn, device, weightTensor, inputSpec.memory_config(),
-        inputSpec.layout(), "OIHW", in_channels, out_channels, batch_size,
+        inputSpec.layout(), "IOHW", in_channels, out_channels, batch_size,
         input_height, input_width,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),

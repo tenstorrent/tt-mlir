@@ -1361,49 +1361,19 @@ TEST_P(OpModelConvTranspose2dParam, ConvTranspose2d) {
 INSTANTIATE_TEST_SUITE_P(
     ConvTranspose2dTests, OpModelConvTranspose2dParam,
     ::testing::Values(std::make_tuple(
-        detail::TestTensor{{1, 8, 8, 256},
+        detail::TestTensor{{1, 1, 50176, 3},
                            mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
                            mlir::tt::ttnn::BufferType::DRAM},
-        detail::TestTensor{{1, 1, 2304, 256},
+        detail::TestTensor{{3, 64, 7, 7},
                            mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
                            mlir::tt::ttnn::BufferType::SystemMemory},
-        detail::TestTensor{{1, 1, 64, 256},
+        detail::TestTensor{{1, 1, 12544, 64},
                            mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
                            mlir::tt::ttnn::BufferType::DRAM},
-        256, 256, 1, 8, 8, llvm::SmallVector<int32_t>{3, 3},
-        llvm::SmallVector<int32_t>{1, 1}, llvm::SmallVector<int32_t>{1, 1},
+        3, 64, 1, 224, 224, llvm::SmallVector<int32_t>{7, 7},
+        llvm::SmallVector<int32_t>{2, 2}, llvm::SmallVector<int32_t>{3, 3},
         llvm::SmallVector<int32_t>{0, 0}, llvm::SmallVector<int32_t>{1, 1}, 1,
         detail::ExpectedResult{true, 0, 0, 0})));
-/*
-        std::make_tuple(
-            detail::TestTensor{{1, 1, 50176, 3},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            detail::TestTensor{{64, 3, 7, 7},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::SystemMemory},
-            detail::TestTensor{{1, 1, 12544, 64},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            3, 64, 1, 224, 224, llvm::SmallVector<int32_t>{7, 7},
-            llvm::SmallVector<int32_t>{2, 2}, llvm::SmallVector<int32_t>{3, 3},
-            llvm::SmallVector<int32_t>{3, 3}, llvm::SmallVector<int32_t>{1, 1},
-            1, detail::ExpectedResult{true, 229440, 190568, 0}),
-        std::make_tuple(
-            detail::TestTensor{{1, 1, 50176, 3},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            detail::TestTensor{{64, 3, 9, 7},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::SystemMemory},
-            detail::TestTensor{{1, 1, 12544, 64},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            3, 64, 1, 224, 224, llvm::SmallVector<int32_t>{7, 7},
-            llvm::SmallVector<int32_t>{2, 2}, llvm::SmallVector<int32_t>{3, 3},
-            llvm::SmallVector<int32_t>{0, 0}, llvm::SmallVector<int32_t>{1, 1},
-            1, detail::ExpectedResult{false, 0, 0, 0})));
-        */
 
 class OpModelMaxPool2DParam
     : public OpModelTest,
