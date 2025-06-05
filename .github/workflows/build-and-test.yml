@@ -354,9 +354,8 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        cd test/pykernel/demo
-        pip install -r requirements.txt
-        python eltwise_sfpu_demo.py
+        cmake --build build
+        cmake --build build -- pykernel-demo
 
     # pytest runner
     - name: Run pytest ttrt tests
