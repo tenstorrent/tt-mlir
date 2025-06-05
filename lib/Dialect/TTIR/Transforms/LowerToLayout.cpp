@@ -160,19 +160,44 @@ public:
     bool inputL1 = inputLayout.getMemorySpace() == MemorySpace::DeviceL1;
     bool outputL1 = outputLayout.getMemorySpace() == MemorySpace::DeviceL1;
 
+    bool hostTx = inputLayout.getMemorySpace() == MemorySpace::System ||
+                  outputLayout.getMemorySpace() == MemorySpace::System;
+
+    // Allow compound memorySpaceChange && gridChange for host txns. Only these
+    // two allowed together.
+    if (components.isCompound() && hostTx) {
+      if (components.isMemorySpaceChange && components.isGridChange &&
+          !components.isFormatChange && !components.isLayoutChange) {
+        return failure();
+      }
+    }
     // First prioritize moving the data into L1 so we can work with it in L1
-    if (!inputL1) {
+    if (!inputL1 && !hostTx) {
       // read first into L1, then format convert
       bounce(rewriter, op,
              inputLayout.withMemorySpace(rewriter.getContext(),
                                          MemorySpace::DeviceL1));
-    } else if (!outputL1) {
+    } else if (!inputL1 && hostTx) {
+      // read first into L1, then format convert
+      bounce(rewriter, op,
+             inputLayout
+                 .withMemorySpace(rewriter.getContext(), MemorySpace::DeviceL1)
+                 .withGrid(rewriter.getContext(), outputType,
+                           outputLayout.getGrid()));
+    } else if (!outputL1 && !hostTx) {
       // format convert first in L1 first, then write
       assert(inputL1 && "input should guaranteed be in L1 because of the "
                         "previous case");
       bounce(rewriter, op,
              outputLayout.withMemorySpace(rewriter.getContext(),
                                           MemorySpace::DeviceL1));
+    } else if (!outputL1 && hostTx) {
+      // format convert first in L1 first, then write
+      bounce(rewriter, op,
+             outputLayout
+                 .withMemorySpace(rewriter.getContext(), MemorySpace::DeviceL1)
+                 .withGrid(rewriter.getContext(), outputType,
+                           inputLayout.getGrid()));
     } else if (inputLayout.isTiled() != outputLayout.isTiled()) {
       // Prioritize moving tiled data
       if (inputLayout.isTiled()) {

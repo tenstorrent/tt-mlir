@@ -266,6 +266,48 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
 } // namespace
 
 namespace {
+struct TTIRHostTxsRewriter : public OpRewritePattern<ToLayoutOp> {
+  TTIRHostTxsRewriter(MLIRContext *context,
+                      SmallVector<int64_t> workerGridShape)
+      : OpRewritePattern<ToLayoutOp>(context),
+        workerGridShape(workerGridShape) {}
+
+public:
+  LogicalResult matchAndRewrite(ToLayoutOp op,
+                                PatternRewriter &rewriter) const override {
+
+    auto inputTy = mlir::cast<RankedTensorType>(op.getInput().getType());
+    auto outputTy = mlir::cast<RankedTensorType>(op.getOutput().getType());
+    tt::MetalLayoutAttr inputMemoryLayout =
+        mlir::dyn_cast_if_present<tt::MetalLayoutAttr>(inputTy.getEncoding());
+    tt::MetalLayoutAttr outputMemoryLayout =
+        mlir::dyn_cast_if_present<tt::MetalLayoutAttr>(outputTy.getEncoding());
+    if (inputMemoryLayout && outputMemoryLayout) {
+      // Not a host tx
+      return failure();
+    }
+
+    auto deviceTensor = inputMemoryLayout ? op.getInput() : op.getOutput();
+    auto optimalDeviceLayout = calculateOptimalLayoutForTensorType(
+        rewriter, deviceTensor, workerGridShape);
+    if (deviceTensor.getType() == optimalDeviceLayout) {
+      return failure();
+    }
+
+    // Update device tensor type
+    rewriter.modifyOpInPlace(
+        op, [&]() { deviceTensor.setType(optimalDeviceLayout); });
+    if (outputMemoryLayout) {
+      rewriter.modifyOpInPlace(
+          op, [&]() { op->getResult(0).setType(optimalDeviceLayout); });
+    }
+    return success();
+  }
+
+  SmallVector<int64_t> workerGridShape;
+};
+} // namespace
+
 class TTIROptimizeTensorLayout
     : public impl::TTIROptimizeTensorLayoutBase<TTIROptimizeTensorLayout> {
 
@@ -285,18 +327,15 @@ class TTIROptimizeTensorLayout
       workerGridShape = llvm::to_vector(device.getWorkerGrid().getShape());
     }
 
-    unsigned dstRegisterSizeTiles = chipDesc.getDstRegisterSizeTiles();
-    if (maxDstRegisterSizeTiles.getValue() > 0) {
-      dstRegisterSizeTiles =
-          std::min(dstRegisterSizeTiles, maxDstRegisterSizeTiles.getValue());
-    }
-
-    RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRGenericTensorLayoutRewriter>(
-        &getContext(), workerGridShape, dstRegisterSizeTiles);
-    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
-      signalPassFailure();
-      return;
+    {
+      RewritePatternSet patterns(&getContext());
+      patterns.add<TTIRGenericTensorLayoutRewriter>(&getContext(),
+                                                    workerGridShape);
+      patterns.add<TTIRHostTxsRewriter>(&getContext(), workerGridShape);
+      if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
+        signalPassFailure();
+        return;
+      }
     }
   }
 
@@ -305,6 +344,5 @@ class TTIROptimizeTensorLayout
     registry.insert<mlir::tt::TTCoreDialect>();
   }
 };
-} // namespace
 
 } // namespace mlir::tt::ttir
