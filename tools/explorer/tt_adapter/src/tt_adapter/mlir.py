@@ -849,7 +849,9 @@ def build_graph(
     graph_id = Path(model_path).name
 
     if model_runner.get_last_run(model_path):
-        graph_id = f'{graph_id} - Execution {datetime.now(timezone.utc).strftime("%H:%M:%S")}'
+        graph_id = (
+            f'{graph_id} - Execution {datetime.now(timezone.utc).strftime("%H:%M:%S")}'
+        )
 
     output_connections = defaultdict(int)
     graph = graph_builder.Graph(id=graph_id)

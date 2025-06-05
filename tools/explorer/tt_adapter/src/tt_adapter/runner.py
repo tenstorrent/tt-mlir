@@ -115,7 +115,7 @@ class ModelRunner:
 
     def get_last_run(self, model_path):
         if model_path in self.model_state:
-            if hasattr(self.model_state[model_path], 'runs'):
+            if hasattr(self.model_state[model_path], "runs"):
                 return self.model_state[model_path].runs[-1]
         return None
 
@@ -133,7 +133,7 @@ class ModelRunner:
         last_run = self.get_last_run(model_path)
 
         if last_run:
-            return getattr(last_run, 'generate_cpp_code', False)
+            return getattr(last_run, "generate_cpp_code", False)
         return False
 
     def get_error(self):

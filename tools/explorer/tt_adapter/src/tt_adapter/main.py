@@ -186,7 +186,12 @@ class TTAdapter(model_explorer.Adapter):
 
             # Convert TTIR to Model Explorer Graphs and Display/Return
             graph, overlays = mlir.build_graph(
-                model_path, module, self.model_runner, perf_trace, memory_trace, golden_results
+                model_path,
+                module,
+                self.model_runner,
+                perf_trace,
+                memory_trace,
+                golden_results,
             )
 
             if overlays:
