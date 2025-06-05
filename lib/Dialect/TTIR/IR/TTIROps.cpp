@@ -635,26 +635,34 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 // Fold the operation if the quantize is preceded by a dequantize that uses the
 // same scale factor, zeroPoint and has the same types.
 static mlir::OpFoldResult foldIdentityQuantize(mlir::tt::ttir::QuantizeOp op) {
-  auto dequantizeOp = mlir::dyn_cast<mlir::tt::ttir::DequantizeOp>(
-      op.getInput().getDefiningOp());
-  if (!dequantizeOp) {
-    return nullptr;
+  if (auto dequantizeOperand =
+          op.getInput().getDefiningOp<mlir::tt::ttir::DequantizeOp>()) {
+    auto dequantizeInput = dequantizeOperand.getInput();
+    if (op.getOutput().getType() != dequantizeInput.getType()) {
+      return nullptr;
+    }
+    if (op.getInput().getType() != dequantizeInput.getType()) {
+      return nullptr;
+    }
+    return dequantizeInput;
   }
-  auto dequantizeInput = dequantizeOp.getInput();
-  if (op.getOutput().getType() != dequantizeOp.getInput().getType()) {
-    return nullptr;
-  }
-  if (op.getInput().getType() != dequantizeOp.getOutput().getType()) {
-    return nullptr;
-  }
-  return dequantizeInput;
+  return nullptr;
 }
+
+// // Fold quantize of a constant into a new constant with the quantized data.
+// static mlir::OpFoldResult foldConstantQuantize(mlir::tt::ttir::QuantizeOp op)
+// {
+
+// }
 
 // QuantizeOp folder
 ::mlir::OpFoldResult mlir::tt::ttir::QuantizeOp::fold(FoldAdaptor adaptor) {
   if (auto foldResult = foldIdentityQuantize(*this)) {
     return foldResult;
   }
+  // if (auto foldResult = foldConstantQuantize(*this)) {
+  //   return foldResult;
+  // }
   return nullptr;
 }
 
@@ -1307,8 +1315,8 @@ static mlir::OpFoldResult foldConstantReshape(mlir::tt::ttir::ReshapeOp op) {
   auto reshapedType = mlir::cast<mlir::RankedTensorType>(op.getType());
   // foldConstantOpHelper checks if the input is a constant and returns a
   // constant with the reshaped data using the DenseElementsAttr.reshape API.
-  return foldConstantOpHelper(
-      op, [&](mlir::DenseElementsAttr attr) -> mlir::Attribute {
+  return mlir::tt::ttir::foldConstantOpHelper(
+      op->getOperand(0), [&](mlir::DenseElementsAttr attr) -> mlir::Attribute {
         return attr.reshape(reshapedType);
       });
 }
@@ -1877,14 +1885,12 @@ foldConstantTranspose(mlir::tt::ttir::TransposeOp op) {
                                             resultType.getShape().end());
 
   // foldConstantOpHelper checks if the input is a constant and returns a
-  // constant with permuted data using the ComputePermutation function.
-  return foldConstantOpHelper(
-      op, [&](mlir::DenseElementsAttr inputAttr) -> mlir::Attribute {
-        std::vector<mlir::Attribute> newValues;
-        std::vector<uint64_t> inputIndices(rank, 0);
-        ttmlir::utils::ComputePermutation(inputAttr, perm, outputShape, rank, 0,
-                                          &inputIndices, &newValues);
-        return mlir::DenseElementsAttr::get(resultType, newValues);
+  // constant with permuted data using the computePermutation function.
+  return mlir::tt::ttir::foldConstantOpHelper(
+      op->getOperand(0),
+      [&](mlir::DenseElementsAttr inputAttr) -> mlir::Attribute {
+        llvm::SmallVector<int64_t> permInt64(perm.begin(), perm.end());
+        return mlir::tt::ttir::computePermutation(inputAttr, permInt64);
       });
 }
 
@@ -3641,9 +3647,6 @@ static mlir::OpFoldResult foldConsecutivePermute(mlir::tt::ttir::PermuteOp op) {
 
 // Fold permute of a constant into a new constant with permuted data.
 static mlir::OpFoldResult foldConstantPermute(mlir::tt::ttir::PermuteOp op) {
-  auto resultType = mlir::cast<mlir::RankedTensorType>(op.getType());
-  int64_t rank = resultType.getRank();
-
   // Extract permutation values as integers.
   auto permVals = op.getPermutation();
   llvm::SmallVector<int32_t, 4> perm;
@@ -3651,18 +3654,13 @@ static mlir::OpFoldResult foldConstantPermute(mlir::tt::ttir::PermuteOp op) {
     perm.push_back(static_cast<int32_t>(v));
   }
 
-  llvm::SmallVector<int64_t, 4> outputShape(resultType.getShape().begin(),
-                                            resultType.getShape().end());
-
   // foldConstantOpHelper checks if the input is a constant and returns a
-  // constant with permuted data using the ComputePermutation function.
-  return foldConstantOpHelper(
-      op, [&](mlir::DenseElementsAttr inputAttr) -> mlir::Attribute {
-        std::vector<mlir::Attribute> newValues;
-        std::vector<uint64_t> inputIndices(rank, 0);
-        ttmlir::utils::ComputePermutation(inputAttr, perm, outputShape, rank, 0,
-                                          &inputIndices, &newValues);
-        return mlir::DenseElementsAttr::get(resultType, newValues);
+  // constant with permuted data using the computePermutation function.
+  return mlir::tt::ttir::foldConstantOpHelper(
+      op->getOperand(0),
+      [&](mlir::DenseElementsAttr inputAttr) -> mlir::Attribute {
+        llvm::SmallVector<int64_t> permInt64(perm.begin(), perm.end());
+        return mlir::tt::ttir::computePermutation(inputAttr, permInt64);
       });
 }
 

@@ -193,7 +193,7 @@ generatePermutation(llvm::ArrayRef<T> input, llvm::ArrayRef<T> output) {
 // all i. Assumes that permutation is a valid permutation of the indices of
 // input. Example:  input = [1, 2, 3], permutation = [2, 0, 1] -> [3, 1, 2]
 // Use-case: Directly reorders a 1D array or shape vector according to a given
-// permutation vector. For multidimensional tensor data, use ComputePermutation.
+// permutation vector.
 template <typename T>
 inline llvm::SmallVector<T>
 applyPermutation(llvm::ArrayRef<T> input, llvm::ArrayRef<int64_t> permutation) {
@@ -220,32 +220,6 @@ inversePermutation(llvm::ArrayRef<int64_t> permutation) {
     inversePermutation[permutation[i]] = i;
   }
   return inversePermutation;
-}
-
-// Computes the permutation of a constant `input_tensor` according to `perm`.
-// The function recursively traverses the dimensions of the output tensor in
-// a row-major order and writes the value in the output tensor into
-// `new_values`.
-// Use-case: Folding of permute/transpose ops on multidimensional tensors.
-inline void ComputePermutation(mlir::ElementsAttr input_tensor,
-                               llvm::ArrayRef<int32_t> perm,
-                               llvm::ArrayRef<int64_t> output_shape,
-                               int num_dimensions, int output_axis,
-                               std::vector<uint64_t> *input_indices,
-                               std::vector<mlir::Attribute> *new_values) {
-  assert(output_axis < num_dimensions && "Output axis out of bounds");
-  int input_axis = perm[output_axis];
-  for (int i = 0; i < output_shape[output_axis]; ++i) {
-    (*input_indices)[input_axis] = i;
-    bool is_last_axis = output_axis == num_dimensions - 1;
-    if (is_last_axis) {
-      new_values->push_back(
-          input_tensor.getValues<mlir::Attribute>()[*input_indices]);
-    } else {
-      ComputePermutation(input_tensor, perm, output_shape, num_dimensions,
-                         output_axis + 1, input_indices, new_values);
-    }
-  }
 }
 
 // Returns a vector `broadcastShape`, such that each index i of inputShape
