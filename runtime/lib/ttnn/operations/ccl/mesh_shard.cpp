@@ -15,6 +15,45 @@ using ::ttnn::distributed::MeshMapperConfig;
 using ::ttnn::distributed::MeshToTensor;
 using ::ttnn::distributed::TensorToMesh;
 
+// static ::ttnn::Tensor concatNd(const ::ttnn::Tensor &input,
+//                                ::ttnn::MeshDevice &meshDevice,
+//                                const std::vector<int64_t> &shardDims) {
+//   std::vector<::ttnn::Tensor> tensors =
+//       ::ttnn::distributed::get_device_tensors(input);
+//   auto meshShape = meshDevice.shape();
+//   DEBUG_ASSERT(shardDims.size() == meshShape.dims(),
+//                "Expected the number of mesh device dims to be equal to the "
+//                "number of shard dims.");
+//   for (int meshReverseIdx = meshShape.dims() - 1; meshReverseIdx >= 0;
+//        --meshReverseIdx) {
+//     size_t meshDim = meshShape[meshReverseIdx];
+//     const int64_t concatDim = shardDims[meshReverseIdx];
+//     const size_t outerStride = tensors.size() / meshDim;
+//     std::vector<::ttnn::Tensor> nextTensors;
+//     nextTensors.reserve(outerStride);
+//
+//     for (size_t outer = 0; outer < outerStride; ++outer) {
+//       const size_t innerStride = (concatDim < 0) ? 1 : meshDim;
+//       std::vector<::ttnn::Tensor> innerTensors;
+//       innerTensors.reserve(innerStride);
+//       for (size_t inner = 0; inner < innerStride; ++inner) {
+//         const size_t idx = outer * innerStride + inner;
+//         DEBUG_ASSERT(idx < tensors.size(),
+//                      "Expected idx to be less than tensors size");
+//         innerTensors.push_back(tensors[idx]);
+//       }
+//       if (innerTensors.size() == 1) {
+//         nextTensors.push_back(innerTensors[0]);
+//       } else {
+//         nextTensors.push_back(
+//             ::ttnn::experimental::xtensor::concat(innerTensors, concatDim));
+//       }
+//     }
+//     tensors = std::move(nextTensors);
+//   }
+//   return tensors[0];
+// }
+
 void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
@@ -22,9 +61,7 @@ void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
   const ::tt::target::ttnn::MeshShardDirection shardDirection =
       op->shard_direction();
   const ::tt::target::ttnn::MeshShardType shardType = op->shard_type();
-  const auto *fbShardShape = op->shard_shape();
   const auto *fbShardDims = op->shard_dims();
-  std::vector<int64_t> shardShape(fbShardShape->begin(), fbShardShape->end());
   std::vector<int64_t> shardDims(fbShardDims->begin(), fbShardDims->end());
 
   if (shardType == ::tt::target::ttnn::MeshShardType::Identity) {
@@ -54,6 +91,7 @@ void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
   ::ttnn::Tensor out;
   if (shardDirection ==
       ::tt::target::ttnn::MeshShardDirection::FullToShardShape) {
+    // Nd Sharding
     auto convertToShard = [](int dim)
         -> std::variant<MeshMapperConfig::Replicate, MeshMapperConfig::Shard> {
       if (dim >= 0) {
@@ -73,17 +111,36 @@ void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
                 ? ::ttnn::MeshShape(meshDevice.num_devices())
                 : meshDevice.shape());
     out = ::ttnn::distributed::distribute_tensor(input, *meshMapper);
+    //} else if (shardType == ::tt::target::ttnn::MeshShardType::Replicate) {
+    //  // Nd partial concat - replicate
+    //  std::vector<::ttnn::Tensor> tensors =
+    //      ::ttnn::distributed::get_device_tensors(input);
+    //  out = tensors[0];
+    //} else {
+    // Nd full/parital concat - devices
+    // Metal currenttly doesn't support partial concat
+    // (https://github.com/tenstorrent/tt-metal/issues/17343). So, for now
+    // use custom Nd concat implementation.
+    // out = concatNd(input, meshDevice, shardDims);
   } else {
     MeshComposerConfig meshComposerConfig;
-    for (auto dim : shardDims) {
-      meshComposerConfig.dims.push_back(static_cast<int>(dim));
+    auto targetMeshShape = meshDevice.shape();
+    if (shardType == ::tt::target::ttnn::MeshShardType::Replicate) {
+      targetMeshShape = ::ttnn::MeshShape({1, 1});
+    } else {
+      tt::stl::SmallVector<uint32_t> shape;
+      for (size_t idx = 0; idx < shardDims.size(); ++idx) {
+        auto dim = shardDims[idx];
+        meshComposerConfig.dims.push_back(static_cast<int>(dim));
+        if (dim >= 0) {
+          shape.push_back(targetMeshShape[idx]);
+        }
+      }
+      targetMeshShape = ::ttnn::MeshShape(shape);
     }
     std::unique_ptr<MeshToTensor> meshComposer =
         ::ttnn::distributed::create_mesh_composer(
-            meshDevice, meshComposerConfig,
-            shardType == ::tt::target::ttnn::MeshShardType::Replicate
-                ? ::ttnn::MeshShape()
-                : meshDevice.shape());
+            meshDevice, meshComposerConfig, targetMeshShape);
     out = ::ttnn::distributed::aggregate_tensor(input, *meshComposer);
   }
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
