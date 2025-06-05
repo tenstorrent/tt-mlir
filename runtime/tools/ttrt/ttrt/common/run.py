@@ -5,6 +5,8 @@
 import os
 import sys
 import time
+from functools import reduce
+import operator
 
 from ttrt.common.util import *
 from ttrt.common.query import Query
@@ -556,20 +558,30 @@ class Run:
                 if self["--program-index"] == "all":
                     self["--program-index"] = 0
 
-            device_mesh_shape = [1, len(self.query.device_ids)]
+            num_devices = len(self.query.device_ids)
             mesh_options = ttrt.runtime.MeshDeviceOptions()
             mesh_options.dispatch_core_type = dispatch_core_type
             mesh_options.enable_program_cache = self["--enable-program-cache"]
             mesh_options.trace_region_size = self["--trace-region-size"]
 
+            device_open = False
+
             for bin in binaries:
 
-                fb_mesh_shape = bin.get_program(0).mesh_shape()
-
-                # TODO: verify that `fb_mesh_shape` is a valid submesh of `device_mesh_shape`
-                device = ttrt.runtime.open_mesh_device(fb_mesh_shape, mesh_options)
-
                 try:
+
+                    fb_mesh_shape = bin.get_program(0).mesh_shape()
+                    num_mesh_devices = reduce(operator.mul, fb_mesh_shape, 1)
+
+                    # Verify that the expected number of devices in the fb mesh shape is valid on this system
+                    if num_mesh_devices > num_devices:
+                        raise Exception(
+                            f"Not enough devices ({num_devices}) to run program with mesh shape {fb_mesh_shape}"
+                        )
+
+                    device = ttrt.runtime.open_mesh_device(fb_mesh_shape, mesh_options)
+                    device_open = True
+
                     self.logging.info(f"evaluating binary={bin.file_path}")
 
                     pre_op_callback_runtime_config = CallbackRuntimeConfig(
@@ -1083,8 +1095,12 @@ class Run:
                     if self["--emitc"]:
                         ttrt.runtime.test.close_so(emitc_dylib_handle)
 
-                ttrt.runtime.unregister_hooks()
-                ttrt.runtime.close_mesh_device(device)
+                    ttrt.runtime.unregister_hooks()
+
+                    # Only close the device it if was opened
+                    if device_open:
+                        ttrt.runtime.close_mesh_device(device)
+                        device_open = False
 
         self.logging.debug(f"executing ttnn binaries")
         _execute(self.ttnn_binaries)
