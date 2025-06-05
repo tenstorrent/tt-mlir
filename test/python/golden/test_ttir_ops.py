@@ -934,9 +934,7 @@ def test_reverse(shape: Shape, dims: List[int], request):
     )
 
 
-@pytest.mark.skip(
-    "Generated flatbuffer will currently fail to run due to only floats being supported by the runtime. See issue #1775"
-)
+@pytest.mark.run_error
 @pytest.mark.parametrize("shape", [(4, 4)])
 @pytest.mark.parametrize("dim_args", [[0, 1]])
 def test_reduce_and(shape: Shape, dim_args: List[int], request):
@@ -946,16 +944,13 @@ def test_reduce_and(shape: Shape, dim_args: List[int], request):
     compile_to_flatbuffer(
         reduce_and,
         [shape],
-        [torch.bool],
+        [torch.int32],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
-@pytest.mark.skip(
-    "Generated flatbuffer will currently fail to run due to only floats being supported by the runtime. See issue #1775"
-)
 @pytest.mark.parametrize("shape", [(4, 4)])
 @pytest.mark.parametrize("dim_args", [[0, 1]])
 def test_reduce_or(shape: Shape, dim_args: List[int], request):
@@ -965,7 +960,7 @@ def test_reduce_or(shape: Shape, dim_args: List[int], request):
     compile_to_flatbuffer(
         reduce_or,
         [shape],
-        [torch.bool],
+        [torch.int32],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
