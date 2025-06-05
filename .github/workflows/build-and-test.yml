@@ -78,21 +78,21 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: ubuntu-latest, enable_op_model: ON, enable_emitc: ON, name: "speedy"},
-          {runs-on: ubuntu-latest, enable_perf: ON, enable_emitc: ON, enable_runtime_debug: ON, enable_explorer: ON, enable_pykernel: ON, name: "tracy"},
+          {sh-run: true, enable_op_model: ON, enable_emitc: ON, name: "speedy"},
+          {sh-run: true, enable_perf: ON, enable_emitc: ON, enable_runtime_debug: ON, enable_explorer: ON, enable_pykernel: ON, name: "tracy"},
         ]
 
-    name: Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})
-    runs-on: ${{ matrix.build.runs-on }}
+    name: Build tt-mlir (${{ matrix.build.name }})
+    runs-on: ${{ matrix.build.sh-run && 'tt-beta-ubuntu-2204-xlarge' || 'ubuntu-latest' }}
 
     container:
-      image: ${{ needs.build-image.outputs.docker-image }}
+      image: ${{ matrix.build.sh-run && needs.build-image.outputs.docker-image-harbor || needs.build-image.outputs.docker-image }}
+
+    env:
+      # TODO: Revisit the addition of these env vars https://github.com/tenstorrent/tt-metal/issues/20161
+      TRACY_NO_INVARIANT_CHECK: 1
 
     steps:
-
-    - name: Maximize space
-      if: matrix.build.runs-on == 'ubuntu-latest'
-      uses: tenstorrent/tt-github-actions/.github/actions/maximize_space@main
 
     - uses: actions/checkout@v4
       with:
@@ -102,7 +102,7 @@ jobs:
       id: fetch-job-id
       uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
       with:
-        job_name: "Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})"
+        job_name: "Build tt-mlir (${{ matrix.build.name }})"
 
     - name: Set reusable strings
       id: strings
@@ -406,7 +406,7 @@ jobs:
     strategy:
       fail-fast: false
     name: Lint (clang-tidy)
-    runs-on: ubuntu-latest
+    runs-on: tt-beta-ubuntu-2204-xlarge
     container:
       image: ${{ needs.build-image.outputs.docker-image }}
 
@@ -486,15 +486,11 @@ jobs:
     strategy:
       fail-fast: false
     name: Debug Build
-    runs-on: ubuntu-latest
+    runs-on: tt-beta-ubuntu-2204-xlarge
     container:
       image: ${{ needs.build-image.outputs.docker-image }}
 
     steps:
-
-    - name: Maximize space
-      if: ${{ matrix.build.runs-on }} == 'ubuntu-latest'
-      uses: tenstorrent/tt-github-actions/.github/actions/maximize_space@main
 
     - uses: actions/checkout@v4
       with:
@@ -582,14 +578,6 @@ jobs:
       uses: codecov/codecov-action@v5
       with:
         files: coverage.info
-        disable_search: true
-        token: ${{ secrets.CODECOV_TOKEN }}
-
-    - name: Upload test results to Codecov
-      if: success() || failure()
-      uses: codecov/test-results-action@v1
-      with:
-        files: ${{ steps.strings.outputs.test_report_path }}
         disable_search: true
         token: ${{ secrets.CODECOV_TOKEN }}
 

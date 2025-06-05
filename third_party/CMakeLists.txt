@@ -83,9 +83,16 @@ if ("${CMAKE_CXX_COMPILER_LAUNCHER}" STREQUAL "ccache")
 endif()
 
 if (TTMLIR_ENABLE_RUNTIME)
-set(TTMETAL_BUILD_TYPE "Release")
-if (CMAKE_BUILD_TYPE STREQUAL "Debug")
-  set(TTMETAL_BUILD_TYPE "Debug")
+# Rules for `TTMETAL_BUILD_TYPE`:
+#   1. If `TTMETAL_BUILD_TYPE` is provided, use it;
+#   2. If `CMAKE_BUILD_TYPE` is `Debug`, set `TTMETAL_BUILD_TYPE` to `Debug`;
+#   3. Otherwise, set `TTMETAL_BUILD_TYPE` to `RelWithDebInfo`.
+if (NOT DEFINED TTMETAL_BUILD_TYPE)
+  if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(TTMETAL_BUILD_TYPE "Debug")
+  else()
+    set(TTMETAL_BUILD_TYPE "RelWithDebInfo")
+  endif()
 endif()
 
 set(METAL_BUILD_DIR ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
