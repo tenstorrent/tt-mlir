@@ -70,11 +70,13 @@ MlirAttribute ttmlirTTKernelArgSpecAttrGet(MlirContext ctx,
                                            size_t ct_args_size) {
   std::vector<ArgAttr> _rt_args, _ct_args;
 
-  for (size_t i = 0; i < rt_args_size; i++)
+  for (size_t i = 0; i < rt_args_size; i++) {
     _rt_args.emplace_back(mlir::cast<ArgAttr>(unwrap(rt_args[i])));
+  }
 
-  for (size_t i = 0; i < ct_args_size; i++)
+  for (size_t i = 0; i < ct_args_size; i++) {
     _ct_args.emplace_back(mlir::cast<ArgAttr>(unwrap(ct_args[i])));
+  }
 
   return wrap(ArgSpecAttr::get(unwrap(ctx), _rt_args, _ct_args));
 }
