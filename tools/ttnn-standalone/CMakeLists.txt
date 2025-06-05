@@ -132,7 +132,7 @@ set(LINK_LIBS
 
     # TTNN
     # _ttnn  # Why doesn't this work?
-    ${METAL_LIB_DIR}/_ttnn.so
+    ${METAL_LIB_DIR}/_ttnncpp.so
 )
 
 # Compile definitions
