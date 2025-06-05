@@ -1197,7 +1197,6 @@ TEST_P(OpModelConvTranspose2dParam, ConvTranspose2d) {
 
   // Device hangs otherwise.
   SingletonDeviceContext::resetInstance();
-  std::cerr << "@@@@ device reset done, calling getOpConstraints\n";
 
   auto constraintsExp = ConvTranspose2dOpInterface::getOpConstraints(
       CreateWorkerGrid(), inputShape, inputLayout, weightShape, weightLayout,
