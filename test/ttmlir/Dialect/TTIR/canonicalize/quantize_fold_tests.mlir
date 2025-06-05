@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt -canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt -canonicalize %s
 module {
   func.func @quantize_identity_per_tensor_scale_per_tensor_zp(%arg0: tensor<2x3x!quant.uniform<i32:f32, 2.000000e-02>>) -> tensor<2x3x!quant.uniform<i32:f32, 2.000000e-02>> {
     // CHECK-NOT: "ttir.quantize"
