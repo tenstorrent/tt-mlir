@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
 
 #include "llvm/Support/CommandLine.h"
+
 #include "gtest/gtest.h"
 
 using namespace mlir::tt::ttnn;

@@ -12,7 +12,6 @@
 
 #include "mlir/IR/AffineExpr.h"
 #include "llvm/ADT/SmallVector.h"
-#include "gtest/gtest.h"
 
 #include <cstdint>
 
