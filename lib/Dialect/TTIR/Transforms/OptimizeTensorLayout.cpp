@@ -40,37 +40,60 @@ static RankedTensorType calculateOptimalLayoutForTensorType(
       mlir::cast_if_present<MetalLayoutAttr>(resultType.getEncoding());
   assert(resultEncoding && "Tensor type must have a MetalLayoutAttr encoding");
 
-  // New: In the new design, we work with logical shapes directly
   auto logicalShape = resultEncoding.getLogicalShape();
 
-  // The assertion about grid rank matching memref rank is no longer needed
-  // since that relationship is implicit in the new design
+  SmallVector<int64_t> canonicalShape;
 
-  // Calculate the canonical (undistributed) shape
-  // This is just the logical shape in the new design
-  SmallVector<int64_t> canonicalShape(logicalShape.begin(), logicalShape.end());
+  ArrayRef<int64_t> tileShape{};
+  if (mlir::isa<TileType>(resultType.getElementType())) {
+    // For tiled tensors, canonical shape is the total tile counts
+    tileShape = tt::getMetalTensorTileShape(resultType);
 
-  // Get the optimal grid for this logical shape
+    // Skip grid dims, multiply tile counts by grid to get total tiles
+    for (size_t i = 0; i < logicalShape.size(); ++i) {
+      int64_t totalTiles = logicalShape[i] / tileShape[i];
+      canonicalShape.push_back(totalTiles);
+    }
+  } else {
+    // For non-tiled, canonical is just logical shape
+    canonicalShape =
+        SmallVector<int64_t>(logicalShape.begin(), logicalShape.end());
+  }
+
+  // Get optimal grid for the canonical shape
   auto optimalOutputGrid =
       getOptimalGrid(rewriter, canonicalShape, workerGridShape);
 
-  // Create new layout with the optimal grid
+  // Create new layout
   auto newResultEncoding = MetalLayoutAttr::get(
-      tensor.getContext(), logicalShape,
-      optimalOutputGrid.getShape(), // Extract shape from GridAttr
-      resultType.getElementType(),
-      resultEncoding.getTileShape(), // Just pass it directly
-      resultEncoding.getOobVal(), resultEncoding.getMemorySpace());
+      tensor.getContext(), logicalShape, resultEncoding.getOobVal(),
+      resultEncoding.getMemorySpace(), optimalOutputGrid.getShape(), tileShape,
+      resultType.getElementType());
 
-  // Calculate the new physical shape based on the new grid
-  auto newPhysicalShape = MetalLayoutAttr::derivePhysicalShape(
-      logicalShape,
-      optimalOutputGrid.getShape(),   // Extract shape from GridAttr
-      resultEncoding.getTileShape()); // Just pass it directly
+  // For tiled tensors, manually calculate the new shape
+  if (mlir::isa<TileType>(resultType.getElementType())) {
+    SmallVector<int64_t> newShape;
+    newShape.append(optimalOutputGrid.getShape().begin(),
+                    optimalOutputGrid.getShape().end());
 
-  // Return tensor with new physical shape and layout
-  return RankedTensorType::get(newPhysicalShape, resultType.getElementType(),
-                               newResultEncoding);
+    // Distribute tiles across new grid
+    for (size_t i = 0; i < canonicalShape.size(); ++i) {
+      int64_t tilesPerCore = canonicalShape[i];
+      if (i < optimalOutputGrid.getShape().size()) {
+        tilesPerCore = tilesPerCore / optimalOutputGrid.getShape()[i];
+      }
+      newShape.push_back(tilesPerCore);
+    }
+
+    return RankedTensorType::get(newShape, resultType.getElementType(),
+                                 newResultEncoding);
+  } else {
+    // Non-tiled: use derivePhysicalShape
+    auto newPhysicalShape = MetalLayoutAttr::derivePhysicalShape(
+        logicalShape, optimalOutputGrid.getShape(), {});
+    return RankedTensorType::get(newPhysicalShape, resultType.getElementType(),
+                                 newResultEncoding);
+  }
 }
 
 namespace {
@@ -95,8 +118,8 @@ struct TTIRGenericTensorLayoutRewriter
     Type originalType = op->getResult(0).getType();
     rewriter.modifyOpInPlace(op, [&]() {
       // Update generic grid (match worker cores to output grid)
-      auto layout = mlir::cast<MetalLayoutAttr>(newTensorType.getEncoding());
-      op.setGridAttr(rewriter.getAttr<GridAttr>(layout.getGridShape()));
+      op.setGridAttr(rewriter.getAttr<GridAttr>(
+          tt::getMetalTensorGridShape(newTensorType)));
     });
 
     auto dpsOp = mlir::cast<DestinationStyleOpInterface>(op.getOperation());

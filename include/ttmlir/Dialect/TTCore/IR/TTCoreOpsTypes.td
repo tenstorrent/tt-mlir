@@ -309,13 +309,6 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout"> {
     // The logical tensor shape before distribution
     ArrayRefParameter<"int64_t">:$logical_shape,
 
-    // The grid shape that this tensor is distributed across
-    ArrayRefParameter<"int64_t">:$grid_shape,
-
-    // Optional tile shape if data is tiled (e.g., [32, 32] for tt.tile<32x32>)
-    // Using ArrayRef with empty as "not present" since OptionalParameter doesn't work well with ArrayRef
-    OptionalArrayRefParameter<"int64_t">:$tile_shape,
-
     // Out of bounds value
     AttrParameter<"OOBVal", "Out of bounds fill value">:$oob_val,
 
@@ -329,41 +322,27 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout"> {
     DefaultValuedParameter<"uint32_t", "1">:$buffers
   );
 
-  let assemblyFormat = "`<` `logical_shape` `=` `[` $logical_shape `]` `,` `grid_shape` `=` `[` $grid_shape `]` (`,` `tile_shape` `=` `[` $tile_shape^ `]`)? `,` $oob_val (`,` $memory_space^)? (`,` `stride` `=` `[` $stride^ `]`)? (`,` `buffers` `=` $buffers^)? `>`";
+  let assemblyFormat = "`<` `logical_shape` `=` `[` $logical_shape `]` `,` $oob_val (`,` $memory_space^)? (`,` `stride` `=` `[` $stride^ `]`)? (`,` `buffers` `=` $buffers^)? `>`";
 
   let extraClassDeclaration = [{
     // Factory methods
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
-                              ArrayRef<int64_t> logicalShape,
-                              ArrayRef<int64_t> gridShape,
-                              Type elementType,
-                              ArrayRef<int64_t> tileShape = {},
-                              OOBVal oobVal = OOBVal::Undef,
-                              MemorySpace memorySpace = MemorySpace::System);
+                                     ArrayRef<int64_t> logicalShape,
+                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     ArrayRef<int64_t> gridShape,
+                                     ArrayRef<int64_t> tileShape,
+                                     mlir::Type elementType);
 
     // Derive the physical tensor shape from logical shape and grid
     static llvm::SmallVector<int64_t> derivePhysicalShape(
         ArrayRef<int64_t> logicalShape,
         ArrayRef<int64_t> gridShape,
-        ArrayRef<int64_t> tileShape = {});
+        ArrayRef<int64_t> tileShape);
 
-    // Query methods - now simpler since grid is stored
-    llvm::SmallVector<int64_t> getShardShape() const;
-    bool isTiled() const { return !getTileShape().empty(); }
-    bool isDistributed() const { return !getGridShape().empty(); }
+    llvm::SmallVector<int64_t> getShardShape(ArrayRef<int64_t> gridShape, ArrayRef<int64_t> tileShape) const;
 
     // Get the corresponding memref type (essentially just drops grid dimensions)
     MemRefType getMemRefType(RankedTensorType tensorType) const;
-
-    // Affine map from logical indices to physical buffer indices
-    AffineMap getLogicalToPhysicalMap() const;
-
-    // Affine map from physical tensor indices to buffer indices (drops grid dims)
-    AffineMap getPhysicalToBufferMap(unsigned physicalRank) const;
-
-    // Size calculations
-    uint64_t getShardSizeBytes(Type elementType) const;
-    uint64_t getTotalSizeBytes(Type elementType) const;
 
     // Stride calculations (returns stride or computes from shape if not specified)
     llvm::SmallVector<int64_t> getEffectiveStride(RankedTensorType tensorType) const;

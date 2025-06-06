@@ -52,7 +52,7 @@ protected:
   toLayoutRewriter(mlir::ConversionPatternRewriter &rewriter,
                    uint64_t deviceGridRank, bool tiled,
                    MemorySpace memorySpace) {
-    return [=, &rewriter](Value value) {
+    return [=, &rewriter](Value value) -> Value {
       mlir::RankedTensorType tensorType =
           mlir::cast<mlir::RankedTensorType>(value.getType());
 
@@ -60,35 +60,41 @@ protected:
       llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
 
       // Create grid shape based on deviceGridRank
-      // For now, assume we're distributing the first deviceGridRank dimensions
       llvm::SmallVector<int64_t> gridShape;
       for (uint64_t i = 0; i < deviceGridRank && i < logicalShape.size(); ++i) {
-        // This is a placeholder - you'd need actual grid dimensions
-        // In practice, this might come from analysis or user annotations
         gridShape.push_back(1); // Default to no distribution
       }
 
-      // Determine tile shape if tiling is requested
+      // Determine element type - use TileType if tiling is requested
+      Type elementType = tensorType.getElementType();
       llvm::SmallVector<int64_t> tileShape;
       if (tiled && logicalShape.size() >= 2) {
-        // Assuming standard 32x32 tiles for now
-        // This might need to be configurable
         tileShape = {32, 32};
+        // Create tile type as element type
+        elementType = TileType::get(elementType, tileShape);
       }
 
       // Create the new MetalLayoutAttr
-      tt::MetalLayoutAttr layout =
-          tt::MetalLayoutAttr::get(rewriter.getContext(), logicalShape,
-                                   gridShape, tensorType.getElementType(),
-                                   tileShape, tt::OOBVal::Undef, memorySpace);
+      tt::MetalLayoutAttr layout = tt::MetalLayoutAttr::get(
+          rewriter.getContext(), logicalShape, tt::OOBVal::Undef, memorySpace,
+          gridShape, tileShape, tensorType.getElementType());
 
-      // Derive physical shape for the new tensor
+      // Derive physical shape - when tiled, don't include tile dims in shape
       auto physicalShape = tt::MetalLayoutAttr::derivePhysicalShape(
-          logicalShape, gridShape, tileShape);
+          logicalShape, gridShape, {}); // Empty tileShape for shape calculation
 
-      // Create tensor with physical shape
-      mlir::RankedTensorType layoutResultType = mlir::RankedTensorType::get(
-          physicalShape, tensorType.getElementType(), layout);
+      // If tiled, adjust the physical shape to be tile counts
+      if (tiled && !tileShape.empty()) {
+        // Convert last dimensions to tile counts
+        size_t firstTiledDim = physicalShape.size() - tileShape.size();
+        for (size_t i = 0; i < tileShape.size(); ++i) {
+          physicalShape[firstTiledDim + i] /= tileShape[i];
+        }
+      }
+
+      // Create tensor with TileType element type if tiled
+      mlir::RankedTensorType layoutResultType =
+          mlir::RankedTensorType::get(physicalShape, elementType, layout);
 
       auto output =
           rewriter.create<tt::ttir::EmptyOp>(value.getLoc(), layoutResultType);
@@ -168,29 +174,31 @@ protected:
 
       MLIRContext *ctx = tensorType.getContext();
 
-      // Get shard shape and element type
-      auto shardShape = layout.getShardShape();
+      // Get the full physical shape from the tensor
+      auto physicalShape = tensorType.getShape();
       Type elementType = tensorType.getElementType();
 
-      // If the layout is tiled, we need to adjust the shape and element type
-      if (layout.isTiled()) {
-        auto tileShape = layout.getTileShape();
+      // If the layout is tiled, convert last dimensions to tile type
+      if (auto tileType = mlir::dyn_cast<TileType>(tensorType.getElementType());
+          tileType) {
+        auto tileShape = tileType.getShape();
 
         // Create TileType for the element
         if (!mlir::isa<TileType>(elementType)) {
           elementType = TileType::get(elementType, tileShape);
         }
 
-        // Adjust shard shape - remove the tile dimensions since they're now in
-        // the element type E.g., [2, 4, 32, 32] with tile [32, 32] -> [2, 4]
+        // Remove tile dimensions from shape since they're now in the element
+        // type E.g., [1, 1, 4, 3, 32, 32] with tile [32, 32] -> [1, 1, 4, 3]
         size_t tiledDims = tileShape.size();
-        shardShape.resize(shardShape.size() - tiledDims);
+        SmallVector<int64_t> memrefShape(physicalShape.begin(),
+                                         physicalShape.end() - tiledDims);
+        physicalShape = memrefShape;
       }
 
-      // Create memref with appropriate type
+      // Create memref with full shape including grid dimensions
       mlir::MemRefType memrefType = mlir::MemRefType::get(
-          shardShape, elementType,
-          MemRefLayoutAttrInterface{}, // No layout attribute
+          physicalShape, elementType, MemRefLayoutAttrInterface{},
           MemorySpaceAttr::get(ctx, layout.getMemorySpace()));
 
       block->addArgument(memrefType, loc);

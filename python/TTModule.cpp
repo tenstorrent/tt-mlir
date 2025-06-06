@@ -28,28 +28,10 @@ void populateTTModule(nb::module_ &m) {
                     }
                     return wrap(tt::MetalLayoutAttr::get(
                         unwrap(ctx), ArrayRef<int64_t>(logicalShape),
-                        ArrayRef<int64_t>(gridShape), unwrap(elementType),
-                        tileShapeRef, static_cast<tt::OOBVal>(oobValValue),
-                        static_cast<tt::MemorySpace>(memorySpaceValue)));
-                  })
-      // Convenience overload for creating from tensor type
-      .def_static("from_tensor_type",
-                  [](MlirContext ctx, MlirType rankedTensorType,
-                     std::vector<int64_t> gridShape,
-                     std::optional<std::vector<int64_t>> tileShape,
-                     uint32_t oobValValue, uint32_t memorySpaceValue) {
-                    auto tensorType =
-                        mlir::cast<RankedTensorType>(unwrap(rankedTensorType));
-                    auto logicalShape = tensorType.getShape();
-                    ArrayRef<int64_t> tileShapeRef;
-                    if (tileShape.has_value()) {
-                      tileShapeRef = ArrayRef<int64_t>(tileShape.value());
-                    }
-                    return wrap(tt::MetalLayoutAttr::get(
-                        unwrap(ctx), logicalShape, ArrayRef<int64_t>(gridShape),
-                        tensorType.getElementType(), tileShapeRef,
                         static_cast<tt::OOBVal>(oobValValue),
-                        static_cast<tt::MemorySpace>(memorySpaceValue)));
+                        static_cast<tt::MemorySpace>(memorySpaceValue),
+                        ArrayRef<int64_t>(gridShape), tileShapeRef,
+                        unwrap(elementType)));
                   })
       .def_static(
           "derive_physical_shape",
@@ -89,24 +71,6 @@ void populateTTModule(nb::module_ &m) {
                      auto shape = self.getLogicalShape();
                      return std::vector<int64_t>(shape.begin(), shape.end());
                    })
-      .def_prop_ro("grid_shape",
-                   [](const tt::MetalLayoutAttr &self) {
-                     auto shape = self.getGridShape();
-                     return std::vector<int64_t>(shape.begin(), shape.end());
-                   })
-      .def_prop_ro("tile_shape",
-                   [](const tt::MetalLayoutAttr &self)
-                       -> std::optional<std::vector<int64_t>> {
-                     if (auto shape = self.getTileShape(); !shape.empty()) {
-                       return std::vector<int64_t>(shape.begin(), shape.end());
-                     }
-                     return std::nullopt;
-                   })
-      .def_prop_ro("shard_shape",
-                   [](const tt::MetalLayoutAttr &self) {
-                     auto shape = self.getShardShape();
-                     return std::vector<int64_t>(shape.begin(), shape.end());
-                   })
       .def_prop_ro("stride",
                    [](const tt::MetalLayoutAttr &self)
                        -> std::optional<std::vector<int64_t>> {
@@ -127,23 +91,12 @@ void populateTTModule(nb::module_ &m) {
                      return static_cast<uint32_t>(la.getMemorySpace());
                    })
       .def_prop_ro("buffers", &tt::MetalLayoutAttr::getBuffers)
-      .def_prop_ro("is_tiled", &tt::MetalLayoutAttr::isTiled)
-      .def_prop_ro("is_distributed", &tt::MetalLayoutAttr::isDistributed)
       // Helper to get buffer type from a tensor type
-      .def("get_buffer_type",
-           [](const tt::MetalLayoutAttr &self, MlirType tensorType,
-              bool isView) {
-             auto rankedTensorType =
-                 mlir::cast<RankedTensorType>(unwrap(tensorType));
-             return wrap(tt::ttir::getBufferType(rankedTensorType, isView));
-           })
-      // Create a tensor type with this layout
-      .def("create_tensor_type", [](const tt::MetalLayoutAttr &self,
-                                    MlirContext ctx, MlirType elementType) {
-        auto physicalShape = tt::MetalLayoutAttr::derivePhysicalShape(
-            self.getLogicalShape(), self.getGridShape(), self.getTileShape());
-        return wrap(
-            RankedTensorType::get(physicalShape, unwrap(elementType), self));
+      .def("get_buffer_type", [](const tt::MetalLayoutAttr &self,
+                                 MlirType tensorType, bool isView) {
+        auto rankedTensorType =
+            mlir::cast<RankedTensorType>(unwrap(tensorType));
+        return wrap(tt::ttir::getBufferType(rankedTensorType, isView));
       });
 
   tt_attribute_class<tt::GridAttr>(m, "GridAttr")

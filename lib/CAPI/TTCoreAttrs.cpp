@@ -141,10 +141,11 @@ ttmlirTTMetalLayoutAttrGet(MlirContext ctx, intptr_t logicalRank,
     tileShapeRef = llvm::ArrayRef<int64_t>(tileShape, tileRank);
   }
 
-  return wrap(MetalLayoutAttr::get(unwrap(ctx), logicalShapeRef, gridShapeRef,
-                                   unwrap(elementType), tileShapeRef,
-                                   static_cast<OOBVal>(oobVal),
-                                   static_cast<MemorySpace>(memorySpace)));
+  return wrap(MetalLayoutAttr::get(
+      unwrap(ctx), logicalShapeRef, static_cast<OOBVal>(oobVal),
+      static_cast<MemorySpace>(memorySpace),
+      llvm::ArrayRef<int64_t>(gridShape, gridRank),
+      llvm::ArrayRef<int64_t>(tileShape, tileRank), unwrap(elementType)));
 }
 
 MlirAttribute ttmlirTTMemorySpaceAttrGet(MlirContext ctx,

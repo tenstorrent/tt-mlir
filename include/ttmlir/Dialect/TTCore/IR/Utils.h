@@ -63,6 +63,11 @@ getConstsAndParams(mlir::func::FuncOp funcOp) {
 
   return constsAndParams;
 }
+bool isTiled(RankedTensorType tensorType);
+
+ArrayRef<int64_t> getMetalTensorGridShape(RankedTensorType tensorType);
+
+ArrayRef<int64_t> getMetalTensorTileShape(RankedTensorType tensorType);
 
 } // namespace mlir::tt
 

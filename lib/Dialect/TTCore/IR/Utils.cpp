@@ -118,4 +118,23 @@ mlir::memref::GlobalOp createGlobal(ModuleOp moduleOp, mlir::MemRefType type,
                       privateVisibility, alignment);
 }
 
+bool isTiled(RankedTensorType tensorType) {
+  return mlir::isa<TileType>(tensorType.getElementType());
+}
+
+ArrayRef<int64_t> getMetalTensorGridShape(RankedTensorType tensorType) {
+  const ArrayRef<int64_t> shape = tensorType.getShape();
+  assert(shape.size() >= 3 && "Can only get grid shape from a valid metal "
+                              "tensor where leading 2 dims are grid shape!");
+  return shape.take_front(2);
+}
+
+ArrayRef<int64_t> getMetalTensorTileShape(RankedTensorType tensorType) {
+  if (!isTiled(tensorType)) {
+    return {};
+  }
+  auto tileType = mlir::cast<TileType>(tensorType.getElementType());
+  return tileType.getShape();
+}
+
 } // namespace mlir::tt

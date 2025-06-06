@@ -132,8 +132,7 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
         if (!grid) {
           RankedTensorType tensorType = mlir::dyn_cast<RankedTensorType>(outputs[0].getType());
           if (tensorType) {
-            auto layout = mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding());
-            grid = $_builder.getAttr<tt::GridAttr>(layout.getGridShape());
+            grid = $_builder.getAttr<tt::GridAttr>(tt::getMetalTensorGridShape(tensorType));
           } else {
             MemRefType memrefType = mlir::cast<MemRefType>(outputs[0].getType());
             DeviceLayoutInterface layout = mlir::cast<DeviceLayoutInterface>(memrefType.getLayout());
@@ -266,8 +265,8 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
       // Returns booleans indicating if the op changes layout, grid, format, memory space or memory layout.
       CompoundComponents compoundComponents();
       bool isCompound() { return compoundComponents().isCompound(); }
-      MetalLayoutAttr getInputLayout();
-      MetalLayoutAttr getOutputLayout();
+      MetalLayoutAttr getOrCreateInputLayout();
+      MetalLayoutAttr getOrCreateOutputLayout();
     }];
 
     let hasVerifier = 1;
