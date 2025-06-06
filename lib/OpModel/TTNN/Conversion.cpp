@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
+#include <tt-metalium/base_types.hpp>
 #ifdef TTMLIR_ENABLE_OPMODEL
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 
@@ -358,6 +359,55 @@ std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> getConv2dConfig(
         conv2dConfig->getEnableSubblockPadding().getValue();
   }
 
+  return config;
+}
+
+// sgholamiTT: I was on the fence for publicly exposing this API. Right now
+// there's no clear usecase for it other than conversion from
+// mlir::tt::ttnn::MathFidelity to ::ttnn::MathFidelity. Therefore, I decided to
+// not expose it for now. Subject to change in the future.
+MathFidelity getMathFidelity(mlir::tt::ttnn::MathFidelity mathFidelity) {
+  switch (mathFidelity) {
+  case mlir::tt::ttnn::MathFidelity::LoFi:
+    return MathFidelity::LoFi;
+  case mlir::tt::ttnn::MathFidelity::HiFi2:
+    return MathFidelity::HiFi2;
+  case mlir::tt::ttnn::MathFidelity::HiFi3:
+    return MathFidelity::HiFi3;
+  case mlir::tt::ttnn::MathFidelity::HiFi4:
+    return MathFidelity::HiFi4;
+  }
+}
+
+std::optional<::ttnn::DeviceComputeKernelConfig> getDeviceComputeKernelConfig(
+    const std::optional<mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
+        &deviceComputeKernelConfig) {
+  if (!deviceComputeKernelConfig.has_value()) {
+    return std::nullopt;
+  }
+  const mlir::tt::ttnn::DeviceComputeKernelConfigAttr &devConfig =
+      deviceComputeKernelConfig.value();
+
+  // Note: Currently, we only support creating WormholeComputeKernelConfig.
+  // If we need to support GrayskullComputeKernelConfig in the future, we
+  // need to pass in the device information to the function or include it in
+  // DeviceComputeKernelConfigAttr.
+  ::ttnn::WormholeComputeKernelConfig config;
+  if (devConfig.getFp32DestAccEn()) {
+    config.fp32_dest_acc_en = devConfig.getFp32DestAccEn().getValue();
+  }
+  if (devConfig.getPackerL1Acc()) {
+    config.packer_l1_acc = devConfig.getPackerL1Acc().getValue();
+  }
+  if (deviceComputeKernelConfig->getMathApproxMode()) {
+    config.math_approx_mode = devConfig.getMathApproxMode().getValue();
+  }
+  if (devConfig.getDstFullSyncEn()) {
+    config.dst_full_sync_en = devConfig.getDstFullSyncEn().getValue();
+  }
+  if (devConfig.getMathFidelity().has_value()) {
+    config.math_fidelity = getMathFidelity(devConfig.getMathFidelity().value());
+  }
   return config;
 }
 

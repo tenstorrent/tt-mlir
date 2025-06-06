@@ -410,11 +410,17 @@ public:
 
           // Set specific Conv2d Op configuration if it is exists.
           //
+
+          // Probably should set other attr of conv2dOp here.
           if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(op)) {
-            if (auto conv2dConfig =
-                    mlir::dyn_cast_if_present<ttnn::Conv2dConfigAttr>(
-                        opConfigAnalysis.getResult().at(op).opSpecificAttr)) {
-              conv2dOp.setConv2dConfigAttr(conv2dConfig);
+            auto opAttributes =
+                opConfigAnalysis.getResult().at(op).opSpecificAttrs;
+            if (!opAttributes.empty()) {
+              if (auto conv2dConfig =
+                      mlir::dyn_cast_if_present<ttnn::Conv2dConfigAttr>(
+                          opAttributes.front())) {
+                conv2dOp.setConv2dConfigAttr(conv2dConfig);
+              }
             }
           }
         }
