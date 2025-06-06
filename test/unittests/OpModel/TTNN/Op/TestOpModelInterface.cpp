@@ -1010,8 +1010,8 @@ TEST_F(OpModelBase, clampScalarOp) {
 }
 
 TEST_F(OpModelBase, permuteOp) {
-  llvm::SmallVector<int64_t> inputShape = {4, 64, 128, 256};
-  llvm::SmallVector<int64_t> outputShape = {4, 256, 64, 128};
+  llvm::SmallVector<int64_t> inputShape = {4, 640, 1280, 2560};
+  llvm::SmallVector<int64_t> outputShape = {4, 2560, 640, 1280};
 
   auto input = createEmptyTensor(inputShape);
   auto outputType = createRankedTensorType(outputShape);
@@ -1046,8 +1046,8 @@ TEST_F(OpModelBase, permuteOp) {
 
 TEST_F(OpModelBase, upsampleOp) {
   // Create UpsampleOp with flattened input tensor
-  llvm::SmallVector<int64_t> inputShape = {2, 128, 16, 8};
-  llvm::SmallVector<int64_t> outputShape = {2, 256, 32, 8};
+  llvm::SmallVector<int64_t> inputShape = {2, 128, 160, 8000};
+  llvm::SmallVector<int64_t> outputShape = {2, 256, 320, 8000};
   int scaleFactor = 2;
   std::string mode = "nearest";
 
