@@ -21,30 +21,8 @@ namespace mlir::tt::stablehlo {
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
 
-class ShardyTypeConverter : public TypeConverter {
-public:
-  ShardyTypeConverter(MLIRContext *ctx) {
-    addConversion([](Type type) {
-      assert(isa<RankedTensorType>(type) &&
-             "only ranked tensor type supported");
-      return type;
-    });
-
-    // Convert scalars to 1D tensors.
-    addConversion([&](RankedTensorType type) -> RankedTensorType {
-      if (!type.getShape().empty()) {
-        return type;
-      }
-
-      return RankedTensorType::get(/*shape=*/{1}, type.getElementType(),
-                                   type.getEncoding());
-    });
-  }
-};
-
 void populateShardyCCLToStableHLOCCLPatterns(MLIRContext *ctx,
-                                             RewritePatternSet &patterns,
-                                             TypeConverter &typeConverter);
+                                             RewritePatternSet &patterns);
 
 #endif // #ifdef TTMLIR_ENABLE_STABLEHLO
 

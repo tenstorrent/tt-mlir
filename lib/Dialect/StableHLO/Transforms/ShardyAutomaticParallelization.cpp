@@ -405,24 +405,11 @@ static inline mlir::LogicalResult
 convertShardyCCLToStableHLOCCL(MLIRContext *context,
                                mlir::ModuleOp &rootModule) {
   RewritePatternSet patterns(context);
-  ShardyTypeConverter typeConverter(context);
-  populateShardyCCLToStableHLOCCLPatterns(context, patterns, typeConverter);
-
-  mlir::ConversionTarget target(*context);
-  target.addLegalDialect<mlir::tt::ttir::TTIRDialect>();
-  target.addLegalDialect<mlir::sdy::SdyDialect>();
-  target.addLegalDialect<mlir::stablehlo::StablehloDialect>();
-  target.addLegalDialect<mlir::func::FuncDialect>();
-  target.addLegalOp<mlir::ModuleOp>();
-  target.addLegalOp<mlir::func::ReturnOp>();
-  target.addLegalOp<mlir::func::CallOp>();
-  target.addLegalOp<mlir::arith::ConstantOp>();
-  target.addIllegalOp<mlir::sdy::AllGatherOp>();
-  target.addIllegalOp<mlir::sdy::ReduceScatterOp>();
-  target.addIllegalOp<mlir::sdy::AllReduceOp>();
+  populateShardyCCLToStableHLOCCLPatterns(context, patterns);
+  FrozenRewritePatternSet patternSet(std::move(patterns));
 
   // Apply conversion.
-  if (failed(applyFullConversion(rootModule, target, std::move(patterns)))) {
+  if (failed(applyPatternsGreedily(rootModule, patternSet))) {
     rootModule.emitError("Could not convert shardy ccl operations into "
                          "stablehlo ccl operations.\n");
     return mlir::failure();
