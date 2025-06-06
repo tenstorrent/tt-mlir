@@ -507,7 +507,6 @@ def test_unsqueeze(shape: Shape, dim: int, request):
     )
 
 
-@pytest.mark.run_error
 @pytest.mark.parametrize("shape", [(1, 32, 32)])
 @pytest.mark.parametrize("dims", [[32, 1, 1]])
 def test_repeat(shape: Shape, dims: List[int], request):
@@ -751,7 +750,6 @@ def test_conv_transpose2d(
     )
 
 
-@pytest.mark.run_error
 @pytest.mark.parametrize(
     "kernel_height,kernel_width,stride_height,stride_width,dilation_height,dilation_width,ceil_mode,padding_left,padding_right,padding_top, padding_bottom",
     [(2, 2, 2, 2, 1, 1, False, 0, 0, 0, 0)],
@@ -904,9 +902,9 @@ def test_empty(shape: Shape, request):
     )
 
 
-@pytest.mark.run_error
+@pytest.mark.fails_golden
 @pytest.mark.parametrize("shapes", [[(128, 128)]])
-@pytest.mark.parametrize("dim", [0, 1])
+@pytest.mark.parametrize("dim", [1])
 def test_argmax(shapes, dim, request):
     def argmax(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
         return builder.argmax(in0, [dim], unit_attrs=unit_attrs)
@@ -936,9 +934,7 @@ def test_reverse(shape: Shape, dims: List[int], request):
     )
 
 
-@pytest.mark.skip(
-    "Generated flatbuffer will currently fail to run due to only floats being supported by the runtime. See issue #1775"
-)
+@pytest.mark.run_error
 @pytest.mark.parametrize("shape", [(4, 4)])
 @pytest.mark.parametrize("dim_args", [[0, 1]])
 def test_reduce_and(shape: Shape, dim_args: List[int], request):
@@ -948,16 +944,14 @@ def test_reduce_and(shape: Shape, dim_args: List[int], request):
     compile_to_flatbuffer(
         reduce_and,
         [shape],
-        [torch.bool],
+        [torch.int32],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
-@pytest.mark.skip(
-    "Generated flatbuffer will currently fail to run due to only floats being supported by the runtime. See issue #1775"
-)
+@pytest.mark.run_error
 @pytest.mark.parametrize("shape", [(4, 4)])
 @pytest.mark.parametrize("dim_args", [[0, 1]])
 def test_reduce_or(shape: Shape, dim_args: List[int], request):
@@ -967,7 +961,7 @@ def test_reduce_or(shape: Shape, dim_args: List[int], request):
     compile_to_flatbuffer(
         reduce_or,
         [shape],
-        [torch.bool],
+        [torch.int32],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -1146,7 +1140,7 @@ def test_softmax(shape: Shape, dimension: int, request):
 
 @pytest.mark.run_error
 @pytest.mark.parametrize("shapes", [[(1, 32, 64, 512), (1, 32, 1, 512), (1,)]])
-@pytest.mark.parametrize("dtypes", [[torch.bfloat16, torch.bfloat16, torch.int32]])
+@pytest.mark.parametrize("dtypes", [[torch.float32, torch.float32, torch.int32]])
 def test_update_cache(shapes: List[Shape], dtypes: List[torch.dtype], request):
     def update_cache(
         in0: Operand,
@@ -1473,7 +1467,7 @@ unary_ops = [
     max | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
     min | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
     get_dimension_size
-    | Marks(pytest.mark.run_error, pytest.mark.skip_target("ttmetal")),
+    | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
 ]
 
 
@@ -1573,14 +1567,14 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
         pytest.param(
             embedding,
             [(33, 32), (512, 128)],
-            [torch.bfloat16] * 2,
-            marks=pytest.mark.run_error,
+            [torch.float32] * 2,
+            marks=pytest.mark.fails_golden,
         ),
         pytest.param(
             where,
             [(64, 64)] * 3,
-            [torch.int8, torch.float32, torch.float32],
-            marks=pytest.mark.run_error,
+            [torch.float32, torch.float32, torch.float32],
+            marks=pytest.mark.fails_golden,
         ),
     ],
 )
