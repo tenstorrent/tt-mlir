@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -38,25 +39,61 @@ static RankedTensorType calculateOptimalLayoutForTensorType(
   auto resultEncoding =
       mlir::cast_if_present<MetalLayoutAttr>(resultType.getEncoding());
   assert(resultEncoding && "Tensor type must have a MetalLayoutAttr encoding");
-  assert(resultEncoding.getGrid().getShape().size() ==
-             resultEncoding.getMemref().getShape().size() &&
-         "Grid rank must match memref rank.");
+
+  auto logicalShape = resultEncoding.getLogicalShape();
 
   SmallVector<int64_t> canonicalShape;
-  canonicalShape.reserve(resultEncoding.getMemref().getShape().size());
 
-  for (size_t i = 0; i < resultEncoding.getMemref().getShape().size(); i++) {
-    canonicalShape.push_back(resultEncoding.getMemref().getShape()[i] *
-                             resultEncoding.getGrid().getShape()[i]);
+  ArrayRef<int64_t> tileShape{};
+  if (mlir::isa<TileType>(resultType.getElementType())) {
+    // For tiled tensors, canonical shape is the total tile counts
+    tileShape = tt::getMetalTensorTileShape(resultType);
+
+    // Skip grid dims, multiply tile counts by grid to get total tiles
+    for (size_t i = 0; i < logicalShape.size(); ++i) {
+      int64_t totalTiles = logicalShape[i] / tileShape[i];
+      canonicalShape.push_back(totalTiles);
+    }
+  } else {
+    // For non-tiled, canonical is just logical shape
+    canonicalShape =
+        SmallVector<int64_t>(logicalShape.begin(), logicalShape.end());
   }
 
+  // Get optimal grid for the canonical shape
   auto optimalOutputGrid =
       getOptimalGrid(rewriter, canonicalShape, workerGridShape);
-  auto newResultEncoding = resultEncoding.withGrid(
-      tensor.getContext(), resultType, optimalOutputGrid);
 
-  return RankedTensorType::get(resultType.getShape(),
-                               resultType.getElementType(), newResultEncoding);
+  // Create new layout
+  auto newResultEncoding = MetalLayoutAttr::get(
+      tensor.getContext(), logicalShape, resultEncoding.getOobVal(),
+      resultEncoding.getMemorySpace(), optimalOutputGrid.getShape(), tileShape,
+      resultType.getElementType());
+
+  // For tiled tensors, manually calculate the new shape
+  if (mlir::isa<TileType>(resultType.getElementType())) {
+    SmallVector<int64_t> newShape;
+    newShape.append(optimalOutputGrid.getShape().begin(),
+                    optimalOutputGrid.getShape().end());
+
+    // Distribute tiles across new grid
+    for (size_t i = 0; i < canonicalShape.size(); ++i) {
+      int64_t tilesPerCore = canonicalShape[i];
+      if (i < optimalOutputGrid.getShape().size()) {
+        tilesPerCore = tilesPerCore / optimalOutputGrid.getShape()[i];
+      }
+      newShape.push_back(tilesPerCore);
+    }
+
+    return RankedTensorType::get(newShape, resultType.getElementType(),
+                                 newResultEncoding);
+  } else {
+    // Non-tiled: use derivePhysicalShape
+    auto newPhysicalShape = MetalLayoutAttr::derivePhysicalShape(
+        logicalShape, optimalOutputGrid.getShape(), {});
+    return RankedTensorType::get(newPhysicalShape, resultType.getElementType(),
+                                 newResultEncoding);
+  }
 }
 
 namespace {
@@ -81,8 +118,8 @@ struct TTIRGenericTensorLayoutRewriter
     Type originalType = op->getResult(0).getType();
     rewriter.modifyOpInPlace(op, [&]() {
       // Update generic grid (match worker cores to output grid)
-      op.setGridAttr(
-          mlir::cast<MetalLayoutAttr>(newTensorType.getEncoding()).getGrid());
+      op.setGridAttr(rewriter.getAttr<GridAttr>(
+          tt::getMetalTensorGridShape(newTensorType)));
     });
 
     auto dpsOp = mlir::cast<DestinationStyleOpInterface>(op.getOperation());
@@ -138,16 +175,19 @@ struct TTIRMemrefLayoutRewriter : public OpRewritePattern<ttir::GenericOp> {
              "operands");
       for (size_t i = 0; i < genericBlock.getNumArguments(); i++) {
         auto arg = genericBlock.getArgument(i);
-        auto operand =
+        auto operandType =
             mlir::cast<RankedTensorType>(op->getOperand(i).getType());
-        auto operandEncoding =
-            mlir::cast<MetalLayoutAttr>(operand.getEncoding());
-        if (arg.getType() == operandEncoding.getMemref()) {
+
+        // New: Create memref type using the common utility function
+        auto expectedMemrefType =
+            ttir::getBufferType(operandType, /*isView=*/false);
+
+        if (arg.getType() == expectedMemrefType) {
           continue;
         }
         modified = true;
-        rewriter.modifyOpInPlace(
-            op, [&]() { arg.setType(operandEncoding.getMemref()); });
+        rewriter.modifyOpInPlace(op,
+                                 [&]() { arg.setType(expectedMemrefType); });
       }
     }
 

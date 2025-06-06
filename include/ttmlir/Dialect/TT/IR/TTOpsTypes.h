@@ -343,7 +343,6 @@ inline uint64_t getElementSizeBytes(mlir::Type elementType) {
   return tileType ? tileType.getSizeBytes()
                   : elementType.getIntOrFloatBitWidth() / 8;
 }
-
 } // namespace mlir::tt
 
 #endif
