@@ -52,10 +52,6 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   if (op->compute_config()) {
     computeConfig =
         utils::createDeviceComputeKernelConfig(op->compute_config());
-  } else {
-    computeConfig = ::ttnn::init_device_compute_kernel_config(
-        targetDevice.arch(), std::nullopt, MathFidelity::HiFi4, true, false,
-        true);
   }
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =

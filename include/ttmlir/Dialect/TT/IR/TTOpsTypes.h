@@ -213,6 +213,95 @@ inline DataType elementTypeToDataType(Type elementType) {
 
   llvm_unreachable("Unsupported element type.");
 }
+
+// The BFP formats are TT home-brew, if not for them we could have used MLIR's
+// built-in FloatTypes and getWidth()/getFPMantissaWidth().
+inline bool isSignedInteger(const DataType dtype) {
+  return dtype == DataType::Int32;
+}
+
+inline bool isFloat(const DataType dtype) {
+  switch (dtype) {
+  case DataType::Float32:
+  case DataType::Float16:
+  case DataType::BFloat16:
+  case DataType::BFP_Float8:
+  case DataType::BFP_BFloat8:
+  case DataType::BFP_Float4:
+  case DataType::BFP_BFloat4:
+  case DataType::BFP_Float2:
+  case DataType::BFP_BFloat2:
+    return true;
+  default:
+    return false;
+  }
+}
+
+inline uint8_t getExponentSize(const DataType dtype) {
+  assert(isFloat(dtype));
+  switch (dtype) {
+  case DataType::Float16:
+  case DataType::BFP_Float8:
+  case DataType::BFP_Float4:
+  case DataType::BFP_Float2:
+    return 5;
+  case DataType::Float32:
+  case DataType::BFloat16:
+  case DataType::BFP_BFloat8:
+  case DataType::BFP_BFloat4:
+  case DataType::BFP_BFloat2:
+    return 8;
+  default:
+    return 0;
+  }
+}
+
+inline uint8_t getMantissaSize(const DataType dtype) {
+  assert(isFloat(dtype));
+  switch (dtype) {
+  case DataType::Float32:
+    return 23;
+  case DataType::Float16:
+    return 10;
+  case DataType::BFloat16:
+    return 7;
+  case DataType::BFP_Float8:
+  case DataType::BFP_BFloat8:
+    return 7;
+  case DataType::BFP_Float4:
+  case DataType::BFP_BFloat4:
+    return 3;
+  case DataType::BFP_Float2:
+  case DataType::BFP_BFloat2:
+    return 1;
+  default:
+    return 0;
+  }
+}
+
+inline uint8_t getNumberOfBits(const DataType dtype) {
+  switch (dtype) {
+  case DataType::Float32:
+  case DataType::UInt32:
+  case DataType::Int32:
+    return 32;
+  case DataType::Float16:
+  case DataType::BFloat16:
+  case DataType::UInt16:
+    return 16;
+  case DataType::BFP_Float8:
+  case DataType::BFP_BFloat8:
+  case DataType::UInt8:
+    return 8;
+  case DataType::BFP_Float4:
+  case DataType::BFP_BFloat4:
+    return 4;
+  case DataType::BFP_Float2:
+  case DataType::BFP_BFloat2:
+    return 2;
+  }
+}
+
 } // namespace mlir::tt
 
 #include "ttmlir/Dialect/TT/IR/TTAttrInterfaces.h.inc"

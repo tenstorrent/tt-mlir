@@ -79,6 +79,48 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @typecast_tile_init
+    func.func @typecast_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "typecast_tile_init"() : () -> ()
+      "ttkernel.typecast_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @typecast_tile
+    func.func @typecast_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: emitc.call_opaque "typecast_tile"(%[[DST0_INDEX]]) {template_args =
+      // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Float32)">
+      // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Float16_b)">
+      "ttkernel.typecast_tile"(%dst0_index) <{in_dtype = #tt.supportedDataTypes<f32>, out_dtype = #tt.supportedDataTypes<bf16>}> : (i32) -> ()
+      // CHECK: emitc.call_opaque "typecast_tile"(%[[DST0_INDEX]]) {template_args =
+      // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Float16)">
+      // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Int32)">
+      "ttkernel.typecast_tile"(%dst0_index) <{in_dtype = #tt.supportedDataTypes<f16>, out_dtype = #tt.supportedDataTypes<si32>}> : (i32) -> ()
+      // CHECK: emitc.call_opaque "typecast_tile"(%[[DST0_INDEX]]) {template_args =
+      // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Bfp8_b)">
+      // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Bfp8)">
+      "ttkernel.typecast_tile"(%dst0_index) <{in_dtype = #tt.supportedDataTypes<bfp_bf8>, out_dtype = #tt.supportedDataTypes<bfp_f8>}> : (i32) -> ()
+      // CHECK: emitc.call_opaque "typecast_tile"(%[[DST0_INDEX]]) {template_args =
+      // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Bfp4_b)">
+      // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Bfp4)">
+      "ttkernel.typecast_tile"(%dst0_index) <{in_dtype = #tt.supportedDataTypes<bfp_bf4>, out_dtype = #tt.supportedDataTypes<bfp_f4>}> : (i32) -> ()
+      // CHECK: emitc.call_opaque "typecast_tile"(%[[DST0_INDEX]]) {template_args =
+      // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Bfp2_b)">
+      // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Bfp2)">
+      "ttkernel.typecast_tile"(%dst0_index) <{in_dtype = #tt.supportedDataTypes<bfp_bf2>, out_dtype = #tt.supportedDataTypes<bfp_f2>}> : (i32) -> ()
+      // CHECK: emitc.call_opaque "typecast_tile"(%[[DST0_INDEX]]) {template_args =
+      // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::UInt32)">
+      // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::UInt16)">
+      "ttkernel.typecast_tile"(%dst0_index) <{in_dtype = #tt.supportedDataTypes<u32>, out_dtype = #tt.supportedDataTypes<u16>}> : (i32) -> ()
+      // CHECK: emitc.call_opaque "typecast_tile"(%[[DST0_INDEX]]) {template_args =
+      // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::UInt16)">
+      // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::UInt8)">
+      "ttkernel.typecast_tile"(%dst0_index) <{in_dtype = #tt.supportedDataTypes<u16>, out_dtype = #tt.supportedDataTypes<u8>}> : (i32) -> ()
+      return
+    }
+
   } // module
 
   //===----------------------------------------------------------------------===//
@@ -268,6 +310,54 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @negative_tile_init
+    func.func @negative_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "negative_tile_init"()
+      "ttkernel.negative_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @negative_tile
+    func.func @negative_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "negative_tile"(%[[DST_INDEX]])
+      "ttkernel.negative_tile"(%dst_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @cos_tile_init
+    func.func @cos_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "cos_tile_init"()
+      "ttkernel.cos_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @cos_tile
+    func.func @cos_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "cos_tile"(%[[DST_INDEX]])
+      "ttkernel.cos_tile"(%dst_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @rsqrt_tile_init
+    func.func @rsqrt_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "rsqrt_tile_init"()
+      "ttkernel.rsqrt_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @rsqrt_tile
+    func.func @rsqrt_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "rsqrt_tile"(%[[DST_INDEX]])
+      "ttkernel.rsqrt_tile"(%dst_index) : (i32) -> ()
+      return
+    }
+
     // CHECK-LABEL: func @sin_tile_init
     func.func @sin_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: emitc.call_opaque "sin_tile_init"()
@@ -297,6 +387,22 @@ module {
       // CHECK: %[[VAL:.*]] = "emitc.constant"
       "ttkernel.fill_tile"(%dst_index, %val) : (i32, f32) -> ()
       // CHECK: emitc.call_opaque "fill_tile"(%[[DST_INDEX]], %[[VAL]])
+      return
+    }
+
+    // CHECK-LABEL: func @sigmoid_tile_init
+    func.func @sigmoid_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "sigmoid_tile_init"()
+      "ttkernel.sigmoid_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @sigmoid_tile
+    func.func @sigmoid_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "sigmoid_tile"(%[[DST_INDEX]])
+      "ttkernel.sigmoid_tile"(%dst_index) : (i32) -> ()
       return
     }
 

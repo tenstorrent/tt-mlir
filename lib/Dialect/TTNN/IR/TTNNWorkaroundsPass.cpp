@@ -384,7 +384,7 @@ TTNNOperandsWorkaroundsFactory::createReshapeOpOperandsWorkarounds(
   TTNNOperandWorkarounds typeWorkarounds;
   mlir::tt::DataType dataType = elementTypeToDataType(inputElementType);
   if (dataType == mlir::tt::DataType::Int32) {
-    typeWorkarounds.tensorDataTypeWorkaround = mlir::tt::DataType::UInt32;
+    typeWorkarounds.tensorDataTypeWorkaround = mlir::tt::DataType::Float32;
   }
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(typeWorkarounds)
@@ -486,6 +486,18 @@ TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(operandWorkaround)
+      .addInputOperandWorkaround(operandWorkaround)
+      .addOutputOperandWorkaround(operandWorkaround);
+}
+
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createTanhOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds operandWorkaround;
+  // Tanh op accurate mode requires bfloat16 data type.
+  // Issue: https://github.com/tenstorrent/tt-metal/issues/22593
+  operandWorkaround.tensorDataTypeWorkaround = DataType::BFloat16;
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(operandWorkaround)
       .addOutputOperandWorkaround(operandWorkaround);
 }

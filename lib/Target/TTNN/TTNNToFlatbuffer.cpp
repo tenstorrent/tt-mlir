@@ -1260,6 +1260,8 @@ createEltwiseUnaryOp(FlatbufferObjectCache &cache, EltwiseUnaryOp op) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Exp;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, ErfOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Erf;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, ErfcOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Erfc;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, LogOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Log;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, Expm1Op>) {
@@ -1843,6 +1845,14 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createEltwiseUnaryOp(cache, expOp),
                            debugString, locInfo);
   }
+  if (auto erfOp = dyn_cast<ErfOp>(op); erfOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, erfOp),
+                           debugString, locInfo);
+  }
+  if (auto erfcOp = dyn_cast<ErfcOp>(op); erfcOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, erfcOp),
+                           debugString, locInfo);
+  }
   if (auto logOp = dyn_cast<LogOp>(op); logOp) {
     return createOperation(cache, createEltwiseUnaryOp(cache, logOp),
                            debugString, locInfo);
@@ -2066,10 +2076,6 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto loadCachedOp = dyn_cast<tt::LoadCachedOp>(op); loadCachedOp) {
     return createOperation(cache,
                            createOp(cache, loadCachedOp, programIndexMap),
-                           debugString, locInfo);
-  }
-  if (auto erfOp = dyn_cast<ErfOp>(op); erfOp) {
-    return createOperation(cache, createEltwiseUnaryOp(cache, erfOp),
                            debugString, locInfo);
   }
 

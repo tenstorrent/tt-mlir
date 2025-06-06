@@ -49,8 +49,7 @@ convertReductionArg(std::optional<mlir::ArrayAttr> arrayOpt) {
 // ReluOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<op_model::ttnn::OpConstraints>
 ReluOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                          const OpConfig &opConfig) {
   assert(inputs.size() == 1);
@@ -87,8 +86,7 @@ ReluOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // SqrtOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<op_model::ttnn::OpConstraints>
 SqrtOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                          const OpConfig &opConfig) {
   assert(inputs.size() == 1);
@@ -125,8 +123,7 @@ SqrtOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // SigmoidOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<op_model::ttnn::OpConstraints>
 SigmoidOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                             const OpConfig &opConfig) {
   assert(inputs.size() == 1);
@@ -163,8 +160,7 @@ SigmoidOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // AddOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<op_model::ttnn::OpConstraints>
 AddOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                         const OpConfig &opConfig) {
   assert(inputs.size() == 2);
@@ -205,8 +201,7 @@ AddOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // SoftmaxOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<op_model::ttnn::OpConstraints>
 SoftmaxOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                             const OpConfig &opConfig) {
   assert(inputs.size() == 1);
@@ -244,8 +239,7 @@ SoftmaxOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // MeanOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<op_model::ttnn::OpConstraints>
 MeanOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                          const OpConfig &opConfig) {
   assert(inputs.size() == 1);
@@ -280,8 +274,7 @@ MeanOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // ReshapeOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<op_model::ttnn::OpConstraints>
 ReshapeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                             const OpConfig &opConfig) {
   assert(inputs.size() == 1);
@@ -316,8 +309,7 @@ ReshapeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // TypecastOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<op_model::ttnn::OpConstraints>
 TypecastOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                              const OpConfig &opConfig) {
   assert(inputs.size() == 1);
@@ -353,8 +345,7 @@ TypecastOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // ToLayoutOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<op_model::ttnn::OpConstraints>
 ToLayoutOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                              const OpConfig &opConfig) {
   assert(inputs.size() == 1);
@@ -395,8 +386,7 @@ ToLayoutOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // TransposeOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<op_model::ttnn::OpConstraints>
 TransposeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                               const OpConfig &opConfig) {
   assert(inputs.size() == 1);
@@ -429,8 +419,7 @@ TransposeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // MatmulOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<op_model::ttnn::OpConstraints>
 MatmulOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                            const OpConfig &opConfig) {
   assert(inputs.size() == 2);
@@ -470,8 +459,7 @@ MatmulOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // MultiplyOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<op_model::ttnn::OpConstraints>
 MultiplyOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                              const OpConfig &opConfig) {
   assert(inputs.size() == 2);
@@ -512,8 +500,7 @@ MultiplyOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // Conv2dOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<op_model::ttnn::OpConstraints>
 Conv2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                            const OpConfig &opConfig) {
   assert(inputs.size() == 2 || inputs.size() == 3);
@@ -595,8 +582,7 @@ Conv2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // MaxPool2dOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<op_model::ttnn::OpConstraints>
 MaxPool2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                               const OpConfig &opConfig) {
   assert(inputs.size() == 1);
@@ -637,8 +623,7 @@ MaxPool2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // ClampScalarOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<op_model::ttnn::OpConstraints>
 ClampScalarOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                 const OpConfig &opConfig) {
   assert(inputs.size() == 1);
@@ -676,8 +661,7 @@ ClampScalarOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // PermuteOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<op_model::ttnn::OpConstraints>
 PermuteOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                             const OpConfig &opConfig) {
   assert(inputs.size() == 1);
@@ -708,6 +692,84 @@ PermuteOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return op_model::ttnn::PermuteOpInterface::getOpRuntime(
       inputShape, inputs[0], getPermutation(), getPadValue(), outputShape,
+      opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
+// UpsampleOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+UpsampleOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                             const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  const auto outputShape = getResult().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();
+
+  return op_model::ttnn::UpsampleOpInterface::getOpConstraints(
+      deviceGrid, inputShape, inputs[0], getScaleFactor(), getMode(),
+      outputShape, opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+UpsampleOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  const auto outputShape = getResult().getType().getShape();
+
+  return op_model::ttnn::UpsampleOpInterface::getOpRuntime(
+      inputShape, inputs[0], getScaleFactor(), getMode(), outputShape,
+      opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
+// SubtractOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+SubtractOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                             const OpConfig &opConfig) {
+  assert(inputs.size() == 2);
+
+  const auto inputShapeA = getLhs().getType().getShape();
+  const auto inputShapeB = getRhs().getType().getShape();
+
+  const auto outputShape = getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();
+
+  return op_model::ttnn::SubtractOpInterface::getOpConstraints(
+      deviceGrid, inputShapeA, inputs[0], inputShapeB, inputs[1], outputShape,
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+SubtractOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  assert(inputs.size() == 2);
+
+  const auto inputShapeA = getLhs().getType().getShape();
+  const auto inputShapeB = getRhs().getType().getShape();
+
+  const auto outputShape = getType().getShape();
+
+  return op_model::ttnn::SubtractOpInterface::getOpRuntime(
+      inputShapeA, inputs[0], inputShapeB, inputs[1], outputShape,
       opConfig.outputLayout);
 }
 

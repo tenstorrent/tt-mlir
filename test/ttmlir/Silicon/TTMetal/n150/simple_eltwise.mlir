@@ -32,3 +32,11 @@ func.func @div(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<6
   %1 = "ttir.div"(%arg0, %arg1, %0) : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
   return %1 : tensor<64x128xf32>
 }
+
+func.func @sigmoid(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+  // CHECK: ttmetal.create_buffer
+  %0 = ttir.empty() : tensor<64x128xf32>
+  // CHECK: ttmetal.enqueue_program
+  %1 = "ttir.sigmoid"(%arg0, %0) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+  return %1 : tensor<64x128xf32>
+}
