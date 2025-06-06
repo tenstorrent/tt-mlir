@@ -92,116 +92,58 @@ getBinaryOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
                         outputShape, opConfig.outputLayout);
 }
 
+#define DEFINE_SINGLE_INPUT_OP_CONSRAINT_API(OpSymbol)                         \
+  llvm::Expected<op_model::ttnn::OpConstraints>                                \
+      OpSymbol##Op::getOpConstraints(                                          \
+          const std::vector<TTNNLayoutAttr> &inputs,                           \
+          const OpConfig &opConfig) {                                          \
+    assert(inputs.size() == 1);                                                \
+    const auto inputShape = getInput().getType().getShape();                   \
+    const auto outputShape = getType().getShape();                             \
+    llvm::Expected<bool> check =                                               \
+        detail::checkDeviceWorkerGrid(getOperation());                         \
+    if (!check) {                                                              \
+      return check.takeError();                                                \
+    }                                                                          \
+    GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();        \
+    return op_model::ttnn::OpSymbol##OpInterface::getOpConstraints(            \
+        deviceGrid, inputShape, inputs[0], outputShape,                        \
+        opConfig.outputLayout);                                                \
+  }
+
+#define DEFINE_SINGLE_INPUT_OP_RUNTIME_API(OpSymbol)                           \
+  llvm::Expected<size_t> OpSymbol##Op::getOpRuntime(                           \
+      const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {   \
+    assert(inputs.size() == 1);                                                \
+    const auto inputShape = getInput().getType().getShape();                   \
+    const auto outputShape = getType().getShape();                             \
+    return op_model::ttnn::OpSymbol##OpInterface::getOpRuntime(                \
+        inputShape, inputs[0], outputShape, opConfig.outputLayout);            \
+  }
+
 //===----------------------------------------------------------------------===//
 // ReluOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::ttnn::OpConstraints>
-ReluOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                         const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+DEFINE_SINGLE_INPUT_OP_CONSRAINT_API(Relu)
 
-  const auto inputShape = getInput().getType().getShape();
-
-  const auto outputShape = getType().getShape();
-
-  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
-  if (!check) {
-    return check.takeError();
-  }
-  GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();
-
-  return op_model::ttnn::ReluOpInterface::getOpConstraints(
-      deviceGrid, inputShape, inputs[0], outputShape, opConfig.outputLayout);
-}
-
-llvm::Expected<size_t>
-ReluOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                     const OpConfig &opConfig) {
-
-  assert(inputs.size() == 1);
-
-  const auto inputShape = getInput().getType().getShape();
-
-  const auto outputShape = getType().getShape();
-
-  return op_model::ttnn::ReluOpInterface::getOpRuntime(
-      inputShape, inputs[0], outputShape, opConfig.outputLayout);
-}
+DEFINE_SINGLE_INPUT_OP_RUNTIME_API(Relu)
 
 //===----------------------------------------------------------------------===//
 // SqrtOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::ttnn::OpConstraints>
-SqrtOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                         const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+DEFINE_SINGLE_INPUT_OP_CONSRAINT_API(Sqrt)
 
-  const auto inputShape = getInput().getType().getShape();
-
-  const auto outputShape = getType().getShape();
-
-  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
-  if (!check) {
-    return check.takeError();
-  }
-  GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();
-
-  return op_model::ttnn::SqrtOpInterface::getOpConstraints(
-      deviceGrid, inputShape, inputs[0], outputShape, opConfig.outputLayout);
-}
-
-llvm::Expected<size_t>
-SqrtOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                     const OpConfig &opConfig) {
-
-  assert(inputs.size() == 1);
-
-  const auto inputShape = getInput().getType().getShape();
-
-  const auto outputShape = getType().getShape();
-
-  return op_model::ttnn::SqrtOpInterface::getOpRuntime(
-      inputShape, inputs[0], outputShape, opConfig.outputLayout);
-}
+DEFINE_SINGLE_INPUT_OP_RUNTIME_API(Sqrt)
 
 //===----------------------------------------------------------------------===//
 // SigmoidOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::ttnn::OpConstraints>
-SigmoidOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                            const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+DEFINE_SINGLE_INPUT_OP_CONSRAINT_API(Sigmoid)
 
-  const auto inputShape = getInput().getType().getShape();
-
-  const auto outputShape = getType().getShape();
-
-  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
-  if (!check) {
-    return check.takeError();
-  }
-  GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();
-
-  return op_model::ttnn::SigmoidOpInterface::getOpConstraints(
-      deviceGrid, inputShape, inputs[0], outputShape, opConfig.outputLayout);
-}
-
-llvm::Expected<size_t>
-SigmoidOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                        const OpConfig &opConfig) {
-
-  assert(inputs.size() == 1);
-
-  const auto inputShape = getInput().getType().getShape();
-
-  const auto outputShape = getType().getShape();
-
-  return op_model::ttnn::SigmoidOpInterface::getOpRuntime(
-      inputShape, inputs[0], outputShape, opConfig.outputLayout);
-}
+DEFINE_SINGLE_INPUT_OP_RUNTIME_API(Sigmoid)
 
 //===----------------------------------------------------------------------===//
 // AddOp - TTNN Op Model Interface
