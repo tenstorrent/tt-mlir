@@ -8,6 +8,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include <cfenv>
 
 namespace mlir::tt::ttir {
 
@@ -100,6 +101,127 @@ computePermutation(mlir::DenseElementsAttr inputTensor,
   }
 
   return mlir::DenseElementsAttr::get(outputType, newValues);
+}
+
+// Helper function to convert a vector of quantized float
+// values into a DenseElementsAttr with the specified integer storage type.
+template <typename T>
+mlir::DenseElementsAttr
+createQuantizedDenseAttr(mlir::ShapedType outputType,
+                         llvm::SmallVector<double> &quantizedVals) {
+  std::vector<T> data;
+  data.reserve(quantizedVals.size());
+  for (double q : quantizedVals) {
+    data.push_back(static_cast<T>(q));
+  }
+  return mlir::DenseElementsAttr::get(outputType, llvm::ArrayRef<T>(data));
+}
+
+// Computes the quantization of a constant tensor according to the
+// scale/zero point info embedded in the output type. Returns a
+// new ElementsAttr containing the quantized values.
+inline mlir::DenseElementsAttr
+computeQuantization(mlir::DenseElementsAttr inputTensor,
+                    mlir::RankedTensorType outputType) {
+  mlir::ShapedType inputType =
+      mlir::cast<mlir::ShapedType>(inputTensor.getType());
+  mlir::quant::QuantizedType quantType =
+      mlir::dyn_cast<mlir::quant::QuantizedType>(outputType.getElementType());
+
+  if (!quantType || !mlir::isa<mlir::FloatType>(quantType.getExpressedType())) {
+    return nullptr;
+  }
+
+  auto inputValues = inputTensor.getValues<mlir::APFloat>();
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  int64_t numElements = inputTensor.getNumElements();
+
+  llvm::SmallVector<double> quantizedVals;
+  quantizedVals.reserve(numElements);
+
+  int64_t axis = -1;
+  llvm::SmallVector<double> scales;
+  llvm::SmallVector<int64_t> zeroPoints;
+
+  if (mlir::quant::UniformQuantizedType perTensor =
+          mlir::dyn_cast<mlir::quant::UniformQuantizedType>(quantType)) {
+    scales = {perTensor.getScale()};
+    zeroPoints = {perTensor.getZeroPoint()};
+  } else if (mlir::quant::UniformQuantizedPerAxisType perAxis =
+                 mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
+                     quantType)) {
+    axis = perAxis.getQuantizedDimension();
+    scales = llvm::to_vector(perAxis.getScales());
+    zeroPoints = llvm::to_vector(perAxis.getZeroPoints());
+  } else {
+    return nullptr;
+  }
+
+  // Scales and zero points must be the same size.
+  if (scales.size() != zeroPoints.size()) {
+    return nullptr;
+  }
+
+  // Define rounding function to round to nearest even.
+  int oldMode = std::fegetround();
+  std::fesetround(FE_TONEAREST);
+
+  int64_t quantMin = quantType.getStorageTypeMin();
+  int64_t quantMax = quantType.getStorageTypeMax();
+
+  // Compute how often the quant param changes (only applies to per-axis).
+  int64_t stride = 1;
+  if (axis >= 0) {
+    stride = std::accumulate(inputShape.begin() + axis + 1, inputShape.end(),
+                             1LL, std::multiplies<int64_t>());
+  }
+
+  // Perform the quantization of each element.
+  for (int64_t i = 0; i < numElements; ++i) {
+    double val = inputValues[i].convertToDouble();
+
+    int64_t idx = (axis == -1) ? 0 : (i / stride) % scales.size();
+    double scale = scales[idx];
+    int64_t zp = zeroPoints[idx];
+
+    double quant = val / scale + zp;
+
+    // Apply rounding mode (to nearest even).
+    quant = std::nearbyint(quant);
+    quant = std::clamp(quant, static_cast<double>(quantMin),
+                       static_cast<double>(quantMax));
+    quantizedVals.push_back(quant);
+  }
+
+  // Restore rounding mode.
+  std::fesetround(oldMode);
+
+  mlir::Type storageType = quantType.getStorageType();
+  mlir::RankedTensorType newOutputType =
+      mlir::RankedTensorType::get(outputType.getShape(), storageType);
+  int bitWidth = storageType.getIntOrFloatBitWidth();
+  bool isSigned = storageType.isSignedInteger();
+
+  if (bitWidth == 8) {
+    return isSigned
+               ? createQuantizedDenseAttr<int8_t>(newOutputType, quantizedVals)
+               : createQuantizedDenseAttr<uint8_t>(newOutputType,
+                                                   quantizedVals);
+  } else if (bitWidth == 16) {
+    return isSigned
+               ? createQuantizedDenseAttr<int16_t>(newOutputType, quantizedVals)
+               : createQuantizedDenseAttr<uint16_t>(newOutputType,
+                                                    quantizedVals);
+  } else if (bitWidth == 32) {
+    return isSigned
+               ? createQuantizedDenseAttr<int32_t>(newOutputType, quantizedVals)
+               : createQuantizedDenseAttr<uint32_t>(newOutputType,
+                                                    quantizedVals);
+  } else {
+    return nullptr;
+  }
+
+  return nullptr;
 }
 
 } // namespace mlir::tt::ttir

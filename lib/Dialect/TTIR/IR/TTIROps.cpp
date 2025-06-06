@@ -641,7 +641,7 @@ static mlir::OpFoldResult foldIdentityQuantize(mlir::tt::ttir::QuantizeOp op) {
     if (op.getOutput().getType() != dequantizeInput.getType()) {
       return nullptr;
     }
-    if (op.getInput().getType() != dequantizeInput.getType()) {
+    if (op.getInput().getType() != dequantizeOperand.getResult().getType()) {
       return nullptr;
     }
     return dequantizeInput;
@@ -649,20 +649,24 @@ static mlir::OpFoldResult foldIdentityQuantize(mlir::tt::ttir::QuantizeOp op) {
   return nullptr;
 }
 
-// // Fold quantize of a constant into a new constant with the quantized data.
-// static mlir::OpFoldResult foldConstantQuantize(mlir::tt::ttir::QuantizeOp op)
-// {
-
-// }
+// Fold quantize of a constant into a new constant with the quantized data.
+static mlir::OpFoldResult foldConstantQuantize(mlir::tt::ttir::QuantizeOp op) {
+  return mlir::tt::ttir::foldConstantOpHelper(
+      op->getOperand(0),
+      [&](mlir::DenseElementsAttr inputTensor) -> mlir::Attribute {
+        auto outputType = op.getOutput().getType();
+        return mlir::tt::ttir::computeQuantization(inputTensor, outputType);
+      });
+}
 
 // QuantizeOp folder
 ::mlir::OpFoldResult mlir::tt::ttir::QuantizeOp::fold(FoldAdaptor adaptor) {
   if (auto foldResult = foldIdentityQuantize(*this)) {
     return foldResult;
   }
-  // if (auto foldResult = foldConstantQuantize(*this)) {
-  //   return foldResult;
-  // }
+  if (auto foldResult = foldConstantQuantize(*this)) {
+    return foldResult;
+  }
   return nullptr;
 }
 
