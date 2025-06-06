@@ -112,7 +112,7 @@ createQuantizedDenseAttr(mlir::ShapedType outputType,
   std::vector<T> data;
   data.reserve(quantizedVals.size());
   for (double q : quantizedVals) {
-    data.push_back(static_cast<T>(q));
+    data.emplace_back(static_cast<T>(q));
   }
   return mlir::DenseElementsAttr::get(outputType, llvm::ArrayRef<T>(data));
 }
@@ -207,12 +207,16 @@ computeQuantization(mlir::DenseElementsAttr inputTensor,
                ? createQuantizedDenseAttr<int8_t>(newOutputType, quantizedVals)
                : createQuantizedDenseAttr<uint8_t>(newOutputType,
                                                    quantizedVals);
-  } else if (bitWidth == 16) {
+  }
+
+  if (bitWidth == 16) {
     return isSigned
                ? createQuantizedDenseAttr<int16_t>(newOutputType, quantizedVals)
                : createQuantizedDenseAttr<uint16_t>(newOutputType,
                                                     quantizedVals);
-  } else if (bitWidth == 32) {
+  }
+
+  if (bitWidth == 32) {
     return isSigned
                ? createQuantizedDenseAttr<int32_t>(newOutputType, quantizedVals)
                : createQuantizedDenseAttr<uint32_t>(newOutputType,
