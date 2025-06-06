@@ -37,6 +37,18 @@ struct SmallVector {
   using value_type = T;
 };
 
+struct Shape;
+
+struct ShardSpec;
+struct CoreRangeSet;
+struct CoreRange;
+struct CoreCoord;
+
+namespace types {
+struct ShardOrientation;
+struct ShardMode;
+} // namespace types
+
 namespace distributed {
 struct MeshDevice;
 } // namespace distributed
@@ -151,6 +163,11 @@ struct TypeName<::ttnn::SmallVector<T>> {
 };
 
 template <typename T>
+struct TypeName<std::set<T>> {
+  inline static const std::string value = "::std::set<" + TypeNameV<T> + ">";
+};
+
+template <typename T>
 struct TypeName<std::optional<T>> {
   inline static const std::string value =
       "::std::optional<" + TypeNameV<T> + ">";
@@ -202,6 +219,36 @@ template <>
 struct TypeName<::ttnn::operations::conv::conv2d::Conv2dConfig> {
   inline static const std::string value =
       "::ttnn::operations::conv::conv2d::Conv2dConfig";
+};
+
+template <>
+struct TypeName<::ttnn::CoreCoord> {
+  inline static const std::string value = "::ttnn::CoreCoord";
+};
+
+template <>
+struct TypeName<::ttnn::CoreRange> {
+  inline static const std::string value = "::ttnn::CoreRange";
+};
+
+template <>
+struct TypeName<::ttnn::CoreRangeSet> {
+  inline static const std::string value = "::ttnn::CoreRangeSet";
+};
+
+template <>
+struct TypeName<::ttnn::ShardSpec> {
+  inline static const std::string value = "::ttnn::ShardSpec";
+};
+
+template <>
+struct TypeName<::ttnn::types::ShardOrientation> {
+  inline static const std::string value = "::ttnn::types::ShardOrientation";
+};
+
+template <>
+struct TypeName<::ttnn::types::ShardMode> {
+  inline static const std::string value = "::ttnn::types::ShardMode";
 };
 
 template <>
@@ -335,6 +382,121 @@ struct EmitCTypeConverter<T,
   }
 };
 
+template <>
+struct EmitCTypeConverter<::ttnn::CoreCoord> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto coreCoordAttr =
+            mlir::dyn_cast_if_present<ttnn::CoreCoordAttr>(attr)) {
+      return convert(coreCoordAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::CoreCoordAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<::ttnn::CoreCoord>;
+    rso << "{";
+    rso << EmitCTypeConverter<size_t>::convert(attr.getX()) << ", ";
+    rso << EmitCTypeConverter<size_t>::convert(attr.getY());
+    rso << "}";
+
+    return buf;
+  }
+};
+
+template <>
+struct EmitCTypeConverter<::ttnn::CoreRange> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto coreRangeAttr =
+            mlir::dyn_cast_if_present<ttnn::CoreRangeAttr>(attr)) {
+      return convert(coreRangeAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::CoreRangeAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<::ttnn::CoreRange>;
+    rso << "{";
+    rso << EmitCTypeConverter<::ttnn::CoreCoord>::convert(attr.getStartCoord())
+        << ", ";
+    rso << EmitCTypeConverter<::ttnn::CoreCoord>::convert(attr.getEndCoord());
+    rso << "}";
+
+    return buf;
+  }
+};
+
+template <>
+struct EmitCTypeConverter<::ttnn::types::ShardOrientation> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto shardOrientationAttr =
+            mlir::dyn_cast_if_present<ttnn::ShardOrientationAttr>(attr)) {
+      return convert(shardOrientationAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::ShardOrientationAttr attr) {
+    assert(attr &&
+           "expected non-null attribute, call "
+           "EmitCTypeConverter<std::optional<::ttnn::types::ShardOrientation>>:"
+           ":convert(attr) if attribute is optional");
+    return convert(attr.getValue());
+  }
+
+  static std::string convert(ttnn::ShardOrientation attr) {
+    switch (attr) {
+    case ttnn::ShardOrientation::RowMajor:
+      return TypeNameV<::ttnn::types::ShardOrientation> + "::ROW_MAJOR";
+    case ttnn::ShardOrientation::ColMajor:
+      return TypeNameV<::ttnn::types::ShardOrientation> + "::COL_MAJOR";
+    }
+
+    llvm_unreachable("Unknown ttnn::ShardOrientation");
+  }
+};
+
+template <>
+struct EmitCTypeConverter<::ttnn::types::ShardMode> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto shardModeAttr =
+            mlir::dyn_cast_if_present<ttnn::ShardModeAttr>(attr)) {
+      return convert(shardModeAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::ShardModeAttr attr) {
+    assert(attr && "expected non-null attribute, call "
+                   "EmitCTypeConverter<std::optional<::ttnn::types::ShardMode>>"
+                   "::convert(attr) if attribute is optional");
+    return convert(attr.getValue());
+  }
+
+  static std::string convert(ttnn::ShardMode attr) {
+    switch (attr) {
+    case ttnn::ShardMode::Physical:
+      return TypeNameV<::ttnn::types::ShardMode> + "::PHYSICAL";
+    case ttnn::ShardMode::Logical:
+      return TypeNameV<::ttnn::types::ShardMode> + "::LOGICAL";
+    }
+
+    llvm_unreachable("Unknown ttnn::ShardMode");
+  }
+};
+
 // Convert container types (std::vector, ttnn::SmallVector, etc.).
 template <typename T>
 struct EmitCContainerTypeConverter {
@@ -442,6 +604,10 @@ struct EmitCTypeConverter<std::vector<T>>
 template <typename T>
 struct EmitCTypeConverter<::ttnn::SmallVector<T>>
     : public EmitCContainerTypeConverter<::ttnn::SmallVector<T>> {};
+
+template <typename T>
+struct EmitCTypeConverter<std::set<T>>
+    : public EmitCContainerTypeConverter<std::set<T>> {};
 
 template <typename T, size_t k>
 struct EmitCTypeConverter<std::array<T, k>> {
@@ -584,6 +750,95 @@ struct EmitCTypeConverter<std::variant<First, Rest...>> {
     }
 
     llvm_unreachable("Invalid variant type");
+  }
+};
+
+template <>
+struct EmitCTypeConverter<::ttnn::CoreRangeSet> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto coreRangeSetAttr =
+            mlir::dyn_cast_if_present<ttnn::CoreRangeSetAttr>(attr)) {
+      return convert(coreRangeSetAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::CoreRangeSetAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+    rso << TypeNameV<::ttnn::CoreRangeSet>;
+    rso << "{";
+    rso << EmitCTypeConverter<std::set<::ttnn::CoreRange>>::convert(
+        attr.getCoreRanges());
+    rso << "}";
+    return buf;
+  }
+};
+
+template <>
+struct EmitCTypeConverter<::ttnn::ShardSpec> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto shardSpecAttr =
+            mlir::dyn_cast_if_present<ttnn::ShardSpecAttr>(attr)) {
+      return convert(shardSpecAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::ShardSpecAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<::ttnn::ShardSpec>;
+    rso << "{";
+    rso << EmitCTypeConverter<::ttnn::CoreRangeSet>::convert(
+               attr.getCoreRangeSet())
+        << ", ";
+    rso << EmitCTypeConverter<std::array<uint32_t, 2>>::convert(
+               attr.getShape().getShape())
+        << ", ";
+    rso << EmitCTypeConverter<::ttnn::types::ShardOrientation>::convert(
+        attr.getShardOrientation());
+    // ShardMode is modeled as optional in TTNN dialect, but it's either
+    // required or defaulted to `Physical` in TTNN library.
+    if (attr.getShardMode()) {
+      rso << ", "
+          << EmitCTypeConverter<::ttnn::types::ShardMode>::convert(
+                 attr.getShardMode());
+    }
+    rso << "}";
+
+    return buf;
+  }
+};
+
+template <typename T>
+struct EmitCTypeConverter<std::optional<T>> {
+  static std::string convert(mlir::Attribute attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+    return EmitCTypeConverter<T>::convert(attr);
+  }
+
+  template <typename U>
+  static std::string convert(std::optional<U> &&attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+    return EmitCTypeConverter<T>::convert(*attr);
+  }
+
+  template <typename U>
+  static std::string convert(U &&attr) {
+    return EmitCTypeConverter<T>::convert(std::forward<U>(attr));
   }
 };
 
@@ -740,12 +995,13 @@ inline std::string convert(ttnn::MemoryConfigAttr attr) {
     return TypeNameV<std::nullopt_t>;
   }
 
-  // TODO (azecevic): Add ShardSpec once it's modeled in the `MemoryConfigAttr`.
   std::string buf;
   llvm::raw_string_ostream rso(buf);
   rso << "::ttnn::MemoryConfig{";
   rso << convert(attr.getTensorMemoryLayout()) << ", ";
-  rso << convert(attr.getBufferType());
+  rso << convert(attr.getBufferType()) << ", ";
+  rso << EmitCTypeConverter<std::optional<::ttnn::ShardSpec>>::convert(
+      attr.getShardSpec());
   rso << "}";
   return buf;
 }
