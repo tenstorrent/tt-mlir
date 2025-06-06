@@ -999,16 +999,19 @@ void populateTTIRToTTKernelPatterns(
       ttkernel::TTIRKernelFunctionArgsRewriter,
 
       // Elementwise FPU.
-      ttkernel::TTIRFPUOpsRewriter<ttir::TileAddOp,      ttkernel::AddTilesInitOp, ttkernel::AddTilesOp>,
-      ttkernel::TTIRFPUOpsRewriter<ttir::TileMulOp,      ttkernel::MulTilesInitOp, ttkernel::MulTilesOp>,
-      ttkernel::TTIRFPUOpsRewriter<ttir::TileMatmulOp,   ttkernel::MatmulInitOp,   ttkernel::MatmulTilesOp>,
+      ttkernel::TTIRFPUOpsRewriter<ttir::TileAddOp,       ttkernel::AddTilesInitOp, ttkernel::AddTilesOp>,
+      ttkernel::TTIRFPUOpsRewriter<ttir::TileMulOp,       ttkernel::MulTilesInitOp, ttkernel::MulTilesOp>,
+      ttkernel::TTIRFPUOpsRewriter<ttir::TileMatmulOp,    ttkernel::MatmulInitOp,   ttkernel::MatmulTilesOp>,
 
       // Elementwise SFPU.
-      ttkernel::TTIRSFPUOpsRewriter<ttir::TileDivOp,     ttkernel::DivBinaryTilesInitOp, ttkernel::DivBinaryTilesOp>,
-      ttkernel::TTIRSFPUOpsRewriter<ttir::TileMaximumOp, ttkernel::MaxTilesInitOp,       ttkernel::MaxTilesOp>,
-      ttkernel::TTIRSFPUOpsRewriter<ttir::TileExpOp,     ttkernel::ExpTileInitOp,        ttkernel::ExpTileOp>,
-      ttkernel::TTIRSFPUOpsRewriter<ttir::TileSigmoidOp, ttkernel::SigmoidTileInitOp,    ttkernel::SigmoidTileOp>,
-      ttkernel::TTIRSFPUOpsRewriter<ttir::TileSinOp,     ttkernel::SinTileInitOp,        ttkernel::SinTileOp>,
+      ttkernel::TTIRSFPUOpsRewriter<ttir::TileCosOp,      ttkernel::CosTileInitOp,        ttkernel::CosTileOp>,
+      ttkernel::TTIRSFPUOpsRewriter<ttir::TileDivOp,      ttkernel::DivBinaryTilesInitOp, ttkernel::DivBinaryTilesOp>,
+      ttkernel::TTIRSFPUOpsRewriter<ttir::TileExpOp,      ttkernel::ExpTileInitOp,        ttkernel::ExpTileOp>,
+      ttkernel::TTIRSFPUOpsRewriter<ttir::TileMaximumOp,  ttkernel::MaxTilesInitOp,       ttkernel::MaxTilesOp>,
+      ttkernel::TTIRSFPUOpsRewriter<ttir::TileNegativeOp, ttkernel::NegativeTileInitOp,   ttkernel::NegativeTileOp>,
+      ttkernel::TTIRSFPUOpsRewriter<ttir::TileRsqrtOp,    ttkernel::RsqrtTileInitOp,      ttkernel::RsqrtTileOp>,
+      ttkernel::TTIRSFPUOpsRewriter<ttir::TileSigmoidOp,  ttkernel::SigmoidTileInitOp,    ttkernel::SigmoidTileOp>,
+      ttkernel::TTIRSFPUOpsRewriter<ttir::TileSinOp,      ttkernel::SinTileInitOp,        ttkernel::SinTileOp>,
 
       ttkernel::TTIRTilizeUntilizeRewriter,
       ttkernel::TTIRTypecastRewriter,
