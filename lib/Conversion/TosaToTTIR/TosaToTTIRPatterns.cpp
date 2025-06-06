@@ -69,20 +69,19 @@ public:
     auto shift = srcOp.getShift();
     auto constOp = shift.getDefiningOp<tosa::ConstOp>();
     if (!constOp) {
-      return rewriter.notifyMatchFailure(srcOp, "Shift must be a tosa.const");
-    };
+      return srcOp.emitOpError()
+             << "'" << srcOp.getOperationName() << "op: must be a tosa.const";
+    }
     auto rawAttr = constOp.getValues();
     auto denseIntAttr = mlir::dyn_cast<DenseIntElementsAttr>(rawAttr);
     if (!denseIntAttr) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "Shift value must come from a DenseIntElementsAttr");
+      return srcOp.emitOpError(
+          "op: Shift value must come from a DenseIntElementsAttr");
     }
     APInt rawInt = denseIntAttr.getSplatValue<APInt>();
     int64_t shiftInt = rawInt.getSExtValue();
-
     if (shiftInt != 0) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "TTIR Multiply Op does not support shifted multiply.");
+      return srcOp.emitOpError("does not support shifted multiply.");
     }
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
