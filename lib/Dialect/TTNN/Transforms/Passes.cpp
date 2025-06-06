@@ -70,6 +70,8 @@ public:
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
 
+    std::vector<Operation*> ops;
+
     moduleOp->walk([&](func::FuncOp func) {
       if (func.isDeclaration()) {
         return;
@@ -89,12 +91,33 @@ public:
           if (!isa<RankedTensorType>(arg.getType())) {
             continue;
           }
+          
+          // Debug print the argument information
+          llvm::errs() << "Processing arg #" << arg.getArgNumber() 
+                       << " of type " << arg.getType() 
+                       << " in function " << func.getName() << "\n";
+          
           Operation *lastOp = getLastValueUsageOp(livenessInfo, arg);
-
+        
+          // Debug print last operation
+          llvm::errs() << "  Last usage op: " << lastOp->getName() << "\n";
+          
           if (isa<func::ReturnOp>(lastOp)) {
             continue;
           }
-
+        
+          bool usedInFillCache = false;
+          for (Operation *user : arg.getUsers()) {
+            if (isa<ttnn::FillCacheOp>(user)) {
+              llvm::errs() << "  Used in FillCacheOp: " << *user << "\n; Rejecting deallocation.\n";
+              usedInFillCache = true;
+              break;
+            }
+          }
+          if (usedInFillCache) {
+            continue;
+          }
+        
           rewriter.setInsertionPointAfter(lastOp);
           rewriter.create<DeallocateOp>(lastOp->getLoc(), arg);
         }
@@ -107,7 +130,9 @@ public:
         if (isa<DestinationStyleOpInterface>(op)) {
           return;
         }
-
+        
+        
+        
         // Skip ops which do not have results.
         //
         if (op->getNumResults() == 0) {
