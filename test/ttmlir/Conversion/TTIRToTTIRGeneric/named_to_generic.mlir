@@ -50,7 +50,22 @@ module {
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: ttir.tile_ceil
     %7 = "ttir.ceil"(%6, %out) : (!ttype, !ttype) -> !ttype
-    return %7: !ttype
+    // named elementwise op, unary:
+    // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: ttir.tile_rsqrt
+    %8 = "ttir.rsqrt"(%7, %out) : (!ttype, !ttype) -> !ttype
+    // named elementwise op, unary:
+    // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: ttir.tile_negative
+    %9 = "ttir.neg"(%8, %out) : (!ttype, !ttype) -> !ttype
+    // named elementwise op, unary:
+    // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: ttir.tile_cos
+    %10 = "ttir.cos"(%9, %out) : (!ttype, !ttype) -> !ttype
+    return %10: !ttype
   }
 
   // CHECK-LABEL: func @named_reductions_R

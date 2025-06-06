@@ -78,6 +78,39 @@ func.func @sin(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
   return %1 : tensor<64x128xf32>
 }
 
+func.func @cos(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+  %0 = ttir.empty() : tensor<64x128xf32>
+  // CHECK: emitc.call_opaque "init_sfpu"
+  // CHECK: emitc.call_opaque "copy_tile_init"(%[[CB0:.+]]) :
+  // CHECK-NEXT: emitc.call_opaque "copy_tile"(%[[CB0]], %{{.+}}, %{{.+}})
+  // CHECK: emitc.call_opaque "cos_tile_init"
+  // CHECK-NEXT: emitc.call_opaque "cos_tile"
+  %1 = "ttir.cos"(%arg0, %0) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+  return %1 : tensor<64x128xf32>
+}
+
+func.func @rsqrt(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+  %0 = ttir.empty() : tensor<64x128xf32>
+  // CHECK: emitc.call_opaque "init_sfpu"
+  // CHECK: emitc.call_opaque "copy_tile_init"(%[[CB0:.+]]) :
+  // CHECK-NEXT: emitc.call_opaque "copy_tile"(%[[CB0]], %{{.+}}, %{{.+}})
+  // CHECK: emitc.call_opaque "rsqrt_tile_init"
+  // CHECK-NEXT: emitc.call_opaque "rsqrt_tile"
+  %1 = "ttir.rsqrt"(%arg0, %0) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+  return %1 : tensor<64x128xf32>
+}
+
+func.func @neg(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+  %0 = ttir.empty() : tensor<64x128xf32>
+  // CHECK: emitc.call_opaque "init_sfpu"
+  // CHECK: emitc.call_opaque "copy_tile_init"(%[[CB0:.+]]) :
+  // CHECK-NEXT: emitc.call_opaque "copy_tile"(%[[CB0]], %{{.+}}, %{{.+}})
+  // CHECK: emitc.call_opaque "negative_tile_init"
+  // CHECK-NEXT: emitc.call_opaque "negative_tile"
+  %1 = "ttir.neg"(%arg0, %0) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+  return %1 : tensor<64x128xf32>
+}
+
 func.func @sigmoid(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
   %0 = ttir.empty() : tensor<64x128xf32>
   // CHECK: emitc.call_opaque "init_sfpu"
