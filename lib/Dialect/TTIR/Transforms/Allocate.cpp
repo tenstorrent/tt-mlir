@@ -23,6 +23,8 @@
 // ----------------------------------------------------------------------------
 namespace mlir::tt::ttir {
 
+#define GEN_PASS_DEF_TTIRFAKE
+
 #define GEN_PASS_DEF_TTIRALLOCATE
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
@@ -31,6 +33,9 @@ namespace mlir::tt::ttir {
 //===----------------------------------------------------------------------===//
 
 #define TT_assert(condition, msg) assert((condition) && msg)
+
+#define TTMLIR_INFO(/* fmt, args */...)                                        \
+  llvm::outs() << llvm::formatv(__VA_ARGS__) << "\n"
 
 #define TT_ALLOC_DEBUG(/* fmt, args */...)                                     \
   TTMLIR_DEBUG(ttmlir::LogComponent::Allocator, __VA_ARGS__)
@@ -44,6 +49,47 @@ inline MemorySpace getMemorySpace(MemRefType memref, MemorySpace dflt) {
              ? mlir::cast<MemorySpaceAttr>(memref.getMemorySpace()).getValue()
              : dflt;
 }
+
+// ----------------------------------------------------------------------------
+// FAKE
+
+namespace {
+class TTIRFake final : public impl::TTIRFakeBase<TTIRFake> {
+  using Base = impl::TTIRFakeBase<TTIRFake>;
+
+  using Base::Base;
+
+  void runOnOperation() final {
+    ModuleOp moduleOp = getOperation();
+
+    // (1) Create streams (with their backing buffers) where needed.
+    if (failed(runOnFuncs(moduleOp))) {
+      signalPassFailure();
+      return;
+    }
+  }
+
+  LogicalResult runOnFuncs(ModuleOp moduleOp) {
+    moduleOp->walk([&](func::FuncOp func) {
+      if (func.isDeclaration()) {
+        return WalkResult::skip();
+      }
+
+      Block &funcBody = func.getBody().front();
+      TTMLIR_INFO("walk:\tbegin");
+      funcBody.walk<WalkOrder::PreOrder>(
+          [&](Operation *op) { TTMLIR_INFO("OP:\t{}", *op); });
+      TTMLIR_INFO("walk:\tend");
+
+      return WalkResult::advance();
+    });
+
+    return llvm::success();
+  }
+};
+} // namespace
+// FAKE
+// ----------------------------------------------------------------------------
 
 //===----------------------------------------------------------------------===//
 // Helper classes.

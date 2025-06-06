@@ -64,6 +64,26 @@ struct TTIRToTTIRGenericPass final
       target.addLegalOp<ttir::EmptyOp>();
       target.addLegalOp<ttir::ConstantOp>();
 
+#if 1
+      target.addLegalOp<ttir::ArangeOp>();
+      target.addLegalOp<ttir::BroadcastOp>();
+      target.addLegalOp<ttir::ConcatOp>();
+      target.addLegalOp<ttir::CosOp>();
+      target.addLegalOp<ttir::EmbeddingOp>();
+      target.addLegalOp<ttir::EqualOp>();
+      target.addLegalOp<ttir::FullOp>();
+      target.addLegalOp<ttir::GreaterEqualOp>();
+      target.addLegalOp<ttir::GreaterThanOp>();
+      target.addLegalOp<ttir::PermuteOp>();
+      target.addLegalOp<ttir::PowOp>();
+      target.addLegalOp<ttir::ReshapeOp>();
+      target.addLegalOp<ttir::SubtractOp>();
+      target.addLegalOp<ttir::TypecastOp>();
+      target.addLegalOp<ttir::WhereOp>();
+
+      // target.addLegalDialect<ttir::TTIRDialect>();
+#endif
+
       target.addLegalOp<
 #define GET_OP_LIST
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.cpp.inc"

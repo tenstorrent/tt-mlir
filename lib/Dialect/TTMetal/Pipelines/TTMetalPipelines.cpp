@@ -34,6 +34,7 @@ void createTTIRBufferizationPipeline(OpPassManager &pm) {
       bufferization::LayoutMapOption::IdentityLayoutMap;
   bufferizePassOptions.unknownTypeConversion =
       bufferization::LayoutMapOption::IdentityLayoutMap;
+  // bufferizePassOptions.allowUnknownOps = true;
   pm.addPass(
       mlir::bufferization::createOneShotBufferizePass(bufferizePassOptions));
   // TODO(#2246)
@@ -60,6 +61,7 @@ void createTTIRToTTMetalFrontendPipeline(
     registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
   }
   pm.addPass(tt::createTTRegisterDevicePass(registerDeviceOptions));
+  pm.addPass(ttir::createTTIRFake());
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(tt::createTTIRToTTIRGenericPass());

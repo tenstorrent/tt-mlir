@@ -364,6 +364,12 @@ def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
   let dependentDialects = ["::mlir::tt::TTDialect", "::mlir::memref::MemRefDialect"];
 }
 
+def TTIRFake:  Pass<"ttir-fake", "::mlir::ModuleOp"> {
+  let summary = "Make changes to be able to extract alloc profile data.";
+  let description = "";
+  let dependentDialects = ["::mlir::tt::TTDialect"];
+}
+
 def TTIRImplicitBroadcastFold: Pass<"ttir-implicit-broadcast-fold", "::mlir::ModuleOp"> {
   let summary = "Broadcast operation is folded to all the consumers.";
   let description = [{
