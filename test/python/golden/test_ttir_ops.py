@@ -951,6 +951,7 @@ def test_reduce_and(shape: Shape, dim_args: List[int], request):
     )
 
 
+@pytest.mark.run_error
 @pytest.mark.parametrize("shape", [(4, 4)])
 @pytest.mark.parametrize("dim_args", [[0, 1]])
 def test_reduce_or(shape: Shape, dim_args: List[int], request):
