@@ -212,13 +212,12 @@ computeQuantization(mlir::DenseElementsAttr inputTensor,
                ? createQuantizedDenseAttr<int16_t>(newOutputType, quantizedVals)
                : createQuantizedDenseAttr<uint16_t>(newOutputType,
                                                     quantizedVals);
-  } else
-    (bitWidth == 32) {
-      return isSigned ? createQuantizedDenseAttr<int32_t>(newOutputType,
-                                                          quantizedVals)
-                      : createQuantizedDenseAttr<uint32_t>(newOutputType,
-                                                           quantizedVals);
-    }
+  } else if (bitWidth == 32) {
+    return isSigned
+               ? createQuantizedDenseAttr<int32_t>(newOutputType, quantizedVals)
+               : createQuantizedDenseAttr<uint32_t>(newOutputType,
+                                                    quantizedVals);
+  }
 
   return nullptr;
 }
