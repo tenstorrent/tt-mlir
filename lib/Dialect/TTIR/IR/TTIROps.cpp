@@ -2169,12 +2169,13 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
 
     llvm::errs() << "input: " << inputTensor << "\n";
     llvm::errs() << "output: " << outputTensor << "\n";
-    auto inputLayout = mlir::dyn_cast_if_present<tt::MetalLayoutAttr>(
-        inputTensor.getEncoding());
-    const bool hasInputLayout = inputLayout != nullptr;
-    auto outputLayout = mlir::dyn_cast_if_present<tt::MetalLayoutAttr>(
-        outputTensor.getEncoding());
-    const bool hasOutputLayout = outputLayout != nullptr;
+
+    // auto inputLayout = mlir::dyn_cast_if_present<tt::MetalLayoutAttr>(
+    //     inputTensor.getEncoding());
+    const bool hasInputLayout = inputTensor.getEncoding() != nullptr;
+    // auto outputLayout = mlir::dyn_cast_if_present<tt::MetalLayoutAttr>(
+    //     outputTensor.getEncoding());
+    const bool hasOutputLayout = outputTensor.getEncoding() != nullptr;
 
     // Layout change: logical shapes
     // components.isLayoutChange =
@@ -2186,13 +2187,17 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
     if (hasInputLayout && hasOutputLayout) {
       components.isGridChange = tt::getMetalTensorGridShape(inputTensor) !=
                                 tt::getMetalTensorGridShape(outputTensor);
-      components.isMemorySpaceChange =
-          inputLayout.getMemorySpace() != outputLayout.getMemorySpace();
     } else if (hasInputLayout || hasInputLayout) {
       // TODO: (pre-merge) decide if this is compound or what
       // components.isGridChange = true;
       // components.isMemorySpaceChange = true;
     }
+
+    auto inputLayout = getOrCreateInputLayout();
+    auto outputLayout = getOrCreateOutputLayout();
+
+    components.isMemorySpaceChange =
+        inputLayout.getMemorySpace() != outputLayout.getMemorySpace();
 
     // Format change: element types differ (from tensor, not layout)
     components.isFormatChange =

@@ -158,10 +158,15 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
         llvm::SmallVector<Type> blockTypes = llvm::map_to_vector(TypeRange($_state.operands), [&](Type t) -> Type {
           mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
           auto layout = mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding());
-          return MemRefType::get(tensorType.getShape(), tensorType.getElementType(),
-                                MemRefLayoutAttrInterface{}, // Explicitly typed empty layout
-                                MemorySpaceAttr::get($_builder.getContext(), layout.getMemorySpace()));
 
+          // Get shard shape (without grid dimensions)
+          auto gridShape = tt::getMetalTensorGridShape(tensorType);
+          auto tileShape = tt::getMetalTensorTileShape(tensorType);
+          auto shardShape = layout.getShardShape(gridShape, tileShape);
+
+          return MemRefType::get(shardShape, tensorType.getElementType(),
+                                MemRefLayoutAttrInterface{},
+                                MemorySpaceAttr::get($_builder.getContext(), layout.getMemorySpace()));
         });
         Region& region = *$_state.regions.front().get();
         llvm::SmallVector<mlir::Location> locs($_state.operands.size(), $_state.location);

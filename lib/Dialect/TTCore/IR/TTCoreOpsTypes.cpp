@@ -799,13 +799,9 @@ llvm::SmallVector<int64_t>
 MetalLayoutAttr::getShardShape(ArrayRef<int64_t> gridShape,
                                ArrayRef<int64_t> tileShape) const {
   auto logicalShape = getLogicalShape();
-
   SmallVector<int64_t> shardShape;
 
-  // Start with grid dimensions (even if they're 1)
-  shardShape.append(gridShape.begin(), gridShape.end());
-
-  // Then add shard dimensions (logical dims divided by grid)
+  // Calculate shard dimensions (logical dims divided by grid)
   for (size_t i = 0; i < logicalShape.size(); ++i) {
     if (i < gridShape.size() && gridShape[i] > 1) {
       shardShape.push_back(logicalShape[i] / gridShape[i]);
@@ -814,12 +810,13 @@ MetalLayoutAttr::getShardShape(ArrayRef<int64_t> gridShape,
     }
   }
 
-  // DON'T include tile dimensions if tiled - they become part of the element
-  // type
+  // Convert to tile counts if tiled
   if (!tileShape.empty()) {
     size_t tileDims = tileShape.size();
-    // Remove the last tileDims dimensions
-    shardShape.resize(shardShape.size() - tileDims);
+    size_t firstTiledDim = shardShape.size() - tileDims;
+    for (size_t i = 0; i < tileDims; ++i) {
+      shardShape[firstTiledDim + i] /= tileShape[i];
+    }
   }
 
   return shardShape;
