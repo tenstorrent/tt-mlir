@@ -377,20 +377,20 @@ public:
         ttmlir::utils::applyPermutation(allGatherOpShape, permutation);
     mlir::RankedTensorType permutedAllGatherType =
         RankedTensorType::Builder(inputType).setShape(permutedAllGatherShape);
-    auto adaptedInput_2 = rewriter.create<ttnn::PermuteOp>(
+    auto permuteOperation2 = rewriter.create<ttnn::PermuteOp>(
         loc, permutedAllGatherType, allGatherOp,
         rewriter.getDenseI64ArrayAttr(permutation),
         /*memory_config=*/ttnn::MemoryConfigAttr(),
         /*pad_value=*/mlir::FloatAttr());
 
-    // Reshape back to the expected all_gather solution.
+    // Reshape back to the expected all_gather ouput shape.
     RankedTensorType outputType = mlir::cast<RankedTensorType>(op.getType());
     llvm::SmallVector<int64_t> outputTypeShape(outputType.getShape());
     ArrayAttr reshapedOutputShapeAttr =
         rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(
             outputTypeShape.begin(), outputTypeShape.end()));
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
-        op, Type(outputType), adaptedInput_2.getResult(),
+        op, Type(outputType), permuteOperation2.getResult(),
         reshapedOutputShapeAttr, /* memory_config */ nullptr);
 
     return success();
