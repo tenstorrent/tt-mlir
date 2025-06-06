@@ -234,43 +234,6 @@ bool isLayoutLegalForTensorShape(llvm::ArrayRef<int64_t> tensorShape,
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
-static ::tt::tt_metal::HostBuffer
-createHostBuffer(uint32_t numElements, ::tt::tt_metal::DataType dataType) {
-  switch (dataType) {
-  case ::tt::tt_metal::DataType::FLOAT32: {
-    std::vector<float> data(numElements);
-    return ::tt::tt_metal::HostBuffer(std::move(data));
-  }
-  case ::tt::tt_metal::DataType::BFLOAT16: {
-    std::vector<bfloat16> data(numElements);
-    return ::tt::tt_metal::HostBuffer(std::move(data));
-  }
-  default:
-    llvm::report_fatal_error("Unsupported data type");
-  }
-}
-
-// Allocate a ttnn tensor with the given shape and data type.
-static ::tt::tt_metal::Tensor
-createMetalHostTensor(llvm::ArrayRef<int64_t> shape,
-                      ::mlir::tt::DataType dataType) {
-  // Calculate total volume of the tensor
-  uint32_t volume = 1;
-  for (size_t i = 0; i < shape.size(); i++) {
-    volume *= shape[i];
-  }
-
-  auto metalDataType = conversion::getDataType(dataType);
-  auto hostBuffer = createHostBuffer(volume, metalDataType);
-  auto metalShape = conversion::getShape(shape);
-  ::tt::tt_metal::PageConfig pageconfig(::tt::tt_metal::Layout::ROW_MAJOR);
-  ::tt::tt_metal::TensorLayout layout(metalDataType, pageconfig,
-                                      ::tt::tt_metal::MemoryConfig{});
-  ::tt::tt_metal::TensorSpec tensorSpec(metalShape, layout);
-
-  return ::tt::tt_metal::Tensor(std::move(hostBuffer), tensorSpec);
-}
-
 // Returns the output tensor spec of the prepared weights for a conv2d op.
 // Transform the standard OIHW weights layout to the ttnn convolution internal
 // layout that is desired. The output shape is dependant on the conv2d config
@@ -287,20 +250,6 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
     llvm::ArrayRef<int32_t> dilation, uint32_t groups,
     std::optional<mlir::tt::ttnn::Conv2dConfigAttr> conv2dConfig,
     bool hasBias) {
-  if (weightLayout.getBufferType() !=
-      mlir::tt::ttnn::BufferType::SystemMemory) {
-    llvm::report_fatal_error("Conv2d weight tensor assumed to be on host.");
-  }
-
-  // Create ttnn weight tesnor.
-  //
-  // TODO(#3070): Prepare conv2d weights only works with host tesnsors. This
-  // is slow and undesireable. We will move this to device once change
-  // https://github.com/tenstorrent/tt-metal/issues/20503 on metal lands in
-  // tt-mlir.
-  ::tt::tt_metal::Tensor weightTensor =
-      createMetalHostTensor(weightShape, weightLayout.getDataType());
-
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
@@ -310,6 +259,13 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
     return inputSpecExp.takeError();
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto weightSpecExp =
+      detail::convertToTensorSpec(device, weightShape, weightLayout);
+  if (!weightSpecExp) {
+    return weightSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec weightSpec = weightSpecExp.get();
 
   std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
       conv2dConfigConverted = conversion::getConv2dConfig(conv2dConfig);
@@ -324,13 +280,13 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
       // TODO(#2441): Need to match tensor dtypes with conv2d config.
       // This will be fixed on IR side shortly.
       localConfig.dtype = inputSpec.data_type();
-      localConfig.weights_dtype = weightTensor.dtype();
+      localConfig.weights_dtype = weightSpec.data_type();
     } else {
       localConfig = *conv2dConfigConverted;
     }
 
     return ::ttnn::graph::query_op_constraints(
-        prepare_fn, device, weightTensor, inputSpec.memory_config(),
+        prepare_fn, device, weightSpec, inputSpec.memory_config(),
         inputSpec.layout(), "OIHW", in_channels, out_channels, batch_size,
         input_height, input_width,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
@@ -363,20 +319,6 @@ getPrepareConvTranspose2dWeightsOpOutputTensorSpec(
     llvm::ArrayRef<int32_t> dilation, uint32_t groups,
     std::optional<mlir::tt::ttnn::Conv2dConfigAttr> conv2dConfig,
     bool hasBias) {
-  if (weightLayout.getBufferType() !=
-      mlir::tt::ttnn::BufferType::SystemMemory) {
-    llvm::report_fatal_error("Conv2d weight tensor assumed to be on host.");
-  }
-
-  // Create ttnn weight tesnor.
-  //
-  // TODO(#3070): Prepare conv2d weights only works with host tesnsors. This
-  // is slow and undesireable. We will move this to device once change
-  // https://github.com/tenstorrent/tt-metal/issues/20503 on metal lands in
-  // tt-mlir.
-  ::tt::tt_metal::Tensor weightTensor =
-      createMetalHostTensor(weightShape, weightLayout.getDataType());
-
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
@@ -386,6 +328,13 @@ getPrepareConvTranspose2dWeightsOpOutputTensorSpec(
     return inputSpecExp.takeError();
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto weightSpecExp =
+      detail::convertToTensorSpec(device, weightShape, weightLayout);
+  if (!weightSpecExp) {
+    return weightSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec weightSpec = weightSpecExp.get();
 
   std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
       conv2dConfigConverted = conversion::getConv2dConfig(conv2dConfig);
@@ -401,13 +350,13 @@ getPrepareConvTranspose2dWeightsOpOutputTensorSpec(
       // TODO(#2441): Need to match tensor dtypes with conv2d config.
       // This will be fixed on IR side shortly.
       localConfig.dtype = inputSpec.data_type();
-      localConfig.weights_dtype = weightTensor.dtype();
+      localConfig.weights_dtype = weightSpec.data_type();
     } else {
       localConfig = *conv2dConfigConverted;
     }
 
     return ::ttnn::graph::query_op_constraints(
-        prepare_fn, device, weightTensor, inputSpec.memory_config(),
+        prepare_fn, device, weightSpec, inputSpec.memory_config(),
         inputSpec.layout(), "IOHW", in_channels, out_channels, batch_size,
         input_height, input_width,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
