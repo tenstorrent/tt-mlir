@@ -96,8 +96,8 @@ public:
     assert(inputTiled != outputTiled &&
            "one of input or output must be tiled for now");
 
-    rewriter.replaceOpWithNewOp<GenericOp>(
-        op, op.getInput(), op.getOutput(),
+    auto tmp = rewriter.replaceOpWithNewOp<GenericOp>(
+        op, ValueRange{op.getInput()}, ValueRange{op.getOutput()},
         [=](OpBuilder &builder, Location loc, ValueRange blockArgs) {
           if (inputTiled) {
             builder.create<TileUntilizeBlockOp>(loc, blockArgs[0],
@@ -106,6 +106,8 @@ public:
             builder.create<TileTilizeBlockOp>(loc, blockArgs[0], blockArgs[1]);
           }
         });
+    llvm::errs() << "lowerFormatConversionGeneric produced: ";
+    tmp->dump();
 
     return success();
   }
@@ -115,6 +117,14 @@ public:
     llvm::errs() << "TTIRLowerToLayoutRewriter::matchAndRewrite\n";
     op->dump();
     auto components = op.compoundComponents();
+
+    llvm::errs() << "  isLayoutChange: " << components.isLayoutChange << "\n";
+    llvm::errs() << "  isGridChange: " << components.isGridChange << "\n";
+    llvm::errs() << "  isFormatChange: " << components.isFormatChange << "\n";
+    llvm::errs() << "  isMemorySpaceChange: " << components.isMemorySpaceChange
+                 << "\n";
+    llvm::errs() << "  isCompound(): " << components.isCompound() << "\n";
+
     if (components.isCompound()) {
       return failure();
     }
@@ -384,6 +394,8 @@ public:
       signalPassFailure();
       return;
     }
+    llvm::errs() << "success:\n";
+    // getOperation()->dump();
   }
 };
 

@@ -56,7 +56,7 @@ protected:
       mlir::RankedTensorType tensorType =
           mlir::cast<mlir::RankedTensorType>(value.getType());
 
-      // Get logical shape from existing tensor
+      // Get logical shape - for now this is the tensor shape
       llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
 
       // Create grid shape based on deviceGridRank
@@ -65,34 +65,24 @@ protected:
         gridShape.push_back(1); // Default to no distribution
       }
 
-      // Determine element type - use TileType if tiling is requested
+      // Determine element type and tile shape
       Type elementType = tensorType.getElementType();
       llvm::SmallVector<int64_t> tileShape;
       if (tiled && logicalShape.size() >= 2) {
         tileShape = {32, 32};
-        // Create tile type as element type
-        elementType = TileType::get(elementType, tileShape);
+        elementType = tt::TileType::get(elementType, tileShape);
       }
 
-      // Create the new MetalLayoutAttr
+      // Create the new MetalLayoutAttr with correct element type
       tt::MetalLayoutAttr layout = tt::MetalLayoutAttr::get(
           rewriter.getContext(), logicalShape, tt::OOBVal::Undef, memorySpace,
-          gridShape, tileShape, tensorType.getElementType());
+          gridShape, tileShape, elementType); // Use the new elementType!
 
-      // Derive physical shape - when tiled, don't include tile dims in shape
+      // Derive physical shape based on whether we're tiling
       auto physicalShape = tt::MetalLayoutAttr::derivePhysicalShape(
-          logicalShape, gridShape, {}); // Empty tileShape for shape calculation
+          logicalShape, gridShape, tileShape);
 
-      // If tiled, adjust the physical shape to be tile counts
-      if (tiled && !tileShape.empty()) {
-        // Convert last dimensions to tile counts
-        size_t firstTiledDim = physicalShape.size() - tileShape.size();
-        for (size_t i = 0; i < tileShape.size(); ++i) {
-          physicalShape[firstTiledDim + i] /= tileShape[i];
-        }
-      }
-
-      // Create tensor with TileType element type if tiled
+      // Create tensor with the derived shape and element type
       mlir::RankedTensorType layoutResultType =
           mlir::RankedTensorType::get(physicalShape, elementType, layout);
 
@@ -190,9 +180,10 @@ protected:
 
         // Remove tile dimensions from shape since they're now in the element
         // type E.g., [1, 1, 4, 3, 32, 32] with tile [32, 32] -> [1, 1, 4, 3]
-        size_t tiledDims = tileShape.size();
-        SmallVector<int64_t> memrefShape(physicalShape.begin(),
-                                         physicalShape.end() - tiledDims);
+        auto gridShape = tt::getMetalTensorGridShape(tensorType);
+        size_t gridRank = gridShape.size();
+        SmallVector<int64_t> memrefShape(physicalShape.begin() + gridRank,
+                                         physicalShape.end());
         physicalShape = memrefShape;
       }
 
