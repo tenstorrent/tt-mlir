@@ -392,6 +392,307 @@ public:
   }
 };
 
+mlir::LogicalResult matchFloatAttr(FloatAttr attr, float constant) {
+  float constValue = attr.getValue().convertToFloat();
+  if (constValue != constant) {
+    return failure();
+  }
+
+  return success();
+}
+
+mlir::LogicalResult matchConstantValue(FullOp full, float constant) {
+  FloatAttr valueAttr = mlir::dyn_cast_or_null<FloatAttr>(full.getFillValue());
+  if (!valueAttr) {
+    return failure();
+  }
+
+  return matchFloatAttr(valueAttr, constant);
+}
+
+class ErfApproximationFusionPattern
+    : public mlir::OpRewritePattern<ClampScalarOp> {
+public:
+  ErfApproximationFusionPattern(MLIRContext *context)
+      : OpRewritePattern(context, PatternBenefit(2)) {}
+
+  mlir::LogicalResult
+  matchAndRewrite(ClampScalarOp clamp,
+                  mlir::PatternRewriter &rewriter) const final {
+    // This RewritePattern will fuse the following approximation of `erf` to
+    // ttir::ErfOp
+    //
+    // x = clamp(x, -4.0, 4.0)
+    //         x * Nested polynomial (x^2)
+    // x = ------------------------------------
+    //       Different nested polynomial(x^2)
+    // x = clamp(x, -1.0 , 1.0)
+    //
+    // A nested polynomial is one which takes the form
+    // f(x) = (((((((ax + b)x + c)x + d)x + ...))))
+
+    // Check if the clamp is between -1.0 and 1.0
+    if (mlir::failed(matchFloatAttr(clamp.getMinAttr(), -1.0)) ||
+        mlir::failed(matchFloatAttr(clamp.getMaxAttr(), 1.0))) {
+      return failure();
+    }
+
+    DivOp div = dyn_cast_or_null<DivOp>(clamp.getInput().getDefiningOp());
+    if (!div) {
+      return failure();
+    }
+
+    // The numerator is a nested polynomial which is multiplied by the
+    // clamped erf input: x * Nested polynomial (x^2)
+    MultiplyOp numerator =
+        mlir::dyn_cast_or_null<MultiplyOp>(div.getLhs().getDefiningOp());
+    if (!numerator) {
+      return failure();
+    }
+
+    // The numerator polynomial is multiplied by the clamped erf input on the
+    // left hand side.
+    ClampScalarOp clampedErfInput =
+        dyn_cast_or_null<ClampScalarOp>(numerator.getLhs().getDefiningOp());
+    if (!clampedErfInput) {
+      return failure();
+    }
+
+    // Check if the clamp is between -4.0 and 4.0
+    if (mlir::failed(matchFloatAttr(clampedErfInput.getMinAttr(), -4.0)) ||
+        mlir::failed(matchFloatAttr(clampedErfInput.getMaxAttr(), 4.0))) {
+      return failure();
+    }
+
+    AddOp numeratorPolynomial =
+        mlir::dyn_cast_or_null<AddOp>(numerator.getRhs().getDefiningOp());
+    if (!numeratorPolynomial) {
+      return failure();
+    }
+
+    Value polynomialArg = nullptr;
+    // The numerator is a nested polynomial with constants (in order from
+    // closest to the div to furthest):
+    SmallVector<float> numeratorPolynomialCoefficients = {
+        -1.60960333262415e-02f, -2.95459980854025e-03f, -7.34990630326855e-04f,
+        -5.69250639462346e-05f, -2.10102402082508e-06f, 2.77068142495902e-08f};
+
+    float numeratorA = -2.72614225801306e-10f;
+
+    if (mlir::failed(matchNestedPolynomial(numeratorPolynomial, numeratorA,
+                                           numeratorPolynomialCoefficients,
+                                           polynomialArg))) {
+      return failure();
+    }
+
+    AddOp denominator =
+        mlir::dyn_cast_or_null<AddOp>(div.getRhs().getDefiningOp());
+    if (!denominator) {
+      return failure();
+    }
+
+    // The denominator is a the input sacaled followed by nested polynomial
+    // with constants (in order from closest to the div to furthest):
+    SmallVector<float> denominatorPolynomialCoefficients = {
+        -1.42647390514189e-02f, -7.37332916720468e-03f, -1.68282697438203e-03f,
+        -2.13374055278905e-04f};
+    float denominatorA = -1.45660718464996e-05f;
+
+    // We pass the same polynomialArg to the denominator because we expect it to
+    // be the same as the numerators.
+    if (mlir::failed(matchNestedPolynomial(denominator, denominatorA,
+                                           denominatorPolynomialCoefficients,
+                                           polynomialArg))) {
+      return failure();
+    }
+
+    // The polynomial argument is the square of the (clamped) erf input, applied
+    // via a MultiplyOp (rather than PowOp)
+    MultiplyOp polynomialArgOp =
+        dyn_cast_or_null<MultiplyOp>(polynomialArg.getDefiningOp());
+    if (!polynomialArgOp) {
+      return failure();
+    }
+    if (polynomialArgOp.getLhs() != polynomialArgOp.getRhs()) {
+      return failure();
+    }
+    if (polynomialArgOp.getLhs().getDefiningOp() != clampedErfInput) {
+      return failure();
+    }
+
+    Value erfInput = clampedErfInput.getInput();
+
+    ErfOp erf = utils::createDPSOp<ErfOp>(
+        rewriter, ttmlir::utils::appendLocationSuffix(clamp.getLoc(), "_clamp"),
+        mlir::cast<RankedTensorType>(clamp.getType()), erfInput);
+    rewriter.replaceOp(clamp, erf);
+    return success();
+  }
+
+private:
+  // Matches: (((ax + coefficients[-1])x + coefficients[-2])x + ...)
+  mlir::LogicalResult matchNestedPolynomial(AddOp polynomial, float a,
+                                            SmallVector<float> coefficients,
+                                            Value &polynomialArg) const {
+    AddOp current = polynomial;
+    MultiplyOp finalMul = nullptr;
+    for (uint32_t i = 0; i < coefficients.size(); i++) {
+      float coefficient = coefficients[i];
+      if (!current) {
+        return failure();
+      }
+      // Rhs of add must be a constant with a single value matching
+      // `coefficient`
+
+      FullOp constCoefficient =
+          mlir::dyn_cast_or_null<FullOp>(current.getRhs().getDefiningOp());
+      if (!constCoefficient) {
+        return failure();
+      }
+
+      if (mlir::failed(matchConstantValue(constCoefficient, coefficient))) {
+        return failure();
+      }
+
+      MultiplyOp multiply =
+          mlir::dyn_cast_or_null<MultiplyOp>(current.getLhs().getDefiningOp());
+      if (!multiply) {
+        return failure();
+      }
+
+      if (!polynomialArg) {
+        polynomialArg = multiply.getRhs();
+      } else if (polynomialArg != multiply.getRhs()) {
+        return failure();
+      }
+
+      current =
+          mlir::dyn_cast_or_null<AddOp>(multiply.getLhs().getDefiningOp());
+      finalMul = multiply;
+    }
+
+    // Match the final "ax" part of the nested polynomial
+    FullOp constA =
+        mlir::dyn_cast_or_null<FullOp>(finalMul.getLhs().getDefiningOp());
+    if (!constA) {
+      return failure();
+    }
+
+    if (mlir::failed(matchConstantValue(constA, a))) {
+      return failure();
+    }
+
+    return success();
+  }
+};
+
+class GeluFusionPattern : public mlir::OpRewritePattern<MultiplyOp> {
+public:
+  GeluFusionPattern(MLIRContext *context)
+      : OpRewritePattern(context, PatternBenefit(2)) {}
+
+  LogicalResult matchAndRewrite(MultiplyOp multiply,
+                                PatternRewriter &rewriter) const final {
+    // gelu can be presented as this pattern:
+    //
+    // gelu(x) = (0.5*x)*(1 + erf(x*rsqrt(2)))
+    //
+    // This fusion pattern will fuse this representation of gelu
+
+    // The RHS of the multiply shall be 0.5*x
+
+    MultiplyOp multiplyByHalf = dyn_cast_or_null<MultiplyOp>(
+        skipTypecast(multiply.getRhs().getDefiningOp()));
+    if (!multiplyByHalf) {
+      return failure();
+    }
+
+    // The LHS of multiplyByHalf will be the input to gelu, the RHS will be a
+    // 0.5 constant
+    FullOp half = dyn_cast_or_null<FullOp>(
+        skipTypecast(multiplyByHalf.getRhs().getDefiningOp()));
+    if (!half) {
+      return failure();
+    }
+
+    if (mlir::failed(matchConstantValue(half, 0.5))) {
+      return failure();
+    }
+    Value geluInput = multiplyByHalf.getLhs();
+
+    // LHS of multiply should be add(erf(multiply(geluInput, rsqrt(2))), 1)
+
+    AddOp plusOne = dyn_cast_or_null<AddOp>(
+        skipTypecast(multiply.getLhs().getDefiningOp()));
+    if (!plusOne) {
+      return failure();
+    }
+
+    FullOp one = dyn_cast_or_null<FullOp>(
+        skipTypecast(plusOne.getRhs().getDefiningOp()));
+    if (!one) {
+      return failure();
+    }
+
+    if (mlir::failed(matchConstantValue(one, 1.0))) {
+      return failure();
+    }
+
+    ErfOp erf =
+        dyn_cast_or_null<ErfOp>(skipTypecast(plusOne.getLhs().getDefiningOp()));
+    if (!erf) {
+      return failure();
+    }
+
+    MultiplyOp multiplyByRsqrt2 = dyn_cast_or_null<MultiplyOp>(
+        skipTypecast(erf.getInput().getDefiningOp()));
+    if (!multiplyByRsqrt2) {
+      return failure();
+    }
+
+    // The LHS of this multiply must be the gelu input
+    if (multiplyByRsqrt2.getLhs() != geluInput) {
+      return failure();
+    }
+
+    RsqrtOp rsqrt2 = dyn_cast_or_null<RsqrtOp>(
+        skipTypecast(multiplyByRsqrt2.getRhs().getDefiningOp()));
+    if (!rsqrt2) {
+      return failure();
+    }
+
+    FullOp two = dyn_cast_or_null<FullOp>(
+        skipTypecast(rsqrt2.getInput().getDefiningOp()));
+    if (!two) {
+      return failure();
+    }
+
+    if (mlir::failed(matchConstantValue(two, 2.0))) {
+      return failure();
+    }
+
+    GeluOp gelu = utils::createDPSOp<GeluOp>(
+        rewriter,
+        ttmlir::utils::appendLocationSuffix(multiply.getLoc(), "_multiply"),
+        mlir::cast<RankedTensorType>(multiply.getType()), geluInput);
+    rewriter.replaceOp(multiply, gelu);
+
+    return success();
+  }
+
+private:
+  // Decompositions will frequently instert typecasts if the original precision
+  // is less than f32. We still want to fuse gelu even if its decomposition
+  // has typecasts.
+  Operation *skipTypecast(Operation *op) const {
+    Operation *out = op;
+    while (llvm::isa_and_nonnull<TypecastOp>(out)) {
+      out = out->getOperand(0).getDefiningOp();
+    }
+    return out;
+  }
+};
+
 class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
 public:
   using impl::TTIRFusingBase<TTIRFusingPass>::TTIRFusingBase;
@@ -420,6 +721,8 @@ public:
 
       patterns.add<SoftmaxFusionPattern>(&getContext());
       patterns.add<Conv2dWithMultiply>(&getContext());
+      patterns.add<ErfApproximationFusionPattern>(&getContext());
+      patterns.add<GeluFusionPattern>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);
