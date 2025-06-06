@@ -5,7 +5,7 @@ Three workflows which combine some sequence of splitting, compiling and running 
 
 Workflows return a list of OpTest pydantic models (which are intermediary objects we use in CI reporting infra, between our compiler and final DB tables) which unambiguously describe the "state" of ops found in model. These can be dumped in pytest reports in frontends, and CI workflows will pick them up and add them to Superset datasets.
 
-![Workflows](../public/images/op-by-op-workflows.png)
+![Workflows](../../docs/public/images/op-by-op-workflows.png)
 
 # How to use workflows from frontends
 
