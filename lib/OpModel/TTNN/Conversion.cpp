@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
-#include <tt-metalium/base_types.hpp>
 #ifdef TTMLIR_ENABLE_OPMODEL
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 
