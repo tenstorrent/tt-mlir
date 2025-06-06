@@ -2170,9 +2170,25 @@ std::shared_ptr<void> ttnnToFlatbuffer(
         funcOpToProgram<::tt::target::ttnn::Operation>(
             cache, func, emitTTNNOperation, tensorValueToFlatbuffer,
             programIdxMap);
+
+    DeviceAttr deviceAttr = lookupDevice(func);
+    assert(deviceAttr);
+
+    ::tt::target::Dim2d meshShape;
+
+    ArrayRef<int64_t> meshShapeArr = deviceAttr.getMeshShape();
+
+    // Default to 1x1 if not specified.
+    if (meshShapeArr.empty()) {
+      meshShape = ::tt::target::Dim2d(1, 1);
+    } else {
+      assert(meshShapeArr.size() == 2 && "Ill-Sized Mesh Shape");
+      meshShape = ::tt::target::Dim2d(meshShapeArr[0], meshShapeArr[1]);
+    }
+
     programs.push_back(::tt::target::ttnn::CreateProgramDirect(
         fbb, program.name, &program.inputs, &program.outputs, &program.ops,
-        &dylibs, debugInfo, /*private=*/false));
+        &dylibs, debugInfo, /*private=*/false, &meshShape));
   });
   // Then process const-eval funcs in 2nd pass.
   module->walk([&](func::FuncOp func) {
@@ -2183,9 +2199,25 @@ std::shared_ptr<void> ttnnToFlatbuffer(
         funcOpToProgram<::tt::target::ttnn::Operation>(
             cache, func, emitTTNNOperation, tensorValueToFlatbuffer,
             programIdxMap);
+
+    DeviceAttr deviceAttr = lookupDevice(func);
+    assert(deviceAttr);
+
+    ::tt::target::Dim2d meshShape;
+
+    ArrayRef<int64_t> meshShapeArr = deviceAttr.getMeshShape();
+
+    // Default to 1x1 if not specified.
+    if (meshShapeArr.empty()) {
+      meshShape = ::tt::target::Dim2d(1, 1);
+    } else {
+      assert(meshShapeArr.size() == 2 && "Ill-Sized Mesh Shape");
+      meshShape = ::tt::target::Dim2d(meshShapeArr[0], meshShapeArr[1]);
+    }
+
     programs.push_back(::tt::target::ttnn::CreateProgramDirect(
         fbb, program.name, &program.inputs, &program.outputs, &program.ops,
-        &dylibs, debugInfo, /*private=*/true));
+        &dylibs, debugInfo, /*private=*/true, &meshShape));
   });
 
   auto binary = ::tt::target::ttnn::CreateTTNNBinaryDirect(
