@@ -210,6 +210,27 @@ def TTKernel_AddTilesOp : TTKernel_FPUOp<"add_tiles", [TTKernel_BinaryOpTrait]> 
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, IndexLike:$in0_tile_index, IndexLike:$in1_tile_index, IndexLike:$dst_index);
 }
 
+def TTKernel_SubTilesInitOp : TTKernel_InitOp<"sub_tiles_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before sub_tiles.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb); // FIXME: , BOOL:$acc_to_dst);
+}
+
+def TTKernel_SubTilesOp : TTKernel_FPUOp<"sub_tiles", [TTKernel_BinaryOpTrait]> {
+    let summary = "Sub operation";
+    let description = [{
+      Performs element-wise subtraction C=A-B of tiles in two CBs at given
+      indices and writes the result to the DST register at index dst_tile_index.
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, IndexLike:$in0_tile_index, IndexLike:$in1_tile_index, IndexLike:$dst_index);
+}
+
 def TTKernel_MulTilesInitOp : TTKernel_InitOp<"mul_tiles_init"> {
     let summary = "Short init function";
     let description = [{
@@ -441,6 +462,39 @@ def TTKernel_SinTileOp : TTKernel_SFPUOp<"sin_tile", [TTKernel_UnaryOpTrait]> {
     let arguments = (ins IndexLike:$dst0_index);
 }
 
+def TTKernel_RoundingTileInitOp : TTKernel_InitOp<"rounding_op_tile_init"> {
+    let summary = "Init function for ceil/floor/round_tile operation. Refer to documentation for any init function.";
+    let description = [{
+      Must be run before ceil/floor/round_tile.
+    }];
+
+    let arguments = (ins);
+}
+
+def TTKernel_CeilTileOp : TTKernel_SFPUOp<"ceil_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Ceil tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise computation of ceil operation
+      DST[dst0_index] <- ceil(DST[dst0_index])
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index);
+}
+
+def TTKernel_CeilTileF32Op : TTKernel_SFPUOp<"ceil_tile_float32", [TTKernel_UnaryOpTrait]> {
+    let summary = "Ceil f32 tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise computation of ceil operation
+      DST[dst0_index] <- ceil(DST[dst0_index])
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index);
+}
+
 def TTKernel_FillTileInitOp : TTKernel_InitOp<"fill_tile_init"> {
     let summary = "Init function for fill_tile operation. Refer to documentation for any init function.";
     let description = [{
@@ -450,7 +504,7 @@ def TTKernel_FillTileInitOp : TTKernel_InitOp<"fill_tile_init"> {
     let arguments = (ins);
 }
 
-def TTKernel_FillTileOp : TTKernel_Op<"fill_tile"> {
+def TTKernel_FillTileOp : TTKernel_SFPUOp<"fill_tile", [TTKernel_UnaryOpTrait]> {
     let summary = "Fill tile with specified value.";
     let description = [{
       Fills supplied DST register tile with a supplied f32 value. The DST
@@ -461,9 +515,8 @@ def TTKernel_FillTileOp : TTKernel_Op<"fill_tile"> {
       ttkernel.fill_tile(%dst_index, %value);
       ```
     }];
-    let arguments = (ins  IndexLike: $dst_index,
-                          F32:$value
-                    );
+
+    let arguments = (ins IndexLike: $dst_index, F32:$value);
 }
 
 def TTKernel_SigmoidTileInitOp : TTKernel_InitOp<"sigmoid_tile_init"> {
