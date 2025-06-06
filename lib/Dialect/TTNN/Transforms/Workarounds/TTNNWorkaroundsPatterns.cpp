@@ -314,6 +314,89 @@ public:
   }
 };
 
+class TTNNAllGatherWorkarounds : public OpRewritePattern<ttnn::AllGatherOp> {
+public:
+  using OpRewritePattern<ttnn::AllGatherOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttnn::AllGatherOp op,
+                                PatternRewriter &rewriter) const override {
+    RankedTensorType inputType =
+        mlir::cast<RankedTensorType>(op.getInput().getType());
+    llvm::SmallVector<int64_t> inputTypeShape(inputType.getShape());
+
+    if (inputTypeShape.size() >= 3) {
+      return failure();
+    }
+
+    // First we add a rank of size 1 to the input tensor at the 'dimension'
+    // index.
+    Location loc = op.getLoc();
+    auto dimension = op.getAllGatherDim();
+    llvm::SmallVector<int64_t> reshapedInputShape(inputTypeShape);
+    reshapedInputShape.insert(reshapedInputShape.begin() + dimension, 1);
+    ArrayAttr reshapedInputShapeAttr =
+        rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(
+            reshapedInputShape.begin(), reshapedInputShape.end()));
+    auto reshapedInputType =
+        RankedTensorType::Builder(inputType).setShape(reshapedInputShape);
+    ttnn::ReshapeOp preReshapeOp = rewriter.create<ttnn::ReshapeOp>(
+        loc, Type(reshapedInputType), op.getInput(), reshapedInputShapeAttr,
+        /* memory_config */ nullptr);
+
+    // Next, we want to permute the 'dimension' index to the first index.
+    llvm::SmallVector<int64_t> permutation =
+        llvm::to_vector(llvm::seq<int64_t>(reshapedInputShape.size()));
+    std::swap(permutation[0], permutation[dimension]);
+    mlir::RankedTensorType preReshapeType = preReshapeOp.getType();
+    llvm::ArrayRef<int64_t> preReshapeShape = preReshapeType.getShape();
+    llvm::SmallVector<int64_t> permutedShape =
+        ttmlir::utils::applyPermutation(preReshapeShape, permutation);
+    mlir::RankedTensorType adaptedInputType =
+        RankedTensorType::Builder(preReshapeType).setShape(permutedShape);
+    auto adaptedInput = rewriter.create<ttnn::PermuteOp>(
+        loc, adaptedInputType, preReshapeOp,
+        rewriter.getDenseI64ArrayAttr(permutation),
+        /*memory_config=*/ttnn::MemoryConfigAttr(),
+        /*pad_value=*/mlir::FloatAttr());
+
+    // Determine the shape of its input tensor. The new tensor
+    // shape at the all_gather_dim will be tensor_shape[all_gather_dim] =
+    // original_tensor_shape * num_devices.
+    uint32_t clusterAxis = op.getClusterAxis();
+    auto deviceDesc = lookupDevice(op);
+    ::llvm::ArrayRef<int64_t> meshShape = deviceDesc.getMeshShape();
+    permutedShape[0] = permutedShape[0] * meshShape[clusterAxis];
+    RankedTensorType gatherInputType =
+        RankedTensorType::Builder(inputType).setShape(permutedShape);
+    ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
+        op->getLoc(), gatherInputType, adaptedInput, op.getDevice(), 0,
+        clusterAxis);
+    mlir::RankedTensorType allGatherOpType = allGatherOp.getType();
+    llvm::ArrayRef<int64_t> allGatherOpShape = allGatherOpType.getShape();
+    llvm::SmallVector<int64_t> permutedAllGatherShape =
+        ttmlir::utils::applyPermutation(allGatherOpShape, permutation);
+    mlir::RankedTensorType permutedAllGatherType =
+        RankedTensorType::Builder(inputType).setShape(permutedAllGatherShape);
+    auto adaptedInput_2 = rewriter.create<ttnn::PermuteOp>(
+        loc, permutedAllGatherType, allGatherOp,
+        rewriter.getDenseI64ArrayAttr(permutation),
+        /*memory_config=*/ttnn::MemoryConfigAttr(),
+        /*pad_value=*/mlir::FloatAttr());
+
+    // Reshape back to the expected all_gather solution.
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(op.getType());
+    llvm::SmallVector<int64_t> outputTypeShape(outputType.getShape());
+    ArrayAttr reshapedOutputShapeAttr =
+        rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(
+            outputTypeShape.begin(), outputTypeShape.end()));
+    rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
+        op, Type(outputType), adaptedInput_2.getResult(),
+        reshapedOutputShapeAttr, /* memory_config */ nullptr);
+
+    return success();
+  }
+};
+
 //
 // Two workarounds are implemented here to avoid issues in ttnn
 //
@@ -573,7 +656,7 @@ public:
     if (decompositionWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
       patterns.add<
-          TTNNAllReduceWorkarounds,
+          TTNNAllReduceWorkarounds, TTNNAllGatherWorkarounds,
           workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
               ttnn::SumOp, /*keepDimUnsupported*/ false>,
           workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
