@@ -623,7 +623,8 @@ TEST_F(OpModelBase, Conv2dInterface) {
   Type weightElementType = builder.getBF16Type();
   auto weightLayout = mlir::tt::ttnn::TTNNLayoutAttr::get(
       &context, weightShape, weightElementType,
-      mlir::tt::ttnn::BufferType::SystemMemory, GridAttr::get(&context, 2));
+      mlir::tt::ttnn::BufferType::DRAM, GridAttr::get(&context, 2),
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
   auto weight = createEmptyTensor(weightShape, weightElementType, weightLayout);
   auto outputType = createRankedTensorType(outputShape);
 
@@ -687,7 +688,8 @@ TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
   Type weightElementType = builder.getBF16Type();
   auto weightLayout = mlir::tt::ttnn::TTNNLayoutAttr::get(
       &context, weightShape, weightElementType,
-      mlir::tt::ttnn::BufferType::SystemMemory, GridAttr::get(&context, 2));
+      mlir::tt::ttnn::BufferType::DRAM, GridAttr::get(&context, 2),
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
   auto weight = createEmptyTensor(weightShape, weightElementType, weightLayout);
   auto outputType = createRankedTensorType(outputShape);
 
@@ -753,8 +755,9 @@ TEST_F(OpModelBase, PrepareConv2dWeightsOutput) {
   auto input = createEmptyTensor(inputShape, elemetType, inputLayout);
 
   auto weightLayout = mlir::tt::ttnn::TTNNLayoutAttr::get(
-      &context, weightShape, elemetType,
-      mlir::tt::ttnn::BufferType::SystemMemory, GridAttr::get(&context, 2));
+      &context, weightShape, elemetType, mlir::tt::ttnn::BufferType::DRAM,
+      GridAttr::get(&context, 2),
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
   auto weight = createEmptyTensor(weightShape, elemetType, weightLayout);
 
   auto outputType = createRankedTensorType(outputShape);
@@ -797,8 +800,9 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
   auto input = createEmptyTensor(inputShape, elemetType, inputLayout);
 
   auto weightLayout = mlir::tt::ttnn::TTNNLayoutAttr::get(
-      &context, weightShape, elemetType,
-      mlir::tt::ttnn::BufferType::SystemMemory, GridAttr::get(&context, 2));
+      &context, weightShape, elemetType, mlir::tt::ttnn::BufferType::DRAM,
+      GridAttr::get(&context, 2),
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
   auto weight = createEmptyTensor(weightShape, elemetType, weightLayout);
 
   auto outputType = createRankedTensorType(outputShape);
@@ -834,7 +838,7 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
       /*core_grid=*/ttnn::CoreRangeSetAttr(),
       /*transpose_shards=*/BoolAttr::get(&context, false),
       /*output_layout=*/Layout::Tile,
-      /*preprocess_weights_on_device=*/BoolAttr::get(&context, false),
+      /*preprocess_weights_on_device=*/BoolAttr::get(&context, true),
       /*always_preprocess_weights=*/BoolAttr::get(&context, false),
       /*enable_act_double_buffer=*/BoolAttr::get(&context, false),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, false),
@@ -873,7 +877,7 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
       /*core_grid=*/ttnn::CoreRangeSetAttr(),
       /*transpose_shards=*/BoolAttr::get(&context, false),
       /*output_layout=*/Layout::Tile,
-      /*preprocess_weights_on_device=*/BoolAttr::get(&context, false),
+      /*preprocess_weights_on_device=*/BoolAttr::get(&context, true),
       /*always_preprocess_weights=*/BoolAttr::get(&context, false),
       /*enable_act_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, true),
@@ -915,8 +919,9 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
   auto input = createEmptyTensor(inputShape, elemetType, inputLayout);
 
   auto weightLayout = mlir::tt::ttnn::TTNNLayoutAttr::get(
-      &context, weightShape, elemetType,
-      mlir::tt::ttnn::BufferType::SystemMemory, GridAttr::get(&context, 2));
+      &context, weightShape, elemetType, mlir::tt::ttnn::BufferType::DRAM,
+      GridAttr::get(&context, 2),
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
   auto weight = createEmptyTensor(weightShape, elemetType, weightLayout);
 
   auto outputType = createRankedTensorType(outputShape);
@@ -949,7 +954,7 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
       /*core_grid=*/ttnn::CoreRangeSetAttr(),
       /*transpose_shards=*/BoolAttr::get(&context, false),
       /*output_layout=*/Layout::Tile,
-      /*preprocess_weights_on_device=*/BoolAttr::get(&context, false),
+      /*preprocess_weights_on_device=*/BoolAttr::get(&context, true),
       /*always_preprocess_weights=*/BoolAttr::get(&context, false),
       /*enable_act_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, true),
