@@ -20,6 +20,7 @@ include "ttmlir/Target/TTNN/operations/moreh_cumsum.fbs";
 include "ttmlir/Target/TTNN/operations/normalization.fbs";
 include "ttmlir/Target/TTNN/operations/pool.fbs";
 include "ttmlir/Target/TTNN/operations/reduction.fbs";
+include "ttmlir/Target/TTNN/operations/trace.fbs";
 
 namespace tt.target.ttnn;
 
@@ -75,7 +76,8 @@ union OpType {
   ReductionOp,
   ReductionProdOp,
   LoadCachedOp,
-  BatchNormOp
+  BatchNormOp,
+  TraceOp
 }
 
 table Operation {

@@ -160,11 +160,11 @@ class Run:
             help="disable runtime raw host data pointer wrapper workaround",
         )
         Run.register_arg(
-            name="--disable-manual-device-storage-from-borrowed-storage",
+            name="--disable-trace-implicit-from-device",
             type=bool,
             default=False,
             choices=[True, False],
-            help="disable converting a borrowed storage tensor to device storage tensor workaround",
+            help="disable trace from implicitly bouncing tensors off of host",
         )
         Run.register_arg(
             name="--result-file",
@@ -249,6 +249,13 @@ class Run:
             default=False,
             choices=[True, False],
             help="enable program cache in ttnn runtime",
+        )
+        Run.register_arg(
+            name="--trace-region-size",
+            type=int,
+            default=0,
+            choices=None,
+            help="Device trace region size",
         )
         Run.register_arg(
             name="--dump-device-rate",
@@ -498,6 +505,7 @@ class Run:
                 not self["--disable-swap-binary-operands"],
                 not self["--disable-read-update-index-for-kv-cache"],
                 not self["--disable-raw-host-data-pointer-wrapper"],
+                not self["--disable-trace-implicit-from-device"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
             perf_env = ttrt.runtime.DebugPerfEnv.get(
@@ -527,6 +535,7 @@ class Run:
             mesh_options = ttrt.runtime.MeshDeviceOptions()
             mesh_options.dispatch_core_type = dispatch_core_type
             mesh_options.enable_program_cache = self["--enable-program-cache"]
+            mesh_options.trace_region_size = self["--trace-region-size"]
             device = ttrt.runtime.open_mesh_device(mesh_shape, mesh_options)
 
             for bin in binaries:
@@ -715,6 +724,7 @@ class Run:
                                 inputs,
                             )
 
+                        start_loop = time.perf_counter()
                         for loop in range(self["--loops"]):
                             self.logging.debug(
                                 f"starting loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
@@ -821,13 +831,19 @@ class Run:
 
                         end = time.perf_counter()
                         if self["--benchmark"]:
+                            bin.e2e_duration_milliseconds_all_loops = (
+                                end - start_loop
+                            ) * 1000
                             bin.e2e_duration_milliseconds = (end - start) * 1000
                             batch_size = inputs[0].get_shape()[0]
                             samples_per_second = (
                                 batch_size / bin.e2e_duration_milliseconds * 1000
                             )
                             self.logging.info(
-                                f"Execution time: {bin.e2e_duration_milliseconds} ms"
+                                f"Total execution time over {self['--loops']} loops: {bin.e2e_duration_milliseconds_all_loops} ms"
+                            )
+                            self.logging.info(
+                                f"Execution time last loop: {bin.e2e_duration_milliseconds} ms"
                             )
                             self.logging.info(f"Batch size: {batch_size}")
                             self.logging.info(

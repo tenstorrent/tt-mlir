@@ -54,5 +54,9 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *memcfg);
                             const ::ttnn::Shape &shape,
                             const ::ttnn::DataType &dataType);
 
+::ttnn::Tensor
+allocateTensorOnDevice(const ::tt::target::ttnn::TensorRef *tensorRef,
+                       ::ttnn::MeshDevice &meshDevice);
+
 } // namespace tt::runtime::ttnn::operations::utils
 #endif

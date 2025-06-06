@@ -2023,4 +2023,65 @@ def TTNN_RequantizeOp : TTNN_Op<"requantize"> {
 
     let hasVerifier = 1;
 }
+
+def TTNN_TraceOp : TTNN_Op<"trace"> {
+    let summary = "Trace capture and execute operation.";
+    let description = [{
+      Executes metal trace for the called function within the trace op. The called function will be a collection
+      of hoisted operations from the original graph. For now, all ttnn operations that come after getDevice and const-eval
+      will be hoisted.
+
+      Inputs:
+        - `device` TTNN_Device: The device to capture and execute the trace on.
+        - `cq_id` i32: The command queue to capture the trace with. Must be 0 or 1.
+        - `blocking` bool: Whether the trace should be executed synchronously.
+        - `callee` FlatSymbolRefAttr: The symbol of the function to trace.
+        - `inputs` Variadic<AnyRankedTensor>: The input tensors to the trace.
+
+      Outputs:
+        - `results` Variadic<AnyRankedTensor>: The output tensors from the trace.
+
+      Example:
+
+      ```
+      %0 = ttir.empty() : tensor<32x32xbf16>
+      %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      return %1 : tensor<32x32xbf16>
+      ```
+
+      will generate the following trace function (arbitrarily naming it as `single_add_trace_0`):
+
+      ```
+      func.func @single_add_trace_0(%arg0: tensor<32x32xbf16, #ttnn_layout>, %arg1: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout> attributes {ttnn.trace} {
+        %0 = "ttnn.add"(%arg0, %arg1) : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
+        return %0 : tensor<32x32xbf16, #ttnn_layout>
+      }
+      ```
+
+      The main function call will get transformed to a ttnn.trace call that traces the `single_add_trace_0` function:
+
+      ```
+      %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
+      %1 = ttnn.trace(%0, 0, true, @single_add_trace_0, [%arg0, %arg1]) : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
+      ```
+    }];
+
+    let arguments = (ins
+      TTNN_Device:$device,
+      I32Attr:$cq_id,
+      BoolAttr:$blocking,
+      FlatSymbolRefAttr:$callee,
+      Variadic<AnyRankedTensor>:$inputs
+    );
+
+    let results = (outs
+      Variadic<AnyRankedTensor>:$results
+    );
+
+    let assemblyFormat = [{
+      `(` $device `,` $cq_id `,` $blocking `,` $callee `,` `[` $inputs `]` `)` attr-dict `:` functional-type($inputs, $results)
+    }];
+
+    let hasVerifier = 1;
+}
 #endif

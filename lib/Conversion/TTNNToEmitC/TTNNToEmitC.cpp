@@ -1794,6 +1794,129 @@ public:
 };
 } // namespace
 
+namespace {
+
+// We do not support trace in emitc, so for now, mimic the behaviour of
+// LoadCachedOp to run the operations within the trace function. Update this
+// when we add trace support to emitc.
+class TraceOpConversionPattern : public OpConversionPattern<tt::ttnn::TraceOp> {
+
+public:
+  using OpConversionPattern<tt::ttnn::TraceOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::TraceOp srcOp, tt::ttnn::TraceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Get the callee function
+    llvm::StringRef callee = srcOp.getCallee();
+
+    // Try to find if utility vec creation function is already defined in the
+    // module. If not, insert it.
+    tt::ttnn_to_emitc::utils::insertVecCreateFnIfNotExists(rewriter, srcOp);
+
+    // Create a tuple of all input tensors
+    auto tupleType = emitc::OpaqueType::get(rewriter.getContext(),
+                                            "::std::vector<::ttnn::Tensor>");
+
+    // Convert result types
+    SmallVector<Type> resultTypes;
+    for (auto type : srcOp.getResultTypes()) {
+      resultTypes.push_back(getTypeConverter()->convertType(type));
+    }
+
+    // Generate a unique name for our global variable
+    std::string globalVarName = "g_trace_cached_result_" + callee.str();
+    FlatSymbolRefAttr globalSym =
+        SymbolRefAttr::get(rewriter.getContext(), globalVarName);
+
+    // Insert a global variable declaration before the current function
+    // This ensures it comes after the header include in the generated C++ code
+    auto funcOp = srcOp->getParentOfType<func::FuncOp>();
+    auto currentInsertionPoint = rewriter.saveInsertionPoint();
+    rewriter.setInsertionPoint(funcOp);
+
+    // Create the global variable using EmitC's GlobalOp
+    rewriter.create<emitc::GlobalOp>(
+        srcOp.getLoc(), StringAttr::get(rewriter.getContext(), globalVarName),
+        TypeAttr::get(tupleType),
+        /*initialValue=*/nullptr,
+        /*extern_specifier=*/UnitAttr(),
+        /*static_specifier=*/UnitAttr::get(rewriter.getContext()),
+        /*const_specifier=*/UnitAttr());
+
+    // Restore the insertion point to continue with the function
+    rewriter.restoreInsertionPoint(currentInsertionPoint);
+
+    // Create the function pointer type
+    auto funcPtrType = emitc::OpaqueType::get(
+        rewriter.getContext(), "::std::function<::std::vector<::ttnn::Tensor>(:"
+                               ":std::vector<::ttnn::Tensor>)>");
+    auto addressAttr =
+        emitc::OpaqueAttr::get(rewriter.getContext(), "&" + callee.str());
+    auto funcPtrValue = rewriter.create<emitc::ConstantOp>(
+        srcOp.getLoc(), funcPtrType, addressAttr);
+
+    auto tupleOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(), tupleType,
+        tt::ttnn_to_emitc::utils::kCreateVectorFunctionName, nullptr, nullptr,
+        adaptor.getInputs());
+    Value tupleValue = tupleOp.getResult(0);
+
+    // Get a reference to the global variable using GetGlobalOp
+    auto globalVar = rewriter.create<emitc::GetGlobalOp>(
+        srcOp.getLoc(), emitc::LValueType::get(tupleType), globalSym);
+
+    // Create a pointer type for the output parameter
+    auto ptrType = emitc::PointerType::get(rewriter.getContext(), tupleType);
+
+    // Get the address of the global variable
+    auto addressOfOp = rewriter.create<emitc::ApplyOp>(srcOp.getLoc(), ptrType,
+                                                       "&", globalVar);
+
+    // Call the wrapper function with the pointer
+    rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(), TypeRange{}, "ttnn::constEvalFuncWrapper",
+        ValueRange{funcPtrValue, tupleValue, addressOfOp}, ArrayAttr{});
+
+    // Load the value from the global variable
+    auto resultVar =
+        rewriter.create<emitc::LoadOp>(srcOp.getLoc(), tupleType, globalVar);
+
+    // Unpack the tuple result - extract each element from the tuple
+    SmallVector<Value> results;
+
+    for (unsigned i = 0; i < srcOp.getNumResults(); ++i) {
+      // Create index value
+      auto indexType = rewriter.getIndexType();
+      auto indexOp = rewriter.create<emitc::LiteralOp>(
+          srcOp.getLoc(), indexType, std::to_string(i));
+      Value indexVal = indexOp.getResult();
+
+      // Create LValue type for the tensor reference
+      auto lvalueType = emitc::LValueType::get(
+          emitc::OpaqueType::get(rewriter.getContext(), "::ttnn::Tensor"));
+
+      // Get reference to the i-th element in the static cache result
+      // Use the variable that references our global result
+      auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
+          srcOp.getLoc(), lvalueType, resultVar.getResult(), indexVal);
+
+      // Load the actual tensor value from the reference
+      auto loadOp = rewriter.create<emitc::LoadOp>(
+          srcOp.getLoc(),
+          emitc::OpaqueType::get(rewriter.getContext(), "::ttnn::Tensor"),
+          subscriptOp.getResult());
+      results.push_back(loadOp.getResult());
+    }
+
+    // Replace the original op with the extracted results
+    rewriter.replaceOp(srcOp, results);
+
+    return success();
+  }
+};
+} // namespace
+
 // Module Op conversion pattern
 //
 // This conversion pattern removes attributes from the ModuleOp. Previously,
@@ -2228,6 +2351,10 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // LoadCached op
   //
   patterns.add<LoadCachedOpConversionPattern>(typeConverter, ctx);
+
+  // Trace Op
+  //
+  patterns.add<TraceOpConversionPattern>(typeConverter, ctx);
 
   // Module op
   //

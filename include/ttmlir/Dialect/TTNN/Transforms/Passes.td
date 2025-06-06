@@ -149,4 +149,11 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
   let description = "This pass tries to fuse operations together with goal to reduce the number of operations in the graph.";
 }
 
+def TTNNTraceHoistTransform : Pass<"ttnn-trace-hoist-transform", "::mlir::ModuleOp"> {
+  let summary = "TTNN Trace hoist transform";
+  let description = [{
+    Transform pass which runs an analysis pass to find traceable subgraphs and hoist them into separate functions.
+  }];
+}
+
 #endif
