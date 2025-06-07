@@ -4,7 +4,7 @@
 // RUN: ttmlir-translate --mlir-to-cpp %t2.mlir > %basename_t.cpp
 
 // UNSUPPORTED: true
-// For some reason, this is hitting an assert in debug build
+// Marked as UNSUPPORTED because of the following issue:
 // https://github.com/tenstorrent/tt-mlir/issues/3117
 
 func.func @reshape(%arg0: tensor<4x2x32x32xbf16>) -> tensor<2x4x32x32xbf16> {

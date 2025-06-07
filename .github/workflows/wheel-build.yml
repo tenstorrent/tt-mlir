@@ -8,12 +8,9 @@ jobs:
   build-ttmlir-wheel:
     timeout-minutes: 60
     name: Build ttmlir Python Wheel
-    runs-on: builder
+    runs-on: tt-beta-ubuntu-2204-xlarge
 
     steps:
-      - name: Maximize space
-        uses: tenstorrent/tt-github-actions/.github/actions/maximize_space@main
-
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -54,12 +51,9 @@ jobs:
   build-pykernel-wheel:
     timeout-minutes: 60
     name: Build pykernel Python Wheel
-    runs-on: ubuntu-latest
+    runs-on: tt-beta-ubuntu-2204-xlarge
 
     steps:
-      - name: Maximize space
-        uses: tenstorrent/tt-github-actions/.github/actions/maximize_space@main
-
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -114,12 +108,11 @@ jobs:
           path: ${{ steps.strings.outputs.wheel-output-dir }}/*.whl
           if-no-files-found: error
 
-
   test-pykernel-wheel-install:
     needs: build-pykernel-wheel
     timeout-minutes: 30
     name: Test pykernel Wheel Installation
-    runs-on: ubuntu-latest
+    runs-on: tt-beta-ubuntu-2204-xlarge
 
     steps:
       - uses: actions/checkout@v4
@@ -157,7 +150,7 @@ jobs:
     needs: build-ttmlir-wheel
     timeout-minutes: 30
     name: Test ttmlir Wheel Installation
-    runs-on: ubuntu-latest
+    runs-on: tt-beta-ubuntu-2204-xlarge
 
     steps:
       - uses: actions/checkout@v4
