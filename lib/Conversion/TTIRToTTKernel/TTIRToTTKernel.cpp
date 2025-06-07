@@ -359,9 +359,10 @@ public:
                 .getResult();
       }
 
-      auto reduceInitShortOp = rewriter.create<ttkernel::ExperimentalReduceInitShortOp>(
-          op->getLoc(), cbA, cbB, cbC, condition, reduce_type,
-          kernel_reduce_dim);
+      auto reduceInitShortOp =
+          rewriter.create<ttkernel::ExperimentalReduceInitShortOp>(
+              op->getLoc(), cbA, cbB, cbC, condition, reduce_type,
+              kernel_reduce_dim);
       rewriter.create<ttkernel::ReduceTileOp>(
           op->getLoc(), cbA, cbB, getLoadIndex(adaptor.getA()),
           getLoadIndex(adaptor.getB()), dstIdx, reduce_type, kernel_reduce_dim);

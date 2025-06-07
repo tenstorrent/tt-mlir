@@ -308,7 +308,8 @@ public:
 
   ArrayAttr getTemplateArgs(Builder &builder, SourceOp op) const {
     if constexpr (std::is_same_v<SourceOp, ttkernel::ReduceInitOp> ||
-                  std::is_same_v<SourceOp, ttkernel::ExperimentalReduceInitShortOp> ||
+                  std::is_same_v<SourceOp,
+                                 ttkernel::ExperimentalReduceInitShortOp> ||
                   std::is_same_v<SourceOp, ttkernel::ReduceTileOp>) {
       SmallVector<Attribute, 4> template_args;
       StringRef reduceType, reduceDim;
@@ -321,7 +322,8 @@ public:
       } else if (mlir::isa<ttkernel::ExperimentalReduceInitShortOp>(op)) {
         auto reduceOp = mlir::cast<ttkernel::ExperimentalReduceInitShortOp>(op);
         std::tie(reduceType, reduceDim) =
-            getReduceTypeAndDim<ttkernel::ExperimentalReduceInitShortOp>(reduceOp);
+            getReduceTypeAndDim<ttkernel::ExperimentalReduceInitShortOp>(
+                reduceOp);
       } else {
         auto reduceOp = mlir::cast<ttkernel::ReduceTileOp>(op);
         std::tie(reduceType, reduceDim) =
