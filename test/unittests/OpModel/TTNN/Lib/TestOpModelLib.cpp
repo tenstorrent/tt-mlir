@@ -458,6 +458,31 @@ TEST_F(OpModelTest, ToLayout) {
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
 
+TEST_F(OpModelTest, Concat) {
+  const llvm::SmallVector<int64_t> inputTensorShape = {workerCoresN300, 1024};
+  const mlir::tt::ttnn::TTNNLayoutAttr layoutDRAM =
+      CreateTiledLayout(inputTensorShape, mlir::tt::ttnn::BufferType::DRAM,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  const mlir::tt::ttnn::TTNNLayoutAttr layoutL1Interleaved =
+      CreateTiledLayout(inputTensorShape, mlir::tt::ttnn::BufferType::L1,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = ConcatOpInterface::getOpConstraints(
+      CreateWorkerGrid(), {inputTensorShape, inputTensorShape},
+      {layoutL1Interleaved, layoutL1Interleaved}, 0, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 4096);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  auto runtimeExp = ConcatOpInterface::getOpRuntime(
+      {inputTensorShape, inputTensorShape},
+      {layoutL1Interleaved, layoutL1Interleaved}, 0, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+}
+
 TEST_F(OpModelTest, Transpose) {
   const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
   const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);

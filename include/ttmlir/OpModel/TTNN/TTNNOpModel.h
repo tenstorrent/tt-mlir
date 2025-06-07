@@ -210,6 +210,23 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 }; // namespace ToLayoutOpInterface
 
 //===----------------------------------------------------------------------===//
+// ConcatOp
+//===----------------------------------------------------------------------===//
+
+namespace ConcatOpInterface {
+llvm::Expected<OpConstraints>
+getOpConstraints(GridAttr deviceGrid,
+                 std::vector<llvm::ArrayRef<int64_t>> inputShapes,
+                 std::vector<mlir::tt::ttnn::TTNNLayoutAttr> inputLayouts,
+                 const int dim, mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+llvm::Expected<size_t>
+getOpRuntime(std::vector<llvm::ArrayRef<int64_t>> inputShapes,
+             std::vector<mlir::tt::ttnn::TTNNLayoutAttr> inputLayouts,
+             const int dim, mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+}; // namespace ConcatOpInterface
+
+//===----------------------------------------------------------------------===//
 // TransposeOp
 //===----------------------------------------------------------------------===//
 

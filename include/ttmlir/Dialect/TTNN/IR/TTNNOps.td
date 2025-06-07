@@ -1014,7 +1014,9 @@ def TTNN_RepeatInterleaveOp : TTNN_Op<"repeat_interleave"> {
     let hasVerifier = 1;
 }
 
-def TTNN_ConcatOp : TTNN_Op<"concat", [HasMemoryConfigTrait]> {
+def TTNN_ConcatOp : TTNN_Op<"concat", [HasMemoryConfigTrait,
+      DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Concat op.";
     let description = [{
       Concat tensors along a given dimension.

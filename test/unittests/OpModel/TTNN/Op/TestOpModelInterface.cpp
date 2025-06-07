@@ -543,6 +543,43 @@ TEST_F(OpModelBase, toLayoutOp) {
   }
 }
 
+TEST_F(OpModelBase, concatOp) {
+  // create concat op
+  llvm::SmallVector<int64_t> tensorShape1 = {1, 2, 8, 32};
+  llvm::SmallVector<int64_t> tensorShape2 = {1, 2, 16, 32};
+  llvm::SmallVector<int64_t> tensorShape3 = {1, 2, 64, 32};
+  llvm::SmallVector<int64_t> tensorShapeO = {1, 2, 88, 32};
+
+  mlir::Value inputTensor1 = createEmptyTensor(tensorShape1);
+  mlir::Value inputTensor2 = createEmptyTensor(tensorShape2);
+  mlir::Value inputTensor3 = createEmptyTensor(tensorShape3);
+  mlir::Value output = createEmptyTensor(tensorShapeO);
+
+  auto concatOp = builder.create<ConcatOp>(
+      builder.getUnknownLoc(), output.getType(),
+      ::mlir::ValueRange{inputTensor1, inputTensor2, inputTensor3}, 2, nullptr);
+
+  // test concat Op interface
+  auto constraintsExp = getOpConstraints(concatOp.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_GT(cbSize, 0);
+    EXPECT_GT(peakSize, 0);
+    EXPECT_GT(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(concatOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, transposeOp) {
   // create TransposeOp
   llvm::SmallVector<int64_t> tensorShapeA = {64, 1024};

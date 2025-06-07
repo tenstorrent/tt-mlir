@@ -1090,6 +1090,79 @@ ToLayoutOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 }
 
 //===----------------------------------------------------------------------===//
+// ConcatOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> ConcatOpInterface::getOpConstraints(
+    GridAttr deviceGrid, std::vector<llvm::ArrayRef<int64_t>> inputShapes,
+    std::vector<mlir::tt::ttnn::TTNNLayoutAttr> inputLayouts, const int dim,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  assert(inputShapes.size() == inputLayouts.size());
+  size_t numInputs = inputShapes.size();
+
+  std::vector<::ttnn::TensorSpec> inputSpecs;
+  for (size_t i = 0; i < numInputs; ++i) {
+    auto inputSpecExp =
+        detail::convertToTensorSpec(device, inputShapes[i], inputLayouts[i]);
+    if (!inputSpecExp) {
+      return inputSpecExp.takeError();
+    }
+    inputSpecs.push_back(inputSpecExp.get());
+  }
+
+  // Create query closure
+  auto concatOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::concat, device, inputSpecs, dim,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints("ConcatOpInterface",
+                                     inputLayouts[0].getContext(), deviceGrid,
+                                     concatOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> ConcatOpInterface::getOpRuntime(
+    std::vector<llvm::ArrayRef<int64_t>> inputShapes,
+    std::vector<mlir::tt::ttnn::TTNNLayoutAttr> inputLayouts, const int dim,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  assert(inputShapes.size() == inputLayouts.size());
+  size_t numInputs = inputShapes.size();
+
+  std::vector<::ttnn::TensorSpec> inputSpecs;
+  for (size_t i = 0; i < numInputs; ++i) {
+    auto inputSpecExp =
+        detail::convertToTensorSpec(device, inputShapes[i], inputLayouts[i]);
+    if (!inputSpecExp) {
+      return inputSpecExp.takeError();
+    }
+    inputSpecs.push_back(inputSpecExp.get());
+  }
+
+  // Create query closure
+  auto concatOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::concat, device, inputSpecs, dim,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime("ConcatOpInterface", concatOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // TransposeOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> TransposeOpInterface::getOpConstraints(
