@@ -1712,13 +1712,19 @@ class TTIRBuilder:
     def index(
         self,
         in0: Operand,
-        dim: int = 0,
-        begin: int = 0,
-        end: int = 3,
-        step: int = 1,
+        dim: int,
+        begin: int,
+        end: int,
+        step: int,
         unit_attrs: List[str] = None,
     ) -> OpView:
-        index = torch.tensor([begin, end, step])
+        import math
+
+        num_indices = math.ceil((end - begin) / step)
+        indices = []
+        for i in range(num_indices):
+            indices.append((begin + i) * step)
+        index = torch.tensor(indices)
         return self.op_proxy(
             torch.index_select,
             ttir.IndexOp,

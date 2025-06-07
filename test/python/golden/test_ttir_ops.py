@@ -823,7 +823,6 @@ def test_pad(shapes: List[Shape], padding: List[int], value: int, request):
     )
 
 
-@pytest.mark.fails_golden
 @pytest.mark.parametrize("shape", [(32, 64)])
 @pytest.mark.parametrize("dim,begin,end,step", [(0, 0, 3, 1)])
 def test_index(shape: Shape, dim: int, begin: int, end: int, step: int, request):
