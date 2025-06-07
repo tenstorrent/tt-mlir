@@ -943,6 +943,89 @@ ReshapeOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 }
 
 //===----------------------------------------------------------------------===//
+// SliceOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> SliceOpInterface::getOpConstraints(
+    GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> begins,
+    llvm::ArrayRef<int64_t> ends, llvm::ArrayRef<int64_t> step,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // convert arrays
+  ::ttnn::SmallVector<int> beginsVec =
+      conversion::convertLLVMSmallVecToTTNNSmallVec(begins);
+  ::ttnn::SmallVector<int> endsVec =
+      conversion::convertLLVMSmallVecToTTNNSmallVec(ends);
+  ::ttnn::SmallVector<int> stepVec =
+      conversion::convertLLVMSmallVecToTTNNSmallVec(step);
+
+  // Create query closure
+  auto sliceOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::slice, device, inputSpec, beginsVec, endsVec, stepVec,
+        detail::getNullableMemoryConfig(outputLayout), std::nullopt,
+        std::nullopt);
+    // conversion::getShape(outputShape), std::nullopt);
+  };
+
+  return operation::getOpConstraints(
+      "SliceOpInterface", inputLayout.getContext(), deviceGrid, sliceOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> SliceOpInterface::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> begins,
+    llvm::ArrayRef<int64_t> ends, llvm::ArrayRef<int64_t> step,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Convert arrays
+  ::ttnn::SmallVector<int> beginsVec =
+      conversion::convertLLVMSmallVecToTTNNSmallVec(begins);
+  ::ttnn::SmallVector<int> endsVec =
+      conversion::convertLLVMSmallVecToTTNNSmallVec(ends);
+  ::ttnn::SmallVector<int> stepVec =
+      conversion::convertLLVMSmallVecToTTNNSmallVec(step);
+
+  // Create query closure
+  auto sliceOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::slice, device, inputSpec, beginsVec, endsVec, stepVec,
+        detail::getNullableMemoryConfig(outputLayout), std::nullopt,
+        std::nullopt);
+  };
+
+  return operation::getOpRuntime("SliceOpInterface", sliceOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // TypecastOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> TypecastOpInterface::getOpConstraints(
