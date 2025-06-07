@@ -166,6 +166,7 @@ void createTTIRToEmitCPipeline(OpPassManager &pm,
                                const TTIRToEmitCPipelineOptions &options) {
   createTTIRToTTNNBackendPipeline(pm, options);
   pm.addPass(tt::createTTUnwrapDeviceModulePass());
+  pm.addPass(createTTNNTuplifyTensors());
   pm.addPass(createTTNNCreateInputGenerators());
   pm.addPass(createConvertTTNNToEmitCPass());
 }
@@ -174,7 +175,7 @@ void createTTIRToEmitCSOPipeline(OpPassManager &pm,
                                  const TTIRToEmitCSOPipelineOptions &options) {
   createTTIRToTTNNBackendPipeline(pm, options);
   pm.addPass(tt::createTTUnwrapDeviceModulePass());
-  pm.addPass(createTTNNModifySignaturesForDylib());
+  pm.addPass(createTTNNTuplifyTensors());
   pm.addPass(createConvertTTNNToEmitCPass());
 }
 

@@ -20,9 +20,8 @@ static constexpr const char *POTENTIAL_MANGLING_ADDITIONS[] = {
 };
 
 // If the model function name is `main`, it can't be emitted as such, because
-// compiler will complain about the parameter and return type, as `main` has a
-// special semantics in C/C++. Hence, in `TTNNModifySignaturesForDylib` pass,
-// the `main` is prepended with a `_`.
+// compiler will complain about the parameter and return type, as `main` has
+// special semantics in C/C++. Hence, `main` is prepended with a `_`.
 static std::string getEmittedFuncName(std::string_view funcName) {
   if (funcName == "main") {
     return "_main";

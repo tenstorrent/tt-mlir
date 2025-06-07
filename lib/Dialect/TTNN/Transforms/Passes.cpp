@@ -14,9 +14,9 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Analysis/Liveness.h"
-#include "mlir/Dialect/Arith/Utils/Utils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Iterators.h"
 #include "mlir/IR/MLIRContext.h"
@@ -30,7 +30,7 @@
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNDEALLOCATE
 #define GEN_PASS_DEF_TTNNCREATEINPUTGENERATORS
-#define GEN_PASS_DEF_TTNNMODIFYSIGNATURESFORDYLIB
+#define GEN_PASS_DEF_TTNNTUPLIFYTENSORS
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 class TTNNDeallocate : public impl::TTNNDeallocateBase<TTNNDeallocate> {
@@ -257,13 +257,6 @@ private:
                                                    Location loc,
                                                    func::FuncOp forwardFuncOp) {
     MLIRContext *ctx = rewriter.getContext();
-    // Get all the input tensors for the current forward func.
-    //
-    llvm::SmallVector<mlir::RankedTensorType, 2> inputTensors(
-        llvm::map_to_vector(forwardFuncOp.getFunctionType().getInputs(),
-                            [](Type type) {
-                              return llvm::cast<mlir::RankedTensorType>(type);
-                            }));
 
     // Create a new function that will generate the input tensors.
     //
@@ -290,12 +283,32 @@ private:
 
     // Create input tensors. Currently, we only create tensors of ones.
     //
-    SmallVector<Value, 2> generatedTensors(
-        llvm::map_to_vector(returnTypes, [&](Type type) {
-          return generateTensor(rewriter, loc, type);
-        }));
+    assert(
+        returnTypes.size() == 1 && mlir::isa<TupleType>(returnTypes.front()) &&
+        "Expected forward function to have a single tuple of input tensors!");
 
-    rewriter.create<func::ReturnOp>(forwardFuncOp.getLoc(), generatedTensors);
+    SmallVector<Value> generatedTensors;
+    for (const Type &type :
+         mlir::cast<mlir::TupleType>(returnTypes[0]).getTypes()) {
+      // Ensure that the type is a RankedTensorType.
+      //
+      assert(mlir::isa<RankedTensorType>(type) &&
+             "Expected input tensor to be of type RankedTensorType!");
+      RankedTensorType rankedTensorType = mlir::cast<RankedTensorType>(type);
+
+      generatedTensors.push_back(
+          generateTensor(rewriter, loc, rankedTensorType));
+    }
+
+    // Create a tuple from the generated tensors.
+    //
+    TupleOp tuple =
+        rewriter.create<tt::TupleOp>(loc, returnTypes, generatedTensors);
+
+    // Create ReturnOp.
+    //
+    rewriter.create<func::ReturnOp>(forwardFuncOp.getLoc(), ValueRange{tuple});
+
     return inputGenFuncOp;
   }
 
@@ -342,33 +355,15 @@ private:
   }
 };
 
-class TTNNModifySignaturesForDylib
-    : public impl::TTNNModifySignaturesForDylibBase<
-          TTNNModifySignaturesForDylib> {
+class TTNNTuplifyTensors
+    : public impl::TTNNTuplifyTensorsBase<TTNNTuplifyTensors> {
 
 public:
-  using impl::TTNNModifySignaturesForDylibBase<
-      TTNNModifySignaturesForDylib>::TTNNModifySignaturesForDylibBase;
+  using impl::TTNNTuplifyTensorsBase<
+      TTNNTuplifyTensors>::TTNNTuplifyTensorsBase;
 
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
-
-    // If we have a nested module structure, we want to use nested module inside
-    // DeviceModule.
-    tt::DeviceModuleOp deviceModule;
-    for (auto &op : moduleOp.getBody()->getOperations()) {
-      deviceModule = llvm::dyn_cast<tt::DeviceModuleOp>(op);
-      if (deviceModule) {
-        break;
-      }
-    }
-    if (deviceModule) {
-      moduleOp = dyn_cast_if_present<mlir::ModuleOp>(
-          deviceModule.getBodyRegion().front().front());
-      assert(moduleOp &&
-             "Found tt::DeviceModuleOp but it didn't contain a single "
-             "mlir::ModuleOp!");
-    }
     IRRewriter rewriter(&getContext());
 
     // Ensure that the module has a single region and a single block within that
@@ -377,13 +372,12 @@ public:
     assert(moduleOp->getRegions().size() == 1);
     assert(moduleOp->getRegion(0).getBlocks().size() == 1);
 
-    // Get the the only existing block.
-    //
     Block *block = moduleOp.getBody(0);
 
-    // Find all the func.func ops in the module that are "forward" functions.
+    // Rename `main` to `_main` as `main` is a reserved name in C/C++.
     //
-    SmallVector<func::FuncOp, 1> forwardFuncOps;
+    // TODO (svuckovic): Move this to its own pass.
+    //
     block->walk([&](func::FuncOp funcOp) {
       // Rename the function if it's named `main` to `_main`. This is done
       // as compiler will complain that `main` must return `int` and that
@@ -391,25 +385,40 @@ public:
       if (funcOp.getName() == "main") {
         rewriter.modifyOpInPlace(funcOp, [&]() { funcOp.setSymName("_main"); });
       }
+    });
 
+    // Find all the func.func ops in the module that are target functions.
+    //
+    SmallVector<func::FuncOp, 1> targetFuncOps;
+    block->walk([&](func::FuncOp funcOp) {
+      // Skip functions that are not called anywhere (top-level functions).
+      //
       if (!funcOp->getUses().empty()) {
         mlir::WalkResult::skip();
       }
 
-      forwardFuncOps.push_back(funcOp);
+      mlir::FunctionType functionType = funcOp.getFunctionType();
+
+      // Check that input and output types are not empty and that all are of
+      // type RankedTensorType.
+      //
+      if (!functionType.getInputs().empty() &&
+          !functionType.getResults().empty() &&
+          llvm::all_of(functionType.getInputs(),
+                       [](Type t) { return mlir::isa<RankedTensorType>(t); }) &&
+          llvm::all_of(functionType.getResults(),
+                       [](Type t) { return mlir::isa<RankedTensorType>(t); })) {
+        targetFuncOps.push_back(funcOp);
+      }
     });
 
     // Iterate over all the func ops and modify the signatures.
     //
-    for (mlir::func::FuncOp forwardFuncOp : forwardFuncOps) {
-      // Replace the signature of the forward function so that all the tensor
-      // arguments are packed into a single tuple, and device type is appended.
+    for (mlir::func::FuncOp targetFuncOp : targetFuncOps) {
+      // Replace the signature of the target function so that all the tensor
+      // arguments are packed into a single tuple.
       //
-      mlir::FunctionType originalFuncType = forwardFuncOp.getFunctionType();
-      assert(
-          llvm::all_of(originalFuncType.getInputs(),
-                       [](Type t) { return mlir::isa<RankedTensorType>(t); }) &&
-          "Expected all inputs must be of type RankedTensorType");
+      mlir::FunctionType originalFuncType = targetFuncOp.getFunctionType();
 
       // Create Type objects for modified function signature:
       // 1. tuplifiedInputTensors: TupleType of all input tensors
@@ -426,9 +435,9 @@ public:
       FunctionType modifiedFuncType =
           originalFuncType.clone(tuplifiedInputTensors, tuplifiedOutputTensors);
 
-      rewriter.modifyOpInPlace(forwardFuncOp,
-                               [&forwardFuncOp, &modifiedFuncType]() {
-                                 forwardFuncOp.setType(modifiedFuncType);
+      rewriter.modifyOpInPlace(targetFuncOp,
+                               [&targetFuncOp, &modifiedFuncType]() {
+                                 targetFuncOp.setType(modifiedFuncType);
                                });
 
       // First block of the function (often referred to as "entry block") needs
@@ -440,21 +449,18 @@ public:
       // GetTupleElementOp results - after this it's finally safe to remove
       // original block arguments as they have no live uses anymore.
       //
-      // Additionally, the Device is added as the second argument, and the
-      // GetDeviceOp that creates Device is removed.
-      //
       // The return statement is modified to return a tuple.
       //
-      Block &entryBlock = forwardFuncOp.getBlocks().front();
+      Block &entryBlock = targetFuncOp.getBlocks().front();
       constexpr size_t paramOffset = 1;
       entryBlock.insertArgument(/*index=*/0u, tuplifiedInputTensors,
-                                forwardFuncOp.getLoc());
+                                targetFuncOp.getLoc());
 
       rewriter.setInsertionPointToStart(&entryBlock);
       for (size_t idx = 0; idx < originalFuncType.getNumInputs(); idx++) {
         tt::GetTupleElementOp getTupleElementOp =
             rewriter.create<tt::GetTupleElementOp>(
-                forwardFuncOp.getLoc(), forwardFuncOp.getArgument(0), idx);
+                targetFuncOp.getLoc(), targetFuncOp.getArgument(0), idx);
 
         rewriter.replaceAllUsesWith(entryBlock.getArgument(paramOffset + idx),
                                     getTupleElementOp);
@@ -467,7 +473,7 @@ public:
 
       // Find return statement and replace with tuple.
       //
-      forwardFuncOp.walk<WalkOrder::PostOrder, ReverseIterator>(
+      targetFuncOp.walk<WalkOrder::PostOrder, ReverseIterator>(
           [&](mlir::func::ReturnOp returnOp) {
             rewriter.setInsertionPoint(returnOp);
             TupleOp tupleOp = rewriter.create<mlir::tt::TupleOp>(

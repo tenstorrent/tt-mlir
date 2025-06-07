@@ -91,17 +91,12 @@ def TTNNCreateInputGenerators: Pass<"ttnn-create-input-gens", "::mlir::ModuleOp"
   }];
 }
 
-def TTNNModifySignaturesForDylib: Pass<"ttnn-modify-signatures-for-dylib", "::mlir::ModuleOp"> {
-  let summary = "Modify signatures of the functions for dylib path.";
+def TTNNTuplifyTensors: Pass<"ttnn-tuplify-tensors", "::mlir::ModuleOp"> {
+  let summary = "Tuplify tensors in all funcs within a module.";
   let description = [{
-    This pass is intended to be used only when the end result is a dylib!
-
-    It modifies signatures of forward functions so that they take a canonical
-    form. Essentially, input tensors are packed into a tuple and then accessed
-    in the function body. This allows for easier interfacing with the generated
-    dylib as the signatures are then uniform across all forward functions.
-    Device object is hoisted from func body to the signature as well. Return
-    type is also modified to be a tuple.
+    This pass identifies all functions in the module that exclusively use tensors as inputs and outputs. It rewrites
+    each such function by packing all input arguments into a single tuple and wrapping the return value(s) into a tuple
+    type as well.
 
     Given a forward function like this:
 
@@ -115,13 +110,10 @@ def TTNNModifySignaturesForDylib: Pass<"ttnn-modify-signatures-for-dylib", "::ml
     }
     ```
 
-    The pass will modify the signature such that:
-    - input tensors are packed into a tuple
-    - get_device op is removed and device object is hoisted to the signature
-    - return type is modified to be a tuple
+    The pass will return:
 
     ```mlir
-    func.func @add(%arg0: tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>, %arg1: !ttnn.device) -> tuple<tensor<32x32xbf16>> {
+    func.func @add(%arg0: tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tuple<tensor<32x32xbf16>> {
       %0 = tt.get_tuple_element %arg0[0] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
       %1 = tt.get_tuple_element %arg0[1] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
       %2 = "ttnn.to_device"(%0, %arg1) : (tensor<32x32xbf16, !ttnn.device) -> tensor<32x32xbf16>
