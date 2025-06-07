@@ -812,8 +812,14 @@ class TTIRBuilder:
         return self.eltwise_proxy(torch.isfinite, ttir.IsFiniteOp, [in0], unit_attrs)
 
     def logical_not(self, in0: Operand, unit_attrs: List[str] = None) -> OpView:
-        return self.eltwise_proxy(
-            torch.logical_not, ttir.LogicalNotOp, [in0], unit_attrs
+        golden = self._get_golden_tensor(in0)
+        golden_output = torch.empty(golden.shape, dtype=golden.dtype)
+        return self.op_proxy(
+            torch.logical_not,
+            ttir.LogicalNotOp,
+            [in0],
+            golden_kwargs={"out": golden_output},
+            unit_attrs=unit_attrs,
         )
 
     def bitwise_not(self, in0: Operand, unit_attrs: List[str] = None) -> OpView:
@@ -898,10 +904,13 @@ class TTIRBuilder:
     # class TTIR_ElementwiseBinaryOp
 
     def eq(self, in0: Operand, in1: Operand, unit_attrs: List[str] = None) -> OpView:
+        golden = self._get_golden_tensor(in0)
+        golden_output = torch.empty(golden.shape, dtype=golden.dtype)
         return self.op_proxy(
             torch.eq,
             ttir.EqualOp,
             [in0, in1],
+            golden_kwargs={"out": golden_output},
             unit_attrs=unit_attrs,
         )
 
@@ -914,56 +923,86 @@ class TTIRBuilder:
         )
 
     def ge(self, in0: Operand, in1: Operand, unit_attrs: List[str] = None) -> OpView:
+        golden = self._get_golden_tensor(in0)
+        golden_output = torch.empty(golden.shape, dtype=golden.dtype)
         return self.op_proxy(
             torch.ge,
             ttir.GreaterEqualOp,
             [in0, in1],
+            golden_kwargs={"out": golden_output},
             unit_attrs=unit_attrs,
         )
 
     def gt(self, in0: Operand, in1: Operand, unit_attrs: List[str] = None) -> OpView:
+        golden = self._get_golden_tensor(in0)
+        golden_output = torch.empty(golden.shape, dtype=golden.dtype)
         return self.op_proxy(
             torch.gt,
             ttir.GreaterThanOp,
             [in0, in1],
+            golden_kwargs={"out": golden_output},
             unit_attrs=unit_attrs,
         )
 
     def le(self, in0: Operand, in1: Operand, unit_attrs: List[str] = None) -> OpView:
+        golden = self._get_golden_tensor(in0)
+        golden_output = torch.empty(golden.shape, dtype=golden.dtype)
         return self.op_proxy(
             torch.le,
             ttir.LessEqualOp,
             [in0, in1],
+            golden_kwargs={"out": golden_output},
             unit_attrs=unit_attrs,
         )
 
     def lt(self, in0: Operand, in1: Operand, unit_attrs: List[str] = None) -> OpView:
+        golden = self._get_golden_tensor(in0)
+        golden_output = torch.empty(golden.shape, dtype=golden.dtype)
         return self.op_proxy(
             torch.lt,
             ttir.LessThanOp,
             [in0, in1],
+            golden_kwargs={"out": golden_output},
             unit_attrs=unit_attrs,
         )
 
     def logical_and(
         self, in0: Operand, in1: Operand, unit_attrs: List[str] = None
     ) -> OpView:
-        return self.eltwise_proxy(
-            torch.logical_and, ttir.LogicalAndOp, [in0, in1], unit_attrs=unit_attrs
+        golden = self._get_golden_tensor(in0)
+        golden_output = torch.empty(golden.shape, dtype=golden.dtype)
+        return self.op_proxy(
+            torch.logical_and,
+            ttir.LogicalAndOp,
+            [in0, in1],
+            golden_kwargs={"out": golden_output},
+            unit_attrs=unit_attrs,
         )
 
     def logical_or(
         self, in0: Operand, in1: Operand, unit_attrs: List[str] = None
     ) -> OpView:
-        return self.eltwise_proxy(
-            torch.logical_or, ttir.LogicalOrOp, [in0, in1], unit_attrs=unit_attrs
+        golden = self._get_golden_tensor(in0)
+        golden_output = torch.empty(golden.shape, dtype=golden.dtype)
+        return self.op_proxy(
+            torch.logical_or,
+            ttir.LogicalOrOp,
+            [in0, in1],
+            golden_kwargs={"out": golden_output},
+            unit_attrs=unit_attrs,
         )
 
     def logical_xor(
         self, in0: Operand, in1: Operand, unit_attrs: List[str] = None
     ) -> OpView:
-        return self.eltwise_proxy(
-            torch.logical_xor, ttir.LogicalXorOp, [in0, in1], unit_attrs=unit_attrs
+        golden = self._get_golden_tensor(in0)
+        golden_output = torch.empty(golden.shape, dtype=golden.dtype)
+        return self.op_proxy(
+            torch.logical_xor,
+            ttir.LogicalXorOp,
+            [in0, in1],
+            golden_kwargs={"out": golden_output},
+            unit_attrs=unit_attrs,
         )
 
     def bitwise_and(

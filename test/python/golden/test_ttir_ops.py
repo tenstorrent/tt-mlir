@@ -1442,7 +1442,7 @@ unary_ops = [
     expm1 | Marks(pytest.mark.skip_target("ttmetal")),
     floor | Marks(pytest.mark.skip_target("ttmetal")),
     abs | Marks(pytest.mark.skip_target("ttmetal")),
-    logical_not | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
+    logical_not | Marks(pytest.mark.skip_target("ttmetal")),
     neg,
     sign | Marks(pytest.mark.skip_target("ttmetal")),
     cos,
@@ -1517,8 +1517,7 @@ def test_unary_ops(
         matmul | Marks(pytest.mark.skip_target("ttmetal")),
         logical_and | Marks(pytest.mark.skip_target("ttmetal")),
         logical_or | Marks(pytest.mark.skip_target("ttmetal")),
-        logical_xor
-        | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
+        logical_xor | Marks(pytest.mark.skip_target("ttmetal")),
     ],
 )
 def test_binary_ops(
