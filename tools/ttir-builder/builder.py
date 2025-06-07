@@ -687,12 +687,12 @@ class TTIRBuilder:
     def get_dimension_size(
         self, in0: Operand, dimension: int = 0, unit_attrs: List[str] = None
     ) -> OpView:
-        golden_dim = [self._get_golden_tensor(in0).size(dimension)]
+        golden_data = [self._get_golden_tensor(in0).size(dimension)]
         return self.op_proxy(
             torch.tensor,
             ttir.GetDimensionSizeOp,
             [in0],
-            golden_kwargs={"data": golden_dim},
+            golden_kwargs={"data": golden_data, "dtype": torch.int32},
             ttir_kwargs={"dimension": dimension},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
             organize_golden_args=lambda i: 0,
@@ -861,10 +861,10 @@ class TTIRBuilder:
     ) -> OpView:
         output_type = self.get_type_from_torch_dtype(self._get_golden_tensor(out).dtype)
         return self.op_proxy(
-            torch.Tensor.to,
+            torch.Tensor.type,
             ttir.TypecastOp,
             [in0],
-            golden_kwargs={"dtype": self._get_golden_tensor(out).dtype},
+            golden_kwargs={"dtype": self._get_golden_tensor(out).type()},
             output_type=output_type,
             unit_attrs=unit_attrs,
         )
@@ -1123,18 +1123,14 @@ class TTIRBuilder:
             unit_attrs=unit_attrs,
         )
 
+    # NOTE: Not useable. Boolean tensors are not supported by the runtime. Issue #1775
     def reduce_and(
         self,
         in0: Operand,
-        keep_dim: bool = False,
+        keep_dim: bool = True,
         dim_args: Optional[List] = None,
         unit_attrs: List[str] = None,
     ) -> OpView:
-        output_shape = None
-        dims = self._get_golden_tensor(in0).dim()
-        if not dim_args or len(dim_args) == dims:
-            dim_args = tuple(range(dims))
-            output_shape = (1,)
         return self.op_proxy(
             torch.all,
             ttir.ReduceAndOp,
@@ -1143,30 +1139,24 @@ class TTIRBuilder:
             ttir_kwargs={"dim_arg": dim_args, "keep_dim": keep_dim},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             unit_attrs=unit_attrs,
-            output_shape=output_shape,
         )
 
+    # NOTE: Not useable. Boolean tensors are not supported by the runtime. Issue #1775
     def reduce_or(
         self,
         in0: Operand,
-        keep_dim: bool = False,
+        keep_dim: bool = True,
         dim_args: Optional[List] = None,
         unit_attrs: List[str] = None,
     ) -> OpView:
-        output_shape = None
-        dims = self._get_golden_tensor(in0).dim()
-        if not dim_args or len(dim_args) == dims:
-            dim_args = tuple(range(dims))
-            output_shape = (1,)
         return self.op_proxy(
             torch.any,
             ttir.ReduceOrOp,
             [in0],
-            golden_kwargs={"dim": tuple(dim_args), "keepdim": keep_dim},
+            golden_kwargs={"dim": tuple(dim_args)},
             ttir_kwargs={"dim_arg": dim_args, "keep_dim": keep_dim},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             unit_attrs=unit_attrs,
-            output_shape=output_shape,
         )
 
     def prod(

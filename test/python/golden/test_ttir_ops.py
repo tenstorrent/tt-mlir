@@ -1466,8 +1466,7 @@ unary_ops = [
     mean | Marks(pytest.mark.skip_target("ttmetal")),
     max | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
     min | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
-    get_dimension_size
-    | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
+    get_dimension_size | Marks(pytest.mark.skip_target("ttmetal")),
 ]
 
 
