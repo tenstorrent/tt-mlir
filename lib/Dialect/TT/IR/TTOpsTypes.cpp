@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Target/Common/Target.h"
+#include "ttmlir/Target/Common/system_desc_bfbs_hash_generated.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/IR/Builders.h"
@@ -300,20 +301,35 @@ mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
   }
 }
 
-mlir::tt::SystemDescAttr
-mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, StringRef path) {
-  // Check if file exists
-  assert(!path.empty() && "system desc path must not be empty!");
+mlir::FailureOr<mlir::tt::SystemDescAttr> mlir::tt::SystemDescAttr::getFromPath(
+    MLIRContext *context, StringRef path,
+    llvm::function_ref<mlir::InFlightDiagnostic()> diagFn) {
+  if (path.empty()) {
+    diagFn() << "system desc path must not be empty";
+    return failure();
+  }
+
   std::ifstream fbb(path.data(), std::ios::binary | std::ios::ate);
-  assert(fbb.good() && "system desc does not exist!");
+  if (!fbb.good()) {
+    diagFn() << "system desc does not exist: " << path;
+    return failure();
+  }
   std::streampos size = fbb.tellg();
   fbb.seekg(0, std::ios::beg);
   auto buffer = std::shared_ptr<void>(std::malloc(size), std::free);
   fbb.read(static_cast<char *>(buffer.get()), size);
 
   // Read relevant information from binary
-  const auto *binarySystemDesc =
-      ::tt::target::GetSizePrefixedSystemDescRoot(buffer.get())->system_desc();
+  const auto *binarySystemDescRoot =
+      ::tt::target::GetSizePrefixedSystemDescRoot(buffer.get());
+  if (binarySystemDescRoot->schema_hash()->string_view() !=
+      ::tt::target::common::system_desc_bfbs_schema_hash) {
+    diagFn() << "system desc schema mismatch, please collect a system desc "
+                "with a runtime compiled with the same schema version";
+    return failure();
+  }
+
+  const auto *binarySystemDesc = binarySystemDescRoot->system_desc();
   const auto *binaryCpuDesc = binarySystemDesc->cpu_descs();
   const auto *binaryChipDesc = binarySystemDesc->chip_descs();
   const auto *binaryChipDescIndices = binarySystemDesc->chip_desc_indices();
