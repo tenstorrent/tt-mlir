@@ -965,33 +965,27 @@ public:
         {static_cast<int32_t>(kernelTy.getDimSize(2)),
          static_cast<int32_t>(kernelTy.getDimSize(3))});
 
-    auto strideAttr = attrToDenseI32ArrayAttr(adaptor.getStride(), rewriter);
+    auto strideAttr =
+        attrToDenseI32ArrayAttr(adaptor.getStride(), rewriter, "stride");
     if (auto error = strideAttr.takeError()) {
       return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
     }
 
-    auto paddingAttr =
-        attrToDenseI32ArrayAttr(adaptor.getPadding(), rewriter, 4);
-    if (auto error = paddingAttr.takeError()) {
+    auto expectedPaddingAttr =
+        attrToDenseI32ArrayAttr(adaptor.getPadding(), rewriter, "padding");
+    if (auto error = expectedPaddingAttr.takeError()) {
       return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
     }
 
-    auto paddingArrayRef = paddingAttr->asArrayRef();
-    if (paddingArrayRef[0] != paddingArrayRef[2] ||
-        paddingArrayRef[1] != paddingArrayRef[3]) {
-      return rewriter.notifyMatchFailure(
-          op,
-          "TTNN only supports padding height/width attributes. Thus, "
-          "padding_top/padding_left must equal padding_bottom/padding_right "
-          "for the op to execute as expected.");
+    DenseI32ArrayAttr paddingAttr = *expectedPaddingAttr;
+    if (paddingAttr.size() == 4) {
+      // Reorders padding from (pT, pL, pB, pR) to (pT, pB, pL, pR).
+      paddingAttr = rewriter.getDenseI32ArrayAttr(
+          {paddingAttr[0], paddingAttr[2], paddingAttr[1], paddingAttr[3]});
     }
 
-    // Padding only supports 2 values in ttnn
-    auto reducedPaddingAttr =
-        rewriter.getDenseI32ArrayAttr({paddingArrayRef[0], paddingArrayRef[1]});
-
     auto dilationAttr =
-        attrToDenseI32ArrayAttr(adaptor.getDilation(), rewriter);
+        attrToDenseI32ArrayAttr(adaptor.getDilation(), rewriter, "dilation");
     if (auto error = dilationAttr.takeError()) {
       return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
     }
@@ -1002,9 +996,8 @@ public:
         op, getTypeConverter()->convertType(op.getResult().getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(), device,
         inChannelsAttr, outChannelsAttr, batchSizeAttr, inputHeightAttr,
-        inputWidthAttr, kernelSizeAttr, *strideAttr, reducedPaddingAttr,
-        *dilationAttr, groupsAttr, /*conv2d_config=*/nullptr,
-        /*compute_config=*/nullptr);
+        inputWidthAttr, kernelSizeAttr, *strideAttr, paddingAttr, *dilationAttr,
+        groupsAttr, /*conv2d_config=*/nullptr, /*compute_config=*/nullptr);
 
     return success();
   }
@@ -1013,34 +1006,23 @@ private:
   llvm::Expected<DenseI32ArrayAttr>
   attrToDenseI32ArrayAttr(mlir::Attribute attr,
                           ConversionPatternRewriter &rewriter,
-                          uint32_t elementCount = 2) const {
-    switch (elementCount) {
-    case 2: {
-      // Handles attributes requiring 2 spatial dimensions (e.g., stride,
-      // dilation). Converts the attribute into a pair of integers.
+                          StringRef attrName) const {
+    if (auto tuple = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+      // TTNN does not support passing a single integer so we have to convert it
+      // to a pair.
       auto pair = ttmlir::utils::getPairOfInteger<int32_t>(attr);
       if (auto error = pair.takeError()) {
         return std::move(error);
       }
       return rewriter.getDenseI32ArrayAttr({pair->first, pair->second});
     }
-    case 4: {
-      // Handles attributes requiring 4 spatial dimensions (e.g., padding in
-      // this case). Converts the attribute into a quadruple of integers.
-      auto quadruple = ttmlir::utils::getQuadrupleOfInteger<int32_t>(attr);
-      if (auto error = quadruple.takeError()) {
-        return std::move(error);
-      }
-      return rewriter.getDenseI32ArrayAttr(
-          {std::get<0>(*quadruple), std::get<1>(*quadruple),
-           std::get<2>(*quadruple), std::get<3>(*quadruple)});
+
+    if (auto denseAttr = dyn_cast<DenseI32ArrayAttr>(attr)) {
+      return denseAttr;
     }
-    default: {
-      return llvm::createStringError(std::errc::invalid_argument,
-                                     "Unsupported element count: %d",
-                                     elementCount);
-    }
-    }
+
+    return llvm::createStringError("Unexpected attribute type for '%s'",
+                                   attrName.data());
   }
 };
 } // namespace
