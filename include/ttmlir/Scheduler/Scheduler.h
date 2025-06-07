@@ -43,13 +43,17 @@ public:
   bool hasUnscheduledOps() const;
 
 private:
-  // Map of scheduled operations
+  // Map of scheduled operations.
   llvm::DenseSet<mlir::Operation *> scheduledOpsMap;
-  // Operation schedule in order of execution
+
+  // Operation schedule in order of execution.
   llvm::SmallVector<mlir::Operation *> schedule;
-  // Set of unscheduled operations
-  llvm::DenseSet<mlir::Operation *> unscheduledOps;
-  // Map of dependencies
+
+  // Vector of all operations in deterministic order.
+  llvm::SmallVector<mlir::Operation *> funcOps;
+
+  // Map of dependencies. Dependencies are the operations that must be scheduled
+  // before the given operation.
   llvm::DenseMap<mlir::Operation *, llvm::SmallVector<mlir::Operation *>>
       dependencies;
 };
