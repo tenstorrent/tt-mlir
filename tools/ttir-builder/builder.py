@@ -790,8 +790,16 @@ class TTIRBuilder:
         return self.eltwise_proxy(torch.abs, ttir.AbsOp, [in0], unit_attrs)
 
     def cbrt(self, in0: Operand, unit_attrs: List[str] = None) -> OpView:
-        return self.eltwise_proxy(
-            lambda x: torch.pow(x, 1 / 3), ttir.CbrtOp, [in0], unit_attrs
+        golden = self._get_golden_tensor(in0)
+        golden_sign = torch.sign(golden)
+        golden_cbrt = torch.pow(torch.abs(golden), 1 / 3)
+        return self.op_proxy(
+            torch.mul,
+            ttir.CbrtOp,
+            [in0],
+            golden_kwargs={"input": golden_sign, "other": golden_cbrt},
+            organize_golden_args=lambda i: 0,
+            unit_attrs=unit_attrs,
         )
 
     def ceil(self, in0: Operand, unit_attrs: List[str] = None) -> OpView:

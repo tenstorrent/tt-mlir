@@ -905,7 +905,7 @@ def test_empty(shape: Shape, request):
 @pytest.mark.parametrize("dim_arg", [[1]])
 def test_argmax(shapes, dim_arg, request):
     def argmax(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
-        return builder.argmax(in0, dim_arg=dim_arg, unit_attrs=unit_attrs)
+        return builder.argmax(in0, dim_arg, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
         argmax,
@@ -1454,7 +1454,7 @@ unary_ops = [
     gelu | Marks(pytest.mark.skip_target("ttmetal")),
     leaky_relu | Marks(pytest.mark.skip_target("ttmetal")),
     sqrt | Marks(pytest.mark.skip_target("ttmetal")),
-    cbrt | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
+    cbrt | Marks(pytest.mark.skip_target("ttmetal")),
     rsqrt | Marks(pytest.mark.fails_golden),
     sigmoid,
     reciprocal | Marks(pytest.mark.skip_target("ttmetal")),
