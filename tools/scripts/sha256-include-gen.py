@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import hashlib
 import sys
 
@@ -9,9 +12,7 @@ out_file_name = sys.argv[4]
 
 in_file_contents = open(in_file_name).read().encode()
 sha = hashlib.sha256(in_file_contents).hexdigest()
-define = (
-    f"TTMLIR_SHA256_INCLUDE_GEN_{namespace.replace('::', '_').upper()}_{variable_name.upper()}"
-)
+define = f"TTMLIR_SHA256_INCLUDE_GEN_{namespace.replace('::', '_').upper()}_{variable_name.upper()}"
 
 out_file = open(out_file_name, "w")
 out_file.write(
