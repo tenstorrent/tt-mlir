@@ -1,5 +1,6 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=true" %s -o %t.mlir
+// RUN: ttmlir-opt -mlir-print-ir-before-all --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=true" %s -o %t.mlir
+// RUN: printf "\n\nafter ttir to ttnn pipeline\n\n\n"
 // RUN: less %t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %basename_t.ttnn
 // RUN: printf "\n\nbetween ttnn and modify signatures\n\n\n"
