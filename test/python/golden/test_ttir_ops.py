@@ -901,12 +901,11 @@ def test_empty(shape: Shape, request):
     )
 
 
-# @pytest.mark.fails_golden
 @pytest.mark.parametrize("shapes", [[(128, 128)]])
-@pytest.mark.parametrize("dim", [1])
-def test_argmax(shapes, dim, request):
+@pytest.mark.parametrize("dim_arg", [[1]])
+def test_argmax(shapes, dim_arg, request):
     def argmax(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
-        return builder.argmax(in0, [dim], unit_attrs=unit_attrs)
+        return builder.argmax(in0, dim_arg=dim_arg, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
         argmax,

@@ -1037,9 +1037,8 @@ class TTIRBuilder:
     def argmax_golden_function(
         self, in0: Operand, dim_arg: List[int], keep_dim: bool = False
     ) -> OpView:
-        for dim in dim_arg:
-            in0 = torch.argmax(in0, dim=dim, keepdim=keep_dim)
-        return in0.to(torch.int32)
+        in1 = torch.argmax(in0, dim=dim_arg[0], keepdim=keep_dim)
+        return in1.to(torch.int32)
 
     def sum(
         self,
