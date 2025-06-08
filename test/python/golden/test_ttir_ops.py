@@ -366,7 +366,6 @@ def transpose(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
     return builder.transpose(in0, unit_attrs=unit_attrs)
 
 
-@pytest.mark.fails_golden
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dim_arg", [0])
 @pytest.mark.parametrize("keep_dim", [False])
@@ -1566,13 +1565,11 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
             embedding,
             [(33, 32), (512, 128)],
             [torch.float32] * 2,
-            marks=pytest.mark.fails_golden,
         ),
         pytest.param(
             where,
             [(64, 64)] * 3,
             [torch.float32, torch.float32, torch.float32],
-            marks=pytest.mark.fails_golden,
         ),
     ],
 )
