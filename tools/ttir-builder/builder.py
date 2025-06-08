@@ -1022,16 +1022,24 @@ class TTIRBuilder:
         keep_dim: bool = False,
         unit_attrs: List[str] = None,
     ) -> OpView:
+        kwargs = {"dim_arg": dim_arg, "keep_dim": keep_dim}
         return self.op_proxy(
-            torch.argmax,
+            self.argmax_golden_function,
             ttir.ArgMaxOp,
             [in0],
-            golden_kwargs={"dim": dim_arg[0], "keepdim": keep_dim},
-            ttir_kwargs={"dim_arg": dim_arg, "keep_dim": keep_dim},
+            golden_kwargs=kwargs,
+            ttir_kwargs=kwargs,
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             output_type=IntegerType.get_signless(32, self._ctx),
             unit_attrs=unit_attrs,
         )
+
+    def argmax_golden_function(
+        self, in0: Operand, dim_arg: List[int], keep_dim: bool = False
+    ) -> OpView:
+        for dim in dim_arg:
+            in0 = torch.argmax(in0, dim=dim, keepdim=keep_dim)
+        return in0.to(torch.int32)
 
     def sum(
         self,
@@ -1712,13 +1720,19 @@ class TTIRBuilder:
     def index(
         self,
         in0: Operand,
-        dim: int = 0,
-        begin: int = 0,
-        end: int = 3,
-        step: int = 1,
+        dim: int,
+        begin: int,
+        end: int,
+        step: int,
         unit_attrs: List[str] = None,
     ) -> OpView:
-        index = torch.tensor([begin, end, step])
+        import math
+
+        num_indices = math.ceil((end - begin) / step)
+        indices = []
+        for i in range(num_indices):
+            indices.append((begin + i) * step)
+        index = torch.tensor(indices)
         return self.op_proxy(
             torch.index_select,
             ttir.IndexOp,
