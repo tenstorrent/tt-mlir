@@ -830,6 +830,7 @@ class TTIRBuilder:
     def neg(self, in0: Operand, unit_attrs: List[str] = None) -> OpView:
         return self.eltwise_proxy(torch.neg, ttir.NegOp, [in0], unit_attrs)
 
+    # NOTE: See issue #1719 for information on golden PCC fail
     def tan(self, in0: Operand, unit_attrs: List[str] = None) -> OpView:
         return self.eltwise_proxy(torch.tan, ttir.TanOp, [in0], unit_attrs)
 

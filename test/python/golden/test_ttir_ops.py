@@ -934,7 +934,7 @@ def test_reverse(shape: Shape, dims: List[int], request):
     )
 
 
-@pytest.mark.run_error
+@pytest.mark.skip("See issue #3685")
 @pytest.mark.parametrize("shape", [(4, 4)])
 @pytest.mark.parametrize("dim_args", [[0, 1]])
 def test_reduce_and(shape: Shape, dim_args: List[int], request):
@@ -1503,12 +1503,12 @@ def test_unary_ops(
         add,
         multiply,
         subtract,
-        eq | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
-        ne | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
-        le | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
-        lt | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
-        ge | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
-        gt | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
+        eq | Marks(pytest.mark.skip_target("ttmetal")),
+        ne | Marks(pytest.mark.skip_target("ttmetal")),
+        le | Marks(pytest.mark.skip_target("ttmetal")),
+        lt | Marks(pytest.mark.skip_target("ttmetal")),
+        ge | Marks(pytest.mark.skip_target("ttmetal")),
+        gt | Marks(pytest.mark.skip_target("ttmetal")),
         div | Marks(pytest.mark.skip_target("ttmetal")),
         remainder | Marks(pytest.mark.skip_target("ttmetal")),
         maximum,
