@@ -1,8 +1,12 @@
 // REQUIRES: opmodel
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=true" %s -o %t.mlir
+// RUN: less %t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %basename_t.ttnn
+// RUN: printf "\n\nbetween ttnn and modify signatures\n\n\n"
 // RUN: ttmlir-opt --ttnn-modify-signatures-for-dylib --convert-ttnn-to-emitc %t.mlir > %t2.mlir
+// RUN: less %t2.mlir
 // RUN: ttmlir-translate --mlir-to-cpp %t2.mlir > %basename_t.cpp
+// RUN: less %basename_t.cpp
 
 func.func @mnist_fwd(%arg0: tensor<1x784xf32>, %arg1: tensor<1x10xf32>, %arg2: tensor<256x10xf32>, %arg3: tensor<1x256xf32>, %arg4: tensor<784x256xf32>) -> tensor<1x10xf32> {
   %0 = ttir.empty() : tensor<1x256xf32>

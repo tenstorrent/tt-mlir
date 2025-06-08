@@ -86,7 +86,7 @@ runs:
       run: |
         source env/activate
         export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
-        llvm-lit -sv ${{ inputs.work-dir }}/test/ttmlir/EmitC/TTNN
+        llvm-lit -vv -a ${{ inputs.work-dir }}/test/ttmlir/EmitC/TTNN/models/mnist_sharded.mlir
         ${{ inputs.work-dir }}/tools/ttnn-standalone/ci_compile_dylib.py
 
     - name: Build tt-explorer
