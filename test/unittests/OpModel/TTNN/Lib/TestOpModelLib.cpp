@@ -607,7 +607,7 @@ TEST_F(OpModelTest, Typecast) {
 }
 
 // ==== Binary Eltwise Ops Starts ====
-enum class BinaryEltwiseOpType { Add, Mul, Subtract };
+enum class BinaryEltwiseOpType { Add, Mul, Subtract, Maximum, Minimum };
 class OpModelBinaryEltwiseParam : public OpModelTest,
                                   public testing::WithParamInterface<
                                       std::tuple<BinaryEltwiseOpType,
@@ -626,6 +626,8 @@ protected:
           {BinaryEltwiseOpType::Add, AddOpInterface::getOpRuntime},
           {BinaryEltwiseOpType::Mul, MultiplyOpInterface::getOpRuntime},
           {BinaryEltwiseOpType::Subtract, SubtractOpInterface::getOpRuntime},
+          {BinaryEltwiseOpType::Maximum, MaximumOpInterface::getOpRuntime},
+          {BinaryEltwiseOpType::Minimum, MinimumOpInterface::getOpRuntime},
       };
 
   std::map<
@@ -639,6 +641,8 @@ protected:
           {BinaryEltwiseOpType::Mul, MultiplyOpInterface::getOpConstraints},
           {BinaryEltwiseOpType::Subtract,
            SubtractOpInterface::getOpConstraints},
+          {BinaryEltwiseOpType::Maximum, MaximumOpInterface::getOpConstraints},
+          {BinaryEltwiseOpType::Minimum, MinimumOpInterface::getOpConstraints},
       };
 
   void RunTest() {
@@ -807,6 +811,16 @@ INSTANTIATE_TEST_SUITE_P(MulTests, OpModelBinaryEltwiseParam,
 INSTANTIATE_TEST_SUITE_P(
     SubtractTests, OpModelBinaryEltwiseParam,
     generateBinaryEltwiseParams(BinaryEltwiseOpType::Subtract,
+                                binaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(
+    MaximumTests, OpModelBinaryEltwiseParam,
+    generateBinaryEltwiseParams(BinaryEltwiseOpType::Maximum,
+                                binaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(
+    MinimumTests, OpModelBinaryEltwiseParam,
+    generateBinaryEltwiseParams(BinaryEltwiseOpType::Minimum,
                                 binaryEltwiseParams));
 
 // ==== Binary Eltwise Ops Ends ====
