@@ -623,15 +623,23 @@ void populateTTIRToTTIRGenericPatterns(MLIRContext *ctx,
   patterns.add<
     // Elementwise.
     TTIRNamedElementwiseRewriter<ttir::AddOp,       ttir::TileAddOp>,
-    TTIRNamedElementwiseRewriter<ttir::MultiplyOp,  ttir::TileMulOp>,
+    TTIRNamedElementwiseRewriter<ttir::CeilOp,      ttir::TileCeilOp>,
+    TTIRNamedElementwiseRewriter<ttir::CosOp,       ttir::TileCosOp>,
     TTIRNamedElementwiseRewriter<ttir::DivOp,       ttir::TileDivOp>,
-    TTIRNamedElementwiseRewriter<ttir::MaximumOp,   ttir::TileMaximumOp>,
     TTIRNamedElementwiseRewriter<ttir::ExpOp,       ttir::TileExpOp>,
     TTIRNamedElementwiseRewriter<ttir::LogOp,       ttir::TileLogOp>,
+    TTIRNamedElementwiseRewriter<ttir::MultiplyOp,  ttir::TileMulOp>,
+    TTIRNamedElementwiseRewriter<ttir::MaximumOp,   ttir::TileMaximumOp>,
+    TTIRNamedElementwiseRewriter<ttir::NegOp,       ttir::TileNegativeOp>,
+    TTIRNamedElementwiseRewriter<ttir::RsqrtOp,     ttir::TileRsqrtOp>,
+    TTIRNamedElementwiseRewriter<ttir::SigmoidOp,   ttir::TileSigmoidOp>,
     TTIRNamedElementwiseRewriter<ttir::SinOp,       ttir::TileSinOp>,
+    TTIRNamedElementwiseRewriter<ttir::SubtractOp,  ttir::TileSubOp>,
     // Reductions.
+    TTIRNamedReductionRewriter<ttir::MaxOp,         ttir::TileReduceMaxOp>,
     TTIRNamedReductionRewriter<ttir::SumOp,         ttir::TileReduceSumOp>,
-    TTIRNamedReductionRewriter<ttir::MaxOp,         ttir::TileReduceMaxOp>
+    // Data movement.
+    TTIRNamedElementwiseRewriter<ttir::TypecastOp,  ttir::TileTypecastOp>
   >(typeConverter, ctx, deviceGridRank);
 
   // Matmul.

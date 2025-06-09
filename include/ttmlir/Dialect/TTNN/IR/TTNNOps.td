@@ -276,6 +276,13 @@ def TTNN_ErfOp : TTNN_ElementwiseUnaryOp<"erf"> {
       }];
 }
 
+def TTNN_ErfcOp : TTNN_ElementwiseUnaryOp<"erfc"> {
+    let summary = "Eltwise erfc op.";
+    let description = [{
+        Eltwise erfc operation. Calculates erfc(x) for each element of the input tensor.
+      }];
+}
+
 def TTNN_FloorOp: TTNN_ElementwiseUnaryOp<"floor"> {
     let summary = "Eltwise floor op.";
     let description = [{
@@ -352,6 +359,14 @@ def TTNN_AtanOp: TTNN_ElementwiseUnaryOp<"atan"> {
 
 def TTNN_TanhOp: TTNN_ElementwiseUnaryOp<"tanh"> {
     let summary = "Eltwise tanh op.";
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createTanhOpOperandsWorkarounds();
+      }
+    }];
+
     let description = [{
       Eltwise tanh operation.
     }];
@@ -639,7 +654,9 @@ def TTNN_MultiplyOp : TTNN_ElementwiseBinaryOp<"multiply",
     }];
 }
 
-def TTNN_SubtractOp : TTNN_ElementwiseBinaryOp<"subtract"> {
+def TTNN_SubtractOp : TTNN_ElementwiseBinaryOp<"subtract",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise subtract.";
     let description = [{
       Eltwise subtract operation.
@@ -1855,7 +1872,9 @@ def TTNN_PermuteOp : TTNN_Op<"permute",
     }];
 }
 
-def TTNN_UpsampleOp : TTNN_Op<"upsample"> {
+def TTNN_UpsampleOp : TTNN_Op<"upsample",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Upsample 2D op.";
 
     let description = [{

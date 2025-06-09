@@ -165,10 +165,10 @@ jobs:
           {runs-on: n150,   sh-run: false, name: "run",  suite: "op_model",          image: "speedy", type: "ttrt",     path: "Silicon/TTNN/n150/optimizer", flags: "--non-zero"},
           {runs-on: n150,   sh-run: false, name: "run",  suite: "runtime_debug",     image: "tracy",  type: "ttrt",     path: "Silicon", flags: "--non-zero"},
           {runs-on: n300,   sh-run: true,  name: "run",  suite: "run",               image: "speedy", type: "ttrt",     path: "Silicon", flags: "--non-zero"},
-          {runs-on: n300,   sh-run: false, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n300/perf"},
+          {runs-on: n300,   sh-run: true, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n300/perf"},
           {runs-on: llmbox, sh-run: false, name: "run",  suite: "run",               image: "speedy", type: "ttrt",     path: "Silicon", flags: "--non-zero"},
           {runs-on: llmbox, sh-run: false, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/llmbox/perf"},
-          {runs-on: n150,   sh-run: false, name: "run",  suite: "consteval",         image: "speedy", type: "ttrt",     path: "Silicon/TTNN/n150/const-eval", ttrt_flags: "--loops 5 --dirty-tensor-schedule=0:2,1:1,3:1,3:3 --check-cache-stats=hits:2,misses:3 --artifact-dir=ttrt-artifacts/const-eval"},
+          {runs-on: n150,   sh-run: true, name: "run",  suite: "consteval",         image: "speedy", type: "ttrt",     path: "Silicon/TTNN/n150/const-eval", ttrt_flags: "--loops 5 --dirty-tensor-schedule=0:2,1:1,3:1,3:3 --check-cache-stats=hits:2,misses:3 --artifact-dir=ttrt-artifacts/const-eval"},
           # {runs-on: tg,     sh-run: false, name: "run",  suite: "run",               image: "speedy", type: "ttrt",     path: "Silicon", ttrt_flags: "--non-zero --disable-eth-dispatch"},
           # {runs-on: tg,     sh-run: false, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/tg/perf", ttrt_flags: "--disable-eth-dispatch"},
           {runs-on: n150,   sh-run: false, name: "perf", suite: "perf",              image: "tracy",  type: "pytest",   path: "runtime/tools/ttrt/test"},
@@ -347,6 +347,15 @@ jobs:
         pip uninstall -y ai-edge-model-explorer
         pip install --upgrade ${{ steps.strings.outputs.build-output-dir }}/bin/wheels/tt_adapter*.whl
         pip install --upgrade ${{ steps.strings.outputs.build-output-dir }}/bin/wheels/ai_edge_model_explorer*.whl
+
+    # PyKernel Test Runner
+    - name: Prepare and run PyKernel Test
+      if: matrix.build.type == 'pykernel'
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build build
+        cmake --build build -- pykernel-demo
 
     # pytest runner
     - name: Run pytest ttrt tests
