@@ -83,6 +83,17 @@ def TTIR_TileRecipOp : TTIR_GenericRegionComputeOp<"tile_recip"> {
     let results = (outs TT_Tile:$result);
 }
 
+def TTIR_TilePowOp : TTIR_GenericRegionComputeOp<"tile_pow"> {
+    let summary = "TTIR Tile Pow Op";
+    let description = [{
+        The `tile_pow` operation raises two tiles element-wise.
+    }];
+
+    let arguments = (ins TT_Tile:$lhs,
+                         TT_Tile:$rhs);
+    let results = (outs TT_Tile:$result);
+}
+
 def TTIR_TileExpOp : TTIR_GenericRegionComputeOp<"tile_exp"> {
     let summary = "TTIR Tile Exp Op";
     let description = [{

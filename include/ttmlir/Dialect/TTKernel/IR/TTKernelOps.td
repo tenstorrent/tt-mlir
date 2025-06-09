@@ -365,6 +365,25 @@ def TTKernel_RecipTileOp : TTKernel_SFPUOp<"recip_tile", [TTKernel_UnaryOpTrait]
     let arguments = (ins IndexLike:$tile_index);
 }
 
+def TTKernel_PowBinaryTilesInitOp : TTKernel_InitOp<"power_binary_tile_init"> {
+    let summary = "Short init function which configures compute unit for execution of power_binary_tile.";
+    let description = [{
+      Must be run before power_binary_tile.
+    }];
+}
+
+def TTKernel_PowBinaryTilesOp : TTKernel_SFPUOp<"power_binary_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Power operation between two tiles";
+    let description = [{
+      Performs element-wise computation of power operation
+      DST[dst0_index] <- DST[dst0_index] ^ DST[dst1_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index);
+}
+
 def TTKernel_ExpTileInitOp : TTKernel_InitOp<"exp_tile_init"> {
     let summary = "Short init function which configures compute unit for execution of exp_tile.";
     let description = [{

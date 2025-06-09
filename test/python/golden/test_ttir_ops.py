@@ -1564,7 +1564,7 @@ def test_unary_ops(
         remainder | Marks(pytest.mark.skip_target("ttmetal")),
         maximum,
         minimum | Marks(pytest.mark.skip_target("ttmetal")),
-        pow | Marks(pytest.mark.skip_target("ttmetal")),
+        pow,
         matmul | Marks(pytest.mark.skip_target("ttmetal")),
         logical_and | Marks(pytest.mark.skip_target("ttmetal")),
         logical_or | Marks(pytest.mark.skip_target("ttmetal")),
