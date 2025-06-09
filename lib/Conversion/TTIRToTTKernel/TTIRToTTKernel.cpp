@@ -17,6 +17,9 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#include <type_traits>
+#include <utility>
+
 namespace mlir::tt::ttkernel {
 
 namespace {
@@ -218,12 +221,58 @@ public:
 
 } // namespace
 
+template <typename... Pairs>
+struct OpMap {};
+
+// clang-format off
+using ComputeOpMap = OpMap<
+  // Elementwise FPU
+  std::pair<ttir::TileAddOp,      std::pair<ttkernel::AddTilesInitOp, ttkernel::AddTilesOp>>,
+  std::pair<ttir::TileMatmulOp,   std::pair<ttkernel::MatmulInitOp,   ttkernel::MatmulTilesOp>>,
+  std::pair<ttir::TileMulOp,      std::pair<ttkernel::MulTilesInitOp, ttkernel::MulTilesOp>>,
+  std::pair<ttir::TileSubOp,      std::pair<ttkernel::SubTilesInitOp, ttkernel::SubTilesOp>>,
+
+  // Elementwise SFPU
+  std::pair<ttir::TileCeilOp,     std::pair<ttkernel::RoundingTileInitOp,   ttkernel::CeilTileOp>>,
+  std::pair<ttir::TileCosOp,      std::pair<ttkernel::CosTileInitOp,        ttkernel::CosTileOp>>,
+  std::pair<ttir::TileDivOp,      std::pair<ttkernel::DivBinaryTilesInitOp, ttkernel::DivBinaryTilesOp>>,
+  std::pair<ttir::TileExpOp,      std::pair<ttkernel::ExpTileInitOp,        ttkernel::ExpTileOp>>,
+  std::pair<ttir::TileMaximumOp,  std::pair<ttkernel::MaxTilesInitOp,       ttkernel::MaxTilesOp>>,
+  std::pair<ttir::TileNegativeOp, std::pair<ttkernel::NegativeTileInitOp,   ttkernel::NegativeTileOp>>,
+  std::pair<ttir::TileRsqrtOp,    std::pair<ttkernel::RsqrtTileInitOp,      ttkernel::RsqrtTileOp>>,
+  std::pair<ttir::TileSigmoidOp,  std::pair<ttkernel::SigmoidTileInitOp,    ttkernel::SigmoidTileOp>>,
+  std::pair<ttir::TileSinOp,      std::pair<ttkernel::SinTileInitOp,        ttkernel::SinTileOp>>
+>;
+// clang-format on
+
+template <typename SrcOp, typename OpMap>
+struct OpMapLookup;
+
+template <typename SrcOp>
+struct OpMapLookup<SrcOp, OpMap<>> {
+  using type = std::pair<void, void>;
+};
+
+template <typename SrcOp, typename Key, typename Value, typename... Rest>
+struct OpMapLookup<SrcOp, OpMap<std::pair<Key, Value>, Rest...>> {
+  using type =
+      std::conditional_t<std::is_same_v<SrcOp, Key>, Value,
+                         typename OpMapLookup<SrcOp, OpMap<Rest...>>::type>;
+};
+
+template <typename SrcOp, typename OpMap>
+using TTKernelOpPair = typename OpMapLookup<SrcOp, OpMap>::type;
+
 namespace {
 
-template <typename ConcreteOp, typename InitOp, typename FPUOp>
+template <typename ConcreteOp>
 class TTIRFPUOpsRewriter : public OpConversionPattern<ConcreteOp> {
 public:
   using OpConversionPattern<ConcreteOp>::OpConversionPattern;
+  using KernelOpPair = TTKernelOpPair<ConcreteOp, ComputeOpMap>;
+  using InitOp = typename KernelOpPair::first_type;
+  using FPUOp = typename KernelOpPair::second_type;
+
   static_assert(FPUOp::template hasTrait<TTKernelFPUOpTrait>(),
                 "FPUOp must have TTKernelFPUOpTrait");
 
@@ -292,10 +341,14 @@ public:
 
 namespace {
 
-template <typename ConcreteOp, typename InitOp, typename SFPUOp>
+template <typename ConcreteOp>
 class TTIRSFPUOpsRewriter : public OpConversionPattern<ConcreteOp> {
 public:
   using OpConversionPattern<ConcreteOp>::OpConversionPattern;
+  using KernelOpPair = TTKernelOpPair<ConcreteOp, ComputeOpMap>;
+  using InitOp = typename KernelOpPair::first_type;
+  using SFPUOp = typename KernelOpPair::second_type;
+
   static_assert(SFPUOp::template hasTrait<TTKernelSFPUOpTrait>(),
                 "SFPUOp must have TTKernelSFPUOpTrait");
 
@@ -315,9 +368,11 @@ public:
     auto inCB = rewriter.getRemappedValue(load.getMemref());
     auto store = mlir::cast<memref::StoreOp>(*op->user_begin());
     auto outCB = rewriter.getRemappedValue(store.getMemref());
-    assert(inCB.getDefiningOp()->isBeforeInBlock(outCB.getDefiningOp()));
-    rewriter.setInsertionPointAfter(outCB.getDefiningOp());
+
+    auto insertionPoint = rewriter.getInsertionPoint();
+    setInsertionPointAfterOperands(rewriter, {inCB, outCB});
     rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), inCB, outCB);
+    rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
     if constexpr (arity == 1) {
       initOp = rewriter.create<InitOp>(op->getLoc());
@@ -328,6 +383,16 @@ public:
       newOp =
           rewriter.create<SFPUOp>(op->getLoc(), i32(rewriter, op->getLoc(), 0),
                                   i32(rewriter, op->getLoc(), 1));
+    }
+
+    if constexpr (std::is_same_v<SFPUOp, ttkernel::CeilTileOp>) {
+      const auto elemType =
+          mlir::cast<TileType>(adaptor.getInput().getType()).getElementType();
+      const bool isCBF32 = llvm::isa<Float32Type>(elemType);
+      if (isCBF32) {
+        rewriter.replaceOpWithNewOp<ttkernel::CeilTileF32Op>(
+            newOp, i32(rewriter, op->getLoc(), 0));
+      }
     }
 
     rewriter.setInsertionPoint(initOp == nullptr ? newOp : initOp);
@@ -430,10 +495,11 @@ public:
   matchAndRewrite(Operation *op, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const final {
     if (mlir::isa<ttir::TileTypecastOp>(op)) {
-      auto dstIdx = index(rewriter, op->getLoc(), 0);
       rewriter.setInsertionPoint(op);
+      Value dstIdx = index(rewriter, op->getLoc(), 0);
       lowerLoadToCopyTile(rewriter, operands[0].getDefiningOp<memref::LoadOp>(),
                           dstIdx, false);
+
       rewriter.create<ttkernel::TypecastTileInitOp>(op->getLoc());
 
       auto inDtype =
@@ -994,34 +1060,38 @@ void populateTTIRToTTKernelPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
     const ttir::AssociatedDMAWaits &associatedDMAWaits) {
   // clang-format off
-  patterns.add<
-      ttkernel::TTIRKernelFunctionArgsRewriter,
+  patterns.add<ttkernel::TTIRKernelFunctionArgsRewriter,
 
-      // Elementwise FPU.
-      ttkernel::TTIRFPUOpsRewriter<ttir::TileAddOp,      ttkernel::AddTilesInitOp, ttkernel::AddTilesOp>,
-      ttkernel::TTIRFPUOpsRewriter<ttir::TileMulOp,      ttkernel::MulTilesInitOp, ttkernel::MulTilesOp>,
-      ttkernel::TTIRFPUOpsRewriter<ttir::TileMatmulOp,   ttkernel::MatmulInitOp,   ttkernel::MatmulTilesOp>,
+               // Elementwise FPU.
+               ttkernel::TTIRFPUOpsRewriter<ttir::TileAddOp>,
+               ttkernel::TTIRFPUOpsRewriter<ttir::TileMatmulOp>,
+               ttkernel::TTIRFPUOpsRewriter<ttir::TileMulOp>,
+               ttkernel::TTIRFPUOpsRewriter<ttir::TileSubOp>,
 
-      // Elementwise SFPU.
-      ttkernel::TTIRSFPUOpsRewriter<ttir::TileDivOp,     ttkernel::DivBinaryTilesInitOp, ttkernel::DivBinaryTilesOp>,
-      ttkernel::TTIRSFPUOpsRewriter<ttir::TileMaximumOp, ttkernel::MaxTilesInitOp,       ttkernel::MaxTilesOp>,
-      ttkernel::TTIRSFPUOpsRewriter<ttir::TileExpOp,     ttkernel::ExpTileInitOp,        ttkernel::ExpTileOp>,
-      ttkernel::TTIRSFPUOpsRewriter<ttir::TileSigmoidOp, ttkernel::SigmoidTileInitOp,    ttkernel::SigmoidTileOp>,
-      ttkernel::TTIRSFPUOpsRewriter<ttir::TileSinOp,     ttkernel::SinTileInitOp,        ttkernel::SinTileOp>,
+               // Elementwise SFPU.
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileCeilOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileCosOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileDivOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileExpOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileMaximumOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileNegativeOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileRsqrtOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileSigmoidOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileSinOp>,
 
-      ttkernel::TTIRTilizeUntilizeRewriter,
-      ttkernel::TTIRTypecastRewriter,
-      ttkernel::MemrefStoreRewriter,
-      ttkernel::TTIRAwaitYieldRewriter<ttir::AwaitOp>,
-      ttkernel::TTIRAwaitYieldRewriter<ttir::YieldOp>,
-      ttkernel::TTIRDMAWaitRewriter,
-      ttkernel::TTIRCoreIndexRewriter,
-      ttkernel::TTIRGetGlobalOperandRewriter,
-      ttkernel::TTIRNullTxRewriter,
-      ttkernel::MemRefCollapseRewriter,
-      ttkernel::TTIRSemaphoreUpdateRewriter<ttir::SemaphoreSetOp>,
-      ttkernel::TTIRSemaphoreUpdateRewriter<ttir::SemaphoreIncOp>,
-      ttkernel::TTIRSemaphoreWaitRewriter>(typeConverter, ctx);
+               ttkernel::TTIRTilizeUntilizeRewriter,
+               ttkernel::TTIRTypecastRewriter,
+               ttkernel::MemrefStoreRewriter,
+               ttkernel::TTIRAwaitYieldRewriter<ttir::AwaitOp>,
+               ttkernel::TTIRAwaitYieldRewriter<ttir::YieldOp>,
+               ttkernel::TTIRDMAWaitRewriter,
+               ttkernel::TTIRCoreIndexRewriter,
+               ttkernel::TTIRGetGlobalOperandRewriter,
+               ttkernel::TTIRNullTxRewriter,
+               ttkernel::MemRefCollapseRewriter,
+               ttkernel::TTIRSemaphoreUpdateRewriter<ttir::SemaphoreSetOp>,
+               ttkernel::TTIRSemaphoreUpdateRewriter<ttir::SemaphoreIncOp>,
+               ttkernel::TTIRSemaphoreWaitRewriter>(typeConverter, ctx);
 
   patterns.add<ttkernel::TTIRDMARewriter>(typeConverter, ctx, &associatedDMAWaits);
   // clang-format on
