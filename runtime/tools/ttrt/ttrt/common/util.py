@@ -623,19 +623,7 @@ class Flatbuffer:
         self.test_result = "pass"
 
     def check_version(self, ignore: bool = False):
-        package_name = "ttrt"
-
-        try:
-            package_version = get_distribution(package_name).version
-        except Exception as e:
-            raise Exception(f"error retrieving version: {e} for {package_name}")
-
-        if package_version != self.version and not ignore:
-            raise Exception(
-                f"{package_name}: v{package_version} does not match flatbuffer: v{self.version} for flatbuffer: {self.file_path} - skipping this test"
-            )
-
-        return True
+        raise UnimplementedError
 
     @staticmethod
     def get_ttnn_file_extension():
@@ -669,6 +657,13 @@ class Binary(Flatbuffer):
         for i in range(len(self.fbb_dict["programs"])):
             program = Binary.Program(i, self.fbb_dict["programs"][i])
             self.programs.append(program)
+
+    def check_version(self, ignore: bool = False):
+        if not ignore and not self.fbb.check_schema_hash():
+            raise Exception(
+                "Binary schema mismatch, please recompile the binary with the compiler at the same schema version"
+            )
+        return True
 
     def check_system_desc(self, query):
         import ttrt.binary
