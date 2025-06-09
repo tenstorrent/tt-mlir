@@ -430,10 +430,10 @@ public:
   matchAndRewrite(Operation *op, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const final {
     if (mlir::isa<ttir::TileTypecastOp>(op)) {
+      auto dstIdx = index(rewriter, op->getLoc(), 0);
       rewriter.setInsertionPoint(op);
-      lowerLoadToCopyTile(operands[0].getDefiningOp<memref::LoadOp>(), false,
-                          false, rewriter);
-
+      lowerLoadToCopyTile(rewriter, operands[0].getDefiningOp<memref::LoadOp>(),
+                          dstIdx, false);
       rewriter.create<ttkernel::TypecastTileInitOp>(op->getLoc());
 
       auto inDtype =
