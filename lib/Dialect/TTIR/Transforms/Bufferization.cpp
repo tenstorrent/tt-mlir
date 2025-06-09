@@ -46,14 +46,14 @@ class TTIRPrepareTensorsForBufferization
       TTIRPrepareTensorsForBufferizationBase;
 
   void runOnOperation() final {
-    TTIRTensorBufferizeShapeConverter typeConverter(&getContext());
-    RewritePatternSet patterns(&getContext());
-    patterns.add<UniformTypeRewriter>(typeConverter, &getContext());
-    FrozenRewritePatternSet patternSet(std::move(patterns));
-    if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
-      signalPassFailure();
-      return;
-    }
+    // TTIRTensorBufferizeShapeConverter typeConverter(&getContext());
+    // RewritePatternSet patterns(&getContext());
+    // patterns.add<UniformTypeRewriter>(typeConverter, &getContext());
+    // FrozenRewritePatternSet patternSet(std::move(patterns));
+    // if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
+    //   signalPassFailure();
+    //   return;
+    // }
   }
 
   void getDependentDialects(mlir::DialectRegistry &registry) const override {

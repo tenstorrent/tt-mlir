@@ -90,14 +90,7 @@ void populateTTModule(nb::module_ &m) {
                    [](tt::MetalLayoutAttr la) {
                      return static_cast<uint32_t>(la.getMemorySpace());
                    })
-      .def_prop_ro("buffers", &tt::MetalLayoutAttr::getBuffers)
-      // Helper to get buffer type from a tensor type
-      .def("get_buffer_type", [](const tt::MetalLayoutAttr &self,
-                                 MlirType tensorType, bool isView) {
-        auto rankedTensorType =
-            mlir::cast<RankedTensorType>(unwrap(tensorType));
-        return wrap(tt::ttir::getBufferType(rankedTensorType, isView));
-      });
+      .def_prop_ro("buffers", &tt::MetalLayoutAttr::getBuffers);
 
   tt_attribute_class<tt::GridAttr>(m, "GridAttr")
       .def_static("get",
