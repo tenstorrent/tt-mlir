@@ -2,33 +2,27 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <random>
-
-#include "mlir/IR/Attributes.h"
-#include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/Value.h"
-#include "mlir/IR/ValueRange.h"
-#include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/StringRef.h"
-#include "gtest/gtest.h"
+#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TT/Transforms/Transforms.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
+#include "ttmlir/Scheduler/Scheduler.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OperationSupport.h"
+#include "mlir/IR/Value.h"
 #include "mlir/IR/Verifier.h"
+#include "llvm/ADT/SmallVector.h"
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Dialect/TT/Transforms/Transforms.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
-#include "ttmlir/Scheduler/Scheduler.h"
+#include "gtest/gtest.h"
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
+#include <random>
 
 using namespace mlir::tt;
 
