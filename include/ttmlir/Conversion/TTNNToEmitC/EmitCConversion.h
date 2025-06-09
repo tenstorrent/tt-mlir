@@ -15,13 +15,13 @@
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include "mlir/Support/LLVM.h"
 #include <array>
 #include <cmath>
 #include <optional>
