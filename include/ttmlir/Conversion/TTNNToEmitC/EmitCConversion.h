@@ -1097,7 +1097,6 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
       rso << (firstElement ? "" : ", ") << ".preprocess_weights_on_device = "
           << EmitCTypeConverter<bool>::convert(
                  attr.getPreprocessWeightsOnDevice());
-      firstElement = false;
     }
     rso << "}";
     return buf;
