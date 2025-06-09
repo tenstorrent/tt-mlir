@@ -257,6 +257,7 @@ using ComputeOpMap = OpMap<
   std::pair<ttir::TileExpOp,      std::pair<ttkernel::ExpTileInitOp,        ttkernel::ExpTileOp>>,
   std::pair<ttir::TileMaximumOp,  std::pair<ttkernel::MaxTilesInitOp,       ttkernel::MaxTilesOp>>,
   std::pair<ttir::TileNegativeOp, std::pair<ttkernel::NegativeTileInitOp,   ttkernel::NegativeTileOp>>,
+  std::pair<ttir::TilePowOp,      std::pair<ttkernel::PowBinaryTilesInitOp, ttkernel::PowBinaryTilesOp>>,
   std::pair<ttir::TileRsqrtOp,    std::pair<ttkernel::RsqrtTileInitOp,      ttkernel::RsqrtTileOp>>,
   std::pair<ttir::TileSigmoidOp,  std::pair<ttkernel::SigmoidTileInitOp,    ttkernel::SigmoidTileOp>>,
   std::pair<ttir::TileSinOp,      std::pair<ttkernel::SinTileInitOp,        ttkernel::SinTileOp>>
@@ -1058,6 +1059,7 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileExpOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileMaximumOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileNegativeOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TilePowOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileRsqrtOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileSigmoidOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileSinOp>,

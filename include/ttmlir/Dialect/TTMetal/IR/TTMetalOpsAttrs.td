@@ -83,17 +83,19 @@ def TTMetal_ComputeConfigAttr: TTMetal_Attr<"ComputeConfig", "compute_config", [
 
   let extraClassDeclaration = [{
     static ComputeConfigAttr get(mlir::MLIRContext *context,
-                                mlir::SymbolRefAttr kernelSymbol,
-                                CoreRangeAttr coreRange,
-                                KernelArgsAttr kernelArgs) {
+                                 mlir::SymbolRefAttr kernelSymbol,
+                                 CoreRangeAttr coreRange,
+                                 KernelArgsAttr kernelArgs,
+                                 bool fp32_dest_acc_en,
+                                 ::llvm::ArrayRef<UnpackToDestMode> unpack_to_dest_mode) {
       return ComputeConfigAttr::get(context,
-                                   kernelSymbol,
-                                   coreRange,
-                                   kernelArgs,
-                                   MathFidelity::HiFi4,
-                                   false,
-                                   false,
-                                   {UnpackToDestMode::Default});
+                                    kernelSymbol,
+                                    coreRange,
+                                    kernelArgs,
+                                    MathFidelity::HiFi4,
+                                    fp32_dest_acc_en,
+                                    false,
+                                    unpack_to_dest_mode);
     };
 
     mlir::tt::ttkernel::ThreadType getThreadType() const { return mlir::tt::ttkernel::ThreadType::Compute; }

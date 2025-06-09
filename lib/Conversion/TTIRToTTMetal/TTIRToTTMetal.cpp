@@ -42,9 +42,22 @@ public:
     return builder.getAttr<ttmetal::KernelArgsAttr>(rtArgs, ctArgs);
   }
 
+  static Type getOperandInnerElementType(const mlir::Value operand) {
+    auto elemType = operand.getType();
+    if (mlir::isa<MemRefType>(elemType)) {
+      elemType = mlir::cast<MemRefType>(elemType).getElementType();
+    }
+    // We could have a memref of tiles, so this needs to be the second query
+    if (mlir::isa<TileType>(elemType)) {
+      elemType = mlir::cast<TileType>(elemType).getElementType();
+    }
+    assert(elemType.isIntOrFloat());
+    return elemType;
+  }
+
   static ArrayAttr
-  convertThreadsToKernelConfigs(Builder &builder, ArrayAttr threads,
-                                GridAttr opGrid,
+  convertThreadsToKernelConfigs(Builder &builder, mlir::ValueRange operands,
+                                ArrayAttr threads, GridAttr opGrid,
                                 const SymbolTable &symbolTable) {
     SmallVector<Attribute> kernelConfigs;
     uint32_t nocIndex = 0;
@@ -56,8 +69,19 @@ public:
       Attribute kernelConfig = nullptr;
       switch (thread.getThreadType()) {
       case ttir::ThreadType::Compute: {
+        bool fp32DestAccum = false;
+        for (size_t i = 0; i < operands.size(); ++i) {
+          auto elemType = getOperandInnerElementType(operands[i]);
+          if (elemType.getIntOrFloatBitWidth() == 32) {
+            fp32DestAccum = true;
+          }
+        }
+        // TODO (wenbinlyuTT): try fp32 unpack mode to improve accuracy, but it
+        // causes hang inside the tilize kernel
+        std::vector<UnpackToDestMode> unpackModes{UnpackToDestMode::Default};
         kernelConfig = builder.getAttr<ttmetal::ComputeConfigAttr>(
-            thread.getKernelSymbol(), coreRange, kernelArgs);
+            thread.getKernelSymbol(), coreRange, kernelArgs, fp32DestAccum,
+            unpackModes);
         break;
       }
       case ttir::ThreadType::Datamovement: {
@@ -110,8 +134,8 @@ public:
     ArrayAttr threads = op.getThreads();
     GridAttr opGrid = op.getGrid();
     SymbolTable symbolTable(op->getParentOfType<ModuleOp>());
-    auto kernelConfigs =
-        convertThreadsToKernelConfigs(rewriter, threads, opGrid, symbolTable);
+    auto kernelConfigs = convertThreadsToKernelConfigs(
+        rewriter, adaptor.getOperands(), threads, opGrid, symbolTable);
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
         op, buffers, cbs, cbPorts, kernelConfigs);
     return success();
