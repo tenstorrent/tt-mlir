@@ -36,6 +36,24 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
 
 namespace mlir::tt::ttir {
+MemRefType getGenericOpMemRefType(RankedTensorType tensorType) {
+  if (!tensorType.getEncoding()) {
+    return MemRefType::get(tensorType.getShape(), tensorType.getElementType());
+  }
+
+  auto layout = mlir::cast<MetalLayoutAttr>(tensorType.getEncoding());
+
+  // Get shard shape (without grid dimensions)
+  auto shardShape =
+      layout.getShardShape(tt::getMetalTensorGridShape(tensorType),
+                           tt::getMetalTensorTileShape(tensorType));
+
+  // No layout attr needed for region arguments
+  return MemRefType::get(
+      shardShape, tensorType.getElementType(), MemRefLayoutAttrInterface{},
+      MemorySpaceAttr::get(tensorType.getContext(), layout.getMemorySpace()));
+}
+
 MemRefType getBufferType(Type type, bool isView) {
   auto tensorType = mlir::cast<mlir::RankedTensorType>(type);
   if (!tensorType.getEncoding()) {
@@ -45,20 +63,36 @@ MemRefType getBufferType(Type type, bool isView) {
   auto layout = mlir::cast<MetalLayoutAttr>(tensorType.getEncoding());
   MLIRContext *ctx = tensorType.getContext();
 
-  // Get shard shape (without grid dimensions)
+  // Get grid and shard shapes
+  auto gridShape = tt::getMetalTensorGridShape(tensorType);
   auto shardShape =
-      layout.getShardShape(tt::getMetalTensorGridShape(tensorType),
-                           tt::getMetalTensorTileShape(tensorType));
+      layout.getShardShape(gridShape, tt::getMetalTensorTileShape(tensorType));
+
+  // Create full memref shape (grid + shard) like the old code
+  SmallVector<int64_t> fullMemrefShape;
+  fullMemrefShape.append(gridShape.begin(), gridShape.end());
+  fullMemrefShape.append(shardShape.begin(), shardShape.end());
+
+  // Calculate strides for the shard shape
+  SmallVector<int64_t> shardStrides(shardShape.size());
+  shardStrides[shardStrides.size() - 1] =
+      mlir::tt::getElementSizeBytes(tensorType.getElementType());
+  for (int64_t i = static_cast<int64_t>(shardStrides.size()) - 2; i >= 0; i--) {
+    shardStrides[i] = shardShape[i + 1] * shardStrides[i + 1];
+  }
 
   MemRefLayoutAttrInterface layoutAttr;
   if (isView) {
-    layoutAttr = ViewLayoutAttr::get(ctx, shardShape.size());
+    layoutAttr = ViewLayoutAttr::get(ctx, fullMemrefShape.size());
+  } else {
+    layoutAttr = ShardLayoutAttr::get(ctx, shardStrides, /*buffered=*/1);
   }
 
-  return MemRefType::get(shardShape, // Use shard shape, not full tensor shape
-                         tensorType.getElementType(), layoutAttr,
+  return MemRefType::get(fullMemrefShape, tensorType.getElementType(),
+                         layoutAttr,
                          MemorySpaceAttr::get(ctx, layout.getMemorySpace()));
 }
+
 } // namespace mlir::tt::ttir
 
 //===----------------------------------------------------------------------===//
@@ -3758,6 +3792,11 @@ static mlir::LogicalResult verifyAffineBlocking(
       }
       outputGridShape = tt::getMetalTensorGridShape(tensorType);
     } else {
+      llvm::errs() << "memref output found\n";
+      llvm::errs() << "  output type: " << operandType << "\n";
+      llvm::errs() << "  op location: " << getLoc() << "\n";
+      llvm::errs() << "  num operands: " << getNumOperands() << "\n";
+      llvm::errs() << "  op grid shape: " << getGrid() << "\n";
       auto memref = mlir::cast<MemRefType>(operandType);
       // If the top level operand is a memref, the front half of its shape
       // is the grid shape, so we cut it off the back to get just the grid

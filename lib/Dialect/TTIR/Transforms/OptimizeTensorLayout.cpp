@@ -179,8 +179,7 @@ struct TTIRMemrefLayoutRewriter : public OpRewritePattern<ttir::GenericOp> {
             mlir::cast<RankedTensorType>(op->getOperand(i).getType());
 
         // New: Create memref type using the common utility function
-        auto expectedMemrefType =
-            ttir::getBufferType(operandType, /*isView=*/false);
+        auto expectedMemrefType = ttir::getGenericOpMemRefType(operandType);
 
         if (arg.getType() == expectedMemrefType) {
           continue;

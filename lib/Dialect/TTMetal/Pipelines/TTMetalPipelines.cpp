@@ -27,7 +27,7 @@ namespace mlir::tt::ttmetal {
 //===----------------------------------------------------------------------===//
 
 void createTTIRBufferizationPipeline(OpPassManager &pm) {
-  pm.addPass(ttir::createTTIRPrepareTensorsForBufferization());
+  // pm.addPass(ttir::createTTIRPrepareTensorsForBufferization());
   bufferization::OneShotBufferizePassOptions bufferizePassOptions;
   bufferizePassOptions.bufferizeFunctionBoundaries = true;
   bufferizePassOptions.functionBoundaryTypeConversion =
