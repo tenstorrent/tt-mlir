@@ -389,7 +389,7 @@ std::optional<::ttnn::DeviceComputeKernelConfig> getDeviceComputeKernelConfig(
 
   // Note: Currently, we only support creating WormholeComputeKernelConfig.
   // If we need to support GrayskullComputeKernelConfig in the future, we
-  // need to pass in the device information to the function or include it in
+  // need to pass in the device information to this function or include it in
   // DeviceComputeKernelConfigAttr.
   ::ttnn::WormholeComputeKernelConfig config;
   if (devConfig.getFp32DestAccEn()) {
