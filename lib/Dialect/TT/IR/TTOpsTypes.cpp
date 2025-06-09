@@ -1227,12 +1227,6 @@ DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
                            SystemDescAttr systemDesc,
                            ArrayRef<int64_t> meshShape) {
   int64_t numChips = ttmlir::utils::volume(meshShape);
-  fprintf(stderr, "desc numChips: %lu\n", systemDesc.getChipDescs().size());
-  fprintf(stderr, "meshShape: [");
-  for (size_t i = 0; i < meshShape.size(); i++) {
-    fprintf(stderr, "%lu, ", meshShape[i]);
-  }
-  fprintf(stderr, "]\n");
   assert(systemDesc.getChipDescIndices().size() >=
              static_cast<size_t>(numChips) &&
          "expected at least one chip");
