@@ -134,9 +134,7 @@ getShardSpec(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
 }
 
 ::tt::tt_metal::BufferType
-getBufferType(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
-  auto bufferType = layout.getBufferType();
-
+getBufferType(const mlir::tt::ttnn::BufferType &bufferType) {
   switch (bufferType) {
   case mlir::tt::ttnn::BufferType::DRAM:
     return ::tt::tt_metal::BufferType::DRAM;
@@ -149,6 +147,12 @@ getBufferType(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
   case mlir::tt::ttnn::BufferType::Trace:
     return ::tt::tt_metal::BufferType::TRACE;
   }
+}
+
+::tt::tt_metal::BufferType
+getBufferType(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
+  auto bufferType = layout.getBufferType();
+  return getBufferType(bufferType);
 }
 
 mlir::tt::ttnn::BufferType
@@ -227,22 +231,8 @@ getMemoryConfig(const mlir::tt::ttnn::MemoryConfigAttr &memConfigAttr) {
   // Convert buffer type enum
   ::tt::tt_metal::BufferType bufferType =
       ::tt::tt_metal::BufferType::DRAM; // Default to DRAM
-  switch (memConfigAttr.getBufferType().getValue()) {
-  case mlir::tt::ttnn::BufferType::L1:
-    bufferType = ::tt::tt_metal::BufferType::L1;
-    break;
-  case mlir::tt::ttnn::BufferType::DRAM:
-    bufferType = ::tt::tt_metal::BufferType::DRAM;
-    break;
-  case mlir::tt::ttnn::BufferType::SystemMemory:
-    bufferType = ::tt::tt_metal::BufferType::SYSTEM_MEMORY;
-    break;
-  case mlir::tt::ttnn::BufferType::L1Small:
-    bufferType = ::tt::tt_metal::BufferType::L1_SMALL;
-    break;
-  case mlir::tt::ttnn::BufferType::Trace:
-    bufferType = ::tt::tt_metal::BufferType::TRACE;
-    break;
+  if (memConfigAttr.getBufferType()) {
+    bufferType = getBufferType(memConfigAttr.getBufferType().getValue());
   }
 
   // Shard spec is not implemented for this version
