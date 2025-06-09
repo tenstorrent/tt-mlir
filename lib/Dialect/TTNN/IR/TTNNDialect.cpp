@@ -61,7 +61,6 @@ void TTNNDialect::initialize() {
 #define GET_OP_LIST
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.cpp.inc"
       >();
-  // NOLINTNEXTLINE
   addAttributes<
 #define GET_ATTRDEF_LIST
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrDefs.cpp.inc"

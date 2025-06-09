@@ -56,7 +56,6 @@ size_t mlir::tt::ttkernel::ArgSpecAttr::appendRuntimeArg(func::FuncOp op,
 }
 
 void TTKernelDialect::registerTypes() {
-  // NOLINTNEXTLINE
   addTypes<
 #define GET_TYPEDEF_LIST
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.cpp.inc"

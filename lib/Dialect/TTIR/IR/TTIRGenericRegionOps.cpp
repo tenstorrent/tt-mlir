@@ -210,7 +210,6 @@ mlir::LogicalResult mlir::tt::ttir::DMAOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options) {
   Value src = nullptr;
-  // NOLINTNEXTLINE
   if (isSrcRemote()) {
     auto maybeSrc = mlir::bufferization::getBuffer(rewriter, getSrc(), options);
     if (failed(maybeSrc)) {
@@ -222,7 +221,6 @@ mlir::LogicalResult mlir::tt::ttir::DMAOp::bufferize(
   }
 
   Value dst = nullptr;
-  // NOLINTNEXTLINE
   if (isDstRemote()) {
     auto maybeDst = mlir::bufferization::getBuffer(rewriter, getDst(), options);
     if (failed(maybeDst)) {
@@ -234,7 +232,6 @@ mlir::LogicalResult mlir::tt::ttir::DMAOp::bufferize(
   }
 
   ::llvm::SmallVector<mlir::Value> invocationStack;
-  // NOLINTNEXTLINE
   mlir::bufferization::replaceOpWithNewBufferizedOp<mlir::tt::ttir::DMAOp>(
       rewriter, *this, getResult().getType(), src, getSrcAffineMapAttr(),
       getSrcIndices(), dst, getDstAffineMapAttr(), getDstIndices(),

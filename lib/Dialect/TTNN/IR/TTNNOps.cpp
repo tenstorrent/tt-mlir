@@ -695,7 +695,6 @@ mlir::tt::ttnn::TypecastOp::canonicalize(TypecastOp typecastOp,
 ::llvm::LogicalResult
 mlir::tt::ttnn::ToDTypeOp::canonicalize(ToDTypeOp op,
                                         ::mlir::PatternRewriter &rewriter) {
-  // NOLINTNEXTLINE
   return foldConsecutiveDataCastOps(op, rewriter);
 }
 
@@ -1478,7 +1477,6 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
     ToLayoutOp previousToLayoutOp =
         toLayoutOp.getInput().getDefiningOp<ToLayoutOp>();
 
-    // NOLINTNEXTLINE
     if (!previousToLayoutOp) {
       return mlir::failure();
     }

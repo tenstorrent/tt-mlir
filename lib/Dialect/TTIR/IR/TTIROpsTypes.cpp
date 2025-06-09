@@ -17,7 +17,6 @@ using namespace mlir::tt::ttir;
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsTypeDefs.cpp.inc"
 
 void TTIRDialect::registerTypes() {
-  // NOLINTNEXTLINE
   addTypes<
 #define GET_TYPEDEF_LIST
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsTypeDefs.cpp.inc"
