@@ -106,6 +106,10 @@ public:
       // assert that the op has a valid HW thread selection
       if (op.getNumRegions() > (chipDesc.getNumComputeThreads() +
                                 chipDesc.getNumDatamovementThreads())) {
+        llvm::errs() << "data movement threads: "
+                     << chipDesc.getNumDatamovementThreads()
+                     << ", compute threads: " << chipDesc.getNumComputeThreads()
+                     << "\n";
         op.emitError("invalid number of regions (")
             << op.getNumRegions() << "), expected at most ("
             << (chipDesc.getNumComputeThreads() +
