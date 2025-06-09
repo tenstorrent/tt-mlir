@@ -344,14 +344,7 @@ public:
     auto device = op.getDevice();
     auto deviceDesc = lookupDevice(op);
     ::llvm::ArrayRef<int64_t> meshShape = deviceDesc.getMeshShape();
-    ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
-      op.getResult().getType().getEncoding());
-    ttnn::BufferTypeAttr bufferTypeAttr = ttnn::BufferTypeAttr::get(
-        op.getContext(), layoutAttr.getBufferType());
-    ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
-        op.getContext(), layoutAttr.getMemLayout(), bufferTypeAttr,
-        std::nullopt);
-                                  
+
     // Case 1: Need to add reshape around AllGather
     if (rank < 3) {
       // Insert leading dimension of size 1 at allGatherDim
@@ -406,7 +399,7 @@ public:
 
       auto permutedInput = rewriter.create<ttnn::PermuteOp>(
           loc, permutedType, input, rewriter.getDenseI64ArrayAttr(permutation),
-          memoryConfigAttr, mlir::FloatAttr());
+          ttnn::MemoryConfigAttr(), mlir::FloatAttr());
 
       permutedShape[0] = permutedShape[0] * meshShape[clusterAxis];
       // AllGather on permuted input, with dim 0 (since we've moved target to
@@ -418,15 +411,10 @@ public:
           /*allGatherDim=*/0, clusterAxis);
 
       // Permute back
-      auto allGatherShape = allGather.getType().getShape();
-      auto finalShape =
-          ttmlir::utils::applyPermutation(allGatherShape, permutation);
-      RankedTensorType outputType =
-          RankedTensorType::Builder(inputType).setShape(finalShape);
-
+      auto outputType = mlir::cast<RankedTensorType>(op.getType());
       rewriter.replaceOpWithNewOp<ttnn::PermuteOp>(
           op, outputType, allGather.getResult(),
-          rewriter.getDenseI64ArrayAttr(permutation), memoryConfigAttr,
+          rewriter.getDenseI64ArrayAttr(permutation), ttnn::MemoryConfigAttr(),
           mlir::FloatAttr());
 
       return success();
