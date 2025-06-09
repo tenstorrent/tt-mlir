@@ -1141,32 +1141,9 @@ inline std::string convert(ttnn::ShapeAttr attr) {
 }
 
 inline std::string convert(tt::DataType attr) {
-  switch (attr) {
-  case tt::DataType::BFloat16:
-    return "::ttnn::DataType::BFLOAT16";
-  case tt::DataType::Float32:
-    return "::ttnn::DataType::FLOAT32";
-  case tt::DataType::UInt32:
-    return "::ttnn::DataType::UINT32";
-  case tt::DataType::BFP_BFloat8:
-    return "::ttnn::DataType::BFLOAT8_B";
-  case tt::DataType::BFP_BFloat4:
-    return "::ttnn::DataType::BFLOAT4_B";
-  case tt::DataType::UInt8:
-    return "::ttnn::DataType::UINT8";
-  case tt::DataType::UInt16:
-    return "::ttnn::DataType::UINT16";
-  case tt::DataType::Int32:
-    return "::ttnn::DataType::INT32";
-  case tt::DataType::Float16:
-  case tt::DataType::BFP_Float2:
-  case tt::DataType::BFP_Float4:
-  case tt::DataType::BFP_Float8:
-  case tt::DataType::BFP_BFloat2:
-    llvm_unreachable("Unsupported ttnn::DataType");
-  }
-
-  llvm_unreachable("Unkonwn tt::DataType");
+  // TODO (azecevic): Will be deprecated!
+  // https://github.com/tenstorrent/tt-mlir/issues/3635
+  return EmitCTypeConverter<::ttnn::DataType>::convert(attr);
 }
 
 inline std::string convert(tt::DataTypeAttr attr) {
@@ -1178,16 +1155,9 @@ inline std::string convert(tt::DataTypeAttr attr) {
 }
 
 inline std::string convert(ttnn::Layout attr) {
-  switch (attr) {
-  case ttnn::Layout::RowMajor:
-    return "::ttnn::Layout::ROW_MAJOR";
-  case ttnn::Layout::Tile:
-    return "::ttnn::Layout::TILE";
-  case ttnn::Layout::Invalid:
-    return "::ttnn::Layout::INVALID";
-  }
-
-  llvm_unreachable("Unknown ttnn::Layout");
+  // TODO (azecevic): Will be deprecated!
+  // https://github.com/tenstorrent/tt-mlir/issues/3635
+  return EmitCTypeConverter<::ttnn::Layout>::convert(attr);
 }
 
 inline std::string convert(ttnn::LayoutAttr attr) {
@@ -1199,20 +1169,9 @@ inline std::string convert(ttnn::LayoutAttr attr) {
 }
 
 inline std::string convert(ttnn::TensorMemoryLayout attr) {
-  switch (attr) {
-  case ttnn::TensorMemoryLayout::BlockSharded:
-    return "::ttnn::TensorMemoryLayout::BLOCK_SHARDED";
-  case ttnn::TensorMemoryLayout::HeightSharded:
-    return "::ttnn::TensorMemoryLayout::HEIGHT_SHARDED";
-  case ttnn::TensorMemoryLayout::Interleaved:
-    return "::ttnn::TensorMemoryLayout::INTERLEAVED";
-  case ttnn::TensorMemoryLayout::SingleBank:
-    return "::ttnn::TensorMemoryLayout::SINGLE_BANK";
-  case ttnn::TensorMemoryLayout::WidthSharded:
-    return "::ttnn::TensorMemoryLayout::WIDTH_SHARDED";
-  }
-
-  llvm_unreachable("Unknown ttnn::TensorMemoryLayout");
+  // TODO (azecevic): Will be deprecated!
+  // https://github.com/tenstorrent/tt-mlir/issues/3635
+  return EmitCTypeConverter<::ttnn::TensorMemoryLayout>::convert(attr);
 }
 
 inline std::string convert(ttnn::TensorMemoryLayoutAttr attr) {
