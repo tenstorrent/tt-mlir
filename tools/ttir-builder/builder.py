@@ -1306,16 +1306,12 @@ class TTIRBuilder:
     ) -> OpView:
         cache_tensor = self._get_golden_tensor(in0)
         input_tensor = self._get_golden_tensor(in1)
-        a = torch.Tensor.repeat(
-            self._get_golden_tensor(in1),
-            [1, 1, cache_tensor.size()[2] // input_tensor.size()[2], 1],
-        )
-        b = input_tensor[:, :, 0 : (cache_tensor.size()[2] % input_tensor.size()[2]), :]
+        cache_tensor[:, :, : input_tensor.shape[2], :] = input_tensor
         return self.op_proxy(
-            torch.cat,
+            torch.clone,
             ttir.FillCacheOp,
             [in0, in1],
-            golden_kwargs={"tensors": (a, b), "dim": 2},
+            golden_kwargs={"input": cache_tensor},
             ttir_kwargs={"batch_offset": batch_offset},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
             organize_golden_args=lambda i: 0,

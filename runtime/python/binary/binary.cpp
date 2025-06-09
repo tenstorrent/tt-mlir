@@ -104,10 +104,9 @@ void registerBinaryBindings(nb::module_ &m) {
                break;
 
              default:
-               throw std::runtime_error(
-                   "Only 32-bit floats, 32-bit ints, and unsigned ints "
-                   "are currently supported "
-                   "for GoldenTensor bindings");
+               throw std::runtime_error("Only 32-bit floats and unsigned ints "
+                                        "are currently supported "
+                                        "for GoldenTensor bindings");
              }
 
              const uint8_t *data = t->data()->data();
