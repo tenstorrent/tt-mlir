@@ -969,6 +969,14 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::Conv2dOp> emitter(srcOp, adaptor,
                                                                 rewriter);
 
+    auto emitPadding =
+        [&](::mlir::DenseI32ArrayAttr paddingAttr) -> mlir::Attribute {
+      if (paddingAttr.size() == 4) {
+        return emitter.emit<std::array<uint32_t, 4>>(paddingAttr);
+      }
+      return emitter.emit<std::array<uint32_t, 2>>(paddingAttr);
+    };
+
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getWeight()),
@@ -980,7 +988,7 @@ public:
         emitter.emit(srcOp.getInputWidth()),
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getKernelSizeAttr()),
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
-        emitter.emit<std::array<uint32_t, 2>>(srcOp.getPaddingAttr()),
+        emitPadding(srcOp.getPaddingAttr()),
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getGroups()),
         emitter.emit(srcOp.getBias()),
