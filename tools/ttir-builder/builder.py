@@ -772,12 +772,16 @@ class TTIRBuilder:
     def where(
         self, in0: Operand, in1: Operand, in2: Operand, unit_attrs: List[str] = None
     ) -> OpView:
+        # Handle golden condition tensor
+        in0_tensor = self._get_golden_tensor(in0)
+        condition = torch.full(in0_tensor.shape, False)
+        condition[in0_tensor > 0] = True
         return self.op_proxy(
             torch.where,
             ttir.WhereOp,
             [in0, in1, in2],
             organize_golden_args=lambda i: (
-                self._get_golden_tensor(i[0]).to(dtype=torch.bool),
+                condition,
                 self._get_golden_tensor(i[1]),
                 self._get_golden_tensor(i[2]),
             ),
@@ -1037,7 +1041,6 @@ class TTIRBuilder:
             [in0],
             golden_kwargs=kwargs,
             ttir_kwargs=kwargs,
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             output_type=IntegerType.get_signless(32, self._ctx),
             unit_attrs=unit_attrs,
         )
@@ -1061,7 +1064,6 @@ class TTIRBuilder:
             [in0],
             golden_kwargs={"dim": dim_arg, "keepdim": keep_dim},
             ttir_kwargs={"dim_arg": dim_arg, "keep_dim": keep_dim},
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             unit_attrs=unit_attrs,
         )
 
@@ -1078,7 +1080,6 @@ class TTIRBuilder:
             [in0],
             golden_kwargs={"dim": dim_arg, "keepdim": keep_dim},
             ttir_kwargs={"dim_arg": dim_arg, "keep_dim": keep_dim},
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             unit_attrs=unit_attrs,
         )
 
@@ -1105,7 +1106,6 @@ class TTIRBuilder:
             [in0],
             golden_kwargs=golden_kwargs,
             ttir_kwargs=ttir_kwargs,
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             output_shape=output_shape,
             unit_attrs=unit_attrs,
         )
@@ -1133,7 +1133,6 @@ class TTIRBuilder:
             [in0],
             golden_kwargs=golden_kwargs,
             ttir_kwargs=ttir_kwargs,
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             output_shape=output_shape,
             unit_attrs=unit_attrs,
         )
@@ -1156,7 +1155,6 @@ class TTIRBuilder:
             [in0],
             golden_kwargs={"dim": tuple(dim_args), "keepdim": keep_dim},
             ttir_kwargs={"dim_arg": dim_args, "keep_dim": keep_dim},
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             unit_attrs=unit_attrs,
             output_shape=output_shape,
         )
@@ -1179,7 +1177,6 @@ class TTIRBuilder:
             [in0],
             golden_kwargs={"dim": tuple(dim_args), "keepdim": keep_dim},
             ttir_kwargs={"dim_arg": dim_args, "keep_dim": keep_dim},
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             unit_attrs=unit_attrs,
             output_shape=output_shape,
         )
@@ -1191,20 +1188,20 @@ class TTIRBuilder:
         keep_dim: bool = False,
         unit_attrs: List[str] = None,
     ) -> OpView:
-        g_kwargs = {}
+        golden_kwargs = {}
         if len(dim_arg) == 1:
-            g_kwargs["dim"] = dim_arg[0]
-            g_kwargs["keepdim"] = keep_dim
-            g_function = torch.prod
+            golden_kwargs["dim"] = dim_arg[0]
+            golden_kwargs["keepdim"] = keep_dim
+            golden_kwargs["dtype"] = torch.int32
+            golden_function = torch.prod
         else:
-            g_function = lambda i: torch.tensor([torch.prod(i[0]).item()])
+            golden_function = lambda i: torch.tensor([torch.prod(i[0]).item()])
         return self.op_proxy(
-            g_function,
+            golden_function,
             ttir.ProdOp,
             [in0],
-            golden_kwargs=g_kwargs,
+            golden_kwargs=golden_kwargs,
             ttir_kwargs={"keep_dim": keep_dim, "dim_arg": dim_arg},
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             unit_attrs=unit_attrs,
         )
 
@@ -1212,14 +1209,15 @@ class TTIRBuilder:
         self, in0: Operand, in1: Operand, unit_attrs: List[str] = None
     ) -> OpView:
         embedding = torch.nn.Embedding.from_pretrained(self._get_golden_tensor(in1))
+        golden_typecast = self._get_golden_tensor(in0).to(torch.int32)
+        golden_input = torch.clamp(
+            golden_typecast, 0, (self._get_golden_tensor(in1).size()[0] - 1)
+        )
         return self.op_proxy(
             embedding,
             ttir.EmbeddingOp,
             [in0, in1],
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], o),
-            organize_golden_args=lambda i: (
-                torch.ones(self._get_golden_tensor(i[0]).size(), dtype=torch.long),
-            ),
+            organize_golden_args=lambda i: (golden_input,),
             unit_attrs=unit_attrs,
         )
 
@@ -1265,7 +1263,6 @@ class TTIRBuilder:
             [in0],
             golden_kwargs=kwargs,
             ttir_kwargs=kwargs,
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             unit_attrs=unit_attrs,
         )
 
@@ -1296,7 +1293,6 @@ class TTIRBuilder:
             [in0],
             golden_kwargs={"repeats": dims},
             ttir_kwargs={"repeat_dimensions": dims},
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             unit_attrs=unit_attrs,
         )
 
@@ -1385,7 +1381,6 @@ class TTIRBuilder:
             [in0],
             golden_kwargs={"size": self.get_shape(in1)},
             ttir_kwargs={"broadcast_dimensions": broadcast_dimensions},
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             unit_attrs=unit_attrs,
         )
 
@@ -1491,7 +1486,6 @@ class TTIRBuilder:
                 "groups": groups,
                 "bias": bias,
             },
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], o),
             unit_attrs=unit_attrs,
         )
 
@@ -1572,7 +1566,6 @@ class TTIRBuilder:
                 "padding_top": padding_top,
                 "padding_bottom": padding_bottom,
             },
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             unit_attrs=unit_attrs,
         )
 
@@ -1667,7 +1660,6 @@ class TTIRBuilder:
             [in0],
             ttir_kwargs=kwargs,
             golden_kwargs=kwargs,
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             unit_attrs=unit_attrs,
         )
 
@@ -1720,7 +1712,6 @@ class TTIRBuilder:
                 "length": length,
                 "stride": stride,
             },
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             unit_attrs=unit_attrs,
         )
 
@@ -1746,7 +1737,6 @@ class TTIRBuilder:
             [in0],
             golden_kwargs={"dim": dim, "index": index},
             ttir_kwargs={"dim": dim, "begin": begin, "end": end, "step": step},
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             unit_attrs=unit_attrs,
         )
 
@@ -1760,7 +1750,6 @@ class TTIRBuilder:
             [in0],
             golden_kwargs=kwargs,
             ttir_kwargs=kwargs,
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             unit_attrs=unit_attrs,
         )
 
@@ -1774,7 +1763,6 @@ class TTIRBuilder:
             [in0],
             golden_kwargs=kwargs,
             ttir_kwargs=kwargs,
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             unit_attrs=unit_attrs,
         )
 
@@ -1792,7 +1780,6 @@ class TTIRBuilder:
             [in0],
             ttir_kwargs=kwargs,
             golden_kwargs=kwargs,
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             unit_attrs=unit_attrs,
         )
 
@@ -1862,7 +1849,6 @@ class TTIRBuilder:
             [in0],
             golden_kwargs={"dims": dims},
             ttir_kwargs={"dimensions": dims},
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             unit_attrs=unit_attrs,
         )
 
@@ -1882,7 +1868,6 @@ class TTIRBuilder:
             [in0, in1],
             golden_kwargs=kwargs,
             ttir_kwargs=kwargs,
-            organize_ttir_args=lambda i, o, shape: (self._get_type(o), i[0], i[1], o),
             unit_attrs=unit_attrs,
         )
 
@@ -1923,7 +1908,6 @@ class TTIRBuilder:
             torch.matmul,
             ttir.MatmulOp,
             inputs,
-            organize_ttir_args=lambda i, o, shape: (self._get_type(o), i[0], i[1], o),
             unit_attrs=unit_attrs,
         )
 
@@ -2071,11 +2055,6 @@ class TTIRBuilder:
             ttir.QuantizeOp,
             [in0],
             golden_kwargs=golden_kwargs,
-            organize_ttir_args=lambda i, o, _: (
-                self._get_type(o),
-                i[0],
-                o,
-            ),
             output_type=self.get_type_from_torch_dtype(
                 TypeInfo(dtype=dtype, scale=scale, zero_point=zero_point)
             ),
@@ -2094,11 +2073,6 @@ class TTIRBuilder:
             torch.dequantize,
             ttir.DequantizeOp,
             [in0],
-            organize_ttir_args=lambda i, o, _: (
-                self._get_type(o),
-                i[0],
-                o,
-            ),
             output_type=self.get_type_from_torch_dtype(dtype=dtype),
             unit_attrs=unit_attrs,
         )
@@ -2119,11 +2093,6 @@ class TTIRBuilder:
             ttir.RequantizeOp,
             [in0],
             golden_kwargs=golden_kwargs,
-            organize_ttir_args=lambda i, o, _: (
-                self._get_type(o),
-                i[0],
-                o,
-            ),
             output_type=self.get_type_from_torch_dtype(
                 TypeInfo(dtype=dtype, scale=scale, zero_point=zero_point)
             ),
@@ -2143,11 +2112,6 @@ class TTIRBuilder:
             [in0],
             output_type=output_type,
             output_create_fn=self.empty_from_tensor_type,
-            organize_ttir_args=lambda i, o, _: (
-                [self._get_type(o)],
-                i[0],
-                o,
-            ),
             unit_attrs=unit_attrs,
             **kwargs,
         )
@@ -2185,11 +2149,6 @@ class TTIRBuilder:
             [in0],
             output_type=output_type,
             output_create_fn=self.empty_from_tensor_type,
-            organize_ttir_args=lambda i, o, _: (
-                [self._get_type(o)],
-                i[0],
-                o,
-            ),
             unit_attrs=unit_attrs,
         )
 
@@ -2205,11 +2164,6 @@ class TTIRBuilder:
             [in0],
             output_type=output_type,
             output_create_fn=self.empty_from_tensor_type,
-            organize_ttir_args=lambda i, o, _: (
-                [self._get_type(o)],
-                i[0],
-                o,
-            ),
             unit_attrs=unit_attrs,
         )
 
