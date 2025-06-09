@@ -940,7 +940,9 @@ public:
         emitter.emit(srcOp.getHasBias()),
         emitter.emit(srcOp.getGroups()),
         emitter.emit(srcOp.getDevice()),
-        /*conv2d_config=*/emitter.emit(std::nullopt),
+        emitter.emit<
+            std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>>(
+            srcOp.getConv2dConfig()),
         /*compute_config_=*/emitter.emit(std::nullopt),
         /*dram_slice_config=*/emitter.emit(std::nullopt),
     };
