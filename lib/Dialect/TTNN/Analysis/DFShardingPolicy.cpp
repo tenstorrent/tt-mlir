@@ -99,7 +99,7 @@ void DFShardingPolicy::run() {
           // the near future.
           //
           if (llvm::isa<
-                  ttnn::Conv2dOp,
+                  // ttnn::Conv2dOp,
                   ttnn::ZerosOp, ttnn::OnesOp,
                   // TODO(#3242): Re-enable once we are able to query backend
                   // for matmul.
