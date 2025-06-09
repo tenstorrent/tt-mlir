@@ -250,9 +250,8 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
 
     MemorySpaces memSpaces = getMemorySpaces(chipDesc);
     ModuleAnalysisData moduleAnalysis(memSpaces);
-    bool didFail = false;
 
-    moduleOp->walk([&](func::FuncOp func) {
+    WalkResult analysisWalk = moduleOp->walk([&](func::FuncOp func) {
       if (func.isDeclaration()) {
         return WalkResult::skip();
       }
@@ -260,7 +259,6 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
       FailureOr<FuncAnalysisData> funcAnalysis =
           runAnalyzeBuffers(func, memSpaces);
       if (failed(funcAnalysis)) {
-        didFail = true;
         return WalkResult::interrupt();
       }
 
@@ -268,7 +266,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
       return WalkResult::advance();
     });
 
-    if (didFail) {
+    if (analysisWalk.wasInterrupted()) {
       return failure();
     }
 
