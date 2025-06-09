@@ -16,6 +16,8 @@ namespace tt::runtime::python {
 void registerBinaryBindings(nb::module_ &m) {
   nb::class_<tt::runtime::Flatbuffer>(m, "Flatbuffer")
       .def_prop_ro("version", &tt::runtime::Flatbuffer::getVersion)
+      .def_prop_ro("schema_hash", &tt::runtime::Flatbuffer::getSchemaHash)
+      .def("check_schema_hash", &tt::runtime::Flatbuffer::checkSchemaHash)
       .def_prop_ro("ttmlir_git_hash",
                    &tt::runtime::Flatbuffer::getTTMLIRGitHash)
       .def_prop_ro("file_identifier",
@@ -25,6 +27,8 @@ void registerBinaryBindings(nb::module_ &m) {
 
   nb::class_<tt::runtime::Binary>(m, "Binary")
       .def_prop_ro("version", &tt::runtime::Binary::getVersion)
+      .def_prop_ro("schema_hash", &tt::runtime::Flatbuffer::getSchemaHash)
+      .def("check_schema_hash", &tt::runtime::Flatbuffer::checkSchemaHash)
       .def_prop_ro("ttmlir_git_hash", &tt::runtime::Binary::getTTMLIRGitHash)
       .def_prop_ro("file_identifier", &tt::runtime::Binary::getFileIdentifier)
       .def("as_json", &tt::runtime::Binary::asJson)
@@ -38,6 +42,8 @@ void registerBinaryBindings(nb::module_ &m) {
 
   nb::class_<tt::runtime::SystemDesc>(m, "SystemDesc")
       .def_prop_ro("version", &tt::runtime::SystemDesc::getVersion)
+      .def_prop_ro("schema_hash", &tt::runtime::Flatbuffer::getSchemaHash)
+      .def("check_schema_hash", &tt::runtime::Flatbuffer::checkSchemaHash)
       .def_prop_ro("ttmlir_git_hash",
                    &tt::runtime::SystemDesc::getTTMLIRGitHash)
       .def_prop_ro("file_identifier",
