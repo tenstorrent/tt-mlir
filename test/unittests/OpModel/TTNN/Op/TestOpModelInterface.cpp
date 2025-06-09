@@ -11,6 +11,7 @@
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 
 #include "mlir/IR/AffineExpr.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
@@ -895,6 +896,74 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
   runtimeExp =
       backend.getOpRuntime(getInputLayouts(conv2d),
                            OpConfig(getOutputLayout(conv2d), goodConvConfig));
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(runtimeExp.get(), 0);
+}
+
+TEST_F(OpModelBase, conv2dInterfaceComputeKernelConfig) {
+  // create Conv2dOp
+  // create Conv2dOp
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
+  llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
+  llvm::SmallVector<int64_t> outputShape = {1, 1, 12544, 64};
+
+  Type elemetType = builder.getBF16Type();
+
+  auto inputLayout = mlir::tt::ttnn::TTNNLayoutAttr::get(
+      &context, inputShape, elemetType, mlir::tt::ttnn::BufferType::DRAM,
+      GridAttr::get(&context, 2),
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
+  auto input = createEmptyTensor(inputShape, elemetType, inputLayout);
+
+  auto weightLayout = mlir::tt::ttnn::TTNNLayoutAttr::get(
+      &context, weightShape, elemetType,
+      mlir::tt::ttnn::BufferType::SystemMemory, GridAttr::get(&context, 2));
+  auto weight = createEmptyTensor(weightShape, elemetType, weightLayout);
+
+  auto outputType = createRankedTensorType(outputShape);
+
+  GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
+      builder.getUnknownLoc(), builder.getType<DeviceType>(),
+      ttnn::MeshShapeAttr::get(builder.getContext(), 1, 1),
+      ttnn::MeshOffsetAttr::get(builder.getContext(), 0, 0));
+
+  Conv2dOp conv2d = builder.create<Conv2dOp>(
+      builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
+      64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
+      llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
+      llvm::ArrayRef<int32_t>({1, 1}), 1, nullptr, nullptr);
+
+  // Device hangs otherwise.
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
+
+  Conv2dConfigAttr configAttr = Conv2dConfigAttr::get(&context);
+  DeviceComputeKernelConfigAttr deviceConfigAttr =
+      DeviceComputeKernelConfigAttr::get(
+          &context, MathFidelity::HiFi2, BoolAttr::get(&context, true),
+          BoolAttr::get(&context, false), BoolAttr::get(&context, true),
+          BoolAttr::get(&context, true));
+  OpConfig::Attributes opConfigAttrs = {
+      configAttr, deviceConfigAttr}; // passes both configs to backend.
+
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(conv2d),
+      OpConfig(getOutputLayout(conv2d), opConfigAttrs));
+
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cb_size, peak_size, output_size, outputLayout] =
+      constraintsExp.get();
+  EXPECT_EQ(cb_size, 65600);
+  EXPECT_EQ(peak_size, 88400);
+  EXPECT_EQ(output_size, 26624);
+
+  // Device hangs otherwise.
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp =
+      backend.getOpRuntime(getInputLayouts(conv2d),
+                           OpConfig(getOutputLayout(conv2d), opConfigAttrs));
   ASSERT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_GT(runtimeExp.get(), 0);
 }

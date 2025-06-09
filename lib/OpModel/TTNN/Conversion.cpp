@@ -381,7 +381,7 @@ MathFidelity getMathFidelity(mlir::tt::ttnn::MathFidelity mathFidelity) {
 std::optional<::ttnn::DeviceComputeKernelConfig> getDeviceComputeKernelConfig(
     const std::optional<mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
         &deviceComputeKernelConfig) {
-  if (!deviceComputeKernelConfig.has_value()) {
+  if (!deviceComputeKernelConfig || !deviceComputeKernelConfig.has_value()) {
     return std::nullopt;
   }
   const mlir::tt::ttnn::DeviceComputeKernelConfigAttr &devConfig =
@@ -398,7 +398,7 @@ std::optional<::ttnn::DeviceComputeKernelConfig> getDeviceComputeKernelConfig(
   if (devConfig.getPackerL1Acc()) {
     config.packer_l1_acc = devConfig.getPackerL1Acc().getValue();
   }
-  if (deviceComputeKernelConfig->getMathApproxMode()) {
+  if (devConfig.getMathApproxMode()) {
     config.math_approx_mode = devConfig.getMathApproxMode().getValue();
   }
   if (devConfig.getDstFullSyncEn()) {

@@ -16,7 +16,8 @@ struct OpConfig {
   // Desired output layout for the op.
   TTNNLayoutAttr outputLayout;
 
-  // E.g. Conv2dConfigAttr for Conv2dOp.
+  // Holds all attributes for the op. E.g. Conv2dConfigAttr and
+  // DeviceComputeKernelConfigAttr for Conv2dOp.
   Attributes opSpecificAttrs;
 
   OpConfig() = default;
@@ -26,7 +27,8 @@ struct OpConfig {
     opSpecificAttrs.push_back(opSpecificAttr);
   }
   OpConfig(TTNNLayoutAttr outputLayout, Attributes opSpecificAttrs)
-      : outputLayout(outputLayout), opSpecificAttrs(opSpecificAttrs) {}
+      : outputLayout(outputLayout),
+        opSpecificAttrs(std::move(opSpecificAttrs)) {}
 
   bool operator==(const OpConfig &other) const {
     return outputLayout == other.outputLayout &&

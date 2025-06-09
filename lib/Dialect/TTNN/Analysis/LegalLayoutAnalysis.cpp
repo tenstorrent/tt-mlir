@@ -151,7 +151,6 @@ void applyConv2dConfigOverrides(ttnn::Conv2dOp op,
         *overrides.enableSubblockPadding);
   }
 
-  // Should we populate compute kernel config here too?
   for (auto &opConfig : analysisResult) {
     assert(opConfig.opSpecificAttrs.empty() &&
            "OpConfig should not have a config set before applying overrides");

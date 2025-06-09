@@ -2,7 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "Conversion.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
@@ -16,7 +15,6 @@
 
 #include <cassert>
 #include <cstdint>
-#include <iostream>
 #include <optional>
 #include <tuple>
 
@@ -511,26 +509,22 @@ struct Conv2dAttrs {
       deviceComputeKernelConfig = std::nullopt;
 };
 
-// If a config has been specified, use that. Otherwise, read the op property.
+// If a config has been specified, use that. Otherwise, use the op property.
 Conv2dAttrs unpackConv2dAttrs(const OpConfig::Attributes &conv2dAttrs,
                               mlir::tt::ttnn::Conv2dOp op) {
-  assert(conv2dAttrs.size() <= 2 &&
-         "Atmost two attributes are supported for conv2d");
+  assert(conv2dAttrs.size() <= 2 && "Two attributes are supported for conv2d");
 
   Conv2dAttrs ret;
   if (conv2dAttrs.empty()) {
-    std::cout << "UNPACKING EMPTY!!\n";
     ret.conv2dConfig = op.getConv2dConfig();
     ret.deviceComputeKernelConfig = op.getComputeConfig();
   } else if (conv2dAttrs.size() == 1) {
-    std::cout << "UNPACKING ONE!!\n";
     assert(mlir::isa<Conv2dConfigAttr>(conv2dAttrs[0]) &&
            "Unexpected type for OpConfig.opSpecificAttr. Expected "
            "Conv2ConfigAttr");
     ret.conv2dConfig = mlir::cast<Conv2dConfigAttr>(conv2dAttrs[0]);
     ret.deviceComputeKernelConfig = op.getComputeConfig();
   } else if (conv2dAttrs.size() == 2) {
-    std::cout << "UNPACKING TWO!!\n";
     assert(mlir::isa<Conv2dConfigAttr>(conv2dAttrs[0]) &&
            "Unexpected type for OpConfig.opSpecificAttr. Expected "
            "Conv2ConfigAttr");
@@ -555,7 +549,6 @@ Conv2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   std::optional<llvm::ArrayRef<int64_t>> biasShape;
   std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout;
 
-  std::cout << "in getOpConstraints\n";
   if (inputs.size() == 3) {
     biasShape = getBias().getType().getShape();
     biasLayout = inputs[2];

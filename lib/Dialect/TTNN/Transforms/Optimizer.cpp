@@ -411,7 +411,6 @@ public:
           // Set specific Conv2d Op configuration if it is exists.
           //
 
-          // Probably should set other attr of conv2dOp here.
           if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(op)) {
             auto opAttributes =
                 opConfigAnalysis.getResult().at(op).opSpecificAttrs;
@@ -420,6 +419,12 @@ public:
                       mlir::dyn_cast_if_present<ttnn::Conv2dConfigAttr>(
                           opAttributes.front())) {
                 conv2dOp.setConv2dConfigAttr(conv2dConfig);
+              }
+              if (opAttributes.size() == 2) {
+                if (auto deviceCopmuteAttr = mlir::dyn_cast_if_present<
+                        ttnn::DeviceComputeKernelConfigAttr>(opAttributes[1])) {
+                  conv2dOp.setComputeConfigAttr(deviceCopmuteAttr);
+                }
               }
             }
           }
