@@ -17,10 +17,8 @@ bool transformOperandLayout(ttnn::Conv2dOp srcOp, mlir::OpOperand &operand,
   auto type = mlir::cast<mlir::RankedTensorType>(operand.get().getType());
   auto layout = mlir::cast<ttnn::TTNNLayoutAttr>(type.getEncoding());
 
-  bool needsTransform = (layout.getLayout() != targetLayout) ||
-                        (layout.getBufferType() != targetBufferType);
-
-  if (!needsTransform) {
+  if (layout.getLayout() == targetLayout &&
+      layout.getBufferType() == targetBufferType) {
     return false;
   }
 
@@ -47,19 +45,20 @@ Conv2dOpRewritePattern::matchAndRewrite(ttnn::Conv2dOp srcOp,
                                         PatternRewriter &rewriter) const {
   bool hasChanged = false;
 
-  // Transform input to RowMajor layout
+  // Transform input layout to RowMajor
   hasChanged |= transformOperandLayout(
       srcOp, srcOp.getInputMutable(), rewriter, ttnn::Layout::RowMajor,
       mlir::cast<ttnn::TTNNLayoutAttr>(srcOp.getInput().getType().getEncoding())
           .getBufferType(),
       "_to_layout_0");
 
-  // Transform weight to RowMajor layout in SystemMemory
+  // Transform weight Layout and BufferType to RowMajor and SystemMemory
   hasChanged |= transformOperandLayout(
       srcOp, srcOp.getWeightMutable(), rewriter, ttnn::Layout::RowMajor,
       ttnn::BufferType::SystemMemory, "_to_layout_1");
 
-  // Transform bias (if present) to RowMajor layout in SystemMemory
+  // Transform bias (if present) Layout and BufferType to RowMajor and
+  // SystemMemory
   if (srcOp.getBias()) {
     hasChanged |= transformOperandLayout(
         srcOp, *srcOp.getBiasMutable().begin(), rewriter,
