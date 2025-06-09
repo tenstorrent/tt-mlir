@@ -16,55 +16,57 @@ namespace mlir::tt {
 // Register device pass
 //===----------------------------------------------------------------------===//
 
-static LogicalResult registerDeviceInSymbolTable(ModuleOp module,
+static LogicalResult registerDeviceInSymbolTable(ModuleOp moduleOp,
                                                  ArrayRef<int64_t> meshShape) {
-  MLIRContext *context = module.getContext();
+  MLIRContext *context = moduleOp.getContext();
 
-  SymbolTable symbolTable(module);
+  SymbolTable symbolTable(moduleOp);
   if (!symbolTable.lookup(tt::getDefaultDeviceName())) {
     auto systemDesc =
-        module->getAttrOfType<tt::SystemDescAttr>(tt::SystemDescAttr::name);
-    assert(systemDesc && "expected system desc to be present on the module");
-    auto finalMeshShape = tt::utils::determineMeshShape(module, meshShape);
+        moduleOp->getAttrOfType<tt::SystemDescAttr>(tt::SystemDescAttr::name);
+    assert(systemDesc && "expected system desc to be present on the moduleOp");
+    auto finalMeshShape = tt::utils::determineMeshShape(moduleOp, meshShape);
     if (auto err = finalMeshShape.takeError()) {
-      emitError(module.getLoc()) << "Error determining mesh shape\n";
+      emitError(moduleOp.getLoc()) << "Error determining mesh shape\n";
       assert(false && "Error determining mesh shape");
       return failure();
     }
-    OpBuilder builder(module.getBodyRegion());
+    OpBuilder builder(moduleOp.getBodyRegion());
     symbolTable.insert(builder.create<tt::DeviceOp>(
-        module.getLoc(), tt::getDefaultDeviceName(),
+        moduleOp.getLoc(), tt::getDefaultDeviceName(),
         tt::DeviceAttr::get(context, systemDesc, *finalMeshShape)));
   }
   return success();
 }
 
-LogicalResult registerDevice(ModuleOp module,
+LogicalResult registerDevice(ModuleOp moduleOp,
                              tt::Arch mockSystemDescArch = tt::Arch::WormholeB0,
                              ArrayRef<int64_t> meshShape = {}) {
-  MLIRContext *context = module.getContext();
+  MLIRContext *context = moduleOp.getContext();
 
-  if (!module->hasAttr(tt::SystemDescAttr::name)) {
-    module->setAttr(tt::SystemDescAttr::name,
-                    tt::SystemDescAttr::getDefault(context, mockSystemDescArch,
-                                                   llvm::to_vector(meshShape)));
+  if (!moduleOp->hasAttr(tt::SystemDescAttr::name)) {
+    moduleOp->setAttr(
+        tt::SystemDescAttr::name,
+        tt::SystemDescAttr::getDefault(context, mockSystemDescArch,
+                                       llvm::to_vector(meshShape)));
   }
 
-  return registerDeviceInSymbolTable(module, meshShape);
+  return registerDeviceInSymbolTable(moduleOp, meshShape);
 }
 
-LogicalResult registerDevice(ModuleOp module, const std::string &systemDescPath,
+LogicalResult registerDevice(ModuleOp moduleOp,
+                             const std::string &systemDescPath,
                              ArrayRef<int64_t> meshShape = {}) {
-  MLIRContext *context = module.getContext();
+  MLIRContext *context = moduleOp.getContext();
   assert(!systemDescPath.empty() && "path must be set");
   FailureOr<tt::SystemDescAttr> systemDesc = tt::SystemDescAttr::getFromPath(
       context, systemDescPath,
-      [&]() -> InFlightDiagnostic { return module->emitOpError(); });
+      [&]() -> InFlightDiagnostic { return moduleOp->emitOpError(); });
   if (failed(systemDesc)) {
     return systemDesc;
   }
-  module->setAttr(tt::SystemDescAttr::name, *systemDesc);
-  return registerDeviceInSymbolTable(module, meshShape);
+  moduleOp->setAttr(tt::SystemDescAttr::name, *systemDesc);
+  return registerDeviceInSymbolTable(moduleOp, meshShape);
 }
 
 namespace {
