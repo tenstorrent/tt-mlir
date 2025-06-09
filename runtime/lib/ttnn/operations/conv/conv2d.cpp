@@ -47,7 +47,14 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   }
 
   // Use defaults for now, until compiler drives this.
-  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig = std::nullopt;
+  // std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig = std::nullopt;
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig = 
+  ::ttnn::WormholeComputeKernelConfig  {
+      .math_fidelity = MathFidelity::HiFi4,
+      .fp32_dest_acc_en = true,
+      .packer_l1_acc = true,
+  };
+
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));

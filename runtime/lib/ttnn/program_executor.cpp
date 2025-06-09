@@ -54,6 +54,7 @@
 #include "operations/reduction/reduction.h"
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/ttnn/types.h"
+#include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
 
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
@@ -115,12 +116,25 @@ void ProgramExecutor::runCallback(
     std::optional<debug::Hooks::CallbackFn> callback, Binary &executableHandle,
     const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
+  std::shared_ptr<void> programContextPtr =
+  ::tt::runtime::utils::unsafe_borrow_shared(programContext);
+  auto cbContext = CallbackContext(programContextPtr, DeviceRuntime::TTNN);
+  std::shared_ptr<void> opContextPtr =
+  ::tt::runtime::utils::unsafe_borrow_shared(
+      const_cast<::tt::target::ttnn::Operation *>(opContext));
+  auto t = tt::runtime::ttnn::getOpOutputTensor(OpContext(opContextPtr, DeviceRuntime::TTNN), cbContext);
+  if (t.handle.get() != nullptr)
+  {
+    auto k = t.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+    if (tt::runtime::getTensorDataType(t) != tt::target::DataType::Int32 &&
+        tt::runtime::getTensorDataType(t) != tt::target::DataType::UInt32) {
+      auto v = tt::runtime::ttnn::toHost(t, true)[0].as<::ttnn::Tensor>(DeviceRuntime::TTNN).to_vector<float>();
+      std::cerr << "suma=" << std::accumulate(v.begin(), v.end(), 0.0f) << std::endl;
+    }
+    // ::ttnn::core::set_printoptions("FULL");
+    std::cerr << "output=" << k.write_to_string() << std::endl;
+  }
   if (callback) {
-    std::shared_ptr<void> programContextPtr =
-        ::tt::runtime::utils::unsafe_borrow_shared(programContext);
-    std::shared_ptr<void> opContextPtr =
-        ::tt::runtime::utils::unsafe_borrow_shared(
-            const_cast<::tt::target::ttnn::Operation *>(opContext));
     (*callback)(executableHandle,
                 CallbackContext(programContextPtr, DeviceRuntime::TTNN),
                 OpContext(opContextPtr, DeviceRuntime::TTNN));
@@ -134,8 +148,8 @@ void ProgramExecutor::execute() {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
     tracyLogOpLocation(op);
-    runCallback(debug::Hooks::get().getPreOperatorCallback(), executableHandle,
-                op, context.get());
+    // runCallback(debug::Hooks::get().getPreOperatorCallback(), executableHandle,
+    //             op, context.get());
     runOperation(op);
     runCallback(debug::Hooks::get().getPostOperatorCallback(), executableHandle,
                 op, context.get());
