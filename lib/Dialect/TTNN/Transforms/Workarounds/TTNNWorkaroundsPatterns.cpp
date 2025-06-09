@@ -348,10 +348,6 @@ public:
           loc, reshapedType, input, reshapedShapeAttr,
           /*memory_config=*/nullptr);
 
-      std::cerr << "GGGGGGGGGG" << std::endl;
-      preReshape.dump();
-      std::cerr << "GGGGGGGGGG" << std::endl;
-
       // Perform AllGather on reshaped input
       llvm::SmallVector<int64_t> preReshapeShape(
           preReshape.getType().getShape().begin(),
@@ -362,22 +358,16 @@ public:
           RankedTensorType::Builder(op.getType()).setShape(preReshapeShape);
       auto allGather = rewriter.create<ttnn::AllGatherOp>(
           loc, gatheredType, preReshape, device, allGatherDim, clusterAxis);
-      std::cerr << "MMMMMMMMM" << std::endl;
-      allGather.dump();
-      std::cerr << "MMMMMMMMM" << std::endl;
+
       // Reshape back to original output type
       auto outputType = mlir::cast<RankedTensorType>(op.getType());
       auto outputShape = outputType.getShape();
       auto outputShapeAttr = rewriter.getI32ArrayAttr(
           llvm::SmallVector<int32_t>(outputShape.begin(), outputShape.end()));
 
-      std::cerr << "HHHHHHHH" << std::endl;
-      rewriter
-          .replaceOpWithNewOp<ttnn::ReshapeOp>(
-              op, outputType, allGather.getResult(), outputShapeAttr,
-              /*memory_config=*/nullptr)
-          ->dump();
-      std::cerr << "HHHHHHHH" << std::endl;
+      rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
+          op, outputType, allGather.getResult(), outputShapeAttr,
+          /*memory_config=*/nullptr);
       return success();
     }
 
@@ -416,13 +406,14 @@ public:
       auto allGatherShape = allGather.getType().getShape();
       auto finalShape =
           ttmlir::utils::applyPermutation(allGatherShape, inversePerm);
-      RankedTensorType finalType =
+      RankedTensorType outputType =
           RankedTensorType::Builder(inputType).setShape(finalShape);
 
       rewriter.replaceOpWithNewOp<ttnn::PermuteOp>(
-          op, finalType, allGather.getResult(),
+          op, outputType, allGather.getResult(),
           rewriter.getDenseI64ArrayAttr(inversePerm), ttnn::MemoryConfigAttr(),
           mlir::FloatAttr());
+
       return success();
     }
 
