@@ -224,6 +224,10 @@ private:
                        const OpsToCreate &opsToCreate) const {
 
     if (!opsToCreate.createSomeOp()) {
+      for (auto operand : op->getOperands()) {
+        operand.dump();
+      }
+      op->dump();
       op->emitError(
           "Redundant ttnn::ToLayoutOp - no ttnn layout ops "
           "needed, this may be due to the forcing of tile/row major layouts.");

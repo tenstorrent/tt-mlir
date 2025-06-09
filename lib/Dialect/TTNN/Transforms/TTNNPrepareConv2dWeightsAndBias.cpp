@@ -33,14 +33,10 @@ public:
 
     moduleOp.walk([&](ttnn::Conv2dOp conv2dOp) {
       rewriter.setInsertionPoint(conv2dOp);
-      changeTheLayoutsIfNeeded(conv2dOp, rewriter);
-
       mlir::RankedTensorType inputType = conv2dOp.getInput().getType();
-
-      GridAttr deviceGrid = lookupDevice(moduleOp).getWorkerGrid();
-
       ttnn::TTNNLayoutAttr inputLayoutAttr =
           mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
+      GridAttr deviceGrid = lookupDevice(moduleOp).getWorkerGrid();
       ttnn::MemoryConfigAttr inputMemConfigAttr =
           rewriter.getAttr<ttnn::MemoryConfigAttr>(
               inputLayoutAttr.getMemLayout(),
@@ -133,40 +129,6 @@ private:
     return mlir::RankedTensorType::get(oldType.getShape(),
                                        oldType.getElementType(), newLayout);
     ;
-  }
-
-  void changeTheLayoutsIfNeeded(ttnn::Conv2dOp conv2dOp,
-                                RewriterBase &rewriter) {
-    auto createToLayoutIfNeeded =
-        [&](ttnn::TTNNLayoutAttr layout,
-            mlir::TypedValue<RankedTensorType> input,
-            unsigned operandNumber) -> std::optional<Value> {
-      if (layout.getBufferType() == BufferType::SystemMemory &&
-          layout.getLayout() == ttnn::Layout::RowMajor) {
-        return std::nullopt;
-      }
-
-      return utils::createToLayoutOp(
-          conv2dOp, input, rewriter, ttnn::Layout::RowMajor,
-          ttnn::BufferType::SystemMemory,
-          /*targetTensorMemoryLayout=*/std::nullopt, layout.getDataType(),
-          "_to_layout_" + std::to_string(operandNumber));
-    };
-
-    std::optional<Value> weightsToLayoutOp = createToLayoutIfNeeded(
-        mlir::cast<ttnn::TTNNLayoutAttr>(
-            conv2dOp.getWeight().getType().getEncoding()),
-        conv2dOp.getWeight(), /*operandNumber=*/1);
-    std::optional<Value> biasToLayoutOp =
-        createToLayoutIfNeeded(mlir::cast<ttnn::TTNNLayoutAttr>(
-                                   conv2dOp.getBias().getType().getEncoding()),
-                               conv2dOp.getBias(), /*operandNumber=*/2);
-    rewriter.modifyOpInPlace(conv2dOp, [&]() {
-      conv2dOp.getWeightMutable().assign(
-          weightsToLayoutOp ? *weightsToLayoutOp : conv2dOp.getWeight());
-      conv2dOp.getBiasMutable().assign(biasToLayoutOp ? *biasToLayoutOp
-                                                      : conv2dOp.getBias());
-    });
   }
 };
 } // namespace mlir::tt::ttnn
