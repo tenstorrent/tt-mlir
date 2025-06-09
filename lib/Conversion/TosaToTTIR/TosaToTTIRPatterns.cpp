@@ -295,6 +295,19 @@ static void addLogicalOpsConversionPatterns(MLIRContext *ctx,
       tosa::LogicalXorOp, mlir::tt::ttir::LogicalXorOp>>(typeConverter, ctx);
 }
 
+static void addBitwiseOpsConversionPatterns(MLIRContext *ctx,
+                                            RewritePatternSet &patterns,
+                                            TypeConverter &typeConverter) {
+  patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
+      tosa::BitwiseAndOp, mlir::tt::ttir::BitwiseAndOp>>(typeConverter, ctx);
+  patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
+      tosa::BitwiseNotOp, mlir::tt::ttir::BitwiseNotOp>>(typeConverter, ctx);
+  patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
+      tosa::BitwiseOrOp, mlir::tt::ttir::BitwiseOrOp>>(typeConverter, ctx);
+  patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
+      tosa::BitwiseXorOp, mlir::tt::ttir::BitwiseXorOp>>(typeConverter, ctx);
+}
+
 static void addCompareOpsConversionPatterns(MLIRContext *ctx,
                                             RewritePatternSet &patterns,
                                             TypeConverter &typeConverter) {
@@ -338,6 +351,7 @@ void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addElementwiseTernaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addLogicalOpsConversionPatterns(ctx, patterns, typeConverter);
+  addBitwiseOpsConversionPatterns(ctx, patterns, typeConverter);
   addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
   addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
   addReductionOpsConversionPatterns(ctx, patterns, typeConverter);
