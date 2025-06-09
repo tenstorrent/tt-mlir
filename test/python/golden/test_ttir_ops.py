@@ -1530,9 +1530,6 @@ def test_unary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request
 ):
     pipeline_options = []
-    # Workaround for ttmetal, only support 1x1 grid atm
-    if target == "ttmetal":
-        pipeline_options.append("override-device-shape=1,1")
     compile_to_flatbuffer(
         test_fn,
         inputs_shapes=[shape],
