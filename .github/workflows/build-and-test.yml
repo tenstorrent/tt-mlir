@@ -83,7 +83,7 @@ jobs:
         ]
 
     name: Build tt-mlir (${{ matrix.build.name }})
-    runs-on: ${{ matrix.build.sh-run && 'tt-beta-ubuntu-2204-xlarge' || 'ubuntu-latest' }}
+    runs-on: ${{ matrix.build.sh-run && 'tt-beta-ubuntu-2204-large' || 'ubuntu-latest' }}
 
     container:
       image: ${{ matrix.build.sh-run && needs.build-image.outputs.docker-image-harbor || needs.build-image.outputs.docker-image }}
@@ -406,7 +406,7 @@ jobs:
     strategy:
       fail-fast: false
     name: Lint (clang-tidy)
-    runs-on: tt-beta-ubuntu-2204-xlarge
+    runs-on: tt-beta-ubuntu-2204-large
     container:
       image: ${{ needs.build-image.outputs.docker-image }}
 
@@ -486,7 +486,7 @@ jobs:
     strategy:
       fail-fast: false
     name: Debug Build
-    runs-on: tt-beta-ubuntu-2204-xlarge
+    runs-on: tt-beta-ubuntu-2204-large
     container:
       image: ${{ needs.build-image.outputs.docker-image }}
 
