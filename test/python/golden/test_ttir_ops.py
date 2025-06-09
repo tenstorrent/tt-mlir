@@ -59,7 +59,7 @@ def cos(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = No
 
 
 # Special handling for tan PCC checks. Due to the vertical asymptote on the tan graph, small changes in input values result in large changes in output values at multiples of pi/2, so both graph and golden tensors must be constrained accordingly.
-@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 def test_tan(shape: Shape, dtype: torch.dtype, request):
     def tan(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
@@ -92,7 +92,7 @@ def tanh(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
 
 
 # Special handling for log PCC checks. Due to the vertical asymptote on the log graph, small changes in input values result in large changes in output values at negative values, so both graph and golden tensors must be constrained accordingly.
-@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 def test_log(shape: Shape, dtype: torch.dtype, request):
     def log(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
@@ -115,7 +115,7 @@ def test_log(shape: Shape, dtype: torch.dtype, request):
 
 
 # Special handling for log1p PCC checks. Due to the vertical asymptote on the log1p graph, small changes in input values result in large changes in output values at values below -1, so both graph and golden tensors must be constrained accordingly.
-@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 def test_log1p(shape: Shape, dtype: torch.dtype, request):
     def log1p(
@@ -466,13 +466,32 @@ def test_linear(shapes: List[Shape], request):
     )
 
 
-def pow(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.pow(in0, in1, unit_attrs=unit_attrs)
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_pow(shape: Shape, dtype: torch.dtype, target: str, request):
+    def pow(
+        in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        randn_base_tensor = torch.randn(shape, dtype=dtype)
+        randn_exponent_tensor = torch.randn(shape, dtype=dtype)
+        if torch.is_floating_point(randn_exponent_tensor):
+            randn_base_tensor = torch.abs(randn_base_tensor)
+        output_golden = torch.pow(randn_base_tensor, randn_exponent_tensor)
+        builder.set_graph_input_output(
+            [randn_base_tensor, randn_exponent_tensor], [output_golden], override=True
+        )
+        return builder.pow(in0, in1, unit_attrs=unit_attrs)
+
+    compile_to_flatbuffer(
+        pow,
+        [shape, shape],
+        [dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
 
 
 def matmul(
@@ -1495,7 +1514,6 @@ hoisted_binary_ops = [
     create_hoisted_binary_op(multiply, "multiply"),
     create_hoisted_binary_op(subtract, "subtract"),
     create_hoisted_binary_op(div, "div"),
-    create_hoisted_binary_op(pow, "pow"),
 ]
 
 hoisted_ternary_ops = [
@@ -1656,7 +1674,6 @@ def test_unary_ops(
         remainder | Marks(pytest.mark.skip_target("ttmetal")),
         maximum,
         minimum | Marks(pytest.mark.skip_target("ttmetal")),
-        pow | Marks(pytest.mark.skip_target("ttmetal")),
         matmul | Marks(pytest.mark.skip_target("ttmetal")),
         logical_and | Marks(pytest.mark.skip_target("ttmetal")),
         logical_or | Marks(pytest.mark.skip_target("ttmetal")),
