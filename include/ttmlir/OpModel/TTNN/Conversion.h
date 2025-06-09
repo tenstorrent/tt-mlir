@@ -46,6 +46,9 @@ getTensorMemoryLayout(const ::tt::tt_metal::TensorMemoryLayout memLayout);
 ::tt::tt_metal::MemoryConfig
 getMemoryConfig(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
 
+::tt::tt_metal::MemoryConfig
+getMemoryConfig(const mlir::tt::ttnn::MemoryConfigAttr &memConfigAttr);
+
 ::tt::tt_metal::TensorLayout
 getTensorLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
 

@@ -214,6 +214,44 @@ getMemoryConfig(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
                                       shardSpec);
 }
 
+::tt::tt_metal::MemoryConfig
+getMemoryConfig(const mlir::tt::ttnn::MemoryConfigAttr &memConfigAttr) {
+  // Get tensor memory layout if available, otherwise use INTERLEAVED as default
+  ::tt::tt_metal::TensorMemoryLayout tensorMemoryLayout =
+      ::tt::tt_metal::TensorMemoryLayout::INTERLEAVED;
+  if (memConfigAttr.getTensorMemoryLayout()) {
+    tensorMemoryLayout =
+        getTensorMemoryLayout(memConfigAttr.getTensorMemoryLayout());
+  }
+
+  // Convert buffer type enum
+  ::tt::tt_metal::BufferType bufferType =
+      ::tt::tt_metal::BufferType::DRAM; // Default to DRAM
+  switch (memConfigAttr.getBufferType().getValue()) {
+  case mlir::tt::ttnn::BufferType::L1:
+    bufferType = ::tt::tt_metal::BufferType::L1;
+    break;
+  case mlir::tt::ttnn::BufferType::DRAM:
+    bufferType = ::tt::tt_metal::BufferType::DRAM;
+    break;
+  case mlir::tt::ttnn::BufferType::SystemMemory:
+    bufferType = ::tt::tt_metal::BufferType::SYSTEM_MEMORY;
+    break;
+  case mlir::tt::ttnn::BufferType::L1Small:
+    bufferType = ::tt::tt_metal::BufferType::L1_SMALL;
+    break;
+  case mlir::tt::ttnn::BufferType::Trace:
+    bufferType = ::tt::tt_metal::BufferType::TRACE;
+    break;
+  }
+
+  // Shard spec is not implemented for this version
+  std::optional<::tt::tt_metal::ShardSpec> shardSpec = std::nullopt;
+
+  return ::tt::tt_metal::MemoryConfig(tensorMemoryLayout, bufferType,
+                                      shardSpec);
+}
+
 ::tt::tt_metal::TensorLayout
 getTensorLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
   return ::tt::tt_metal::TensorLayout(getDataType(layout.getDataType()),
