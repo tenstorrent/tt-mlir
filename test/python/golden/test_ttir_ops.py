@@ -1001,7 +1001,6 @@ def test_permute(shapes: List[Shape], permutation: List[int], request):
     )
 
 
-@pytest.mark.run_error
 @pytest.mark.parametrize("shapes", [[(10, 64, 32, 3), (10, 128, 128, 3)]])
 @pytest.mark.parametrize("scale_factor", [[2, 4]])
 def test_upsample2d(shapes: List[Shape], scale_factor: List[int], request):
@@ -1439,7 +1438,7 @@ unary_ops = [
     expm1 | Marks(pytest.mark.skip_target("ttmetal")),
     floor | Marks(pytest.mark.skip_target("ttmetal")),
     abs | Marks(pytest.mark.skip_target("ttmetal")),
-    logical_not | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
+    logical_not | Marks(pytest.mark.skip_target("ttmetal")),
     neg,
     sign | Marks(pytest.mark.skip_target("ttmetal")),
     cos,
@@ -1500,12 +1499,12 @@ def test_unary_ops(
         add,
         multiply,
         subtract,
-        eq | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
-        ne | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
-        le | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
-        lt | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
-        ge | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
-        gt | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
+        eq | Marks(pytest.mark.skip_target("ttmetal")),
+        ne | Marks(pytest.mark.skip_target("ttmetal")),
+        le | Marks(pytest.mark.skip_target("ttmetal")),
+        lt | Marks(pytest.mark.skip_target("ttmetal")),
+        ge | Marks(pytest.mark.skip_target("ttmetal")),
+        gt | Marks(pytest.mark.skip_target("ttmetal")),
         div | Marks(pytest.mark.skip_target("ttmetal")),
         remainder | Marks(pytest.mark.skip_target("ttmetal")),
         maximum,
@@ -1514,8 +1513,7 @@ def test_unary_ops(
         matmul | Marks(pytest.mark.skip_target("ttmetal")),
         logical_and | Marks(pytest.mark.skip_target("ttmetal")),
         logical_or | Marks(pytest.mark.skip_target("ttmetal")),
-        logical_xor
-        | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
+        logical_xor | Marks(pytest.mark.skip_target("ttmetal")),
     ],
 )
 def test_binary_ops(

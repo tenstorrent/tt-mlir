@@ -9,8 +9,14 @@
 #ifndef TTMLIR_TOOLS_TTNN_STANDALONE_WORKAROUNDS_HPP
 #define TTMLIR_TOOLS_TTNN_STANDALONE_WORKAROUNDS_HPP
 
+#include "tt-metalium/buffer.hpp"
 #include "ttnn/distributed/distributed_tensor.hpp"
 #include "ttnn/tensor/xtensor/partition.hpp"
+
+// Workaround for missing ShardSpec in ttnn namespace.
+namespace ttnn {
+using tt::tt_metal::ShardSpec;
+} // namespace ttnn
 
 namespace tt::runtime::ttnn::operations::ccl::mesh_shard {
 
