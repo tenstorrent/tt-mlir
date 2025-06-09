@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include <iostream>
 #include <numeric>
 
 using namespace mlir::tt::ttnn;
@@ -497,6 +498,23 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
     TensorMeshShardingAttr tensorMeshSharding,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
 
+  llvm::errs() << "---- TTNNLayoutAttr::get\n";
+  llvm::errs() << "tensorShape: ";
+  for (auto dim : tensorShape) {
+    llvm::errs() << dim << " ";
+  }
+  llvm::errs() << "\n";
+  llvm::errs() << "elementType: " << elementType << "\n";
+  llvm::errs() << "bufferType: " << bufferType << "\n";
+  llvm::errs() << "grid: " << grid << "\n";
+  llvm::errs() << "memLayoutAttr: " << memLayoutAttr << "\n";
+  llvm::errs() << "tensorMeshSharding: " << tensorMeshSharding << "\n";
+  llvm::errs() << "collapseIntervals: ";
+  for (auto interval : collapseIntervals) {
+    llvm::errs() << "{" << interval.first << ", " << interval.second << "} ";
+  }
+  llvm::errs() << "\n";
+
   llvm::SmallVector<int64_t, 4> physicalShape(tensorShape.begin(),
                                               tensorShape.end());
 
@@ -513,13 +531,14 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
 
   // Calculate shard shape
   mlir::SmallVector<int64_t> shardShape;
-  if (bufferType == BufferType::L1 &&
-      memLayoutAttr.getValue() == TensorMemoryLayout::Interleaved) {
-    shardShape = TTNNLayoutAttr::calculateLogicalShardShapeForL1Interleaved(
-        physicalShape, elementType, linear, grid);
-  } else {
-    shardShape = TTNNLayoutAttr::calculateLogicalShardShapeForSharding(
-        physicalShape, linear, grid);
+  if (bufferType == BufferType::L1) {
+    if (memLayoutAttr.getValue() == TensorMemoryLayout::Interleaved) {
+      shardShape = TTNNLayoutAttr::calculateLogicalShardShapeForL1Interleaved(
+          physicalShape, elementType, linear, grid);
+    } else {
+      shardShape = TTNNLayoutAttr::calculateLogicalShardShapeForSharding(
+          physicalShape, linear, grid);
+    }
   }
 
   // Build memref type with the given parameters
