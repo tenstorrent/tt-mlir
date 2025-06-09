@@ -1453,7 +1453,7 @@ unary_ops = [
     leaky_relu | Marks(pytest.mark.skip_target("ttmetal")),
     sqrt | Marks(pytest.mark.skip_target("ttmetal")),
     cbrt | Marks(pytest.mark.skip_target("ttmetal")),
-    rsqrt | Marks(pytest.mark.fails_golden),
+    rsqrt | Marks(pytest.mark.skip_target("ttmetal")),
     sigmoid,
     reciprocal | Marks(pytest.mark.skip_target("ttmetal")),
     is_finite | Marks(pytest.mark.skip_target("ttmetal")),

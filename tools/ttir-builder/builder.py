@@ -2165,6 +2165,11 @@ class TTIRBuilder:
             [in0],
             output_type=output_type,
             output_create_fn=self.empty_from_tensor_type,
+            organize_ttir_args=lambda i, o, _: (
+                [self._get_type(o)],
+                i[0],
+                o,
+            ),
             unit_attrs=unit_attrs,
             **kwargs,
         )
@@ -2202,6 +2207,11 @@ class TTIRBuilder:
             [in0],
             output_type=output_type,
             output_create_fn=self.empty_from_tensor_type,
+            organize_ttir_args=lambda i, o, _: (
+                [self._get_type(o)],
+                i[0],
+                o,
+            ),
             unit_attrs=unit_attrs,
         )
 
@@ -2217,6 +2227,11 @@ class TTIRBuilder:
             [in0],
             output_type=output_type,
             output_create_fn=self.empty_from_tensor_type,
+            organize_ttir_args=lambda i, o, _: (
+                [self._get_type(o)],
+                i[0],
+                o,
+            ),
             unit_attrs=unit_attrs,
         )
 
