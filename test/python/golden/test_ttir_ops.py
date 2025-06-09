@@ -1004,7 +1004,6 @@ def test_permute(shapes: List[Shape], permutation: List[int], request):
     )
 
 
-@pytest.mark.run_error
 @pytest.mark.parametrize("shapes", [[(10, 64, 32, 3), (10, 128, 128, 3)]])
 @pytest.mark.parametrize("scale_factor", [[2, 4]])
 def test_upsample2d(shapes: List[Shape], scale_factor: List[int], request):
