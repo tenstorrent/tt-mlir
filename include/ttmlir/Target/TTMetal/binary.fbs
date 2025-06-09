@@ -43,6 +43,7 @@ table Program {
   debug_info: DebugInfo;
   // Flag to indicate if this program is intended to be called or only for internal use (e.g. hoisted const-eval func).
   private: bool;
+  mesh_shape: Dim2d;
 }
 
 table TTMetalBinary {

@@ -2213,17 +2213,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
       DeviceAttr deviceAttr = lookupDevice(func);
       assert(deviceAttr);
 
-    ::tt::target::Dim2d meshShape;
-
-    ArrayRef<int64_t> meshShapeArr = deviceAttr.getMeshShape();
-
-    // Default to 1x1 if not specified.
-    if (meshShapeArr.empty()) {
-      meshShape = ::tt::target::Dim2d(1, 1);
-    } else {
-      assert(meshShapeArr.size() == 2 && "Ill-Sized Mesh Shape");
-      meshShape = ::tt::target::Dim2d(meshShapeArr[0], meshShapeArr[1]);
-    }
+    ::tt::target::Dim2d meshShape = deviceToFlatbufferMeshShape(deviceAttr);
 
       programs.push_back(::tt::target::ttnn::CreateProgramDirect(
           fbb, program.name, &program.inputs, &program.outputs, &program.ops,

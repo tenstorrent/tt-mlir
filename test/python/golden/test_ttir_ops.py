@@ -946,6 +946,9 @@ def test_ones(shape: Shape, request):
     )
 
 
+# Empty will intermittently fail golden checks during many flatbuffer
+# executions since it is uninitialized data
+@pytest.mark.fails_golden
 @pytest.mark.parametrize("shape", [(128, 128)], ids=["128x128"])
 def test_empty(shape: Shape, request):
     def empty(builder: TTIRBuilder):
