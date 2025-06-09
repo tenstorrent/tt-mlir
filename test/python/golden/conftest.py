@@ -23,7 +23,6 @@ def pytest_addoption(parser):
     parser.addoption(
         "--allow-subset-mesh",
         action="store_true",
-        default=True,
         help="Enable running tests whose mesh shapes are a subset of the current device",
     )
 
