@@ -1434,9 +1434,15 @@ class TTIRBuilder:
                 "groups": groups,
             },
             ttir_kwargs={
-                "stride": stride,
-                "padding": padding,
-                "dilation": dilation,
+                "stride": IntegerAttr.get(IntegerType.get_signed(32), stride)
+                if isinstance(stride, int)
+                else DenseI32ArrayAttr.get(stride),
+                "padding": IntegerAttr.get(IntegerType.get_signed(32), padding)
+                if isinstance(padding, int)
+                else DenseI32ArrayAttr.get(padding),
+                "dilation": IntegerAttr.get(IntegerType.get_signed(32), dilation)
+                if isinstance(dilation, int)
+                else DenseI32ArrayAttr.get(dilation),
                 "groups": groups,
             },
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], o),
@@ -1474,8 +1480,6 @@ class TTIRBuilder:
         )
         result = result.transpose(-3, -2).transpose(-2, -1)
         return result
-        result = result.transpose(-3, -2).transpose(-2, -1)
-        return result
 
     def conv_transpose2d(
         self,
@@ -1504,11 +1508,13 @@ class TTIRBuilder:
                 "groups": groups,
             },
             ttir_kwargs={
-                "stride": stride,
-                "padding": padding,
-                "output_padding": output_padding,
-                "dilation": dilation,
-                "groups": groups,
+                "stride": IntegerAttr.get(IntegerType.get_signless(32), stride),
+                "padding": IntegerAttr.get(IntegerType.get_signless(32), padding),
+                "output_padding": IntegerAttr.get(
+                    IntegerType.get_signless(32), output_padding
+                ),
+                "dilation": IntegerAttr.get(IntegerType.get_signless(32), dilation),
+                "groups": IntegerAttr.get(IntegerType.get_signless(32), groups),
                 "bias": bias,
             },
             unit_attrs=unit_attrs,
@@ -1940,7 +1946,7 @@ class TTIRBuilder:
         self,
         in0: Operand,
         in1: Operand,
-        permutation: DenseI64ArrayAttr,
+        permutation: List[int],
         unit_attrs: List[str] = None,
     ) -> OpView:
         return self.op_proxy(
@@ -1948,7 +1954,7 @@ class TTIRBuilder:
             ttir.PermuteOp,
             [in0, in1],
             golden_kwargs={"dims": tuple(permutation)},
-            ttir_kwargs={"permutation": permutation},
+            ttir_kwargs={"permutation": DenseI64ArrayAttr.get(permutation)},
             organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
             organize_ttir_args=lambda i, o, _: (self._get_type(i[1]), i[0], i[1]),
             unit_attrs=unit_attrs,
@@ -1958,12 +1964,17 @@ class TTIRBuilder:
         self,
         in0: Operand,
         in1: Operand,
-        scale_factor: Union[SI32Attr, DenseI32ArrayAttr],
+        scale_factor: Union[int, List[int]],
         mode: str = "nearest",
         unit_attrs: List[str] = None,
     ) -> OpView:
         output_shape = self._get_golden_tensor(in1).shape
-        kwargs = {"scale_factor": scale_factor, "mode": mode}
+        kwargs = {
+            "scale_factor": IntegerAttr.get(IntegerType.get_signed(32), scale_factor)
+            if isinstance(scale_factor, int)
+            else DenseI32ArrayAttr.get(scale_factor),
+            "mode": mode,
+        }
         return self.op_proxy(
             self.upsample2d_golden_function,
             ttir.Upsample2dOp,

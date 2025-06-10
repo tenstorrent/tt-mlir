@@ -8,10 +8,6 @@ from typing import Callable, List
 
 from ttir_builder import Operand, TTIRBuilder, Shape, TypeInfo
 from ttir_builder.utils import compile_to_flatbuffer, Marks, shape_str
-from ttmlir.ir import (
-    DenseI64ArrayAttr,
-    DenseI32ArrayAttr,
-)
 
 
 def exp(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
@@ -643,7 +639,6 @@ def test_concat(shapes: List[Shape], dim: int, request):
     )
 
 
-@pytest.mark.skip("IntegerAttr type mismatch, see issue #2683")
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -709,15 +704,15 @@ def test_conv2d(
         ]
     ],
 )
-@pytest.mark.parametrize("_stride", [[2, 1]])
-@pytest.mark.parametrize("_dilation", [[2, 1]])
-@pytest.mark.parametrize("_padding", [[2, 1]])
+@pytest.mark.parametrize("stride", [[2, 1]])
+@pytest.mark.parametrize("dilation", [[2, 1]])
+@pytest.mark.parametrize("padding", [[2, 1]])
 @pytest.mark.parametrize("groups", [2])
 def test_conv2d_consteval(
     shapes: List[Shape],
-    _stride: List[int],
-    _padding: List[int],
-    _dilation: List[int],
+    stride: List[int],
+    padding: List[int],
+    dilation: List[int],
     groups: int,
     request,
 ):
@@ -729,9 +724,6 @@ def test_conv2d_consteval(
         builder: TTIRBuilder,
         unit_attrs: List[str] = None,
     ):
-        stride = DenseI32ArrayAttr.get(_stride)
-        padding = DenseI32ArrayAttr.get(_padding)
-        dilation = DenseI32ArrayAttr.get(_dilation)
         return builder.conv2d(
             in0,
             weight,
@@ -752,7 +744,6 @@ def test_conv2d_consteval(
     )
 
 
-@pytest.mark.skip("IntegerAttr type mismatch, see issue #2683")
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -1021,7 +1012,7 @@ def permute(
     return builder.permute(
         in0,
         in1,
-        permutation=DenseI64ArrayAttr.get(permutation),
+        permutation=permutation,
         unit_attrs=unit_attrs,
     )
 
@@ -1056,7 +1047,7 @@ def test_upsample2d(shapes: List[Shape], scale_factor: List[int], request):
         return builder.upsample2d(
             in0,
             in1,
-            scale_factor=DenseI32ArrayAttr.get(scale_factor),
+            scale_factor=scale_factor,
             unit_attrs=unit_attrs,
         )
 
