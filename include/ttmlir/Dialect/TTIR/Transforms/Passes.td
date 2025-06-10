@@ -364,18 +364,6 @@ def TTIRLowerToLayout: Pass<"ttir-lower-to-layout", "::mlir::ModuleOp"> {
   }];
 }
 
-def TTIRPrepareTensorsForBufferization : Pass<"ttir-prepare-tensors-for-bufferization", "::mlir::ModuleOp"> {
-  let summary = "Prepare tensor shapes for bufferization.";
-  let description = [{
-    Bufferization has a constraint that the tensor -> buffer conversion must maintain the
-    same shape and rank. Since we use the tensor encoding to express shape collapse this
-    becomes problematic because the tensor's shape will rarely match that of the collapsed
-    shape. This function of this pass is to normalize all tensor shapes, such that
-    all tensors inherit the shape of their layout encoding so that they can 1-1 match the
-    bufferized memref. This pass is required to run before bufferization.
-  }];
-}
-
 def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
   let summary = "Create streams required by generic ops.";
   let description = [{

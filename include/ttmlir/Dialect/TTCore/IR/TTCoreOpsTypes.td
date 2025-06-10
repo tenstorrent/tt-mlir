@@ -279,7 +279,11 @@ def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceL
   }];
 }
 
+<<<<<<< HEAD:include/ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.td
 def TT_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_DeviceLayoutInterface]> {
+=======
+def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout"> {
+>>>>>>> f36ff00dd (stable, pre changes to attr for dim collapsing + interface rework):include/ttmlir/Dialect/TT/IR/TTOpsTypes.td
   let summary = "Tensor layout attribute with explicit physical shape";
   let description = [{
     The tensor layout attribute captures how tensor data is sharded across a grid of devices/cores

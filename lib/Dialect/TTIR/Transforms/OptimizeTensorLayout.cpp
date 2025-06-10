@@ -47,7 +47,7 @@ static RankedTensorType calculateOptimalLayoutForTensorType(
   ArrayRef<int64_t> tileShape{};
   if (mlir::isa<TileType>(resultType.getElementType())) {
     // For tiled tensors, canonical shape is the total tile counts
-    tileShape = tt::getMetalTensorTileShape(resultType);
+    tileShape = tt::getTensorTileShape(resultType);
 
     // Skip grid dims, multiply tile counts by grid to get total tiles
     for (size_t i = 0; i < logicalShape.size(); ++i) {

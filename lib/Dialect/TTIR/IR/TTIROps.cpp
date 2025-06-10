@@ -46,7 +46,7 @@ MemRefType getGenericOpMemRefType(RankedTensorType tensorType) {
   // Get shard shape (without grid dimensions)
   auto shardShape =
       layout.getShardShape(tt::getMetalTensorGridShape(tensorType),
-                           tt::getMetalTensorTileShape(tensorType));
+                           tt::getTensorTileShapeOrEmpty(tensorType));
 
   // No layout attr needed for region arguments
   return MemRefType::get(
@@ -65,8 +65,8 @@ MemRefType getBufferType(Type type, bool isView) {
 
   // Get grid and shard shapes
   auto gridShape = tt::getMetalTensorGridShape(tensorType);
-  auto shardShape =
-      layout.getShardShape(gridShape, tt::getMetalTensorTileShape(tensorType));
+  auto shardShape = layout.getShardShape(
+      gridShape, tt::getTensorTileShapeOrEmpty(tensorType));
 
   // Create full memref shape (grid + shard) like the old code
   SmallVector<int64_t> fullMemrefShape;
@@ -2201,9 +2201,6 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
     auto outputTensor =
         mlir::cast<mlir::RankedTensorType>(getOutput().getType());
 
-    llvm::errs() << "input: " << inputTensor << "\n";
-    llvm::errs() << "output: " << outputTensor << "\n";
-
     const bool hasInputLayout = inputTensor.getEncoding() != nullptr;
     const bool hasOutputLayout = outputTensor.getEncoding() != nullptr;
 
@@ -2218,8 +2215,6 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
             ? llvm::SmallVector<int64_t>{tt::getMetalTensorGridShape(
                   outputTensor)}
             : llvm::SmallVector<int64_t>(outputTensor.getRank(), 1);
-    llvm::errs() << "in grid size:" << inputGrid.size()
-                 << ", out grid size:" << outputGrid.size() << "\n";
     components.isGridChange = inputGrid != outputGrid;
 
     // Construct layouts with default values if no layout attr present.
@@ -3790,11 +3785,6 @@ static mlir::LogicalResult verifyAffineBlocking(
       }
       outputGridShape = tt::getMetalTensorGridShape(tensorType);
     } else {
-      llvm::errs() << "memref output found\n";
-      llvm::errs() << "  output type: " << operandType << "\n";
-      llvm::errs() << "  op location: " << getLoc() << "\n";
-      llvm::errs() << "  num operands: " << getNumOperands() << "\n";
-      llvm::errs() << "  op grid shape: " << getGrid() << "\n";
       auto memref = mlir::cast<MemRefType>(operandType);
       // If the top level operand is a memref, the front half of its shape
       // is the grid shape, so we cut it off the back to get just the grid
@@ -3831,6 +3821,7 @@ static mlir::LogicalResult verifyAffineBlocking(
 
   auto rankedTensorType =
       mlir::dyn_cast<RankedTensorType>(getOutputs().front().getType());
+  llvm::errs() << "(debug): " << rankedTensorType << "\n";
   bool hasGrid = mlir::isa<MemRefType>(getOutputs().front().getType()) ||
                  (rankedTensorType && rankedTensorType.getEncoding());
   SmallVector<AffineMap> indexingMaps = getIndexingMapsValue();
@@ -3917,7 +3908,7 @@ static mlir::LogicalResult verifyAffineBlocking(
             MemorySpaceAttr::get(getContext(), layout.getMemorySpace());
         expectedShardShape =
             layout.getShardShape(tt::getMetalTensorGridShape(tensorType),
-                                 tt::getMetalTensorTileShape(tensorType));
+                                 tt::getTensorTileShapeOrEmpty(tensorType));
       } else {
         auto memref = mlir::cast<MemRefType>(operandType);
         expectedMemorySpace = memref.getMemorySpace();

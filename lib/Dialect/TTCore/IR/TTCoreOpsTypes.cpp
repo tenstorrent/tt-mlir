@@ -705,7 +705,6 @@ static mlir::SmallVector<int64_t> calculateStride(mlir::ArrayRef<int64_t> shape,
 }
 
 // Static helper to derive physical shape from logical shape and grid
-// Static helper to derive physical shape from logical shape and grid
 llvm::SmallVector<int64_t>
 MetalLayoutAttr::derivePhysicalShape(ArrayRef<int64_t> logicalShape,
                                      ArrayRef<int64_t> gridShape,

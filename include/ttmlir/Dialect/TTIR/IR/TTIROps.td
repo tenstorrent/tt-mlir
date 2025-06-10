@@ -161,7 +161,7 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
 
           // Get shard shape (without grid dimensions)
           auto gridShape = tt::getMetalTensorGridShape(tensorType);
-          auto tileShape = tt::getMetalTensorTileShape(tensorType);
+          auto tileShape = tt::getTensorTileShapeOrEmpty(tensorType);
           auto shardShape = layout.getShardShape(gridShape, tileShape);
 
           return MemRefType::get(shardShape, tensorType.getElementType(),
