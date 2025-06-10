@@ -412,12 +412,11 @@ public:
           //
 
           if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(op)) {
-            auto opAttributes =
-                opConfigAnalysis.getResult().at(op).opSpecificAttrs;
-            if (!opAttributes.valueless_by_exception() &&
-                std::holds_alternative<ttnn::Conv2dAttrs>(opAttributes)) {
+            auto opAttributes = opConfigAnalysis.getResult().at(op);
+            if (std::holds_alternative<ttnn::Conv2dAttrs>(
+                    opAttributes.opSpecificAttrs)) {
               ttnn::Conv2dAttrs conv2dAttrs =
-                  std::get<ttnn::Conv2dAttrs>(opAttributes);
+                  std::get<ttnn::Conv2dAttrs>(opAttributes.opSpecificAttrs);
               if (conv2dAttrs.conv2dConfig.has_value()) {
                 conv2dOp.setConv2dConfigAttr(conv2dAttrs.conv2dConfig.value());
               }

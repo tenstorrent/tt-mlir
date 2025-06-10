@@ -9,6 +9,23 @@
 
 namespace mlir::tt::ttnn {
 
+/*
+- This file contains all different implementations of OpConfig::OpSpecificAttrs.
+- Please add a new struct here if you need to support a new op.
+- Each struct should provide three public methods:
+  1. bool operator==(const T &other) const { ... }
+  2. bool operator!=(const T &other) const { ... }
+  3. void dump() const { ... }
+*/
+
+// This is useful for detecting whether OpConfig::OpSpecificAttrs has been
+// initialized or not.
+struct Uninitialized {
+  bool operator==(const Uninitialized &other) const { return true; }
+  bool operator!=(const Uninitialized &other) const { return false; }
+  void dump() const {}
+};
+
 struct DefaultAttrs {
   Attribute attr;
 

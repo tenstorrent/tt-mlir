@@ -17,37 +17,36 @@ struct OpConfig {
   // Holds attributes for the op. Note: Please prevent using the DefaultAttrs
   // unless it's absolutely necessary. For most cases, a new type should be
   // added to the following std::variant.
-  using OpSpecificAttrs = std::variant<Conv2dAttrs, DefaultAttrs>;
+  using OpSpecificAttrs =
+      std::variant<DefaultAttrs, Conv2dAttrs, Uninitialized>;
   OpSpecificAttrs opSpecificAttrs;
 
   // Default Config Constructors:
   OpConfig() = default;
-  OpConfig(TTNNLayoutAttr outputLayout) : outputLayout(outputLayout) {}
+  OpConfig(TTNNLayoutAttr outputLayout)
+      : outputLayout(outputLayout), opSpecificAttrs(Uninitialized{}) {}
   OpConfig(TTNNLayoutAttr outputLayout, OpSpecificAttrs attrs)
       : outputLayout(outputLayout), opSpecificAttrs(std::move(attrs)) {}
   OpConfig(TTNNLayoutAttr outputLayout, Attribute attr)
       : outputLayout(outputLayout), opSpecificAttrs(DefaultAttrs{attr}) {}
-  // Constructor for DefaultAttrs
   OpConfig(TTNNLayoutAttr outputLayout, DefaultAttrs config)
       : outputLayout(outputLayout), opSpecificAttrs(std::move(config)) {}
-
   // Op Specific Constructors:
   OpConfig(TTNNLayoutAttr outputLayout, Conv2dAttrs config)
       : outputLayout(outputLayout), opSpecificAttrs(std::move(config)) {}
-  // Add more op specific constructors as needed.
 
   // Some utility functions:
+  bool attrIsUninitialized() const {
+    // This function is helpful to determine whether opSpecificAttrs has been
+    // initialized with an actual T or not. If this function returns true, it's
+    // safe to ignore/override the content of opSpecificAttrs. I decided to
+    // provide this function instead of using std::optional<std::variant<T,...>>
+    // because I don't want the caller to worry about std::nullopt.
+    return std::holds_alternative<Uninitialized>(opSpecificAttrs);
+  }
   bool operator==(const OpConfig &other) const {
     if (outputLayout != other.outputLayout) {
       return false;
-    }
-    // Handle the case where both variants are empty
-    if (opSpecificAttrs.valueless_by_exception() !=
-        other.opSpecificAttrs.valueless_by_exception()) {
-      return false;
-    }
-    if (opSpecificAttrs.valueless_by_exception()) {
-      return true; // Both are valueless
     }
     // Compare variants using std::visit with a generic comparison
     return std::visit(
