@@ -75,6 +75,10 @@ std::string getVersion(Flatbuffer binary) {
          std::to_string(version->patch());
 }
 
+std::string_view getSchemaHash(Flatbuffer binary) {
+  return getBinary(binary)->schema_hash()->c_str();
+}
+
 std::string_view getTTMLIRGitHash(Flatbuffer binary) {
   return getBinary(binary)->ttmlir_git_hash()->c_str();
 }
@@ -152,6 +156,10 @@ std::string getVersion(Flatbuffer binary) {
   return std::to_string(version->major()) + "." +
          std::to_string(version->minor()) + "." +
          std::to_string(version->patch());
+}
+
+std::string_view getSchemaHash(Flatbuffer binary) {
+  return getBinary(binary)->schema_hash()->c_str();
 }
 
 std::string_view getTTMLIRGitHash(Flatbuffer binary) {
@@ -235,6 +243,10 @@ std::string getVersion(Flatbuffer binary) {
          std::to_string(version->patch());
 }
 
+std::string_view getSchemaHash(Flatbuffer binary) {
+  return getBinary(binary)->schema_hash()->c_str();
+}
+
 std::string_view getTTMLIRGitHash(Flatbuffer binary) {
   return getBinary(binary)->ttmlir_git_hash()->c_str();
 }
@@ -299,6 +311,47 @@ std::string Flatbuffer::getVersion() const {
   if (::tt::target::SizePrefixedSystemDescRootBufferHasIdentifier(
           handle.get())) {
     return system_desc::getVersion(*this);
+  }
+
+  LOG_FATAL("Unsupported binary format");
+}
+
+std::string_view Flatbuffer::getSchemaHash() const {
+  if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
+          handle.get())) {
+    return ttnn::getSchemaHash(*this);
+  }
+
+  if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
+          handle.get())) {
+    return metal::getSchemaHash(*this);
+  }
+
+  if (::tt::target::SizePrefixedSystemDescRootBufferHasIdentifier(
+          handle.get())) {
+    return system_desc::getSchemaHash(*this);
+  }
+
+  LOG_FATAL("Unsupported binary format");
+}
+
+bool Flatbuffer::checkSchemaHash() const {
+  if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
+          handle.get())) {
+    return ttnn::getSchemaHash(*this) ==
+           ::tt::target::ttnn::binary_bfbs_schema_hash;
+  }
+
+  if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
+          handle.get())) {
+    return metal::getSchemaHash(*this) ==
+           ::tt::target::ttmetal::binary_bfbs_schema_hash;
+  }
+
+  if (::tt::target::SizePrefixedSystemDescRootBufferHasIdentifier(
+          handle.get())) {
+    return system_desc::getSchemaHash(*this) ==
+           ::tt::target::common::system_desc_bfbs_schema_hash;
   }
 
   LOG_FATAL("Unsupported binary format");
