@@ -91,8 +91,8 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(op.getOutput().getType());
     bool inputTiled = tt::isTiled(inputType);
     bool outputTiled = tt::isTiled(outputType);
-    llvm::errs() << "inputTiled: " << inputTiled
-                 << ", outputTiled: " << outputTiled << ".\n";
+    // llvm::errs() << "inputTiled: " << inputTiled
+    //              << ", outputTiled: " << outputTiled << ".\n";
     assert(inputTiled != outputTiled &&
            "one of input or output must be tiled for now");
 
@@ -184,29 +184,29 @@ public:
                      std::optional<Type> newElementType = {},
                      std::optional<ArrayRef<int64_t>> newTileShape = {}) const {
     // Log inputs
-    llvm::errs() << "=== createModifiedType ===\n";
-    llvm::errs() << "baseType: " << baseType << "\n";
-    llvm::errs() << "baseType element: " << baseType.getElementType() << "\n";
-    llvm::errs() << "baseType shape: ";
-    for (auto s : baseType.getShape()) {
-      llvm::errs() << s << " ";
-    }
-    llvm::errs() << "\n";
-    llvm::errs() << "baseType tiled? " << tt::isTiled(baseType) << "\n";
+    // llvm::errs() << "=== createModifiedType ===\n";
+    // llvm::errs() << "baseType: " << baseType << "\n";
+    // llvm::errs() << "baseType element: " << baseType.getElementType() <<
+    // "\n"; llvm::errs() << "baseType shape: "; for (auto s :
+    // baseType.getShape()) {
+    //   llvm::errs() << s << " ";
+    // }
+    // llvm::errs() << "\n";
+    // llvm::errs() << "baseType tiled? " << tt::isTiled(baseType) << "\n";
 
-    if (newElementType.has_value()) {
-      llvm::errs() << "newElementType: " << *newElementType << "\n";
-      llvm::errs() << "newElementType tiled? "
-                   << mlir::isa<TileType>(*newElementType) << "\n";
-    }
+    // if (newElementType.has_value()) {
+    //   llvm::errs() << "newElementType: " << *newElementType << "\n";
+    //   llvm::errs() << "newElementType tiled? "
+    //                << mlir::isa<TileType>(*newElementType) << "\n";
+    // }
 
-    if (newTileShape.has_value()) {
-      llvm::errs() << "newTileShape provided: ";
-      for (auto s : *newTileShape) {
-        llvm::errs() << s << " ";
-      }
-      llvm::errs() << "\n";
-    }
+    // if (newTileShape.has_value()) {
+    //   llvm::errs() << "newTileShape provided: ";
+    //   for (auto s : *newTileShape) {
+    //     llvm::errs() << s << " ";
+    //   }
+    //   llvm::errs() << "\n";
+    // }
 
     // Use existing values if not overridden
     auto memSpace = newMemSpace.value_or(baseLayout.getMemorySpace());
@@ -223,24 +223,24 @@ public:
                                      : ArrayRef<int64_t>{});
 
     // Log derived values
-    llvm::errs() << "Derived gridShape: ";
-    for (auto s : gridShape) {
-      llvm::errs() << s << " ";
-    }
-    llvm::errs() << "\n";
+    // llvm::errs() << "Derived gridShape: ";
+    // for (auto s : gridShape) {
+    //   llvm::errs() << s << " ";
+    // }
+    // llvm::errs() << "\n";
 
-    llvm::errs() << "Derived elementType: " << elementType << "\n";
-    llvm::errs() << "Derived tileShape: ";
-    for (auto s : tileShape) {
-      llvm::errs() << s << " ";
-    }
-    llvm::errs() << "\n";
+    // llvm::errs() << "Derived elementType: " << elementType << "\n";
+    // llvm::errs() << "Derived tileShape: ";
+    // for (auto s : tileShape) {
+    //   llvm::errs() << s << " ";
+    // }
+    // llvm::errs() << "\n";
 
-    llvm::errs() << "Logical shape: ";
-    for (auto s : baseLayout.getLogicalShape()) {
-      llvm::errs() << s << " ";
-    }
-    llvm::errs() << "\n";
+    // llvm::errs() << "Logical shape: ";
+    // for (auto s : baseLayout.getLogicalShape()) {
+    //   llvm::errs() << s << " ";
+    // }
+    // llvm::errs() << "\n";
 
     // Create new layout
     auto newLayout = MetalLayoutAttr::get(ctx, baseLayout.getLogicalShape(),
@@ -261,21 +261,20 @@ public:
     // Derive physical shape
     auto physicalShape = MetalLayoutAttr::derivePhysicalShape(
         baseLayout.getLogicalShape(), gridShape, tileShapeForPhysical);
-    llvm::errs() << "physical shape: ";
-    for (auto s : physicalShape) {
-      llvm::errs() << s << " ";
-    }
-    llvm::errs() << "\n";
+    // llvm::errs() << "physical shape: ";
+    // for (auto s : physicalShape) {
+    //   llvm::errs() << s << " ";
+    // }
+    // llvm::errs() << "\n";
 
     return RankedTensorType::get(physicalShape, elementType, newLayout);
   }
 
   LogicalResult matchAndRewrite(ToLayoutOp op,
                                 PatternRewriter &rewriter) const final {
+    llvm::errs() << "TTIRSplitCompoundLayoutRewriter::matchAndRewrite\n";
+    op->dump();
     auto components = op.compoundComponents();
-    if (!components.isCompound()) {
-      return failure();
-    }
 
     llvm::errs() << "  isLayoutChange: " << components.isLayoutChange << "\n";
     llvm::errs() << "  isGridChange: " << components.isGridChange << "\n";
@@ -283,18 +282,21 @@ public:
     llvm::errs() << "  isMemorySpaceChange: " << components.isMemorySpaceChange
                  << "\n";
     llvm::errs() << "  isCompound(): " << components.isCompound() << "\n";
+    if (!components.isCompound()) {
+      return failure();
+    }
 
     auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
     auto outputType = mlir::cast<RankedTensorType>(op.getOutput().getType());
     auto inputLayout = op.getOrCreateInputLayout();
     auto outputLayout = op.getOrCreateOutputLayout();
 
-    llvm::errs() << "TTIRSplitCompoundLayoutRewriter processing:\n";
-    op->dump();
-    llvm::errs() << "Input layout: " << inputLayout << "\n";
-    llvm::errs() << "Input type: " << inputType << "\n";
-    llvm::errs() << "Output layout: " << outputLayout << "\n";
-    llvm::errs() << "Output type: " << outputType << "\n";
+    // llvm::errs() << "TTIRSplitCompoundLayoutRewriter processing:\n";
+    // op->dump();
+    // llvm::errs() << "Input layout: " << inputLayout << "\n";
+    // llvm::errs() << "Input type: " << inputType << "\n";
+    // llvm::errs() << "Output layout: " << outputLayout << "\n";
+    // llvm::errs() << "Output type: " << outputType << "\n";
 
     bool inputL1 = inputLayout.getMemorySpace() == MemorySpace::DeviceL1;
     bool outputL1 = outputLayout.getMemorySpace() == MemorySpace::DeviceL1;
@@ -320,13 +322,13 @@ public:
         llvm::errs() << "input tiled bounce\n";
         auto bounceType = createModifiedType(
             rewriter.getContext(),
-            inputType, // Use INPUT as base, not output!
-            inputLayout,
-            /*memSpace=*/{},             // Keep input's memory space
-            /*grid=*/{},                 // Keep input's grid
-            outputType.getElementType(), // Change to untiled element type
-            /*tileShape=*/{}             // Empty for untiled
-        );
+            outputType, // Use output as base to get its grid
+            outputLayout,
+            /*memSpace=*/{},
+            /*grid=*/{},
+            inputType.getElementType(), // But with input's element type
+            tt::isTiled(inputType) ? tt::getMetalTensorTileShape(inputType)
+                                   : ArrayRef<int64_t>{});
         // assert(bounceType == outputType);
         bounce(rewriter, op, bounceType);
       } else {
