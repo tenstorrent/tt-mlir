@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <optional>
 #include <tuple>
+// #include <variant>
 
 namespace mlir::tt::ttnn {
 
@@ -503,39 +504,20 @@ MultiplyOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // Conv2dOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-struct Conv2dAttrs {
-  std::optional<mlir::tt::ttnn::Conv2dConfigAttr> conv2dConfig = std::nullopt;
-  std::optional<mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
-      deviceComputeKernelConfig = std::nullopt;
-};
-
 // If a config has been specified, use that. Otherwise, use the op property.
-Conv2dAttrs unpackConv2dAttrs(const OpConfig::Attributes &conv2dAttrs,
+Conv2dAttrs unpackConv2dAttrs(const OpConfig::OpSpecificAttrs &attrs,
                               mlir::tt::ttnn::Conv2dOp op) {
-  assert(conv2dAttrs.size() <= 2 && "Two attributes are supported for conv2d");
+  assert(std::holds_alternative<Conv2dAttrs>(attrs) && "");
+  Conv2dAttrs conv2dAttrs = std::get<Conv2dAttrs>(attrs);
 
   Conv2dAttrs ret;
-  if (conv2dAttrs.empty()) {
-    ret.conv2dConfig = op.getConv2dConfig();
-    ret.deviceComputeKernelConfig = op.getComputeConfig();
-  } else if (conv2dAttrs.size() == 1) {
-    assert(mlir::isa<Conv2dConfigAttr>(conv2dAttrs[0]) &&
-           "Unexpected type for OpConfig.opSpecificAttr. Expected "
-           "Conv2ConfigAttr");
-    ret.conv2dConfig = mlir::cast<Conv2dConfigAttr>(conv2dAttrs[0]);
-    ret.deviceComputeKernelConfig = op.getComputeConfig();
-  } else if (conv2dAttrs.size() == 2) {
-    assert(mlir::isa<Conv2dConfigAttr>(conv2dAttrs[0]) &&
-           "Unexpected type for OpConfig.opSpecificAttr. Expected "
-           "Conv2ConfigAttr");
-    assert(mlir::isa<DeviceComputeKernelConfigAttr>(conv2dAttrs[1]) &&
-           "Unexpected type for OpConfig.opSpecificAttr. Expected "
-           "DeviceComputeKernelConfigAttr");
-    ret.conv2dConfig = mlir::cast<Conv2dConfigAttr>(conv2dAttrs[0]);
-    ret.deviceComputeKernelConfig =
-        mlir::cast<DeviceComputeKernelConfigAttr>(conv2dAttrs[1]);
-  }
-
+  ret.conv2dConfig = conv2dAttrs.conv2dConfig.has_value()
+                         ? conv2dAttrs.conv2dConfig
+                         : op.getConv2dConfig();
+  ret.deviceComputeKernelConfig =
+      conv2dAttrs.deviceComputeKernelConfig.has_value()
+          ? conv2dAttrs.deviceComputeKernelConfig
+          : op.getComputeConfig();
   return ret;
 }
 

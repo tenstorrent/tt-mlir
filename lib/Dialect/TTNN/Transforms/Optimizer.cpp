@@ -414,17 +414,16 @@ public:
           if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(op)) {
             auto opAttributes =
                 opConfigAnalysis.getResult().at(op).opSpecificAttrs;
-            if (!opAttributes.empty()) {
-              if (auto conv2dConfig =
-                      mlir::dyn_cast_if_present<ttnn::Conv2dConfigAttr>(
-                          opAttributes.front())) {
-                conv2dOp.setConv2dConfigAttr(conv2dConfig);
+            if (!opAttributes.valueless_by_exception() &&
+                std::holds_alternative<ttnn::Conv2dAttrs>(opAttributes)) {
+              ttnn::Conv2dAttrs conv2dAttrs =
+                  std::get<ttnn::Conv2dAttrs>(opAttributes);
+              if (conv2dAttrs.conv2dConfig.has_value()) {
+                conv2dOp.setConv2dConfigAttr(conv2dAttrs.conv2dConfig.value());
               }
-              if (opAttributes.size() == 2) {
-                if (auto deviceCopmuteAttr = mlir::dyn_cast_if_present<
-                        ttnn::DeviceComputeKernelConfigAttr>(opAttributes[1])) {
-                  conv2dOp.setComputeConfigAttr(deviceCopmuteAttr);
-                }
+              if (conv2dAttrs.deviceComputeKernelConfig.has_value()) {
+                conv2dOp.setComputeConfigAttr(
+                    conv2dAttrs.deviceComputeKernelConfig.value());
               }
             }
           }

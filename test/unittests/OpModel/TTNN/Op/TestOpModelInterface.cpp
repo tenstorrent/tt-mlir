@@ -944,7 +944,7 @@ TEST_F(OpModelBase, conv2dInterfaceComputeKernelConfig) {
           &context, MathFidelity::HiFi2, BoolAttr::get(&context, true),
           BoolAttr::get(&context, false), BoolAttr::get(&context, true),
           BoolAttr::get(&context, true));
-  OpConfig::Attributes opConfigAttrs = {
+  Conv2dAttrs opConfigAttrs = Conv2dAttrs{
       configAttr, deviceConfigAttr}; // passes both configs to backend.
 
   auto constraintsExp = backend.getOpConstraints(

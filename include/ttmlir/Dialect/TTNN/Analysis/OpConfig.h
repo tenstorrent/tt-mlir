@@ -5,45 +5,69 @@
 #ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_OPCONFIG_H
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_OPCONFIG_H
 
+#include "OpConfigAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "llvm/ADT/SmallVector.h"
+#include <variant>
 
 namespace mlir::tt::ttnn {
 
 struct OpConfig {
-  using Attributes = llvm::SmallVector<Attribute, 4>;
-
   // Desired output layout for the op.
   TTNNLayoutAttr outputLayout;
+  // Holds attributes for the op. Note: Please prevent using the DefaultAttrs
+  // unless it's absolutely necessary. For most cases, a new type should be
+  // added to the following std::variant.
+  using OpSpecificAttrs = std::variant<Conv2dAttrs, DefaultAttrs>;
+  OpSpecificAttrs opSpecificAttrs;
 
-  // Holds all attributes for the op. E.g. Conv2dConfigAttr and
-  // DeviceComputeKernelConfigAttr for Conv2dOp.
-  Attributes opSpecificAttrs;
-
+  // Default Config Constructors:
   OpConfig() = default;
   OpConfig(TTNNLayoutAttr outputLayout) : outputLayout(outputLayout) {}
-  OpConfig(TTNNLayoutAttr outputLayout, Attribute opSpecificAttr)
-      : outputLayout(outputLayout) {
-    opSpecificAttrs.push_back(opSpecificAttr);
-  }
-  OpConfig(TTNNLayoutAttr outputLayout, Attributes opSpecificAttrs)
-      : outputLayout(outputLayout),
-        opSpecificAttrs(std::move(opSpecificAttrs)) {}
+  OpConfig(TTNNLayoutAttr outputLayout, OpSpecificAttrs attrs)
+      : outputLayout(outputLayout), opSpecificAttrs(std::move(attrs)) {}
+  OpConfig(TTNNLayoutAttr outputLayout, Attribute attr)
+      : outputLayout(outputLayout), opSpecificAttrs(DefaultAttrs{attr}) {}
+  // Constructor for DefaultAttrs
+  OpConfig(TTNNLayoutAttr outputLayout, DefaultAttrs config)
+      : outputLayout(outputLayout), opSpecificAttrs(std::move(config)) {}
 
+  // Op Specific Constructors:
+  OpConfig(TTNNLayoutAttr outputLayout, Conv2dAttrs config)
+      : outputLayout(outputLayout), opSpecificAttrs(std::move(config)) {}
+  // Add more op specific constructors as needed.
+
+  // Some utility functions:
   bool operator==(const OpConfig &other) const {
-    return outputLayout == other.outputLayout &&
-           opSpecificAttrs == other.opSpecificAttrs;
+    if (outputLayout != other.outputLayout) {
+      return false;
+    }
+    // Handle the case where both variants are empty
+    if (opSpecificAttrs.valueless_by_exception() !=
+        other.opSpecificAttrs.valueless_by_exception()) {
+      return false;
+    }
+    if (opSpecificAttrs.valueless_by_exception()) {
+      return true; // Both are valueless
+    }
+    // Compare variants using std::visit with a generic comparison
+    return std::visit(
+        [](const auto &lhs, const auto &rhs) -> bool {
+          // This requires that both types are the same and have operator==
+          // defined
+          using T = std::decay_t<decltype(lhs)>;
+          if constexpr (std::is_same_v<T, std::decay_t<decltype(rhs)>>) {
+            return lhs == rhs; // Use the type's own operator==
+          }
+          return false; // Different types are not equal
+        },
+        opSpecificAttrs, other.opSpecificAttrs);
   }
-
+  bool operator!=(const OpConfig &other) const { return !(*this == other); }
   void dump() const {
     if (outputLayout) {
       outputLayout.dump();
     }
-    if (!opSpecificAttrs.empty()) {
-      for (const auto &opSpecificAttr : opSpecificAttrs) {
-        opSpecificAttr.dump();
-      }
-    }
+    std::visit([](const auto &config) { config.dump(); }, opSpecificAttrs);
   }
 };
 
