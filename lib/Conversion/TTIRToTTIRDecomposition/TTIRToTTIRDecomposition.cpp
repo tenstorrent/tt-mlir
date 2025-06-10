@@ -1597,7 +1597,7 @@ public:
 };
 } // namespace
 
-// This pattern reshapes the non input tensots of the BatchNormOp to 4D
+// This pattern reshapes the non input tensors of the BatchNormOp to 4D
 // tensors, by adding additional dimensions of size 1 so that the only
 // non-1 dimension is the second dimension. This is done so that the
 // op is compatible with ttnn op call.
@@ -1881,6 +1881,65 @@ public:
 
 } // namespace
 
+// TTNN api supports product reduction along one or all dimensions. This
+// decomposition will transform product reduction op to multiple reduction ops.
+// Each op will perform reduction along one dimension only.
+namespace {
+struct ReductionProdPattern : public OpConversionPattern<ttir::ProdOp> {
+public:
+  using OpConversionPattern<ttir::ProdOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ProdOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto dimArg = op.getDimArg();
+    if (!dimArg) {
+      return failure();
+    }
+
+    uint64_t rank = op.getInput().getType().getRank();
+    uint64_t dimArgSize = dimArg->size();
+    if (dimArgSize == 1 || dimArgSize == rank) {
+      return failure();
+    }
+
+    // Extract reduction dimensions.
+    llvm::SmallVector<int32_t> reduceDims(
+        llvm::map_to_vector(*dimArg, [](Attribute dim) -> int32_t {
+          return mlir::cast<IntegerAttr>(dim).getInt();
+        }));
+
+    // Reduce dimensions are sorted in descending order to apply reduction on
+    // higher dimension first. This helps to avoid modifying dimArg which will
+    // be required in case of applying reduction on lower dimension first.
+    llvm::sort(reduceDims, std::greater<>());
+
+    Value runningProdOp = op.getInput();
+    llvm::SmallVector<int64_t> shape{op.getInput().getType().getShape()};
+    auto elementType = op.getInput().getType().getElementType();
+    bool keepDim = op.getKeepDim();
+
+    for (int dim : reduceDims) {
+      mlir::ArrayAttr dimArg =
+          rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(/*Size=*/1, dim));
+      if (keepDim) {
+        shape[dim] = 1;
+      } else {
+        shape.erase(shape.begin() + dim);
+      }
+
+      RankedTensorType outputType = RankedTensorType::get(shape, elementType);
+      runningProdOp = ttir::utils::createDPSOp<ttir::ProdOp>(
+          rewriter, op->getLoc(), outputType, runningProdOp,
+          op.getKeepDimAttr(), dimArg);
+    }
+
+    rewriter.replaceOp(op, runningProdOp);
+    return success();
+  }
+};
+} // namespace
+
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter) {
@@ -1898,6 +1957,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<QuantizeOpPattern>(typeConverter, ctx);
   patterns.add<DequantizeOpPattern>(typeConverter, ctx);
   patterns.add<RequantizeOpPattern>(typeConverter, ctx);
+  patterns.add<ReductionProdPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
