@@ -7,25 +7,54 @@ import pytest
 from typing import List
 
 from ttir_builder.utils import compile_to_flatbuffer
-from ttir_builder import Operand, TTIRBuilder, Shape
+from ttir_builder import Operand, TTIRBuilder, Shape, Input
 
 
-@pytest.mark.parametrize("shapes", [[(32, 32), (32, 32), (32, 32)]], ids=["32x32"])
-@pytest.mark.parametrize("dtypes", [[torch.float32] * 3], ids=["f32"])
+@pytest.mark.parametrize("shapes", [[(5, 5)]], ids=["32x32"])
+@pytest.mark.parametrize("dtypes", [[torch.float32]], ids=["f32"])
 def test_arbitrary_model(shapes: List[Shape], dtypes: List[torch.dtype], request):
-    def model(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
-        add = builder.add(in0, in1)
-        exp = builder.exp(in2)
-        return builder.multiply(add, exp)
+    def model(in0: Operand, builder: TTIRBuilder):
+        # add = builder.add(in0, in1)
+        # exp = builder.exp(in2)'
+
+        tan = builder.tan(in0)
+        builder.print_goldens()
+        # x = builder.multiply(add, exp)
+        # input_0 = torch.rand((3, 3), dtype=torch.float32)
+        # print(input_0)
+        # constraints = (-1.5707, 1.5707)
+        # error_margin = .02
+        # input_0 = input_0.uniform_(constraints[0] + error_margin, constraints[1] - error_margin)
+        # print("INPUT ", input_0)
+        # output_0 = torch.zeros((3, 3), dtype=torch.float32)
+        # builder.print_goldens()
+        # builder.set_graph_input_output([input_0], [], True)
+        # builder.p_override_golden(tan, input_0)
+        # builder.print_goldens()
+
+        return tan
+
+    # Map input indices to Input objects
+    index = 0
+    tan_input = Input(
+        index,
+        constraints=(-1.5707, 1.5707),
+        error_margin=0.02,
+        shape=shapes[index],
+        dtype=dtypes[index],
+    )
+    input_dict = {0: tan_input}
 
     compile_to_flatbuffer(
         model,
         shapes,
         dtypes,
+        custom_inputs=input_dict,
         test_base=request.node.name,
         output_root=request.config.getoption("path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
+    assert False, "t"
 
 
 @pytest.mark.fails_golden
