@@ -159,6 +159,8 @@ struct Flatbuffer : public detail::ObjectImpl {
   void store(const char *path) const;
   std::string_view getFileIdentifier() const;
   std::string getVersion() const;
+  std::string_view getSchemaHash() const;
+  bool checkSchemaHash() const;
   std::string_view getTTMLIRGitHash() const;
   std::string asJson() const;
 };

@@ -366,7 +366,6 @@ def transpose(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
     return builder.transpose(in0, unit_attrs=unit_attrs)
 
 
-@pytest.mark.fails_golden
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dim_arg", [0])
 @pytest.mark.parametrize("keep_dim", [False])
@@ -823,7 +822,6 @@ def test_pad(shapes: List[Shape], padding: List[int], value: int, request):
     )
 
 
-@pytest.mark.fails_golden
 @pytest.mark.parametrize("shape", [(32, 64)])
 @pytest.mark.parametrize("dim,begin,end,step", [(0, 0, 3, 1)])
 def test_index(shape: Shape, dim: int, begin: int, end: int, step: int, request):
@@ -902,12 +900,11 @@ def test_empty(shape: Shape, request):
     )
 
 
-@pytest.mark.fails_golden
 @pytest.mark.parametrize("shapes", [[(128, 128)]])
-@pytest.mark.parametrize("dim", [1])
-def test_argmax(shapes, dim, request):
+@pytest.mark.parametrize("dim_arg", [[1]])
+def test_argmax(shapes, dim_arg, request):
     def argmax(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
-        return builder.argmax(in0, [dim], unit_attrs=unit_attrs)
+        return builder.argmax(in0, dim_arg, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
         argmax,
@@ -934,7 +931,7 @@ def test_reverse(shape: Shape, dims: List[int], request):
     )
 
 
-@pytest.mark.run_error
+@pytest.mark.skip("See issue #3685")
 @pytest.mark.parametrize("shape", [(4, 4)])
 @pytest.mark.parametrize("dim_args", [[0, 1]])
 def test_reduce_and(shape: Shape, dim_args: List[int], request):
@@ -1004,7 +1001,6 @@ def test_permute(shapes: List[Shape], permutation: List[int], request):
     )
 
 
-@pytest.mark.run_error
 @pytest.mark.parametrize("shapes", [[(10, 64, 32, 3), (10, 128, 128, 3)]])
 @pytest.mark.parametrize("scale_factor", [[2, 4]])
 def test_upsample2d(shapes: List[Shape], scale_factor: List[int], request):
@@ -1442,7 +1438,7 @@ unary_ops = [
     expm1 | Marks(pytest.mark.skip_target("ttmetal")),
     floor | Marks(pytest.mark.skip_target("ttmetal")),
     abs | Marks(pytest.mark.skip_target("ttmetal")),
-    logical_not | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
+    logical_not | Marks(pytest.mark.skip_target("ttmetal")),
     neg,
     sign | Marks(pytest.mark.skip_target("ttmetal")),
     cos,
@@ -1456,8 +1452,8 @@ unary_ops = [
     gelu | Marks(pytest.mark.skip_target("ttmetal")),
     leaky_relu | Marks(pytest.mark.skip_target("ttmetal")),
     sqrt | Marks(pytest.mark.skip_target("ttmetal")),
-    cbrt | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
-    rsqrt | Marks(pytest.mark.fails_golden),
+    cbrt | Marks(pytest.mark.skip_target("ttmetal")),
+    rsqrt | Marks(pytest.mark.skip_target("ttmetal")),
     sigmoid,
     reciprocal | Marks(pytest.mark.skip_target("ttmetal")),
     is_finite | Marks(pytest.mark.skip_target("ttmetal")),
@@ -1466,8 +1462,7 @@ unary_ops = [
     mean | Marks(pytest.mark.skip_target("ttmetal")),
     max | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
     min | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
-    get_dimension_size
-    | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
+    get_dimension_size | Marks(pytest.mark.skip_target("ttmetal")),
 ]
 
 
@@ -1503,12 +1498,12 @@ def test_unary_ops(
         add,
         multiply,
         subtract,
-        eq | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
-        ne | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
-        le | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
-        lt | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
-        ge | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
-        gt | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
+        eq | Marks(pytest.mark.skip_target("ttmetal")),
+        ne | Marks(pytest.mark.skip_target("ttmetal")),
+        le | Marks(pytest.mark.skip_target("ttmetal")),
+        lt | Marks(pytest.mark.skip_target("ttmetal")),
+        ge | Marks(pytest.mark.skip_target("ttmetal")),
+        gt | Marks(pytest.mark.skip_target("ttmetal")),
         div | Marks(pytest.mark.skip_target("ttmetal")),
         remainder | Marks(pytest.mark.skip_target("ttmetal")),
         maximum,
@@ -1517,8 +1512,7 @@ def test_unary_ops(
         matmul | Marks(pytest.mark.skip_target("ttmetal")),
         logical_and | Marks(pytest.mark.skip_target("ttmetal")),
         logical_or | Marks(pytest.mark.skip_target("ttmetal")),
-        logical_xor
-        | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
+        logical_xor | Marks(pytest.mark.skip_target("ttmetal")),
     ],
 )
 def test_binary_ops(
@@ -1568,13 +1562,11 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
             embedding,
             [(33, 32), (512, 128)],
             [torch.float32] * 2,
-            marks=pytest.mark.fails_golden,
         ),
         pytest.param(
             where,
             [(64, 64)] * 3,
             [torch.float32, torch.float32, torch.float32],
-            marks=pytest.mark.fails_golden,
         ),
     ],
 )
