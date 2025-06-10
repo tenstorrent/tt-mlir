@@ -579,6 +579,7 @@ class Run:
                             f"Not enough devices ({num_devices}) to run program with mesh shape {fb_mesh_shape}"
                         )
 
+                    # Open a device of shape (x,y), where (x,y) is the mesh shape supplied by the flatbuffer
                     device = ttrt.runtime.open_mesh_device(fb_mesh_shape, mesh_options)
                     device_open = True
 
