@@ -159,6 +159,32 @@ def get_atol_rtol_pcc(golden, calculated, logging):
     )
 
 
+# Given two torch tensors, return a list of the top k absolute differences in the following format:
+# [(abs_diff, v_golden, v_output, index), ...]
+def get_absolute_diff_topk(golden, calculated, top_k):
+    import torch
+
+    if not torch.is_floating_point(golden):
+        golden = golden.to(torch.float64)
+    if not torch.is_floating_point(calculated):
+        calculated = calculated.to(torch.float64)
+    diff = torch.abs(golden - calculated)
+    top_values, top_indices = torch.topk(diff.flatten(), top_k)
+
+    golden_shape = golden.shape
+    results = []
+    for i in range(top_k):
+        flat_idx = top_indices[i].item()
+        multi_idx = torch.unravel_index(torch.tensor(flat_idx), golden_shape)
+        abs_diff = top_values[i].item()
+        v_golden = golden[multi_idx].item()
+        v_output = calculated[multi_idx].item()
+        results.append(
+            (abs_diff, v_golden, v_output, tuple(i.item() for i in multi_idx))
+        )
+    return results
+
+
 def golden_tensor_to_torch(golden_tensor: "ttrt.binary.GoldenTensor"):
     dtype = ttrt_datatype_to_torch_dtype(golden_tensor.dtype)
     torch_tensor = torch.frombuffer(
@@ -870,6 +896,12 @@ class TTRTTestException(Exception):
 
 class PCCErrorException(TTRTTestException):
     """Class to store PCC Comparison Errors"""
+
+    pass
+
+
+class AllCloseErrorException(TTRTTestException):
+    """Class to store AllClose Comparison Errors"""
 
     pass
 
