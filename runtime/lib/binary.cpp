@@ -56,6 +56,9 @@ static flatbuffers::Parser getParser(const uint8_t *binarySchema,
   return parser;
 }
 
+// Binary asJson functions are broken down to get individual flatbuffer
+// components, allowing for bypassing the golden_map in debug_info, the loading
+// and processing of which can use significant memory and time.
 static std::string asJson(const void *fbb, const uint8_t *binarySchema,
                           size_t schemaSize) {
   flatbuffers::Parser parser = getParser(binarySchema, schemaSize);
