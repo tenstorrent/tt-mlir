@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --tt-register-device --ttir-insert-dst-register-access --lower-affine --convert-ttir-to-ttkernel --canonicalize %s > %t.mlir
+// RUN: ttmlir-opt --tt-register-device --ttir-insert-dst-register-access --ttir-generic-linearize-memref --lower-affine --convert-ttir-to-ttkernel --canonicalize %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 
 #l1_ = #tt.memory_space<l1>
