@@ -11,7 +11,6 @@ from ttmlir.ir import *
 from ttmlir.dialects import ttir, ttcore, tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
 import torch
-import array
 from enum import Enum, auto
 import re
 from .ccl_golden import *
@@ -90,7 +89,7 @@ class Golden:
     # only for randomly generated tensors, for example args of MLIR function
     # wrapped around user-written op graph. Every other tensor is output of some
     # op from graph.
-    seed: int = None
+    seed: Opional[int] = None
 
     def __repr__(self) -> str:
         s = f"\nRandom seed: {self.seed}" if self.seed is not None else ""
