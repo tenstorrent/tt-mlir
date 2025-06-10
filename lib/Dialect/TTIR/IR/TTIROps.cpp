@@ -2204,29 +2204,25 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
     llvm::errs() << "input: " << inputTensor << "\n";
     llvm::errs() << "output: " << outputTensor << "\n";
 
-    // auto inputLayout = mlir::dyn_cast_if_present<tt::MetalLayoutAttr>(
-    //     inputTensor.getEncoding());
     const bool hasInputLayout = inputTensor.getEncoding() != nullptr;
-    // auto outputLayout = mlir::dyn_cast_if_present<tt::MetalLayoutAttr>(
-    //     outputTensor.getEncoding());
     const bool hasOutputLayout = outputTensor.getEncoding() != nullptr;
 
-    // Layout change: logical shapes
-    // components.isLayoutChange =
-    //     (hasInputLayout != hasOutputLayout) ||
-    //     (hasInputLayout &&
-    //      (inputLayout.getLogicalShape() != outputLayout.getLogicalShape()));
+    // Tensors without grids are assume to have 1 grids for comparison.
+    auto inputGrid =
+        (hasInputLayout)
+            ? llvm::SmallVector<int64_t>{tt::getMetalTensorGridShape(
+                  inputTensor)}
+            : llvm::SmallVector<int64_t>(inputTensor.getRank(), 1);
+    auto outputGrid =
+        (hasOutputLayout)
+            ? llvm::SmallVector<int64_t>{tt::getMetalTensorGridShape(
+                  outputTensor)}
+            : llvm::SmallVector<int64_t>(outputTensor.getRank(), 1);
+    llvm::errs() << "in grid size:" << inputGrid.size()
+                 << ", out grid size:" << outputGrid.size() << "\n";
+    components.isGridChange = inputGrid != outputGrid;
 
-    // Grid change: grid shapes differ--grid shape exists iff we have a layout.
-    if (hasInputLayout && hasOutputLayout) {
-      components.isGridChange = tt::getMetalTensorGridShape(inputTensor) !=
-                                tt::getMetalTensorGridShape(outputTensor);
-    } else if (hasInputLayout || hasInputLayout) {
-      // TODO: (pre-merge) decide if this is compound or what
-      // components.isGridChange = true;
-      // components.isMemorySpaceChange = true;
-    }
-
+    // Construct layouts with default values if no layout attr present.
     auto inputLayout = getOrCreateInputLayout();
     auto outputLayout = getOrCreateOutputLayout();
 
@@ -2237,6 +2233,8 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
     components.isFormatChange =
         inputTensor.getElementType() != outputTensor.getElementType();
 
+    components.isLayoutChange =
+        inputLayout.getLogicalShape() != outputLayout.getLogicalShape();
   } else {
     auto inputMemref = mlir::cast<mlir::MemRefType>(getInput().getType());
     auto outputMemref = mlir::cast<mlir::MemRefType>(getOutput().getType());
