@@ -213,6 +213,9 @@ class TTKernelCompiler(ast.NodeVisitor):
         arg_types = []
         rt_args = []
         ct_args = []
+        cb_args = []
+        cb_idx = []
+        operand_idx = 0
         for i in range(len(node.args.args)):
             # We know that all cb_args will be annotated with CircularBuffer
             # After that we will have the positional rt_args
@@ -236,31 +239,33 @@ class TTKernelCompiler(ast.NodeVisitor):
                 raise TypeError(f"cannot pass {arg.annotation.id} to a pykernel")
 
             # Follow normal logic to construct CBs
+            cb_arg = ttkernel.ir.ArgAttr.get(
+                self.ctx, ttkernel.ArgType.CBPort.value, operand_idx
+            )
+
+            cb_args.append(cb_arg)
+            cb_idx.append(i)
+
+            operand_idx += 1
+
             tile_type = tt.ir.TileType.get(
                 self.ctx, 32, 32, getattr(tt.DataType, self.args[i].dtype)
             )
-            cb_type = ttkernel.ir.CBType.get(
-                self.ctx,  # mlir context
-                0,  # address
-                self.args[i].cb_id,
-                MemRefType.get(
-                    self.args[i].tilized_shape, tile_type
-                ),  # hardcoded dimensions for now - this is usually lowered from tensors?
-            )
-            arg_types.append(cb_type)
 
         func_sym_table = {}
-        self.func_entry = func.FuncOp(name=node.name, type=(arg_types, []))
+        self.func_entry = func.FuncOp(name=node.name, type=([], []))
+        # Supply cb_args as ct_args, use rt_args and ct_args "normally"
+        arg_spec = ttkernel.ir.ArgSpecAttr.get(self.ctx, [], cb_args)
+        self.func_entry.attributes[ttkernel.ir.ArgSpecAttr.name] = arg_spec
+
         if self.kernel_type:
             self.func_entry.attributes[
                 ttkernel.ir.ThreadTypeAttr.name
             ] = ttkernel.ir.ThreadTypeAttr.get(self.ctx, self.kernel_type)
         func_bb = self.func_entry.add_entry_block()
-        for i in range(len(func_bb.arguments)):
-            func_sym_table[node.args.args[i].arg] = func_bb.arguments[i]
 
         # update basic block
-        self.symbol_tables.append(func_sym_table)
+        self.symbol_tables.append({})
         with InsertionPoint(func_bb), Location.unknown():
             # Insert verbose comment for function, to be picked up by Compiler pass it must exist within function region
             # Need a bit of custom logic to make the function def look pretty:
@@ -269,11 +274,23 @@ class TTKernelCompiler(ast.NodeVisitor):
                 comment = f"// --- Python Function Declaration for Above --- \n{self.get_source_comment_block(node)}\n// -- End Function Declaration"
                 emitc.verbatim(comment, [])
 
+            # Get all of the CBs using the arg_spec attr
+            for indexIndex, i in enumerate(cb_idx):
+                tile_type = tt.ir.TileType.get(
+                    self.ctx, 32, 32, getattr(tt.DataType, self.args[i].dtype)
+                )
+                cb_type = ttkernel.ir.CBType.get(
+                    self.ctx, MemRefType.get(self.args[i].tilized_shape, tile_type)
+                )
+                res = ttkernel.get_compile_time_arg_val(cb_type, indexIndex)
+                self.symbol_tables[-1][node.args.args[i].arg] = res
+
             # Insert a point to create all of the relevant rt_args and ct_args
             int_type = IntegerType.get_signless(32, self.ctx)
             for name, idx in rt_args:
                 _idx = arith.ConstantOp(IndexType.get(self.ctx), idx)
-                self.symbol_tables[-1][name] = ttkernel.get_arg_val(int_type, _idx)
+                res = ttkernel.get_arg_val(int_type, _idx)
+                self.symbol_tables[-1][name] = res
 
             for name, value in ct_args:
                 if isinstance(value, bool):
