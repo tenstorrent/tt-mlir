@@ -168,30 +168,11 @@ class MemrefLoadRewriter : public OpConversionPattern<memref::LoadOp> {
 public:
   using OpConversionPattern<memref::LoadOp>::OpConversionPattern;
 
-  static bool storesToDst(Operation *op) {
-    auto store = mlir::dyn_cast<memref::StoreOp>(op);
-    return store && (tt::getMemorySpace(store.getMemRef()) ==
-                     tt::MemorySpace::RegisterDst);
-  }
-
   LogicalResult
   matchAndRewrite(memref::LoadOp op, memref::LoadOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     assert(adaptor.getIndices().size() == 1 &&
            "Expected single index in load op, failing.");
-
-    if (llvm::all_of(op->getUsers(), storesToDst)) {
-      // This case will be handled by MemrefStoreRewriter
-      auto store = mlir::cast<memref::StoreOp>(*op->getUsers().begin());
-      auto cb = adaptor.getMemref();
-      auto cbIndex = adaptor.getIndices().front();
-      auto dstIndex = rewriter.getRemappedValue(store.getIndices().front());
-      rewriter.create<ttkernel::CopyTileInitOp>(op.getLoc(), cb);
-      rewriter.create<ttkernel::CopyTileOp>(op.getLoc(), cb, cbIndex, dstIndex);
-    } else if (llvm::any_of(op->getUsers(), storesToDst)) {
-      return op->emitOpError("Unsupported mixed uses of dst and non-dst");
-    }
-
     rewriter.replaceOp(op, adaptor.getIndices().front());
     return success();
   };
@@ -203,24 +184,55 @@ class MemrefStoreRewriter : public OpConversionPattern<memref::StoreOp> {
 public:
   using OpConversionPattern<memref::StoreOp>::OpConversionPattern;
 
+  static LogicalResult lowerCopyTile(memref::LoadOp load, memref::StoreOp store,
+                                     memref::StoreOpAdaptor adaptor,
+                                     ConversionPatternRewriter &rewriter) {
+    assert(adaptor.getIndices().size() == 1);
+    auto cb = rewriter.getRemappedValue(load.getMemref());
+    auto cbIndex = adaptor.getValue();
+    auto dstIndex = adaptor.getIndices().front();
+    rewriter.create<ttkernel::CopyTileInitOp>(store.getLoc(), cb);
+    rewriter.replaceOpWithNewOp<ttkernel::CopyTileOp>(store, cb, cbIndex,
+                                                      dstIndex);
+    return success();
+  }
+
+  static LogicalResult lowerPackTile(memref::StoreOp store,
+                                     memref::StoreOpAdaptor adaptor,
+                                     ConversionPatternRewriter &rewriter) {
+    assert(adaptor.getIndices().size() == 1);
+    auto dst = adaptor.getValue();
+    auto cb = adaptor.getMemref();
+    auto storeIdx = adaptor.getIndices().front();
+    rewriter.replaceOpWithNewOp<ttkernel::PackTileOp>(
+        store, dst, cb, storeIdx, rewriter.getBoolAttr(true));
+    return success();
+  }
+
   LogicalResult
   matchAndRewrite(memref::StoreOp op, memref::StoreOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    if (tt::getMemorySpace(op.getMemRef()) == tt::MemorySpace::RegisterDst) {
-      // Load rewriter handled the lowering to copy_tiles, we can just erase.
+    auto load = mlir::dyn_cast<memref::LoadOp>(op.getValue().getDefiningOp());
+    bool storeToDst =
+        tt::getMemorySpace(op.getMemRef()) == tt::MemorySpace::RegisterDst;
+
+    if (load && storeToDst) {
+      // If we are coming from a load, then we are a copy tile. Pattern:
+      //    %0 = memref.load %arg0, %c0 : memref<1x!tt.tile, l1>
+      //    tt.store %0, %arg1, %c0 : memref<1x!tt.tile, dst>
+      return lowerCopyTile(load, op, adaptor, rewriter);
+    } else if (storeToDst) {
+      // Otherwise we're storing the result of an op:
+      //    %0 = ttir.tile_sigmoid %arg0
+      //    tt.store %0, %arg2, %c0 : memref<1x!tt.tile, dst>
       rewriter.eraseOp(op);
       return success();
     }
 
-    auto dstLoad = mlir::cast<memref::LoadOp>(op.getValue().getDefiningOp());
-    assert(dstLoad.getIndices().size() == 1);
-    auto dst = dstLoad.getIndices().front();
-    auto outCB = getOutCB(rewriter, op);
-    auto storeIdx = op.getIndices().front();
-    rewriter.replaceOpWithNewOp<ttkernel::PackTileOp>(
-        op, dst, outCB, storeIdx, rewriter.getBoolAttr(true));
-
-    return success();
+    // Otherwise we're packing the result from dst:
+    //    %0 = memref.load %arg0, %c0 : memref<1x!tt.tile, dst>
+    //    tt.store %0, %arg2, %c0 : memref<1x!tt.tile, l1>
+    return lowerPackTile(op, adaptor, rewriter);
   };
 };
 } // namespace
