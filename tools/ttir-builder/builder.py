@@ -119,6 +119,37 @@ class TypeInfo:
     zero_point: Optional[int] = None
 
 
+@dataclass(frozen=True)
+class Input:
+    """
+    Dataclass used to store information used to create custom golden tensors to populate graph inputs.
+    """
+
+    input_index: int
+    data: Optional[torch.Tensor] = None
+    constraints: Optional[Tuple(Union(float, int))] = None
+    error_margin: Optional[float] = 0
+    shape: Optional[Shape] = None
+    dtype: Optional[torch.dtype] = None
+
+    def generate_custom_tensor(self, seed: int) -> torch.Tensor:
+        """Generate and return a random, constrained tensor."""
+        assert (
+            self.constraints
+        ), f"Expected to have constraints stored for input_{self.input_index}"
+        assert self.shape, f"Expected to have shape stored for input_{self.input_index}"
+        assert self.dtype, f"Expected to have dtype stored for input_{self.input_index}"
+
+        randn_tensor = torch.randn(
+            self.shape, dtype=self.dtype, generator=torch.manual_seed(seed)
+        )
+        return randn_tensor.uniform_(
+            self.constraints[0] + self.error_margin,
+            self.constraints[1] - self.error_margin,
+            generator=torch.manual_seed(seed),
+        )
+
+
 class GoldenCheckLevel(Enum):
     DISABLED = auto()  # Do not store golden.
     OP_LEVEL = auto()  # Check every single op level goldens
@@ -222,6 +253,23 @@ class TTIRBuilder:
         if not override and f"input_{index}" in self.id_golden_map:
             return self.id_golden_map[f"input_{index}"]
         golden = self.generate_and_store_random_golden(operand, dtype)
+        self.id_golden_map[f"input_{index}"] = golden
+        return golden
+
+    def generate_custom_input_golden(
+        self, operand: Operand, custom_input: Input, index: int
+    ) -> Golden:
+        """
+        Generates tensor with or retrieves tensor from `custom_input`, assigns it to a golden,
+        and maps `input` to that golden.
+        """
+        if not custom_input.data:
+            input_tensor = custom_input.generate_custom_tensor(self._get_seed())
+            golden = Golden(input_tensor, self._get_seed())
+        else:
+            golden = Golden(custom_input.data, self._get_seed())
+
+        self._store_golden(operand, golden)
         self.id_golden_map[f"input_{index}"] = golden
         return golden
 

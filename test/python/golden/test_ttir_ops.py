@@ -4,9 +4,10 @@
 
 import pytest
 import torch
-from typing import Callable, List
+import math
+from typing import Callable, List, Tuple
 
-from ttir_builder import Operand, TTIRBuilder, Shape, TypeInfo
+from ttir_builder import Operand, TTIRBuilder, Shape, TypeInfo, Input
 from ttir_builder.utils import compile_to_flatbuffer, Marks, shape_str
 from ttmlir.ir import (
     DenseI64ArrayAttr,
@@ -1443,11 +1444,8 @@ unary_ops = [
     sign | Marks(pytest.mark.skip_target("ttmetal")),
     cos,
     sin,
-    tan | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
     atan | Marks(pytest.mark.skip_target("ttmetal")),
     tanh | Marks(pytest.mark.skip_target("ttmetal")),
-    log | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
-    log1p | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
     relu | Marks(pytest.mark.skip_target("ttmetal")),
     gelu | Marks(pytest.mark.skip_target("ttmetal")),
     leaky_relu | Marks(pytest.mark.skip_target("ttmetal")),
@@ -1486,6 +1484,44 @@ def test_unary_ops(
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
         pipeline_options=pipeline_options,
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize(
+    "test_fn,constraints,error_margin",
+    [
+        (tan, (-math.pi / 2, math.pi / 2), 0.02),
+        (log, (0, 3), 0.01),
+        (log1p, (-1, 2), 0.01),
+    ],
+)
+def test_custom_input_unary_ops(
+    test_fn: Callable,
+    shape: Shape,
+    dtype: torch.dtype,
+    constraints: Tuple[float],
+    error_margin: float,
+    request,
+):
+    custom_inputs = {
+        0: Input(
+            0,
+            constraints=constraints,
+            error_margin=error_margin,
+            shape=shape,
+            dtype=dtype,
+        )
+    }
+    compile_to_flatbuffer(
+        test_fn,
+        inputs_shapes=[shape],
+        inputs_types=[dtype],
+        custom_inputs=custom_inputs,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
