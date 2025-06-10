@@ -1468,15 +1468,21 @@ class TTIRBuilder:
                 "groups": groups,
             },
             ttir_kwargs={
-                "stride": IntegerAttr.get(IntegerType.get_signed(32), stride)
-                if isinstance(stride, int)
-                else DenseI32ArrayAttr.get(stride),
-                "padding": IntegerAttr.get(IntegerType.get_signed(32), padding)
-                if isinstance(padding, int)
-                else DenseI32ArrayAttr.get(padding),
-                "dilation": IntegerAttr.get(IntegerType.get_signed(32), dilation)
-                if isinstance(dilation, int)
-                else DenseI32ArrayAttr.get(dilation),
+                "stride": (
+                    IntegerAttr.get(IntegerType.get_signed(32), stride)
+                    if isinstance(stride, int)
+                    else DenseI32ArrayAttr.get(stride)
+                ),
+                "padding": (
+                    IntegerAttr.get(IntegerType.get_signed(32), padding)
+                    if isinstance(padding, int)
+                    else DenseI32ArrayAttr.get(padding)
+                ),
+                "dilation": (
+                    IntegerAttr.get(IntegerType.get_signed(32), dilation)
+                    if isinstance(dilation, int)
+                    else DenseI32ArrayAttr.get(dilation)
+                ),
                 "groups": groups,
             },
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], o),
@@ -1542,13 +1548,31 @@ class TTIRBuilder:
                 "groups": groups,
             },
             ttir_kwargs={
-                "stride": IntegerAttr.get(IntegerType.get_signless(32), stride),
-                "padding": IntegerAttr.get(IntegerType.get_signless(32), padding),
-                "output_padding": IntegerAttr.get(
-                    IntegerType.get_signless(32), output_padding
+                "stride": (
+                    IntegerAttr.get(IntegerType.get_signless(32), stride)
+                    if isinstance(stride, int)
+                    else DenseI32ArrayAttr.get(stride)
                 ),
-                "dilation": IntegerAttr.get(IntegerType.get_signless(32), dilation),
-                "groups": IntegerAttr.get(IntegerType.get_signless(32), groups),
+                "padding": (
+                    IntegerAttr.get(IntegerType.get_signless(32), padding)
+                    if isinstance(padding, int)
+                    else DenseI32ArrayAttr.get(padding)
+                ),
+                "output_padding": (
+                    IntegerAttr.get(IntegerType.get_signless(32), output_padding)
+                    if isinstance(output_padding, int)
+                    else DenseI32ArrayAttr.get(output_padding)
+                ),
+                "dilation": (
+                    IntegerAttr.get(IntegerType.get_signless(32), dilation)
+                    if isinstance(dilation, int)
+                    else DenseI32ArrayAttr.get(dilation)
+                ),
+                "groups": (
+                    IntegerAttr.get(IntegerType.get_signless(32), groups)
+                    if isinstance(groups, int)
+                    else DenseI32ArrayAttr.get(groups)
+                ),
                 "bias": bias,
             },
             unit_attrs=unit_attrs,
@@ -2010,9 +2034,11 @@ class TTIRBuilder:
     ) -> OpView:
         output_shape = self._get_golden_tensor(in1).shape
         kwargs = {
-            "scale_factor": IntegerAttr.get(IntegerType.get_signed(32), scale_factor)
-            if isinstance(scale_factor, int)
-            else DenseI32ArrayAttr.get(scale_factor),
+            "scale_factor": (
+                IntegerAttr.get(IntegerType.get_signed(32), scale_factor)
+                if isinstance(scale_factor, int)
+                else DenseI32ArrayAttr.get(scale_factor)
+            ),
             "mode": mode,
         }
         return self.op_proxy(
