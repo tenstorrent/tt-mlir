@@ -231,10 +231,18 @@ bool checkAndRemoveFuncReturnSharding(
     llvm::StringRef retShardingStrRef) {
   auto retShardingAttr =
       funcOp.getResultAttrOfType<AttrType>(retIdx, retShardingStrRef);
-  if (!retShardingAttr) {
+  size_t rank = 0;
+  if constexpr (std::is_same_v<AttrType, mlir::tt::TensorMeshShardingAttr>) {
+    rank = shardingAttr.getRank();
+  }
+  if (!retShardingAttr && rank != 0) {
     return false;
   }
-  if (retShardingAttr != shardingAttr) {
+
+  bool is_same =
+      (retShardingAttr == shardingAttr) || (rank == 0 && !retShardingAttr);
+
+  if (!is_same) {
     llvm_unreachable("MeshSharding operation and function return shardings "
                      "are different.");
   }
