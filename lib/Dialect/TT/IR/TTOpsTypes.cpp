@@ -524,6 +524,10 @@ mlir::FailureOr<mlir::tt::SystemDescAttr> mlir::tt::SystemDescAttr::getFromPath(
   return systemDescAttr;
 }
 
+ChipDescAttr SystemDescAttr::getChipDesc(unsigned chipIndex) const {
+  return getChipDescs()[getChipDescIndices()[chipIndex]];
+}
+
 unsigned SystemDescAttr::getAddressAlignBytes(unsigned chipIndex) const {
   return std::max(std::initializer_list<unsigned>{
       getNocL1AddressAlignBytes(),
@@ -547,15 +551,15 @@ unsigned SystemDescAttr::getAddressAlignBytes(MemorySpace memorySpace,
 }
 
 unsigned SystemDescAttr::getNocL1AddressAlignBytes(unsigned chipIndex) const {
-  return getChipDescs()[chipIndex].getNocL1AddressAlignBytes();
+  return getChipDesc(chipIndex).getNocL1AddressAlignBytes();
 }
 
 unsigned SystemDescAttr::getNocDRAMAddressAlignBytes(unsigned chipIndex) const {
-  return getChipDescs()[chipIndex].getNocDRAMAddressAlignBytes();
+  return getChipDesc(chipIndex).getNocDRAMAddressAlignBytes();
 }
 
 unsigned SystemDescAttr::getPcieAddressAlignBytes(unsigned chipIndex) const {
-  return getChipDescs()[chipIndex].getPcieAddressAlignBytes();
+  return getChipDesc(chipIndex).getPcieAddressAlignBytes();
 }
 
 ShardLayoutAttr ShardLayoutAttr::get(mlir::MLIRContext *context,
@@ -600,6 +604,10 @@ mlir::AffineMap ShardLayoutAttr::getAffineMap() const {
   }
 
   return mlir::AffineMap::get(getStride().size() * 2, 0, mapExprs, context);
+}
+
+ViewLayoutAttr ViewLayoutAttr::compose(ViewLayoutAttr g) const {
+  return get(getContext(), getAffineMap().compose(g.getAffineMap()));
 }
 
 //
@@ -1186,7 +1194,7 @@ static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
   assert(!firstDramCores.empty() && "expected at least one dram core");
 
   for (unsigned chipId : chipIds) {
-    auto chipDesc = systemDesc.getChipDescs()[chipId];
+    auto chipDesc = systemDesc.getChipDesc(chipId);
     auto chipPhysicalHelperCores = chipDesc.getChipPhysicalHelperCores();
     auto dramCores = chipPhysicalHelperCores.getDram();
     assert(dramCores.size() == firstDramCores.size());
@@ -1201,7 +1209,7 @@ DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
                            ArrayRef<int64_t> meshShape,
                            ArrayRef<unsigned> chipIds) {
   assert(not chipIds.empty() && "expected at least one chip");
-  ChipDescAttr chipDesc = systemDesc.getChipDescs()[chipIds.front()];
+  ChipDescAttr chipDesc = systemDesc.getChipDesc(chipIds.front());
   SmallVector<int64_t> chipGrid(chipDesc.getGrid());
   assert(chipGrid.size() == 2 && "expected 2D grid");
 
@@ -1210,7 +1218,7 @@ DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
   // ensure that the logical grid is the same across all chips and this vastly
   // simplifies the grid /memory mappings across the board.
   for (unsigned chipId : chipIds) {
-    ChipDescAttr chip = systemDesc.getChipDescs()[chipId];
+    ChipDescAttr chip = systemDesc.getChipDesc(chipId);
     ArrayRef<int64_t> iChipGrid = chip.getGrid();
     assert(iChipGrid.size() == 2 && "expected 2D grid");
     chipGrid[0] = std::min(chipGrid[0], iChipGrid[0]);
