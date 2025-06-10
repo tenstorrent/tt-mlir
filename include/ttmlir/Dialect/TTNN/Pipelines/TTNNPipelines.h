@@ -125,7 +125,7 @@ struct TTIRToTTNNBackendPipelineOptions
   Option<bool> memoryLayoutAnalysisEnabled{
       *this, OptionNames::memoryLayoutAnalysisEnabled,
       llvm::cl::desc("Enable memory layout optimization."),
-      llvm::cl::init(false)};
+      llvm::cl::init(true)};
 
   // If this option is true, insert memory reconfiguration ops.
   //
