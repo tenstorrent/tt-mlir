@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/LoopUtils.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/LoopUtils.h"
@@ -25,14 +26,14 @@ public:
   using OpRewritePattern<GenericOrFuncOp>::OpRewritePattern;
 
   template <typename OpT>
-  using OpAndIndexOffset = std::pair<OpT, SmallVector<int64_t>>;
+  using OpAndIndexOffset = std::pair<OpT, int64_t>;
 
   struct CopyInfo {
-    void push_back(affine::AffineLoadOp load, ArrayRef<int64_t> indexOffset) {
+    void push_back(affine::AffineLoadOp load, int64_t indexOffset) {
       loads.emplace_back(load, indexOffset);
     }
 
-    void push_back(affine::AffineStoreOp store, ArrayRef<int64_t> indexOffset) {
+    void push_back(affine::AffineStoreOp store, int64_t indexOffset) {
       stores.emplace_back(store, indexOffset);
     }
 
@@ -49,19 +50,19 @@ public:
     SmallVector<OpAndIndexOffset<affine::AffineStoreOp>> stores;
   };
 
-  struct DstRegisterAllocationState {
-    void allocate(SmallVector<int64_t> dstExtents) {
-      if (nextDstIndex.empty()) {
-        nextDstIndex = dstExtents;
-        return;
-      }
-      assert(nextDstIndex.size() == dstExtents.size());
-      for (size_t i = 0; i < nextDstIndex.size(); i++) {
-        nextDstIndex[i] += dstExtents[i];
-      }
+  class DstRegisterAllocationState {
+  public:
+    int64_t allocate(int64_t numElems = 1) {
+      int64_t currDstIndex = nextDstIndex;
+      nextDstIndex += numElems;
+      return currDstIndex;
     }
 
-    SmallVector<int64_t> nextDstIndex;
+    void setStoreToDst() { storedToDst = true; }
+    bool didStoreToDst() { return storedToDst; }
+
+  private:
+    int64_t nextDstIndex = 0;
     bool storedToDst = false;
   };
 
@@ -121,6 +122,17 @@ public:
     return !region.getOps<AcquireDstOp>().empty();
   }
 
+  static unsigned getDstRegisterSizeTiles(Operation *op) {
+    auto device = lookupDevice(op);
+    auto systemDesc = getCurrentScopeSystemDesc(op);
+    auto chipIds = device.getChipIds();
+    auto chipDescs = systemDesc.getChipDescs();
+    auto chipDescIndices = systemDesc.getChipDescIndices();
+    assert(chipIds.size() == 1);
+    auto chipDesc = chipDescs[chipDescIndices[chipIds[0]]];
+    return chipDesc.getDstRegisterSizeTiles();
+  }
+
   static AcquireDstOp
   insertAcquireDst(PatternRewriter &rewriter, Location loc, Region &region,
                    const DenseMap<Operation *, CopyInfo> &copyInfos) {
@@ -128,9 +140,18 @@ public:
     rewriter.setInsertionPointToStart(&region.front());
 
     auto [firstLoopNest, firstCopyInfo] = *copyInfos.begin();
+    unsigned dstRegisterSizeTiles = getDstRegisterSizeTiles(firstLoopNest);
     MemRefType cbType = firstCopyInfo.getCbType();
+    // Calculate dst shape as N slices of cb shape.
+    int64_t volume = ttmlir::utils::volume(cbType.getShape());
+    assert(volume <= dstRegisterSizeTiles);
+    int64_t numDstSlices = dstRegisterSizeTiles / volume;
+    SmallVector<int64_t> dstShape({numDstSlices});
+    dstShape.append(cbType.getShape().begin(), cbType.getShape().end());
     MemRefType dstType = MemRefType::get(
-        cbType.getShape(), cbType.getElementType(), cbType.getLayout(),
+        dstShape, cbType.getElementType(),
+        mlir::AffineMap::getMultiDimIdentityMap(dstShape.size(),
+                                                rewriter.getContext()),
         rewriter.getAttr<MemorySpaceAttr>(MemorySpace::RegisterDst));
 
     for (auto [loopNest, copyInfo] : copyInfos) {
@@ -168,9 +189,8 @@ public:
           SmallVector<int64_t> dstExtents =
               collectDstAccess<affine::AffineLoadOp>(
                   potentialLoad, loopNests,
-                  dstRegisterAllocationState.nextDstIndex,
+                  dstRegisterAllocationState.allocate(),
                   getNonParticipatingLoopDims);
-          dstRegisterAllocationState.allocate(dstExtents);
         }
       }
 
@@ -178,13 +198,13 @@ public:
       for (auto *user : op->getUsers()) {
         if (auto potentialStore = mlir::dyn_cast<affine::AffineStoreOp>(user);
             notDstMemspace(potentialStore)) {
-          assert(!dstRegisterAllocationState.storedToDst &&
+          assert(!dstRegisterAllocationState.didStoreToDst() &&
                  "Multiple stores to dst not supported");
           SmallVector<int64_t> dstExtents =
               collectDstAccess<affine::AffineStoreOp>(
-                  potentialStore, loopNests, {}, getNonParticipatingLoopDims);
-          dstRegisterAllocationState.allocate(dstExtents);
-          dstRegisterAllocationState.storedToDst = true;
+                  potentialStore, loopNests, 0, getNonParticipatingLoopDims);
+          dstRegisterAllocationState.allocate();
+          dstRegisterAllocationState.setStoreToDst();
         }
       }
     });
@@ -197,7 +217,7 @@ public:
   static SmallVector<int64_t>
   collectDstAccess(LoadOrStoreOp loadOrStore,
                    DenseMap<Operation *, CopyInfo> &loopNests,
-                   ArrayRef<int64_t> nextDstIndex,
+                   int64_t nextDstIndex,
                    llvm::function_ref<SmallVector<int64_t>(int64_t)>
                        getNonParticipatingLoopDims) {
     Operation *ancestor =
@@ -370,30 +390,16 @@ public:
                     SmallVector<Value>>
   buildIndices(PatternRewriter &rewriter, Location loc,
                const mlir::IRMapping &irMapper, ValueRange currentIndices,
-               ArrayRef<int64_t> dstIndexOffset, AffineMap map) {
+               int64_t dstIndexOffset, AffineMap map) {
     AffineMap l1AccessMap = map;
     SmallVector<Value> l1AccessIndices =
         llvm::to_vector(llvm::map_range(currentIndices, [&](Value index) {
           return irMapper.lookupOrDefault(index);
         }));
 
-    if (dstIndexOffset.empty()) {
-      return {l1AccessMap, l1AccessIndices, l1AccessMap, l1AccessIndices};
-    }
-
-    assert(dstIndexOffset.size() == map.getNumResults());
-    SmallVector<Value> dstAccessIndices;
-    SmallVector<AffineExpr> dstAccessExprs;
-    for (size_t i = 0; i < map.getNumResults(); ++i) {
-      unsigned dim = map.getDimPosition(i);
-      dstAccessIndices.push_back(irMapper.lookupOrDefault(currentIndices[dim]));
-      auto dimPlusOffsetExpr =
-          getAffineDimExpr(dim, rewriter.getContext()) + dstIndexOffset[i];
-      dstAccessExprs.push_back(dimPlusOffsetExpr);
-    }
-    AffineMap dstAccessMap =
-        mlir::AffineMap::get(map.getNumResults(), /*numSymbols=*/0,
-                             dstAccessExprs, rewriter.getContext());
+    AffineMap dstAccessMap = map.insertResult(
+        getAffineConstantExpr(dstIndexOffset, rewriter.getContext()), 0);
+    SmallVector<Value> dstAccessIndices = l1AccessIndices;
     return {l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices};
   }
 };

@@ -1,10 +1,10 @@
-// RUN: ttmlir-opt --ttir-insert-dst-register-access --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --tt-register-device --ttir-insert-dst-register-access --canonicalize %s | FileCheck %s
 
 #l1_ = #tt.memory_space<l1>
 module {
   func.func private @no_loops(%arg0: memref<1x1x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<1x1x!tt.tile<32x32, f32>, #l1_>, %arg2: memref<1x1x!tt.tile<32x32, f32>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
     %c0 = arith.constant 0 : index
-    // CHECK: %[[DST:.*]] = ttir.acquire_dst() : memref<1x1x!tt.tile<32x32, f32>, #dst>
+    // CHECK: %[[DST:.*]] = ttir.acquire_dst() : memref<8x1x1x!tt.tile<32x32, f32>, #dst>
     %0 = affine.load %arg0[%c0, %c0] : memref<1x1x!tt.tile<32x32, f32>, #l1_>
     %1 = affine.load %arg1[%c0, %c0] : memref<1x1x!tt.tile<32x32, f32>, #l1_>
     // CHECK: %[[ARG2_VAL:.*]] = affine.load %arg2
@@ -25,6 +25,30 @@ module {
     return
   }
 
+  func.func private @binary(%arg0: memref<1x1x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<1x1x!tt.tile<32x32, f32>, #l1_>, %arg2: memref<1x1x!tt.tile<32x32, f32>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
+    %c0 = arith.constant 0 : index
+    // CHECK: %[[DST:.*]] = ttir.acquire_dst() : memref<8x1x1x!tt.tile<32x32, f32>, #dst>
+    %0 = affine.load %arg0[%c0, %c0] : memref<1x1x!tt.tile<32x32, f32>, #l1_>
+    %1 = affine.load %arg1[%c0, %c0] : memref<1x1x!tt.tile<32x32, f32>, #l1_>
+    // Check that the operands are stored to dst memory space
+    // CHECK: %[[ARG0_VAL:.*]] = affine.load %arg0
+    // CHECK: affine.store %[[ARG0_VAL]], %[[DST]]
+    // CHECK: %[[DST0_VAL:.*]] = affine.load %[[DST]]
+    // CHECK: %[[ARG1_VAL:.*]] = affine.load %arg1
+    // CHECK: affine.store %[[ARG1_VAL]], %[[DST]]
+    // CHECK: %[[DST1_VAL:.*]] = affine.load %[[DST]]
+    // CHECK: %[[MAXIMUM_RESULT:.*]] = "ttir.tile_maximum"
+    %3 = "ttir.tile_maximum"(%0, %1) : (!tt.tile<32x32, f32>, !tt.tile<32x32, f32>) -> !tt.tile<32x32, f32>
+    // Check that maximum result is stored back to dst memory space
+    // CHECK: affine.store %[[MAXIMUM_RESULT]], %[[DST]]
+    // Check that result is loaded from dst memory space
+    // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]]
+    // Check that final result is stored back to original #l1 memory space
+    // CHECK: affine.store %[[FINAL_VAL]], %arg2
+    affine.store %3, %arg2[%c0, %c0] : memref<1x1x!tt.tile<32x32, f32>, #l1_>
+    return
+  }
+
   func.func private @generic_matmul(
     %arg0: memref<1x1x3x3x!tt.tile<32x32, f32>, #tt.shard<12288x4096>, #tt.memory_space<l1>>,
     %arg1: memref<1x1x3x2x!tt.tile<32x32, f32>, #tt.shard<8192x4096>, #tt.memory_space<l1>>,
@@ -36,7 +60,7 @@ module {
     ^compute0(%cb0: memref<3x3x!tt.tile<32x32, f32>, #tt.memory_space<l1>>, %cb1: memref<3x2x!tt.tile<32x32, f32>, #tt.memory_space<l1>>, %cb2: memref<3x2x!tt.tile<32x32, f32>, #tt.memory_space<l1>>):
       // Check that constants and destination buffer are created
       // CHECK: %[[C0:.*]] = arith.constant 0 : index
-      // CHECK: %[[DST:.*]] = ttir.acquire_dst() : memref<3x2x!tt.tile<32x32, f32>, #dst>
+      // CHECK: %[[DST:.*]] = ttir.acquire_dst() : memref<1x3x2x!tt.tile<32x32, f32>, #dst>
 
       // Check for iteration index and conditional initialization
       // CHECK: %[[ITER2:.*]] = ttir.iter_index(2) : index
@@ -49,7 +73,7 @@ module {
 
       // Check initialization: load from l1, store to dst
       // CHECK: %[[INIT_VAL:.*]] = affine.load %cb2[%[[INIT_I]], %[[INIT_J]]] : memref<3x2x!tt.tile<32x32, f32>, #l1>
-      // CHECK: affine.store %[[INIT_VAL]], %[[DST]][%[[INIT_I]], %[[INIT_J]]] : memref<3x2x!tt.tile<32x32, f32>, #dst>
+      // CHECK: affine.store %[[INIT_VAL]], %[[DST]][0, %[[INIT_I]], %[[INIT_J]]] : memref<1x3x2x!tt.tile<32x32, f32>, #dst>
 
       // Check main computation loop structure (3D loop nest)
       // CHECK: affine.for %[[I:.*]] = 0 to 3 {
@@ -59,13 +83,13 @@ module {
       // Check loads in computation loop: first two from l1, accumulator from dst
       // CHECK: %[[A_VAL:.*]] = affine.load %cb0[%[[I]], %[[K]]] : memref<3x3x!tt.tile<32x32, f32>, #l1>
       // CHECK: %[[B_VAL:.*]] = affine.load %cb1[%[[K]], %[[J]]] : memref<3x2x!tt.tile<32x32, f32>, #l1>
-      // CHECK: %[[C_VAL:.*]] = affine.load %[[DST]][%[[I]], %[[J]]] : memref<3x2x!tt.tile<32x32, f32>, #dst>
+      // CHECK: %[[C_VAL:.*]] = affine.load %[[DST]][0, %[[I]], %[[J]]] : memref<1x3x2x!tt.tile<32x32, f32>, #dst>
 
       // Check matmul operation uses values from correct memory spaces
       // CHECK: %[[MATMUL_RESULT:.*]] = "ttir.tile_matmul"(%[[A_VAL]], %[[B_VAL]], %[[C_VAL]]) : (!tt.tile<32x32, f32>, !tt.tile<32x32, f32>, !tt.tile<32x32, f32>) -> !tt.tile<32x32, f32>
 
       // Check result is stored back to dst
-      // CHECK: affine.store %[[MATMUL_RESULT]], %[[DST]][%[[I]], %[[J]]] : memref<3x2x!tt.tile<32x32, f32>, #dst>
+      // CHECK: affine.store %[[MATMUL_RESULT]], %[[DST]][0, %[[I]], %[[J]]] : memref<1x3x2x!tt.tile<32x32, f32>, #dst>
       affine.for %i2 = 0 to 3 {
         affine.for %i3 = 0 to 2 {
           affine.for %i4 = 0 to 3 {
@@ -83,7 +107,7 @@ module {
       // CHECK-NEXT: affine.for %[[WB_J:.*]] = 0 to 2 {
 
       // Check writeback: load from dst, store to l1
-      // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][%[[WB_I]], %[[WB_J]]] : memref<3x2x!tt.tile<32x32, f32>, #dst>
+      // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][0, %[[WB_I]], %[[WB_J]]] : memref<1x3x2x!tt.tile<32x32, f32>, #dst>
       // CHECK: affine.store %[[FINAL_VAL]], %cb2[%[[WB_I]], %[[WB_J]]] : memref<3x2x!tt.tile<32x32, f32>, #l1>
     }
     return

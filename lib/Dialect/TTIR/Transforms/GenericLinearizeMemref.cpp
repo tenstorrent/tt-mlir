@@ -21,21 +21,14 @@ namespace mlir::tt::ttir {
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
-struct TTIRGenericLinearizeMemrefRewriter final
-    : public OpRewritePattern<GenericOp> {
+template <typename LoadStoreOp>
+struct TTIRLinearizeMemrefAccessRewriter final
+    : public OpRewritePattern<LoadStoreOp> {
 public:
-  using OpRewritePattern<GenericOp>::OpRewritePattern;
-
-  static bool isLinearizedMemref(BlockArgument arg) {
-    auto memref = mlir::cast<MemRefType>(arg.getType());
-    if (memref.getShape().size() == 1) {
-      return true;
-    }
-
-    return llvm::all_of(arg.getUsers(), [](Operation *user) {
-      return mlir::isa<memref::CollapseShapeOp>(user);
-    });
-  }
+  TTIRLinearizeMemrefAccessRewriter(
+      ::mlir::MLIRContext *context,
+      DenseMap<Value, memref::CollapseShapeOp> &collapseOps)
+      : OpRewritePattern<LoadStoreOp>(context), collapseOps(collapseOps) {}
 
   static mlir::AffineMap linearizeAffineMap(::mlir::MLIRContext *context,
                                             mlir::AffineMap map,
@@ -57,76 +50,42 @@ public:
     return linearResult.compose(map);
   }
 
-  static std::optional<std::size_t> getComputeThreadIndex(ArrayAttr threads) {
-    auto isComputeThread = [](Attribute threadAttr) {
-      return mlir::cast<ThreadAttr>(threadAttr).getThreadType() ==
-             ThreadType::Compute;
-    };
-    const auto *computeThread =
-        std::find_if(threads.begin(), threads.end(), isComputeThread);
-    if (computeThread == threads.end()) {
-      return std::nullopt;
-    }
-    assert(std::find_if(computeThread + 1, threads.end(), isComputeThread) ==
-               threads.end() &&
-           "Unexpected multiple compute threads");
-    return std::distance(threads.begin(), computeThread);
-  }
-
-  static void linearizeMemref(mlir::PatternRewriter &rewriter,
-                              mlir::Location loc, mlir::Value val) {
+  LogicalResult matchAndRewrite(LoadStoreOp op,
+                                PatternRewriter &rewriter) const final {
+    Value val = op.getMemref();
     auto memref = mlir::cast<MemRefType>(val.getType());
+    if (memref.getRank() == 1) {
+      // Already linearized.
+      return failure();
+    }
+
     auto shape = memref.getShape();
-    SmallVector<ReassociationIndices, 4> collapsedDims = {
-        llvm::to_vector(llvm::seq<int64_t>(0, shape.size()))};
-    assert(memref::CollapseShapeOp::isGuaranteedCollapsible(memref,
-                                                            collapsedDims) &&
-           "linearizeAffineMap assumes that the shape is collapsible aka "
-           "has contiguous memory layout");
     auto linearMap = linearizeAffineMap(
         rewriter.getContext(), memref.getLayout().getAffineMap(), shape);
-    auto linearizedArg =
-        rewriter.create<memref::CollapseShapeOp>(loc, val, collapsedDims);
-    rewriter.replaceAllUsesExcept(val, linearizedArg->getResult(0),
-                                  linearizedArg);
-    for (auto *user : linearizedArg->getUsers()) {
-      if (auto load = mlir::dyn_cast<affine::AffineLoadOp>(user)) {
-        load.setMap(linearMap.compose(load.getMap()));
-      } else if (auto store = mlir::dyn_cast<affine::AffineStoreOp>(user)) {
-        store.setMap(linearMap.compose(store.getMap()));
-      }
-    }
-  }
 
-  LogicalResult matchAndRewrite(GenericOp op,
-                                PatternRewriter &rewriter) const final {
-    auto computeThreadIndex = getComputeThreadIndex(op.getThreads());
-    if (!computeThreadIndex) {
-      return failure();
-    }
-    Block *entry = &op.getRegion(*computeThreadIndex).front();
-    rewriter.setInsertionPointToStart(entry);
-    auto args = entry->getArguments();
-    if (llvm::all_of(args, isLinearizedMemref)) {
-      return failure();
+    memref::CollapseShapeOp linearizedArg = collapseOps.lookup(val);
+    if (!linearizedArg) {
+      rewriter.setInsertionPointAfterValue(val);
+      SmallVector<ReassociationIndices, 4> collapsedDims = {
+          llvm::to_vector(llvm::seq<int64_t>(0, shape.size()))};
+      assert(memref::CollapseShapeOp::isGuaranteedCollapsible(memref,
+                                                              collapsedDims) &&
+             "linearizeAffineMap assumes that the shape is collapsible aka "
+             "has contiguous memory layout");
+      linearizedArg = rewriter.create<memref::CollapseShapeOp>(op.getLoc(), val,
+                                                               collapsedDims);
+      collapseOps[val] = linearizedArg;
     }
 
     rewriter.modifyOpInPlace(op, [&]() {
-      for (auto arg : args) {
-        if (isLinearizedMemref(arg)) {
-          continue;
-        }
-        linearizeMemref(rewriter, arg.getLoc(), arg);
-      }
-
-      op->walk([&](ttir::AcquireDstOp acquireDst) {
-        rewriter.setInsertionPointAfter(acquireDst);
-        linearizeMemref(rewriter, acquireDst.getLoc(), acquireDst.getResult());
-      });
+      op.setMemRef(linearizedArg.getResult());
+      op.setMap(linearMap.compose(op.getMap()));
     });
 
     return success();
   }
+
+  DenseMap<Value, memref::CollapseShapeOp> &collapseOps;
 };
 } // namespace
 
@@ -138,17 +97,15 @@ public:
       TTIRGenericLinearizeMemref>::TTIRGenericLinearizeMemrefBase;
 
   void runOnOperation() final {
+    DenseMap<Value, memref::CollapseShapeOp> collapseOps;
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRGenericLinearizeMemrefRewriter>(&getContext());
+    patterns.add<TTIRLinearizeMemrefAccessRewriter<affine::AffineLoadOp>,
+                 TTIRLinearizeMemrefAccessRewriter<affine::AffineStoreOp>>(
+        &getContext(), collapseOps);
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
       signalPassFailure();
     }
-  }
-  void getDependentDialects(mlir::DialectRegistry &registry) const override {
-    registry.insert<mlir::tt::ttir::TTIRDialect>();
-    registry.insert<mlir::tt::TTDialect>();
-    registry.insert<mlir::arith::ArithDialect>();
   }
 };
 } // namespace
