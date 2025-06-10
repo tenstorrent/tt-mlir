@@ -221,7 +221,9 @@ public:
       //    %0 = memref.load %arg0, %c0 : memref<1x!tt.tile, l1>
       //    tt.store %0, %arg1, %c0 : memref<1x!tt.tile, dst>
       return lowerCopyTile(load, op, adaptor, rewriter);
-    } else if (storeToDst) {
+    }
+
+    if (storeToDst) {
       // Otherwise we're storing the result of an op:
       //    %0 = ttir.tile_sigmoid %arg0
       //    tt.store %0, %arg2, %c0 : memref<1x!tt.tile, dst>
