@@ -413,13 +413,12 @@ ToLayoutOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::ttnn::OpConstraints>
 ConcatOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                            const OpConfig &opConfig) {
-  assert(inputs.size() >= 1);
+  assert(inputs.size() == getInputs().size());
 
   std::vector<llvm::ArrayRef<int64_t>> inputShapes;
-  mlir::OperandRange opInputs = getInputs();
-  for (auto it = opInputs.begin(); it != opInputs.end(); ++it) {
+  for (const Value &opInput : getInputs()) {
     mlir::RankedTensorType inputType =
-        mlir::cast<mlir::RankedTensorType>((*it).getType());
+        mlir::cast<mlir::RankedTensorType>(opInput.getType());
     inputShapes.push_back(inputType.getShape());
   }
 
@@ -436,13 +435,12 @@ ConcatOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<size_t>
 ConcatOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                        const OpConfig &opConfig) {
-  assert(inputs.size() >= 1);
+  assert(inputs.size() == getInputs().size());
 
   std::vector<llvm::ArrayRef<int64_t>> inputShapes;
-  mlir::OperandRange opInputs = getInputs();
-  for (auto it = opInputs.begin(); it != opInputs.end(); ++it) {
+  for (const Value &opInput : getInputs()) {
     mlir::RankedTensorType inputType =
-        mlir::cast<mlir::RankedTensorType>((*it).getType());
+        mlir::cast<mlir::RankedTensorType>(opInput.getType());
     inputShapes.push_back(inputType.getShape());
   }
 
