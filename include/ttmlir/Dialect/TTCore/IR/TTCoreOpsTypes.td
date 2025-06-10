@@ -279,8 +279,8 @@ def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceL
   }];
 }
 
-def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout"> {
-  let summary = "Tensor layout attribute";
+def TT_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_DeviceLayoutInterface]> {
+  let summary = "Tensor layout attribute with explicit physical shape";
   let description = [{
     The tensor layout attribute captures how tensor data is sharded across a grid of devices/cores
     and is laid out in memory.
