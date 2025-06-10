@@ -314,20 +314,18 @@ public:
   }
 };
 
-/*
-  Currently, TTNN does not support AllGather when the gather is happening on one
-  of the last two dimensions of the input tensor
-  (https://github.com/tenstorrent/tt-metal/issues/22654). This pattern provides
-  a workaround to possibly reshape and permute the input tensor. The workaround
-  will change the input tensors in two cases:
-    1. If the input tensor has less than 3 dimensions, it will reshape the input
-  tensor to have 3 dimensions by inserting a leading dimension of size 1,
-  perform the allGather operation, and then reshape the result back to the
-  original shape.
-    2. If the allGatherDim is not the first dimension, it will permute the input
-  tensor to bring the allGatherDim to the front, perform the AllGather
-  operation, and then permute the result back to the original order.
-*/
+// Currently, TTNN does not support AllGather when the gather is happening on
+// one of the last two dimensions of the input tensor
+// (https://github.com/tenstorrent/tt-metal/issues/22654). This pattern provides
+// a workaround to possibly reshape and permute the input tensor. The workaround
+// will change the input tensors in two cases:
+// 1. If the input tensor has less than 3 dimensions, it will reshape the
+//   input tensor to have 3 dimensions by inserting a leading dimension of size
+//   1, perform the allGather operation, and then reshape the result back to the
+//   original shape.
+// 2. If the allGatherDim is not the first dimension, it will permute the
+//   input tensor to bring the allGatherDim to the front, perform the AllGather
+//   operation, and then permute the result back to the original order.
 class TTNNAllGatherWorkarounds : public OpRewritePattern<ttnn::AllGatherOp> {
 public:
   using OpRewritePattern<ttnn::AllGatherOp>::OpRewritePattern;
@@ -335,15 +333,27 @@ public:
   LogicalResult matchAndRewrite(ttnn::AllGatherOp op,
                                 PatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    Value input = op.getInput();
-    RankedTensorType inputType = llvm::cast<RankedTensorType>(input.getType());
+    ::mlir::TypedValue<::mlir::RankedTensorType> input = op.getInput();
+    RankedTensorType inputType = input.getType();
     auto inputShape = inputType.getShape();
     auto rank = inputShape.size();
     int64_t allGatherDim = op.getAllGatherDim();
+    if (allGatherDim < 0) {
+      allGatherDim += rank;
+    }
     uint32_t clusterAxis = op.getClusterAxis();
     auto device = op.getDevice();
     auto deviceDesc = lookupDevice(op);
     ::llvm::ArrayRef<int64_t> meshShape = deviceDesc.getMeshShape();
+    llvm::SmallVector<int64_t> inputTypeShape(inputType.getShape());
+    llvm::SmallVector<int64_t> outputTypeShape(op.getType().getShape());
+
+    // If the allGather is not a whole number (in case this is a product of
+    // allReduce workaournd), we just skip the workaround.
+    if (inputTypeShape[allGatherDim] * meshShape[clusterAxis] !=
+        outputTypeShape[allGatherDim]) {
+      return failure();
+    }
 
     // Case 1: Need to add reshape around AllGather
     if (rank < 3) {
@@ -353,35 +363,34 @@ public:
       reshapedShape.insert(reshapedShape.begin() + allGatherDim, 1);
 
       RankedTensorType reshapedType =
-          RankedTensorType::Builder(inputType).setShape(reshapedShape);
+          utils::RankedTensorTypeFactory::create(inputType, reshapedShape);
       auto reshapedShapeAttr =
           rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(
               reshapedShape.begin(), reshapedShape.end()));
 
-      auto preReshape = rewriter.create<ttnn::ReshapeOp>(
+      auto reshapedValue = rewriter.create<ttnn::ReshapeOp>(
           loc, reshapedType, input, reshapedShapeAttr,
-          /*memory_config=*/nullptr);
+          ttnn::MemoryConfigAttr());
 
       // Perform AllGather on reshaped input
       llvm::SmallVector<int64_t> preReshapeShape(
-          preReshape.getType().getShape().begin(),
-          preReshape.getType().getShape().end());
+          reshapedType.getShape().begin(), reshapedType.getShape().end());
       preReshapeShape[allGatherDim] =
           preReshapeShape[allGatherDim] * meshShape[clusterAxis];
       RankedTensorType gatheredType =
           RankedTensorType::Builder(op.getType()).setShape(preReshapeShape);
       auto allGather = rewriter.create<ttnn::AllGatherOp>(
-          loc, gatheredType, preReshape, device, allGatherDim, clusterAxis);
+          loc, gatheredType, reshapedValue, device, allGatherDim, clusterAxis);
 
       // Reshape back to original output type
-      auto outputType = mlir::cast<RankedTensorType>(op.getType());
+      auto outputType = op.getType();
       auto outputShape = outputType.getShape();
       auto outputShapeAttr = rewriter.getI32ArrayAttr(
           llvm::SmallVector<int32_t>(outputShape.begin(), outputShape.end()));
 
       rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
           op, outputType, allGather.getResult(), outputShapeAttr,
-          /*memory_config=*/nullptr);
+          ttnn::MemoryConfigAttr());
       return success();
     }
 
@@ -395,7 +404,7 @@ public:
       auto permutedShape =
           ttmlir::utils::applyPermutation(inputShape, permutation);
       RankedTensorType permutedType =
-          RankedTensorType::Builder(inputType).setShape(permutedShape);
+          utils::RankedTensorTypeFactory::create(inputType, permutedShape);
 
       auto permutedInput = rewriter.create<ttnn::PermuteOp>(
           loc, permutedType, input, rewriter.getDenseI64ArrayAttr(permutation),
@@ -405,10 +414,10 @@ public:
       // AllGather on permuted input, with dim 0 (since we've moved target to
       // front)
       RankedTensorType gatheredType =
-          RankedTensorType::Builder(permutedType).setShape(permutedShape);
+          utils::RankedTensorTypeFactory::create(permutedType, permutedShape);
       auto allGather = rewriter.create<ttnn::AllGatherOp>(
           loc, gatheredType, permutedInput, device,
-          /*allGatherDim=*/0, clusterAxis);
+          /*all_gather_dim=*/0, clusterAxis);
 
       // Permute back
       auto outputType = mlir::cast<RankedTensorType>(op.getType());
