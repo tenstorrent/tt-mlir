@@ -2189,7 +2189,8 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   });
 
   auto binary = ::tt::target::ttnn::CreateTTNNBinaryDirect(
-      fbb, &binaryVersion, ::ttmlir::getGitHash(), systemDesc, &programs);
+      fbb, &binaryVersion, ::tt::target::ttnn::binary_bfbs_schema_hash,
+      ::ttmlir::getGitHash(), systemDesc, &programs);
 
   ::tt::target::ttnn::FinishSizePrefixedTTNNBinaryBuffer(fbb, binary);
   ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());
