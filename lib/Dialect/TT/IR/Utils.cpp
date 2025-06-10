@@ -123,18 +123,22 @@ bool isTiled(RankedTensorType tensorType) {
 }
 
 ArrayRef<int64_t> getMetalTensorGridShape(RankedTensorType tensorType) {
+  // Reshaping tensor types to include grid/shard should be coupled to adding
+  // the MetalLayoutAttr.
+  assert(mlir::isa<tt::MetalLayoutAttr>(tensorType.getEncoding()));
   const ArrayRef<int64_t> shape = tensorType.getShape();
-  assert(shape.size() >= 3 && "Can only get grid shape from a valid metal "
-                              "tensor where leading 2 dims are grid shape!");
-  return shape.take_front(2);
+  assert(shape.size() % 2 == 0);
+  return shape.take_front(shape.size() / 2);
 }
 
-ArrayRef<int64_t> getMetalTensorTileShape(RankedTensorType tensorType) {
-  if (!isTiled(tensorType)) {
-    return {};
-  }
+ArrayRef<int64_t> getTensorTileShape(RankedTensorType tensorType) {
   auto tileType = mlir::cast<TileType>(tensorType.getElementType());
   return tileType.getShape();
+}
+
+ArrayRef<int64_t> getTensorTileShapeOrEmpty(RankedTensorType tensorType) {
+  return isTiled(tensorType) ? getTensorTileShape(tensorType)
+                             : ArrayRef<int64_t>{};
 }
 
 } // namespace mlir::tt

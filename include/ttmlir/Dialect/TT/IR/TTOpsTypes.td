@@ -277,7 +277,7 @@ def TT_ShardLayoutAttr : TT_Attr<"ShardLayout", "shard", [TT_DeviceLayoutInterfa
   }];
 }
 
-def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout", [TT_DeviceLayoutInterface]> {
+def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout"> {
   let summary = "Tensor layout attribute with explicit physical shape";
   let description = [{
     The tensor layout attribute captures how tensor data is sharded across a grid of devices/cores

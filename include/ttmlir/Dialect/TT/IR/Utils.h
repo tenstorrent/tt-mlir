@@ -46,7 +46,9 @@ bool isTiled(RankedTensorType tensorType);
 
 ArrayRef<int64_t> getMetalTensorGridShape(RankedTensorType tensorType);
 
-ArrayRef<int64_t> getMetalTensorTileShape(RankedTensorType tensorType);
+ArrayRef<int64_t> getTensorTileShape(RankedTensorType tensorType);
+
+ArrayRef<int64_t> getTensorTileShapeOrEmpty(RankedTensorType tensorType);
 
 } // namespace mlir::tt
 

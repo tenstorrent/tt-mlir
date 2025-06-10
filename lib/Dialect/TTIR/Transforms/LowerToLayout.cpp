@@ -21,9 +21,8 @@ public:
 
   static LogicalResult lowerLayoutChange(PatternRewriter &rewriter,
                                          ToLayoutOp op) {
-    llvm::errs() << "lowerLayoutChange\n";
-    // assert(false &&
-    //        "TODO issue https://github.com/tenstorrent/tt-mlir/issues/3037");
+    assert(false &&
+           "TODO issue https://github.com/tenstorrent/tt-mlir/issues/3037");
     return success();
   }
 
@@ -91,12 +90,10 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(op.getOutput().getType());
     bool inputTiled = tt::isTiled(inputType);
     bool outputTiled = tt::isTiled(outputType);
-    // llvm::errs() << "inputTiled: " << inputTiled
-    //              << ", outputTiled: " << outputTiled << ".\n";
     assert(inputTiled != outputTiled &&
            "one of input or output must be tiled for now");
 
-    auto tmp = rewriter.replaceOpWithNewOp<GenericOp>(
+    rewriter.replaceOpWithNewOp<GenericOp>(
         op, ValueRange{op.getInput()}, ValueRange{op.getOutput()},
         [=](OpBuilder &builder, Location loc, ValueRange blockArgs) {
           if (inputTiled) {
@@ -106,24 +103,13 @@ public:
             builder.create<TileTilizeBlockOp>(loc, blockArgs[0], blockArgs[1]);
           }
         });
-    llvm::errs() << "lowerFormatConversionGeneric produced: ";
-    tmp->dump();
 
     return success();
   }
 
   LogicalResult matchAndRewrite(ToLayoutOp op,
                                 PatternRewriter &rewriter) const final {
-    llvm::errs() << "TTIRLowerToLayoutRewriter::matchAndRewrite\n";
-    op->dump();
     auto components = op.compoundComponents();
-
-    llvm::errs() << "  isLayoutChange: " << components.isLayoutChange << "\n";
-    llvm::errs() << "  isGridChange: " << components.isGridChange << "\n";
-    llvm::errs() << "  isFormatChange: " << components.isFormatChange << "\n";
-    llvm::errs() << "  isMemorySpaceChange: " << components.isMemorySpaceChange
-                 << "\n";
-    llvm::errs() << "  isCompound(): " << components.isCompound() << "\n";
 
     if (components.isCompound()) {
       return failure();
@@ -163,12 +149,8 @@ public:
 
   Value bounce(PatternRewriter &rewriter, ToLayoutOp op,
                RankedTensorType bounceType) const {
-    llvm::errs() << "Bouncing: ";
-    op->dump();
     auto bounced =
         createToLayoutOp(rewriter, op.getLoc(), op.getInput(), bounceType);
-    llvm::errs() << "Bounced to: ";
-    bounced->dump();
     return rewriter
         .replaceOpWithNewOp<ttir::ToLayoutOp>(op, bounced->getResult(0),
                                               op.getOutput())
@@ -183,31 +165,6 @@ public:
                      std::optional<ArrayRef<int64_t>> newGrid = {},
                      std::optional<Type> newElementType = {},
                      std::optional<ArrayRef<int64_t>> newTileShape = {}) const {
-    // Log inputs
-    // llvm::errs() << "=== createModifiedType ===\n";
-    // llvm::errs() << "baseType: " << baseType << "\n";
-    // llvm::errs() << "baseType element: " << baseType.getElementType() <<
-    // "\n"; llvm::errs() << "baseType shape: "; for (auto s :
-    // baseType.getShape()) {
-    //   llvm::errs() << s << " ";
-    // }
-    // llvm::errs() << "\n";
-    // llvm::errs() << "baseType tiled? " << tt::isTiled(baseType) << "\n";
-
-    // if (newElementType.has_value()) {
-    //   llvm::errs() << "newElementType: " << *newElementType << "\n";
-    //   llvm::errs() << "newElementType tiled? "
-    //                << mlir::isa<TileType>(*newElementType) << "\n";
-    // }
-
-    // if (newTileShape.has_value()) {
-    //   llvm::errs() << "newTileShape provided: ";
-    //   for (auto s : *newTileShape) {
-    //     llvm::errs() << s << " ";
-    //   }
-    //   llvm::errs() << "\n";
-    // }
-
     // Use existing values if not overridden
     auto memSpace = newMemSpace.value_or(baseLayout.getMemorySpace());
     const bool baseTypeHasLayout = mlir::dyn_cast_or_null<MetalLayoutAttr>(
@@ -216,31 +173,9 @@ public:
         baseTypeHasLayout ? tt::getMetalTensorGridShape(baseType)
                           : ArrayRef<int64_t>{1, 1});
     auto elementType = newElementType.value_or(baseType.getElementType());
-    auto tileShape =
-        newTileShape.has_value()
-            ? *newTileShape
-            : (tt::isTiled(baseType) ? tt::getMetalTensorTileShape(baseType)
-                                     : ArrayRef<int64_t>{});
-
-    // Log derived values
-    // llvm::errs() << "Derived gridShape: ";
-    // for (auto s : gridShape) {
-    //   llvm::errs() << s << " ";
-    // }
-    // llvm::errs() << "\n";
-
-    // llvm::errs() << "Derived elementType: " << elementType << "\n";
-    // llvm::errs() << "Derived tileShape: ";
-    // for (auto s : tileShape) {
-    //   llvm::errs() << s << " ";
-    // }
-    // llvm::errs() << "\n";
-
-    // llvm::errs() << "Logical shape: ";
-    // for (auto s : baseLayout.getLogicalShape()) {
-    //   llvm::errs() << s << " ";
-    // }
-    // llvm::errs() << "\n";
+    auto tileShape = newTileShape.has_value()
+                         ? *newTileShape
+                         : getTensorTileShapeOrEmpty(baseType);
 
     // Create new layout
     auto newLayout = MetalLayoutAttr::get(ctx, baseLayout.getLogicalShape(),
@@ -261,27 +196,14 @@ public:
     // Derive physical shape
     auto physicalShape = MetalLayoutAttr::derivePhysicalShape(
         baseLayout.getLogicalShape(), gridShape, tileShapeForPhysical);
-    // llvm::errs() << "physical shape: ";
-    // for (auto s : physicalShape) {
-    //   llvm::errs() << s << " ";
-    // }
-    // llvm::errs() << "\n";
 
     return RankedTensorType::get(physicalShape, elementType, newLayout);
   }
 
   LogicalResult matchAndRewrite(ToLayoutOp op,
                                 PatternRewriter &rewriter) const final {
-    llvm::errs() << "TTIRSplitCompoundLayoutRewriter::matchAndRewrite\n";
-    op->dump();
     auto components = op.compoundComponents();
 
-    llvm::errs() << "  isLayoutChange: " << components.isLayoutChange << "\n";
-    llvm::errs() << "  isGridChange: " << components.isGridChange << "\n";
-    llvm::errs() << "  isFormatChange: " << components.isFormatChange << "\n";
-    llvm::errs() << "  isMemorySpaceChange: " << components.isMemorySpaceChange
-                 << "\n";
-    llvm::errs() << "  isCompound(): " << components.isCompound() << "\n";
     if (!components.isCompound()) {
       return failure();
     }
@@ -291,25 +213,16 @@ public:
     auto inputLayout = op.getOrCreateInputLayout();
     auto outputLayout = op.getOrCreateOutputLayout();
 
-    // llvm::errs() << "TTIRSplitCompoundLayoutRewriter processing:\n";
-    // op->dump();
-    // llvm::errs() << "Input layout: " << inputLayout << "\n";
-    // llvm::errs() << "Input type: " << inputType << "\n";
-    // llvm::errs() << "Output layout: " << outputLayout << "\n";
-    // llvm::errs() << "Output type: " << outputType << "\n";
-
     bool inputL1 = inputLayout.getMemorySpace() == MemorySpace::DeviceL1;
     bool outputL1 = outputLayout.getMemorySpace() == MemorySpace::DeviceL1;
 
     // First prioritize moving the data into L1 so we can work with it in L1
     if (!inputL1) {
-      llvm::errs() << "input l1 bounce\n";
       // read first into L1, then format convert
       auto bounceType = createModifiedType(rewriter.getContext(), inputType,
                                            inputLayout, MemorySpace::DeviceL1);
       bounce(rewriter, op, bounceType);
     } else if (!outputL1) {
-      llvm::errs() << "output l1 bounce\n";
       // format convert first in L1 first, then write
       assert(inputL1 && "input should guaranteed be in L1 because of the "
                         "previous case");
@@ -319,36 +232,22 @@ public:
     } else if (tt::isTiled(inputType) != tt::isTiled(outputType)) {
       // Prioritize moving tiled data
       if (tt::isTiled(inputType)) {
-        llvm::errs() << "input tiled bounce\n";
-        auto bounceType = createModifiedType(
-            rewriter.getContext(),
-            outputType, // Use output as base to get its grid
-            outputLayout,
-            /*memSpace=*/{},
-            /*grid=*/{},
-            inputType.getElementType(), // But with input's element type
-            tt::isTiled(inputType) ? tt::getMetalTensorTileShape(inputType)
-                                   : ArrayRef<int64_t>{});
-        // assert(bounceType == outputType);
+        auto bounceType =
+            createModifiedType(rewriter.getContext(), outputType, outputLayout,
+                               /*memSpace=*/{},
+                               /*grid=*/{}, inputType.getElementType(),
+                               getTensorTileShapeOrEmpty(inputType));
         bounce(rewriter, op, bounceType);
       } else {
-        llvm::errs() << "output tiled bounce\n";
         assert(tt::isTiled(outputType));
-        auto bounceType = createModifiedType(
-            rewriter.getContext(),
-            inputType, // Use INPUT as base
-            inputLayout,
-            /*memSpace=*/{},             // Keep input's memory space
-            /*grid=*/{},                 // Keep input's grid
-            outputType.getElementType(), // Change to tiled element type
-            tt::getMetalTensorTileShape(
-                outputType) // Get tile shape from output
-        );
-        // assert(bounceType == outputType);
+        auto bounceType =
+            createModifiedType(rewriter.getContext(), inputType, inputLayout,
+                               /*memSpace=*/{},
+                               /*grid=*/{}, outputType.getElementType(),
+                               tt::getTensorTileShape(outputType));
         bounce(rewriter, op, bounceType);
       }
     } else if (components.isLayoutChange && tt::isTiled(inputType)) {
-      llvm::errs() << "layout change bounce\n";
       // For now to flexibly support layout changes, we need to bounce to scalar
       // first Get scalar element type
       Type scalarType = inputType.getElementType();
@@ -363,7 +262,6 @@ public:
                              /*tileShape=*/std::nullopt);
       bounce(rewriter, op, bounceType);
     } else if (components.isGridChange) {
-      llvm::errs() << "grid change bounce\n";
       assert(!components.isLayoutChange &&
              "Changing layout and grid at the same time is currently "
              "not supported");
@@ -396,8 +294,6 @@ public:
       signalPassFailure();
       return;
     }
-    llvm::errs() << "success:\n";
-    // getOperation()->dump();
   }
 };
 
