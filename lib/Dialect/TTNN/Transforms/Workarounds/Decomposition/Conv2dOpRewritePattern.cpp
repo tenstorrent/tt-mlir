@@ -8,8 +8,7 @@
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
-namespace {
-bool transformOperandLayout(ttnn::Conv2dOp srcOp, mlir::OpOperand &operand,
+bool transformOperandLayout(Operation *srcOp, mlir::OpOperand &operand,
                             PatternRewriter &rewriter,
                             ttnn::Layout targetLayout,
                             ttnn::BufferType targetBufferType,
@@ -37,35 +36,6 @@ bool transformOperandLayout(ttnn::Conv2dOp srcOp, mlir::OpOperand &operand,
   }
 
   return false;
-}
-} // anonymous namespace
-
-LogicalResult
-Conv2dOpRewritePattern::matchAndRewrite(ttnn::Conv2dOp srcOp,
-                                        PatternRewriter &rewriter) const {
-  bool hasChanged = false;
-
-  // Transform input layout to RowMajor
-  hasChanged |= transformOperandLayout(
-      srcOp, srcOp.getInputMutable(), rewriter, ttnn::Layout::RowMajor,
-      mlir::cast<ttnn::TTNNLayoutAttr>(srcOp.getInput().getType().getEncoding())
-          .getBufferType(),
-      "_to_layout_0");
-
-  // Transform weight Layout and BufferType to RowMajor and SystemMemory
-  hasChanged |= transformOperandLayout(
-      srcOp, srcOp.getWeightMutable(), rewriter, ttnn::Layout::RowMajor,
-      ttnn::BufferType::SystemMemory, "_to_layout_1");
-
-  // Transform bias (if present) Layout and BufferType to RowMajor and
-  // SystemMemory
-  if (srcOp.getBias()) {
-    hasChanged |= transformOperandLayout(
-        srcOp, *srcOp.getBiasMutable().begin(), rewriter,
-        ttnn::Layout::RowMajor, ttnn::BufferType::SystemMemory, "_to_layout_2");
-  }
-
-  return mlir::success(hasChanged);
 }
 
 } // namespace mlir::tt::ttnn::workarounds::decomposition

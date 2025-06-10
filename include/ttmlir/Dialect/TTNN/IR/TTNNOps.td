@@ -1329,11 +1329,6 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d",
       // Get number of output channels.
       int64_t getOutputChannelSize();
       bool isBiasCompatible(llvm::ArrayRef<int64_t> biasDims);
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        return wa::TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
-            getBias() != nullptr
-        );
-      }
     }];
 }
 
@@ -1415,14 +1410,6 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
-
-    let extraClassDeclaration = [{
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        return wa::TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
-            getBias() != nullptr
-        );
-      }
-    }];
 }
 
 class TTNN_PoolingOp<string mnemonic, list<Trait> traits = []> :

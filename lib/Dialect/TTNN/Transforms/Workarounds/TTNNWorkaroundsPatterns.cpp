@@ -591,7 +591,9 @@ public:
               ttnn::MaxOp>,
           workarounds::decomposition::ReduceOpsPadInputRewritePattern<
               ttnn::MinOp>,
-          workarounds::decomposition::Conv2dOpRewritePattern>(&getContext());
+          workarounds::decomposition::Conv2dOpRewritePattern<ttnn::Conv2dOp>,
+          workarounds::decomposition::Conv2dOpRewritePattern<
+              ttnn::ConvTranspose2dOp>>(&getContext());
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);
