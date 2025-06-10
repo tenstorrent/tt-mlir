@@ -45,38 +45,80 @@ public:
 
   LogicalResult matchAndRewrite(GenericOp op,
                                 PatternRewriter &rewriter) const final {
-    unsigned outputOperandsIndex = op.getOutputs().getBeginOperandIndex();
-    unsigned outputOperandsLength = op.getOutputs().size();
-    assert(outputOperandsLength == 1);
-    if (outputOperandsIndex >= op.getNumRegions()) {
-      return failure();
-    }
-    Region &outputRegion = op.getRegion(outputOperandsIndex);
-    Block *outputBlock = getIfTrivialBlock(outputRegion, outputOperandsIndex);
-    if (!outputBlock) {
-      return failure();
+ 
+    // collect all datamovement blocks
+    SmallVector<Attribute> threads(op.getThreads().getValue());
+    SmallVector<Block*> dm_blocks;
+    for (unsigned index = 0; index < threads.size(); index++) {
+      if (mlir::cast<ThreadAttr>(threads[index]).getThreadType() == ThreadType::Datamovement) {
+        Region& r = op.getRegion(index);
+        assert(r.getBlocks().size() == 1);
+        dm_blocks.push_back(&r.getBlocks().back());
+      }
     }
 
-    SmallVector<Attribute> threads(op.getThreads().getValue());
-    // Skip the output operands block
-    threads.erase(threads.begin() + outputOperandsIndex);
+    constexpr size_t HW_THREADS = 2;
+    size_t num_dm_regions = std::min(HW_THREADS,dm_blocks.size());
+    size_t max_dm_blocks_per_thread =
+        std::max(1ul, static_cast<size_t>(std::ceil(
+                          static_cast<double>(dm_blocks.size()) / HW_THREADS)));
+    constexpr size_t num_compute_regions = 1;
+    size_t num_regions = num_dm_regions + num_compute_regions;
+
+    // construct new threads array
+    SmallVector<Attribute> new_threads;
+    for (size_t i = 0; i < num_dm_regions; i++) {
+      new_threads.push_back(
+          ThreadAttr::get(getContext(), ThreadType::Datamovement));
+    }
+    for (size_t i = 0; i < num_compute_regions; i++) {
+      new_threads.push_back(ThreadAttr::get(getContext(), ThreadType::Compute));
+    }
+
     auto newGeneric = rewriter.create<GenericOp>(
         op.getLoc(), op.getResults().getTypes(), op.getInputs(),
         op.getOutputs(), op.getGrid(), op.getIndexingMaps(),
-        op.getIteratorTypes(), rewriter.getArrayAttr(threads),
-        op.getNumRegions() - 1);
+        op.getIteratorTypes(), rewriter.getArrayAttr(new_threads),
+        num_regions);
 
-    unsigned regionIndex = 0;
-    for (mlir::Region &region : op.getRegions()) {
-      if (region.getRegionNumber() == outputOperandsIndex) {
-        continue;
+    // TODO: figure out why all blocks and arguments are being renamed?
+
+    size_t curr_region_index = 0;
+    size_t curr_blocks_merged = 0;
+    for (mlir::Region &src_region : op.getRegions()) {
+      if (mlir::cast<ThreadAttr>(threads[src_region.getRegionNumber()])
+              .getThreadType() == ThreadType::Datamovement) {
+        assert(src_region.getBlocks().size() == 1);
+
+        Region &dest_region = newGeneric.getRegion(curr_region_index);
+
+        bool has_blocks = dest_region.getBlocks().size() > 0;
+        if (!has_blocks) {
+          rewriter.modifyOpInPlace(op,
+                                   [&] { dest_region.takeBody(src_region); });
+          curr_blocks_merged++;
+        } else {
+          Block *dest_block = &dest_region.front();
+          rewriter.mergeBlocks(&src_region.front(), dest_block,
+                               dest_block->getArguments());
+          curr_blocks_merged++;
+        }
+
+        if (curr_blocks_merged == max_dm_blocks_per_thread) {
+          curr_region_index++;
+          curr_blocks_merged = 0;
+        }
+      } else if (mlir::cast<ThreadAttr>(threads[src_region.getRegionNumber()])
+                     .getThreadType() == ThreadType::Compute) {
+        Region &dest_region = newGeneric.getRegions().back();
+        rewriter.modifyOpInPlace(op, [&] { dest_region.takeBody(src_region); });
       }
-      rewriter.modifyOpInPlace(
-          op, [&] { newGeneric.getRegion(regionIndex++).takeBody(region); });
     }
 
-    Block *newBlock = &newGeneric.getRegions().back().front();
-    rewriter.mergeBlocks(outputBlock, newBlock, newBlock->getArguments());
+    llvm::dbgs() << "\n------- output -------\n";
+    llvm::dbgs() << newGeneric;
+    llvm::dbgs() << "\n------- output -------\n";
+
     rewriter.replaceOp(op, newGeneric.getResults());
 
     return success();
@@ -93,27 +135,28 @@ public:
       TTIRGenericHWThreadSelection>::TTIRGenericHWThreadSelectionBase;
 
   void runOnOperation() final {
+
     RewritePatternSet patterns(&getContext());
     patterns.add<TTIRGenericMoveTrivialOutputThreadToComputeRewritePattern>(
         &getContext());
     walkAndApplyPatterns(getOperation(), std::move(patterns));
 
-    ModuleOp moduleOp = getOperation();
-    auto systemDesc =
-        moduleOp->getAttrOfType<SystemDescAttr>(SystemDescAttr::name);
-    auto chipDesc = systemDesc.getChipDescs().front();
-    moduleOp.walk([&](GenericOp op) {
-      // assert that the op has a valid HW thread selection
-      if (op.getNumRegions() > (chipDesc.getNumComputeThreads() +
-                                chipDesc.getNumDatamovementThreads())) {
-        op.emitError("invalid number of regions (")
-            << op.getNumRegions() << "), expected at most ("
-            << (chipDesc.getNumComputeThreads() +
-                chipDesc.getNumDatamovementThreads())
-            << ")";
-        signalPassFailure();
-      }
-    });
+    //ModuleOp moduleOp = getOperation();
+    //auto systemDesc =
+    //    moduleOp->getAttrOfType<SystemDescAttr>(SystemDescAttr::name);
+    //auto chipDesc = systemDesc.getChipDescs().front();
+    //moduleOp.walk([&](GenericOp op) {
+    //  // assert that the op has a valid HW thread selection
+    //  if (op.getNumRegions() > (chipDesc.getNumComputeThreads() +
+    //                            chipDesc.getNumDatamovementThreads())) {
+    //    op.emitError("invalid number of regions (")
+    //        << op.getNumRegions() << "), expected at most ("
+    //        << (chipDesc.getNumComputeThreads() +
+    //            chipDesc.getNumDatamovementThreads())
+    //        << ")";
+    //    signalPassFailure();
+    //  }
+    //});
   }
 };
 } // namespace
