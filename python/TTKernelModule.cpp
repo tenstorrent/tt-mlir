@@ -99,13 +99,15 @@ void populateTTKernelModule(nb::module_ &m) {
                      std::vector<MlirAttribute> ct_args) {
                     std::vector<tt::ttkernel::ArgAttr> _rt_args, _ct_args;
 
-                    for (const auto &x : rt_args)
+                    for (const auto &x : rt_args) {
                       _rt_args.emplace_back(
                           mlir::cast<tt::ttkernel::ArgAttr>(unwrap(x)));
+                    }
 
-                    for (const auto &x : ct_args)
+                    for (const auto &x : ct_args) {
                       _ct_args.emplace_back(
                           mlir::cast<tt::ttkernel::ArgAttr>(unwrap(x)));
+                    }
 
                     return wrap(tt::ttkernel::ArgSpecAttr::get(
                         unwrap(ctx), _rt_args, _ct_args));
