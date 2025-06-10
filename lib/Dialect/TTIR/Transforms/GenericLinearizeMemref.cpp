@@ -28,7 +28,7 @@ public:
   TTIRLinearizeMemrefAccessRewriter(
       ::mlir::MLIRContext *context,
       DenseMap<Value, memref::CollapseShapeOp> &collapseOps)
-      : OpRewritePattern<LoadStoreOp>(context), collapseOps(collapseOps) {}
+      : OpRewritePattern<LoadStoreOp>(context), collapseOps(&collapseOps) {}
 
   static mlir::AffineMap linearizeAffineMap(::mlir::MLIRContext *context,
                                             mlir::AffineMap map,
@@ -63,7 +63,7 @@ public:
     auto linearMap = linearizeAffineMap(
         rewriter.getContext(), memref.getLayout().getAffineMap(), shape);
 
-    memref::CollapseShapeOp linearizedArg = collapseOps.lookup(val);
+    memref::CollapseShapeOp linearizedArg = collapseOps->lookup(val);
     if (!linearizedArg) {
       rewriter.setInsertionPointAfterValue(val);
       SmallVector<ReassociationIndices, 4> collapsedDims = {
@@ -74,7 +74,7 @@ public:
              "has contiguous memory layout");
       linearizedArg = rewriter.create<memref::CollapseShapeOp>(op.getLoc(), val,
                                                                collapsedDims);
-      collapseOps[val] = linearizedArg;
+      collapseOps->insert({val, linearizedArg});
     }
 
     rewriter.modifyOpInPlace(op, [&]() {
@@ -85,7 +85,7 @@ public:
     return success();
   }
 
-  DenseMap<Value, memref::CollapseShapeOp> &collapseOps;
+  DenseMap<Value, memref::CollapseShapeOp> *collapseOps;
 };
 } // namespace
 

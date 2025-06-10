@@ -184,10 +184,10 @@ public:
       // This case will be handled by MemrefStoreRewriter
       auto store = mlir::cast<memref::StoreOp>(*op->getUsers().begin());
       auto cb = adaptor.getMemref();
-      auto dst = rewriter.getRemappedValue(store.getMemref());
+      auto cbIndex = adaptor.getIndices().front();
+      auto dstIndex = rewriter.getRemappedValue(store.getIndices().front());
       rewriter.create<ttkernel::CopyTileInitOp>(op.getLoc(), cb);
-      rewriter.create<ttkernel::CopyTileOp>(op.getLoc(), cb,
-                                            adaptor.getIndices().front(), dst);
+      rewriter.create<ttkernel::CopyTileOp>(op.getLoc(), cb, cbIndex, dstIndex);
     } else if (llvm::any_of(op->getUsers(), storesToDst)) {
       return op->emitOpError("Unsupported mixed uses of dst and non-dst");
     }
