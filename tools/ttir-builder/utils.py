@@ -20,7 +20,7 @@ from ttmlir.passes import (
     MLIRModuleLogger,
 )
 
-from .builder import Shape, TTIRBuilder, TypeInfo
+from .builder import Shape, TTIRBuilder, TypeInfo, Input
 
 TT_MLIR_HOME = os.environ.get("TT_MLIR_HOME", "")
 
@@ -83,6 +83,7 @@ def build_mlir_module(
     test_fn: Callable,
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
+    custom_inputs: Dict[int, Input] = {},
     mesh_shape: Optional[Tuple[int, int]] = None,
     module_dump: bool = False,
     base: Optional[str] = None,
@@ -188,9 +189,17 @@ def build_mlir_module(
                 # Randomly generate golden tensors for function inputs.
                 input_goldens = []
                 for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
-                    input_goldens.append(
-                        builder.generate_input_golden(operand, dtype, index).tensor
-                    )
+                    # Optionally populate custom inputs
+                    if index in custom_inputs:
+                        input_goldens.append(
+                            builder.generate_custom_input_golden(
+                                operand, custom_inputs[index], index
+                            ).tensor
+                        )
+                    else:
+                        input_goldens.append(
+                            builder.generate_input_golden(operand, dtype, index).tensor
+                        )
                 result = test_fn(*inputs, builder=builder)
                 output_ops = result if hasattr(result, "__iter__") else (result,)
                 output_goldens = [builder._get_golden_tensor(op) for op in output_ops]
@@ -273,6 +282,7 @@ def compile_to_flatbuffer(
     fn: Callable,
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
+    custom_inputs: Dict[int, Input] = {},
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
@@ -376,6 +386,7 @@ def compile_to_flatbuffer(
         fn,
         inputs_shapes,
         inputs_types,
+        custom_inputs=custom_inputs,
         mesh_shape=mesh_shape,
         module_dump=module_dump,
         output_root=output_root,
