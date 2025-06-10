@@ -93,14 +93,14 @@ public:
           }
           
           // Debug print the argument information
-          llvm::errs() << "Processing arg #" << arg.getArgNumber() 
-                       << " of type " << arg.getType() 
-                       << " in function " << func.getName() << "\n";
+          // llvm::errs() << "Processing arg #" << arg.getArgNumber() 
+          //              << " of type " << arg.getType() 
+          //              << " in function " << func.getName() << "\n";
           
           Operation *lastOp = getLastValueUsageOp(livenessInfo, arg);
         
           // Debug print last operation
-          llvm::errs() << "  Last usage op: " << lastOp->getName() << "\n";
+          // llvm::errs() << "  Last usage op: " << lastOp->getName() << "\n";
           
           if (isa<func::ReturnOp>(lastOp)) {
             continue;
@@ -109,7 +109,7 @@ public:
           bool usedInFillCache = false;
           for (Operation *user : arg.getUsers()) {
             if (isa<ttnn::FillCacheOp>(user)) {
-              llvm::errs() << "  Used in FillCacheOp: " << *user << "\n; Rejecting deallocation.\n";
+              // llvm::errs() << "  Used in FillCacheOp: " << *user << "\n; Rejecting deallocation.\n";
               usedInFillCache = true;
               break;
             }
