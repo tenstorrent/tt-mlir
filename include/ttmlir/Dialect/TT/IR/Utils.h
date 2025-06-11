@@ -44,8 +44,6 @@ mlir::memref::GlobalOp createGlobal(ModuleOp moduleOp, MemRefType type,
 
 bool isTiled(RankedTensorType tensorType);
 
-ArrayRef<int64_t> getMetalTensorGridShape(RankedTensorType tensorType);
-
 ArrayRef<int64_t> getTensorTileShape(RankedTensorType tensorType);
 
 ArrayRef<int64_t> getTensorTileShapeOrEmpty(RankedTensorType tensorType);

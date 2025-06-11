@@ -76,11 +76,11 @@ protected:
       // Create the new MetalLayoutAttr with correct element type
       tt::MetalLayoutAttr layout = tt::MetalLayoutAttr::get(
           rewriter.getContext(), logicalShape, tt::OOBVal::Undef, memorySpace,
-          gridShape, tileShape, elementType); // Use the new elementType!
+          gridShape, tileShape, elementType);
 
       // Derive physical shape based on whether we're tiling
       auto physicalShape = tt::MetalLayoutAttr::derivePhysicalShape(
-          logicalShape, gridShape, tileShape);
+          logicalShape, gridShape, tileShape, layout.getCollapseIntervals());
 
       // Create tensor with the derived shape and element type
       mlir::RankedTensorType layoutResultType =
@@ -180,7 +180,7 @@ protected:
 
         // Remove tile dimensions from shape since they're now in the element
         // type E.g., [1, 1, 4, 3, 32, 32] with tile [32, 32] -> [1, 1, 4, 3]
-        auto gridShape = tt::getMetalTensorGridShape(tensorType);
+        auto gridShape = layout.getGridShape(tensorType);
         size_t gridRank = gridShape.size();
         SmallVector<int64_t> memrefShape(physicalShape.begin() + gridRank,
                                          physicalShape.end());

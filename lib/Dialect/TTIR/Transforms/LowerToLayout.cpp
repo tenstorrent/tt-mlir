@@ -167,10 +167,12 @@ public:
                      std::optional<ArrayRef<int64_t>> newTileShape = {}) const {
     // Use existing values if not overridden
     auto memSpace = newMemSpace.value_or(baseLayout.getMemorySpace());
-    const bool baseTypeHasLayout = mlir::dyn_cast_or_null<MetalLayoutAttr>(
-                                       baseType.getEncoding()) != nullptr;
+    auto maybeBaseLayout =
+        mlir::dyn_cast_or_null<MetalLayoutAttr>(baseType.getEncoding());
+    const bool baseTypeHasLayout = maybeBaseLayout != nullptr;
+
     auto gridShape = newGrid.value_or(
-        baseTypeHasLayout ? tt::getMetalTensorGridShape(baseType)
+        baseTypeHasLayout ? maybeBaseLayout.getGridShape(baseType)
                           : ArrayRef<int64_t>{1, 1});
     auto elementType = newElementType.value_or(baseType.getElementType());
     auto tileShape = newTileShape.has_value()
@@ -178,9 +180,15 @@ public:
                          : getTensorTileShapeOrEmpty(baseType);
 
     // Create new layout
-    auto newLayout = MetalLayoutAttr::get(ctx, baseLayout.getLogicalShape(),
-                                          baseLayout.getOobVal(), memSpace,
-                                          gridShape, tileShape, elementType);
+    auto newLayout =
+        baseTypeHasLayout
+            ? MetalLayoutAttr::get(ctx, baseLayout.getLogicalShape(),
+                                   baseLayout.getOobVal(), memSpace, gridShape,
+                                   tileShape, elementType,
+                                   maybeBaseLayout.getCollapseIntervals())
+            : MetalLayoutAttr::get(ctx, baseLayout.getLogicalShape(),
+                                   baseLayout.getOobVal(), memSpace, gridShape,
+                                   tileShape, elementType);
 
     // For physical shape derivation, use tile shape ONLY if element type is
     // tiled
@@ -195,7 +203,8 @@ public:
 
     // Derive physical shape
     auto physicalShape = MetalLayoutAttr::derivePhysicalShape(
-        baseLayout.getLogicalShape(), gridShape, tileShapeForPhysical);
+        baseLayout.getLogicalShape(), gridShape, tileShapeForPhysical,
+        newLayout.getCollapseIntervals());
 
     return RankedTensorType::get(physicalShape, elementType, newLayout);
   }
@@ -268,7 +277,7 @@ public:
       // Keep output layout but with input's grid
       auto bounceType = createModifiedType(
           rewriter.getContext(), outputType, outputLayout,
-          /*memSpace=*/{}, tt::getMetalTensorGridShape(inputType));
+          /*memSpace=*/{}, inputLayout.getGridShape(inputType));
       bounce(rewriter, op, bounceType);
     } else {
       // Note we should eventually support DRAM <-> DRAM, or System <-> System
