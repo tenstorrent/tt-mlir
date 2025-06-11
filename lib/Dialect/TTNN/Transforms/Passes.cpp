@@ -308,7 +308,8 @@ private:
 
     // Create ReturnOp.
     //
-    rewriter.create<func::ReturnOp>(forwardFuncOp.getLoc(), ValueRange{tuple});
+    rewriter.create<func::ReturnOp>(forwardFuncOp.getLoc(),
+                                    tuple->getResults());
 
     return inputGenFuncOp;
   }
