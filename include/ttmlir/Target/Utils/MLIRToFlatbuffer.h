@@ -47,7 +47,6 @@ struct GoldenTensor {
  * shape is an empty array), then the default value of 1x1 will be returned.
  */
 inline ::tt::target::Dim2d deviceToFlatbufferMeshShape(const DeviceAttr attr) {
-
   assert(attr);
   ArrayRef<int64_t> meshShapeArr = attr.getMeshShape();
   ::tt::target::Dim2d meshShape;

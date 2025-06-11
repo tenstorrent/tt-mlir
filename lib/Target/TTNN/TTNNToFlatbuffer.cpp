@@ -2211,9 +2211,8 @@ std::shared_ptr<void> ttnnToFlatbuffer(
               programIdxMap);
 
       DeviceAttr deviceAttr = lookupDevice(func);
-      assert(deviceAttr);
 
-    ::tt::target::Dim2d meshShape = deviceToFlatbufferMeshShape(deviceAttr);
+      ::tt::target::Dim2d meshShape = deviceToFlatbufferMeshShape(deviceAttr);
 
       programs.push_back(::tt::target::ttnn::CreateProgramDirect(
           fbb, program.name, &program.inputs, &program.outputs, &program.ops,
