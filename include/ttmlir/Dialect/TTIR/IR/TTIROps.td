@@ -171,7 +171,6 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
         RankedTensorType tensorType = mlir::cast<RankedTensorType>(outputs[0].getType());
         MetalLayoutAttr maybeLayout = mlir::dyn_cast_or_null<tt::MetalLayoutAttr>(tensorType.getEncoding());
         const size_t rank = (maybeLayout != nullptr) ? maybeLayout.getLogicalShape().size() : tensorType.getShape().size();
-        llvm::errs() << "Rank inside builder is: " << rank;
         auto [indexingMaps, iteratorTypes] = buildParallelAffineMapsAndIteratorTypes($_builder,
             inputs.size() + outputs.size(), rank);
         build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadRegionBuilder, singleThreadType, grid);
