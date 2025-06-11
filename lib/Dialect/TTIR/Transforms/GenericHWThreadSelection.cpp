@@ -19,66 +19,62 @@ class TTIRGenericMoveTrivialOutputThreadToComputeRewritePattern
 public:
   using OpRewritePattern<GenericOp>::OpRewritePattern;
 
-  static Block *getIfTrivialBlock(Region &region,
-                                  unsigned outputOperandsIndex) {
-    assert(region.getBlocks().size() == 1);
-    auto &block = region.front();
-    if (block.getOperations().size() != 1) {
-      return nullptr;
-    }
-    ttir::AwaitOp awaitOp = dyn_cast<ttir::AwaitOp>(block.front());
-    if (!awaitOp) {
-      return nullptr;
-    }
-
-    if (!llvm::all_of(awaitOp.getOperands(), [&](Value operand) {
-          return mlir::dyn_cast<BlockArgument>(operand) &&
-                 mlir::cast<BlockArgument>(operand).getOwner() == &block &&
-                 mlir::cast<BlockArgument>(operand).getArgNumber() ==
-                     outputOperandsIndex;
-        })) {
-      return nullptr;
-    }
-
-    return &block;
-  }
-
   LogicalResult matchAndRewrite(GenericOp op,
                                 PatternRewriter &rewriter) const final {
-    unsigned outputOperandsIndex = op.getOutputs().getBeginOperandIndex();
-    unsigned outputOperandsLength = op.getOutputs().size();
-    assert(outputOperandsLength == 1);
-    if (outputOperandsIndex >= op.getNumRegions()) {
-      return failure();
-    }
-    Region &outputRegion = op.getRegion(outputOperandsIndex);
-    Block *outputBlock = getIfTrivialBlock(outputRegion, outputOperandsIndex);
-    if (!outputBlock) {
-      return failure();
+    // construct new threads by copying original threads and deleting excess datamovement threads
+    // this preserves block naming and other important attributes
+    constexpr size_t num_hw_dm_threads = 2;
+    SmallVector<Attribute> new_threads(op.getThreads().getValue());
+    size_t num_dm_regions = llvm::count_if(new_threads, [](const Attribute &t) {
+      return mlir::cast<ThreadAttr>(t).getThreadType() ==
+             ThreadType::Datamovement;
+    });
+    size_t num_deleted_dm_regions =
+        std::max(0, static_cast<int>(num_dm_regions - num_hw_dm_threads));
+    size_t num_new_regions = op.getNumRegions() - num_deleted_dm_regions;
+    if (num_deleted_dm_regions > 0) {
+      new_threads.erase(new_threads.begin() + num_hw_dm_threads,
+                        new_threads.begin() + num_dm_regions);
     }
 
-    SmallVector<Attribute> threads(op.getThreads().getValue());
-    // Skip the output operands block
-    threads.erase(threads.begin() + outputOperandsIndex);
     auto newGeneric = rewriter.create<GenericOp>(
         op.getLoc(), op.getResults().getTypes(), op.getInputs(),
         op.getOutputs(), op.getGrid(), op.getIndexingMaps(),
-        op.getIteratorTypes(), rewriter.getArrayAttr(threads),
-        op.getNumRegions() - 1);
+        op.getIteratorTypes(), rewriter.getArrayAttr(new_threads),
+        num_new_regions);
 
-    unsigned regionIndex = 0;
+    // move the first HW_THREADS dm regions and the compute region to the new generic
+    // remaining dm blocks will be merged into these copied regions 
+    unsigned new_region_index = 0;
+    size_t start_del_dm_regions = num_dm_regions - num_deleted_dm_regions;
+    size_t end_del_dm_regions = num_dm_regions;
     for (mlir::Region &region : op.getRegions()) {
-      if (region.getRegionNumber() == outputOperandsIndex) {
+      auto region_index = region.getRegionNumber();
+      // skip deleted dm regions
+      if (region_index >= start_del_dm_regions &&
+          region_index < end_del_dm_regions) {
+        assert(mlir::cast<ThreadAttr>(op.getThreads()[region_index])
+                   .getThreadType() == ThreadType::Datamovement);
         continue;
       }
-      rewriter.modifyOpInPlace(
-          op, [&] { newGeneric.getRegion(regionIndex++).takeBody(region); });
+      rewriter.modifyOpInPlace(op, [&] {
+        newGeneric.getRegion(new_region_index++).takeBody(region);
+      });
     }
 
-    Block *newBlock = &newGeneric.getRegions().back().front();
-    rewriter.mergeBlocks(outputBlock, newBlock, newBlock->getArguments());
-    rewriter.replaceOp(op, newGeneric.getResults());
+    // merge remaining dm regions into already copied dm regions
+    size_t dest_region_index = 0;
+    for (size_t src_region_index = start_del_dm_regions; src_region_index < end_del_dm_regions; src_region_index++) {
+      Block *dest_block = &newGeneric.getRegions()[dest_region_index].front();
+      Block *src_block = &op.getRegions()[src_region_index].front();
+      rewriter.mergeBlocks(src_block, dest_block, dest_block->getArguments());
+      // alternate merging between all dm regions 
+      dest_region_index = (dest_region_index == num_hw_dm_threads - 1)
+                              ? 0
+                              : dest_region_index + 1;
+    }
 
+    rewriter.replaceOp(op, newGeneric.getResults());
     return success();
   }
 };
