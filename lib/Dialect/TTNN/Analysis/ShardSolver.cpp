@@ -305,8 +305,6 @@ bool ShardSolver::supportsInterleavedInputShardedOutput(Operation *op,
                "Checking if interleaved to sharded is possible for op : {}",
                op->getName());
 
-  // TODO(rpavlovicTT) this is bad as we are hardcoding this layout, while it
-  // could be overriden.
   inputLayout = inputLayout.withBufferType(BufferType::DRAM)
                     .withMemoryLayout(TensorMemoryLayout::Interleaved);
 
@@ -347,6 +345,9 @@ bool ShardSolver::preprocessFirstOp() {
     TTNNLayoutAttr firstOpLayout = firstOpConfigs[i].outputLayout;
     assert(firstOpLayout.hasShardedL1TensorMemoryLayout());
 
+    // TODO(rpavlovicTT) this is bad as we are hardcoding this layout, while it
+    // could be overriden.
+    // https://github.com/tenstorrent/tt-mlir/issues/3749
     if (!supportsInterleavedInputShardedOutput(firstOp, firstOpConfigs[i])) {
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                    "Interleaved to sharded not possible for config idx {}", i);

@@ -35,7 +35,7 @@ Scheduler::Scheduler(func::FuncOp *func) {
   for (auto &op : func->getOps()) {
     if (isTTSchedulableOp(&op)) {
       dependencies[&op] = {};
-      funcOps.push_back(&op);
+      opsWithinFuncOp.push_back(&op);
     }
   }
 
@@ -60,23 +60,26 @@ Scheduler::Scheduler(func::FuncOp *func) {
 
 Scheduler::Scheduler(const Scheduler &scheduler)
     : scheduledOpsMap(scheduler.scheduledOpsMap), schedule(scheduler.schedule),
-      funcOps(scheduler.funcOps), dependencies(scheduler.dependencies) {}
+      opsWithinFuncOp(scheduler.opsWithinFuncOp),
+      dependencies(scheduler.dependencies) {}
 
-llvm::SmallVector<mlir::Operation *> Scheduler::getScheduleableOps() {
-  llvm::SmallVector<mlir::Operation *> scheduleableOps;
-  for (auto &op : funcOps) {
+llvm::SmallVector<mlir::Operation *> Scheduler::getSchedulableOps() {
+  llvm::SmallVector<mlir::Operation *> schedulableOps;
+  for (auto &op : opsWithinFuncOp) {
     if (!scheduledOpsMap.contains(op) && canSchedule(op)) {
-      scheduleableOps.push_back(op);
+      schedulableOps.push_back(op);
     }
   }
 
   // We will sort schedulable ops by prioritizing ops whose successors are still
   // blocked after scheduling it. This is a heuristic that lets us create longer
   // chains of ops that contain join nodes in fork-join structure.
-  if (scheduleableOps.size() > 1) {
+  // This is not general solution and we want to change it in the future.
+  // TODO(rpavlovicTT) https://github.com/tenstorrent/tt-mlir/issues/3744
+  if (schedulableOps.size() > 1) {
     auto hasBlockedSuccessor = [&](mlir::Operation *op) -> bool {
       // A successor is any op for which 'op' is a dependency.
-      for (Operation *succ : funcOps) {
+      for (Operation *succ : opsWithinFuncOp) {
         if (succ == op) {
           continue;
         }
@@ -103,7 +106,7 @@ llvm::SmallVector<mlir::Operation *> Scheduler::getScheduleableOps() {
       }
       return false;
     };
-    std::stable_sort(scheduleableOps.begin(), scheduleableOps.end(),
+    std::stable_sort(schedulableOps.begin(), schedulableOps.end(),
                      [&](mlir::Operation *a, mlir::Operation *b) {
                        bool aBlocked = hasBlockedSuccessor(a);
                        bool bBlocked = hasBlockedSuccessor(b);
@@ -114,7 +117,7 @@ llvm::SmallVector<mlir::Operation *> Scheduler::getScheduleableOps() {
                      });
   }
 
-  return scheduleableOps;
+  return schedulableOps;
 }
 
 bool Scheduler::canSchedule(mlir::Operation *op) {
@@ -142,7 +145,7 @@ llvm::SmallVector<mlir::Operation *> Scheduler::getSchedule() const {
 }
 
 bool Scheduler::hasUnscheduledOps() const {
-  return scheduledOpsMap.size() < funcOps.size();
+  return scheduledOpsMap.size() < opsWithinFuncOp.size();
 }
 
 } // namespace mlir::tt::scheduler
