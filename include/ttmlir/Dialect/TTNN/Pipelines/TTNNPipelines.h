@@ -277,6 +277,11 @@ struct TTIRToEmitCPipelineOptions : public TTIRToTTNNBackendPipelineOptions {};
 //
 struct TTIRToEmitCSOPipelineOptions : public TTIRToEmitCPipelineOptions {};
 
+// TTIR to EmitPy pipeline options.
+// Inherit from TTIRToTTNNBackendPipelineOptions to reuse the options.
+//
+struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNBackendPipelineOptions {};
+
 void createTTNNPipelineTTIRPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
 
@@ -300,6 +305,9 @@ void createTTIRToEmitCPipeline(OpPassManager &pm,
 
 void createTTIRToEmitCSOPipeline(OpPassManager &pm,
                                  const TTIRToEmitCSOPipelineOptions &options);
+
+void createTTIRToEmitPyPipeline(OpPassManager &pm,
+                                const TTIRToEmitPyPipelineOptions &options);
 
 /// Registers all pipelines for the `bufferization` dialect. Currently,
 /// this includes only the "ttir-to-ttnn-backend-pipeline".
