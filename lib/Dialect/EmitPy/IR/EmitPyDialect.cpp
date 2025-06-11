@@ -29,4 +29,5 @@ void EmitPyDialect::initialize() {
   // #include "ttmlir/Dialect/EmitPy/IR/EmitPyOpsTypes.cpp.inc"
   //       >();
   registerTypes();
+  registerAttributes();
 }

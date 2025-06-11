@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyTypes.h"
-
 #include "ttmlir/Dialect/EmitPy/IR/EmitPy.h"
 
 #include "mlir/IR/Builders.h"
@@ -28,7 +27,7 @@ void EmitPyDialect::registerTypes() {
     llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     llvm::StringRef value) {
   if (value.empty()) {
-    return emitError() << "expected non empty string in !emitpy.opaque type";
+    return emitError() << "expected non-empty string in !emitpy.opaque type";
   }
   if (value.back() == '*') {
     return emitError() << "pointer not allowed as outer type with "

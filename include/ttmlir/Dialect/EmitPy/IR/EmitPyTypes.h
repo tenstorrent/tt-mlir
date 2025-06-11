@@ -7,7 +7,6 @@
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 
-#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 
 #define GET_TYPEDEF_CLASSES

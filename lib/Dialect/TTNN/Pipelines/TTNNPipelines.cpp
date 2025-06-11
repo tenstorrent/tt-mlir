@@ -6,6 +6,7 @@
 
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
+#include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
@@ -214,6 +215,14 @@ void createTTIRToEmitCSOPipeline(OpPassManager &pm,
   pm.addPass(createConvertTTNNToEmitCPass());
 }
 
+void createTTIRToEmitPyPipeline(OpPassManager &pm,
+                                const TTIRToEmitPyPipelineOptions &options) {
+  createTTIRToTTNNBackendPipeline(pm, options);
+  pm.addPass(tt::createTTUnwrapDeviceModulePass());
+  pm.addPass(createTTNNCreateInputGenerators());
+  pm.addPass(createConvertTTNNToEmitPyPass());
+}
+
 //===----------------------------------------------------------------------===//
 // Pipeline registration.
 //===----------------------------------------------------------------------===//
@@ -244,5 +253,14 @@ void registerTTNNPipelines() {
       "with emitted C++ code packaged so that it's suitable for compiling into "
       "a shared object.",
       mlir::tt::ttnn::createTTIRToEmitCSOPipeline);
+
+  // TTIR to EmitPy pipeline.
+  //
+  mlir::PassPipelineRegistration<mlir::tt::ttnn::TTIRToEmitPyPipelineOptions>(
+      "ttir-to-emitpy-pipeline",
+      "Pipeline lowering TTIR to EmitPy. Under the hood, it runs "
+      "--ttir-to-ttnn-backend-pipeline and then converts the resulting TTNN "
+      "dialect to EmitPy.",
+      mlir::tt::ttnn::createTTIRToEmitPyPipeline);
 }
 } // namespace mlir::tt::ttnn

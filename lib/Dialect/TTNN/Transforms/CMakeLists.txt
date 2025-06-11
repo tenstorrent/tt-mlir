@@ -8,8 +8,8 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNLayout.cpp
         TTNNDecomposeLayouts.cpp
         TTNNToCpp.cpp
-        TTNNUniqueLocs.cpp
-        TTNNPrepareConv2dWeightsAndBias.cpp
+        TTNNToPython.cpp
+        TTNNPrepareConv2dWeights.cpp
         TTNNFusing.cpp
         TTNNTraceHoistTransform.cpp
         Workarounds/Decomposition/ArgMaxOpRewritePattern.cpp
