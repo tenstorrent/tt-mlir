@@ -118,19 +118,19 @@ private:
     auto constOp = shift.getDefiningOp<tosa::ConstOp>();
     if (!constOp) {
       return srcOp.emitOpError(
-          "conversion expects shift value to be defined by a"
-          "tosa.const op.");
+          "conversion expects shift value to be defined by a "
+          "tosa.const op");
     }
 
     auto denseIntAttr =
         mlir::dyn_cast<DenseIntElementsAttr>(constOp.getValues());
     if (!denseIntAttr) {
       return srcOp.emitOpError("conversion expects shift value to come from a "
-                               "DenseIntElementsAttr.");
+                               "DenseIntElementsAttr");
     }
 
     if (denseIntAttr.getSplatValue<APInt>().getSExtValue() != 0) {
-      return srcOp.emitOpError("conversion does not support shifted multiply.");
+      return srcOp.emitOpError("conversion does not support shifted multiply");
     }
 
     return success();
