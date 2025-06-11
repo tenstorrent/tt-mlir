@@ -173,9 +173,19 @@ void createTTIRToEmitCPipeline(OpPassManager &pm,
 
 void createTTIRToEmitCSOPipeline(OpPassManager &pm,
                                  const TTIRToEmitCSOPipelineOptions &options) {
+  // Pass specific options.
+  //
+  // Always set input tuplification to true - dylib signatures are contractual
+  // and required to have tuples/vectors on the input signature (and output).
+  //
+  TTNNTuplifyTensorsOptions tuplifyOptions;
+  tuplifyOptions.tuplifyInputIfEmpty = true;
+
+  // Construct pipeline from other pipelines/passes.
+  //
   createTTIRToTTNNBackendPipeline(pm, options);
   pm.addPass(tt::createTTUnwrapDeviceModulePass());
-  pm.addPass(createTTNNTuplifyTensors());
+  pm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
   pm.addPass(createConvertTTNNToEmitCPass());
 }
 

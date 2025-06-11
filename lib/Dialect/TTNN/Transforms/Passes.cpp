@@ -28,8 +28,8 @@
 #include "llvm/Support/Casting.h"
 
 namespace mlir::tt::ttnn {
-#define GEN_PASS_DEF_TTNNDEALLOCATE
 #define GEN_PASS_DEF_TTNNCREATEINPUTGENERATORS
+#define GEN_PASS_DEF_TTNNDEALLOCATE
 #define GEN_PASS_DEF_TTNNTUPLIFYTENSORS
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
@@ -285,7 +285,7 @@ private:
     //
     assert(
         returnTypes.size() == 1 && mlir::isa<TupleType>(returnTypes.front()) &&
-        "Expected forward function to have a single tuple of input tensors!");
+        "Expected input generator to return a single tuple of input tensors!");
 
     SmallVector<Value> generatedTensors;
     for (const Type &type :
@@ -387,9 +387,11 @@ public:
       }
     });
 
-    // Find all the func.func ops in the module that are target functions.
+    // Find all the func.func ops in the module that are target functions for
+    // both input tuplification, and result tuplification.
     //
-    SmallVector<func::FuncOp, 1> targetFuncOps;
+    SmallVector<func::FuncOp, 1> targetFuncOpsInput;
+    SmallVector<func::FuncOp, 1> targetFuncOpsResult;
     block->walk([&](func::FuncOp funcOp) {
       // Skip functions that are not called anywhere (top-level functions).
       //
@@ -399,45 +401,52 @@ public:
 
       mlir::FunctionType functionType = funcOp.getFunctionType();
 
-      // Check that input and output types are not empty and that all are of
-      // type RankedTensorType.
+      // Check that input is not empty and that all args are of type
+      // RankedTensorType.
       //
-      if (!functionType.getInputs().empty() &&
-          !functionType.getResults().empty() &&
-          llvm::all_of(functionType.getInputs(),
-                       [](Type t) { return mlir::isa<RankedTensorType>(t); }) &&
+      // If `tuplifyInputIfEmpty` option is set, tuplify the input even if the
+      // function has no inputs.
+      //
+      if (tuplifyInputIfEmpty ||
+          (!functionType.getInputs().empty() &&
+           llvm::all_of(functionType.getInputs(), [](Type t) {
+             return mlir::isa<RankedTensorType>(t);
+           }))) {
+        targetFuncOpsInput.push_back(funcOp);
+      }
+
+      // Check that results are not empty and that all args are of type
+      // RankedTensorType.
+      //
+      if (!functionType.getResults().empty() &&
           llvm::all_of(functionType.getResults(),
                        [](Type t) { return mlir::isa<RankedTensorType>(t); })) {
-        targetFuncOps.push_back(funcOp);
+        targetFuncOpsResult.push_back(funcOp);
       }
     });
 
-    // Iterate over all the func ops and modify the signatures.
+    // Iterate over all the input target func ops and modify their signatures.
     //
-    for (mlir::func::FuncOp targetFuncOp : targetFuncOps) {
+    for (mlir::func::FuncOp targetFuncOpInput : targetFuncOpsInput) {
       // Replace the signature of the target function so that all the tensor
       // arguments are packed into a single tuple.
       //
-      mlir::FunctionType originalFuncType = targetFuncOp.getFunctionType();
+      mlir::FunctionType originalFuncType = targetFuncOpInput.getFunctionType();
 
-      // Create Type objects for modified function signature:
-      // 1. tuplifiedInputTensors: TupleType of all input tensors
-      // 2. tuplifiedOutputTensors: TupleType of all output tensors
+      // Create TupleType object containing all input tensors.
       //
       mlir::TupleType tuplifiedInputTensors =
           mlir::TupleType::get(&getContext(), originalFuncType.getInputs());
-      mlir::TupleType tuplifiedOutputTensors =
-          mlir::TupleType::get(&getContext(), originalFuncType.getResults());
 
       // Create modified function type (signature) that takes the input tuple
-      // as an operand, and returns the output tuple.
+      // as an operand.
       //
-      FunctionType modifiedFuncType =
-          originalFuncType.clone(tuplifiedInputTensors, tuplifiedOutputTensors);
+      FunctionType modifiedFuncType = originalFuncType.clone(
+          tuplifiedInputTensors, originalFuncType.getResults());
 
-      rewriter.modifyOpInPlace(targetFuncOp,
-                               [&targetFuncOp, &modifiedFuncType]() {
-                                 targetFuncOp.setType(modifiedFuncType);
+      rewriter.modifyOpInPlace(targetFuncOpInput,
+                               [&targetFuncOpInput, &modifiedFuncType]() {
+                                 targetFuncOpInput.setType(modifiedFuncType);
                                });
 
       // First block of the function (often referred to as "entry block") needs
@@ -449,19 +458,22 @@ public:
       // GetTupleElementOp results - after this it's finally safe to remove
       // original block arguments as they have no live uses anymore.
       //
-      // The return statement is modified to return a tuple.
-      //
-      Block &entryBlock = targetFuncOp.getBlocks().front();
+      Block &entryBlock = targetFuncOpInput.getBlocks().front();
       constexpr size_t paramOffset = 1;
       entryBlock.insertArgument(/*index=*/0u, tuplifiedInputTensors,
-                                targetFuncOp.getLoc());
+                                targetFuncOpInput.getLoc());
 
+      // Add GetTupleElementOp ops to unpack the tuple elements.
+      //
       rewriter.setInsertionPointToStart(&entryBlock);
       for (size_t idx = 0; idx < originalFuncType.getNumInputs(); idx++) {
         tt::GetTupleElementOp getTupleElementOp =
             rewriter.create<tt::GetTupleElementOp>(
-                targetFuncOp.getLoc(), targetFuncOp.getArgument(0), idx);
+                targetFuncOpInput.getLoc(), targetFuncOpInput.getArgument(0),
+                idx);
 
+        // Replace all uses of the original tensor arguments with the
+        // GetTupleElementOp results.
         rewriter.replaceAllUsesWith(entryBlock.getArgument(paramOffset + idx),
                                     getTupleElementOp);
       }
@@ -470,10 +482,36 @@ public:
       //
       entryBlock.eraseArguments(paramOffset,
                                 originalFuncType.getInputs().size());
+    }
 
-      // Find return statement and replace with tuple.
+    // Iterate over all the result target func ops and modify their signatures.
+    //
+    for (mlir::func::FuncOp targetFuncOpResult : targetFuncOpsResult) {
+      // Replace the signature of the target function so that all the return
+      // value tensors are packed into a tuple.
       //
-      targetFuncOp.walk<WalkOrder::PostOrder, ReverseIterator>(
+      mlir::FunctionType originalFuncType =
+          targetFuncOpResult.getFunctionType();
+
+      // Create TupleType object containing all result tensors.
+      //
+      mlir::TupleType tuplifiedOutputTensors =
+          mlir::TupleType::get(&getContext(), originalFuncType.getResults());
+
+      // Create modified function type (signature) that takes the result tuple
+      // as the return value.
+      //
+      FunctionType modifiedFuncType = originalFuncType.clone(
+          originalFuncType.getInputs(), tuplifiedOutputTensors);
+
+      rewriter.modifyOpInPlace(targetFuncOpResult,
+                               [&targetFuncOpResult, &modifiedFuncType]() {
+                                 targetFuncOpResult.setType(modifiedFuncType);
+                               });
+
+      // Find return statement and replace with result tuple.
+      //
+      targetFuncOpResult.walk<WalkOrder::PostOrder, ReverseIterator>(
           [&](mlir::func::ReturnOp returnOp) {
             rewriter.setInsertionPoint(returnOp);
             TupleOp tupleOp = rewriter.create<mlir::tt::TupleOp>(

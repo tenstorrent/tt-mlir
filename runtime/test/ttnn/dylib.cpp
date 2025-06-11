@@ -14,11 +14,6 @@
 
 namespace tt::runtime::test::ttnn {
 
-static constexpr const char *POTENTIAL_MANGLING_ADDITIONS[] = {
-    "",
-    "PNS1_11distributed10MeshDeviceE",
-};
-
 // If the model function name is `main`, it can't be emitted as such, because
 // compiler will complain about the parameter and return type, as `main` has
 // special semantics in C/C++. Hence, `main` is prepended with a `_`.
@@ -29,8 +24,7 @@ static std::string getEmittedFuncName(std::string_view funcName) {
   return std::string(funcName);
 }
 
-static std::string getMangledName(std::string_view funcName,
-                                  std::string_view suffix) {
+static std::string getMangledName(std::string_view funcName) {
   std::string mangledName = "_Z";
   // The function name and the name with which it is emitted can be different
   // (see the explanation in the `getEmittedFuncName`).
@@ -38,7 +32,6 @@ static std::string getMangledName(std::string_view funcName,
   mangledName += std::to_string(emittedFuncName.size());
   mangledName += emittedFuncName;
   mangledName += "St6vectorIN2tt8tt_metal6TensorESaIS2_EE";
-  mangledName += suffix;
   return mangledName;
 }
 
@@ -107,17 +100,10 @@ runSoProgram(void *so, const std::string &funcName,
   using ForwardFunction =
       std::vector<::ttnn::Tensor> (*)(std::vector<::ttnn::Tensor>);
 
-  const char *dlsymError;
-  void *symbol;
   std::string mangledName;
-  for (const char *addition : POTENTIAL_MANGLING_ADDITIONS) {
-    mangledName = getMangledName(funcName, addition);
-    symbol = dlsym(so, mangledName.c_str());
-    dlsymError = dlerror();
-    if (!dlsymError) {
-      break;
-    }
-  }
+  mangledName = getMangledName(funcName);
+  void *symbol = dlsym(so, mangledName.c_str());
+  char *dlsymError = dlerror();
   if (dlsymError) {
     dlclose(so);
     LOG_FATAL("Failed to load symbol: ", dlsymError);

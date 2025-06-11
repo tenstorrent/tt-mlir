@@ -124,6 +124,13 @@ def TTNNTuplifyTensors: Pass<"ttnn-tuplify-tensors", "::mlir::ModuleOp"> {
     }
     ```
   }];
+
+  let options = [
+    Option<"tuplifyInputIfEmpty",
+            "tuplify-input-if-empty",
+            "bool", /*default=*/"false",
+            "If input arg is originally empty, force create an empty tuple arg.">
+  ];
 }
 
 def TTNNPrepareConv2dWeights : Pass<"ttnn-prepare-conv2d-weights", "::mlir::ModuleOp"> {
