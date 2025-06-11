@@ -564,7 +564,8 @@ class Run:
             mesh_options.enable_program_cache = self["--enable-program-cache"]
             mesh_options.trace_region_size = self["--trace-region-size"]
 
-            device_open = False
+            # Initialize `device` to `None` for error handling in case device opening fails
+            device = None
 
             for bin in binaries:
 
@@ -581,7 +582,6 @@ class Run:
 
                     # Open a device of shape (x,y), where (x,y) is the mesh shape supplied by the flatbuffer
                     device = ttrt.runtime.open_mesh_device(fb_mesh_shape, mesh_options)
-                    device_open = True
 
                     self.logging.info(f"evaluating binary={bin.file_path}")
 
@@ -1099,9 +1099,9 @@ class Run:
                     ttrt.runtime.unregister_hooks()
 
                     # Only close the device it if was opened
-                    if device_open:
+                    if device is not None:
                         ttrt.runtime.close_mesh_device(device)
-                        device_open = False
+                        device = None
 
         self.logging.debug(f"executing ttnn binaries")
         _execute(self.ttnn_binaries)
