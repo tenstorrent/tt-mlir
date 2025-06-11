@@ -21,7 +21,8 @@ void populateTTModule(nb::module_ &m) {
                   [](MlirContext ctx, std::vector<int64_t> logicalShape,
                      std::vector<int64_t> gridShape, MlirType elementType,
                      std::optional<std::vector<int64_t>> tileShape,
-                     uint32_t oobValValue, uint32_t memorySpaceValue) {
+                     uint32_t oobValValue, uint32_t memorySpaceValue,
+                     std::vector<std::vector<int64_t>> collapseIntervals) {
                     ArrayRef<int64_t> tileShapeRef;
                     if (tileShape.has_value()) {
                       tileShapeRef = ArrayRef<int64_t>(tileShape.value());
