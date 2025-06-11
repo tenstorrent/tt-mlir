@@ -529,7 +529,8 @@ private:
       }
 
       return true;
-    } else if (isa<stablehlo::CompareOp>(op)) {
+    }
+    if (isa<stablehlo::CompareOp>(op)) {
       if (compareOp1.getComparisonDirection() !=
           mlir::stablehlo::ComparisonDirection::EQ) {
         return false;
