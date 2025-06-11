@@ -157,10 +157,7 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
         llvm::SmallVector<Type> blockTypes = llvm::map_to_vector(TypeRange($_state.operands), [&](Type t) -> Type {
           mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
           auto layout = mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding());
-
-          // Get shard shape (without grid dimensions)
           auto shardShape = layout.getShardShape(tensorType);
-
           return MemRefType::get(shardShape, tensorType.getElementType(),
                                 MemRefLayoutAttrInterface{},
                                 MemorySpaceAttr::get($_builder.getContext(), layout.getMemorySpace()));

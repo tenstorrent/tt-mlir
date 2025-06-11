@@ -43,40 +43,46 @@ static RankedTensorType calculateOptimalLayoutForTensorType(
   auto logicalShape = resultEncoding.getLogicalShape();
 
   SmallVector<int64_t> canonicalShape;
-
   ArrayRef<int64_t> tileShape{};
-  if (mlir::isa<TileType>(resultType.getElementType())) {
-    // For tiled tensors, canonical shape is the total tile counts
-    tileShape = tt::getTensorTileShape(resultType);
 
-    // Skip grid dims, multiply tile counts by grid to get total tiles
-    for (size_t i = 0; i < logicalShape.size(); ++i) {
-      int64_t totalTiles = logicalShape[i] / tileShape[i];
+  // For tiled tensor, canonical shape is logical shape adjusted for tiles.
+  if (mlir::isa<TileType>(resultType.getElementType())) {
+    tileShape = tt::getTensorTileShape(resultType);
+    const size_t logicalRank = logicalShape.size();
+    const size_t tileRank = tileShape.size();
+
+    // Leading dims aren't changed.
+    for (size_t i = 0; i < logicalRank - tileRank; ++i) {
+      canonicalShape.push_back(logicalShape[i]);
+    }
+
+    // The last two dimensions are divided by tile dimensions.
+    for (size_t i = 0; i < tileRank; ++i) {
+      size_t logicalIdx = logicalRank - tileRank + i;
+      int64_t totalTiles = logicalShape[logicalIdx] / tileShape[i];
       canonicalShape.push_back(totalTiles);
     }
   } else {
-    // For non-tiled, canonical is just logical shape
+    // For non-tiled, canonical is just logical shape.
     canonicalShape =
         SmallVector<int64_t>(logicalShape.begin(), logicalShape.end());
   }
 
-  // Get optimal grid for the canonical shape
   auto optimalOutputGrid =
       getOptimalGrid(rewriter, canonicalShape, workerGridShape);
 
-  // Create new layout
   auto newResultEncoding = MetalLayoutAttr::get(
       tensor.getContext(), logicalShape, resultEncoding.getOobVal(),
       resultEncoding.getMemorySpace(), optimalOutputGrid.getShape(), tileShape,
       resultType.getElementType(), resultEncoding.getCollapseIntervals());
 
-  // For tiled tensors, manually calculate the new shape
+  // For tiled tensors, manually calculate the new shape.
   if (mlir::isa<TileType>(resultType.getElementType())) {
     SmallVector<int64_t> newShape;
     newShape.append(optimalOutputGrid.getShape().begin(),
                     optimalOutputGrid.getShape().end());
 
-    // Distribute tiles across new grid
+    // Distribute tiles across new grid.
     for (size_t i = 0; i < canonicalShape.size(); ++i) {
       int64_t tilesPerCore = canonicalShape[i];
       if (i < optimalOutputGrid.getShape().size()) {
@@ -88,7 +94,7 @@ static RankedTensorType calculateOptimalLayoutForTensorType(
     return RankedTensorType::get(newShape, resultType.getElementType(),
                                  newResultEncoding);
   } else {
-    // Non-tiled: use derivePhysicalShape
+    // For non-tiled, use derivePhysicalShape directly.
     auto newPhysicalShape = MetalLayoutAttr::derivePhysicalShape(
         logicalShape, optimalOutputGrid.getShape(), /*tileShape=*/{},
         newResultEncoding.getCollapseIntervals());
@@ -180,7 +186,6 @@ struct TTIRMemrefLayoutRewriter : public OpRewritePattern<ttir::GenericOp> {
         auto operandType =
             mlir::cast<RankedTensorType>(op->getOperand(i).getType());
 
-        // New: Create memref type using the common utility function
         auto expectedMemrefType = ttir::getGenericOpMemRefType(operandType);
 
         if (arg.getType() == expectedMemrefType) {

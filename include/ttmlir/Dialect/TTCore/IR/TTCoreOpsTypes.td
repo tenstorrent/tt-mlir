@@ -293,7 +293,19 @@ def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout", [TT_DeviceLayout
     The tensor layout attribute captures how tensor data is sharded across a grid of devices/cores
     and is laid out in memory.
 
-    Key change: The tensor shape now directly represents the physical layout including grid dimensions.
+    Some high level goals:
+      - **Logical shapes**: Store the original tensor shape and rank intact and agnostic
+        to underlying storage layout.
+        Keeping the logical shapes not only makes some graph transformations vastly
+        simpler, in particular convs, but it makes the lowered IR much easier to read
+        and reason about.  The original tensor shapes leave breadcrumbs that make it
+        much easier to map back to the input representation.
+      - **Collapse-able dims**: We may collapse dimensions during transformation, but it
+        is important we capture this information such that it is not lost during tensor
+        transformation
+      - **Padding**: store the desired alignments s.t. padding can be simply encoded
+      - **Memref translation**: ensure we have all necessary info s.t. we can trivally
+        lower a tensor into a memref without any intermediate passes.
 
     For a logical tensor of shape [H, W] distributed across a grid [GY, GX], the tensor shape would be:
     - Without tiling: [GY, GX, H/GY, W/GX]
@@ -303,40 +315,37 @@ def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout", [TT_DeviceLayout
 
     Examples:
     ```mlir
-    // Logical 8x300 tensor distributed across 1x2 grid
-    // Old: tensor<8x300xf32, #tt.metal_layout<..., <1x2>, memref<8x150xf32>>>
-    // New: tensor<1x2x8x150xf32, #tt.metal_layout<logical_shape=[8, 300], ...>>
+    // Logical 8x300 tensor distributed across 1x2 grid:
+    // tensor<1x2x8x150xf32, #tt.metal_layout<logical_shape=[8, 300], ...>>
 
-    // Logical 1024x1024 tensor distributed across 2x2 grid with 32x32 tiles
-    // Old: tensor<1024x1024xf32, #tt.metal_layout<..., <2x2>, memref<16x16x32x32xf32>>>
-    // New: tensor<2x2x16x16x32x32xf32, #tt.metal_layout<logical_shape=[1024, 1024], tile_shape=[32, 32], ...>>
+    // Logical 1024x1024 tensor distributed across 2x2 grid with 32x32 tiles:
+    // tensor<2x2x16x16x32x32xf32, #tt.metal_layout<logical_shape=[1024, 1024], tile_shape=[32, 32], ...>>
     ```
   }];
 
   let parameters = (ins
-    // The logical tensor shape before distribution
+    // The logical tensor shape before distribution.
     ArrayRefParameter<"int64_t">:$logical_shape,
 
-    // Out of bounds value
+    // Out of bounds value.
     AttrParameter<"OOBVal", "Out of bounds fill value">:$oob_val,
 
-    // Memory space for the tensor
+    // Memory space for the tensor.
     DefaultValuedParameter<"MemorySpace", "MemorySpace::System">:$memory_space,
 
-    // Alignment for each logical dim, default is 32x1x...x1x32
+    // Alignment for each logical dim, default is 32x1x...x1x32.
     ArrayRefParameter<"int64_t">:$dim_alignments,
 
     // Dim collapse info--must be encoded as 2D array of pairs, where each pair represent a half-open range--negative indexing is supported.
     AttrParameter<"DenseIntElementsAttr", "Intervals of dims to collpase">:$collapse_intervals,
 
-    // Number of buffers for double buffering
+    // Number of buffers for double buffering.
     DefaultValuedParameter<"uint32_t", "1">:$buffers
   );
 
   let assemblyFormat = "`<` `[` $logical_shape `]``,` $oob_val (`,` $memory_space^)? `,` `dim_alignments` `=` `[` $dim_alignments `]`  `,` `collapse_dims` `=` $collapse_intervals (`,` `buffers` `=` $buffers^)? `>`";
 
   let extraClassDeclaration = [{
-    // Factory methods
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
@@ -346,17 +355,17 @@ def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout", [TT_DeviceLayout
                                      DenseIntElementsAttr collapseIntervals = {},
                                      ArrayRef<int64_t> dimAlignments = {});
 
-    // Derive the physical tensor shape from logical shape and grid
+    // Derive the physical tensor shape from logical shape and grid.
     static llvm::SmallVector<int64_t> derivePhysicalShape(
         ArrayRef<int64_t> logicalShape,
         ArrayRef<int64_t> gridShape,
         ArrayRef<int64_t> tileShape,
         DenseIntElementsAttr collapseIntervals);
 
-    // Get the corresponding memref type (essentially just drops grid dimensions)
+    // Get the corresponding memref type (essentially just drops grid dimensions).
     MemRefType getMemRefType(RankedTensorType tensorType) const;
 
-    // Stride calculations for shard portion
+    // Stride calculations for shard portion.
     llvm::SmallVector<int64_t> getShardStride(RankedTensorType tensorType) const;
   }];
 }
