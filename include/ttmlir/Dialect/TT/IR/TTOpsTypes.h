@@ -11,6 +11,7 @@
 #include "mlir/IR/OpImplementation.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsEnums.h.inc"
+#include "ttmlir/Utils.h"
 
 #include <numeric>
 
@@ -323,11 +324,6 @@ mlir::SmallVector<std::int64_t>
 calculateLogicalShardShape(mlir::ArrayRef<int64_t> tensorShape,
                            mlir::AffineMap linear, mlir::tt::GridAttr grid);
 
-template <typename T>
-T alignUp(T ptr, T alignment) {
-  return (ptr + alignment - 1) & ~(alignment - 1);
-}
-
 template <typename T, typename TAttr>
 mlir::MemRefType buildMemRef(mlir::MLIRContext *context,
                              llvm::ArrayRef<int64_t> shardShape,
@@ -336,10 +332,9 @@ mlir::MemRefType buildMemRef(mlir::MLIRContext *context,
   if (mlir::isa<mlir::tt::TileType>(elementType)) {
     scalarShardShape = mlir::cast<mlir::tt::TileType>(elementType)
                            .getTiledShape(scalarShardShape);
-  }
-  else {
-    for (auto& dim : scalarShardShape) {
-      dim = alignUp(dim, 32LL);
+  } else {
+    for (auto &dim : scalarShardShape) {
+      dim = ttmlir::utils::alignUp(dim, TileType::getDefaultShape()[0]);
     }
   }
 

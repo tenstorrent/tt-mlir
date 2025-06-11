@@ -2,12 +2,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TT/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
-#include "ttmlir/Utils.h"
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNPREPARECONV2DWEIGHTS

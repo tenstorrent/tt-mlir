@@ -8,6 +8,8 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/SymbolTable.h"
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include <mlir/Dialect/Func/IR/FuncOps.h>
 
 namespace mlir::tt {
 
@@ -41,6 +43,27 @@ mlir::memref::GlobalOp createGlobal(ModuleOp moduleOp, MemRefType type,
                                     ElementsAttr value, bool constant = true,
                                     bool privateVisibility = true,
                                     size_t alignment = 0);
+
+// Filters out the constant parameters from the function signature.
+inline llvm::SmallPtrSet<mlir::BlockArgument, 4>
+populateConstParams(mlir::func::FuncOp funcOp) {
+  assert(!funcOp.isDeclaration() && "Function should not be a declaration.");
+
+  llvm::SmallPtrSet<mlir::BlockArgument, 4> constParams;
+
+  for (auto arg : funcOp.getArguments()) {
+    if (auto typeAttr = funcOp.getArgAttrOfType<mlir::tt::ArgumentTypeAttr>(
+            arg.getArgNumber(), mlir::tt::ArgumentTypeAttr::name)) {
+      auto argTypeValue = typeAttr.getValue();
+      if (argTypeValue == mlir::tt::ArgumentType::Parameter ||
+          argTypeValue == mlir::tt::ArgumentType::Constant) {
+        constParams.insert(arg);
+      }
+    }
+  }
+
+  return constParams;
+}
 
 } // namespace mlir::tt
 
