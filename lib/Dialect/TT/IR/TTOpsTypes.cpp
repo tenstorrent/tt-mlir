@@ -734,7 +734,7 @@ MetalLayoutAttr MetalLayoutAttr::get(
                                          collapseIntervals);
   auto shardShape = calculateLogicalShardShape(tensorShape, linear, grid);
   auto memref = buildMemRef<MemorySpace, MemorySpaceAttr>(
-      context, shardShape, elementType, memorySpace);
+      context, shardShape, elementType, memorySpace, true);
   return get(context, linear, oobVal, grid, memref);
 }
 
@@ -907,16 +907,16 @@ MetalLayoutAttr MetalLayoutAttr::withElementType(::mlir::MLIRContext *context,
                                                  Type elementType) {
   return MetalLayoutAttr::get(
       context, getLinear(), getOobVal(), getGrid(),
-      buildMemRef<MemorySpace, MemorySpaceAttr>(context, getShardShape(true),
-                                                elementType, getMemorySpace()));
+      buildMemRef<MemorySpace, MemorySpaceAttr>(
+          context, getShardShape(true), elementType, getMemorySpace(), true));
 }
 
 MetalLayoutAttr MetalLayoutAttr::withMemorySpace(::mlir::MLIRContext *context,
                                                  MemorySpace memorySpace) {
   return MetalLayoutAttr::get(
       context, getLinear(), getOobVal(), getGrid(),
-      buildMemRef<MemorySpace, MemorySpaceAttr>(context, getShardShape(true),
-                                                getElementType(), memorySpace));
+      buildMemRef<MemorySpace, MemorySpaceAttr>(
+          context, getShardShape(true), getElementType(), memorySpace, true));
 }
 
 MetalLayoutAttr
@@ -925,7 +925,7 @@ MetalLayoutAttr::withShardShape(::mlir::MLIRContext *context,
   return MetalLayoutAttr::get(
       context, getLinear(), getOobVal(), getGrid(),
       buildMemRef<MemorySpace, MemorySpaceAttr>(
-          context, shardShape, getElementType(), getMemorySpace()));
+          context, shardShape, getElementType(), getMemorySpace(), true));
 }
 
 MemorySpace MetalLayoutAttr::getMemorySpace() const {

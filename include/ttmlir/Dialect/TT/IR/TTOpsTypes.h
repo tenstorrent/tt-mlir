@@ -327,12 +327,13 @@ calculateLogicalShardShape(mlir::ArrayRef<int64_t> tensorShape,
 template <typename T, typename TAttr>
 mlir::MemRefType buildMemRef(mlir::MLIRContext *context,
                              llvm::ArrayRef<int64_t> shardShape,
-                             mlir::Type elementType, T memorySpace) {
+                             mlir::Type elementType, T memorySpace,
+                             int64_t shapeDimAlignedUpToTile = false) {
   llvm::SmallVector<int64_t> scalarShardShape(shardShape);
   if (mlir::isa<mlir::tt::TileType>(elementType)) {
     scalarShardShape = mlir::cast<mlir::tt::TileType>(elementType)
                            .getTiledShape(scalarShardShape);
-  } else {
+  } else if (shapeDimAlignedUpToTile) {
     for (auto &dim : scalarShardShape) {
       dim = ttmlir::utils::alignUp(dim, TileType::getDefaultShape()[0]);
     }
