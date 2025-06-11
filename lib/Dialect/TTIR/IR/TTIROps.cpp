@@ -1839,21 +1839,6 @@ mlir::OpFoldResult mlir::tt::ttir::TransposeOp::fold(FoldAdaptor adaptor) {
   return nullptr;
 }
 
-void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
-    mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
-  patterns.add(+[](TransposeOp op, mlir::PatternRewriter &rewriter) {
-    SmallVector<int64_t> permutation;
-    for (int64_t i = 0; i < op.getInput().getType().getRank(); ++i) {
-      permutation.push_back(i);
-    }
-
-    std::swap(permutation[op.getDim0()], permutation[op.getDim1()]);
-    ttir::utils::replaceOpWithNewDPSOp<PermuteOp>(rewriter, op, op.getType(),
-                                                  op.getInput(), permutation);
-    return success();
-  });
-}
-
 //===----------------------------------------------------------------------===//
 // TypecastOp
 //===----------------------------------------------------------------------===//
