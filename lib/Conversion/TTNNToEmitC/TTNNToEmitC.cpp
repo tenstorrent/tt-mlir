@@ -940,7 +940,9 @@ public:
         emitter.emit(srcOp.getHasBias()),
         emitter.emit(srcOp.getGroups()),
         emitter.emit(srcOp.getDevice()),
-        /*conv2d_config=*/emitter.emit(std::nullopt),
+        emitter.emit<
+            std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>>(
+            srcOp.getConv2dConfig()),
         /*compute_config_=*/emitter.emit(std::nullopt),
         /*dram_slice_config=*/emitter.emit(std::nullopt),
     };
@@ -992,7 +994,9 @@ public:
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getGroups()),
         emitter.emit(srcOp.getBias()),
-        emitter.emit(std::nullopt) |
+        emitter.emit<
+            std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>>(
+            srcOp.getConv2dConfig()) |
             emitter.getConv2dConfig(srcOp.getInput(), srcOp.getWeight()),
         /*compute_config=*/emitter.emit(std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
