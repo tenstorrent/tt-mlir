@@ -193,6 +193,18 @@ struct Binary : public Flatbuffer {
 
   static Binary loadFromPath(const char *path);
 
+  // Binary asJson functions are broken down to get individual flatbuffer
+  // components, allowing for bypassing the golden_map in debug_info, the
+  // loading and processing of which can use significant memory and time.
+  std::uint32_t getNumPrograms() const;
+  std::string getSystemDescAsJson() const;
+  std::string getProgramName(std::uint32_t programIndex) const;
+  bool isProgramPrivate(std::uint32_t programIndex) const;
+  std::string getProgramOpsAsJson(std::uint32_t programIndex) const;
+  std::string getProgramInputsAsJson(std::uint32_t programIndex) const;
+  std::string getProgramOutputsAsJson(std::uint32_t programIndex) const;
+  std::string getProgramMlirAsJson(std::uint32_t programIndex) const;
+  std::string getProgramCpp(std::uint32_t programIndex) const;
   std::vector<TensorDesc> getProgramInputs(std::uint32_t programIndex) const;
   std::vector<TensorDesc> getProgramOutputs(std::uint32_t programIndex) const;
   const ::tt::target::GoldenTensor *getDebugInfoGolden(std::string &loc) const;

@@ -286,18 +286,11 @@ void dumpDeviceProfileResults(Device deviceHandle) {
 
   LOG_ASSERT(metalMeshDevice.is_parent_mesh(),
              "Mesh device must be a parent mesh");
-// NOTE: Reshaping the device before and after this dump is a temporary
-// workaround for tt-metal issue #22285 ttrt.common.run reshapes devices to (1,
-// number of device ids) tt-metal's DumpDeviceProfileResults expects the
-// mesh_shape in the SystemDesc This was throwing errors in llmbox tests
+
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
-  auto originalMeshShape = metalMeshDevice.shape();
-  metalMeshDevice.reshape(
-      ::tt::tt_metal::distributed::MeshShape(1, originalMeshShape.mesh_size()));
   for (tt_metal::IDevice *metalDevice : metalMeshDevice.get_devices()) {
     ::tt::tt_metal::detail::DumpDeviceProfileResults(metalDevice);
   }
-  metalMeshDevice.reshape(originalMeshShape);
 #endif
 }
 
