@@ -292,9 +292,10 @@ private:
          mlir::cast<mlir::TupleType>(returnTypes[0]).getTypes()) {
       // Ensure that the type is a RankedTensorType.
       //
-      assert(mlir::isa<RankedTensorType>(type) &&
+      RankedTensorType rankedTensorType =
+          mlir::dyn_cast<RankedTensorType>(type);
+      assert(rankedTensorType &&
              "Expected input tensor to be of type RankedTensorType!");
-      RankedTensorType rankedTensorType = mlir::cast<RankedTensorType>(type);
 
       generatedTensors.push_back(
           generateTensor(rewriter, loc, rankedTensorType));
@@ -407,11 +408,9 @@ public:
       // If `tuplifyInputIfEmpty` option is set, tuplify the input even if the
       // function has no inputs.
       //
-      if (tuplifyInputIfEmpty ||
-          (!functionType.getInputs().empty() &&
-           llvm::all_of(functionType.getInputs(), [](Type t) {
-             return mlir::isa<RankedTensorType>(t);
-           }))) {
+      if ((tuplifyInputIfEmpty || !functionType.getInputs().empty()) &&
+          llvm::all_of(functionType.getInputs(),
+                       [](Type t) { return mlir::isa<RankedTensorType>(t); })) {
         targetFuncOpsInput.push_back(funcOp);
       }
 
