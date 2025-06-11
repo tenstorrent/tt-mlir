@@ -37,6 +37,7 @@ public:
     if (!legalityResult.succeeded()) {
       return legalityResult;
     }
+
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
     doRewrite(srcOp, adaptor, rewriter, outputType);
@@ -109,27 +110,29 @@ private:
   LogicalResult
   checkConversionLegality(tosa::MulOp srcOp, Adaptor adaptor,
                           ConversionPatternRewriter &rewriter) const override {
-    auto shift = srcOp.getShift();
+    TypedValue<RankedTensorType> shift = srcOp.getShift();
     if (!shift) {
       return success();
     }
+
     auto constOp = shift.getDefiningOp<tosa::ConstOp>();
     if (!constOp) {
       return srcOp.emitOpError(
           "conversion expects shift value to be defined by a"
           "tosa.const op.");
     }
-    auto rawAttr = constOp.getValues();
-    auto denseIntAttr = mlir::dyn_cast<DenseIntElementsAttr>(rawAttr);
+
+    auto denseIntAttr =
+        mlir::dyn_cast<DenseIntElementsAttr>(constOp.getValues());
     if (!denseIntAttr) {
       return srcOp.emitOpError("conversion expects shift value to come from a "
                                "DenseIntElementsAttr.");
     }
-    APInt rawInt = denseIntAttr.getSplatValue<APInt>();
-    int64_t shiftInt = rawInt.getSExtValue();
-    if (shiftInt != 0) {
+
+    if (denseIntAttr.getSplatValue<APInt>().getSExtValue() != 0) {
       return srcOp.emitOpError("conversion does not support shifted multiply.");
     }
+
     return success();
   }
 };
