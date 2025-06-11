@@ -854,6 +854,13 @@ class SystemDesc(Flatbuffer):
         # temporary state value to check if test failed
         self.test_result = "pass"
 
+    def check_version(self, ignore: bool = False):
+        if not ignore and not self.fbb.check_schema_hash():
+            raise Exception(
+                "Binary schema mismatch, please recompile the binary with the compiler at the same schema version"
+            )
+        return True
+
 
 class TTRTTestException(Exception):
     """ "Base class for all "Test Specific" Errors in TTRT"""
