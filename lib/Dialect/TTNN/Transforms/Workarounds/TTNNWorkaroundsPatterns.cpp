@@ -348,10 +348,10 @@ public:
     llvm::SmallVector<int64_t> inputTypeShape(inputType.getShape());
     llvm::SmallVector<int64_t> outputTypeShape(op.getType().getShape());
 
-    // If the allGather is not a whole number (in case this is a product of
-    // allReduce workaournd), we just skip the workaround.
-    if (inputTypeShape[allGatherDim] * meshShape[clusterAxis] !=
-        outputTypeShape[allGatherDim]) {
+    // If the input to the allGather is from a ReduceScatterOp (likely from
+    // allReduce workaround), we skip this workaround, as it will produce
+    // incorrect results.
+    if (auto reduceScatterOp = input.getDefiningOp<ttnn::ReduceScatterOp>()) {
       return failure();
     }
 
