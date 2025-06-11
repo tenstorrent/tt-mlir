@@ -51,10 +51,11 @@ struct Conv2dAttrs {
   }
   bool operator!=(const Conv2dAttrs &other) const { return !(*this == other); }
   void dump() const {
-    if (conv2dConfig) {
+    if (conv2dConfig.has_value() && conv2dConfig.value()) {
       conv2dConfig->dump();
     }
-    if (deviceComputeKernelConfig) {
+    if (deviceComputeKernelConfig.has_value() &&
+        deviceComputeKernelConfig.value()) {
       deviceComputeKernelConfig->dump();
     }
   }

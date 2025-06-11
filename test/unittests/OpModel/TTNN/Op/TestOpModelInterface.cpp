@@ -844,7 +844,8 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
   OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
   auto constraintsExp = backend.getOpConstraints(
       getInputLayouts(conv2d),
-      OpConfig(getOutputLayout(conv2d), badConvConfig));
+      OpConfig(getOutputLayout(conv2d),
+               Conv2dAttrs{badConvConfig, std::nullopt}));
   ASSERT_FALSE(static_cast<bool>(constraintsExp));
   llvm::consumeError(constraintsExp.takeError());
 
@@ -853,7 +854,8 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
 
   auto runtimeExp =
       backend.getOpRuntime(getInputLayouts(conv2d),
-                           OpConfig(getOutputLayout(conv2d), badConvConfig));
+                           OpConfig(getOutputLayout(conv2d),
+                                    Conv2dAttrs{badConvConfig, std::nullopt}));
   ASSERT_FALSE(static_cast<bool>(runtimeExp));
   llvm::consumeError(runtimeExp.takeError());
 
@@ -882,7 +884,8 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
 
   constraintsExp = backend.getOpConstraints(
       getInputLayouts(conv2d),
-      OpConfig(getOutputLayout(conv2d), goodConvConfig));
+      OpConfig(getOutputLayout(conv2d),
+               Conv2dAttrs{goodConvConfig, std::nullopt}));
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cb_size, peak_size, output_size, outputLayout] =
       constraintsExp.get();
@@ -895,7 +898,8 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
 
   runtimeExp =
       backend.getOpRuntime(getInputLayouts(conv2d),
-                           OpConfig(getOutputLayout(conv2d), goodConvConfig));
+                           OpConfig(getOutputLayout(conv2d),
+                                    Conv2dAttrs{goodConvConfig, std::nullopt}));
   ASSERT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_GT(runtimeExp.get(), 0);
 }

@@ -16,8 +16,6 @@
 #include <cassert>
 #include <cstdint>
 #include <optional>
-#include <tuple>
-// #include <variant>
 
 namespace mlir::tt::ttnn {
 
@@ -507,7 +505,15 @@ MultiplyOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // If a config has been specified, use that. Otherwise, use the op property.
 Conv2dAttrs unpackConv2dAttrs(const OpConfig::OpSpecificAttrs &attrs,
                               mlir::tt::ttnn::Conv2dOp op) {
-  assert(std::holds_alternative<Conv2dAttrs>(attrs) && "");
+  assert((std::holds_alternative<Conv2dAttrs>(attrs) ||
+          std::holds_alternative<Uninitialized>(attrs)) &&
+         "Please avoid creating DefaultAttrs for conv2d op. Instead create a "
+         "Conv2dAttrs or leave it to be uninitialized.");
+
+  if (std::holds_alternative<Uninitialized>(attrs)) {
+    return Conv2dAttrs{op.getConv2dConfig(), op.getComputeConfig()};
+  }
+
   Conv2dAttrs conv2dAttrs = std::get<Conv2dAttrs>(attrs);
 
   Conv2dAttrs ret;
