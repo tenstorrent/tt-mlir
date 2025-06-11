@@ -1079,6 +1079,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_UpdateCacheOp()->cache();
     break;
   }
+  case ::tt::target::ttnn::OpType::BatchNormOp: {
+    tensorRef = opContext.type_as_BatchNormOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::LoadCachedOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
   case ::tt::target::ttnn::OpType::DeallocateOp: {
@@ -1313,6 +1317,14 @@ getOpInputRefs(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::LoadCachedOp: {
     tensorRefs = utils::convertFbTensorRefsToVector(
         opContext.type_as_LoadCachedOp()->inputs());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::BatchNormOp: {
+    tensorRefs = {opContext.type_as_BatchNormOp()->input(),
+                  opContext.type_as_BatchNormOp()->running_mean(),
+                  opContext.type_as_BatchNormOp()->running_var(),
+                  opContext.type_as_BatchNormOp()->weight(),
+                  opContext.type_as_BatchNormOp()->bias()};
     break;
   }
   case ::tt::target::ttnn::OpType::NamedFullOp: {
