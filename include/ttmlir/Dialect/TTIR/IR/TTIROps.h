@@ -48,6 +48,7 @@ inline void getDpsEffects(
 
 MemRefType getBufferType(Type type, bool isView);
 MemRefType getGenericOpMemRefType(RankedTensorType tensorType);
+
 } // namespace mlir::tt::ttir
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsEnums.h.inc"

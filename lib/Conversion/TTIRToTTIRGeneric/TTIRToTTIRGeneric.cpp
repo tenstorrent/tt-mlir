@@ -56,16 +56,16 @@ protected:
       mlir::RankedTensorType tensorType =
           mlir::cast<mlir::RankedTensorType>(value.getType());
 
-      // Get logical shape - for now this is the tensor shape
+      // Logical shape is initial tensor shape.
       llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
 
-      // Create grid shape based on deviceGridRank
+      // Create default grid shape based on deviceGridRank.
       llvm::SmallVector<int64_t> gridShape;
       for (uint64_t i = 0; i < deviceGridRank && i < logicalShape.size(); ++i) {
-        gridShape.push_back(1); // Default to no distribution
+        gridShape.push_back(1);
       }
 
-      // Determine element type and tile shape
+      // Create default tile element type.
       Type elementType = tensorType.getElementType();
       llvm::SmallVector<int64_t> tileShape;
       if (tiled && logicalShape.size() >= 2) {
@@ -73,16 +73,15 @@ protected:
         elementType = tt::TileType::get(elementType, tileShape);
       }
 
-      // Create the new MetalLayoutAttr with correct element type
+      // Create the new MetalLayoutAttr with new element type.
       tt::MetalLayoutAttr layout = tt::MetalLayoutAttr::get(
           rewriter.getContext(), logicalShape, tt::OOBVal::Undef, memorySpace,
           gridShape, tileShape, elementType);
 
-      // Derive physical shape based on whether we're tiling
+      // Calculate new physical shape based on grid + tiling.
       auto physicalShape = tt::MetalLayoutAttr::derivePhysicalShape(
           logicalShape, gridShape, tileShape, layout.getCollapseIntervals());
 
-      // Create tensor with the derived shape and element type
       mlir::RankedTensorType layoutResultType =
           mlir::RankedTensorType::get(physicalShape, elementType, layout);
 
@@ -164,11 +163,11 @@ protected:
 
       MLIRContext *ctx = tensorType.getContext();
 
-      // Get the full physical shape from the tensor
+      // Get the full physical shape from the tensor.
       auto physicalShape = tensorType.getShape();
       Type elementType = tensorType.getElementType();
 
-      // If the layout is tiled, convert last dimensions to tile type
+      // If the layout is tiled, convert last dimensions to tile type.
       if (auto tileType = mlir::dyn_cast<TileType>(tensorType.getElementType());
           tileType) {
         auto tileShape = tileType.getShape();
@@ -179,7 +178,7 @@ protected:
         }
 
         // Remove tile dimensions from shape since they're now in the element
-        // type E.g., [1, 1, 4, 3, 32, 32] with tile [32, 32] -> [1, 1, 4, 3]
+        // type E.g., [1, 1, 4, 3, 32, 32] -> [1, 1, 4, 3] with tile [32, 32].
         auto gridShape = layout.getGridShape(tensorType);
         size_t gridRank = gridShape.size();
         SmallVector<int64_t> memrefShape(physicalShape.begin() + gridRank,
@@ -187,7 +186,7 @@ protected:
         physicalShape = memrefShape;
       }
 
-      // Create memref with full shape including grid dimensions
+      // Create memref with full shape including grid dimensions.
       mlir::MemRefType memrefType = mlir::MemRefType::get(
           physicalShape, elementType, MemRefLayoutAttrInterface{},
           MemorySpaceAttr::get(ctx, layout.getMemorySpace()));
@@ -274,9 +273,6 @@ private:
             getAffineMapsArray(rewriter, numOperands, rank);
         SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
             iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
-
-        llvm::errs() << "dumping op: " << op;
-        op->dump();
 
         rewriter.create<mlir::linalg::GenericOp>(
             loc, /* inputs */ blockArgs.take_front(numInputs),

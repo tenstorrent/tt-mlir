@@ -23,7 +23,6 @@ public:
                                          ToLayoutOp op) {
     assert(false &&
            "TODO issue https://github.com/tenstorrent/tt-mlir/issues/3037");
-    return success();
   }
 
   static LogicalResult lowerSystemLayoutChange(PatternRewriter &rewriter,
@@ -61,10 +60,10 @@ public:
                                           op.getInput())
                     .getResult();
 
-    // New: Get rank from logical shape
     assert(inputLayout.getLogicalShape().size() ==
            outputLayout.getLogicalShape().size());
-    size_t logicalRank = inputLayout.getLogicalShape().size();
+
+    const size_t logicalRank = inputLayout.getLogicalShape().size();
 
     ArrayAttr indexingMaps, iteratorTypes;
     std::tie(indexingMaps, iteratorTypes) =
@@ -85,7 +84,6 @@ public:
 
   static LogicalResult lowerFormatConversionGeneric(PatternRewriter &rewriter,
                                                     ToLayoutOp op) {
-    op->dump();
     auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
     auto outputType = mlir::cast<RankedTensorType>(op.getOutput().getType());
     bool inputTiled = tt::isTiled(inputType);
@@ -116,8 +114,7 @@ public:
     }
 
     if (components.isLayoutChange) {
-      // return lowerLayoutChange(rewriter, op);
-      return success();
+      return lowerLayoutChange(rewriter, op);
     }
 
     if (components.isGridChange || components.isMemorySpaceChange) {
