@@ -216,8 +216,7 @@ void CQExecutor::execute(const target::metal::HostAllocCommand *command) {
   desc.itemsize = utils::dataTypeElementSize(bufferDesc->data_type());
   desc.dataType = bufferDesc->data_type();
 
-  size_t size =
-      utils::alignUp(desc.shape[0] * desc.stride[0], 1024U) * desc.itemsize;
+  size_t size = desc.shape[0] * desc.stride[0] * desc.itemsize;
   auto data = std::shared_ptr<void>(std::malloc(size), std::free);
   if (!data) {
     LOG_FATAL("HostAllocCommand: Failed to allocate host memory.");

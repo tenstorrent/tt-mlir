@@ -60,11 +60,6 @@ struct overloaded : Ts... {
   using Ts::operator()...;
 };
 
-template <typename T>
-T alignUp(T ptr, T alignment) {
-  return (ptr + alignment - 1) & ~(alignment - 1);
-}
-
 } // namespace tt::runtime::utils
 
 #endif

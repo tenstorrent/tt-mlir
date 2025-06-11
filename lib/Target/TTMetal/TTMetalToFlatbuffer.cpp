@@ -32,7 +32,6 @@
 
 #include <cassert>
 #include <cstddef>
-#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -154,7 +153,7 @@ static std::array<int32_t, 2> calculateCoreRangeSetShapeExtents(
 static flatbuffers::Offset<target::metal::ShardedBufferConfig>
 memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
                                           MemRefType memref, DeviceAttr device,
-                                          target::Dim2d elementShape) {
+                                          target::Dim2d tileShape) {
   auto deviceLayout =
       mlir::dyn_cast_if_present<DeviceLayoutInterface>(memref.getLayout());
   if (!deviceLayout) {
@@ -176,19 +175,19 @@ memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
 
   // Calculate ShardSpec
   assert(stride[stride.size() - 1] % elementSize == 0);
-  int32_t shardXElements = stride[stride.size() - 2] / elementSize;
-  assert((memrefShardShape[0] * stride[0] / elementSize) % shardXElements == 0);
-  int32_t collapsedShardYElements =
-      (memrefShardShape[0] * stride[0] / elementSize) / shardXElements;
+  int32_t shardXTiles = stride[stride.size() - 2] / elementSize;
+  assert((memrefShardShape[0] * stride[0] / elementSize) % shardXTiles == 0);
+  int32_t collapsedShardYTiles =
+      (memrefShardShape[0] * stride[0] / elementSize) / shardXTiles;
   // Shard shape is the fully collapsed shard down to 2D, so:
   //   [d0 * ... * dN-2, dN-1]
-  target::Dim2d shardShape(collapsedShardYElements * elementShape.y(),
-                           shardXElements * elementShape.x());
+  target::Dim2d shardShape(collapsedShardYTiles * tileShape.y(),
+                           shardXTiles * tileShape.x());
   auto shardSpec = target::metal::CreateShardSpecDirect(
       *cache.fbb, &coreRangeSet, &shardShape);
 
   // Calculate ShardSpecBuffer
-  target::Dim2d pageShape(elementShape.y(), shardShape.x());
+  target::Dim2d pageShape(tileShape.y(), shardShape.x());
   std::array<int32_t, 2> tensorShape = {gridShapeExtents[0] * shardShape.y(),
                                         gridShapeExtents[1] * shardShape.x()};
   assert(tensorShape[0] % pageShape.y() == 0);
@@ -199,31 +198,19 @@ memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
       *cache.fbb, shardSpec, &pageShape, &tensorShapeInPages);
 
   // Calculate ShardedBufferConfig
-  assert(pageShape.y() % elementShape.y() == 0);
-  assert(pageShape.x() % elementShape.x() == 0);
-  std::array<int32_t, 2> pageShapeInElements = {
-      pageShape.y() / elementShape.y(), pageShape.x() / elementShape.x()};
-
-  uint64_t pageSize;
-  if (mlir::isa<TileType>(memref.getElementType())) {
-    pageSize = pageShapeInElements[0] * pageShapeInElements[1] * elementSize;
-  } else {
-    auto tileShape = TileType::getDefaultShape();
-    int64_t alignSize = tileShape[0] * tileShape[1] * elementSize;
-
-    pageSize = ttmlir::utils::alignUp(pageShapeInElements[0] *
-                                          pageShapeInElements[1] * elementSize,
-                                      alignSize);
-  }
-
+  assert(pageShape.y() % tileShape.y() == 0);
+  assert(pageShape.x() % tileShape.x() == 0);
+  std::array<int32_t, 2> pageShapeInTiles = {pageShape.y() / tileShape.y(),
+                                             pageShape.x() / tileShape.x()};
+  uint64_t pageSize = pageShapeInTiles[0] * pageShapeInTiles[1] * elementSize;
   return target::metal::CreateShardedBufferConfig(*cache.fbb, size, pageSize,
                                                   shardSpecBuffer);
 }
 
 static flatbuffers::Offset<target::metal::CircularBufferConfig>
 memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
-                                           MemRefType memref,
-                                           DeviceAttr device) {
+                                           MemRefType memref, DeviceAttr device,
+                                           target::Dim2d tileShape) {
   auto deviceLayout =
       mlir::dyn_cast_if_present<DeviceLayoutInterface>(memref.getLayout());
   if (!deviceLayout) {
@@ -249,7 +236,7 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
                        DeviceAttr device) {
   std::vector<int32_t> shape =
       ttmlir::utils::castContainer<std::vector<int32_t>>(memref.getShape());
-  target::Dim2d elementShape(1, 1);
+  target::Dim2d tileShape(1, 1);
   DataType dtype = DataType::Float32;
   target::MemorySpace memorySpace =
       memref.getMemorySpace()
@@ -261,22 +248,22 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
   Type elementType = memref.getElementType();
   if (auto tileType = mlir::dyn_cast<TileType>(elementType)) {
     dtype = tileType.getDataType();
-    elementShape = target::Dim2d(tileType.getHeight(), tileType.getWidth());
+    tileShape = target::Dim2d(tileType.getHeight(), tileType.getWidth());
   } else {
     dtype = elementTypeToDataType(elementType);
   }
 
   flatbuffers::Offset<target::metal::ShardedBufferConfig> shardedBufferConfig =
       memrefTypeToShardedBufferConfigFlatbuffer(cache, memref, device,
-                                                elementShape);
+                                                tileShape);
 
   flatbuffers::Offset<target::metal::CircularBufferConfig>
-      circularBufferConfig =
-          memrefTypeToCircularBufferConfigFlatbuffer(cache, memref, device);
+      circularBufferConfig = memrefTypeToCircularBufferConfigFlatbuffer(
+          cache, memref, device, tileShape);
 
   return target::metal::CreateBufferDescDirect(
-      *cache.fbb, &shape, &elementShape, toFlatbuffer(cache, dtype),
-      memorySpace, shardedBufferConfig, circularBufferConfig);
+      *cache.fbb, &shape, &tileShape, toFlatbuffer(cache, dtype), memorySpace,
+      shardedBufferConfig, circularBufferConfig);
 }
 
 static flatbuffers::Offset<target::metal::BufferRef>
