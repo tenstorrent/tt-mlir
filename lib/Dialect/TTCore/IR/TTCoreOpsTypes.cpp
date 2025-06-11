@@ -754,6 +754,9 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::derivePhysicalShape(
   // Apply collapse intervals to get collapsed logical shape.
   llvm::SmallVector<int64_t> collapsedShape =
       applyCollapseIntervals(logicalShape, collapseIntervals);
+  llvm::errs() << "collapsed shape: [";
+  llvm::interleaveComma(collapsedShape, llvm::errs());
+  llvm::errs() << "]\n";
 
   // Add grid dimensions to physical shape.
   physicalShape.append(gridShape.begin(), gridShape.end());
@@ -776,8 +779,8 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::derivePhysicalShape(
     }
   } else {
     // With tiling, distribute first and then tile.
-    assert(tileShape.size() >= 2 &&
-           "Tile shape must have at least 2 dimensions");
+    assert(tileShape.size() == 2 &&
+           "Tile shape must have exactly 2 dimensions");
 
     // Handle all but the last tileShape.size() dimensions.
     size_t nonTiledDims = collapsedShape.size() - tileShape.size();
@@ -804,10 +807,11 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::derivePhysicalShape(
         shardDim = dim / gridShape[collapsedIdx];
       }
 
+      llvm::errs() << "shardDim: " << shardDim << ", tileDim: " << tileDim
+                   << "\n";
       // Then tilize the shard.
-      assert(shardDim % tileDim == 0 &&
-             "Shard dimension must be divisible by tile dimension");
-      physicalShape.push_back(shardDim / tileDim);
+      const int64_t tileCount = (shardDim + tileDim - 1) / tileDim;
+      physicalShape.push_back(tileCount);
     }
   }
 
