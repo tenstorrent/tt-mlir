@@ -3,8 +3,8 @@
 // RUN: FileCheck %s --input-file=shard_transpose.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer shard_transpose.mlir > %t.ttnn
 // UNSUPPORTED: true
-// Test is failing with an ND hang
-// To add issue before merge after bisected
+// Test is failing with an ND hang after metal commit daf8fbadc8
+// See issue https://github.com/tenstorrent/tt-mlir/issues/3743
 
 module attributes {} {
   func.func @main(%arg0: tensor<1x3x224x224xf32>) -> tensor<1x224x3x224xf32> {
