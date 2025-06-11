@@ -10,7 +10,10 @@
 
 namespace mlir::tt::ttir {
 
-template <typename TMOpType, typename CommutableOpOrInterface>
+enum CommuteDirection { ABOVE, BELOW };
+
+template <typename TMOpType, typename CommutableOpOrInterface,
+          CommuteDirection direction>
 class TTIRCommuteRewritePatternBase {
 public:
   virtual ~TTIRCommuteRewritePatternBase() noexcept = default;
@@ -27,42 +30,72 @@ protected:
     // If found, verify that it can be commuted above `op`.
     // If it can, verify that it SHOULD be commuted above `op`.
     // If it should commute, perform the commute.
-    TMOpType userToCommute = nullptr;
-    for (Operation *user : op->getUsers()) {
-      auto tmUser = dyn_cast<TMOpType>(user);
-      if (!tmUser) {
-        continue;
+    TMOpType tmToCommute = nullptr;
+    if (direction == CommuteDirection::ABOVE) {
+      for (Operation *user : op->getUsers()) {
+        auto tmUser = dyn_cast_or_null<TMOpType>(user);
+        if (!tmUser) {
+          continue;
+        }
+
+        if (!isCommuteAboveViable(op, tmUser)) {
+          continue;
+        }
+
+        if (!isCommuteAboveFavorable(op, tmUser)) {
+          continue;
+        }
+        tmToCommute = tmUser;
+        break;
       }
 
-      if (!isCommuteViable(op, tmUser)) {
-        continue;
+      if (!tmToCommute) {
+        return failure();
       }
 
-      if (!isCommuteFavorable(op, tmUser)) {
-        continue;
+      // We have found a user that we can and should commute above `op`.
+      performCommuteAboveRewrite(op, tmToCommute, rewriter);
+    } else {
+      for (Value operand : op->getOperands()) {
+        auto tmOperand = operand.getDefiningOp<TMOpType>();
+        if (!tmOperand) {
+          continue;
+        }
+
+        if (!isCommuteBelowViable(op, tmOperand)) {
+          continue;
+        }
+
+        if (!isCommuteBelowFavorable(op, tmOperand)) {
+          continue;
+        }
+        tmToCommute = tmOperand;
+        break;
       }
-      userToCommute = tmUser;
-      break;
+
+      if (!tmToCommute) {
+        return failure();
+      }
+
+      // We have found a user that we can and should commute below `op`.
+      performCommuteBelowRewrite(op, tmToCommute, rewriter);
     }
 
-    if (!userToCommute) {
-      return failure();
-    }
-
-    // We have found a user that we can and should commute above `op`.
-    performCommuteRewrite(op, userToCommute, rewriter);
     return success();
   }
 
 private:
   // This should return `success()` if `tmUser` can be commuted above `op`.
-  virtual bool isCommuteViable(CommutableOpOrInterface op,
-                               TMOpType tmUser) const = 0;
+  virtual bool isCommuteAboveViable(CommutableOpOrInterface op,
+                                    TMOpType tmUser) const = 0;
+
+  virtual bool isCommuteBelowViable(CommutableOpOrInterface op,
+                                    TMOpType tmUser) const = 0;
 
   // This should return `success()` if there is a user of `op` that we should
   // commute above `op`. Note that the difference between this method and
-  // `isCommuteViable` is that this function should be used to determine if
-  // commuting is favourable, while `isCommuteViable` should be used to
+  // `isCommuteAboveViable` is that this function should be used to determine if
+  // commuting is favourable, while `isCommuteAboveViable` should be used to
   // determine if commuting is possible.
   //
   // An example of when a commute is viable AND favourable is as follows:
@@ -86,22 +119,31 @@ private:
   // elementwise too. This means the commute does not cause any ops to be erased
   // in the future and adds 9 ops.
   //
-  virtual bool isCommuteFavorable(CommutableOpOrInterface op,
-                                  TMOpType tmUser) const = 0;
+  virtual bool isCommuteAboveFavorable(CommutableOpOrInterface op,
+                                       TMOpType tmUser) const = 0;
 
-  virtual void performCommuteRewrite(CommutableOpOrInterface op,
-                                     TMOpType tmUser,
-                                     PatternRewriter &rewriter) const = 0;
+  virtual bool isCommuteBelowFavorable(CommutableOpOrInterface op,
+                                       TMOpType tmUser) const = 0;
+
+  virtual void performCommuteAboveRewrite(CommutableOpOrInterface op,
+                                          TMOpType tmOperand,
+                                          PatternRewriter &rewriter) const = 0;
+
+  virtual void performCommuteBelowRewrite(CommutableOpOrInterface op,
+                                          TMOpType tmOperand,
+                                          PatternRewriter &rewriter) const = 0;
 };
 
 // Using this class will allow you to match against any operation that
 // implements a given interface. This is useful for implementing the elementwise
 // patterns. This way we do not have to create a separate pattern for each
 // elementwise operation.
-template <typename TMOpType, typename CommutableOpInterface>
+template <typename TMOpType, typename CommutableOpInterface,
+          CommuteDirection direction>
 class TTIRCommuteOpInterfaceRewritePattern
     : public OpInterfaceRewritePattern<CommutableOpInterface>,
-      public TTIRCommuteRewritePatternBase<TMOpType, CommutableOpInterface> {
+      public TTIRCommuteRewritePatternBase<TMOpType, CommutableOpInterface,
+                                           direction> {
 public:
   using OpInterfaceRewritePattern<
       CommutableOpInterface>::OpInterfaceRewritePattern;
@@ -114,10 +156,10 @@ public:
 
 // Using this class will allow you to match against a specific operation type:
 // `CommutableOp`.
-template <typename TMOpType, typename CommutableOp>
+template <typename TMOpType, typename CommutableOp, CommuteDirection direction>
 class TTIRCommuteOpRewritePattern
     : public OpRewritePattern<CommutableOp>,
-      public TTIRCommuteRewritePatternBase<TMOpType, CommutableOp> {
+      public TTIRCommuteRewritePatternBase<TMOpType, CommutableOp, direction> {
 public:
   using OpRewritePattern<CommutableOp>::OpRewritePattern;
 
@@ -128,8 +170,8 @@ public:
 };
 
 inline bool checkIdenticalTransposes(Operation *op1, Operation *op2) {
-  auto transposeOp1 = dyn_cast<ttir::TransposeOp>(op1);
-  auto transposeOp2 = dyn_cast<ttir::TransposeOp>(op2);
+  auto transposeOp1 = dyn_cast_or_null<ttir::TransposeOp>(op1);
+  auto transposeOp2 = dyn_cast_or_null<ttir::TransposeOp>(op2);
   if (transposeOp1 && transposeOp2) {
     return transposeOp1.getDim0() == transposeOp2.getDim0() &&
            transposeOp1.getDim1() == transposeOp2.getDim1();
@@ -139,8 +181,8 @@ inline bool checkIdenticalTransposes(Operation *op1, Operation *op2) {
 }
 
 inline bool checkIdenticalPermutes(Operation *op1, Operation *op2) {
-  auto permuteOp1 = dyn_cast<ttir::PermuteOp>(op1);
-  auto permuteOp2 = dyn_cast<ttir::PermuteOp>(op2);
+  auto permuteOp1 = dyn_cast_or_null<ttir::PermuteOp>(op1);
+  auto permuteOp2 = dyn_cast_or_null<ttir::PermuteOp>(op2);
   if (permuteOp1 && permuteOp2) {
     return permuteOp1.getPermutation() == permuteOp2.getPermutation();
   }
@@ -149,8 +191,8 @@ inline bool checkIdenticalPermutes(Operation *op1, Operation *op2) {
 }
 
 inline bool checkIdenticalReshapes(Operation *op1, Operation *op2) {
-  auto reshapeOp1 = dyn_cast<ttir::ReshapeOp>(op1);
-  auto reshapeOp2 = dyn_cast<ttir::ReshapeOp>(op2);
+  auto reshapeOp1 = dyn_cast_or_null<ttir::ReshapeOp>(op1);
+  auto reshapeOp2 = dyn_cast_or_null<ttir::ReshapeOp>(op2);
   if (reshapeOp1 && reshapeOp2) {
     return reshapeOp1.getShape() == reshapeOp2.getShape();
   }

@@ -2819,8 +2819,6 @@ def TTIR_TransposeOp : TTIR_NamedOp<"transpose", [TTIR_TensorManipulation]> {
     let hasVerifier = 1;
 
     let hasFolder = 1;
-
-    let hasCanonicalizer = 1;
 }
 
 def TTIR_ConcatOp : TTIR_NamedOp<"concat"> {

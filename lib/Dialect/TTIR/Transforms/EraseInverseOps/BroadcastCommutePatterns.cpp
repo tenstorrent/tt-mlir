@@ -10,15 +10,17 @@
 namespace mlir::tt::ttir {
 
 namespace {
+template <CommuteDirection direction>
 class TTIRCommuteTransposesAboveBroadcast
-    : public TTIRCommuteOpRewritePattern<ttir::TransposeOp, ttir::BroadcastOp> {
+    : public TTIRCommuteOpRewritePattern<ttir::TransposeOp, ttir::BroadcastOp,
+                                         direction> {
 public:
-  using TTIRCommuteOpRewritePattern<
-      ttir::TransposeOp, ttir::BroadcastOp>::TTIRCommuteOpRewritePattern;
+  using TTIRCommuteOpRewritePattern<ttir::TransposeOp, ttir::BroadcastOp,
+                                    direction>::TTIRCommuteOpRewritePattern;
 
-  void performCommuteRewrite(ttir::BroadcastOp op,
-                             ttir::TransposeOp transposeUser,
-                             PatternRewriter &rewriter) const override {
+  void performCommuteAboveRewrite(ttir::BroadcastOp op,
+                                  ttir::TransposeOp transposeUser,
+                                  PatternRewriter &rewriter) const override {
 
     auto operand = op.getInput();
     auto tmResultType = transposeUser.getResult().getType();
@@ -56,18 +58,38 @@ public:
     }
   }
 
+  void performCommuteBelowRewrite(ttir::BroadcastOp op,
+                                  ttir::TransposeOp transposeOperand,
+                                  PatternRewriter &rewriter) const override {
+    // TODO
+  }
+
 private:
-  bool isCommuteViable(ttir::BroadcastOp op, ttir::TransposeOp) const override {
+  bool isCommuteAboveViable(ttir::BroadcastOp op,
+                            ttir::TransposeOp) const override {
     // We can always commute a transpose above a broadcast.
     return true;
   }
 
-  bool isCommuteFavorable(ttir::BroadcastOp op,
-                          ttir::TransposeOp) const override {
+  bool isCommuteBelowViable(ttir::BroadcastOp op,
+                            ttir::TransposeOp) const override {
+    // We can always commute a transpose below a broadcast.
+    return true;
+  }
+
+  bool isCommuteAboveFavorable(ttir::BroadcastOp op,
+                               ttir::TransposeOp) const override {
     // We should always commute a transpose above a broadcast if all users are
     // an identical transpose. This includes the case where there is one user.
     SmallVector<Operation *> users(op->getUsers());
     return !users.empty() && checkAllUsersAreIdenticalTms(users);
+  }
+
+  bool isCommuteBelowFavorable(ttir::BroadcastOp op,
+                               ttir::TransposeOp) const override {
+    // Commute below is always favorable as there are no other operands to
+    // consider
+    return true;
   }
 };
 } // namespace
@@ -254,13 +276,16 @@ getNewReshapeAndBroadcastDims(ArrayRef<int64_t> originalShape,
 }
 
 namespace {
+template <CommuteDirection direction>
 class TTIRCommuteReshapeAboveBroadcast
-    : public TTIRCommuteOpRewritePattern<ttir::ReshapeOp, ttir::BroadcastOp> {
+    : public TTIRCommuteOpRewritePattern<ttir::ReshapeOp, ttir::BroadcastOp,
+                                         direction> {
 public:
-  using TTIRCommuteOpRewritePattern<
-      ttir::ReshapeOp, ttir::BroadcastOp>::TTIRCommuteOpRewritePattern;
-  void performCommuteRewrite(ttir::BroadcastOp op, ttir::ReshapeOp reshapeUser,
-                             PatternRewriter &rewriter) const override {
+  using TTIRCommuteOpRewritePattern<ttir::ReshapeOp, ttir::BroadcastOp,
+                                    direction>::TTIRCommuteOpRewritePattern;
+  void performCommuteAboveRewrite(ttir::BroadcastOp op,
+                                  ttir::ReshapeOp reshapeUser,
+                                  PatternRewriter &rewriter) const override {
 
     auto originalShape = op.getInput().getType().getShape();
     // auto broadcastShape = op.getResult().getType().getShape();
@@ -302,9 +327,15 @@ public:
     }
   }
 
+  void performCommuteBelowRewrite(ttir::BroadcastOp op,
+                                  ttir::ReshapeOp reshapeOperand,
+                                  PatternRewriter &rewriter) const override {
+    // TODO
+  }
+
 private:
-  bool isCommuteViable(ttir::BroadcastOp op,
-                       ttir::ReshapeOp reshapeUser) const override {
+  bool isCommuteAboveViable(ttir::BroadcastOp op,
+                            ttir::ReshapeOp reshapeUser) const override {
 
     // If we have a broadcast -> reshape sequence, where the reshape places
     // broadcasted data along one or more of the same axes as real data. The
@@ -326,25 +357,41 @@ private:
                .has_value();
   }
 
-  bool isCommuteFavorable(ttir::BroadcastOp op,
-                          ttir::ReshapeOp) const override {
+  bool isCommuteBelowViable(ttir::BroadcastOp op,
+                            ttir::ReshapeOp reshapeOperand) const override {
+    // TODO implement this
+    return false;
+  }
+
+  bool isCommuteAboveFavorable(ttir::BroadcastOp op,
+                               ttir::ReshapeOp) const override {
     // We should always commute a reshape above a broadcast if all users are an
     // identical reshape. This includes the case where there is one user.
     SmallVector<Operation *> users(op->getUsers());
     return !users.empty() && checkAllUsersAreIdenticalTms(users);
   }
+
+  bool isCommuteBelowFavorable(ttir::BroadcastOp op,
+                               ttir::ReshapeOp) const override {
+    // We should always commute a reshape below a broadcast as there are no
+    // other operands to consider.
+    return true;
+  }
 };
 } // namespace
 
 namespace {
+template <CommuteDirection direction>
 class TTIRCommutePermuteAboveBroadcast
-    : public TTIRCommuteOpRewritePattern<ttir::PermuteOp, ttir::BroadcastOp> {
+    : public TTIRCommuteOpRewritePattern<ttir::PermuteOp, ttir::BroadcastOp,
+                                         direction> {
 public:
-  using TTIRCommuteOpRewritePattern<
-      ttir::PermuteOp, ttir::BroadcastOp>::TTIRCommuteOpRewritePattern;
+  using TTIRCommuteOpRewritePattern<ttir::PermuteOp, ttir::BroadcastOp,
+                                    direction>::TTIRCommuteOpRewritePattern;
 
-  void performCommuteRewrite(ttir::BroadcastOp op, ttir::PermuteOp permuteUser,
-                             PatternRewriter &rewriter) const override {
+  void performCommuteAboveRewrite(ttir::BroadcastOp op,
+                                  ttir::PermuteOp permuteUser,
+                                  PatternRewriter &rewriter) const override {
     auto operand = op.getInput();
     auto operandShape = operand.getType().getShape();
     auto tmResultType = permuteUser.getResult().getType();
@@ -379,28 +426,47 @@ public:
     }
   }
 
+  void performCommuteBelowRewrite(ttir::BroadcastOp op,
+                                  ttir::PermuteOp permuteOperand,
+                                  PatternRewriter &rewriter) const override {
+    // TODO
+  }
+
 private:
-  bool isCommuteViable(ttir::BroadcastOp op, ttir::PermuteOp) const override {
+  bool isCommuteAboveViable(ttir::BroadcastOp op,
+                            ttir::PermuteOp) const override {
     // We can always commute a permute above a broadcast.
     return true;
   }
 
-  bool isCommuteFavorable(ttir::BroadcastOp op,
-                          ttir::PermuteOp) const override {
+  bool isCommuteBelowViable(ttir::BroadcastOp op,
+                            ttir::PermuteOp) const override {
+    // We can always commute a permute below a broadcast.
+    return true;
+  }
+
+  bool isCommuteAboveFavorable(ttir::BroadcastOp op,
+                               ttir::PermuteOp) const override {
     // We should always commute a permute above a broadcast if all users are an
     // identical permutation. This includes the case where there is one user.
     SmallVector<Operation *> users(op->getUsers());
     return !users.empty() && checkAllUsersAreIdenticalTms(users);
+  }
+
+  bool isCommuteBelowFavorable(ttir::BroadcastOp op,
+                               ttir::PermuteOp) const override {
+    // We should always commute a permute below a broadcast as there are no
+    // other operands to consider.
+    return true;
   }
 };
 } // namespace
 
 void populateBroadcastCommutePatterns(MLIRContext *ctx,
                                       RewritePatternSet &patterns) {
-  patterns
-      .add<TTIRCommuteTransposesAboveBroadcast,
-           TTIRCommuteReshapeAboveBroadcast, TTIRCommutePermuteAboveBroadcast>(
-          ctx);
+  patterns.add<TTIRCommuteTransposesAboveBroadcast<CommuteDirection::ABOVE>,
+               TTIRCommuteReshapeAboveBroadcast<CommuteDirection::ABOVE>,
+               TTIRCommutePermuteAboveBroadcast<CommuteDirection::ABOVE>>(ctx);
 }
 
 } // namespace mlir::tt::ttir
