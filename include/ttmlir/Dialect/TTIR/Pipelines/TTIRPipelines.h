@@ -27,6 +27,12 @@ struct StableHLOToTTIRPipelineOptions
       // This pass will convert stablehlo.composite ops into func.call ops so
       // that the TTIR inliner pass may inline the ops.
       llvm::cl::init(true)};
+  // Flag-style option for enabling aggressive simplification
+  Option<bool> enableAggressiveSimplification{
+      *this, "enable-aggressive-simplification",
+      llvm::cl::desc("Enable aggressive simplification of StableHLO operations "
+                     "before conversion."),
+      llvm::cl::init(false)};
 };
 #endif
 
