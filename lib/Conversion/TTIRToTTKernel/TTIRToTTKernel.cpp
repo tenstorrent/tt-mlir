@@ -432,6 +432,8 @@ public:
     // Translate the src coordinates to virtual coordinates.
     auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
         rewriter, loc, chipDesc, ValueRange{gridY, gridX});
+    rewriter.create<ttkernel::DPrintOp>(
+        loc, "get_noc_addr(x={}, y={}, addr={})\\n", virtX, virtY, addr);
     return rewriter.create<ttkernel::GetNocAddrOp>(loc, virtX, virtY, addr);
   }
 
@@ -493,6 +495,11 @@ public:
             op.getLoc(), op.getMcastShape()[0], op.getMcastShape()[1]);
         auto numDests = rewriter.create<arith::IndexCastOp>(
             op.getLoc(), rewriter.getI32Type(), numDestsIdx);
+        rewriter.create<ttkernel::DPrintOp>(
+            op.getLoc(),
+            "get_noc_multicast_addr (virtX={}, virtY={}, mcastEndX={}, "
+            "mcastEndY={}, dstL1Start={})\\n",
+            virtX, virtY, mcastEndX, mcastEndY, dstL1Start);
         auto mcastAddr =
             rewriter.create<ttkernel::ExperimentalGetNocMulticastAddrOp>(
                 op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, dstL1Start,
@@ -500,6 +507,11 @@ public:
         if (adaptor.getSrc() == adaptor.getDst()) {
           // If src and dst refer to the same memref, we do not loopback mcast
           // Dests are one less because the sender core is not included
+          rewriter.create<ttkernel::DPrintOp>(
+              op.getLoc(),
+              "noc_async_write_multicast(srcL1Start={}, mcastAddr={}, "
+              "transferSize={}, numDests={})\\n",
+              srcL1Start, mcastAddr, transferSize, numDests);
           rewriter.create<ttkernel::NocAsyncWriteMulticastOp>(
               op.getLoc(), srcL1Start, mcastAddr, transferSize, numDests,
               nullptr, nullptr, nullptr);
@@ -521,6 +533,11 @@ public:
         // Convert local coordinates to virtual coordinates
         auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
             rewriter, op.getLoc(), chipDesc, ValueRange{myY, myX});
+        rewriter.create<ttkernel::DPrintOp>(
+            op->getLoc(),
+            "get_noc_addr for local async write(x={}, y={}, addr={})\\n", virtX,
+            virtY, dstL1Start);
+
         auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
             op.getLoc(), virtX, virtY, dstL1Start);
         rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Start,
@@ -541,6 +558,10 @@ public:
       auto dstL1Addr = buildL1Address<ttkernel::GetWritePtrOp>(
           rewriter, op.getLoc(), adaptor.getDst(), op.getDstIndices());
       auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
+      rewriter.create<ttkernel::DPrintOp>(
+          op.getLoc(),
+          "noc_async_read(srcNocAddr={}, dstL1Addr={}, size={})\\n", srcNocAddr,
+          dstL1Addr, size);
       rewriter.create<ttkernel::NocAsyncReadOp>(op.getLoc(), srcNocAddr,
                                                 dstL1Addr, size);
       isRead = true;
@@ -827,6 +848,10 @@ public:
              "ttir.semaphore_set to single remote core is illegal.");
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, op.getLoc(), chipDesc, op.getDstCoreIndex());
+      rewriter.create<ttkernel::DPrintOp>(
+          op.getLoc(), "get_noc_addr for semaphore (x={}, y={}, addr={})\\n",
+          virtX, virtY, semaphoreAddr);
+
       auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
           op.getLoc(), virtX, virtY, semaphoreAddr);
       rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreIncOp>(op, nocAddr,
@@ -843,6 +868,11 @@ public:
           op.getLoc(), op.getMcastShape()[0], op.getMcastShape()[1]);
       Value numDests = rewriter.create<arith::IndexCastOp>(
           op.getLoc(), rewriter.getI32Type(), numDestsIdx);
+      rewriter.create<ttkernel::DPrintOp>(
+          op.getLoc(),
+          "get_noc_multicast_addr (virtX={}, virtY={}, mcastEndX={}, "
+          "mcastEndY={}, semaphoreAddr={})\\n",
+          virtX, virtY, mcastEndX, mcastEndY, semaphoreAddr);
       auto mcastAddr =
           rewriter.create<ttkernel::ExperimentalGetNocMulticastAddrOp>(
               op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, semaphoreAddr,

@@ -12,7 +12,7 @@ from ttmlir.dialects import ttir, tt
 from ttmlir.ir import *
 
 
-@pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64), (64, 128)])
+@pytest.mark.parametrize("shape", [(512, 1024), (1024, 2048)])
 def test_tilize(shape: Shape, request):
     def tilize(
         in0: Operand,
@@ -22,13 +22,13 @@ def test_tilize(shape: Shape, request):
 
         to_device = builder.tilize(
             in0,
-            output_type=builder.metal_tensor_layout(shape, (1, 1), True),
+            output_type=builder.metal_tensor_layout(shape, (8, 8), True),
             unit_attrs=unit_attrs,
         )
 
         view_as_rm = builder.view_layout(
             to_device,
-            output_type=builder.metal_tensor_layout(shape, (1, 1), False),
+            output_type=builder.metal_tensor_layout(shape, (8, 8), False),
             reinterpret_layout=True,
             unit_attrs=unit_attrs,
         )
@@ -99,7 +99,7 @@ def test_untilize(shape: Shape, request):
     )
 
 
-@pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64)])
+@pytest.mark.parametrize("shape", [(512, 1024), (1024, 2048)])
 def test_tilize_untilize(shape: Shape, request):
     def tilize_untilize(
         in0: Operand,
@@ -108,7 +108,7 @@ def test_tilize_untilize(shape: Shape, request):
     ):
         to_device = builder.tilize(
             in0,
-            output_type=builder.metal_tensor_layout(shape, (1, 1), True),
+            output_type=builder.metal_tensor_layout(shape, (8, 8), True),
             unit_attrs=unit_attrs,
         )
         from_device = builder.untilize(

@@ -28,12 +28,12 @@
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include "mlir/IR/BuiltinTypeInterfaces.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <mlir/IR/BuiltinTypeInterfaces.h>
-#include <mlir/IR/BuiltinTypes.h>
 #include <vector>
 
 namespace mlir::tt::ttmetal {
@@ -204,17 +204,19 @@ memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   std::array<int32_t, 2> pageShapeInElements = {
       pageShape.y() / elementShape.y(), pageShape.x() / elementShape.x()};
 
-  uint64_t pageSize;
-  if (mlir::isa<TileType>(memref.getElementType())) {
-    pageSize = pageShapeInElements[0] * pageShapeInElements[1] * elementSize;
-  } else {
-    auto tileShape = TileType::getDefaultShape();
-    int64_t alignSize = tileShape[0] * tileShape[1] * elementSize;
+  uint64_t pageSize =
+      pageShapeInElements[0] * pageShapeInElements[1] * elementSize;
+  // if (mlir::isa<TileType>(memref.getElementType())) {
+  //   pageSize = pageShapeInElements[0] * pageShapeInElements[1] * elementSize;
+  // } else {
+  //   auto tileShape = TileType::getDefaultShape();
+  //   int64_t alignSize = tileShape[0] * tileShape[1] * elementSize;
 
-    pageSize = ttmlir::utils::alignUp(pageShapeInElements[0] *
-                                          pageShapeInElements[1] * elementSize,
-                                      alignSize);
-  }
+  //   pageSize = ttmlir::utils::alignUp(pageShapeInElements[0] *
+  //                                         pageShapeInElements[1] *
+  //                                         elementSize,
+  //                                     alignSize);
+  // }
 
   return target::metal::CreateShardedBufferConfig(*cache.fbb, size, pageSize,
                                                   shardSpecBuffer);
@@ -222,8 +224,8 @@ memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
 
 static flatbuffers::Offset<target::metal::CircularBufferConfig>
 memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
-                                           MemRefType memref,
-                                           DeviceAttr device) {
+                                           MemRefType memref, DeviceAttr device,
+                                           Value value) {
   auto deviceLayout =
       mlir::dyn_cast_if_present<DeviceLayoutInterface>(memref.getLayout());
   if (!deviceLayout) {
@@ -231,9 +233,10 @@ memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   }
 
   auto shardLayout = mlir::cast<ShardLayoutAttr>(deviceLayout);
-  auto memrefGridShape = shardLayout.getGridShape(memref);
+  // auto memrefGridShape = shardLayout.getGridShape(memref);
+  auto cbGridShape = llvm::SmallVector<int64_t>{8, 8};
   std::vector<target::Dim2dRange> coreRangeSet =
-      toFlatbuffer(cache, memrefGridShape, device.getWorkerGrid().getMapping());
+      toFlatbuffer(cache, cbGridShape, device.getWorkerGrid().getMapping());
 
   uint64_t shardSize =
       device.getMemrefSizeBytes(memref, 0, /*includeBuffers=*/true);
@@ -246,7 +249,7 @@ memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
 
 static flatbuffers::Offset<target::metal::BufferDesc>
 memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
-                       DeviceAttr device) {
+                       DeviceAttr device, Value value) {
   std::vector<int32_t> shape =
       ttmlir::utils::castContainer<std::vector<int32_t>>(memref.getShape());
   target::Dim2d elementShape(1, 1);
@@ -271,8 +274,8 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
                                                 elementShape);
 
   flatbuffers::Offset<target::metal::CircularBufferConfig>
-      circularBufferConfig =
-          memrefTypeToCircularBufferConfigFlatbuffer(cache, memref, device);
+      circularBufferConfig = memrefTypeToCircularBufferConfigFlatbuffer(
+          cache, memref, device, value);
 
   return target::metal::CreateBufferDescDirect(
       *cache.fbb, &shape, &elementShape, toFlatbuffer(cache, dtype),
@@ -286,7 +289,7 @@ bufferValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
   assert(device);
   auto memrefType = mlir::cast<MemRefType>(value.getType());
   auto bufferDesc =
-      cache.getOrCreate(memrefType, memrefTypeToFlatbuffer, device);
+      cache.getOrCreate(memrefType, memrefTypeToFlatbuffer, device, value);
   return target::metal::CreateBufferRef(*cache.fbb, cache.nextGlobalId(),
                                         address, bufferDesc);
 }

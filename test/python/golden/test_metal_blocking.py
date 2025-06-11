@@ -161,7 +161,7 @@ def test_matmul_ttnn(
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
         module_dump=True,
-        print_ir=True,
+        print_ir=False,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
