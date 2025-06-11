@@ -25,6 +25,8 @@ public:
     RewritePatternSet commutePatterns(&getContext());
     populateElementwiseCommutePatterns(&getContext(), commutePatterns);
     populateBroadcastCommutePatterns(&getContext(), commutePatterns);
+    mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(commutePatterns,
+                                                           &getContext());
 
     if (failed(applyPatternsGreedily(getOperation(),
                                      std::move(commutePatterns)))) {
