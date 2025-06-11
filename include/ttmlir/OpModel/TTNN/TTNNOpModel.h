@@ -190,6 +190,26 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 }; // namespace TypecastOpInterface
 
 //===----------------------------------------------------------------------===//
+// ToMemoryConfigOp
+//===----------------------------------------------------------------------===//
+
+namespace ToMemoryConfigOpInterface {
+llvm::Expected<OpConstraints>
+getOpConstraints(GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                 mlir::tt::ttnn::MemoryConfigAttr memoryConfig,
+                 llvm::ArrayRef<int64_t> outputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+llvm::Expected<size_t>
+getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+             mlir::tt::ttnn::MemoryConfigAttr memoryConfig,
+             llvm::ArrayRef<int64_t> outputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+}; // namespace ToMemoryConfigOpInterface
+
+//===----------------------------------------------------------------------===//
 // ToLayoutOp
 //===----------------------------------------------------------------------===//
 

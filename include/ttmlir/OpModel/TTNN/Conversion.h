@@ -34,7 +34,11 @@ std::optional<::tt::tt_metal::ShardSpec>
 getShardSpec(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
 
 ::tt::tt_metal::BufferType
+getBufferType(const mlir::tt::ttnn::BufferType &bufferType);
+
+::tt::tt_metal::BufferType
 getBufferType(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
+
 mlir::tt::ttnn::BufferType
 getBufferType(const ::tt::tt_metal::BufferType bufferType);
 
@@ -45,6 +49,9 @@ getTensorMemoryLayout(const ::tt::tt_metal::TensorMemoryLayout memLayout);
 
 ::tt::tt_metal::MemoryConfig
 getMemoryConfig(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
+
+::tt::tt_metal::MemoryConfig
+getMemoryConfig(const mlir::tt::ttnn::MemoryConfigAttr &memConfigAttr);
 
 ::tt::tt_metal::TensorLayout
 getTensorLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
