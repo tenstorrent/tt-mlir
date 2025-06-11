@@ -571,6 +571,7 @@ getEltwiseBinaryOpRuntime(std::string_view opName, OpSymbol opSymbol,
 // Template functions for reduction operations
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
 template <typename OpSymbol>
 llvm::Expected<OpConstraints> getReductionOpConstraints(
     std::string_view opName, OpSymbol opSymbol, GridAttr deviceGrid,
@@ -578,7 +579,6 @@ llvm::Expected<OpConstraints> getReductionOpConstraints(
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
     std::optional<llvm::ArrayRef<int64_t>> dimArg, bool keepDim,
     mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
-#ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
@@ -606,9 +606,6 @@ llvm::Expected<OpConstraints> getReductionOpConstraints(
 
   return operation::getOpConstraints(opName, inputLayout.getContext(),
                                      deviceGrid, query);
-#else
-  return OpConstraints{};
-#endif // TTMLIR_ENABLE_OPMODEL
 }
 
 template <typename OpSymbol>
@@ -619,7 +616,6 @@ getReductionOpRuntime(std::string_view opName, OpSymbol opSymbol,
                       std::optional<llvm::ArrayRef<int64_t>> dimArg,
                       bool keepDim,
                       mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
-#ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
@@ -646,10 +642,8 @@ getReductionOpRuntime(std::string_view opName, OpSymbol opSymbol,
   };
 
   return operation::getOpRuntime(opName, query);
-#else
-  return llvm::createStringError("Not Implemented");
-#endif // TTMLIR_ENABLE_OPMODEL
 }
+#endif
 
 //===----------------------------------------------------------------------===//
 // ReluOp
@@ -893,9 +887,13 @@ llvm::Expected<OpConstraints> MeanOpInterface::getOpConstraints(
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
     std::optional<llvm::ArrayRef<int64_t>> dimArg, bool keepDim,
     mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
   return getReductionOpConstraints("MeanOpInterface", ::ttnn::mean, deviceGrid,
                                    inputShape, inputLayout, dimArg, keepDim,
                                    outputLayout);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
 }
 
 llvm::Expected<size_t>
@@ -904,8 +902,12 @@ MeanOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                               std::optional<llvm::ArrayRef<int64_t>> dimArg,
                               bool keepDim,
                               mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
   return getReductionOpRuntime("MeanOpInterface", ::ttnn::mean, inputShape,
                                inputLayout, dimArg, keepDim, outputLayout);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
 }
 
 //===----------------------------------------------------------------------===//
@@ -916,9 +918,13 @@ llvm::Expected<OpConstraints> SumOpInterface::getOpConstraints(
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
     std::optional<llvm::ArrayRef<int64_t>> dimArg, bool keepDim,
     mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
   return getReductionOpConstraints("SumOpInterface", ::ttnn::sum, deviceGrid,
                                    inputShape, inputLayout, dimArg, keepDim,
                                    outputLayout);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
 }
 
 llvm::Expected<size_t>
@@ -927,8 +933,12 @@ SumOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                              std::optional<llvm::ArrayRef<int64_t>> dimArg,
                              bool keepDim,
                              mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
   return getReductionOpRuntime("SumOpInterface", ::ttnn::sum, inputShape,
                                inputLayout, dimArg, keepDim, outputLayout);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
 }
 
 //===----------------------------------------------------------------------===//
