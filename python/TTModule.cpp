@@ -33,20 +33,6 @@ void populateTTModule(nb::module_ &m) {
                         ArrayRef<int64_t>(gridShape), tileShapeRef,
                         unwrap(elementType)));
                   })
-      .def_static(
-          "derive_physical_shape",
-          [](std::vector<int64_t> logicalShape, std::vector<int64_t> gridShape,
-             std::optional<std::vector<int64_t>> tileShape) {
-            ArrayRef<int64_t> tileShapeRef;
-            if (tileShape.has_value()) {
-              tileShapeRef = ArrayRef<int64_t>(tileShape.value());
-            }
-            auto physicalShape = tt::MetalLayoutAttr::derivePhysicalShape(
-                ArrayRef<int64_t>(logicalShape), ArrayRef<int64_t>(gridShape),
-                tileShapeRef);
-            return std::vector<int64_t>(physicalShape.begin(),
-                                        physicalShape.end());
-          })
       .def("getLayout",
            [](MlirType &type) -> std::variant<tt::MetalLayoutAttr, nb::object> {
              // Make sure that this is operating on a RankedTensorType object
@@ -71,12 +57,11 @@ void populateTTModule(nb::module_ &m) {
                      auto shape = self.getLogicalShape();
                      return std::vector<int64_t>(shape.begin(), shape.end());
                    })
-      .def_prop_ro("stride",
+      .def_prop_ro("dim_alignments",
                    [](const tt::MetalLayoutAttr &self)
                        -> std::optional<std::vector<int64_t>> {
-                     if (auto stride = self.getStride(); !stride.empty()) {
-                       return std::vector<int64_t>(stride.begin(),
-                                                   stride.end());
+                     if (auto align = self.getDimAlignments(); !align.empty()) {
+                       return std::vector<int64_t>(align.begin(), align.end());
                      }
                      return std::nullopt;
                    })

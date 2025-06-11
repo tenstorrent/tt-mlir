@@ -65,8 +65,6 @@ getConstsAndParams(mlir::func::FuncOp funcOp) {
 }
 bool isTiled(RankedTensorType tensorType);
 
-ArrayRef<int64_t> getMetalTensorGridShape(RankedTensorType tensorType);
-
 ArrayRef<int64_t> getTensorTileShape(RankedTensorType tensorType);
 
 ArrayRef<int64_t> getTensorTileShapeOrEmpty(RankedTensorType tensorType);

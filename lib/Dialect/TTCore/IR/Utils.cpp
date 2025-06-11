@@ -122,15 +122,6 @@ bool isTiled(RankedTensorType tensorType) {
   return mlir::isa<TileType>(tensorType.getElementType());
 }
 
-ArrayRef<int64_t> getMetalTensorGridShape(RankedTensorType tensorType) {
-  // Reshaping tensor types to include grid/shard should be coupled to adding
-  // the MetalLayoutAttr.
-  assert(mlir::isa<tt::MetalLayoutAttr>(tensorType.getEncoding()));
-  const ArrayRef<int64_t> shape = tensorType.getShape();
-  assert(shape.size() % 2 == 0);
-  return shape.take_front(shape.size() / 2);
-}
-
 ArrayRef<int64_t> getTensorTileShape(RankedTensorType tensorType) {
   auto tileType = mlir::cast<TileType>(tensorType.getElementType());
   return tileType.getShape();

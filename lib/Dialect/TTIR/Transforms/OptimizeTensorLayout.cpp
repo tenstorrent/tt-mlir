@@ -68,7 +68,7 @@ static RankedTensorType calculateOptimalLayoutForTensorType(
   auto newResultEncoding = MetalLayoutAttr::get(
       tensor.getContext(), logicalShape, resultEncoding.getOobVal(),
       resultEncoding.getMemorySpace(), optimalOutputGrid.getShape(), tileShape,
-      resultType.getElementType());
+      resultType.getElementType(), resultEncoding.getCollapseIntervals());
 
   // For tiled tensors, manually calculate the new shape
   if (mlir::isa<TileType>(resultType.getElementType())) {
@@ -90,7 +90,8 @@ static RankedTensorType calculateOptimalLayoutForTensorType(
   } else {
     // Non-tiled: use derivePhysicalShape
     auto newPhysicalShape = MetalLayoutAttr::derivePhysicalShape(
-        logicalShape, optimalOutputGrid.getShape(), {});
+        logicalShape, optimalOutputGrid.getShape(), /*tileShape=*/{},
+        newResultEncoding.getCollapseIntervals());
     return RankedTensorType::get(newPhysicalShape, resultType.getElementType(),
                                  newResultEncoding);
   }
@@ -115,11 +116,11 @@ struct TTIRGenericTensorLayoutRewriter
       return failure();
     }
 
-    Type originalType = op->getResult(0).getType();
+    auto layout = mlir::cast<MetalLayoutAttr>(newTensorType.getEncoding());
     rewriter.modifyOpInPlace(op, [&]() {
       // Update generic grid (match worker cores to output grid)
-      op.setGridAttr(rewriter.getAttr<GridAttr>(
-          tt::getMetalTensorGridShape(newTensorType)));
+      op.setGridAttr(
+          rewriter.getAttr<GridAttr>(layout.getGridShape(newTensorType)));
     });
 
     auto dpsOp = mlir::cast<DestinationStyleOpInterface>(op.getOperation());
@@ -145,6 +146,7 @@ struct TTIRGenericTensorLayoutRewriter
       }
     }
 
+    Type originalType = op->getResult(0).getType();
     rewriter.setInsertionPointAfter(op);
     auto emptyOp = rewriter.create<ttir::EmptyOp>(op->getLoc(), originalType);
     auto toLayoutOp = rewriter.create<ttir::ToLayoutOp>(

@@ -130,9 +130,8 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
         assert(!indexingMaps.empty() && "expected non-empty indexing maps");
         assert(outputs.size() == 1 && "expected single output");
         if (!grid) {
-          RankedTensorType tensorType = mlir::dyn_cast<RankedTensorType>(outputs[0].getType());
-          if (tensorType) {
-            grid = $_builder.getAttr<tt::GridAttr>(tt::getMetalTensorGridShape(tensorType));
+          if (RankedTensorType tensorType = mlir::dyn_cast<RankedTensorType>(outputs[0].getType()); tensorType) {
+             grid = $_builder.getAttr<tt::GridAttr>(mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding()).getGridShape(tensorType));
           } else {
             MemRefType memrefType = mlir::cast<MemRefType>(outputs[0].getType());
             DeviceLayoutInterface layout = mlir::cast<DeviceLayoutInterface>(memrefType.getLayout());
@@ -160,9 +159,7 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
           auto layout = mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding());
 
           // Get shard shape (without grid dimensions)
-          auto gridShape = tt::getMetalTensorGridShape(tensorType);
-          auto tileShape = tt::getTensorTileShapeOrEmpty(tensorType);
-          auto shardShape = layout.getShardShape(gridShape, tileShape);
+          auto shardShape = layout.getShardShape(tensorType);
 
           return MemRefType::get(shardShape, tensorType.getElementType(),
                                 MemRefLayoutAttrInterface{},

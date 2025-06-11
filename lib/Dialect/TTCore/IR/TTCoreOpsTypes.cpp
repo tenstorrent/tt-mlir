@@ -691,7 +691,6 @@ mlir::tt::calculateLogicalShardShape(mlir::ArrayRef<int64_t> tensorShape,
   return shardShape;
 }
 
-// Helper function to calculate stride
 static mlir::SmallVector<int64_t> calculateStride(mlir::ArrayRef<int64_t> shape,
                                                   uint64_t elementSize) {
   mlir::SmallVector<int64_t> stride(shape.size());
@@ -704,29 +703,100 @@ static mlir::SmallVector<int64_t> calculateStride(mlir::ArrayRef<int64_t> shape,
   return stride;
 }
 
-// Static helper to derive physical shape from logical shape and grid
-llvm::SmallVector<int64_t>
-MetalLayoutAttr::derivePhysicalShape(ArrayRef<int64_t> logicalShape,
-                                     ArrayRef<int64_t> gridShape,
-                                     ArrayRef<int64_t> tileShape) {
+static llvm::SmallVector<int64_t>
+applyCollapseIntervals(llvm::ArrayRef<int64_t> shape,
+                       mlir::DenseIntElementsAttr intervals) {
+  if (!intervals) {
+    return llvm::SmallVector<int64_t>(shape);
+  }
 
+  llvm::SmallVector<int64_t> collapsedShape;
+  auto values = intervals.getValues<int64_t>();
+  auto numIntervals = intervals.getType().getShape()[0];
+  assert(intervals.getType().getShape()[1] == 2);
+
+  int64_t currentIdx = 0;
+
+  for (int64_t i = 0; i < numIntervals; ++i) {
+    int64_t start = values[i * 2];
+    int64_t end = values[i * 2 + 1];
+
+    // Handle Python-style negative indexing
+    if (start < 0)
+      start = shape.size() + start;
+    if (end < 0)
+      end = shape.size() + end;
+
+    assert(start >= 0 && static_cast<size_t>(start) < shape.size() &&
+           "Start index out of bounds");
+    assert(end >= start && static_cast<size_t>(end) <= shape.size() &&
+           "End index out of bounds");
+
+    if (end - start == 1) {
+      // Single dimension interval [start, start+1) - no collapse
+      collapsedShape.push_back(shape[start]);
+    } else if (end > start) {
+      // Collapse dimensions [start, end) into a single dimension
+      int64_t collapsedDim = 1;
+      for (int64_t j = start; j < end; ++j) {
+        collapsedDim *= shape[j];
+      }
+      collapsedShape.push_back(collapsedDim);
+    }
+    currentIdx = end;
+  }
+
+  // Append any remaining dimensions that weren't covered by intervals.
+  for (size_t i = currentIdx; i < shape.size(); ++i) {
+    collapsedShape.push_back(shape[i]);
+  }
+
+  return collapsedShape;
+}
+
+// Utility func to take various shape fields and return the expected physical
+// shape which should be the actual tensor shape.
+llvm::SmallVector<int64_t> MetalLayoutAttr::derivePhysicalShape(
+    ArrayRef<int64_t> logicalShape, ArrayRef<int64_t> gridShape,
+    ArrayRef<int64_t> tileShape, mlir::DenseIntElementsAttr collapseIntervals) {
   llvm::SmallVector<int64_t> physicalShape;
 
-  // First, add grid dimensions
+  llvm::errs() << "DEBUG derivePhysicalShape:\n";
+  llvm::errs() << "  logicalShape: [";
+  llvm::interleaveComma(logicalShape, llvm::errs());
+  llvm::errs() << "]\n";
+  llvm::errs() << "  gridShape: [";
+  llvm::interleaveComma(gridShape, llvm::errs());
+  llvm::errs() << "]\n";
+  llvm::errs() << "  tileShape: [";
+  llvm::interleaveComma(tileShape, llvm::errs());
+  llvm::errs() << "]\n";
+  llvm::errs() << "  collapseIntervals: " << collapseIntervals << "\n";
+
+  // Step 1: Apply collapse intervals to get collapsed logical shape
+  llvm::SmallVector<int64_t> collapsedShape =
+      applyCollapseIntervals(logicalShape, collapseIntervals);
+
+  llvm::errs() << "  collapsedShape: [";
+  llvm::interleaveComma(collapsedShape, llvm::errs());
+  llvm::errs() << "]\n";
+
+  // Step 2: Add grid dimensions to physical shape
   physicalShape.append(gridShape.begin(), gridShape.end());
 
-  // Then add shard dimensions
-  assert(logicalShape.size() >= gridShape.size() &&
-         "Grid rank cannot exceed logical tensor rank");
+  // Step 3: Distribute collapsed dimensions across grid
+  assert(collapsedShape.size() >= gridShape.size() &&
+         "Grid rank cannot exceed collapsed tensor rank");
 
   if (tileShape.empty()) {
     // Without tiling: distribute dimensions across grid
-    for (size_t i = 0; i < logicalShape.size(); ++i) {
-      int64_t dim = logicalShape[i];
+    for (size_t i = 0; i < collapsedShape.size(); ++i) {
+      int64_t dim = collapsedShape[i];
       if (i < gridShape.size()) {
         // This dimension is distributed
-        assert(dim % gridShape[i] == 0 &&
-               "Logical dimension must be evenly divisible by grid dimension");
+        assert(
+            dim % gridShape[i] == 0 &&
+            "Collapsed dimension must be evenly divisible by grid dimension");
         physicalShape.push_back(dim / gridShape[i]);
       } else {
         // This dimension is not distributed
@@ -739,9 +809,9 @@ MetalLayoutAttr::derivePhysicalShape(ArrayRef<int64_t> logicalShape,
            "Tile shape must have at least 2 dimensions");
 
     // Handle all but the last tileShape.size() dimensions
-    size_t nonTiledDims = logicalShape.size() - tileShape.size();
+    size_t nonTiledDims = collapsedShape.size() - tileShape.size();
     for (size_t i = 0; i < nonTiledDims; ++i) {
-      int64_t dim = logicalShape[i];
+      int64_t dim = collapsedShape[i];
       if (i < gridShape.size()) {
         assert(dim % gridShape[i] == 0);
         physicalShape.push_back(dim / gridShape[i]);
@@ -752,73 +822,64 @@ MetalLayoutAttr::derivePhysicalShape(ArrayRef<int64_t> logicalShape,
 
     // Handle tiled dimensions - convert to tile counts
     for (size_t i = 0; i < tileShape.size(); ++i) {
-      size_t logicalIdx = nonTiledDims + i;
-      int64_t dim = logicalShape[logicalIdx];
+      size_t collapsedIdx = nonTiledDims + i;
+      int64_t dim = collapsedShape[collapsedIdx];
       int64_t tileDim = tileShape[i];
 
       // First compute shard size
       int64_t shardDim = dim;
-      if (logicalIdx < gridShape.size()) {
-        assert(dim % gridShape[logicalIdx] == 0);
-        shardDim = dim / gridShape[logicalIdx];
+      if (collapsedIdx < gridShape.size()) {
+        assert(dim % gridShape[collapsedIdx] == 0);
+        shardDim = dim / gridShape[collapsedIdx];
       }
-      llvm::errs() << "DEBUG: shardDim=" << shardDim << " tileDim=" << tileDim
-                   << " (logical dim=" << dim << ", logicalIdx=" << logicalIdx
-                   << ")\n";
+
       // Then tile the shard
       assert(shardDim % tileDim == 0 &&
              "Shard dimension must be divisible by tile dimension");
       physicalShape.push_back(shardDim / tileDim);
     }
-
-    // DON'T append tile dimensions - they're represented in the element type
-    // physicalShape.append(tileShape.begin(), tileShape.end());
   }
 
+  llvm::errs() << "  physicalShape result: [";
+  llvm::interleaveComma(physicalShape, llvm::errs());
+  llvm::errs() << "]\n";
   return physicalShape;
 }
 
-MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
-                                     ArrayRef<int64_t> logicalShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
-                                     ArrayRef<int64_t> gridShape,
-                                     ArrayRef<int64_t> tileShape,
-                                     mlir::Type elementType) {
+MetalLayoutAttr MetalLayoutAttr::get(
+    ::mlir::MLIRContext *context, ArrayRef<int64_t> logicalShape, OOBVal oobVal,
+    MemorySpace memorySpace, ArrayRef<int64_t> gridShape,
+    ArrayRef<int64_t> tileShape, mlir::Type elementType,
+    DenseIntElementsAttr collapseIntervals, ArrayRef<int64_t> dimAlignments) {
+  if (!collapseIntervals) {
+    auto intervalType =
+        RankedTensorType::get({1, 2}, IntegerType::get(context, 64));
+    collapseIntervals =
+        DenseIntElementsAttr::get(intervalType, {int64_t(0), int64_t(-1)});
+  }
+
+  assert(collapseIntervals && "Collapse intervals should not be null");
+  assert(collapseIntervals.getType().getRank() == 2 &&
+         "Collapse intervals must be a 2D array");
+  assert(collapseIntervals.getType().getShape()[1] == 2 &&
+         "Each interval must have exactly 2 elements");
+
   // Calculate physical shape and stride
-  auto physicalShape = derivePhysicalShape(logicalShape, gridShape, tileShape);
+  auto physicalShape = derivePhysicalShape(logicalShape, gridShape, tileShape,
+                                           collapseIntervals);
   auto stride =
       calculateStride(physicalShape, getElementSizeBytes(elementType));
 
   // Call the generated constructor with all parameters
-  return get(context, logicalShape, oobVal, memorySpace, stride, /*buffers=*/1);
-}
-
-// Query methods
-llvm::SmallVector<int64_t>
-MetalLayoutAttr::getShardShape(ArrayRef<int64_t> gridShape,
-                               ArrayRef<int64_t> tileShape) const {
-  auto logicalShape = getLogicalShape();
-  SmallVector<int64_t> shardShape;
-
-  // Calculate shard dimensions (logical dims divided by grid)
-  for (size_t i = 0; i < logicalShape.size(); ++i) {
-    if (i < gridShape.size() && gridShape[i] > 1) {
-      shardShape.push_back(logicalShape[i] / gridShape[i]);
-    } else {
-      shardShape.push_back(logicalShape[i]);
-    }
+  if (dimAlignments.empty()) {
+    SmallVector<int64_t> alignments(logicalShape.size(), 1);
+    alignments.front() = 32;
+    alignments.back() = 32;
+    return get(context, logicalShape, oobVal, memorySpace, alignments,
+               collapseIntervals, /*buffers=*/1);
   }
-
-  // Convert to tile counts if tiled
-  if (!tileShape.empty()) {
-    size_t tileDims = tileShape.size();
-    size_t firstTiledDim = shardShape.size() - tileDims;
-    for (size_t i = 0; i < tileDims; ++i) {
-      shardShape[firstTiledDim + i] /= tileShape[i];
-    }
-  }
-
-  return shardShape;
+  return get(context, logicalShape, oobVal, memorySpace, dimAlignments,
+             collapseIntervals, /*buffers=*/1);
 }
 
 mlir::MemRefType
@@ -826,7 +887,7 @@ MetalLayoutAttr::getMemRefType(mlir::RankedTensorType tensorType) const {
   // For the new design, memref type is just the tensor shape with grid dims
   // removed
   auto physicalShape = tensorType.getShape();
-  auto gridShape = tt::getMetalTensorGridShape(tensorType);
+  auto gridShape = getGridShape(tensorType);
 
   SmallVector<int64_t> memrefShape;
   for (size_t i = gridShape.size(); i < physicalShape.size(); ++i) {
@@ -835,14 +896,8 @@ MetalLayoutAttr::getMemRefType(mlir::RankedTensorType tensorType) const {
 
   // Use the stride information if available
   MemRefLayoutAttrInterface layoutAttr;
-  if (auto stride = getStride(); !stride.empty()) {
-    // Extract shard stride from full stride
-    SmallVector<int64_t> shardStride;
-    for (size_t i = gridShape.size(); i < stride.size(); ++i) {
-      shardStride.push_back(stride[i]);
-    }
-    layoutAttr = ShardLayoutAttr::get(getContext(), shardStride, getBuffers());
-  }
+  auto shardStride = getShardStride(tensorType);
+  layoutAttr = ShardLayoutAttr::get(getContext(), shardStride, getBuffers());
 
   return mlir::MemRefType::get(
       memrefShape, tensorType.getElementType(), layoutAttr,
@@ -851,16 +906,15 @@ MetalLayoutAttr::getMemRefType(mlir::RankedTensorType tensorType) const {
 
 // Get effective stride (use provided or calculate from shape)
 llvm::SmallVector<int64_t>
-MetalLayoutAttr::getEffectiveStride(RankedTensorType tensorType) const {
-  if (auto stride = getStride(); !stride.empty()) {
-    return SmallVector<int64_t>(stride);
+MetalLayoutAttr::getShardStride(RankedTensorType tensorType) const {
+  auto shardShape = getShardShape(tensorType);
+  SmallVector<int64_t> shardStride(shardShape.size());
+  shardStride[shardStride.size() - 1] =
+      mlir::tt::getElementSizeBytes(tensorType.getElementType());
+  for (int64_t i = static_cast<int64_t>(shardStride.size()) - 2; i >= 0; i--) {
+    shardStride[i] = shardShape[i + 1] * shardStride[i + 1];
   }
-
-  // Calculate stride from physical shape
-  auto shape = tensorType.getShape();
-  uint64_t elementSize = getElementSizeBytes(tensorType.getElementType());
-
-  return calculateStride(shape, elementSize);
+  return shardStride;
 }
 
 //
