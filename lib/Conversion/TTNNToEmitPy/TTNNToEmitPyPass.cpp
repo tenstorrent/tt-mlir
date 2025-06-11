@@ -5,19 +5,23 @@
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
 
 #include "ttmlir/Dialect/EmitPy/IR/EmitPy.h"
+#include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyTypes.h"
+#include "ttmlir/Dialect/TT/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Quant/IR/Quant.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinDialect.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
+#include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "mlir/IR/BuiltinOps.h"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -35,6 +39,9 @@ class TTNNToEmitPyTypeConverter : public TypeConverter {
 public:
   TTNNToEmitPyTypeConverter(MLIRContext *ctx) {
     addConversion([](Type type) { return type; });
+    addConversion([ctx](ttnn::DeviceType type) -> emitpy::OpaqueType {
+      return emitpy::OpaqueType::get(ctx, "ttnn::distributed::MeshDevice");
+    });
     addConversion([ctx](mlir::TensorType type) -> emitpy::OpaqueType {
       return emitpy::OpaqueType::get(ctx, "undefined tensor type");
     });
@@ -47,35 +54,86 @@ public:
 struct ConvertTTNNToEmitPyPass
     : public tt::ttnn::impl::ConvertTTNNToEmitPyBase<ConvertTTNNToEmitPyPass> {
   void runOnOperation() override {
-    mlir::ConversionTarget target(getContext());
-    target.addLegalDialect<emitpy::EmitPyDialect>();
-    target.addLegalOp<ModuleOp>();
-    target.addIllegalDialect<ttnn::TTNNDialect>();
-
-    TTNNToEmitPyTypeConverter typeConverter(&getContext());
-    RewritePatternSet patterns(&getContext());
-    populateTTNNToEmitPyPatterns(&getContext(), patterns, typeConverter);
-
-    populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
-        patterns, typeConverter);
-    target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
-      return typeConverter.isSignatureLegal(op.getFunctionType()) &&
-             typeConverter.isLegal(&op.getBody());
-    });
-    populateReturnOpTypeConversionPattern(patterns, typeConverter);
-    target.addDynamicallyLegalOp<func::ReturnOp>(
-        [&](func::ReturnOp op) { return typeConverter.isLegal(op); });
-    populateCallOpTypeConversionPattern(patterns, typeConverter);
-    target.addDynamicallyLegalOp<func::CallOp>(
-        [&](func::CallOp op) { return typeConverter.isLegal(op); });
-
-    // Apply full conversion
-    //
-    if (failed(
-            applyFullConversion(getOperation(), target, std::move(patterns)))) {
-      signalPassFailure();
+    mlir::ModuleOp module = getOperation();
+    // Only run conversion on top-level moduleOp.
+    if (module->getParentOp() != nullptr) {
       return;
     }
+
+    mlir::ConversionTarget target(getContext());
+    target.addLegalDialect<emitpy::EmitPyDialect>();
+    target.addIllegalDialect<ttnn::TTNNDialect>();
+    // mlir::ModuleOp is legal only if no attributes are present on it
+    //
+    target.addDynamicallyLegalOp<mlir::ModuleOp>(
+        [&](mlir::ModuleOp op) { return op->getAttrs().empty(); });
+
+    // Add header imports to front of module
+    //
+
+    OpBuilder builder(module);
+
+    if (module.getBodyRegion().empty()) {
+      // Parent module is empty, nothing to do here
+      //
+      signalPassFailure();
+    }
+
+    // Set insertion point to start of first module child
+    //
+    builder.setInsertionPointToStart(module.getBody(0));
+
+    // Include headers
+    //
+    builder.create<emitpy::ImportOp>(module.getLoc(), "ttnn", nullptr, nullptr,
+                                     nullptr, nullptr);
+
+    // Unwrap device_module into top-level ModuleOp (if present)
+    {
+      OpPassManager pm(ModuleOp::getOperationName());
+      pm.addPass(tt::createTTUnwrapDeviceModulePass());
+
+      if (failed(runPipeline(pm, module))) {
+        signalPassFailure();
+        return;
+      }
+    }
+
+    // TTNN -> EmitPy
+    //
+    {
+      TTNNToEmitPyTypeConverter typeConverter(&getContext());
+      RewritePatternSet patterns(&getContext());
+
+      // Func dialect handling
+      //
+      populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
+          patterns, typeConverter);
+      target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
+        return typeConverter.isSignatureLegal(op.getFunctionType()) &&
+               typeConverter.isLegal(&op.getBody());
+      });
+      populateReturnOpTypeConversionPattern(patterns, typeConverter);
+      target.addDynamicallyLegalOp<func::ReturnOp>(
+          [&](func::ReturnOp op) { return typeConverter.isLegal(op); });
+      populateCallOpTypeConversionPattern(patterns, typeConverter);
+      target.addDynamicallyLegalOp<func::CallOp>(
+          [&](func::CallOp op) { return typeConverter.isLegal(op); });
+
+      // TTNN -> EmitPy patterns
+      //
+      populateTTNNToEmitPyPatterns(&getContext(), patterns, typeConverter);
+
+      // Apply full conversion
+      //
+      if (failed(applyFullConversion(getOperation(), target,
+                                     std::move(patterns)))) {
+        signalPassFailure();
+        return;
+      }
+    }
+
+    builder.create<emitpy::MainOp>(module.getLoc());
   }
 };
 
