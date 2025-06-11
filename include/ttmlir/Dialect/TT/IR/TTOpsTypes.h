@@ -5,14 +5,23 @@
 #ifndef TTMLIR_DIALECT_TT_IR_TTOPSTYPES_H
 #define TTMLIR_DIALECT_TT_IR_TTOPSTYPES_H
 
+#include "ttmlir/Dialect/TT/IR/Utils.h"
+
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpImplementation.h"
 
-#include "ttmlir/Dialect/TT/IR/TTOpsEnums.h.inc"
-
 #include <numeric>
+
+#include "ttmlir/Dialect/TT/IR/TTAttrInterfaces.h.inc"
+#include "ttmlir/Dialect/TT/IR/TTTypeInterfaces.h.inc"
+
+#define GET_ATTRDEF_CLASSES
+#include "ttmlir/Dialect/TT/IR/TTOpsAttrDefs.h.inc"
+
+#define GET_TYPEDEF_CLASSES
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h.inc"
 
 namespace mlir::tt {
 struct PhysGridResultIdx {
@@ -33,20 +42,6 @@ struct MemoryMapResultIdx {
     NumIndices = 4,
   };
 };
-
-inline bool isSystemMemorySpace(MemorySpace memorySpace) {
-  return memorySpace == MemorySpace::System ||
-         memorySpace == MemorySpace::SystemMMIO;
-}
-
-inline bool isDeviceMemorySpace(MemorySpace memorySpace) {
-  return memorySpace == MemorySpace::DeviceDRAM ||
-         memorySpace == MemorySpace::DeviceL1;
-}
-
-inline bool isL1MemorySpace(MemorySpace memorySpace) {
-  return memorySpace == MemorySpace::DeviceL1;
-}
 
 inline void printDimensionList(mlir::AsmPrinter &printer,
                                llvm::ArrayRef<int64_t> shape) {
@@ -126,6 +121,10 @@ inline std::optional<DataType> elementTypeToDataTypeImpl(Type elementType) {
     return DataType::BFloat16;
   }
 
+  if (isa<BFloat8BType>(elementType)) {
+    return DataType::BFP_BFloat8;
+  }
+
   if (auto floatType = dyn_cast<mlir::FloatType>(elementType)) {
     switch (floatType.getWidth()) {
     // Treat f64 as f32.
@@ -169,7 +168,7 @@ inline Type dataTypeToElementType(mlir::MLIRContext *context, DataType dtype) {
   case DataType::BFP_Float8:
     return Float16Type::get(context);
   case DataType::BFP_BFloat8:
-    return BFloat16Type::get(context);
+    return BFloat8BType::get(context);
   case DataType::BFP_Float4:
     return Float16Type::get(context);
   case DataType::BFP_BFloat4:
@@ -301,18 +300,6 @@ inline uint8_t getNumberOfBits(const DataType dtype) {
     return 2;
   }
 }
-
-} // namespace mlir::tt
-
-#include "ttmlir/Dialect/TT/IR/TTAttrInterfaces.h.inc"
-
-#define GET_ATTRDEF_CLASSES
-#include "ttmlir/Dialect/TT/IR/TTOpsAttrDefs.h.inc"
-
-#define GET_TYPEDEF_CLASSES
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h.inc"
-
-namespace mlir::tt {
 
 mlir::AffineMap collapsedLinearAffineMap(
     mlir::MLIRContext *context, llvm::ArrayRef<int64_t> shape,

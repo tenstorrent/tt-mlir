@@ -8,6 +8,7 @@
 include "ttmlir/Dialect/TT/IR/TTBase.td"
 include "ttmlir/Dialect/TT/IR/TTOpsEnums.td"
 include "ttmlir/Dialect/TT/IR/TTAttrInterfaces.td"
+include "ttmlir/Dialect/TT/IR/TTTypeInterfaces.td"
 
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
@@ -608,6 +609,14 @@ def TT_Tile : TT_Type<"Tile", "tile", [MemRefElementTypeInterface]> {
     }];
 
     let genVerifyDecl = 1;
+}
+
+def TT_BFloat8B : TT_Type<"BFloat8B", "bfloat8_b", [BlockTypeInterface]> {
+  let summary = "This is MLIR type representation of BFLOAT8_B in in TTNN.";
+  let description = [{
+    This is MLIR type representation of BFLOAT8_B in TTNN.
+    It is a compressed type that represents a bfloat8_b tile.
+  }];
 }
 
 //===----------------------------------------------------------------------===//

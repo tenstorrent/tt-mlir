@@ -9,6 +9,10 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/SymbolTable.h"
 
+#include <cstdint>
+
+#include "ttmlir/Dialect/TT/IR/TTOpsEnums.h.inc"
+
 namespace mlir::tt {
 
 class DeviceOp;
@@ -17,6 +21,20 @@ class SystemDescAttr;
 
 inline constexpr llvm::StringRef getDefaultDeviceName() {
   return "default_device";
+}
+
+inline bool isSystemMemorySpace(MemorySpace memorySpace) {
+  return memorySpace == MemorySpace::System ||
+         memorySpace == MemorySpace::SystemMMIO;
+}
+
+inline bool isDeviceMemorySpace(MemorySpace memorySpace) {
+  return memorySpace == MemorySpace::DeviceDRAM ||
+         memorySpace == MemorySpace::DeviceL1;
+}
+
+inline bool isL1MemorySpace(MemorySpace memorySpace) {
+  return memorySpace == MemorySpace::DeviceL1;
 }
 
 SystemDescAttr getCurrentScopeSystemDesc(Operation *op);

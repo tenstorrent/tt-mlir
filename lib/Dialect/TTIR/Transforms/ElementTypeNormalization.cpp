@@ -16,8 +16,10 @@ namespace mlir::tt::ttir {
 namespace {
 class ElementTypeConverter : public TypeConverter {
 public:
-  ElementTypeConverter() {
-    addConversion([](RankedTensorType type) -> std::optional<RankedTensorType> {
+  ElementTypeConverter() = default;
+  ElementTypeConverter(bool enableBlockType) {
+    addConversion([enableBlockType](RankedTensorType type)
+                      -> std::optional<RankedTensorType> {
       Type elementType = type.getElementType();
 
       // Skip quantized types - don't modify them.
@@ -28,6 +30,10 @@ public:
       elementType = toTTMLIRSupportedDataType(elementType);
       if (!elementType) {
         return {};
+      }
+
+      if (enableBlockType && isa<BFloat16Type>(elementType)) {
+        elementType = BFloat8BType::get(type.getContext());
       }
 
       return RankedTensorType::get(type.getShape(), elementType,
@@ -133,8 +139,16 @@ struct ElementTypeNormalization
     : public impl::ElementTypeNormalizationBase<ElementTypeNormalization> {
   using impl::ElementTypeNormalizationBase<
       ElementTypeNormalization>::ElementTypeNormalizationBase;
+  ElementTypeNormalization(ElementTypeNormalizationOptions options)
+      : impl::ElementTypeNormalizationBase<ElementTypeNormalization>(options),
+        converter(options.enableBlockType) {}
 
   void runOnOperation() final {
+    // Ideally we would initialize the converter in the constructor,
+    // but parsing of command line options happens after the passes are
+    // registered (i.e constructed), hance we need to initialize here again.
+    converter = ElementTypeConverter(enableBlockType);
+
     // Check that all types are supported by TTMLIR.
     if (!checkSupportedTypes()) {
       signalPassFailure();

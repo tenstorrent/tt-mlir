@@ -429,6 +429,13 @@ def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::M
     "This pass walks through the graph and normalizes the element types into a list of supported types. This is useful for lowering
         to a target that only supports a subset of the element types.
   }];
+
+  let options = [
+      Option<"enableBlockType",
+             "enable-block-type",
+             "bool", /*default=*/"false",
+             "Enable block type.">
+  ];
 }
 
 def TTIRFlattenSlidingWindow: Pass<"ttir-flatten-sliding-window", "::mlir::ModuleOp">

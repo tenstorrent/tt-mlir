@@ -10,6 +10,12 @@ mlir_tablegen(TTAttrInterfaces.cpp.inc -gen-attr-interface-defs)
 add_public_tablegen_target(TTAttrInterfacesIncGen)
 add_dependencies(mlir-headers TTAttrInterfacesIncGen)
 
+set(LLVM_TARGET_DEFINITIONS TTTypeInterfaces.td)
+mlir_tablegen(TTTypeInterfaces.h.inc -gen-type-interface-decls)
+mlir_tablegen(TTTypeInterfaces.cpp.inc -gen-type-interface-defs)
+add_public_tablegen_target(TTTypeInterfacesIncGen)
+add_dependencies(mlir-headers TTTypeInterfacesIncGen)
+
 set(LLVM_TARGET_DEFINITIONS TTOps.td)
 mlir_tablegen(TTOpsAttrDefs.h.inc -gen-attrdef-decls)
 mlir_tablegen(TTOpsAttrDefs.cpp.inc -gen-attrdef-defs)

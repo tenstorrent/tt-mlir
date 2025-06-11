@@ -25,9 +25,9 @@
 
 using namespace mlir::tt;
 
-#include "ttmlir/Dialect/TT/IR/TTOpsEnums.cpp.inc"
-
 #include "ttmlir/Dialect/TT/IR/TTAttrInterfaces.cpp.inc"
+#include "ttmlir/Dialect/TT/IR/TTOpsEnums.cpp.inc"
+#include "ttmlir/Dialect/TT/IR/TTTypeInterfaces.cpp.inc"
 
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.cpp.inc"
