@@ -362,6 +362,12 @@ public:
                                                inputShape.end());
       reshapedShape.insert(reshapedShape.begin() + allGatherDim, 1);
 
+      // If we have a 1D original gather, we need to add another dimension of
+      // size one to the end of the shape to make it 3D.
+      if (reshapedShape.size() == 2) {
+        reshapedShape.push_back(1);
+      }
+
       RankedTensorType reshapedType =
           utils::RankedTensorTypeFactory::create(inputType, reshapedShape);
       auto reshapedShapeAttr =
@@ -397,8 +403,8 @@ public:
     // Case 2: Need to permute input if allGatherDim is not the first dimension
     if (allGatherDim != 0) {
       // Create permutation: bring allGatherDim to front
-      llvm::SmallVector<int64_t> permutation(rank);
-      std::iota(permutation.begin(), permutation.end(), 0);
+      llvm::SmallVector<int64_t> permutation(
+          llvm::to_vector(llvm::seq<int64_t>(rank)));
       std::swap(permutation[0], permutation[allGatherDim]);
 
       auto permutedShape =
