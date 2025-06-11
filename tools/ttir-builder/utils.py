@@ -280,8 +280,8 @@ def compile_to_flatbuffer(
     mesh_shape: Optional[Tuple[int, int]] = None,
     module_dump: bool = True,
     argument_types_string: Optional[str] = None,
-    custom_pipeline: Union[Callable, str] = None,
-    pipeline_options: List[str] = None,
+    custom_pipeline: Optional[Union[Callable, str]] = None,
+    pipeline_options: Optional[List[str]] = None,
     print_ir: Union[bool, str] = False,
 ):
     """
