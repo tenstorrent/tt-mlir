@@ -26,6 +26,7 @@
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
 #include "stablehlo/transforms/Passes.h"
+#include "stablehlo/transforms/optimization/Passes.h"
 #endif
 
 namespace mlir::tt::ttir {
@@ -43,6 +44,9 @@ void createStableHLOToTTIRPipeline(
     pm.addPass(stablehlo::createStablehloLegalizeCompositeToCallPass());
   }
   pm.addPass(mlir::createInlinerPass());
+  if (options.enableAggressiveSimplification) {
+    pm.addPass(stablehlo::createStablehloAggressiveSimplificationPass());
+  }
   pm.addPass(createConvertStableHLOToTTIRPass());
   pm.addPass(createTTIRTensorAnnotationCleanupPass());
 }
