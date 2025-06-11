@@ -570,7 +570,7 @@ class Run:
 
                 try:
 
-                    fb_mesh_shape = bin.get_program(0).mesh_shape()
+                    fb_mesh_shape = bin.get_program(0).mesh_shape
                     num_mesh_devices = reduce(operator.mul, fb_mesh_shape, 1)
 
                     # Verify that the expected number of devices in the fb mesh shape is valid on this system

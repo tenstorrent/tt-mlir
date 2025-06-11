@@ -49,7 +49,8 @@ void registerBinaryBindings(nb::module_ &m) {
       .def("get_program_cpp", &tt::runtime::Binary::getProgramCpp)
       .def("get_tensor_cache", [](tt::runtime::Binary &bin) {
         return bin.getConstEvalTensorCache();
-      });
+      })
+      .def("get_program_mesh_shape", &tt::runtime::Binary::getProgramMeshShape);
 
   nb::class_<tt::runtime::SystemDesc>(m, "SystemDesc")
       .def_prop_ro("version", &tt::runtime::SystemDesc::getVersion)

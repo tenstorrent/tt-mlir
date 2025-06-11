@@ -781,6 +781,7 @@ class Binary(Flatbuffer):
             self.name = self.fbb.get_program_name(self.index)
             self.inputs = ttrt.binary.program_inputs_as_dict(self.fbb, self.index)
             self.outputs = ttrt.binary.program_outputs_as_dict(self.fbb, self.index)
+            self.mesh_shape = ttrt.binary.program_mesh_shape(self.fbb, self.index)
             self.input_tensors = []
             self.output_tensors = []
 
@@ -789,9 +790,6 @@ class Binary(Flatbuffer):
 
         def num_outputs(self):
             return len(self.outputs)
-
-        def mesh_shape(self) -> Tuple[int, int]:
-            return tuple(self.program["mesh_shape"].values())
 
         def populate_inputs(self, init_fn, golden_inputs=[]):
             if len(golden_inputs) > 0:

@@ -579,6 +579,21 @@ std::uint32_t Binary::getNumPrograms() const {
   LOG_FATAL("Unsupported binary format");
 }
 
+const tt::target::Dim2d *
+Binary::getProgramMeshShape(std::uint32_t programIndex) const {
+  if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
+          handle.get())) {
+    return ttnn::getBinary(*this)->programs()->Get(programIndex)->mesh_shape();
+  }
+
+  if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
+          handle.get())) {
+    return metal::getBinary(*this)->programs()->Get(programIndex)->mesh_shape();
+  }
+
+  LOG_FATAL("Unsupported binary format");
+}
+
 std::string Binary::getProgramName(std::uint32_t programIndex) const {
   if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
           handle.get())) {
