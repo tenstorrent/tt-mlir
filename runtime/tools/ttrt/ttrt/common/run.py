@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+import sys
 import time
 
 from ttrt.common.util import *
@@ -64,7 +65,7 @@ class Run:
         Run.register_arg(
             name="--init",
             type=str,
-            default=None,
+            default="randn",
             choices=Run.TorchInitializer.init_fns,
             help="function to initialize tensors with (implies --disable-golden)",
         )
@@ -537,7 +538,7 @@ class Run:
             if self["--disable-eth-dispatch"]:
                 dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
 
-            if self["--init"] is not None:
+            if "--init" in sys.argv:
                 self["--disable-golden"] = True
 
             if self["--benchmark"]:
@@ -1237,9 +1238,6 @@ class Run:
 
         def get_initializer(self, name):
             import inspect
-
-            if name is None:
-                return None
 
             for func_name, func in inspect.getmembers(self, predicate=inspect.ismethod):
                 if func_name == name:
