@@ -320,7 +320,26 @@ private:
       return false;
     }
 
-    return isa<stablehlo::IotaOp>(inputs.back().getDefiningOp()) ? true : false;
+    mlir::Value val = inputs.back();
+    auto *op = val.getDefiningOp();
+
+    // IotaOp can be preceded by either a BroadcastInDim or a Reshape.
+    while (op) {
+      if (isa<stablehlo::IotaOp>(op)) {
+        return true;
+      }
+
+      if (isa<stablehlo::BroadcastInDimOp>(op) ||
+          isa<stablehlo::ReshapeOp>(op)) {
+        val = op->getOperand(0);
+        op = val.getDefiningOp();
+        continue;
+      }
+
+      return false;
+    }
+
+    return false;
   }
 
   // Validate the outputs.
@@ -361,20 +380,32 @@ private:
     }
 
     auto &operations = blocks.front().getOperations();
-    if (operations.size() == 7) {
-      if (verifyTorchOpArgMaxPattern(operations.front())) {
-        return true;
-      }
-    } else if (operations.size() == 10) {
-      if (verifyJaxOpArgMaxPattern(operations.front())) {
-        return true;
-      }
+    if (operations.empty()) {
+      return false;
+    }
+
+    mlir::Operation &firstOp = operations.front();
+
+    // Torch and Jax ArgMax patterns are different.
+    if (verifyTorchOpArgMaxPattern(firstOp)) {
+      return true;
+    }
+    if (verifyJaxOpArgMaxPattern(firstOp)) {
+      return true;
     }
 
     return false;
   }
 
   // Pattern match the ops for tt-torch ArgMax op.
+  // The pattern is as follows:
+  //  stablehlo.compare (GE)
+  //  stablehlo.select / stablehlo.maximum
+  //  stablehlo.compare
+  //  stablehlo.min
+  //  stablehlo.select
+  //  stablehlo.select
+  //  stablehlo.return
   bool verifyTorchOpArgMaxPattern(mlir::Operation &operation) const {
     mlir::Operation *op = &operation;
     if (!isa<stablehlo::CompareOp>(op)) {
@@ -387,32 +418,32 @@ private:
     }
 
     op = op->getNextNode();
-    if (!isa<stablehlo::SelectOp>(op)) {
+    if (!op || !(isa<stablehlo::SelectOp>(op) || isa<stablehlo::MaxOp>(op))) {
       return false;
     }
 
     op = op->getNextNode();
-    if (!isa<stablehlo::CompareOp>(op)) {
+    if (!op || !isa<stablehlo::CompareOp>(op)) {
       return false;
     }
 
     op = op->getNextNode();
-    if (!isa<stablehlo::MinOp>(op)) {
+    if (!op || !isa<stablehlo::MinOp>(op)) {
       return false;
     }
 
     op = op->getNextNode();
-    if (!isa<stablehlo::SelectOp>(op)) {
+    if (!op || !isa<stablehlo::SelectOp>(op)) {
       return false;
     }
 
     op = op->getNextNode();
-    if (!isa<stablehlo::SelectOp>(op)) {
+    if (!op || !isa<stablehlo::SelectOp>(op)) {
       return false;
     }
 
     op = op->getNextNode();
-    if (!isa<stablehlo::ReturnOp>(op)) {
+    if (!op || !isa<stablehlo::ReturnOp>(op)) {
       return false;
     }
 
@@ -420,13 +451,34 @@ private:
   }
 
   // Pattern match the ops for tt-xla ArgMax op.
+  // There are two potential patterns, one is as follows:
+  // stablehlo.compare (GT)
+  // stablehlo.compare
+  // stablehlo.or
+  // stablehlo.compare
+  // stablehlo.compare
+  // stablehlo.and
+  // stablehlo.or
+  // stablehlo.select
+  // stablehlo.select
+  // stablehlo.return
+  //
+  // The other pattern is as follows:
+  // stablehlo.compare (GT)
+  // stablehlo.compare (EQ)
+  // stablehlo.compare (LT)
+  // stablehlo.and
+  // stablehlo.or
+  // stablehlo.select / stablehlo.maximum
+  // stablehlo.select
+  // stablehlo.return
   bool verifyJaxOpArgMaxPattern(mlir::Operation &operation) const {
     mlir::Operation *op = &operation;
     if (!isa<stablehlo::CompareOp>(op)) {
       return false;
     }
-    stablehlo::CompareOp compareOp = mlir::cast<stablehlo::CompareOp>(op);
-    if (compareOp.getComparisonDirection() !=
+    stablehlo::CompareOp compareOp0 = mlir::cast<stablehlo::CompareOp>(op);
+    if (compareOp0.getComparisonDirection() !=
         mlir::stablehlo::ComparisonDirection::GT) {
       return false;
     }
@@ -435,48 +487,88 @@ private:
     if (!isa<stablehlo::CompareOp>(op)) {
       return false;
     }
-
+    stablehlo::CompareOp compareOp1 = mlir::cast<stablehlo::CompareOp>(op);
     op = op->getNextNode();
-    if (!isa<stablehlo::OrOp>(op)) {
+    if (!op) {
       return false;
     }
+    if (isa<stablehlo::OrOp>(op)) {
+      op = op->getNextNode();
+      if (!op || !isa<stablehlo::CompareOp>(op)) {
+        return false;
+      }
 
-    op = op->getNextNode();
-    if (!isa<stablehlo::CompareOp>(op)) {
-      return false;
+      op = op->getNextNode();
+      if (!op || !isa<stablehlo::CompareOp>(op)) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!op || !isa<stablehlo::AndOp>(op)) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!op || !isa<stablehlo::OrOp>(op)) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!op || !isa<stablehlo::SelectOp>(op)) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!op || !isa<stablehlo::SelectOp>(op)) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!op || !isa<stablehlo::ReturnOp>(op)) {
+        return false;
+      }
+
+      return true;
+    } else if (isa<stablehlo::CompareOp>(op)) {
+      if (compareOp1.getComparisonDirection() !=
+          mlir::stablehlo::ComparisonDirection::EQ) {
+        return false;
+      }
+      stablehlo::CompareOp compareOp2 = mlir::cast<stablehlo::CompareOp>(op);
+      if (compareOp2.getComparisonDirection() !=
+          mlir::stablehlo::ComparisonDirection::LT) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!op || !isa<stablehlo::AndOp>(op)) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!op || !isa<stablehlo::OrOp>(op)) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!op || !(isa<stablehlo::SelectOp>(op) || isa<stablehlo::MaxOp>(op))) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!op || !isa<stablehlo::SelectOp>(op)) {
+        return false;
+      }
+
+      op = op->getNextNode();
+      if (!op || !isa<stablehlo::ReturnOp>(op)) {
+        return false;
+      }
+
+      return true;
     }
 
-    op = op->getNextNode();
-    if (!isa<stablehlo::CompareOp>(op)) {
-      return false;
-    }
-
-    op = op->getNextNode();
-    if (!isa<stablehlo::AndOp>(op)) {
-      return false;
-    }
-
-    op = op->getNextNode();
-    if (!isa<stablehlo::OrOp>(op)) {
-      return false;
-    }
-
-    op = op->getNextNode();
-    if (!isa<stablehlo::SelectOp>(op)) {
-      return false;
-    }
-
-    op = op->getNextNode();
-    if (!isa<stablehlo::SelectOp>(op)) {
-      return false;
-    }
-
-    op = op->getNextNode();
-    if (!isa<stablehlo::ReturnOp>(op)) {
-      return false;
-    }
-
-    return true;
+    return false;
   }
 
   // Verify that the init value is defined by a constant op and initialize with
