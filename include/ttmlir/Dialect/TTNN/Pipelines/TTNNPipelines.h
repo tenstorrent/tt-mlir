@@ -251,6 +251,11 @@ struct TTIRToTTNNBackendPipelineOptions
           "Set to enable quantized data type conversion pass. "
           "Leave empty to disable the pass."),
       llvm::cl::init(32)};
+
+  Option<bool> enableBlockType{
+      *this, "enable-block-type",
+      llvm::cl::desc("Currently enable conversion of BFloat16 to BFloat8B."),
+      llvm::cl::init(false)};
 };
 
 // TTIR to EmitC pipeline options.

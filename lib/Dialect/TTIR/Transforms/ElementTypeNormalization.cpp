@@ -139,10 +139,6 @@ struct ElementTypeNormalization
     : public impl::ElementTypeNormalizationBase<ElementTypeNormalization> {
   using impl::ElementTypeNormalizationBase<
       ElementTypeNormalization>::ElementTypeNormalizationBase;
-  ElementTypeNormalization(ElementTypeNormalizationOptions options)
-      : impl::ElementTypeNormalizationBase<ElementTypeNormalization>(options),
-        converter(options.enableBlockType) {}
-
   void runOnOperation() final {
     // Ideally we would initialize the converter in the constructor,
     // but parsing of command line options happens after the passes are
