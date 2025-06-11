@@ -454,5 +454,23 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
              mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 } // namespace MinimumOpInterface
 
+//===----------------------------------------------------------------------===//
+// SumOp
+//===----------------------------------------------------------------------===//
+namespace SumOpInterface {
+llvm::Expected<OpConstraints>
+getOpConstraints(GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                 std::optional<llvm::ArrayRef<int64_t>> dimArg, bool keepDim,
+                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+llvm::Expected<size_t>
+getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+             std::optional<llvm::ArrayRef<int64_t>> dimArg, bool keepDim,
+             mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+}; // namespace SumOpInterface
+
 } // namespace mlir::tt::op_model::ttnn
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H
