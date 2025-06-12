@@ -28,7 +28,7 @@ public:
   ProgramExecutor(const Binary &executableHandle,
                   std::vector<::tt::runtime::Tensor> &programInputs,
                   std::shared_ptr<::ttnn::MeshDevice> meshDevice,
-                  const size_t programIndex = 0);
+                  const size_t programIndex = 0, bool constEvalProgram = false);
 
   /**
    * Executes pre and post operation callbacks if registered
@@ -58,6 +58,7 @@ private:
   const ::tt::target::ttnn::Program *program;
   Binary executableHandle;
   std::unique_ptr<ProgramContext> context;
+  bool constEvalProgram;
 
   /**
    * Executes a single operation

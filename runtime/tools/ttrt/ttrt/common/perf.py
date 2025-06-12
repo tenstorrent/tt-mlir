@@ -514,51 +514,66 @@ class Perf:
 
                     # Add post-processing steps to insert location data into the ops_perf data file
                     # Get the op location to it's global call count mapping
-                    global_call_count_loc_mapping = {}
-                    with open(tracy_ops_data_file_path, "r") as file:
-                        lines = iter(file)
-                        buffer = None
+                    def get_mlir_analysis_results(key):
+                        call_count_mapping = {}
 
-                        while True:
-                            # Use buffered line if available, otherwise get next
-                            line = buffer if buffer else next(lines, None)
+                        with open(tracy_ops_data_file_path, "r") as file:
+                            lines = iter(file)
                             buffer = None
 
-                            if line is None:
-                                break  # End of file
+                            while True:
+                                # Use buffered line if available, otherwise get next
+                                line = buffer if buffer else next(lines, None)
+                                buffer = None
 
-                            # Find all the TT_DNN_DEVICE_OP under this LOC and record their global call counts
-                            line = line.strip()
-                            if "MLIR_OP_LOCATION" in line:
-                                # Format of line is: MLIR_OP_LOCATION;loc("/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/n150/const-eval/Output/const-eval.mlir.tmp.mlir":17:14);5420869271
-                                parts = line.split(";")
-                                loc_data = parts[1]
-                                block = []
-                                for next_line in lines:
-                                    next_line = next_line.strip()
-                                    if "MLIR_OP_LOCATION" in next_line:
-                                        buffer = next_line  # Save for next outer loop
-                                        break
-                                    elif "TT_DNN_DEVICE_OP" in next_line:
-                                        block.append(next_line)
+                                if line is None:
+                                    break  # End of file
 
-                                # Process the collected block. Find it's global call count and add it to the loc
-                                for bline in block:
-                                    parts = bline.split(",")
-                                    # Strip and split part[3] on semicolon or space, and grab the number
-                                    num_part = parts[3].strip()
-                                    digits = ""
-                                    for c in num_part:
-                                        if c.isdigit():
-                                            digits += c
-                                        else:
+                                # Find all the TT_DNN_DEVICE_OP under this LOC and record their global call counts
+                                line = line.strip()
+                                if key in line:
+                                    # Format of line is
+                                    # MLIR_OP_LOCATION;loc("/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/n150/const-eval/Output/const-eval.mlir.tmp.mlir":17:14);5420869271
+                                    # MLIR_CONST_EVAL_OP;true;6449925338
+                                    parts = line.split(";")
+                                    data = parts[1]
+                                    block = []
+                                    for next_line in lines:
+                                        next_line = next_line.strip()
+                                        if key in next_line:
+                                            buffer = (
+                                                next_line  # Save for next outer loop
+                                            )
                                             break
-                                    global_call_count = int(digits) if digits else None
-                                    global_call_count_loc_mapping[
-                                        global_call_count
-                                    ] = loc_data
+                                        elif "TT_DNN_DEVICE_OP" in next_line:
+                                            block.append(next_line)
 
-                    # Update the ops perf results csv file to add in location data
+                                    # Process the collected block. Find it's global call count and add it to the loc
+                                    for bline in block:
+                                        parts = bline.split(",")
+                                        # Strip and split part[3] on semicolon or space, and grab the number
+                                        num_part = parts[3].strip()
+                                        digits = ""
+                                        for c in num_part:
+                                            if c.isdigit():
+                                                digits += c
+                                            else:
+                                                break
+                                        global_call_count = (
+                                            int(digits) if digits else None
+                                        )
+                                        call_count_mapping[global_call_count] = data
+
+                        return call_count_mapping
+
+                    global_call_count_loc_mapping = get_mlir_analysis_results(
+                        "MLIR_OP_LOCATION"
+                    )
+                    global_call_count_const_eval_op_mapping = get_mlir_analysis_results(
+                        "MLIR_CONST_EVAL_OP"
+                    )
+
+                    # Add location data and const_eval_op op data to profiler csv file
                     dir_name = os.path.dirname(profiler_csv_file_path)
                     base_name = os.path.basename(profiler_csv_file_path)
                     file_root, file_ext = os.path.splitext(base_name)
@@ -568,7 +583,7 @@ class Perf:
                         profiler_csv_file_path, mode="r", newline=""
                     ) as infile, open(temp_file, mode="w", newline="") as outfile:
                         reader = csv.DictReader(infile)
-                        fieldnames = reader.fieldnames + ["LOC"]
+                        fieldnames = reader.fieldnames + ["LOC", "CONST_EVAL_OP"]
                         writer = csv.DictWriter(outfile, fieldnames=fieldnames)
                         writer.writeheader()
 
@@ -577,13 +592,27 @@ class Perf:
                             local_call_count = row.get("GLOBAL CALL COUNT")
                             local_call_count = int(local_call_count.strip())
 
-                            # Append the new column "LOC" with value 1
+                            # Append the location column with its location data
                             if local_call_count in global_call_count_loc_mapping.keys():
                                 row["LOC"] = global_call_count_loc_mapping[
                                     local_call_count
                                 ]
                             else:
                                 row["LOC"] = "loc(unknown)"
+
+                            # Append the const_eval_op column with its const_eval_op data
+                            if (
+                                local_call_count
+                                in global_call_count_const_eval_op_mapping.keys()
+                            ):
+                                row[
+                                    "CONST_EVAL_OP"
+                                ] = global_call_count_const_eval_op_mapping[
+                                    local_call_count
+                                ]
+                            else:
+                                row["CONST_EVAL_OP"] = "false"
+
                             writer.writerow(row)
 
                     os.replace(temp_file, profiler_csv_file_path)

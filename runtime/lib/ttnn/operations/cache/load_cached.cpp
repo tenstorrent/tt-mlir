@@ -67,7 +67,8 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   // Execute the function
   const size_t programIndex = op->program_idx();
   ProgramExecutor exec(context.getExecutableHandle(), inputs,
-                       context.getMeshDevicePtr(), programIndex);
+                       context.getMeshDevicePtr(), programIndex,
+                       /*cachedProgram*/ true);
   exec.execute();
   LOG_DEBUG("executed sub-func: ", constEvalFuncname);
   std::vector<Tensor> outputs = exec.gatherOutputTensors();
