@@ -8,6 +8,7 @@
 #include <functional>
 #include <optional>
 #include <ostream>
+#include <shared_mutex>
 
 #include "tt/runtime/types.h"
 
@@ -53,39 +54,6 @@ inline std::ostream &operator<<(std::ostream &os, const Env &env) {
      << "deviceAddressValidation: " << env.deviceAddressValidation << "\n"
      << "\t"
      << "blockingCQ: " << env.blockingCQ << "\n"
-     << "}";
-  return os;
-}
-
-struct PerfEnv {
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-  static const PerfEnv &
-#else
-  constexpr static PerfEnv
-#endif
-  get(std::uint32_t dumpDeviceRate = 1000, bool enablePerfTrace = false)
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-      ;
-#else
-  {
-    return PerfEnv(1000, false);
-  }
-#endif
-
-  std::uint32_t dumpDeviceRate;
-  bool enablePerfTrace;
-
-private:
-  constexpr PerfEnv(std::uint32_t dumpDeviceRate, bool enablePerfTrace)
-      : dumpDeviceRate(dumpDeviceRate), enablePerfTrace(enablePerfTrace) {}
-};
-
-inline std::ostream &operator<<(std::ostream &os, const PerfEnv &perfEnv) {
-  os << "debug::PerfEnv{\n"
-     << "\t"
-     << "dumpDeviceRate: " << perfEnv.dumpDeviceRate << "\n"
-     << "\t"
-     << "enablePerfTrace: " << perfEnv.enablePerfTrace << "\n"
      << "}";
   return os;
 }
@@ -148,6 +116,30 @@ inline std::ostream &operator<<(std::ostream &os, const Hooks &hooks) {
      << "}";
   return os;
 }
+
+struct Stats {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  static void incrementStat(const std::string &stat, std::int64_t value = 1);
+  static std::int64_t getStat(const std::string &stat);
+  static void removeStat(const std::string &stat);
+  static void clearStats();
+#else
+  static constexpr void incrementStat(const std::string &, std::int64_t = 1) {}
+  static constexpr std::int64_t getStat(const std::string &) { return 0; }
+  static constexpr void removeStat(const std::string &) {}
+  static constexpr void clearStats() {}
+#endif
+
+private:
+  Stats() = default;
+  static Stats &instance();
+
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  std::shared_mutex countersMutex;
+  std::unordered_map<std::string, std::int64_t> counters;
+#endif
+};
+
 } // namespace tt::runtime::debug
 
 #endif // TT_RUNTIME_DETAIL_DEBUG_H

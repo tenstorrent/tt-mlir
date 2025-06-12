@@ -43,6 +43,7 @@ target_link_libraries(TTMLIRRuntime
     TTRuntimeTTNN
     TTRuntimeTTMetal
     TTRuntimeDebug
+    TTRuntimePerf
     TTRuntimeDylibs
     # This ensures that symbols from libTTRuntimeTTNNTestLib.a (libA) are linked into libTTMLIRRuntime.so (libB).
     # Since the symbols from libA aren't used in libB, linker will just ignore them. By using --whole-archive,
@@ -58,7 +59,7 @@ target_link_libraries(TTMLIRRuntime PUBLIC coverage_config)
 set_target_properties(TTMLIRRuntime PROPERTIES INSTALL_RPATH "$ORIGIN")
 set_target_properties(TTMLIRRuntime PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
 
-add_dependencies(TTMLIRRuntime TTBinary TTRuntimeSysDesc TTRuntimeDebug TTRuntimeDylibs TTRuntimeTTNNTestLib TTRuntimeTTNN TTRuntimeTTMetal FBS_GENERATION)
+add_dependencies(TTMLIRRuntime TTBinary TTRuntimeSysDesc TTRuntimeDebug TTRuntimePerf TTRuntimeDylibs TTRuntimeTTNNTestLib TTRuntimeTTNN TTRuntimeTTMetal FBS_GENERATION)
 
 if (TTMLIR_ENABLE_RUNTIME)
   set(TTMLIR_RUNTIME_PUBLIC_HEADERS

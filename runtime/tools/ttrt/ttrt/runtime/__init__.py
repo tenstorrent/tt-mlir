@@ -13,7 +13,7 @@ try:
         DeviceRuntime,
         DispatchCoreType,
         DebugEnv,
-        DebugPerfEnv,
+        PerfEnv,
         DebugHooks,
         MeshDeviceOptions,
         get_current_runtime,

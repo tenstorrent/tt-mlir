@@ -5,6 +5,7 @@
 #include <sstream>
 
 #include "tt/runtime/detail/debug.h"
+#include "tt/runtime/detail/perf.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
@@ -332,9 +333,9 @@ void registerRuntimeBindings(nb::module_ &m) {
         return os.str();
       });
 
-  nb::class_<tt::runtime::debug::PerfEnv>(m, "DebugPerfEnv")
-      .def_static("get", &tt::runtime::debug::PerfEnv::get)
-      .def("__str__", [](const tt::runtime::debug::PerfEnv &env) {
+  nb::class_<tt::runtime::perf::Env>(m, "PerfEnv")
+      .def_static("get", &tt::runtime::perf::Env::get)
+      .def("__str__", [](const tt::runtime::perf::Env &env) {
         std::stringstream os;
         os << env;
         return os.str();

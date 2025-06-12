@@ -11,6 +11,7 @@
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/dylib.h"
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/perf.h"
 #include "tt/runtime/detail/ttmetal/profiler.h"
 #include "tt/runtime/detail/ttmetal/ttmetal.h"
 #include "tt/runtime/runtime.h"
@@ -309,7 +310,7 @@ void CQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
 
   tt_metal::EnqueueProgram(*cq, program, blockingCQ);
 
-  if (debug::PerfEnv::get().enablePerfTrace) {
+  if (perf::Env::get().enablePerfTrace) {
     profiler::profileProgram(device, program, loc);
   }
 }

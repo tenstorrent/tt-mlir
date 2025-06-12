@@ -54,6 +54,7 @@
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
 #include "tt/runtime/detail/debug.h"
+#include "tt/runtime/detail/perf.h"
 #include "tt/runtime/detail/ttnn/types.h"
 #include "tt/runtime/utils.h"
 
@@ -153,9 +154,9 @@ std::vector<::tt::runtime::Tensor> ProgramExecutor::gatherOutputTensors() {
 void ProgramExecutor::dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice) {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
   static uint32_t counter = 0;
-  if (counter++ >= debug::PerfEnv::get().dumpDeviceRate) {
+  if (++counter >= perf::Env::get().dumpDeviceRate) {
     LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +
-                                           std::to_string(counter - 1) +
+                                           std::to_string(counter) +
                                            " operations");
     for (::ttnn::IDevice *ttnnDevice : meshDevice.get_devices()) {
       ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
