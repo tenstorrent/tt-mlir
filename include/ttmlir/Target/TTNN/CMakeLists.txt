@@ -30,4 +30,4 @@ set(TTNN_FBS_GEN_SOURCES
   binary.fbs
 )
 
-build_flatbuffers("${TTNN_FBS_GEN_SOURCES}" TTNN_FBS COMMON_FBS)
+build_flatbuffers("ttnn" "${TTNN_FBS_GEN_SOURCES}" TTNN_FBS COMMON_FBS)

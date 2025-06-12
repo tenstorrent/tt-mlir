@@ -10,13 +10,13 @@ from pykernel.types import *
 
 
 @ttkernel_noc_compile()
-def write_1_tile(cb_out: CircularBuffer, rt_args):
+def write_1_tile(cb_out: CircularBuffer):
     # CHECK: module {
     # CHECK: func.func @{{.*}}(%arg0: !ttkernel.cb<{{.*}}>, %arg1: !ttkernel.cb<{{.*}}>) {
     # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
     # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
-    dst_addr = rt_args[0]
-    dst_bank_id = rt_args[1]
+    dst_addr = get_arg_val(int, 0)
+    dst_bank_id = get_arg_val(int, 0)
 
     dst_noc_addr = get_noc_addr_from_bank_id(dst_bank_id, dst_addr)
 

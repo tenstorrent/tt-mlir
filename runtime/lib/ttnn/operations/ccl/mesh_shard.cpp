@@ -10,6 +10,10 @@
 
 namespace tt::runtime::ttnn::operations::ccl {
 
+using ::ttnn::distributed::MeshMapperConfig;
+using ::ttnn::distributed::MeshToTensor;
+using ::ttnn::distributed::TensorToMesh;
+
 static ::ttnn::Tensor
 FullToShardShape(const ::ttnn::Tensor &input, ::ttnn::MeshDevice &meshDevice,
                  const ::tt::target::ttnn::MeshShardType &shardType,
@@ -20,16 +24,22 @@ FullToShardShape(const ::ttnn::Tensor &input, ::ttnn::MeshDevice &meshDevice,
         input,
         *::ttnn::distributed::replicate_tensor_to_mesh_mapper(meshDevice));
   }
-  ::ttnn::distributed::Shard2dConfig shard2dConfig{std::nullopt, std::nullopt};
+
+  MeshMapperConfig config{.placements = {MeshMapperConfig::Replicate(),
+                                         MeshMapperConfig::Replicate()}};
+
   if (shardDims[0] >= 0) {
-    shard2dConfig.row_dim = shardDims[0];
+    config.placements[0] = MeshMapperConfig::Shard(shardDims[0]);
   }
   if (shardDims[1] >= 0) {
-    shard2dConfig.col_dim = shardDims[1];
+    config.placements[1] = MeshMapperConfig::Shard(shardDims[1]);
   }
-  return ::ttnn::distributed::distribute_tensor(
-      input, *::ttnn::distributed::shard_tensor_to_2d_mesh_mapper(
-                 meshDevice, meshDevice.shape(), shard2dConfig));
+
+  std::unique_ptr<TensorToMesh> meshMapper =
+      ::ttnn::distributed::create_mesh_mapper(meshDevice, config);
+
+  return ::ttnn::distributed::distribute_tensor(input, *meshMapper,
+                                                /*meshDevice=*/std::nullopt);
 }
 
 static ::ttnn::Tensor
@@ -46,11 +56,14 @@ ShardToFullShape(const ::ttnn::Tensor &input, ::ttnn::MeshDevice &meshDevice,
                                  [](int n) { return n >= 0; });
   if (bFullConcat) {
     // Full multi-device storage concatenation.
-    ::ttnn::distributed::Concat2dConfig concat2dConfig{
-        static_cast<int>(shardDims[0]), static_cast<int>(shardDims[1])};
-    return ::ttnn::distributed::aggregate_tensor(
-        input, *::ttnn::distributed::concat_2d_mesh_to_tensor_composer(
-                   meshDevice, concat2dConfig));
+    ::ttnn::distributed::MeshComposerConfig composerConfig{
+        .dims = {static_cast<int>(shardDims[0]),
+                 static_cast<int>(shardDims[1])}};
+
+    std::unique_ptr<MeshToTensor> meshComposer =
+        ::ttnn::distributed::create_mesh_composer(meshDevice, composerConfig);
+
+    return ::ttnn::distributed::aggregate_tensor(input, *meshComposer);
   }
   // Partial multi-device storage concatenation.
   // Current ttnn api does not support partial multi-device storage

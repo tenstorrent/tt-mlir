@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
+#include "ttmlir/Dialect/TTIR/Utils/VerificationUtils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -403,7 +404,7 @@ mlir::LogicalResult mlir::tt::ttir::ConstantOp::bufferize(
     const mlir::bufferization::BufferizationOptions &options) {
   ::llvm::SmallVector<mlir::Value> invocationStack;
   auto memrefType = mlir::cast<mlir::MemRefType>(
-      *getBufferType(getResult(), options, invocationStack));
+      getBufferType(getResult(), options, invocationStack).value());
 
   mlir::memref::GlobalOp global = createGlobal(
       getOperation()->getParentOfType<ModuleOp>(), memrefType, getValue());
@@ -463,192 +464,52 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 
 // Conv2dOp verification
 ::mlir::LogicalResult mlir::tt::ttir::Conv2dOp::verify() {
-  mlir::RankedTensorType inputType = getInput().getType();
-  mlir::RankedTensorType weightType = getWeight().getType();
-  mlir::RankedTensorType outputType = getOutput().getType();
-  std::optional<mlir::RankedTensorType> bias =
-      getBias().getImpl() ? std::make_optional(getBias().getType())
-                          : std::nullopt;
+  using namespace mlir::tt::ttir::verification_utils::conv2d_verification;
 
-  if (inputType.getRank() != 4) {
-    return emitOpError("Input must be a 4D tensor");
+  if (verifyTensorRanks(this).failed()) {
+    return mlir::failure();
   }
 
-  if (outputType.getRank() != 4) {
-    return emitOpError("Output must be a 4D tensor");
-  }
-
-  if (weightType.getRank() != 4) {
-    return emitOpError("Weight must be a 4D tensor");
-  }
-
-  if (bias.has_value()) {
-    if (bias->getRank() != 4) {
-      return emitOpError("Bias must be a 4D tensor");
-    }
-    auto biasShape = bias->getShape();
-    if (!isBiasCompatible(biasShape)) {
-      return emitOpError() << "Bias should have shape [1, 1, 1, "
-                           << getOutputChannelSize() << "] but got ["
-                           << biasShape << "]";
-    }
-  }
-  // FLATTEN_DIM corresponds to the second last dimension as it is where N, H, W
-  // are flattened to by FlattenSlidingWindow.
-  constexpr unsigned int BATCH_DIM = 0, HEIGHT_DIM = 1, WIDTH_DIM = 2,
-                         CHANNEL_DIM = 3, FLATTEN_DIM = 2;
-  if (!getFlattenedCompatInfo() &&
-      inputType.getDimSize(BATCH_DIM) != outputType.getDimSize(BATCH_DIM)) {
+  auto flatInfo = getFlattenedCompatInfoAttr();
+  if (flatInfo && flatInfo.getBatchSize() * flatInfo.getInputHeight() *
+                          flatInfo.getInputWidth() !=
+                      getInput().getType().getDimSize(FLATTENED_DIM)) {
+    int64_t expectedSize = flatInfo.getBatchSize() * flatInfo.getInputHeight() *
+                           flatInfo.getInputWidth();
+    int64_t actualSize = getInput().getType().getDimSize(FLATTENED_DIM);
     return emitOpError()
-           << "Batch size from the input tensor ("
-           << inputType.getDimSize(BATCH_DIM)
-           << ") must match the first dimension of the output tensor ("
-           << outputType.getDimSize(BATCH_DIM) << ")";
+           << "The input tensor's flattened dimension (" << actualSize
+           << ") does not match the product of batch_size * input_height * "
+              "input_width from FlattenedCompatInfo ("
+           << flatInfo.getBatchSize() << " * " << flatInfo.getInputHeight()
+           << " * " << flatInfo.getInputWidth() << " = " << expectedSize
+           << ").";
   }
 
-  uint32_t batchSize = inputType.getDimSize(BATCH_DIM);
-  uint32_t inputHeight = inputType.getDimSize(HEIGHT_DIM);
-  uint32_t inputWidth = inputType.getDimSize(WIDTH_DIM);
-  uint32_t inChannels = inputType.getDimSize(CHANNEL_DIM);
-  uint32_t outChannels = outputType.getDimSize(CHANNEL_DIM);
+  auto [inputDims, weightDims, biasDims] = getConv2dInputDims(this);
+  OutputTensorDims outputDims = getConv2dOutputDims(this);
+  auto expectedParams = getConv2dParams(this);
+  if (auto error = expectedParams.takeError()) {
+    return emitOpError() << llvm::toString(std::move(error));
+  }
+  Conv2dParams params = *expectedParams;
 
-  if (getFlattenedCompatInfo()) {
-    batchSize = getFlattenedCompatInfo().getBatchSize();
-    inputHeight = getFlattenedCompatInfo().getInputHeight();
-    inputWidth = getFlattenedCompatInfo().getInputWidth();
-
-    if (inputType.getDimSize(FLATTEN_DIM) !=
-        batchSize * inputHeight * inputWidth) {
-      return emitOpError() << "Expected dim 2 of the input tensor to have size "
-                           << batchSize * inputHeight * inputWidth
-                           << " but got " << inputType.getDimSize(FLATTEN_DIM);
-    }
+  if (verifyConv2dParams(this, params).failed()) {
+    return mlir::failure();
   }
 
-  auto stride = ttmlir::utils::getPairOfInteger<int32_t>(getStride());
-  if (auto error = stride.takeError()) {
-    return emitOpError() << llvm::toString(std::move(error)) << " for stride";
-  }
-  if (stride->first < 1 || stride->second < 1) {
-    return emitOpError("Stride attribute values must be greater than 0");
+  if (verifyConv2dInputDims(this, inputDims, weightDims, biasDims, params)
+          .failed()) {
+    return mlir::failure();
   }
 
-  auto padding = ttmlir::utils::getQuadrupleOfInteger<int32_t>(getPadding());
-  if (auto error = padding.takeError()) {
-    return emitOpError() << llvm::toString(std::move(error)) << " for padding";
+  if (verifyOutputDimensions(this, inputDims, weightDims, biasDims, outputDims,
+                             params)
+          .failed()) {
+    return mlir::failure();
   }
 
-  auto [paddingTop, paddingLeft, paddingBottom, paddingRight] = *padding;
-  if (paddingTop < 0 || paddingBottom < 0 || paddingLeft < 0 ||
-      paddingRight < 0) {
-    return emitOpError(
-        "Padding attribute values must be greater than or equal to 0");
-  }
-  int32_t verticalPadding = paddingTop + paddingBottom;
-  int32_t horizontalPadding = paddingLeft + paddingRight;
-
-  auto dilation = ttmlir::utils::getPairOfInteger<int32_t>(getDilation());
-  if (auto error = dilation.takeError()) {
-    return emitOpError() << llvm::toString(std::move(error)) << " for dilation";
-  }
-  if (dilation->first < 1 || dilation->second < 1) {
-    return emitOpError("Dilation attribute values must be greater than 0");
-  }
-
-  constexpr unsigned int WEIGHT_OUT_CHANNEL_DIM = 0, WEIGHT_IN_CHANNEL_DIM = 1;
-  constexpr unsigned int WEIGHT_KERNEL_HEIGHT_DIM = 2,
-                         WEIGHT_KERNEL_WIDTH_DIM = 3;
-  llvm::SmallVector<int64_t> kernelSize{
-      weightType.getDimSize(WEIGHT_KERNEL_HEIGHT_DIM),
-      weightType.getDimSize(WEIGHT_KERNEL_WIDTH_DIM)};
-
-  llvm::SmallVector<uint32_t, 2> paddedInputSize{
-      inputHeight + verticalPadding, inputWidth + horizontalPadding};
-  llvm::SmallVector<uint32_t, 2> effectiveKernelSize{
-      static_cast<uint32_t>(kernelSize[0] +
-                            (kernelSize[0] - 1) * (dilation->first - 1)),
-      static_cast<uint32_t>(kernelSize[1] +
-                            (kernelSize[1] - 1) * (dilation->second - 1))};
-  if (paddedInputSize[0] < effectiveKernelSize[0] ||
-      paddedInputSize[1] < effectiveKernelSize[1]) {
-    return emitOpError()
-           << "Calculated padded input size per channel: ("
-           << paddedInputSize[0] << " x " << paddedInputSize[1]
-           << "). Kernel size: (" << effectiveKernelSize[0] << " x "
-           << effectiveKernelSize[1]
-           << "). Kernel size can't be greater than actual input size";
-  }
-
-  uint32_t groups = getGroups();
-  if (inChannels % groups != 0) {
-    return emitOpError() << "Number of input channels from input tensor must "
-                            "be divisible by the number of groups. "
-                         << "Got " << inChannels << " input channels and "
-                         << groups << " groups";
-  }
-
-  if (outChannels % groups != 0) {
-    return emitOpError() << "Number of output channels from output tensor must "
-                            "be divisible by the number of groups. "
-                         << "Got " << outChannels << " output channels and "
-                         << groups << " groups";
-  }
-
-  llvm::ArrayRef<std::int64_t> weightShape = weightType.getShape();
-  if (outChannels != weightShape[WEIGHT_OUT_CHANNEL_DIM]) {
-    return emitOpError() << "Number of output channels from output tensor must "
-                            "match the first dimension of the weight tensor. "
-                         << "Got " << outChannels << " output channels and "
-                         << weightShape[WEIGHT_OUT_CHANNEL_DIM]
-                         << " in the weight tensor";
-  }
-
-  if (inChannels / groups != weightShape[WEIGHT_IN_CHANNEL_DIM]) {
-    return emitOpError() << "Number of input channels per group must match "
-                            "the second dimension of the weight tensor. "
-                         << "Got " << (inChannels / groups)
-                         << " input channels per group and "
-                         << weightShape[WEIGHT_IN_CHANNEL_DIM]
-                         << " in the weight tensor";
-  }
-
-  if (bias && bias->getDimSize(CHANNEL_DIM) != outChannels) {
-    return emitOpError() << "Mismatch in bias tensor dimensions. "
-                         << "Bias tensor has " << bias->getDimSize(CHANNEL_DIM)
-                         << " channels, "
-                         << "but the output tensor has " << outChannels
-                         << " channels";
-  }
-
-  int32_t calculatedHOut = (inputHeight + verticalPadding -
-                            dilation->first * (kernelSize[0] - 1) - 1) /
-                               stride->first +
-                           1;
-  int32_t calculatedWOut = (inputWidth + horizontalPadding -
-                            dilation->second * (kernelSize[1] - 1) - 1) /
-                               stride->second +
-                           1;
-  if (!getFlattenedCompatInfo()) {
-    if (calculatedHOut != outputType.getDimSize(HEIGHT_DIM) ||
-        calculatedWOut != outputType.getDimSize(WIDTH_DIM)) {
-      return emitOpError()
-             << "Mismatch between calculated and got output height and width. "
-             << "Calculated: (" << calculatedHOut << " x " << calculatedWOut
-             << "). "
-             << "Got output tensor height and width: ("
-             << outputType.getDimSize(HEIGHT_DIM) << " x "
-             << outputType.getDimSize(WIDTH_DIM) << ")";
-    }
-  } else if (calculatedHOut * calculatedWOut * batchSize !=
-             outputType.getDimSize(FLATTEN_DIM)) {
-    return emitOpError() << "Mismatch between calculated flatten dimension "
-                            "and output type. "
-                         << "Calculated: "
-                         << calculatedHOut * calculatedWOut * batchSize << ". "
-                         << "Got output tensor flatten dimension: "
-                         << outputType.getDimSize(FLATTEN_DIM);
-  }
-  return success();
+  return mlir::success();
 }
 
 // Get number of output channels
@@ -2003,6 +1864,52 @@ mlir::OpFoldResult mlir::tt::ttir::TypecastOp::fold(FoldAdaptor adaptor) {
   return {};
 }
 
+static bool isNarrowingConversion(const ::mlir::tt::DataType srcDtype,
+                                  const ::mlir::tt::DataType dstDtype) {
+  const bool srcIsFloat = isFloat(srcDtype);
+  const bool dstIsFloat = isFloat(dstDtype);
+  const auto srcNumberOfBits = getNumberOfBits(srcDtype);
+  const auto dstNumberOfBits = getNumberOfBits(dstDtype);
+
+  if (srcIsFloat && !dstIsFloat) {
+    return true;
+  }
+
+  if (srcIsFloat && dstIsFloat) {
+    const auto srcExponentSize = getExponentSize(srcDtype);
+    const auto dstExponentSize = getExponentSize(dstDtype);
+    const auto srcMantissaSize = getMantissaSize(srcDtype);
+    const auto dstMantissaSize = getMantissaSize(dstDtype);
+    return srcExponentSize > dstExponentSize ||
+           srcMantissaSize > dstMantissaSize;
+  }
+
+  // For integer to FP, it is narrowing if the FP type has fewer bits in its
+  // mantissa than the integer type's magnitude bits.
+  if (!srcIsFloat && dstIsFloat) {
+    if (isSignedInteger(srcDtype)) {
+      return srcNumberOfBits - 1 > getMantissaSize(dstDtype);
+    }
+    return srcNumberOfBits > getMantissaSize(dstDtype);
+  }
+
+  assert(!srcIsFloat && !dstIsFloat);
+  const auto srcIsSigned = isSignedInteger(srcDtype);
+  const auto dstIsSigned = isSignedInteger(dstDtype);
+  // When signedness are the same, reducing the number of bits is narrowing.
+  if (srcIsSigned == dstIsSigned) {
+    return srcNumberOfBits > dstNumberOfBits;
+  }
+  // Unsigned->Signed is narrowing when the signed type can't hold the largest.
+  // value of the unsigned type
+  if (!srcIsSigned && dstIsSigned) {
+    return srcNumberOfBits >= dstNumberOfBits;
+  }
+  // Signed->Unsigned is always narrowing.
+  assert(srcIsSigned && !dstIsSigned);
+  return true;
+}
+
 // TypecastOp canonicalization method
 ::llvm::LogicalResult
 mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
@@ -2015,8 +1922,37 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
     return mlir::failure();
   }
 
+  const bool conservativeFolding =
+      op.getConservativeFolding() || producerOp.getConservativeFolding();
+
+  if (conservativeFolding) {
+    // Disable folding if it has the potential to cause too much numerical
+    // differences.
+    auto dtypeIn =
+        elementTypeToDataType(producerOp.getInput().getType().getElementType());
+    auto dtypeMid =
+        elementTypeToDataType(op.getInput().getType().getElementType());
+    auto dtypeOut = elementTypeToDataType(op.getType().getElementType());
+
+    assert(dtypeMid ==
+           elementTypeToDataType(producerOp.getType().getElementType()));
+
+    // If the 1st Op is narrowing and the 2nd Op is widening, we shouldn't fold.
+    // FP->Int->FP is special and should never fold, due to its truncation
+    // semantics and application in QDQ models.
+    const bool isNarrowingProducer = isNarrowingConversion(dtypeIn, dtypeMid);
+    const bool isNarrowingConsumer = isNarrowingConversion(dtypeMid, dtypeOut);
+    const bool isFpIntFp =
+        isFloat(dtypeIn) && !isFloat(dtypeMid) && isFloat(dtypeOut);
+    if (isFpIntFp || (isNarrowingProducer && !isNarrowingConsumer)) {
+      return mlir::failure();
+    }
+  }
+
+  // The resulting Op is conservative iff both typecast ops were conservative.
   ttir::utils::replaceOpWithNewDPSOp<ttir::TypecastOp>(
-      rewriter, op, op.getType(), producerOp.getInput());
+      rewriter, op, op.getType(), producerOp.getInput(),
+      op.getConservativeFolding() && producerOp.getConservativeFolding());
 
   return mlir::success();
 }
@@ -3636,6 +3572,47 @@ mlir::LogicalResult mlir::tt::ttir::FullOp::verify() {
   }
 
   return mlir::success();
+}
+
+bool mlir::tt::ttir::FullOp::bufferizesToMemoryRead(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+bool mlir::tt::ttir::FullOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+mlir::LogicalResult mlir::tt::ttir::FullOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options) {
+  ::llvm::SmallVector<mlir::Value> invocationStack;
+  auto memrefType = mlir::cast<mlir::MemRefType>(
+      getBufferType(getResult(), options, invocationStack).value());
+
+  auto denseAttr =
+      mlir::DenseElementsAttr::get(getResult().getType(), getFillValueAttr());
+
+  mlir::memref::GlobalOp global = createGlobal(
+      getOperation()->getParentOfType<ModuleOp>(), memrefType, denseAttr);
+  mlir::bufferization::replaceOpWithNewBufferizedOp<memref::GetGlobalOp>(
+      rewriter, *this, global.getType(), global.getName());
+
+  return mlir::success();
+}
+
+mlir::bufferization::AliasingValueList
+mlir::tt::ttir::FullOp::getAliasingValues(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  bufferization::AliasingValueList result;
+  return result;
+}
+
+mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::FullOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false);
 }
 
 //===----------------------------------------------------------------------===//

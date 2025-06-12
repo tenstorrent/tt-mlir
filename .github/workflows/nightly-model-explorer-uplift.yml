@@ -1,0 +1,82 @@
+# This workflow automates creation of uplift pull requests for model-explorer.
+# Uplift PR is created daily to uplift the model-explorer version to the latest commit.
+
+name: Nightly Model Explorer Uplift
+
+on:
+  schedule:
+    - cron: '0 7 * * *'  # Runs at 07:00 UTC every day (staggered from tt-metal uplift)
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  uplift-pr:
+    runs-on: ubuntu-latest
+
+    env:
+      MODEL_EXPLORER_PATH: tools/explorer
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Set env variable for today's date
+        run: |
+          echo "TODAY=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
+
+      - name: Extract current model-explorer version
+        run: |
+          CURRENT_MODEL_EXPLORER_VERSION=$(grep -oP 'set\(MODEL_EXPLORER_VERSION "\K[^"]+' tools/explorer/CMakeLists.txt)
+          echo "CURRENT_MODEL_EXPLORER_VERSION=$CURRENT_MODEL_EXPLORER_VERSION" >> $GITHUB_ENV
+          echo "Current model-explorer version: $CURRENT_MODEL_EXPLORER_VERSION"
+
+      - name: Fetch latest SHA of model-explorer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LATEST_MODEL_EXPLORER_VERSION=$(gh api repos/tenstorrent/model-explorer/commits/main --jq '.sha')
+          echo "LATEST_MODEL_EXPLORER_VERSION=$LATEST_MODEL_EXPLORER_VERSION" >> $GITHUB_ENV
+          echo "Latest model-explorer version: $LATEST_MODEL_EXPLORER_VERSION"
+
+      - name: Check if version needs updating
+        id: check_version
+        run: |
+          if [ "${{ env.CURRENT_MODEL_EXPLORER_VERSION }}" != "${{ env.LATEST_MODEL_EXPLORER_VERSION }}" ]; then
+            echo "VERSION_CHANGED=true" >> $GITHUB_ENV
+            echo "Version has changed. Will create PR."
+          else
+            echo "VERSION_CHANGED=false" >> $GITHUB_ENV
+            echo "Version has not changed. Skipping PR creation."
+          fi
+
+      - name: Update model-explorer reference in tools/explorer/CMakeLists.txt
+        if: env.VERSION_CHANGED == 'true'
+        run: |
+          echo "Updating model-explorer to SHA: ${{ env.LATEST_MODEL_EXPLORER_VERSION }}"
+          sed -i "s/set(MODEL_EXPLORER_VERSION \".*\")/set(MODEL_EXPLORER_VERSION \"${{ env.LATEST_MODEL_EXPLORER_VERSION }}\")/" tools/explorer/CMakeLists.txt
+
+      - name: Create Pull Request
+        if: env.VERSION_CHANGED == 'true'
+        uses: peter-evans/create-pull-request@v7
+        id: create-pr
+        with:
+          branch: model-explorer-uplift
+          committer: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+          author: ${{ github.actor }} <${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com>
+          base: main
+          commit-message: "Uplift model-explorer to ${{ env.LATEST_MODEL_EXPLORER_VERSION }} ${{ env.TODAY }}"
+          title: "Uplift model-explorer to ${{ env.LATEST_MODEL_EXPLORER_VERSION }} ${{ env.TODAY }}"
+          body: "This PR uplifts the model-explorer version in ${{ env.MODEL_EXPLORER_PATH }} to the latest commit ${{ env.LATEST_MODEL_EXPLORER_VERSION }} from previous version ${{ env.CURRENT_MODEL_EXPLORER_VERSION }}"
+          labels: uplift
+          delete-branch: true
+          token: ${{ secrets.GH_TOKEN }}
+
+      - name: Approve Pull Request
+        if: env.VERSION_CHANGED == 'true' && steps.create-pr.outputs.pull-request-number
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_APPROVE_TOKEN }}
+        run: |
+          echo "Pull Request Number - ${{ steps.create-pr.outputs.pull-request-number }}"
+          echo "Pull Request URL - ${{ steps.create-pr.outputs.pull-request-url }}"
+          gh pr review ${{ steps.create-pr.outputs.pull-request-number }} --approve

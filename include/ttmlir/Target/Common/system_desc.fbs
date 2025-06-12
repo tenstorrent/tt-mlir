@@ -5,6 +5,7 @@ namespace tt.target;
 
 table SystemDescRoot {
   version: tt.target.Version;
+  schema_hash: string;
   ttmlir_git_hash: string;
   product_identifier: string;
   system_desc: tt.target.SystemDesc;

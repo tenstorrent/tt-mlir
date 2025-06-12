@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <optional>
-
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTNN/Analysis/AllPossibleLayoutsAnalysis.h"
@@ -16,7 +14,6 @@
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 
-#include "llvm-gtest/gtest/gtest.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -25,6 +22,10 @@
 #include "mlir/IR/ValueRange.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
+
+#include "gtest/gtest.h"
+
+#include <optional>
 
 using namespace mlir::tt::ttnn;
 

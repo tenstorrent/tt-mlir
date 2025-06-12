@@ -7,4 +7,4 @@ set(TTMETAL_FBS_GEN_SOURCES
   binary.fbs
 )
 
-build_flatbuffers("${TTMETAL_FBS_GEN_SOURCES}" TTMETAL_FBS COMMON_FBS)
+build_flatbuffers("ttmetal" "${TTMETAL_FBS_GEN_SOURCES}" TTMETAL_FBS COMMON_FBS)

@@ -20,6 +20,7 @@
 #include "mlir/IR/MLIRContext.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
+
 #include "gtest/gtest.h"
 
 #include <algorithm>

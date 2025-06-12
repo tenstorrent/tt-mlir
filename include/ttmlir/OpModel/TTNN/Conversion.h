@@ -91,6 +91,25 @@ std::array<To, N> convertLLVMArrayRefToStdArray(::llvm::ArrayRef<From> vec) {
   return stdArray;
 }
 
+template <typename To, size_t... Sizes, typename From>
+std::variant<std::array<To, Sizes>...>
+convertLLVMArrayRefToMultiSizeStdArray(::llvm::ArrayRef<From> vec) {
+  std::variant<std::array<To, Sizes>...> stdVariantArray;
+
+  bool matched =
+      ((vec.size() == Sizes &&
+        (stdVariantArray = convertLLVMArrayRefToStdArray<To, Sizes>(vec),
+         true)) ||
+       ...);
+
+  if (!matched) {
+    throw std::runtime_error(
+        "Size of LLVM ArrayRef does not match any expected size");
+  }
+
+  return stdVariantArray;
+}
+
 llvm::SmallVector<int64_t>
 getLogicalGridShape(const ::tt::tt_metal::MemoryConfig &memoryConfig,
                     const llvm::ArrayRef<int64_t> &gridPhyCores);

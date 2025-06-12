@@ -596,12 +596,12 @@ class Run:
 
                         program = bin.get_program(program_index)
                         # Skip private programs (e.g. subgraphs created by const-eval)
-                        if program.program["private"]:
+                        if program.is_private():
                             continue
 
                         golden_inputs = []
 
-                        for i in range(len(program.program["inputs"])):
+                        for i in range(program.num_inputs()):
                             golden_tensor = None
 
                             if not self["--disable-golden"]:
@@ -610,22 +610,17 @@ class Run:
                                 )
 
                             if golden_tensor is not None:
-
-                                dtype = ttrt_datatype_to_torch_dtype(
-                                    golden_tensor.dtype
-                                )
-
                                 golden_tensor_torch = golden_tensor_to_torch(
                                     golden_tensor
                                 )
                                 golden_inputs.append(golden_tensor_torch)
 
                         program.populate_inputs(
-                            self.torch_initializer.get_initilizer(self["--init"]),
+                            self.torch_initializer.get_initializer(self["--init"]),
                             golden_inputs,
                         )
                         program.populate_outputs(
-                            self.torch_initializer.get_initilizer("zeros")
+                            self.torch_initializer.get_initializer("zeros")
                         )
 
                         inputs = []
@@ -845,7 +840,7 @@ class Run:
                         # Compare to EmitC
                         if self["--emitc"]:
                             # Create symbol string to read from dylib
-                            fwd_func_name = program.program["name"]
+                            fwd_func_name = program.name
 
                             # pre-upload inputs
                             inputs = convert_input_layouts(
@@ -1140,7 +1135,7 @@ class Run:
         def __init__(self, run):
             self.run = run
 
-        def get_initilizer(self, name):
+        def get_initializer(self, name):
             import inspect
 
             for func_name, func in inspect.getmembers(self, predicate=inspect.ismethod):

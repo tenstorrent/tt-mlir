@@ -47,6 +47,7 @@ table Program {
 
 table TTMetalBinary {
   version: Version;
+  schema_hash: string;
   ttmlir_git_hash: string;
   system_desc: SystemDesc;
   programs: [Program];

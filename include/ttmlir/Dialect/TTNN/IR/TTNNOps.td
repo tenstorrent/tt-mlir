@@ -276,6 +276,13 @@ def TTNN_ErfOp : TTNN_ElementwiseUnaryOp<"erf"> {
       }];
 }
 
+def TTNN_ErfcOp : TTNN_ElementwiseUnaryOp<"erfc"> {
+    let summary = "Eltwise erfc op.";
+    let description = [{
+        Eltwise erfc operation. Calculates erfc(x) for each element of the input tensor.
+      }];
+}
+
 def TTNN_FloorOp: TTNN_ElementwiseUnaryOp<"floor"> {
     let summary = "Eltwise floor op.";
     let description = [{
@@ -352,6 +359,14 @@ def TTNN_AtanOp: TTNN_ElementwiseUnaryOp<"atan"> {
 
 def TTNN_TanhOp: TTNN_ElementwiseUnaryOp<"tanh"> {
     let summary = "Eltwise tanh op.";
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createTanhOpOperandsWorkarounds();
+      }
+    }];
+
     let description = [{
       Eltwise tanh operation.
     }];
@@ -604,7 +619,9 @@ def TTNN_BitwiseXorOp : TTNN_ElementwiseBinaryOp<"bitwise_xor"> {
     }];
 }
 
-def TTNN_MaximumOp :  TTNN_ElementwiseBinaryOp<"maximum"> {
+def TTNN_MaximumOp :  TTNN_ElementwiseBinaryOp<"maximum",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise maximum OP.";
     let description = [{
       Calculates maximum of input tensors' values element-wise and stores result in output tensor.
@@ -616,7 +633,9 @@ def TTNN_MaximumOp :  TTNN_ElementwiseBinaryOp<"maximum"> {
     }];
 }
 
-def TTNN_MinimumOp :  TTNN_ElementwiseBinaryOp<"minimum"> {
+def TTNN_MinimumOp :  TTNN_ElementwiseBinaryOp<"minimum",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise minimum OP.";
     let description = [{
       Calculates minimum of input tensors' values element-wise and stores result
@@ -639,7 +658,9 @@ def TTNN_MultiplyOp : TTNN_ElementwiseBinaryOp<"multiply",
     }];
 }
 
-def TTNN_SubtractOp : TTNN_ElementwiseBinaryOp<"subtract"> {
+def TTNN_SubtractOp : TTNN_ElementwiseBinaryOp<"subtract",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise subtract.";
     let description = [{
       Eltwise subtract operation.
@@ -1228,14 +1249,16 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d",
       - `input_width` (i32): The input width.
       - `kernel_size` (array<2xi32>): [K_H, K_W] where K_H is the kernel height and K_W is the kernel width.
       - `stride` (array<2xi32>): [sH, sW] where sH is stride for height and sW is stride for width.
-      - `padding` (array<2xi32>): [pH, pW] where pH is padding for height (top/bottom) and pW is padding for width (left/right).
+      - `padding` (array<2xi32> | array<4xi32>):
+        - array<2xi32>: [pH, pW] where pH is padding for height (top/bottom) and pW is padding for width (left/right).
+        - array<4xi32>: [pT, pB, pL, pR] for top, bottom, left, and right padding respectively.
       - `dilation` (array<2xi32>): [dH, dW] where dH is dilation for height and dW is dilation for width.
       - `groups` (i32): Number of blocked connections from input channels to output channels. Input and output channels must both be divisible by groups.
 
       Outputs:
       - `result` (AnyRankedTensor): returned in the following flattened format (1, 1, N * H_out * W_out, O) where:
-        - `H_out = (H_in + 2 * pH - dH * (K_H - 1) - 1) / sH + 1`
-        - `W_out = (W_in + 2 * pW - dW * (K_W - 1) - 1) / sW + 1`
+        - `H_out = (H_in + pT + pB - dH * (K_H - 1) - 1) / sH + 1`
+        - `W_out = (W_in + pL + pR - dW * (K_W - 1) - 1) / sW + 1`
 
       Example:
         %input = ttir.empty() : () -> tensor<1x1x1024x64xbf16>
@@ -1855,7 +1878,9 @@ def TTNN_PermuteOp : TTNN_Op<"permute",
     }];
 }
 
-def TTNN_UpsampleOp : TTNN_Op<"upsample"> {
+def TTNN_UpsampleOp : TTNN_Op<"upsample",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Upsample 2D op.";
 
     let description = [{

@@ -5,7 +5,12 @@
 #ifndef TTMLIR_DIALECT_TTNN_IR_TTNNOPMODELINTERFACE_H
 #define TTMLIR_DIALECT_TTNN_IR_TTNNOPMODELINTERFACE_H
 
+// Required for OpConfig definition to be used by tablegen'd
+// TTNNOpModelInterface:
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
+// Required for OpConstraints definition to be used by tablegen'd
+// TTNNOpModelInterface:
+#include "ttmlir/OpModel/TTNN/TTNNOpConstraints.h"
 // This include is required for llvm::Expected in the tablegen'd
 // TTNNOpModelInterface methods
 #include "llvm/Support/Error.h"

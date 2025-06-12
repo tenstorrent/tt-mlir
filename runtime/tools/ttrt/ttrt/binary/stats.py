@@ -46,30 +46,31 @@ def _parse_attributes(operation):
 
 def collect_op_stats(bin: Binary):
     assert bin.file_identifier == "TTNN", "Only supports TTNN binary files"
-    d = as_dict(bin)
-    program_index = 0
-    operations = []
+    programs = []
+    for program_index in range(bin.get_num_programs()):
+        json_operations = json.loads(bin.get_program_ops_as_json(program_index))
 
-    pattern = re.compile(r"(?<!^)(?=[A-Z])")
+        pattern = re.compile(r"(?<!^)(?=[A-Z])")
 
-    def to_ttnn_name(name):
-        return "ttnn." + pattern.sub("_", name).lower().strip("_op")
+        def to_ttnn_name(name):
+            return "ttnn." + pattern.sub("_", name).lower().strip("_op")
 
-    for operation in d["programs"][program_index]["operations"]:
-        inputs, outputs = _parse_inputs_outputs(operation)
-        operations.append(
-            {
-                "op_name": to_ttnn_name(operation["type_type"]),
-                "framework_op_name": "",
-                "dialect_op_name": "",
-                "ttir_op_name": "",
-                "inputs": inputs,
-                "outputs": outputs,
-                "attributes": _parse_attributes(operation),
-            }
-        )
+        for operation in json_operations:
+            inputs, outputs = _parse_inputs_outputs(operation)
+            operations.append(
+                {
+                    "op_name": to_ttnn_name(operation["type_type"]),
+                    "framework_op_name": "",
+                    "dialect_op_name": "",
+                    "ttir_op_name": "",
+                    "inputs": inputs,
+                    "outputs": outputs,
+                    "attributes": _parse_attributes(operation),
+                }
+            )
+        programs.append(operations)
 
-    return operations
+    return programs
 
 
 def construct_op_stats_json(frontend: str, model: str, bin: Binary):

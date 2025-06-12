@@ -681,8 +681,9 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
   });
 
   auto binary = target::metal::CreateTTMetalBinaryDirect(
-      fbb, &binaryVersion, ttmlir::getGitHash(),
-      toFlatbuffer(cache, systemDesc), &programs, &dylibs);
+      fbb, &binaryVersion, target::ttmetal::binary_bfbs_schema_hash,
+      ttmlir::getGitHash(), toFlatbuffer(cache, systemDesc), &programs,
+      &dylibs);
 
   FinishSizePrefixedTTMetalBinaryBuffer(fbb, binary);
   flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());

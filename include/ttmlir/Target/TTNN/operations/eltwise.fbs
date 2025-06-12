@@ -140,6 +140,7 @@ enum EltwiseUnaryOpType: uint32 {
   Atan,
   Exp,
   Erf,
+  Erfc,
   Log,
   Expm1,
   LeakyRelu,

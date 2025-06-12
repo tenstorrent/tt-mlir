@@ -44,14 +44,13 @@ elseif(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Release build is the default" FORCE)
 endif()
 
-# Find clang 17
-#
-find_program(CLANG_17 clang++-17)
-if(CLANG_17)
-    message(STATUS "Found Clang-17 here: ${CLANG_17}")
-    set(CMAKE_CXX_COMPILER "${CLANG_17}")
+if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  message(WARNING "Not using the Clang compiler!")
 else()
-    message(WARNING "Clang++-17 not found!!!")
+  message(STATUS "Found Clang-${CLANG_VERSION_MAJOR} here: ${CMAKE_CXX_COMPILER}")
+  if(CLANG_VERSION_MAJOR LESS 17)
+    message(WARNING "Clang version is less than 17!")
+  endif()
 endif()
 
 # TT_METAL_HOME env variable needs to be set
@@ -133,7 +132,7 @@ set(LINK_LIBS
 
     # TTNN
     # _ttnn  # Why doesn't this work?
-    ${METAL_LIB_DIR}/_ttnn.so
+    ${METAL_LIB_DIR}/_ttnncpp.so
 )
 
 # Compile definitions

@@ -16,49 +16,57 @@ namespace mlir::tt {
 // Register device pass
 //===----------------------------------------------------------------------===//
 
-static void registerDeviceInSymbolTable(ModuleOp module,
-                                        ArrayRef<int64_t> meshShape) {
-  MLIRContext *context = module.getContext();
+static LogicalResult registerDeviceInSymbolTable(ModuleOp moduleOp,
+                                                 ArrayRef<int64_t> meshShape) {
+  MLIRContext *context = moduleOp.getContext();
 
-  SymbolTable symbolTable(module);
+  SymbolTable symbolTable(moduleOp);
   if (!symbolTable.lookup(tt::getDefaultDeviceName())) {
     auto systemDesc =
-        module->getAttrOfType<tt::SystemDescAttr>(tt::SystemDescAttr::name);
-    assert(systemDesc && "expected system desc to be present on the module");
-    auto finalMeshShape = tt::utils::determineMeshShape(module, meshShape);
+        moduleOp->getAttrOfType<tt::SystemDescAttr>(tt::SystemDescAttr::name);
+    assert(systemDesc && "expected system desc to be present on the moduleOp");
+    auto finalMeshShape = tt::utils::determineMeshShape(moduleOp, meshShape);
     if (auto err = finalMeshShape.takeError()) {
-      emitError(module.getLoc()) << "Error determining mesh shape\n";
+      emitError(moduleOp.getLoc()) << "Error determining mesh shape\n";
       assert(false && "Error determining mesh shape");
-      return;
+      return failure();
     }
-    OpBuilder builder(module.getBodyRegion());
+    OpBuilder builder(moduleOp.getBodyRegion());
     symbolTable.insert(builder.create<tt::DeviceOp>(
-        module.getLoc(), tt::getDefaultDeviceName(),
+        moduleOp.getLoc(), tt::getDefaultDeviceName(),
         tt::DeviceAttr::get(context, systemDesc, *finalMeshShape)));
   }
+  return success();
 }
 
-void registerDevice(ModuleOp module,
-                    tt::Arch mockSystemDescArch = tt::Arch::WormholeB0,
-                    ArrayRef<int64_t> meshShape = {}) {
-  MLIRContext *context = module.getContext();
+LogicalResult registerDevice(ModuleOp moduleOp,
+                             tt::Arch mockSystemDescArch = tt::Arch::WormholeB0,
+                             ArrayRef<int64_t> meshShape = {}) {
+  MLIRContext *context = moduleOp.getContext();
 
-  if (!module->hasAttr(tt::SystemDescAttr::name)) {
-    module->setAttr(tt::SystemDescAttr::name,
-                    tt::SystemDescAttr::getDefault(context, mockSystemDescArch,
-                                                   llvm::to_vector(meshShape)));
+  if (!moduleOp->hasAttr(tt::SystemDescAttr::name)) {
+    moduleOp->setAttr(
+        tt::SystemDescAttr::name,
+        tt::SystemDescAttr::getDefault(context, mockSystemDescArch,
+                                       llvm::to_vector(meshShape)));
   }
 
-  registerDeviceInSymbolTable(module, meshShape);
+  return registerDeviceInSymbolTable(moduleOp, meshShape);
 }
 
-void registerDevice(ModuleOp module, const std::string &systemDescPath,
-                    ArrayRef<int64_t> meshShape = {}) {
-  MLIRContext *context = module.getContext();
+LogicalResult registerDevice(ModuleOp moduleOp,
+                             const std::string &systemDescPath,
+                             ArrayRef<int64_t> meshShape = {}) {
+  MLIRContext *context = moduleOp.getContext();
   assert(!systemDescPath.empty() && "path must be set");
-  module->setAttr(tt::SystemDescAttr::name,
-                  tt::SystemDescAttr::getFromPath(context, systemDescPath));
-  registerDeviceInSymbolTable(module, meshShape);
+  FailureOr<tt::SystemDescAttr> systemDesc = tt::SystemDescAttr::getFromPath(
+      context, systemDescPath,
+      [&]() -> InFlightDiagnostic { return moduleOp->emitOpError(); });
+  if (failed(systemDesc)) {
+    return systemDesc;
+  }
+  moduleOp->setAttr(tt::SystemDescAttr::name, *systemDesc);
+  return registerDeviceInSymbolTable(moduleOp, meshShape);
 }
 
 namespace {
@@ -69,10 +77,12 @@ public:
       TTRegisterDevicePass>::TTRegisterDevicePassBase;
 
   void runOnOperation() final {
-    if (!systemDescPath.empty()) {
-      registerDevice(getOperation(), systemDescPath, *meshShape);
-    } else {
-      registerDevice(getOperation(), mockSystemDescArch, *meshShape);
+    LogicalResult registered =
+        systemDescPath.empty()
+            ? registerDevice(getOperation(), mockSystemDescArch, *meshShape)
+            : registerDevice(getOperation(), systemDescPath, *meshShape);
+    if (failed(registered)) {
+      signalPassFailure();
     }
   }
 };

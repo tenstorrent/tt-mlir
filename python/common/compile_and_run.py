@@ -13,9 +13,10 @@ raising RuntimeError that can be handled with a try-except block in caller.
 
 import os
 
-from ttmlir.compile_and_run_internal import *
 from ttmlir.ir import Module
 from ttrt.common.util import Binary
+
+from .compile_and_run_internal import *
 
 
 def stablehlo_to_ttir(module: Module | str) -> Module:
@@ -144,7 +145,7 @@ def ttmetal_to_flatbuffer(
 
 def run_flatbuffer(flatbuffer: Binary) -> int:
     """
-    Runs `flatbuffer` on device.
+    Runs `flatbuffer` on device in a safe way.
 
     This is a segfault resistant function. It runs the pybound translation pass in a
     separate process, thus protecting the caller of this function from any unpredictable
@@ -158,4 +159,6 @@ def run_flatbuffer(flatbuffer: Binary) -> int:
     ------
     RuntimeError if any errors happen.
     """
-    return run_flatbuffer_execution_process(flatbuffer)
+    return run_flatbuffer_execution_process(
+        run_flatbuffer_worker, (flatbuffer.file_path,)
+    )

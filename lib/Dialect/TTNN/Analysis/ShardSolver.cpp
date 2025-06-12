@@ -829,9 +829,8 @@ llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
 
   assert(inputUnderCheckFound && "Input under check not found");
 
-  llvm::Expected<
-      std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
-      l1UsageExp = backend.getOpConstraints(inputLayouts, consumerConfig);
+  llvm::Expected<op_model::ttnn::OpConstraints> l1UsageExp =
+      backend.getOpConstraints(inputLayouts, consumerConfig);
 
   if (!l1UsageExp) {
     llvm::Error error = l1UsageExp.takeError();

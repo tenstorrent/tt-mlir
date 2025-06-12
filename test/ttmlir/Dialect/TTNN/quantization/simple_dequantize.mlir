@@ -6,7 +6,7 @@ module {
     // CHECK: "ttnn.get_device"
     // CHECK: "ttnn.full"
     // CHECK-SAME: fill_value = 0
-    // CHECK-SAME: -> tensor<1xui32,
+    // CHECK-SAME: -> tensor<1xf32,
     // CHECK: "ttnn.typecast"
     // CHECK-SAME: dtype = #tt.supportedDataTypes<si32>
     // CHECK-SAME: -> tensor<1xsi32,
@@ -32,7 +32,7 @@ module {
     // CHECK-SAME: -> tensor<3xf32,
     // CHECK: "ttnn.full"
     // CHECK-SAME: fill_value = 0
-    // CHECK-SAME: -> tensor<3xui32,
+    // CHECK-SAME: -> tensor<3xf32,
     // CHECK: "ttnn.typecast"
     // CHECK-SAME: dtype = #tt.supportedDataTypes<si32>
     // CHECK-SAME: -> tensor<3xsi32,

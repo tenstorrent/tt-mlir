@@ -6,6 +6,7 @@
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
+#include "ttmlir/Target/Common/system_desc_bfbs_hash_generated.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
 #include "types_generated.h"
@@ -273,7 +274,8 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
   ::tt::target::Version version(ttmlirVersion.major, ttmlirVersion.minor,
                                 ttmlirVersion.patch);
   auto root = ::tt::target::CreateSystemDescRootDirect(
-      fbb, &version, ::ttmlir::getGitHash(), "unknown", systemDesc);
+      fbb, &version, tt::target::common::system_desc_bfbs_schema_hash,
+      ::ttmlir::getGitHash(), "unknown", systemDesc);
   ::tt::target::FinishSizePrefixedSystemDescRootBuffer(fbb, root);
   ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());
   if (!::tt::target::VerifySizePrefixedSystemDescRootBuffer(verifier)) {

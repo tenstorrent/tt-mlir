@@ -16,7 +16,7 @@ You can use tt-mlir with Ubuntu or Mac OS, however the runtime does not work on 
 * Ubuntu 22.04 OS or Mac OS
 * Clang >= 14 & <= 18
 * Ninja
-* CMake 3.20 or higher
+* CMake 3.24 or higher
 * Python 3.10
 * python3.10-venv
 * openmpi

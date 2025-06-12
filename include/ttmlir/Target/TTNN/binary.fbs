@@ -7,6 +7,7 @@ namespace tt.target.ttnn;
 
 table TTNNBinary {
   version: tt.target.Version;
+  schema_hash: string;
   ttmlir_git_hash: string;
   system_desc: tt.target.SystemDesc;
   programs: [Program];
