@@ -6,8 +6,8 @@
 #parallel = #tt.iterator_type<parallel>
 #reduction = #tt.iterator_type<reduction>
 #l1 = #tt.memory_space<l1>
-#layout1 = #tt.metal_layout<[256, 384], undef, l1, dim_alignments = [32, 32], collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>>
-#layout2 = #tt.metal_layout<[256, 32], undef, l1, dim_alignments = [32, 32], collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>>
+#layout1 = #tt.metal_layout<[256x384], dim_alignments = [32, 32], collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1>
+#layout2 = #tt.metal_layout<[256x32], dim_alignments = [32, 32], collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1>
 
 func.func @reduce_large_grid(%arg0: tensor<256x384xf32>, %arg1: tensor<256x384xf32>) -> tensor<256x32xf32> {
   %0 = ttir.empty() : tensor<1x1x8x12x!tt.tile<32x32, f32>, #layout1>
@@ -59,8 +59,8 @@ func.func @reduce_large_grid(%arg0: tensor<256x384xf32>, %arg1: tensor<256x384xf
 #parallel = #tt.iterator_type<parallel>
 #reduction = #tt.iterator_type<reduction>
 #l1 = #tt.memory_space<l1>
-#layout1 = #tt.metal_layout<[32, 608], undef, l1, dim_alignments = [32, 32], collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>>
-#layout2 = #tt.metal_layout<[32, 32], undef, l1, dim_alignments = [32, 32], collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>>
+#layout1 = #tt.metal_layout<[32x608], dim_alignments = [32, 32], collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1>
+#layout2 = #tt.metal_layout<[32x32], dim_alignments = [32, 32], collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1>
 
 func.func @reduce_prime(%arg0: tensor<32x608xf32>, %arg1: tensor<32x608xf32>) -> tensor<32x32xf32> {
   // Convert inputs to device layout

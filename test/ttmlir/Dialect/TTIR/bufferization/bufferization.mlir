@@ -6,10 +6,10 @@
 #map2 = affine_map<(d0, d1, d2) -> (d0, d1)>
 #parallel = #tt.iterator_type<parallel>
 #reduction = #tt.iterator_type<reduction>
-#layout = #tt.metal_layout<[64, 128], undef, l1, dim_alignments = [32, 32], collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>>
-#layout1 = #tt.metal_layout<[128, 64], undef, l1, dim_alignments = [32, 32], collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>>
-#layout2 = #tt.metal_layout<[64, 64], undef, l1, dim_alignments = [32, 32], collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>>
-#layout3 = #tt.metal_layout<[64, 128], undef, l1, dim_alignments = [32, 32], collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>>
+#layout = #tt.metal_layout<[64x128], dim_alignments = [32, 32], collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1>
+#layout1 = #tt.metal_layout<[128x64], dim_alignments = [32, 32], collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1>
+#layout2 = #tt.metal_layout<[64x64], dim_alignments = [32, 32], collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1>
+#layout3 = #tt.metal_layout<[64x128], dim_alignments = [32, 32], collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1>
 
 
 func.func @matmul() -> tensor<1x1x2x2x!tt.tile<32x32, f32>, #layout2> {
