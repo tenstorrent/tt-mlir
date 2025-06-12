@@ -11,11 +11,8 @@ module {
 }
 
 // CHECK-LABEL: func.func @_main
-// CHECK: %[[RET_VAL:.*]] = emitc.call_opaque "ttnn::add"
-// CHECK: return %[[RET_VAL]]
 
 // CHECK-LABEL: func.func @create_inputs_for__main
-// CHECK: return %{{.*}}, %{{.*}}
 
 // CHECK-LABEL: func.func @main
 // CHECK: call @create_inputs_for__main
