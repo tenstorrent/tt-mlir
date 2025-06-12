@@ -5,7 +5,7 @@
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 
 #include "ttmlir/Conversion/TTNNToEmitC/EmitCConversion.h"
-#include "ttmlir/Dialect/TT/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -97,7 +97,7 @@ struct ConvertTTNNToEmitCPass
     // Unwrap device_module into top-level ModuleOp (if present)
     {
       OpPassManager pm(ModuleOp::getOperationName());
-      pm.addPass(tt::createTTUnwrapDeviceModulePass());
+      pm.addPass(tt::createTTCoreUnwrapDeviceModulePass());
 
       if (failed(runPipeline(pm, module))) {
         signalPassFailure();

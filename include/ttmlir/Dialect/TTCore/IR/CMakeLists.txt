@@ -1,0 +1,23 @@
+add_mlir_dialect(TTCoreOps ttcore)
+add_mlir_doc(TTCoreBase TTCoreDialect src/autogen/md/Dialect/ -gen-dialect-doc)
+add_mlir_doc(TTCoreOps TTCoreOp src/autogen/md/Dialect/ -gen-op-doc)
+add_mlir_doc(TTCoreOpsTypes TTCoreAttr src/autogen/md/Dialect/ -gen-attrdef-doc)
+add_mlir_doc(TTCoreOpsTypes TTCoreType src/autogen/md/Dialect/ -gen-typedef-doc)
+
+set(LLVM_TARGET_DEFINITIONS TTCoreAttrInterfaces.td)
+mlir_tablegen(TTCoreAttrInterfaces.h.inc -gen-attr-interface-decls)
+mlir_tablegen(TTCoreAttrInterfaces.cpp.inc -gen-attr-interface-defs)
+add_public_tablegen_target(TTCoreAttrInterfacesIncGen)
+add_dependencies(mlir-headers TTCoreAttrInterfacesIncGen)
+
+set(LLVM_TARGET_DEFINITIONS TTCoreOps.td)
+mlir_tablegen(TTCoreOpsAttrDefs.h.inc -gen-attrdef-decls)
+mlir_tablegen(TTCoreOpsAttrDefs.cpp.inc -gen-attrdef-defs)
+add_public_tablegen_target(MLIRTTCoreOpsAttributesIncGen)
+add_dependencies(mlir-headers MLIRTTCoreOpsAttributesIncGen)
+
+set(LLVM_TARGET_DEFINITIONS TTCoreOpsEnums.td)
+mlir_tablegen(TTCoreOpsEnums.h.inc -gen-enum-decls)
+mlir_tablegen(TTCoreOpsEnums.cpp.inc -gen-enum-defs)
+add_public_tablegen_target(MLIRTTCoreOpsEnumsIncGen)
+add_dependencies(mlir-headers MLIRTTCoreOpsEnumsIncGen)

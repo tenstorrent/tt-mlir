@@ -16,7 +16,7 @@ func.func @requantize_per_tensor_scales_per_tensor_zps(%arg0: tensor<1x3x320x320
     // CHECK-SAME: fill_value = 1.000000e-01 : f32
     // CHECK-SAME: -> tensor<1xf32,
     // CHECK: "ttnn.requantize"
-    // CHECK-SAME: {output_dtype = #tt.supportedDataTypes<si32>}
+    // CHECK-SAME: {output_dtype = #ttcore.supportedDataTypes<si32>}
     // CHECK-SAME: tensor<1x3x320x320x!quant.uniform<i32:f32, 1.000000e-01>,
     // CHECK-SAME: -> tensor<1x3x320x320x!quant.uniform<i32:f32, 2.000000e-01>,
     %1 = "ttir.requantize"(%arg0, %0) : (tensor<1x3x320x320x!quant.uniform<i32:f32, 0.1>>, tensor<1x3x320x320x!quant.uniform<i32:f32, 0.2>>) -> tensor<1x3x320x320x!quant.uniform<i32:f32, 0.2>>

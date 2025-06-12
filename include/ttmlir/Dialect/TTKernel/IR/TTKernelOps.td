@@ -7,7 +7,7 @@
 
 include "ttmlir/Dialect/TTKernel/IR/TTKernelBase.td"
 include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.td"
-include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
+include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
@@ -127,8 +127,8 @@ def TTKernel_TypecastTileOp : TTKernel_SFPUOp<"typecast_tile", [TTKernel_UnaryOp
     }];
 
     let arguments = (ins IndexLike:$dst0_index,
-                         TT_DataTypeAttr:$in_dtype,
-                         TT_DataTypeAttr:$out_dtype);
+                         TTCore_DataTypeAttr:$in_dtype,
+                         TTCore_DataTypeAttr:$out_dtype);
 }
 
 //===----------------------------------------------------------------------===//

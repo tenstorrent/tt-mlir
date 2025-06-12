@@ -5,7 +5,7 @@
 #ifndef TTMLIR_TTMLIR_DIALECT_TTMETAL_TTMETALOPS_TD
 #define TTMLIR_TTMLIR_DIALECT_TTMETAL_TTMETALOPS_TD
 
-include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
+include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.td"
 include "ttmlir/Dialect/TTMetal/IR/TTMetalBase.td"
 include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsAttrs.td"
 include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.td"

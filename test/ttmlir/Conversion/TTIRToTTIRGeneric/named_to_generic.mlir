@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --tt-register-device --ttir-to-ttir-generic %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-ttir-generic %s | FileCheck %s
 
 !ttype = tensor<128x96xf32>
 

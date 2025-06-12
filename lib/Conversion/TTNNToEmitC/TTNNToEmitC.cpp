@@ -6,7 +6,7 @@
 
 #include "ttmlir/Conversion/TTNNToEmitC/EmitCConversion.h"
 #include "ttmlir/Conversion/TTNNToEmitC/Utils.h"
-#include "ttmlir/Dialect/TT/IR/TTOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -37,7 +37,7 @@
 #include <optional>
 
 #define GET_OP_CLASSES
-#include "ttmlir/Dialect/TT/IR/TTOpsDialect.h.inc"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsDialect.h.inc"
 
 using namespace mlir;
 using namespace mlir::tt;

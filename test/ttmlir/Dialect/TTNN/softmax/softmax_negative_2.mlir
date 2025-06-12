@@ -1,4 +1,4 @@
-// RUN: not ttmlir-opt --tt-register-device --ttnn-layout --convert-ttir-to-ttnn %s 2>&1 | FileCheck %s
+// RUN: not ttmlir-opt --ttcore-register-device --ttnn-layout --convert-ttir-to-ttnn %s 2>&1 | FileCheck %s
 // CHECK: error: 'ttir.softmax' op Dimension attribute must be within the bounds of the input tensor
 module attributes {} {
   func.func @forward(%arg0: tensor<512x1024xbf16>) -> tensor<512x1024xbf16> {

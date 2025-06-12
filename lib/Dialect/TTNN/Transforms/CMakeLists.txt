@@ -24,10 +24,10 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         DEPENDS
         MLIRTTNNOpsIncGen
         MLIRTTNNPassesIncGen
-        MLIRTTOpsIncGen
+        MLIRTTCoreOpsIncGen
 
         LINK_LIBS PUBLIC
         MLIRTTNNDialect
         MLIRTTNNAnalysis
-        MLIRTTDialect
+        MLIRTTCoreDialect
         )

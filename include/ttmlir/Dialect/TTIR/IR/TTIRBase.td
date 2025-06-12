@@ -32,7 +32,7 @@ def TTIR_Dialect : Dialect {
       "::mlir::linalg::LinalgDialect",
       "::mlir::scf::SCFDialect",
       "::mlir::cf::ControlFlowDialect",
-      "::mlir::tt::TTDialect"
+      "::mlir::tt::TTCoreDialect"
     ];
 
     let hasConstantMaterializer = 1;
