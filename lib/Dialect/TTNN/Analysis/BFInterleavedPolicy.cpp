@@ -32,7 +32,7 @@ void BFInterleavedPolicy::run() {
 
       nextOpForScheduling = nullptr;
       minimalChangeInL1Usage = std::numeric_limits<uint64_t>::max();
-      for (Operation *op : scheduler.getScheduleableOps()) {
+      for (Operation *op : scheduler.getSchedulableOps()) {
         uint64_t deallocOfL1Mem, allocOfL1Mem, changeInL1Usage;
         BufferType opBufferType;
 
