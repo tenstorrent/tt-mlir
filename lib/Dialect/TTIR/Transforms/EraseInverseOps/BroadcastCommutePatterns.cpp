@@ -359,7 +359,7 @@ private:
 
   bool isCommuteBelowViable(ttir::BroadcastOp op,
                             ttir::ReshapeOp reshapeOperand) const override {
-    // TODO implement this
+    // TODO: commute logic not implemented yet, thus it is not viable
     return false;
   }
 
@@ -441,8 +441,8 @@ private:
 
   bool isCommuteBelowViable(ttir::BroadcastOp op,
                             ttir::PermuteOp) const override {
-    // We can always commute a permute below a broadcast.
-    return true;
+    // TODO: commute logic not implemented yet, thus it is not viable
+    return false;
   }
 
   bool isCommuteAboveFavorable(ttir::BroadcastOp op,
@@ -462,11 +462,16 @@ private:
 };
 } // namespace
 
-void populateBroadcastCommutePatterns(MLIRContext *ctx,
-                                      RewritePatternSet &patterns) {
+void populateBroadcastCommuteAbovePatterns(MLIRContext *ctx,
+                                           RewritePatternSet &patterns) {
   patterns.add<TTIRCommuteTransposesAboveBroadcast<CommuteDirection::ABOVE>,
                TTIRCommuteReshapeAboveBroadcast<CommuteDirection::ABOVE>,
                TTIRCommutePermuteAboveBroadcast<CommuteDirection::ABOVE>>(ctx);
+}
+
+void populateBroadcastCommuteBelowPatterns(MLIRContext *ctx,
+                                           RewritePatternSet &patterns) {
+  // TODO implement this
 }
 
 } // namespace mlir::tt::ttir

@@ -7,6 +7,9 @@
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
+#include "ttmlir/Utils.h"
+#include "llvm/Support/ErrorHandling.h"
 
 namespace mlir::tt::ttir {
 
@@ -211,10 +214,66 @@ inline bool checkAllUsersAreIdenticalTms(ArrayRef<Operation *> users) {
   });
 }
 
-void populateElementwiseCommutePatterns(MLIRContext *ctx,
-                                        RewritePatternSet &patterns);
-void populateBroadcastCommutePatterns(MLIRContext *ctx,
-                                      RewritePatternSet &patterns);
+inline Operation *getInverseTM(Operation *tm, Value input,
+                               PatternRewriter &rewriter) {
+
+  auto inputType = dyn_cast_or_null<RankedTensorType>(input.getType());
+  if (!inputType) {
+    llvm_unreachable("Input to inverse TM must be a ranked tensor type");
+  }
+
+  if (TransposeOp transpose = dyn_cast_or_null<TransposeOp>(tm); transpose) {
+    SmallVector<int64_t> outputShape(inputType.getShape());
+    std::swap(outputShape[transpose.getDim0()],
+              outputShape[transpose.getDim1()]);
+
+    RankedTensorType resultType = inputType.clone(outputShape);
+    return ttir::utils::createDPSOp<TransposeOp>(
+        rewriter, transpose->getLoc(), resultType, input, transpose.getDim0(),
+        transpose.getDim1());
+  }
+  if (PermuteOp permute = dyn_cast_or_null<PermuteOp>(tm); permute) {
+    SmallVector<int64_t> permutation(permute.getPermutation());
+    SmallVector<int64_t> inversePermutation;
+
+    for (size_t i = 0; i < permutation.size(); i++) {
+      int64_t *inverseIndexLocation = llvm::find(permutation, i);
+      if (inverseIndexLocation == permutation.end()) {
+        llvm_unreachable(
+            "PermutationOp attribute 'permutation' must contain one of each "
+            "value in the range [0, permutation.size()]");
+      }
+      inversePermutation.push_back(inverseIndexLocation - permutation.begin());
+    }
+
+    SmallVector<int64_t> outputShape = ttmlir::utils::applyPermutation(
+        inputType.getShape(), ArrayRef<int64_t>(inversePermutation));
+    RankedTensorType resultType = inputType.clone(outputShape);
+    return ttir::utils::createDPSOp<PermuteOp>(
+        rewriter, permute->getLoc(), resultType, input, inversePermutation);
+  }
+  if (ReshapeOp reshape = dyn_cast_or_null<ReshapeOp>(tm); reshape) {
+
+    auto outputShape = reshape.getInput().getType().getShape();
+    RankedTensorType resultType = inputType.clone(outputShape);
+
+    return ttir::utils::createDPSOp<ReshapeOp>(
+        rewriter, reshape->getLoc(), resultType, input,
+        rewriter.getI32ArrayAttr(SmallVector<int32_t>(outputShape)));
+  }
+
+  llvm_unreachable("Unknown TM type");
+}
+
+void populateElementwiseCommuteAbovePatterns(MLIRContext *ctx,
+                                             RewritePatternSet &patterns);
+void populateBroadcastCommuteAbovePatterns(MLIRContext *ctx,
+                                           RewritePatternSet &patterns);
+
+void populateElementwiseCommuteBelowPatterns(MLIRContext *ctx,
+                                             RewritePatternSet &patterns);
+void populateBroadcastCommuteBelowPatterns(MLIRContext *ctx,
+                                           RewritePatternSet &patterns);
 
 } // namespace mlir::tt::ttir
 
