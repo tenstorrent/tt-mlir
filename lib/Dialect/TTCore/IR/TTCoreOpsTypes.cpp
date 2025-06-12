@@ -826,8 +826,7 @@ MetalLayoutAttr MetalLayoutAttr::get(
   if (!collapseIntervals) {
     auto intervalType =
         RankedTensorType::get({1, 2}, IntegerType::get(context, 64));
-    collapseIntervals =
-        DenseIntElementsAttr::get(intervalType, {int64_t(0), int64_t(-1)});
+    collapseIntervals = DenseIntElementsAttr::get(intervalType, {0l, -1l});
   }
 
   assert(collapseIntervals && "Collapse intervals should not be null");
@@ -854,8 +853,6 @@ MetalLayoutAttr MetalLayoutAttr::get(
 
 mlir::MemRefType
 MetalLayoutAttr::getMemRefType(mlir::RankedTensorType tensorType) const {
-  // For the new design, memref type is just the tensor shape with grid dims
-  // removed.
   auto physicalShape = tensorType.getShape();
   auto gridShape = getGridShape(tensorType);
 

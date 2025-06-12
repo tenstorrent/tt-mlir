@@ -93,14 +93,13 @@ static RankedTensorType calculateOptimalLayoutForTensorType(
 
     return RankedTensorType::get(newShape, resultType.getElementType(),
                                  newResultEncoding);
-  } else {
-    // For non-tiled, use derivePhysicalShape directly.
-    auto newPhysicalShape = MetalLayoutAttr::derivePhysicalShape(
-        logicalShape, optimalOutputGrid.getShape(), /*tileShape=*/{},
-        newResultEncoding.getCollapseIntervals());
-    return RankedTensorType::get(newPhysicalShape, resultType.getElementType(),
-                                 newResultEncoding);
   }
+  // For non-tiled, use derivePhysicalShape directly.
+  auto newPhysicalShape = MetalLayoutAttr::derivePhysicalShape(
+      logicalShape, optimalOutputGrid.getShape(), /*tileShape=*/{},
+      newResultEncoding.getCollapseIntervals());
+  return RankedTensorType::get(newPhysicalShape, resultType.getElementType(),
+                               newResultEncoding);
 }
 
 namespace {
