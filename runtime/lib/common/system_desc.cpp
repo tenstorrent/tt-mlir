@@ -72,7 +72,8 @@ getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
       // Skip on blackhole. When link is down, get_connected_ethernet_core
       // will throw an exception.
       // See https://github.com/tenstorrent/tt-mlir/issues/3423
-      if (device->arch() == ::tt::ARCH::BLACKHOLE) {
+      if (device->arch() == ::tt::ARCH::BLACKHOLE ||
+          device->arch() == ::tt::ARCH::WORMHOLE_B0) {
         continue;
       }
       std::tuple<chip_id_t, CoreCoord> connectedDevice =
