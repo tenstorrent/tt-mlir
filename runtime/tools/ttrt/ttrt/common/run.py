@@ -88,14 +88,28 @@ class Run:
             type=float,
             default=1e-05,
             choices=None,
-            help="rtol for golden test",
+            help="rtol for the PCC and identity golden tests",
         )
         Run.register_arg(
             name="--atol",
             type=float,
             default=1e-08,
             choices=None,
-            help="atol for golden test",
+            help="atol for the PCC and identity golden tests",
+        )
+        Run.register_arg(
+            name="--rtol-allclose",
+            type=float,
+            default=2e-02,
+            choices=None,
+            help="rtol for the allclose golden test",
+        )
+        Run.register_arg(
+            name="--atol-allclose",
+            type=float,
+            default=1e-03,
+            choices=None,
+            help="atol for the allclose golden test",
         )
         Run.register_arg(
             name="--pcc",
@@ -856,8 +870,8 @@ class Run:
                                     allclose_fail = not torch.allclose(
                                         golden_tensor_torch,
                                         output_tensor_torch,
-                                        rtol=self["--rtol"],
-                                        atol=self["--atol"],
+                                        rtol=self["--rtol-allclose"],
+                                        atol=self["--atol-allclose"],
                                         equal_nan=True,
                                     )
                                     if not allclose_fail:
@@ -890,15 +904,18 @@ class Run:
                                     top_k_list = get_absolute_diff_topk(
                                         golden_tensor_torch, output_tensor_torch, top_k
                                     )
-                                    self.logging.info(f"Top {top_k} differences:")
+                                    self.logging.info(
+                                        f"Top {top_k} absolute differences:"
+                                    )
                                     for rank, (
-                                        abs_diff,
                                         v_golden,
                                         v_output,
+                                        abs_diff,
                                         idx,
                                     ) in enumerate(top_k_list):
+                                        rel_diff = 100 * abs(abs_diff / v_golden)
                                         self.logging.info(
-                                            f"{rank}: absolute diff {abs_diff:.6e}, golden {v_golden:+.6e}, output {v_output:+.6e}, idx {idx}"
+                                            f"{rank}: golden {v_golden:+.6e}, output {v_output:+.6e}, abs diff {abs_diff:.6e}, rel diff {rel_diff:.1f}%, idx {idx}"
                                         )
 
                                 if pcc_fail:

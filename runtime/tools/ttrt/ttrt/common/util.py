@@ -160,7 +160,7 @@ def get_atol_rtol_pcc(golden, calculated, logging):
 
 
 # Given two torch tensors, return a list of the top k absolute differences in the following format:
-# [(abs_diff, v_golden, v_output, index), ...]
+# [(v_golden, v_output, abs_diff, index), ...]
 def get_absolute_diff_topk(golden, calculated, top_k):
     import torch
 
@@ -176,11 +176,11 @@ def get_absolute_diff_topk(golden, calculated, top_k):
     for i in range(top_k):
         flat_idx = top_indices[i].item()
         multi_idx = torch.unravel_index(torch.tensor(flat_idx), golden_shape)
-        abs_diff = top_values[i].item()
         v_golden = golden[multi_idx].item()
         v_output = calculated[multi_idx].item()
+        abs_diff = top_values[i].item()
         results.append(
-            (abs_diff, v_golden, v_output, tuple(i.item() for i in multi_idx))
+            (v_golden, v_output, abs_diff, tuple(i.item() for i in multi_idx))
         )
     return results
 
