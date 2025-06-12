@@ -266,13 +266,6 @@ class Run:
             help="Configuration for dirtying tensors, format: 'index:iterations,...' (e.g., '0:1,2:3' to dirty tensor 0 after 1 iteration and tensor 2 after 3 iterations)",
         )
         Run.register_arg(
-            name="--check-cache-stats",
-            type=str,
-            default="",
-            choices=None,
-            help="Verify tensor cache statistics. Format: 'hits:N,misses:M'",
-        )
-        Run.register_arg(
             name="--enable-program-cache",
             type=bool,
             default=False,
@@ -537,7 +530,7 @@ class Run:
                 not self["--disable-trace-implicit-from-device"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
-            perf_env = ttrt.runtime.DebugPerfEnv.get(
+            perf_env = ttrt.runtime.PerfEnv.get(
                 self["--dump-device-rate"],
                 self["--enable-perf-trace"],
             )
@@ -793,15 +786,6 @@ class Run:
                                 program_index,
                                 inputs,
                             )
-
-                            if self["--check-cache-stats"]:
-                                # Log cache stats after execution
-                                cache_stats = bin.fbb.get_tensor_cache().get_stats()
-                                hits = cache_stats.get("hits", 0)
-                                misses = cache_stats.get("misses", 0)
-                                self.logging.debug(
-                                    f"Tensor cache stats: hits={hits}, misses={misses}"
-                                )
 
                             ttrt.runtime.wait(runtime_outputs)
                             for i, runtime_output_tensor in enumerate(runtime_outputs):
@@ -1063,60 +1047,6 @@ class Run:
                                 )
                             # check operation level golden comparison result.
                             post_op_callback_runtime_config.check_pcc()
-
-                            # Check cache statistics if requested
-                            if self["--check-cache-stats"]:
-                                # Parse the requested cache stats from the parameter
-                                requested_stats = {}
-                                try:
-                                    stats_configs = self["--check-cache-stats"].split(
-                                        ","
-                                    )
-                                    for config in stats_configs:
-                                        if ":" not in config:
-                                            raise Exception(
-                                                f"Invalid cache stats format: '{config}'. Expected format 'key:value'"
-                                            )
-                                        key, value = config.split(":", 1)
-                                        key = key.strip().lower()
-                                        value = value.strip()
-                                        if not value.isdigit():
-                                            raise Exception(
-                                                f"Invalid cache stats value: '{value}'. Expected a non-negative integer"
-                                            )
-                                        requested_stats[key] = int(value)
-
-                                        # Get the actual cache stats from the device
-                                        cache_stats = (
-                                            bin.fbb.get_tensor_cache().get_stats()
-                                        )
-
-                                        # Compare the requested stats with the actual stats
-                                        for (
-                                            key,
-                                            expected_value,
-                                        ) in requested_stats.items():
-                                            actual_value = cache_stats.get(key, 0)
-                                            self.logging.debug(
-                                                f"Checking cache stat {key}: expected={expected_value}, actual={actual_value}"
-                                            )
-
-                                            if actual_value != expected_value:
-                                                error_msg = f"Cache statistics validation failed: {key} expected={expected_value}, actual={actual_value}"
-                                                self.logging.error(error_msg)
-                                                raise Exception(error_msg)
-
-                                        self.logging.info(
-                                            f"Cache statistics validation successful: {requested_stats}"
-                                        )
-
-                                except Exception as e:
-                                    error_msg = (
-                                        f"Failed to validate cache statistics: {str(e)}"
-                                    )
-                                    self.logging.error(error_msg)
-                                    # Wrap in a TTRTTestException so it gets properly handled as a test error
-                                    raise TTRTTestException(error_msg)
 
                         if self["--memory"]:
                             if self["--save-artifacts"]:
