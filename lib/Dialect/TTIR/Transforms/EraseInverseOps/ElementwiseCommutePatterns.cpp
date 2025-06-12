@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 #include "ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/EraseInverseOps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
+#include "llvm/Support/ErrorHandling.h"
 
 namespace mlir::tt::ttir {
 
@@ -79,10 +80,16 @@ public:
                                   TMOpType tmOperand,
                                   PatternRewriter &rewriter) const override {
     // TODO: implement this
-
+    RankedTensorType newEltwiseType =
+        cast<RankedTensorType>(op->getResult(0).getType())
+            .clone(tmOperand.getInput().getType().getShape());
     // For each of the other operands we must generate an inverse TM
+    // Do not want to do anything to the DPS operand (last one)
     SmallVector<Value> newEltwiseOperands;
-    for (Value operand : op->getOperands()) {
+    for (uint32_t operandIdx = 0; operandIdx < op->getNumOperands() - 1;
+         operandIdx++) {
+      Value operand = op->getOperand(operandIdx);
+
       if (operand.getDefiningOp() == tmOperand) {
         newEltwiseOperands.push_back(tmOperand.getInput());
         continue;
@@ -91,14 +98,22 @@ public:
           getInverseTM(tmOperand, operand, rewriter)->getResult(0));
     }
 
+    newEltwiseOperands.push_back(rewriter.create<ttir::EmptyOp>(
+        op->getLoc(), newEltwiseType.getShape(),
+        newEltwiseType.getElementType(), newEltwiseType.getEncoding()));
+
     Operation *newEltwise = rewriter.create(
         op->getLoc(), rewriter.getStringAttr(op->getName().getStringRef()),
-        newEltwiseOperands, op->getResult(0).getType(), op->getAttrs());
+        newEltwiseOperands, newEltwiseType, op->getAttrs());
 
     TMOpType newUserTM = ttir::utils::createDPSOp<TMOpType>(
         rewriter, op->getLoc(),
-        cast<RankedTensorType>(newEltwise->getResult(0).getType()),
+        cast<RankedTensorType>(tmOperand->getResult(0).getType()),
         newEltwise->getResult(0), tmOperand->getAttrs());
+
+    if (failed(newUserTM.verify())) {
+      llvm_unreachable("Failed to verify new TM");
+    }
 
     rewriter.replaceOp(op, newUserTM);
   }
@@ -126,7 +141,7 @@ private:
                             TMOpType tmOperand) const override {
     // We can always commute a TM below an elementwise op.
     // TODO: commute logic not implemented yet, thus it is not viable
-    return false;
+    return true;
   }
 
   bool isCommuteAboveFavorable(ElementwiseUnary op, TMOpType) const override {
@@ -165,7 +180,7 @@ private:
                             TMOpType tmOperand) const override {
     // We can always commute a TM below an elementwise op
     // TODO: commute logic not implemented yet, thus it is not viable
-    return false;
+    return true;
   }
 
   bool isCommuteAboveFavorable(ElementwiseBinary op, TMOpType) const override {
@@ -185,7 +200,8 @@ private:
            firstOperandType == secondOperandType;
   }
 
-  bool isCommuteBelowFavorable(ElementwiseBinary op, TMOpType) const override {
+  bool isCommuteBelowFavorable(ElementwiseBinary op,
+                               TMOpType tmOperand) const override {
     // If the other operand is an identical TM then it is always favourable to
     // commute below it as both can effectively be commuted at once.
     TMOpType firstOperand = op->getOperand(0).getDefiningOp<TMOpType>();
@@ -201,13 +217,17 @@ private:
     // consteval-able.
 
     // TODO: Implement the logic described above
-    return false;
+    Value otherOperand = op->getOperand(0).getDefiningOp() == tmOperand
+                             ? op->getOperand(1)
+                             : op->getOperand(0);
+    return this->valueTracesToConstantArgs(otherOperand);
   }
 };
 } // namespace
 
 void populateElementwiseCommuteAbovePatterns(MLIRContext *ctx,
-                                             RewritePatternSet &patterns) {
+                                             RewritePatternSet &patterns,
+                                             mlir::func::FuncOp funcOp) {
   patterns.add<
       TTIRCommuteTmsThroughElementwiseUnaryRewriter<TransposeOp,
                                                     CommuteDirection::ABOVE>,
@@ -221,11 +241,12 @@ void populateElementwiseCommuteAbovePatterns(MLIRContext *ctx,
                                                      CommuteDirection::ABOVE>,
       TTIRCommuteTmsThroughElementwiseBinaryRewriter<ReshapeOp,
                                                      CommuteDirection::ABOVE>>(
-      ctx);
+      ctx, funcOp);
 }
 
 void populateElementwiseCommuteBelowPatterns(MLIRContext *ctx,
-                                             RewritePatternSet &patterns) {
+                                             RewritePatternSet &patterns,
+                                             mlir::func::FuncOp funcOp) {
   patterns.add<
       TTIRCommuteTmsThroughElementwiseUnaryRewriter<TransposeOp,
                                                     CommuteDirection::BELOW>,
@@ -239,7 +260,7 @@ void populateElementwiseCommuteBelowPatterns(MLIRContext *ctx,
                                                      CommuteDirection::BELOW>,
       TTIRCommuteTmsThroughElementwiseBinaryRewriter<ReshapeOp,
                                                      CommuteDirection::BELOW>>(
-      ctx);
+      ctx, funcOp);
 }
 
 } // namespace mlir::tt::ttir
