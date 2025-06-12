@@ -402,37 +402,26 @@ static mlir::LogicalResult updateShapes(MLIRContext *context,
         continue;
       }
 
+      // Get tensor sharding annotation for this op.
       mlir::sdy::TensorShardingPerValueAttr tensorShardingPerValueAttr =
           mlir::dyn_cast<mlir::sdy::TensorShardingPerValueAttr>(
               op->getAttr(mlir::sdy::TensorShardingAttr::name));
       llvm::ArrayRef<mlir::sdy::TensorShardingAttr> tensorShardings =
           tensorShardingPerValueAttr.getShardings();
+      FailureOr<llvm::SmallVector<mlir::RankedTensorType>> newTypes =
+          sdy_utils::getNewResultTypes(op, globalMeshOp, tensorShardings);
 
-      // Loop through all the tensorShardings and apply them to each
-      // output
-      llvm::SmallVector<mlir::RankedTensorType> newTypes;
-
-      for (uint32_t i = 0; i < tensorShardings.size(); i++) {
-        mlir::sdy::TensorShardingAttr tensorShardingAttr = tensorShardings[i];
-        mlir::RankedTensorType oldType =
-            mlir::cast<mlir::RankedTensorType>(op->getResult(i).getType());
-        FailureOr<mlir::RankedTensorType> newType =
-            sdy_utils::populateShardedOutputType(globalMeshOp.getMesh(),
-                                                 oldType, tensorShardingAttr);
-
-        if (failed(newType)) {
-          op->emitError("Could not apply propagated tensor shardings to "
-                        "tensor dimensions.\n");
-          return mlir::failure();
-        }
-
-        newTypes.push_back(*newType);
+      if (failed(newTypes)) {
+        op->emitError("Could not apply propagated tensor shardings to "
+                      "tensor dimensions.\n");
+        return mlir::failure();
       }
 
       // Create new operation state to update the original operation with
       // it's new computed shapes.
-      FailureOr<mlir::OperationState> state = createNewOperationState(
-          context, op, globalMeshOp, newTypes, tensorShardings);
+      FailureOr<mlir::OperationState> state =
+          mlir::tt::stablehlo::createNewOperationState(
+              context, op, globalMeshOp, *newTypes, tensorShardings);
 
       if (failed(state)) {
         op->emitError("Could not create a new operation with updated shapes.");
@@ -443,26 +432,7 @@ static mlir::LogicalResult updateShapes(MLIRContext *context,
 
       // If the operation has nested regions, we need to remap and copy
       // them over (eg. stablehlo.reduce).
-      for (unsigned i = 0; i < op->getNumRegions(); i++) {
-        auto &oldRegion = op->getRegion(i);
-        auto &newRegion = newOp->getRegion(i);
-
-        // Figure out new operand mapping and apply to newly created op.
-        mlir::IRMapping mapping;
-        auto *oldBlock = &oldRegion.front();
-        std::unique_ptr<mlir::Block> newBlock = std::make_unique<mlir::Block>();
-        for (auto oldArg : oldBlock->getArguments()) {
-          auto newArg =
-              newBlock->addArgument(oldArg.getType(), oldArg.getLoc());
-          mapping.map(oldArg, newArg);
-        }
-
-        for (auto &op : *oldBlock) {
-          builder.setInsertionPointToEnd(newBlock.get());
-          builder.clone(op, mapping);
-        }
-        newRegion.push_back(newBlock.release());
-      }
+      sdy_utils::copyNestedRegions(builder, op, newOp);
 
       // Update all old op results with new op results.
       for (uint32_t i = 0; i < op->getNumResults(); i++) {
@@ -482,24 +452,11 @@ static mlir::LogicalResult
 convertShardyCCLToStableHLOCCL(MLIRContext *context,
                                mlir::ModuleOp &rootModule) {
   RewritePatternSet patterns(context);
-  ShardyTypeConverter typeConverter(context);
-  populateShardyCCLToStableHLOCCLPatterns(context, patterns, typeConverter);
+  populateShardyCCLToStableHLOCCLPatterns(context, patterns);
+  FrozenRewritePatternSet patternSet(std::move(patterns));
 
-  mlir::ConversionTarget target(*context);
-  target.addLegalDialect<mlir::tt::ttir::TTIRDialect>();
-  target.addLegalDialect<mlir::sdy::SdyDialect>();
-  target.addLegalDialect<mlir::stablehlo::StablehloDialect>();
-  target.addLegalDialect<mlir::func::FuncDialect>();
-  target.addLegalOp<mlir::ModuleOp>();
-  target.addLegalOp<mlir::func::ReturnOp>();
-  target.addLegalOp<mlir::func::CallOp>();
-  target.addLegalOp<mlir::arith::ConstantOp>();
-  target.addIllegalOp<mlir::sdy::AllGatherOp>();
-  target.addIllegalOp<mlir::sdy::ReduceScatterOp>();
-  target.addIllegalOp<mlir::sdy::AllReduceOp>();
-
-  // Apply conversion.
-  if (failed(applyFullConversion(rootModule, target, std::move(patterns)))) {
+  // Apply patterns greedily.
+  if (failed(applyPatternsGreedily(rootModule, patternSet))) {
     rootModule.emitError("Could not convert shardy ccl operations into "
                          "stablehlo ccl operations.\n");
     return mlir::failure();
