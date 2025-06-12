@@ -8,6 +8,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_gather.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/collective_permute.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/mesh_shard.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/point_to_point.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/reduce_scatter.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/context/get_device.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv2d.cpp
