@@ -146,7 +146,7 @@ jobs:
 
   run-tests:
 
-    timeout-minutes: 45
+    timeout-minutes: 30
     needs:
       - build-image
       - build-ttmlir
@@ -291,7 +291,7 @@ jobs:
           echo "Running op-model test Conversion"
           ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Conversion/TestConversion
           echo "Running op-model test Lib"
-          # ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Lib/TestOpModelLib
+          ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Lib/TestOpModelLib
           echo "Running op-model test Interface"
           ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Op/TestOpModelInterface
         fi
