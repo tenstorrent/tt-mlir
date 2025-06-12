@@ -74,7 +74,7 @@ jobs:
 
 
             # Make the GraphQL request
-            RESPONSE=$(curl -s -X POST -H "Authorization: Bearer $GITHUB_TOKEN" \
+            RESPONSE=$(curl -s -X POST -H "Authorization: Bearer ${{ github.token }}" \
                                  -H "Content-Type: application/json" \
                                  -d "$JSON_PAYLOAD" \
                                  https://api.github.com/graphql)
