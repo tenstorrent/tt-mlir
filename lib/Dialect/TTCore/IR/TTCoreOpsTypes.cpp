@@ -804,6 +804,10 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::derivePhysicalShape(
     for (size_t i = 0; i < collapsedShape.size(); ++i) {
       int64_t dim = collapsedShape[i];
       if (i < gridShape.size()) {
+        if (dim % gridShape[i] != 0) {
+          llvm::errs() << "dim: " << dim << " vs gridShape " << gridShape[i]
+                       << "\n";
+        }
         assert(
             dim % gridShape[i] == 0 &&
             "Collapsed dimension must be evenly divisible by grid dimension");
