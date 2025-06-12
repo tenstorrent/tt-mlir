@@ -913,8 +913,8 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
 
   // Handle ultimate group's alignment.
   const int64_t lastIntervalIdx = deviceGridRank - 1;
-  const int64_t lastAlignIdx = flattenedIntervals[secondToLastIntervalIdx * 2];
-  dimAlignments[secondToLastAlignIdx] = 32;
+  const int64_t lastAlignIdx = flattenedIntervals[lastIntervalIdx * 2];
+  dimAlignments[lastAlignIdx] = 32;
 
   auto collapseIntervals =
       DenseIntElementsAttr::get(intervalType, flattenedIntervals);

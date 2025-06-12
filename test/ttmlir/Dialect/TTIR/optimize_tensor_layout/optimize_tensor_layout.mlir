@@ -3,11 +3,11 @@
 #map1 = affine_map<(d0, d1) -> (d0, d1)>
 #map2 = affine_map<(d0, d1) -> (d0, 0)>
 #sc_map = affine_map<(d0, d1) -> (0, 0)>
-#parallel = #ttcore.titerator_type<parallel>
-#reduction = #ttcore.titerator_type<reduction>
-#l1 = #ttcore.tmemory_space<l1>
-#layout1 = #ttcore.tmetal_layout<[256, 384], undef, l1, dim_alignments = [32, 32], collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>>
-#layout2 = #ttcore.tmetal_layout<[256, 32], undef, l1, dim_alignments = [32, 32], collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>>
+#parallel = #ttcore.iterator_type<parallel>
+#reduction = #ttcore.iterator_type<reduction>
+#l1 = #ttcore.memory_space<l1>
+#layout1 = #ttcore.metal_layout<[256x384], dim_alignments = [32, 32], collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1>
+#layout2 = #ttcore.metal_layout<[256x32], dim_alignments = [32, 32], collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1>
 
 func.func @reduce_large_grid(%arg0: tensor<256x384xf32>, %arg1: tensor<256x384xf32>) -> tensor<256x32xf32> {
   %0 = ttir.empty() : tensor<1x1x8x12x!ttcore.ttile<32x32, f32>, #layout1>
@@ -57,11 +57,11 @@ func.func @reduce_large_grid(%arg0: tensor<256x384xf32>, %arg1: tensor<256x384xf
 #map1 = affine_map<(d0, d1) -> (d0, d1)>
 #map2 = affine_map<(d0, d1) -> (d0, 0)>
 #sc_map = affine_map<(d0, d1) -> (0, 0)>
-#parallel = #ttcore.titerator_type<parallel>
-#reduction = #ttcore.titerator_type<reduction>
-#l1 = #ttcore.tmemory_space<l1>
-#layout1 = #ttcore.tmetal_layout<[32, 608], undef, l1, dim_alignments = [32, 32], collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>>
-#layout2 = #ttcore.tmetal_layout<[32, 32], undef, l1, dim_alignments = [32, 32], collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>>
+#parallel = #ttcore.iterator_type<parallel>
+#reduction = #ttcore.iterator_type<reduction>
+#l1 = #ttcore.memory_space<l1>
+#layout1 = #ttcore.metal_layout<[32x608], dim_alignments = [32, 32], collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1>
+#layout2 = #ttcore.metal_layout<[32x32], dim_alignments = [32, 32], collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1>
 
 func.func @reduce_prime(%arg0: tensor<32x608xf32>, %arg1: tensor<32x608xf32>) -> tensor<32x32xf32> {
   // Convert inputs to device layout
