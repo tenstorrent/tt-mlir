@@ -3,6 +3,9 @@ include "ttmlir/Target/TTNN/types.fbs";
 
 namespace tt.target.ttnn;
 
+attribute "optional";
+
+
 table AllGatherOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
@@ -37,4 +40,12 @@ table ReduceScatterOp {
   reduce_type: uint32;
   cluster_axis: uint32;
   num_links: uint32;
+}
+
+table PointToPointOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  sender_id: int32;
+  receiver_id: int32;
+  output_tensor: tt.target.ttnn.TensorRef (optional);
 }
