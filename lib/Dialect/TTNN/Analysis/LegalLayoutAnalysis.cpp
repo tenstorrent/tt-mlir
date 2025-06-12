@@ -152,7 +152,7 @@ void applyConv2dConfigOverrides(ttnn::Conv2dOp op,
   }
 
   for (auto &opConfig : analysisResult) {
-    assert(opConfig.attrIsUninitialized() &&
+    assert(opConfig.isAttrUnintialized() &&
            "OpConfig should not have a config set before applying overrides");
     opConfig.opSpecificAttrs = Conv2dAttrs{conv2dConfigAttr, std::nullopt};
   }

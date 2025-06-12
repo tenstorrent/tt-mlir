@@ -7,6 +7,7 @@
 
 #include "OpConfigAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+
 #include <variant>
 
 namespace mlir::tt::ttnn {
@@ -36,7 +37,7 @@ struct OpConfig {
       : outputLayout(outputLayout), opSpecificAttrs(std::move(config)) {}
 
   // Some utility functions:
-  bool attrIsUninitialized() const {
+  bool isAttrUnintialized() const {
     // This function is helpful to determine whether opSpecificAttrs has been
     // initialized with an actual T or not. If this function returns true, it's
     // safe to ignore/override the content of opSpecificAttrs. I decided to

@@ -384,7 +384,7 @@ std::optional<::ttnn::DeviceComputeKernelConfig> getDeviceComputeKernelConfig(
   if (!deviceComputeKernelConfig || !deviceComputeKernelConfig.has_value()) {
     return std::nullopt;
   }
-  const mlir::tt::ttnn::DeviceComputeKernelConfigAttr &devConfig =
+  mlir::tt::ttnn::DeviceComputeKernelConfigAttr devConfig =
       deviceComputeKernelConfig.value();
 
   // Note: Currently, we only support creating WormholeComputeKernelConfig.
