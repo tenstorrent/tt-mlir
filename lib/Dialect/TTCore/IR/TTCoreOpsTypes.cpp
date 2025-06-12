@@ -761,8 +761,8 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::derivePhysicalShape(
   // Add grid dimensions to physical shape.
   physicalShape.append(gridShape.begin(), gridShape.end());
 
-  assert(collapsedShape.size() >= gridShape.size() &&
-         "Grid rank cannot exceed collapsed tensor rank");
+  assert(collapsedShape.size() == gridShape.size() &&
+         "Grid rank must equalcollapsed tensor rank");
 
   if (tileShape.empty()) {
     // Without tiling, distribute dimensions across grid.
