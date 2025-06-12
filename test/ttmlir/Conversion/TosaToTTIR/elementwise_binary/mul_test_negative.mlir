@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --convert-tosa-to-ttir %s | FileCheck %s
+// RUN: ttmlir-opt --convert-tosa-to-ttir %s 2>&1 | FileCheck %s
 // Negative test for elementwise mul operation.
 
 
