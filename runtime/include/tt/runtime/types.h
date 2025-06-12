@@ -59,6 +59,15 @@ enum class DispatchCoreType {
 
 enum class Arch { GRAYSKULL = 1, WORMHOLE_B0 = 2, BLACKHOLE = 3, QUASAR = 4 };
 
+enum class TracyLogTag { MLIR_OP_LOCATION };
+
+inline std::string toString(TracyLogTag tracyLogTag) {
+  switch (tracyLogTag) {
+  case TracyLogTag::MLIR_OP_LOCATION:
+    return "MLIR_OP_LOCATION";
+  }
+}
+
 namespace detail {
 struct ObjectImpl {
 

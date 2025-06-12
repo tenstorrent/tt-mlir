@@ -513,36 +513,80 @@ class Perf:
                     process_ops(None, None, False)
 
                     # Add post-processing steps to insert location data into the ops_perf data file
-                    with open(profiler_csv_file_path, "r") as perf_file:
-                        perf_reader = csv.DictReader(perf_file)
-                        headers = list(perf_reader.fieldnames) + ["LOC"]
-                        perf_data = list(perf_reader)
+                    # Get the op location to it's global call count mapping
+                    global_call_count_loc_mapping = {}
+                    with open(tracy_ops_data_file_path, "r") as file:
+                        lines = iter(file)
+                        buffer = None
 
-                    with open(profiler_csv_file_path, "w+") as perf_file, open(
-                        tracy_ops_data_file_path, "r"
-                    ) as message_file:
-                        import re
+                        while True:
+                            # Use buffered line if available, otherwise get next
+                            line = buffer if buffer else next(lines, None)
+                            buffer = None
 
-                        message_reader = csv.reader(message_file, delimiter=";")
-                        ops_index = 0
-                        current_loc = None
-                        loc_pattern = re.compile(r"^loc\(.*\)$")
-                        for message in message_reader:
-                            message = message[
-                                0
-                            ].strip()  # Don't need timestamp information
-                            # Check if this is a valid loc line
-                            if loc_pattern.match(message):
-                                current_loc = message
-                            elif message.startswith("`"):
-                                # This is a TTNN Message, assign current_loc to this op
-                                if current_loc and len(perf_data) > ops_index:
-                                    perf_data[ops_index]["LOC"] = current_loc
-                                    ops_index += 1
-                        perf_writer = csv.DictWriter(perf_file, fieldnames=headers)
-                        perf_writer.writeheader()
-                        for row in perf_data:
-                            perf_writer.writerow(row)
+                            if line is None:
+                                break  # End of file
+
+                            # Find all the TT_DNN_DEVICE_OP under this LOC and record their global call counts
+                            line = line.strip()
+                            if "MLIR_OP_LOCATION" in line:
+                                # Format of line is: MLIR_OP_LOCATION;loc("/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/n150/const-eval/Output/const-eval.mlir.tmp.mlir":17:14);5420869271
+                                parts = line.split(";")
+                                loc_data = parts[1]
+                                block = []
+                                for next_line in lines:
+                                    next_line = next_line.strip()
+                                    if "MLIR_OP_LOCATION" in next_line:
+                                        buffer = next_line  # Save for next outer loop
+                                        break
+                                    elif "TT_DNN_DEVICE_OP" in next_line:
+                                        block.append(next_line)
+
+                                # Process the collected block. Find it's global call count and add it to the loc
+                                for bline in block:
+                                    parts = bline.split(",")
+                                    # Strip and split part[3] on semicolon or space, and grab the number
+                                    num_part = parts[3].strip()
+                                    digits = ""
+                                    for c in num_part:
+                                        if c.isdigit():
+                                            digits += c
+                                        else:
+                                            break
+                                    global_call_count = int(digits) if digits else None
+                                    global_call_count_loc_mapping[
+                                        global_call_count
+                                    ] = loc_data
+
+                    # Update the ops perf results csv file to add in location data
+                    dir_name = os.path.dirname(profiler_csv_file_path)
+                    base_name = os.path.basename(profiler_csv_file_path)
+                    file_root, file_ext = os.path.splitext(base_name)
+                    temp_file = os.path.join(dir_name, f"{file_root}_temp{file_ext}")
+
+                    with open(
+                        profiler_csv_file_path, mode="r", newline=""
+                    ) as infile, open(temp_file, mode="w", newline="") as outfile:
+                        reader = csv.DictReader(infile)
+                        fieldnames = reader.fieldnames + ["LOC"]
+                        writer = csv.DictWriter(outfile, fieldnames=fieldnames)
+                        writer.writeheader()
+
+                        for row in reader:
+                            # Access the value at "GLOBAL CALL COUNT"
+                            local_call_count = row.get("GLOBAL CALL COUNT")
+                            local_call_count = int(local_call_count.strip())
+
+                            # Append the new column "LOC" with value 1
+                            if local_call_count in global_call_count_loc_mapping.keys():
+                                row["LOC"] = global_call_count_loc_mapping[
+                                    local_call_count
+                                ]
+                            else:
+                                row["LOC"] = "loc(unknown)"
+                            writer.writerow(row)
+
+                    os.replace(temp_file, profiler_csv_file_path)
 
                     self.file_manager.copy_file(
                         perf_folder_path,

@@ -67,7 +67,9 @@ using LogType = ::tt::runtime::logger::LogType;
 
 static void tracyLogOpLocation(const ::tt::target::ttnn::Operation *op) {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-  TracyMessage(op->loc_info()->c_str(), op->loc_info()->size());
+  std::string message = toString(TracyLogTag::MLIR_OP_LOCATION) + ";" +
+                        std::string(op->loc_info()->c_str());
+  TracyMessage(message.c_str(), message.size());
 #endif
 }
 
