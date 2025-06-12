@@ -20,6 +20,9 @@
 
 #include <algorithm>
 
+#include <unordered_map>
+#include <vector>
+
 // ----------------------------------------------------------------------------
 namespace mlir::tt::ttir {
 
@@ -69,22 +72,129 @@ class TTIRFake final : public impl::TTIRFakeBase<TTIRFake> {
     }
   }
 
+  struct tensor_info {
+    std::string m_name;
+    std::size_t m_size;
+    std::int32_t m_first;
+    std::int32_t m_last;
+    MemorySpace m_mem_space;
+  };
+
   LogicalResult runOnFuncs(ModuleOp moduleOp) {
     moduleOp->walk([&](func::FuncOp func) {
       if (func.isDeclaration()) {
         return WalkResult::skip();
       }
+      Block &b = func.getBody().front();
 
-      Block &funcBody = func.getBody().front();
-      TTMLIR_INFO("walk:\tbegin");
-      funcBody.walk<WalkOrder::PreOrder>(
-          [&](Operation *op) { TTMLIR_INFO("OP:\t{}", *op); });
-      TTMLIR_INFO("walk:\tend");
+      mlir::AsmState state{func};
+      std::vector<tensor_info> buffers{};
+      llvm::DenseMap<Value, std::int32_t> value_map{};
+
+      for (auto arg : b.getArguments()) {
+        auto arg_as_tensor = is_tensor(arg.getType());
+        if (std::get<0>(arg_as_tensor)) {
+          auto i = value_map.find(arg);
+          TT_assert(i == value_map.end(),
+                    "block args not mapped at this point");
+          tensor_info ti{};
+          {
+            ti.m_name = as_operand_str(arg, state);
+            ti.m_size = std::get<1>(arg_as_tensor);
+            ti.m_first = static_cast<int32_t>(buffers.size());
+            ti.m_last = -1;
+            ti.m_mem_space = MemorySpace::System;
+          }
+
+          buffers.emplace_back(ti);
+          value_map[arg] = ti.m_first;
+        }
+      }
+
+      b.walk<WalkOrder::PreOrder>([&](Operation *op) {
+        // TTMLIR_INFO("OP: {}", (*op));
+
+        int32_t const position = static_cast<int32_t>(buffers.size());
+
+        for (auto v : op->getOperands()) {
+          auto v_as_tensor = is_tensor(v.getType());
+          if (std::get<0>(v_as_tensor)) {
+            auto i = value_map.find(v);
+            TT_assert(i != value_map.end(), "unexpected kill");
+            tensor_info &ti = buffers[i->second];
+            ti.m_last = std::max(ti.m_last, position);
+
+            TT_ALLOC_TRACE("KILLED: [{}, {}] {}", ti.m_first, ti.m_last,
+                           ti.m_mem_space);
+          }
+        }
+        for (auto r : op->getResults()) {
+          auto r_as_tensor = is_tensor(r.getType());
+          if (std::get<0>(r_as_tensor)) {
+            // TTMLIR_INFO("\toperand size {}", std::get<1>(r_as_tensor));
+            auto i = value_map.find(r);
+            if (i == value_map.end()) {
+              tensor_info ti{};
+              {
+                ti.m_name = as_operand_str(r, state);
+                ti.m_size = std::get<1>(r_as_tensor);
+                ti.m_first = position;
+                ti.m_last = -1;
+                ti.m_mem_space = MemorySpace::DeviceL1;
+              }
+
+              buffers.emplace_back(ti);
+              value_map[r] = ti.m_first;
+            } else {
+              TTMLIR_INFO("unexpected op result mapping: {}", r);
+              TT_assert(false, "unexpected op result mapping");
+            }
+          }
+        }
+      });
+      TTMLIR_INFO("info.size = {}", value_map.size());
+
+      {
+        std::error_code ec;
+        llvm::raw_fd_ostream out("dump.csv", ec);
+        TT_assert(!ec, "couldn't open dump file");
+
+        for (auto const &ti : buffers) {
+          out << ti.m_name << ", " << ti.m_mem_space << ", " << ti.m_size
+              << ", " << (ti.m_last >= 0 ? (ti.m_last - ti.m_first + 1) : -1)
+              << ", " << ti.m_first << ", " << ti.m_last << "\n";
+        }
+      }
 
       return WalkResult::advance();
     });
 
     return llvm::success();
+  }
+
+  static std::tuple<bool, std::size_t> is_tensor(Type t) {
+    if (mlir::isa<mlir::RankedTensorType>(t)) {
+      return {true, tensor_size(mlir::cast<mlir::RankedTensorType>(t))};
+    }
+
+    return {false, 0};
+  }
+
+  static std::size_t tensor_size(mlir::RankedTensorType t) {
+    auto shape = t.getShape();
+    // llvm::outs() << "el type " << t.getElementType() << ", el size = "
+    //              << tt::getElementSizeBytes(t.getElementType()) << "\n";
+    const std::size_t elsize =
+        std::max<std::size_t>(1, tt::getElementSizeBytes(t.getElementType()));
+    return std::accumulate(shape.begin(), shape.end(), elsize,
+                           std::multiplies<int64_t>());
+  }
+
+  std::string as_operand_str(Value v, mlir::AsmState &state) {
+    std::string s{};
+    llvm::raw_string_ostream out{s};
+    v.printAsOperand(out, state);
+    return s;
   }
 };
 } // namespace

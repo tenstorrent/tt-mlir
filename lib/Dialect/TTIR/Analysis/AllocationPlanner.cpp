@@ -220,6 +220,10 @@ AllocationPlanner::Stats AllocationPlanner::verify(const Context &context) {
   AllocSizeT maxSize = 0;
   AllocSizeT maxLoad = 0;
 
+  std::error_code ec;
+  llvm::raw_fd_ostream profile("profile.csv", ec);
+  TT_assert(!ec, "couldn't open profile file");
+
   for (IndexT i = 0; i < n; ++i) {
     const Record &record = context[i];
 
@@ -250,6 +254,9 @@ AllocationPlanner::Stats AllocationPlanner::verify(const Context &context) {
     memUsage = std::max(memUsage, record.offset + record.size);
     maxLoad = std::max(maxLoad, load);
     maxSize = std::max(maxSize, record.size);
+
+    profile << i << "," << (conflicts.size() - 1) << "," << load << ","
+            << memUsage << "\n";
   }
 
   TT_assert(maxLoad > 0, "should have seen positive max load");

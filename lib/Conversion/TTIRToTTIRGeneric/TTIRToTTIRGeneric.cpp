@@ -358,9 +358,8 @@ private:
   }
 
   static void checkPreconditions(ConcreteOp op) {
-    // For reductions, require 'dim_arg' and 'keep_dim'=true for now.
+    // For reductions, require 'dim_arg' for now.
     assert(op.getDimArg() && "expected dim_arg attribute to be set");
-    assert(op.getKeepDimAttr().getValue() && "expected default keep_dim=true");
   }
 
   static SmallVector<mlir::AffineMap>

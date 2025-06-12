@@ -61,7 +61,7 @@ void createTTIRToTTMetalFrontendPipeline(
     registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
   }
   pm.addPass(tt::createTTRegisterDevicePass(registerDeviceOptions));
-  pm.addPass(ttir::createTTIRFake());
+  // pm.addPass(ttir::createTTIRFake());
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(tt::createTTIRToTTIRGenericPass());

@@ -68,8 +68,8 @@ module {
     return %10: !ttype
   }
 
-  // CHECK-LABEL: func @named_reductions_R
-  func.func @named_reductions_R(%arg: !ttype) -> (tensor<1x96xf32>) {
+  // CHECK-LABEL: func @named_reductions_R_keep_dim_true
+  func.func @named_reductions_R_keep_dim_true(%arg: !ttype) -> (tensor<1x96xf32>) {
     %0 = ttir.empty() : tensor<1x96xf32>
     // CHECK: ttir.constant
     // CHECK: ttir.generic{{.+}}iterator_types = [#reduction, #parallel]
@@ -77,6 +77,17 @@ module {
     // CHECK: ttir.tile_reduce_sum{{.+}}ttir<reduce_dim R>
     %1 = "ttir.sum"(%arg, %0) <{dim_arg = [-2: i32], keep_dim = true}> : (!ttype, tensor<1x96xf32>) -> tensor<1x96xf32>
     return %1: tensor<1x96xf32>
+  }
+
+  // CHECK-LABEL: func @named_reductions_R_keep_dim_false
+  func.func @named_reductions_R_keep_dim_false(%arg: !ttype) -> (tensor<96xf32>) {
+    %0 = ttir.empty() : tensor<96xf32>
+    // CHECK: ttir.constant
+    // CHECK: ttir.generic{{.+}}iterator_types = [#reduction, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["reduction", "parallel"]
+    // CHECK: ttir.tile_reduce_sum{{.+}}ttir<reduce_dim R>
+    %1 = "ttir.sum"(%arg, %0) <{dim_arg = [-2: i32], keep_dim = false}> : (!ttype, tensor<96xf32>) -> tensor<96xf32>
+    return %1: tensor<96xf32>
   }
 
   // CHECK-LABEL: func @named_reductions_C

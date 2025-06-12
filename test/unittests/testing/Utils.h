@@ -10,6 +10,8 @@
 
 #include <cstdint>
 #include <random>
+#include <regex>
+#include <sstream>
 #include <type_traits>
 
 namespace mlir::tt::testing {
@@ -73,6 +75,29 @@ using select_default_RNG_t =
 template <typename ResultType>
 auto createRNG(ResultType seed) -> impl::select_default_RNG_t<ResultType> {
   return impl::select_default_RNG_t<ResultType>(seed);
+}
+
+template <typename T>
+T lexical_cast(const std::string &s) {
+  T r;
+  std::istringstream iss{s};
+  iss >> r;
+  return r;
+}
+
+inline std::vector<std::string>
+tokenize(const std::string &s,
+         const std::regex &delimiters = std::regex{R"(\s+|,)"}) {
+  std::vector<std::string> r{};
+  std::sregex_token_iterator end;
+  for (std::sregex_token_iterator i = {s.begin(), s.end(), delimiters, -1};
+       i != end; ++i) {
+    std::string token{*i};
+    if (!token.empty()) {
+      r.emplace_back(std::move(token));
+    }
+  }
+  return r;
 }
 
 } // namespace mlir::tt::testing

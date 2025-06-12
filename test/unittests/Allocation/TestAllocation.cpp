@@ -9,6 +9,7 @@
 #include "testing/Utils.h"
 
 #include <cstdint>
+#include <fstream>
 #include <random>
 
 namespace mlir::tt::ttir {
@@ -192,6 +193,45 @@ TEST(GreedyAllocationTest, ConflictFree) {
     ASSERT_EQ(verifyStats.usageRatio(), 1.0)
         << "expected max load/mem usage ratio of exactly 1.0";
   }
+}
+
+TEST(WIP, LoadPlan) {
+
+  using namespace tt::testing;
+
+  AllocationPlanner::Context ctx;
+  {
+    std::ifstream in{"dump.csv"};
+    std::string line;
+    while (std::getline(in, line)) {
+      std::vector<std::string> tokens = tokenize(line);
+      ASSERT_EQ(6, tokens.size());
+
+      const std::string name = tokens[0];
+      const std::string mem_space = tokens[1];
+      const AllocationPlanner::SequenceT last =
+          lexical_cast<AllocationPlanner::SequenceT>(tokens[5]);
+
+      if ("l1" == mem_space && last >= 0) {
+        const AllocationPlanner::AllocSizeT size =
+            lexical_cast<AllocationPlanner::AllocSizeT>(tokens[2]);
+        const AllocationPlanner::SequenceT first =
+            lexical_cast<AllocationPlanner::SequenceT>(tokens[4]);
+
+        ASSERT_LE(first, last);
+        ctx.add(size, first, last);
+      }
+    }
+  }
+
+  const AllocationPlanner::Stats allocateStats =
+      AllocationPlanner::allocate(ctx);
+  const AllocationPlanner::Stats verifyStats = AllocationPlanner::verify(ctx);
+
+  ASSERT_EQ(allocateStats.maxSize, verifyStats.maxSize);
+  ASSERT_EQ(allocateStats.memUsage, verifyStats.memUsage);
+
+  llvm::outs() << "alloc/verify stats: " << verifyStats << "\n";
 }
 
 } // namespace mlir::tt::ttir

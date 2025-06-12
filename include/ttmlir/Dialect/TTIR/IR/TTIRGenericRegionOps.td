@@ -29,6 +29,21 @@ class TTIR_GenericRegionDatamovementOp<string mnemonic, list<Trait> traits = []>
 // TTIR Generic Region Math Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
+def TTIR_FakeOp : TTIR_GenericRegionComputeOp<"tile_fake"> {
+    let summary = "TTIR Tile Fake Op";
+    let description = [{
+        VLAD
+    }];
+
+    let arguments = (ins TT_Tile:$lhs,
+                         TT_Tile:$rhs);
+    let results = (outs TT_Tile:$result);
+}
+
+//===----------------------------------------------------------------------===//
+// TTIR Generic Region Math Ops (Used in TTMetal Lowering)
+//===----------------------------------------------------------------------===//
+
 def TTIR_TileAddOp : TTIR_GenericRegionComputeOp<"tile_add"> {
     let summary = "TTIR Tile Add Op";
     let description = [{
