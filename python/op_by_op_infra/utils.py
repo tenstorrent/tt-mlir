@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Callable, List, Optional
 
-from ttmlir.dialects import stablehlo, tt, ttnn
+from ttmlir.dialects import stablehlo, ttcore, ttnn
 from ttmlir.ir import (
     Context,
     Module,
@@ -227,7 +227,7 @@ class OpWrapper:
 
 class TTNNOpWrapper(OpWrapper):
     """
-    Aux op wrapper for TTNN ops carrying additional tt.device op which will be embeded
+    Aux op wrapper for TTNN ops carrying additional ttcore.device op which will be embeded
     in inner-most module above the wrapped op itself.
 
     See docstring for `as_module_str` and `TTNNModuleWrapper`.
@@ -236,7 +236,7 @@ class TTNNOpWrapper(OpWrapper):
     def __init__(
         self,
         op: OpView,
-        tt_device_op: tt.DeviceOp,
+        tt_device_op: ttcore.DeviceOp,
         attrs: Optional[OpAttributeMap] = None,
     ) -> None:
         super().__init__(op, attrs)
@@ -252,7 +252,7 @@ class TTNNOpWrapper(OpWrapper):
         -------
         ```
         module {
-            tt.device_module {
+            ttcore.device_module {
                 builtin.module attributes {...} {
                     self.tt_device_op ...
                     func.func main(...) -> ... {
@@ -289,7 +289,7 @@ class TTNNOpWrapper(OpWrapper):
 
         return (
             f"module {{ \n"
-            f"tt.device_module {{ \n"
+            f"ttcore.device_module {{ \n"
             f"builtin.module attributes {attrs} {{ \n"
             f"  {self.tt_device_op} \n"
             f"  func.func @main({unpacked_operands}) -> {return_type} {{ \n"
@@ -388,9 +388,9 @@ class TTNNModuleWrapper(ModuleWrapper):
     TTNN modules are a bit more complicated. They look like
     ```
     module {
-        tt.device_module {
+        ttcore.device_module {
             module attributes {...} {
-                tt.device ...
+                ttcore.device ...
                 func func1() {...}
                 func func2() {...}
             }
@@ -421,16 +421,18 @@ class TTNNModuleWrapper(ModuleWrapper):
             origin_op_results=origin_op_results,
         )
 
-        self._tt_device_module_op: tt.DeviceModuleOp = self.module.body.operations[0]
-        assert isinstance(self._tt_device_module_op, tt.DeviceModuleOp)
+        self._tt_device_module_op: ttcore.DeviceModuleOp = self.module.body.operations[
+            0
+        ]
+        assert isinstance(self._tt_device_module_op, ttcore.DeviceModuleOp)
 
         self._nested_module_op: OpView = self._tt_device_module_op.bodyRegion.blocks[
             0
         ].operations[0]
         self._nested_module = parse_module_str(str(self._nested_module_op))
 
-        self._tt_device_op: tt.DeviceOp = self._operations[0]
-        assert isinstance(self._tt_device_op, tt.DeviceOp)
+        self._tt_device_op: ttcore.DeviceOp = self._operations[0]
+        assert isinstance(self._tt_device_op, ttcore.DeviceOp)
 
     def __repr__(self) -> str:
         s = f"TTNNModuleWrapper(\ndialect: {self.dialect.value}\n{self.module}"
@@ -445,7 +447,7 @@ class TTNNModuleWrapper(ModuleWrapper):
     # @override
     @property
     def operations(self) -> List[OpView]:
-        # Skip the first tt.device op.
+        # Skip the first ttcore.device op.
         return list(self._operations)[1:]
 
     # @override
@@ -504,16 +506,17 @@ def is_top_level_ttnn_module(
 ) -> bool:
     """
     Returns True only if module is in TTNN dialect and contains one nested
-    tt.device_module.
+    ttcore.device_module.
     """
     dialect = dialect or ModuleDialect.detect(module)
-    return (
-        True
-        if dialect == ModuleDialect.TTNN
-        and len(module.body.operations) == 1
-        and isinstance(module.body.operations[0], tt.DeviceModuleOp)
-        else False
-    )
+
+    # Check if the module has the expected TTNN structure
+    if dialect == ModuleDialect.TTNN and len(module.body.operations) == 1:
+        # Check the name of the operation rather than its type
+        op = module.body.operations[0]
+        op_name = str(op).split("\n")[0].strip()
+        return "ttcore.device_module" in op_name
+    return False
 
 
 def parse_module_str(module_str: str) -> ModuleWrapper:

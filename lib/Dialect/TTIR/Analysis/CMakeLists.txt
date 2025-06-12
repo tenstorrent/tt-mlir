@@ -7,7 +7,7 @@ add_mlir_dialect_library(MLIRTTIRAnalysis
 
   DEPENDS
   MLIRTTIROpsIncGen
-  MLIRTTOpsIncGen
+  MLIRTTCoreOpsIncGen
 
   LINK_LIBS PUBLIC
   MLIRAnalysis

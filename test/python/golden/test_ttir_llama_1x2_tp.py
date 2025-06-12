@@ -26,8 +26,8 @@ def full_to_shard_device(input, builder, dim):
     shard_shape[dim] = 2
     return builder.mesh_shard(
         input,
-        shard_direction="#tt.shard_direction<full_to_shard>",
-        shard_type="#tt.shard_type<devices>",
+        shard_direction="#ttcore.shard_direction<full_to_shard>",
+        shard_type="#ttcore.shard_type<devices>",
         shard_shape=shard_shape,
         shard_dims=[-1, dim],
     )
@@ -36,8 +36,8 @@ def full_to_shard_device(input, builder, dim):
 def full_to_shard_replicate(input, builder):
     return builder.mesh_shard(
         input,
-        shard_direction="#tt.shard_direction<full_to_shard>",
-        shard_type="#tt.shard_type<replicate>",
+        shard_direction="#ttcore.shard_direction<full_to_shard>",
+        shard_type="#ttcore.shard_type<replicate>",
         shard_shape=[1],
         shard_dims=[-1],
     )
@@ -49,8 +49,8 @@ def shard_to_full_device(input, builder, dim):
     shard_shape[dim] = 2
     return builder.mesh_shard(
         input,
-        shard_direction="#tt.shard_direction<shard_to_full>",
-        shard_type="#tt.shard_type<devices>",
+        shard_direction="#ttcore.shard_direction<shard_to_full>",
+        shard_type="#ttcore.shard_type<devices>",
         shard_shape=shard_shape,
         shard_dims=[-1, dim],
     )
@@ -59,8 +59,8 @@ def shard_to_full_device(input, builder, dim):
 def shard_to_full_replicate(input, builder):
     return builder.mesh_shard(
         input,
-        shard_direction="#tt.shard_direction<shard_to_full>",
-        shard_type="#tt.shard_type<replicate>",
+        shard_direction="#ttcore.shard_direction<shard_to_full>",
+        shard_type="#ttcore.shard_type<replicate>",
         shard_shape=[1],
         shard_dims=[-1],
     )
@@ -230,7 +230,7 @@ def test_llama_attention_1x2_tp_part1(
         arg11 = full_to_shard_device(arg11, builder, 0)  # [2048, 4096]
         output3 = builder.matmul(output1, arg11)  # [128, 4096]
         output3 = builder.all_reduce(
-            output3, reduce_type="#tt.reduce_type<sum>", cluster_axis=1
+            output3, reduce_type="#ttcore.reduce_type<sum>", cluster_axis=1
         )  # [128, 4096]
         output5 = builder.reshape(output3, (1, 128, 32, 128))  # [1, 128, 32, 128]
         output7 = builder.transpose(output5, -3, -2)  # [1, 32, 128, 128]
@@ -259,7 +259,10 @@ def test_llama_attention_1x2_tp_part1(
         arg4 = full_to_shard_device(arg4, builder, 3)  # [1, 32, 64, 64]
         output25 = builder.matmul(arg4, output23)  # [1, 32, 64, 128]
         output25 = builder.reduce_scatter(
-            output25, reduce_type="#tt.reduce_type<sum>", scatter_dim=3, cluster_axis=1
+            output25,
+            reduce_type="#ttcore.reduce_type<sum>",
+            scatter_dim=3,
+            cluster_axis=1,
         )  # [1, 32, 64, 64]
         output27 = builder.transpose(output25, -2, -1)  # [1, 32, 64, 64]
         arg5 = full_to_shard_replicate(arg5, builder)  # [1, 1]
@@ -268,7 +271,10 @@ def test_llama_attention_1x2_tp_part1(
         arg6 = full_to_shard_device(arg6, builder, 3)  # [1, 32, 64, 64]
         output33 = builder.matmul(arg6, output31)  # [1, 32, 64, 128]
         output33 = builder.reduce_scatter(
-            output33, reduce_type="#tt.reduce_type<sum>", scatter_dim=3, cluster_axis=1
+            output33,
+            reduce_type="#ttcore.reduce_type<sum>",
+            scatter_dim=3,
+            cluster_axis=1,
         )  # [1, 32, 64, 64]
         output35 = builder.transpose(output33, -2, -1)  # [1, 32, 64, 64]
         output35 = builder.all_gather(
@@ -288,7 +294,7 @@ def test_llama_attention_1x2_tp_part1(
         arg12 = full_to_shard_device(arg12, builder, 0)  # [2048, 4096]
         output49 = builder.matmul(output1, arg12)  # [128, 4096]
         output49 = builder.all_reduce(
-            output49, reduce_type="#tt.reduce_type<sum>", cluster_axis=1
+            output49, reduce_type="#ttcore.reduce_type<sum>", cluster_axis=1
         )  # [128, 4096]
         output51 = builder.reshape(output49, (1, 128, 32, 128))  # [1, 128, 32, 128]
         output53 = builder.transpose(output51, -3, -2)  # [1, 32, 128, 128]
@@ -299,7 +305,10 @@ def test_llama_attention_1x2_tp_part1(
         arg7 = full_to_shard_device(arg7, builder, 3)  # [1, 32, 64, 64]
         output59 = builder.matmul(arg7, output57)  # [1, 32, 64, 128]
         output59 = builder.reduce_scatter(
-            output59, reduce_type="#tt.reduce_type<sum>", scatter_dim=3, cluster_axis=1
+            output59,
+            reduce_type="#ttcore.reduce_type<sum>",
+            scatter_dim=3,
+            cluster_axis=1,
         )  # [1, 32, 64, 64]
         output61 = builder.transpose(output59, -2, -1)  # [1, 32, 64, 64]
         arg8 = full_to_shard_replicate(arg8, builder)  # [1, 1]
@@ -308,7 +317,10 @@ def test_llama_attention_1x2_tp_part1(
         arg9 = full_to_shard_device(arg9, builder, 3)  # [1, 32, 64, 64]
         output67 = builder.matmul(arg9, output65)  # [1, 32, 64, 128]
         output67 = builder.reduce_scatter(
-            output67, reduce_type="#tt.reduce_type<sum>", scatter_dim=3, cluster_axis=1
+            output67,
+            reduce_type="#ttcore.reduce_type<sum>",
+            scatter_dim=3,
+            cluster_axis=1,
         )  # [1, 32, 64, 64]
         output69 = builder.transpose(output67, -2, -1)  # [1, 32, 64, 64]
         output63 = builder.all_gather(
@@ -422,7 +434,7 @@ def test_llama_attention_1x2_tp_part2(
         arg13 = full_to_shard_device(arg13, builder, 0)  # [2048, 4096]
         output93 = builder.matmul(output1, arg13)  # [128, 4096]
         output93 = builder.all_reduce(
-            output93, reduce_type="#tt.reduce_type<sum>", cluster_axis=1
+            output93, reduce_type="#ttcore.reduce_type<sum>", cluster_axis=1
         )  # [128, 4096]
         output95 = builder.reshape(output93, (1, 128, 32, 128))  # [1, 128, 32, 128]
         output95 = shard_to_full_replicate(output95, builder)  # [1, 128, 32, 128]
@@ -433,7 +445,7 @@ def test_llama_attention_1x2_tp_part2(
         output103 = builder.transpose(output101, -2, -1)  # [32, 64, 128]
         output105 = builder.matmul(output91, output103)  # [32, 128, 128]
         output105 = builder.all_reduce(
-            output105, reduce_type="#tt.reduce_type<sum>", cluster_axis=1
+            output105, reduce_type="#ttcore.reduce_type<sum>", cluster_axis=1
         )  # [32, 128, 128]
         output107 = builder.unsqueeze(output105, 0)  # [1, 32, 128, 128]
         output109 = builder.transpose(output107, -3, -2)  # [1, 128, 32, 128]

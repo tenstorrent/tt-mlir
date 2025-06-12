@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
@@ -660,7 +660,7 @@ public:
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
     registry.insert<mlir::tt::ttir::TTIRDialect>();
     registry.insert<mlir::tt::ttnn::TTNNDialect>();
-    registry.insert<mlir::tt::TTDialect>();
+    registry.insert<mlir::tt::TTCoreDialect>();
     registry.insert<mlir::func::FuncDialect>();
   }
 };

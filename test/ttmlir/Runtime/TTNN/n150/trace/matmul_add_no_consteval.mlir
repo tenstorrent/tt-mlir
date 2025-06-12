@@ -3,7 +3,7 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 
 module {
-  func.func @matmul_with_bias(%arg0: tensor<784x1096xbf16> {tt.argument_type = #tt.argument_type<parameter>}, %arg1: tensor<1096x784xbf16> {tt.argument_type = #tt.argument_type<parameter>}, %arg2: tensor<784x784xbf16> {tt.argument_type = #tt.argument_type<input>}) -> tensor<784x784xbf16> {
+  func.func @matmul_with_bias(%arg0: tensor<784x1096xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg1: tensor<1096x784xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg2: tensor<784x784xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}) -> tensor<784x784xbf16> {
     // CHECK: ttnn.trace
     %0 = ttir.empty() : tensor<784x784xbf16>
     %1 = "ttir.matmul"(%arg0, %arg1, %0) : (tensor<784x1096xbf16>, tensor<1096x784xbf16>, tensor<784x784xbf16>) -> tensor<784x784xbf16>
