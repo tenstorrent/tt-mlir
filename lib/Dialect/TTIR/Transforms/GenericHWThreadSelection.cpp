@@ -62,9 +62,9 @@ public:
     threads.erase(threads.begin() + outputOperandsIndex);
     auto newGeneric = rewriter.create<GenericOp>(
         op.getLoc(), op.getResults().getTypes(), op.getInputs(),
-        op.getOutputs(), op.getGrid(), op.getIndexingMaps(),
-        op.getIteratorTypes(), rewriter.getArrayAttr(threads),
-        op.getNumRegions() - 1);
+        op.getOutputs(), op.getGrid(), op.getBlockFactors(),
+        op.getIndexingMaps(), op.getIteratorTypes(),
+        rewriter.getArrayAttr(threads), op.getNumRegions() - 1);
 
     unsigned regionIndex = 0;
     for (mlir::Region &region : op.getRegions()) {
