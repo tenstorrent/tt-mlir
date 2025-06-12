@@ -692,13 +692,29 @@ mlir::tt::calculateLogicalShardShape(mlir::ArrayRef<int64_t> tensorShape,
 }
 
 static llvm::SmallVector<int64_t>
-applyCollapseIntervals(llvm::ArrayRef<int64_t> shape,
-                       mlir::DenseIntElementsAttr intervals) {
+applyCollapseIntervalsAndAlignments(llvm::ArrayRef<int64_t> shape,
+                                    mlir::DenseIntElementsAttr intervals,
+                                    llvm::ArrayRef<int64_t> alignments) {
+  assert(shape.size() == alignments.size() &&
+         "Shape and alignments must have same size");
+
+  llvm::SmallVector<int64_t> resultShape;
+
+  // If no intervals provided, treat as identity mapping.
   if (!intervals) {
-    return llvm::SmallVector<int64_t>(shape);
+    // Just apply alignments to each dimension.
+    for (size_t i = 0; i < shape.size(); ++i) {
+      int64_t dimSize = shape[i];
+      int64_t alignment = alignments[i];
+      if (alignment > 1 && dimSize % alignment != 0) {
+        dimSize = ((dimSize + alignment - 1) / alignment) * alignment;
+      }
+      resultShape.push_back(dimSize);
+    }
+    return resultShape;
   }
 
-  llvm::SmallVector<int64_t> collapsedShape;
+  // Process with collapse intervals.
   auto values = intervals.getValues<int64_t>();
   auto numIntervals = intervals.getType().getShape()[0];
   assert(intervals.getType().getShape()[1] == 2);
@@ -710,12 +726,10 @@ applyCollapseIntervals(llvm::ArrayRef<int64_t> shape,
     int64_t end = values[i * 2 + 1];
 
     // Handle Python-like negative indexing.
-    if (start < 0) {
+    if (start < 0)
       start = shape.size() + start;
-    }
-    if (end < 0) {
+    if (end < 0)
       end = shape.size() + end;
-    }
 
     assert(start >= 0 && static_cast<size_t>(start) < shape.size() &&
            "Start index out of bounds");
@@ -723,40 +737,59 @@ applyCollapseIntervals(llvm::ArrayRef<int64_t> shape,
            "End index out of bounds");
 
     if (end - start == 1) {
-      // Single dimension interval [start, start+1) - no collapse.
-      collapsedShape.push_back(shape[start]);
-    } else if (end > start) {
-      // Collapse dimensions [start, end) into a single dimension.
-      int64_t collapsedDim = 1;
-      for (int64_t j = start; j < end; ++j) {
-        collapsedDim *= shape[j];
+      // Single dimension - apply alignment.
+      int64_t dimSize = shape[start];
+      int64_t alignment = alignments[start];
+      if (alignment > 1 && dimSize % alignment != 0) {
+        dimSize = ((dimSize + alignment - 1) / alignment) * alignment;
       }
-      collapsedShape.push_back(collapsedDim);
+      resultShape.push_back(dimSize);
+    } else if (end > start) {
+      // Collapse multiple dimensions with alignment.
+      int64_t collapsedDim = 1;
+
+      for (int64_t j = start; j < end; ++j) {
+        int64_t dimSize = shape[j];
+
+        // Apply alignment to all dimensions being collapsed.
+        int64_t alignment = alignments[j];
+        if (alignment > 1 && dimSize % alignment != 0) {
+          dimSize = ((dimSize + alignment - 1) / alignment) * alignment;
+        }
+
+        collapsedDim *= dimSize;
+      }
+
+      resultShape.push_back(collapsedDim);
     }
     currentIdx = end;
   }
 
-  // Append any remaining dimensions that weren't covered by intervals.
+  // Handle remaining dimensions with alignment.
   for (size_t i = currentIdx; i < shape.size(); ++i) {
-    collapsedShape.push_back(shape[i]);
+    int64_t dimSize = shape[i];
+    int64_t alignment = alignments[i];
+    if (alignment > 1 && dimSize % alignment != 0) {
+      dimSize = ((dimSize + alignment - 1) / alignment) * alignment;
+    }
+    resultShape.push_back(dimSize);
   }
 
-  return collapsedShape;
+  return resultShape;
 }
 
 // Takes various shape fields and returns the expected physical shape, which
 // should be the actual tensor shape.
 llvm::SmallVector<int64_t> MetalLayoutAttr::derivePhysicalShape(
     ArrayRef<int64_t> logicalShape, ArrayRef<int64_t> gridShape,
-    ArrayRef<int64_t> tileShape, mlir::DenseIntElementsAttr collapseIntervals) {
+    ArrayRef<int64_t> tileShape, mlir::DenseIntElementsAttr collapseIntervals,
+    ArrayRef<int64_t> alignmentDims) {
   llvm::SmallVector<int64_t> physicalShape;
 
   // Apply collapse intervals to get collapsed logical shape.
   llvm::SmallVector<int64_t> collapsedShape =
-      applyCollapseIntervals(logicalShape, collapseIntervals);
-  llvm::errs() << "collapsed shape: [";
-  llvm::interleaveComma(collapsedShape, llvm::errs());
-  llvm::errs() << "]\n";
+      applyCollapseIntervalsAndAlignments(logicalShape, collapseIntervals,
+                                          alignmentDims);
 
   // Add grid dimensions to physical shape.
   physicalShape.append(gridShape.begin(), gridShape.end());
@@ -807,8 +840,6 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::derivePhysicalShape(
         shardDim = dim / gridShape[collapsedIdx];
       }
 
-      llvm::errs() << "shardDim: " << shardDim << ", tileDim: " << tileDim
-                   << "\n";
       // Then tilize the shard.
       const int64_t tileCount = (shardDim + tileDim - 1) / tileDim;
       physicalShape.push_back(tileCount);
@@ -818,15 +849,21 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::derivePhysicalShape(
   return physicalShape;
 }
 
-MetalLayoutAttr MetalLayoutAttr::get(
-    ::mlir::MLIRContext *context, ArrayRef<int64_t> logicalShape, OOBVal oobVal,
-    MemorySpace memorySpace, ArrayRef<int64_t> gridShape,
-    ArrayRef<int64_t> tileShape, mlir::Type elementType,
-    DenseIntElementsAttr collapseIntervals, ArrayRef<int64_t> dimAlignments) {
+MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> logicalShape,
+                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     DenseIntElementsAttr collapseIntervals,
+                                     llvm::SmallVector<int64_t> dimAlignments) {
   if (!collapseIntervals) {
     auto intervalType =
         RankedTensorType::get({1, 2}, IntegerType::get(context, 64));
     collapseIntervals = DenseIntElementsAttr::get(intervalType, {0l, -1l});
+  }
+  if (dimAlignments.empty()) {
+    dimAlignments = SmallVector<int64_t>(logicalShape.size(), 1);
+    constexpr std::array<int64_t, 2> tileShape = TileType::getDefaultShape();
+    dimAlignments.front() = tileShape[0];
+    dimAlignments.back() = tileShape[1];
   }
 
   assert(collapseIntervals && "Collapse intervals should not be null");
@@ -835,40 +872,57 @@ MetalLayoutAttr MetalLayoutAttr::get(
   assert(collapseIntervals.getType().getShape()[1] == 2 &&
          "Each interval must have exactly 2 elements");
 
-  auto physicalShape = derivePhysicalShape(logicalShape, gridShape, tileShape,
-                                           collapseIntervals);
+  return get(context, logicalShape, dimAlignments, collapseIntervals, oobVal,
+             memorySpace);
+}
 
-  // Call the generated constructor with all parameters (including default
-  // alignments if needed).
-  if (dimAlignments.empty()) {
-    SmallVector<int64_t> alignments(logicalShape.size(), 1);
-    alignments.front() = 32;
-    alignments.back() = 32;
-    return get(context, logicalShape, oobVal, memorySpace, alignments,
-               collapseIntervals, /*buffers=*/1);
+MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> logicalShape,
+                                     uint64_t deviceGridRank, OOBVal oobVal,
+                                     MemorySpace memorySpace) {
+  if (deviceGridRank == 2) {
+    return get(context, logicalShape, oobVal, memorySpace);
   }
-  return get(context, logicalShape, oobVal, memorySpace, dimAlignments,
-             collapseIntervals, /*buffers=*/1);
+
+  llvm::SmallVector<int64_t> dimAlignments(logicalShape.size(), 1);
+  dimAlignments.front() = 32;
+  for (size_t i = 0; i < deviceGridRank - 1; ++i) {
+    dimAlignments[dimAlignments.size() - 1 - i] = 32;
+  }
+
+  auto intervalType = RankedTensorType::get(
+      {static_cast<int64_t>(deviceGridRank), 2}, IntegerType::get(context, 64));
+  llvm::SmallVector<int64_t> flattenedIntervals;
+  int64_t numDimsToCollapse = logicalShape.size() - deviceGridRank + 1;
+  // First interval will be [0, N - grid)
+  flattenedIntervals.push_back(0);
+  flattenedIntervals.push_back(numDimsToCollapse);
+  for (int64_t i = 1; i < static_cast<int64_t>(deviceGridRank); ++i) {
+    // Last gridRank - 1 intervals will be [i, i + 1)
+    flattenedIntervals.push_back(numDimsToCollapse + i - 1);
+    flattenedIntervals.push_back(numDimsToCollapse + i);
+  }
+  auto collapseIntervals =
+      DenseIntElementsAttr::get(intervalType, flattenedIntervals);
+
+  return get(context, logicalShape, dimAlignments, collapseIntervals, oobVal,
+             memorySpace);
 }
 
 mlir::MemRefType
-MetalLayoutAttr::getMemRefType(mlir::RankedTensorType tensorType) const {
-  auto physicalShape = tensorType.getShape();
-  auto gridShape = getGridShape(tensorType);
+MetalLayoutAttr::getMemRefType(mlir::RankedTensorType tensorType) {
 
-  SmallVector<int64_t> memrefShape;
-  for (size_t i = gridShape.size(); i < physicalShape.size(); ++i) {
-    memrefShape.push_back(physicalShape[i]);
+  if (!tensorType.getEncoding()) {
+    return MemRefType::get(tensorType.getShape(), tensorType.getElementType());
   }
 
-  // Use the stride information, if available.
-  MemRefLayoutAttrInterface layoutAttr;
-  auto shardStride = getShardStride(tensorType);
-  layoutAttr = ShardLayoutAttr::get(getContext(), shardStride, getBuffers());
+  auto layout = mlir::cast<MetalLayoutAttr>(tensorType.getEncoding());
 
-  return mlir::MemRefType::get(
-      memrefShape, tensorType.getElementType(), layoutAttr,
-      MemorySpaceAttr::get(getContext(), getMemorySpace()));
+  auto shardShape = layout.getShardShape(tensorType);
+
+  return MemRefType::get(
+      shardShape, tensorType.getElementType(), MemRefLayoutAttrInterface{},
+      MemorySpaceAttr::get(tensorType.getContext(), layout.getMemorySpace()));
 }
 
 // Get effective stride (use provided or calculate from shape)

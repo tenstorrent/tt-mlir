@@ -30,9 +30,7 @@ void populateTTModule(nb::module_ &m) {
                     return wrap(tt::MetalLayoutAttr::get(
                         unwrap(ctx), ArrayRef<int64_t>(logicalShape),
                         static_cast<tt::OOBVal>(oobValValue),
-                        static_cast<tt::MemorySpace>(memorySpaceValue),
-                        ArrayRef<int64_t>(gridShape), tileShapeRef,
-                        unwrap(elementType)));
+                        static_cast<tt::MemorySpace>(memorySpaceValue)));
                   })
       .def("getLayout",
            [](MlirType &type) -> std::variant<tt::MetalLayoutAttr, nb::object> {
@@ -72,11 +70,9 @@ void populateTTModule(nb::module_ &m) {
                      return static_cast<uint32_t>(la.getOobVal());
                    })
       .def_prop_ro("memory_space", &tt::MetalLayoutAttr::getMemorySpace)
-      .def_prop_ro("memory_space_as_int",
-                   [](tt::MetalLayoutAttr la) {
-                     return static_cast<uint32_t>(la.getMemorySpace());
-                   })
-      .def_prop_ro("buffers", &tt::MetalLayoutAttr::getBuffers);
+      .def_prop_ro("memory_space_as_int", [](tt::MetalLayoutAttr la) {
+        return static_cast<uint32_t>(la.getMemorySpace());
+      });
 
   tt_attribute_class<tt::GridAttr>(m, "GridAttr")
       .def_static("get",

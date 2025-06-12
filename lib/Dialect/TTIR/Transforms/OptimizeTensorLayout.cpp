@@ -72,9 +72,8 @@ static RankedTensorType calculateOptimalLayoutForTensorType(
       getOptimalGrid(rewriter, canonicalShape, workerGridShape);
 
   auto newResultEncoding = MetalLayoutAttr::get(
-      tensor.getContext(), logicalShape, resultEncoding.getOobVal(),
-      resultEncoding.getMemorySpace(), optimalOutputGrid.getShape(), tileShape,
-      resultType.getElementType(), resultEncoding.getCollapseIntervals());
+      tensor.getContext(), logicalShape, workerGridShape.size(),
+      resultEncoding.getOobVal(), resultEncoding.getMemorySpace());
 
   // For tiled tensors, manually calculate the new shape.
   if (mlir::isa<TileType>(resultType.getElementType())) {
@@ -97,7 +96,8 @@ static RankedTensorType calculateOptimalLayoutForTensorType(
   // For non-tiled, use derivePhysicalShape directly.
   auto newPhysicalShape = MetalLayoutAttr::derivePhysicalShape(
       logicalShape, optimalOutputGrid.getShape(), /*tileShape=*/{},
-      newResultEncoding.getCollapseIntervals());
+      newResultEncoding.getCollapseIntervals(),
+      newResultEncoding.getDimAlignments());
   return RankedTensorType::get(newPhysicalShape, resultType.getElementType(),
                                newResultEncoding);
 }
@@ -185,7 +185,8 @@ struct TTIRMemrefLayoutRewriter : public OpRewritePattern<ttir::GenericOp> {
         auto operandType =
             mlir::cast<RankedTensorType>(op->getOperand(i).getType());
 
-        auto expectedMemrefType = ttir::getGenericOpMemRefType(operandType);
+        auto expectedMemrefType =
+            tt::MetalLayoutAttr::getMemRefType(operandType);
 
         if (arg.getType() == expectedMemrefType) {
           continue;

@@ -327,43 +327,43 @@ def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout", [TT_DeviceLayout
     // The logical tensor shape before distribution.
     ArrayRefParameter<"int64_t">:$logical_shape,
 
-    // Out of bounds value.
-    AttrParameter<"OOBVal", "Out of bounds fill value">:$oob_val,
-
-    // Memory space for the tensor.
-    DefaultValuedParameter<"MemorySpace", "MemorySpace::System">:$memory_space,
-
     // Alignment for each logical dim, default is 32x1x...x1x32.
     ArrayRefParameter<"int64_t">:$dim_alignments,
 
     // Dim collapse info--must be encoded as 2D array of pairs, where each pair represent a half-open range--negative indexing is supported.
     AttrParameter<"DenseIntElementsAttr", "Intervals of dims to collpase">:$collapse_intervals,
 
-    // Number of buffers for double buffering.
-    DefaultValuedParameter<"uint32_t", "1">:$buffers
+    // Out of bounds value.
+    AttrParameter<"OOBVal", "Out of bounds fill value">:$oob_val,
+
+    // Memory space for the tensor.
+    DefaultValuedParameter<"MemorySpace", "MemorySpace::System">:$memory_space
   );
 
-  let assemblyFormat = "`<` `[` $logical_shape `]``,` $oob_val (`,` $memory_space^)? `,` `dim_alignments` `=` `[` $dim_alignments `]`  `,` `collapse_dims` `=` $collapse_intervals (`,` `buffers` `=` $buffers^)? `>`";
+  let assemblyFormat = "`<` `[` custom<DimensionList>($logical_shape) `]` `,` `dim_alignments` `=` `[` $dim_alignments `]`  `,` `collapse_dims` `=` $collapse_intervals `,` $oob_val (`,` $memory_space^)? `>`";
 
   let extraClassDeclaration = [{
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
-                                     ArrayRef<int64_t> gridShape,
-                                     ArrayRef<int64_t> tileShape,
-                                     mlir::Type elementType,
                                      DenseIntElementsAttr collapseIntervals = {},
-                                     ArrayRef<int64_t> dimAlignments = {});
+                                     llvm::SmallVector<int64_t> dimAlignments = {});
+
+    static  MetalLayoutAttr get(::mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> logicalShape,
+                                     uint64_t deviceGridRank,
+                                     OOBVal oobVal, MemorySpace memorySpace);
 
     // Derive the physical tensor shape from logical shape and grid.
     static llvm::SmallVector<int64_t> derivePhysicalShape(
         ArrayRef<int64_t> logicalShape,
         ArrayRef<int64_t> gridShape,
         ArrayRef<int64_t> tileShape,
-        DenseIntElementsAttr collapseIntervals);
+        DenseIntElementsAttr collapseIntervals,
+        ArrayRef<int64_t> dimAlignments);
 
     // Get the corresponding memref type (essentially just drops grid dimensions).
-    MemRefType getMemRefType(RankedTensorType tensorType) const;
+    static MemRefType getMemRefType(RankedTensorType tensorType);
 
     // Stride calculations for shard portion.
     llvm::SmallVector<int64_t> getShardStride(RankedTensorType tensorType) const;

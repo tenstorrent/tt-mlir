@@ -157,10 +157,7 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
         llvm::SmallVector<Type> blockTypes = llvm::map_to_vector(TypeRange($_state.operands), [&](Type t) -> Type {
           mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
           auto layout = mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding());
-          auto shardShape = layout.getShardShape(tensorType);
-          return MemRefType::get(shardShape, tensorType.getElementType(),
-                                MemRefLayoutAttrInterface{},
-                                MemorySpaceAttr::get($_builder.getContext(), layout.getMemorySpace()));
+          return layout.getMemRefType(tensorType);
         });
         Region& region = *$_state.regions.front().get();
         llvm::SmallVector<mlir::Location> locs($_state.operands.size(), $_state.location);
@@ -177,9 +174,11 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
       [{
         assert(outputs.size() == 1 && "expected single output");
         RankedTensorType tensorType = mlir::cast<RankedTensorType>(outputs[0].getType());
-        MetalLayoutAttr layout = mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding());
-        auto [indexingMaps, iteratorTypes] = buildParallelAffineMapsAndIteratorTypes($_builder, inputs.size() + outputs.size(), layout.getRank());
-        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadRegionBuilder, singleThreadType, grid, blockFactors);
+        MetalLayoutAttr maybeLayout = mlir::dyn_cast_or_null<tt::MetalLayoutAttr>(tensorType.getEncoding());
+        const size_t rank = (maybeLayout != nullptr) ? maybeLayout.getShardShape(tensorType).size() : tensorType.getShape().size();
+        auto [indexingMaps, iteratorTypes] = buildParallelAffineMapsAndIteratorTypes($_builder,
+            inputs.size() + outputs.size(), rank);
+        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadRegionBuilder, singleThreadType, grid);
       }]>,
     ];
 
