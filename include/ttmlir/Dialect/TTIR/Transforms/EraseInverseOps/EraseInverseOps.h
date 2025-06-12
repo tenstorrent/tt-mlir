@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 #include "llvm/Support/ErrorHandling.h"
+#include <iostream>
 
 namespace mlir::tt::ttir {
 
@@ -20,6 +21,37 @@ template <typename TMOpType, typename CommutableOpOrInterface,
 class TTIRCommuteRewritePatternBase {
 public:
   virtual ~TTIRCommuteRewritePatternBase() noexcept = default;
+
+  TTIRCommuteRewritePatternBase(mlir::func::FuncOp funcOp) {
+    constParams = ttmlir::utils::populateConstParams(funcOp);
+  }
+
+  bool valueTracesToConstantArgs(Value value) const {
+    if (isa_and_nonnull<ConstantOp, ArangeOp, FullOp, EmptyOp, OnesOp>(
+            value.getDefiningOp())) {
+      return true;
+    }
+
+    if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(value)) {
+      if (constParams.contains(blockArg)) {
+        return true;
+      }
+      return false;
+    }
+
+    if (Operation *op = value.getDefiningOp()) {
+
+      for (Value operand : op->getOperands()) {
+        if (!valueTracesToConstantArgs(operand)) {
+          return false;
+        }
+      }
+
+      return true;
+    }
+
+    llvm_unreachable("The end of this function should never be reached");
+  }
 
 protected:
   LogicalResult matchAndRewriteImpl(CommutableOpOrInterface op,
@@ -61,6 +93,13 @@ protected:
     } else {
       for (Value operand : op->getOperands()) {
         auto tmOperand = operand.getDefiningOp<TMOpType>();
+
+        // We do not want to commute any tms which are already a part of a
+        // consteval-able path
+        if (valueTracesToConstantArgs(operand)) {
+          continue;
+        }
+
         if (!tmOperand) {
           continue;
         }
@@ -88,6 +127,9 @@ protected:
   }
 
 private:
+  // Set of params to original func which can be const-eval'ed.
+  llvm::SmallPtrSet<mlir::BlockArgument, 4> constParams;
+
   // This should return `success()` if `tmUser` can be commuted above `op`.
   virtual bool isCommuteAboveViable(CommutableOpOrInterface op,
                                     TMOpType tmUser) const = 0;
@@ -148,8 +190,14 @@ class TTIRCommuteOpInterfaceRewritePattern
       public TTIRCommuteRewritePatternBase<TMOpType, CommutableOpInterface,
                                            direction> {
 public:
-  using OpInterfaceRewritePattern<
-      CommutableOpInterface>::OpInterfaceRewritePattern;
+  // using OpInterfaceRewritePattern<
+  //     CommutableOpInterface>::OpInterfaceRewritePattern;
+
+  TTIRCommuteOpInterfaceRewritePattern(mlir::MLIRContext *ctx,
+                                       mlir::func::FuncOp funcOp)
+      : OpInterfaceRewritePattern<CommutableOpInterface>(ctx),
+        TTIRCommuteRewritePatternBase<TMOpType, CommutableOpInterface,
+                                      direction>(funcOp) {}
 
   LogicalResult matchAndRewrite(CommutableOpInterface op,
                                 PatternRewriter &rewriter) const override {
@@ -164,7 +212,11 @@ class TTIRCommuteOpRewritePattern
     : public OpRewritePattern<CommutableOp>,
       public TTIRCommuteRewritePatternBase<TMOpType, CommutableOp, direction> {
 public:
-  using OpRewritePattern<CommutableOp>::OpRewritePattern;
+  // using OpRewritePattern<CommutableOp>::OpRewritePattern;
+  TTIRCommuteOpRewritePattern(mlir::MLIRContext *ctx, mlir::func::FuncOp funcOp)
+      : OpRewritePattern<CommutableOp>(ctx),
+        TTIRCommuteRewritePatternBase<TMOpType, CommutableOp, direction>(
+            funcOp) {}
 
   LogicalResult matchAndRewrite(CommutableOp op,
                                 PatternRewriter &rewriter) const override {
@@ -266,14 +318,18 @@ inline Operation *getInverseTM(Operation *tm, Value input,
 }
 
 void populateElementwiseCommuteAbovePatterns(MLIRContext *ctx,
-                                             RewritePatternSet &patterns);
+                                             RewritePatternSet &patterns,
+                                             mlir::func::FuncOp funcOp);
 void populateBroadcastCommuteAbovePatterns(MLIRContext *ctx,
-                                           RewritePatternSet &patterns);
+                                           RewritePatternSet &patterns,
+                                           mlir::func::FuncOp funcOp);
 
 void populateElementwiseCommuteBelowPatterns(MLIRContext *ctx,
-                                             RewritePatternSet &patterns);
+                                             RewritePatternSet &patterns,
+                                             mlir::func::FuncOp funcOp);
 void populateBroadcastCommuteBelowPatterns(MLIRContext *ctx,
-                                           RewritePatternSet &patterns);
+                                           RewritePatternSet &patterns,
+                                           mlir::func::FuncOp funcOp);
 
 } // namespace mlir::tt::ttir
 

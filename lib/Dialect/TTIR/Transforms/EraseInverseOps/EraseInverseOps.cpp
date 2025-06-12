@@ -33,19 +33,32 @@ public:
   }
 
   void runOnOperation() final {
+    mlir::func::FuncOp funcOp;
+    getOperation().walk([&](mlir::func::FuncOp op) {
+      if (!op.isDeclaration()) {
+        funcOp = op;
+      }
+    });
+
+    if (!funcOp) {
+      return;
+    }
+
     RewritePatternSet commuteAbovePatterns(&getContext());
-    populateElementwiseCommuteAbovePatterns(&getContext(),
-                                            commuteAbovePatterns);
-    populateBroadcastCommuteAbovePatterns(&getContext(), commuteAbovePatterns);
+    populateElementwiseCommuteAbovePatterns(&getContext(), commuteAbovePatterns,
+                                            funcOp);
+    populateBroadcastCommuteAbovePatterns(&getContext(), commuteAbovePatterns,
+                                          funcOp);
     mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(commuteAbovePatterns,
                                                            &getContext());
 
     frozenCommuteAbovePatterns = std::move(commuteAbovePatterns);
 
     RewritePatternSet commuteBelowPatterns(&getContext());
-    populateElementwiseCommuteBelowPatterns(&getContext(),
-                                            commuteBelowPatterns);
-    populateBroadcastCommuteBelowPatterns(&getContext(), commuteBelowPatterns);
+    populateElementwiseCommuteBelowPatterns(&getContext(), commuteBelowPatterns,
+                                            funcOp);
+    populateBroadcastCommuteBelowPatterns(&getContext(), commuteBelowPatterns,
+                                          funcOp);
     mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(commuteBelowPatterns,
                                                            &getContext());
 
@@ -88,7 +101,7 @@ public:
       }
       // If this is true then the minimal TM state has been reached at some
       // point during these two pattern applications
-      if (startingTMCount == afterCommuteBelowTMCount) {
+      if (startingTMCount <= afterCommuteBelowTMCount) {
         if (minTmState == STARTING) {
           // We are already at the minimum TM count graph
           return;
