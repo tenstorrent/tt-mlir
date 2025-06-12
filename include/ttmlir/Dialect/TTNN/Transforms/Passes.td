@@ -129,7 +129,8 @@ def TTNNTuplifyTensors: Pass<"ttnn-tuplify-tensors", "::mlir::ModuleOp"> {
     Option<"tuplifyInputIfEmpty",
             "tuplify-input-if-empty",
             "bool", /*default=*/"false",
-            "If input arg is originally empty, force create an empty tuple arg.">
+            "If input arg is originally empty, force create an empty tuple arg. This is useful for scenarios where "
+            "signatures are required have tuples on the input, like the EmitC dylib path.">
   ];
 }
 
