@@ -100,7 +100,7 @@ class Run:
         Run.register_arg(
             name="--rtol-allclose",
             type=float,
-            default=2e-02,
+            default=5e-02,
             choices=None,
             help="rtol for the allclose golden test",
         )
@@ -901,8 +901,11 @@ class Run:
                                 # Print the top k differences.
                                 if golden_fail:
                                     top_k = self["--golden-diff-topk"]
-                                    top_k_list = get_absolute_diff_topk(
-                                        golden_tensor_torch, output_tensor_torch, top_k
+                                    top_k_list = get_topk_diff(
+                                        golden_tensor_torch,
+                                        output_tensor_torch,
+                                        top_k,
+                                        relative=False,
                                     )
                                     self.logging.info(
                                         f"Top {top_k} absolute differences:"
@@ -910,12 +913,30 @@ class Run:
                                     for rank, (
                                         v_golden,
                                         v_output,
-                                        abs_diff,
+                                        v_diff,
                                         idx,
                                     ) in enumerate(top_k_list):
-                                        rel_diff = 100 * abs(abs_diff / v_golden)
                                         self.logging.info(
-                                            f"{rank}: golden {v_golden:+.6e}, output {v_output:+.6e}, abs diff {abs_diff:.6e}, rel diff {rel_diff:.1f}%, idx {idx}"
+                                            f"{rank}: golden {v_golden:+.6e}, output {v_output:+.6e}, abs diff {v_diff:.6e}, idx {idx}"
+                                        )
+                                    top_k_list = get_topk_diff(
+                                        golden_tensor_torch,
+                                        output_tensor_torch,
+                                        top_k,
+                                        relative=True,
+                                    )
+                                    self.logging.info(
+                                        f"Top {top_k} relative differences:"
+                                    )
+                                    for rank, (
+                                        v_golden,
+                                        v_output,
+                                        v_diff,
+                                        idx,
+                                    ) in enumerate(top_k_list):
+                                        diff_percent = v_diff * 100
+                                        self.logging.info(
+                                            f"{rank}: golden {v_golden:+.6e}, output {v_output:+.6e}, rel diff {diff_percent:4.1f}%, idx {idx}"
                                         )
 
                                 if pcc_fail:

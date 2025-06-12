@@ -159,16 +159,23 @@ def get_atol_rtol_pcc(golden, calculated, logging):
     )
 
 
-# Given two torch tensors, return a list of the top k absolute differences in the following format:
-# [(v_golden, v_output, abs_diff, index), ...]
-def get_absolute_diff_topk(golden, calculated, top_k):
+# Given two torch tensors, return a list of the top k absolute/relative differences.
+# Result format: [(v_golden, v_output, abs_diff/rel_diff, index), ...].
+def get_topk_diff(golden, calculated, top_k, relative=False):
     import torch
 
     if not torch.is_floating_point(golden):
         golden = golden.to(torch.float64)
     if not torch.is_floating_point(calculated):
         calculated = calculated.to(torch.float64)
+
     diff = torch.abs(golden - calculated)
+    if relative:
+        diff = torch.abs(diff / golden)
+        # In case of division by zero
+        diff_nz = torch.abs((calculated + 1.0) / (golden + 1.0)) - 1.0
+        diff = torch.where(torch.isfinite(diff), diff, diff_nz)
+
     top_values, top_indices = torch.topk(diff.flatten(), top_k)
 
     golden_shape = golden.shape
@@ -178,10 +185,8 @@ def get_absolute_diff_topk(golden, calculated, top_k):
         multi_idx = torch.unravel_index(torch.tensor(flat_idx), golden_shape)
         v_golden = golden[multi_idx].item()
         v_output = calculated[multi_idx].item()
-        abs_diff = top_values[i].item()
-        results.append(
-            (v_golden, v_output, abs_diff, tuple(i.item() for i in multi_idx))
-        )
+        v_diff = top_values[i].item()
+        results.append((v_golden, v_output, v_diff, tuple(i.item() for i in multi_idx)))
     return results
 
 
