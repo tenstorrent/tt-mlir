@@ -44,6 +44,7 @@ def parallelize(tensor, grid, collapseIntervals=[(0, -1)]):
         ctx, tensor.encoding, tensor.shape, grid, collapseIntervals
     )
 
+
 t0 = createTensorLayout([2, 3, 64, 128], [2, 4])
 # CHECK: tensor<2x3x64x128xf32, #tt.metal_layout<(d0, d1, d2, d3) -> (d0 * 192 + d1 * 64 + d2, d3), undef, <2x4>, memref<192x32xf32, #tt.memory_space<l1>>>>
 print(t0)
