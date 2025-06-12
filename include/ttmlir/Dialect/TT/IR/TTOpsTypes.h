@@ -329,7 +329,7 @@ template <typename T, typename TAttr>
 mlir::MemRefType buildMemRef(mlir::MLIRContext *context,
                              llvm::ArrayRef<int64_t> shardShape,
                              mlir::Type elementType, T memorySpace,
-                             int64_t shapeDimAlignedUpToTile = false) {
+                             bool shapeDimAlignedUpToTile = false) {
   llvm::SmallVector<int64_t> scalarShardShape(shardShape);
   if (mlir::isa<mlir::tt::TileType>(elementType)) {
     scalarShardShape = mlir::cast<mlir::tt::TileType>(elementType)
