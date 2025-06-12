@@ -726,10 +726,12 @@ applyCollapseIntervalsAndAlignments(llvm::ArrayRef<int64_t> shape,
     int64_t end = values[i * 2 + 1];
 
     // Handle Python-like negative indexing.
-    if (start < 0)
+    if (start < 0) {
       start = shape.size() + start;
-    if (end < 0)
+    }
+    if (end < 0) {
       end = shape.size() + end;
+    }
 
     assert(start >= 0 && static_cast<size_t>(start) < shape.size() &&
            "Start index out of bounds");
@@ -880,28 +882,40 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      uint64_t deviceGridRank, OOBVal oobVal,
                                      MemorySpace memorySpace) {
-  if (deviceGridRank == 2) {
-    return get(context, logicalShape, oobVal, memorySpace);
-  }
+  assert(deviceGridRank >= 2 && "deviceGridRank must be 2 or higher");
 
   llvm::SmallVector<int64_t> dimAlignments(logicalShape.size(), 1);
-  dimAlignments.front() = 32;
-  for (size_t i = 0; i < deviceGridRank - 1; ++i) {
-    dimAlignments[dimAlignments.size() - 1 - i] = 32;
-  }
 
+  // Create collapse intervals.
   auto intervalType = RankedTensorType::get(
       {static_cast<int64_t>(deviceGridRank), 2}, IntegerType::get(context, 64));
   llvm::SmallVector<int64_t> flattenedIntervals;
   int64_t numDimsToCollapse = logicalShape.size() - deviceGridRank + 1;
-  // First interval will be [0, N - grid)
+
+  // First interval will be [0, numDimsToCollapse).
   flattenedIntervals.push_back(0);
   flattenedIntervals.push_back(numDimsToCollapse);
   for (int64_t i = 1; i < static_cast<int64_t>(deviceGridRank); ++i) {
-    // Last gridRank - 1 intervals will be [i, i + 1)
+    // Last gridRank - 1 intervals will be [i, i + 1).
     flattenedIntervals.push_back(numDimsToCollapse + i - 1);
     flattenedIntervals.push_back(numDimsToCollapse + i);
   }
+
+  // Now set alignments based on the collapse intervals.
+  // For the last two dimensions in the result (after collapse),
+  // find the leftmost input dimension in each interval and set alignment to 32.
+
+  // Handle penultimate group's alignment.
+  const int64_t secondToLastIntervalIdx = deviceGridRank - 2;
+  const int64_t secondToLastAlignIdx =
+      flattenedIntervals[secondToLastIntervalIdx * 2];
+  dimAlignments[secondToLastAlignIdx] = 32;
+
+  // Handle ultimate group's alignment.
+  const int64_t lastIntervalIdx = deviceGridRank - 1;
+  const int64_t lastAlignIdx = flattenedIntervals[secondToLastIntervalIdx * 2];
+  dimAlignments[secondToLastAlignIdx] = 32;
+
   auto collapseIntervals =
       DenseIntElementsAttr::get(intervalType, flattenedIntervals);
 
