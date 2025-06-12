@@ -13,6 +13,7 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsEnums.h.inc"
 #include "ttmlir/Utils.h"
 
+#include <cassert>
 #include <numeric>
 
 namespace mlir::tt {
@@ -334,7 +335,7 @@ mlir::MemRefType buildMemRef(mlir::MLIRContext *context,
     scalarShardShape = mlir::cast<mlir::tt::TileType>(elementType)
                            .getTiledShape(scalarShardShape);
   } else if (shapeDimAlignedUpToTile) {
-    ;
+    assert(!scalarShardShape.empty());
 
     auto &first_dim = scalarShardShape.front();
     first_dim =
