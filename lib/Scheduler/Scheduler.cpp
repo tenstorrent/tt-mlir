@@ -71,51 +71,54 @@ llvm::SmallVector<mlir::Operation *> Scheduler::getSchedulableOps() {
     }
   }
 
+  if (schedulableOps.size() <= 1) {
+    return schedulableOps;
+  }
+
   // We will sort schedulable ops by prioritizing ops whose successors are still
   // blocked after scheduling it. This is a heuristic that lets us create longer
   // chains of ops that contain join nodes in fork-join structure.
   // This is not general solution and we want to change it in the future.
   // TODO(rpavlovicTT) https://github.com/tenstorrent/tt-mlir/issues/3744
-  if (schedulableOps.size() > 1) {
-    auto hasBlockedSuccessor = [&](mlir::Operation *op) -> bool {
-      // A successor is any op for which 'op' is a dependency.
-      for (Operation *succ : opsWithinFuncOp) {
-        if (succ == op) {
-          continue;
-        }
-        auto it = dependencies.find(succ);
-        if (it == dependencies.end()) {
-          continue;
-        }
-        ArrayRef<Operation *> succDeps = it->second;
+  auto hasBlockedSuccessor = [&](mlir::Operation *op) -> bool {
+    // A successor is any op for which 'op' is a dependency.
+    for (Operation *succ : opsWithinFuncOp) {
+      if (succ == op) {
+        continue;
+      }
+      auto it = dependencies.find(succ);
+      if (it == dependencies.end()) {
+        continue;
+      }
+      ArrayRef<Operation *> succDeps = it->second;
 
-        // Check if 'op' is a dependency of 'succ'.
-        if (std::find(succDeps.begin(), succDeps.end(), op) != succDeps.end()) {
-          // Simulate scheduling 'op' and check if 'succ' would still have
-          // unscheduled deps.
-          for (Operation *dep : succDeps) {
-            if (dep == op) {
-              continue;
-            }
-            if (!scheduledOpsMap.contains(dep)) {
-              // Found a successor that would still be blocked.
-              return true;
-            }
+      // Check if 'op' is a dependency of 'succ'.
+      if (std::find(succDeps.begin(), succDeps.end(), op) != succDeps.end()) {
+        // Simulate scheduling 'op' and check if 'succ' would still have
+        // unscheduled deps.
+        for (Operation *dep : succDeps) {
+          if (dep == op) {
+            continue;
+          }
+          if (!scheduledOpsMap.contains(dep)) {
+            // Found a successor that would still be blocked.
+            return true;
           }
         }
       }
-      return false;
-    };
-    std::stable_sort(schedulableOps.begin(), schedulableOps.end(),
-                     [&](mlir::Operation *a, mlir::Operation *b) {
-                       bool aBlocked = hasBlockedSuccessor(a);
-                       bool bBlocked = hasBlockedSuccessor(b);
-                       if (aBlocked != bBlocked) {
-                         return aBlocked > bBlocked;
-                       }
-                       return false;
-                     });
-  }
+    }
+    return false;
+  };
+
+  std::stable_sort(schedulableOps.begin(), schedulableOps.end(),
+                   [&](mlir::Operation *a, mlir::Operation *b) {
+                     bool aBlocked = hasBlockedSuccessor(a);
+                     bool bBlocked = hasBlockedSuccessor(b);
+                     if (aBlocked != bBlocked) {
+                       return aBlocked > bBlocked;
+                     }
+                     return false;
+                   });
 
   return schedulableOps;
 }
