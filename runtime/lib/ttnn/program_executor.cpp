@@ -73,6 +73,15 @@ static void tracyLogOpLocation(const ::tt::target::ttnn::Operation *op) {
 #endif
 }
 
+static void tracyLogConstEvalProgram(const ::tt::target::ttnn::Operation *op,
+                                     bool constEvalOp) {
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+  std::string message = toString(TracyLogTag::MLIR_CONST_EVAL_OP) + ";" +
+                        std::string(constEvalOp ? "true" : "false");
+  TracyMessage(message.c_str(), message.size());
+#endif
+}
+
 static const ::tt::target::ttnn::Program *
 getProgram(const Binary &executableHandle, std::uint32_t programIndex) {
   const ::tt::target::ttnn::TTNNBinary &fbb =
@@ -85,9 +94,10 @@ getProgram(const Binary &executableHandle, std::uint32_t programIndex) {
 ProgramExecutor::ProgramExecutor(
     const Binary &executableHandle,
     std::vector<::tt::runtime::Tensor> &programInputs,
-    std::shared_ptr<::ttnn::MeshDevice> meshDevice, const size_t programIndex)
+    std::shared_ptr<::ttnn::MeshDevice> meshDevice, const size_t programIndex,
+    bool constEvalProgram)
     : program(getProgram(executableHandle, programIndex)),
-      executableHandle(executableHandle) {
+      executableHandle(executableHandle), constEvalProgram(constEvalProgram) {
   LOG_ASSERT(program, "Program must be provided for execution");
 
   std::vector<uint32_t> programInputIds;
@@ -136,6 +146,7 @@ void ProgramExecutor::execute() {
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
+    tracyLogConstEvalProgram(op, constEvalProgram);
     tracyLogOpLocation(op);
     runCallback(debug::Hooks::get().getPreOperatorCallback(), executableHandle,
                 op, context.get());
