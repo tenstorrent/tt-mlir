@@ -23,6 +23,7 @@ Layout getDramInterleavedTileLayout(::tt::target::DataType dataType) {
           std::make_shared<::tt::runtime::ttnn::LayoutDesc>(layoutDesc)),
       DeviceRuntime::TTNN);
 }
+
 Layout getDramInterleavedRowMajorLayout(::tt::target::DataType dataType) {
   LOG_ASSERT(getCurrentRuntime() == DeviceRuntime::TTNN);
   ::ttnn::DataType ttnnDataType =
@@ -35,6 +36,7 @@ Layout getDramInterleavedRowMajorLayout(::tt::target::DataType dataType) {
           std::make_shared<::tt::runtime::ttnn::LayoutDesc>(layoutDesc)),
       DeviceRuntime::TTNN);
 }
+
 ::tt::runtime::Layout getHostRowMajorLayout(::tt::target::DataType dataType) {
   LOG_ASSERT(getCurrentRuntime() == DeviceRuntime::TTNN);
   ::ttnn::DataType ttnnDataType =
@@ -46,14 +48,5 @@ Layout getDramInterleavedRowMajorLayout(::tt::target::DataType dataType) {
       std::static_pointer_cast<void>(
           std::make_shared<::tt::runtime::ttnn::LayoutDesc>(layoutDesc)),
       DeviceRuntime::TTNN);
-}
-
-std::optional<size_t> getTraceCacheDebugStat(::tt::runtime::Device device,
-                                             const std::string &statName) {
-  LOG_ASSERT(getCurrentRuntime() == DeviceRuntime::TTNN);
-  auto traceCache =
-      device.getTraceCache()->asSharedPtr<tt::runtime::ttnn::TraceCache>(
-          DeviceRuntime::TTNN);
-  return traceCache->getDebugStat(statName);
 }
 } // namespace tt::runtime::test::ttnn

@@ -5,7 +5,7 @@
 #ifndef TT_RUNTIME_DETAIL_TTNN_PROGRAM_EXECUTOR_H
 #define TT_RUNTIME_DETAIL_TTNN_PROGRAM_EXECUTOR_H
 
-#include "tt/runtime/detail/debug.h"
+#include "tt/runtime/debug.h"
 #include "tt/runtime/detail/dylib.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn/types.h"
@@ -66,6 +66,9 @@ private:
    */
   void runOperation(const ::tt::target::ttnn::Operation *op);
 
+  /**
+   * Dumps device profile counters if needed
+   */
   void dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice);
 };
 

@@ -151,17 +151,6 @@ static void executeTrace(const ::tt::target::ttnn::TraceOp *op,
   }
 }
 
-static inline void
-incrementDebugStat(const ::tt::runtime::ttnn::TraceCache &cache,
-                   const std::string &statName) {
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  cache.incrementDebugStat(statName);
-#else
-  LOG_WARNING_ONCE("Trace cache debug stats are disabled in release mode. To "
-                   "record debug stats, TT_RUNTIME_DEBUG must be set");
-#endif
-}
-
 void run(const ::tt::target::ttnn::TraceOp *op, ProgramContext &context) {
   ::tt::runtime::Device deviceHandle = context.getDeviceHandle();
   ::ttnn::MeshDevice &meshDevice =
@@ -185,14 +174,14 @@ void run(const ::tt::target::ttnn::TraceOp *op, ProgramContext &context) {
 
   if (!traceCache->contains(binaryId, programId, traceFuncName)) {
     executeTraceProgramAndCaptureTrace(op, context, *traceCache);
-    incrementDebugStat(*traceCache, "cacheMiss");
-    incrementDebugStat(*traceCache, "capturedTrace");
+    debug::Stats::get().incrementStat("TraceCacheMiss");
+    debug::Stats::get().incrementStat("CapturedTrace");
     return;
   }
 
   TraceData *traceData = traceCache->get(binaryId, programId, traceFuncName);
   LOG_ASSERT(traceData, "TraceData must be populated in TraceCache");
   executeTrace(op, context, *traceData);
-  incrementDebugStat(*traceCache, "executedTrace");
+  debug::Stats::get().incrementStat("ExecutedTrace");
 }
 } // namespace tt::runtime::ttnn::operations::trace

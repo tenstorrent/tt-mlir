@@ -54,8 +54,9 @@
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
 #include "operations/trace/trace.h"
-#include "tt/runtime/detail/debug.h"
+#include "tt/runtime/debug.h"
 #include "tt/runtime/detail/ttnn/types.h"
+#include "tt/runtime/perf.h"
 #include "tt/runtime/utils.h"
 
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
@@ -68,8 +69,8 @@ using LogType = ::tt::runtime::logger::LogType;
 
 static void tracyLogOpLocation(const ::tt::target::ttnn::Operation *op) {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-  std::string message = toString(TracyLogTag::MLIR_OP_LOCATION) + ";" +
-                        std::string(op->loc_info()->c_str());
+  std::string message = perf::toString(perf::TracyLogTag::MLIR_OP_LOCATION) +
+                        ";" + std::string(op->loc_info()->c_str());
   TracyMessage(message.c_str(), message.size());
 #endif
 }
@@ -77,8 +78,8 @@ static void tracyLogOpLocation(const ::tt::target::ttnn::Operation *op) {
 static void tracyLogConstEvalProgram(const ::tt::target::ttnn::Operation *op,
                                      bool constEvalOp) {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-  std::string message = toString(TracyLogTag::MLIR_CONST_EVAL_OP) + ";" +
-                        std::string(constEvalOp ? "true" : "false");
+  std::string message = perf::toString(perf::TracyLogTag::MLIR_CONST_EVAL_OP) +
+                        ";" + std::string(constEvalOp ? "true" : "false");
   TracyMessage(message.c_str(), message.size());
 #endif
 }
@@ -152,21 +153,6 @@ void ProgramExecutor::execute() {
 
 std::vector<::tt::runtime::Tensor> ProgramExecutor::gatherOutputTensors() {
   return context->getTensorPool().gatherOutputTensors();
-}
-
-void ProgramExecutor::dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice) {
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-  static uint32_t counter = 0;
-  if (counter++ >= debug::PerfEnv::get().dumpDeviceRate) {
-    LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +
-                                           std::to_string(counter - 1) +
-                                           " operations");
-    for (::ttnn::IDevice *ttnnDevice : meshDevice.get_devices()) {
-      ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
-    }
-    counter = 0;
-  }
-#endif
 }
 
 void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
@@ -348,6 +334,21 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
               ::tt::target::ttnn::EnumNameOpType(op->type_type()));
   }
   }
+}
+
+void ProgramExecutor::dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice) {
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+  static uint32_t counter = 0;
+  if (++counter >= perf::Env::get().dumpDeviceRate) {
+    LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +
+                                           std::to_string(counter) +
+                                           " operations");
+    for (::ttnn::IDevice *ttnnDevice : meshDevice.get_devices()) {
+      ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
+    }
+    counter = 0;
+  }
+#endif
 }
 
 } // namespace tt::runtime::ttnn
