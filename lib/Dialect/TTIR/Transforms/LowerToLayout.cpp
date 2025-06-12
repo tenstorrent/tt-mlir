@@ -180,12 +180,10 @@ public:
     auto newLayout =
         baseTypeHasLayout
             ? MetalLayoutAttr::get(ctx, baseLayout.getLogicalShape(),
-                                   baseLayout.getOobVal(), memSpace, gridShape,
-                                   tileShape, elementType,
+                                   baseLayout.getOobVal(), memSpace,
                                    maybeBaseLayout.getCollapseIntervals())
             : MetalLayoutAttr::get(ctx, baseLayout.getLogicalShape(),
-                                   baseLayout.getOobVal(), memSpace, gridShape,
-                                   tileShape, elementType);
+                                   baseLayout.getOobVal(), memSpace);
 
     // For physical shape derivation, use tile shape ONLY if element type is
     // tiled
@@ -201,7 +199,7 @@ public:
     // Derive physical shape
     auto physicalShape = MetalLayoutAttr::derivePhysicalShape(
         baseLayout.getLogicalShape(), gridShape, tileShapeForPhysical,
-        newLayout.getCollapseIntervals());
+        newLayout.getCollapseIntervals(), newLayout.getDimAlignments());
 
     return RankedTensorType::get(physicalShape, elementType, newLayout);
   }

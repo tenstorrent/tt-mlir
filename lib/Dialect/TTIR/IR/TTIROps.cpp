@@ -28,6 +28,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include <cstdint>
 #include <numeric>
 #include <string>
@@ -36,20 +37,6 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
 
 namespace mlir::tt::ttir {
-// Convert TensorType + MetalLayout into a memref without a Shard/ViewAttr.
-MemRefType getGenericOpMemRefType(RankedTensorType tensorType) {
-  if (!tensorType.getEncoding()) {
-    return MemRefType::get(tensorType.getShape(), tensorType.getElementType());
-  }
-
-  auto layout = mlir::cast<MetalLayoutAttr>(tensorType.getEncoding());
-
-  auto shardShape = layout.getShardShape(tensorType);
-
-  return MemRefType::get(
-      shardShape, tensorType.getElementType(), MemRefLayoutAttrInterface{},
-      MemorySpaceAttr::get(tensorType.getContext(), layout.getMemorySpace()));
-}
 
 // Convert TensorType + MetalLayout into a memref including a Shard/ViewAttr.
 MemRefType getBufferType(Type type, bool isView) {
@@ -2178,6 +2165,51 @@ verifyLayoutOp(mlir::Operation *op, mlir::Type inputTensorOrMemrefTy,
                         /*allowMemorySpaceChange*/ true);
 }
 
+// Helper func to check if two sets of collapse intervals are equivalent.
+// Clean version that works directly with DenseIntElementsAttr
+bool areIntervalsEquivalent(mlir::DenseIntElementsAttr intervals1,
+                            mlir::DenseIntElementsAttr intervals2,
+                            int64_t inputRank) {
+  // Normalizing func for intervals; handle negative indexing and implicit final
+  // intervals.
+  auto normalizeIntervals = [inputRank](mlir::DenseIntElementsAttr attr) {
+    llvm::SmallVector<int64_t> normalized;
+    int64_t coveredUpTo = 0;
+
+    // Get values and process in pairs.
+    auto values = attr.getValues<int64_t>();
+    auto it = values.begin();
+
+    while (it != values.end()) {
+      int64_t start = *it++;
+      int64_t end = *it++;
+
+      // Handle negative indexing (Python-style).
+      if (start < 0)
+        start += inputRank;
+      if (end < 0)
+        end += inputRank;
+
+      normalized.push_back(start);
+      normalized.push_back(end);
+      coveredUpTo = std::max(coveredUpTo, end);
+    }
+
+    // If there are untouched dimensions, they form one final interval.
+    if (coveredUpTo < inputRank) {
+      normalized.push_back(coveredUpTo);
+      normalized.push_back(inputRank);
+    }
+
+    return normalized;
+  };
+
+  auto norm1 = normalizeIntervals(intervals1);
+  auto norm2 = normalizeIntervals(intervals2);
+
+  return norm1 == norm2;
+}
+
 // ToLayoutOp utility methods
 mlir::tt::ttir::ToLayoutOp::CompoundComponents
 mlir::tt::ttir::ToLayoutOp::compoundComponents() {
@@ -2203,6 +2235,7 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
             ? llvm::SmallVector<int64_t>{outputLayout.getGridShape(
                   outputTensor)}
             : llvm::SmallVector<int64_t>(outputTensor.getRank(), 1);
+
     components.isGridChange = inputGrid != outputGrid;
 
     components.isMemorySpaceChange =
@@ -2211,10 +2244,14 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
     components.isFormatChange =
         inputTensor.getElementType() != outputTensor.getElementType();
 
-    components.isLayoutChange = inputLayout.getCollapseIntervals() !=
-                                    outputLayout.getCollapseIntervals() ||
-                                inputLayout.getCollapseIntervals() !=
-                                    outputLayout.getCollapseIntervals();
+    // This field will track different logical ranks, different
+    components.isLayoutChange =
+        inputLayout.getLogicalShape().size() !=
+            outputLayout.getLogicalShape().size() ||
+        !areIntervalsEquivalent(inputLayout.getCollapseIntervals(),
+                                outputLayout.getCollapseIntervals(),
+                                inputLayout.getLogicalShape().size()) ||
+        inputLayout.getDimAlignments() != outputLayout.getDimAlignments();
   } else {
     auto inputMemref = mlir::cast<mlir::MemRefType>(getInput().getType());
     auto outputMemref = mlir::cast<mlir::MemRefType>(getOutput().getType());
@@ -2226,6 +2263,7 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
     components.isMemorySpaceChange =
         inputMemref.getMemorySpace() != outputMemref.getMemorySpace();
   }
+
   return components;
 }
 
@@ -2239,11 +2277,9 @@ mlir::tt::MetalLayoutAttr mlir::tt::ttir::ToLayoutOp::getOrCreateInputLayout() {
 
   // Create default layout for tensor without encoding
   llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
-  llvm::SmallVector<int64_t> gridShape(tensorType.getRank(), 1);
 
-  return tt::MetalLayoutAttr::get(
-      getContext(), logicalShape, tt::OOBVal::Undef, tt::MemorySpace::System,
-      gridShape, /*tileShape=*/{}, tensorType.getElementType());
+  return tt::MetalLayoutAttr::get(getContext(), logicalShape, tt::OOBVal::Undef,
+                                  tt::MemorySpace::System);
 }
 
 mlir::tt::MetalLayoutAttr
@@ -2257,11 +2293,9 @@ mlir::tt::ttir::ToLayoutOp::getOrCreateOutputLayout() {
 
   // Create default layout for tensor without encoding
   llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
-  llvm::SmallVector<int64_t> gridShape(tensorType.getRank(), 1);
 
-  return tt::MetalLayoutAttr::get(
-      getContext(), logicalShape, tt::OOBVal::Undef, tt::MemorySpace::System,
-      gridShape, /*tileShape=*/{}, tensorType.getElementType());
+  return tt::MetalLayoutAttr::get(getContext(), logicalShape, tt::OOBVal::Undef,
+                                  tt::MemorySpace::System);
 }
 
 mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::fold(
