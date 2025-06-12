@@ -2185,10 +2185,12 @@ bool areIntervalsEquivalent(mlir::DenseIntElementsAttr intervals1,
       int64_t end = *it++;
 
       // Handle negative indexing (Python-style).
-      if (start < 0)
+      if (start < 0) {
         start += inputRank;
-      if (end < 0)
+      }
+      if (end < 0) {
         end += inputRank;
+      }
 
       normalized.push_back(start);
       normalized.push_back(end);
