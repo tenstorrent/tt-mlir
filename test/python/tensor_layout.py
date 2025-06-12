@@ -74,7 +74,7 @@ t4 = createTensorLayout([128], [1, 2, 4], collapseIntervals=[(0, -1)])
 # CHECK: tensor<128xf32, #tt.metal_layout<(d0) -> (0, 0, d0), undef, <1x2x4>, memref<32x32x32xf32, #tt.memory_space<l1>>>>
 print(t4)
 
-# CHECK: #tt.metal_layout<(d0) -> (0, 0, d0), undef, <1x2x4>, memref<1x1x1x!tt.tile<32x32, bfp_bf8>, #tt.memory_space<l1>>>
+# CHECK: #tt.metal_layout<(d0) -> (0, 0, d0), undef, <1x2x4>, memref<32x1x1x!tt.tile<32x32, bfp_bf8>, #tt.memory_space<l1>>>
 print(tilize(t4, tt.DataType.BFP_BFloat8).wrapped())
 # CHECK: #tt.metal_layout<(d0) -> (0, d0), undef, <1x2>, memref<32x64xf32, #tt.memory_space<l1>>>
 print(parallelize(t4, [1, 2]).wrapped())
