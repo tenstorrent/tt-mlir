@@ -1839,6 +1839,21 @@ mlir::OpFoldResult mlir::tt::ttir::TransposeOp::fold(FoldAdaptor adaptor) {
   return nullptr;
 }
 
+void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
+  patterns.add(+[](TransposeOp op, mlir::PatternRewriter &rewriter) {
+    SmallVector<int64_t> permutation;
+    for (int64_t i = 0; i < op.getInput().getType().getRank(); ++i) {
+      permutation.push_back(i);
+    }
+
+    std::swap(permutation[op.getDim0()], permutation[op.getDim1()]);
+    ttir::utils::replaceOpWithNewDPSOp<PermuteOp>(rewriter, op, op.getType(),
+                                                  op.getInput(), permutation);
+    return success();
+  });
+}
+
 //===----------------------------------------------------------------------===//
 // TypecastOp
 //===----------------------------------------------------------------------===//
@@ -3585,6 +3600,9 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
       return failure();
     }
 
+    auto finalShape = op.getType().getShape();
+    (void)finalShape;
+
     auto reshapeOperand =
         op.getInput().getDefiningOp<mlir::tt::ttir::ReshapeOp>();
     if (!reshapeOperand) {
@@ -3600,6 +3618,8 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
     // Check that the reshape fuses the dims which were moved by the
     // permuteOperand
     auto permuteShape = permuteOperand.getType().getShape();
+    auto permuteInputShape = permuteOperand.getInput().getType().getShape();
+    (void)permuteInputShape;
     auto reshapeShape = reshapeOperand.getType().getShape();
 
     bool isCorectReshape = reshapeShape[0] == permuteShape[0] &&

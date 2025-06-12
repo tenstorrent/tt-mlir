@@ -11,7 +11,7 @@ namespace mlir::tt::ttir {
 
 namespace {
 template <CommuteDirection direction>
-class TTIRCommuteTransposesAboveBroadcast
+class TTIRCommuteTransposesThroughBroadcast
     : public TTIRCommuteOpRewritePattern<ttir::TransposeOp, ttir::BroadcastOp,
                                          direction> {
 public:
@@ -74,7 +74,7 @@ private:
   bool isCommuteBelowViable(ttir::BroadcastOp op,
                             ttir::TransposeOp) const override {
     // We can always commute a transpose below a broadcast.
-    return true;
+    return false;
   }
 
   bool isCommuteAboveFavorable(ttir::BroadcastOp op,
@@ -277,7 +277,7 @@ getNewReshapeAndBroadcastDims(ArrayRef<int64_t> originalShape,
 
 namespace {
 template <CommuteDirection direction>
-class TTIRCommuteReshapeAboveBroadcast
+class TTIRCommuteReshapeThroughBroadcast
     : public TTIRCommuteOpRewritePattern<ttir::ReshapeOp, ttir::BroadcastOp,
                                          direction> {
 public:
@@ -382,7 +382,7 @@ private:
 
 namespace {
 template <CommuteDirection direction>
-class TTIRCommutePermuteAboveBroadcast
+class TTIRCommutePermuteThroughBroadcast
     : public TTIRCommuteOpRewritePattern<ttir::PermuteOp, ttir::BroadcastOp,
                                          direction> {
 public:
@@ -430,6 +430,24 @@ public:
                                   ttir::PermuteOp permuteOperand,
                                   PatternRewriter &rewriter) const override {
     // TODO
+
+    SmallVector<int64_t> newBroadcastDimensions =
+        ttmlir::utils::applyPermutation(op.getBroadcastDimensions(),
+                                        permuteOperand.getPermutation());
+
+    SmallVector<int64_t> newPermuteShape = ttmlir::utils::applyPermutation(
+        op.getType().getShape(), permuteOperand.getPermutation());
+
+    auto newBroadcast = ttir::utils::createDPSOp<ttir::BroadcastOp>(
+        rewriter, op->getLoc(), op.getType(), permuteOperand.getInput(),
+        newBroadcastDimensions);
+
+    auto newPermute = ttir::utils::createDPSOp<ttir::PermuteOp>(
+        rewriter, op->getLoc(), newPermuteShape, op.getType().getElementType(),
+        op.getType().getEncoding(), newBroadcast,
+        permuteOperand.getPermutation());
+
+    rewriter.replaceOp(op, newPermute);
   }
 
 private:
@@ -463,15 +481,21 @@ private:
 } // namespace
 
 void populateBroadcastCommuteAbovePatterns(MLIRContext *ctx,
-                                           RewritePatternSet &patterns) {
-  patterns.add<TTIRCommuteTransposesAboveBroadcast<CommuteDirection::ABOVE>,
-               TTIRCommuteReshapeAboveBroadcast<CommuteDirection::ABOVE>,
-               TTIRCommutePermuteAboveBroadcast<CommuteDirection::ABOVE>>(ctx);
+                                           RewritePatternSet &patterns,
+                                           mlir::func::FuncOp funcOp) {
+  patterns.add<TTIRCommuteTransposesThroughBroadcast<CommuteDirection::ABOVE>,
+               TTIRCommuteReshapeThroughBroadcast<CommuteDirection::ABOVE>,
+               TTIRCommutePermuteThroughBroadcast<CommuteDirection::ABOVE>>(
+      ctx, funcOp);
 }
 
 void populateBroadcastCommuteBelowPatterns(MLIRContext *ctx,
-                                           RewritePatternSet &patterns) {
-  // TODO implement this
+                                           RewritePatternSet &patterns,
+                                           mlir::func::FuncOp funcOp) {
+  patterns.add<TTIRCommuteTransposesThroughBroadcast<CommuteDirection::BELOW>,
+               TTIRCommuteReshapeThroughBroadcast<CommuteDirection::BELOW>,
+               TTIRCommutePermuteThroughBroadcast<CommuteDirection::BELOW>>(
+      ctx, funcOp);
 }
 
 } // namespace mlir::tt::ttir
