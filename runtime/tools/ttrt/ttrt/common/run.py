@@ -508,7 +508,7 @@ class Run:
                 not self["--disable-trace-implicit-from-device"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
-            perf_env = ttrt.runtime.DebugPerfEnv.get(
+            perf_env = ttrt.runtime.PerfEnv.get(
                 self["--dump-device-rate"],
                 self["--enable-perf-trace"],
             )
