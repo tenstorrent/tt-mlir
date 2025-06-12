@@ -633,6 +633,9 @@ class Perf:
                                 raise TTRTTestException(str(result["exception"]))
                             raise Exception(f'{result["exception"]}')
 
+                        if result["file_path"] == bin.file_path:
+                            bin.program_results = result["program_results"]
+
                 except Exception as e:
                     result = "error"
                     if isinstance(e, TTRTTestException):
@@ -675,6 +678,7 @@ class Perf:
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
                     "program_index": self["--program-index"],
+                    "program_results": bin.program_results,
                 }
                 self.results.add_result(test_result)
                 self.logging.info(f"PASS: test case={bin.file_path}")
@@ -690,6 +694,7 @@ class Perf:
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
                     "program_index": self["--program-index"],
+                    "program_results": bin.program_results,
                 }
                 self.results.add_result(test_result)
                 self.logging.info(f"PASS: test case={bin.file_path}")

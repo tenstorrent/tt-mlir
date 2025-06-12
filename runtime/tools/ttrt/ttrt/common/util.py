@@ -653,7 +653,7 @@ class Binary(Flatbuffer):
         self.version = self.fbb.version
         self.program_indices = range(self.fbb.get_num_programs())
         self.programs = []
-        self.e2e_duration_milliseconds = 0
+        self.program_results = {}
 
         for i in self.program_indices:
             program = Binary.Program(i, self.fbb)
@@ -739,6 +739,12 @@ class Binary(Flatbuffer):
             pprint(p.fbb_to_dict())
 
         print()
+
+    def add_program_results(self, program_index, loop, e2e_duration_milliseconds):
+        key = f"program_index_{program_index}"
+        if key not in self.program_results.keys():
+            self.program_results[key] = {}
+        self.program_results[key][f"loop_{loop}"] = f"{e2e_duration_milliseconds} (ms)"
 
     class Program:
         def __init__(self, index, binary):
