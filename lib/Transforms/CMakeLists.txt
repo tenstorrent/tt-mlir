@@ -7,5 +7,5 @@ add_mlir_extension_library(TTMLIRTransforms
         DEPENDS
         MLIRTTIROpsIncGen
         MLIRTTIRPassesIncGen
-        MLIRTTOpsIncGen
+        MLIRTTCoreOpsIncGen
         )

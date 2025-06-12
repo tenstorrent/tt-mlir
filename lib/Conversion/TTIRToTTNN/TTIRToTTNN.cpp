@@ -5,7 +5,7 @@
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"

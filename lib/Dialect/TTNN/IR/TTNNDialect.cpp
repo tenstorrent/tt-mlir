@@ -6,7 +6,7 @@
 
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/InitAllDialects.h"
-#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"

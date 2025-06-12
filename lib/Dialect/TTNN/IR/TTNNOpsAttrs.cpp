@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TT/Utils/CoreRangeSet.h"
+#include "ttmlir/Dialect/TTCore/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
@@ -204,7 +204,7 @@ mlir::Type TTNNLayoutAttr::getScalarElementType() const {
 
 // Get scalar element type.
 // Example: memref<2x2xf32> -> f32
-// Example: memref<2x2x!tt.tile<32x32xf32>> -> f32
+// Example: memref<2x2x!ttcore.tile<32x32xf32>> -> f32
 //
 // return The scalar element type.
 mlir::tt::DataType TTNNLayoutAttr::getDataType() const {
@@ -235,9 +235,9 @@ uint64_t TTNNLayoutAttr::getElementSizeBytes() const {
 // Get shard shape
 //
 // Return the shape of the shard.
-// Example: memref<2x2x!tt.tile<32x32xf32>> -> { 2, 2 }
+// Example: memref<2x2x!ttcore.tile<32x32xf32>> -> { 2, 2 }
 // Example: memref<128x128xf32> -> { 128, 128 }
-// Example: memref<2x3x!tt.tile<32x32xf32>> -> { 2, 3 }
+// Example: memref<2x3x!ttcore.tile<32x32xf32>> -> { 2, 3 }
 //
 // return The shape of the shard.
 llvm::SmallVector<int64_t> TTNNLayoutAttr::getShardShape() const {
@@ -248,9 +248,9 @@ llvm::SmallVector<int64_t> TTNNLayoutAttr::getShardShape() const {
 //
 // If the element type is TileType, this function returns the scalar shape of
 // the shard.
-// Example: memref<2x2x!tt.tile<32x32xf32>> -> { 64, 64 }
+// Example: memref<2x2x!ttcore.tile<32x32xf32>> -> { 64, 64 }
 // Example: memref<128x128xf32> -> { 128, 128 }
-// Example: memref<2x3!tt.tile<32x32xf32>> -> { 64, 96 }
+// Example: memref<2x3!ttcore.tile<32x32xf32>> -> { 64, 96 }
 //
 // return The scalar shape of the shard.
 llvm::SmallVector<int64_t> TTNNLayoutAttr::getScalarShardShape() const {

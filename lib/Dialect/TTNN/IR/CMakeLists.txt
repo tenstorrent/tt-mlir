@@ -12,7 +12,7 @@ add_mlir_dialect_library(MLIRTTNNDialect
 
         DEPENDS
         MLIRTTNNOpsIncGen
-        MLIRTTOpsIncGen
+        MLIRTTCoreOpsIncGen
         MLIRTTNNWorkaroundInterfaceIncGen
 
         LINK_LIBS PUBLIC

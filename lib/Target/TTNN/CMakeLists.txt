@@ -8,7 +8,7 @@ add_mlir_translation_library(TTNNTargetFlatbuffer
     LINK_LIBS PUBLIC
     MLIRTTNNDialect
     MLIRTTIRDialect
-    MLIRTTDialect
+    MLIRTTCoreDialect
     MLIRTTKernelDialect
     MLIRTTNNTransforms
     TTMLIRTTNNToEmitC
