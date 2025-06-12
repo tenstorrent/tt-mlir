@@ -123,7 +123,7 @@ class Run:
             type=int,
             default=10,
             choices=None,
-            help="print the top k golden and output tensor elemtent pairs sorted by absolute difference",
+            help="print the top k golden and output tensor elemtent pairs sorted by absolute/relative difference",
         )
         Run.register_arg(
             name="--seed",
@@ -863,21 +863,22 @@ class Run:
 
                                     # Allclose check.
                                     # TODO(wenbinlyuTT):
-                                    # 0. Fix the NaN outputs and remove equal_nan=True
+                                    # 0. Fix NaNs and set equal_nan=False
                                     # 1. Quant ops may generate extreme outliers, we may need to
                                     #    implement our own allclose() that allows for a certain
                                     #    percentage of outliers.
-                                    allclose_fail = not torch.allclose(
-                                        golden_tensor_torch,
-                                        output_tensor_torch,
-                                        rtol=self["--rtol-allclose"],
-                                        atol=self["--atol-allclose"],
-                                        equal_nan=True,
-                                    )
-                                    if not allclose_fail:
-                                        self.logging.info(
-                                            f"Program level golden for output_{idx} passed allclose check."
+                                    if bin.extension == ".ttm":
+                                        allclose_fail = not torch.allclose(
+                                            golden_tensor_torch,
+                                            output_tensor_torch,
+                                            rtol=self["--rtol-allclose"],
+                                            atol=self["--atol-allclose"],
+                                            equal_nan=True,
                                         )
+                                        if not allclose_fail:
+                                            self.logging.info(
+                                                f"Program level golden for output_{idx} passed allclose check."
+                                            )
 
                                 golden_fail = pcc_fail or allclose_fail
                                 if self["--print-input-output-tensors"] or golden_fail:

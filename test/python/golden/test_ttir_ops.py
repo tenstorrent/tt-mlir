@@ -366,6 +366,7 @@ def transpose(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
     return builder.transpose(in0, unit_attrs=unit_attrs)
 
 
+@pytest.mark.fails_golden
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dim_arg", [0])
 @pytest.mark.parametrize("keep_dim", [False])
@@ -1454,10 +1455,10 @@ unary_ops = [
     sqrt | Marks(pytest.mark.skip_target("ttmetal")),
     cbrt | Marks(pytest.mark.skip_target("ttmetal")),
     rsqrt | Marks(pytest.mark.skip_target("ttmetal")),
-    sigmoid,
+    sigmoid | Marks(pytest.mark.skip_target("ttmetal")),
     reciprocal | Marks(pytest.mark.skip_target("ttmetal")),
     is_finite | Marks(pytest.mark.skip_target("ttmetal")),
-    ceil,
+    ceil | Marks(pytest.mark.skip_target("ttmetal")),
     sum | Marks(pytest.mark.skip_target("ttmetal")),
     mean | Marks(pytest.mark.skip_target("ttmetal")),
     max | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),

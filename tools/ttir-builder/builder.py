@@ -1222,7 +1222,6 @@ class TTIRBuilder:
         if len(dim_arg) == 1:
             golden_kwargs["dim"] = dim_arg[0]
             golden_kwargs["keepdim"] = keep_dim
-            golden_kwargs["dtype"] = torch.int32
             golden_function = torch.prod
         else:
             golden_function = lambda i: torch.tensor([torch.prod(i[0]).item()])
