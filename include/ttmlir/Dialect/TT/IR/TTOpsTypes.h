@@ -334,9 +334,14 @@ mlir::MemRefType buildMemRef(mlir::MLIRContext *context,
     scalarShardShape = mlir::cast<mlir::tt::TileType>(elementType)
                            .getTiledShape(scalarShardShape);
   } else if (shapeDimAlignedUpToTile) {
-    for (auto &dim : scalarShardShape) {
-      dim = ttmlir::utils::alignUp(dim, TileType::getDefaultShape()[0]);
-    }
+    assert(scalarShardShape.size() >= 2);
+
+    auto &first_dim = scalarShardShape.front();
+    auto &last_dim = scalarShardShape.back();
+
+    first_dim =
+        ttmlir::utils::alignUp(first_dim, TileType::getDefaultShape()[0]);
+    last_dim = ttmlir::utils::alignUp(last_dim, TileType::getDefaultShape()[1]);
   }
 
   return mlir::MemRefType::get(
