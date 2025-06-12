@@ -247,7 +247,7 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
         dramUnreservedEnd, chipPhysicalHelperCores, supportedDataTypes,
         supportedTileSizes, kDstRegisterSizeTiles, NUM_CIRCULAR_BUFFERS,
         kNumComputeThreads, kNumDatamovementThreads));
-    chipDescIndices.push_back(device->id());
+    chipDescIndices.push_back(chipDescIndices.size());
     // Derive chip capability
     ::tt::target::ChipCapability chipCapability =
         ::tt::target::ChipCapability::NONE;
