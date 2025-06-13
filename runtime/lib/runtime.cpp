@@ -229,10 +229,6 @@ Tensor createOwnedHostTensor(const void *data,
     return ::tt::target::DataType::Float32;
   case ::tt::target::UnsupportedDataType::Bool:
     return ::tt::target::DataType::BFloat16;
-  default:
-    LOG_FATAL("Unsupported data type %s has no supported data type alias",
-              ::tt::target::EnumNamesUnsupportedDataType()[static_cast<int>(
-                  unsupportedDataType)]);
   }
 }
 

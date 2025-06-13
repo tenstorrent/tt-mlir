@@ -48,15 +48,12 @@ inline std::uint32_t dataTypeElementSize(::tt::target::DataType dataType) {
 inline std::uint32_t
 dataTypeElementSize(::tt::target::UnsupportedDataType dataType) {
   switch (dataType) {
-  case ::tt::target::UnsupportedDataType::Int64:
-    return 8;
   case ::tt::target::UnsupportedDataType::Float64:
+    return 8;
+  case ::tt::target::UnsupportedDataType::Int64:
     return 8;
   case ::tt::target::UnsupportedDataType::Bool:
     return 1;
-  default:
-    assert(false && "Unsupported element size for data type");
-    return 0;
   }
 }
 
