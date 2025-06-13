@@ -727,8 +727,7 @@ MultiplyOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::ttnn::OpConstraints>
 Conv2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                            const OpConfig &opConfig) {
-  assert((inputs.size() == 2 && (getBias() == nullptr)) ||
-         (inputs.size() == 3 && (getBias() != nullptr)));
+  assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
 
   const auto inputShape = getInput().getType().getShape();
   const auto weightShape = getWeight().getType().getShape();
@@ -770,8 +769,7 @@ Conv2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<size_t>
 Conv2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                        const OpConfig &opConfig) {
-  assert((inputs.size() == 2 && (getBias() == nullptr)) ||
-         (inputs.size() == 3 && (getBias() != nullptr)));
+  assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
 
   const auto inputShape = getInput().getType().getShape();
   const auto weightShape = getWeight().getType().getShape();
@@ -811,8 +809,7 @@ Conv2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::ttnn::OpConstraints>
 ConvTranspose2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                     const OpConfig &opConfig) {
-  assert((inputs.size() == 2 && (getBias() == nullptr)) ||
-         (inputs.size() == 3 && (getBias() != nullptr)));
+  assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
 
   const auto inputShape = getInput().getType().getShape();
   const auto weightShape = getWeight().getType().getShape();
@@ -843,8 +840,7 @@ ConvTranspose2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<size_t>
 ConvTranspose2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                                 const OpConfig &opConfig) {
-  assert((inputs.size() == 2 && (getBias() == nullptr)) ||
-         (inputs.size() == 3 && (getBias() != nullptr)));
+  assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
 
   const auto inputShape = getInput().getType().getShape();
   const auto weightShape = getWeight().getType().getShape();
