@@ -53,7 +53,7 @@ runs:
           -B ${{ inputs.build-output-dir }} \
           -DCMAKE_CXX_COMPILER=clang++-17 \
           -DCMAKE_C_COMPILER=clang-17 \
-          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_BUILD_TYPE=Debug \
           -DCMAKE_INSTALL_PREFIX=${{ inputs.install-output-dir }} \
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
           -DTTMLIR_ENABLE_RUNTIME=ON \
