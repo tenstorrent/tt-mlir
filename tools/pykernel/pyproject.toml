@@ -33,4 +33,4 @@ environment = { IN_CIBW_ENV = "ON" }
 build-verbosity = 2
 
 [tool.cibuildwheel.linux]
-manylinux-x86_64_image = "ghcr.io/tenstorrent/tt-mlir/tt-mlir-manylinux-2-34"
+manylinux-x86_64-image = "ghcr.io/tenstorrent/tt-mlir/tt-mlir-manylinux-2-34"
