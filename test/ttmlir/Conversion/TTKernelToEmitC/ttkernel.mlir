@@ -186,18 +186,22 @@ module {
     }
 
     // CHECK-LABEL: func @sub_tiles_init
-    func.func @sub_tiles_init(%cb0: !cb0_tiles, %cb1: !cb1_tiles) -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: %[[CB0:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
-      // CHECK: %[[CB1:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
+    func.func @sub_tiles_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[CB0:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      %cb0 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      // CHECK: %[[CB1:.*]] = emitc.literal "get_compile_time_arg_val(1)"
+      %cb1 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
       // CHECK: emitc.call_opaque "sub_tiles_init"(%[[CB0]], %[[CB1]])
       "ttkernel.sub_tiles_init"(%cb0, %cb1) : (!cb0_tiles, !cb1_tiles) -> ()
       return
     }
 
     // CHECK-LABEL: func @sub_tiles
-    func.func @sub_tiles(%cb0: !cb0_tiles, %cb1: !cb1_tiles) -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: %[[CB0:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
-      // CHECK: %[[CB1:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
+    func.func @sub_tiles() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[CB0:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      %cb0 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      // CHECK: %[[CB1:.*]] = emitc.literal "get_compile_time_arg_val(1)"
+      %cb1 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
       // CHECK: %[[CB0_INDEX:.*]] = "emitc.constant"
       %cb0_index = arith.constant 1 : index
       // CHECK: %[[CB1_INDEX:.*]] = "emitc.constant"
@@ -238,10 +242,13 @@ module {
     }
 
     // CHECK-LABEL: func @mm_init
-    func.func @mm_init(%cb_A: !cb0_tiles, %cb_B: !cb1_tiles, %cb_C: !cb2_tiles) -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: %[[CB_A:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
-      // CHECK: %[[CB_B:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
-      // CHECK: %[[CB_C:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
+    func.func @mm_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[CB_A:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      %cb_A = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      // CHECK: %[[CB_B:.*]] = emitc.literal "get_compile_time_arg_val(1)"
+      %cb_B = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
+      // CHECK: %[[CB_C:.*]] = emitc.literal "get_compile_time_arg_val(2)"
+      %cb_C = "ttkernel.get_compile_time_arg_val"() <{arg_index = 2 : i32}> : () -> !cb2_tiles
       // CHECK: %[[TRANSPOSE:.*]] = "emitc.constant"
       %transpose = arith.constant 0 : i32
       // CHECK: emitc.call_opaque "mm_init"(%[[CB_A]], %[[CB_B]], %[[CB_C]], %[[TRANSPOSE]])
@@ -250,9 +257,11 @@ module {
     }
 
     // CHECK-LABEL: func @mm_init_short
-    func.func @mm_init_short(%cb_A: !cb0_tiles, %cb_B: !cb1_tiles) -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: %[[CB_A:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
-      // CHECK: %[[CB_B:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
+    func.func @mm_init_short() -> () attributes {ttkernerl.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[CB_A:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      %cb_A = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      // CHECK: %[[CB_B:.*]] = emitc.literal "get_compile_time_arg_val(1)"
+      %cb_B = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
       // CHECK: %[[TRANSPOSE:.*]] = "emitc.constant"
       %transpose = arith.constant 0 : i32
       // CHECK: emitc.call_opaque "mm_init_short"(%[[CB_A]], %[[CB_B]], %[[TRANSPOSE]])
@@ -261,9 +270,11 @@ module {
     }
 
     // CHECK-LABEL: func @matmul_tiles
-    func.func @matmul_tiles(%cb_A: !cb0_tiles, %cb_B: !cb1_tiles) -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: %[[CB_A:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
-      // CHECK: %[[CB_B:.*]] = "emitc.constant"{{.+}}<"::tt::CB">
+    func.func @matmul_tiles() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[CB_A:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      %cb_A = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      // CHECK: %[[CB_B:.*]] = emitc.literal "get_compile_time_arg_val(1)"
+      %cb_B = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
       // CHECK: %[[TRANSPOSE:.*]] = "emitc.constant"
       // CHECK: %[[CB_IDX_A:.*]] = "emitc.constant"
       // CHECK: %[[CB_IDX_B:.*]] = "emitc.constant"
