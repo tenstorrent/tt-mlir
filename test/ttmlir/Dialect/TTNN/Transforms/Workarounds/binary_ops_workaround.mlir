@@ -28,27 +28,6 @@ module @jit_transpose attributes {} {
     return %0 : tensor<32x64xui16, #ttnn_layout>
   }
 
-  func.func public @test_multiply_workaround(%arg0: tensor<32x64xsi32, #ttnn_layout1>, %arg1: tensor<32x64xsi32, #ttnn_layout1>) -> tensor<32x64xsi32, #ttnn_layout1> {
-    // CHECK-LABEL: func.func public @test_multiply_workaround
-    // CHECK: %[[ARG0:[0-9]+]] = "ttnn.to_layout"(%arg0,
-    // CHECK-SAME: dtype = #tt.supportedDataTypes<bf16>,
-    // CHECK-SAME: tensor<32x64xsi32,
-    // CHECK-SAME: -> tensor<32x64xbf16,
-    // CHECK: %[[ARG1:[0-9]+]] = "ttnn.to_layout"(%arg1,
-    // CHECK-SAME: dtype = #tt.supportedDataTypes<bf16>,
-    // CHECK-SAME: tensor<32x64xsi32,
-    // CHECK-SAME: -> tensor<32x64xbf16,
-    // CHECK: %[[MULTIPLY:[0-9]+]] = "ttnn.multiply"(%[[ARG0]], %[[ARG1]])
-    // CHECK-SAME: tensor<32x64xbf16,
-    // CHECK-SAME: tensor<32x64xbf16,
-    // CHECK-SAME: -> tensor<32x64xbf16,
-    %0 = "ttnn.multiply"(%arg0, %arg1) : (tensor<32x64xsi32, #ttnn_layout1>, tensor<32x64xsi32, #ttnn_layout1>) -> tensor<32x64xsi32, #ttnn_layout1>
-    // CHECK: = "ttnn.to_layout"(%[[MULTIPLY]]
-    // CHECK-SAME: dtype = #tt.supportedDataTypes<si32>,
-    // CHECK-SAME:tensor<32x64xbf16,
-    // CHECK-SAME: -> tensor<32x64xsi32,
-    return %0 : tensor<32x64xsi32, #ttnn_layout1>
-  }
 
   func.func public @test_bitwise_and_workaround(%arg0: tensor<32x64xf32, #ttnn_layout2>, %arg1: tensor<32x64xf32, #ttnn_layout2>) -> tensor<32x64xf32, #ttnn_layout2> {
     // CHECK-LABEL: func.func public @test_bitwise_and_workaround

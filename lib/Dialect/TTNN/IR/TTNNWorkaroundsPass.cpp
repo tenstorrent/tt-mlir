@@ -414,30 +414,6 @@ TTNNOperandsWorkaroundsFactory::createUpdateCacheOpOperandsWorkarounds(
 static std::optional<DataType> binaryOpDTypeWorkaround(mlir::Operation *op,
                                                        Type elementType) {
   DataType dType = elementTypeToDataType(elementType);
-
-  if (isa<ttnn::AddOp, ttnn::SubtractOp>(op)) {
-    if (dType == DataType::Float32 || dType == DataType::BFloat16 ||
-        dType == DataType::BFP_BFloat8 || dType == DataType::BFP_BFloat4) {
-      return {};
-    }
-    if (dType == DataType::Int32) {
-      // Although TTNN claims to support int32 for Add and Subtract ops,
-      // broadcasting with int32 inputs does not currently work as expected.
-      // As a temporary workaround, we fall back to BFloat16 when input shapes
-      // differ. This should be removed once int32 broadcasting is properly
-      // supported.
-      auto lhsType =
-          mlir::cast<mlir::RankedTensorType>(op->getOperand(0).getType());
-      auto rhsType =
-          mlir::cast<mlir::RankedTensorType>(op->getOperand(1).getType());
-
-      if (lhsType.getShape() != rhsType.getShape()) {
-        return DataType::BFloat16;
-      }
-      return {};
-    }
-    return DataType::BFloat16;
-  }
   // Left shift and right shift ops have same requirements but they are not
   // implemented for TTNN dialect currently.
   if (isa<ttnn::BitwiseAndOp, ttnn::BitwiseOrOp, ttnn::BitwiseXorOp>(op)) {
@@ -448,7 +424,8 @@ static std::optional<DataType> binaryOpDTypeWorkaround(mlir::Operation *op,
   }
   // All remaining binary ops.
   if (dType == DataType::Float32 || dType == DataType::BFloat16 ||
-      dType == DataType::BFP_BFloat8 || dType == DataType::BFP_BFloat4) {
+      dType == DataType::BFP_BFloat8 || dType == DataType::BFP_BFloat4 ||
+      dType == DataType::Int32) {
     return {};
   }
   return DataType::BFloat16;
