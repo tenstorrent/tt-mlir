@@ -344,7 +344,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
       ctx.maxLast = maxLast;
     }
 
-    // Finish building the allocation plann er context by computing
+    // Finish building the allocation planner context by computing
     // (aligned) sizes of all buffers under consideration.
 
     for (auto &[op, ctx] : livenessJoinGraph) {
