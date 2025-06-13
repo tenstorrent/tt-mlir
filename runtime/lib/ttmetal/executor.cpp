@@ -209,15 +209,11 @@ void CQExecutor::execute(const target::metal::HostAllocCommand *command) {
   LOG_ASSERT(bufferDesc->sharded_buffer_config() == nullptr);
   LOG_ASSERT(bufferDesc->shape()->size() > 0);
 
-  TensorDesc desc;
-  desc.shape = std::vector<std::uint32_t>(bufferDesc->shape()->begin(),
-                                          bufferDesc->shape()->end());
-  desc.stride = utils::calculateStride(desc.shape);
-  desc.itemsize = utils::dataTypeElementSize(bufferDesc->data_type());
-  desc.dataType = bufferDesc->data_type();
-
-  size_t size =
-      utils::alignUp(desc.shape[0] * desc.stride[0], 1024U) * desc.itemsize;
+  std::vector<std::uint32_t> shape(bufferDesc->shape()->begin(),
+                                   bufferDesc->shape()->end());
+  TensorDesc desc(shape, bufferDesc->data_type(),
+                  utils::tileAlignment(bufferDesc->data_type()));
+  size_t size = desc.sizeBytes();
   auto data = std::shared_ptr<void>(std::malloc(size), std::free);
   if (!data) {
     LOG_FATAL("HostAllocCommand: Failed to allocate host memory.");

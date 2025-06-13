@@ -45,6 +45,16 @@ inline std::uint32_t dataTypeElementSize(::tt::target::DataType dataType) {
   }
 }
 
+inline std::int64_t tileRowAlignment(::tt::target::DataType dataType) {
+  std::int64_t numAlignElems = 32;
+  return dataTypeElementSize(dataType) * numAlignElems;
+}
+
+inline std::int64_t tileAlignment(::tt::target::DataType dataType) {
+  std::int64_t numAlignRows = 32;
+  return tileRowAlignment(dataType) * numAlignRows;
+}
+
 template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
 inline std::vector<uint32_t> calculateStride(const std::vector<T> &shape) {
   assert(!shape.empty());
