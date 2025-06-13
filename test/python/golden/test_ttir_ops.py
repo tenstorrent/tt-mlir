@@ -948,7 +948,6 @@ def test_reduce_and(shape: Shape, dim_args: List[int], request):
     )
 
 
-
 def reduce_or(
     in0: Operand,
     builder: TTIRBuilder,
