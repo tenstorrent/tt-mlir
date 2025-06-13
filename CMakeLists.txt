@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20.0)
+cmake_minimum_required(VERSION 3.24.0)
 
 if(NOT DEFINED CMAKE_C_COMPILER)
   set(CMAKE_C_COMPILER clang CACHE STRING "C Compiler" FORCE)
