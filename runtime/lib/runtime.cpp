@@ -228,9 +228,9 @@ Tensor createOwnedHostTensor(const void *data,
   case ::tt::target::UnsupportedDataType::UInt64:
     return ::tt::target::DataType::UInt32;
   case ::tt::target::UnsupportedDataType::Int16:
-    return ::tt::target::DataType::Int32;
+    return ::tt::target::DataType::UInt16;
   case ::tt::target::UnsupportedDataType::Int8:
-    return ::tt::target::DataType::Int32;
+    return ::tt::target::DataType::UInt8;
   case ::tt::target::UnsupportedDataType::Float64:
     return ::tt::target::DataType::Float32;
   case ::tt::target::UnsupportedDataType::Bool:
