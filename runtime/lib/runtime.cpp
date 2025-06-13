@@ -261,6 +261,19 @@ void handleHost64To32(const dtype64 *old_buffer, dtype32 *new_buffer,
   }
 }
 
+void handleHostBoolToBFloat16(const bool *old_buffer, uint16_t *new_buffer,
+                              int64_t num_elements) {
+
+  assert(sizeof(bool) == 1 && "bool must be 1 byte");
+  assert(sizeof(bfloat16) == 2 && "bfloat16 must be 2 bytes");
+
+  for (int i = 0; i < num_elements; i++) {
+    new_buffer[i] = old_buffer[i]
+                        ? 0x3f80
+                        : 0; // 0x3f80 is the bfloat16 representation of 1.0
+  }
+}
+
 Tensor createOwnedHostTensorFromUnsupportedDataType(
     const void *data, const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
@@ -297,6 +310,12 @@ Tensor createOwnedHostTensorFromUnsupportedDataType(
     handleHost64To32<double, float>(
         static_cast<double *>(const_cast<void *>(data)),
         static_cast<float *>(newData.get()), numElements);
+  } else if (unsupportedDataType == ::tt::target::UnsupportedDataType::Bool) {
+    LOG_ASSERT(itemsize == 1 &&
+               "Itemsize must be the size of the supported data type");
+    handleHostBoolToBFloat16(static_cast<bool *>(const_cast<void *>(data)),
+                             static_cast<uint16_t *>(newData.get()),
+                             numElements);
   }
 
   using RetType = Tensor;
