@@ -608,25 +608,6 @@ def minimum(
     return builder.minimum(in0, in1, unit_attrs=unit_attrs)
 
 
-def pow(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    shape: Shape,
-    dtype: torch.dtype,
-    unit_attrs: Optional[List[str]] = None,
-):
-    randn_base_tensor = torch.randn(shape, dtype=dtype)
-    randn_exponent_tensor = torch.randn(shape, dtype=dtype)
-    if torch.is_floating_point(randn_exponent_tensor):
-        randn_base_tensor = torch.abs(randn_base_tensor)
-    output_golden = torch.pow(randn_base_tensor, randn_exponent_tensor)
-    builder.set_graph_input_output(
-        [randn_base_tensor, randn_exponent_tensor], [output_golden], override=True
-    )
-    return builder.pow(in0, in1, unit_attrs=unit_attrs)
-
-
 @pytest.mark.parametrize("shapes", [[(10, 64, 32), (32, 128), (128,)]])
 def test_linear(shapes: List[Shape], request):
     def linear(
@@ -645,6 +626,25 @@ def test_linear(shapes: List[Shape], request):
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
+
+
+def pow(
+    in0: Operand,
+    in1: Operand,
+    builder: TTIRBuilder,
+    shape: Shape,
+    dtype: torch.dtype,
+    unit_attrs: Optional[List[str]] = None,
+):
+    randn_base_tensor = torch.randn(shape, dtype=dtype)
+    randn_exponent_tensor = torch.randn(shape, dtype=dtype)
+    if torch.is_floating_point(randn_exponent_tensor):
+        randn_base_tensor = torch.abs(randn_base_tensor)
+    output_golden = torch.pow(randn_base_tensor, randn_exponent_tensor)
+    builder.set_graph_input_output(
+        [randn_base_tensor, randn_exponent_tensor], [output_golden], override=True
+    )
+    return builder.pow(in0, in1, unit_attrs=unit_attrs)
 
 
 @pytest.mark.fails_golden
@@ -2141,6 +2141,101 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+# Subtract and remainder ops do not support broadcasting on both operands.
+# This is tracked in the following Metal issue: https://github.com/tenstorrent/tt-metal/issues/24635.
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        pytest.param([(1, 1, 1), (8, 16, 32)], id="broadcast_lhs_1"),
+        pytest.param([(1, 1, 32), (8, 16, 32)], id="broadcast_lhs_2"),
+        pytest.param([(1, 16, 32), (8, 16, 32)], id="broadcast_lhs_3"),
+        pytest.param([(8, 16, 32), (1, 1, 1)], id="broadcast_rhs_1"),
+        pytest.param([(8, 16, 32), (1, 1, 32)], id="broadcast_rhs_2"),
+        pytest.param([(8, 16, 32), (1, 16, 32)], id="broadcast_rhs_3"),
+        pytest.param([(8, 16, 1), (1, 1, 32)], id="broadcast_both_1"),
+        pytest.param([(1, 1, 32), (8, 16, 1)], id="broadcast_both_2"),
+        pytest.param([(8, 1, 32), (8, 16, 1)], id="broadcast_both_3"),
+        pytest.param([(8, 16, 1), (8, 1, 32)], id="broadcast_both_4"),
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        add,
+        multiply,
+        subtract | Marks(pytest.mark.run_error),
+        eq,
+        ne,
+        le,
+        lt,
+        ge,
+        gt,
+        div,
+        remainder | Marks(pytest.mark.run_error),
+        maximum,
+        minimum,
+        pow,
+        logical_and,
+        logical_or,
+        logical_xor,
+    ],
+)
+def test_binary_eltwise_ops_implicit_broadcast(
+    test_fn: Callable,
+    shapes: List[Shape],
+    dtype: torch.dtype,
+    target: str,
+    request,
+):
+    pipeline_options = ["enable-decomposition-workaround-pass=false"]
+
+    compile_to_flatbuffer(
+        test_fn,
+        shapes,
+        [dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        pipeline_options=pipeline_options,
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [(1, 16, 32), (8, 16, 32), (8, 16, 32)],
+        [(8, 16, 32), (1, 16, 32), (8, 16, 32)],
+        [(8, 16, 32), (8, 16, 32), (1, 16, 32)],
+        [(8, 16, 32), (1, 1, 32), (1, 1, 32)],
+        [(1, 1, 32), (8, 16, 32), (1, 1, 32)],
+        [(1, 1, 32), (1, 1, 32), (8, 16, 32)],
+        [(1, 16, 32), (8, 1, 32), (8, 16, 1)],
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("test_fn", [where])
+def test_ternary_eltwise_ops_implicit_broadcast(
+    test_fn: Callable,
+    shapes: List[Shape],
+    dtype: torch.dtype,
+    target: str,
+    request,
+):
+    compile_to_flatbuffer(
+        test_fn,
+        shapes,
+        [dtype, dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
     )
 
 
