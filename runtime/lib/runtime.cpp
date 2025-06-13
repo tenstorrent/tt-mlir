@@ -269,11 +269,12 @@ Tensor createOwnedHostTensorFromUnsupportedDataType(
   ::tt::target::DataType dataType =
       getUnsupportedDataTypeAlias(unsupportedDataType);
 
-  LOG_WARNING("User provided a tensor of data type: %s, which is not supported "
-              "by runtime/ttnn. Casting to: %s, this may impact throughput.",
+  LOG_WARNING("User provided a tensor of data type: ",
               ::tt::target::EnumNamesUnsupportedDataType()[static_cast<int>(
                   unsupportedDataType)],
-              ::tt::target::EnumNamesDataType()[static_cast<int>(dataType)]);
+              " which is not supported ", "by runtime/ttnn. Casting to: ",
+              ::tt::target::EnumNamesDataType()[static_cast<int>(dataType)],
+              ", this may impact throughput.");
 
   uint64_t numElements = 1;
   for (auto s : shape) {
