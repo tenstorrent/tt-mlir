@@ -86,6 +86,8 @@ if (TTMLIR_ENABLE_RUNTIME)
 set(TTMETAL_BUILD_TYPE "Release")
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
   set(TTMETAL_BUILD_TYPE "Debug")
+elseif (CMAKE_BUILD_TYPE STREQUAL "Asan")
+  set(TTMETAL_BUILD_TYPE "ASan")
 endif()
 
 set(METAL_BUILD_DIR ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
