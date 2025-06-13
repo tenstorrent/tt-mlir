@@ -1,10 +1,10 @@
 # Check if required tt-mlir options are enabled
 if(NOT TTMLIR_ENABLE_RUNTIME)
-    message(FATAL_ERROR "TTMLIR_ENABLE_RUNTIME must be ON to build the PyKernel demo")
+    message(WARNING "TTMLIR_ENABLE_RUNTIME must be ON to build the PyKernel demo")
 endif()
 
 if(NOT TTMLIR_ENABLE_PYKERNEL)
-    message(FATAL_ERROR "TTMLIR_ENABLE_PYKERNEL must be ON to build the PyKernel demo")
+    message(WARNING "TTMLIR_ENABLE_PYKERNEL must be ON to build the PyKernel demo")
 endif()
 
 # Define a target for the demo depending on Runtime and Python Bindings
