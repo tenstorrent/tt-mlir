@@ -162,15 +162,40 @@ public:
                      std::optional<ArrayRef<int64_t>> newGrid = {},
                      std::optional<Type> newElementType = {},
                      std::optional<ArrayRef<int64_t>> newTileShape = {}) const {
+    llvm::errs() << "=== createModifiedType ===\n";
+    llvm::errs() << "  baseType: " << baseType << "\n";
+    llvm::errs() << "  baseType.getRank(): " << baseType.getRank() << "\n";
+    if (newGrid.has_value()) {
+      llvm::errs() << "  newGrid provided: [";
+      llvm::interleaveComma(*newGrid, llvm::errs());
+      llvm::errs() << "]\n";
+    } else {
+      llvm::errs() << "  newGrid: not provided\n";
+    }
+
     // Use existing values if not overridden
     auto memSpace = newMemSpace.value_or(baseLayout.getMemorySpace());
     auto maybeBaseLayout =
         mlir::dyn_cast_or_null<MetalLayoutAttr>(baseType.getEncoding());
     const bool baseTypeHasLayout = maybeBaseLayout != nullptr;
 
-    auto gridShape = newGrid.value_or(
-        baseTypeHasLayout ? maybeBaseLayout.getGridShape(baseType)
-                          : ArrayRef<int64_t>{1, 1});
+    // We need to create an owning version of gridShape for the case where we
+    // default 1-fill it, which makes this more complex/ugly.
+    SmallVector<int64_t, 2> gridShape;
+    if (newGrid.has_value()) {
+      gridShape.assign(newGrid->begin(), newGrid->end());
+    } else if (baseTypeHasLayout) {
+      auto tempGrid = maybeBaseLayout.getGridShape(baseType);
+      gridShape.assign(tempGrid.begin(), tempGrid.end());
+    } else {
+      gridShape.assign(baseType.getRank(), 1);
+    }
+
+    // Debug: Log derived gridShape
+    llvm::errs() << "  derived gridShape: [";
+    llvm::interleaveComma(gridShape, llvm::errs());
+    llvm::errs() << "]\n";
+
     auto elementType = newElementType.value_or(baseType.getElementType());
     auto tileShape = newTileShape.has_value()
                          ? *newTileShape
