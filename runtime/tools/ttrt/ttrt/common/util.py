@@ -781,7 +781,7 @@ class Binary(Flatbuffer):
             self.name = self.fbb.get_program_name(self.index)
             self.inputs = ttrt.binary.program_inputs_as_dict(self.fbb, self.index)
             self.outputs = ttrt.binary.program_outputs_as_dict(self.fbb, self.index)
-            self.mesh_shape = self.fbb.get_program_mesh_shape(self.fbb, self.index)
+            self.mesh_shape = self.fbb.get_program_mesh_shape(self.index)
             self.input_tensors = []
             self.output_tensors = []
 
