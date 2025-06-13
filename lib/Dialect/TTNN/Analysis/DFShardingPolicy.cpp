@@ -92,7 +92,6 @@ void DFShardingPolicy::run() {
                       ttnn::ReluOp, ttnn::Conv2dOp>(currentOp) &&
             legalConfigs.lookup(currentOp).size() > 0;
 
-
         if (validForSharding) {
           OpL1MemSpec shardSpec;
           shardSpec.op = currentOp;
