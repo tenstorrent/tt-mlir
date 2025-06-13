@@ -111,7 +111,7 @@ private:
       return;
     }
 
-    constParams = ttmlir::utils::populateConstParams(*funcOp);
+    constParams = mlir::tt::populateConstParams(*funcOp);
   }
 
   // Recurse up hierarchy to find root of given subset.
