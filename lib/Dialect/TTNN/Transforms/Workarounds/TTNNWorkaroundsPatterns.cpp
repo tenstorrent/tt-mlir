@@ -16,6 +16,8 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceOpsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RepeatOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ExplicateOperandBroadcastsRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SubtractOpImplicitBroadcastRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -750,6 +752,15 @@ public:
           workarounds::decomposition::ReduceOpsPadInputRewritePattern<
               ttnn::MinOp>,
           workarounds::decomposition::MultiplyOpDecompositionRewritePattern>(
+          &getContext());
+
+      // These operations do not support implicit broadcasting on both operands,
+      // so we need to work around this by explicating broadcasts where needed.
+      patterns.add<
+          workarounds::decomposition::ExplicateOperandBroadcastsRewritePattern>(
+          &getContext());
+      patterns.add<workarounds::decomposition::
+                       SubtractOpImplicitBroadcastRewritePattern>(
           &getContext());
 
       runRewritePatterns(std::move(patterns),

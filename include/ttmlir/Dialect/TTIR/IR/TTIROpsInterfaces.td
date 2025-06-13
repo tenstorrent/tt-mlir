@@ -54,16 +54,6 @@ def TTIROpInterface : OpInterface<"TTIROp"> {
   ];
 }
 
-def TTIR_PartiallyBroadcastable : OpInterface<"PartiallyBroadcastable"> {
-  // Supports implicit broadcast for first operand only.
-  let cppNamespace = "::mlir::tt::ttir";
-}
-
-def TTIR_FullyBroadcastable : OpInterface<"FullyBroadcastable"> {
-  // Supports implicit broadcast for all the operands.
-  let cppNamespace = "::mlir::tt::ttir";
-}
-
 def TTIR_GenericParent : OpInterface<"GenericParent"> {
   let cppNamespace = "::mlir::tt::ttir";
 
