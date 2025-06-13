@@ -16,6 +16,8 @@ namespace tt::runtime::python {
 void registerBinaryBindings(nb::module_ &m) {
   nb::class_<tt::runtime::Flatbuffer>(m, "Flatbuffer")
       .def_prop_ro("version", &tt::runtime::Flatbuffer::getVersion)
+      .def_prop_ro("schema_hash", &tt::runtime::Flatbuffer::getSchemaHash)
+      .def("check_schema_hash", &tt::runtime::Flatbuffer::checkSchemaHash)
       .def_prop_ro("ttmlir_git_hash",
                    &tt::runtime::Flatbuffer::getTTMLIRGitHash)
       .def_prop_ro("file_identifier",
@@ -25,11 +27,33 @@ void registerBinaryBindings(nb::module_ &m) {
 
   nb::class_<tt::runtime::Binary>(m, "Binary")
       .def_prop_ro("version", &tt::runtime::Binary::getVersion)
+      .def_prop_ro("schema_hash", &tt::runtime::Flatbuffer::getSchemaHash)
+      .def("check_schema_hash", &tt::runtime::Flatbuffer::checkSchemaHash)
       .def_prop_ro("ttmlir_git_hash", &tt::runtime::Binary::getTTMLIRGitHash)
       .def_prop_ro("file_identifier", &tt::runtime::Binary::getFileIdentifier)
       .def("as_json", &tt::runtime::Binary::asJson)
       .def("store", &tt::runtime::Binary::store)
       .def("get_debug_info_golden", &::tt::runtime::Binary::getDebugInfoGolden,
+           nb::rv_policy::reference)
+      .def("get_system_desc_as_json", &tt::runtime::Binary::getSystemDescAsJson,
+           nb::rv_policy::reference)
+      .def("get_num_programs", &tt::runtime::Binary::getNumPrograms,
+           nb::rv_policy::reference)
+      .def("get_program_name", &tt::runtime::Binary::getProgramName,
+           nb::rv_policy::reference)
+      .def("is_program_private", &tt::runtime::Binary::isProgramPrivate,
+           nb::rv_policy::reference)
+      .def("get_program_ops_as_json", &tt::runtime::Binary::getProgramOpsAsJson,
+           nb::rv_policy::reference)
+      .def("get_program_inputs_as_json",
+           &tt::runtime::Binary::getProgramInputsAsJson,
+           nb::rv_policy::reference)
+      .def("get_program_outputs_as_json",
+           &tt::runtime::Binary::getProgramOutputsAsJson,
+           nb::rv_policy::reference)
+      .def("get_program_mlir_as_json",
+           &tt::runtime::Binary::getProgramMlirAsJson, nb::rv_policy::reference)
+      .def("get_program_cpp", &tt::runtime::Binary::getProgramCpp,
            nb::rv_policy::reference)
       .def(
           "get_tensor_cache",
@@ -38,6 +62,8 @@ void registerBinaryBindings(nb::module_ &m) {
 
   nb::class_<tt::runtime::SystemDesc>(m, "SystemDesc")
       .def_prop_ro("version", &tt::runtime::SystemDesc::getVersion)
+      .def_prop_ro("schema_hash", &tt::runtime::Flatbuffer::getSchemaHash)
+      .def("check_schema_hash", &tt::runtime::Flatbuffer::checkSchemaHash)
       .def_prop_ro("ttmlir_git_hash",
                    &tt::runtime::SystemDesc::getTTMLIRGitHash)
       .def_prop_ro("file_identifier",

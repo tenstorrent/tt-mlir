@@ -940,7 +940,9 @@ public:
         emitter.emit(srcOp.getHasBias()),
         emitter.emit(srcOp.getGroups()),
         emitter.emit(srcOp.getDevice()),
-        /*conv2d_config=*/emitter.emit(std::nullopt),
+        emitter.emit<
+            std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>>(
+            srcOp.getConv2dConfig()),
         /*compute_config_=*/emitter.emit(std::nullopt),
         /*dram_slice_config=*/emitter.emit(std::nullopt),
     };
@@ -969,6 +971,14 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::Conv2dOp> emitter(srcOp, adaptor,
                                                                 rewriter);
 
+    auto emitPadding =
+        [&](::mlir::DenseI32ArrayAttr paddingAttr) -> mlir::Attribute {
+      if (paddingAttr.size() == 4) {
+        return emitter.emit<std::array<uint32_t, 4>>(paddingAttr);
+      }
+      return emitter.emit<std::array<uint32_t, 2>>(paddingAttr);
+    };
+
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getWeight()),
@@ -980,11 +990,13 @@ public:
         emitter.emit(srcOp.getInputWidth()),
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getKernelSizeAttr()),
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
-        emitter.emit<std::array<uint32_t, 2>>(srcOp.getPaddingAttr()),
+        emitPadding(srcOp.getPaddingAttr()),
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getGroups()),
         emitter.emit(srcOp.getBias()),
-        emitter.emit(std::nullopt) |
+        emitter.emit<
+            std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>>(
+            srcOp.getConv2dConfig()) |
             emitter.getConv2dConfig(srcOp.getInput(), srcOp.getWeight()),
         /*compute_config=*/emitter.emit(std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),

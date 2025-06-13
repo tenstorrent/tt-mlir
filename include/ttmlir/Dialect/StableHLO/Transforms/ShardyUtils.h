@@ -306,9 +306,9 @@ getOutShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
 
 // Calculate the updated shape based on the tensor sharding annotation.
 inline FailureOr<int64_t>
-calculateUpdatedShapeDim(mlir::sdy::MeshAttr meshAttr,
-                         mlir::sdy::DimensionShardingAttr dimShardingAttr,
-                         int64_t oldShapeDim) {
+calculateUpdatedDim(mlir::sdy::MeshAttr meshAttr,
+                    mlir::sdy::DimensionShardingAttr dimShardingAttr,
+                    int64_t oldShapeDim) {
   int64_t updatedShapeDim = oldShapeDim;
   MeshMap meshMap = createMeshMapFromMeshAttr(meshAttr);
   llvm::ArrayRef<mlir::sdy::AxisRefAttr> shardingAxes =
@@ -339,7 +339,7 @@ populateShardedOutputType(mlir::sdy::MeshAttr meshAttr,
 
   for (uint32_t i = 0; i < newShape.size(); i++) {
     FailureOr<int64_t> updatedShapeDim =
-        calculateUpdatedShapeDim(meshAttr, dimShardings[i], newShape[i]);
+        calculateUpdatedDim(meshAttr, dimShardings[i], newShape[i]);
 
     if (failed(updatedShapeDim)) {
       return failure();

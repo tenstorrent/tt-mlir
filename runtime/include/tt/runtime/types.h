@@ -59,6 +59,17 @@ enum class DispatchCoreType {
 
 enum class Arch { GRAYSKULL = 1, WORMHOLE_B0 = 2, BLACKHOLE = 3, QUASAR = 4 };
 
+enum class TracyLogTag { MLIR_OP_LOCATION, MLIR_CONST_EVAL_OP };
+
+inline std::string toString(TracyLogTag tracyLogTag) {
+  switch (tracyLogTag) {
+  case TracyLogTag::MLIR_OP_LOCATION:
+    return "MLIR_OP_LOCATION";
+  case TracyLogTag::MLIR_CONST_EVAL_OP:
+    return "MLIR_CONST_EVAL_OP";
+  }
+}
+
 namespace detail {
 struct ObjectImpl {
 
@@ -159,6 +170,8 @@ struct Flatbuffer : public detail::ObjectImpl {
   void store(const char *path) const;
   std::string_view getFileIdentifier() const;
   std::string getVersion() const;
+  std::string_view getSchemaHash() const;
+  bool checkSchemaHash() const;
   std::string_view getTTMLIRGitHash() const;
   std::string asJson() const;
 };
@@ -191,6 +204,18 @@ struct Binary : public Flatbuffer {
 
   static Binary loadFromPath(const char *path);
 
+  // Binary asJson functions are broken down to get individual flatbuffer
+  // components, allowing for bypassing the golden_map in debug_info, the
+  // loading and processing of which can use significant memory and time.
+  std::uint32_t getNumPrograms() const;
+  std::string getSystemDescAsJson() const;
+  std::string getProgramName(std::uint32_t programIndex) const;
+  bool isProgramPrivate(std::uint32_t programIndex) const;
+  std::string getProgramOpsAsJson(std::uint32_t programIndex) const;
+  std::string getProgramInputsAsJson(std::uint32_t programIndex) const;
+  std::string getProgramOutputsAsJson(std::uint32_t programIndex) const;
+  std::string getProgramMlirAsJson(std::uint32_t programIndex) const;
+  std::string getProgramCpp(std::uint32_t programIndex) const;
   std::vector<TensorDesc> getProgramInputs(std::uint32_t programIndex) const;
   std::vector<TensorDesc> getProgramOutputs(std::uint32_t programIndex) const;
   const ::tt::target::GoldenTensor *getDebugInfoGolden(std::string &loc) const;

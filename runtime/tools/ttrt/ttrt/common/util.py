@@ -623,19 +623,7 @@ class Flatbuffer:
         self.test_result = "pass"
 
     def check_version(self, ignore: bool = False):
-        package_name = "ttrt"
-
-        try:
-            package_version = get_distribution(package_name).version
-        except Exception as e:
-            raise Exception(f"error retrieving version: {e} for {package_name}")
-
-        if package_version != self.version and not ignore:
-            raise Exception(
-                f"{package_name}: v{package_version} does not match flatbuffer: v{self.version} for flatbuffer: {self.file_path} - skipping this test"
-            )
-
-        return True
+        raise UnimplementedError
 
     @staticmethod
     def get_ttnn_file_extension():
@@ -661,20 +649,28 @@ class Binary(Flatbuffer):
             self.fbb = ttrt.binary.load_binary_from_path(file_path)
         else:
             self.fbb = ttrt.binary.load_binary_from_capsule(capsule)
-        self.fbb_dict = ttrt.binary.as_dict(self.fbb)
+        self.system_desc_dict = ttrt.binary.system_desc_as_dict(self.fbb)
         self.version = self.fbb.version
+        self.program_indices = range(self.fbb.get_num_programs())
         self.programs = []
         self.e2e_duration_milliseconds = 0
 
-        for i in range(len(self.fbb_dict["programs"])):
-            program = Binary.Program(i, self.fbb_dict["programs"][i])
+        for i in self.program_indices:
+            program = Binary.Program(i, self.fbb)
             self.programs.append(program)
+
+    def check_version(self, ignore: bool = False):
+        if not ignore and not self.fbb.check_schema_hash():
+            raise Exception(
+                "Binary schema mismatch, please recompile the binary with the compiler at the same schema version"
+            )
+        return True
 
     def check_system_desc(self, query):
         import ttrt.binary
 
         try:
-            fbb_system_desc = self.fbb_dict["system_desc"]
+            fbb_system_desc = self.system_desc_dict
             device_system_desc = query.get_system_desc_as_dict()["system_desc"]
 
             if fbb_system_desc != device_system_desc:
@@ -716,7 +712,7 @@ class Binary(Flatbuffer):
         return True
 
     def get_num_programs(self):
-        return len(self.programs)
+        return self.fbb.get_num_programs()
 
     def check_program_index_exists(self, program_index):
         if program_index >= self.get_num_programs():
@@ -740,33 +736,38 @@ class Binary(Flatbuffer):
 
         for i, p in enumerate(self.programs):
             print(f"\nProgram {i+1} operations:")
-            pprint(p.to_dict())
+            pprint(p.fbb_to_dict())
 
         print()
 
     class Program:
-        def __init__(self, index, program):
+        def __init__(self, index, binary):
+            import ttrt.binary
+
+            self.fbb = binary
             self.index = index
-            self.program = program
+            self.name = self.fbb.get_program_name(self.index)
+            self.inputs = ttrt.binary.program_inputs_as_dict(self.fbb, self.index)
+            self.outputs = ttrt.binary.program_outputs_as_dict(self.fbb, self.index)
             self.input_tensors = []
             self.output_tensors = []
 
         def num_inputs(self):
-            return len(self.program["inputs"])
+            return len(self.inputs)
 
         def num_outputs(self):
-            return len(self.program["outputs"])
+            return len(self.outputs)
 
         def populate_inputs(self, init_fn, golden_inputs=[]):
             if len(golden_inputs) > 0:
-                assert len(golden_inputs) == len(self.program["inputs"])
-                for index, input_fb in enumerate(self.program["inputs"]):
+                assert len(golden_inputs) == len(self.inputs)
+                for index, input_fb in enumerate(self.inputs):
                     reshaped = torch.reshape(
                         golden_inputs[index], input_fb["desc"]["shape"]
                     )
                     self.input_tensors.append(reshaped)
             else:
-                for i in self.program["inputs"]:
+                for i in self.inputs:
                     torch_tensor = init_fn(
                         i["desc"]["shape"],
                         dtype=Binary.Program.from_data_type(
@@ -776,7 +777,7 @@ class Binary(Flatbuffer):
                     self.input_tensors.append(torch_tensor)
 
         def populate_outputs(self, init_fn):
-            for i in self.program["outputs"]:
+            for i in self.outputs:
                 torch_tensor = init_fn(
                     i["desc"]["shape"],
                     dtype=Binary.Program.from_data_type(
@@ -785,9 +786,17 @@ class Binary(Flatbuffer):
                 )
                 self.output_tensors.append(torch_tensor)
 
+        def is_private(self):
+            import ttrt.binary
+
+            return self.fbb.is_program_private(self.index)
+
         def to_dict(self) -> dict:
             return {
-                i: op["debug_info"] for i, op in enumerate(self.program["operations"])
+                i: op["debug_info"]
+                for i, op in enumerate(
+                    self.ttrt.binary.program_ops_as_dict(self.fbb, i)
+                )
             }
 
         @staticmethod
@@ -839,11 +848,18 @@ class SystemDesc(Flatbuffer):
         import ttrt.binary
 
         self.fbb = ttrt.binary.load_system_desc_from_path(file_path)
-        self.fbb_dict = ttrt.binary.as_dict(self.fbb)
+        self.fbb_dict = ttrt.binary.fbb_as_dict(self.fbb)
         self.version = self.fbb.version
 
         # temporary state value to check if test failed
         self.test_result = "pass"
+
+    def check_version(self, ignore: bool = False):
+        if not ignore and not self.fbb.check_schema_hash():
+            raise Exception(
+                "Binary schema mismatch, please recompile the binary with the compiler at the same schema version"
+            )
+        return True
 
 
 class TTRTTestException(Exception):

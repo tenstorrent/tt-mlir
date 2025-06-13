@@ -175,7 +175,7 @@ TTNNOperandsWorkaroundsFactory::createUpsampleOpOperandsWorkarounds() {
 
 // Factory method to create a set of workarounds for zeros op output operand.
 // ttnn::zeros does not support output dtype int32. If the output data type of
-// ttnn::zeros is int32, we override to uint32 and typecast separately.
+// ttnn::zeros is int32, we override to float32 and typecast separately.
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createZerosOpOperandsWorkarounds(
     RankedTensorType outputType) {
@@ -184,7 +184,7 @@ TTNNOperandsWorkaroundsFactory::createZerosOpOperandsWorkarounds(
       elementTypeToDataType(outputType.getElementType());
   if (dataType == mlir::tt::DataType::Int32) {
     fullOpOutputWorkarounds.tensorDataTypeWorkaround =
-        mlir::tt::DataType::UInt32;
+        mlir::tt::DataType::Float32;
   }
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addOutputOperandWorkaround(fullOpOutputWorkarounds);
@@ -195,7 +195,7 @@ TTNNOperandsWorkaroundsFactory::createZerosOpOperandsWorkarounds(
 // If the output of full is a 1D tensor and is tiled
 // we need to convert it to row major layout then tilize separately
 // ttnn::full does not support output dtype int32. If the output data type of
-// full is int32, we override to uint32 and typecast separately.
+// full is int32, we override to float32 and typecast separately.
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createFullOpOperandsWorkarounds(
     RankedTensorType outputType) {
@@ -209,7 +209,7 @@ TTNNOperandsWorkaroundsFactory::createFullOpOperandsWorkarounds(
       elementTypeToDataType(outputType.getElementType());
   if (dataType == mlir::tt::DataType::Int32) {
     fullOpOutputWorkarounds.tensorDataTypeWorkaround =
-        mlir::tt::DataType::UInt32;
+        mlir::tt::DataType::Float32;
   }
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addOutputOperandWorkaround(fullOpOutputWorkarounds);
@@ -375,7 +375,7 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
 }
 
 // Factory method to create a set of workarounds for reshape operation operands.
-// Reshape op only does not work with int32 - force to uint32 then typecast
+// Reshape op only does not work with int32 - force to float32 then typecast
 // separately.
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createReshapeOpOperandsWorkarounds(
