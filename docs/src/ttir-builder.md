@@ -545,7 +545,7 @@ from ttmlir.passes import GoldenTensor
 ```
 
 ### Setting golden data
-Use `TTIRBuilder` API `set_graph_input_output` to set your own input and output golden tensors using PyTorch tensors. Keep in mind that this also sets graph inputs and outputs.
+Use `TTIRBuilder` API `set_graph_input_output` to set your own input and output golden tensors using PyTorch tensors. Keep in mind that this also sets graph inputs and outputs. There are some functions for which setting custom input tensors is required to pass PCC accuracy checks: `ttir.tan`, `ttir.log`, `ttir.log1p`. See example implementation and explanation in `test/python/golden/test_ttir_ops.py`.
 ```bash
 set_graph_input_output(
         self,
