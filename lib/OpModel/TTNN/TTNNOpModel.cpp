@@ -1994,6 +1994,8 @@ MinimumOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
 //===----------------------------------------------------------------------===//
 // EmbeddingOp
 //===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
 struct EmbeddingOpArgs {
   ::ttnn::TensorSpec inputSpec;
   ::ttnn::TensorSpec weightSpec;
@@ -2031,6 +2033,7 @@ getEmbeddingOpArgs(::tt::tt_metal::distributed::MeshDevice *device,
 
   return EmbeddingOpArgs{inputSpec, weightSpec, outputSpec};
 }
+#endif // TTMLIR_ENABLE_OPMODEL
 
 llvm::Expected<OpConstraints> EmbeddingOpInterface::getOpConstraints(
     GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
