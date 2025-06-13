@@ -58,8 +58,8 @@ LogicalResult WhereOpWithNanConstantRewritePattern::matchAndRewrite(
       operands[i] = createReplacementFullOp(operands[i]);
     }
   }
-  rewriter.replaceOpWithNewOp<ttnn::WhereOp>(op, op.getResult(), op.getFirst(),
-                                             operands[0], operands[1]);
+  rewriter.replaceOpWithNewOp<ttnn::WhereOp>(
+      op, op.getResult().getType(), op.getFirst(), operands[0], operands[1]);
   return success();
 }
 
