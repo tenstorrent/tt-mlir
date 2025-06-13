@@ -3775,9 +3775,6 @@ static mlir::LogicalResult verifyAffineBlocking(
 
       Type operandType = operandTypes[arg.getArgNumber()];
       Attribute expectedMemorySpace;
-      AffineMap indexingMap = indexingMaps[arg.getArgNumber()];
-      SmallVector<int64_t> operandBlockFactors =
-          indexingMap.compose(blockFactors);
       ArrayRef<int64_t> expectedShardShape;
       bool isStream = false;
       if (RankedTensorType tensorType =
