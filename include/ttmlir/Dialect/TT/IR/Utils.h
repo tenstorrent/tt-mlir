@@ -47,9 +47,7 @@ mlir::memref::GlobalOp createGlobal(ModuleOp moduleOp, MemRefType type,
 
 // Filters out the constant parameters from the function signature.
 inline llvm::SmallPtrSet<mlir::BlockArgument, 4>
-populateConstParams(mlir::func::FuncOp funcOp) {
-  assert(!funcOp.isDeclaration() && "Function should not be a declaration.");
-
+getConstParams(mlir::func::FuncOp funcOp) {
   llvm::SmallPtrSet<mlir::BlockArgument, 4> constParams;
 
   for (auto arg : funcOp.getArguments()) {
