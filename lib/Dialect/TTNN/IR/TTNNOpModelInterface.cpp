@@ -592,7 +592,8 @@ MultiplyOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::ttnn::OpConstraints>
 Conv2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                            const OpConfig &opConfig) {
-  assert(inputs.size() == 2 || inputs.size() == 3);
+  assert((inputs.size() == 2 && (getBias() == nullptr)) ||
+         (inputs.size() == 3 && (getBias() != nullptr)));
 
   const auto inputShape = getInput().getType().getShape();
   const auto weightShape = getWeight().getType().getShape();
@@ -634,7 +635,8 @@ Conv2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<size_t>
 Conv2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                        const OpConfig &opConfig) {
-  assert(inputs.size() == 2 || inputs.size() == 3);
+  assert((inputs.size() == 2 && (getBias() == nullptr)) ||
+         (inputs.size() == 3 && (getBias() != nullptr)));
 
   const auto inputShape = getInput().getType().getShape();
   const auto weightShape = getWeight().getType().getShape();
@@ -664,6 +666,68 @@ Conv2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       getInChannels(), getOutChannels(), getBatchSize(), getInputHeight(),
       getInputWidth(), getKernelSize(), getStride(), getPadding(),
       getDilation(), getGroups(), conv2dConfig, outputShape,
+      opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
+// ConvTranspose2dOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+ConvTranspose2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                    const OpConfig &opConfig) {
+  assert((inputs.size() == 2 && (getBias() == nullptr)) ||
+         (inputs.size() == 3 && (getBias() != nullptr)));
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto weightShape = getWeight().getType().getShape();
+  std::optional<llvm::ArrayRef<int64_t>> biasShape;
+  std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout;
+
+  if (inputs.size() == 3) {
+    biasShape = getBias().getType().getShape();
+    biasLayout = inputs[2];
+  }
+
+  const auto outputShape = getResult().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();
+
+  return op_model::ttnn::ConvTranspose2dOpInterface::getOpConstraints(
+      deviceGrid, inputShape, inputs[0], weightShape, inputs[1], biasShape,
+      biasLayout, getInChannels(), getOutChannels(), getBatchSize(),
+      getInputHeight(), getInputWidth(), getKernelSize(), getStride(),
+      getPadding(), getOutputPadding(), getDilation(), getGroups(), outputShape,
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+ConvTranspose2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                const OpConfig &opConfig) {
+  assert((inputs.size() == 2 && (getBias() == nullptr)) ||
+         (inputs.size() == 3 && (getBias() != nullptr)));
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto weightShape = getWeight().getType().getShape();
+  std::optional<llvm::ArrayRef<int64_t>> biasShape;
+  std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout;
+
+  if (inputs.size() == 3) {
+    biasShape = getBias().getType().getShape();
+    biasLayout = inputs[2];
+  }
+
+  const auto outputShape = getResult().getType().getShape();
+
+  return op_model::ttnn::ConvTranspose2dOpInterface::getOpRuntime(
+      inputShape, inputs[0], weightShape, inputs[1], biasShape, biasLayout,
+      getInChannels(), getOutChannels(), getBatchSize(), getInputHeight(),
+      getInputWidth(), getKernelSize(), getStride(), getPadding(),
+      getOutputPadding(), getDilation(), getGroups(), outputShape,
       opConfig.outputLayout);
 }
 
