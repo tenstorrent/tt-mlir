@@ -54,6 +54,10 @@ dataTypeElementSize(::tt::target::UnsupportedDataType dataType) {
     return 8;
   case ::tt::target::UnsupportedDataType::UInt64:
     return 8;
+  case ::tt::target::UnsupportedDataType::Int16:
+    return 2;
+  case ::tt::target::UnsupportedDataType::Int8:
+    return 1;
   case ::tt::target::UnsupportedDataType::Bool:
     return 1;
   }
@@ -79,41 +83,28 @@ T alignUp(T ptr, T alignment) {
   return (ptr + alignment - 1) & ~(alignment - 1);
 }
 
-template <typename dtype32, typename dtype64>
-inline void handle32To64(const dtype32 *old_buffer, dtype64 *new_buffer,
-                         int64_t num_elements) {
-
-  assert(sizeof(dtype64) == 8 && "dtype64 must be 8 bytes");
-  assert(sizeof(dtype32) == 4 && "dtype32 must be 4 bytes");
-
+template <typename FromTy, typename ToTy>
+inline void handleFloatingPointBufferCast(const FromTy *old_buffer,
+                                          ToTy *new_buffer,
+                                          int64_t num_elements) {
   for (int i = 0; i < num_elements; i++) {
-    new_buffer[i] = static_cast<dtype64>(old_buffer[i]);
+    new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
   }
 }
 
-template <typename dtype64, typename dtype32>
-inline void handle64To32(const dtype64 *old_buffer, dtype32 *new_buffer,
-                         int64_t num_elements) {
-
-  assert(sizeof(dtype64) == 8 && "dtype64 must be 8 bytes");
-  assert(sizeof(dtype32) == 4 && "dtype32 must be 4 bytes");
+template <typename FromTy, typename ToTy>
+inline void handleIntegerBufferCast(const FromTy *old_buffer, ToTy *new_buffer,
+                                    int64_t num_elements) {
 
   for (int i = 0; i < num_elements; i++) {
-
     // Electing to clamp integer max and min rather than to overflow in int32
-    if (std::is_same_v<dtype32, int32_t> || std::is_same_v<dtype32, uint32_t>) {
-      if (old_buffer[i] >
-          static_cast<dtype64>(std::numeric_limits<dtype32>::max())) {
-        new_buffer[i] = std::numeric_limits<dtype32>::max();
-      } else if (old_buffer[i] <
-                 static_cast<dtype64>(std::numeric_limits<dtype32>::lowest())) {
-        new_buffer[i] = std::numeric_limits<dtype32>::lowest();
-      } else {
-        new_buffer[i] = static_cast<dtype32>(old_buffer[i]);
-      }
+    if (old_buffer[i] > static_cast<FromTy>(std::numeric_limits<ToTy>::max())) {
+      new_buffer[i] = std::numeric_limits<ToTy>::max();
+    } else if (old_buffer[i] <
+               static_cast<FromTy>(std::numeric_limits<ToTy>::lowest())) {
+      new_buffer[i] = std::numeric_limits<ToTy>::lowest();
     } else {
-      // Floating point cast will clamp between max and min
-      new_buffer[i] = static_cast<dtype32>(old_buffer[i]);
+      new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
     }
   }
 }

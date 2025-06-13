@@ -36,6 +36,8 @@ enum UnsupportedDataType: uint16 {
   Float64,
   Int64,
   UInt64,
+  Int16,
+  Int8,
   Bool
 }
 

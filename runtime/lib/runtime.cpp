@@ -227,6 +227,10 @@ Tensor createOwnedHostTensor(const void *data,
     return ::tt::target::DataType::Int32;
   case ::tt::target::UnsupportedDataType::UInt64:
     return ::tt::target::DataType::UInt32;
+  case ::tt::target::UnsupportedDataType::Int16:
+    return ::tt::target::DataType::Int32;
+  case ::tt::target::UnsupportedDataType::Int8:
+    return ::tt::target::DataType::Int32;
   case ::tt::target::UnsupportedDataType::Float64:
     return ::tt::target::DataType::Float32;
   case ::tt::target::UnsupportedDataType::Bool:
@@ -260,14 +264,33 @@ Tensor createOwnedHostTensorFromUnsupportedDataType(
   if (unsupportedDataType == ::tt::target::UnsupportedDataType::Int64) {
     LOG_ASSERT(itemsize == 8 &&
                "Itemsize must be the size of the supported data type");
-    tt::runtime::utils::handle64To32<int64_t, int32_t>(
+    tt::runtime::utils::handleIntegerBufferCast<int64_t, int32_t>(
         static_cast<int64_t *>(const_cast<void *>(data)),
+        static_cast<int32_t *>(const_cast<void *>(newData.get())), numElements);
+  } else if (unsupportedDataType == ::tt::target::UnsupportedDataType::UInt64) {
+    LOG_ASSERT(itemsize == 8 &&
+               "Itemsize must be the size of the supported data type");
+    tt::runtime::utils::handleIntegerBufferCast<uint64_t, uint32_t>(
+        static_cast<uint64_t *>(const_cast<void *>(data)),
+        static_cast<uint32_t *>(const_cast<void *>(newData.get())),
+        numElements);
+  } else if (unsupportedDataType == ::tt::target::UnsupportedDataType::Int16) {
+    LOG_ASSERT(itemsize == 2 &&
+               "Itemsize must be the size of the supported data type");
+    tt::runtime::utils::handleIntegerBufferCast<int16_t, int32_t>(
+        static_cast<int16_t *>(const_cast<void *>(data)),
+        static_cast<int32_t *>(const_cast<void *>(newData.get())), numElements);
+  } else if (unsupportedDataType == ::tt::target::UnsupportedDataType::Int8) {
+    LOG_ASSERT(itemsize == 1 &&
+               "Itemsize must be the size of the supported data type");
+    tt::runtime::utils::handleIntegerBufferCast<int8_t, int32_t>(
+        static_cast<int8_t *>(const_cast<void *>(data)),
         static_cast<int32_t *>(const_cast<void *>(newData.get())), numElements);
   } else if (unsupportedDataType ==
              ::tt::target::UnsupportedDataType::Float64) {
     LOG_ASSERT(itemsize == 8 &&
                "Itemsize must be the size of the supported data type");
-    tt::runtime::utils::handle64To32<double, float>(
+    tt::runtime::utils::handleFloatingPointBufferCast<double, float>(
         static_cast<double *>(const_cast<void *>(data)),
         static_cast<float *>(newData.get()), numElements);
   } else if (unsupportedDataType == ::tt::target::UnsupportedDataType::Bool) {
