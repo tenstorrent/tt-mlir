@@ -53,11 +53,11 @@ func.func @compound(%arg0: tensor<256x768xf32>) -> tensor<256x768xf32> {
   // CHECK-NEXT: ins(%{{.*}} : tensor<256x768xf32, [[device]]>)
   // CHECK-NEXT: outs(%{{.*}} : tensor<256x768xf32, [[tiled:#layout[0-9]*]]>)
   // reblock
-  // CHECK: "ttir.view_layout"(%{{.*}}) <{reinterpretLayout = false}> : (tensor<256x768xf32, [[tiled]]>) -> tensor<256x768xf32, [[reblocked:#layout[0-9]*]]>
+  // CHECK: ttir.view_layout %{{.*}} : tensor<256x768xf32, [[tiled]]> -> tensor<256x768xf32, [[reblocked:#layout[0-9]*]]>
   // CHECK-NEXT: ttir.generic {grid = #tt.grid<8x8>
   %2 = ttir.to_layout %arg0, %0 : tensor<256x768xf32> into tensor<256x768xf32, #layout2> -> tensor<256x768xf32, #layout2>
   // undo reblock
-  // CHECK: "ttir.view_layout"(%{{.*}}) <{reinterpretLayout = false}> : (tensor<256x768xf32, [[reblocked]]>) -> tensor<256x768xf32, [[tiled]]>
+  // CHECK: ttir.view_layout %{{.*}} : tensor<256x768xf32, [[reblocked]]> -> tensor<256x768xf32, [[tiled]]>
   // CHECK-NEXT: ttir.generic {grid = #tt.grid<1x1>
   // untilize
   // CHECK: ttir.generic {grid = #tt.grid<1x1>
