@@ -54,7 +54,7 @@ jobs:
   build-pykernel-wheel:
     timeout-minutes: 60
     name: Build pykernel Python Wheel
-    runs-on: ubuntu-latest
+    runs-on: builder
 
     steps:
       - name: Maximize space
@@ -75,29 +75,17 @@ jobs:
       - name: Git safe dir
         run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
 
-      - name: Install jq and curl
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq curl
-
-      - name: Set up Python 3.10
+      - name: Set up Python 3.12
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.12'
 
-      - name: Install Required Packages to Build
-        shell: bash
-        run: |
-          python3.10 -m pip install wheel setuptools
-
-      - name: Build pykernel wheel
-        shell: bash
-        run: |
-          source env/activate
-          mkdir -p ${{ steps.strings.outputs.wheel-output-dir }}
-          cd tools
-          python3.10 -m pip wheel ./pykernel --wheel-dir ${{ steps.strings.outputs.wheel-output-dir }} --verbose
+      - name: Build pykernel Wheel (manylinux)
+        uses: pypa/cibuildwheel@v2.23.2
+        with:
+          output-dir: ${{ steps.strings.outputs.wheel-output-dir }}
+          package-dir: ${{ steps.strings.outputs.work-dir }}/tools/pykernel
+          config-file: "${{ steps.strings.outputs.work-dir }}/tools/pykernel/pyproject.toml"
 
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v4
