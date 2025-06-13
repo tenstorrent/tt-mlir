@@ -125,9 +125,6 @@ inline Tensor createMultiDeviceHostTensor(
       data, desc.shape, desc.stride, desc.itemsize, desc.dataType, strategy);
 }
 
-target::DataType
-getUnsupportedDataTypeAlias(target::UnsupportedDataType unsupportedDataType);
-
 inline Tensor createEmptyTensor(Device device, Layout layout,
                                 const TensorDesc &desc) {
   return ::tt::runtime::createEmptyTensor(device, layout, desc.shape,

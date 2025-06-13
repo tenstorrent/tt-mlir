@@ -711,44 +711,33 @@ void memcpy_into_host_with_unsupported_data_type(
              "Tensor must be on host");
   const void *srcPtr = utils::getRawHostDataPtr(srcTensor);
 
+  ::tt::target::DataType srcDataType = getTensorDataType(src);
+  ::tt::target::DataType unsupportedDataTypeAlias =
+      tt::runtime::utils::getUnsupportedDataTypeAlias(unsupportedDataType);
+
+  LOG_ASSERT(srcDataType == unsupportedDataTypeAlias,
+             "Tensor data type must be " +
+                 std::string(target::EnumNamesDataType()[static_cast<int>(
+                     unsupportedDataTypeAlias)]));
+
   if (unsupportedDataType == ::tt::target::UnsupportedDataType::Int64) {
-    LOG_ASSERT(getTensorDataType(src) == ::tt::target::DataType::Int32,
-               "Tensor data type must be Int32, got " +
-                   std::string(target::EnumNamesDataType()[static_cast<int>(
-                       getTensorDataType(src))]));
     tt::runtime::utils::handleIntegerBufferCast<int32_t, int64_t>(
         static_cast<const int32_t *>(srcPtr), static_cast<int64_t *>(dst),
         srcTensor.padded_volume());
   } else if (unsupportedDataType == ::tt::target::UnsupportedDataType::UInt64) {
-    LOG_ASSERT(getTensorDataType(src) == ::tt::target::DataType::UInt32,
-               "Tensor data type must be UInt32, got " +
-                   std::string(target::EnumNamesDataType()[static_cast<int>(
-                       getTensorDataType(src))]));
     tt::runtime::utils::handleIntegerBufferCast<uint32_t, uint64_t>(
         static_cast<const uint32_t *>(srcPtr), static_cast<uint64_t *>(dst),
         srcTensor.padded_volume());
   } else if (unsupportedDataType == ::tt::target::UnsupportedDataType::Int16) {
-    LOG_ASSERT(getTensorDataType(src) == ::tt::target::DataType::Int32,
-               "Tensor data type must be Int32, got " +
-                   std::string(target::EnumNamesDataType()[static_cast<int>(
-                       getTensorDataType(src))]));
     tt::runtime::utils::handleIntegerBufferCast<int32_t, int16_t>(
         static_cast<const int32_t *>(srcPtr), static_cast<int16_t *>(dst),
         srcTensor.padded_volume());
   } else if (unsupportedDataType == ::tt::target::UnsupportedDataType::Int8) {
-    LOG_ASSERT(getTensorDataType(src) == ::tt::target::DataType::Int32,
-               "Tensor data type must be Int32, got " +
-                   std::string(target::EnumNamesDataType()[static_cast<int>(
-                       getTensorDataType(src))]));
     tt::runtime::utils::handleIntegerBufferCast<int32_t, int8_t>(
         static_cast<const int32_t *>(srcPtr), static_cast<int8_t *>(dst),
         srcTensor.padded_volume());
   } else if (unsupportedDataType ==
              ::tt::target::UnsupportedDataType::Float64) {
-    LOG_ASSERT(getTensorDataType(src) == ::tt::target::DataType::Float32,
-               "Tensor data type must be Float32, got " +
-                   std::string(target::EnumNamesDataType()[static_cast<int>(
-                       getTensorDataType(src))]));
     tt::runtime::utils::handleFloatingPointBufferCast<float, double>(
         static_cast<const float *>(srcPtr), static_cast<double *>(dst),
         srcTensor.padded_volume());

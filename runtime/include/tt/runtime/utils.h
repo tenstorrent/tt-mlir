@@ -63,6 +63,24 @@ dataTypeElementSize(::tt::target::UnsupportedDataType dataType) {
   }
 }
 
+inline ::tt::target::DataType getUnsupportedDataTypeAlias(
+    ::tt::target::UnsupportedDataType unsupportedDataType) {
+  switch (unsupportedDataType) {
+  case ::tt::target::UnsupportedDataType::Int64:
+    return ::tt::target::DataType::Int32;
+  case ::tt::target::UnsupportedDataType::UInt64:
+    return ::tt::target::DataType::UInt32;
+  case ::tt::target::UnsupportedDataType::Int16:
+    return ::tt::target::DataType::UInt16;
+  case ::tt::target::UnsupportedDataType::Int8:
+    return ::tt::target::DataType::UInt8;
+  case ::tt::target::UnsupportedDataType::Float64:
+    return ::tt::target::DataType::Float32;
+  case ::tt::target::UnsupportedDataType::Bool:
+    return ::tt::target::DataType::BFloat16;
+  }
+}
+
 template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
 inline std::vector<uint32_t> calculateStride(const std::vector<T> &shape) {
   assert(!shape.empty());
