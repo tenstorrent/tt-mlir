@@ -2,6 +2,10 @@
 
 Welcome to the tt-explorer wiki! The Wiki will serve as a source for documentation, examples, and general knowledge related to the TT-MLIR visualization project. The sidebar will provide navigation to relevant pages. If this is your first time hearing about the project, take a look at Project Architecture for an in-depth introduction to the tool and motivations behind it :)
 
+## Overview
+
+Visualizer tool for `ttmlir`-powered compiler results. Visualizes from emitted `.mlir` files to display compiled model, attributes, performance results, and provides a platform for human-driven overrides to _gameify_ model tuning.
+
 ## Quick Start
 TT-Explorer comes packaged as a tool in the `tt-mlir` repo.
 
@@ -75,8 +79,6 @@ export TT_EXPLORER_GENERATED_TTNN_TEST_DIRS=$(pwd)/build/test/python/golden/ttnn
 # Run Tests
 pytest tools/explorer/test/run_tests.py
 ```
-
-Visualizer tool for `ttmlir`-powered compiler results. Visualizes from emitted `.mlir` files to display compiled model, attributes, performance results, and provides a platform for human-driven overrides to _gameify_ model tuning.
 
 ## TT-Explorer - Project Architecture
 
