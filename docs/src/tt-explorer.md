@@ -25,6 +25,29 @@ Here is a summary of the steps needed:
     Starting Model Explorer server at:
     http://localhost:8080
     ```
+
+## Building `tt-explorer`
+
+To build `tt-explorer` you need first to clone and configure the environment for `tt-mlir`. Please refer to the [Getting Started Guide](./getting-started.md).
+
+After building and activating the virtualenv, build `tt-mlir` and ensure the following flags are present, as they are needed for executing models in `tt-explorer` and without them it won't build.
+
+Flags required:
+- `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`
+- `-DTTMLIR_ENABLE_RUNTIME=ON`
+- `-DTT_RUNTIME_DEBUG=ON`
+
+Then build the `explorer` target by running the following command:
+```sh
+cmake --build build -- explorer
+```
+
+After it finishes building, start the `explorer` server by running the following command:
+```sh
+tt-explorer
+```
+
+The server should then start and show a message similar to this:
 ```sh
 Starting Model Explorer server at:
 http://localhost:8080
@@ -32,6 +55,7 @@ http://localhost:8080
 
 ### Running TT-Explorer Tests Locally
 TT-Explorer relies on tests that are present in the `tests/` directory as well as tests dynamically created through `llvm-lit`. Below are the steps to replicate the testing procedure seen in CI:
+
 1. Make sure you're in the `tt-mlir` directory
 2. You need to build the explorer target with `cmake --build build -- explorer`
 3. Run and save the system descriptor `ttrt query --save-artifacts`
