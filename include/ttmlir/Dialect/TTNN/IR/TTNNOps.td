@@ -255,7 +255,9 @@ def TTNN_SignOp: TTNN_ElementwiseUnaryOp<"sign"> {
     }];
 }
 
-def TTNN_CosOp : TTNN_ElementwiseUnaryOp<"cos"> {
+def TTNN_CosOp : TTNN_ElementwiseUnaryOp<"cos",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise cosine.";
     let description = [{
       Eltwise cosine operation.
@@ -372,7 +374,9 @@ def TTNN_TanhOp: TTNN_ElementwiseUnaryOp<"tanh"> {
     }];
 }
 
-def TTNN_ReciprocalOp : TTNN_ElementwiseUnaryOp<"reciprocal"> {
+def TTNN_ReciprocalOp : TTNN_ElementwiseUnaryOp<"reciprocal",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise reciprocal.";
     let description = [{
       Eltwise reciprocal operation.
@@ -388,7 +392,9 @@ def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu",
     }];
 }
 
-def TTNN_SinOp : TTNN_ElementwiseUnaryOp<"sin"> {
+def TTNN_SinOp : TTNN_ElementwiseUnaryOp<"sin",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise sine.";
     let description = [{
       Eltwise sine operation.

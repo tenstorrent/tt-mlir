@@ -110,64 +110,120 @@ public:
                                   nullptr, nullptr, nullptr, nullptr);
   }
 };
+struct ExpectedResult {
+  bool expectedLegal = false;
+  size_t expectedCbSize = 0;
+  size_t expectedPeakSize = 0;
+  size_t expectedOutputSize = 0;
+};
+struct UnaryOpTestParams {
+  std::string testName;
+  std::function<Operation *(OpBuilder &, Location, Type, ValueRange)> createOp;
+  ExpectedResult expectedResult;
+};
 
-TEST_F(OpModelBase, ReluOpInterface) {
-  // create ReluOp
+// Create a fixture for parameterized tests
+class UnaryOpModelTest
+    : public OpModelBase,
+      public ::testing::WithParamInterface<UnaryOpTestParams> {
+protected:
+  void SetUp() override {
+    OpModelBase::SetUp();
+    params = GetParam();
+  }
+
+  UnaryOpTestParams params;
+};
+
+// Test case for normal operation
+TEST_P(UnaryOpModelTest, TestOpInterface) {
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
-
   auto input = createEmptyTensor(tensorShape);
   auto outputType = createRankedTensorType(tensorShape);
-
-  auto relu = builder.create<ReluOp>(builder.getUnknownLoc(), outputType,
-                                     ::mlir::ValueRange{input});
-
-  // test ReluOp interface
-  auto constraintsExp = getOpConstraints(relu.getOperation());
+  Operation *op = params.createOp(builder, builder.getUnknownLoc(), outputType,
+                                  ::mlir::ValueRange{input});
+  // Test constraints
+  auto constraintsExp = getOpConstraints(op);
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
-    EXPECT_EQ(cbSize, 8192);
-    EXPECT_EQ(peakSize, 2048);
-    EXPECT_EQ(outputSize, 2048);
+    EXPECT_EQ(cbSize, params.expectedResult.expectedCbSize);
+    EXPECT_EQ(peakSize, params.expectedResult.expectedPeakSize);
+    EXPECT_EQ(outputSize, params.expectedResult.expectedOutputSize);
   } else {
-    FAIL() << "Missing L1 constraints; Error="
-           << llvm::toString(constraintsExp.takeError()) << std::endl;
+    FAIL() << "Missing L1 constraints for " << params.testName
+           << "; Error=" << llvm::toString(constraintsExp.takeError());
   }
 
-  auto runtimeExp = getOpRuntime(relu.getOperation());
+  // Test runtime
+  auto runtimeExp = getOpRuntime(op);
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
-    FAIL() << llvm::toString(runtimeExp.takeError());
+    FAIL() << "Runtime test failed for " << params.testName
+           << "; Error=" << llvm::toString(runtimeExp.takeError());
   }
 }
 
-TEST_F(OpModelBase, ReluOpInterfaceNullOutput) {
-  // create ReluOp
+// Test case for null output layout
+TEST_P(UnaryOpModelTest, TestOpInterfaceNullOutput) {
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
-
   auto input = createEmptyTensor(tensorShape);
   auto outputType = createRankedTensorType(tensorShape);
-
-  auto relu = builder.create<ReluOp>(builder.getUnknownLoc(), outputType,
-                                     ::mlir::ValueRange{input});
-
-  // test ReluOp interface
-  OpModel backend = dyn_cast<OpModel>(relu.getOperation());
+  Operation *op = params.createOp(builder, builder.getUnknownLoc(), outputType,
+                                  ::mlir::ValueRange{input});
+  // Test constraints with null output
+  OpModel backend = dyn_cast<OpModel>(op);
   auto constraintsExp = backend.getOpConstraints(
-      getInputLayouts(relu), OpConfig(/*outputLayout=*/nullptr));
+      getInputLayouts(op), OpConfig(/*outputLayout=*/nullptr));
 
-  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  ASSERT_EQ(static_cast<bool>(constraintsExp),
+            params.expectedResult.expectedLegal);
+
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
       constraintsExp.get();
-  EXPECT_EQ(cbSize, 8192);
-  EXPECT_EQ(peakSize, 2048);
-  EXPECT_EQ(outputSize, 2048);
+  EXPECT_EQ(cbSize, params.expectedResult.expectedCbSize);
+  EXPECT_EQ(peakSize, params.expectedResult.expectedPeakSize);
+  EXPECT_EQ(outputSize, params.expectedResult.expectedOutputSize);
 
   ASSERT_TRUE(outputLayout);
   EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
   EXPECT_TRUE(outputLayout.hasInterleavedL1TensorMemoryLayout());
 }
+
+const ExpectedResult expected{true, 8192, 2048, 2048};
+
+//===---------------------------------------------------------===
+const auto createRelu = [](OpBuilder &b, Location loc, Type type,
+                           ValueRange ops) {
+  return b.create<ReluOp>(loc, type, ops).getOperation();
+};
+const auto createSin = [](OpBuilder &b, Location loc, Type type,
+                          ValueRange ops) {
+  return b.create<SinOp>(loc, type, ops).getOperation();
+};
+const auto createCos = [](OpBuilder &b, Location loc, Type type,
+                          ValueRange ops) {
+  return b.create<CosOp>(loc, type, ops).getOperation();
+};
+const auto createReciprocal = [](OpBuilder &b, Location loc, Type type,
+                                 ValueRange ops) {
+  return b.create<ReciprocalOp>(loc, type, ops).getOperation();
+};
+//===---------------------------------------------------------===
+// Define the test parameters
+const std::vector<UnaryOpTestParams> unaryOpTestParams = {
+    {"Relu", createRelu, expected},
+    {"Sin", createSin, expected},
+    {"Cos", createCos, expected},
+    {"Reciprocal", createReciprocal, expected}};
+
+// Instantiate the test suite
+INSTANTIATE_TEST_SUITE_P(
+    UnaryOpModelTests, UnaryOpModelTest, ::testing::ValuesIn(unaryOpTestParams),
+    [](const testing::TestParamInfo<UnaryOpTestParams> &info) {
+      return info.param.testName;
+    });
 
 TEST_F(OpModelBase, SqrtOpInterface) {
   // create SqrtOp
