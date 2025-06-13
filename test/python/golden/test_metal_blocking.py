@@ -55,31 +55,34 @@ def test_eltwise_blocking(
 
 
 @pytest.mark.fails_golden
-@pytest.mark.parametrize("grid_m", [1])
-@pytest.mark.parametrize("grid_k", [1])
-@pytest.mark.parametrize("grid_n", [1])
-@pytest.mark.parametrize("m", [3])
-@pytest.mark.parametrize("k", [4])
-@pytest.mark.parametrize("n", [3])
+@pytest.mark.parametrize("mt", [64])
+@pytest.mark.parametrize(
+    "kt",
+    [
+        1,
+        2,
+    ],
+)
+@pytest.mark.parametrize("nt", [64])
+# @pytest.mark.parametrize("mt", [2, 4])
+# @pytest.mark.parametrize("kt", [4, 6])
+# @pytest.mark.parametrize("nt", [1, 3])
 @pytest.mark.parametrize("dst_register_size_tiles", [8])
 def test_matmul_blocking(
-    grid_m: int,
-    grid_k: int,
-    grid_n: int,
-    m: int,
-    k: int,
-    n: int,
+    mt: int,
+    kt: int,
+    nt: int,
     dst_register_size_tiles: int,
     request,
 ):
     tile_size = 32
     lhs = (
-        grid_m * m * tile_size,
-        grid_k * k * tile_size,
+        mt * tile_size,
+        kt * tile_size,
     )
     rhs = (
-        grid_k * k * tile_size,
-        grid_n * n * tile_size,
+        kt * tile_size,
+        nt * tile_size,
     )
 
     def matmul_blocking(
@@ -92,15 +95,73 @@ def test_matmul_blocking(
 
     options = [
         f"max-dst-register-size-tiles={dst_register_size_tiles}",
-        f"override-device-shape={grid_m},{grid_n}",
+        # f"override-device-shape={grid_m},{grid_n}",
     ]
     compile_to_flatbuffer(
         matmul_blocking,
         [lhs, rhs],
+        # inputs_types=[torch.bfloat16, torch.bfloat16],
         target="ttmetal",
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
         print_ir=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (512, 512, 512),
+        (512, 1024, 1024),
+        (512, 1024, 2048),
+        (1024, 1024, 1024),
+        (1024, 1024, 2048),
+        (1024, 2048, 2048),
+        (2048, 2048, 2048),
+        (2048, 2048, 3072),
+        (2048, 3072, 3072),
+        (3072, 3072, 3072),
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.float32])
+@pytest.mark.parametrize("dst_register_size_tiles", [8])
+def test_matmul_ttnn(
+    shape: tuple[int],
+    dtype: torch.dtype,
+    dst_register_size_tiles: int,
+    request,
+):
+    lhs = (
+        shape[0],
+        shape[1],
+    )
+    rhs = (
+        shape[1],
+        shape[2],
+    )
+
+    def matmul_blocking(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: List[str] = None,
+    ):
+        return builder.matmul(in0, in1, unit_attrs=unit_attrs)
+
+    options = [
+        f"max-dst-register-size-tiles={dst_register_size_tiles}",
+    ]
+    compile_to_flatbuffer(
+        matmul_blocking,
+        [lhs, rhs],
+        inputs_types=[dtype, dtype],
+        target="ttmetal",
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        module_dump=True,
+        print_ir=False,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )

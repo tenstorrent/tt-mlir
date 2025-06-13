@@ -151,9 +151,11 @@ public:
     auto dst = dstLoad.getIndices().front();
     auto outCB = getOutCB(rewriter, op);
     auto storeIdx = op.getIndices().front();
+    rewriter.create<ttkernel::DPrintOp>(
+        op.getLoc(), "pack_tile(dstIdx={}, outCB={}, storeIdx={})\\n", dst,
+        outCB, storeIdx);
     rewriter.replaceOpWithNewOp<ttkernel::PackTileOp>(
-        op, dst, outCB, storeIdx,
-        rewriter.getBoolAttr(true));
+        op, dst, outCB, storeIdx, rewriter.getBoolAttr(true));
 
     return success();
   };
@@ -226,6 +228,11 @@ public:
       rewriter.create<ttkernel::MatmulInitShortOp>(
           op->getLoc(), cbA, cbB,
           /* transpose */ i32(rewriter, op->getLoc(), 0));
+      rewriter.create<ttkernel::DPrintOp>(
+          op->getLoc(),
+          "matmul_tiles(cbA={}, cbB={}, aIdx={}, bIdx={}, cIdx={})\\n", cbA,
+          cbB, getLoadIndex(adaptor.getA()), getLoadIndex(adaptor.getB()),
+          getLoadIndex(adaptor.getC(), tt::MemorySpace::RegisterDst));
       rewriter.create<ttkernel::MatmulTilesOp>(
           op->getLoc(), cbA, cbB, getLoadIndex(adaptor.getA()),
           getLoadIndex(adaptor.getB()),
@@ -433,6 +440,8 @@ public:
     // Translate the src coordinates to virtual coordinates.
     auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
         rewriter, loc, chipDesc, ValueRange{gridY, gridX});
+    rewriter.create<ttkernel::DPrintOp>(
+        loc, "get_noc_addr(x={}, y={}, addr={})\\n", virtX, virtY, addr);
     return rewriter.create<ttkernel::GetNocAddrOp>(loc, virtX, virtY, addr);
   }
 
@@ -494,16 +503,25 @@ public:
             op.getLoc(), op.getMcastShape()[0], op.getMcastShape()[1]);
         auto numDests = rewriter.create<arith::IndexCastOp>(
             op.getLoc(), rewriter.getI32Type(), numDestsIdx);
-        auto mcastAddr = rewriter.create<ttkernel::GetNocMulticastAddrOp>(
-            op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, dstL1Start,
-            nullptr);
+        rewriter.create<ttkernel::DPrintOp>(
+            op.getLoc(),
+            "get_noc_multicast_addr (virtX={}, virtY={}, mcastEndX={}, "
+            "mcastEndY={}, dstL1Start={})\\n",
+            virtX, virtY, mcastEndX, mcastEndY, dstL1Start);
+        auto mcastAddr =
+            rewriter.create<ttkernel::ExperimentalGetNocMulticastAddrOp>(
+                op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, dstL1Start,
+                nullptr);
         if (adaptor.getSrc() == adaptor.getDst()) {
           // If src and dst refer to the same memref, we do not loopback mcast
           // Dests are one less because the sender core is not included
-          auto numDestsLessOne = rewriter.create<arith::SubIOp>(
-              op.getLoc(), numDests, i32(rewriter, op->getLoc(), 1));
+          rewriter.create<ttkernel::DPrintOp>(
+              op.getLoc(),
+              "noc_async_write_multicast(srcL1Start={}, mcastAddr={}, "
+              "transferSize={}, numDests={})\\n",
+              srcL1Start, mcastAddr, transferSize, numDests);
           rewriter.create<ttkernel::NocAsyncWriteMulticastOp>(
-              op.getLoc(), srcL1Start, mcastAddr, transferSize, numDestsLessOne,
+              op.getLoc(), srcL1Start, mcastAddr, transferSize, numDests,
               nullptr, nullptr, nullptr);
         } else {
           // If src != dst, we loopback mcast
@@ -523,6 +541,11 @@ public:
         // Convert local coordinates to virtual coordinates
         auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
             rewriter, op.getLoc(), chipDesc, ValueRange{myY, myX});
+        rewriter.create<ttkernel::DPrintOp>(
+            op->getLoc(),
+            "get_noc_addr for local async write(x={}, y={}, addr={})\\n", virtX,
+            virtY, dstL1Start);
+
         auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
             op.getLoc(), virtX, virtY, dstL1Start);
         rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Start,
@@ -543,6 +566,10 @@ public:
       auto dstL1Addr = buildL1Address<ttkernel::GetWritePtrOp>(
           rewriter, op.getLoc(), adaptor.getDst(), op.getDstIndices());
       auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
+      rewriter.create<ttkernel::DPrintOp>(
+          op.getLoc(),
+          "noc_async_read(srcNocAddr={}, dstL1Addr={}, size={})\\n", srcNocAddr,
+          dstL1Addr, size);
       rewriter.create<ttkernel::NocAsyncReadOp>(op.getLoc(), srcNocAddr,
                                                 dstL1Addr, size);
       isRead = true;
@@ -710,23 +737,25 @@ class TTIRKernelFunctionArgsRewriter
 public:
   using OpConversionPattern<func::FuncOp>::OpConversionPattern;
 
+  static ThreadType getThreadType(func::FuncOp op) {
+    ttir::ThreadAttr threadAttr =
+        op->getAttrOfType<ttir::ThreadAttr>(ttir::ThreadAttr::name);
+    switch (threadAttr.getThreadType()) {
+    case ttir::ThreadType::Compute: {
+      return ThreadType::Compute;
+    }
+    case ttir::ThreadType::Datamovement: {
+      return ThreadType::Noc;
+    }
+    }
+  }
+
   static void convertFunctionAttrs(Builder &builder, func::FuncOp op,
                                    ArrayRef<ArgAttr> rtArgs,
                                    ArrayRef<ArgAttr> ctArgs) {
-    ttir::ThreadAttr threadAttr =
-        op->getAttrOfType<ttir::ThreadAttr>(ttir::ThreadAttr::name);
+
+    ThreadType threadType = getThreadType(op);
     op->removeAttr(ttir::ThreadAttr::name);
-    ThreadType threadType;
-    switch (threadAttr.getThreadType()) {
-    case ttir::ThreadType::Compute: {
-      threadType = ThreadType::Compute;
-      break;
-    }
-    case ttir::ThreadType::Datamovement: {
-      threadType = ThreadType::Noc;
-      break;
-    }
-    }
     op->setAttr(ThreadTypeAttr::name,
                 builder.getAttr<ThreadTypeAttr>(threadType));
     ArgSpecAttr::setArgSpec(op, builder.getAttr<ArgSpecAttr>(rtArgs, ctArgs));
@@ -760,6 +789,9 @@ public:
         ctArgSpecVector.push_back(
             rewriter.getAttr<ArgAttr>(ArgType::CBPort, arg.getArgNumber()));
       } else if (mlir::isa<SemaphoreType>(argType)) {
+        if (getThreadType(op) != ThreadType::Noc) {
+          continue;
+        }
         size_t ctArgIndex = ctArgSpecVector.size();
         auto semaphoreIndex = rewriter.create<GetCompileArgValOp>(
             op.getLoc(), rewriter.getI32Type(),
@@ -824,6 +856,10 @@ public:
              "ttir.semaphore_set to single remote core is illegal.");
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, op.getLoc(), chipDesc, op.getDstCoreIndex());
+      rewriter.create<ttkernel::DPrintOp>(
+          op.getLoc(), "get_noc_addr for semaphore (x={}, y={}, addr={})\\n",
+          virtX, virtY, semaphoreAddr);
+
       auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
           op.getLoc(), virtX, virtY, semaphoreAddr);
       rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreIncOp>(op, nocAddr,
@@ -840,9 +876,15 @@ public:
           op.getLoc(), op.getMcastShape()[0], op.getMcastShape()[1]);
       Value numDests = rewriter.create<arith::IndexCastOp>(
           op.getLoc(), rewriter.getI32Type(), numDestsIdx);
-      auto mcastAddr = rewriter.create<ttkernel::GetNocMulticastAddrOp>(
-          op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, semaphoreAddr,
-          nullptr);
+      rewriter.create<ttkernel::DPrintOp>(
+          op.getLoc(),
+          "get_noc_multicast_addr (virtX={}, virtY={}, mcastEndX={}, "
+          "mcastEndY={}, semaphoreAddr={})\\n",
+          virtX, virtY, mcastEndX, mcastEndY, semaphoreAddr);
+      auto mcastAddr =
+          rewriter.create<ttkernel::ExperimentalGetNocMulticastAddrOp>(
+              op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, semaphoreAddr,
+              nullptr);
 
       auto semaphorePtr =
           rewriter.create<ttkernel::CastToL1PtrOp>(op.getLoc(), semaphoreAddr);

@@ -149,6 +149,31 @@ inline std::shared_ptr<tt_metal::Buffer> createBufferFromBufferRef(
             logger::Buffer(bufferRef->global_id()), ": ", *bufferRef);
   uint32_t address = deviceAddressValidator(bufferRef->address(),
                                             bufferRef->desc()->memory_space());
+
+  std::cout << "Size: " << metalShardedBufferConfig.size << "\n";
+  std::cout << "Page size: " << metalShardedBufferConfig.page_size << "\n";
+  std::cout << "Buffer type: "
+            << static_cast<int>(metalShardedBufferConfig.buffer_type) << "\n";
+  std::cout << "Buffer layout: "
+            << static_cast<int>(metalShardedBufferConfig.buffer_layout) << "\n";
+  std::cout
+      << "tensor Shard shape: "
+      << metalShardedBufferConfig.shard_parameters.tensor_shard_spec.shape[0]
+      << ", "
+      << metalShardedBufferConfig.shard_parameters.tensor_shard_spec.shape[1]
+      << "\n";
+  std::cout << "Shard parameters page shape: "
+            << metalShardedBufferConfig.shard_parameters.page_shape[0] << ", "
+            << metalShardedBufferConfig.shard_parameters.page_shape[1] << "\n";
+  std::cout
+      << "Shard parameters tensor2d shape in pages: "
+      << metalShardedBufferConfig.shard_parameters.tensor2d_shape_in_pages[0]
+      << ", "
+      << metalShardedBufferConfig.shard_parameters.tensor2d_shape_in_pages[1]
+      << "\n";
+  std::cout << "Shard parameters grid: "
+            << metalShardedBufferConfig.shard_parameters.grid().str() << "\n";
+  std::cout << address << "\n";
   std::shared_ptr<tt_metal::Buffer> buffer =
       tt_metal::CreateBuffer(metalShardedBufferConfig, address);
 
