@@ -717,6 +717,12 @@ void memcpy_into_host_with_unsupported_data_type(
     tt::runtime::utils::handle32To64<int32_t, int64_t>(
         static_cast<const int32_t *>(srcPtr), static_cast<int64_t *>(dst),
         srcTensor.padded_volume());
+  } else if (unsupportedDataType == ::tt::target::UnsupportedDataType::UInt64) {
+    LOG_ASSERT(getTensorDataType(src) == ::tt::target::DataType::UInt32,
+               "Tensor data type must be UInt32");
+    tt::runtime::utils::handle32To64<uint32_t, uint64_t>(
+        static_cast<const uint32_t *>(srcPtr), static_cast<uint64_t *>(dst),
+        srcTensor.padded_volume());
   } else if (unsupportedDataType ==
              ::tt::target::UnsupportedDataType::Float64) {
     LOG_ASSERT(getTensorDataType(src) == ::tt::target::DataType::Float32,

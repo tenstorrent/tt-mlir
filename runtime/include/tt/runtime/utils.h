@@ -52,6 +52,8 @@ dataTypeElementSize(::tt::target::UnsupportedDataType dataType) {
     return 8;
   case ::tt::target::UnsupportedDataType::Int64:
     return 8;
+  case ::tt::target::UnsupportedDataType::UInt64:
+    return 8;
   case ::tt::target::UnsupportedDataType::Bool:
     return 1;
   }
@@ -98,6 +100,7 @@ inline void handle64To32(const dtype64 *old_buffer, dtype32 *new_buffer,
 
   for (int i = 0; i < num_elements; i++) {
 
+    // Electing to clamp integer max and min rather than to overflow in int32
     if (std::is_same_v<dtype32, int32_t> || std::is_same_v<dtype32, uint32_t>) {
       if (old_buffer[i] >
           static_cast<dtype64>(std::numeric_limits<dtype32>::max())) {
@@ -109,6 +112,7 @@ inline void handle64To32(const dtype64 *old_buffer, dtype32 *new_buffer,
         new_buffer[i] = static_cast<dtype32>(old_buffer[i]);
       }
     } else {
+      // Floating point cast will clamp between max and min
       new_buffer[i] = static_cast<dtype32>(old_buffer[i]);
     }
   }
