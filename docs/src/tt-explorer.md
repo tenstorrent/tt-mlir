@@ -7,6 +7,7 @@ Welcome to the tt-explorer wiki! The Wiki will serve as a source for documentati
 Visualizer tool for `ttmlir`-powered compiler results. Visualizes from emitted `.mlir` files to display compiled model, attributes, performance results, and provides a platform for human-driven overrides to _gameify_ model tuning.
 
 ## Quick Start
+
 TT-Explorer comes packaged as a tool in the `tt-mlir` repo. If you haven't done so yet, please refer to ["Setting up the environment manually"](./getting-started.md#setting-up-the-environment-manually) section from the Getting Started Guide to build the environment manually.
 
 Here is a summary of the steps needed:
@@ -14,17 +15,17 @@ Here is a summary of the steps needed:
 1. Clone `tt-mlir` and build the environment
 2. Run `source env/activate` to be in `tt-mlir` virtualenv for the following steps
 3. Ensure `tt-mlir` is built with atleast these flags:
-    - `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`
-    - `-DTTMLIR_ENABLE_RUNTIME=ON`
-    - `-DTT_RUNTIME_DEBUG=ON`
+   - `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`
+   - `-DTTMLIR_ENABLE_RUNTIME=ON`
+   - `-DTT_RUNTIME_DEBUG=ON`
 4. Build `explorer` target in `tt-mlir` using `cmake --build build -- explorer`
 5. Run `tt-explorer` in terminal to start tt-explorer instance. (Refer to CLI section in API for specifics)
-    - **Note**: `tt-explorer` requires [Pandas](https://pypi.org/project/pandas/) in addition to the `tt-mlir` [System Dependencies](https://docs.tenstorrent.com/tt-mlir/getting-started.html#system-dependencies).
+   - **Note**: `tt-explorer` requires [Pandas](https://pypi.org/project/pandas/) in addition to the `tt-mlir` [System Dependencies](https://docs.tenstorrent.com/tt-mlir/getting-started.html#system-dependencies).
 6. Ensure server has started in `tt-explorer` shell instance (check for message below)
-    ```sh
-    Starting Model Explorer server at:
-    http://localhost:8080
-    ```
+   ```sh
+   Starting Model Explorer server at:
+   http://localhost:8080
+   ```
 
 ## Building `tt-explorer`
 
@@ -33,27 +34,32 @@ To build `tt-explorer` you need first to clone and configure the environment for
 After building and activating the virtualenv, build `tt-mlir` and ensure the following flags are present, as they are needed for executing models in `tt-explorer` and without them it won't build.
 
 Flags required:
+
 - `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`
 - `-DTTMLIR_ENABLE_RUNTIME=ON`
 - `-DTT_RUNTIME_DEBUG=ON`
 
 Then build the `explorer` target by running the following command:
+
 ```sh
 cmake --build build -- explorer
 ```
 
 After it finishes building, start the `explorer` server by running the following command:
+
 ```sh
 tt-explorer
 ```
 
 The server should then start and show a message similar to this:
+
 ```sh
 Starting Model Explorer server at:
 http://localhost:8080
 ```
 
 ### Running TT-Explorer Tests Locally
+
 TT-Explorer relies on tests that are present in the `tests/` directory as well as tests dynamically created through `llvm-lit`. Below are the steps to replicate the testing procedure seen in CI:
 
 1. Make sure you're in the `tt-mlir` directory
@@ -62,11 +68,12 @@ TT-Explorer relies on tests that are present in the `tests/` directory as well a
 4. Save the system variable `export SYSTEM_DESC_PATH=$(pwd)/ttrt-artifacts/system_desc.ttsys`
 5. Run and generate ttnn + MLIR tests: `cmake --build build -- check-ttmlir`
 6. Save the relevant test directories:
-    - `export TT_EXPLORER_GENERATED_MLIR_TEST_DIRS=$(pwd)/build/test/python/golden/ttnn,$(pwd)/build/test/ttmlir/Silicon/TTNN/n150/perf`
-    - `export TT_EXPLORER_GENERATED_TTNN_TEST_DIRS=$(pwd)/build/test/python/golden/ttnn`
+   - `export TT_EXPLORER_GENERATED_MLIR_TEST_DIRS=$(pwd)/build/test/python/golden/ttnn,$(pwd)/build/test/ttmlir/Silicon/TTNN/n150/perf`
+   - `export TT_EXPLORER_GENERATED_TTNN_TEST_DIRS=$(pwd)/build/test/python/golden/ttnn`
 7. Run the pytest for `tt-explorer` with `pytest tools/explorer/test/run_tests.py`
 
 or in a concise shell script:
+
 ```sh
 # Ensure you are present in the tt-mlir directory
 source env/activate
@@ -99,9 +106,12 @@ The following components compose model explorer:
 
 ![Diagram for component architecture, transcript below](https://github.com/user-attachments/assets/f996af27-8b66-4579-a6d6-ded57cbe89d1)
 
-Transcript of the diagram:
+<details>
+<summary>Transcript of the diagram</summary>
+
 > Horizontal group labeled "Host side" at the top, with nodes from left to right connected to each other by arrows, and at the end connected to the next group.
 > The nodes are:
+>
 > - "AI Model", with an arrow labeled "Model binary file" to the next node.
 > - "TVM", with an arrow labeled "PyBUDA Graph" to the next node.
 > - "TT-Forge-FE", with an unlabeled arrow to the next node.
@@ -110,19 +120,23 @@ Transcript of the diagram:
 > Vertical group at the right side, unlabeled, with nodes from top down connected to each other by arrows, and with some arrows going to the next group.
 > The group intersects with the "Host side" group at the "TT-MLIR" node.
 > The nodes are:
+>
 > - "TT-Adapter", with an arrow labeled "Flatbuffer w/ Model Binary" to the next node, an arrow labeled "Overrides JSON (to apply)" to the previous node, and an arrow labeled "HTTPS API (Overrides, MLIR -> JSON, etc...)" to and from the "Model Explorer" node on the next group.
 > - "TTRT", with an arrow labeled "HTTPS Server Call" to the next node.
 > - "Tracy Results", with an arrow labeled "Performance Trace" to the "UI" node on the next group.
 >
 > Rectangular group labeled "Client Side", below "Host side" and left of unlabeled group, with interconected nodes by arrows, and with some arrows going to the previous group.
 > The nodes are:
+>
 > - "Model Explorer", with an arrow labeled "HTTPS API (Overrides, MLIR -> JSON, etc...)" to and from the "TT-Adapter" node on the previous group, and an arrow labeled "Overrides (legal configurations)" to and from the next node.
 > - "UI", with an arrow labeled "Performance Trace" coming from the "Tracy Results" node on the previous group, an arrow labeled "Overrides (legal configurations)" to and from the previous node, and an unlabeled arrow going to the next node.
 > - "Notebook", with an arrow labeled "Scripted Overrides" going to the "Model Explorer" node on this group.
 
+</details>
+
 #### [TT-Forge-FE (Front End)](https://github.com/tenstorrent/tt-forge-fe)
 
-TT-Forge FE is *currently* the primary frontend which uses TVM to transform conventional AI models into the MLIR in the TTIR Dialect.
+TT-Forge FE is _currently_ the primary frontend which uses TVM to transform conventional AI models into the MLIR in the TTIR Dialect.
 
 **Ingests**: AI Model defined in PyTorch, TF, etc…
 **Emits**: Rudimentary TTIR Module consisting of Ops from AI Model.
