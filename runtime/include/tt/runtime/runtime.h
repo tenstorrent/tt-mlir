@@ -68,6 +68,16 @@ Tensor createOwnedHostTensor(const void *data,
                              std::uint32_t itemsize,
                              ::tt::target::DataType dataType);
 
+// This function is identical to `createOwnedHostTensor` but it is used when the
+// data type provided by the host is not supported by runtime/ttnn. This
+// function will convert the data type to a supported one and create a tensor.
+// It will also log a warning to the user that the cast is taking place and will
+// likely have a negative performance impact (if this is a user input).
+Tensor createOwnedHostTensorFromUnsupportedDataType(
+    const void *data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::UnsupportedDataType unsupportedDataType);
+
 // TODO(mrakita): Should be deprecated but D2M path is using this, investigate
 // if it can also use the new `createBorrowedHostTensor` function.
 // https://github.com/tenstorrent/tt-mlir/issues/2757
@@ -182,6 +192,10 @@ Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
 void memcpy(void *dst, Tensor src);
 
 void memcpy(Tensor dst, Tensor src);
+
+void memcpy_into_host_with_unsupported_data_type(
+    void *dst, Tensor src,
+    ::tt::target::UnsupportedDataType unsupportedDataType);
 
 // Deallocates tensor, both device and host. Cannot deallocate host tensors with
 // borrowed storage.

@@ -219,6 +219,85 @@ Tensor createOwnedHostTensor(const void *data,
       });
 }
 
+Tensor createOwnedHostTensorFromUnsupportedDataType(
+    const void *data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::UnsupportedDataType unsupportedDataType) {
+
+  ::tt::target::DataType dataType =
+      utils::getUnsupportedDataTypeAlias(unsupportedDataType);
+
+  LOG_WARNING("User provided a tensor of data type: ",
+              ::tt::target::EnumNamesUnsupportedDataType()[static_cast<int>(
+                  unsupportedDataType)],
+              " which is not supported ", "by runtime/ttnn. Casting to: ",
+              ::tt::target::EnumNamesDataType()[static_cast<int>(dataType)],
+              ", this may impact throughput.");
+
+  uint64_t numElements = 1;
+  for (auto s : shape) {
+    numElements *= s;
+  }
+
+  std::unique_ptr<void, decltype(&std::free)> newData(
+      malloc(itemsize * numElements), &std::free);
+
+  if (unsupportedDataType == ::tt::target::UnsupportedDataType::Int64) {
+    LOG_ASSERT(itemsize == 8 &&
+               "Itemsize must be the size of the supported data type");
+    tt::runtime::utils::handleIntegerBufferCast<int64_t, int32_t>(
+        static_cast<int64_t *>(const_cast<void *>(data)),
+        static_cast<int32_t *>(const_cast<void *>(newData.get())), numElements);
+  } else if (unsupportedDataType == ::tt::target::UnsupportedDataType::UInt64) {
+    LOG_ASSERT(itemsize == 8 &&
+               "Itemsize must be the size of the supported data type");
+    tt::runtime::utils::handleIntegerBufferCast<uint64_t, uint32_t>(
+        static_cast<uint64_t *>(const_cast<void *>(data)),
+        static_cast<uint32_t *>(const_cast<void *>(newData.get())),
+        numElements);
+  } else if (unsupportedDataType == ::tt::target::UnsupportedDataType::Int16) {
+    LOG_ASSERT(itemsize == 2 &&
+               "Itemsize must be the size of the supported data type");
+    tt::runtime::utils::handleIntegerBufferCast<int16_t, int32_t>(
+        static_cast<int16_t *>(const_cast<void *>(data)),
+        static_cast<int32_t *>(const_cast<void *>(newData.get())), numElements);
+  } else if (unsupportedDataType == ::tt::target::UnsupportedDataType::Int8) {
+    LOG_ASSERT(itemsize == 1 &&
+               "Itemsize must be the size of the supported data type");
+    tt::runtime::utils::handleIntegerBufferCast<int8_t, int32_t>(
+        static_cast<int8_t *>(const_cast<void *>(data)),
+        static_cast<int32_t *>(const_cast<void *>(newData.get())), numElements);
+  } else if (unsupportedDataType ==
+             ::tt::target::UnsupportedDataType::Float64) {
+    LOG_ASSERT(itemsize == 8 &&
+               "Itemsize must be the size of the supported data type");
+    tt::runtime::utils::handleFloatingPointBufferCast<double, float>(
+        static_cast<double *>(const_cast<void *>(data)),
+        static_cast<float *>(newData.get()), numElements);
+  } else if (unsupportedDataType == ::tt::target::UnsupportedDataType::Bool) {
+    LOG_ASSERT(itemsize == 1 &&
+               "Itemsize must be the size of the supported data type");
+    tt::runtime::utils::handleBoolToBFloat16(
+        static_cast<bool *>(const_cast<void *>(data)),
+        static_cast<uint16_t *>(newData.get()), numElements);
+  }
+
+  using RetType = Tensor;
+  LOG_ASSERT(!shape.empty());
+  LOG_ASSERT(!stride.empty());
+  LOG_ASSERT(itemsize > 0);
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::createOwnedHostTensor(
+            newData.get(), shape, stride, itemsize, dataType);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::createOwnedHostTensor(
+            newData.get(), TensorDesc(shape, stride, itemsize, dataType));
+      });
+}
+
 // TODO(mrakita): Should be deprecated but D2M path is using this, investigate
 // if it can also use the new `createBorrowedHostTensor` function.
 // https://github.com/tenstorrent/tt-mlir/issues/2757
@@ -656,6 +735,18 @@ void memcpy(Tensor dst, Tensor src) {
   DISPATCH_TO_CURRENT_RUNTIME(
       RetType, [&]() { ::tt::runtime::ttnn::memcpy(dst, src); },
       [&]() { ::tt::runtime::ttmetal::memcpy(dst, src); });
+}
+
+void memcpy_into_host_with_unsupported_data_type(
+    void *dst, Tensor src,
+    ::tt::target::UnsupportedDataType unsupportedDataType) {
+#if defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)
+  ::tt::runtime::ttnn::memcpy_into_host_with_unsupported_data_type(
+      dst, src, unsupportedDataType);
+#else
+  LOG_FATAL("memcpy_into_host_with_unsupported_data_type is not implemented "
+            "for TTMetal runtime");
+#endif
 }
 
 void deallocateTensor(Tensor &tensor, bool force) {

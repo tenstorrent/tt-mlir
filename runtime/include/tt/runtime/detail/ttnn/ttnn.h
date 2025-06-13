@@ -186,6 +186,10 @@ void memcpy(void *dst, ::tt::runtime::Tensor src);
 
 void memcpy(::tt::runtime::Tensor dst, ::tt::runtime::Tensor src);
 
+void memcpy_into_host_with_unsupported_data_type(
+    void *dst, ::tt::runtime::Tensor src,
+    ::tt::target::UnsupportedDataType unsupportedDataType);
+
 void deallocateTensor(::tt::runtime::Tensor &tensor, bool force = false);
 
 std::string getOpDebugString(OpContext opContextHandle);

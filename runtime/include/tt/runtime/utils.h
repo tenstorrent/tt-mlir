@@ -45,6 +45,42 @@ inline std::uint32_t dataTypeElementSize(::tt::target::DataType dataType) {
   }
 }
 
+inline std::uint32_t
+dataTypeElementSize(::tt::target::UnsupportedDataType dataType) {
+  switch (dataType) {
+  case ::tt::target::UnsupportedDataType::Float64:
+    return 8;
+  case ::tt::target::UnsupportedDataType::Int64:
+    return 8;
+  case ::tt::target::UnsupportedDataType::UInt64:
+    return 8;
+  case ::tt::target::UnsupportedDataType::Int16:
+    return 2;
+  case ::tt::target::UnsupportedDataType::Int8:
+    return 1;
+  case ::tt::target::UnsupportedDataType::Bool:
+    return 1;
+  }
+}
+
+inline ::tt::target::DataType getUnsupportedDataTypeAlias(
+    ::tt::target::UnsupportedDataType unsupportedDataType) {
+  switch (unsupportedDataType) {
+  case ::tt::target::UnsupportedDataType::Int64:
+    return ::tt::target::DataType::Int32;
+  case ::tt::target::UnsupportedDataType::UInt64:
+    return ::tt::target::DataType::UInt32;
+  case ::tt::target::UnsupportedDataType::Int16:
+    return ::tt::target::DataType::UInt16;
+  case ::tt::target::UnsupportedDataType::Int8:
+    return ::tt::target::DataType::UInt8;
+  case ::tt::target::UnsupportedDataType::Float64:
+    return ::tt::target::DataType::Float32;
+  case ::tt::target::UnsupportedDataType::Bool:
+    return ::tt::target::DataType::BFloat16;
+  }
+}
+
 template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
 inline std::vector<uint32_t> calculateStride(const std::vector<T> &shape) {
   assert(!shape.empty());
@@ -63,6 +99,53 @@ struct overloaded : Ts... {
 template <typename T>
 T alignUp(T ptr, T alignment) {
   return (ptr + alignment - 1) & ~(alignment - 1);
+}
+
+template <typename FromTy, typename ToTy>
+inline void handleFloatingPointBufferCast(const FromTy *old_buffer,
+                                          ToTy *new_buffer,
+                                          int64_t num_elements) {
+  for (int i = 0; i < num_elements; i++) {
+    new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
+  }
+}
+
+template <typename FromTy, typename ToTy>
+inline void handleIntegerBufferCast(const FromTy *old_buffer, ToTy *new_buffer,
+                                    int64_t num_elements) {
+
+  for (int i = 0; i < num_elements; i++) {
+    // Electing to clamp integer max and min rather than to overflow in int32
+    if (old_buffer[i] > static_cast<FromTy>(std::numeric_limits<ToTy>::max())) {
+      new_buffer[i] = std::numeric_limits<ToTy>::max();
+    } else if (old_buffer[i] <
+               static_cast<FromTy>(std::numeric_limits<ToTy>::lowest())) {
+      new_buffer[i] = std::numeric_limits<ToTy>::lowest();
+    } else {
+      new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
+    }
+  }
+}
+
+inline void handleBFloat16ToBool(const uint16_t *old_buffer, bool *new_buffer,
+                                 int64_t num_elements) {
+  for (int i = 0; i < num_elements; i++) {
+    new_buffer[i] =
+        old_buffer[i] !=
+        0; // 0 in bfloat16 is also 00000000 00000000, just as in uint16_t
+  }
+}
+
+inline void handleBoolToBFloat16(const bool *old_buffer, uint16_t *new_buffer,
+                                 int64_t num_elements) {
+
+  assert(sizeof(bool) == 1 && "bool must be 1 byte");
+
+  for (int i = 0; i < num_elements; i++) {
+    new_buffer[i] = old_buffer[i]
+                        ? 0x3f80
+                        : 0; // 0x3f80 is the bfloat16 representation of 1.0
+  }
 }
 
 } // namespace tt::runtime::utils
