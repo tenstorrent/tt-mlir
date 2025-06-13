@@ -607,6 +607,42 @@ ToLayoutOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// ToMemoryConfigOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+ToMemoryConfigOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                   const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto outputShape = getResult().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();
+
+  return op_model::ttnn::ToMemoryConfigOpInterface::getOpConstraints(
+      deviceGrid, inputShape, inputs[0], getMemoryConfig(), outputShape,
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+ToMemoryConfigOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                               const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto outputShape = getResult().getType().getShape();
+
+  return op_model::ttnn::ToMemoryConfigOpInterface::getOpRuntime(
+      inputShape, inputs[0], getMemoryConfig(), outputShape,
+      opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // ConcatOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

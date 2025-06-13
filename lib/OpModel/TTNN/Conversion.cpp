@@ -94,6 +94,15 @@ getShardShape(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
   return shardShape;
 }
 
+const std::array<uint32_t, 2>
+getShardShape(const llvm::ArrayRef<int64_t> &shapeAttr) {
+  assert(shapeAttr.size() == 2 && "Shard shape must be 2D");
+  std::array<uint32_t, 2> shape;
+  shape[0] = shapeAttr[0];
+  shape[1] = shapeAttr[1];
+  return shape;
+}
+
 ::tt::tt_metal::Layout
 getPageLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
   return layout.isTiled() ? ::tt::tt_metal::Layout::TILE
@@ -109,6 +118,20 @@ getPageLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
   case ::mlir::tt::ttnn::Layout::Invalid:
     return ::tt::tt_metal::Layout::INVALID;
   }
+}
+
+::tt::tt_metal::CoreRangeSet
+getCoreRangeSet(const mlir::tt::ttnn::CoreRangeSetAttr &coreRangeSetAttr) {
+  std::set<::tt::tt_metal::CoreRange> coreRangeSet;
+  for (const mlir::tt::ttnn::CoreRangeAttr &coreRange :
+       coreRangeSetAttr.getCoreRanges()) {
+    coreRangeSet.insert(
+        ::tt::tt_metal::CoreRange(CoreCoord(coreRange.getStartCoord().getX(),
+                                            coreRange.getStartCoord().getY()),
+                                  CoreCoord(coreRange.getEndCoord().getX(),
+                                            coreRange.getEndCoord().getY())));
+  }
+  return ::tt::tt_metal::CoreRangeSet(coreRangeSet);
 }
 
 ::tt::tt_metal::CoreRangeSet
@@ -141,10 +164,40 @@ getShardSpec(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
                                    ::tt::tt_metal::ShardOrientation::ROW_MAJOR);
 }
 
-::tt::tt_metal::BufferType
-getBufferType(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
-  auto bufferType = layout.getBufferType();
+::tt::tt_metal::ShardOrientation getShardOrientation(
+    const mlir::tt::ttnn::ShardOrientationAttr &shardOrientationAttr) {
+  switch (shardOrientationAttr.getValue()) {
+  case mlir::tt::ttnn::ShardOrientation::RowMajor:
+    return ::tt::tt_metal::ShardOrientation::ROW_MAJOR;
+  case mlir::tt::ttnn::ShardOrientation::ColMajor:
+    return ::tt::tt_metal::ShardOrientation::COL_MAJOR;
+  }
+}
 
+::tt::tt_metal::ShardMode
+getShardMode(const mlir::tt::ttnn::ShardModeAttr &shardModeAttr) {
+  switch (shardModeAttr.getValue()) {
+  case mlir::tt::ttnn::ShardMode::Physical:
+    return ::tt::tt_metal::ShardMode::PHYSICAL;
+  case mlir::tt::ttnn::ShardMode::Logical:
+    return ::tt::tt_metal::ShardMode::LOGICAL;
+  }
+}
+
+::tt::tt_metal::ShardSpec
+getShardSpec(const mlir::tt::ttnn::ShardSpecAttr &shardSpecAttr) {
+  ::tt::tt_metal::CoreRangeSet coreRangeSet =
+      getCoreRangeSet(shardSpecAttr.getCoreRangeSet());
+  std::array<uint32_t, 2> shape =
+      getShardShape(shardSpecAttr.getShape().getShape());
+  ::tt::tt_metal::ShardOrientation orientation =
+      getShardOrientation(shardSpecAttr.getShardOrientation());
+  ::tt::tt_metal::ShardMode mode = getShardMode(shardSpecAttr.getShardMode());
+  return ::tt::tt_metal::ShardSpec(coreRangeSet, shape, orientation, mode);
+}
+
+::tt::tt_metal::BufferType
+getBufferType(const mlir::tt::ttnn::BufferType &bufferType) {
   switch (bufferType) {
   case mlir::tt::ttnn::BufferType::DRAM:
     return ::tt::tt_metal::BufferType::DRAM;
@@ -157,6 +210,12 @@ getBufferType(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
   case mlir::tt::ttnn::BufferType::Trace:
     return ::tt::tt_metal::BufferType::TRACE;
   }
+}
+
+::tt::tt_metal::BufferType
+getBufferType(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
+  auto bufferType = layout.getBufferType();
+  return getBufferType(bufferType);
 }
 
 mlir::tt::ttnn::BufferType
@@ -214,6 +273,33 @@ getMemoryConfig(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
   auto bufferType = getBufferType(layout);
 
   auto shardSpec = getShardSpec(layout);
+  return ::tt::tt_metal::MemoryConfig(tensorMemoryLayout, bufferType,
+                                      shardSpec);
+}
+
+::tt::tt_metal::MemoryConfig
+getMemoryConfig(const mlir::tt::ttnn::MemoryConfigAttr &memConfigAttr) {
+  // Get tensor memory layout if available, otherwise use INTERLEAVED as default
+  ::tt::tt_metal::TensorMemoryLayout tensorMemoryLayout =
+      ::tt::tt_metal::TensorMemoryLayout::INTERLEAVED;
+  if (memConfigAttr.getTensorMemoryLayout()) {
+    tensorMemoryLayout =
+        getTensorMemoryLayout(memConfigAttr.getTensorMemoryLayout());
+  }
+
+  // Convert buffer type enum
+  ::tt::tt_metal::BufferType bufferType =
+      ::tt::tt_metal::BufferType::DRAM; // Default to DRAM
+  if (memConfigAttr.getBufferType()) {
+    bufferType = getBufferType(memConfigAttr.getBufferType().getValue());
+  }
+
+  // Shard spec is not implemented for this version
+  std::optional<::tt::tt_metal::ShardSpec> shardSpec = std::nullopt;
+  if (memConfigAttr.getShardSpec()) {
+    shardSpec = getShardSpec(memConfigAttr.getShardSpec().value());
+  }
+
   return ::tt::tt_metal::MemoryConfig(tensorMemoryLayout, bufferType,
                                       shardSpec);
 }
