@@ -121,7 +121,7 @@ def test_log1p(shape: Shape, dtype: torch.dtype, request):
     def log1p(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
         randn_tensor = torch.randn(shape, dtype=dtype)
         abs_tensor = torch.abs(randn_tensor)
-        error_margin = torch.full(randn_tensor.shape, 1.01)
+        error_margin = torch.full(randn_tensor.shape, -0.99)
         input_golden = torch.add(abs_tensor, error_margin)
         output_golden = torch.log1p(input_golden)
         builder.set_graph_input_output([input_golden], [output_golden], override=True)
