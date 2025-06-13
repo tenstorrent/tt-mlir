@@ -162,17 +162,6 @@ public:
                      std::optional<ArrayRef<int64_t>> newGrid = {},
                      std::optional<Type> newElementType = {},
                      std::optional<ArrayRef<int64_t>> newTileShape = {}) const {
-    llvm::errs() << "=== createModifiedType ===\n";
-    llvm::errs() << "  baseType: " << baseType << "\n";
-    llvm::errs() << "  baseType.getRank(): " << baseType.getRank() << "\n";
-    if (newGrid.has_value()) {
-      llvm::errs() << "  newGrid provided: [";
-      llvm::interleaveComma(*newGrid, llvm::errs());
-      llvm::errs() << "]\n";
-    } else {
-      llvm::errs() << "  newGrid: not provided\n";
-    }
-
     // Use existing values if not overridden
     auto memSpace = newMemSpace.value_or(baseLayout.getMemorySpace());
     auto maybeBaseLayout =
@@ -190,11 +179,6 @@ public:
     } else {
       gridShape.assign(baseType.getRank(), 1);
     }
-
-    // Debug: Log derived gridShape
-    llvm::errs() << "  derived gridShape: [";
-    llvm::interleaveComma(gridShape, llvm::errs());
-    llvm::errs() << "]\n";
 
     auto elementType = newElementType.value_or(baseType.getElementType());
     auto tileShape = newTileShape.has_value()
