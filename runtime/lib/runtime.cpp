@@ -258,15 +258,16 @@ Tensor createOwnedHostTensorFromUnsupportedDataType(
   } else if (unsupportedDataType == ::tt::target::UnsupportedDataType::Int16) {
     LOG_ASSERT(itemsize == 2 &&
                "Itemsize must be the size of the supported data type");
-    tt::runtime::utils::handleIntegerBufferCast<int16_t, int32_t>(
+    tt::runtime::utils::handleIntegerBufferCast<int16_t, uint16_t>(
         static_cast<int16_t *>(const_cast<void *>(data)),
-        static_cast<int32_t *>(const_cast<void *>(newData.get())), numElements);
+        static_cast<uint16_t *>(const_cast<void *>(newData.get())),
+        numElements);
   } else if (unsupportedDataType == ::tt::target::UnsupportedDataType::Int8) {
     LOG_ASSERT(itemsize == 1 &&
                "Itemsize must be the size of the supported data type");
-    tt::runtime::utils::handleIntegerBufferCast<int8_t, int32_t>(
+    tt::runtime::utils::handleIntegerBufferCast<int8_t, uint8_t>(
         static_cast<int8_t *>(const_cast<void *>(data)),
-        static_cast<int32_t *>(const_cast<void *>(newData.get())), numElements);
+        static_cast<uint8_t *>(const_cast<void *>(newData.get())), numElements);
   } else if (unsupportedDataType ==
              ::tt::target::UnsupportedDataType::Float64) {
     LOG_ASSERT(itemsize == 8 &&

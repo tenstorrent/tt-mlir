@@ -729,12 +729,12 @@ void memcpy_into_host_with_unsupported_data_type(
         static_cast<const uint32_t *>(srcPtr), static_cast<uint64_t *>(dst),
         srcTensor.padded_volume());
   } else if (unsupportedDataType == ::tt::target::UnsupportedDataType::Int16) {
-    tt::runtime::utils::handleIntegerBufferCast<int32_t, int16_t>(
-        static_cast<const int32_t *>(srcPtr), static_cast<int16_t *>(dst),
+    tt::runtime::utils::handleIntegerBufferCast<uint16_t, int16_t>(
+        static_cast<const uint16_t *>(srcPtr), static_cast<int16_t *>(dst),
         srcTensor.padded_volume());
   } else if (unsupportedDataType == ::tt::target::UnsupportedDataType::Int8) {
-    tt::runtime::utils::handleIntegerBufferCast<int32_t, int8_t>(
-        static_cast<const int32_t *>(srcPtr), static_cast<int8_t *>(dst),
+    tt::runtime::utils::handleIntegerBufferCast<uint8_t, int8_t>(
+        static_cast<const uint8_t *>(srcPtr), static_cast<int8_t *>(dst),
         srcTensor.padded_volume());
   } else if (unsupportedDataType ==
              ::tt::target::UnsupportedDataType::Float64) {
