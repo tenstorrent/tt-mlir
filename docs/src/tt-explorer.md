@@ -7,19 +7,52 @@ Welcome to the tt-explorer wiki! The Wiki will serve as a source for documentati
 Visualizer tool for `ttmlir`-powered compiler results. Visualizes from emitted `.mlir` files to display compiled model, attributes, performance results, and provides a platform for human-driven overrides to _gameify_ model tuning.
 
 ## Quick Start
-TT-Explorer comes packaged as a tool in the `tt-mlir` repo.
+TT-Explorer comes packaged as a tool in the `tt-mlir` repo. If you haven't done so yet, please refer to ["Setting up the environment manually"](./getting-started.md#setting-up-the-environment-manually) section from the Getting Started Guide to build the environment manually.
 
-1. Run `source env/activate` to be in `tt-mlir` virtualenv for the following steps
-2. Ensure `tt-mlir` is built with atleast these flags:
-    - `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON -DTTMLIR_ENABLE_RUNTIME=ON -DTT_RUNTIME_DEBUG=ON`
-3. Build `explorer` target in `tt-mlir` using `cmake --build build -- explorer`
+Here is a summary of the steps needed:
+
+1. Clone `tt-mlir` and build the environment
+2. Run `source env/activate` to be in `tt-mlir` virtualenv for the following steps
+3. Ensure `tt-mlir` is built with atleast these flags:
+    - `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`
+    - `-DTTMLIR_ENABLE_RUNTIME=ON`
+    - `-DTT_RUNTIME_DEBUG=ON`
+4. Build `explorer` target in `tt-mlir` using `cmake --build build -- explorer`
 5. Run `tt-explorer` in terminal to start tt-explorer instance. (Refer to CLI section in API for specifics)
-    - Note that tt-explorer requires [Pandas](https://pypi.org/project/pandas/) in addition to the `tt-mlir` [System Dependencies](https://docs.tenstorrent.com/tt-mlir/getting-started.html#system-dependencies).
+    - **Note**: `tt-explorer` requires [Pandas](https://pypi.org/project/pandas/) in addition to the `tt-mlir` [System Dependencies](https://docs.tenstorrent.com/tt-mlir/getting-started.html#system-dependencies).
 6. Ensure server has started in `tt-explorer` shell instance (check for message below)
-    ```sh
-    Starting Model Explorer server at:
-    http://localhost:8080
-    ```
+
+```
+Starting Model Explorer server at:
+http://localhost:8080
+```
+
+## Building `tt-explorer`
+
+To build `tt-explorer` you need first to clone and configure the environment for `tt-mlir`. Please refer to the [Getting Started Guide](./getting-started.md).
+
+After building and activating the virtualenv, build `tt-mlir` and ensure the following flags are present, as they are needed for executing models in `tt-explorer` and without them it won't build.
+
+Flags required:
+- `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`
+- `-DTTMLIR_ENABLE_RUNTIME=ON`
+- `-DTT_RUNTIME_DEBUG=ON`
+
+Then build the `explorer` target by running the following command:
+```sh
+cmake --build build -- explorer
+```
+
+After it finishes building, start the `explorer` server by running the following command:
+```sh
+tt-explorer
+```
+
+The server should then start and show a message similar to this:
+```
+Starting Model Explorer server at:
+http://localhost:8080
+```
 
 ## Building `tt-explorer`
 
