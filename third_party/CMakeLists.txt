@@ -88,6 +88,9 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
   set(TTMETAL_BUILD_TYPE "Debug")
 endif()
 
+# Override build type to rel with deb info
+set(TTMETAL_BUILD_TYPE "RelWithDebInfo")
+
 set(METAL_BUILD_DIR ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
 set(METAL_INSTALL_PREFIX "${METAL_BUILD_DIR}")
 ExternalProject_Add(
