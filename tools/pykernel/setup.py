@@ -63,6 +63,11 @@ class CMakeBuild(build_ext):
             "-DCMAKE_C_COMPILER=clang",
             "-DCMAKE_CXX_COMPILER=clang++",
             "-DTTMLIR_ENABLE_PYKERNEL=ON",  # Enable PyKernel Build Here
+            "-DTTMLIR_ENABLE_RUNTIME_TESTS=OFF",
+            "-DTTMLIR_ENABLE_RUNTIME=OFF",
+            "-DTTMLIR_ENABLE_STABLEHLO=OFF",
+            "-DTTMLIR_ENABLE_OPMODEL=OFF",
+            "-DTTMLIR_ENABLE_EXPLORER=OFF",
         ]
 
         # Use LLD if in cibuildwheel
