@@ -32,6 +32,13 @@ enum DataType: uint16 {
   Int32,
 }
 
+enum UnsupportedDataType: uint16 {
+  None,
+  Float64,
+  Int64,
+  Bool
+}
+
 enum OOBVal: ushort {
   Undef,
   Zero,

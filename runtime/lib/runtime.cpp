@@ -219,6 +219,97 @@ Tensor createOwnedHostTensor(const void *data,
       });
 }
 
+template <typename dtype64, typename dtype32>
+void handleHost64To32(const dtype64 *old_buffer, dtype32 *new_buffer,
+                      int64_t num_elements) {
+
+  assert(sizeof(dtype64) == 8 && "dtype64 must be 8 bytes");
+  assert(sizeof(dtype32) == 4 && "dtype32 must be 4 bytes");
+
+  for (int i = 0; i < num_elements; i++) {
+
+    if (std::is_same_v<dtype32, int32_t> || std::is_same_v<dtype32, uint32_t>) {
+      if (old_buffer[i] >
+          static_cast<dtype64>(std::numeric_limits<dtype32>::max())) {
+        new_buffer[i] = std::numeric_limits<dtype32>::max();
+      } else if (old_buffer[i] <
+                 static_cast<dtype64>(std::numeric_limits<dtype32>::lowest())) {
+        new_buffer[i] = std::numeric_limits<dtype32>::lowest();
+      } else {
+        new_buffer[i] = static_cast<dtype32>(old_buffer[i]);
+      }
+    } else {
+      new_buffer[i] = static_cast<dtype32>(old_buffer[i]);
+    }
+  }
+}
+
+Tensor createOwnedHostTensorFromUnsupportedDataType(
+    const void *data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType,
+    ::tt::target::UnsupportedDataType unsupportedDataType) {
+
+  LOG_ASSERT((unsupportedDataType != ::tt::target::UnsupportedDataType::Int64 ||
+              dataType == ::tt::target::DataType::Int32) &&
+             "If the unsupported data type is Int64, the target data type must "
+             "be Int32");
+  LOG_ASSERT(
+      (unsupportedDataType != ::tt::target::UnsupportedDataType::Float64 ||
+       dataType == ::tt::target::DataType::Float32) &&
+      "If the unsupported data type is Float64, the target data type "
+      "must be Float32");
+  LOG_ASSERT(
+      (unsupportedDataType != ::tt::target::UnsupportedDataType::Bool ||
+       dataType == ::tt::target::DataType::BFloat16) &&
+      "If the unsupported data type is Bool, the target data type must be "
+      "BFloat16");
+
+  LOG_WARNING("User provided a tensor of data type: %s, which is not supported "
+              "by runtime/ttnn. Casting to: %s, this may impact throughput.",
+              ::tt::target::EnumNamesUnsupportedDataType()[static_cast<int>(
+                  unsupportedDataType)],
+              ::tt::target::EnumNamesDataType()[static_cast<int>(dataType)]);
+
+  uint64_t numElements = 1;
+  for (auto s : shape) {
+    numElements *= s;
+  }
+
+  std::unique_ptr<void, decltype(&std::free)> newData(
+      malloc(itemsize * numElements), &std::free);
+
+  if (unsupportedDataType == ::tt::target::UnsupportedDataType::Int64) {
+    LOG_ASSERT(itemsize == 8 &&
+               "Itemsize must be the size of the supported data type");
+    handleHost64To32<int64_t, int32_t>(
+        static_cast<int64_t *>(const_cast<void *>(data)),
+        static_cast<int32_t *>(const_cast<void *>(newData.get())), numElements);
+  } else if (unsupportedDataType ==
+             ::tt::target::UnsupportedDataType::Float64) {
+    LOG_ASSERT(itemsize == 8 &&
+               "Itemsize must be the size of the supported data type");
+    handleHost64To32<double, float>(
+        static_cast<double *>(const_cast<void *>(data)),
+        static_cast<float *>(newData.get()), numElements);
+  }
+
+  using RetType = Tensor;
+  LOG_ASSERT(!shape.empty());
+  LOG_ASSERT(!stride.empty());
+  LOG_ASSERT(itemsize > 0);
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::createOwnedHostTensor(
+            newData.get(), shape, stride, itemsize, dataType);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::createOwnedHostTensor(
+            newData.get(), TensorDesc(shape, stride, itemsize, dataType));
+      });
+}
+
 // TODO(mrakita): Should be deprecated but D2M path is using this, investigate
 // if it can also use the new `createBorrowedHostTensor` function.
 // https://github.com/tenstorrent/tt-mlir/issues/2757
