@@ -219,6 +219,23 @@ Tensor createOwnedHostTensor(const void *data,
       });
 }
 
+::tt::target::DataType getUnsupportedDataTypeAlias(
+    ::tt::target::UnsupportedDataType unsupportedDataType) {
+
+  switch (unsupportedDataType) {
+  case ::tt::target::UnsupportedDataType::Int64:
+    return ::tt::target::DataType::Int32;
+  case ::tt::target::UnsupportedDataType::Float64:
+    return ::tt::target::DataType::Float32;
+  case ::tt::target::UnsupportedDataType::Bool:
+    return ::tt::target::DataType::BFloat16;
+  default:
+    LOG_FATAL("Unsupported data type %s has no supported data type alias",
+              ::tt::target::EnumNamesUnsupportedDataType()[static_cast<int>(
+                  unsupportedDataType)]);
+  }
+}
+
 template <typename dtype64, typename dtype32>
 void handleHost64To32(const dtype64 *old_buffer, dtype32 *new_buffer,
                       int64_t num_elements) {
@@ -247,23 +264,10 @@ void handleHost64To32(const dtype64 *old_buffer, dtype32 *new_buffer,
 Tensor createOwnedHostTensorFromUnsupportedDataType(
     const void *data, const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
-    ::tt::target::DataType dataType,
     ::tt::target::UnsupportedDataType unsupportedDataType) {
 
-  LOG_ASSERT((unsupportedDataType != ::tt::target::UnsupportedDataType::Int64 ||
-              dataType == ::tt::target::DataType::Int32) &&
-             "If the unsupported data type is Int64, the target data type must "
-             "be Int32");
-  LOG_ASSERT(
-      (unsupportedDataType != ::tt::target::UnsupportedDataType::Float64 ||
-       dataType == ::tt::target::DataType::Float32) &&
-      "If the unsupported data type is Float64, the target data type "
-      "must be Float32");
-  LOG_ASSERT(
-      (unsupportedDataType != ::tt::target::UnsupportedDataType::Bool ||
-       dataType == ::tt::target::DataType::BFloat16) &&
-      "If the unsupported data type is Bool, the target data type must be "
-      "BFloat16");
+  ::tt::target::DataType dataType =
+      getUnsupportedDataTypeAlias(unsupportedDataType);
 
   LOG_WARNING("User provided a tensor of data type: %s, which is not supported "
               "by runtime/ttnn. Casting to: %s, this may impact throughput.",

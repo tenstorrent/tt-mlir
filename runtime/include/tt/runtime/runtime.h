@@ -76,7 +76,6 @@ Tensor createOwnedHostTensor(const void *data,
 Tensor createOwnedHostTensorFromUnsupportedDataType(
     const void *data, const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
-    ::tt::target::DataType dataType,
     ::tt::target::UnsupportedDataType unsupportedDataType);
 
 // TODO(mrakita): Should be deprecated but D2M path is using this, investigate
@@ -119,20 +118,15 @@ inline Tensor createOwnedHostTensor(const void *data, const TensorDesc &desc) {
                                               desc.itemsize, desc.dataType);
 }
 
-inline Tensor createOwnedHostTensorFromUnsupportedDataType(
-    const void *data, const TensorDesc &desc,
-    ::tt::target::UnsupportedDataType unsupportedDataType) {
-  return ::tt::runtime::createOwnedHostTensorFromUnsupportedDataType(
-      data, desc.shape, desc.stride, desc.itemsize, desc.dataType,
-      unsupportedDataType);
-}
-
 inline Tensor createMultiDeviceHostTensor(
     const std::vector<const void *> &data, const TensorDesc &desc,
     const std::unordered_map<std::string, std::string> &strategy) {
   return ::tt::runtime::createMultiDeviceHostTensor(
       data, desc.shape, desc.stride, desc.itemsize, desc.dataType, strategy);
 }
+
+target::DataType
+getUnsupportedDataTypeAlias(target::UnsupportedDataType unsupportedDataType);
 
 inline Tensor createEmptyTensor(Device device, Layout layout,
                                 const TensorDesc &desc) {
