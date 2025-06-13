@@ -488,6 +488,46 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, SliceOpInterface) {
+  // create SliceOp
+  llvm::SmallVector<int64_t> tensorShapeA = {1, 56, 56, 96};
+  llvm::SmallVector<int64_t> tensorShapeO = {1, 28, 56, 95};
+
+  auto input = createEmptyTensor(tensorShapeA);
+  auto output = createEmptyTensor(tensorShapeO);
+
+  llvm::SmallVector<int64_t> beginsArray = {0, 0, 0, 0};
+  llvm::SmallVector<int64_t> endsArray = {1, 56, 56, 95};
+  llvm::SmallVector<int64_t> stepArray = {1, 2, 1, 1};
+
+  auto sliceOp = builder.create<SliceOp>(
+      builder.getUnknownLoc(), output.getType(), ::mlir::ValueRange{input});
+
+  sliceOp.setBeginsAttr(builder.getI64ArrayAttr(beginsArray));
+  sliceOp.setEndsAttr(builder.getI64ArrayAttr(endsArray));
+  sliceOp.setStepAttr(builder.getI64ArrayAttr(stepArray));
+
+  // test SliceOp interface
+  auto constraintsExp = getOpConstraints(sliceOp.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_GT(cbSize, 0);
+    EXPECT_GT(peakSize, 0);
+    EXPECT_GT(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(sliceOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, toLayoutOp) {
   llvm::SmallVector<int64_t> tensorShape = {64, 1024};
   RankedTensorType rankedTensorType = createRankedTensorType(tensorShape);

@@ -149,4 +149,39 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
   let description = "This pass tries to fuse operations together with goal to reduce the number of operations in the graph.";
 }
 
+def TTNNTraceHoistTransform : Pass<"ttnn-trace-hoist-transform", "::mlir::ModuleOp"> {
+  let summary = "TTNN Trace hoist transform";
+  let description = [{
+    Transform pass which runs an analysis pass to find traceable subgraphs and hoist them into separate trace functions.
+    The ops within the trace functions are then captured and replayed during runtime using the metal trace infra.
+    This is a performance optimization feature that enables batches of ops to be replayed with a single command instead
+    of dispatching commands for each op individually. One hard requirement is that all ops within a trace must be device
+    operations and cannot have any host involvements.
+
+    Example:
+
+    ```mlir
+    %0 = ttir.empty() : tensor<32x32xbf16>
+    %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    return %1 : tensor<32x32xbf16>
+    ```
+
+    will generate the following trace function (arbitrarily naming it as `single_add_trace_0`) that will get captured and replayed at runtime:
+
+    ```mlir
+    func.func @single_add_trace_0(%arg0: tensor<32x32xbf16, #ttnn_layout>, %arg1: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout> attributes {ttnn.trace} {
+      %0 = "ttnn.add"(%arg0, %arg1) : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
+      return %0 : tensor<32x32xbf16, #ttnn_layout>
+    }
+    ```
+
+    and a ttnn.trace operation will get inserted in the original mlir to signal this:
+
+    ```mlir
+    %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
+    %1 = ttnn.trace(%0, 0, true, @single_add_trace_0, [%arg0, %arg1]) : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
+    ```
+  }];
+}
+
 #endif

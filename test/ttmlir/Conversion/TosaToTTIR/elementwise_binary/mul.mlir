@@ -1,6 +1,4 @@
 // RUN: ttmlir-opt --convert-tosa-to-ttir %s | FileCheck %s
-// Support TOSA shifted multiply #3501
-// UNSUPPORTED: true
 module attributes {} {
   func.func @test_mul(%arg0: tensor<13x21x3xf32>, %arg1: tensor<13x21x3xf32>) -> tensor<13x21x3xf32> {
     %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>

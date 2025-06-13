@@ -243,6 +243,10 @@ struct TTIRToTTNNBackendPipelineOptions
       llvm::cl::desc("Enable const-eval optimization pass."),
       llvm::cl::init(true)};
 
+  Option<bool> enableTrace{*this, "enable-trace",
+                           llvm::cl::desc("Enable trace optimization pass."),
+                           llvm::cl::init(false)};
+
   // Option to specify the target bit width for quantized data types.
   Option<uint32_t> quantBitWidth{
       *this, "target-bit-width",

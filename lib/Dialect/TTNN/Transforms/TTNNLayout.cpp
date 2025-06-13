@@ -495,32 +495,27 @@ private:
     if (funcOp.isDeclaration()) {
       return false;
     }
-    SmallVector<mlir::func::ReturnOp> returnOps;
-    funcOp.walk(
-        [&](mlir::func::ReturnOp returnOp) { returnOps.push_back(returnOp); });
-
-    bool forceSysMem = false;
-    for (auto returnOp : returnOps) {
-      forceSysMem |= shouldForceOutputSystemMemory(returnOp);
-    }
-    if (!forceSysMem) {
-      return false;
-    }
 
     bool modified = false;
     SmallVector<Type> inputTypes(funcOp.getArgumentTypes());
     SmallVector<Type> outputTypes;
-    for (auto type : funcOp.getResultTypes()) {
-      if (!mlir::isa<RankedTensorType>(type)) {
-        outputTypes.push_back(type);
-        continue;
+    funcOp.walk([&](mlir::func::ReturnOp returnOp) {
+      for (auto [type, operand] :
+           llvm::zip_equal(funcOp.getResultTypes(), returnOp->getOperands())) {
+        if (!mlir::isa<RankedTensorType>(type) ||
+            !shouldMeshShardOpForceSystemMemory(operand.getDefiningOp())) {
+          outputTypes.push_back(type);
+          continue;
+        }
+        RankedTensorType tensorType = mlir::cast<RankedTensorType>(type);
+        RankedTensorType newType =
+            toSystemMemoryType(funcOp.getContext(), tensorType);
+        outputTypes.push_back(newType);
+        modified |= (tensorType != newType);
       }
-      RankedTensorType tensorType = mlir::cast<RankedTensorType>(type);
-      RankedTensorType newType =
-          toSystemMemoryType(funcOp.getContext(), tensorType);
-      outputTypes.push_back(newType);
-      modified |= (tensorType != newType);
-    }
+      return mlir::WalkResult::interrupt();
+    });
+
     if (modified) {
       FunctionType newFuncType =
           rewriter.getFunctionType(inputTypes, outputTypes);
@@ -559,18 +554,6 @@ private:
       return true;
     }
 
-    return false;
-  }
-
-  bool shouldForceOutputSystemMemory(mlir::func::ReturnOp returnOp) const {
-    for (Value operand : returnOp.getOperands()) {
-      if (!mlir::isa<RankedTensorType>(operand.getType())) {
-        continue;
-      }
-      if (shouldMeshShardOpForceSystemMemory(operand.getDefiningOp())) {
-        return true;
-      }
-    }
     return false;
   }
 };

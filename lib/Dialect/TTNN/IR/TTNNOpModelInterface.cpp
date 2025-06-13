@@ -28,19 +28,21 @@ llvm::Expected<bool> checkDeviceWorkerGrid(mlir::Operation *op) {
       deviceAttr.getWorkerGrid());
 }
 
+llvm::SmallVector<int64_t>
+convertArrayAttrToSmallVec(mlir::ArrayAttr arrayAttr) {
+  llvm::SmallVector<int64_t> result;
+  for (const mlir::Attribute &attr : arrayAttr) {
+    result.push_back(mlir::cast<mlir::IntegerAttr>(attr).getInt());
+  }
+  return result;
+}
+
 std::optional<llvm::SmallVector<int64_t>>
-convertReductionArg(std::optional<mlir::ArrayAttr> arrayOpt) {
-  if (!arrayOpt.has_value()) {
+convertOptionalArrayAttrToSmallVec(std::optional<mlir::ArrayAttr> arrayAttr) {
+  if (!arrayAttr.has_value()) {
     return std::nullopt;
   }
-
-  llvm::SmallVector<int64_t> reduceDims;
-
-  for (const mlir::Attribute &reduceDim : *arrayOpt) {
-    reduceDims.push_back(mlir::cast<mlir::IntegerAttr>(reduceDim).getInt());
-  }
-
-  return reduceDims;
+  return convertArrayAttrToSmallVec(arrayAttr.value());
 }
 
 } // namespace detail
@@ -279,7 +281,7 @@ MeanOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return op_model::ttnn::MeanOpInterface::getOpConstraints(
       deviceGrid, inputShape, inputs[0],
-      detail::convertReductionArg(getDimArg()), getKeepDim(),
+      detail::convertOptionalArrayAttrToSmallVec(getDimArg()), getKeepDim(),
       opConfig.outputLayout);
 }
 
@@ -291,8 +293,9 @@ MeanOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   const auto inputShape = getInput().getType().getShape();
 
   return op_model::ttnn::MeanOpInterface::getOpRuntime(
-      inputShape, inputs[0], detail::convertReductionArg(getDimArg()),
-      getKeepDim(), opConfig.outputLayout);
+      inputShape, inputs[0],
+      detail::convertOptionalArrayAttrToSmallVec(getDimArg()), getKeepDim(),
+      opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -328,6 +331,48 @@ ReshapeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return op_model::ttnn::ReshapeOpInterface::getOpRuntime(
       inputShape, inputs[0], outputShape, opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
+// SliceOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+SliceOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  const auto outputShape = getResult().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();
+
+  return op_model::ttnn::SliceOpInterface::getOpConstraints(
+      deviceGrid, inputShape, inputs[0],
+      detail::convertArrayAttrToSmallVec(getBegins()),
+      detail::convertArrayAttrToSmallVec(getEnds()),
+      detail::convertArrayAttrToSmallVec(getStep()), outputShape,
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+SliceOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                      const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto outputShape = getResult().getType().getShape();
+
+  return op_model::ttnn::SliceOpInterface::getOpRuntime(
+      inputShape, inputs[0], detail::convertArrayAttrToSmallVec(getBegins()),
+      detail::convertArrayAttrToSmallVec(getEnds()),
+      detail::convertArrayAttrToSmallVec(getStep()), outputShape,
+      opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

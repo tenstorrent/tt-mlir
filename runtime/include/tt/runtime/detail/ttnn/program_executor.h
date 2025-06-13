@@ -25,10 +25,11 @@ class ProgramContext; // Forward declaration
 class ProgramExecutor {
 public:
   // Constructor for executing a program
-  ProgramExecutor(const Binary &executableHandle,
+  ProgramExecutor(::tt::runtime::Device deviceHandle,
+                  ::tt::runtime::Binary &executableHandle,
+                  const size_t programIndex,
                   std::vector<::tt::runtime::Tensor> &programInputs,
-                  std::shared_ptr<::ttnn::MeshDevice> meshDevice,
-                  const size_t programIndex = 0, bool constEvalProgram = false);
+                  bool constEvalProgram = false);
 
   /**
    * Executes pre and post operation callbacks if registered
