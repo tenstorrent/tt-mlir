@@ -62,7 +62,7 @@ module @mod_slice attributes {} {
   func.func @test_slice_strided_f32(%arg0: tensor<1x128x128x192xf32>) -> tensor<1x64x128x192xf32> {
     // CHECK-LABEL: @test_slice_strided_f32(
     // CHECK: ttnn.typecast
-    // CHECK-SAME: dtype = #tt.supportedDataTypes<bf16>
+    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
     // CHECK-SAME: tensor<1x128x128x192xf32
     // CHECK-SAME:-> tensor<1x128x128x192xbf16
     // CHECK: ttnn.slice
@@ -73,7 +73,7 @@ module @mod_slice attributes {} {
     // CHECK-SAME: -> tensor<1x64x128x192xbf16
     %0 = stablehlo.slice %arg0 [0:1, 0:128:2, 0:128, 0:192] : (tensor<1x128x128x192xf32>) -> tensor<1x64x128x192xf32>
     // CHECK: ttnn.typecast
-    // CHECK-SAME: dtype = #tt.supportedDataTypes<f32>
+    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<f32>
     // CHECK-SAME: tensor<1x64x128x192xbf16
     // CHECK-SAME: -> tensor<1x64x128x192xf32
     return %0 : tensor<1x64x128x192xf32>

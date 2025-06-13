@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
-#include "ttmlir/Dialect/TT/IR/TTOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
 #include "mlir/Conversion/LLVMCommon/Pattern.h"

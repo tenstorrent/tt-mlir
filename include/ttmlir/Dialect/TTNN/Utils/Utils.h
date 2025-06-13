@@ -7,7 +7,7 @@
 
 #include "mlir/IR/Value.h"
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/IR/BuiltinTypes.h"

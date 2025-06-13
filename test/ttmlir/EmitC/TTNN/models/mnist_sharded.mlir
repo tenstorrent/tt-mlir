@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --tt-register-device="system-desc-path=%system_desc_path%" %s -o %t.mlir
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" %s -o %t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %basename_t.ttnn
 // RUN: ttmlir-opt --ttnn-tuplify-tensors --convert-ttnn-to-emitc %t.mlir > %t2.mlir
 // RUN: ttmlir-translate --mlir-to-cpp %t2.mlir > %basename_t.cpp
@@ -8,13 +8,13 @@
 
 #dram = #ttnn.buffer_type<dram>
 #l1 = #ttnn.buffer_type<l1>
-#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x25x!tt.tile<32x32, f32>, #dram>, <interleaved>>
-#ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!tt.tile<32x32, f32>, #dram>, <interleaved>>
-#ttnn_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<8x1x!tt.tile<32x32, f32>, #dram>, <interleaved>>
-#ttnn_layout3 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x8x!tt.tile<32x32, f32>, #dram>, <interleaved>>
-#ttnn_layout4 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<25x8x!tt.tile<32x32, f32>, #dram>, <interleaved>>
-#ttnn_layout5 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8, (d0, d1) -> (0, d0, d1)>, memref<1x1x!tt.tile<32x32, f32>, #dram>, <interleaved>>
-#ttnn_layout6 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x8, (d0, d1) -> (0, d0, d1)>, memref<1x1x!tt.tile<32x32, f32>, #l1>, <block_sharded>>
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x25x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#ttnn_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<8x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#ttnn_layout3 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x8x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#ttnn_layout4 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<25x8x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#ttnn_layout5 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8, (d0, d1) -> (0, d0, d1)>, memref<1x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#ttnn_layout6 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x8, (d0, d1) -> (0, d0, d1)>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>>
 
 func.func @mnist_fwd(%arg0: tensor<1x784xf32, #ttnn_layout>, %arg1: tensor<1x10xf32, #ttnn_layout1>, %arg2: tensor<256x10xf32, #ttnn_layout2>, %arg3: tensor<1x256xf32, #ttnn_layout3>, %arg4: tensor<784x256xf32, #ttnn_layout4>) -> tensor<1x10xf32, #ttnn_layout5> {
   %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device

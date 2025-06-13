@@ -6,7 +6,7 @@
 #define TTMLIR_TTMLIR_DIALECT_TTIR_TTIROPSINTERFACES_TD
 
 include "mlir/IR/OpBase.td"
-include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
+include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.td"
 
 def TTIROpInterface : OpInterface<"TTIROp"> {
   let cppNamespace = "::mlir::tt::ttir";

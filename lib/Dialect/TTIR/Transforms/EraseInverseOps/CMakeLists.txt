@@ -9,5 +9,5 @@ add_mlir_dialect_library(MLIRTTIREraseInverseOps
         DEPENDS
         MLIRTTIROpsIncGen
         MLIRTTIRPassesIncGen
-        MLIRTTOpsIncGen
+        MLIRTTCoreOpsIncGen
 )

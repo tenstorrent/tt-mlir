@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --tt-register-device --ttir-fusing --mlir-print-local-scope --ttnn-layout %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-fusing --mlir-print-local-scope --ttnn-layout %s | FileCheck %s
 
 module {
   // CHECK: func.func @tagging

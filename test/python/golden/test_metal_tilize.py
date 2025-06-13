@@ -8,7 +8,7 @@ from typing import Callable, List
 
 from ttir_builder.utils import compile_to_flatbuffer, Marks, shape_str
 from ttir_builder import Operand, TTIRBuilder, UnitAttr, Shape, TypeInfo
-from ttmlir.dialects import ttir, tt
+from ttmlir.dialects import ttir, ttcore
 from ttmlir.ir import *
 
 

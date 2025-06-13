@@ -5,7 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_SHARDSOLVER_H
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_SHARDSOLVER_H
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemReconfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"

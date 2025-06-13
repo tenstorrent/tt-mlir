@@ -76,9 +76,9 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /test/ttmlir/Dialect/LLVM/ @vwellsTT @mtopalovicTT
 
 # TT Dialect
-/include/ttmlir/Dialect/TT/ @tenstorrent/forge-developers-mlir-core @nsmithtt @mrakitaTT
-/lib/Dialect/TT/ @tenstorrent/forge-developers-mlir-core @nsmithtt @mrakitaTT
-/test/ttmlir/Dialect/TT/ @tenstorrent/forge-developers-mlir-core @nsmithtt @mrakitaTT
+/include/ttmlir/Dialect/TTCore/ @tenstorrent/forge-developers-mlir-core @nsmithtt @mrakitaTT
+/lib/Dialect/TTCore/ @tenstorrent/forge-developers-mlir-core @nsmithtt @mrakitaTT
+/test/ttmlir/Dialect/TTCore/ @tenstorrent/forge-developers-mlir-core @nsmithtt @mrakitaTT
 
 # TTIR Dialect
 /include/ttmlir/Dialect/TTIR/ @tenstorrent/forge-developers-mlir-core @mrakitaTT

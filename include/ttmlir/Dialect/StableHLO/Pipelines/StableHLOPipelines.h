@@ -7,7 +7,7 @@
 
 #include "mlir/Pass/PassOptions.h"
 #include "ttmlir/Dialect/StableHLO/Utils/PassOverrides.h"
-#include "ttmlir/Dialect/TT/Utils/PopulateArgumentTypes.h"
+#include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
 #include "shardy/dialect/sdy/transforms/export/passes.h"

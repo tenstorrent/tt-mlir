@@ -16,7 +16,7 @@
 #include "llvm/Support/Casting.h"
 
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
-#include "ttmlir/Dialect/TT/IR/TTOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 
 namespace mlir::tt::llvm_util {
 #define GEN_PASS_DEF_LLVMEMITCALLINGCONVENTIONWRAPPERFUNCS

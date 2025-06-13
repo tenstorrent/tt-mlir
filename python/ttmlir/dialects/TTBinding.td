@@ -5,6 +5,6 @@
 #ifndef PYTHON_BINDINGS_TTMLIR_TTOPS
 #define PYTHON_BINDINGS_TTMLIR_TTOPS
 
-include "ttmlir/Dialect/TT/IR/TTOps.td"
+include "ttmlir/Dialect/TTCore/IR/TTCoreOps.td"
 
 #endif

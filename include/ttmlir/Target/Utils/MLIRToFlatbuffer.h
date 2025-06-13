@@ -5,8 +5,8 @@
 #ifndef TTMLIR_TARGET_UTILS_MLIRTOFLATBUFFER_H
 #define TTMLIR_TARGET_UTILS_MLIRTOFLATBUFFER_H
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TT/Utils/CoreRangeSet.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/TTNN/Target.h"

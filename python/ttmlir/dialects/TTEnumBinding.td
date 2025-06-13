@@ -5,6 +5,6 @@
 #ifndef PYTHON_BINDINGS_TTMLIR_TTENUMS
 #define PYTHON_BINDINGS_TTMLIR_TTENUMS
 
-include "ttmlir/Dialect/TT/IR/TTOpsEnums.td"
+include "ttmlir/Dialect/TTCore/IR/TTCoreOpsEnums.td"
 
 #endif

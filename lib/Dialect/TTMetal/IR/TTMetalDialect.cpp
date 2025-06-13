@@ -4,7 +4,7 @@
 
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
 
