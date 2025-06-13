@@ -106,7 +106,7 @@ TT-MLIR currently defines the out-of-tree MLIR compiler created by Tenstorrent t
 **Ingests**: TTIR Module, Overrides JSON
 **Emits:** Python Bindings to interface with TTIR Module, Overridden TTIR Modules, Flatbuffers
 
-#### [TT-Adapter](https://github.com/vprajapati-tt/tt-adapter)
+#### [TT-Adapter](https://github.com/tenstorrent/tt-mlir/tree/main/tools/explorer/tt_adapter)
 
 TT-Adapter is the adapter created for TT-Explorer that parses TTIR Modules using the Python Bindings provided by TT-MLIR to create a graph legible by model-explorer. It also has an extensible REST endpoint that is leveraged to implement functionality, this endpoint acts as the main bridge between the Client and Host side processes.
 
