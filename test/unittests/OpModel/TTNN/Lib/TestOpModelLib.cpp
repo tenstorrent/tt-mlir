@@ -750,7 +750,7 @@ const std::initializer_list<
                 mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
                 mlir::tt::ttnn::BufferType::L1,
                 llvm::SmallVector<int64_t>{8, 1}},
-            detail::ExpectedResult{true, 32768, 262144, 262144}),
+            detail::ExpectedResult{true, 4096, 262144, 262144}),
         std::make_tuple(
             detail::TestTensor{
                 {16 * OpModelFixture::workerCoresN300 * 32, 32},
@@ -763,7 +763,7 @@ const std::initializer_list<
             detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
                                mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
                                mlir::tt::ttnn::BufferType::DRAM},
-            detail::ExpectedResult{true, 65536, 0, 0}),
+            detail::ExpectedResult{true, 8192, 0, 0}),
         std::make_tuple(
             detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
                                mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
@@ -776,7 +776,7 @@ const std::initializer_list<
                 mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
                 mlir::tt::ttnn::BufferType::L1,
                 llvm::SmallVector<int64_t>{8, 1}},
-            detail::ExpectedResult{true, 65536, 262144, 262144})};
+            detail::ExpectedResult{true, 8192, 262144, 262144})};
 
 ::testing::internal::ParamGenerator<
     std::tuple<BinaryEltwiseOpType, detail::TestTensor, detail::TestTensor,

@@ -570,24 +570,63 @@ public:
 } // namespace
 // ANCHOR_END: adding_an_op_matmul_op_rewriter_emitc
 
-// Generic 2d pooling op conversion pattern. Coverts maxpool_2d and avgpool_2d.
+// AvgPool2d op conversion pattern
 //
 namespace {
-template <typename Pooling2dOp>
-class Pooling2dOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<Pooling2dOp> {
+class AvgPool2dOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::AvgPool2dOp> {
 
 public:
   using TTNNToEmitCBaseOpConversionPattern<
-      Pooling2dOp>::TTNNToEmitCBaseOpConversionPattern;
-  using Adaptor = typename Pooling2dOp::Adaptor;
+      tt::ttnn::AvgPool2dOp>::TTNNToEmitCBaseOpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(Pooling2dOp srcOp, Adaptor adaptor,
+  matchAndRewrite(tt::ttnn::AvgPool2dOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitc::EmitCTTNNEmitter<Pooling2dOp> emitter(srcOp, adaptor,
-                                                         rewriter);
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::AvgPool2dOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getBatchSize()),
+        emitter.emit(srcOp.getInputHeight()),
+        emitter.emit(srcOp.getInputWidth()),
+        emitter.emit(srcOp.getChannels()),
+        emitter.template emit<std::array<uint32_t, 2>>(
+            srcOp.getKernelSizeAttr()),
+        emitter.template emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
+        emitter.template emit<std::array<uint32_t, 2>>(srcOp.getPaddingAttr()),
+        emitter.emit(srcOp.getCeilMode()),
+        emitter.emit(/*divisor_override=*/std::nullopt),
+        emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getAppliedShardScheme()),
+        emitter.emit(srcOp.getInPlaceHalo()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// MaxPool2d op conversion pattern
+//
+namespace {
+class MaxPool2dOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::MaxPool2dOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::ttnn::MaxPool2dOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::MaxPool2dOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::MaxPool2dOp> emitter(
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -600,9 +639,9 @@ public:
         emitter.template emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
         emitter.template emit<std::array<uint32_t, 2>>(srcOp.getPaddingAttr()),
         emitter.template emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
+        emitter.emit(srcOp.getCeilMode()),
         emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getAppliedShardScheme()),
-        emitter.emit(srcOp.getCeilMode()),
         emitter.emit(srcOp.getInPlaceHalo()),
     };
 
@@ -2197,9 +2236,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Pooling ops
   //
-  patterns.add<Pooling2dOpConversionPattern<tt::ttnn::AvgPool2dOp>,
-               Pooling2dOpConversionPattern<tt::ttnn::MaxPool2dOp>>(
-      typeConverter, ctx);
+  patterns.add<AvgPool2dOpConversionPattern>(typeConverter, ctx);
+  patterns.add<MaxPool2dOpConversionPattern>(typeConverter, ctx);
   patterns.add<UpsampleOpConversionPattern>(typeConverter, ctx);
 
   // Convolution ops

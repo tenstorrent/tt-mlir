@@ -1498,8 +1498,8 @@ llvm::Expected<OpConstraints> MaxPool2DOpInterface::getOpConstraints(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
-        detail::getNullableMemoryConfig(outputLayout),
-        std::nullopt /* applied_shard_scheme */, ceilMode);
+        ceilMode, detail::getNullableMemoryConfig(outputLayout),
+        std::nullopt /* applied_shard_scheme */);
   };
 
   return operation::getOpConstraints("MaxPool2DOpInterface",
@@ -1546,8 +1546,8 @@ llvm::Expected<size_t> MaxPool2DOpInterface::getOpRuntime(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
-        detail::getNullableMemoryConfig(outputLayout),
-        std::nullopt /* applied_shard_scheme */, ceilMode);
+        ceilMode, detail::getNullableMemoryConfig(outputLayout),
+        std::nullopt /* applied_shard_scheme */);
   };
 
   return operation::getOpRuntime("MaxPool2DOpInterface", maxPool2DQuery);
