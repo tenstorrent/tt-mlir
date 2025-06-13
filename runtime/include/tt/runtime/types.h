@@ -166,6 +166,7 @@ struct Flatbuffer : public detail::ObjectImpl {
   using detail::ObjectImpl::ObjectImpl;
 
   static Flatbuffer loadFromPath(const char *path);
+  static Flatbuffer loadFromMemory(const char *memory, size_t size);
 
   void store(const char *path) const;
   void storeToMemory(std::vector<std::byte> &serialized_flatbuffer) const;
