@@ -30,8 +30,6 @@
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include "mlir/IR/BuiltinTypeInterfaces.h"
-#include "mlir/IR/BuiltinTypes.h"
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -676,10 +674,6 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
 
     flatbuffers::Offset<target::DebugInfo> debugInfo =
         debugInfoToFlatbuffer(fbb, "ttmetal", module, goldenMap, moduleCache);
-
-    DeviceAttr deviceAttr = lookupDevice(entry);
-
-    ::tt::target::Dim2d meshShape = deviceToFlatbufferMeshShape(deviceAttr);
 
     programs.push_back(target::metal::CreateProgramDirect(
         fbb, cqBuilder.name, &tensorInputs, &tensorOutputs, &devicePrograms,
