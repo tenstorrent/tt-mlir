@@ -106,27 +106,6 @@ class CMakeBuild(build_ext):
             ["cmake", "--install", str(build_dir), "--component", "TTMLIRPythonWheel"]
         )
 
-        """
-        # Move ttmlir inside pykernel
-        ttmlir_dir = install_dir / "ttmlir"
-        if ttmlir_dir.exists():
-            # Create destination directory
-            pykernel_ttmlir_dir = (install_dir / "pykernel") / "ttmlir"
-            if not pykernel_ttmlir_dir.exists():
-                os.makedirs(pykernel_ttmlir_dir)
-
-            # Move all files from ttmlir to pykernel/ttmlir
-            for item in ttmlir_dir.iterdir():
-                dest = pykernel_ttmlir_dir / item.name
-                if item.is_dir():
-                    shutil.copytree(item, dest, dirs_exist_ok=True)
-                else:
-                    shutil.copy2(item, dest)
-
-            # Remove the original ttmlir directory after moving
-            self.rmdir(ttmlir_dir)
-        """
-
         # Remove ttir_builder
         self.rmdir(install_dir / "ttir_builder")
 
@@ -140,8 +119,9 @@ pykernel_c = TTExtension("pykernel")
 # Write a small "long" description here:
 
 readme = """
+PyKernel - Python Kernel Infrastructure for Tenstorrent Hardware
 
-
+Please refer to documentation: https://docs.tenstorrent.com/tt-mlir/pykernel.html
 """
 
 setup(
