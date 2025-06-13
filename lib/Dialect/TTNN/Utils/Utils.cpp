@@ -206,4 +206,8 @@ createShardSpecIfNeeded(TensorMemoryLayoutAttr tensorMemoryLayoutAttr,
   return shardSpecAttr;
 }
 
+bool isTTNNTraceFunc(func::FuncOp funcOp) {
+  return funcOp->hasAttr(g_TTNNTraceAttrName);
+}
+
 } // namespace mlir::tt::ttnn::utils
