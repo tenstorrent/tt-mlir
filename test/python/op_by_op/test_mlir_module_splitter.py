@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from ttmlir.mlir_module_splitter import MLIRModuleSplitter
+from op_by_op_infra.mlir_module_splitter import MLIRModuleSplitter
 
 from .fixtures import *
 
