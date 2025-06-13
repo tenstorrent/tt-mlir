@@ -16,7 +16,6 @@
 #include <cassert>
 #include <cstdint>
 #include <optional>
-#include <tuple>
 
 namespace mlir::tt::ttnn {
 
@@ -450,6 +449,48 @@ ToLayoutOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return op_model::ttnn::ToLayoutOpInterface::getOpRuntime(
       inputShape, inputs[0], getDtype(), opConfig.outputLayout, passDevicePtr);
+}
+
+//===----------------------------------------------------------------------===//
+// ConcatOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+ConcatOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  assert(inputs.size() == getInputs().size());
+
+  std::vector<llvm::ArrayRef<int64_t>> inputShapes;
+  for (const Value &opInput : getInputs()) {
+    mlir::RankedTensorType inputType =
+        mlir::cast<mlir::RankedTensorType>(opInput.getType());
+    inputShapes.push_back(inputType.getShape());
+  }
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();
+
+  return op_model::ttnn::ConcatOpInterface::getOpConstraints(
+      deviceGrid, inputShapes, inputs, getDim(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+ConcatOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                       const OpConfig &opConfig) {
+  assert(inputs.size() == getInputs().size());
+
+  std::vector<llvm::ArrayRef<int64_t>> inputShapes;
+  for (const Value &opInput : getInputs()) {
+    mlir::RankedTensorType inputType =
+        mlir::cast<mlir::RankedTensorType>(opInput.getType());
+    inputShapes.push_back(inputType.getShape());
+  }
+
+  return op_model::ttnn::ConcatOpInterface::getOpRuntime(
+      inputShapes, inputs, getDim(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
