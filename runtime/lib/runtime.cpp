@@ -236,44 +236,6 @@ Tensor createOwnedHostTensor(const void *data,
   }
 }
 
-template <typename dtype64, typename dtype32>
-void handleHost64To32(const dtype64 *old_buffer, dtype32 *new_buffer,
-                      int64_t num_elements) {
-
-  assert(sizeof(dtype64) == 8 && "dtype64 must be 8 bytes");
-  assert(sizeof(dtype32) == 4 && "dtype32 must be 4 bytes");
-
-  for (int i = 0; i < num_elements; i++) {
-
-    if (std::is_same_v<dtype32, int32_t> || std::is_same_v<dtype32, uint32_t>) {
-      if (old_buffer[i] >
-          static_cast<dtype64>(std::numeric_limits<dtype32>::max())) {
-        new_buffer[i] = std::numeric_limits<dtype32>::max();
-      } else if (old_buffer[i] <
-                 static_cast<dtype64>(std::numeric_limits<dtype32>::lowest())) {
-        new_buffer[i] = std::numeric_limits<dtype32>::lowest();
-      } else {
-        new_buffer[i] = static_cast<dtype32>(old_buffer[i]);
-      }
-    } else {
-      new_buffer[i] = static_cast<dtype32>(old_buffer[i]);
-    }
-  }
-}
-
-void handleHostBoolToBFloat16(const bool *old_buffer, uint16_t *new_buffer,
-                              int64_t num_elements) {
-
-  assert(sizeof(bool) == 1 && "bool must be 1 byte");
-  assert(sizeof(bfloat16) == 2 && "bfloat16 must be 2 bytes");
-
-  for (int i = 0; i < num_elements; i++) {
-    new_buffer[i] = old_buffer[i]
-                        ? 0x3f80
-                        : 0; // 0x3f80 is the bfloat16 representation of 1.0
-  }
-}
-
 Tensor createOwnedHostTensorFromUnsupportedDataType(
     const void *data, const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
@@ -300,22 +262,22 @@ Tensor createOwnedHostTensorFromUnsupportedDataType(
   if (unsupportedDataType == ::tt::target::UnsupportedDataType::Int64) {
     LOG_ASSERT(itemsize == 8 &&
                "Itemsize must be the size of the supported data type");
-    handleHost64To32<int64_t, int32_t>(
+    tt::runtime::utils::handle64To32<int64_t, int32_t>(
         static_cast<int64_t *>(const_cast<void *>(data)),
         static_cast<int32_t *>(const_cast<void *>(newData.get())), numElements);
   } else if (unsupportedDataType ==
              ::tt::target::UnsupportedDataType::Float64) {
     LOG_ASSERT(itemsize == 8 &&
                "Itemsize must be the size of the supported data type");
-    handleHost64To32<double, float>(
+    tt::runtime::utils::handle64To32<double, float>(
         static_cast<double *>(const_cast<void *>(data)),
         static_cast<float *>(newData.get()), numElements);
   } else if (unsupportedDataType == ::tt::target::UnsupportedDataType::Bool) {
     LOG_ASSERT(itemsize == 1 &&
                "Itemsize must be the size of the supported data type");
-    handleHostBoolToBFloat16(static_cast<bool *>(const_cast<void *>(data)),
-                             static_cast<uint16_t *>(newData.get()),
-                             numElements);
+    tt::runtime::utils::handleBoolToBFloat16(
+        static_cast<bool *>(const_cast<void *>(data)),
+        static_cast<uint16_t *>(newData.get()), numElements);
   }
 
   using RetType = Tensor;
@@ -771,6 +733,18 @@ void memcpy(Tensor dst, Tensor src) {
   DISPATCH_TO_CURRENT_RUNTIME(
       RetType, [&]() { ::tt::runtime::ttnn::memcpy(dst, src); },
       [&]() { ::tt::runtime::ttmetal::memcpy(dst, src); });
+}
+
+void memcpy_into_host_with_unsupported_data_type(
+    void *dst, Tensor src,
+    ::tt::target::UnsupportedDataType unsupportedDataType) {
+#if defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)
+  ::tt::runtime::ttnn::memcpy_into_host_with_unsupported_data_type(
+      dst, src, unsupportedDataType);
+#else
+  LOG_FATAL("memcpy_into_host_with_unsupported_data_type is not implemented "
+            "for TTMetal runtime");
+#endif
 }
 
 void deallocateTensor(Tensor &tensor, bool force) {

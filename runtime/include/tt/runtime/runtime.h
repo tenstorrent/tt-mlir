@@ -196,6 +196,10 @@ void memcpy(void *dst, Tensor src);
 
 void memcpy(Tensor dst, Tensor src);
 
+void memcpy_into_host_with_unsupported_data_type(
+    void *dst, Tensor src,
+    ::tt::target::UnsupportedDataType unsupportedDataType);
+
 // Deallocates tensor, both device and host. Cannot deallocate host tensors with
 // borrowed storage.
 void deallocateTensor(Tensor &tensor, bool force = false);

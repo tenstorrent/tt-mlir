@@ -22,6 +22,7 @@
 #include "ttmlir/Version.h"
 #include "ttnn/tensor/tensor_utils.hpp"
 #include "ttnn/tensor/types.hpp"
+#include "types_generated.h"
 
 namespace tt::runtime::ttnn {
 
@@ -699,6 +700,41 @@ void memcpy(::tt::runtime::Tensor dst, ::tt::runtime::Tensor src) {
     std::memcpy(dstPtr, srcPtr, size);
   } else {
     ::tt::tt_metal::memcpy(dstTensor, srcTensor);
+  }
+}
+
+void memcpy_into_host_with_unsupported_data_type(
+    void *dst, ::tt::runtime::Tensor src,
+    ::tt::target::UnsupportedDataType unsupportedDataType) {
+  const ::ttnn::Tensor &srcTensor = utils::getTTNNTensorFromRuntimeTensor(src);
+  LOG_ASSERT(utils::isOnHost(srcTensor.storage_type()),
+             "Tensor must be on host");
+  const void *srcPtr = utils::getRawHostDataPtr(srcTensor);
+
+  if (unsupportedDataType == ::tt::target::UnsupportedDataType::Int64) {
+    LOG_ASSERT(getTensorDataType(src) == ::tt::target::DataType::Int32,
+               "Tensor data type must be Int32");
+    tt::runtime::utils::handle32To64<int32_t, int64_t>(
+        static_cast<const int32_t *>(srcPtr), static_cast<int64_t *>(dst),
+        srcTensor.padded_volume());
+  } else if (unsupportedDataType ==
+             ::tt::target::UnsupportedDataType::Float64) {
+    LOG_ASSERT(getTensorDataType(src) == ::tt::target::DataType::Float32,
+               "Tensor data type must be Float32");
+    tt::runtime::utils::handle32To64<float, double>(
+        static_cast<const float *>(srcPtr), static_cast<double *>(dst),
+        srcTensor.padded_volume());
+  } else if (unsupportedDataType == ::tt::target::UnsupportedDataType::Bool) {
+    LOG_ASSERT(getTensorDataType(src) == ::tt::target::DataType::BFloat16,
+               "Tensor data type must be BFloat16");
+    tt::runtime::utils::handleBFloat16ToBool(
+        static_cast<const uint16_t *>(srcPtr), static_cast<bool *>(dst),
+        srcTensor.padded_volume());
+  } else {
+    throw std::runtime_error(
+        "Unknown unsupported data type: " +
+        std::string(target::EnumNamesUnsupportedDataType()[static_cast<int>(
+            unsupportedDataType)]));
   }
 }
 

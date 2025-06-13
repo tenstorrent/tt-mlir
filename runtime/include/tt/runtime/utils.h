@@ -80,6 +80,64 @@ T alignUp(T ptr, T alignment) {
   return (ptr + alignment - 1) & ~(alignment - 1);
 }
 
+template <typename dtype32, typename dtype64>
+inline void handle32To64(const dtype32 *old_buffer, dtype64 *new_buffer,
+                         int64_t num_elements) {
+
+  assert(sizeof(dtype64) == 8 && "dtype64 must be 8 bytes");
+  assert(sizeof(dtype32) == 4 && "dtype32 must be 4 bytes");
+
+  for (int i = 0; i < num_elements; i++) {
+    new_buffer[i] = static_cast<dtype64>(old_buffer[i]);
+  }
+}
+
+template <typename dtype64, typename dtype32>
+inline void handle64To32(const dtype64 *old_buffer, dtype32 *new_buffer,
+                         int64_t num_elements) {
+
+  assert(sizeof(dtype64) == 8 && "dtype64 must be 8 bytes");
+  assert(sizeof(dtype32) == 4 && "dtype32 must be 4 bytes");
+
+  for (int i = 0; i < num_elements; i++) {
+
+    if (std::is_same_v<dtype32, int32_t> || std::is_same_v<dtype32, uint32_t>) {
+      if (old_buffer[i] >
+          static_cast<dtype64>(std::numeric_limits<dtype32>::max())) {
+        new_buffer[i] = std::numeric_limits<dtype32>::max();
+      } else if (old_buffer[i] <
+                 static_cast<dtype64>(std::numeric_limits<dtype32>::lowest())) {
+        new_buffer[i] = std::numeric_limits<dtype32>::lowest();
+      } else {
+        new_buffer[i] = static_cast<dtype32>(old_buffer[i]);
+      }
+    } else {
+      new_buffer[i] = static_cast<dtype32>(old_buffer[i]);
+    }
+  }
+}
+
+inline void handleBFloat16ToBool(const uint16_t *old_buffer, bool *new_buffer,
+                                 int64_t num_elements) {
+  for (int i = 0; i < num_elements; i++) {
+    new_buffer[i] =
+        old_buffer[i] !=
+        0; // 0 in bfloat16 is also 00000000 00000000, just as in uint16_t
+  }
+}
+
+inline void handleBoolToBFloat16(const bool *old_buffer, uint16_t *new_buffer,
+                                 int64_t num_elements) {
+
+  assert(sizeof(bool) == 1 && "bool must be 1 byte");
+
+  for (int i = 0; i < num_elements; i++) {
+    new_buffer[i] = old_buffer[i]
+                        ? 0x3f80
+                        : 0; // 0x3f80 is the bfloat16 representation of 1.0
+  }
+}
+
 } // namespace tt::runtime::utils
 
 #endif
