@@ -143,7 +143,7 @@ class PyKernelOp:
         cb_type = CircularBuffer(
             buffer_index,
             tuple(tensor.shape)[1:],
-            self._mlir_dtype_from_ttnn_dtype(int(dtype)),
+            dtype=self._mlir_dtype_from_ttnn_dtype(int(dtype)),
         )
 
         return OpCircularBuffer(cb_type, cb_format, cb_desc)
@@ -165,10 +165,12 @@ class PyKernelOp:
         kernel_desc_args = {
             "kernel_source": kernel_path,
             "core_ranges": self._defined_core_ranges,
-            "compile_time_args": [x.value for x in ct_args],
+            "compile_time_args": [cb.cb_id for cb in cb_args],
             "runtime_args": [[rt_args]],
             "config": config(),
         }
+
+        print(kernel.__name__, kernel_desc_args)
 
         if hasattr(self, "common_runtime_args"):
             kernel_desc_args["common_runtime_args"] = self.common_runtime_args
