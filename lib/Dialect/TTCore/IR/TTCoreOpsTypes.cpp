@@ -909,16 +909,18 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
   // For the last two dimensions in the result (after collapse),
   // find the leftmost input dimension in each interval and set alignment to 32.
 
+  constexpr std::array<int64_t, 2> tileShape = TileType::getDefaultShape();
+
   // Handle penultimate group's alignment.
   const int64_t secondToLastIntervalIdx = deviceGridRank - 2;
   const int64_t secondToLastAlignIdx =
       flattenedIntervals[secondToLastIntervalIdx * 2];
-  dimAlignments[secondToLastAlignIdx] = 32;
+  dimAlignments[secondToLastAlignIdx] = tileShape[0];
 
   // Handle ultimate group's alignment.
   const int64_t lastIntervalIdx = deviceGridRank - 1;
   const int64_t lastAlignIdx = flattenedIntervals[lastIntervalIdx * 2];
-  dimAlignments[lastAlignIdx] = 32;
+  dimAlignments[lastAlignIdx] = tileShape[1];
 
   auto collapseIntervals =
       DenseIntElementsAttr::get(intervalType, flattenedIntervals);
