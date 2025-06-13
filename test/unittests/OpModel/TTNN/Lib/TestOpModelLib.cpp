@@ -400,6 +400,36 @@ TEST_F(OpModelTest, Reshape) {
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
 
+TEST_F(OpModelTest, Slice) {
+  const llvm::SmallVector<int64_t> inputTensorShape = {1, 56, 56, 96};
+  const llvm::SmallVector<int64_t> outputTensorShape = {1, 28, 56, 95};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  const mlir::tt::ttnn::TTNNLayoutAttr layoutDRAM =
+      CreateTiledLayout(inputTensorShape, mlir::tt::ttnn::BufferType::DRAM,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  llvm::SmallVector<int64_t> begins = {0, 0, 0, 0};
+  llvm::SmallVector<int64_t> ends = {1, 56, 56, 95};
+  llvm::SmallVector<int64_t> step = {1, 2, 1, 1};
+
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  auto constraintsExp = SliceOpInterface::getOpConstraints(
+      CreateWorkerGrid(), inputTensorShape, layoutDRAM, begins, ends, step,
+      outputTensorShape, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  auto runtimeExp =
+      SliceOpInterface::getOpRuntime(inputTensorShape, layoutDRAM, begins, ends,
+                                     step, outputTensorShape, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+}
+
 TEST_F(OpModelTest, ToLayout) {
   const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
   const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
