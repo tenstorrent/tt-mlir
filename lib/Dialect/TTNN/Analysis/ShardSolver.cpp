@@ -12,6 +12,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/Support/Logger.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
