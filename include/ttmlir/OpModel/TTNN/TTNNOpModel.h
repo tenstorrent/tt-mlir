@@ -454,5 +454,26 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
              mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 } // namespace MinimumOpInterface
 
+//===----------------------------------------------------------------------===//
+// Embedding
+//===----------------------------------------------------------------------===//
+namespace EmbeddingOpInterface {
+llvm::Expected<OpConstraints>
+getOpConstraints(GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                 llvm::ArrayRef<int64_t> weightShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr weightLayout,
+                 llvm::ArrayRef<int64_t> outputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+llvm::Expected<size_t>
+getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+             llvm::ArrayRef<int64_t> weightShape,
+             mlir::tt::ttnn::TTNNLayoutAttr weightLayout,
+             llvm::ArrayRef<int64_t> outputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+} // namespace EmbeddingOpInterface
+
 } // namespace mlir::tt::op_model::ttnn
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H

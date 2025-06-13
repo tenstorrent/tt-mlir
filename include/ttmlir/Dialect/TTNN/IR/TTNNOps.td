@@ -859,7 +859,9 @@ def TTNN_ProdOp : TTNN_Op<"prod"> {
   let hasVerifier = 1;
 }
 
-def TTNN_EmbeddingOp : TTNN_Op<"embedding"> {
+def TTNN_EmbeddingOp : TTNN_Op<"embedding",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Embedding op.";
     let description = [{
       Embedding operation.
@@ -1154,7 +1156,7 @@ def TTNN_LinearOp : TTNN_Op<"linear"> {
       Produces the matmul of tensors `a` and `b` with optional addition with `bias`.
 
       Example:
-        // %a = [[1., 2.]], [2., 1.]]
+        // %a = [[1., 2.], [2., 1.]]
         // %b = [[0., 1.], [1., 0.]]
         // %bias = [[1.]]
         "ttnn.linear"(%a, %b, %bias, %result) : (tensor<2x2xf16>, tensor<2x2xf16>, tensor<1xf16>, tensor<2x2xf16>) -> tensor<2x2xf16>
@@ -1368,7 +1370,7 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d"> {
             output_padding = array<i32: 0, 0>,
             padding = array<i32: 0, 0>,
             stride = array<i32: 1, 1>
-          > : (tensor<3x8x8x256xbf16>, tensor<256x256x3x3xbf16>, tensor<1x1x1x256xbf16>, tensor<3x10x10x256xbf16>) -> tensor<3x10x10x256xbf16>
+          }> : (tensor<3x8x8x256xbf16>, tensor<256x256x3x3xbf16>, tensor<1x1x1x256xbf16>, tensor<3x10x10x256xbf16>) -> tensor<3x10x10x256xbf16>
     }];
 
     let arguments = (ins AnyRankedTensor:$input,

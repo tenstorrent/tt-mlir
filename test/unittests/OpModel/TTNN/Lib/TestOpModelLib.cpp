@@ -1500,4 +1500,88 @@ INSTANTIATE_TEST_SUITE_P(
                            mlir::tt::ttnn::BufferType::DRAM},
         2, "nearest", true)));
 
+// ==== EmbeddingOp Tests ====
+class OpModelEmbeddingParam : public OpModelTest,
+                              public ::testing::WithParamInterface<
+                                  std::tuple<detail::TestTensor, // input
+                                             detail::TestTensor, // weight
+                                             detail::ExpectedResult>> {
+protected:
+  void RunTest() {
+    const auto [inputTensor, weightTensor, expected] = GetParam();
+    const auto [inputShape, inputLayout, inputBufferType, inputVirtualGrid] =
+        inputTensor;
+    const auto [weightShape, weightLayout, weightBufferType,
+                weightVirtualGrid] = weightTensor;
+    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+                expectedOutputSize] = expected;
+    // output shape: [batch, seq_len, hidden_size]
+    llvm::SmallVector<int64_t> outputShape = {inputShape[0], inputShape[1],
+                                              weightShape[1]};
+
+    const mlir::tt::ttnn::TTNNLayoutAttr inputTiledLayout = CreateTiledLayout(
+        inputShape, inputBufferType, inputLayout, inputVirtualGrid);
+    const mlir::tt::ttnn::TTNNLayoutAttr weightTiledLayout = CreateTiledLayout(
+        weightShape, weightBufferType, weightLayout, weightVirtualGrid);
+    const mlir::tt::ttnn::TTNNLayoutAttr outputTiledLayout = CreateTiledLayout(
+        outputShape, mlir::tt::ttnn::BufferType::L1,
+        mlir::tt::ttnn::TensorMemoryLayout::Interleaved, std::nullopt);
+
+    auto constraintsExp =
+        op_model::ttnn::EmbeddingOpInterface::getOpConstraints(
+            CreateWorkerGrid(), inputShape, inputTiledLayout, weightShape,
+            weightTiledLayout, outputShape, outputTiledLayout);
+
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+          constraintsExp.get();
+      EXPECT_EQ(cbSize, expectedCbSize);
+      EXPECT_EQ(peakSize, expectedPeakSize);
+      EXPECT_EQ(outputSize, expectedOutputSize);
+      ExpectLayoutsEQ(outputTiledLayout, outputLayoutReadBack);
+    } else {
+      llvm::consumeError(constraintsExp.takeError());
+    }
+
+    // Test runtime using the interface directly
+    auto runtimeExp = op_model::ttnn::EmbeddingOpInterface::getOpRuntime(
+        inputShape, inputTiledLayout, weightShape, weightTiledLayout,
+        outputShape, outputTiledLayout);
+    EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+    if (expectedLegal) {
+      EXPECT_GT(runtimeExp.get(), 0);
+    } else {
+      llvm::consumeError(runtimeExp.takeError());
+    }
+  }
+};
+
+TEST_P(OpModelEmbeddingParam, EmbeddingParam) { RunTest(); }
+
+INSTANTIATE_TEST_SUITE_P(
+    EmbeddingTests, OpModelEmbeddingParam,
+    ::testing::Values(
+        std::make_tuple(
+            // Input: [batch=1, seq_len=1024]
+            detail::TestTensor{{1, 1024},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::DRAM},
+            // Weight: [vocab_size=256, hidden_size=128]
+            detail::TestTensor{{256, 128},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::DRAM},
+            detail::ExpectedResult{true, 32768, 8192, 4096}),
+        std::make_tuple(
+            // Input: [batch=2, seq_len=512] (sharded)
+            detail::TestTensor{{2, 512},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::L1,
+                               llvm::SmallVector<int64_t>{2, 1}},
+            // Weight: [vocab_size=512, hidden_size=256]
+            detail::TestTensor{{512, 256},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::DRAM},
+            detail::ExpectedResult{true, 65536, 16384, 8192})));
+
 } // namespace mlir::tt::op_model::ttnn
