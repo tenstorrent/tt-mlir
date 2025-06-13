@@ -416,6 +416,14 @@ void Flatbuffer::store(const char *path) const {
   fbb.write(reinterpret_cast<const char *>(handle.get()), size);
 }
 
+void Flatbuffer::storeToMemory(
+    std::vector<std::byte> &serialized_flatbuffer) const {
+  auto size = ::flatbuffers::GetSizePrefixedBufferLength(
+      static_cast<const uint8_t *>(handle.get()));
+  serialized_flatbuffer.resize(size);
+  std::memcpy(serialized_flatbuffer.data(), handle.get(), size);
+}
+
 std::string_view Flatbuffer::getFileIdentifier() const {
   if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
           handle.get())) {

@@ -168,6 +168,7 @@ struct Flatbuffer : public detail::ObjectImpl {
   static Flatbuffer loadFromPath(const char *path);
 
   void store(const char *path) const;
+  void storeToMemory(std::vector<std::byte> &serialized_flatbuffer) const;
   std::string_view getFileIdentifier() const;
   std::string getVersion() const;
   std::string_view getSchemaHash() const;
