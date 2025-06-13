@@ -119,6 +119,10 @@ getLayoutAttrFromTensorSpec(MLIRContext *context,
                             const ::ttnn::TensorSpec &tensorSpec,
                             llvm::ArrayRef<int64_t> deviceGrid);
 
+std::optional<::ttnn::DeviceComputeKernelConfig> getDeviceComputeKernelConfig(
+    const std::optional<mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
+        &deviceComputeKernelConfig);
+
 } // namespace conversion
 } // namespace mlir::tt::op_model::ttnn
 
