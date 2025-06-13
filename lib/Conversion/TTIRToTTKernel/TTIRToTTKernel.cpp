@@ -151,6 +151,9 @@ public:
     auto dst = dstLoad.getIndices().front();
     auto outCB = getOutCB(rewriter, op);
     auto storeIdx = op.getIndices().front();
+    rewriter.create<ttkernel::DPrintOp>(
+        op.getLoc(), "pack_tile(dstIdx={}, outCB={}, storeIdx={})\\n", dst,
+        outCB, storeIdx);
     rewriter.replaceOpWithNewOp<ttkernel::PackTileOp>(
         op, dst, outCB, storeIdx, rewriter.getBoolAttr(true));
 
@@ -225,6 +228,11 @@ public:
       rewriter.create<ttkernel::MatmulInitShortOp>(
           op->getLoc(), cbA, cbB,
           /* transpose */ i32(rewriter, op->getLoc(), 0));
+      rewriter.create<ttkernel::DPrintOp>(
+          op->getLoc(),
+          "matmul_tiles(cbA={}, cbB={}, aIdx={}, bIdx={}, cIdx={})\\n", cbA,
+          cbB, getLoadIndex(adaptor.getA()), getLoadIndex(adaptor.getB()),
+          getLoadIndex(adaptor.getC(), tt::MemorySpace::RegisterDst));
       rewriter.create<ttkernel::MatmulTilesOp>(
           op->getLoc(), cbA, cbB, getLoadIndex(adaptor.getA()),
           getLoadIndex(adaptor.getB()),
