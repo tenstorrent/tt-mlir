@@ -45,6 +45,21 @@ inline std::uint32_t dataTypeElementSize(::tt::target::DataType dataType) {
   }
 }
 
+inline std::uint32_t
+dataTypeElementSize(::tt::target::UnsupportedDataType dataType) {
+  switch (dataType) {
+  case ::tt::target::UnsupportedDataType::Int64:
+    return 8;
+  case ::tt::target::UnsupportedDataType::Float64:
+    return 8;
+  case ::tt::target::UnsupportedDataType::Bool:
+    return 1;
+  default:
+    assert(false && "Unsupported element size for data type");
+    return 0;
+  }
+}
+
 template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
 inline std::vector<uint32_t> calculateStride(const std::vector<T> &shape) {
   assert(!shape.empty());
