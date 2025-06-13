@@ -20,6 +20,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/ReduceOpsRewritePattern.cpp
         Workarounds/Decomposition/RepeatOpRewritePattern.cpp
         Workarounds/Decomposition/UpsampleOpRewritePattern.cpp
+        Workarounds/Decomposition/FullOpRewritePattern.cpp
         Workarounds/TTNNWorkaroundsPatterns.cpp
 
         ADDITIONAL_HEADER_DIRS
