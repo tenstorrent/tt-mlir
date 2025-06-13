@@ -91,11 +91,11 @@ TT-Explorer is a tool made to ease the pain of tuning a model and developing on 
 
 ### Software Architecture
 
-The software will be built around the TT-Forge compiler to provide most of the functionality. [Model Explorer](https://github.com/google-ai-edge/model-explorer) will be used for the visualization functionality and as the main platform upon which TT-Explorer is built on.
+The software is built around the TT-Forge compiler to provide most of the functionality. With [Model Explorer](https://github.com/google-ai-edge/model-explorer) used for the visualization functionality and as the main platform upon which TT-Explorer is built upon.
 
-Since Model-Explorer is built using Python, the majority of TT-Explorer will be structured in Python, with frequent use of the bindings to C++ provided by TT-MLIR.
+Since Model-Explorer is built using Python, the majority of TT-Explorer is structured in Python, with frequent use of the bindings to C++ provided by TT-MLIR.
 
-The following components will be put together:
+The following components compose model explorer:
 
 ![Diagram for component architecture, transcript below](https://github.com/user-attachments/assets/f996af27-8b66-4579-a6d6-ded57cbe89d1)
 
