@@ -2209,9 +2209,14 @@ std::shared_ptr<void> ttnnToFlatbuffer(
           funcOpToProgram<::tt::target::ttnn::Operation>(
               cache, func, emitTTNNOperation, tensorValueToFlatbuffer,
               programIdxMap);
+
+      DeviceAttr deviceAttr = lookupDevice(func);
+
+      ::tt::target::Dim2d meshShape = deviceToFlatbufferMeshShape(deviceAttr);
+
       programs.push_back(::tt::target::ttnn::CreateProgramDirect(
           fbb, program.name, &program.inputs, &program.outputs, &program.ops,
-          &dylibs, debugInfo, isPrivate));
+          &dylibs, debugInfo, isPrivate, &meshShape));
     });
   };
 
