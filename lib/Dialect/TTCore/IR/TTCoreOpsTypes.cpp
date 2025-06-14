@@ -700,20 +700,6 @@ applyCollapseIntervalsAndAlignments(llvm::ArrayRef<int64_t> shape,
 
   llvm::SmallVector<int64_t> resultShape;
 
-  // If no intervals provided, treat as identity mapping.
-  if (!intervals) {
-    // Just apply alignments to each dimension.
-    for (size_t i = 0; i < shape.size(); ++i) {
-      int64_t dimSize = shape[i];
-      int64_t alignment = alignments[i];
-      if (alignment > 1 && dimSize % alignment != 0) {
-        dimSize = ((dimSize + alignment - 1) / alignment) * alignment;
-      }
-      resultShape.push_back(dimSize);
-    }
-    return resultShape;
-  }
-
   // Process with collapse intervals.
   auto values = intervals.getValues<int64_t>();
   auto numIntervals = intervals.getType().getShape()[0];
@@ -721,60 +707,50 @@ applyCollapseIntervalsAndAlignments(llvm::ArrayRef<int64_t> shape,
 
   int64_t currentIdx = 0;
 
-  for (int64_t i = 0; i < numIntervals; ++i) {
-    int64_t start = values[i * 2];
-    int64_t end = values[i * 2 + 1];
+  if (intervals) {
+    for (int64_t i = 0; i < numIntervals; ++i) {
+      int64_t start = values[i * 2];
+      int64_t end = values[i * 2 + 1];
 
-    // Handle Python-like negative indexing.
-    if (start < 0) {
-      start = shape.size() + start;
-    }
-    if (end < 0) {
-      end = shape.size() + end;
-    }
-
-    assert(start >= 0 && static_cast<size_t>(start) < shape.size() &&
-           "Start index out of bounds");
-    assert(end >= start && static_cast<size_t>(end) <= shape.size() &&
-           "End index out of bounds");
-
-    if (end - start == 1) {
-      // Single dimension - apply alignment.
-      int64_t dimSize = shape[start];
-      int64_t alignment = alignments[start];
-      if (alignment > 1 && dimSize % alignment != 0) {
-        dimSize = ((dimSize + alignment - 1) / alignment) * alignment;
+      // Handle Python-like negative indexing.
+      if (start < 0) {
+        start = shape.size() + start;
       }
-      resultShape.push_back(dimSize);
-    } else if (end > start) {
-      // Collapse multiple dimensions with alignment.
-      int64_t collapsedDim = 1;
+      if (end < 0) {
+        end = shape.size() + end;
+      }
 
-      for (int64_t j = start; j < end; ++j) {
-        int64_t dimSize = shape[j];
+      assert(start >= 0 && static_cast<size_t>(start) < shape.size() &&
+             "Start index out of bounds");
+      assert(end >= start && static_cast<size_t>(end) <= shape.size() &&
+             "End index out of bounds");
 
-        // Apply alignment to all dimensions being collapsed.
-        int64_t alignment = alignments[j];
-        if (alignment > 1 && dimSize % alignment != 0) {
-          dimSize = ((dimSize + alignment - 1) / alignment) * alignment;
+      if (end - start == 1) {
+        // Single dimension - apply alignment.
+        resultShape.push_back(
+            ttmlir::utils::alignUp(shape[start], alignments[start]));
+      } else if (end > start) {
+        // Start by aligning the innermost dimension.
+        int64_t collapsedDim =
+            ttmlir::utils::alignUp(shape[end - 1], alignments[end - 1]);
+
+        // Process remaining dimensions from inner to outer w/ multplication.
+        for (int64_t j = end - 2; j >= start; --j) {
+          // For outer dimensions, multiply then align the product
+          collapsedDim =
+              ttmlir::utils::alignUp(shape[j] * collapsedDim, alignments[j]);
         }
 
-        collapsedDim *= dimSize;
+        resultShape.push_back(collapsedDim);
       }
-
-      resultShape.push_back(collapsedDim);
+      currentIdx = end;
     }
-    currentIdx = end;
   }
 
   // Handle remaining dimensions with alignment.
-  for (size_t i = currentIdx; i < shape.size(); ++i) {
-    int64_t dimSize = shape[i];
-    int64_t alignment = alignments[i];
-    if (alignment > 1 && dimSize % alignment != 0) {
-      dimSize = ((dimSize + alignment - 1) / alignment) * alignment;
-    }
-    resultShape.push_back(dimSize);
+  for (int64_t i = shape.size() - 1; i >= static_cast<int64_t>(currentIdx);
+       --i) {
+    resultShape.push_back(ttmlir::utils::alignUp(shape[i], alignments[i]));
   }
 
   return resultShape;

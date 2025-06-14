@@ -340,7 +340,7 @@ def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout", [TT_DeviceLayout
     DefaultValuedParameter<"MemorySpace", "MemorySpace::System">:$memory_space
   );
 
-  let assemblyFormat = "`<` `[` custom<DimensionList>($logical_shape) `]` `,` `dim_alignments` `=` `[` $dim_alignments `]`  `,` `collapse_dims` `=` $collapse_intervals `,` $oob_val (`,` $memory_space^)? `>`";
+  let assemblyFormat = "`<` `logical_shape` `=` custom<DimensionList>($logical_shape) `,` `dim_alignments` `=` custom<DimensionList>($dim_alignments) `,` `collapse_dims` `=` $collapse_intervals `,` $oob_val (`,` $memory_space^)? `>`";
 
   let extraClassDeclaration = [{
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
