@@ -480,21 +480,28 @@ class TTIRBuilder:
     def metal_tensor_layout(
         self,
         shape: Shape,
-        grid,
-        tiled=False,
-        memorySpace=tt.MemorySpace.DeviceL1,
-        collapseIntervals=[(0, -1)],
+        tilize=False,
         oobVal=tt.OOBVal.Undef,
+        memorySpace=tt.MemorySpace.DeviceL1,
     ):
         ctx = self._ctx
-        if isinstance(grid, list) or isinstance(grid, tuple):
-            grid = tt.ir.GridAttr.get(ctx, list(grid))
-        tensorTy = RankedTensorType.get(shape, F32Type.get(ctx))
-        layout = tt.ir.MetalLayoutAttr.get(
-            self._ctx, tensorTy, grid, tiled, memorySpace, collapseIntervals, oobVal
-        )
+
+        # Create layout with original logical shape.
+        layout = tt.ir.MetalLayoutAttr.get(ctx, shape, oobVal, memorySpace)
+
+        # Then shard the new shape by adding 1-filled grid dims.
+        original_rank = len(shape)
+        extended_shape = [1] * original_rank + list(shape)
+
+        elemType = F32Type.get(ctx)
+
+        if tilize:
+            elemType = tt.ir.TileType.get(ctx, 32, 32, tt.DataType.Float32)
+            extended_shape[-2] //= 32
+            extended_shape[-1] //= 32
+
         return RankedTensorType.get(
-            shape, F32Type.get(ctx), layout, Location.unknown(ctx)
+            extended_shape, elemType, layout, Location.unknown(ctx)
         )
 
     def empty_from_tensor_type(

@@ -42,6 +42,12 @@ mlir::memref::GlobalOp createGlobal(ModuleOp moduleOp, MemRefType type,
                                     bool privateVisibility = true,
                                     size_t alignment = 0);
 
+bool isTiled(RankedTensorType tensorType);
+
+ArrayRef<int64_t> getTensorTileShape(RankedTensorType tensorType);
+
+ArrayRef<int64_t> getTensorTileShapeOrEmpty(RankedTensorType tensorType);
+
 } // namespace mlir::tt
 
 #endif // TTMLIR_DIALECT_TT_IR_UTILS_H

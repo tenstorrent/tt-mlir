@@ -9,8 +9,11 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
+#include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/TypeRange.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -49,13 +52,43 @@ protected:
   toLayoutRewriter(mlir::ConversionPatternRewriter &rewriter,
                    uint64_t deviceGridRank, bool tiled,
                    MemorySpace memorySpace) {
-    return [=, &rewriter](Value value) {
+    return [=, &rewriter](Value value) -> Value {
       mlir::RankedTensorType tensorType =
           mlir::cast<mlir::RankedTensorType>(value.getType());
-      tt::MetalLayoutAttr layout = rewriter.getAttr<tt::MetalLayoutAttr>(
-          tensorType, deviceGridRank, tiled, memorySpace);
-      mlir::RankedTensorType layoutResultType = mlir::RankedTensorType::get(
-          tensorType.getShape(), tensorType.getElementType(), layout);
+
+      // Logical shape is initial tensor shape.
+      llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
+      assert(deviceGridRank <= logicalShape.size());
+
+      // Create default grid shape based on deviceGridRank.
+      llvm::SmallVector<int64_t> gridShape;
+      for (uint64_t i = 0; i < deviceGridRank; ++i) {
+        gridShape.push_back(1);
+      }
+
+      // Create default tile element type.
+      Type elementType = tensorType.getElementType();
+      llvm::SmallVector<int64_t> tileShape;
+      assert(logicalShape.size() >= 2);
+      if (tiled) {
+        auto defaultShape = TileType::getDefaultShape();
+        tileShape.assign(defaultShape.begin(), defaultShape.end());
+        elementType = tt::TileType::get(elementType, tileShape);
+      }
+
+      // Create the new MetalLayoutAttr with new element type.
+      tt::MetalLayoutAttr layout = tt::MetalLayoutAttr::get(
+          rewriter.getContext(), logicalShape, deviceGridRank,
+          tt::OOBVal::Undef, memorySpace);
+
+      // Calculate new physical shape based on grid + tiling.
+      auto physicalShape = tt::MetalLayoutAttr::derivePhysicalShape(
+          logicalShape, gridShape, tileShape, layout.getCollapseIntervals(),
+          layout.getDimAlignments());
+
+      mlir::RankedTensorType layoutResultType =
+          mlir::RankedTensorType::get(physicalShape, elementType, layout);
+
       auto output =
           rewriter.create<tt::ttir::EmptyOp>(value.getLoc(), layoutResultType);
       return rewriter
@@ -131,8 +164,9 @@ protected:
       mlir::RankedTensorType tensorType = mlir::cast<mlir::RankedTensorType>(t);
       tt::MetalLayoutAttr layout =
           mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding());
-      block->addArgument(layout.getMemref(), loc);
+      block->addArgument(layout.getMemRefType(tensorType), loc);
     };
+
     llvm::for_each(mlir::TypeRange(inputs), fn);
     llvm::for_each(mlir::TypeRange(outputs), fn);
     return block->getArguments();
