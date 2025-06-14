@@ -51,6 +51,26 @@ class TTIR_GenericRegionOp<string mnemonic, list<Trait> traits = []> :
 class TTIR_GenericRegionComputeOp<string mnemonic, list<Trait> traits = []> :
     TTIR_GenericRegionOp<mnemonic, [TTIR_GenericRegionComputeOpTrait, TTIR_OperandLoadRegisterOpInterface] # traits> {}
 
+class TTIR_GenericRegionComputeUnaryDstOp<string mnemonic, list<Trait> traits = []> :
+    TTIR_GenericRegionComputeOp<mnemonic, traits> {
+
+  let extraClassDeclaration = [{
+    mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+      return {0};
+    }
+  }];
+}
+
+class TTIR_GenericRegionComputeBinaryDstOp<string mnemonic, list<Trait> traits = []> :
+    TTIR_GenericRegionComputeOp<mnemonic, traits> {
+
+  let extraClassDeclaration = [{
+    mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+      return {0, 1};
+    }
+  }];
+}
+
 class TTIR_GenericRegionDatamovementOp<string mnemonic, list<Trait> traits = []> :
     TTIR_GenericRegionOp<mnemonic, [TTIR_GenericRegionDatamovementOpTrait] # traits> {}
 
@@ -91,7 +111,7 @@ def TTIR_TileMulOp : TTIR_GenericRegionComputeOp<"tile_mul"> {
     let results = (outs TT_Tile:$result);
 }
 
-def TTIR_TileDivOp : TTIR_GenericRegionComputeOp<"tile_div"> {
+def TTIR_TileDivOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_div"> {
     let summary = "TTIR Tile Div Op";
     let description = [{
         The `tile_div` operation divides two tiles element-wise.
@@ -100,15 +120,9 @@ def TTIR_TileDivOp : TTIR_GenericRegionComputeOp<"tile_div"> {
     let arguments = (ins TT_Tile:$lhs,
                          TT_Tile:$rhs);
     let results = (outs TT_Tile:$result);
-
-    let extraClassDeclaration = [{
-      mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
-        return {0, 1};
-      }
-    }];
 }
 
-def TTIR_TileRecipOp : TTIR_GenericRegionComputeOp<"tile_recip"> {
+def TTIR_TileRecipOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_recip"> {
     let summary = "TTIR Tile Recip Op";
     let description = [{
         The `tile_recip` operation computes the reciprocal of each element in the input tile.
@@ -116,15 +130,9 @@ def TTIR_TileRecipOp : TTIR_GenericRegionComputeOp<"tile_recip"> {
 
     let arguments = (ins TT_Tile:$input);
     let results = (outs TT_Tile:$result);
-
-    let extraClassDeclaration = [{
-      mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
-        return {0};
-      }
-    }];
 }
 
-def TTIR_TileExpOp : TTIR_GenericRegionComputeOp<"tile_exp"> {
+def TTIR_TileExpOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_exp"> {
     let summary = "TTIR Tile Exp Op";
     let description = [{
         The `tile_exp` operation computes the exponential of each element in the input tile.
@@ -132,15 +140,9 @@ def TTIR_TileExpOp : TTIR_GenericRegionComputeOp<"tile_exp"> {
 
     let arguments = (ins TT_Tile:$input);
     let results = (outs TT_Tile:$result);
-
-    let extraClassDeclaration = [{
-      mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
-        return {0};
-      }
-    }];
 }
 
-def TTIR_TileLogOp : TTIR_GenericRegionComputeOp<"tile_log"> {
+def TTIR_TileLogOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_log"> {
     let summary = "TTIR Tile Log Op";
     let description = [{
         The `tile_log` operation computes the natural logarithm of each element in the input tile.
@@ -148,15 +150,9 @@ def TTIR_TileLogOp : TTIR_GenericRegionComputeOp<"tile_log"> {
 
     let arguments = (ins TT_Tile:$input);
     let results = (outs TT_Tile:$result);
-
-    let extraClassDeclaration = [{
-      mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
-        return {0};
-      }
-    }];
 }
 
-def TTIR_TileNegativeOp : TTIR_GenericRegionComputeOp<"tile_negative"> {
+def TTIR_TileNegativeOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_negative"> {
     let summary = "TTIR Tile Negative Op";
     let description = [{
         The `tile_negative` operation computes the negative of each element in the input tile.
@@ -164,15 +160,9 @@ def TTIR_TileNegativeOp : TTIR_GenericRegionComputeOp<"tile_negative"> {
 
     let arguments = (ins TT_Tile:$input);
     let results = (outs TT_Tile:$result);
-
-    let extraClassDeclaration = [{
-      mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
-        return {0};
-      }
-    }];
 }
 
-def TTIR_TileCosOp : TTIR_GenericRegionComputeOp<"tile_cos"> {
+def TTIR_TileCosOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_cos"> {
     let summary = "TTIR Tile Cos Op";
     let description = [{
         The `tile_cos` operation computes the cosine function of each element in the input tile.
@@ -180,15 +170,9 @@ def TTIR_TileCosOp : TTIR_GenericRegionComputeOp<"tile_cos"> {
 
     let arguments = (ins TT_Tile:$input);
     let results = (outs TT_Tile:$result);
-
-    let extraClassDeclaration = [{
-      mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
-        return {0};
-      }
-    }];
 }
 
-def TTIR_TileRsqrtOp : TTIR_GenericRegionComputeOp<"tile_rsqrt"> {
+def TTIR_TileRsqrtOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_rsqrt"> {
     let summary = "TTIR Tile Rsqrt Op";
     let description = [{
         The `tile_rsqrt` operation computes the reciprocal sqrt function of each element in the input tile.
@@ -196,15 +180,9 @@ def TTIR_TileRsqrtOp : TTIR_GenericRegionComputeOp<"tile_rsqrt"> {
 
     let arguments = (ins TT_Tile:$input);
     let results = (outs TT_Tile:$result);
-
-    let extraClassDeclaration = [{
-      mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
-        return {0};
-      }
-    }];
 }
 
-def TTIR_TileSinOp : TTIR_GenericRegionComputeOp<"tile_sin"> {
+def TTIR_TileSinOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_sin"> {
     let summary = "TTIR Tile Sin Op";
     let description = [{
         The `tile_sin` operation computes the sine function of each element in the input tile.
@@ -212,15 +190,9 @@ def TTIR_TileSinOp : TTIR_GenericRegionComputeOp<"tile_sin"> {
 
     let arguments = (ins TT_Tile:$input);
     let results = (outs TT_Tile:$result);
-
-    let extraClassDeclaration = [{
-      mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
-        return {0};
-      }
-    }];
 }
 
-def TTIR_TileSigmoidOp : TTIR_GenericRegionComputeOp<"tile_sigmoid"> {
+def TTIR_TileSigmoidOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_sigmoid"> {
     let summary = "TTIR Tile Sigmoid Op";
     let description = [{
         The `tile_sigmoid` operation computes the sigmoid of each element in the input tile.
@@ -228,15 +200,9 @@ def TTIR_TileSigmoidOp : TTIR_GenericRegionComputeOp<"tile_sigmoid"> {
 
     let arguments = (ins TT_Tile:$input);
     let results = (outs TT_Tile:$result);
-
-    let extraClassDeclaration = [{
-      mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
-        return {0};
-      }
-    }];
 }
 
-def TTIR_TileCeilOp : TTIR_GenericRegionComputeOp<"tile_ceil"> {
+def TTIR_TileCeilOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_ceil"> {
     let summary = "TTIR Tile Ceil Op";
     let description = [{
         The `tile_ceil` operation computes the ceiling function of each element in the input tile.
@@ -244,15 +210,9 @@ def TTIR_TileCeilOp : TTIR_GenericRegionComputeOp<"tile_ceil"> {
 
     let arguments = (ins TT_Tile:$input);
     let results = (outs TT_Tile:$result);
-
-    let extraClassDeclaration = [{
-      mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
-        return {0};
-      }
-    }];
 }
 
-def TTIR_TileMaximumOp : TTIR_GenericRegionComputeOp<"tile_maximum">{
+def TTIR_TileMaximumOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_maximum">{
     let summary = "TTIR Tile Maximum Op";
     let description = [{
         The `tile_maximum` operation calculates the maximum of two tensors element-wise.
@@ -260,12 +220,6 @@ def TTIR_TileMaximumOp : TTIR_GenericRegionComputeOp<"tile_maximum">{
 
     let arguments = (ins TT_Tile:$lhs, TT_Tile:$rhs);
     let results = (outs TT_Tile:$result);
-
-    let extraClassDeclaration = [{
-      mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
-        return {0, 1};
-      }
-    }];
 }
 
 def TTIR_TileReduceSumOp : TTIR_GenericRegionComputeOp<"tile_reduce_sum">{
@@ -301,11 +255,11 @@ def TTIR_TileMatmulOp : TTIR_GenericRegionComputeOp<"tile_matmul"> {
   let arguments = (ins TT_Tile:$a, TT_Tile:$b, TT_Tile:$c);
   let results = (outs TT_Tile:$result);
 
-    let extraClassDeclaration = [{
-      mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
-        return {2};
-      }
-    }];
+  let extraClassDeclaration = [{
+    mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+      return {2};
+    }
+  }];
 }
 
 def TTIR_TileMatmulBlockOp : TTIR_GenericRegionComputeOp<"tile_matmul_block",
@@ -360,7 +314,7 @@ def TTIR_TileUntilizeBlockOp : TTIR_GenericRegionComputeOp<"tile_untilize_block"
     let hasVerifier = 1;
 }
 
-def TTIR_TileTypecastOp : TTIR_GenericRegionComputeOp<"tile_typecast"> {
+def TTIR_TileTypecastOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_typecast"> {
     let summary = "TTIR Tile Typecast Op";
     let description = [{
         The `tile_typecast` operation casts the input tile to the desired dataformat.
@@ -368,12 +322,6 @@ def TTIR_TileTypecastOp : TTIR_GenericRegionComputeOp<"tile_typecast"> {
 
     let arguments = (ins TT_Tile:$input);
     let results = (outs TT_Tile:$result);
-
-    let extraClassDeclaration = [{
-      mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
-        return {0};
-      }
-    }];
 }
 
 //===----------------------------------------------------------------------===//

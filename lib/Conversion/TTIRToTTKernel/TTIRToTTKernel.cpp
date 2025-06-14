@@ -80,9 +80,9 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
 static Value getDstIdxFromResult(Value ttirOpResult) {
   memref::StoreOp storeOp;
   for (Operation *op : ttirOpResult.getUsers()) {
-    auto store = mlir::dyn_cast<memref::StoreOp>(op);
-    if (store &&
-        tt::getMemorySpace(store.getMemRef()) == tt::MemorySpace::RegisterDst) {
+    auto maybeStore = mlir::dyn_cast<memref::StoreOp>(op);
+    if (maybeStore && tt::getMemorySpace(maybeStore.getMemRef()) ==
+                          tt::MemorySpace::RegisterDst) {
       storeOp = mlir::cast<memref::StoreOp>(op);
       break;
     }
@@ -156,8 +156,8 @@ public:
   matchAndRewrite(ttir::AcquireDstOp op, ttir::AcquireDstOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     rewriter.create<ttkernel::TileRegsAcquireOp>(op.getLoc());
-    rewriter.replaceOpWithNewOp<arith::ConstantOp>(op, rewriter.getIndexType(),
-                                                   rewriter.getIndexAttr(0));
+    // Dst is an implicit resource in TTKernel, so we can just erase it.
+    rewriter.eraseOp(op);
     return success();
   };
 };

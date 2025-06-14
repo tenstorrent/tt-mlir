@@ -3845,26 +3845,21 @@ mlir::tt::ttir::GenericOp::getParticipatingLoopDims(int64_t operandIndex) {
       llvm::make_filter_range(indexingMap.getResults(), [](AffineExpr expr) {
         return mlir::isa<AffineDimExpr>(expr);
       });
-  return llvm::to_vector(llvm::map_range(dimExprs, [](AffineExpr expr) {
+  return llvm::map_to_vector(dimExprs, [](AffineExpr expr) {
     return static_cast<int64_t>(mlir::cast<AffineDimExpr>(expr).getPosition());
-  }));
+  });
 }
 
 mlir::SmallVector<int64_t>
 mlir::tt::ttir::GenericOp::getNonParticipatingLoopDims(int64_t operandIndex) {
   AffineMap indexingMap = getIndexingMap(operandIndex);
-  auto allDims = llvm::seq<int64_t>(indexingMap.getNumDims());
   SmallVector<int64_t> participatingDims =
       getParticipatingLoopDims(operandIndex);
-  llvm::sort(participatingDims);
-  // Return set difference:
-  //   (allDims - participatingDims)
-  SmallVector<int64_t> nonParticipatingDims;
-  std::set_difference(
-      allDims.begin(), allDims.end(), participatingDims.begin(),
-      participatingDims.end(),
-      std::inserter(nonParticipatingDims, nonParticipatingDims.begin()));
-  return nonParticipatingDims;
+  llvm::BitVector nonParticipatingDims(indexingMap.getNumDims(), true);
+  llvm::for_each(participatingDims, [&nonParticipatingDims](int64_t dim) {
+    nonParticipatingDims.reset(dim);
+  });
+  return llvm::SmallVector<int64_t>(nonParticipatingDims.set_bits());
 }
 
 void mlir::tt::ttir::GenericOp::getAsmBlockArgumentNames(

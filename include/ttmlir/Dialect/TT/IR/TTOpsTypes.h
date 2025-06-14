@@ -353,12 +353,12 @@ inline MemorySpace getMemorySpace(MemRefType memref) {
       mlir::cast<tt::MemorySpaceAttr>(memref.getMemorySpace()));
 }
 
-inline MemorySpace getMemorySpace(Type memref) {
-  return getMemorySpace(mlir::cast<MemRefType>(memref));
+inline MemorySpace getMemorySpace(Type memrefType) {
+  return getMemorySpace(mlir::cast<MemRefType>(memrefType));
 }
 
-inline MemorySpace getMemorySpace(Value memref) {
-  return getMemorySpace(memref.getType());
+inline MemorySpace getMemorySpace(Value memrefTypedValue) {
+  return getMemorySpace(memrefTypedValue.getType());
 }
 
 } // namespace mlir::tt

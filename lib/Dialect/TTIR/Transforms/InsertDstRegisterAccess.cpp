@@ -4,7 +4,6 @@
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
-#include "ttmlir/LoopUtils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
@@ -83,6 +82,7 @@ public:
             });
       }
     } else {
+      static_assert(std::is_same_v<GenericOrFuncOp, func::FuncOp>);
       ttir::ThreadAttr threadAttr =
           op->template getAttrOfType<ttir::ThreadAttr>(ttir::ThreadAttr::name);
       if (threadAttr && threadAttr.getThreadType() == ThreadType::Compute) {
@@ -183,8 +183,8 @@ public:
 
       // Collect loads to this op.
       for (int64_t operandIdx : op.getOperandsLoadFromDstRegister()) {
-        if (auto potentialLoad = mlir::dyn_cast<affine::AffineLoadOp>(
-                op->getOperand(operandIdx).getDefiningOp());
+        if (auto potentialLoad = op->getOperand(operandIdx)
+                                     .getDefiningOp<affine::AffineLoadOp>();
             notDstMemspace(potentialLoad)) {
           SmallVector<int64_t> dstExtents =
               collectDstAccess<affine::AffineLoadOp>(
@@ -221,7 +221,7 @@ public:
                    llvm::function_ref<SmallVector<int64_t>(int64_t)>
                        getNonParticipatingLoopDims) {
     Operation *ancestor =
-        ttmlir::utils::getOutermostLoopNest<affine::AffineForOp>(
+        ttmlir::utils::loop::getOutermostLoopNest<affine::AffineForOp>(
             loadOrStore.getOperation());
     if (!ancestor) {
       // If there is no loop nest the common ancestor is the operation itself.
@@ -346,8 +346,7 @@ public:
     }
 
     for (auto [loadStore, dstIndexOffset] : loadStoreOps) {
-      Block *fromScope =
-          ttmlir::utils::getLoopNestLevel(loadStore.getIndices());
+      Block *fromScope = loadStore->getBlock();
       Block *toScope = irMapper.lookupOrNull(fromScope);
       if (toScope) {
         Operation *terminator = toScope->getTerminator();
