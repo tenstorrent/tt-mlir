@@ -58,17 +58,19 @@ protected:
 
       // Logical shape is initial tensor shape.
       llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
+      assert(deviceGridRank <= logicalShape.size());
 
       // Create default grid shape based on deviceGridRank.
       llvm::SmallVector<int64_t> gridShape;
-      for (uint64_t i = 0; i < deviceGridRank && i < logicalShape.size(); ++i) {
+      for (uint64_t i = 0; i < deviceGridRank; ++i) {
         gridShape.push_back(1);
       }
 
       // Create default tile element type.
       Type elementType = tensorType.getElementType();
       llvm::SmallVector<int64_t> tileShape;
-      if (tiled && logicalShape.size() >= 2) {
+      assert(logicalShape.size() >= 2);
+      if (tiled) {
         auto defaultShape = TileType::getDefaultShape();
         tileShape.assign(defaultShape.begin(), defaultShape.end());
         elementType = tt::TileType::get(elementType, tileShape);
