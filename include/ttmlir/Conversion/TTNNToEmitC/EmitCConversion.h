@@ -1344,11 +1344,11 @@ public:
     auto convertedValue = EmitCTypeConverter<TargetTy>::convert(attr);
     if constexpr (std::is_same_v<decltype(convertedValue), std::string>) {
       return rewriter.getType<emitc::OpaqueAttr>(convertedValue);
-      // It's assumed that the conversion might fail, in which case the result
-      // will be `emitc::OpaqueAttr("::std::nullopt")`.
     } else if (convertedValue) {
       return rewriter.getType<emitc::OpaqueAttr>(*convertedValue);
     }
+    // It's assumed that the conversion might fail, in which case the result
+    // will be `emitc::OpaqueAttr("::std::nullopt")`.
     return emit(std::nullopt);
   }
 
