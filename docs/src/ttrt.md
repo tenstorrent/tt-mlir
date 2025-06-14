@@ -49,10 +49,18 @@ pip install ttrt-0.0.235-cp310-cp310-linux_x86_64.whl
 ## Generate a flatbuffer file from ttir-builder
 [`ttir-builder`](./ttir-builder.md) is a tool for creating TTIR ops and converting them into MLIR modules, running passes to lower into backends, and translate to flatbuffers.
 
+1. Build [tt-mlir](./getting-started.md)
+2. Build ttrt (see building section on this page)
+3. Generate ttsys file from the system you want to compile for using ttrt. This will create a `system_desc.ttsys` file under `ttrt-artifacts` folder.
+```bash
+ttrt query --save-artifacts
+```
+4. Export this file in your environment using `export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys`. `ttir_builder.utils` uses the `system_desc.ttsys` file as it runs a pass over an MLIR module to the TTNN or TTMetal backend.
+
 ## Generate a flatbuffer file from compiler
 The compiler supports a pass to load a system descriptor to compile against. You can feed this pass into ttmlir-opt.
 
-1. Build [ttmlir](./build.md)
+1. Build [tt-mlir](./getting-started.md)
 2. Build ttrt (see building section on this page)
 3. Generate ttsys file from the system you want to compile for using ttrt. This will create a `system_desc.ttsys` file under `ttrt-artifacts` folder.
 ```bash
@@ -76,7 +84,7 @@ ttrt run /path/to/out.ttnn
 ## Generate flatbuffer files using llvm-lit
 There are already existing .mlir test cases under `test/ttmlir/Silicon`. You can use llvm-lit tool to generate the corresponding ttnn and ttm files.
 
-1. Build [ttmlir](./build.md)
+1. Build [tt-mlir](./getting-started.md)
 2. Build ttrt (see building section on this page)
 3. Generate ttsys file from the system you want to compile for using ttrt. This will create a `system_desc.ttsys` file under `ttrt-artifacts` folder.
 ```bash
@@ -454,7 +462,7 @@ This incremental build should be sufficient. If it does not resolve the error, p
 This ensures that all previous build artifacts and dependencies are removed, preventing conflicts or stale files from affecting the new build.
 
 3. **Rebuild from scratch:**
-After clearing the build directories, rebuild the project from the ground up. This ensures that the build process incorporates all the necessary components without any remnants of previous builds. [Build Instructions](./build.md#build)
+After clearing the build directories, rebuild the project from the ground up. This ensures that the build process incorporates all the necessary components without any remnants of previous builds. [Build Instructions](./getting-started.md#building-the-tt-mlir-project)
 
 4. **Switch build configurations:**
 If switching from a Debug to a Release build (or vice versa), ensure that you clean the build environment before transitioning. This avoids inconsistencies between build configurations and potential issues with optimization levels or debugging symbols.
