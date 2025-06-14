@@ -2453,28 +2453,27 @@ mlir::tt::ttir::ViewLayoutOp::getBufferType(
 mlir::OpFoldResult mlir::tt::ttir::ViewLayoutOp::fold(FoldAdaptor adaptor) {
   ViewLayoutOp consecutiveView =
       getInput().getDefiningOp<mlir::tt::ttir::ViewLayoutOp>();
-  if (consecutiveView) {
-    // Replace the input through the consecutive view.
-    this->setOperand(consecutiveView.getInput());
+  if (!consecutiveView) {
+    return nullptr;
+  }
 
-    // If we're dealing with memrefs, we need to compose the layouts.
-    MemRefType inputType =
-        mlir::dyn_cast<MemRefType>(consecutiveView.getResult().getType());
-    if (inputType) {
-      MemRefType resultType = mlir::cast<MemRefType>(getResult().getType());
-      ViewLayoutAttr inputView =
-          mlir::cast<ViewLayoutAttr>(inputType.getLayout());
-      ViewLayoutAttr resultView =
-          mlir::cast<ViewLayoutAttr>(resultType.getLayout());
-      ViewLayoutAttr newView = inputView.compose(resultView);
-      getResult().setType(MemRefType::get(resultType.getShape(),
-                                          resultType.getElementType(), newView,
-                                          resultType.getMemorySpace()));
-    }
+  // Replace the input through the consecutive view.
+  setOperand(consecutiveView.getInput());
+
+  MemRefType inputType = mlir::dyn_cast<MemRefType>(consecutiveView.getType());
+  if (!inputType) {
     return getResult();
   }
 
-  return nullptr;
+  // If we're dealing with memrefs, we need to compose the layouts.
+  MemRefType resultType = mlir::cast<MemRefType>(getType());
+  ViewLayoutAttr inputView = mlir::cast<ViewLayoutAttr>(inputType.getLayout());
+  ViewLayoutAttr resultView =
+      mlir::cast<ViewLayoutAttr>(resultType.getLayout());
+  ViewLayoutAttr newView = inputView.compose(resultView);
+  getResult().setType(MemRefType::Builder(resultType).setLayout(newView));
+
+  return getResult();
 }
 
 //===----------------------------------------------------------------------===//
