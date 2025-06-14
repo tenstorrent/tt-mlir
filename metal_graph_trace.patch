@@ -1,0 +1,180 @@
+commit 9b892206bae1645759ea63c8ecc3ff69253e4349
+Author: svuckovic <svuckovic@tenstorrent.com>
+Date:   Sat Jun 14 16:41:31 2025 +0000
+
+    wip
+
+diff --git a/tt_metal/api/tt-metalium/graph_tracking.hpp b/tt_metal/api/tt-metalium/graph_tracking.hpp
+index d81929be64..9c4933430b 100644
+--- a/tt_metal/api/tt-metalium/graph_tracking.hpp
++++ b/tt_metal/api/tt-metalium/graph_tracking.hpp
+@@ -115,6 +115,7 @@ public:
+         }
+         std::array<std::any, sizeof...(Args)> params{std::any(std::ref(args))...};
+         for (auto& it : processors) {
++            std::cout << "~!~!~! TRACKING FUNCTION: " << function_name << std::endl;
+             it->track_function_start(function_name, params);
+         }
+     }
+diff --git a/ttnn/api/ttnn/decorators.hpp b/ttnn/api/ttnn/decorators.hpp
+index b7937cc1b7..ce4a38271a 100644
+--- a/ttnn/api/ttnn/decorators.hpp
++++ b/ttnn/api/ttnn/decorators.hpp
+@@ -5,6 +5,9 @@
+ #pragma once
+ 
+ #include <reflect>
++#include <iostream>
++#include <fstream>
++#include <string>
+ 
+ #include <tt-metalium/graph_tracking.hpp>
+ #include <tracy/Tracy.hpp>
+@@ -71,6 +74,55 @@ static const std::string python_fully_qualified_name(const std::string& cpp_full
+     return replace(cpp_fully_qualified_name, "::", ".");
+ }
+ 
++// Appends character 'X' to the file
++static const void callstackIncr() {
++    std::ofstream out("/tmp/callstack_counter.txt", std::ios::app | std::ios::binary);
++    if (!out) {
++        std::cerr << "Failed to open file for appending.\n";
++        return;
++    }
++    out << 'X';
++}
++
++// Removes the last character from the file
++static const void callstackDecr() {
++    std::ifstream in("/tmp/callstack_counter.txt", std::ios::binary);
++    if (!in) {
++        std::cerr << "Failed to open file for reading.\n";
++        return;
++    }
++
++    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
++    in.close();
++
++    if (content.empty()) {
++        std::cerr << "File is already empty.\n";
++        return;
++    }
++
++    content.pop_back();
++
++    std::ofstream out("/tmp/callstack_counter.txt", std::ios::trunc | std::ios::binary);
++    if (!out) {
++        std::cerr << "Failed to open file for writing.\n";
++        return;
++    }
++
++    out << content;
++}
++
++// Returns the number of characters in the file
++static const size_t callstackCnt() {
++    std::ifstream in("/tmp/callstack_counter.txt", std::ios::binary);
++    if (!in) {
++        std::cerr << "Failed to open file for reading.\n";
++        return 0;
++    }
++
++    in.seekg(0, std::ios::end);
++    return static_cast<size_t>(in.tellg());
++}
++
+ }  // namespace detail
+ 
+ // Primitive operations map directly to device operations
+@@ -111,6 +163,7 @@ struct registered_operation_t {
+     template <typename First, typename... Rest>
+         requires std::same_as<std::decay_t<First>, QueueId>
+     auto operator()(First&& first, Rest&&... rest) const {
++        // std::cout << "Operation 1: " << std::string_view(cpp_fully_qualified_name) << std::endl;
+         return traced_invoke(std::forward<First>(first), std::forward<Rest>(rest)...);
+     }
+ 
+@@ -118,6 +171,7 @@ struct registered_operation_t {
+     template <typename... Args>
+         requires(sizeof...(Args) == 0 || (!FirstArgIs<QueueId, Args...> && HasInvoke<operation_t, Args && ...>))
+     auto operator()(Args&&... args) const {
++        // std::cout << "Operation 2a: " << std::string_view(cpp_fully_qualified_name) << std::endl;
+         return traced_invoke(std::forward<Args>(args)...);
+     }
+ 
+@@ -128,19 +182,35 @@ struct registered_operation_t {
+             sizeof...(Args) == 0 || (!FirstArgIs<QueueId, Args...> && !HasInvoke<operation_t, Args && ...> &&
+                                      HasInvoke<operation_t, QueueId, Args && ...>))
+     auto operator()(Args&&... args) const {
++        // std::cout << "Operation 2b: " << std::string_view(cpp_fully_qualified_name) << std::endl;
+         return traced_invoke(DefaultQueueId, std::forward<Args>(args)...);
+     }
+ 
+ private:
+     template <typename... args_t>
+     auto traced_invoke(args_t&&... args) const {
++        // std::cout << "callstack depth before: " << detail::callstackCnt() << std::endl;
++        detail::callstackIncr();
++        // std::cout << "callstack depth after: " << detail::callstackCnt() << std::endl;
+         tt::log_debug(tt::LogOp, "Started C++ ttnn operation: {}", std::string_view{cpp_fully_qualified_name});
+-        tt::tt_metal::GraphTracker::instance().track_function_start(cpp_fully_qualified_name, args...);
++        // std::cout the same as above
++        bool do_trace = false;
++        if (detail::callstackCnt() == 1) {
++            std::cout << "Started C++ ttnn operation: " << std::string_view{cpp_fully_qualified_name} << std::endl;
++            do_trace = true;
++        }
++
++        if (do_trace) {
++            tt::tt_metal::GraphTracker::instance().track_function_start(cpp_fully_qualified_name, args...);
++        }
+ 
+         auto output = invoke(std::forward<args_t>(args)...);
+ 
+-        tt::tt_metal::GraphTracker::instance().track_function_end(output);
++        if (do_trace) {
++            tt::tt_metal::GraphTracker::instance().track_function_end(output);
++        }
+         tt::log_debug(tt::LogOp, "Finished C++ ttnn operation: {}", std::string_view{cpp_fully_qualified_name});
++        detail::callstackDecr();
+         return output;
+     }
+ 
+diff --git a/ttnn/api/ttnn/device_operation.hpp b/ttnn/api/ttnn/device_operation.hpp
+index 5966a878d8..169f562b92 100644
+--- a/ttnn/api/ttnn/device_operation.hpp
++++ b/ttnn/api/ttnn/device_operation.hpp
+@@ -376,6 +376,8 @@ void enqueue_mesh_workload(
+         tt::tt_metal::distributed::EnqueueMeshWorkload(mesh_device->mesh_command_queue(*cq_id), workload, false);
+     }
+ 
++    // std::cout << "asdfqwert" << std::endl;
++
+     TracyOpMeshWorkload(
+         mesh_device, workload, mesh_device_operation_t{}, operation_attributes, tensor_args, tensor_return_value);
+ }
+diff --git a/ttnn/core/tensor/tensor.cpp b/ttnn/core/tensor/tensor.cpp
+index a19401a4d4..94b74fb861 100644
+--- a/ttnn/core/tensor/tensor.cpp
++++ b/ttnn/core/tensor/tensor.cpp
+@@ -547,13 +547,13 @@ bool Tensor::is_scalar() const {
+ 
+ Tensor create_device_tensor(const TensorSpec& tensor_spec, IDevice* device) {
+     ZoneScoped;
+-    GraphTracker::instance().track_function_start(
+-        "tt::tt_metal::create_device_tensor",
+-        tensor_spec.logical_shape(),
+-        tensor_spec.tensor_layout().get_data_type(),
+-        tensor_spec.tensor_layout().get_layout(),
+-        device,
+-        tensor_spec.tensor_layout().get_memory_config());
++    // GraphTracker::instance().track_function_start(
++    //     "tt::tt_metal::create_device_tensor",
++    //     tensor_spec.logical_shape(),
++    //     tensor_spec.tensor_layout().get_data_type(),
++    //     tensor_spec.tensor_layout().get_layout(),
++    //     device,
++    //     tensor_spec.tensor_layout().get_memory_config());
+ 
+     Tensor output;
+     if (distributed::MeshDevice* mesh_device = dynamic_cast<distributed::MeshDevice*>(device)) {
