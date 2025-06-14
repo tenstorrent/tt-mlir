@@ -498,6 +498,47 @@ T castContainer(const From &value) {
   return T(value.begin(), value.end());
 };
 
+namespace loop {
+
+template <typename OpType>
+OpType getOutermostLoopNest(mlir::Operation *op) {
+  OpType opType = mlir::dyn_cast<OpType>(op);
+  OpType maybeOuter = mlir::dyn_cast<OpType>(op->getParentOp());
+  while (maybeOuter) {
+    opType = maybeOuter;
+    maybeOuter = mlir::dyn_cast<OpType>(maybeOuter->getParentOp());
+  }
+  return opType;
+}
+
+template <typename OpType>
+OpType getOutermostLoopNest(mlir::Region *region) {
+  return getOutermostLoopNest<OpType>(region->getParentOp());
+}
+
+template <typename OpType>
+OpType getOutermostLoopNest(mlir::Block *block) {
+  return getOutermostLoopNest<OpType>(block->getParent());
+}
+
+template <typename OpType>
+OpType getOutermostLoopNest(mlir::OpOperand &use) {
+  return getOutermostLoopNest<OpType>(use.getOwner());
+}
+
+template <typename OpType>
+OpType getOutermostLoopNest(mlir::Value value) {
+  return getOutermostLoopNest<OpType>(value.getParentRegion());
+}
+
+template <typename OpType>
+OpType getOutermostLoopNest(mlir::ValueRange values) {
+  assert(!values.empty());
+  return getOutermostLoopNest<OpType>(values.front());
+}
+
+} // namespace loop
+
 } // namespace ttmlir::utils
 
 #endif // TTMLIR_UTILS_H
