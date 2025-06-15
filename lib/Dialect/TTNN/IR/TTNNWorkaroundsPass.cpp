@@ -414,14 +414,6 @@ TTNNOperandsWorkaroundsFactory::createUpdateCacheOpOperandsWorkarounds(
 static std::optional<DataType> binaryOpDTypeWorkaround(mlir::Operation *op,
                                                        Type elementType) {
   DataType dType = elementTypeToDataType(elementType);
-
-  if (isa<ttnn::AddOp, ttnn::SubtractOp>(op)) {
-    if (dType == DataType::Float32 || dType == DataType::BFloat16 ||
-        dType == DataType::BFP_BFloat8 || dType == DataType::BFP_BFloat4) {
-      return {};
-    }
-    return DataType::BFloat16;
-  }
   // Left shift and right shift ops have same requirements but they are not
   // implemented for TTNN dialect currently.
   if (isa<ttnn::BitwiseAndOp, ttnn::BitwiseOrOp, ttnn::BitwiseXorOp>(op)) {
@@ -432,7 +424,8 @@ static std::optional<DataType> binaryOpDTypeWorkaround(mlir::Operation *op,
   }
   // All remaining binary ops.
   if (dType == DataType::Float32 || dType == DataType::BFloat16 ||
-      dType == DataType::BFP_BFloat8 || dType == DataType::BFP_BFloat4) {
+      dType == DataType::BFP_BFloat8 || dType == DataType::BFP_BFloat4 ||
+      dType == DataType::Int32) {
     return {};
   }
   return DataType::BFloat16;
