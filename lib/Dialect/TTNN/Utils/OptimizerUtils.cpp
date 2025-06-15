@@ -5,7 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 
 #include "mlir/IR/MLIRContext.h"
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Support/Logger.h"
 

@@ -8,7 +8,7 @@ import functools
 import textwrap
 import os
 from ttmlir.ir import *
-from ttmlir.dialects import tt, ttkernel, func, scf, arith, memref, emitc
+from ttmlir.dialects import ttcore, ttkernel, func, scf, arith, memref, emitc
 from ttmlir.passes import ttkernel_to_cpp, pykernel_compile_pipeline
 
 
@@ -235,8 +235,8 @@ class TTKernelCompiler(ast.NodeVisitor):
                 raise TypeError(f"cannot pass {arg.annotation.id} to a pykernel")
 
             # Follow normal logic to construct CBs
-            tile_type = tt.ir.TileType.get(
-                self.ctx, 32, 32, getattr(tt.DataType, self.args[i].dtype)
+            tile_type = ttcore.ir.TileType.get(
+                self.ctx, 32, 32, getattr(ttcore.DataType, self.args[i].dtype)
             )
             cb_type = ttkernel.ir.CBType.get(
                 self.ctx,  # mlir context

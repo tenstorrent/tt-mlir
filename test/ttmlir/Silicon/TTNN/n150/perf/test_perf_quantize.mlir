@@ -13,7 +13,7 @@ module {
     // CHECK-SAME: fill_value = 2.000000e-02 : f32
     // CHECK-SAME: -> tensor<1xf32,
     // CHECK: "ttnn.quantize"
-    // CHECK-SAME: {output_dtype = #tt.supportedDataTypes<si32>}
+    // CHECK-SAME: {output_dtype = #ttcore.supportedDataTypes<si32>}
     // CHECK-SAME: tensor<1x3x224x224xf32
     // CHECK-SAME: -> tensor<1x3x224x224x!quant.uniform<i32:f32, 2.000000e-02>,
     %1 = "ttir.constant"() <{value = dense<2.000000e-02> : tensor<1xf32>}> : () -> tensor<1xf32>
