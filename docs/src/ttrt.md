@@ -34,7 +34,7 @@ TTRT_LOGGER_LEVEL=DEBUG
 ```
 
 ## Installing ttrt as python whls
-Everytime you build ttrt, it will create a whls file in `build/runtime/tools/ttrt/build`. Ex filename `ttrt-0.0.235-cp310-cp310-linux_x86_64.whl`. You can take this whls file and install it in any docker container and in any venv outside of ttmlir. After which, you can use all the following functionality as the same.
+Everytime you build ttrt, it will create a whls file in `build/runtime/tools/ttrt/build`. Ex filename: `ttrt-0.0.235-cp310-cp310-linux_x86_64.whl`. You can take this whls file and install it in any docker container and in any venv outside of ttmlir. After which, you can use all the following functionality as the same.
 1. Download whls
 2. Create a python venv
 ```bash
@@ -47,15 +47,7 @@ pip install ttrt-0.0.235-cp310-cp310-linux_x86_64.whl
 ```
 
 ## Generate a flatbuffer file from ttir-builder
-[`ttir-builder`](./ttir-builder.md) is a tool for creating TTIR ops and converting them into MLIR modules, running passes to lower into backends, and translate to flatbuffers.
-
-1. Build [tt-mlir](./getting-started.md)
-2. Build ttrt (see building section on this page)
-3. Generate ttsys file from the system you want to compile for using ttrt. This will create a `system_desc.ttsys` file under `ttrt-artifacts` folder.
-```bash
-ttrt query --save-artifacts
-```
-4. Export this file in your environment using `export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys`. `ttir_builder.utils` uses the `system_desc.ttsys` file as it runs a pass over an MLIR module to the TTNN or TTMetal backend.
+[`ttir-builder`](./ttir-builder.md) is a tool for creating TTIR ops, converting them into MLIR modules, running passes to lower modules into backends, and translating to flatbuffers. See documentation for further instructions.
 
 ## Generate a flatbuffer file from compiler
 The compiler supports a pass to load a system descriptor to compile against. You can feed this pass into ttmlir-opt.
@@ -68,9 +60,9 @@ ttrt query --save-artifacts
 ```
 4. Use ttmlir-opt tool in compiler to feed system descriptor. See the [ttmlir-opt](./ttmlir-opt.md) documentation for more information on how to generate .mlir files.
 ```bash
-./build/bin/ttmlir-opt --tt-register-device="system-desc-path=/path/to/system_desc.ttsys" --ttir-to-ttnn-backend-pipeline test/ttmlir/Dialect/TTNN/simple_subtract.mlir -o ttnn.mlir
+./build/bin/ttmlir-opt --tt-register-device="system-desc-path=/path/to/system_desc.ttsys" --ttir-to-ttnn-backend-pipeline test/ttmlir/Dialect/TTNN/simple_subtract_to_add.mlir -o ttnn.mlir
 or (pipe path directly into ttir-to-ttnn-backend-pipeline)
-./build/bin/ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=/path/to/system_desc.ttsys" test/ttmlir/Dialect/TTNN/simple_subtract.mlir -o ttnn.mlir
+./build/bin/ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=/path/to/system_desc.ttsys" test/ttmlir/Dialect/TTNN/simple_subtract_to_add.mlir -o ttnn.mlir
 ```
 5. Use ttmlir-translate tool in compiler to generate the flatbuffer executable. See the [ttmlir-translate](./ttmlir-translate.md) documentation for more information on how to generate flatbuffer files.
 ```bash
@@ -126,6 +118,8 @@ ttrt and flatbuffers have strict versioning check. When running a flatbuffer aga
 vmajor.minor.patch
 ```
 
+The flag `--ignore-version` can be used to bypass versioning checks. Use at your own risk; it can cause unpredictable errors.
+
 ## APIs
 ```bash
 ttrt --help
@@ -162,7 +156,7 @@ ttrt read out.ttnn --save-artifacts --artifact-dir /path/to/some/dir
 ttrt read out.ttnn --result-file result.json
 ```
 
-### run
+### run ** allclose?
 Run a binary file or a directory of binary files
 Note: It's required to be on a system with silicon and to have a runtime enabled build `-DTTMLIR_ENABLE_RUNTIME=ON`.
 
@@ -308,11 +302,6 @@ custom_logger = Logger(log_file_name)
 read_instance = API.Read(logger=custom_logger)
 ```
 
-To set logging level through the terminal, use environment variable TTRT_LOGGER_LEVEL.
-```bash
-   export TTRT_LOGGER_LEVEL=DEBUG
-```
-
 #### artifacts
 You can specify a specific artifacts directory to store all the generate metadata during the execution of any API run. This allows you to specify different artifact directories if you wish for different instances of APIs.
 
@@ -365,7 +354,7 @@ result_code, results = run_instance()
 ## Bonus Section: Extending runtime to other FE's
 MLIR Runtime exposes a feature to register python callback functions. Any two python fuctions can be provided - the first function will be executed before every op in MLIR Runtime, the second after every op. The following steps describe how to extend your application to register python functions.
 
-1. Pybind DebugHooks C++ class, specifically `tt::runtime::debug::Hooks::get`. See `runtime/tools/ttrt/ttrt/runtime/module.cpp` for an example of how TTRT pybinds it.
+1. Pybind DebugHooks C++ class, specifically `tt::runtime::debug::Hooks::get`. See `runtime/python/runtime/runtime.cpp` for an example of how TTRT pybinds it.
 ```bash
 tt::runtime::debug::Hooks
 tt::runtime::debug::Hooks::get
@@ -373,6 +362,8 @@ tt::runtime::debug::Hooks::get
 
 2. Register callback functions in your python script. The following is registering two golden python functions. Assume the Debug Hooks get function has been pybinded to `ttrt.runtime.DebugHooks.get`
 ```bash
+import ttrt.runtime
+
 callback_env = ttrt.runtime.DebugHooks.get(preOpGolden, postOpGolden)
 ```
 
@@ -384,7 +375,7 @@ def preOpGolden(binary, program_context, op_context):
 `program_context`: reference to the program currently running, ttrt.runtime ProgramContext object
 `op_context`: reference to the op that is currently running, ttrt.runtime OpContext object
 
-4. Each of these parameters has certain APIs exposed which can be called within the callback functions
+4. Each of these parameters has certain APIs exposed which can be called within the callback functions.
 ```bash
 loc = ttrt.runtime.get_op_loc_info(op_context) : get the location of the op as a string which is used as the key when indexing the golden tensors stored in the flatbuffer
 op_debug_str = ttrt.runtime.get_op_debug_str(op_context) : get the op debug str (contains op metadata inculding op type, attributes, input tensor shapes and dtypes, memref with layout and buffer type, and loc)
@@ -445,18 +436,18 @@ To resolve issues stemming from these synchronization problems, follow this work
 
 1. **Incremental build**
 ```bash
-  # make some changes
-  # commit
-  cmake --build build
-  cmake --build build -- ttrt
-  # note you need to generate system_desc and flatbuffer again once you do this
+# make some changes
+# commit
+cmake --build build
+cmake --build build -- ttrt
+# note you need to generate system_desc and flatbuffer again once you do this
 ```
 
 This incremental build should be sufficient. If it does not resolve the error, please file an issue and proceed with the following steps for now.
 
 2. **Clear the existing build and dependencies:**
 ```bash
-   rm -rf build third_party/tt-metal
+rm -rf build third_party/tt-metal
 ```
 
 This ensures that all previous build artifacts and dependencies are removed, preventing conflicts or stale files from affecting the new build.
@@ -474,5 +465,5 @@ By relinquishing and re-acquiring the IRD, you ensure that the correct toolchain
 To gain more insight into potential issues, enable debugging by setting the TT_METAL_LOGGER_LEVEL to DEBUG. This will provide detailed logs, which can help in troubleshooting build or runtime issues.
 
 ```bash
-   export TT_METAL_LOGGER_LEVEL=DEBUG
+export TT_METAL_LOGGER_LEVEL=DEBUG
 ```
