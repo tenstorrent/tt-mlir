@@ -40,6 +40,11 @@ void createTTNNPipelineTTIRPasses(
     pm.addPass(mlir::tt::ttir::createTTIRFusing());
   }
   pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
+
+  if (options.conv2dToMatmulEnabled) {
+    pm.addPass(mlir::tt::ttir::createTTIRConv2DToMatmulPass());
+  }
+
   pm.addPass(mlir::createCanonicalizerPass());
 
   // Inlines all private functions. I.e flattens the program into the main
