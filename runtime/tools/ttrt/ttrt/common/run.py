@@ -1081,13 +1081,18 @@ class Run:
                     bin.test_result = result
                 finally:
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
                     # ttrt.runtime.reshape_mesh_device(device, mesh_shape)
 >>>>>>> f557f140f (back to passing all pytest (disabled dot_general, which needs special treatment follow-up))
+=======
+                    ttrt.runtime.reshape_mesh_device(device, mesh_shape)
+>>>>>>> b107ca675 (fix merge issues/get rid of workaround for running builder tests)
 
                     if self["--emitc"]:
                         ttrt.runtime.test.close_so(emitc_dylib_handle)
 
+<<<<<<< HEAD
 <<<<<<< HEAD
                     ttrt.runtime.unregister_hooks()
 
@@ -1104,6 +1109,10 @@ class Run:
             ttrt.runtime.unregister_hooks()
             ttrt.runtime.close_mesh_device(parent_device)
 >>>>>>> f557f140f (back to passing all pytest (disabled dot_general, which needs special treatment follow-up))
+=======
+            ttrt.runtime.unregister_hooks()
+            ttrt.runtime.close_mesh_device(device)
+>>>>>>> b107ca675 (fix merge issues/get rid of workaround for running builder tests)
 
         self.logging.debug(f"executing ttnn binaries")
         _execute(self.ttnn_binaries)
