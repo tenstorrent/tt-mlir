@@ -129,11 +129,13 @@ set(LINK_DIRS
 set(LINK_LIBS
     tt_metal
     device
-
-    # TTNN
-    # _ttnn  # Why doesn't this work?
-    ${METAL_LIB_DIR}/_ttnncpp.so
 )
+
+if (TTMLIR_ENABLE_TTNN_PY)
+  list(APPEND LINK_LIBS ${METAL_LIB_DIR}/_ttnn.so)
+else()
+  list(APPEND LINK_LIBS ${METAL_LIB_DIR}/_ttnncpp.so)
+endif()
 
 # Compile definitions
 #

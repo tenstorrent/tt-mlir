@@ -5,5 +5,8 @@ add_mlir_unittest(TTNNToEmitCTests
 target_link_libraries(TTNNToEmitCTests
     PRIVATE
     MLIRTTNNPipelines
-    Python3::Python
 )
+
+if (TTMLIR_ENABLE_TTNN_PY)
+    target_link_libraries(TTNNToEmitCTests PRIVATE Python3::Python)
+endif()

@@ -1,4 +1,6 @@
-find_package(Python3 COMPONENTS Development REQUIRED)
+if (TTMLIR_ENABLE_TTNN_PY)
+  find_package(Python3 COMPONENTS Development REQUIRED)
+endif()
 
 add_subdirectory(ttmlir-opt)
 add_subdirectory(ttmlir-lsp-server)

@@ -26,6 +26,10 @@ target_link_libraries(TestOpModelInterface
     MLIRTTIRDialect
     MLIRTTNNDialect
     MLIRTTTransforms
-    Python3::Python
 )
+
+if (TTMLIR_ENABLE_TTNN_PY)
+    target_link_libraries(TestOpModelInterface PRIVATE Python3::Python)
+endif()
+
 endif()
