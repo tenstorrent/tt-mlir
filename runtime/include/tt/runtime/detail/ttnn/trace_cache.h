@@ -42,23 +42,12 @@ public:
   bool erase(uint64_t binaryId, size_t programId,
              const std::string &traceFuncName);
 
-  // Debug stats
-  std::optional<size_t> getDebugStat(const std::string &statName) const;
-  void incrementDebugStat(const std::string &statName) const;
-  void printDebugStats() const;
-  void clearDebugStats() const;
-
 private:
   std::weak_ptr<::ttnn::MeshDevice> meshDevice;
   // Outer key should be combination of device id and program index, created via
-  // generateCacheOuterKey. Inner key will be trace func name.
+  // generateTraceCacheOuterKey. Inner key will be trace func name.
   std::unordered_map<std::string, std::unordered_map<std::string, TraceData>>
       cache;
-
-  // Debug stats, only gathered when TT_RUNTIME_DEBUG is enabled
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  mutable std::unordered_map<std::string, size_t> stats;
-#endif
 };
 } // namespace tt::runtime::ttnn
 
