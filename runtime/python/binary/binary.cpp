@@ -8,6 +8,7 @@
 #include "tt/runtime/types.h"
 
 #include "tt/runtime/detail/python/nanobind_headers.h"
+#include <nanobind/stl/pair.h>
 
 namespace nb = nanobind;
 

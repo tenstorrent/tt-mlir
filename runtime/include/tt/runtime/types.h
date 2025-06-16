@@ -230,7 +230,7 @@ struct Binary : public Flatbuffer {
   std::vector<TensorDesc> getProgramInputs(std::uint32_t programIndex) const;
   std::vector<TensorDesc> getProgramOutputs(std::uint32_t programIndex) const;
   const ::tt::target::GoldenTensor *getDebugInfoGolden(std::string &loc) const;
-  const tt::target::Dim2d *
+  const std::pair<std::uint32_t, std::uint32_t>
   getProgramMeshShape(std::uint32_t programIndex) const;
 
   std::uint64_t id() const;
