@@ -58,6 +58,9 @@ void createTTNNPipelineTTIRPasses(
     pm.addPass(mlir::tt::ttir::createTTIRExplicateTMs());
     pm.addPass(mlir::tt::ttir::createTTIREraseInverseOps());
   }
+  if (options.enableFusing) {
+    pm.addPass(mlir::tt::ttir::createTTIRFusing());
+  }
 }
 
 void createTTNNPipelineAnalysisPasses(
