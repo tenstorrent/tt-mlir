@@ -11,8 +11,9 @@
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
-// Currently, not all ops support implicit broadcasting on their operands.
-// For those that don't, we have to explicate the broadcast on each operand.
+// Currently, not all binary eltwise ops in tt-metal support implicit
+// broadcasting on their operands. For those that don't, we have to explicate
+// the broadcast on each operand.
 template <typename EltwiseOp>
 class ExplicateOperandBroadcastsRewritePattern
     : public OpRewritePattern<EltwiseOp> {
