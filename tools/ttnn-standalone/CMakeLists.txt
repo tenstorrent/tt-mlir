@@ -131,6 +131,12 @@ set(LINK_LIBS
     device
 )
 
+# Default value that matches with the main configuration
+set(TTMLIR_ENABLE_TTNN_PY ON)
+if (DEFINED ENV{TTMLIR_ENABLE_TTNN_PY})
+  set(TTMLIR_ENABLE_TTNN_PY ENV{TTMLIR_ENABLE_TTNN_PY})
+endif()
+
 if (TTMLIR_ENABLE_TTNN_PY)
   list(APPEND LINK_LIBS ${METAL_LIB_DIR}/_ttnn.so)
 else()
