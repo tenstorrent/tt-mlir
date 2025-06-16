@@ -1091,6 +1091,10 @@ getOpOutputRef(OpContext opContextHandle,
                     opContext.type_type())]);
     return std::nullopt;
   }
+  case ::tt::target::ttnn::OpType::TraceOp: {
+    LOG_WARNING("getting output tensor is not supported for TraceOp");
+    return std::nullopt;
+  }
   case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Invalid op type");
     break;
@@ -1330,6 +1334,10 @@ getOpInputRefs(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::NamedFullOp: {
     tensorRefs = {};
     break;
+  }
+  case ::tt::target::ttnn::OpType::TraceOp: {
+    LOG_WARNING("getting input tensor refs is not supported for TraceOp");
+    return {};
   }
   case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Invalid op type");
