@@ -506,7 +506,7 @@ class TTIRBuilder:
             self.generate_and_store_random_golden(op)
             return op
 
-    def empty(self, shape: Shape, data_type: Optional[Type] = None) -> OpView:
+    def _empty(self, shape: Shape, data_type: Optional[Type] = None) -> OpView:
         """Convenience wrapper constructing `ttir.EmptyOp`."""
         dtype = data_type if data_type is not None else self._default_dtype
         return self.empty_from_tensor_type(shape, self.ranked_tensor_type(shape, dtype))
@@ -615,7 +615,7 @@ class TTIRBuilder:
             if output_create_fn:
                 output = output_create_fn(output_shape, output_type)
             else:
-                output = self.empty(output_shape, output_type)
+                output = self._empty(output_shape, output_type)
             id = self.get_next_global_id()
             loc = (
                 get_loc_from_str(loc)

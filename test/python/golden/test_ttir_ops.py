@@ -946,23 +946,6 @@ def test_ones(shape: Shape, request):
     )
 
 
-# Empty will intermittently fail golden checks during many flatbuffer
-# executions since it is uninitialized data (See #3732)
-@pytest.mark.fails_golden
-@pytest.mark.parametrize("shape", [(128, 128)], ids=["128x128"])
-def test_empty(shape: Shape, request):
-    def empty(builder: TTIRBuilder):
-        return builder.empty(shape)
-
-    compile_to_flatbuffer(
-        empty,
-        inputs_shapes=[],
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
 @pytest.mark.parametrize("shapes", [[(128, 128)]])
 @pytest.mark.parametrize("dim_arg", [[1]])
 def test_argmax(shapes, dim_arg, request):
