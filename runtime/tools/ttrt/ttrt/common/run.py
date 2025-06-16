@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+import sys
 import time
 
 from ttrt.common.util import *
@@ -66,7 +67,7 @@ class Run:
             type=str,
             default="randn",
             choices=Run.TorchInitializer.init_fns,
-            help="function to initialize tensors with",
+            help="function to initialize tensors with (implies --disable-golden)",
         )
         Run.register_arg(
             name="--identity",
@@ -87,14 +88,28 @@ class Run:
             type=float,
             default=1e-05,
             choices=None,
-            help="rtol for golden test",
+            help="rtol for the PCC and identity golden tests",
         )
         Run.register_arg(
             name="--atol",
             type=float,
             default=1e-08,
             choices=None,
-            help="atol for golden test",
+            help="atol for the PCC and identity golden tests",
+        )
+        Run.register_arg(
+            name="--rtol-allclose",
+            type=float,
+            default=5e-02,
+            choices=None,
+            help="rtol for the allclose golden test",
+        )
+        Run.register_arg(
+            name="--atol-allclose",
+            type=float,
+            default=1e-03,
+            choices=None,
+            help="atol for the allclose golden test",
         )
         Run.register_arg(
             name="--pcc",
@@ -102,6 +117,13 @@ class Run:
             default=0.99,
             choices=None,
             help="pcc for golden test",
+        )
+        Run.register_arg(
+            name="--golden-diff-topk",
+            type=int,
+            default=10,
+            choices=None,
+            help="print the top k golden and output tensor elemtent pairs sorted by absolute/relative difference",
         )
         Run.register_arg(
             name="--seed",
@@ -193,6 +215,13 @@ class Run:
             default=False,
             choices=[True, False],
             help="save golden and device tensors that are compared during callback runtime",
+        )
+        Run.register_arg(
+            name="--print-input-output-tensors",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="print input and output tensors",
         )
         Run.register_arg(
             name="--debugger",
@@ -523,6 +552,9 @@ class Run:
             if self["--disable-eth-dispatch"]:
                 dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
 
+            if "--init" in sys.argv:
+                self["--disable-golden"] = True
+
             if self["--benchmark"]:
                 self["--enable-program-cache"] = True
                 self["--disable-golden"] = True
@@ -784,20 +816,28 @@ class Run:
                                     runtime_output_tensor, force=True
                                 )
 
-                                # compare program level golden.
+                                output_tensor_torch = None
+                                if (
+                                    self["--print-input-output-tensors"]
+                                    or not self["--disable-golden"]
+                                ):
+                                    output_tensor_torch = torch.frombuffer(
+                                        bytearray(outputs[i].get_data_buffer()),
+                                        dtype=ttrt_datatype_to_torch_dtype(
+                                            outputs[i].get_dtype()
+                                        ),
+                                    ).reshape(outputs[i].get_shape())
+
+                                # Compare program level golden.
+                                golden_tensor_torch = None
+                                pcc_fail = False
+                                allclose_fail = False
                                 if (not self["--disable-golden"]) and (
                                     i < len(golden_outputs_torch)
                                 ):
                                     self.logging.debug(
                                         f"executing program level golden comparison for output_{i}"
                                     )
-                                    output_tensor = outputs[i]
-                                    output_tensor_torch = torch.frombuffer(
-                                        bytearray(output_tensor.get_data_buffer()),
-                                        dtype=ttrt_datatype_to_torch_dtype(
-                                            output_tensor.get_dtype()
-                                        ),
-                                    ).reshape(output_tensor.get_shape())
                                     golden_tensor_torch = golden_outputs_torch[i]
                                     if (
                                         golden_tensor_torch.shape
@@ -806,23 +846,107 @@ class Run:
                                         raise Exception(
                                             f"Failed: program-level output doesn't match golden shape! golden_shape={golden_tensor_torch.shape}, output_shape={output_tensor_torch.shape}"
                                         )
+
+                                    # PCC check.
                                     _, _, cal_pcc, _ = get_atol_rtol_pcc(
                                         golden_tensor_torch,
                                         output_tensor_torch,
                                         self.logging,
                                     )
-                                    if cal_pcc < post_op_callback_runtime_config.pcc:
+                                    pcc_fail = (
+                                        cal_pcc < post_op_callback_runtime_config.pcc
+                                    )
+                                    if not pcc_fail:
+                                        self.logging.info(
+                                            f"Program level golden for output_{idx} matched. pcc={cal_pcc}"
+                                        )
+
+                                    # Allclose check.
+                                    # TODO(wenbinlyuTT):
+                                    # 0. Fix NaNs and set equal_nan=False
+                                    # 1. Quant ops may generate extreme outliers, we may need to
+                                    #    implement our own allclose() that allows for a certain
+                                    #    percentage of outliers.
+                                    if bin.extension == ".ttm":
+                                        allclose_fail = not torch.allclose(
+                                            golden_tensor_torch,
+                                            output_tensor_torch,
+                                            rtol=self["--rtol-allclose"],
+                                            atol=self["--atol-allclose"],
+                                            equal_nan=True,
+                                        )
+                                        if not allclose_fail:
+                                            self.logging.info(
+                                                f"Program level golden for output_{idx} passed allclose check."
+                                            )
+
+                                golden_fail = pcc_fail or allclose_fail
+                                if self["--print-input-output-tensors"] or golden_fail:
+                                    torch.set_printoptions(
+                                        threshold=100, edgeitems=3, linewidth=120
+                                    )
+                                    for j, golden_input_tensor_torch in enumerate(
+                                        program.input_tensors
+                                    ):
+                                        self.logging.info(
+                                            f"Input {j}:\n{golden_input_tensor_torch}"
+                                        )
+                                    self.logging.info(
+                                        f"Output {i}:\n{output_tensor_torch}"
+                                    )
+                                    if golden_tensor_torch is not None:
                                         self.logging.info(
                                             f"Golden:\n{golden_tensor_torch}"
                                         )
-                                        self.logging.info(
-                                            f"Actual:\n{output_tensor_torch}"
-                                        )
-                                        raise PCCErrorException(
-                                            f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={post_op_callback_runtime_config.pcc}"
-                                        )
+
+                                # Print the top k differences.
+                                if golden_fail:
+                                    top_k = self["--golden-diff-topk"]
+                                    top_k_list = get_topk_diff(
+                                        golden_tensor_torch,
+                                        output_tensor_torch,
+                                        top_k,
+                                        relative=False,
+                                    )
                                     self.logging.info(
-                                        f"Program level golden for output_{idx} matched. pcc={cal_pcc}"
+                                        f"Top {top_k} absolute differences:"
+                                    )
+                                    for rank, (
+                                        v_golden,
+                                        v_output,
+                                        v_diff,
+                                        idx,
+                                    ) in enumerate(top_k_list):
+                                        self.logging.info(
+                                            f"{rank}: golden {v_golden:+.6e}, output {v_output:+.6e}, abs diff {v_diff:.6e}, idx {idx}"
+                                        )
+                                    top_k_list = get_topk_diff(
+                                        golden_tensor_torch,
+                                        output_tensor_torch,
+                                        top_k,
+                                        relative=True,
+                                    )
+                                    self.logging.info(
+                                        f"Top {top_k} relative differences:"
+                                    )
+                                    for rank, (
+                                        v_golden,
+                                        v_output,
+                                        v_diff,
+                                        idx,
+                                    ) in enumerate(top_k_list):
+                                        diff_percent = v_diff * 100
+                                        self.logging.info(
+                                            f"{rank}: golden {v_golden:+.6e}, output {v_output:+.6e}, rel diff {diff_percent:4.1f}%, idx {idx}"
+                                        )
+
+                                if pcc_fail:
+                                    raise PCCErrorException(
+                                        f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={post_op_callback_runtime_config.pcc}"
+                                    )
+                                if allclose_fail:
+                                    raise AllCloseErrorException(
+                                        f"Failed: program-level output golden comparison failed the allclose check"
                                     )
 
                             self.logging.debug(

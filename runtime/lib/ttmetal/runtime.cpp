@@ -32,13 +32,46 @@ static const target::metal::TTMetalBinary *getBinary(Flatbuffer binary) {
 
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex) {
-  // TODO(#3126): Implement toLayout for metal runtime
+  // TODO(#3126): Implement device copy toLayout for metal runtime
   return Layout(nullptr, DeviceRuntime::TTMetal);
 }
 
-Tensor toLayout(Tensor tensor, Device, Layout, std::optional<bool>) {
-  // TODO(#3126): Implement toLayout for metal runtime
-  return tensor;
+static Tensor alignUpTensor(Tensor tensor, const TensorDesc &desc) {
+  std::int64_t alignment = utils::tileAlignment(desc.dataType);
+  if (desc.alignment % alignment == 0) {
+    return tensor;
+  }
+
+  TensorDesc alignedDesc(desc.shape, desc.stride, desc.itemsize, desc.dataType,
+                         alignment);
+
+  size_t alignedSize = alignedDesc.sizeBytes();
+  auto alignedData = std::shared_ptr<void>(std::malloc(alignedSize), std::free);
+  if (!alignedData) {
+    LOG_FATAL("toLayout: Failed to allocate host memory.");
+  }
+  assert(tensor.data.get() != nullptr);
+  std::memcpy(alignedData.get(), tensor.data.get(), desc.sizeBytes());
+  // Zero fill the rest
+  std::memset(static_cast<char *>(alignedData.get()) + desc.sizeBytes(), 0,
+              alignedSize - desc.sizeBytes());
+  return Tensor(
+      static_pointer_cast<void>(std::make_shared<MetalTensor>(alignedDesc)),
+      alignedData, DeviceRuntime::TTMetal);
+}
+
+Tensor toLayout(Tensor tensor, Device, Layout layout, std::optional<bool>) {
+  return std::visit(
+      utils::overloaded{
+          [&](const TensorDesc &desc) { return alignUpTensor(tensor, desc); },
+          [&](const DeviceBuffer &buffer) {
+            // TODO(#3126): Implement device copy toLayout for
+            // metal runtime
+            LOG_FATAL("getTensorDesc from DeviceBuffer not supported.");
+            return tensor;
+          },
+      },
+      tensor.as<MetalTensor>(DeviceRuntime::TTMetal));
 }
 
 static Tensor createNullTensor() {
@@ -363,10 +396,13 @@ void memcpy(Tensor dst, Tensor src) {
              "Only TensorDesc supported for now");
   auto &hostDst = std::get<TensorDesc>(metalDst);
   const auto &hostSrc = std::get<TensorDesc>(metalSrc);
-  LOG_ASSERT(hostDst.sizeBytes() == hostSrc.sizeBytes(),
+  std::int64_t maxAlignment = std::max(hostDst.alignment, hostSrc.alignment);
+  LOG_ASSERT(utils::alignUp(hostDst.sizeBytes(), maxAlignment) ==
+                 utils::alignUp(hostSrc.sizeBytes(), maxAlignment),
              "Tensor size mismatch");
   LOG_ASSERT(hostDst.dataType == hostSrc.dataType, "Tensor data type mismatch");
-  return ::tt::runtime::ttmetal::memcpy(dst.data.get(), src);
+  std::int64_t copySize = std::min(hostDst.sizeBytes(), hostSrc.sizeBytes());
+  std::memcpy(dst.data.get(), src.data.get(), copySize);
 }
 
 void deallocateTensor(Tensor &tensor, bool) {

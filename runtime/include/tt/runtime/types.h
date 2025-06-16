@@ -12,6 +12,8 @@
 #include <string_view>
 #include <vector>
 
+#include "tt/runtime/utils.h"
+
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wcovered-switch-default"
 #include "ttmlir/Target/Common/debug_info_generated.h"
@@ -133,18 +135,30 @@ struct TensorDesc {
   std::vector<std::uint32_t> stride;
   std::uint32_t itemsize;
   ::tt::target::DataType dataType;
+  std::int64_t alignment = 1;
 
   TensorDesc() = default;
   TensorDesc(const std::vector<std::uint32_t> &shape,
              const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
-             ::tt::target::DataType dataType)
-      : shape(shape), stride(stride), itemsize(itemsize), dataType(dataType) {}
+             ::tt::target::DataType dataType, std::int64_t alignment = 1)
+      : shape(shape), stride(stride), itemsize(itemsize), dataType(dataType),
+        alignment(alignment) {}
+  TensorDesc(const std::vector<std::uint32_t> &shape,
+             const std::vector<std::uint32_t> &stride,
+             ::tt::target::DataType dataType, std::int64_t alignment = 1)
+      : TensorDesc(shape, stride, utils::dataTypeElementSize(dataType),
+                   dataType, alignment) {}
+  TensorDesc(const std::vector<std::uint32_t> &shape,
+             ::tt::target::DataType dataType, std::int64_t alignment = 1)
+      : TensorDesc(shape, utils::calculateStride(shape), dataType, alignment) {}
 
   std::int64_t volume() const {
     return std::accumulate(shape.begin(), shape.end(), static_cast<int64_t>(1),
                            std::multiplies<int64_t>());
   }
-  std::int64_t sizeBytes() const { return volume() * itemsize; }
+  std::int64_t sizeBytes() const {
+    return utils::alignUp(volume() * itemsize, alignment);
+  }
 };
 
 struct MemoryView {
