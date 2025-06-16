@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=true memreconfig-enabled=true insert-memreconfig=relu=0 override-output-layout=relu=tile row-major-enabled=true" -o shard_transpose.mlir %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true insert-memreconfig=relu=0 override-output-layout=relu=tile row-major-enabled=true" -o shard_transpose.mlir %s
 // RUN: FileCheck %s --input-file=shard_transpose.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer shard_transpose.mlir > %t.ttnn
 // UNSUPPORTED: true
