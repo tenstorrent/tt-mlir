@@ -47,8 +47,8 @@ mlir::memref::GlobalOp createGlobal(ModuleOp moduleOp, MemRefType type,
 
 // Filters out the constant parameters from the function signature.
 inline llvm::SmallPtrSet<mlir::BlockArgument, 4>
-getConstParams(mlir::func::FuncOp funcOp) {
-  llvm::SmallPtrSet<mlir::BlockArgument, 4> constParams;
+getConstsAndParams(mlir::func::FuncOp funcOp) {
+  llvm::SmallPtrSet<mlir::BlockArgument, 4> constsAndParams;
 
   for (auto arg : funcOp.getArguments()) {
     if (auto typeAttr = funcOp.getArgAttrOfType<mlir::tt::ArgumentTypeAttr>(
@@ -56,12 +56,12 @@ getConstParams(mlir::func::FuncOp funcOp) {
       auto argTypeValue = typeAttr.getValue();
       if (argTypeValue == mlir::tt::ArgumentType::Parameter ||
           argTypeValue == mlir::tt::ArgumentType::Constant) {
-        constParams.insert(arg);
+        constsAndParams.insert(arg);
       }
     }
   }
 
-  return constParams;
+  return constsAndParams;
 }
 
 } // namespace mlir::tt

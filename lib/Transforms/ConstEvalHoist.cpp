@@ -50,7 +50,7 @@ namespace {
 class ConstEvalAnalyze {
 public:
   ConstEvalAnalyze(func::FuncOp *funcOp) : funcOp(funcOp) {
-    getConstParams();
+    getConstsAndParams();
     buildConstEvalSubgraphs();
   }
 
@@ -106,12 +106,12 @@ public:
   }
 
 private:
-  void getConstParams() {
+  void getConstsAndParams() {
     if (funcOp->isDeclaration()) {
       return;
     }
 
-    constParams = mlir::tt::getConstParams(*funcOp);
+    constParams = mlir::tt::getConstsAndParams(*funcOp);
   }
 
   // Recurse up hierarchy to find root of given subset.
