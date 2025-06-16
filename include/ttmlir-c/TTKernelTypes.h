@@ -39,11 +39,11 @@ MLIR_CAPI_EXPORTED MlirType ttmlirTTKernelDataFormatTypeGet(MlirContext ctx);
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTKernelArgAttrGet(MlirContext ctx,
                                                           MlirType argType,
                                                           size_t operandIndex,
-                                                          bool is_uniform);
+                                                          bool isUniform);
 
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTKernelArgSpecAttrGet(
-    MlirContext ctx, MlirAttribute *rt_args, size_t rt_args_size,
-    MlirAttribute *ct_args, size_t ct_args_size);
+    MlirContext ctx, MlirAttribute *rtArgs, size_t rtArgsSize,
+    MlirAttribute *ctArgs, size_t ctArgsSize);
 
 #ifdef __cplusplus
 }

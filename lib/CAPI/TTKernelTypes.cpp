@@ -58,24 +58,24 @@ MlirType ttmlirTTKernelDataFormatTypeGet(MlirContext ctx) {
 }
 
 MlirAttribute ttmlirTTKernelArgAttrGet(MlirContext ctx, uint32_t argTypeValue,
-                                       size_t operandIndex, bool is_uniform) {
+                                       size_t operandIndex, bool isUniform) {
   return wrap(ArgAttr::get(unwrap(ctx), static_cast<ArgType>(argTypeValue),
                            operandIndex));
 }
 
 MlirAttribute ttmlirTTKernelArgSpecAttrGet(MlirContext ctx,
-                                           MlirAttribute *rt_args,
-                                           size_t rt_args_size,
-                                           MlirAttribute *ct_args,
-                                           size_t ct_args_size) {
+                                           MlirAttribute *rtArgs,
+                                           size_t rtArgsSize,
+                                           MlirAttribute *ctArgs,
+                                           size_t ctArgsSize) {
   std::vector<ArgAttr> _rt_args, _ct_args;
 
-  for (size_t i = 0; i < rt_args_size; i++) {
-    _rt_args.emplace_back(mlir::cast<ArgAttr>(unwrap(rt_args[i])));
+  for (size_t i = 0; i < rtArgsSize; i++) {
+    _rt_args.emplace_back(mlir::cast<ArgAttr>(unwrap(rtArgs[i])));
   }
 
-  for (size_t i = 0; i < ct_args_size; i++) {
-    _ct_args.emplace_back(mlir::cast<ArgAttr>(unwrap(ct_args[i])));
+  for (size_t i = 0; i < ctArgsSize; i++) {
+    _ct_args.emplace_back(mlir::cast<ArgAttr>(unwrap(ctArgs[i])));
   }
 
   return wrap(ArgSpecAttr::get(unwrap(ctx), _rt_args, _ct_args));
