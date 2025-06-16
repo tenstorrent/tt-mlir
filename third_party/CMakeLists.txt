@@ -61,7 +61,7 @@ set(TTMETAL_INCLUDE_DIRS
 
 set(TTMETAL_LIBRARY_DIR ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build/lib)
 
-set(TTNN_LIBRARY_PATH ${TTMETAL_LIBRARY_PATH}/_ttnncpp.so)
+set(TTNN_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/_ttnncpp.so)
 if (TTMLIR_ENABLE_TTNN_PY)
   set(TTNN_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/_ttnn.so)
 endif()
