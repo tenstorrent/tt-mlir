@@ -317,14 +317,8 @@ tt::target::DataType getTensorDataType(::tt::runtime::Tensor tensor) {
 }
 
 std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor tensor) {
-  ::ttnn::Tensor ttnnTensor =
-      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
-          .getTensor();
-  if (ttnnTensor.storage_type() == ::ttnn::StorageType::MULTI_DEVICE_HOST) {
-    auto tensors = ::ttnn::distributed::get_device_tensors(ttnnTensor);
-    LOG_ASSERT(tensors.size() > 0);
-    ttnnTensor = tensors[0];
-  }
+  const ::ttnn::Tensor &ttnnTensor =
+      utils::getTTNNTensorFromRuntimeTensor(tensor);
   void *dataPtr = nullptr;
   std::vector<std::byte> dataVec(getTensorElementSize(tensor) *
                                  getTensorVolume(tensor));
