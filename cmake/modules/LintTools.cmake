@@ -23,11 +23,4 @@ add_custom_target(clang-tidy-ci
     TTKernelGeneratedLLKHeaders
 )
 
-# Temporary workaround
-if (TTMLIR_ENABLE_STABLEHLO)
-  add_dependencies(clang-tidy-ci
-    OptimizationPassesIncGen
-  )
-endif()
-
 add_custom_target(clang-format COMMAND git-clang-format)
