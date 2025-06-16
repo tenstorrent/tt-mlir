@@ -3,12 +3,20 @@ name: Build ttmlir Wheel
 on:
   workflow_dispatch:
   workflow_call:
+    outputs:
+      wheel-artifact-name:
+        description: "The name of the built wheel's artifact"
+        value: ${{ jobs.build-ttmlir-wheel.outputs.wheel-artifact-name }}
 
 jobs:
   build-ttmlir-wheel:
     timeout-minutes: 60
     name: Build ttmlir Python Wheel
     runs-on: builder
+    env:
+      WHEEL_ARTIFACT_NAME: ttmlir-wheel
+    outputs:
+      wheel-artifact-name: ${{ steps.set-wheel-artifact-name.outputs.wheel-artifact-name}}
 
     steps:
       - name: Maximize space
@@ -44,10 +52,16 @@ jobs:
           package-dir: ${{ steps.strings.outputs.work-dir }}/python
           config-file: "${{ steps.strings.outputs.work-dir }}/python/pyproject.toml"
 
+      - name: Set wheel name
+        id: set-wheel-artifact-name
+        shell: bash
+        run: |
+          echo "wheel-artifact-name=$WHEEL_ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
+
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ttmlir-wheel
+          name: ${{ env.WHEEL_ARTIFACT_NAME }}
           path: ${{ steps.strings.outputs.wheel-output-dir }}/*.whl
           if-no-files-found: error
 
