@@ -132,7 +132,7 @@ set(LINK_LIBS
 )
 
 # Default value that matches with the main configuration
-set(TTMLIR_ENABLE_TTNN_PY ON)
+set(TTMLIR_ENABLE_TTNN_PY OFF)
 if (DEFINED ENV{TTMLIR_ENABLE_TTNN_PY})
   set(TTMLIR_ENABLE_TTNN_PY ENV{TTMLIR_ENABLE_TTNN_PY})
 endif()

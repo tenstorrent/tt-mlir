@@ -29,7 +29,7 @@ ttmetalhome = os.environ.get("TT_METAL_HOME", "")
 os.environ["LDFLAGS"] = "-Wl,-rpath,'$ORIGIN'"
 enable_runtime = os.environ.get("TTMLIR_ENABLE_RUNTIME", "OFF") == "ON"
 enable_ttnn = os.environ.get("TT_RUNTIME_ENABLE_TTNN", "OFF") == "ON"
-enable_ttnn_py = os.environ.get("TTMLIR_ENABLE_TTNN_PY", "ON") == "ON"
+enable_ttnn_py = os.environ.get("TTMLIR_ENABLE_TTNN_PY", "OFF") == "ON"
 enable_ttmetal = os.environ.get("TT_RUNTIME_ENABLE_TTMETAL", "OFF") == "ON"
 enable_runtime_tests = os.environ.get("TTMLIR_ENABLE_RUNTIME_TESTS", "OFF") == "ON"
 enable_perf = os.environ.get("TT_RUNTIME_ENABLE_PERF_TRACE", "OFF") == "ON"
