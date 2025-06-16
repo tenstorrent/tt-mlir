@@ -121,11 +121,11 @@ void createTTIRToCPUPipeline(OpPassManager &manager,
   ttirDecompOptions.opsToDecompose = {"dot-general", "reduce-or"};
   cpuPm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass(ttirDecompOptions));
 
-  // cpuPm.addPass(createConvertTTIRToTosaPass());
-
-  // Lower any outstanding TTIR ops directly to Linalg
+  // Lower TTIR to mix of linalg direct, TOSA (which we can subsequently lower
+  // to linalg), and Tensor dialect ops.
   cpuPm.addPass(createConvertTTIRToLinalgPass());
 
+  // Lower Tosa to linalg/tensor/arith, which we can lower to LLVM.
   TosaToLinalgOptions tosaToLinalgOptions;
   tosaToLinalgOptions.aggressiveReduceConstant = true;
   tosa::addTosaToLinalgPasses(cpuPm, tosaToLinalgOptions, {}, {});
