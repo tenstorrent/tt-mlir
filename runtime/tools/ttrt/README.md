@@ -25,4 +25,4 @@ pip install ttrt-0.0.235-cp310-cp310-linux_x86_64.whl
 
 ## Usage
 
-To get started, refer to [`ttrt` documentation](../../../docs/src/ttrt.md).
+To get started, refer to `ttrt` [documentation](../../../docs/src/ttrt.md).

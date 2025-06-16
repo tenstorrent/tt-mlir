@@ -43,7 +43,7 @@ source ttrt_env/bin/activate
 ```
 3. Install whls (replace with your version of the whls)
 ```bash
-pip install ttrt-0.0.235-cp310-cp310-linux_x86_64.whl
+pip install build/runtime/tools/ttrt/build/ttrt-0.0.235-cp310-cp310-linux_x86_64.whl
 ```
 
 ## Generate a flatbuffer file from ttir-builder
@@ -253,6 +253,13 @@ ttrt check out.ttnn --log-file ttrt.log
 ttrt check /dir/of/flatbuffers --system-desc /dir/of/system_desc
 ttrt check --save-artifacts --artifact-dir /path/to/some/dir out.ttnn
 ttrt check out.ttnn --result-file result.json
+```
+
+### whls
+Using APIs using installed whls
+
+```bash
+python runtime/tools/ttrt/ttrt/__init__.py run out.ttnn
 ```
 
 ### gdb
