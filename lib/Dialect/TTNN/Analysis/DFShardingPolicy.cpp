@@ -101,13 +101,13 @@ void DFShardingPolicy::run() {
           //
           shardSpec.tensorSplitFactor = 1;
           l1ChainConfigs->back().addOpL1MemSpec(std::move(shardSpec));
-        }
 
-        if (nextOp && currentOp->hasOneUse()) {
-          // Only if nextOp is valid and currentOp is not a fork keep
-          // growing the chain.
-          currentOp = nextOp;
-          continue;
+          if (nextOp && currentOp->hasOneUse()) {
+            // Only if nextOp is valid and currentOp is not a fork keep
+            // growing the chain.
+            currentOp = nextOp;
+            continue;
+          }
         }
 
         currentOp = nullptr;
