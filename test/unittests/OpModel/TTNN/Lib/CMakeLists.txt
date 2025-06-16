@@ -26,5 +26,6 @@ target_link_libraries(TestOpModelLib
     MLIRTTIRDialect
     MLIRTTNNDialect
     MLIRTTTransforms
+    Python3::Python
 )
 endif()

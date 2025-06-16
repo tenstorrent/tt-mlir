@@ -4,6 +4,8 @@ set_target_properties(MLIRUnitTests PROPERTIES FOLDER "MLIR Tests")
 # unit tests are compiled against gtest included with LLVM
 include_directories(SYSTEM ${TTMLIR_TOOLCHAIN_DIR}/include/llvm-gtest ${TTMLIR_TOOLCHAIN_DIR}/include/llvm-gmock)
 
+find_package(Python3 REQUIRED COMPONENTS Development)
+
 function(add_mlir_unittest test_dirname)
   add_unittest(MLIRUnitTests ${test_dirname} ${ARGN})
 endfunction()
