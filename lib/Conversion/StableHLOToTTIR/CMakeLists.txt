@@ -11,6 +11,7 @@ add_mlir_conversion_library(TTMLIRStableHLOToTTIR
   ShardingUtils.cpp
   StableHLOToTTIRPass.cpp
   StableHLOToTTIRPatterns.cpp
+  StableHLOLegalizeCompositePass.cpp
   ShardyToTTIRPatterns.cpp
 
   ADDITIONAL_HEADER_DIRS
