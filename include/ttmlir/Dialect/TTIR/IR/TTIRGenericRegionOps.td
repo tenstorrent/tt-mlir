@@ -138,9 +138,9 @@ def TTIR_TilePowOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_pow"> {
         The `tile_pow` operation raises two tiles element-wise.
     }];
 
-    let arguments = (ins TT_Tile:$lhs,
-                         TT_Tile:$rhs);
-    let results = (outs TT_Tile:$result);
+    let arguments = (ins TTCore_Tile:$lhs,
+                         TTCore_Tile:$rhs);
+    let results = (outs TTCore_Tile:$result);
 }
 
 def TTIR_TileExpOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_exp"> {

@@ -426,12 +426,18 @@ createKernelConfig(
     computeConfig.fp32_dest_acc_en = fbComputeConfig->fp32_dest_acc_en();
     computeConfig.math_approx_mode = fbComputeConfig->math_approx_mode();
 
+    fprintf(stderr, "++ createKernelConfig\n");
+    fprintf(stderr, "   fp32_dest_acc_en: %d\n",
+            computeConfig.fp32_dest_acc_en);
+
     // Metal asserts that unpack_to_dest_mode.size() == NUM_CIRCULAR_BUFFERS.
     computeConfig.unpack_to_dest_mode.resize(NUM_CIRCULAR_BUFFERS,
                                              UnpackToDestMode::Default);
     uint32_t modeIdx = 0;
     for (auto mode : *fbComputeConfig->unpack_to_dest_mode()) {
       LOG_ASSERT(modeIdx < NUM_CIRCULAR_BUFFERS);
+      fprintf(stderr, "   unpack_to_dest_mode[%d]: %s\n", modeIdx,
+              magic_enum::enum_name(mode).data());
       switch (mode) {
       case tt::target::metal::UnpackToDestMode::Fp32: {
         computeConfig.unpack_to_dest_mode[modeIdx] =

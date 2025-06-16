@@ -33,6 +33,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <magic_enum/magic_enum.hpp>
 #include <memory>
 #include <vector>
 
@@ -101,7 +102,10 @@ toFlatbuffer(llvm::ArrayRef<ttmetal::UnpackToDestMode> unpackToDestModes) {
   std::vector<target::metal::UnpackToDestMode> result;
   result.reserve(unpackToDestModes.size());
 
+  fprintf(stderr, "++ toFlatbuffer: %zu dest unpack modes\n",
+          unpackToDestModes.size());
   for (auto mode : unpackToDestModes) {
+    fprintf(stderr, "   save: %s\n", magic_enum::enum_name(mode).data());
     switch (mode) {
     case ttmetal::UnpackToDestMode::Fp32:
       result.push_back(target::metal::UnpackToDestMode::Fp32);

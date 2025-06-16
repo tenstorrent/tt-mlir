@@ -201,8 +201,29 @@ def cbrt(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
     return builder.cbrt(in0, unit_attrs=unit_attrs)
 
 
-def rsqrt(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    return builder.rsqrt(in0, unit_attrs=unit_attrs)
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_rsqrt(shape: Shape, dtype: torch.dtype, target: str, request):
+    def rsqrt(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        input_tensor = torch.abs(torch.randn(shape, dtype=dtype))
+        golden_output_tensor = torch.rsqrt(input_tensor)
+        builder.set_graph_input_output(
+            [input_tensor], [golden_output_tensor], override=True
+        )
+        return builder.rsqrt(in0, unit_attrs=unit_attrs)
+
+    compile_to_flatbuffer(
+        rsqrt,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
 
 
 def sigmoid(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
@@ -471,7 +492,10 @@ def test_linear(shapes: List[Shape], request):
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_pow(shape: Shape, dtype: torch.dtype, target: str, request):
     def pow(
-        in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
     ):
         randn_base_tensor = torch.randn(shape, dtype=dtype)
         randn_exponent_tensor = torch.randn(shape, dtype=dtype)
@@ -1491,7 +1515,6 @@ def create_hoisted_concat_op(op_func, name):
 hoisted_unary_ops = [
     create_hoisted_unary_op(exp, "exp"),
     create_hoisted_unary_op(sqrt, "sqrt"),
-    create_hoisted_unary_op(rsqrt, "rsqrt"),
     create_hoisted_unary_op(abs, "abs"),
     create_hoisted_unary_op(ceil, "ceil"),
     create_hoisted_unary_op(floor, "floor"),
@@ -1622,11 +1645,10 @@ unary_ops = [
     leaky_relu | Marks(pytest.mark.skip_target("ttmetal")),
     sqrt | Marks(pytest.mark.skip_target("ttmetal")),
     cbrt | Marks(pytest.mark.skip_target("ttmetal")),
-    rsqrt | Marks(pytest.mark.skip_target("ttmetal")),
-    sigmoid | Marks(pytest.mark.skip_target("ttmetal")),
+    sigmoid,
     reciprocal | Marks(pytest.mark.skip_target("ttmetal")),
     is_finite | Marks(pytest.mark.skip_target("ttmetal")),
-    ceil | Marks(pytest.mark.skip_target("ttmetal")),
+    ceil,
     sum | Marks(pytest.mark.skip_target("ttmetal")),
     mean | Marks(pytest.mark.skip_target("ttmetal")),
     max | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
