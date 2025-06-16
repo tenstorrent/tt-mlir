@@ -25,6 +25,7 @@ NB_MAKE_OPAQUE(std::unordered_map<std::string, mlir::tt::GoldenTensor>);
 
 namespace mlir::tt::ttnn {
 void registerTTNNToFlatbuffer();
+void registerTracedTTNNGraphToMLIR();
 } // namespace mlir::tt::ttnn
 
 namespace mlir::ttmlir::python {
