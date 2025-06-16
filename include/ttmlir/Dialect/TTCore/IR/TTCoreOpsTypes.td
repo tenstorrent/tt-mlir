@@ -380,6 +380,8 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout"> {
                             MemorySpace memorySpace,
                             GridAttr grid,
                             Type elementType);
+      MetalLayoutAttr withGrid(GridAttr grid);
+      MetalLayoutAttr withGrid(ArrayRef<int64_t> gridShape);
       MetalLayoutAttr withGrid(::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape, GridAttr grid, ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
       MetalLayoutAttr withGrid(::mlir::MLIRContext *context,
                           RankedTensorType ty,

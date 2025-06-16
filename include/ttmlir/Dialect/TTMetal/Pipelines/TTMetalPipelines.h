@@ -50,6 +50,12 @@ struct TTIRToTTMetalPipelineOptions
           "Set an interchange for generic ops that match matmul style indexing "
           "maps and iterator types. The interchange indices here always "
           "correspond to the innermost 3 dims.")};
+
+  Option<unsigned> maxDstRegisterSizeTiles{
+      *this, "max-dst-register-size-tiles",
+      llvm::cl::desc("Clamp the maximum destination register size in tiles. 0 "
+                     "means unset."),
+      llvm::cl::init(0)};
 };
 
 void createTTIRBufferizationPipeline(OpPassManager &pm);
