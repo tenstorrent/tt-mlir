@@ -156,6 +156,17 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
         metalLayout.getShardShape(/*convertTileToScalar=*/false);
     SmallVector<int64_t> blockFactors = calculateOptimalBlockFactors(
         op.getIndexingMapsValue(), outputShardShape, dstRegisterSizeTiles);
+    llvm::errs() << "blockFactors pre edit: " << blockFactors[0] << ", "
+                 << blockFactors[1] << ", " << blockFactors[2] << "\n";
+    if (blockFactors.size() == 3) {
+      blockFactors[2] =
+          mlir::cast<RankedTensorType>(op->getOperand(0).getType())
+              .getShape()[1] /
+          32;
+    }
+    llvm::errs() << "blockFactors post edit: " << blockFactors[0] << ", "
+                 << blockFactors[1] << ", " << blockFactors[2] << "\n";
+
     bool blockFactorsChanged = blockFactors != op.getBlockFactorsValue();
     if (op.getGrid() == metalLayout.getGrid() && !blockFactorsChanged) {
       return failure();
