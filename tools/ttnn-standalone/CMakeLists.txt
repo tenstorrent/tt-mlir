@@ -139,6 +139,10 @@ endif()
 
 if (TTMLIR_ENABLE_TTNN_PY)
   list(APPEND LINK_LIBS ${METAL_LIB_DIR}/_ttnn.so)
+
+  # Link against python as well
+  find_package(Python3 COMPONENTS Development REQUIRED)
+  list(APPEND LINK_LIBS Python3::Python)
 else()
   list(APPEND LINK_LIBS ${METAL_LIB_DIR}/_ttnncpp.so)
 endif()
