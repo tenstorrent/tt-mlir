@@ -53,21 +53,9 @@ def filter_valid_mesh_shape(system_desc, params, allow_subset_mesh=False):
 def pytest_collection_modifyitems(config, items):
     valid_items = []
     deselected = []
-
-    # Add debug output
-    print(f"System descriptor path: {config.option.sys_desc}")
-    try:
-        system_desc = ttrt.binary.as_dict(
-            ttrt.binary.load_system_desc_from_path(config.option.sys_desc)
-        )["system_desc"]
-        print(f"Successfully loaded system descriptor")
-    except Exception as e:
-        print(f"Error loading system descriptor: {e}")
-        # If we can't load the system descriptor, keep all tests
-        print(
-            f"Keeping all {len(items)} tests since system descriptor couldn't be loaded"
-        )
-        return
+    system_desc = ttrt.binary.fbb_as_dict(
+        ttrt.binary.load_system_desc_from_path(config.option.sys_desc)
+    )["system_desc"]
 
     for item in items:
         # Only check parameterized tests
@@ -86,7 +74,4 @@ def pytest_collection_modifyitems(config, items):
 
     # Report deselected items to pytest
     if deselected:
-        print(f"Deselected {len(deselected)} tests due to mesh shape incompatibility")
         config.hook.pytest_deselected(items=deselected)
-
-    print(f"Kept {len(valid_items)} tests after filtering")
