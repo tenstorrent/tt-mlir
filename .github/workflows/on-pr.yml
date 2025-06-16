@@ -65,3 +65,21 @@ jobs:
       with:
         allowed-skips: build-and-test
         jobs: ${{ toJSON(needs) }}
+
+  release-wheel:
+    name: "Release the tt-torch wheel"
+    # todo(vvukoman): before merging uncomment this
+    # if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs:
+      - check-all-green
+      - build-and-test
+    steps:
+      - name: Tag and release
+        # todo(vvukoman): before merging switch to @main
+        uses: tenstorrent/tt-forge/.github/actions/tag-and-release@vvukoman/tag-and-release-action
+        with:
+          wheel-artifact-name: ${{ needs.build-and-test.outputs.wheel-artifact-name }}
+          untar-wheel-artifact: "true"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
