@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-optimizer=true memory-layout-analysis-enabled=true insert-memreconfig=add_2=0 override-output-layout=add_1=1x1:dram:interleaved:row_major:f32" %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-optimizer=true  insert-memreconfig=add_2=0 override-output-layout=add_1=1x1:dram:interleaved:row_major:f32" %s | FileCheck %s
 // XFAIL: *
 // TODO(rpavlovicTT): #https://github.com/tenstorrent/tt-metal/issues/21846 re-enable
 
