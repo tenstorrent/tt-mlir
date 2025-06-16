@@ -475,6 +475,39 @@ TEST_F(OpModelBase, MatmulOpInterfaceNullOutput) {
   EXPECT_TRUE(outputLayout.hasInterleavedDRAMTensorMemoryLayout());
 }
 
+TEST_F(OpModelBase, MatmulOpInterfacePartialOutput) {
+  // create MatmulOp
+  llvm::SmallVector<int64_t> tensorShapeA = {2048, 1024};
+  llvm::SmallVector<int64_t> tensorShapeB = {1024, 2048};
+  llvm::SmallVector<int64_t> tensorShapeO = {2048, 2048};
+
+  auto inputA = createEmptyTensor(tensorShapeA);
+  auto inputB = createEmptyTensor(tensorShapeB);
+  auto outputType = createRankedTensorType(tensorShapeO);
+
+  auto outputLayout = CreateTiledLayout(tensorShapeO, BufferType::L1,
+                                        TensorMemoryLayout::BlockSharded)
+                          .withIgnorePhysicalLayout(true);
+  auto matmul = builder.create<MatmulOp>(builder.getUnknownLoc(), outputType,
+                                         ::mlir::ValueRange{inputA, inputB});
+
+  // test MatmulOp interface
+  OpModel backend = dyn_cast<OpModel>(matmul.getOperation());
+  auto constraintsExp =
+      backend.getOpConstraints(getInputLayouts(matmul), OpConfig(outputLayout));
+
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cbSize, peakSize, outputSize, observedOutputLayout] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 262144);
+  EXPECT_EQ(peakSize, 524288);
+  EXPECT_EQ(outputSize, 524288);
+
+  ASSERT_TRUE(observedOutputLayout);
+  EXPECT_EQ(observedOutputLayout.getLayout(), Layout::Tile);
+  EXPECT_TRUE(observedOutputLayout.hasShardedL1TensorMemoryLayout());
+}
+
 // Forward declarations
 using OpConstraintsFn =
     llvm::Expected<mlir::tt::op_model::ttnn::OpConstraints> (OpModelBase::*)(
