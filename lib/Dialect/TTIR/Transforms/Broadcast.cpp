@@ -13,6 +13,11 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRIMPLICITBROADCASTFOLD
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
+// This algorithm works by first removing all explicit broadcasts from the
+// operands of an operation. While doing so, it calculates the result shape that
+// would result from implicit broadcasting, taking all operands into
+// consideration. If this shape differs from the target shape, we add an
+// explicit broadcast to the operation’s output to match the target shape.
 class TTIRImplicitBroadcastFoldRewriter : public RewritePattern {
 public:
   TTIRImplicitBroadcastFoldRewriter(MLIRContext *ctx)
@@ -31,6 +36,8 @@ public:
     bool operandsChanged = false;
     llvm::SmallVector<int64_t> implicitBroadcastedShape;
 
+    // Remove all explicit broadcasts from the operands and compute the shape
+    // that would result from implicit broadcasting.
     for (int64_t i = 0; i < dps.getNumDpsInputs(); ++i) {
       mlir::Value operand = dps->getOperand(i);
       ::llvm::ArrayRef<int64_t> originalOperandShape;
@@ -57,6 +64,8 @@ public:
       return llvm::success(operandsChanged);
     }
 
+    // If the shape from implicit broadcasting differs from the target shape,
+    // add an explicit broadcast to the operation’s output.
     auto newResultType = mlir::RankedTensorType::get(
         implicitBroadcastedShape, resultType.getElementType());
     rewriter.modifyOpInPlace(dps, [&]() {
