@@ -3,27 +3,30 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttnn-precompiled.hpp"
-::ttnn::Tensor add(::ttnn::Tensor v1, ::ttnn::Tensor v2) {
-  ::ttnn::Tensor v3 = ttnn::add(v1, v2, ::std::nullopt, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED, ::ttnn::BufferType::DRAM});
-  ttnn::deallocate(v2, false);
-  ttnn::deallocate(v1, false);
-  return v3;
-}
 
-std::tuple<::ttnn::Tensor, ::ttnn::Tensor> create_inputs_for_add() {
-  ttnn::distributed::MeshDevice* v1 = ttnn::DeviceGetter::getInstance();
-  ::ttnn::Tensor v2 = ttnn::ones(::ttnn::Shape({32, 32}), ::ttnn::DataType::BFLOAT16, ::ttnn::Layout::TILE, ::std::nullopt, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED, ::ttnn::BufferType::DRAM});
-  ::ttnn::Tensor v3 = ttnn::to_device(v2, v1, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED, ::ttnn::BufferType::DRAM});
-  ::ttnn::Tensor v4 = ttnn::ones(::ttnn::Shape({32, 32}), ::ttnn::DataType::BFLOAT16, ::ttnn::Layout::TILE, ::std::nullopt, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED, ::ttnn::BufferType::DRAM});
-  ::ttnn::Tensor v5 = ttnn::to_device(v4, v1, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED, ::ttnn::BufferType::DRAM});
-  return std::make_tuple(v3, v5);
+::ttnn::Tensor forward() {
+  ttnn::MeshDevice* device = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v1 = ttnn::ones(::ttnn::Shape({1, 784}), ::ttnn::DataType::FLOAT32, ::ttnn::Layout::TILE, *device, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED, ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v2 = ttnn::ones(::ttnn::Shape({784, 512}), ::ttnn::DataType::FLOAT32, ::ttnn::Layout::TILE, *device, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED, ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v3 = ttnn::ones(::ttnn::Shape({512}), ::ttnn::DataType::FLOAT32, ::ttnn::Layout::TILE, *device, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED, ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v4 = ttnn::ones(::ttnn::Shape({512, 256}), ::ttnn::DataType::FLOAT32, ::ttnn::Layout::TILE, *device, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED, ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v5 = ttnn::ones(::ttnn::Shape({256}), ::ttnn::DataType::FLOAT32, ::ttnn::Layout::TILE, *device, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED, ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v6 = ttnn::ones(::ttnn::Shape({256, 10}), ::ttnn::DataType::FLOAT32, ::ttnn::Layout::TILE, *device, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED, ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v7 = ttnn::ones(::ttnn::Shape({10}), ::ttnn::DataType::FLOAT32, ::ttnn::Layout::TILE, *device, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED, ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v8 = ttnn::matmul(v1, v2, false, false, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED, ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v9 = ttnn::add(v3, v8, ::std::nullopt, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED, ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v10 = ttnn::relu(v9, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED, ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v11 = ttnn::matmul(v10, v4, false, false, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED, ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v12 = ttnn::add(v5, v11, ::std::nullopt, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED, ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v13 = ttnn::relu(v12, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED, ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v14 = ttnn::matmul(v13, v6, false, false, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED, ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v15 = ttnn::add(v7, v14, ::std::nullopt, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED, ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v16 = ttnn::softmax(v15, -1, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED, ::ttnn::BufferType::DRAM, ::std::nullopt});
+  return v16;
 }
 
 int32_t main() {
-  ::ttnn::Tensor v1;
-  ::ttnn::Tensor v2;
-  std::tie(v1, v2) = create_inputs_for_add();
-  ::ttnn::Tensor v3 = add(v1, v2);
-  int32_t v4 = 0;
-  return v4;
+  ttnn::Tensor ret = forward();
+  int32_t v1 = 0;
+  return v1;
 }

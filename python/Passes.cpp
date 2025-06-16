@@ -25,15 +25,18 @@ NB_MAKE_OPAQUE(std::unordered_map<std::string, mlir::tt::GoldenTensor>);
 
 namespace mlir::tt::ttnn {
 void registerTTNNToFlatbuffer();
+void registerTracedTTNNGraphToMLIR();
 } // namespace mlir::tt::ttnn
 
 namespace mlir::ttmlir::python {
 
 void populatePassesModule(nb::module_ &m) {
   // When populating passes, need to first register them
-
   mlir::tt::registerAllPasses();
+
+  // Register translation passes
   mlir::tt::ttnn::registerTTNNToFlatbuffer();
+  mlir::tt::ttnn::registerTracedTTNNGraphToMLIR();
 
   m.def(
       "tt_populate_argument_types",

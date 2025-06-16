@@ -189,7 +189,10 @@ public:
       if (!funcOp->getUses().empty()) {
         mlir::WalkResult::skip();
       }
-      forwardFuncOps.push_back(funcOp);
+
+      if (funcOp.getFunctionType().getNumInputs() > 0) {
+        forwardFuncOps.push_back(funcOp);
+      }
     });
 
     // Iterate over all func ops and add input tensor generator functions.
