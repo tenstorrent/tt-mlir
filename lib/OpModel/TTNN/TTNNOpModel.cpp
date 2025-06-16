@@ -1648,6 +1648,7 @@ llvm::Expected<OpConstraints> Conv2dOpInterface::getOpConstraints(
   if (biasShape && biasLayout) {
     ::ttnn::TensorSpec biasSpec =
         conversion::getTensorSpec(biasShape.value(), biasLayout.value());
+    std::cout << "BIAS EXISTS" << std::endl;
     // TODO(odjuricic): This might be really slow. Needs to be done within graph
     // capture block.
     biasTensor = ::tt::tt_metal::create_device_tensor(biasSpec, device);
@@ -1668,6 +1669,234 @@ llvm::Expected<OpConstraints> Conv2dOpInterface::getOpConstraints(
     } else {
       localConfig = *conv2dConfigConverted;
     }
+
+    auto tensorSpecToString = [](const ::ttnn::TensorSpec &ts) {
+      std::stringstream ss;
+      ss << "TensorSpec(logical_shape=Shape({";
+      for (size_t i = 0; i < ts.logical_shape().size(); ++i) {
+        ss << ts.logical_shape()[i];
+        if (i != ts.logical_shape().size() - 1) {
+          ss << ", ";
+        }
+      }
+      ss << "})"; // Close logical_shape
+
+      const ::tt::tt_metal::TensorLayout &tl = ts.tensor_layout();
+
+      const ::tt::tt_metal::PageConfig &pc = tl.get_page_config();
+      std::string pcType = pc.get_layout() == ::tt::tt_metal::Layout::ROW_MAJOR
+                               ? "RowMajorPageConfig"
+                               : "TilePageConfig";
+      ss << ", tensor_layout=TensorLayout(dtype=" << tl.get_data_type()
+         << ", page_config=PageConfig(config=" << pcType << "(";
+
+      auto tile = tl.get_tile();
+      ss << "tile=Tile(tile_shape={" << tile.get_tile_shape()[0] << ", "
+         << tile.get_tile_shape()[1] << "}"
+         << ", face_shape={" << tile.get_face_shape()[0] << ", "
+         << tile.get_face_shape()[1] << "}"
+         << ", num_faces=" << tile.get_num_faces() << ")"; // Close Tile
+      ss << ")";                                           // Close PageConfig
+
+      // memory config
+      ss << ", memory_config=" << tl.get_memory_config();
+      ss << ")"; // Close memory config
+      ss << ")"; // Close TensorLayout
+      ss << ")"; // Close TensorSpec
+
+      return ss.str();
+    };
+    auto stdArrayToString = [](const std::array<uint32_t, 2> &arr) {
+      std::stringstream ss;
+      ss << "{" << arr[0] << ", " << arr[1] << "}";
+      return ss.str();
+    };
+    auto stdArrayToString4 = [](const std::array<uint32_t, 4> &arr) {
+      std::stringstream ss;
+      ss << "{" << arr[0] << ", " << arr[1] << ", " << arr[2] << ", " << arr[3]
+         << "}";
+      return ss.str();
+    };
+
+    auto tensorMemoryLayoutToString =
+        [](const ::tt::tt_metal::TensorMemoryLayout tl) {
+          std::stringstream ss;
+          /*
+          enum class TensorMemoryLayout {
+              INTERLEAVED = 0,
+              SINGLE_BANK,
+              HEIGHT_SHARDED,
+              WIDTH_SHARDED,
+              BLOCK_SHARDED,
+          };*/
+          switch (tl) {
+          case ::tt::tt_metal::TensorMemoryLayout::INTERLEAVED:
+            ss << "INTERLEAVED";
+            break;
+          case ::tt::tt_metal::TensorMemoryLayout::SINGLE_BANK:
+            ss << "SINGLE_BANK";
+            break;
+          case ::tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED:
+            ss << "HEIGHT_SHARDED";
+            break;
+          case ::tt::tt_metal::TensorMemoryLayout::WIDTH_SHARDED:
+            ss << "WIDTH_SHARDED";
+            break;
+          case ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED:
+            ss << "BLOCK_SHARDED";
+            break;
+          }
+          return ss.str();
+        };
+
+    auto dataTypeToString = [](const ::tt::tt_metal::DataType dtype) {
+      std::stringstream ss;
+      /*enum class DataType {
+          BFLOAT16 = 0,
+          FLOAT32 = 1,
+          UINT32 = 2,
+          BFLOAT8_B = 3,
+          BFLOAT4_B = 4,
+          UINT8 = 5,
+          UINT16 = 6,
+          INT32 = 7,
+          INVALID = 8,
+      };*/
+      switch (dtype) {
+      case ::tt::tt_metal::DataType::BFLOAT16:
+        ss << "BFLOAT16";
+        break;
+      case ::tt::tt_metal::DataType::FLOAT32:
+        ss << "FLOAT32";
+        break;
+      case ::tt::tt_metal::DataType::UINT32:
+        ss << "UINT32";
+        break;
+      case ::tt::tt_metal::DataType::BFLOAT8_B:
+        ss << "BFLOAT8_B";
+        break;
+      case ::tt::tt_metal::DataType::BFLOAT4_B:
+        ss << "BFLOAT4_B";
+        break;
+      case ::tt::tt_metal::DataType::UINT8:
+        ss << "UINT8";
+        break;
+      case ::tt::tt_metal::DataType::UINT16:
+        ss << "UINT16";
+        break;
+      case ::tt::tt_metal::DataType::INT32:
+        ss << "INT32";
+        break;
+      case ::tt::tt_metal::DataType::INVALID:
+        ss << "INVALID";
+        break;
+      }
+      return ss.str();
+    };
+
+    auto conv2dCfgToStr =
+        [tensorMemoryLayoutToString, dataTypeToString](
+            const ::ttnn::operations::conv::conv2d::Conv2dConfig &config) {
+          std::stringstream ss;
+          string shardLayout =
+              config.shard_layout.has_value()
+                  ? tensorMemoryLayoutToString(config.shard_layout.value())
+                  : "nullopt";
+
+          string coreGrid = config.core_grid.has_value()
+                                ? config.core_grid.value().str()
+                                : "nullopt";
+
+          string weightsDtype =
+              config.weights_dtype.has_value()
+                  ? dataTypeToString(config.weights_dtype.value())
+                  : "nullopt";
+
+          ss << "Conv2dConfig(dtype=" << dataTypeToString(config.dtype);
+          ss << ", weights_dtype=" << weightsDtype;
+          ss << ", activation=\"" << config.activation << "\"";
+          ss << ", deallocate_activation=" << std::boolalpha
+             << config.deallocate_activation;
+          ss << ", reallocate_halo_output=" << std::boolalpha
+             << config.reallocate_halo_output;
+          ss << ", act_block_h_override=" << config.act_block_h_override;
+          ss << ", act_block_w_div=" << config.act_block_w_div;
+          ss << ", reshard_if_not_optimal=" << std::boolalpha
+             << config.reshard_if_not_optimal;
+          ss << ", override_sharding_config=" << std::boolalpha
+             << config.override_sharding_config;
+          ss << ", shard_layout=" << shardLayout;
+          ss << ", core_grid=" << coreGrid;
+          ss << ", transpose_shards=" << std::boolalpha
+             << config.transpose_shards;
+          ss << ", output_layout=" << config.output_layout;
+          ss << ", preprocess_weights_on_device=" << std::boolalpha
+             << config.preprocess_weights_on_device;
+          ss << ", enable_act_double_buffer=" << std::boolalpha
+             << config.enable_act_double_buffer;
+          ss << ", enable_weights_double_buffer=" << std::boolalpha
+             << config.enable_weights_double_buffer;
+          ss << ", enable_split_reader=" << std::boolalpha
+             << config.enable_split_reader;
+          ss << ", enable_subblock_padding=" << std::boolalpha
+             << config.enable_subblock_padding;
+          ss << ", in_place=" << std::boolalpha << config.in_place;
+          ss << ")";
+
+          return ss.str();
+        };
+
+    string biasSpecStr = biasTensor
+                             ? tensorSpecToString(biasTensor->tensor_spec())
+                             : "std::nullopt";
+    std::cout << "BIAS SPEC: " << biasSpecStr << std::endl;
+
+    std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+        detail::getNullableMemoryConfig(outputLayout);
+    string outputMemoryConfigStr;
+    std::stringstream ss;
+    if (outputMemoryConfig) {
+      ss << *outputMemoryConfig;
+    } else {
+      ss << "std::nullopt";
+    }
+    outputMemoryConfigStr = ss.str();
+
+    std::cout
+        << "::ttnn::graph::query_op_constraints(" << device << ", "
+        << "/*input=*/" << tensorSpecToString(inputSpec) << ", "
+        << "/*originalWeightsShape=*/"
+        << stdArrayToString4(
+               conversion::convertLLVMArrayRefToStdArray<uint32_t, 4>(
+                   weightShape))
+        << ", "
+        << "/*weight=*/" << tensorSpecToString(weightSpec) << ", "
+        << "/*in_channels=*/" << in_channels << ", "
+        << "/*out_channels=*/" << out_channels << ", "
+        << "/*batch_size=*/" << batch_size << ", "
+        << "/*input_height=*/" << input_height << ", "
+        << "/*input_width=*/" << input_width << ", "
+        << "/*kernel_size=*/"
+        << stdArrayToString(
+               conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(
+                   kernel_size))
+        << ", "
+        << "/*stride=*/"
+        << stdArrayToString(
+               conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride))
+        << ", "
+        << "/*padding=*/"
+        << stdArrayToString4(get<std::array<uint32_t, 4>>(
+               conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2,
+                                                                  4>(padding)))
+        << ", "
+        << "/*dilation=*/"
+        << stdArrayToString(
+               conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation))
+        << ", /*groups=*/" << groups << ", /*bias=*/" << biasSpecStr << ", "
+        << "/*conv2dConfig=*/" << conv2dCfgToStr(localConfig) << ", "
+        << "/*outputMemoryConfig=*/" << outputMemoryConfigStr << ")"
+        << std::endl;
 
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::conv2d, device, inputSpec, weightSpec, device, in_channels,
