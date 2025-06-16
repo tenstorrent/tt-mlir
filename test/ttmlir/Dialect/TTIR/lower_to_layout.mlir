@@ -1,9 +1,9 @@
 // RUN: ttmlir-opt --ttcore-register-device --ttir-lower-to-layout %s | FileCheck %s
 
 #l1_ = #ttcore.memory_space<l1>
-#layout = #ttcore.metal_layout<[256x768], dim_alignments = [32, 32], collapse_dims = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
-#layout1 = #ttcore.metal_layout<[256x768], dim_alignments = [32, 32], collapse_dims = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
-#layout2 = #ttcore.metal_layout<[256x768], dim_alignments = [32, 32], collapse_dims = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
+#layout = #ttcore.metal_layout<logical_shape = 256x768, dim_alignments = 32x32, collapse_dims = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
+#layout1 = #ttcore.metal_layout<logical_shape = 256x768, dim_alignments = 32x32, collapse_dims = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
+#layout2 = #ttcore.metal_layout<logical_shape = 256x768, dim_alignments = 32x32, collapse_dims = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
 func.func @to_device(%arg0: tensor<256x768xf32>) -> tensor<1x1x256x768xf32, #layout> {
   %0 = ttir.empty() : tensor<1x1x256x768xf32, #layout>
   // CHECK: ttir.to_layout %arg0, %0 : tensor<256x768xf32> into tensor<1x1x256x768xf32, #layout> hostInfo = #layout -> tensor<1x1x256x768xf32, #layout>
@@ -52,12 +52,12 @@ func.func @compound(%arg0: tensor<256x768xf32>) -> tensor<256x768xf32> {
   // CHECK-NEXT: ins(%{{.*}} : tensor<1x1x256x768xf32, [[device]]>)
   // CHECK-NEXT: outs(%{{.*}} : tensor<1x1x8x24x!ttcore.ttile<32x32, f32>, [[tiled:#layout[0-9]*]]>)
   // reblock
-  // CHECK: ttir.view_layout %{{.*}}: (tensor<1x1x8x24x!ttcore.ttile<32x32, f32>, [[tiled]]>) -> tensor<8x8x1x3x!ttcore.ttile<32x32, f32>, [[reblocked:#layout[0-9]*]]>
-  // CHECK-NEXT: ttir.generic {grid = #ttcore.tgrid<8x8>
-  %2 = ttir.to_layout %arg0, %0 : tensor<256x768xf32> into tensor<8x8x1x3x!ttcore.ttile<32x32, f32>, #layout2> -> tensor<8x8x1x3x!ttcore.ttile<32x32, f32>, #layout2>
+  // CHECK: ttir.view_layout %{{.*}}: tensor<1x1x8x24x!ttcore.tile<32x32, f32>, [[tiled]]> -> tensor<8x8x1x3x!ttcore.tile<32x32, f32>, [[reblocked:#layout[0-9]*]]>
+  // CHECK-NEXT: ttir.generic {grid = #ttcore.grid<8x8>
+  %2 = ttir.to_layout %arg0, %0 : tensor<256x768xf32> into tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout2> -> tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout2>
   // undo reblock
-  // CHECK: ttir.view_layout %{{.*}} : (tensor<8x8x1x3x!ttcore.ttile<32x32, f32>, [[reblocked]]>) -> tensor<1x1x8x24x!ttcore.ttile<32x32, f32>, [[tiled]]>
-  // CHECK-NEXT: ttir.generic {grid = #ttcore.tgrid<1x1>
+  // CHECK: ttir.view_layout %{{.*}} : tensor<8x8x1x3x!ttcore.tile<32x32, f32>, [[reblocked]]> -> tensor<1x1x8x24x!ttcore.tile<32x32, f32>, [[tiled]]>
+  // CHECK-NEXT: ttir.generic {grid = #ttcore.grid<1x1>
   // untilize
   // CHECK: ttir.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>
   // CHECK-NEXT: ins(%{{.*}} : tensor<1x1x8x24x!ttcore.ttile<32x32, f32>, [[tiled]]>)
