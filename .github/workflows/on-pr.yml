@@ -9,6 +9,7 @@ on:
 permissions:
   checks: write
   packages: write
+  contents: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
