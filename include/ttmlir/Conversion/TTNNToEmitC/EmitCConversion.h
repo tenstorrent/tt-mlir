@@ -1445,7 +1445,9 @@ public:
           nullptr, adaptor.getOperands());
 
       return rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-          op, rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>),
+          op,
+          rewriter.getType<emitc::LValueType>(
+              rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>)),
           "::std::get", rewriter.getArrayAttr({rewriter.getIndexAttr(0)}),
           rewriter.getArrayAttr(
               {rewriter.getIntegerAttr(rewriter.getI32Type(), 0)}),
