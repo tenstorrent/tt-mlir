@@ -27,6 +27,8 @@ toTTNNBufferType(const mlir::tt::MemorySpace memorySpace) {
     return BufferType::DRAM;
   case MemorySpace::DeviceL1:
     return BufferType::L1;
+  case MemorySpace::RegisterDst:
+    llvm_unreachable("MemorySpace::RegisterDst not supported");
   }
 
   llvm_unreachable("Unknown MemorySpace");
@@ -204,6 +206,10 @@ createShardSpecIfNeeded(TensorMemoryLayoutAttr tensorMemoryLayoutAttr,
                            shardGridAttr, deviceGridAttr);
   }
   return shardSpecAttr;
+}
+
+bool isTTNNTraceFunc(func::FuncOp funcOp) {
+  return funcOp->hasAttr(g_TTNNTraceAttrName);
 }
 
 } // namespace mlir::tt::ttnn::utils

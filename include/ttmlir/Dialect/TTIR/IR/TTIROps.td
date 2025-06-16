@@ -183,6 +183,9 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
       unsigned getNumLoops();
       unsigned getNumDims();
       SmallVector<int64_t> getLoopBounds();
+      SmallVector<int64_t> getParticipatingLoopDims(int64_t operandIndex);
+      SmallVector<int64_t> getNonParticipatingLoopDims(int64_t operandIndex);
+      AffineMap getIndexingMap(int64_t operandIndex);
       SmallVector<AffineMap> getIndexingMapsValue();
       SmallVector<IteratorType> getIteratorTypesValue();
       SmallVector<SmallVector<int64_t>> getOperandGridShapes();
@@ -335,7 +338,10 @@ def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
     let arguments = (ins AnyRankedTensorOrMemRef:$input, DefaultValuedAttr<BoolAttr, "false">:$reinterpretLayout);
     let results = (outs AnyRankedTensorOrMemRef:$result);
 
+    let assemblyFormat = [{ $input attr-dict `:` type($input) `->` type($result) }];
+
     let hasVerifier = 1;
+    let hasFolder = 1;
 }
 
 //===----------------------------------------------------------------------===//

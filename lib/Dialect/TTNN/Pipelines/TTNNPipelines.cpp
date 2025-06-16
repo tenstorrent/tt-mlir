@@ -155,6 +155,9 @@ void createTTIRToTTNNBackendPipeline(
     devicePm.addPass(transforms::createConstEvalHoistTransform());
   }
   createTTNNPipelineLayoutDecompositionPass(devicePm, options);
+  if (options.enableTrace) {
+    devicePm.addPass(tt::ttnn::createTTNNTraceHoistTransform());
+  }
   createTTNNPipelineDeallocPass(devicePm, options);
 
   // Run lowering to LLVM pass on hoisted funcs in CPUModule.
@@ -164,17 +167,32 @@ void createTTIRToTTNNBackendPipeline(
 
 void createTTIRToEmitCPipeline(OpPassManager &pm,
                                const TTIRToEmitCPipelineOptions &options) {
+  if (options.enableTrace) {
+    llvm::report_fatal_error(
+        "Trace currently not supported in createTTIRToEmitCPipeline");
+  }
   createTTIRToTTNNBackendPipeline(pm, options);
   pm.addPass(tt::createTTUnwrapDeviceModulePass());
+  pm.addPass(createTTNNTuplifyTensors());
   pm.addPass(createTTNNCreateInputGenerators());
   pm.addPass(createConvertTTNNToEmitCPass());
 }
 
 void createTTIRToEmitCSOPipeline(OpPassManager &pm,
                                  const TTIRToEmitCSOPipelineOptions &options) {
+  // Pass specific options.
+  //
+  // Always set input tuplification to true - dylib signatures are contractual
+  // and required to have tuples/vectors on the input signature (and output).
+  //
+  TTNNTuplifyTensorsOptions tuplifyOptions;
+  tuplifyOptions.tuplifyInputIfEmpty = true;
+
+  // Construct pipeline from other pipelines/passes.
+  //
   createTTIRToTTNNBackendPipeline(pm, options);
   pm.addPass(tt::createTTUnwrapDeviceModulePass());
-  pm.addPass(createTTNNModifySignaturesForDylib());
+  pm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
   pm.addPass(createConvertTTNNToEmitCPass());
 }
 

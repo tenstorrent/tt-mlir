@@ -16,7 +16,6 @@
 #include <cassert>
 #include <cstdint>
 #include <optional>
-#include <tuple>
 
 namespace mlir::tt::ttnn {
 
@@ -28,19 +27,21 @@ llvm::Expected<bool> checkDeviceWorkerGrid(mlir::Operation *op) {
       deviceAttr.getWorkerGrid());
 }
 
+llvm::SmallVector<int64_t>
+convertArrayAttrToSmallVec(mlir::ArrayAttr arrayAttr) {
+  llvm::SmallVector<int64_t> result;
+  for (const mlir::Attribute &attr : arrayAttr) {
+    result.push_back(mlir::cast<mlir::IntegerAttr>(attr).getInt());
+  }
+  return result;
+}
+
 std::optional<llvm::SmallVector<int64_t>>
-convertReductionArg(std::optional<mlir::ArrayAttr> arrayOpt) {
-  if (!arrayOpt.has_value()) {
+convertOptionalArrayAttrToSmallVec(std::optional<mlir::ArrayAttr> arrayAttr) {
+  if (!arrayAttr.has_value()) {
     return std::nullopt;
   }
-
-  llvm::SmallVector<int64_t> reduceDims;
-
-  for (const mlir::Attribute &reduceDim : *arrayOpt) {
-    reduceDims.push_back(mlir::cast<mlir::IntegerAttr>(reduceDim).getInt());
-  }
-
-  return reduceDims;
+  return convertArrayAttrToSmallVec(arrayAttr.value());
 }
 
 } // namespace detail
@@ -118,9 +119,10 @@ getReductionOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
   }
   GridAttr deviceGrid = lookupDevice(op.getOperation()).getWorkerGrid();
 
-  return getConstraintsFunc(deviceGrid, inputShape, inputs[0],
-                            detail::convertReductionArg(op.getDimArg()),
-                            op.getKeepDim(), opConfig.outputLayout);
+  return getConstraintsFunc(
+      deviceGrid, inputShape, inputs[0],
+      detail::convertOptionalArrayAttrToSmallVec(op.getDimArg()),
+      op.getKeepDim(), opConfig.outputLayout);
 }
 
 template <typename OpT>
@@ -132,9 +134,10 @@ getReductionOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = op.getInput().getType().getShape();
 
-  return getRuntimeFunc(inputShape, inputs[0],
-                        detail::convertReductionArg(op.getDimArg()),
-                        op.getKeepDim(), opConfig.outputLayout);
+  return getRuntimeFunc(
+      inputShape, inputs[0],
+      detail::convertOptionalArrayAttrToSmallVec(op.getDimArg()),
+      op.getKeepDim(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -379,6 +382,48 @@ ReshapeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// SliceOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+SliceOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  const auto outputShape = getResult().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();
+
+  return op_model::ttnn::SliceOpInterface::getOpConstraints(
+      deviceGrid, inputShape, inputs[0],
+      detail::convertArrayAttrToSmallVec(getBegins()),
+      detail::convertArrayAttrToSmallVec(getEnds()),
+      detail::convertArrayAttrToSmallVec(getStep()), outputShape,
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+SliceOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                      const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto outputShape = getResult().getType().getShape();
+
+  return op_model::ttnn::SliceOpInterface::getOpRuntime(
+      inputShape, inputs[0], detail::convertArrayAttrToSmallVec(getBegins()),
+      detail::convertArrayAttrToSmallVec(getEnds()),
+      detail::convertArrayAttrToSmallVec(getStep()), outputShape,
+      opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // TypecastOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
@@ -453,6 +498,48 @@ ToLayoutOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return op_model::ttnn::ToLayoutOpInterface::getOpRuntime(
       inputShape, inputs[0], getDtype(), opConfig.outputLayout, passDevicePtr);
+}
+
+//===----------------------------------------------------------------------===//
+// ConcatOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+ConcatOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  assert(inputs.size() == getInputs().size());
+
+  std::vector<llvm::ArrayRef<int64_t>> inputShapes;
+  for (const Value &opInput : getInputs()) {
+    mlir::RankedTensorType inputType =
+        mlir::cast<mlir::RankedTensorType>(opInput.getType());
+    inputShapes.push_back(inputType.getShape());
+  }
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();
+
+  return op_model::ttnn::ConcatOpInterface::getOpConstraints(
+      deviceGrid, inputShapes, inputs, getDim(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+ConcatOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                       const OpConfig &opConfig) {
+  assert(inputs.size() == getInputs().size());
+
+  std::vector<llvm::ArrayRef<int64_t>> inputShapes;
+  for (const Value &opInput : getInputs()) {
+    mlir::RankedTensorType inputType =
+        mlir::cast<mlir::RankedTensorType>(opInput.getType());
+    inputShapes.push_back(inputType.getShape());
+  }
+
+  return op_model::ttnn::ConcatOpInterface::getOpRuntime(
+      inputShapes, inputs, getDim(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

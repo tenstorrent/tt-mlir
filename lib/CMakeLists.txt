@@ -39,6 +39,8 @@ if (TTMLIR_ENABLE_STABLEHLO)
     SdyTransformsPropagationShardingGroupMap
     SdyTransformsPropagationShardingProjection
     SdyTransformsPropagationAutoPartitionerRegistry
+    SdyAxisListRef
+    SdyExplicitReshardsUtil
     SdyTransformsPropagationUtils
     SdyTransformsPropagationBasicFactorPropagation
     SdyTransformsPropagationAggressiveFactorPropagation

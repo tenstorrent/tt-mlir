@@ -5,9 +5,13 @@
 #ifndef TT_RUNTIME_TENSOR_CACHE_H
 #define TT_RUNTIME_TENSOR_CACHE_H
 
+#include "tt/runtime/debug.h"
 #include "tt/runtime/types.h"
+#include "tt/runtime/utils.h"
 
 #include <cstdint>
+#include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -46,11 +50,10 @@ public:
   TensorCache() = default;
   ~TensorCache() = default;
 
-  // Make the cache copyable and movable
-  TensorCache(const TensorCache &) = default;
-  TensorCache &operator=(const TensorCache &) = default;
-  TensorCache(TensorCache &&) = default;
-  TensorCache &operator=(TensorCache &&) = default;
+  TensorCache(const TensorCache &) = delete;
+  TensorCache &operator=(const TensorCache &) = delete;
+  TensorCache(TensorCache &&) = delete;
+  TensorCache &operator=(TensorCache &&) = delete;
 
   // Get all cached tensors for a function name if the cache is valid
   // Returns nullptr if cache is invalid or not found
@@ -58,24 +61,25 @@ public:
   getAll(const std::string &parentFuncName,
          const std::string &constEvalFuncName,
          const std::vector<uint64_t> &inputVersions) const {
+    std::shared_lock<std::shared_mutex> lock(cacheMutex);
     auto it = cache.find(parentFuncName);
     if (it == cache.end()) {
-      ++stats["misses"];
+      debug::Stats::get().incrementStat("ConstEvalCacheMiss");
       return nullptr;
     }
 
     auto internalIt = it->second.find(constEvalFuncName);
     if (internalIt == it->second.end()) {
-      ++stats["misses"];
+      debug::Stats::get().incrementStat("ConstEvalCacheMiss");
       return nullptr;
     }
 
     const CacheValue &value = internalIt->second;
     if (value.inputVersions != inputVersions) {
-      ++stats["misses"];
+      debug::Stats::get().incrementStat("ConstEvalCacheMiss");
       return nullptr;
     }
-    ++stats["hits"];
+    debug::Stats::get().incrementStat("ConstEvalCacheHit");
     return &value.tensors;
   }
 
@@ -88,23 +92,25 @@ public:
   void store(const std::string &parentFuncName,
              const std::string &constEvalFuncName, VersionVec &&inputVersions,
              const std::vector<tt::runtime::Tensor> &tensors) {
+    std::unique_lock<std::shared_mutex> lock(cacheMutex);
     cache[parentFuncName][constEvalFuncName] =
         CacheValue{std::forward<VersionVec>(inputVersions), tensors};
   }
 
   // Clear the entire cache
-  void clear() { cache.clear(); }
+  void clear() {
+    std::unique_lock<std::shared_mutex> lock(cacheMutex);
+    cache.clear();
+  }
 
   // Get the size of the cache (number of entries)
   size_t size() const { return cache.size(); }
 
-  // Get cache statistics
-  std::unordered_map<std::string, size_t> getStats() const { return stats; }
-
   // Remove all const-eval funcs associated with a given outer key.
   void remove(const std::string &outerKey) {
+    std::unique_lock<std::shared_mutex> lock(cacheMutex);
     auto it = cache.find(outerKey);
-    assert(it == cache.end() && "Outer key not found in remove() call!");
+    assert(it != cache.end() && "Outer key not found in remove() call!");
     cache.erase(it);
   }
 
@@ -115,12 +121,11 @@ public:
   }
 
 private:
+  mutable std::shared_mutex cacheMutex;
   // Outer key should be combination of device id and program index, created via
   // generateCacheOuterKey. Inner key will be const-eval func name.
   std::unordered_map<std::string, std::unordered_map<std::string, CacheValue>>
       cache;
-  // TODO(#2986): collect stats only if appropriate macros are set.
-  mutable std::unordered_map<std::string, size_t> stats;
 };
 
 } // namespace tt::runtime

@@ -2,12 +2,15 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tt/runtime/detail/debug.h"
-#include <set>
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+
+#include <mutex>
+#include <shared_mutex>
+#include <sstream>
+
+#include "tt/runtime/debug.h"
 
 namespace tt::runtime::debug {
-
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
 
 const Env &Env::get(bool dumpKernelsToDisk, bool loadKernelsFromDisk,
                     bool deviceAddressValidation, bool blockingCQ) {
@@ -23,16 +26,49 @@ Hooks::get(std::optional<debug::Hooks::CallbackFn> preOperatorCallback,
   return config;
 }
 
-#endif // TT_RUNTIME_DEBUG
-
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-
-const PerfEnv &PerfEnv::get(std::uint32_t dumpDeviceRate,
-                            bool enablePerfTrace) {
-  static PerfEnv config(dumpDeviceRate, enablePerfTrace);
-  return config;
+Stats &Stats::get() {
+  static Stats stats;
+  return stats;
 }
 
-#endif // TT_RUNTIME_ENABLE_PERF_TRACE
+void Stats::incrementStat(const std::string &stat, std::int64_t value) {
+  std::unique_lock<std::shared_mutex> lock(countersMutex);
+  counters[stat] += value;
+}
+
+std::int64_t Stats::getStat(const std::string &stat) const {
+  std::shared_lock<std::shared_mutex> lock(countersMutex);
+  auto it = counters.find(stat);
+  return it == counters.end() ? 0 : it->second;
+}
+
+void Stats::removeStat(const std::string &stat) {
+  std::unique_lock<std::shared_mutex> lock(countersMutex);
+  counters.erase(stat);
+}
+
+void Stats::clear() {
+  std::unique_lock<std::shared_mutex> lock(countersMutex);
+  counters.clear();
+}
+
+std::string Stats::toString() const {
+  std::shared_lock<std::shared_mutex> lock(countersMutex);
+
+  std::ostringstream oss;
+  oss << "DebugStats{\n";
+  if (counters.empty()) {
+    oss << "\t(no stat counters recorded)\n";
+  } else {
+    for (const auto &[key, value] : counters) {
+      oss << "\t" << key << ": " << value << "\n";
+    }
+  }
+  oss << "\t" << this << "\n";
+  oss << "}";
+  return oss.str();
+}
 
 } // namespace tt::runtime::debug
+
+#endif

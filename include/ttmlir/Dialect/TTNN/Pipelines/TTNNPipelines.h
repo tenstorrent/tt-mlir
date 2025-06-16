@@ -125,7 +125,7 @@ struct TTIRToTTNNBackendPipelineOptions
   Option<bool> memoryLayoutAnalysisEnabled{
       *this, OptionNames::memoryLayoutAnalysisEnabled,
       llvm::cl::desc("Enable memory layout optimization."),
-      llvm::cl::init(false)};
+      llvm::cl::init(true)};
 
   // If this option is true, insert memory reconfiguration ops.
   //
@@ -242,6 +242,10 @@ struct TTIRToTTNNBackendPipelineOptions
       *this, "enable-const-eval",
       llvm::cl::desc("Enable const-eval optimization pass."),
       llvm::cl::init(true)};
+
+  Option<bool> enableTrace{*this, "enable-trace",
+                           llvm::cl::desc("Enable trace optimization pass."),
+                           llvm::cl::init(false)};
 
   // Option to specify the target bit width for quantized data types.
   Option<uint32_t> quantBitWidth{

@@ -1,11 +1,11 @@
 // RUN: ttmlir-opt
 //  --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%"
-//  --tt-unwrap-device-module --ttnn-modify-signatures-for-dylib %s
+//  --tt-unwrap-device-module --ttnn-tuplify-tensors %s
 //  | FileCheck %s
 
 // If the function is named `main`, it has to be renamed, otherwise compiler
 // will complain about the parameters and return type.
-// In `TTNNModifySignaturesForDylib` it is renamed to `_main`.
+// In `TTNNTuplifyTensors` it is renamed to `_main`.
 
 // CHECK-NOT: func.func @main
 // CHECK-LABEL: func.func @_main

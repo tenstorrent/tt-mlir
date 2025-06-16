@@ -29,6 +29,7 @@ struct OptionNames {
   static constexpr StringRef mockSystemDescArch = "mock-system-desc-arch";
   static constexpr StringRef maxLegalLayouts = "max-legal-layouts";
   static constexpr StringRef meshShape = "mesh-shape";
+  static constexpr StringRef tuplifyInputIfEmpty = "tuplify-input-if-empty";
 };
 
 struct Conv2dConfigOverrideParams {

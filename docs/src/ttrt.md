@@ -178,6 +178,7 @@ ttrt run out.ttnn --load-kernels-from-disk
 ttrt run out.ttnn --result-file result.json
 ttrt run out.ttnn --disable-golden
 ttrt run out.ttnn --save-golden-tensors
+ttrt run out.ttnn --print-input-output-tensors
 ttrt run out.ttnn --debugger
 ttrt run out.ttnn --memory --save-artifacts
 ttrt run out.ttnn --memory --check-memory-leak

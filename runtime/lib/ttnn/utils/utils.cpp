@@ -58,6 +58,15 @@ getBinary(::tt::runtime::Flatbuffer binary) {
   return ::tt::target::ttnn::GetSizePrefixedTTNNBinary(binary.handle.get());
 }
 
+const ::tt::target::ttnn::Program *
+getProgram(const ::tt::runtime::Binary &executableHandle,
+           std::uint32_t programIndex) {
+  const ::tt::target::ttnn::TTNNBinary &fbb = *getBinary(executableHandle);
+  const ::tt::target::ttnn::Program *program =
+      fbb.programs()->Get(programIndex);
+  return program;
+}
+
 ::ttnn::operations::reduction::ReduceType getReduceType(uint32_t reduceType) {
   switch (reduceType) {
   case 0:
@@ -308,6 +317,11 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
       std::make_shared<::tt::runtime::ttnn::TTNNTensorWrapper>(tensor, retain);
   return ::tt::runtime::Tensor(std::static_pointer_cast<void>(tensorPtr),
                                nullptr, DeviceRuntime::TTNN);
+}
+
+::ttnn::Tensor &getTTNNTensorFromRuntimeTensor(::tt::runtime::Tensor tensor) {
+  return tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
+      .getTensor();
 }
 
 void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
