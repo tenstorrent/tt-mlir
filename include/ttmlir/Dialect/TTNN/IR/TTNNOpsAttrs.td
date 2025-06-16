@@ -615,7 +615,6 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
     bool isSystemBufferType() const { return ::mlir::tt::ttnn::isSystemBufferType(getBufferType()); }
     bool isDeviceBufferType() const { return ::mlir::tt::ttnn::isDeviceBufferType(getBufferType()); }
     bool isMeshDeviceTensor() const { return ::mlir::tt::ttnn::isMeshDeviceTensor(getTensorMeshSharding()); }
-    bool isPartialLayout() const { return getIgnorePhysicalLayout(); }
     bool isTiled() const;
     bool hasShardedTensorMemoryLayout() const;
     bool hasShardedL1TensorMemoryLayout() const;
