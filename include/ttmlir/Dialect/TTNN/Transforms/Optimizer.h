@@ -23,7 +23,7 @@ struct TTNNOptimizerOptions {
   bool memoryLayoutAnalysisEnabled = false;
   MemoryLayoutAnalysisPolicyType memoryLayoutAnalysisPolicy =
       MemoryLayoutAnalysisPolicyType::DFSharding;
-  bool memReconfigEnabled = false;
+  bool memReconfigEnabled = true;
   int64_t maxLegalLayouts = 64;
   bool rowMajorEnabled = false;
 };
