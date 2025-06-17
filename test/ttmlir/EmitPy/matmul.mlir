@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-to-emitpy-pipeline %s | ttmlir-translate --mlir-to-python > %t.mlir
+// RUN: ttmlir-opt --ttir-to-emitpy-pipeline %s | ttmlir-translate --mlir-to-python > %t.py
 
 func.func @matmul(%arg0: tensor<64x128xbf16>, %arg1: tensor<128x96xbf16>) -> tensor<64x96xbf16> {
   %0 = ttir.empty() : tensor<64x96xbf16>
