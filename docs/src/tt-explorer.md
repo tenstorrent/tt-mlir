@@ -62,7 +62,35 @@ Since Model-Explorer is built using Python, the majority of TT-Explorer will be 
 
 The following components will be put together:
 
-![ttExplorerArchitecture](https://github.com/user-attachments/assets/f996af27-8b66-4579-a6d6-ded57cbe89d1)
+![Diagram for component architecture, transcript below](https://github.com/user-attachments/assets/f996af27-8b66-4579-a6d6-ded57cbe89d1)
+
+<details>
+<summary>Diagram transcript</summary>
+
+> Horizontal group labeled "Host side" at the top, with nodes from left to right connected to each other by arrows, and at the end connected to the next group.
+> The nodes are:
+>
+> - "AI Model", with an arrow labeled "Model binary file" to the next node.
+> - "TVM", with an arrow labeled "PyBUDA Graph" to the next node.
+> - "TT-Forge-FE", with an unlabeled arrow to the next node.
+> - "TT-MLIR", with an arrow labeled "MLIR file (.ttir, etc...)" to the "TT-Adapter" node on the next group.
+>
+> Vertical group at the right side, unlabeled, with nodes from top down connected to each other by arrows, and with some arrows going to the next group.
+> The group intersects with the "Host side" group at the "TT-MLIR" node.
+> The nodes are:
+>
+> - "TT-Adapter", with an arrow labeled "Flatbuffer w/ Model Binary" to the next node, an arrow labeled "Overrides JSON (to apply)" to the previous node, and an arrow labeled "HTTPS API (Overrides, MLIR -> JSON, etc...)" to and from the "Model Explorer" node on the next group.
+> - "TTRT", with an arrow labeled "HTTPS Server Call" to the next node.
+> - "Tracy Results", with an arrow labeled "Performance Trace" to the "UI" node on the next group.
+>
+> Rectangular group labeled "Client Side", below "Host side" and left of unlabeled group, with interconected nodes by arrows, and with some arrows going to the previous group.
+> The nodes are:
+>
+> - "Model Explorer", with an arrow labeled "HTTPS API (Overrides, MLIR -> JSON, etc...)" to and from the "TT-Adapter" node on the previous group, and an arrow labeled "Overrides (legal configurations)" to and from the next node.
+> - "UI", with an arrow labeled "Performance Trace" coming from the "Tracy Results" node on the previous group, an arrow labeled "Overrides (legal configurations)" to and from the previous node, and an unlabeled arrow going to the next node.
+> - "Notebook", with an arrow labeled "Scripted Overrides" going to the "Model Explorer" node on this group.
+
+</details>
 
 #### [TT-Forge-FE (Front End)](https://github.com/tenstorrent/tt-forge-fe)
 
