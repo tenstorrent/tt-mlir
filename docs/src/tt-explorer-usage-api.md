@@ -231,6 +231,7 @@ interface Attribute {
 	key: string;
 	value: string;
 	editable?: EditableAttributeTypes; // <- the editable attribute information
+  // ...
 }
 ```
 
@@ -368,3 +369,34 @@ Here is an example of what this attribute look like:
 ```
 
 ## Attribute display type
+
+To change how the attribute is displayed from plain text to something else, we do extend the attribute interface (presented above) with the `display_type` optional field.
+
+```typescript
+type AttributeDisplayType = 'memory';
+
+interface Attribute {
+	key: string;
+	value: string;
+	display_type?: AttributeDisplayType; // <- Optional, add a different display type.
+  // ...
+}
+```
+
+If the `display_type` attribute is present, and it matches one of the available values, then the attribute will display differently than the others.
+
+In the example below, the two attributes have different display types, one shows the regular, plain text display; and the other shows the `memory` display type, which renders it as a progress bar.
+
+![Example of different attribute display types](./images/tt-explorer/display-types.png)
+
+### `memory`
+
+Setting the display type to `memory` will make the attribute try to render as a progress bar.
+
+The UI will then check the `value` property in the attribute for the following conditions:
+- Is a [double precision floating point number](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Number#number_encoding)
+- Is not [`NaN`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/NaN#observably_distinct_nan_values)
+- Is grater than or equal to `0`
+- Is less than or equal to `1`
+
+If all of the conditions are true, then the `value` will be rendered as a progress bar.
