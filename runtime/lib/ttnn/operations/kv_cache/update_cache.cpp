@@ -23,11 +23,11 @@ void run(const ::tt::target::ttnn::UpdateCacheOp *op, ProgramContext &context) {
   if (workaround::Env::get().readUpdateIndexFromDeviceForKVCache) {
 
     const ::ttnn::Tensor indexOnHost = ::ttnn::from_device(updateIndex);
-    const auto &storage = indexOnHost.storage();
-    const auto &multiDeviceHostStorage =
-        std::get<tt_metal::MultiDeviceHostStorage>(storage);
-    const auto &buffer = multiDeviceHostStorage.get_buffer(0);
-    const auto &buf = buffer.view_as<uint32_t>();
+    const auto &storage =
+        std::get<tt_metal::MultiDeviceHostStorage>(indexOnHost.storage());
+    const std::optional<tt_metal::HostBuffer> buffer =
+        storage.get_shard_at_origin();
+    const auto &buf = buffer->view_as<uint32_t>();
     uint32_t upIdx = *buf.begin();
 
     ::ttnn::update_cache(cache, input, upIdx, op->batch_offset(), std::nullopt);
