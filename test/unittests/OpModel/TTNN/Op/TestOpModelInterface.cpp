@@ -475,39 +475,71 @@ TEST_F(OpModelBase, MatmulOpInterfaceNullOutput) {
   EXPECT_TRUE(outputLayout.hasInterleavedDRAMTensorMemoryLayout());
 }
 
-TEST_F(OpModelBase, MeanOpInterface) {
-  // create MeanOp
-  llvm::SmallVector<int64_t> tensorShapeA = {2048, 1024};
-  llvm::SmallVector<int64_t> tensorShapeO = {2048, 1024};
+// Forward declarations
+using OpConstraintsFn =
+    llvm::Expected<mlir::tt::op_model::ttnn::OpConstraints> (OpModelBase::*)(
+        mlir::Operation *);
+using OpRuntimeFn = llvm::Expected<size_t> (OpModelBase::*)(mlir::Operation *);
 
-  auto input = createEmptyTensor(tensorShapeA);
-  auto output = createEmptyTensor(tensorShapeO);
-
-  auto mean = builder.create<MeanOp>(builder.getUnknownLoc(), output.getType(),
-                                     ::mlir::ValueRange{input});
-  mean.setKeepDim(true);
-  mean.setDimArgAttr(builder.getArrayAttr(
+// Helper function to test reduction operations (Mean/Sum/etc.)
+template <typename OpType>
+void testReductionOp(OpModelBase *testFixture, mlir::OpBuilder &builder,
+                     mlir::Value input, mlir::Type outputType,
+                     int64_t expectedCbSize, int64_t expectedPeakSize,
+                     int64_t expectedOutputSize,
+                     OpConstraintsFn getOpConstraintsFn,
+                     OpRuntimeFn getOpRuntimeFn) {
+  // Create the reduction operation
+  auto op = builder.create<OpType>(builder.getUnknownLoc(), outputType,
+                                   ::mlir::ValueRange{input});
+  op.setKeepDim(true);
+  op.setDimArgAttr(builder.getArrayAttr(
       llvm::SmallVector<mlir::Attribute>{builder.getI64IntegerAttr(1)}));
 
-  // test mean Op interface
-  auto constraintsExp = getOpConstraints(mean.getOperation());
+  // Test operation constraints
+  auto constraintsExp = (testFixture->*getOpConstraintsFn)(op.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
-    EXPECT_EQ(cbSize, 12288);
-    EXPECT_EQ(peakSize, 2048);
-    EXPECT_EQ(outputSize, 2048);
+    EXPECT_EQ(cbSize, expectedCbSize);
+    EXPECT_EQ(peakSize, expectedPeakSize);
+    EXPECT_EQ(outputSize, expectedOutputSize);
   } else {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
-  auto runtimeExp = getOpRuntime(mean.getOperation());
+  // Test operation runtime
+  auto runtimeExp = (testFixture->*getOpRuntimeFn)(op.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
     FAIL() << llvm::toString(runtimeExp.takeError());
   }
+}
+
+TEST_F(OpModelBase, MeanOpInterface) {
+  llvm::SmallVector<int64_t> tensorShapeA = {2048, 1024};
+  llvm::SmallVector<int64_t> tensorShapeO = {2048, 1024};
+  auto input = createEmptyTensor(tensorShapeA);
+  auto output = createEmptyTensor(tensorShapeO);
+
+  testReductionOp<MeanOp>(
+      this, builder, input, output.getType(), /*expectedCbSize=*/12288,
+      /*expectedPeakSize=*/2048, /*expectedOutputSize=*/2048,
+      &OpModelBase::getOpConstraints, &OpModelBase::getOpRuntime);
+}
+
+TEST_F(OpModelBase, SumOpInterface) {
+  llvm::SmallVector<int64_t> tensorShapeA = {2048, 1024};
+  llvm::SmallVector<int64_t> tensorShapeO = {2048, 1024};
+  auto input = createEmptyTensor(tensorShapeA);
+  auto output = createEmptyTensor(tensorShapeO);
+
+  testReductionOp<SumOp>(
+      this, builder, input, output.getType(), /*expectedCbSize=*/12288,
+      /*expectedPeakSize=*/2048, /*expectedOutputSize=*/2048,
+      &OpModelBase::getOpConstraints, &OpModelBase::getOpRuntime);
 }
 
 TEST_F(OpModelBase, ReshapeOpInterface) {

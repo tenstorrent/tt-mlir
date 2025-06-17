@@ -233,35 +233,60 @@ INSTANTIATE_TEST_SUITE_P(
 
 // ==== Unary Eltwise Ops Ends ====
 
+enum class ReductionOpType { Sum, Mean };
+
 class OpModelReductionParam
     : public OpModelTest,
       public testing::WithParamInterface<
-          std::tuple<detail::TestTensor,                        // input
-                     detail::TestTensor,                        // output
+          std::tuple<ReductionOpType,    // operation type
+                     detail::TestTensor, // input
+                     detail::TestTensor, // output
                      std::optional<llvm::SmallVector<int64_t>>, // dim arg
                      bool,                                      // keep dim
-                     detail::ExpectedResult>> {};
+                     detail::ExpectedResult>> {
+protected:
+  using ReductionOpConstraintsFunc =
+      std::function<llvm::Expected<OpConstraints>(
+          GridAttr, llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr,
+          std::optional<llvm::ArrayRef<int64_t>>, bool,
+          mlir::tt::ttnn::TTNNLayoutAttr)>;
+
+  using ReductionOpRuntimeFunc = std::function<llvm::Expected<size_t>(
+      llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr,
+      std::optional<llvm::ArrayRef<int64_t>>, bool,
+      mlir::tt::ttnn::TTNNLayoutAttr)>;
+
+  std::map<ReductionOpType,
+           std::pair<ReductionOpConstraintsFunc, ReductionOpRuntimeFunc>>
+      opMap = {
+          {ReductionOpType::Sum,
+           {SumOpInterface::getOpConstraints, SumOpInterface::getOpRuntime}},
+          {ReductionOpType::Mean,
+           {MeanOpInterface::getOpConstraints, MeanOpInterface::getOpRuntime}}};
+};
 
 TEST_P(OpModelReductionParam, Reduction) {
   auto params = GetParam();
+  const ReductionOpType opType = std::get<0>(params);
   const auto [inputShape, inputTensorLayout, inputBufferType,
-              inputVirtualGrid] = std::get<0>(params);
+              inputVirtualGrid] = std::get<1>(params);
 
   const auto [outputShape, outputTensorLayout, outputBufferType,
-              outputVirtualGrid] = std::get<1>(params);
-  const auto dimArg = std::get<2>(params);
-  const auto keepDim = std::get<3>(params);
+              outputVirtualGrid] = std::get<2>(params);
+  const auto dimArg = std::get<3>(params);
+  const auto keepDim = std::get<4>(params);
   const auto [expectedLegal, expectedCbSize, expectedPeakSize,
-              expectedOutputSize] = std::get<4>(params);
+              expectedOutputSize] = std::get<5>(params);
 
   const mlir::tt::ttnn::TTNNLayoutAttr inputLayout = CreateTiledLayout(
       inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
   const mlir::tt::ttnn::TTNNLayoutAttr outputLayout = CreateTiledLayout(
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
-  auto constraintsExp = MeanOpInterface::getOpConstraints(
-      CreateWorkerGrid(), inputShape, inputLayout, dimArg, keepDim,
-      outputLayout);
+  const auto &[constraintsFunc, runtimeFunc] = opMap.at(opType);
+  auto constraintsExp =
+      constraintsFunc(CreateWorkerGrid(), inputShape, inputLayout, dimArg,
+                      keepDim, outputLayout);
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
@@ -276,8 +301,8 @@ TEST_P(OpModelReductionParam, Reduction) {
     llvm::consumeError(constraintsExp.takeError());
   }
 
-  auto runtimeExp = MeanOpInterface::getOpRuntime(
-      inputShape, inputLayout, dimArg, keepDim, outputLayout);
+  auto runtimeExp =
+      runtimeFunc(inputShape, inputLayout, dimArg, keepDim, outputLayout);
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (expectedLegal) {
     EXPECT_TRUE(runtimeExp.get() > 0);
@@ -286,25 +311,33 @@ TEST_P(OpModelReductionParam, Reduction) {
   }
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    MeanTests, OpModelReductionParam,
-    ::testing::Values(
-        std::make_tuple(detail::interleavedN300X1024Dram,
-                        detail::interleavedN300X1024Dram,
-                        llvm::SmallVector<int64_t>{1}, true,
-                        detail::ExpectedResult{true, 12288, 0, 0}),
-        std::make_tuple(detail::interleavedN300X1024Dram,
-                        detail::interleavedN300X1024Dram,
-                        llvm::SmallVector<int64_t>{1, 2}, false,
-                        detail::ExpectedResult{false, 0, 0, 0}),
-        std::make_tuple(detail::interleavedN300X1024Dram,
-                        detail::interleavedN300X1024Dram,
-                        llvm::SmallVector<int64_t>{1, 0}, false,
-                        detail::ExpectedResult{true, 12288, 0, 0}),
-        std::make_tuple(detail::interleavedN300X1024L1,
-                        detail::interleavedN300X1024Dram,
-                        llvm::SmallVector<int64_t>{1}, false,
-                        detail::ExpectedResult{true, 12288, 0, 0})));
+// Helper function to generate test parameters for reduction operations
+template <ReductionOpType OpType>
+static auto generateReductionParams() {
+  return ::testing::Values(
+      std::make_tuple(OpType, detail::interleavedN300X1024Dram,
+                      detail::interleavedN300X1024Dram,
+                      llvm::SmallVector<int64_t>{1}, true,
+                      detail::ExpectedResult{true, 12288, 0, 0}),
+      std::make_tuple(OpType, detail::interleavedN300X1024Dram,
+                      detail::interleavedN300X1024Dram,
+                      llvm::SmallVector<int64_t>{1, 2}, false,
+                      detail::ExpectedResult{false, 0, 0, 0}),
+      std::make_tuple(OpType, detail::interleavedN300X1024Dram,
+                      detail::interleavedN300X1024Dram,
+                      llvm::SmallVector<int64_t>{1, 0}, false,
+                      detail::ExpectedResult{true, 12288, 0, 0}),
+      std::make_tuple(OpType, detail::interleavedN300X1024L1,
+                      detail::interleavedN300X1024Dram,
+                      llvm::SmallVector<int64_t>{1}, false,
+                      detail::ExpectedResult{true, 12288, 0, 0}));
+}
+
+INSTANTIATE_TEST_SUITE_P(SumTests, OpModelReductionParam,
+                         generateReductionParams<ReductionOpType::Sum>());
+
+INSTANTIATE_TEST_SUITE_P(MeanTests, OpModelReductionParam,
+                         generateReductionParams<ReductionOpType::Mean>());
 
 TEST_F(OpModelTest, SoftmaxInterleaved) {
   const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
