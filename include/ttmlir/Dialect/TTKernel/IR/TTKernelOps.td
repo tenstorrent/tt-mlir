@@ -259,6 +259,28 @@ def TTKernel_InitSFPUOp : TTKernel_InitOp<"init_sfpu"> {
     let arguments = (ins TTKernel_CB:$icb, TTKernel_CB:$ocb);
 }
 
+def TTKernel_CopyDestValuesInitOp : TTKernel_InitOp<"copy_dest_values_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before copy_dest_values.
+    }];
+
+    let arguments = (ins);
+}
+
+def TTKernel_CopyDestValuesOp : TTKernel_SFPUOp<"copy_dest_values", [TTKernel_BinaryOpTrait]> {
+    let summary = "Copies all values from the tile in idst1 to the tile in idst0 in the DST register buffer.";
+    let description = [{
+      Copies all values from the tile in idst1 to the tile in idst0 in the DST
+      register buffer. Performs element-wise computation of copy operation
+      DST[dst0_index] <- DST[dst1_index]
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index);
+}
+
 def TTKernel_MaxTilesInitOp : TTKernel_InitOp<"max_tile_init"> {
     let summary = "Short init function";
     let description = [{
