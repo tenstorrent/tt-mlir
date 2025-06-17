@@ -45,6 +45,7 @@ union OpType {
   RepeatOp,
   ReshapeOp,
   SliceOp,
+  SortOp,
   TransposeOp,
   DeallocateOp,
   EltwiseBinaryOp,
