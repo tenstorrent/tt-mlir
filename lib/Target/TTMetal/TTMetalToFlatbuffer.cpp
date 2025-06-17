@@ -666,6 +666,10 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
     flatbuffers::Offset<target::DebugInfo> debugInfo =
         debugInfoToFlatbuffer(fbb, "ttmetal", module, goldenMap, moduleCache);
 
+    DeviceAttr deviceAttr = lookupDevice(entry);
+
+    ::tt::target::Dim2d meshShape = deviceToFlatbufferMeshShape(deviceAttr);
+
     programs.push_back(target::metal::CreateProgramDirect(
         fbb, cqBuilder.name, &tensorInputs, &tensorOutputs, &devicePrograms,
         debugInfo, /*private=*/false, &meshShape));
