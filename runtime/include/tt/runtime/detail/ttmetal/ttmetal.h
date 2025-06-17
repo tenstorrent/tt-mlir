@@ -102,11 +102,12 @@ getMemoryView(Device device);
 
 void wait(Event event);
 
-void wait(Tensor tensor);
+void wait(Tensor tensor, std::optional<uint8_t> cqId = std::nullopt);
 
-void wait(const std::vector<Tensor> &tensors);
+void wait(const std::vector<Tensor> &tensors,
+          std::optional<uint8_t> cqId = std::nullopt);
 
-std::vector<Tensor> toHost(Tensor tensor, bool untilize);
+std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking);
 
 void memcpy(void *dst, Tensor src,
             std::optional<tt::target::DataType> dstDataType = std::nullopt);
