@@ -61,7 +61,39 @@ public:
   void performCommuteBelowRewrite(ttir::BroadcastOp op,
                                   ttir::TransposeOp transposeOperand,
                                   PatternRewriter &rewriter) const override {
-    // TODO(@LPanosTT): implement this
+
+    // The new broadcast shape will be the transposed version of its current
+    // shape
+    SmallVector<int64_t> newBroadcastShape(op.getType().getShape());
+    std::swap(newBroadcastShape[transposeOperand.getDim0()],
+              newBroadcastShape[transposeOperand.getDim1()]);
+
+    auto newBroadcastResultType = op.getType().clone(newBroadcastShape);
+    SmallVector<int64_t> newBroadcastDimensions(op.getBroadcastDimensions());
+    std::swap(newBroadcastDimensions[transposeOperand.getDim0()],
+              newBroadcastDimensions[transposeOperand.getDim1()]);
+
+    // The new transpose shape will be identical to the current broadcast shape
+    SmallVector<int64_t> newTransposeShape(op.getType().getShape());
+    auto newTransposeResultType = op.getType();
+
+    auto newBroadcast = ttir::utils::createDPSOp<ttir::BroadcastOp>(
+        rewriter, op->getLoc(), newBroadcastResultType,
+        transposeOperand.getInput(), newBroadcastDimensions);
+
+    auto newTranspose = ttir::utils::createDPSOp<ttir::TransposeOp>(
+        rewriter, op->getLoc(), newTransposeResultType, newBroadcast,
+        transposeOperand.getDim0(), transposeOperand.getDim1());
+
+    SmallVector<Operation *> users(op->getUsers());
+    for (auto *user : users) {
+      assert(checkIdenticalTms(transposeOperand, user) &&
+             "shouldCommute should have ensured this is true");
+    }
+
+    for (auto *user : users) {
+      rewriter.replaceOp(user, newTranspose);
+    }
   }
 
 private:
@@ -74,8 +106,7 @@ private:
   bool isCommuteBelowViable(ttir::BroadcastOp op,
                             ttir::TransposeOp) const override {
     // We can always commute a transpose below a broadcast.
-    // TODO(@LPanosTT): commute logic not implemented yet, thus it is not viable
-    return false;
+    return true;
   }
 
   bool isCommuteAboveFavorable(ttir::BroadcastOp op,
@@ -332,6 +363,7 @@ public:
                                   ttir::ReshapeOp reshapeOperand,
                                   PatternRewriter &rewriter) const override {
     // TODO(@LPanosTT): implement this
+    llvm_unreachable("Not implemented, this should not be called");
   }
 
 private:

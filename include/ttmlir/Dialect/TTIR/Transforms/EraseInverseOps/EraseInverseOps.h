@@ -214,7 +214,6 @@ class TTIRCommuteOpRewritePattern
     : public OpRewritePattern<CommutableOp>,
       public TTIRCommuteRewritePatternBase<TMOpType, CommutableOp, direction> {
 public:
-  // using OpRewritePattern<CommutableOp>::OpRewritePattern;
   TTIRCommuteOpRewritePattern(
       mlir::MLIRContext *ctx,
       const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams)
