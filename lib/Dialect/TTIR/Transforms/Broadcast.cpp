@@ -25,12 +25,10 @@ public:
 
   LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const override {
-    if (!op->hasTrait<ElementwiseBinary::Trait>() &&
-        !op->hasTrait<ElementwiseTernary::Trait>()) {
+    if (!op->hasTrait<ttir::Broadcastable>()) {
       return llvm::failure();
     }
 
-    assert(op->template hasTrait<Broadcastable>());
     auto dps = mlir::cast<mlir::DestinationStyleOpInterface>(op);
 
     bool operandsChanged = false;
