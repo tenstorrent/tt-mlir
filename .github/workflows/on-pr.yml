@@ -70,7 +70,8 @@ jobs:
   release-wheel:
     name: "Release the tt-torch wheel"
     # todo(vvukoman): before merging uncomment this
-    # if: github.ref == 'refs/heads/main'
+    # if: github.ref == 'refs/heads/main' && github.event_name == 'schedule'
+    if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     needs:
       - check-all-green
