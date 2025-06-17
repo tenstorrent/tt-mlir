@@ -355,15 +355,17 @@ void wait(Event event) {
   }
 }
 
-void wait(Tensor tensor) { ::tt::runtime::ttmetal::wait(tensor.event); }
+void wait(Tensor tensor, std::optional<uint8_t> cqId) {
+  ::tt::runtime::ttmetal::wait(tensor.event);
+}
 
-void wait(const std::vector<Tensor> &tensors) {
+void wait(const std::vector<Tensor> &tensors, std::optional<uint8_t> cqId) {
   for (Tensor tensor : tensors) {
     ::tt::runtime::ttmetal::wait(tensor);
   }
 }
 
-std::vector<Tensor> toHost(Tensor tensor, bool untilize) {
+std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
   ::tt::runtime::ttmetal::wait(tensor);
   std::visit(utils::overloaded{
                  [&](const TensorDesc &) { /* no-op */ },

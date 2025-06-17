@@ -261,7 +261,8 @@ void registerRuntimeBindings(nb::module_ &m) {
   m.def("reshape_mesh_device", &tt::runtime::reshapeMeshDevice,
         nb::arg("mesh_device"), nb::arg("mesh_shape"), "Reshape a mesh device");
   m.def("to_host", &tt::runtime::toHost, nb::arg("tensor"),
-        nb::arg("untilize") = false, "Copy the tensor to the host");
+        nb::arg("untilize") = false, nb::arg("blocking") = true,
+        "Copy the tensor to host");
   m.def("to_layout", &tt::runtime::toLayout, nb::arg("tensor"),
         nb::arg("device"), nb::arg("layout"), nb::arg("retain") = nb::none(),
         "Create a copy of the tensor with the specified layout");
@@ -283,14 +284,16 @@ void registerRuntimeBindings(nb::module_ &m) {
       "wait", [](::tt::runtime::Event event) { ::tt::runtime::wait(event); },
       nb::arg("event"));
   m.def(
-      "wait", [](::tt::runtime::Tensor tensor) { ::tt::runtime::wait(tensor); },
-      nb::arg("tensor"));
+      "wait",
+      [](::tt::runtime::Tensor tensor, std::optional<uint8_t> cqId) {
+        ::tt::runtime::wait(tensor, cqId);
+      },
+      nb::arg("tensor"), nb::arg("cq_id") = nb::none());
   m.def(
       "wait",
-      [](const std::vector<::tt::runtime::Tensor> &tensors) {
-        ::tt::runtime::wait(tensors);
-      },
-      nb::arg("tensors"));
+      [](const std::vector<::tt::runtime::Tensor> &tensors,
+         std::optional<uint8_t> cqId) { ::tt::runtime::wait(tensors, cqId); },
+      nb::arg("tensors"), nb::arg("cq_id") = nb::none());
   m.def(
       "get_op_output_tensor",
       [](tt::runtime::OpContext &opContextHandle,

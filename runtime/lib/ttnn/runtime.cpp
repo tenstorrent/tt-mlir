@@ -82,15 +82,53 @@ static ::tt::runtime::Tensor createNullTensor() {
   return ::tt::runtime::Tensor(nullptr, nullptr, DeviceRuntime::TTNN);
 }
 
-static ::tt::runtime::Tensor toHostSingleTensor(::tt::runtime::Tensor tensor,
-                                                bool untilize) {
-  const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
-      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
-
-  const ::ttnn::Tensor &deviceTensor = tensorWrapper.getTensor();
+static ::tt::runtime::Tensor
+toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
+                   bool untilize, bool blocking) {
+  const ::ttnn::Tensor &inputTensor = tensorWrapper.getTensor();
   bool shouldRetain = tensorWrapper.shouldRetain();
 
-  ::ttnn::Tensor hostTensor = ::ttnn::from_device(deviceTensor);
+  // If the tensor is on host, no event recording needed
+  if (utils::isOnHost(inputTensor.storage_type())) {
+    ::ttnn::Tensor hostTensor = inputTensor;
+    if (untilize) {
+      hostTensor = ::ttnn::to_layout(
+          hostTensor, ::ttnn::Layout::ROW_MAJOR, std::nullopt, std::nullopt,
+          static_cast<::ttnn::MeshDevice *>(nullptr));
+    }
+    return utils::createRuntimeTensorFromTTNN(
+        hostTensor, /*meshEvent=*/std::nullopt, shouldRetain);
+  }
+
+  ::ttnn::MeshDevice *meshDevice = inputTensor.mesh_device();
+  LOG_ASSERT(meshDevice, "Device tensor must live on a mesh device");
+
+  // If untilize is true and the data type can be untilized on device
+  // Untilize on device first before reading back to host
+  if (untilize && utils::canUntilizeDataTypeOnDevice(inputTensor.dtype())) {
+    ::ttnn::Tensor hostTensor = ::ttnn::from_device(
+        ::ttnn::to_layout(inputTensor, ::ttnn::Layout::ROW_MAJOR, std::nullopt,
+                          std::nullopt,
+                          static_cast<::ttnn::MeshDevice *>(nullptr)),
+        blocking);
+
+    std::optional<::ttnn::MeshEvent> meshEvent = std::nullopt;
+    if (!blocking) {
+      meshEvent =
+          ::ttnn::events::record_mesh_event(meshDevice, ::ttnn::DefaultQueueId);
+    }
+
+    return utils::createRuntimeTensorFromTTNN(hostTensor, meshEvent,
+                                              shouldRetain);
+  }
+
+  if (!blocking) {
+    LOG_WARNING("Overriding blocking parameter to true because tensor cannot "
+                "be untilized on device.");
+  }
+
+  ::ttnn::Tensor hostTensor =
+      ::ttnn::from_device(inputTensor, /*blocking=*/true);
 
   if (untilize) {
     hostTensor = ::ttnn::to_layout(hostTensor, ::ttnn::Layout::ROW_MAJOR,
@@ -98,7 +136,8 @@ static ::tt::runtime::Tensor toHostSingleTensor(::tt::runtime::Tensor tensor,
                                    static_cast<::ttnn::MeshDevice *>(nullptr));
   }
 
-  return utils::createRuntimeTensorFromTTNN(hostTensor, shouldRetain);
+  return utils::createRuntimeTensorFromTTNN(
+      hostTensor, /*meshEvent=*/std::nullopt, shouldRetain);
 }
 
 ::tt::runtime::Tensor
@@ -566,42 +605,61 @@ getMemoryView(Device deviceHandle) {
 }
 
 void wait(Event event) {
-  // Nothing to do for ttnn runtime
-  LOG_ASSERT(event.matchesRuntime(DeviceRuntime::TTNN));
+  LOG_FATAL("Waiting on events is not supported for ttnn runtime. Please use "
+            "wait on tensors instead.");
 }
 
-void wait(::tt::runtime::Tensor tensor) {
+void wait(::tt::runtime::Tensor tensor, std::optional<uint8_t> cqId) {
   LOG_ASSERT(tensor.matchesRuntime(DeviceRuntime::TTNN),
              "Expected ttnn tensor");
-  ::tt::runtime::ttnn::wait(tensor.event);
+
+  const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
+      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
+  const std::optional<::ttnn::MeshEvent> &meshEvent =
+      tensorWrapper.getMeshEvent();
+
+  if (!meshEvent.has_value()) {
+    return;
+  }
+
+  // If no cqId provided, block and wait until the event is recorded
+  if (!cqId.has_value()) {
+    ::ttnn::events::event_synchronize(meshEvent.value());
+    return;
+  }
+
+  // tell cqId to wait until the event is recorded
+  ::ttnn::QueueId cqIdValue(cqId.value());
+  ::ttnn::events::wait_for_mesh_event(cqIdValue, meshEvent.value());
 }
 
-void wait(const std::vector<::tt::runtime::Tensor> &tensors) {
+void wait(const std::vector<::tt::runtime::Tensor> &tensors,
+          std::optional<uint8_t> cqId) {
   for (const ::tt::runtime::Tensor &tensor : tensors) {
-    ::tt::runtime::ttnn::wait(tensor);
+    ::tt::runtime::ttnn::wait(tensor, cqId);
   }
 }
 
 std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
-                                          bool untilize) {
+                                          bool untilize, bool blocking) {
   const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
       tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
 
-  const ::ttnn::Tensor &multiDeviceTensor = tensorWrapper.getTensor();
-  bool shouldRetain = tensorWrapper.shouldRetain();
+  ::tt::runtime::Tensor multiDeviceHostTensor =
+      ::tt::runtime::ttnn::toHostSingleTensor(tensorWrapper, untilize,
+                                              blocking);
 
-  ::tt::runtime::Tensor hostMultiDeviceTensor =
-      ::tt::runtime::ttnn::toHostSingleTensor(
-          utils::createRuntimeTensorFromTTNN(multiDeviceTensor, shouldRetain),
-          untilize);
   std::vector<::ttnn::Tensor> singleTensors =
       ::ttnn::distributed::get_device_tensors(
-          utils::getTTNNTensorFromRuntimeTensor(hostMultiDeviceTensor));
+          utils::getTTNNTensorFromRuntimeTensor(multiDeviceHostTensor));
+
+  const std::optional<::ttnn::MeshEvent> &meshEvent =
+      tensorWrapper.getMeshEvent();
 
   std::vector<::tt::runtime::Tensor> hostTensors;
   for (const ::ttnn::Tensor &tensor : singleTensors) {
-    hostTensors.push_back(
-        utils::createRuntimeTensorFromTTNN(tensor, shouldRetain));
+    hostTensors.push_back(utils::createRuntimeTensorFromTTNN(
+        tensor, meshEvent, tensorWrapper.shouldRetain()));
   }
 
   return hostTensors;
@@ -626,8 +684,8 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
   LayoutConverter converter(tensorLayoutDesc, desiredLayoutDesc);
   ::ttnn::Tensor out = converter.convertTensorLayout(ttnnTensor, meshDevice);
 
-  ::tt::runtime::Tensor result =
-      utils::createRuntimeTensorFromTTNN(out, shouldRetain);
+  ::tt::runtime::Tensor result = utils::createRuntimeTensorFromTTNN(
+      out, /*meshEvent=*/std::nullopt, shouldRetain);
 
   if (!shouldRetain) {
     ::tt::runtime::ttnn::deallocateTensor(tensor);

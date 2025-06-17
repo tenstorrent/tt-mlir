@@ -23,6 +23,10 @@ bool isValidTileShape(const ::tt::target::Dim2d *shape);
 bool isSharded(
     const ::tt::target::ttnn::TensorMemoryLayout &tensorMemoryLayout);
 
+bool canTilizeDataTypeOnDevice(const ::ttnn::DataType &dataType);
+
+bool canUntilizeDataTypeOnDevice(const ::ttnn::DataType &dataType);
+
 const ::tt::target::ttnn::TTNNBinary *
 getBinary(::tt::runtime::Flatbuffer binary);
 
@@ -68,8 +72,10 @@ getTensorRefMemoryConfig(const ::tt::target::ttnn::TensorRef *tensorRef);
 std::optional<::ttnn::MemoryConfig>
 createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg);
 
-::tt::runtime::Tensor createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor,
-                                                  bool retain = false);
+::tt::runtime::Tensor createRuntimeTensorFromTTNN(
+    const ::ttnn::Tensor &tensor,
+    const std::optional<::ttnn::MeshEvent> &meshEvent = std::nullopt,
+    bool retain = false);
 
 ::ttnn::Tensor &getTTNNTensorFromRuntimeTensor(::tt::runtime::Tensor tensor);
 

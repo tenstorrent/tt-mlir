@@ -14,10 +14,10 @@
 
 namespace tt::runtime::ttnn::operations::trace {
 
-static void
-copyTensor(const ::tt::target::ttnn::TensorRef *srcTensorDesc,
-           const ::ttnn::Tensor &srcTensor, ::ttnn::Tensor &dstTensor,
-           const ::ttnn::QueueId &queueId = ::ttnn::DefaultQueueId) {
+static void copyTensor(const ::tt::target::ttnn::TensorRef *srcTensorDesc,
+                       const ::ttnn::Tensor &srcTensor,
+                       ::ttnn::Tensor &dstTensor,
+                       const ::ttnn::QueueId &queueId) {
 
   if (::tt::runtime::ttnn::utils::inSystemMemory(srcTensorDesc)) {
     ::tt::tt_metal::write_tensor(srcTensor, dstTensor, queueId);
@@ -30,15 +30,19 @@ copyTensor(const ::tt::target::ttnn::TensorRef *srcTensorDesc,
   ::tt::tt_metal::write_tensor(hostSrcTensor, dstTensor, queueId);
 }
 
-static void executeTraceProgramAndCaptureTrace(
-    const ::tt::target::ttnn::TraceOp *op, ProgramContext &context,
-    ::tt::runtime::ttnn::TraceCache &traceCache) {
+static void
+executeTraceProgramAndCaptureTrace(const ::tt::target::ttnn::TraceOp *op,
+                                   ProgramContext &context,
+                                   ::tt::runtime::ttnn::TraceCache &traceCache,
+                                   const ::ttnn::QueueId &traceQueueId,
+                                   const ::ttnn::QueueId &dataCopyQueueId) {
 
   ::tt::runtime::Device deviceHandle = context.getDeviceHandle();
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
 
   std::vector<::tt::runtime::Tensor> traceInputTensors;
+
   for (const ::tt::target::ttnn::TensorRef *input : *op->inputs()) {
     // Allocate a tensor buffer on device. This will hold the input data for the
     // trace
@@ -48,12 +52,18 @@ static void executeTraceProgramAndCaptureTrace(
     // Copy the input data from the runtime tensor pool to the trace tensor
     ::tt::runtime::ttnn::TTNNTensorWrapper &inputTensorWrapper =
         context.getTensorPool().getTTNNTensorWrapperAndValidate(input);
-    copyTensor(input, inputTensorWrapper.getTensor(), traceInputTensorTTNN);
+
+    copyTensor(input, inputTensorWrapper.getTensor(), traceInputTensorTTNN,
+               dataCopyQueueId);
+    // If the data copy is on a different cq, we need to wait for it to complete
+    if (dataCopyQueueId != traceQueueId) {
+      utils::eventSync(&meshDevice, dataCopyQueueId, traceQueueId);
+    }
 
     // Store the trace input tensor
     ::tt::runtime::Tensor traceInputTensor =
         ::tt::runtime::ttnn::utils::createRuntimeTensorFromTTNN(
-            traceInputTensorTTNN, /*retain=*/true);
+            traceInputTensorTTNN, /*meshEvent=*/std::nullopt, /*retain=*/true);
     ::tt::runtime::ttnn::TTNNTensorWrapper &traceInputTensorWrapper =
         traceInputTensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(
             DeviceRuntime::TTNN);
@@ -106,7 +116,9 @@ static void executeTraceProgramAndCaptureTrace(
 }
 
 static void executeTrace(const ::tt::target::ttnn::TraceOp *op,
-                         ProgramContext &context, TraceData &traceData) {
+                         ProgramContext &context, TraceData &traceData,
+                         const ::ttnn::QueueId &traceQueueId,
+                         const ::ttnn::QueueId &dataCopyQueueId) {
   ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
 
   std::vector<::ttnn::Tensor> inputs;
@@ -128,7 +140,11 @@ static void executeTrace(const ::tt::target::ttnn::TraceOp *op,
     }
 
     copyTensor(input, inputTensorWrapper.getTensor(),
-               inputSlotWrapper.getTensor());
+               inputSlotWrapper.getTensor(), dataCopyQueueId);
+    // If the data copy is on a different cq, we need to wait for it to complete
+    if (dataCopyQueueId != traceQueueId) {
+      utils::eventSync(&meshDevice, dataCopyQueueId, traceQueueId);
+    }
 
     // Input slot will now contain identical data as the input tensor
     // Thus we can syncronize their versions
@@ -160,8 +176,15 @@ void run(const ::tt::target::ttnn::TraceOp *op, ProgramContext &context) {
              "Program cache must be enabled");
   LOG_ASSERT(meshDevice.allocator()->get_config().trace_region_size > 0,
              "Trace region size must be greater than 0");
+  LOG_ASSERT(op->cq_id() == 0, "Currently TraceOp must be executed on CQ 0");
 
-  Binary &executableHandle = context.getExecutableHandle();
+  ::ttnn::QueueId traceQueueId = ::ttnn::QueueId(op->cq_id());
+  ::ttnn::QueueId dataCopyQueueId = ::ttnn::DefaultQueueId;
+  if (meshDevice.num_hw_cqs() > 1) {
+    dataCopyQueueId = ::ttnn::QueueId(1);
+  }
+
+  ::tt::runtime::Binary &executableHandle = context.getExecutableHandle();
 
   auto traceCache =
       deviceHandle.getTraceCache()
@@ -173,7 +196,8 @@ void run(const ::tt::target::ttnn::TraceOp *op, ProgramContext &context) {
   const std::string &traceFuncName = op->callee_name()->str();
 
   if (!traceCache->contains(binaryId, programId, traceFuncName)) {
-    executeTraceProgramAndCaptureTrace(op, context, *traceCache);
+    executeTraceProgramAndCaptureTrace(op, context, *traceCache, traceQueueId,
+                                       dataCopyQueueId);
     debug::Stats::get().incrementStat("TraceCacheMiss");
     debug::Stats::get().incrementStat("CapturedTrace");
     return;
@@ -181,7 +205,7 @@ void run(const ::tt::target::ttnn::TraceOp *op, ProgramContext &context) {
 
   TraceData *traceData = traceCache->get(binaryId, programId, traceFuncName);
   LOG_ASSERT(traceData, "TraceData must be populated in TraceCache");
-  executeTrace(op, context, *traceData);
+  executeTrace(op, context, *traceData, traceQueueId, dataCopyQueueId);
   debug::Stats::get().incrementStat("ExecutedTrace");
 }
 } // namespace tt::runtime::ttnn::operations::trace
