@@ -9,7 +9,7 @@ import textwrap
 import os
 
 from ttmlir.ir import *
-from ttmlir.dialects import tt, ttkernel, func, scf, arith, memref, emitc
+from ttmlir.dialects import ttcore, ttkernel, func, scf, arith, memref, emitc
 from ttmlir.passes import ttkernel_to_cpp, pykernel_compile_pipeline
 
 
@@ -248,8 +248,8 @@ class TTKernelCompiler(ast.NodeVisitor):
 
             operand_idx += 1
 
-            tile_type = tt.ir.TileType.get(
-                self.ctx, 32, 32, getattr(tt.DataType, self.args[i].dtype)
+            tile_type = ttcore.ir.TileType.get(
+                self.ctx, 32, 32, getattr(ttcore.DataType, self.args[i].dtype)
             )
 
         func_sym_table = {}
@@ -276,8 +276,8 @@ class TTKernelCompiler(ast.NodeVisitor):
 
             # Get all of the CBs using the arg_spec attr
             for indexIndex, i in enumerate(cb_idx):
-                tile_type = tt.ir.TileType.get(
-                    self.ctx, 32, 32, getattr(tt.DataType, self.args[i].dtype)
+                tile_type = ttcore.ir.TileType.get(
+                    self.ctx, 32, 32, getattr(ttcore.DataType, self.args[i].dtype)
                 )
                 cb_type = ttkernel.ir.CBType.get(
                     self.ctx, MemRefType.get(self.args[i].tilized_shape, tile_type)

@@ -5,7 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 #define TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 
-#include "ttmlir/Dialect/TT/Utils/PopulateArgumentTypes.h"
+#include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 

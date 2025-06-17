@@ -43,7 +43,7 @@ module @jit_eltwise_select attributes {} {
   func.func public @test_select_f32(%arg0: tensor<1x12x1x51xi1>, %arg1: tensor<1x12x1x51xf32>, %arg2: tensor<1x12x1x51xf32>) -> tensor<1x12x1x51xf32> {
     // CHECK-LABEL: func.func public @test_select_bf16(
     // CHECK: %[[ARGO[0-9]+]] = {{.*}}(%arg0)
-    // CHECK-SAME: dtype = #tt.supportedDataTypes<f32>
+    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<f32>
     // CHECK-SAME: tensor<1x12x1x51xbf16
     // CHECK-SAME: -> tensor<1x12x1x51xf32
     // CHECK: "ttnn.where"(%[[ARG0]], %arg1, %arg2

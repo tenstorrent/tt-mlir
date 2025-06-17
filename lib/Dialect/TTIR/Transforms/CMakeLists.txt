@@ -26,7 +26,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         DEPENDS
         MLIRTTIROpsIncGen
         MLIRTTIRPassesIncGen
-        MLIRTTOpsIncGen
+        MLIRTTCoreOpsIncGen
 
         LINK_LIBS PUBLIC
         MLIRTTIREraseInverseOps

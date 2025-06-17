@@ -1,14 +1,14 @@
 // RUN: ttmlir-opt --convert-ttkernel-to-emitc %s | FileCheck %s
 
-#l1_ = #tt.memory_space<l1>
+#l1_ = #ttcore.memory_space<l1>
 
 !cb0_scalar = !ttkernel.cb<memref<64x128xf32, #l1_>>
 !cb1_scalar = !ttkernel.cb<memref<64x128xf32, #l1_>>
 !cb2_scalar = !ttkernel.cb<memref<64x128xf32, #l1_>>
 
-!cb0_tiles = !ttkernel.cb<memref<2x4x!tt.tile<32x32, f32>, #l1_>>
-!cb1_tiles = !ttkernel.cb<memref<2x4x!tt.tile<32x32, f32>, #l1_>>
-!cb2_tiles = !ttkernel.cb<memref<2x4x!tt.tile<32x32, f32>, #l1_>>
+!cb0_tiles = !ttkernel.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>
+!cb1_tiles = !ttkernel.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>
+!cb2_tiles = !ttkernel.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>
 
 module {
 
@@ -96,31 +96,31 @@ module {
       // CHECK: emitc.call_opaque "typecast_tile"(%[[DST0_INDEX]]) {template_args =
       // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Float32)">
       // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Float16_b)">
-      "ttkernel.typecast_tile"(%dst0_index) <{in_dtype = #tt.supportedDataTypes<f32>, out_dtype = #tt.supportedDataTypes<bf16>}> : (i32) -> ()
+      "ttkernel.typecast_tile"(%dst0_index) <{in_dtype = #ttcore.supportedDataTypes<f32>, out_dtype = #ttcore.supportedDataTypes<bf16>}> : (i32) -> ()
       // CHECK: emitc.call_opaque "typecast_tile"(%[[DST0_INDEX]]) {template_args =
       // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Float16)">
       // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Int32)">
-      "ttkernel.typecast_tile"(%dst0_index) <{in_dtype = #tt.supportedDataTypes<f16>, out_dtype = #tt.supportedDataTypes<si32>}> : (i32) -> ()
+      "ttkernel.typecast_tile"(%dst0_index) <{in_dtype = #ttcore.supportedDataTypes<f16>, out_dtype = #ttcore.supportedDataTypes<si32>}> : (i32) -> ()
       // CHECK: emitc.call_opaque "typecast_tile"(%[[DST0_INDEX]]) {template_args =
       // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Bfp8_b)">
       // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Bfp8)">
-      "ttkernel.typecast_tile"(%dst0_index) <{in_dtype = #tt.supportedDataTypes<bfp_bf8>, out_dtype = #tt.supportedDataTypes<bfp_f8>}> : (i32) -> ()
+      "ttkernel.typecast_tile"(%dst0_index) <{in_dtype = #ttcore.supportedDataTypes<bfp_bf8>, out_dtype = #ttcore.supportedDataTypes<bfp_f8>}> : (i32) -> ()
       // CHECK: emitc.call_opaque "typecast_tile"(%[[DST0_INDEX]]) {template_args =
       // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Bfp4_b)">
       // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Bfp4)">
-      "ttkernel.typecast_tile"(%dst0_index) <{in_dtype = #tt.supportedDataTypes<bfp_bf4>, out_dtype = #tt.supportedDataTypes<bfp_f4>}> : (i32) -> ()
+      "ttkernel.typecast_tile"(%dst0_index) <{in_dtype = #ttcore.supportedDataTypes<bfp_bf4>, out_dtype = #ttcore.supportedDataTypes<bfp_f4>}> : (i32) -> ()
       // CHECK: emitc.call_opaque "typecast_tile"(%[[DST0_INDEX]]) {template_args =
       // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Bfp2_b)">
       // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Bfp2)">
-      "ttkernel.typecast_tile"(%dst0_index) <{in_dtype = #tt.supportedDataTypes<bfp_bf2>, out_dtype = #tt.supportedDataTypes<bfp_f2>}> : (i32) -> ()
+      "ttkernel.typecast_tile"(%dst0_index) <{in_dtype = #ttcore.supportedDataTypes<bfp_bf2>, out_dtype = #ttcore.supportedDataTypes<bfp_f2>}> : (i32) -> ()
       // CHECK: emitc.call_opaque "typecast_tile"(%[[DST0_INDEX]]) {template_args =
       // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::UInt32)">
       // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::UInt16)">
-      "ttkernel.typecast_tile"(%dst0_index) <{in_dtype = #tt.supportedDataTypes<u32>, out_dtype = #tt.supportedDataTypes<u16>}> : (i32) -> ()
+      "ttkernel.typecast_tile"(%dst0_index) <{in_dtype = #ttcore.supportedDataTypes<u32>, out_dtype = #ttcore.supportedDataTypes<u16>}> : (i32) -> ()
       // CHECK: emitc.call_opaque "typecast_tile"(%[[DST0_INDEX]]) {template_args =
       // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::UInt16)">
       // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::UInt8)">
-      "ttkernel.typecast_tile"(%dst0_index) <{in_dtype = #tt.supportedDataTypes<u16>, out_dtype = #tt.supportedDataTypes<u8>}> : (i32) -> ()
+      "ttkernel.typecast_tile"(%dst0_index) <{in_dtype = #ttcore.supportedDataTypes<u16>, out_dtype = #ttcore.supportedDataTypes<u8>}> : (i32) -> ()
       return
     }
 

@@ -62,7 +62,7 @@ def create_custom_pipeline_fn(
     pipeline: str, verify: bool = True, print_ir: Union[bool, str] = False
 ) -> Callable:
     def wrapper(module, device_register_options):
-        register_device = "tt-register-device"
+        register_device = "ttcore-register-device"
         if device_register_options:
             register_device = f"{register_device}{{{device_register_options}}}"
 
@@ -127,7 +127,7 @@ def build_mlir_module(
     which returns
 
     ```
-        #any = #tt.operand_constraint<...>
+        #any = #ttcore.operand_constraint<...>
         module {
             func.func @test_add(
                 %arg0: tensor<32x32xf32>,

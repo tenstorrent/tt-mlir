@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Dialect/TT/Transforms/Transforms.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTNN/Analysis/AllPossibleLayoutsAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ScalarDataTypeAnalysis.h"
@@ -42,7 +42,7 @@ protected:
   void SetUp() override {
     // Register necessary dialects
     context.loadDialect<mlir::func::FuncDialect>();
-    context.loadDialect<mlir::tt::TTDialect>();
+    context.loadDialect<mlir::tt::TTCoreDialect>();
     context.loadDialect<mlir::tt::ttnn::TTNNDialect>();
 
     // Create a simple module with a function
