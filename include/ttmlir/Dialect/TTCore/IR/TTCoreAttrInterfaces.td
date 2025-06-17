@@ -12,7 +12,7 @@ include "mlir/IR/BuiltinAttributeInterfaces.td"
 // TT attribute interface definitions
 //===----------------------------------------------------------------------===//
 
-def TTCore_DeviceLayoutInterface : AttrInterface<"DeviceLayoutInterface", [MemRefLayoutAttrInterface]> {
+def TTCore_DeviceLayoutInterface : AttrInterface<"DeviceLayoutInterface"> {
   let summary = "TT DeviceLayoutInterface";
   let cppNamespace = "::mlir::tt";
   let description = [{

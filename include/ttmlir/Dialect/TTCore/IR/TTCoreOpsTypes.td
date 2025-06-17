@@ -225,7 +225,7 @@ def TTCore_SystemDescAttr : TTCore_Attr<"SystemDesc", "system_desc"> {
   }];
 }
 
-def TT_ViewLayoutAttr : TTCore_Attr<"ViewLayout", "view", [TTCore_DeviceLayoutInterface, MemRefLayoutAttrInterface]> {
+def TTCore_ViewLayoutAttr : TTCore_Attr<"ViewLayout", "view", [TTCore_DeviceLayoutInterface, MemRefLayoutAttrInterface]> {
   let summary = "View layout attribute in TT dialect";
   let description = [{
     Describes a view layout of a memref buffer.
@@ -254,7 +254,7 @@ def TT_ViewLayoutAttr : TTCore_Attr<"ViewLayout", "view", [TTCore_DeviceLayoutIn
   }];
 }
 
-def TT_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceLayoutInterface, MemRefLayoutAttrInterface]> {
+def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceLayoutInterface, MemRefLayoutAttrInterface]> {
   let summary = "Shard layout attribute in TT dialect";
   let description = [{
     Describes shard layout of a memref buffer.
@@ -279,15 +279,7 @@ def TT_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceLayou
   }];
 }
 
-<<<<<<< HEAD:include/ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.td
-<<<<<<< HEAD:include/ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.td
-def TT_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_DeviceLayoutInterface]> {
-=======
-def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout"> {
->>>>>>> f36ff00dd (stable, pre changes to attr for dim collapsing + interface rework):include/ttmlir/Dialect/TT/IR/TTOpsTypes.td
-=======
-def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout", [TT_DeviceLayoutInterface]> {
->>>>>>> 194843e8c (added interface changes, switched stride for alignment (only in MetalLayout for now) -- need to cleanup comments a bit still):include/ttmlir/Dialect/TT/IR/TTOpsTypes.td
+def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_DeviceLayoutInterface]> {
   let summary = "Tensor layout attribute with explicit physical shape";
   let description = [{
     The tensor layout attribute captures how tensor data is sharded across a grid of devices/cores
