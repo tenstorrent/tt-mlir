@@ -31,3 +31,55 @@ func.func @test_untilize_uninit() -> () attributes {ttkernel.arg_spec = #ttkerne
   "ttkernel.untilize_uninit"(%tilized_cb) : (!ttkernel.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1_>>) -> ()
   return
 }
+
+// CHECK-LABEL: func.func @test_add_binary_tile_init
+func.func @test_add_binary_tile_init() -> () {
+  "ttkernel.add_binary_tile_init"() : () -> ()
+  return
+}
+
+// CHECK-LABEL: func.func @test_add_binary_tile
+func.func @test_add_binary_tile() -> () {
+  %c0 = arith.constant 0 : index
+  "ttkernel.add_binary_tile"(%c0, %c0) : (index, index) -> ()
+  return
+}
+
+// CHECK-LABEL: func.func @test_mul_binary_tile_init
+func.func @test_mul_binary_tile_init() -> () {
+  "ttkernel.mul_binary_tile_init"() : () -> ()
+  return
+}
+
+// CHECK-LABEL: func.func @test_mul_binary_tile
+func.func @test_mul_binary_tile() -> () {
+  %c0 = arith.constant 0 : index
+  "ttkernel.mul_binary_tile"(%c0, %c0) : (index, index) -> ()
+  return
+}
+
+// CHECK-LABEL: func.func @test_sub_binary_tile_init
+func.func @test_sub_binary_tile_init() -> () {
+  "ttkernel.sub_binary_tile_init"() : () -> ()
+  return
+}
+
+// CHECK-LABEL: func.func @test_sub_binary_tile
+func.func @test_sub_binary_tile() -> () {
+  %c0 = arith.constant 0 : index
+  "ttkernel.sub_binary_tile"(%c0, %c0) : (index, index) -> ()
+  return
+}
+
+// CHECK-LABEL: func.func @test_copy_dest_values_init
+func.func @test_copy_dest_values_init() -> () {
+  "ttkernel.copy_dest_values_init"() : () -> ()
+  return
+}
+
+// CHECK-LABEL: func.func @test_copy_dest_values
+func.func @test_copy_dest_values() -> () {
+  %c0 = arith.constant 0 : index
+  "ttkernel.copy_dest_values"(%c0, %c0) : (index, index) -> ()
+  return
+}
