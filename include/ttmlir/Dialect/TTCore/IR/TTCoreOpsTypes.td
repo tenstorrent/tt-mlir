@@ -444,7 +444,7 @@ def TTCore_DeviceAttr : TTCore_Attr<"Device", "device", []> {
       AffineMap getMemoryMap(std::pair<MemRefType, AffineMap> memrefAndView,
                              size_t pageSize,
                              size_t baseOffset = 0) const;
-      size_t getMemrefSizeBytes(MemRefType memrefType, size_t pageSize, bool includeBuffers = false) const;
+      size_t getMemrefSizeBytes(MemRefType memrefType, size_t pageSize = 0, bool includeBuffers = false) const;
       size_t getMemrefCBPageSizeBytes(MemRefType memrefType) const;
       size_t getMemrefCBNumPages(MemRefType memrefType) const;
 
