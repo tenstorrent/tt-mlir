@@ -125,8 +125,8 @@ ProgramTensorPool::insertTTNNTensorAndValidate(
   DEBUG_ASSERT(ttnnTensor.is_allocated());
   debug::checkTensorRefMatchesTTNNTensor(tensorRef, ttnnTensor);
 
-  ::tt::runtime::Tensor runtimeTensor =
-      utils::createRuntimeTensorFromTTNN(ttnnTensor, retain);
+  ::tt::runtime::Tensor runtimeTensor = utils::createRuntimeTensorFromTTNN(
+      ttnnTensor, /*meshEvent=*/std::nullopt, retain);
   auto [iter, inserted] =
       intermedTensors.insert_or_assign(globalId, runtimeTensor);
 

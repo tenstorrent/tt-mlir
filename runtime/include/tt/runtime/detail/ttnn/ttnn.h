@@ -14,6 +14,7 @@
 #include "tt-metalium/mesh_device.hpp"
 #include "tt-metalium/program_cache.hpp"
 #include "ttnn/device.hpp"
+#include "ttnn/events.hpp"
 #include "ttnn/operations/ccl/all_gather/all_gather.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
 #include "ttnn/operations/copy/typecast/typecast.hpp"
@@ -168,12 +169,15 @@ getMemoryView(Device device);
 
 void wait(Event event);
 
-void wait(::tt::runtime::Tensor tensor);
+void wait(::tt::runtime::Tensor tensor,
+          std::optional<uint8_t> cqId = std::nullopt);
 
-void wait(const std::vector<::tt::runtime::Tensor> &tensors);
+void wait(const std::vector<::tt::runtime::Tensor> &tensors,
+          std::optional<uint8_t> cqId = std::nullopt);
 
 std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
-                                          bool untilize = false);
+                                          bool untilize = false,
+                                          bool blocking = true);
 
 ::tt::runtime::Tensor toLayout(::tt::runtime::Tensor tensor, Device device,
                                Layout layout,
