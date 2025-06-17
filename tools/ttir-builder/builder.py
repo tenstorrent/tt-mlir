@@ -2324,24 +2324,45 @@ class TTIRBuilder:
         # Get the input shape
         input_shape = self.get_shape(in0)
 
+        # Ensure we're not slicing more dimensions than exist
+        assert len(begins) <= len(
+            input_shape
+        ), "Cannot slice more dimensions than input has"
+
         # Calculate the output shape
         output_shape = []
+
+        # Process dimensions that are being sliced
         for i, (b, e, s) in enumerate(zip(begins, ends, step)):
             # Handle negative indices
+            dim_size = input_shape[i]
             if b < 0:
-                b += input_shape[i]
+                b += dim_size
             if e < 0:
-                e += input_shape[i]
+                e += dim_size
 
             # Clamp to valid range
-            b = max(0, min(b, input_shape[i]))
-            e = max(0, min(e, input_shape[i]))
+            b = max(0, min(b, dim_size))
+            e = max(0, min(e, dim_size))
 
-            # Calculate dimension size
-            dim_size = max(0, (e - b + s - 1) // s)
-            output_shape.append(dim_size)
+            # Calculate dimension size using correct formula
+            # For positive step: ceil((e - b) / s)
+            if s > 0:
+                if e > b:
+                    size = (e - b + s - 1) // s
+                else:
+                    size = 0
+            else:
+                # Negative step not typically supported in MLIR/TOSA
+                raise ValueError("Negative step not supported")
 
-        # Create the attributes using a different approach
+            output_shape.append(size)
+
+        # Add remaining dimensions that aren't being sliced
+        for i in range(len(begins), len(input_shape)):
+            output_shape.append(input_shape[i])
+
+        # Create the attributes
         from ttmlir.ir import ArrayAttr, IntegerAttr, IntegerType
 
         # Create integer attributes for each value
@@ -2361,25 +2382,39 @@ class TTIRBuilder:
         step_attr = ArrayAttr.get(step_int_attrs, self._ctx)
 
         # Golden function for slicing
-        def slice_golden_fn(x, begins, ends, step):
-            if len(begins) == 1:
-                return torch.narrow(x, 0, begins[0], ends[0] - begins[0])
-            else:
-                slices = [slice(b, e, s) for b, e, s in zip(begins, ends, step)]
-                return x[tuple(slices)]
+        def slice_golden_fn(x):
+            # Build slice objects for each dimension
+            slices = []
 
-        # Define a custom organize_ttir_args function that prints its output for debugging
-        def custom_organize_ttir_args(inputs, output, output_shape):
-            args = (inputs[0], output, begins_attr, ends_attr, step_attr)
-            print(f"SliceOp args: {args}")
-            return args
+            # Add slices for dimensions being sliced
+            for i, (b, e, s) in enumerate(zip(begins, ends, step)):
+                # Handle negative indices
+                dim_size = x.shape[i]
+                if b < 0:
+                    b += dim_size
+                if e < 0:
+                    e += dim_size
 
-        # Use op_proxy with the custom organize_ttir_args function
+                # Clamp to valid range
+                b = max(0, min(b, dim_size))
+                e = max(0, min(e, dim_size))
+
+                # Create slice object
+                slices.append(slice(b, e, s))
+
+            # Add full slices for remaining dimensions
+            for i in range(len(begins), len(x.shape)):
+                slices.append(slice(None))
+
+            # Apply the slice
+            return x[tuple(slices)]
+
+        # Use op_proxy
         return self.op_proxy(
             slice_golden_fn,
             ttir.SliceOp,
             [in0],
-            golden_kwargs={"begins": begins, "ends": ends, "step": step},
+            golden_kwargs={},  # No kwargs needed - closure captures begins/ends/step
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             output_shape=output_shape,
             unit_attrs=unit_attrs,
@@ -2403,36 +2438,6 @@ class TTIRBuilder:
         """
         Gathers slices from input tensor from offsets specified in start_indices.
         Based on StableHLO Gather Op: https://openxla.org/stablehlo/spec#gather
-
-        Parameters
-        ----------
-        input : Operand
-            The tensor from which to gather values.
-        start_indices : Operand
-            The tensor containing the starting indices for the slices.
-        offset_dims : List[int]
-            The dimensions in the output that offset into the slices.
-        collapsed_slice_dims : List[int]
-            The dimensions in the input that are collapsed in the output.
-        operand_batching_dims : List[int]
-            The dimensions in the input that are batched.
-        start_indices_batching_dims : List[int]
-            The dimensions in the start_indices that are batched.
-        start_index_map : List[int]
-            Maps indices in start_indices to dimensions in the input.
-        index_vector_dim : int
-            The dimension in start_indices that contains the index vectors.
-        slice_sizes : List[int]
-            The size of the slice to extract from the input.
-        indices_are_sorted : bool, optional
-            Whether the indices are sorted, by default False.
-        unit_attrs : List[str], optional
-            Unit attributes to attach to the operation, by default None.
-
-        Returns
-        -------
-        OpView
-            The result of the gather operation.
         """
         # Create the attributes
         from ttmlir.ir import ArrayAttr, IntegerAttr, IntegerType, BoolAttr
@@ -2459,55 +2464,132 @@ class TTIRBuilder:
             IntegerType.get_signed(64), index_vector_dim
         )
 
-        # Calculate output shape
+        # Calculate output shape based on gather semantics
         input_shape = self.get_shape(input)
         indices_shape = self.get_shape(start_indices)
 
-        # Determine the output shape based on gather semantics
-        output_shape = []
+        # Batch dimensions: all dims from start_indices except index_vector_dim
+        batch_dims = []
+        for i in range(len(indices_shape)):
+            if i != index_vector_dim:
+                batch_dims.append(indices_shape[i])
 
-        # For 1D indices with 1D start_index_map, the output shape should be:
-        # [batch_size, ...slice_sizes for offset_dims]
-        if len(indices_shape) == 1 and len(start_index_map) == 1:
-            # Add the batch dimension (number of indices)
-            output_shape.append(indices_shape[0])
+        # Offset dimensions: dimensions from slice_sizes that aren't collapsed
+        offset_sizes = []
+        for i in range(len(slice_sizes)):
+            if i not in collapsed_slice_dims:
+                offset_sizes.append(slice_sizes[i])
 
-            # Add the dimensions from slice_sizes that correspond to offset_dims
-            for dim in offset_dims:
-                output_shape.append(slice_sizes[dim])
-        else:
-            # Standard case: add batch dimensions from indices
-            for i in range(len(indices_shape)):
-                if i != index_vector_dim:
-                    output_shape.append(indices_shape[i])
+        output_shape = batch_dims + offset_sizes
 
-            # Add offset dimensions
-            for dim in offset_dims:
-                output_shape.append(slice_sizes[dim])
-
-        # Golden function for gather operation
+        # Create a closure that captures all the gather parameters
         def gather_golden_fn(input_tensor, start_indices_tensor):
-            # This is a simplified implementation that works for basic gather operations
-            # For more complex cases, a more sophisticated implementation would be needed
             import torch
+            import numpy as np
 
-            # Convert tensors to numpy for easier indexing
-            input_np = input_tensor.numpy()
-            indices_np = start_indices_tensor.numpy()
+            # For simple cases, try to use PyTorch operations
+            input_np = input_tensor.cpu().numpy()
+            indices_np = start_indices_tensor.cpu().numpy()
+            device = input_tensor.device
 
-            # Handle the simplest case: gather along a single dimension
-            if len(start_index_map) == 1 and len(collapsed_slice_dims) == 0:
-                dim = start_index_map[0]
-                return torch.index_select(
-                    input_tensor,
-                    dim,
-                    torch.tensor(indices_np.flatten(), dtype=torch.long),
+            # Special case: Simple 1D indexing (like torch.index_select)
+            if (
+                len(start_index_map) == 1
+                and len(collapsed_slice_dims) == 1
+                and start_index_map[0] == collapsed_slice_dims[0]
+                and all(
+                    slice_sizes[i] == input_shape[i]
+                    for i in range(len(input_shape))
+                    if i != start_index_map[0]
                 )
+            ):
 
-            # For more complex cases, we would need to implement the full gather semantics
-            # This is a placeholder that returns the input tensor
-            # In a real implementation, this would need to be expanded
-            return input_tensor
+                # This is essentially index_select
+                dim = start_index_map[0]
+                indices_tensor = torch.tensor(
+                    indices_np.flatten(), dtype=torch.long, device=device
+                )
+                result = torch.index_select(input_tensor, dim, indices_tensor)
+
+                # Reshape if needed
+                if len(batch_dims) > 1:
+                    final_shape = batch_dims + [
+                        s for i, s in enumerate(input_shape) if i != dim
+                    ]
+                    result = result.reshape(final_shape)
+
+                return result
+
+            # General implementation using numpy
+            output = np.zeros(output_shape, dtype=input_np.dtype)
+
+            # Get batch dimensions and their total size
+            if len(batch_dims) == 0:
+                batch_iterator = [None]  # Single iteration
+            else:
+                batch_iterator = np.ndindex(*batch_dims)
+
+            # Perform each gather operation
+            for batch_indices in batch_iterator:
+                # Get the index vector for this batch position
+                if batch_indices is None:
+                    # No batch dimensions
+                    if len(indices_shape) == 0:
+                        index_vector = [indices_np.item()]
+                    else:
+                        index_vector = indices_np
+                else:
+                    # Extract index vector from indices tensor
+                    indices_pos = list(batch_indices)
+
+                    # Add the index_vector_dim
+                    if index_vector_dim < len(indices_shape):
+                        # index_vector_dim is explicit
+                        for i in range(len(indices_shape)):
+                            if i == index_vector_dim:
+                                indices_pos.insert(i, slice(None))
+                        index_vector = indices_np[tuple(indices_pos)]
+                    else:
+                        # index_vector_dim is implicit (beyond last dim)
+                        # Each element is a single index
+                        index_vector = [indices_np[tuple(indices_pos)]]
+
+                    # Ensure it's a list/array
+                    if not hasattr(index_vector, "__len__"):
+                        index_vector = [index_vector]
+
+                # Build the slice for the input tensor
+                input_slice = []
+                for dim in range(len(input_shape)):
+                    if dim in start_index_map:
+                        # This dimension is indexed by start_indices
+                        idx_pos = start_index_map.index(dim)
+                        if idx_pos < len(index_vector):
+                            start = int(index_vector[idx_pos])
+                            input_slice.append(slice(start, start + slice_sizes[dim]))
+                        else:
+                            input_slice.append(slice(0, slice_sizes[dim]))
+                    else:
+                        # This dimension is not indexed, take from beginning
+                        input_slice.append(slice(0, slice_sizes[dim]))
+
+                # Extract the slice
+                gathered_slice = input_np[tuple(input_slice)]
+
+                # Remove collapsed dimensions to get the final slice
+                # We need to remove dimensions in descending order to maintain indices
+                final_slice = gathered_slice
+                for dim in sorted(collapsed_slice_dims, reverse=True):
+                    # Take the first element along this dimension since it's collapsed
+                    final_slice = np.take(final_slice, 0, axis=dim)
+
+                # Place the slice in the output
+                if batch_indices is None:
+                    output = final_slice
+                else:
+                    output[tuple(batch_indices)] = final_slice
+
+            return torch.tensor(output, device=device)
 
         # Define kwargs for the TTIR operation
         ttir_kwargs = {

@@ -2388,8 +2388,15 @@ def gather(
     operand_batching_dims = []
     start_indices_batching_dims = []
 
-    # Set index_vector_dim to the last dimension of indices
-    index_vector_dim = len(indices_shape) - 1
+    # Set index_vector_dim correctly based on the use case
+    # For 1D indices where each element is a single index (not a vector),
+    # index_vector_dim should be len(indices_shape) (implicit dimension)
+    if len(indices_shape) == 1 and len(start_index_map) == 1:
+        # Single indices case - index vector dim is implicit
+        index_vector_dim = len(indices_shape)  # = 1
+    else:
+        # Multi-dimensional indices - last dimension contains index vectors
+        index_vector_dim = len(indices_shape) - 1
 
     return builder.gather(
         in0,
@@ -2493,9 +2500,7 @@ def test_hoisted_gather(
     ids=["standard_matmul", "batched_matmul", "3d_tensor_2d_tensor"],
 )
 @pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.skip(
-    "Need to rework this s.t. we run TTIRToTTIRDecomp before hoisting to maintain DPS consistency."
-)
+@pytest.mark.skip("Need to rework this, TODO ticket")
 def test_hoisted_dot_general(
     shapes: List[Shape],
     batch_dims_lhs: List[int],
