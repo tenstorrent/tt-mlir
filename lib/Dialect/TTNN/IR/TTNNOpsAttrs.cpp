@@ -37,6 +37,11 @@ bool TTNNLayoutAttr::hasDRAMBufferType() const {
   return isDRAMBufferType(getBufferType());
 }
 
+std::pair<std::int64_t, std::int64_t>
+TTNNLayoutAttr::getDefaultCollapseIntervals() const {
+  return {0, -1};
+}
+
 // Check if the tensor memory layout is sharded
 bool TTNNLayoutAttr::hasShardedTensorMemoryLayout() const {
   return isDeviceBufferType() &&
@@ -478,8 +483,8 @@ TTNNLayoutAttr TTNNLayoutAttr::withTensorShape(ArrayRef<int64_t> tensorShape) {
   // the future we would need to take this into account.
   return TTNNLayoutAttr::get(
       getContext(), tensorShape, getElementType(), getBufferType(), getGrid(),
-      getMemLayout(), getTensorMeshSharding(),
-      std::pair<std::int64_t, std::int64_t>{0, -1}, getIgnorePhysicalLayout());
+      getMemLayout(), getTensorMeshSharding(), getDefaultCollapseIntervals(),
+      getIgnorePhysicalLayout());
 }
 
 // Construct a new TTNNLayoutAttr
