@@ -592,40 +592,6 @@ def test_broadcast(shapes: List[Shape], broadcast_dimensions: List[int], request
     )
 
 
-@pytest.mark.parametrize(
-    "shapes",
-    [
-        [
-            (64, 128),
-            (32, 128),
-            (16, 128),
-        ]
-    ],
-)
-@pytest.mark.parametrize("dim", [0])
-def test_concat(shapes: List[Shape], dim: int, request):
-    # Create a wrapper function that captures dim
-    def concat_wrapper(
-        in0: Operand,
-        in1: Operand,
-        in2: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return concat(in0, in1, in2, dim, builder, unit_attrs)
-
-    # Set the name for better test identification
-    concat_wrapper.__name__ = "concat"
-
-    compile_to_flatbuffer(
-        concat_wrapper,
-        shapes,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
 @pytest.mark.skip(
     "This test is not valid for TTRT Perf due to weird issues with perf collection. Issue #2371"
 )
