@@ -19,6 +19,7 @@ namespace mlir::tt::ttir {
 static GridAttr getOptimalGrid(PatternRewriter &rewriter,
                                ArrayRef<int64_t> memrefShape,
                                ArrayRef<int64_t> deviceGridShape) {
+  assert(memrefShape.size() == deviceGridShape.size());
   std::vector<int64_t> gridShape;
   for (size_t i = 0; i < memrefShape.size(); i++) {
     int64_t dim = memrefShape[i];
@@ -42,8 +43,8 @@ static RankedTensorType calculateOptimalLayoutForTensorType(
 
   auto logicalShape = tensorEncoding.getLogicalShape();
 
-  auto optimalOutputGrid =
-      getOptimalGrid(rewriter, tensorType.getShape(), workerGridShape);
+  auto optimalOutputGrid = getOptimalGrid(
+      rewriter, tensorEncoding.getShardShape(tensorType), workerGridShape);
 
   auto newTensorEncoding = MetalLayoutAttr::get(
       tensor.getContext(), logicalShape, workerGridShape.size(),
@@ -69,6 +70,11 @@ struct TTIRGenericTensorLayoutRewriter
 
   LogicalResult matchAndRewrite(ttir::GenericOp op,
                                 PatternRewriter &rewriter) const final {
+
+    if (op->hasAttr("ttir.layout_optimized")) {
+      return failure();
+    }
+
     // Update output tensor type
     assert(op->getResults().size() == 1 &&
            "Only one result tensor is supported for now");
@@ -83,6 +89,7 @@ struct TTIRGenericTensorLayoutRewriter
       // Update generic grid (match worker cores to output grid)
       op.setGridAttr(
           rewriter.getAttr<GridAttr>(layout.getGridShape(newTensorType)));
+      op->setAttr("ttir.layout_optimized", rewriter.getUnitAttr());
     });
 
     auto dpsOp = mlir::cast<DestinationStyleOpInterface>(op.getOperation());
