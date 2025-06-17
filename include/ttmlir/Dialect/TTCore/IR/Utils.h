@@ -5,7 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTCORE_IR_UTILS_H
 #define TTMLIR_DIALECT_TTCORE_IR_UTILS_H
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
