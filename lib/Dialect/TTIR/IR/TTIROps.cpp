@@ -3152,6 +3152,8 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
   return success();
 }
 
+::mlir::LogicalResult mlir::tt::ttir::SortOp::verify() { return success(); }
+
 //===----------------------------------------------------------------------===//
 // AllGatherOp
 //===----------------------------------------------------------------------===//
