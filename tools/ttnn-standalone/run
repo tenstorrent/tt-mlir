@@ -18,5 +18,5 @@ echo "================ FINISH BUILDING TTNN STANDALONE ================"
 
 # Run
 echo "==================== RUNNING TTNN STANDALONE ===================="
-./build/ttnn-standalone
+TT_METAL_WATCHER=10 ./build/ttnn-standalone
 echo "================= FINISH RUNNING TTNN STANDALONE ================"

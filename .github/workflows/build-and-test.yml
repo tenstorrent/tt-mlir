@@ -146,7 +146,7 @@ jobs:
 
   run-tests:
 
-    timeout-minutes: 45
+    timeout-minutes: 30
     needs:
       - build-image
       - build-ttmlir
@@ -289,11 +289,11 @@ jobs:
         if [ "${{ matrix.build.suite }}" == "op_model" ]; then
           export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
           echo "Running op-model test Conversion"
-          ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Conversion/TestConversion
+          TT_METAL_WATCHER=10 ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Conversion/TestConversion
           echo "Running op-model test Lib"
           TT_METAL_WATCHER=10 ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Lib/TestOpModelLib
           echo "Running op-model test Interface"
-          ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Op/TestOpModelInterface
+          TT_METAL_WATCHER=10 ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Op/TestOpModelInterface
         fi
 
     - name: Run TTNN-Standalone test
