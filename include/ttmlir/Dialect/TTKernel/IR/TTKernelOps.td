@@ -280,6 +280,69 @@ def TTKernel_MaxTilesOp : TTKernel_SFPUOp<"max_tile", [TTKernel_BinaryOpTrait]> 
     let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index);
 }
 
+def TTKernel_AddBinaryTilesInitOp : TTKernel_InitOp<"add_binary_tile_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before add_binary_tile.
+    }];
+
+    let arguments = (ins);
+}
+
+def TTKernel_AddBinaryTilesOp : TTKernel_SFPUOp<"add_binary_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Addition operation between two tiles";
+    let description = [{
+      Performs element-wise computation of addition operation
+      DST[dst0_index] <- DST[dst0_index] + DST[dst1_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index);
+}
+
+def TTKernel_MulBinaryTilesInitOp : TTKernel_InitOp<"mul_binary_tile_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before mul_binary_tile.
+    }];
+
+    let arguments = (ins);
+}
+
+def TTKernel_MulBinaryTilesOp : TTKernel_SFPUOp<"mul_binary_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Multiplication operation between two tiles";
+    let description = [{
+      Performs element-wise computation of multiplication operation
+      DST[dst0_index] <- DST[dst0_index] * DST[dst1_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index);
+}
+
+def TTKernel_SubBinaryTilesInitOp : TTKernel_InitOp<"sub_binary_tile_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before sub_binary_tile.
+    }];
+
+    let arguments = (ins);
+}
+
+def TTKernel_SubBinaryTilesOp : TTKernel_SFPUOp<"sub_binary_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Subtraction operation between two tiles";
+    let description = [{
+      Performs element-wise computation of subtraction operation
+      DST[dst0_index] <- DST[dst0_index] - DST[dst1_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index);
+}
+
 def TTKernel_DivBinaryTilesInitOp : TTKernel_InitOp<"div_binary_tile_init"> {
     let summary = "Short init function";
     let description = [{
