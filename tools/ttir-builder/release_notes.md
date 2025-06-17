@@ -16,13 +16,13 @@ Version: v1.0.0
 ### Features
 
 #### Creating TTIR operations
-The `ttir-builder` tool provides functions through the builder dataclass `TTIRBuilder` to create TTIR ops. Refer to the corresponding documentation [section](../../docs/src/ttir-builder.md#creating-a-ttir-module) for an example of using the class.
+The `ttir-builder` tool provides functions through the builder class `TTIRBuilder` to create TTIR ops. Refer to the corresponding documentation [section](../../docs/src/ttir-builder.md#creating-a-ttir-module) for an example of using the class.
 
 #### Op coverage
 TODO: Once created, link the documented list of supported ops.
 
 #### Build a TTIR module
-The python package `ttir_builder` exposes the dataclass `TTIRBuilder`, its APIs, and utility function `build_mlir_module` that converts the object into a TTIR module. Refer to the corresponding documentation [section](../../docs/src/ttir-builder.md#creating-a-ttir-module) for usage instructions.
+The python package `ttir_builder` exposes the class `TTIRBuilder`, its APIs, and utility function `build_mlir_module` that converts the object into a TTIR module. Refer to the corresponding documentation [section](../../docs/src/ttir-builder.md#creating-a-ttir-module) for usage instructions.
 
 #### Run pipelines
 There are a few pipeline passes that can be run over TTIR modules through the utility function `run_pipeline`. Passes pybound in the package `ttmlir.passes` include functionality to lower TTIR modules into TTNN and TTMetal backends. Refer to the corresponding documentation [section](../../docs/src/ttir-builder.md#running-a-pipeline) for usage instructions.
