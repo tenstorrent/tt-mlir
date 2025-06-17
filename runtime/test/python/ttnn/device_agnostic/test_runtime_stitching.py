@@ -19,7 +19,7 @@ from ..utils import (
 )
 
 FLATBUFFER_BASE_PATH = (
-    f"{TT_MLIR_HOME}/build/test/ttmlir/Silicon/TTNN/n150/runtime_stitching/Output"
+    f"{TT_MLIR_HOME}/build/test/ttmlir/Runtime/TTNN/n150/runtime_stitching/Output"
 )
 
 

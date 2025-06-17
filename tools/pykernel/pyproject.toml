@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools", "setuptools-scm"]
+requires = ["setuptools>=61.0", "cmake", "pybind11", "nanobind", "wheel", "pip", "ninja"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -18,19 +18,19 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Artificial Intelligence"
 ]
 
-dynamic = ["dependencies", "version"]
+dynamic = ["dependencies", "version", "readme"]
 
-[tool.setuptools]
-include-package-data = false
+[project.urls]
+Homepage = "https://docs.tenstorrent.com/tt-mlir/"
+Documentation = "https://docs.tenstorrent.com/tt-mlir/pykernel.html"
+Repository = "https://github.com/tenstorrent/tt-mlir"
+Issues = "https://github.com/tenstorrent/tt-mlir/issues"
 
-[tool.setuptools.package-dir]
-pykernel = "../pykernel"
+[tool.cibuildwheel]
+build = "cp310-manylinux_x86_64*"
+skip = "*-musllinux_*"
+environment = { IN_CIBW_ENV = "ON" }
+build-verbosity = 2
 
-[tool.setuptools.packages.find]
-where = [".."]
-include = ["pykernel"]
-namespaces = false
-
-[tool.setuptools.dynamic]
-dependencies = {file = "requirements.txt"}
-version = {attr = "pykernel.__version__"}
+[tool.cibuildwheel.linux]
+manylinux-x86_64-image = "ghcr.io/tenstorrent/tt-mlir/tt-mlir-manylinux-2-34"

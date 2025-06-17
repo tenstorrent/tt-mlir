@@ -4,7 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/DFShardingPolicy.h"
 
-#include "ttmlir/Dialect/TT/IR/Utils.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"

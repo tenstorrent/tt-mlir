@@ -4,8 +4,8 @@
 
 #include "Constants.h"
 
+#include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common.h"
-#include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/dylib.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn/debug_apis.h"

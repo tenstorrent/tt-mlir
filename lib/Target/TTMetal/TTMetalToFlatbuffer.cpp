@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
-#include "ttmlir/Dialect/TT/IR/TTOps.h"
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TT/IR/Utils.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
 #include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
@@ -675,9 +675,13 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
     flatbuffers::Offset<target::DebugInfo> debugInfo =
         debugInfoToFlatbuffer(fbb, "ttmetal", module, goldenMap, moduleCache);
 
+    DeviceAttr deviceAttr = lookupDevice(entry);
+
+    ::tt::target::Dim2d meshShape = deviceToFlatbufferMeshShape(deviceAttr);
+
     programs.push_back(target::metal::CreateProgramDirect(
         fbb, cqBuilder.name, &tensorInputs, &tensorOutputs, &devicePrograms,
-        debugInfo, /*private=*/false));
+        debugInfo, /*private=*/false, &meshShape));
   });
 
   auto binary = target::metal::CreateTTMetalBinaryDirect(

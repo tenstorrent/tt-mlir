@@ -6,7 +6,7 @@
 
 #include "ttmlir/Conversion/TTNNToEmitC/EmitCConversion.h"
 #include "ttmlir/Conversion/TTNNToEmitC/Utils.h"
-#include "ttmlir/Dialect/TT/IR/TTOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -37,7 +37,7 @@
 #include <optional>
 
 #define GET_OP_CLASSES
-#include "ttmlir/Dialect/TT/IR/TTOpsDialect.h.inc"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsDialect.h.inc"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -974,7 +974,9 @@ public:
         emitter.emit(srcOp.getInputWidth()),
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getKernelSizeAttr()),
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
-        emitter.emit<std::array<uint32_t, 2>>(srcOp.getPaddingAttr()),
+        emitter.emit<
+            std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
+            srcOp.getPaddingAttr()),
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getHasBias()),
         emitter.emit(srcOp.getGroups()),
@@ -1010,14 +1012,6 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::Conv2dOp> emitter(srcOp, adaptor,
                                                                 rewriter);
 
-    auto emitPadding =
-        [&](::mlir::DenseI32ArrayAttr paddingAttr) -> mlir::Attribute {
-      if (paddingAttr.size() == 4) {
-        return emitter.emit<std::array<uint32_t, 4>>(paddingAttr);
-      }
-      return emitter.emit<std::array<uint32_t, 2>>(paddingAttr);
-    };
-
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getWeight()),
@@ -1029,7 +1023,9 @@ public:
         emitter.emit(srcOp.getInputWidth()),
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getKernelSizeAttr()),
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
-        emitPadding(srcOp.getPaddingAttr()),
+        emitter.emit<
+            std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
+            srcOp.getPaddingAttr()),
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getGroups()),
         emitter.emit(srcOp.getBias()),

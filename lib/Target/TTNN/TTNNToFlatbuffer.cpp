@@ -4,9 +4,9 @@
 
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Dialect/TT/IR/TTOps.h"
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
@@ -2209,9 +2209,14 @@ std::shared_ptr<void> ttnnToFlatbuffer(
           funcOpToProgram<::tt::target::ttnn::Operation>(
               cache, func, emitTTNNOperation, tensorValueToFlatbuffer,
               programIdxMap);
+
+      DeviceAttr deviceAttr = lookupDevice(func);
+
+      ::tt::target::Dim2d meshShape = deviceToFlatbufferMeshShape(deviceAttr);
+
       programs.push_back(::tt::target::ttnn::CreateProgramDirect(
           fbb, program.name, &program.inputs, &program.outputs, &program.ops,
-          &dylibs, debugInfo, isPrivate));
+          &dylibs, debugInfo, isPrivate, &meshShape));
     });
   };
 

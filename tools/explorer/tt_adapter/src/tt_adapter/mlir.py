@@ -8,7 +8,7 @@ from pathlib import Path
 from collections import defaultdict
 from model_explorer import graph_builder, node_data_builder
 
-from ttmlir.dialects import tt, ttnn, ttir
+from ttmlir.dialects import ttcore, ttnn, ttir
 from ttmlir import ir, util
 from . import utils
 
@@ -75,9 +75,9 @@ class AttrHandler:
         return decorator
 
 
-@AttrHandler.register_handler("tt.device")
+@AttrHandler.register_handler("ttcore.device")
 def parse_tt_device(attr):
-    device = tt.ir.DeviceAttr.maybe_downcast(attr)
+    device = ttcore.ir.DeviceAttr.maybe_downcast(attr)
     result = []
     result.append(
         graph_builder.KeyValue(
@@ -102,9 +102,9 @@ def parse_tt_device(attr):
     return result
 
 
-@AttrHandler.register_handler("tt.system_desc")
+@AttrHandler.register_handler("ttcore.system_desc")
 def parse_tt_system_desc(attr):
-    system_desc = tt.ir.SystemDescAttr.maybe_downcast(attr)
+    system_desc = ttcore.ir.SystemDescAttr.maybe_downcast(attr)
     result = []
     for i, chip_desc, chip_coord, chip_capability in zip(
         system_desc.chip_desc_indices,
@@ -114,13 +114,13 @@ def parse_tt_system_desc(attr):
     ):
         result.append(
             graph_builder.KeyValue(
-                key=f"chip#{i}-arch", value=str(tt.Arch(chip_desc.arch.arch_as_int))
+                key=f"chip#{i}-arch", value=str(ttcore.Arch(chip_desc.arch.arch_as_int))
             )
         )
         result.append(
             graph_builder.KeyValue(
                 key=f"chip#{i}-capability",
-                value=str(tt.ChipCapability(chip_capability.capability_as_int)),
+                value=str(ttcore.ChipCapability(chip_capability.capability_as_int)),
             )
         )
         result.append(
@@ -219,7 +219,7 @@ def parse_tt_system_desc(attr):
                 key=f"chip#{i}-supported-data-types",
                 value=", ".join(
                     [
-                        str(tt.DataType(dt.data_type_as_int))
+                        str(ttcore.DataType(dt.data_type_as_int))
                         for dt in chip_desc.supported_data_types
                     ]
                 ),
@@ -347,13 +347,13 @@ def parse_force(attr):
 
 @AttrHandler.register_handler("dtype")
 def parse_dtype(attr):
-    dtype = tt.ir.DataTypeAttr.maybe_downcast(attr)
+    dtype = ttcore.ir.DataTypeAttr.maybe_downcast(attr)
     if dtype is None:
-        # Potential for dtype to be StringAttr instead of tt.DataTypeAttr
+        # Potential for dtype to be StringAttr instead of ttcore.DataTypeAttr
         return [graph_builder.KeyValue(key="dtype", value=str(attr))]
     return [
         graph_builder.KeyValue(
-            key="dtype", value=str(tt.DataType(dtype.data_type_as_int))
+            key="dtype", value=str(ttcore.DataType(dtype.data_type_as_int))
         )
     ]
 
@@ -376,14 +376,15 @@ def parse_dimension(attr):
     return [graph_builder.KeyValue(key="dimension", value=str(attr.value))]
 
 
-@AttrHandler.register_handler("tt.layout")
+@AttrHandler.register_handler("ttcore.layout")
 def parse_tt_layout(attr):
-    layout = tt.ir.MetalLayoutAttr.maybe_downcast(attr)
+    layout = ttcore.ir.MetalLayoutAttr.maybe_downcast(attr)
     result = []
     result.append(graph_builder.KeyValue(key="linear", value=str(layout.linear)))
     result.append(
         graph_builder.KeyValue(
-            key="memory_space", value=str(tt.MemorySpace(layout.memory_space_as_int))
+            key="memory_space",
+            value=str(ttcore.MemorySpace(layout.memory_space_as_int)),
         )
     )
     result.append(
@@ -397,11 +398,12 @@ def parse_tt_layout(attr):
     result.append(
         graph_builder.KeyValue(key="memref_rank", value=str(layout.memref.rank))
     )
-    tile_type = tt.ir.TileType.maybe_downcast(layout.memref.element_type)
+    tile_type = ttcore.ir.TileType.maybe_downcast(layout.memref.element_type)
     if tile_type is not None:
         result.append(
             graph_builder.KeyValue(
-                key="tile_datatype", value=str(tt.DataType(tile_type.data_type_as_int))
+                key="tile_datatype",
+                value=str(ttcore.DataType(tile_type.data_type_as_int)),
             )
         )
         result.append(
@@ -478,11 +480,11 @@ def parse_ttnn_ttnn_layout(attr):
         utils.make_editable_kv(
             graph_builder.KeyValue(
                 key="data_type",
-                value=str(tt.DataType(layout.data_type_as_int)),
+                value=str(ttcore.DataType(layout.data_type_as_int)),
             ),
             editable={
                 "input_type": "value_list",
-                "options": [str(o) for o in tt.DataType],
+                "options": [str(o) for o in ttcore.DataType],
             },
         )
     )
@@ -498,11 +500,11 @@ def parse_conv2d_config(attr):
         utils.make_editable_kv(
             graph_builder.KeyValue(
                 key="dtype",
-                value=str(tt.DataType(conv2d_config.dtype_as_int)),
+                value=str(ttcore.DataType(conv2d_config.dtype_as_int)),
             ),
             editable={
                 "input_type": "value_list",
-                "options": [str(o) for o in tt.DataType],
+                "options": [str(o) for o in ttcore.DataType],
             },
         )
     )
@@ -510,11 +512,11 @@ def parse_conv2d_config(attr):
         utils.make_editable_kv(
             graph_builder.KeyValue(
                 key="weights_dtype",
-                value=str(tt.DataType(conv2d_config.weights_dtype_as_int)),
+                value=str(ttcore.DataType(conv2d_config.weights_dtype_as_int)),
             ),
             editable={
                 "input_type": "value_list",
-                "options": [str(o) for o in tt.DataType],
+                "options": [str(o) for o in ttcore.DataType],
             },
         )
     )
@@ -799,7 +801,7 @@ class OpHandler:
                     # Parse as a standard layout
                     output_attrs.extend(
                         AttrHandler.parse_attr(
-                            output_tensor.type.encoding.get_named("tt.layout")
+                            output_tensor.type.encoding.get_named("ttcore.layout")
                         )
                     )
             result.extend(output_attrs)
@@ -1192,7 +1194,7 @@ def create_edges_for_block(block, op_to_graph_node, output_connections):
                     # Parse as a standard layout
                     output_attrs.extend(
                         AttrHandler.parse_attr(
-                            operand.type.encoding.get_named("tt.layout")
+                            operand.type.encoding.get_named("ttcore.layout")
                         )
                     )
             source_node.outputsMetadata.append(
@@ -1219,7 +1221,8 @@ def is_module_op(op):
     Returns:
         bool: True if the operation is a module, False otherwise
     """
-    # Check for tt.device_module or builtin.module operations
+    # Check for ttcore.device_module or builtin.module operations
     return (
-        op.operation.name == "tt.device_module" or op.operation.name == "builtin.module"
+        op.operation.name == "ttcore.device_module"
+        or op.operation.name == "builtin.module"
     )

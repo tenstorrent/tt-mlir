@@ -5,7 +5,7 @@
 #ifndef TTMLIR_TTMLIR_DIALECT_TTIR_TTIROPS_TD
 #define TTMLIR_TTMLIR_DIALECT_TTIR_TTIROPS_TD
 
-include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
+include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.td"
 include "ttmlir/Dialect/TTIR/IR/TTIRBase.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.td"
@@ -86,7 +86,7 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
 
       ```llvm
       %5 = "ttir.generic"(%1, %2, %3, %4) <{
-        grid = #tt.grid<1x1>,                        // The grid range of cores to dispatch work to.
+        grid = #ttcore.grid<1x1>,                        // The grid range of cores to dispatch work to.
         indexing_maps = [#map, #map, #map],          // Affine maps for indexing into the input/output tensors. See linalg.generic
         iterator_types = [#parallel, #parallel],     // Iterator types for the input/output tensors. See linalg.generic
         threads = [#ttir.thread<compute>],           // Thread types for the regions.
@@ -102,9 +102,9 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
 
     let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$inputs,
                          Variadic<AnyRankedTensorOrMemRef>:$outputs,
-                         TT_GridAttr:$grid,
+                         TTCore_GridAttr:$grid,
                          AffineMapArrayAttr:$indexing_maps,
-                         TT_IteratorTypeArrayAttr:$iterator_types,
+                         TTCore_IteratorTypeArrayAttr:$iterator_types,
                          TTIR_ThreadArrayAttr:$threads);
     let results = (outs Variadic<AnyRankedTensor>:$results);
     let regions = (region VariadicRegion<AnyRegion>:$regions);
@@ -183,6 +183,9 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
       unsigned getNumLoops();
       unsigned getNumDims();
       SmallVector<int64_t> getLoopBounds();
+      SmallVector<int64_t> getParticipatingLoopDims(int64_t operandIndex);
+      SmallVector<int64_t> getNonParticipatingLoopDims(int64_t operandIndex);
+      AffineMap getIndexingMap(int64_t operandIndex);
       SmallVector<AffineMap> getIndexingMapsValue();
       SmallVector<IteratorType> getIteratorTypesValue();
       SmallVector<SmallVector<int64_t>> getOperandGridShapes();
@@ -210,15 +213,15 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
         - Some combination of the above
 
       ```llvm
-      #layout = #tt.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
-      #layout1 = #tt.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
+      #layout = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
+      #layout1 = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
       %1 = "ttir.to_layout"(%arg0, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
       ```
     }];
 
     let arguments = (ins AnyRankedTensorOrMemRef:$input,
                          AnyRankedTensorOrMemRef:$output,
-                         OptionalAttr<TT_MetalLayoutAttr>:$layout);
+                         OptionalAttr<TTCore_MetalLayoutAttr>:$layout);
     let results = (outs Variadic<AnyRankedTensor>:$results);
 
     let assemblyFormat = [{ $input `,` $output `:` type($input) `into` type($output) (`hostInfo` `=` $layout^)? attr-dict (`->` type($results)^)? }];
@@ -284,9 +287,9 @@ def TTIR_StreamLayoutOp : TTIR_Op<"stream_layout",
       - It is not capable of changing the data type nor the memory space of the tensor.
 
       ```llvm
-      %input = memref.alloc() {alignment = 64 : i64} : memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>
-      %storage = memref.alloc() {alignment = 64 : i64} : memref<2x4x1x1x!tt.tile<32x32, f32>, #l1_>
-      %stream = "ttir.stream_layout"(%input, %storage) : (memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, memref<2x4x1x1x!tt.tile<32x32, f32>, #l1_>) -> memref<2x4x4x6x!tt.tile<32x32, f32>, #tt.view<map(4)>, #l1_>
+      %input = memref.alloc() {alignment = 64 : i64} : memref<2x4x4x6x!ttcore.tile<32x32, f32>, #l1_>
+      %storage = memref.alloc() {alignment = 64 : i64} : memref<2x4x1x1x!ttcore.tile<32x32, f32>, #l1_>
+      %stream = "ttir.stream_layout"(%input, %storage) : (memref<2x4x4x6x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x1x1x!ttcore.tile<32x32, f32>, #l1_>) -> memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_>
       ```
     }];
 
@@ -326,8 +329,8 @@ def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
       - All ViewLayout ops can trivially be converted to ToLayout ops.
 
       ```llvm
-      #layout = #tt.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
-      #layout1 = #tt.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
+      #layout = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
+      #layout1 = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
       %1 = "ttir.view_layout"(%arg0, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
       ```
     }];
@@ -335,7 +338,10 @@ def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
     let arguments = (ins AnyRankedTensorOrMemRef:$input, DefaultValuedAttr<BoolAttr, "false">:$reinterpretLayout);
     let results = (outs AnyRankedTensorOrMemRef:$result);
 
+    let assemblyFormat = [{ $input attr-dict `:` type($input) `->` type($result) }];
+
     let hasVerifier = 1;
+    let hasFolder = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -368,7 +374,7 @@ def TTIR_AllocOp : TTIR_Op<"alloc"> {
       Tensor Alloc operation
     }];
 
-    let arguments = (ins I64Attr:$address, I64Attr:$size, TT_MemorySpaceAttr:$memory_space);
+    let arguments = (ins I64Attr:$address, I64Attr:$size, TTCore_MemorySpaceAttr:$memory_space);
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
@@ -4537,7 +4543,7 @@ def TTIR_ScatterOp: TTIR_NamedOp<"scatter"> {
 //===----------------------------------------------------------------------===//
 
 class TTIR_CreationOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_Op<mnemonic, [Pure, TT_CreationOpTrait] # traits>;
+    TTIR_Op<mnemonic, [Pure, TTCore_CreationOpTrait] # traits>;
 
 
 def TTIR_ArangeOp : TTIR_CreationOp<"arange"> {
@@ -4922,7 +4928,7 @@ def TTIR_AllReduceOp : TTIR_NamedOp<"all_reduce"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         TT_ReduceTypeAttr:$reduce_type,
+                         TTCore_ReduceTypeAttr:$reduce_type,
                          UI32Attr:$cluster_axis);
 
     let results = (outs AnyRankedTensor:$result);
@@ -4937,7 +4943,7 @@ def TTIR_ReduceScatterOp : TTIR_NamedOp<"reduce_scatter"> {
     }];
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         TT_ReduceTypeAttr:$reduce_type,
+                         TTCore_ReduceTypeAttr:$reduce_type,
                          SI32Attr:$scatter_dim,
                          UI32Attr:$cluster_axis);
 
@@ -4985,25 +4991,25 @@ def TTIR_MeshShardOp : TTIR_NamedOp<"mesh_shard"> {
       and col divided by 4.
 
         %1 = "ttir.mesh_shard"(%arg0, %0) <
-          {... shard_direction = #tt.shard_direction<full_to_shard>,
+          {... shard_direction = #ttcore.shard_direction<full_to_shard>,
                shard_shape = array<i64: 2, 4>,
                shard_dims = array<i64: 0, 1>,
-               shard_type = #tt.shard_type<devices>}> :  (tensor<8192x784xf32>, ...) -> tensor<4096x196xf32>
+               shard_type = #ttcore.shard_type<devices>}> :  (tensor<8192x784xf32>, ...) -> tensor<4096x196xf32>
 
       On the other hand, this op concatnates %4 to single tensor by concatnating
       one of the top row tensor with one of the bottom row tensor.
 
         %6 = "ttir.mesh_shard"(%4, %5) <
-          {..., shard_direction = #tt.shard_direction<shard_to_full>,
+          {..., shard_direction = #ttcore.shard_direction<shard_to_full>,
                 shard_shape = array<i64: 2, 1>,
                 shard_dims = arrray<i64: 1, -1>,
-                shard_type = #tt.shard_type<devices>}> : (tensor<4096x16384xf32>, ...) -> tensor<8192x16384xf32>
+                shard_type = #ttcore.shard_type<devices>}> : (tensor<4096x16384xf32>, ...) -> tensor<8192x16384xf32>
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         TT_MeshShardTypeAttr:$shard_type,
-                         TT_MeshShardDirectionAttr:$shard_direction,
+                         TTCore_MeshShardTypeAttr:$shard_type,
+                         TTCore_MeshShardDirectionAttr:$shard_direction,
                          DenseI64ArrayAttr:$shard_shape,
                          DenseI64ArrayAttr:$shard_dims
     );

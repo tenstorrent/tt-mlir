@@ -9,7 +9,7 @@
 #include "mlir/Target/LLVMIR/Export.h"
 #include "mlir/Tools/mlir-translate/Translation.h"
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
 
 using namespace mlir;
@@ -23,7 +23,7 @@ void registerLLVMToDynamicLibrary() {
         return translateLLVMToDyLib(op, os);
       },
       [](DialectRegistry &registry) {
-        registry.insert<mlir::tt::TTDialect, mlir::LLVM::LLVMDialect>();
+        registry.insert<mlir::tt::TTCoreDialect, mlir::LLVM::LLVMDialect>();
         registerAllToLLVMIRTranslations(registry);
       });
 }

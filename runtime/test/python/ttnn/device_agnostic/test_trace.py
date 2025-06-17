@@ -5,7 +5,6 @@
 import pytest
 import ttrt
 import ttrt.runtime
-import torch
 from ttrt.common.util import *
 from ..utils import (
     TT_MLIR_HOME,
@@ -43,23 +42,21 @@ def get_inputs_and_golden(device, helper, program, program_index):
     return inputs_runtime_with_layout, golden
 
 
-def run_program_and_compare_golden(device, helper, program, program_index):
-    inputs_runtime_with_layout, golden = get_inputs_and_golden(
-        device, helper, program, program_index
-    )
+def run_program_and_compare_golden(
+    device, helper, program, program_index, inputs, golden
+):
 
     output_torch = get_torch_output_container(program)
 
-    output = ttrt.runtime.submit(
-        device, helper.binary.fbb, program_index, inputs_runtime_with_layout
-    )[0]
+    output = ttrt.runtime.submit(device, helper.binary.fbb, program_index, inputs)[0]
 
     output = ttrt.runtime.to_host(output, untilize=True)[0]
     ttrt.runtime.memcpy(output_torch.data_ptr(), output)
     assert_pcc(output_torch, golden)
 
 
-def test_trace_matmul_add_no_consteval(helper: Helper, request):
+@pytest.mark.parametrize("num_loops", [5])
+def test_trace_matmul_add_no_consteval(helper: Helper, request, num_loops):
     binary_path = os.path.join(
         FLATBUFFER_BASE_PATH, "matmul_add_no_consteval.mlir.tmp.ttnn"
     )
@@ -73,51 +70,36 @@ def test_trace_matmul_add_no_consteval(helper: Helper, request):
 
     assert program.num_inputs() == 3
 
+    debug_stats = ttrt.runtime.DebugStats.get()
+
     with DeviceContext(
         mesh_shape=[1, 1], enable_program_cache=True, trace_region_size=16384
     ) as device:
 
-        # First execute, should be a trace cache miss
-        run_program_and_compare_golden(device, helper, program, program_index)
-        assert ttrt.runtime.test.get_trace_cache_debug_stat(device, "cacheMiss") == 1
-        assert (
-            ttrt.runtime.test.get_trace_cache_debug_stat(device, "capturedTrace") == 1
-        )
+        for i in range(num_loops):
+            inputs_runtime_with_layout, golden = get_inputs_and_golden(
+                device, helper, program, program_index
+            )
+            # First execute, should be a trace cache miss
+            # Subsequent executes should be trace cache hit and execute trace
+            run_program_and_compare_golden(
+                device,
+                helper,
+                program,
+                program_index,
+                inputs_runtime_with_layout,
+                golden,
+            )
+            assert debug_stats.get_stat("TraceCacheMiss") == 1
+            assert debug_stats.get_stat("CapturedTrace") == 1
+            assert debug_stats.get_stat("ExecutedTrace") == i
 
-        # Second execute, should find and execute trace
-        run_program_and_compare_golden(device, helper, program, program_index)
-        assert ttrt.runtime.test.get_trace_cache_debug_stat(device, "cacheMiss") == 1
-        assert (
-            ttrt.runtime.test.get_trace_cache_debug_stat(device, "capturedTrace") == 1
-        )
-        assert (
-            ttrt.runtime.test.get_trace_cache_debug_stat(device, "executedTrace") == 1
-        )
-
-        # Third execute, should find and execute trace
-        run_program_and_compare_golden(device, helper, program, program_index)
-        assert ttrt.runtime.test.get_trace_cache_debug_stat(device, "cacheMiss") == 1
-        assert (
-            ttrt.runtime.test.get_trace_cache_debug_stat(device, "capturedTrace") == 1
-        )
-        assert (
-            ttrt.runtime.test.get_trace_cache_debug_stat(device, "executedTrace") == 2
-        )
-
-        # Fourth execute, should find and execute trace
-        run_program_and_compare_golden(device, helper, program, program_index)
-        assert ttrt.runtime.test.get_trace_cache_debug_stat(device, "cacheMiss") == 1
-        assert (
-            ttrt.runtime.test.get_trace_cache_debug_stat(device, "capturedTrace") == 1
-        )
-        assert (
-            ttrt.runtime.test.get_trace_cache_debug_stat(device, "executedTrace") == 3
-        )
-
+    ttrt.runtime.DebugStats.get().clear()
     helper.teardown()
 
 
-def test_trace_matmul_add_with_consteval(helper: Helper, request):
+@pytest.mark.parametrize("num_loops", [5])
+def test_trace_matmul_add_with_consteval(helper: Helper, request, num_loops):
     binary_path = os.path.join(
         FLATBUFFER_BASE_PATH, "matmul_add_consteval.mlir.tmp.ttnn"
     )
@@ -131,7 +113,7 @@ def test_trace_matmul_add_with_consteval(helper: Helper, request):
 
     assert program.num_inputs() == 3
 
-    output_torch = get_torch_output_container(program)
+    debug_stats = ttrt.runtime.DebugStats.get()
 
     with DeviceContext(
         mesh_shape=[1, 1], enable_program_cache=True, trace_region_size=16384
@@ -141,73 +123,46 @@ def test_trace_matmul_add_with_consteval(helper: Helper, request):
             device, helper, program, program_index
         )
 
-        # First execute, should be a trace cache miss and consteval cache miss
-        output = ttrt.runtime.submit(
-            device, helper.binary.fbb, program_index, inputs_runtime_with_layout
-        )[0]
-        output = ttrt.runtime.to_host(output, untilize=True)[0]
-        ttrt.runtime.memcpy(output_torch.data_ptr(), output)
-        assert_pcc(output_torch, golden)
-        assert ttrt.runtime.test.get_trace_cache_debug_stat(device, "cacheMiss") == 1
-        assert (
-            ttrt.runtime.test.get_trace_cache_debug_stat(device, "capturedTrace") == 1
-        )
-        const_eval_cache_stats = helper.binary.fbb.get_tensor_cache().get_stats()
-        assert const_eval_cache_stats.get("hits", 0) == 0
-        assert const_eval_cache_stats.get("misses", 0) == 1
+        for i in range(num_loops):
+            # First execute, should be a trace cache miss and consteval cache miss
+            # Subsequent executes should be consteval and trace cache hit
+            run_program_and_compare_golden(
+                device,
+                helper,
+                program,
+                program_index,
+                inputs_runtime_with_layout,
+                golden,
+            )
+            assert debug_stats.get_stat("TraceCacheMiss") == 1
+            assert debug_stats.get_stat("CapturedTrace") == 1
+            assert debug_stats.get_stat("ExecutedTrace") == i
+            assert debug_stats.get_stat("ConstEvalCacheMiss") == 1
+            assert debug_stats.get_stat("ConstEvalCacheHit") == i
 
-        # Second execute, should find and execute trace
-        output = ttrt.runtime.submit(
-            device, helper.binary.fbb, program_index, inputs_runtime_with_layout
-        )[0]
-        output = ttrt.runtime.to_host(output, untilize=True)[0]
-        ttrt.runtime.memcpy(output_torch.data_ptr(), output)
-        assert_pcc(output_torch, golden)
-        assert ttrt.runtime.test.get_trace_cache_debug_stat(device, "cacheMiss") == 1
-        assert (
-            ttrt.runtime.test.get_trace_cache_debug_stat(device, "capturedTrace") == 1
-        )
-        assert (
-            ttrt.runtime.test.get_trace_cache_debug_stat(device, "executedTrace") == 1
-        )
-        const_eval_cache_stats = helper.binary.fbb.get_tensor_cache().get_stats()
-        assert const_eval_cache_stats.get("hits", 0) == 1
-        assert const_eval_cache_stats.get("misses", 0) == 1
+        ttrt.runtime.DebugStats.get().clear()
 
-        # Third execute, should find and execute trace
-        output = ttrt.runtime.submit(
-            device, helper.binary.fbb, program_index, inputs_runtime_with_layout
-        )[0]
-        output = ttrt.runtime.to_host(output, untilize=True)[0]
-        ttrt.runtime.memcpy(output_torch.data_ptr(), output)
-        assert_pcc(output_torch, golden)
-        assert ttrt.runtime.test.get_trace_cache_debug_stat(device, "cacheMiss") == 1
-        assert (
-            ttrt.runtime.test.get_trace_cache_debug_stat(device, "capturedTrace") == 1
+        inputs_runtime_with_layout, golden = get_inputs_and_golden(
+            device, helper, program, program_index
         )
-        assert (
-            ttrt.runtime.test.get_trace_cache_debug_stat(device, "executedTrace") == 2
-        )
-        const_eval_cache_stats = helper.binary.fbb.get_tensor_cache().get_stats()
-        assert const_eval_cache_stats.get("hits", 0) == 2
-        assert const_eval_cache_stats.get("misses", 0) == 1
 
-        # Fourth execute, should find and execute trace
-        output = ttrt.runtime.submit(
-            device, helper.binary.fbb, program_index, inputs_runtime_with_layout
-        )[0]
-        output = ttrt.runtime.to_host(output, untilize=True)[0]
-        ttrt.runtime.memcpy(output_torch.data_ptr(), output)
-        assert_pcc(output_torch, golden)
-        assert ttrt.runtime.test.get_trace_cache_debug_stat(device, "cacheMiss") == 1
-        assert (
-            ttrt.runtime.test.get_trace_cache_debug_stat(device, "capturedTrace") == 1
-        )
-        assert (
-            ttrt.runtime.test.get_trace_cache_debug_stat(device, "executedTrace") == 3
-        )
-        const_eval_cache_stats = helper.binary.fbb.get_tensor_cache().get_stats()
-        assert const_eval_cache_stats.get("hits", 0) == 3
-        assert const_eval_cache_stats.get("misses", 0) == 1
+        for i in range(num_loops):
+            # First execute should be a consteval cache miss because we've updated the inputs
+            # Subsequent executes should be consteval cache hits
+            # Trace cache should not be affected
+            run_program_and_compare_golden(
+                device,
+                helper,
+                program,
+                program_index,
+                inputs_runtime_with_layout,
+                golden,
+            )
+            assert debug_stats.get_stat("TraceCacheMiss") == 0
+            assert debug_stats.get_stat("CapturedTrace") == 0
+            assert debug_stats.get_stat("ExecutedTrace") == i + 1
+            assert debug_stats.get_stat("ConstEvalCacheMiss") == 1
+            assert debug_stats.get_stat("ConstEvalCacheHit") == i
 
+    ttrt.runtime.DebugStats.get().clear()
     helper.teardown()

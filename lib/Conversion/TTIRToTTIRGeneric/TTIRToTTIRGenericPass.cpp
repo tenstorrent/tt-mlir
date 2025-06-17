@@ -4,8 +4,8 @@
 
 #include "ttmlir/Conversion/TTIRToTTIRGeneric/TTIRToTTIRGeneric.h"
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Dialect/TT/IR/Utils.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
@@ -54,7 +54,7 @@ struct TTIRToTTIRGenericPass final
       target.addLegalDialect<mlir::func::FuncDialect>();
       target.addLegalDialect<mlir::linalg::LinalgDialect>();
 
-      target.addLegalDialect<tt::TTDialect>();
+      target.addLegalDialect<tt::TTCoreDialect>();
 
       // An explicit list of legal ttir.* ops.
       target.addLegalOp<ttir::GenericOp>();
