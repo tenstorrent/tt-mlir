@@ -5,9 +5,9 @@
 #loc = loc("MNISTLinear":0:0)
 module @MNISTLinear attributes {} {
   func.func @forward(%arg0: tensor<1x784xf32> {ttir.name = "input_1"} loc("MNISTLinear":0:0), %arg1: tensor<784x256xf32> {ttir.name = "l1.weight"} loc("MNISTLinear":0:0), %arg2: tensor<256xf32> {ttir.name = "l1.bias"} loc("MNISTLinear":0:0), %arg3: tensor<256x10xf32> {ttir.name = "l2.weight"} loc("MNISTLinear":0:0), %arg4: tensor<10xf32> {ttir.name = "l2.bias"} loc("MNISTLinear":0:0)) -> (tensor<1x10xf32> {ttir.name = "MNISTLinear.output_softmax_9"}) {
-    // CHECK-DAG: #[[LAYOUT_5:.*]] = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8, (d0, d1) -> (0, d0, d1)>, memref<1x1x!tt.tile<32x32, f32>, #dram>, <interleaved>>
-    // CHECK-DAG: #[[LAYOUT_6:.*]] = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x8, (d0, d1) -> (0, d1 floordiv 8, d1 mod 8)>, memref<1x1x!tt.tile<32x32, f32>, #l1>, <width_sharded>>
-    // CHECK-DAG: #[[LAYOUT_7:.*]] = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1, (d0, d1) -> (0, d1 floordiv 8, d1 mod 8)>, memref<1x1x!tt.tile<32x32, f32>, #l1>, <width_sharded>>
+    // CHECK-DAG: #[[LAYOUT_5:.*]] = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8, (d0, d1) -> (0, d0, d1)>, memref<1x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+    // CHECK-DAG: #[[LAYOUT_6:.*]] = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x8, (d0, d1) -> (0, d1 floordiv 8, d1 mod 8)>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <width_sharded>>
+    // CHECK-DAG: #[[LAYOUT_7:.*]] = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1, (d0, d1) -> (0, d1 floordiv 8, d1 mod 8)>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <width_sharded>>
     %0 = ttir.empty() : tensor<1x256xf32> loc(#loc8)
     // CHECK: %{{.*}} = "ttnn.matmul"{{.*}} -> tensor<1x256xf32, #[[LAYOUT_5]]>
     %1 = "ttir.matmul"(%arg0, %arg1, %0) : (tensor<1x784xf32>, tensor<784x256xf32>, tensor<1x256xf32>) -> tensor<1x256xf32> loc(#loc8)
