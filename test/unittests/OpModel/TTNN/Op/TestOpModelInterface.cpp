@@ -497,15 +497,15 @@ TEST_F(OpModelBase, MatmulOpInterfacePartialOutput) {
       backend.getOpConstraints(getInputLayouts(matmul), OpConfig(outputLayout));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cbSize, peakSize, outputSize, observedOutputLayout] =
-      constraintsExp.get();
-  EXPECT_EQ(cbSize, 262144);
-  EXPECT_EQ(peakSize, 524288);
-  EXPECT_EQ(outputSize, 524288);
+  auto constraints = constraintsExp.get();
+  EXPECT_EQ(constraints.cbL1PeakSize, 262144);
+  EXPECT_EQ(constraints.tensorL1PeakSize, 524288);
+  EXPECT_EQ(constraints.outputL1BufferSize, 524288);
 
-  ASSERT_TRUE(observedOutputLayout);
-  EXPECT_EQ(observedOutputLayout.getLayout(), Layout::Tile);
-  EXPECT_TRUE(observedOutputLayout.hasShardedL1TensorMemoryLayout());
+  ASSERT_TRUE(constraints.outputLayout);
+  EXPECT_EQ(constraints.outputLayout.getLayout(), Layout::Tile);
+  EXPECT_TRUE(constraints.outputLayout.hasShardedL1TensorMemoryLayout());
+  EXPECT_TRUE(constraints.outputLayout.getGrid());
 }
 
 // Forward declarations

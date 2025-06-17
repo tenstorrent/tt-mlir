@@ -482,8 +482,11 @@ TEST_P(MlirToTtnnConversionMemoryConfig, MemoryConfig) {
 
     auto partialLayout = layout.withIgnorePhysicalLayout(true);
     EXPECT_TRUE(partialLayout.getIgnorePhysicalLayout());
+    EXPECT_TRUE(partialLayout.hasShardedTensorMemoryLayout());
+
     const auto partialConfig =
         mlir::tt::op_model::ttnn::conversion::getMemoryConfig(partialLayout);
+    EXPECT_TRUE(partialConfig.is_sharded());
     EXPECT_FALSE(partialConfig.shard_spec().has_value());
   }
 }
