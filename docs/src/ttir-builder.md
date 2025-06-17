@@ -624,7 +624,7 @@ def eltwise_proxy(
 )
 ```
 
-CCL ops require `GoldenCheckLevel` to be set to `GRAPH_LEVEL` and integrate that into their own proxy function.
+CCL ops require `GoldenCheckLevel` to be set to `GRAPH_LEVEL` and do so in their own proxy function.
 ```bash
 def ccl_proxy(
     self,
@@ -637,3 +637,45 @@ def ccl_proxy(
 
 ### Golden functions
 Setting the various inputs, outputs, arguments, shapes, and types are all fairly straightforward. Find the TTIR op in `include/ttmlir/Dialect/TTIR/IR/TTIROps.td` and replicate the pertinents. If there is necessary information that is not included, you may have to take it upon yourself to do some detective work and trial and error. The tricky part can be the finding or writing a golden function. It must perform exactly the same operation as the TTIR op and be written using PyTorch operations.
+
+### Adding Silicon tests
+Silicon tests are created in the `test/python/golden` directory.
+```bash
+pytest test/python/golden/test_ttir_ops.py
+```
+
+Be sure to file an issue for failing tests and add a pytest mark for any failing or unsupported tests. The pytest marks instruct CI to ignore tests.
+```bash
+pytest.mark.skip("Issue number") : skip flatbuffer creation for this test
+pytest.mark.fails_golden : expect this test to fail the ttrt golden check
+pytest.mark.skip_target("ttmetal") : skip ttmetal flatbuffer creation, an op in this test has no support in ttmetal
+```
+
+For tests exclusive to n300 or llmbox, use the following pytest marks or add them to their respective test files.
+```bash
+pytestmark = pytest.mark.n300
+pytestmark = pytest.mark.llmbox
+```
+
+### Running Silicon tests
+Follow these steps
+```bash
+1. Build ttmlir (sample instructions - subject to change)
+source env/activate
+cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-17 -DCMAKE_CXX_COMPILER=clang++-17 -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DTTMLIR_ENABLE_RUNTIME=ON -DTT_RUNTIME_ENABLE_PERF_TRACE=ON
+cmake --build build
+
+2. Build ttrt (sample instructions - subject to change)
+cmake --build build -- ttrt
+
+3. Query system
+ttrt query --save-artifacts
+
+4. Export system desc file
+export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys (path dumped in previous command)
+
+5. Generate test cases
+cmake --build build -- check-ttmlir
+
+6. Run test cases
+ttrt run build/test/ttmlir/Silicon
