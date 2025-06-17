@@ -724,7 +724,8 @@ MetalLayoutAttr MetalLayoutAttr::get(
                                          collapseIntervals);
   auto shardShape = calculateLogicalShardShape(tensorShape, linear, grid);
   auto memref = buildMemRef<MemorySpace, MemorySpaceAttr>(
-      context, shardShape, elementType, memorySpace);
+      context, shardShape, elementType, memorySpace,
+      /*shapeDimAlignedUpToTile=*/true);
   return get(context, linear, oobVal, grid, memref);
 }
 
@@ -895,27 +896,30 @@ MetalLayoutAttr MetalLayoutAttr::withGrid(
 
 MetalLayoutAttr MetalLayoutAttr::withElementType(::mlir::MLIRContext *context,
                                                  Type elementType) {
-  return MetalLayoutAttr::get(
-      context, getLinear(), getOobVal(), getGrid(),
-      buildMemRef<MemorySpace, MemorySpaceAttr>(context, getShardShape(true),
-                                                elementType, getMemorySpace()));
+  return MetalLayoutAttr::get(context, getLinear(), getOobVal(), getGrid(),
+                              buildMemRef<MemorySpace, MemorySpaceAttr>(
+                                  context, getShardShape(true), elementType,
+                                  getMemorySpace(),
+                                  /*shapeDimAlignedUpToTile=*/true));
 }
 
 MetalLayoutAttr MetalLayoutAttr::withMemorySpace(::mlir::MLIRContext *context,
                                                  MemorySpace memorySpace) {
-  return MetalLayoutAttr::get(
-      context, getLinear(), getOobVal(), getGrid(),
-      buildMemRef<MemorySpace, MemorySpaceAttr>(context, getShardShape(true),
-                                                getElementType(), memorySpace));
+  return MetalLayoutAttr::get(context, getLinear(), getOobVal(), getGrid(),
+                              buildMemRef<MemorySpace, MemorySpaceAttr>(
+                                  context, getShardShape(true),
+                                  getElementType(), memorySpace,
+                                  /*shapeDimAlignedUpToTile=*/true));
 }
 
 MetalLayoutAttr
 MetalLayoutAttr::withShardShape(::mlir::MLIRContext *context,
                                 llvm::SmallVector<int64_t> shardShape) {
-  return MetalLayoutAttr::get(
-      context, getLinear(), getOobVal(), getGrid(),
-      buildMemRef<MemorySpace, MemorySpaceAttr>(
-          context, shardShape, getElementType(), getMemorySpace()));
+  return MetalLayoutAttr::get(context, getLinear(), getOobVal(), getGrid(),
+                              buildMemRef<MemorySpace, MemorySpaceAttr>(
+                                  context, shardShape, getElementType(),
+                                  getMemorySpace(),
+                                  /*shapeDimAlignedUpToTile=*/true));
 }
 
 MemorySpace MetalLayoutAttr::getMemorySpace() const {

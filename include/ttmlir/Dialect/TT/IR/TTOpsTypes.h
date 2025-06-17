@@ -11,7 +11,9 @@
 #include "mlir/IR/OpImplementation.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsEnums.h.inc"
+#include "ttmlir/Utils.h"
 
+#include <cassert>
 #include <numeric>
 
 namespace mlir::tt {
@@ -326,12 +328,26 @@ calculateLogicalShardShape(mlir::ArrayRef<int64_t> tensorShape,
 template <typename T, typename TAttr>
 mlir::MemRefType buildMemRef(mlir::MLIRContext *context,
                              llvm::ArrayRef<int64_t> shardShape,
-                             mlir::Type elementType, T memorySpace) {
+                             mlir::Type elementType, T memorySpace,
+                             bool shapeDimAlignedUpToTile = false) {
   llvm::SmallVector<int64_t> scalarShardShape(shardShape);
   if (mlir::isa<mlir::tt::TileType>(elementType)) {
     scalarShardShape = mlir::cast<mlir::tt::TileType>(elementType)
                            .getTiledShape(scalarShardShape);
+  } else if (shapeDimAlignedUpToTile) {
+    assert(!scalarShardShape.empty());
+
+    auto &first_dim = scalarShardShape.front();
+    first_dim =
+        ttmlir::utils::alignUp(first_dim, TileType::getDefaultShape()[0]);
+
+    if (scalarShardShape.size() >= 2) {
+      auto &last_dim = scalarShardShape.back();
+      last_dim =
+          ttmlir::utils::alignUp(last_dim, TileType::getDefaultShape()[1]);
+    }
   }
+
   return mlir::MemRefType::get(
       scalarShardShape, elementType,
       mlir::AffineMap::getMultiDimIdentityMap(scalarShardShape.size(), context),
