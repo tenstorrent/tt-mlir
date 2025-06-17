@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 project(ttnn-standalone CXX)
 
+option(TTMLIR_ENABLE_TTNN_PY "Enable TTNN Python Bindings (from upstream tt-mlir)" OFF)
+
 set(CMAKE_CXX_STANDARD 20 CACHE STRING "C++ standard to conform to")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -132,12 +134,6 @@ set(LINK_LIBS
     tt_metal
     device
 )
-
-# Default value that matches with the main configuration
-set(TTMLIR_ENABLE_TTNN_PY OFF)
-if (DEFINED ENV{TTMLIR_ENABLE_TTNN_PY})
-  set(TTMLIR_ENABLE_TTNN_PY ENV{TTMLIR_ENABLE_TTNN_PY})
-endif()
 
 if (TTMLIR_ENABLE_TTNN_PY)
   list(APPEND LINK_LIBS ${METAL_LIB_DIR}/_ttnn.so)

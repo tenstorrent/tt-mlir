@@ -92,6 +92,7 @@ runs:
         source env/activate
         export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         llvm-lit -sv ${{ inputs.work-dir }}/test/ttmlir/EmitC/TTNN
+        export TTMLIR_ENABLE_TTNN_PY=${{ inputs.enable-ttnn-py }}
         ${{ inputs.work-dir }}/tools/ttnn-standalone/ci_compile_dylib.py
 
     - name: Build tt-explorer
