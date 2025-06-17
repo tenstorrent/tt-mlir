@@ -1,15 +1,15 @@
-// RUN: ttmlir-opt --tt-register-device --ttnn-fusing %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttnn-fusing %s | FileCheck %s
 
 // These test are written in TTNN dialect because TTIR is not flexible enough to represent all the patterns we want to test.
 
 #dram = #ttnn.buffer_type<dram>
 #system_memory = #ttnn.buffer_type<system_memory>
-#ttnn_layout = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1024 + d1 * 32 + d2, d3), <1x1>, memref<32x2x!tt.tile<32x32, bf16>, #dram>, <interleaved>>
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1024 + d1 * 32 + d2, d3), <1x1>, memref<32x2x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 #ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 192 + d1 * 3 + d2, d3), <1x1>, memref<12288x3xbf16, #system_memory>>
-#ttnn_layout2 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <1x1>, memref<1x2x!tt.tile<32x32, bf16>, #dram>, <interleaved>>
-#ttnn_layout3 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 960 + d1 * 32 + d2, d3), <1x1>, memref<30x2x!tt.tile<32x32, bf16>, #dram>, <interleaved>>
-#ttnn_layout4 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1024 + d1 * 1024 + d2, d3), <1x1>, memref<32x2x!tt.tile<32x32, bf16>, #dram>, <interleaved>>
-#ttnn_layout5 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 928 + d1 * 928 + d2, d3), <1x1>, memref<29x2x!tt.tile<32x32, bf16>, #dram>, <interleaved>>
+#ttnn_layout2 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <1x1>, memref<1x2x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
+#ttnn_layout3 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 960 + d1 * 32 + d2, d3), <1x1>, memref<30x2x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
+#ttnn_layout4 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1024 + d1 * 1024 + d2, d3), <1x1>, memref<32x2x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
+#ttnn_layout5 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 928 + d1 * 928 + d2, d3), <1x1>, memref<29x2x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 module {
   // Here we want to test that we cant fuse relu into conv2d because conv2d already has activation.
 

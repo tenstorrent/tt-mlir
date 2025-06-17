@@ -4,8 +4,8 @@
 
 #include "ttmlir/Conversion/TTIRToTTKernel/TTIRToTTKernel.h"
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Dialect/TT/IR/TTOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
@@ -44,7 +44,7 @@ struct ConvertTTIRToTTKernel
     target.addLegalDialect<arith::ArithDialect>();
     target.addLegalDialect<func::FuncDialect>();
     target.addLegalDialect<ttmetal::TTMetalDialect>();
-    target.addLegalDialect<tt::TTDialect>();
+    target.addLegalDialect<tt::TTCoreDialect>();
     target.addLegalDialect<ttkernel::TTKernelDialect>();
     target.addLegalDialect<scf::SCFDialect>();
     target.addIllegalDialect<math::MathDialect>();
@@ -84,8 +84,7 @@ struct ConvertTTIRToTTKernel
       if (tt::getMemorySpace(memref) == tt::MemorySpace::RegisterDst) {
         return IndexType::get(memref.getContext());
       }
-      return ttkernel::CBType::get(
-          memref.getContext(), ttkernel::symbolizeCBPort(0).value(), 0, memref);
+      return ttkernel::CBType::get(memref.getContext(), memref);
     });
     typeConverter.addConversion([](ttir::SemaphoreType semaphore) {
       return ttkernel::SemaphoreType::get(semaphore.getContext());

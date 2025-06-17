@@ -8,7 +8,7 @@ add_mlir_dialect_library(MLIRTTMetalPipelines
   MLIRTTIRDialect
   MLIRTTMetalDialect
   MLIRTTIRTransforms
-  MLIRTTDialect
+  MLIRTTCoreDialect
   MLIRTTTransforms
   MLIRPass
   MLIRTransforms

@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --tt-register-device --ttir-flatten-sliding-window --ttnn-layout --convert-ttir-to-ttnn --ttnn-fusing %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-flatten-sliding-window --ttnn-layout --convert-ttir-to-ttnn --ttnn-fusing %s | FileCheck %s
 
 module {
   // Test fusion of Conv2d with ReLU activation.

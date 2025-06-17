@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
-#include "ttmlir/Dialect/TT/IR/Utils.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpModelInterface.cpp.inc"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -94,40 +94,126 @@ getBinaryOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+using UnaryOpConstraintsFunc =
+    std::function<llvm::Expected<op_model::ttnn::OpConstraints>(
+        GridAttr, llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr,
+        llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr)>;
+
+using UnaryOpRuntimeFunc = std::function<llvm::Expected<size_t>(
+    llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr,
+    llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr)>;
+
+template <typename OpT>
+llvm::Expected<op_model::ttnn::OpConstraints>
+getUnaryOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
+                      const OpConfig &opConfig,
+                      UnaryOpConstraintsFunc getConstraintsFunc) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getInput().getType().getShape();
+  const auto outputShape = op.getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(op.getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  GridAttr deviceGrid = lookupDevice(op.getOperation()).getWorkerGrid();
+
+  return getConstraintsFunc(deviceGrid, inputShape, inputs[0], outputShape,
+                            opConfig.outputLayout);
+}
+
+template <typename OpT>
+llvm::Expected<size_t>
+getUnaryOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
+                  const OpConfig &opConfig, UnaryOpRuntimeFunc getRuntimeFunc) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getInput().getType().getShape();
+  const auto outputShape = op.getType().getShape();
+
+  return getRuntimeFunc(inputShape, inputs[0], outputShape,
+                        opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // ReluOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
 llvm::Expected<op_model::ttnn::OpConstraints>
 ReluOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                          const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
-
-  const auto inputShape = getInput().getType().getShape();
-
-  const auto outputShape = getType().getShape();
-
-  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
-  if (!check) {
-    return check.takeError();
-  }
-  GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();
-
-  return op_model::ttnn::ReluOpInterface::getOpConstraints(
-      deviceGrid, inputShape, inputs[0], outputShape, opConfig.outputLayout);
+  return getUnaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::ReluOpInterface::getOpConstraints);
 }
 
 llvm::Expected<size_t>
 ReluOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                      const OpConfig &opConfig) {
 
-  assert(inputs.size() == 1);
+  return getUnaryOpRuntime(*this, inputs, opConfig,
+                           op_model::ttnn::ReluOpInterface::getOpRuntime);
+}
 
-  const auto inputShape = getInput().getType().getShape();
+//===----------------------------------------------------------------------===//
+// SinOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
 
-  const auto outputShape = getType().getShape();
+llvm::Expected<op_model::ttnn::OpConstraints>
+SinOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                        const OpConfig &opConfig) {
+  return getUnaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::SinOpInterface::getOpConstraints);
+}
 
-  return op_model::ttnn::ReluOpInterface::getOpRuntime(
-      inputShape, inputs[0], outputShape, opConfig.outputLayout);
+llvm::Expected<size_t>
+SinOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                    const OpConfig &opConfig) {
+
+  return getUnaryOpRuntime(*this, inputs, opConfig,
+                           op_model::ttnn::SinOpInterface::getOpRuntime);
+}
+
+//===----------------------------------------------------------------------===//
+// CosOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+CosOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                        const OpConfig &opConfig) {
+  return getUnaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::CosOpInterface::getOpConstraints);
+}
+
+llvm::Expected<size_t>
+CosOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                    const OpConfig &opConfig) {
+
+  return getUnaryOpRuntime(*this, inputs, opConfig,
+                           op_model::ttnn::CosOpInterface::getOpRuntime);
+}
+
+//===----------------------------------------------------------------------===//
+// ReciprocalOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+ReciprocalOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                               const OpConfig &opConfig) {
+  return getUnaryOpConstraints(
+      *this, inputs, opConfig,
+      op_model::ttnn::ReciprocalOpInterface::getOpConstraints);
+}
+
+llvm::Expected<size_t>
+ReciprocalOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+
+  return getUnaryOpRuntime(*this, inputs, opConfig,
+                           op_model::ttnn::ReciprocalOpInterface::getOpRuntime);
 }
 
 //===----------------------------------------------------------------------===//

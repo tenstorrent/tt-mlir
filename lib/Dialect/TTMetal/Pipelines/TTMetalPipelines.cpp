@@ -7,7 +7,7 @@
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
-#include "ttmlir/Dialect/TT/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
@@ -53,13 +53,13 @@ void createOptimizationPasses(OpPassManager &pm) {
 
 void createTTIRToTTMetalFrontendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
-  tt::TTRegisterDevicePassOptions registerDeviceOptions;
+  tt::TTCoreRegisterDevicePassOptions registerDeviceOptions;
   {
     registerDeviceOptions.systemDescPath = options.systemDescPath;
     registerDeviceOptions.mockSystemDescArch = options.mockSystemDescArch;
     registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
   }
-  pm.addPass(tt::createTTRegisterDevicePass(registerDeviceOptions));
+  pm.addPass(tt::createTTCoreRegisterDevicePass(registerDeviceOptions));
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(tt::createTTIRToTTIRGenericPass());
@@ -106,7 +106,7 @@ void createTTIRToTTMetalBackendPipeline(
 void createTTIRToTTMetalPipeline(OpPassManager &pm,
                                  const TTIRToTTMetalPipelineOptions &options) {
   // Create DeviceModule to wrap all ops.
-  pm.addPass(tt::createTTWrapDeviceModulePass());
+  pm.addPass(tt::createTTCoreWrapDeviceModulePass());
   // Create CPUModuleOp to wrap hoisted ops (if any).
   pm.addPass(ttir::createTTIRHoistTransform());
 

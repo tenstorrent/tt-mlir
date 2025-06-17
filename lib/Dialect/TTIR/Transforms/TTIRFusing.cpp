@@ -300,7 +300,7 @@ private:
       }
 
       Operation *op = value.getDefiningOp();
-      return op->hasTrait<mlir::tt::Trait::TTCreationOpTrait>() &&
+      return op->hasTrait<mlir::tt::Trait::TTCoreCreationOpTrait>() &&
              op->isBeforeInBlock(conv2dOp);
     };
 
