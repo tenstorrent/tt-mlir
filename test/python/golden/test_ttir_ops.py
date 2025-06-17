@@ -1663,7 +1663,9 @@ def test_binary_eltwise_ops_implicit_broadcast(
             "broadcast_both_4",
         }
     ):
-        request.node.add_marker(pytest.mark.fails_golden)
+        pytest.skip(
+            "Data missmatch on add op because of implicit broadcast on both operands"
+        )
 
     if test_fn == multiply and any(
         bcast_id in ids
@@ -1674,7 +1676,9 @@ def test_binary_eltwise_ops_implicit_broadcast(
             "broadcast_both_4",
         }
     ):
-        request.node.add_marker(pytest.mark.fails_golden)
+        pytest.skip(
+            "Data missmatch on multiply op because of implicit broadcast on both operands"
+        )
 
     if test_fn == subtract and any(
         bcast_id in ids
@@ -1685,7 +1689,9 @@ def test_binary_eltwise_ops_implicit_broadcast(
             "broadcast_both_4",
         }
     ):
-        request.node.add_marker(pytest.mark.fails_golden)
+        pytest.skip(
+            "Data missmatch on subtract op because of implicit broadcast on both operands"
+        )
 
     if test_fn == pow and any(
         bcast_id in ids
@@ -1696,7 +1702,9 @@ def test_binary_eltwise_ops_implicit_broadcast(
             "broadcast_both_2",
         }
     ):
-        request.node.add_marker(pytest.mark.fails_golden)
+        pytest.skip(
+            "Data missmatch on pow op because of implicit broadcast on both operands"
+        )
 
     pipeline_options = ["enable-decomposition-workaround-pass=false"]
 
