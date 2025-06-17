@@ -2,11 +2,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_EmitPy_IR_EmitPy_H
-#define TTMLIR_DIALECT_EmitPy_IR_EmitPy_H
+#ifndef TTMLIR_DIALECT_EMITPY_IR_EMITPY_H
+#define TTMLIR_DIALECT_EMITPY_IR_EMITPY_H
 
 #include "mlir/IR/Dialect.h"
 
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOpsDialect.h.inc"
 
-#endif
+#endif // TTMLIR_DIALECT_EMITPY_IR_EMITPY_H
