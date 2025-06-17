@@ -36,7 +36,6 @@
 #include "operations/reduction/generic/generic_reductions.hpp"
 #include "operations/reduction/prod/prod.hpp"
 #include "tt-metalium/bfloat16.hpp"
-#include "tt-metalium/small_vector.hpp"
 #include "ttnn/core.hpp"
 #include "ttnn/device.hpp"
 #include "ttnn/operations/copy/typecast/typecast.hpp"
