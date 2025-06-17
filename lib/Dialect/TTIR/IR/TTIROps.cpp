@@ -1818,6 +1818,21 @@ mlir::OpFoldResult mlir::tt::ttir::TransposeOp::fold(FoldAdaptor adaptor) {
   return nullptr;
 }
 
+void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
+  patterns.add(+[](TransposeOp op, mlir::PatternRewriter &rewriter) {
+    SmallVector<int64_t> permutation;
+    for (int64_t i = 0; i < op.getInput().getType().getRank(); ++i) {
+      permutation.push_back(i);
+    }
+
+    std::swap(permutation[op.getDim0()], permutation[op.getDim1()]);
+    ttir::utils::replaceOpWithNewDPSOp<PermuteOp>(rewriter, op, op.getType(),
+                                                  op.getInput(), permutation);
+    return success();
+  });
+}
+
 //===----------------------------------------------------------------------===//
 // TypecastOp
 //===----------------------------------------------------------------------===//
@@ -2632,18 +2647,32 @@ mlir::OpFoldResult mlir::tt::ttir::ViewLayoutOp::fold(FoldAdaptor adaptor) {
 // std::nullopt. This is used for canonicalization of MatmulOp and LinearOp.
 static std::optional<mlir::TypedValue<mlir::RankedTensorType>>
 getTransposeOpOperand(mlir::TypedValue<mlir::RankedTensorType> value) {
-  auto producerOp = value.getDefiningOp<mlir::tt::ttir::TransposeOp>();
-  if (!producerOp) {
+  auto producerTransposeOp = value.getDefiningOp<mlir::tt::ttir::TransposeOp>();
+  auto producerPermuteOp = value.getDefiningOp<mlir::tt::ttir::PermuteOp>();
+  if (!producerTransposeOp && !producerPermuteOp) {
     return std::nullopt;
   }
+  if (producerTransposeOp) {
+    int64_t rank = value.getType().getRank();
+    if (rank < 2 || producerTransposeOp.getDim0() != rank - 2 ||
+        producerTransposeOp.getDim1() != rank - 1) {
+      return std::nullopt;
+    }
 
-  int64_t rank = value.getType().getRank();
-  if (rank < 2 || producerOp.getDim0() != rank - 2 ||
-      producerOp.getDim1() != rank - 1) {
-    return std::nullopt;
+    return producerTransposeOp.getInput();
   }
 
-  return producerOp.getInput();
+  if (producerPermuteOp) {
+    int64_t rank = value.getType().getRank();
+    if (rank < 2 || producerPermuteOp.getPermutation()[rank - 2] != rank - 1 ||
+        producerPermuteOp.getPermutation()[rank - 1] != rank - 2) {
+      return std::nullopt;
+    }
+
+    return producerPermuteOp.getInput();
+  }
+  llvm_unreachable("We should have returned earlier if the producer was "
+                   "neither a transpose nor permute");
 }
 
 // LinearOp canonicalization
@@ -3508,6 +3537,62 @@ mlir::OpFoldResult mlir::tt::ttir::PermuteOp::fold(FoldAdaptor adaptor) {
   }
 
   return nullptr;
+}
+
+void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
+  patterns.add(+[](PermuteOp op, mlir::PatternRewriter &rewriter) {
+    if (op.getPermutation() != llvm::ArrayRef<int64_t>{0, 1, 3, 2}) {
+      return failure();
+    }
+
+    auto finalShape = op.getType().getShape();
+    (void)finalShape;
+
+    auto reshapeOperand =
+        op.getInput().getDefiningOp<mlir::tt::ttir::ReshapeOp>();
+    if (!reshapeOperand) {
+      return failure();
+    }
+
+    auto permuteOperand =
+        reshapeOperand.getInput().getDefiningOp<mlir::tt::ttir::PermuteOp>();
+    if (!permuteOperand) {
+      return failure();
+    }
+
+    // Check that the reshape fuses the dims which were moved by the
+    // permuteOperand
+    auto permuteShape = permuteOperand.getType().getShape();
+    auto permuteInputShape = permuteOperand.getInput().getType().getShape();
+    (void)permuteInputShape;
+    auto reshapeShape = reshapeOperand.getType().getShape();
+
+    bool isCorectReshape = reshapeShape[0] == permuteShape[0] &&
+                           reshapeShape[1] == 1 &&
+                           reshapeShape[2] == permuteShape[1] &&
+                           reshapeShape[3] == permuteShape[2] * permuteShape[3];
+
+    if (!isCorectReshape) {
+      return failure();
+    }
+
+    if (permuteOperand.getPermutation() !=
+        llvm::ArrayRef<int64_t>{0, 3, 1, 2}) {
+      return failure();
+    }
+
+    SmallVector<int64_t> newReshapeShape = {
+        permuteShape[0], 1, permuteShape[2] * permuteShape[3], permuteShape[1]};
+    auto newReshapeType = mlir::RankedTensorType::get(
+        newReshapeShape, permuteOperand.getType().getElementType());
+    auto newShapeAttr = rewriter.getI32ArrayAttr(
+        SmallVector<int32_t>(newReshapeShape.begin(), newReshapeShape.end()));
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ReshapeOp>(
+        rewriter, op, newReshapeType, permuteOperand.getInput(), newShapeAttr);
+
+    return success();
+  });
 }
 
 //===----------------------------------------------------------------------===//
