@@ -4,9 +4,11 @@
 
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/SymbolTable.h"
@@ -15,14 +17,17 @@
 #include "mlir/Support/IndentedOstream.h"
 #include "mlir/Support/LLVM.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPy.h"
+#include "ttmlir/Dialect/EmitPy/IR/EmitPyAttrs.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 #include "ttmlir/Target/Python/PythonEmitter.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/ScopedHashTable.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/LogicalResult.h"
@@ -30,8 +35,6 @@
 #include <cstddef>
 #include <stack>
 #include <utility>
-
-#define DEBUG_TYPE "translate-to-python"
 
 using namespace mlir;
 using namespace mlir::tt::emitpy;
@@ -70,7 +73,7 @@ inline LogicalResult interleaveWithError(const Container &container,
 }
 
 template <typename Container, typename UnaryFunctor>
-inline LogicalResult interleaveCommaWithError(Container container,
+inline LogicalResult interleaveCommaWithError(const Container container,
                                               raw_ostream &os,
                                               UnaryFunctor eachFn) {
   return interleaveWithError(container.begin(), container.end(), eachFn,
@@ -84,7 +87,6 @@ struct PythonEmitter {
     valueInScopeCount.push(0);
   }
 
-  /// TODO
   /// Emits attribute or returns failure.
   LogicalResult emitAttribute(Location loc, Attribute attr);
 
@@ -95,39 +97,23 @@ struct PythonEmitter {
   /// Emits type 'type' or returns failure.
   LogicalResult emitType(Location loc, Type type);
 
-  /// TODO
-  /// Emits array of types as a tuple of the emitted types.
-  /// - emits void for an empty array;
-  /// - emits the type of the only element for arrays of size one;
-  /// - emits a tuple otherwise;
-  LogicalResult emitTypes(Location loc, ArrayRef<Type> types);
-
-  /// TODO
-  /// Emits array of types as a tuple of the emitted types independently of
-  /// the array size.
-  LogicalResult emitTupleType(Location loc, ArrayRef<Type> types);
-
-  /// Emits an assignment for a variable which has been declared previously.
+  /// Emits an assignment for a variable which has been declared previously or
+  /// returns failure.
   LogicalResult emitVariableAssignment(OpResult result);
 
   /// Emits the variable declaration and assignment prefix for 'op'.
-  /// - emits separate variable followed by std::tie for multi-valued operation;
-  /// - emits single type followed by variable for single result;
+  /// - emits multiple variables separated with comma for multi-valued
+  /// operation;
+  /// - emits single variable for single result;
   /// - emits nothing if no value produced by op;
   /// Emits final '=' operator where a type is produced. Returns failure if
   /// any result type could not be converted.
   LogicalResult emitAssignPrefix(Operation &op);
 
-  /// TODO
-  /// Emits the operands and atttributes of the operation. All operands are
-  /// emitted first and then all attributes in alphabetical order.
-  LogicalResult emitOperandsAndAttributes(Operation &op,
-                                          ArrayRef<StringRef> exclude = {});
-
   /// Emits the operands of the operation. All operands are emitted in order.
   LogicalResult emitOperands(Operation &op);
 
-  /// Emits value as an operands of an operation
+  /// Emits value as an operand of an operation.
   LogicalResult emitOperand(Value value);
 
   /// Return the existing or a new name for a Value.
@@ -138,12 +124,8 @@ struct PythonEmitter {
     Scope(PythonEmitter &emitter)
         : valueMapperScope(emitter.valueMapper), emitter(emitter) {
       emitter.valueInScopeCount.push(emitter.valueInScopeCount.top());
-      // emitter.ostream().indent();
     }
-    ~Scope() {
-      emitter.valueInScopeCount.pop();
-      // emitter.ostream().unindent();
-    }
+    ~Scope() { emitter.valueInScopeCount.pop(); }
 
   private:
     llvm::ScopedHashTableScope<Value, std::string> valueMapperScope;
@@ -178,26 +160,55 @@ StringRef PythonEmitter::getOrCreateName(Value val) {
   return *valueMapper.begin(val);
 }
 
-static LogicalResult printOperation(PythonEmitter &emitter, Operation &op,
-                                    StringRef callee) {
+static LogicalResult printOperation(PythonEmitter &emitter,
+                                    CallOpaqueOp callOpaqueOp) {
   raw_indented_ostream &os = emitter.ostream();
+  Operation &op = *callOpaqueOp.getOperation();
+  StringRef callee = callOpaqueOp.getCallee();
   if (failed(emitter.emitAssignPrefix(op))) {
     return failure();
   }
-  os << callee;
-  os << "(";
-  if (failed(emitter.emitOperands(op))) {
-    return failure();
-  }
-  os << ")";
-  return success();
-}
 
-static LogicalResult printOperation(PythonEmitter &emitter,
-                                    CallOpaqueOp callOpaqueOp) {
-  Operation &op = *callOpaqueOp.getOperation();
-  StringRef callee = callOpaqueOp.getCallee();
-  return printOperation(emitter, op, callee);
+  auto emitArgs = [&](Attribute attr) -> LogicalResult {
+    if (auto iAttr = dyn_cast<IntegerAttr>(attr)) {
+      if (iAttr.getType().isIndex()) {
+        int64_t idx = iAttr.getInt();
+        Value operand = op.getOperand(idx);
+        if (!emitter.hasValueInScope(operand)) {
+          return op.emitOpError("operand ")
+                 << idx << "'s value not defined in scope";
+        }
+        if (failed(emitter.emitOperand(operand))) {
+          return failure();
+        }
+        return success();
+      }
+    }
+    if (failed(emitter.emitAttribute(op.getLoc(), attr))) {
+      return failure();
+    }
+    return success();
+  };
+
+  // Handle constant operation.
+  if (callee == "constant") {
+    if (failed(emitter.emitAttribute(op.getLoc(),
+                                     callOpaqueOp.getArgs()->getValue()[0]))) {
+      return failure();
+    }
+  } else {
+    os << callee << "(";
+    LogicalResult emittedArgs =
+        callOpaqueOp.getArgs()
+            ? interleaveCommaWithError(*callOpaqueOp.getArgs(), os, emitArgs)
+            : emitter.emitOperands(op);
+    if (failed(emittedArgs)) {
+      return failure();
+    }
+    os << ")";
+  }
+
+  return success();
 }
 
 static LogicalResult printOperation(PythonEmitter &emitter, ImportOp importOp) {
@@ -235,7 +246,17 @@ static LogicalResult printOperation(PythonEmitter &emitter,
                                     func::CallOp callOp) {
   Operation &op = *callOp.getOperation();
   StringRef callee = callOp.getCallee();
-  return printOperation(emitter, op, callee);
+  raw_indented_ostream &os = emitter.ostream();
+  if (failed(emitter.emitAssignPrefix(op))) {
+    return failure();
+  }
+  os << callee;
+  os << "(";
+  if (failed(emitter.emitOperands(op))) {
+    return failure();
+  }
+  os << ")";
+  return success();
 }
 
 static LogicalResult printOperation(PythonEmitter &emitter, ModuleOp moduleOp) {
@@ -260,7 +281,6 @@ static LogicalResult printFunctionArgs(PythonEmitter &emitter, Operation &op,
 static LogicalResult printFunctionBody(PythonEmitter &emitter, Operation &op,
                                        Region::BlockListType &blocks) {
   raw_indented_ostream &os = emitter.ostream();
-  PythonEmitter::Scope scope(emitter);
   os.indent();
   if (blocks.size() > 1) {
     return op.emitOpError(
@@ -281,11 +301,12 @@ static LogicalResult printFunctionBody(PythonEmitter &emitter, Operation &op,
 static LogicalResult printOperation(PythonEmitter &emitter,
                                     func::FuncOp functionOp) {
   PythonEmitter::Scope scope(emitter);
-  raw_indented_ostream &os = emitter.ostream();
-  os << "def";
-  os << " " << functionOp.getName();
-  os << "(";
   Operation &op = *functionOp.getOperation();
+  raw_indented_ostream &os = emitter.ostream();
+  StringRef callee = functionOp.getName();
+  os << "def";
+  os << " " << callee;
+  os << "(";
   if (failed(printFunctionArgs(emitter, op, functionOp.getArguments()))) {
     return failure();
   }
@@ -293,7 +314,12 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   if (failed(printFunctionBody(emitter, op, functionOp.getBlocks()))) {
     return failure();
   }
-  os << "\n";
+
+  if (callee == "main") {
+    os << "\n";
+    os << "if __name__ == \'__main__\':\n";
+    os << "  main()\n";
+  }
   return success();
 }
 
@@ -312,11 +338,10 @@ static LogicalResult printOperation(PythonEmitter &emitter,
     break;
   }
   default: {
-    os << "(";
+    os << " ";
     if (failed(emitter.emitOperands(*returnOp.getOperation()))) {
       return failure();
     }
-    os << ")";
   }
   }
   return success();
@@ -355,6 +380,40 @@ LogicalResult PythonEmitter::emitOperands(Operation &op) {
                                   [&](Value val) { return emitOperand(val); });
 }
 
+LogicalResult PythonEmitter::emitAttribute(Location loc, Attribute attr) {
+  auto printInt = [&](APInt attr) {
+    SmallString<128> strValue;
+    attr.toString(strValue, 10, true);
+    return strValue;
+  };
+  auto printOpaque = [&](StringRef attr) {
+    SmallString<256> output;
+    // Handle layout attribute.
+    if (attr.find("Layout") != StringRef::npos) {
+      output.append("layout=");
+    }
+    // Handle shape attribute.
+    if (attr.find("Shape") != StringRef::npos) {
+      output.append("shape=");
+    }
+
+    output.append(attr);
+    return output;
+  };
+  // Print integer attributes.
+  if (auto iAttr = dyn_cast<IntegerAttr>(attr)) {
+    os << printInt(iAttr.getValue());
+    return success();
+  }
+  // Print opaque attributes.
+  if (auto oAttr = dyn_cast<mlir::tt::emitpy::OpaqueAttr>(attr)) {
+    os << printOpaque(oAttr.getValue());
+    return success();
+  }
+
+  return emitError(loc, "cannot emit attribute: ") << attr;
+}
+
 LogicalResult PythonEmitter::emitAssignPrefix(Operation &op) {
   switch (op.getNumResults()) {
   case 0:
@@ -376,10 +435,6 @@ LogicalResult PythonEmitter::emitAssignPrefix(Operation &op) {
 }
 
 LogicalResult PythonEmitter::emitVariableAssignment(OpResult result) {
-  /**if (!hasValueInScope(result)) {
-    return result.getDefiningOp()->emitOpError(
-        "result variable for the operation has not been declared");
-  }**/
   os << getOrCreateName(result) << " = ";
   return success();
 }
