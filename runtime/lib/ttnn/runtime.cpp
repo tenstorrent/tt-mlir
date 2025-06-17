@@ -239,6 +239,9 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
     Device device, Layout layout, const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &stride, std::uint32_t itemsize) {
   const LayoutDesc &layoutDesc = layout.as<LayoutDesc>(DeviceRuntime::TTNN);
+  LOG_ASSERT(::tt::runtime::utils::isSupportedDataType(
+                 utils::fromTTNNDataType(layoutDesc.dataType)),
+             "Data type must be supported");
   if (layoutDesc.isOnHost()) {
     ::ttnn::Tensor tensor =
         createOwnedTTNNTensor(nullptr, shape, stride, itemsize,
