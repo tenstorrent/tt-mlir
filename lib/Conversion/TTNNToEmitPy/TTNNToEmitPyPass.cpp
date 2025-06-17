@@ -40,7 +40,7 @@ public:
   TTNNToEmitPyTypeConverter(MLIRContext *ctx) {
     addConversion([](Type type) { return type; });
     addConversion([ctx](ttnn::DeviceType type) -> emitpy::OpaqueType {
-      return emitpy::OpaqueType::get(ctx, "ttnn::distributed::MeshDevice");
+      return emitpy::OpaqueType::get(ctx, "ttnn.Device");
     });
     addConversion([ctx](mlir::TensorType type) -> emitpy::OpaqueType {
       return emitpy::OpaqueType::get(ctx, "undefined tensor type");
@@ -88,6 +88,9 @@ struct ConvertTTNNToEmitPyPass
     builder.create<emitpy::ImportOp>(module.getLoc(), "ttnn", nullptr, nullptr,
                                      nullptr, nullptr);
 
+    builder.create<emitpy::ImportOp>(module->getLoc(), "my_get_device", nullptr,
+                                     nullptr, nullptr, nullptr);
+
     // Unwrap device_module into top-level ModuleOp (if present)
     {
       OpPassManager pm(ModuleOp::getOperationName());
@@ -132,8 +135,6 @@ struct ConvertTTNNToEmitPyPass
         return;
       }
     }
-
-    builder.create<emitpy::MainOp>(module.getLoc());
   }
 };
 

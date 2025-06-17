@@ -9,5 +9,6 @@ add_mlir_dialect_library(MLIREMITPYDialect
 
         DEPENDS
         MLIREmitPyOpsIncGen
+        MLIREmitPyAttrsIncGen
         MLIRTTOpsIncGen
         )
