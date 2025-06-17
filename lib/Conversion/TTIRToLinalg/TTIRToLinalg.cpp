@@ -59,13 +59,20 @@ static Value convertToBooleanTensor(Value input, Location loc,
   auto zeroSplat =
       rewriter.create<tensor::SplatOp>(loc, inputType, zeroValue.getResult());
 
-  // Compare input with zero to get a boolean tensor
+  // For logical operations, non-zero means true
+  // So we need: (input != 0) which we get by computing !(input == 0)
   auto boolType =
       RankedTensorType::get(inputType.getShape(), rewriter.getIntegerType(1));
-  auto boolResult =
-      rewriter.create<tosa::GreaterOp>(loc, boolType, input, zeroSplat);
 
-  return boolResult;
+  // Check if input == 0
+  auto equalZero =
+      rewriter.create<tosa::EqualOp>(loc, boolType, input, zeroSplat);
+
+  // Then use LogicalNotOp to invert it, giving us (input != 0)
+  auto notEqualZero =
+      rewriter.create<tosa::LogicalNotOp>(loc, boolType, equalZero);
+
+  return notEqualZero;
 }
 
 // Create a tensor of all ones or zeros with the given type
@@ -304,10 +311,15 @@ public:
     auto shapeOp =
         rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
 
-    auto result = rewriter.create<tosa::ReshapeOp>(op.getLoc(), resultType,
-                                                   adaptor.getInput(), shapeOp);
+    auto reshapeOp = rewriter.create<tosa::ReshapeOp>(
+        op.getLoc(), resultType, adaptor.getInput(), shapeOp);
 
-    rewriter.replaceOp(op, result);
+    // Handle DPS semantics - directly copy to output.
+    Value output = adaptor.getOutput();
+    auto copyOp = rewriter.create<linalg::CopyOp>(
+        op.getLoc(), ValueRange{reshapeOp}, output);
+    rewriter.replaceOp(op, copyOp.getResult(0));
+
     return success();
   }
 };
@@ -1446,7 +1458,7 @@ public:
 } // namespace
 
 namespace {
-// Conversion pattern for ttir.slice operation
+// Conversion pattern for ttir.slice operation.
 class SliceOpConversionPattern : public OpConversionPattern<ttir::SliceOp> {
 public:
   using OpConversionPattern<ttir::SliceOp>::OpConversionPattern;
@@ -1455,6 +1467,7 @@ public:
   matchAndRewrite(ttir::SliceOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     Value input = adaptor.getInput();
+    Value output = adaptor.getOutput(); // Get the output buffer
     auto inputType = dyn_cast<RankedTensorType>(input.getType());
     assert(inputType && "Input must be a ranked tensor type.");
 
@@ -1474,7 +1487,7 @@ public:
 
       offsets.push_back(rewriter.getI64IntegerAttr(beginVal));
 
-      // Calculate size: (end - begin) / step.
+      // Calculate size: (end - begin + step - 1) / step
       int64_t size = (endVal - beginVal);
       if (stepVal != 0) {
         size = (size + stepVal - 1) / stepVal;
@@ -1488,8 +1501,15 @@ public:
         this->getTypeConverter()->convertType(op.getResult().getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
 
-    rewriter.replaceOpWithNewOp<tensor::ExtractSliceOp>(
-        op, resultType, input, offsets, sizes, strides);
+    // Create the extract_slice operation
+    Value extractedSlice = rewriter.create<tensor::ExtractSliceOp>(
+        op.getLoc(), resultType, input, offsets, sizes, strides);
+
+    // Since tensor::ExtractSliceOp doesn't support DPS, we need to copy
+    // the result into the output buffer
+    auto copyResult =
+        rewriter.create<linalg::CopyOp>(op.getLoc(), extractedSlice, output);
+    rewriter.replaceOp(op, copyResult);
 
     return success();
   }
