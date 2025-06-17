@@ -14,7 +14,7 @@ static void runReductionOp(
     const ::tt::target::ttnn::ReductionOp *op, ProgramTensorPool &tensorPool,
     const std::function<::ttnn::Tensor(
         const ::ttnn::Tensor &,
-        const std::optional<std::variant<int, ::ttnn::SmallVector<int>>> &,
+        const std::optional<std::variant<int, ::tt::stl::SmallVector<int>>> &,
         const bool, const std::optional<::ttnn::MemoryConfig> &,
         const std::optional<::ttnn::DeviceComputeKernelConfig> &, float)>
         &ttnnOp) {
@@ -29,9 +29,9 @@ static void runReductionOp(
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
   const auto *fbDimArg = op->dim_arg();
-  std::optional<::ttnn::SmallVector<int>> dimArg =
-      fbDimArg ? std::make_optional(::ttnn::SmallVector<int>(fbDimArg->begin(),
-                                                             fbDimArg->end()))
+  std::optional<::tt::stl::SmallVector<int>> dimArg =
+      fbDimArg ? std::make_optional(::tt::stl::SmallVector<int>(
+                     fbDimArg->begin(), fbDimArg->end()))
                : std::nullopt;
 
   ::ttnn::Tensor out = ttnnOp(
