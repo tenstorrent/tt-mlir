@@ -79,7 +79,6 @@ public:
   void performCommuteBelowRewrite(ElementwiseInterfaceType op,
                                   TMOpType tmOperand,
                                   PatternRewriter &rewriter) const override {
-    // TODO: implement this
     RankedTensorType newEltwiseType =
         cast<RankedTensorType>(op->getResult(0).getType())
             .clone(tmOperand.getInput().getType().getShape());
@@ -111,11 +110,20 @@ public:
         cast<RankedTensorType>(tmOperand->getResult(0).getType()),
         newEltwise->getResult(0), tmOperand->getAttrs());
 
-    if (failed(newUserTM.verify())) {
-      llvm_unreachable("Failed to verify new TM");
-    }
-
     rewriter.replaceOp(op, newUserTM);
+  }
+
+private:
+  bool isCommuteAboveViable(ElementwiseInterfaceType op,
+                            TMOpType tmUser) const override {
+    // We can always commute a TM above an elementwise op.
+    return true;
+  }
+
+  bool isCommuteBelowViable(ElementwiseInterfaceType op,
+                            TMOpType tmOperand) const override {
+    // We can always commute a TM below an elementwise op.
+    return true;
   }
 };
 } // namespace
@@ -131,19 +139,6 @@ public:
       direction>::TTIRCommuteTmsThroughElementwiseRewriter;
 
 private:
-  bool isCommuteAboveViable(ElementwiseUnary op,
-                            TMOpType tmUser) const override {
-    // We can always commute a TM above an elementwise op.
-    return true;
-  }
-
-  bool isCommuteBelowViable(ElementwiseUnary op,
-                            TMOpType tmOperand) const override {
-    // We can always commute a TM below an elementwise op.
-    // TODO: commute logic not implemented yet, thus it is not viable
-    return true;
-  }
-
   bool isCommuteAboveFavorable(ElementwiseUnary op, TMOpType) const override {
     // If all users of an elementwise unary op are identical tms, then it is
     // always favorable to commute them above it.
@@ -170,19 +165,6 @@ public:
       direction>::TTIRCommuteTmsThroughElementwiseRewriter;
 
 private:
-  bool isCommuteAboveViable(ElementwiseBinary op,
-                            TMOpType tmUser) const override {
-    // We can always commute a TM above an elementwise op
-    return true;
-  }
-
-  bool isCommuteBelowViable(ElementwiseBinary op,
-                            TMOpType tmOperand) const override {
-    // We can always commute a TM below an elementwise op
-    // TODO: commute logic not implemented yet, thus it is not viable
-    return true;
-  }
-
   bool isCommuteAboveFavorable(ElementwiseBinary op, TMOpType) const override {
     // In some cases there may be an implicit broadcast on one of the operands.
     // That is there is no broadcast op on one of the operands but a broadcast
@@ -216,11 +198,11 @@ private:
     // will be absorbed into a consteval graph and the TM will be
     // consteval-able.
 
-    // TODO: Implement the logic described above
     Value otherOperand = op->getOperand(0).getDefiningOp() == tmOperand
                              ? op->getOperand(1)
                              : op->getOperand(0);
-    return valueTracesToConstantArgs(otherOperand, this->constParams);
+    return valueTracesToConstantArgs(otherOperand, this->constParams) ||
+           isa<TMOpType>(otherOperand.getDefiningOp());
   }
 };
 } // namespace

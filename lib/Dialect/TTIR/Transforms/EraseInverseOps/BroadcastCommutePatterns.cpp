@@ -61,7 +61,7 @@ public:
   void performCommuteBelowRewrite(ttir::BroadcastOp op,
                                   ttir::TransposeOp transposeOperand,
                                   PatternRewriter &rewriter) const override {
-    // TODO
+    // TODO(@LPanosTT): implement this
   }
 
 private:
@@ -74,7 +74,8 @@ private:
   bool isCommuteBelowViable(ttir::BroadcastOp op,
                             ttir::TransposeOp) const override {
     // We can always commute a transpose below a broadcast.
-    return true;
+    // TODO(@LPanosTT): commute logic not implemented yet, thus it is not viable
+    return false;
   }
 
   bool isCommuteAboveFavorable(ttir::BroadcastOp op,
@@ -330,7 +331,7 @@ public:
   void performCommuteBelowRewrite(ttir::BroadcastOp op,
                                   ttir::ReshapeOp reshapeOperand,
                                   PatternRewriter &rewriter) const override {
-    // TODO
+    // TODO(@LPanosTT): implement this
   }
 
 private:
@@ -457,8 +458,8 @@ private:
 
   bool isCommuteBelowViable(ttir::BroadcastOp op,
                             ttir::PermuteOp) const override {
-    // TODO(@LPanosTT): commute logic not implemented yet, thus it is not viable
-    return false;
+    // We can always commute a permute below a broadcast.
+    return true;
   }
 
   bool isCommuteAboveFavorable(ttir::BroadcastOp op,

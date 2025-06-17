@@ -35,7 +35,6 @@ public:
         }
       }
     });
-    std::cout << "TM count: " << tmCount << std::endl;
     return tmCount;
   }
 
