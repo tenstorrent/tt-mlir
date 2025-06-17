@@ -1278,7 +1278,7 @@ size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType, size_t pageSize,
   mlir::Type elementType = memrefType.getElementType();
   int64_t elementSizeBytes = getElementSizeBytes(elementType);
   size_t alignSize = pageSize;
-  if (!alignSize) {
+  if (alignSize == 0) {
     auto memorySpace = getMemorySpace(memrefType);
     switch (memorySpace) {
     case MemorySpace::DeviceL1: {
@@ -1307,7 +1307,8 @@ size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType, size_t pageSize,
   return ttmlir::utils::alignUp(
       static_cast<size_t>(ttmlir::utils::volume(
           shardShape,
-          elementSizeBytes * (includeBuffers ? layout.getBuffers() : 1))),
+          elementSizeBytes *
+              ((includeBuffers && layout) ? layout.getBuffers() : 1))),
       alignSize);
 }
 
