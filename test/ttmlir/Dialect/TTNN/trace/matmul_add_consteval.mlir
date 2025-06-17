@@ -11,7 +11,7 @@ module {
   func.func @matmul_with_bias(%arg0: tensor<64x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg1: tensor<32x64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg2: tensor<64x64xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}) -> tensor<64x64xbf16> {
     // CHECK: %[[GET_DEVICE:.+]] = "ttnn.get_device"()
     // CHECK: %[[LOAD_CACHED_RESULT:.+]] = ttcore.load_cached(@matmul_with_bias_const_eval_0, [%arg0, %arg1])
-    // CHECK: %[[TRACE_RESULT:.+]] = ttnn.trace(%[[GET_DEVICE]], 0, true, @matmul_with_bias_trace_0, [%arg2, %[[LOAD_CACHED_RESULT]]])
+    // CHECK: %[[TRACE_RESULT:.+]] = ttnn.trace(%[[GET_DEVICE]], 0, false, @matmul_with_bias_trace_0, [%arg2, %[[LOAD_CACHED_RESULT]]])
     // CHECK-NOT: "ttnn.add"
     // CHECK-NOT: "ttnn.matmul"
     // CHECK: return %[[TRACE_RESULT]]
