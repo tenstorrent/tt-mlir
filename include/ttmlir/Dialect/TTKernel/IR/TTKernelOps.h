@@ -5,7 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTKERNEL_IR_TTKERNELOPS_H
 #define TTMLIR_DIALECT_TTKERNEL_IR_TTKERNELOPS_H
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelTraits.h"
 

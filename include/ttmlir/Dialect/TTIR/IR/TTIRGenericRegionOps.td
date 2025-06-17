@@ -5,7 +5,7 @@
 #ifndef TTMLIR_TTMLIR_DIALECT_TTIR_TTIRGENERICREGIONOPS_TD
 #define TTMLIR_TTMLIR_DIALECT_TTIR_TTIRGENERICREGIONOPS_TD
 
-include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
+include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsTypes.td"
 include "ttmlir/Dialect/TTIR/IR/TTIRBase.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.td"
@@ -84,9 +84,9 @@ def TTIR_TileAddOp : TTIR_GenericRegionComputeOp<"tile_add"> {
         The `tile_add` operation adds two tiles element-wise.
     }];
 
-    let arguments = (ins TT_Tile:$lhs,
-                         TT_Tile:$rhs);
-    let results = (outs TT_Tile:$result);
+    let arguments = (ins TTCore_Tile:$lhs,
+                         TTCore_Tile:$rhs);
+    let results = (outs TTCore_Tile:$result);
 }
 
 def TTIR_TileSubOp : TTIR_GenericRegionComputeOp<"tile_sub"> {
@@ -95,9 +95,9 @@ def TTIR_TileSubOp : TTIR_GenericRegionComputeOp<"tile_sub"> {
         The `tile_sub` operation subtracts two tiles element-wise.
     }];
 
-    let arguments = (ins TT_Tile:$lhs,
-                         TT_Tile:$rhs);
-    let results = (outs TT_Tile:$result);
+    let arguments = (ins TTCore_Tile:$lhs,
+                         TTCore_Tile:$rhs);
+    let results = (outs TTCore_Tile:$result);
 }
 
 def TTIR_TileMulOp : TTIR_GenericRegionComputeOp<"tile_mul"> {
@@ -106,9 +106,9 @@ def TTIR_TileMulOp : TTIR_GenericRegionComputeOp<"tile_mul"> {
         The `tile_mul` operation multiplies two tiles element-wise.
     }];
 
-    let arguments = (ins TT_Tile:$lhs,
-                         TT_Tile:$rhs);
-    let results = (outs TT_Tile:$result);
+    let arguments = (ins TTCore_Tile:$lhs,
+                         TTCore_Tile:$rhs);
+    let results = (outs TTCore_Tile:$result);
 }
 
 def TTIR_TileDivOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_div"> {
@@ -117,9 +117,9 @@ def TTIR_TileDivOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_div"> {
         The `tile_div` operation divides two tiles element-wise.
     }];
 
-    let arguments = (ins TT_Tile:$lhs,
-                         TT_Tile:$rhs);
-    let results = (outs TT_Tile:$result);
+    let arguments = (ins TTCore_Tile:$lhs,
+                         TTCore_Tile:$rhs);
+    let results = (outs TTCore_Tile:$result);
 }
 
 def TTIR_TileRecipOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_recip"> {
@@ -128,8 +128,8 @@ def TTIR_TileRecipOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_recip"> {
         The `tile_recip` operation computes the reciprocal of each element in the input tile.
     }];
 
-    let arguments = (ins TT_Tile:$input);
-    let results = (outs TT_Tile:$result);
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
 }
 
 def TTIR_TileExpOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_exp"> {
@@ -138,8 +138,8 @@ def TTIR_TileExpOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_exp"> {
         The `tile_exp` operation computes the exponential of each element in the input tile.
     }];
 
-    let arguments = (ins TT_Tile:$input);
-    let results = (outs TT_Tile:$result);
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
 }
 
 def TTIR_TileLogOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_log"> {
@@ -148,8 +148,8 @@ def TTIR_TileLogOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_log"> {
         The `tile_log` operation computes the natural logarithm of each element in the input tile.
     }];
 
-    let arguments = (ins TT_Tile:$input);
-    let results = (outs TT_Tile:$result);
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
 }
 
 def TTIR_TileNegativeOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_negative"> {
@@ -158,8 +158,8 @@ def TTIR_TileNegativeOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_negative"> {
         The `tile_negative` operation computes the negative of each element in the input tile.
     }];
 
-    let arguments = (ins TT_Tile:$input);
-    let results = (outs TT_Tile:$result);
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
 }
 
 def TTIR_TileCosOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_cos"> {
@@ -168,8 +168,8 @@ def TTIR_TileCosOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_cos"> {
         The `tile_cos` operation computes the cosine function of each element in the input tile.
     }];
 
-    let arguments = (ins TT_Tile:$input);
-    let results = (outs TT_Tile:$result);
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
 }
 
 def TTIR_TileRsqrtOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_rsqrt"> {
@@ -178,8 +178,8 @@ def TTIR_TileRsqrtOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_rsqrt"> {
         The `tile_rsqrt` operation computes the reciprocal sqrt function of each element in the input tile.
     }];
 
-    let arguments = (ins TT_Tile:$input);
-    let results = (outs TT_Tile:$result);
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
 }
 
 def TTIR_TileSinOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_sin"> {
@@ -188,8 +188,8 @@ def TTIR_TileSinOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_sin"> {
         The `tile_sin` operation computes the sine function of each element in the input tile.
     }];
 
-    let arguments = (ins TT_Tile:$input);
-    let results = (outs TT_Tile:$result);
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
 }
 
 def TTIR_TileSigmoidOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_sigmoid"> {
@@ -198,8 +198,8 @@ def TTIR_TileSigmoidOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_sigmoid"> {
         The `tile_sigmoid` operation computes the sigmoid of each element in the input tile.
     }];
 
-    let arguments = (ins TT_Tile:$input);
-    let results = (outs TT_Tile:$result);
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
 }
 
 def TTIR_TileCeilOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_ceil"> {
@@ -208,8 +208,8 @@ def TTIR_TileCeilOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_ceil"> {
         The `tile_ceil` operation computes the ceiling function of each element in the input tile.
     }];
 
-    let arguments = (ins TT_Tile:$input);
-    let results = (outs TT_Tile:$result);
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
 }
 
 def TTIR_TileMaximumOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_maximum">{
@@ -218,8 +218,8 @@ def TTIR_TileMaximumOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_maximum">{
         The `tile_maximum` operation calculates the maximum of two tensors element-wise.
     }];
 
-    let arguments = (ins TT_Tile:$lhs, TT_Tile:$rhs);
-    let results = (outs TT_Tile:$result);
+    let arguments = (ins TTCore_Tile:$lhs, TTCore_Tile:$rhs);
+    let results = (outs TTCore_Tile:$result);
 }
 
 def TTIR_TileReduceSumOp : TTIR_GenericRegionComputeOp<"tile_reduce_sum">{
@@ -228,10 +228,10 @@ def TTIR_TileReduceSumOp : TTIR_GenericRegionComputeOp<"tile_reduce_sum">{
         The `tile_reduce_sum` operation computes the weighted sum of all elements in the input tile over the specified reduction dim(s).
     }];
 
-    let arguments = (ins TT_Tile:$input,
-                         TT_Tile:$weight,
+    let arguments = (ins TTCore_Tile:$input,
+                         TTCore_Tile:$weight,
                          TTIR_ReduceDimAttr:$reduce_dim);
-    let results = (outs TT_Tile:$result);
+    let results = (outs TTCore_Tile:$result);
 }
 
 def TTIR_TileReduceMaxOp : TTIR_GenericRegionComputeOp<"tile_reduce_max"> {
@@ -240,10 +240,10 @@ def TTIR_TileReduceMaxOp : TTIR_GenericRegionComputeOp<"tile_reduce_max"> {
         The `tile_reduce_max` operation computes the max of all elements in the input tile over the specified reduction dim(s).
     }];
 
-    let arguments = (ins TT_Tile:$a,
-                         TT_Tile:$b,
+    let arguments = (ins TTCore_Tile:$a,
+                         TTCore_Tile:$b,
                          TTIR_ReduceDimAttr:$reduce_dim);
-    let results = (outs TT_Tile:$result);
+    let results = (outs TTCore_Tile:$result);
 }
 
 def TTIR_TileMatmulOp : TTIR_GenericRegionComputeOp<"tile_matmul"> {
@@ -252,8 +252,8 @@ def TTIR_TileMatmulOp : TTIR_GenericRegionComputeOp<"tile_matmul"> {
         The `tile_matmul` operation computes the matrix multiplication of A and B input tiles and element-wise adds C tile: result <- a @ b + c.
     }];
 
-  let arguments = (ins TT_Tile:$a, TT_Tile:$b, TT_Tile:$c);
-  let results = (outs TT_Tile:$result);
+  let arguments = (ins TTCore_Tile:$a, TTCore_Tile:$b, TTCore_Tile:$c);
+  let results = (outs TTCore_Tile:$result);
 
   let extraClassDeclaration = [{
     mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
@@ -320,8 +320,8 @@ def TTIR_TileTypecastOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_typecast"> {
         The `tile_typecast` operation casts the input tile to the desired dataformat.
     }];
 
-    let arguments = (ins TT_Tile:$input);
-    let results = (outs TT_Tile:$result);
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
 }
 
 //===----------------------------------------------------------------------===//
@@ -370,42 +370,42 @@ def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
 
       - Local to local
       ```mlir
-      %tx = ttir.dma %src, %dst : (memref<6x8x!tt.tile<32x32, f32>, #l1_>, memref<6x8x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
+      %tx = ttir.dma %src, %dst : (memref<6x8x!ttcore.tile<32x32, f32>, #l1_>, memref<6x8x!ttcore.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ```
 
       - Local to remote dram
       ```mlir
-      %tx = ttir.dma %src, %dst : (memref<6x8x!tt.tile<32x32, f32>, #l1_>, memref<1x1x6x8x!tt.tile<32x32, f32>, $tt.shard<...>, #dram>) -> !ttir.mem_tx
+      %tx = ttir.dma %src, %dst : (memref<6x8x!ttcore.tile<32x32, f32>, #l1_>, memref<1x1x6x8x!ttcore.tile<32x32, f32>, $ttcore.shard<...>, #dram>) -> !ttir.mem_tx
       ```
 
       - Remote dram to local
       ```mlir
-      %tx = ttir.dma %src, %dst : (memref<1x1x6x8x!tt.tile<32x32, f32>, #tt.shard<...>, #dram>, memref<6x8x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
+      %tx = ttir.dma %src, %dst : (memref<1x1x6x8x!ttcore.tile<32x32, f32>, #ttcore.shard<...>, #dram>, memref<6x8x!ttcore.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ```
 
       - Local to mcast, e.g. starting at offset core[1, 2] with mcast shape [4, 4] (src and dst have the same SSA value, implies NoC doesn't loopback)
       ```mlir
-      %tx = ttir.dma %foo, %foo, core[%c1, %c2] mcast[%c4, %c4] : (memref<6x8x!tt.tile<32x32, f32>, #l1_>, memref<6x8x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
+      %tx = ttir.dma %foo, %foo, core[%c1, %c2] mcast[%c4, %c4] : (memref<6x8x!ttcore.tile<32x32, f32>, #l1_>, memref<6x8x!ttcore.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ```
 
       - Local to mcast w/ loopback (same as above but src and dst are different SSA values)
       ```mlir
-      %tx = ttir.dma %src, %dst, core[%c1, %c2] mcast[%c4, %c4] : (memref<6x8x!tt.tile<32x32, f32>, #l1_>, memref<6x8x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
+      %tx = ttir.dma %src, %dst, core[%c1, %c2] mcast[%c4, %c4] : (memref<6x8x!ttcore.tile<32x32, f32>, #l1_>, memref<6x8x!ttcore.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ```
 
       - A lower level form, is "fully indexed" DMA, where the src and dst memrefs have thier ranks fully indexed the additional numElems argument
         is used to specify the number of elements to transfer. As opposed to the forms above that are not fully indexed which implicitly means to
-        transfer the leftover block.  That is given memref<2x2x3x4x!tt.tile<>>, if we indexed by [i, j], since we only indexed a rank of 2, the remaining
+        transfer the leftover block.  That is given memref<2x2x3x4x!ttcore.tile<>>, if we indexed by [i, j], since we only indexed a rank of 2, the remaining
         3x4 block is transferred.  In the fully indexed form, to express the same thing we would need to specify the number of elements to transfer:
       ```mlir
-      %tx = ttir.dma %src[%i, %j, %k, %l], %dst[%i, %j, %k, %l], 12 : (memref<2x2x3x4x!tt.tile<32x32, f32>, #dram>, memref<2x2x3x4x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
+      %tx = ttir.dma %src[%i, %j, %k, %l], %dst[%i, %j, %k, %l], 12 : (memref<2x2x3x4x!ttcore.tile<32x32, f32>, #dram>, memref<2x2x3x4x!ttcore.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ```
 
       - Conversely, a higher level form is affine form, where the src and dst indices are implied by an affine map shared with the parent generic op.
         Given some affine map, as demonstrated below, the dma op will be evaluated at each point in the affine map's iteration space.
       ```mlir
       #map1 = affine_map<(d0, d1, d2) -> (d0, d2)>
-      %tx = ttir.dma %stream<#map1>, %cb0 : (memref<4x4x6x8x!tt.tile<32x32, f32>, #tt.view<rank(4)>, #l1_>, memref<6x8x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
+      %tx = ttir.dma %stream<#map1>, %cb0 : (memref<4x4x6x8x!ttcore.tile<32x32, f32>, #ttcore.view<rank(4)>, #l1_>, memref<6x8x!ttcore.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ```
 
       Some constraints:

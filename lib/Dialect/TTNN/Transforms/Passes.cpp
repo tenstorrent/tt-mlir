@@ -4,8 +4,8 @@
 
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
-#include "ttmlir/Dialect/TT/IR/TTOps.h"
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
@@ -317,7 +317,7 @@ private:
 
   // Currently only supports generating tensors of ones.
   // TODO(azecevic): Support generating other types of tensors that has a
-  // `TT_CreationOpTrait`.
+  // `TTCore_CreationOpTrait`.
   // https://github.com/tenstorrent/tt-mlir/issues/3261
   //
   static mlir::Value generateTensor(IRRewriter &rewriter, Location loc,

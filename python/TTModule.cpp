@@ -10,7 +10,7 @@
 #include "mlir/CAPI/AffineMap.h"
 #include "mlir/CAPI/IR.h"
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Utils.h"
 

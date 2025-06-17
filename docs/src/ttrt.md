@@ -60,7 +60,7 @@ ttrt query --save-artifacts
 ```
 4. Use ttmlir-opt tool in compiler to feed system descriptor. See the [ttmlir-opt](./ttmlir-opt.md) documentation for more information on how to generate .mlir files.
 ```bash
-./build/bin/ttmlir-opt --tt-register-device="system-desc-path=/path/to/system_desc.ttsys" --ttir-to-ttnn-backend-pipeline test/ttmlir/Dialect/TTNN/simple_subtract.mlir -o ttnn.mlir
+./build/bin/ttmlir-opt --ttcore-register-device="system-desc-path=/path/to/system_desc.ttsys" --ttir-to-ttnn-backend-pipeline test/ttmlir/Dialect/TTNN/simple_subtract.mlir -o ttnn.mlir
 or (pipe path directly into ttir-to-ttnn-backend-pipeline)
 ./build/bin/ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=/path/to/system_desc.ttsys" test/ttmlir/Dialect/TTNN/simple_subtract.mlir -o ttnn.mlir
 ```
@@ -100,10 +100,10 @@ ttrt run /path/to/dir/of/flatbuffers
 ```
 
 ## Adding llvm-lit config options inside a .mlir file to create flatbuffer binaries
-Inside of your .mlir file, you can add certain config options that llvm-lit will use when running against that test case. For the purpose of generating flatbuffer executables, you can add `--tt-register-device="system-desc-path=%system_desc_path%"` which will tell llvm-lit to parse the system desc found from the environment flag set by `export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys`. You can also paste a custom path to a system desc file as well.
+Inside of your .mlir file, you can add certain config options that llvm-lit will use when running against that test case. For the purpose of generating flatbuffer executables, you can add `--ttcore-register-device="system-desc-path=%system_desc_path%"` which will tell llvm-lit to parse the system desc found from the environment flag set by `export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys`. You can also paste a custom path to a system desc file as well.
 
 ```bash
-// RUN: ttmlir-opt --tt-register-device="system-desc-path=%system_desc_path%" --ttnn-layout --convert-ttir-to-ttnn %s  > %t.mlir
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttnn-layout --convert-ttir-to-ttnn %s  > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 ```

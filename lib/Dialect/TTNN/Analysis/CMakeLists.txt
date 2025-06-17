@@ -17,7 +17,7 @@ add_mlir_dialect_library(MLIRTTNNAnalysis
         DEPENDS
         MLIRTTNNOpsIncGen
         MLIRTTNNPassesIncGen
-        MLIRTTOpsIncGen
+        MLIRTTCoreOpsIncGen
         TTNNOpModelLib
 
         LINK_LIBS PUBLIC

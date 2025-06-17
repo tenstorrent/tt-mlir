@@ -4,7 +4,7 @@
 
 import ttmlir
 from ttmlir.ir import *
-from ttmlir.dialects import ttir, func, tt, tensor
+from ttmlir.dialects import ttir, func, ttcore, tensor
 import sys
 
 uid = -1

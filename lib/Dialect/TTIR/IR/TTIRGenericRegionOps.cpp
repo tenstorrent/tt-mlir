@@ -4,7 +4,7 @@
 
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/IR/BuiltinTypeInterfaces.h"
@@ -28,8 +28,9 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
 
   if (!llvm::isa<mlir::tt::TileType>(getA().getType().getElementType()) ||
       !llvm::isa<mlir::tt::TileType>(getB().getType().getElementType())) {
-    return emitOpError("MemRef operands to TileMatmulBlock must have tt.tile "
-                       "element type");
+    return emitOpError(
+        "MemRef operands to TileMatmulBlock must have ttcore.tile "
+        "element type");
   }
 
   return success();
@@ -40,12 +41,12 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
 
   if (llvm::isa<mlir::tt::TileType>(getInput().getType().getElementType())) {
     return emitOpError(
-        "MemRef operand to TileTilizeBlock must not have tt.tile "
+        "MemRef operand to TileTilizeBlock must not have ttcore.tile "
         "element type");
   }
 
   if (!llvm::isa<mlir::tt::TileType>(getOutput().getType().getElementType())) {
-    return emitOpError("MemRef result of TileTilizeBlock must have tt.tile "
+    return emitOpError("MemRef result of TileTilizeBlock must have ttcore.tile "
                        "element type");
   }
 
@@ -56,13 +57,14 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
 ::mlir::LogicalResult mlir::tt::ttir::TileUntilizeBlockOp::verify() {
 
   if (!llvm::isa<mlir::tt::TileType>(getInput().getType().getElementType())) {
-    return emitOpError("MemRef operand to TileUntilizeBlock must have tt.tile "
-                       "element type");
+    return emitOpError(
+        "MemRef operand to TileUntilizeBlock must have ttcore.tile "
+        "element type");
   }
 
   if (llvm::isa<mlir::tt::TileType>(getOutput().getType().getElementType())) {
     return emitOpError(
-        "MemRef result of TileUntilizeBlock must not have tt.tile "
+        "MemRef result of TileUntilizeBlock must not have ttcore.tile "
         "element type");
   }
 

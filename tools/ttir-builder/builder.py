@@ -8,7 +8,7 @@ import inspect
 from dataclasses import dataclass
 from typing import List, Optional, Union, Tuple, Callable, Dict, Any
 from ttmlir.ir import *
-from ttmlir.dialects import ttir, tt, tensor, quant
+from ttmlir.dialects import ttir, ttcore, tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
 import torch
 import array
@@ -482,15 +482,15 @@ class TTIRBuilder:
         shape: Shape,
         grid,
         tiled=False,
-        memorySpace=tt.MemorySpace.DeviceL1,
+        memorySpace=ttcore.MemorySpace.DeviceL1,
         collapseIntervals=[(0, -1)],
-        oobVal=tt.OOBVal.Undef,
+        oobVal=ttcore.OOBVal.Undef,
     ):
         ctx = self._ctx
         if isinstance(grid, list) or isinstance(grid, tuple):
-            grid = tt.ir.GridAttr.get(ctx, list(grid))
+            grid = ttcore.ir.GridAttr.get(ctx, list(grid))
         tensorTy = RankedTensorType.get(shape, F32Type.get(ctx))
-        layout = tt.ir.MetalLayoutAttr.get(
+        layout = ttcore.ir.MetalLayoutAttr.get(
             self._ctx, tensorTy, grid, tiled, memorySpace, collapseIntervals, oobVal
         )
         return RankedTensorType.get(
