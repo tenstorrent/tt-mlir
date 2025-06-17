@@ -4,7 +4,9 @@
 
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
 #include "ttmlir/Conversion/TTNNToEmitPy/Utils.h"
+#include "ttmlir/Dialect/EmitPy/IR/EmitPyAttrs.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
+#include "ttmlir/Dialect/EmitPy/IR/EmitPyTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Utils.h"
@@ -30,6 +32,7 @@
 
 using namespace mlir;
 using namespace mlir::tt;
+using namespace ttnn_to_emitpy::utils;
 
 // Eltwise Unary op conversion pattern
 //
@@ -45,14 +48,11 @@ public:
 
   matchAndRewrite(TTNNOpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
-    auto opName = op->getName().getStringRef().str();
-    /* auto memoryConfig = rewriter.getAttr<ttnn::MemoryConfigAttr>(
-        rewriter.getAttr<ttnn::TensorMemoryLayout>(),
-        rewriter.getAttr<ttnn::BufferType>()); */
+    llvm::SmallVector<Attribute, 1> attrs = createIndexArray<1>(rewriter);
     rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        op.getOperationName(), adaptor.getOperands());
+        op.getOperationName(), adaptor.getOperands(),
+        rewriter.getArrayAttr(attrs));
     return success();
   }
 };
@@ -67,10 +67,12 @@ public:
 
   matchAndRewrite(TTNNOpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto opName = op->getName().getStringRef().str();
+    llvm::SmallVector<Attribute, 2> attrs = createIndexArray<2>(rewriter);
+    ;
     rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
-        op, this->getTypeConverter()->convertType(op.getType()), opName,
-        adaptor.getOperands());
+        op, this->getTypeConverter()->convertType(op.getType()),
+        op.getOperationName(), adaptor.getOperands(),
+        rewriter.getArrayAttr(attrs));
     return success();
   }
 };
@@ -84,9 +86,10 @@ public:
   LogicalResult
   matchAndRewrite(ttnn::MatmulOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    llvm::SmallVector<Attribute, 2> attrs = createIndexArray<2>(rewriter);
     rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
         op, this->getTypeConverter()->convertType(op.getType()), "ttnn.matmul",
-        adaptor.getOperands());
+        adaptor.getOperands(), rewriter.getArrayAttr(attrs));
     return success();
   }
 };
@@ -121,8 +124,8 @@ public:
   matchAndRewrite(arith::ConstantOp op, arith::ConstantOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        "arith.constant", adaptor.getOperands());
+        op, this->getTypeConverter()->convertType(op.getType()), "constant",
+        ValueRange(), rewriter.getArrayAttr(op.getValueAttr()));
     return success();
   }
 };
@@ -140,8 +143,10 @@ public:
   LogicalResult
   matchAndRewrite(ttnn::DeallocateOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    llvm::SmallVector<Attribute, 1> attrs = createIndexArray<1>(rewriter);
     rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
-        op, mlir::TypeRange{}, "ttnn.deallocate", adaptor.getOperands());
+        op, mlir::TypeRange{}, "ttnn.deallocate", adaptor.getOperands(),
+        rewriter.getArrayAttr(attrs));
     return success();
   }
 };
@@ -176,7 +181,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        "ttnn.get_device", adaptor.getOperands());
+        "my_get_device.DeviceGetter.get_device", adaptor.getOperands());
     return success();
   }
 };
@@ -194,9 +199,10 @@ public:
   LogicalResult
   matchAndRewrite(ttnn::ToDeviceOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    llvm::SmallVector<Attribute, 2> attrs = createIndexArray<2>(rewriter);
     rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        "ttnn.to_device", adaptor.getOperands());
+        "ttnn.to_device", adaptor.getOperands(), rewriter.getArrayAttr(attrs));
     return success();
   }
 };
@@ -215,14 +221,16 @@ public:
   LogicalResult
   matchAndRewrite(SourceOp op, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto opName = op->getName().getStringRef().str();
     ttnn::ShapeAttr shapeAttr = op.getShapeAttr();
-    auto ttnnShapeOp = ttnn_to_emitpy::utils::createShapeOp(rewriter, shapeAttr,
-                                                            op->getLocation());
-    auto x = ttnn_to_emitpy::utils::convertShape(rewriter, op.getShapeAttr());
+    llvm::SmallVector<Attribute, 2> attrs;
+    emitpy::OpaqueAttr shapeAttrConverted = convertShape(rewriter, shapeAttr);
+    emitpy::OpaqueAttr layoutAttr =
+        convertLayoutAttr(rewriter, op.getLayoutAttr());
+    attrs.push_back(shapeAttrConverted);
+    attrs.push_back(layoutAttr);
     rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
-        op, this->getTypeConverter()->convertType(op.getType()), opName,
-        adaptor.getOperands());
+        op, this->getTypeConverter()->convertType(op.getType()),
+        op.getOperationName(), ValueRange(), rewriter.getArrayAttr(attrs));
 
     return success();
   }
