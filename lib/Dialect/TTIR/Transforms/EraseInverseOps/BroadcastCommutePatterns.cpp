@@ -74,7 +74,7 @@ private:
   bool isCommuteBelowViable(ttir::BroadcastOp op,
                             ttir::TransposeOp) const override {
     // We can always commute a transpose below a broadcast.
-    return false;
+    return true;
   }
 
   bool isCommuteAboveFavorable(ttir::BroadcastOp op,
@@ -359,7 +359,7 @@ private:
 
   bool isCommuteBelowViable(ttir::BroadcastOp op,
                             ttir::ReshapeOp reshapeOperand) const override {
-    // TODO: commute logic not implemented yet, thus it is not viable
+    // TODO(@LPanosTT): commute logic not implemented yet, thus it is not viable
     return false;
   }
 
@@ -429,8 +429,6 @@ public:
   void performCommuteBelowRewrite(ttir::BroadcastOp op,
                                   ttir::PermuteOp permuteOperand,
                                   PatternRewriter &rewriter) const override {
-    // TODO
-
     SmallVector<int64_t> newBroadcastDimensions =
         ttmlir::utils::applyPermutation(op.getBroadcastDimensions(),
                                         permuteOperand.getPermutation());
@@ -459,7 +457,7 @@ private:
 
   bool isCommuteBelowViable(ttir::BroadcastOp op,
                             ttir::PermuteOp) const override {
-    // TODO: commute logic not implemented yet, thus it is not viable
+    // TODO(@LPanosTT): commute logic not implemented yet, thus it is not viable
     return false;
   }
 
@@ -480,22 +478,22 @@ private:
 };
 } // namespace
 
-void populateBroadcastCommuteAbovePatterns(MLIRContext *ctx,
-                                           RewritePatternSet &patterns,
-                                           mlir::func::FuncOp funcOp) {
+void populateBroadcastCommuteAbovePatterns(
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams) {
   patterns.add<TTIRCommuteTransposesThroughBroadcast<CommuteDirection::ABOVE>,
                TTIRCommuteReshapeThroughBroadcast<CommuteDirection::ABOVE>,
                TTIRCommutePermuteThroughBroadcast<CommuteDirection::ABOVE>>(
-      ctx, funcOp);
+      ctx, constParams);
 }
 
-void populateBroadcastCommuteBelowPatterns(MLIRContext *ctx,
-                                           RewritePatternSet &patterns,
-                                           mlir::func::FuncOp funcOp) {
+void populateBroadcastCommuteBelowPatterns(
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams) {
   patterns.add<TTIRCommuteTransposesThroughBroadcast<CommuteDirection::BELOW>,
                TTIRCommuteReshapeThroughBroadcast<CommuteDirection::BELOW>,
                TTIRCommutePermuteThroughBroadcast<CommuteDirection::BELOW>>(
-      ctx, funcOp);
+      ctx, constParams);
 }
 
 } // namespace mlir::tt::ttir

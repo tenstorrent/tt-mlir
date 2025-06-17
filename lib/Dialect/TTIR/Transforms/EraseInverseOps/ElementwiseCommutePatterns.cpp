@@ -220,14 +220,14 @@ private:
     Value otherOperand = op->getOperand(0).getDefiningOp() == tmOperand
                              ? op->getOperand(1)
                              : op->getOperand(0);
-    return this->valueTracesToConstantArgs(otherOperand);
+    return valueTracesToConstantArgs(otherOperand, this->constParams);
   }
 };
 } // namespace
 
-void populateElementwiseCommuteAbovePatterns(MLIRContext *ctx,
-                                             RewritePatternSet &patterns,
-                                             mlir::func::FuncOp funcOp) {
+void populateElementwiseCommuteAbovePatterns(
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams) {
   patterns.add<
       TTIRCommuteTmsThroughElementwiseUnaryRewriter<TransposeOp,
                                                     CommuteDirection::ABOVE>,
@@ -241,12 +241,12 @@ void populateElementwiseCommuteAbovePatterns(MLIRContext *ctx,
                                                      CommuteDirection::ABOVE>,
       TTIRCommuteTmsThroughElementwiseBinaryRewriter<ReshapeOp,
                                                      CommuteDirection::ABOVE>>(
-      ctx, funcOp);
+      ctx, constParams);
 }
 
-void populateElementwiseCommuteBelowPatterns(MLIRContext *ctx,
-                                             RewritePatternSet &patterns,
-                                             mlir::func::FuncOp funcOp) {
+void populateElementwiseCommuteBelowPatterns(
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams) {
   patterns.add<
       TTIRCommuteTmsThroughElementwiseUnaryRewriter<TransposeOp,
                                                     CommuteDirection::BELOW>,
@@ -260,7 +260,7 @@ void populateElementwiseCommuteBelowPatterns(MLIRContext *ctx,
                                                      CommuteDirection::BELOW>,
       TTIRCommuteTmsThroughElementwiseBinaryRewriter<ReshapeOp,
                                                      CommuteDirection::BELOW>>(
-      ctx, funcOp);
+      ctx, constParams);
 }
 
 } // namespace mlir::tt::ttir

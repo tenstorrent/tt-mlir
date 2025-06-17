@@ -16,41 +16,42 @@ namespace mlir::tt::ttir {
 
 enum CommuteDirection { ABOVE, BELOW };
 
+static bool valueTracesToConstantArgs(
+    Value value, const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams) {
+  if (isa_and_nonnull<ConstantOp, ArangeOp, FullOp, EmptyOp, OnesOp>(
+          value.getDefiningOp())) {
+    return true;
+  }
+
+  if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(value)) {
+    if (constParams.contains(blockArg)) {
+      return true;
+    }
+    return false;
+  }
+
+  if (Operation *op = value.getDefiningOp()) {
+
+    for (Value operand : op->getOperands()) {
+      if (!valueTracesToConstantArgs(operand, constParams)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+  llvm_unreachable("The end of this function should never be reached");
+}
+
 template <typename TMOpType, typename CommutableOpOrInterface,
           CommuteDirection direction>
 class TTIRCommuteRewritePatternBase {
 public:
   virtual ~TTIRCommuteRewritePatternBase() noexcept = default;
 
-  TTIRCommuteRewritePatternBase(mlir::func::FuncOp funcOp) {
-    constParams = ttmlir::utils::populateConstParams(funcOp);
-  }
-
-  bool valueTracesToConstantArgs(Value value) const {
-    if (isa_and_nonnull<ConstantOp, ArangeOp, FullOp, EmptyOp, OnesOp>(
-            value.getDefiningOp())) {
-      return true;
-    }
-
-    if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(value)) {
-      if (constParams.contains(blockArg)) {
-        return true;
-      }
-      return false;
-    }
-
-    if (Operation *op = value.getDefiningOp()) {
-
-      for (Value operand : op->getOperands()) {
-        if (!valueTracesToConstantArgs(operand)) {
-          return false;
-        }
-      }
-
-      return true;
-    }
-
-    llvm_unreachable("The end of this function should never be reached");
+  TTIRCommuteRewritePatternBase(
+      llvm::SmallPtrSet<mlir::BlockArgument, 4> constParams) {
+    this->constParams = constParams;
   }
 
 protected:
@@ -96,7 +97,7 @@ protected:
 
         // We do not want to commute any tms which are already a part of a
         // consteval-able path
-        if (valueTracesToConstantArgs(operand)) {
+        if (valueTracesToConstantArgs(operand, constParams)) {
           continue;
         }
 
@@ -126,10 +127,10 @@ protected:
     return success();
   }
 
-private:
   // Set of params to original func which can be const-eval'ed.
   llvm::SmallPtrSet<mlir::BlockArgument, 4> constParams;
 
+private:
   // This should return `success()` if `tmUser` can be commuted above `op`.
   virtual bool isCommuteAboveViable(CommutableOpOrInterface op,
                                     TMOpType tmUser) const = 0;
@@ -193,11 +194,12 @@ public:
   // using OpInterfaceRewritePattern<
   //     CommutableOpInterface>::OpInterfaceRewritePattern;
 
-  TTIRCommuteOpInterfaceRewritePattern(mlir::MLIRContext *ctx,
-                                       mlir::func::FuncOp funcOp)
+  TTIRCommuteOpInterfaceRewritePattern(
+      mlir::MLIRContext *ctx,
+      const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams)
       : OpInterfaceRewritePattern<CommutableOpInterface>(ctx),
         TTIRCommuteRewritePatternBase<TMOpType, CommutableOpInterface,
-                                      direction>(funcOp) {}
+                                      direction>(constParams) {}
 
   LogicalResult matchAndRewrite(CommutableOpInterface op,
                                 PatternRewriter &rewriter) const override {
@@ -213,10 +215,12 @@ class TTIRCommuteOpRewritePattern
       public TTIRCommuteRewritePatternBase<TMOpType, CommutableOp, direction> {
 public:
   // using OpRewritePattern<CommutableOp>::OpRewritePattern;
-  TTIRCommuteOpRewritePattern(mlir::MLIRContext *ctx, mlir::func::FuncOp funcOp)
+  TTIRCommuteOpRewritePattern(
+      mlir::MLIRContext *ctx,
+      const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams)
       : OpRewritePattern<CommutableOp>(ctx),
         TTIRCommuteRewritePatternBase<TMOpType, CommutableOp, direction>(
-            funcOp) {}
+            constParams) {}
 
   LogicalResult matchAndRewrite(CommutableOp op,
                                 PatternRewriter &rewriter) const override {
@@ -317,19 +321,19 @@ inline Operation *getInverseTM(Operation *tm, Value input,
   llvm_unreachable("Unknown TM type");
 }
 
-void populateElementwiseCommuteAbovePatterns(MLIRContext *ctx,
-                                             RewritePatternSet &patterns,
-                                             mlir::func::FuncOp funcOp);
-void populateBroadcastCommuteAbovePatterns(MLIRContext *ctx,
-                                           RewritePatternSet &patterns,
-                                           mlir::func::FuncOp funcOp);
+void populateElementwiseCommuteAbovePatterns(
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams);
+void populateBroadcastCommuteAbovePatterns(
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams);
 
-void populateElementwiseCommuteBelowPatterns(MLIRContext *ctx,
-                                             RewritePatternSet &patterns,
-                                             mlir::func::FuncOp funcOp);
-void populateBroadcastCommuteBelowPatterns(MLIRContext *ctx,
-                                           RewritePatternSet &patterns,
-                                           mlir::func::FuncOp funcOp);
+void populateElementwiseCommuteBelowPatterns(
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams);
+void populateBroadcastCommuteBelowPatterns(
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams);
 
 } // namespace mlir::tt::ttir
 

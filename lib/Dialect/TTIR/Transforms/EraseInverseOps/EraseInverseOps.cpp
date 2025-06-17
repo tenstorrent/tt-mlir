@@ -22,13 +22,20 @@ public:
   using impl::TTIREraseInverseOpsBase<
       TTIREraseInverseOps>::TTIREraseInverseOpsBase;
 
-  uint64_t countTms(ModuleOp module) {
+  uint64_t
+  countTms(ModuleOp module,
+           const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams) {
     uint64_t tmCount = 0;
     module.walk([&](Operation *op) {
       if (isa<TransposeOp, PermuteOp, ReshapeOp>(op)) {
-        tmCount++;
+        // If the TM lies on a constevalable subgraph then we will not count it
+        // as it will be removed from the main graph.
+        if (!valueTracesToConstantArgs(op->getResult(0), constParams)) {
+          tmCount++;
+        }
       }
     });
+    std::cout << "TM count: " << tmCount << std::endl;
     return tmCount;
   }
 
@@ -43,12 +50,12 @@ public:
     if (!funcOp) {
       return;
     }
-
+    auto constParams = ttmlir::utils::populateConstParams(funcOp);
     RewritePatternSet commuteAbovePatterns(&getContext());
     populateElementwiseCommuteAbovePatterns(&getContext(), commuteAbovePatterns,
-                                            funcOp);
+                                            constParams);
     populateBroadcastCommuteAbovePatterns(&getContext(), commuteAbovePatterns,
-                                          funcOp);
+                                          constParams);
     mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(commuteAbovePatterns,
                                                            &getContext());
 
@@ -56,9 +63,9 @@ public:
 
     RewritePatternSet commuteBelowPatterns(&getContext());
     populateElementwiseCommuteBelowPatterns(&getContext(), commuteBelowPatterns,
-                                            funcOp);
+                                            constParams);
     populateBroadcastCommuteBelowPatterns(&getContext(), commuteBelowPatterns,
-                                          funcOp);
+                                          constParams);
     mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(commuteBelowPatterns,
                                                            &getContext());
 
@@ -81,12 +88,12 @@ public:
 
     while (true) {
       MinimalTMState minTmState = STARTING;
-      uint64_t startingTMCount = countTms(getOperation());
+      uint64_t startingTMCount = countTms(getOperation(), constParams);
       if (failed(applyCommuteAbovePatterns(getOperation()))) {
         return;
       }
 
-      uint64_t afterCommuteAboveTMCount = countTms(getOperation());
+      uint64_t afterCommuteAboveTMCount = countTms(getOperation(), constParams);
       if (afterCommuteAboveTMCount < startingTMCount) {
         minTmState = AFTER_COMMUTE_ABOVE;
       }
@@ -95,7 +102,7 @@ public:
         return;
       }
 
-      uint64_t afterCommuteBelowTMCount = countTms(getOperation());
+      uint64_t afterCommuteBelowTMCount = countTms(getOperation(), constParams);
       if (afterCommuteBelowTMCount < startingTMCount) {
         minTmState = AFTER_COMMUTE_BELOW;
       }
