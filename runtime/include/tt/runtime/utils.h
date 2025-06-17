@@ -156,6 +156,11 @@ inline void handleSignedToSignedIntegerBufferCast(const FromTy *old_buffer,
   static_assert(std::is_signed<ToTy>::value,
                 "Destination type must be a signed integer type");
 
+  static_assert(!std::is_same<FromTy, ToTy>::value,
+                "Source and destination types are the same! Please use "
+                "std::memcpy(new_buffer, old_buffer, num_elements * "
+                "sizeof(FromTy)) instead.");
+
   constexpr ToTy toTyMax = std::numeric_limits<ToTy>::max();
   constexpr ToTy toTyMin = std::numeric_limits<ToTy>::min();
   if constexpr (sizeof(ToTy) >= sizeof(FromTy)) {
@@ -236,6 +241,11 @@ inline void handleUnsignedToUnsignedIntegerBufferCast(const FromTy *old_buffer,
                 "Source type must be an unsigned integer type");
   static_assert(std::is_unsigned<ToTy>::value,
                 "Destination type must be an unsigned integer type");
+
+  static_assert(!std::is_same<FromTy, ToTy>::value,
+                "Source and destination types are the same! Please use "
+                "std::memcpy(new_buffer, old_buffer, num_elements * "
+                "sizeof(FromTy)) instead.");
 
   constexpr ToTy toTyMax = std::numeric_limits<ToTy>::max();
   if constexpr (sizeof(ToTy) >= sizeof(FromTy)) {
