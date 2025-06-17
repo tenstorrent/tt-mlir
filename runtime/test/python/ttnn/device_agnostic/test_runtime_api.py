@@ -204,3 +204,28 @@ def test_get_system_desc(runtime, dispatch_core_type, with_device):
         system_desc = ttrt.runtime.get_current_system_desc(dispatch_core_type)
 
     assert system_desc is not None, "System descriptor should exist"
+
+
+@pytest.mark.parametrize(
+    "dtype",
+    [torch.float64, torch.int64, torch.uint64, torch.int16, torch.int8, torch.bool],
+)
+def test_create_owned_tensor_with_unsupported_data_type(dtype):
+    ttrt.runtime.set_current_runtime(ttrt.runtime.DeviceRuntime.TTNN)
+    torch_input_tensor = (127 * torch.rand((64, 128))).to(dtype)
+    runtime_dtype = Binary.Program.to_data_type(dtype)
+    runtime_input_tensor = ttrt.runtime.create_owned_tensor(
+        torch_input_tensor.data_ptr(),
+        list(torch_input_tensor.shape),
+        list(torch_input_tensor.stride()),
+        torch_input_tensor.element_size(),
+        runtime_dtype,
+    )
+
+    torch_output_tensor = torch.zeros_like(torch_input_tensor)
+    ttrt.runtime.memcpy(
+        torch_output_tensor.data_ptr(),
+        runtime_input_tensor,
+        Binary.Program.to_data_type(dtype),
+    )
+    assert torch.all(torch_output_tensor == torch_input_tensor)

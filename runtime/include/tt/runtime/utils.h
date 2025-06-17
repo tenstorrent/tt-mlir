@@ -39,6 +39,15 @@ inline std::uint32_t dataTypeElementSize(::tt::target::DataType dataType) {
     return 2;
   case ::tt::target::DataType::UInt8:
     return 1;
+  case ::tt::target::DataType::Float64:
+  case ::tt::target::DataType::Int64:
+  case ::tt::target::DataType::UInt64:
+    return 8;
+  case ::tt::target::DataType::Int16:
+    return 2;
+  case ::tt::target::DataType::Int8:
+  case ::tt::target::DataType::Bool:
+    return 1;
   default:
     assert(false && "Unsupported element size for data type");
     return 0;
@@ -53,6 +62,53 @@ inline std::int64_t tileRowAlignment(::tt::target::DataType dataType) {
 inline std::int64_t tileAlignment(::tt::target::DataType dataType) {
   std::int64_t numAlignRows = 32;
   return tileRowAlignment(dataType) * numAlignRows;
+}
+
+inline bool isSupportedDataType(::tt::target::DataType dataType) {
+  switch (dataType) {
+  case ::tt::target::DataType::Float32:
+  case ::tt::target::DataType::Float16:
+  case ::tt::target::DataType::BFloat16:
+  case ::tt::target::DataType::BFP_Float8:
+  case ::tt::target::DataType::BFP_BFloat8:
+  case ::tt::target::DataType::BFP_Float4:
+  case ::tt::target::DataType::BFP_BFloat4:
+  case ::tt::target::DataType::BFP_Float2:
+  case ::tt::target::DataType::BFP_BFloat2:
+  case ::tt::target::DataType::UInt32:
+  case ::tt::target::DataType::UInt16:
+  case ::tt::target::DataType::UInt8:
+  case ::tt::target::DataType::Int32:
+
+    return true;
+  default:
+    return false;
+  }
+}
+
+inline ::tt::target::DataType
+getUnsupportedDataTypeAlias(::tt::target::DataType unsupportedDataType) {
+  switch (unsupportedDataType) {
+  case ::tt::target::DataType::Int64:
+    return ::tt::target::DataType::Int32;
+  case ::tt::target::DataType::UInt64:
+    return ::tt::target::DataType::UInt32;
+  case ::tt::target::DataType::Int16:
+    return ::tt::target::DataType::UInt16;
+  case ::tt::target::DataType::Int8:
+    return ::tt::target::DataType::UInt8;
+  case ::tt::target::DataType::Float64:
+    return ::tt::target::DataType::Float32;
+  case ::tt::target::DataType::Bool:
+    return ::tt::target::DataType::BFloat16;
+  default:
+    throw std::runtime_error(
+        "The data type: " +
+        std::string(target::EnumNamesDataType()[static_cast<int>(
+            unsupportedDataType)]) +
+        " is either supported and thus needs no alias OR it is not supported "
+        "and is not accounted for in this function (that would be a bug).");
+  }
 }
 
 template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
@@ -73,6 +129,122 @@ struct overloaded : Ts... {
 template <typename T>
 T alignUp(T ptr, T alignment) {
   return (ptr + alignment - 1) & ~(alignment - 1);
+}
+
+template <typename FromTy, typename ToTy>
+inline void handleFloatingPointBufferCast(const FromTy *old_buffer,
+                                          ToTy *new_buffer,
+                                          int64_t num_elements) {
+  for (int i = 0; i < num_elements; i++) {
+    new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
+  }
+}
+
+template <typename FromTy, typename ToTy>
+inline void handleIntegerBufferCast(const FromTy *old_buffer, ToTy *new_buffer,
+                                    int64_t num_elements) {
+  static_assert(std::is_integral<FromTy>::value,
+                "Source type must be an integer type");
+  static_assert(std::is_integral<ToTy>::value,
+                "Destination type must be an integer type");
+
+  constexpr ToTy toTyMax = std::numeric_limits<ToTy>::max();
+  constexpr ToTy toTyMin = std::numeric_limits<ToTy>::min();
+
+  if constexpr (std::is_signed<FromTy>::value && std::is_signed<ToTy>::value) {
+    if constexpr (sizeof(ToTy) >= sizeof(FromTy)) {
+      for (int64_t i = 0; i < num_elements; i++) {
+        new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
+      }
+    } else {
+      for (int64_t i = 0; i < num_elements; i++) {
+        if (old_buffer[i] < static_cast<FromTy>(toTyMin)) {
+          new_buffer[i] = toTyMin;
+        } else if (old_buffer[i] > static_cast<FromTy>(toTyMax)) {
+          new_buffer[i] = toTyMax;
+        } else {
+          new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
+        }
+      }
+    }
+  } else if constexpr (std::is_unsigned<FromTy>::value &&
+                       std::is_signed<ToTy>::value) {
+    if constexpr (sizeof(ToTy) > sizeof(FromTy)) {
+      for (int64_t i = 0; i < num_elements; i++) {
+        new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
+      }
+    } else if constexpr (sizeof(ToTy) == sizeof(FromTy)) {
+      for (int64_t i = 0; i < num_elements; i++) {
+        if (old_buffer[i] > static_cast<FromTy>(toTyMax)) {
+          new_buffer[i] = toTyMax;
+        } else {
+          new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
+        }
+      }
+    } else { // unsigned FromTy has larger bitwidth than signed ToTy
+      for (int64_t i = 0; i < num_elements; i++) {
+        if (old_buffer[i] > static_cast<FromTy>(toTyMax)) {
+          new_buffer[i] = toTyMax;
+        } else {
+          new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
+        }
+      }
+    }
+  } else if constexpr (std::is_signed<FromTy>::value &&
+                       std::is_unsigned<ToTy>::value) {
+    if constexpr (sizeof(ToTy) >= sizeof(FromTy)) {
+      for (int64_t i = 0; i < num_elements; i++) {
+        if (old_buffer[i] < static_cast<FromTy>(toTyMin)) {
+          new_buffer[i] = toTyMin;
+        } else {
+          new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
+        }
+      }
+    } else { // signed FromTy has larger bitwidth than unsigned ToTy
+      for (int64_t i = 0; i < num_elements; i++) {
+        if (old_buffer[i] < static_cast<FromTy>(toTyMin)) {
+          new_buffer[i] = toTyMin;
+        } else {
+          new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
+        }
+      }
+    }
+  } else { // Both are unsigned
+    if constexpr (sizeof(ToTy) >= sizeof(FromTy)) {
+      for (int64_t i = 0; i < num_elements; i++) {
+        new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
+      }
+    } else { // unsigned FromTy has larger bitwidth than unsigned ToTy
+      for (int64_t i = 0; i < num_elements; i++) {
+        if (old_buffer[i] > static_cast<FromTy>(toTyMax)) {
+          new_buffer[i] = toTyMax;
+        } else {
+          new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
+        }
+      }
+    }
+  }
+}
+
+inline void handleBFloat16ToBool(const uint16_t *old_buffer, bool *new_buffer,
+                                 int64_t num_elements) {
+  for (int i = 0; i < num_elements; i++) {
+    new_buffer[i] =
+        old_buffer[i] !=
+        0; // 0 in bfloat16 is also 00000000 00000000, just as in uint16_t
+  }
+}
+
+inline void handleBoolToBFloat16(const bool *old_buffer, uint16_t *new_buffer,
+                                 int64_t num_elements) {
+
+  assert(sizeof(bool) == 1 && "bool must be 1 byte");
+
+  for (int i = 0; i < num_elements; i++) {
+    new_buffer[i] = old_buffer[i]
+                        ? 0x3f80
+                        : 0; // 0x3f80 is the bfloat16 representation of 1.0
+  }
 }
 
 } // namespace tt::runtime::utils
