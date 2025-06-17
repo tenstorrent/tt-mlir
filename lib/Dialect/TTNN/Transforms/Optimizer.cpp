@@ -306,6 +306,8 @@ public:
         return;
       }
 
+      SmallVector<Type> funcResultTypes;
+
       // If schedule is set, apply order of operations to func.
       //
       if (opSchedule[func].size() > 1) {
@@ -326,7 +328,11 @@ public:
 
       func->walk([&](Operation *op) {
         if (op->getNumResults() == 0) {
-          // Skip ops with no results.
+          func::ReturnOp funcReturn = dyn_cast<func::ReturnOp>(op);
+          if (funcReturn) {
+            funcResultTypes.append(funcReturn.getOperandTypes().begin(),
+                                   funcReturn.getOperandTypes().end());
+          }
           return;
         }
 
@@ -422,20 +428,6 @@ public:
       }
 
       processSpillOps(spillToDramOps, deviceGrid, insertedMemoryReconfigOps);
-
-      SmallVector<Type> funcResultTypes;
-
-      // Pick up return op result types and update func type.
-      func->walk([&](Operation *op) {
-        if (op->getNumResults() == 0) {
-          func::ReturnOp funcReturn = dyn_cast<func::ReturnOp>(op);
-          if (funcReturn) {
-            funcResultTypes.append(funcReturn.getOperandTypes().begin(),
-                                   funcReturn.getOperandTypes().end());
-          }
-          return;
-        }
-      });
 
       // Update the function type to reflect the updated return operation's
       // result types.
