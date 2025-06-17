@@ -11,6 +11,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/Support/ErrorHandling.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRERASEINVERSEOPS
@@ -79,22 +80,18 @@ public:
     // will pick whichever graph between the two that has the least number of
     // TMs - even though the true minimal graph might be in between
 
-    // uint64_t startingTMCount = countTms(getOperation());
-    // uint64_t currentTMCount = startingTMCount;
-    // uint64_t lastTMCount = std::numeric_limits<uint64_t>::max();
-
-    enum MinimalTMState { STARTING, AFTER_COMMUTE_ABOVE, AFTER_COMMUTE_BELOW };
-
     while (true) {
-      MinimalTMState minTmState = STARTING;
+      // We do not yet have a way of returning the beginning state of the graph
+      // So we will return after we have commuted the TMs above at least once
       uint64_t startingTMCount = countTms(getOperation(), constParams);
+      uint64_t minTmCount = startingTMCount;
       if (failed(applyCommuteAbovePatterns(getOperation()))) {
         return;
       }
 
       uint64_t afterCommuteAboveTMCount = countTms(getOperation(), constParams);
-      if (afterCommuteAboveTMCount < startingTMCount) {
-        minTmState = AFTER_COMMUTE_ABOVE;
+      if (afterCommuteAboveTMCount < minTmCount) {
+        minTmCount = afterCommuteAboveTMCount;
       }
 
       if (failed(applyCommuteBelowPatterns(getOperation()))) {
@@ -102,17 +99,21 @@ public:
       }
 
       uint64_t afterCommuteBelowTMCount = countTms(getOperation(), constParams);
-      if (afterCommuteBelowTMCount < startingTMCount) {
-        minTmState = AFTER_COMMUTE_BELOW;
+      if (afterCommuteBelowTMCount < minTmCount) {
+        minTmCount = afterCommuteBelowTMCount;
       }
       // If this is true then the minimal TM state has been reached at some
       // point during these two pattern applications
-      if (startingTMCount <= afterCommuteBelowTMCount) {
-        if (minTmState == STARTING) {
-          // We are already at the minimum TM count graph
-          return;
+      if (minTmCount <= afterCommuteAboveTMCount &&
+          minTmCount <= afterCommuteBelowTMCount) {
+        // At this point the TMs are as far down the graph as they can be
+        // If there were less TMs when they were as far up as they could be then
+        // we must commute them up again.
+        if (afterCommuteAboveTMCount < afterCommuteBelowTMCount) {
+          if (failed(applyCommuteAbovePatterns(getOperation()))) {
+            llvm_unreachable("applyCommuteAbovePatterns should not fail here");
+          }
         }
-        (void)applyCommuteBelowPatterns(getOperation());
         return;
       }
     }
