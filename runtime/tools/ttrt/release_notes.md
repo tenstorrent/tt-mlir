@@ -54,9 +54,7 @@ runtime components.
 
 ## Upcoming features
 
-TODO: Decide whether to include planned Q3 features
-
-Q3 goals
+TODO: Decide whether to include planned Q3 features (and cleanup/explanations):
 
 perf supporting multiple program flatbuffers (const-eval, training graphs)
 builtin hang detection and recovery

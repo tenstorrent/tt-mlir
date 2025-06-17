@@ -17,7 +17,7 @@ June 30th, 2025
 
 #### Creating TTIR operations
 
-The `ttir-builder` tool provides functions through the builder dataclass `TTIRBuilder` to create TTIR ops. Refer to the corresponding [documentation](../../docs/src/ttir-builder.md#creating-a-ttir-module) for an example of using the class.
+The `ttir-builder` tool provides functions through the builder dataclass `TTIRBuilder` to create TTIR ops. Refer to the corresponding documentation [section](../../docs/src/ttir-builder.md#creating-a-ttir-module) for an example of using the class.
 
 #### Op coverage
 
@@ -25,25 +25,23 @@ TODO: Once created, link the documented list of supported ops.
 
 #### Build a TTIR module
 
-The python package `ttir_builder` exposes the dataclass `TTIRBuilder`, its APIs, and utility function `build_mlir_module` that converts the object into a TTIR module. Refer to the corresponding [documentation](../../docs/src/ttir-builder.md#creating-a-ttir-module) for usage instructions.
+The python package `ttir_builder` exposes the dataclass `TTIRBuilder`, its APIs, and utility function `build_mlir_module` that converts the object into a TTIR module. Refer to the corresponding documentation [section](../../docs/src/ttir-builder.md#creating-a-ttir-module) for usage instructions.
 
 #### Run pipelines
 
-There are a few pipeline passes that can be run over TTIR modules through the utility function `run_pipeline`. Passes pybound in the package `ttmlir.passes` include functionality to lower TTIR modules into TTNN and TTMetal backends. Refer to the corresponding [documentation](../../docs/src/ttir-builder.md#running-a-pipeline) for usage instructions.
+There are a few pipeline passes that can be run over TTIR modules through the utility function `run_pipeline`. Passes pybound in the package `ttmlir.passes` include functionality to lower TTIR modules into TTNN and TTMetal backends. Refer to the corresponding documentation [section](../../docs/src/ttir-builder.md#running-a-pipeline) for usage instructions.
 
 #### Compiling into flatbuffer
 
-Utility function `compile_to_flatbuffer` compiles an function containing `TTIRBuilder` op creations through the aforementioned steps into an executable flatbuffer. Refer to the corresponding [documentation](../../docs/src/ttir-builder.md#compiling-into-flatbuffer) for usage instructions.
+Utility function `compile_to_flatbuffer` compiles an function containing `TTIRBuilder` op creations through the aforementioned steps into an executable flatbuffer. Refer to the corresponding documentation [section](../../docs/src/ttir-builder.md#compiling-into-flatbuffer) for usage instructions.
 
 #### Golden accuracy checks
 
-`ttir-builder` provides support to code golden tensors into flatbuffers to be used for comparison with TT device output in `ttrt` runtime for accuracy verification. Refer to the corresponding [documentation](../../docs/src/ttir-builder.md#golden-mode) for usage instructions.
+`ttir-builder` provides support to code golden tensors into flatbuffers to be used for comparison with TT device output in `ttrt` runtime for accuracy verification. Refer to the corresponding documentation [section](../../docs/src/ttir-builder.md#golden-mode) for usage instructions.
 
 ## Upcoming features
 
-TODO: Decide whether to include planned Q3 features
-
-Q3 goals
+TODO: Decide whether to include planned Q3 features (and cleanup/explanations):
 
 integration with module splitter + auto generated ttir builder ops
 auto generate unit tests from model tests
