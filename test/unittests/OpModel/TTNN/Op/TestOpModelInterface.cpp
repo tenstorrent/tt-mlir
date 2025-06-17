@@ -524,9 +524,10 @@ TEST_F(OpModelBase, MeanOpInterface) {
   auto input = createEmptyTensor(tensorShapeA);
   auto output = createEmptyTensor(tensorShapeO);
 
-  testReductionOp<MeanOp>(this, builder, input, output.getType(), 12288, 2048,
-                          2048, &OpModelBase::getOpConstraints,
-                          &OpModelBase::getOpRuntime);
+  testReductionOp<MeanOp>(
+      this, builder, input, output.getType(), /*expectedCbSize=*/12288,
+      /*expectedPeakSize=*/2048, /*expectedOutputSize=*/2048,
+      &OpModelBase::getOpConstraints, &OpModelBase::getOpRuntime);
 }
 
 TEST_F(OpModelBase, SumOpInterface) {
@@ -535,9 +536,10 @@ TEST_F(OpModelBase, SumOpInterface) {
   auto input = createEmptyTensor(tensorShapeA);
   auto output = createEmptyTensor(tensorShapeO);
 
-  testReductionOp<SumOp>(this, builder, input, output.getType(), 12288, 2048,
-                         2048, &OpModelBase::getOpConstraints,
-                         &OpModelBase::getOpRuntime);
+  testReductionOp<SumOp>(
+      this, builder, input, output.getType(), /*expectedCbSize=*/12288,
+      /*expectedPeakSize=*/2048, /*expectedOutputSize=*/2048,
+      &OpModelBase::getOpConstraints, &OpModelBase::getOpRuntime);
 }
 
 TEST_F(OpModelBase, ReshapeOpInterface) {
