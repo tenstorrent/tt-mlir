@@ -1,77 +1,16 @@
-# TT-Explorer
-This section provides a details about the usage of TT-Explorer.
+# TT-Explorer - API
 
-## Input Models
-Currently TT-Explorer supports 3 types of models that can be executed/visualized.
+## TT-Adapter
+The following is a reference for the REST API provided by TT-Adapter.
 
-| Input Type | Execution Support | Visualization Support |
-| --- | --- | --- |
-| `.ttnn` Flatbuffers with Debug Info | ✔️ | ✔️ |
-| `.ttnn` Flatbuffers without Debug Info | ❌ | ❌ |
-| `.mlir` TTIR Modules | ✔️ | ✔️ |
-| `.mlir` TTNN Modules | ❌ | ✔️ |
+First, a short info-dump on how an extensible API can be built on top of Model Explorer.
 
-## CLI
-The CLI for `tt-explorer` provides a simple suite of options to start the UI:
-
-```bash
-tt-explorer -p <port> -u <url> -q
-```
-
-### Options:
-- `-p, --port`: Port that model-explorer server will be exposed to. Default is 8080.
-- `-u, --url`: Host URL Address for server. Default is "localhost".
-- `-q, --no-browser`: Create server without opening a browser tab.
-
-Example usage:
-
-```bash
-tt-explorer -p 8000 -u 0.0.0.0 -q
-```
-
-This command will start the TT-Explorer server on port 8000, accessible at the address 0.0.0.0, and without opening a browser tab.
-
-## UI
-For general reference of the UI, refer to the [model-explorer wiki](https://github.com/google-ai-edge/model-explorer/wiki). This section will highlight specific UI elements added to the Tenstorrent fork of model-explorer.
-
-### Model Execution
-In the top right of the screen an additional element has been added to the top bar. It features the UI elements that invoke the execution functionality. Once the model has executed, _overlays_ are also created. These overlays provide information on how the execution went.
-
-#### Performance Overlay
-The performance overlay is generated on **every** execution, it highlights the time it took to execute each node on the graph. This is visualized with a gradient from Yellow -> Red, with Yellow being the lowest time amongst all nodes on the graph, and Red being highest.
-
-#### Accuracy Overlay
-The accuracy overlay is _only_ generated when executing from a compatible flatbuffer (`.ttnn` file extension with Debug Info). The overlay consists of either Green or Red node overlays. Green if the node passed a "golden" test, Red if not. The value for the overlay is the actual Pearson Correlation Coefficient (PCC) value with the "golden" tensor subtracted by the expected PCC value. If the number is `< 0` we know it doesn't match the expected PCC, otherwise it is an accurate comparison.
-
-#### Advanced Settings
-This menu will open a window with some advanced settings for Model execution.
-
-##### Opt. Policy
-This dropdown provides a list of **Optimization Policies** which will be used when the model is executed. These policies are applied when lowering from a `ttir` module to an executable `ttnn` module.
-
-##### Generate C++ Code
-This toggle will run the `EmitC` pass in the `tt-mlir` compiler to generate TTNN C++ Code and make it available to you after running a model. Default value for this toggle is `Off`.
-
-#### "Play" Button
-This button invokes the `execute` function which will compile and execute the model. The button will then be "loading" until execution is finished. Once execution is finished a performance trace should be overlayed on the graph and it should reload.
-
-#### "Code" Button
-If the `Generate C++ Code` flag is set, this button will become available to view and download the C++ code in a window within explorer.
-
-#### "Comment" Button
-This button will open a window to view the shell logs while execution is running. If any errors occur they will be displayed here.
-
-### Overridden Fields
-Certain Nodes on the graph will have attributes that are presented as a dropdown. These are fields which have overrides available. This value can be changed and then sent to be recompiled, invalid configurations will result in errors.
-
-# TT-Adapter
-The following is a reference for the REST API provided by TT-Adapter. First, a short info-dump on how an extensible API can be built on top of Model Explorer.
-
-## Building an API using Model Explorer
+### Building an API using Model Explorer
 The `/apipost/v1/send_command` endpoint provides an extensible platform with which commands are sent to be executed directly by the adapter specified.  This becomes the main endpoint through which communication is facilitated between the server and client, the commands respond with an "adapter response".
 
-### Sending Commands
-The body of the command must be JSON, and  conform to the following interface (described below as a [Typescript interface](https://www.typescriptlang.org/docs/handbook/2/everyday-types.html#interfaces)). Specific commands may narrow the field types or extend this interface.
+#### Sending Commands
+
+The body of the command must be JSON, and conform to the following interface (described below as a [Typescript interface](https://www.typescriptlang.org/docs/handbook/2/everyday-types.html#interfaces)). Specific commands may narrow the field types or extend this interface providing extra information. But all interfaces should be based on this.
 
 ```typescript
 interface ExtensionCommand {
@@ -85,7 +24,7 @@ interface ExtensionCommand {
 
 More often than not, functions do not need all of these fields, but they must all be present to properly process the command sent into the handling function on the server.
 
-Speaking of function, the signature that all function that handle commands on the server have to follow is as such:
+On the server side, the signature that all function that handle commands have to follow is:
 
 ```python
 class TTAdapter(Adapter):
@@ -95,9 +34,9 @@ class TTAdapter(Adapter):
     pass
 ```
 
-This function is invoked and called from a new instance every time. This is important to understand for the idea of persisting information on the server. As all requests to the server are _stateless_, the onus is often on the end-user to store and preserve important information such as the path of a model they've uploaded, or the paths of important artifacts that the server has produced. `TTExplorer` aims to make this as easy as possible.
+This function is invoked and called from a new instance every time. This is important to understand for the idea of persisting information on the server. As all requests to the server are _stateless_, the onus is often on the end-user to keep track of important information such as the path of a model they've uploaded, or the paths of important artifacts that the server has produced. `TTExplorer` aims to make this as easy as possible, but this may not always be possible due to the very nature of how the server works.
 
-Information can be processed in this function however the user would like to define, and often settings becomes a versatile endpoint to provide more information and context for the execution of some function. As an example, refer to `TTAdapter:initialize`, this function to load a SystemDesc into the environment has little to do with `modelPath` or `deleteAfterConversion`, as such these variables are not processed at all, and the function only executes a static initialization process regardless of the parameters passed into the command.
+Information can be processed in this function as defined by the user, and often settings becomes a versatile endpoint to provide more information and context for the execution of some function. As an example, refer to `ModelRunner:initialize`, this function doesn't use any of the parameter, as such they are not processed at all, and the function only executes a static initialization process regardless of the parameters passed into the command.
 
 #### Example request
 
@@ -129,7 +68,9 @@ Below is an example of the JSON request sent from the UI to the server:
 ```
 
 ### Adapter Response
-Model Explorer was probably not made to allow for such an extensible framework to be tacked onto it. As such, the adapter response is processed in a very particular way before it is sent back to the user. In particular, refer to [`model_explorer.utils.convert_adapter_response`](https://github.com/google-ai-edge/model-explorer/blob/main/src/server/package/src/model_explorer/utils.py#L40) which is run on the output of every function.
+Model Explorer was not made to allow for such an extensible framework to be tacked onto it. As such, the adapter response is processed in a very particular way before it is sent back to the user.
+
+In particular, refer to [`model_explorer.utils.convert_adapter_response`](https://github.com/google-ai-edge/model-explorer/blob/main/src/server/package/src/model_explorer/utils.py#L40) which is run on the output of every function.
 
 This means that for compatibility reasons (i.e. to not stray too much from the upstream implementation that we are based off of) responses sent from the server must be in JSON format **only** and wrap the data on a `graph` property.
 
@@ -148,10 +89,11 @@ interface ExtensionResponse<
 
 For custom adapter responses. This limits the transfer of raw bytes data through different MIME Types, and requires the `tt_adapter.utils.to_adapter_format` which turns any `dict` object into a model explorer adapter compatible response. While this framework works well for graphs, it makes an "extensible" API difficult to implement.
 
-## Current API Reference:
+## Current API Reference
 
-### Convert
+### `convert`
 Standard built-in conversion function, converts TTIR Module into Model Explorer Graph. Also provides `settings` as a platform for overrides to be applied to the graph.
+
 #### Request
 
 ```typescript
@@ -177,8 +119,8 @@ type AdapterConvertResponse = ExtensionResponse;
 }
 ```
 
-### Initialize
-Called from `TTExplorer.initialize`, used to Load SystemDesc into environment.
+### `initialize`
+Called from `TTAdapter.__init__`, used to Load SystemDesc into environment.
 
 #### Request
 
@@ -204,8 +146,8 @@ type AdapterInitializeResponse = ExtensionResponse<[{
 }
 ```
 
-### Execute
-Called from `TTExplorer.execute_model`, executes a model.
+### `execute`
+Called from `TTAdapter.execute`, executes a model.
 
 #### Request
 
@@ -228,9 +170,9 @@ type AdapterExecuteResponse = ExtensionResponse<[]>;
 }
 ```
 
-### Status Check
+### `status-check`
 
-Called from `...`, it is used for checking the execution status of a model and update the UI accordingly.
+Called from `TTExplorer.status_check`, it is used for checking the execution status of a model and update the UI accordingly.
 
 #### Request
 
@@ -263,44 +205,6 @@ type AdapterStatusCheckResponse = ExtensionResponse<[{
     "timeElapsed": 234,
     "stdout": "Executing model...\nPath: /path/to/model",
     "log_file": "/path/to/log/on/the/server"
-  }]
-}
-```
-### Override
-
-Called from `...` to send overrides made through the UI to the server for processing.
-
-#### Request
-
-```typescript
-interface KeyValue {
-  key: string;
-  value: string;
-}
-
-interface AdapterOverrideCommand extends ExtensionCommand {
-  cmdId: 'override';
-  settings: {
-    graphs: Graph[];
-    overrides: Record<string, {
-      named_location: string,
-      attributes: KeyValue[]
-    }>;
-  };
-}
-```
-
-#### Response
-```typescript
-type AdapterOverrideResponse = ExtensionResponse<[{
-  success: boolean;
-}]>;
-```
-
-```json
-{
-  "graphs": [{
-    "success": true
   }]
 }
 ```
@@ -462,3 +366,5 @@ Here is an example of what this attribute look like:
   }]
 }
 ```
+
+## Attribute display type
