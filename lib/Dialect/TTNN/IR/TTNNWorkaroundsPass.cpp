@@ -409,50 +409,52 @@ TTNNOperandsWorkaroundsFactory::createUpdateCacheOpOperandsWorkarounds(
       .addInputOperandWorkaround(typeWorkarounds);
 }
 
-// Helper function to determine if data type workaround is required for a binary
-// op. Set the workaround data type based on the binary op.
-static std::optional<DataType> binaryOpDTypeWorkaround(mlir::Operation *op,
-                                                       Type elementType) {
-  DataType dType = elementTypeToDataType(elementType);
+// // Helper function to determine if data type workaround is required for a
+// binary
+// // op. Set the workaround data type based on the binary op.
+// static std::optional<DataType> binaryOpDTypeWorkaround(mlir::Operation *op,
+//                                                        Type elementType) {
+//   DataType dType = elementTypeToDataType(elementType);
 
-  if (isa<ttnn::AddOp, ttnn::SubtractOp>(op)) {
-    if (dType == DataType::Float32 || dType == DataType::BFloat16 ||
-        dType == DataType::BFP_BFloat8 || dType == DataType::BFP_BFloat4) {
-      return {};
-    }
-    if (dType == DataType::Int32) {
-      // Although TTNN claims to support int32 for Add and Subtract ops,
-      // broadcasting with int32 inputs does not currently work as expected.
-      // As a temporary workaround, we fall back to BFloat16 when input shapes
-      // differ. This should be removed once int32 broadcasting is properly
-      // supported.
-      auto lhsType =
-          mlir::cast<mlir::RankedTensorType>(op->getOperand(0).getType());
-      auto rhsType =
-          mlir::cast<mlir::RankedTensorType>(op->getOperand(1).getType());
+//   if (isa<ttnn::AddOp, ttnn::SubtractOp>(op)) {
+//     if (dType == DataType::Float32 || dType == DataType::BFloat16 ||
+//         dType == DataType::BFP_BFloat8 || dType == DataType::BFP_BFloat4) {
+//       return {};
+//     }
+//     if (dType == DataType::Int32) {
+//       // Although TTNN claims to support int32 for Add and Subtract ops,
+//       // broadcasting with int32 inputs does not currently work as expected.
+//       // As a temporary workaround, we fall back to BFloat16 when input
+//       shapes
+//       // differ. This should be removed once int32 broadcasting is properly
+//       // supported.
+//       auto lhsType =
+//           mlir::cast<mlir::RankedTensorType>(op->getOperand(0).getType());
+//       auto rhsType =
+//           mlir::cast<mlir::RankedTensorType>(op->getOperand(1).getType());
 
-      if (lhsType.getShape() != rhsType.getShape()) {
-        return DataType::BFloat16;
-      }
-      return {};
-    }
-    return DataType::BFloat16;
-  }
-  // Left shift and right shift ops have same requirements but they are not
-  // implemented for TTNN dialect currently.
-  if (isa<ttnn::BitwiseAndOp, ttnn::BitwiseOrOp, ttnn::BitwiseXorOp>(op)) {
-    if (dType == DataType::Int32) {
-      return {};
-    }
-    return DataType::Int32;
-  }
-  // All remaining binary ops.
-  if (dType == DataType::Float32 || dType == DataType::BFloat16 ||
-      dType == DataType::BFP_BFloat8 || dType == DataType::BFP_BFloat4) {
-    return {};
-  }
-  return DataType::BFloat16;
-}
+//       if (lhsType.getShape() != rhsType.getShape()) {
+//         return DataType::BFloat16;
+//       }
+//       return {};
+//     }
+//     return DataType::BFloat16;
+//   }
+//   // Left shift and right shift ops have same requirements but they are not
+//   // implemented for TTNN dialect currently.
+//   if (isa<ttnn::BitwiseAndOp, ttnn::BitwiseOrOp, ttnn::BitwiseXorOp>(op)) {
+//     if (dType == DataType::Int32) {
+//       return {};
+//     }
+//     return DataType::Int32;
+//   }
+//   // All remaining binary ops.
+//   if (dType == DataType::Float32 || dType == DataType::BFloat16 ||
+//       dType == DataType::BFP_BFloat8 || dType == DataType::BFP_BFloat4) {
+//     return {};
+//   }
+//   return DataType::BFloat16;
+// }
 
 // Factory method to create a set of workarounds for binary operation operands.
 // This workaround is based on tt-metal PR for data type checker for binary ops.
@@ -461,34 +463,34 @@ static std::optional<DataType> binaryOpDTypeWorkaround(mlir::Operation *op,
 // requirement.
 // Elementwise binary ops requires TILE layout. Apply layout workaround if any
 // of the input is using ROW_MAJOR layout.
-TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(
-    mlir::Operation *op) {
-  assert(op->getNumOperands() == 2 && "expected binary op");
-  auto lhsType =
-      mlir::cast<mlir::RankedTensorType>(op->getOperand(0).getType());
-  auto rhsType =
-      mlir::cast<mlir::RankedTensorType>(op->getOperand(1).getType());
+// TTNNOperandsWorkarounds
+// TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(
+//     mlir::Operation *op) {
+//   assert(op->getNumOperands() == 2 && "expected binary op");
+//   auto lhsType =
+//       mlir::cast<mlir::RankedTensorType>(op->getOperand(0).getType());
+//   auto rhsType =
+//       mlir::cast<mlir::RankedTensorType>(op->getOperand(1).getType());
 
-  TTNNOperandWorkarounds operandWorkaround;
-  if (auto dtype = binaryOpDTypeWorkaround(op, lhsType.getElementType())) {
-    operandWorkaround.tensorDataTypeWorkaround = *dtype;
-  }
-  if (auto dtype = binaryOpDTypeWorkaround(op, rhsType.getElementType())) {
-    operandWorkaround.tensorDataTypeWorkaround = *dtype;
-  }
-  if (!mlir::cast<ttnn::TTNNLayoutAttr>(lhsType.getEncoding()).isTiled()) {
-    operandWorkaround.tensorLayoutWorkaround = Layout::Tile;
-  }
-  if (!mlir::cast<ttnn::TTNNLayoutAttr>(rhsType.getEncoding()).isTiled()) {
-    operandWorkaround.tensorLayoutWorkaround = Layout::Tile;
-  }
+//   TTNNOperandWorkarounds operandWorkaround;
+//   if (auto dtype = binaryOpDTypeWorkaround(op, lhsType.getElementType())) {
+//     operandWorkaround.tensorDataTypeWorkaround = *dtype;
+//   }
+//   if (auto dtype = binaryOpDTypeWorkaround(op, rhsType.getElementType())) {
+//     operandWorkaround.tensorDataTypeWorkaround = *dtype;
+//   }
+//   if (!mlir::cast<ttnn::TTNNLayoutAttr>(lhsType.getEncoding()).isTiled()) {
+//     operandWorkaround.tensorLayoutWorkaround = Layout::Tile;
+//   }
+//   if (!mlir::cast<ttnn::TTNNLayoutAttr>(rhsType.getEncoding()).isTiled()) {
+//     operandWorkaround.tensorLayoutWorkaround = Layout::Tile;
+//   }
 
-  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(operandWorkaround)
-      .addInputOperandWorkaround(operandWorkaround)
-      .addOutputOperandWorkaround(operandWorkaround);
-}
+//   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+//       .addInputOperandWorkaround(operandWorkaround)
+//       .addInputOperandWorkaround(operandWorkaround)
+//       .addOutputOperandWorkaround(operandWorkaround);
+// }
 
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createTanhOpOperandsWorkarounds() {

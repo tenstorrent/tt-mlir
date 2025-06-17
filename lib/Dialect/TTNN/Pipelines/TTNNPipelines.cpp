@@ -168,7 +168,7 @@ void createTTIRToEmitCPipeline(OpPassManager &pm,
   pm.addPass(tt::createTTUnwrapDeviceModulePass());
   pm.addPass(createTTNNTuplifyTensors());
   pm.addPass(createTTNNCreateInputGenerators());
-  pm.addPass(createConvertTTNNToEmitCPass());
+  // pm.addPass(createConvertTTNNToEmitCPass());
 }
 
 void createTTIRToEmitCSOPipeline(OpPassManager &pm,
