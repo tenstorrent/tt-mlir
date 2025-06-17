@@ -436,7 +436,15 @@ mlir::FailureOr<mlir::tt::SystemDescAttr> mlir::tt::SystemDescAttr::getFromPath(
         supportedDataTypesAttr.push_back(
             tt::DataTypeAttr::get(context, tt::DataType::Int32));
         break;
-      default:
+      // Unsupported data types
+      // We will list the cases here (rather than use `default`) so that
+      // if new supported data types are added, we will get a compile error.
+      case ::tt::target::DataType::Float64:
+      case ::tt::target::DataType::Int64:
+      case ::tt::target::DataType::UInt64:
+      case ::tt::target::DataType::Int16:
+      case ::tt::target::DataType::Int8:
+      case ::tt::target::DataType::Bool:
         break;
       }
     }
