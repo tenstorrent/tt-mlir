@@ -1318,6 +1318,24 @@ class TTIRBuilder:
             unit_attrs=unit_attrs,
         )
 
+    def sort(
+        self,
+        in0: Operand,
+        dim: int = -1,
+        descending: bool = False,
+        stable: bool = False,
+        unit_attrs: List[str] = None,
+    ) -> OpView:
+        kwargs = {"dim": dim, "descending": descending, "stable": stable}
+        return self.op_proxy(
+            torch.sort,
+            ttir.SortOp,
+            [in0],
+            golden_kwargs=kwargs,
+            ttir_kwargs=kwargs,
+            unit_attrs=unit_attrs,
+        )
+
     def transpose(
         self,
         in0: Operand,
