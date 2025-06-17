@@ -29,6 +29,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 
+#include "mlir/IR/TypeRange.h"
 #include <cstdint>
 #include <optional>
 
@@ -470,6 +471,27 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::SoftmaxOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getDimension());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class SortOpConversionPattern : public OpConversionPattern<ttir::SortOp> {
+public:
+  using OpConversionPattern<ttir::SortOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SortOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Type> resultTypes;
+    if (failed(this->getTypeConverter()->convertTypes(op->getResultTypes(),
+                                                      resultTypes))) {
+      return failure();
+    }
+    rewriter.replaceOpWithNewOp<ttnn::SortOp>(
+        op, resultTypes, adaptor.getInput(), adaptor.getDim(),
+        adaptor.getDescending(), adaptor.getStable(), ttnn::MemoryConfigAttr());
     return success();
   }
 };
@@ -1600,6 +1622,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            CumSumOpConversionPattern,
            RepeatInterleaveOpConversionPattern,
            SoftmaxOpConversionPattern,
+           SortOpConversionPattern,
            TransposeOpConversionPattern,
            TypecastOpConversionPattern,
            ClampOpConversionPattern<ttir::ClampScalarOp, ttnn::ClampScalarOp>,

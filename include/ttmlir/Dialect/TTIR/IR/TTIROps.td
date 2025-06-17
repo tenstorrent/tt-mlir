@@ -2770,6 +2770,26 @@ def TTIR_SoftmaxOp : TTIR_NamedOp<"softmax"> {
     let hasVerifier = 1;
 }
 
+def TTIR_SortOp : TTIR_NamedOp<"sort"> {
+  let summary = "Sort operation.";
+  let description = [{
+    sorting
+
+    Example:
+      hello
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       Variadic<AnyRankedTensor>:$output,
+                       DefaultValuedAttr<SI32Attr, "-1">:$dim,
+                       DefaultValuedAttr<BoolAttr, "false">:$descending,
+                       DefaultValuedAttr<BoolAttr, "false">:$stable);
+
+  let results = (outs Variadic<AnyRankedTensor>:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_TransposeOp : TTIR_NamedOp<"transpose", [TTIR_TensorManipulation]> {
     let summary = "Tensor transpose operation.";
     let description = [{
