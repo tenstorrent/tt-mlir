@@ -1,4 +1,4 @@
-add_subdirectory(TT)
+add_subdirectory(TTCore)
 add_subdirectory(TTIR)
 add_subdirectory(TTNN)
 add_subdirectory(TTMetal)

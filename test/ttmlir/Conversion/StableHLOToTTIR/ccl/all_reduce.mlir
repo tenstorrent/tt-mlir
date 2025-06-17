@@ -18,7 +18,7 @@ module {
 
 // CHECK: "ttir.all_reduce"
 // CHECK-SAME: cluster_axis = 1 : ui32
-// CHECK-SAME: reduce_type = #tt.reduce_type<sum>
+// CHECK-SAME: reduce_type = #ttcore.reduce_type<sum>
 // CHECK: "ttir.all_reduce"
 // CHECK-SAME: cluster_axis = 1 : ui32
-// CHECK-SAME: reduce_type = #tt.reduce_type<sum>
+// CHECK-SAME: reduce_type = #ttcore.reduce_type<sum>

@@ -579,6 +579,27 @@ std::uint32_t Binary::getNumPrograms() const {
   LOG_FATAL("Unsupported binary format");
 }
 
+const std::pair<std::uint32_t, std::uint32_t>
+Binary::getProgramMeshShape(std::uint32_t programIndex) const {
+  if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
+          handle.get())) {
+    const tt::target::Dim2d *const mesh_shape =
+        ttnn::getBinary(*this)->programs()->Get(programIndex)->mesh_shape();
+    assert(mesh_shape != nullptr);
+    return std::make_pair(mesh_shape->x(), mesh_shape->y());
+  }
+
+  if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
+          handle.get())) {
+    const tt::target::Dim2d *const mesh_shape =
+        metal::getBinary(*this)->programs()->Get(programIndex)->mesh_shape();
+    assert(mesh_shape != nullptr);
+    return std::make_pair(mesh_shape->x(), mesh_shape->y());
+  }
+
+  LOG_FATAL("Unsupported binary format");
+}
+
 std::string Binary::getProgramName(std::uint32_t programIndex) const {
   if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
           handle.get())) {

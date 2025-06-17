@@ -6,8 +6,8 @@
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TT/IR/Utils.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
@@ -599,6 +599,99 @@ ReluOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 }
 
 //===----------------------------------------------------------------------===//
+// SinOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints>
+SinOpInterface::getOpConstraints(GridAttr deviceGrid,
+                                 llvm::ArrayRef<int64_t> inputShape,
+                                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                                 llvm::ArrayRef<int64_t> outputShape,
+                                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseUnaryOpConstraints("SinOpInterface", ::ttnn::sin, deviceGrid,
+                                      inputShape, inputLayout, outputShape,
+                                      outputLayout);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+SinOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                             mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                             llvm::ArrayRef<int64_t> outputShape,
+                             mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseUnaryOpRuntime("SinOpInterface", ::ttnn::sin, inputShape,
+                                  inputLayout, outputShape, outputLayout);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// CosOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints>
+CosOpInterface::getOpConstraints(GridAttr deviceGrid,
+                                 llvm::ArrayRef<int64_t> inputShape,
+                                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                                 llvm::ArrayRef<int64_t> outputShape,
+                                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseUnaryOpConstraints("CosOpInterface", ::ttnn::cos, deviceGrid,
+                                      inputShape, inputLayout, outputShape,
+                                      outputLayout);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+CosOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                             mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                             llvm::ArrayRef<int64_t> outputShape,
+                             mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseUnaryOpRuntime("CosOpInterface", ::ttnn::cos, inputShape,
+                                  inputLayout, outputShape, outputLayout);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// ReciprocalOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> ReciprocalOpInterface::getOpConstraints(
+    GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseUnaryOpConstraints(
+      "ReciprocalOpInterface", ::ttnn::reciprocal, deviceGrid, inputShape,
+      inputLayout, outputShape, outputLayout);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> ReciprocalOpInterface::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return getEltwiseUnaryOpRuntime("ReciprocalOpInterface", ::ttnn::reciprocal,
+                                  inputShape, inputLayout, outputShape,
+                                  outputLayout);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // SqrtOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints>
@@ -1168,6 +1261,79 @@ ToLayoutOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   };
 
   return operation::getOpRuntime("ToLayoutOpInterface", toLayoutOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// ConcatOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> ConcatOpInterface::getOpConstraints(
+    GridAttr deviceGrid, std::vector<llvm::ArrayRef<int64_t>> inputShapes,
+    std::vector<mlir::tt::ttnn::TTNNLayoutAttr> inputLayouts, const int dim,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  assert(inputShapes.size() == inputLayouts.size());
+  size_t numInputs = inputShapes.size();
+
+  std::vector<::ttnn::TensorSpec> inputSpecs;
+  for (size_t i = 0; i < numInputs; ++i) {
+    auto inputSpecExp =
+        detail::convertToTensorSpec(device, inputShapes[i], inputLayouts[i]);
+    if (!inputSpecExp) {
+      return inputSpecExp.takeError();
+    }
+    inputSpecs.push_back(inputSpecExp.get());
+  }
+
+  // Create query closure
+  auto concatOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::concat, device, inputSpecs, dim,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints("ConcatOpInterface",
+                                     inputLayouts[0].getContext(), deviceGrid,
+                                     concatOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> ConcatOpInterface::getOpRuntime(
+    std::vector<llvm::ArrayRef<int64_t>> inputShapes,
+    std::vector<mlir::tt::ttnn::TTNNLayoutAttr> inputLayouts, const int dim,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  assert(inputShapes.size() == inputLayouts.size());
+  size_t numInputs = inputShapes.size();
+
+  std::vector<::ttnn::TensorSpec> inputSpecs;
+  for (size_t i = 0; i < numInputs; ++i) {
+    auto inputSpecExp =
+        detail::convertToTensorSpec(device, inputShapes[i], inputLayouts[i]);
+    if (!inputSpecExp) {
+      return inputSpecExp.takeError();
+    }
+    inputSpecs.push_back(inputSpecExp.get());
+  }
+
+  // Create query closure
+  auto concatOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::concat, device, inputSpecs, dim,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime("ConcatOpInterface", concatOpQuery);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL

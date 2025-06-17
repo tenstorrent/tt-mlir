@@ -232,6 +232,23 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 }; // namespace ToLayoutOpInterface
 
 //===----------------------------------------------------------------------===//
+// ConcatOp
+//===----------------------------------------------------------------------===//
+
+namespace ConcatOpInterface {
+llvm::Expected<OpConstraints>
+getOpConstraints(GridAttr deviceGrid,
+                 std::vector<llvm::ArrayRef<int64_t>> inputShapes,
+                 std::vector<mlir::tt::ttnn::TTNNLayoutAttr> inputLayouts,
+                 const int dim, mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+llvm::Expected<size_t>
+getOpRuntime(std::vector<llvm::ArrayRef<int64_t>> inputShapes,
+             std::vector<mlir::tt::ttnn::TTNNLayoutAttr> inputLayouts,
+             const int dim, mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+}; // namespace ConcatOpInterface
+
+//===----------------------------------------------------------------------===//
 // TransposeOp
 //===----------------------------------------------------------------------===//
 
@@ -475,6 +492,57 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
              llvm::ArrayRef<int64_t> outputShape,
              mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 } // namespace MinimumOpInterface
+
+//===----------------------------------------------------------------------===//
+// SinOp
+//===----------------------------------------------------------------------===//
+namespace SinOpInterface {
+llvm::Expected<OpConstraints>
+getOpConstraints(GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                 llvm::ArrayRef<int64_t> outputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+llvm::Expected<size_t>
+getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+             llvm::ArrayRef<int64_t> outputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+}; // namespace SinOpInterface
+
+//===----------------------------------------------------------------------===//
+// CosOp
+//===----------------------------------------------------------------------===//
+namespace CosOpInterface {
+llvm::Expected<OpConstraints>
+getOpConstraints(GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                 llvm::ArrayRef<int64_t> outputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+llvm::Expected<size_t>
+getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+             llvm::ArrayRef<int64_t> outputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+}; // namespace CosOpInterface
+
+//===----------------------------------------------------------------------===//
+// ReciprocalOp
+//===----------------------------------------------------------------------===//
+namespace ReciprocalOpInterface {
+llvm::Expected<OpConstraints>
+getOpConstraints(GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                 llvm::ArrayRef<int64_t> outputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+llvm::Expected<size_t>
+getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+             llvm::ArrayRef<int64_t> outputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+}; // namespace ReciprocalOpInterface
 
 } // namespace mlir::tt::op_model::ttnn
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H

@@ -2,11 +2,11 @@
 
 // This test just checks that various dma assembly syntaxes are parsed correctly.
 
-#dram = #tt.memory_space<dram>
-#l1_ = #tt.memory_space<l1>
+#dram = #ttcore.memory_space<dram>
+#l1_ = #ttcore.memory_space<l1>
 #map = affine_map<(d0, d1) -> (d0, d1)>
-#parallel = #tt.iterator_type<parallel>
-#reduction = #tt.iterator_type<reduction>
+#parallel = #ttcore.iterator_type<parallel>
+#reduction = #ttcore.iterator_type<reduction>
 
 func.func @parse(%remote_src: memref<2x4x2x2xf32, #dram>,
                  %remote_dst: memref<2x4x2x2xf32, #dram>,

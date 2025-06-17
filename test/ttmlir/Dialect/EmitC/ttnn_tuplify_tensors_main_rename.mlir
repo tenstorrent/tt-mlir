@@ -1,6 +1,6 @@
 // RUN: ttmlir-opt
 //  --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%"
-//  --tt-unwrap-device-module --ttnn-tuplify-tensors %s
+//  --ttcore-unwrap-device-module --ttnn-tuplify-tensors %s
 //  | FileCheck %s
 
 // If the function is named `main`, it has to be renamed, otherwise compiler

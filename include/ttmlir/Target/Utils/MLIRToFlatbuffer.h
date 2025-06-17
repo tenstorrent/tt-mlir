@@ -5,8 +5,8 @@
 #ifndef TTMLIR_TARGET_UTILS_MLIRTOFLATBUFFER_H
 #define TTMLIR_TARGET_UTILS_MLIRTOFLATBUFFER_H
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TT/Utils/CoreRangeSet.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/TTNN/Target.h"
@@ -38,6 +38,28 @@ struct GoldenTensor {
   // Create an explicit empty constructor
   GoldenTensor() = default;
 };
+
+/**
+ * Given a `DeviceAttr`, returns a flatbuffer representation (i.e. a `Dim2d`) of
+ * the mesh shape of the device.
+ *
+ * If no mesh shape is specified (i.e. the mesh
+ * shape is an empty array), then the default value of 1x1 will be returned.
+ */
+inline ::tt::target::Dim2d deviceToFlatbufferMeshShape(const DeviceAttr attr) {
+  assert(attr);
+  ArrayRef<int64_t> meshShapeArr = attr.getMeshShape();
+  ::tt::target::Dim2d meshShape;
+
+  // Default to 1x1 if not specified.
+  if (meshShapeArr.empty()) {
+    meshShape = ::tt::target::Dim2d(1, 1);
+  } else {
+    assert(meshShapeArr.size() == 2 && "Ill-Sized Mesh Shape");
+    meshShape = ::tt::target::Dim2d(meshShapeArr[0], meshShapeArr[1]);
+  }
+  return meshShape;
+}
 
 inline flatbuffers::Offset<::tt::target::MLIR>
 toDebugInfo(::flatbuffers::FlatBufferBuilder &fbb, const std::string &name,
@@ -231,6 +253,8 @@ inline ::tt::target::MemorySpace toFlatbuffer(FlatbufferObjectCache &,
     return ::tt::target::MemorySpace::DeviceDRAM;
   case MemorySpace::DeviceL1:
     return ::tt::target::MemorySpace::DeviceL1;
+  case MemorySpace::RegisterDst:
+    llvm_unreachable("MemorySpace::RegisterDst not supported");
   }
 }
 

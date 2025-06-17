@@ -5,7 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTMETAL_PIPELINES_TTMETALPIPELINES_H
 #define TTMLIR_DIALECT_TTMETAL_PIPELINES_TTMETALPIPELINES_H
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 #include "mlir/Pass/PassOptions.h"
 

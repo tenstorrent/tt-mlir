@@ -88,38 +88,4 @@ bool TraceCache::erase(uint64_t binaryId, size_t programId,
   return true;
 }
 
-std::optional<size_t>
-TraceCache::getDebugStat(const std::string &statName) const {
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  auto it = stats.find(statName);
-  if (it != stats.end()) {
-    return it->second;
-  }
-#endif
-  return std::nullopt;
-}
-
-void TraceCache::incrementDebugStat(const std::string &statName) const {
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  stats[statName]++;
-#endif
-}
-
-void TraceCache::printDebugStats() const {
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  std::ostringstream ss;
-  ss << "TraceCache Debug Stats:\n";
-  for (const auto &[statName, value] : stats) {
-    ss << "  " << statName << ": " << value << "\n";
-  }
-  LOG_DEBUG(ss.str());
-#endif
-}
-
-void TraceCache::clearDebugStats() const {
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  stats.clear();
-#endif
-}
-
 } // namespace tt::runtime::ttnn

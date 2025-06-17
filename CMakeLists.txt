@@ -87,13 +87,6 @@ set(Python3_EXECUTABLE $ENV{TTMLIR_VENV_DIR}/bin/python3)
 include(FindMLIR)
 include(TTMLIRVersion)
 
-if (CMAKE_BUILD_TYPE STREQUAL "Asan")
-  # Address sanitization does not work with python bindings.
-  if(MLIR_ENABLE_BINDINGS_PYTHON AND TTMLIR_ENABLE_BINDINGS_PYTHON)
-    message(FATAL_ERROR "TTMLIR_ENABLE_BINDINGS_PYTHON must be set to OFF when building TTMLIR with address sanitization")
-  endif()
-endif()
-
 add_library(coverage_config INTERFACE)
 if(CODE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   # Add required flags (GCC & LLVM/Clang)

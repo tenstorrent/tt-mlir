@@ -5,7 +5,7 @@
 # RUN: %python %s | FileCheck %s
 
 from ttmlir.ir import *
-from ttmlir.dialects import tt, ttir
+from ttmlir.dialects import ttcore, ttir
 
 with Context() as ctx:
 

@@ -4,7 +4,7 @@
 
 #include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
@@ -25,10 +25,11 @@ void registerTTKernelToCpp() {
         return translateTopLevelKernelsToCpp(mlir::cast<ModuleOp>(op), os);
       },
       [](DialectRegistry &registry) {
-        registry.insert<mlir::tt::ttkernel::TTKernelDialect,
-                        mlir::tt::ttmetal::TTMetalDialect, mlir::tt::TTDialect,
-                        mlir::tt::ttir::TTIRDialect, mlir::emitc::EmitCDialect,
-                        mlir::memref::MemRefDialect, mlir::func::FuncDialect>();
+        registry
+            .insert<mlir::tt::ttkernel::TTKernelDialect,
+                    mlir::tt::ttmetal::TTMetalDialect, mlir::tt::TTCoreDialect,
+                    mlir::tt::ttir::TTIRDialect, mlir::emitc::EmitCDialect,
+                    mlir::memref::MemRefDialect, mlir::func::FuncDialect>();
       });
 }
 

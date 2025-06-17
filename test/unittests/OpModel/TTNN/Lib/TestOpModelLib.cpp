@@ -4,7 +4,7 @@
 
 #include "OpModelFixture.h"
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpConstraints.h"
@@ -63,7 +63,7 @@ const TestTensor inerleaved2048X2048L1 = {
 } // namespace detail
 
 // ==== Unary Eltwise Ops Starts ====
-enum class UnaryEltwiseOpType { Relu, Sqrt, Sigmoid };
+enum class UnaryEltwiseOpType { Relu, Sqrt, Sigmoid, Sin, Cos, Reciprocal };
 
 class OpModelUnaryEltwiseParam : public OpModelTest,
                                  public testing::WithParamInterface<
@@ -80,6 +80,9 @@ protected:
           {UnaryEltwiseOpType::Relu, ReluOpInterface::getOpRuntime},
           {UnaryEltwiseOpType::Sqrt, SqrtOpInterface::getOpRuntime},
           {UnaryEltwiseOpType::Sigmoid, SigmoidOpInterface::getOpRuntime},
+          {UnaryEltwiseOpType::Sin, SinOpInterface::getOpRuntime},
+          {UnaryEltwiseOpType::Cos, CosOpInterface::getOpRuntime},
+          {UnaryEltwiseOpType::Reciprocal, ReciprocalOpInterface::getOpRuntime},
       };
   std::map<
       UnaryEltwiseOpType,
@@ -90,6 +93,10 @@ protected:
           {UnaryEltwiseOpType::Relu, ReluOpInterface::getOpConstraints},
           {UnaryEltwiseOpType::Sqrt, SqrtOpInterface::getOpConstraints},
           {UnaryEltwiseOpType::Sigmoid, SigmoidOpInterface::getOpConstraints},
+          {UnaryEltwiseOpType::Sin, SinOpInterface::getOpConstraints},
+          {UnaryEltwiseOpType::Cos, CosOpInterface::getOpConstraints},
+          {UnaryEltwiseOpType::Reciprocal,
+           ReciprocalOpInterface::getOpConstraints},
       };
   void RunTest() {
     auto params = GetParam();
@@ -210,6 +217,19 @@ INSTANTIATE_TEST_SUITE_P(SqrtTests, OpModelUnaryEltwiseParam,
 INSTANTIATE_TEST_SUITE_P(SigmoidTests, OpModelUnaryEltwiseParam,
                          generateBinaryEltwiseParams(
                              UnaryEltwiseOpType::Sigmoid, unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(SinTests, OpModelUnaryEltwiseParam,
+                         generateBinaryEltwiseParams(UnaryEltwiseOpType::Sin,
+                                                     unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(CosTests, OpModelUnaryEltwiseParam,
+                         generateBinaryEltwiseParams(UnaryEltwiseOpType::Cos,
+                                                     unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(
+    ReciprocalTests, OpModelUnaryEltwiseParam,
+    generateBinaryEltwiseParams(UnaryEltwiseOpType::Reciprocal,
+                                unaryEltwiseParams));
 
 // ==== Unary Eltwise Ops Ends ====
 
@@ -483,6 +503,31 @@ TEST_F(OpModelTest, ToLayout) {
 
   runtimeExp = ToLayoutOpInterface::getOpRuntime(
       tensorShape, layoutDRAMTiled, std::nullopt, layoutDRAMRowMajor, false);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+}
+
+TEST_F(OpModelTest, Concat) {
+  const llvm::SmallVector<int64_t> inputTensorShape = {workerCoresN300, 1024};
+  const mlir::tt::ttnn::TTNNLayoutAttr layoutDRAM =
+      CreateTiledLayout(inputTensorShape, mlir::tt::ttnn::BufferType::DRAM,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  const mlir::tt::ttnn::TTNNLayoutAttr layoutL1Interleaved =
+      CreateTiledLayout(inputTensorShape, mlir::tt::ttnn::BufferType::L1,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = ConcatOpInterface::getOpConstraints(
+      CreateWorkerGrid(), {inputTensorShape, inputTensorShape},
+      {layoutL1Interleaved, layoutL1Interleaved}, 0, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 4096);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  auto runtimeExp = ConcatOpInterface::getOpRuntime(
+      {inputTensorShape, inputTensorShape},
+      {layoutL1Interleaved, layoutL1Interleaved}, 0, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
