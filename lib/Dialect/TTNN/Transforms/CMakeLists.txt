@@ -31,4 +31,5 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         MLIRTTNNDialect
         MLIRTTNNAnalysis
         MLIRTTCoreDialect
+        MLIRTargetCpp
         )

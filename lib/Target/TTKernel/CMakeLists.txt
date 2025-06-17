@@ -11,4 +11,5 @@ add_mlir_translation_library(TTKernelTargetCpp
     LINK_LIBS PUBLIC
     MLIRTTKernelDialect
     MLIRTTIRDialect
+    MLIRTargetCpp
 )
