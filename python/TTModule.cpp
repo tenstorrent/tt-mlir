@@ -22,6 +22,7 @@ void populateTTModule(nb::module_ &m) {
                      uint32_t oobValValue, uint32_t memorySpaceValue) {
                     return wrap(tt::MetalLayoutAttr::get(
                         unwrap(ctx), ArrayRef<int64_t>(logicalShape),
+                        logicalShape.size(),
                         static_cast<tt::OOBVal>(oobValValue),
                         static_cast<tt::MemorySpace>(memorySpaceValue)));
                   })

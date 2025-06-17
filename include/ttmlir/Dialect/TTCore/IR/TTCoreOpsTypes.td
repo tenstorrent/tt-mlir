@@ -308,10 +308,10 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     Examples:
     ```mlir
     // Logical 8x300 tensor distributed across 1x2 grid:
-    // tensor<1x2x8x150xf32, #tt.metal_layout<logical_shape=[8, 300], ...>>
+    // tensor<1x2x8x150xf32, #tt.metal_layout<logical_shape=8x300, ...>>
 
     // Logical 1024x1024 tensor distributed across 2x2 grid with 32x32 tiles:
-    // tensor<2x2x16x16x32x32xf32, #tt.metal_layout<logical_shape=[1024, 1024], tile_shape=[32, 32], ...>>
+    // tensor<2x2x16x16x!ttcore.tile<32x32xf32>, #tt.metal_layout<logical_shape=1024x1024, ...>>
     ```
   }];
 
@@ -335,16 +335,12 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
   let assemblyFormat = "`<` `logical_shape` `=` custom<DimensionList>($logical_shape) `,` `dim_alignments` `=` custom<DimensionList>($dim_alignments) `,` `collapse_dims` `=` $collapse_intervals `,` $oob_val (`,` $memory_space^)? `>`";
 
   let extraClassDeclaration = [{
-    static MetalLayoutAttr get(::mlir::MLIRContext *context,
-                                     ArrayRef<int64_t> logicalShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
-                                     DenseIntElementsAttr collapseIntervals = {},
-                                     llvm::SmallVector<int64_t> dimAlignments = {});
-
     static  MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      uint64_t deviceGridRank,
-                                     OOBVal oobVal, MemorySpace memorySpace);
+                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     DenseIntElementsAttr collapseIntervals = {},
+                                     ArrayRef<int64_t> dimAlignments = {});
 
     // Derive the physical tensor shape from logical shape and grid.
     static llvm::SmallVector<int64_t> derivePhysicalShape(
@@ -359,6 +355,8 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
 
     // Stride calculations for shard portion.
     llvm::SmallVector<int64_t> getShardStride(RankedTensorType tensorType) const;
+
+    llvm::SmallVector<int64_t> getNormalizedIntervals() const;
   }];
 }
 

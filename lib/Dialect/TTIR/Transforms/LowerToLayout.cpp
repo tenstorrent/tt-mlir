@@ -92,7 +92,7 @@ public:
            "one of input or output must be tiled for now");
 
     rewriter.replaceOpWithNewOp<GenericOp>(
-        op, ValueRange{op.getInput()}, ValueRange{op.getOutput()},
+        op, op.getInput(), op.getOutput(),
         [=](OpBuilder &builder, Location loc, ValueRange blockArgs) {
           if (inputTiled) {
             builder.create<TileUntilizeBlockOp>(loc, blockArgs[0],
@@ -177,6 +177,7 @@ public:
       auto tempGrid = maybeBaseLayout.getGridShape(baseType);
       gridShape.assign(tempGrid.begin(), tempGrid.end());
     } else {
+
       gridShape.assign(baseType.getRank(), 1);
     }
 
@@ -189,10 +190,13 @@ public:
     auto newLayout =
         baseTypeHasLayout
             ? MetalLayoutAttr::get(ctx, baseLayout.getLogicalShape(),
-                                   baseLayout.getOobVal(), memSpace,
-                                   maybeBaseLayout.getCollapseIntervals())
+                                   gridShape.size(), baseLayout.getOobVal(),
+                                   memSpace,
+                                   maybeBaseLayout.getCollapseIntervals(),
+                                   maybeBaseLayout.getDimAlignments())
             : MetalLayoutAttr::get(ctx, baseLayout.getLogicalShape(),
-                                   baseLayout.getOobVal(), memSpace);
+                                   gridShape.size(), baseLayout.getOobVal(),
+                                   memSpace);
 
     // For physical shape derivation, use tile shape ONLY if element type is
     // tiled

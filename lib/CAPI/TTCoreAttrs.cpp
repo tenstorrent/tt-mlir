@@ -134,7 +134,7 @@ MlirAttribute ttmlirTTMetalLayoutAttrGet(MlirContext ctx, intptr_t logicalRank,
 
   llvm::ArrayRef<int64_t> logicalShapeRef(logicalShape, logicalRank);
 
-  return wrap(MetalLayoutAttr::get(unwrap(ctx), logicalShapeRef,
+  return wrap(MetalLayoutAttr::get(unwrap(ctx), logicalShapeRef, logicalRank,
                                    static_cast<OOBVal>(oobVal),
                                    static_cast<MemorySpace>(memorySpace)));
 }
