@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
 #ifndef TTMLIR_TTMLIR_DIALECT_EMITPY_EMITPYOPS_TD
 #define TTMLIR_TTMLIR_DIALECT_EMITPY_EMITPYOPS_TD
 
