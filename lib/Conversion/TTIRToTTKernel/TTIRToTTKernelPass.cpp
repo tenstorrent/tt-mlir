@@ -84,8 +84,7 @@ struct ConvertTTIRToTTKernel
       if (tt::getMemorySpace(memref) == tt::MemorySpace::RegisterDst) {
         return IndexType::get(memref.getContext());
       }
-      return ttkernel::CBType::get(
-          memref.getContext(), ttkernel::symbolizeCBPort(0).value(), 0, memref);
+      return ttkernel::CBType::get(memref.getContext(), memref);
     });
     typeConverter.addConversion([](ttir::SemaphoreType semaphore) {
       return ttkernel::SemaphoreType::get(semaphore.getContext());
