@@ -23,7 +23,7 @@ add_custom_target(pykernel-demo
 
 add_custom_command(TARGET pykernel-demo
     COMMENT "Installing Requirements for Demo"
-    COMMAND PIP_EXTRA_INDEX_URL="https://download.pytorch.org/whl/cpu" pip install -r ${CMAKE_CURRENT_BINARY_DIR}/requirements.txt
+    COMMAND PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu pip install -r ${CMAKE_CURRENT_BINARY_DIR}/requirements.txt
 )
 
 # Run the test
