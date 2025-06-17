@@ -5,7 +5,9 @@
 #ifndef TT_RUNTIME_TENSOR_CACHE_H
 #define TT_RUNTIME_TENSOR_CACHE_H
 
+#include "tt/runtime/debug.h"
 #include "tt/runtime/types.h"
+#include "tt/runtime/utils.h"
 
 #include <cstdint>
 #include <mutex>
@@ -62,22 +64,22 @@ public:
     std::shared_lock<std::shared_mutex> lock(cacheMutex);
     auto it = cache.find(parentFuncName);
     if (it == cache.end()) {
-      ++stats["misses"];
+      debug::Stats::get().incrementStat("ConstEvalCacheMiss");
       return nullptr;
     }
 
     auto internalIt = it->second.find(constEvalFuncName);
     if (internalIt == it->second.end()) {
-      ++stats["misses"];
+      debug::Stats::get().incrementStat("ConstEvalCacheMiss");
       return nullptr;
     }
 
     const CacheValue &value = internalIt->second;
     if (value.inputVersions != inputVersions) {
-      ++stats["misses"];
+      debug::Stats::get().incrementStat("ConstEvalCacheMiss");
       return nullptr;
     }
-    ++stats["hits"];
+    debug::Stats::get().incrementStat("ConstEvalCacheHit");
     return &value.tensors;
   }
 
@@ -104,9 +106,6 @@ public:
   // Get the size of the cache (number of entries)
   size_t size() const { return cache.size(); }
 
-  // Get cache statistics
-  std::unordered_map<std::string, size_t> getStats() const { return stats; }
-
   // Remove all const-eval funcs associated with a given outer key.
   void remove(const std::string &outerKey) {
     std::unique_lock<std::shared_mutex> lock(cacheMutex);
@@ -127,8 +126,6 @@ private:
   // generateCacheOuterKey. Inner key will be const-eval func name.
   std::unordered_map<std::string, std::unordered_map<std::string, CacheValue>>
       cache;
-  // TODO(#2986): collect stats only if appropriate macros are set.
-  mutable std::unordered_map<std::string, size_t> stats;
 };
 
 } // namespace tt::runtime

@@ -12,6 +12,8 @@
 #include <string_view>
 #include <vector>
 
+#include "tt/runtime/utils.h"
+
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wcovered-switch-default"
 #include "ttmlir/Target/Common/debug_info_generated.h"
@@ -67,10 +69,12 @@ struct ObjectImpl {
   ObjectImpl(std::shared_ptr<void> handle) : handle(handle) {}
   template <typename T>
   T &as() {
+    assert(handle && "Handle should not be null");
     return *static_cast<T *>(handle.get());
   }
   template <typename T>
   const T &as() const {
+    assert(handle && "Handle should not be null");
     return *static_cast<const T *>(handle.get());
   }
 };
@@ -94,12 +98,14 @@ struct RuntimeCheckedObjectImpl {
 
   template <typename T>
   T &as(DeviceRuntime expectedRuntime) {
+    assert(handle && "Handle should not be null");
     assertMatchesRuntime(expectedRuntime);
     return *static_cast<T *>(handle.get());
   }
 
   template <typename T>
   const T &as(DeviceRuntime expectedRuntime) const {
+    assert(handle && "Handle should not be null");
     assertMatchesRuntime(expectedRuntime);
     return *static_cast<const T *>(handle.get());
   }
@@ -118,18 +124,30 @@ struct TensorDesc {
   std::vector<std::uint32_t> stride;
   std::uint32_t itemsize;
   ::tt::target::DataType dataType;
+  std::int64_t alignment = 1;
 
   TensorDesc() = default;
   TensorDesc(const std::vector<std::uint32_t> &shape,
              const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
-             ::tt::target::DataType dataType)
-      : shape(shape), stride(stride), itemsize(itemsize), dataType(dataType) {}
+             ::tt::target::DataType dataType, std::int64_t alignment = 1)
+      : shape(shape), stride(stride), itemsize(itemsize), dataType(dataType),
+        alignment(alignment) {}
+  TensorDesc(const std::vector<std::uint32_t> &shape,
+             const std::vector<std::uint32_t> &stride,
+             ::tt::target::DataType dataType, std::int64_t alignment = 1)
+      : TensorDesc(shape, stride, utils::dataTypeElementSize(dataType),
+                   dataType, alignment) {}
+  TensorDesc(const std::vector<std::uint32_t> &shape,
+             ::tt::target::DataType dataType, std::int64_t alignment = 1)
+      : TensorDesc(shape, utils::calculateStride(shape), dataType, alignment) {}
 
   std::int64_t volume() const {
     return std::accumulate(shape.begin(), shape.end(), static_cast<int64_t>(1),
                            std::multiplies<int64_t>());
   }
-  std::int64_t sizeBytes() const { return volume() * itemsize; }
+  std::int64_t sizeBytes() const {
+    return utils::alignUp(volume() * itemsize, alignment);
+  }
 };
 
 struct MemoryView {
@@ -149,6 +167,10 @@ struct MeshDeviceOptions {
   std::optional<size_t> l1SmallSize = std::nullopt;
   std::optional<size_t> traceRegionSize = std::nullopt;
   std::optional<DispatchCoreType> dispatchCoreType = std::nullopt;
+};
+
+struct TraceCache : public detail::RuntimeCheckedObjectImpl {
+  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
 };
 
 struct Flatbuffer : public detail::ObjectImpl {
@@ -208,17 +230,35 @@ struct Binary : public Flatbuffer {
   std::vector<TensorDesc> getProgramInputs(std::uint32_t programIndex) const;
   std::vector<TensorDesc> getProgramOutputs(std::uint32_t programIndex) const;
   const ::tt::target::GoldenTensor *getDebugInfoGolden(std::string &loc) const;
+  const std::pair<std::uint32_t, std::uint32_t>
+  getProgramMeshShape(std::uint32_t programIndex) const;
+
+  std::uint64_t id() const;
 
   // Get the tensor cache associated with this binary
-  std::shared_ptr<TensorCache> getCache() { return cache; }
+  std::shared_ptr<TensorCache> getConstEvalTensorCache() { return tensorCache; }
 
 private:
+  std::uint64_t nextBinaryId();
+
+  std::uint64_t binaryId;
+
   // The tensor cache associated with this binary
-  std::shared_ptr<TensorCache> cache;
+  std::shared_ptr<TensorCache> tensorCache;
 };
 
 struct Device : public detail::RuntimeCheckedObjectImpl {
-  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
+
+  Device(std::shared_ptr<void> handle, std::shared_ptr<TraceCache> traceCache,
+         DeviceRuntime runtime)
+      : detail::RuntimeCheckedObjectImpl(handle, runtime),
+        traceCache(traceCache) {}
+
+  std::shared_ptr<TraceCache> getTraceCache() { return traceCache; }
+
+private:
+  // The trace cache associated with this device.
+  std::shared_ptr<TraceCache> traceCache;
 };
 
 struct Event : public detail::RuntimeCheckedObjectImpl {

@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
-
 #include "tt/runtime/detail/test/ttnn/utils.h"
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/ttnn/trace_cache.h"
 #include "tt/runtime/detail/ttnn/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/runtime.h"
@@ -23,6 +23,7 @@ Layout getDramInterleavedTileLayout(::tt::target::DataType dataType) {
           std::make_shared<::tt::runtime::ttnn::LayoutDesc>(layoutDesc)),
       DeviceRuntime::TTNN);
 }
+
 Layout getDramInterleavedRowMajorLayout(::tt::target::DataType dataType) {
   LOG_ASSERT(getCurrentRuntime() == DeviceRuntime::TTNN);
   ::ttnn::DataType ttnnDataType =
@@ -35,6 +36,7 @@ Layout getDramInterleavedRowMajorLayout(::tt::target::DataType dataType) {
           std::make_shared<::tt::runtime::ttnn::LayoutDesc>(layoutDesc)),
       DeviceRuntime::TTNN);
 }
+
 ::tt::runtime::Layout getHostRowMajorLayout(::tt::target::DataType dataType) {
   LOG_ASSERT(getCurrentRuntime() == DeviceRuntime::TTNN);
   ::ttnn::DataType ttnnDataType =

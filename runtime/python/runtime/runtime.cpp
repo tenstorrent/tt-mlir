@@ -4,7 +4,8 @@
 
 #include <sstream>
 
-#include "tt/runtime/detail/debug.h"
+#include "tt/runtime/debug.h"
+#include "tt/runtime/perf.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
@@ -37,6 +38,7 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def("get_num_dram_channels", &tt::runtime::getNumDramChannels)
       .def("get_dram_size_per_channel", &tt::runtime::getDramSizePerChannel)
       .def("get_l1_size_per_core", &tt::runtime::getL1SizePerCore)
+      .def("release_trace", &tt::runtime::releaseTrace)
       .def("deallocate_buffers", &tt::runtime::detail::deallocateBuffers)
       .def("dump_memory_report", &tt::runtime::detail::dumpMemoryReport)
       .def("dump_device_profile_results",
@@ -304,8 +306,6 @@ void registerRuntimeBindings(nb::module_ &m) {
         "Get the debug string of the op");
   m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,
         "Get the location info of the op");
-  m.def("get_debug_info_golden", &::tt::runtime::Binary::getDebugInfoGolden,
-        nb::rv_policy::reference, "Get the debug info golden tensor");
   m.def(
       "memcpy",
       [](std::uintptr_t dst, ::tt::runtime::Tensor src) {
@@ -332,9 +332,9 @@ void registerRuntimeBindings(nb::module_ &m) {
         return os.str();
       });
 
-  nb::class_<tt::runtime::debug::PerfEnv>(m, "DebugPerfEnv")
-      .def_static("get", &tt::runtime::debug::PerfEnv::get)
-      .def("__str__", [](const tt::runtime::debug::PerfEnv &env) {
+  nb::class_<tt::runtime::perf::Env>(m, "PerfEnv")
+      .def_static("get", &tt::runtime::perf::Env::get)
+      .def("__str__", [](const tt::runtime::perf::Env &env) {
         std::stringstream os;
         os << env;
         return os.str();
@@ -365,6 +365,21 @@ void registerRuntimeBindings(nb::module_ &m) {
         os << hooks;
         return os.str();
       });
+
+  nb::class_<tt::runtime::debug::Stats>(m, "DebugStats")
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+      .def_static("get", &tt::runtime::debug::Stats::get,
+                  nb::rv_policy::reference)
+#else
+      .def_static("get", &tt::runtime::debug::Stats::get)
+#endif
+      .def("increment_stat", &tt::runtime::debug::Stats::incrementStat,
+           nb::arg("stat"), nb::arg("value") = 1)
+      .def("get_stat", &tt::runtime::debug::Stats::getStat, nb::arg("stat"))
+      .def("remove_stat", &tt::runtime::debug::Stats::removeStat,
+           nb::arg("stat"))
+      .def("clear", &tt::runtime::debug::Stats::clear)
+      .def("__str__", &tt::runtime::debug::Stats::toString);
 
   nb::class_<tt::runtime::workaround::Env>(m, "WorkaroundEnv")
       .def_static("get", &tt::runtime::workaround::Env::get)

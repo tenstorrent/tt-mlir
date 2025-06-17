@@ -170,6 +170,28 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 }; // namespace ReshapeOpInterface
 
 //===----------------------------------------------------------------------===//
+// SliceOp
+//===----------------------------------------------------------------------===//
+
+namespace SliceOpInterface {
+llvm::Expected<OpConstraints>
+getOpConstraints(GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                 llvm::ArrayRef<int64_t> begins, llvm::ArrayRef<int64_t> ends,
+                 llvm::ArrayRef<int64_t> step,
+                 llvm::ArrayRef<int64_t> outputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+llvm::Expected<size_t>
+getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+             llvm::ArrayRef<int64_t> begins, llvm::ArrayRef<int64_t> ends,
+             llvm::ArrayRef<int64_t> step, llvm::ArrayRef<int64_t> outputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+}; // namespace SliceOpInterface
+
+//===----------------------------------------------------------------------===//
 // TypecastOp
 //===----------------------------------------------------------------------===//
 
@@ -208,6 +230,23 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
              mlir::tt::ttnn::TTNNLayoutAttr outputLayout, bool passDevicePtr);
 
 }; // namespace ToLayoutOpInterface
+
+//===----------------------------------------------------------------------===//
+// ConcatOp
+//===----------------------------------------------------------------------===//
+
+namespace ConcatOpInterface {
+llvm::Expected<OpConstraints>
+getOpConstraints(GridAttr deviceGrid,
+                 std::vector<llvm::ArrayRef<int64_t>> inputShapes,
+                 std::vector<mlir::tt::ttnn::TTNNLayoutAttr> inputLayouts,
+                 const int dim, mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+llvm::Expected<size_t>
+getOpRuntime(std::vector<llvm::ArrayRef<int64_t>> inputShapes,
+             std::vector<mlir::tt::ttnn::TTNNLayoutAttr> inputLayouts,
+             const int dim, mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+}; // namespace ConcatOpInterface
 
 //===----------------------------------------------------------------------===//
 // TransposeOp

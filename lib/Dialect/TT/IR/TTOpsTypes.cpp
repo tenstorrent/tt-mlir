@@ -32,16 +32,6 @@ using namespace mlir::tt;
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.cpp.inc"
 
-unsigned mlir::tt::ChipDescAttr::getScratchL1RegionSize() const {
-  // 4KB is the default size for the scratch L1 region.
-  constexpr uint32_t kScratchL1RegionSize = 1 << 12;
-  return kScratchL1RegionSize;
-}
-
-unsigned mlir::tt::ChipDescAttr::getScratchL1RegionAddress() const {
-  return getL1Size() - getScratchL1RegionSize();
-}
-
 mlir::tt::SystemDescAttr createDefaultBlackholeSystemDesc(
     mlir::MLIRContext *context, const ::llvm::SmallVector<int64_t> &meshShape) {
   // Set default values

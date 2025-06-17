@@ -7,6 +7,7 @@ import inspect
 import functools
 import textwrap
 import os
+
 from ttmlir.ir import *
 from ttmlir.dialects import tt, ttkernel, func, scf, arith, memref, emitc
 from ttmlir.passes import ttkernel_to_cpp, pykernel_compile_pipeline

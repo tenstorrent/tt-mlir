@@ -35,16 +35,9 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
              "Memory config must exist for device tensors");
 
   ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
-  ::ttnn::Tensor out;
-  try {
-    out = ::ttnn::reduce_scatter(
-        input, scatterDimension, clusterAxis, meshDevice, reduceType, numLinks,
-        outputMemoryConfig, ::ttnn::ccl::Topology::Linear);
-  } catch (const std::exception &e) {
-    auto bt = ::tt::runtime::logger::detail::backtrace_to_string(128, 0);
-    LOG_INFO("Stack trace: ", bt);
-    throw;
-  }
+  ::ttnn::Tensor out = ::ttnn::reduce_scatter(
+      input, scatterDimension, clusterAxis, meshDevice, reduceType, numLinks,
+      outputMemoryConfig, ::ttnn::ccl::Topology::Linear);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

@@ -40,9 +40,7 @@ public:
 
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
-
-    ttir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
-                                               adaptor.getOperands());
+    doRewrite(srcOp, adaptor, rewriter, outputType);
 
     return success();
   }
@@ -53,25 +51,88 @@ private:
                           ConversionPatternRewriter &rewriter) const {
     return success();
   }
+
+  virtual void doRewrite(SrcOp srcOp, Adaptor adaptor,
+                         ConversionPatternRewriter &rewriter,
+                         RankedTensorType outputType) const {
+    ttir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
+                                               adaptor.getOperands());
+  }
+};
+} // namespace
+
+namespace {
+template <typename SrcOp, typename DestOp>
+class TosaToTTIRDefaultUnaryDPSOpConversionPattern
+    : public TosaToTTIRDefaultDPSOpConversionPattern<SrcOp, DestOp> {
+  using TosaToTTIRDefaultDPSOpConversionPattern<
+      SrcOp, DestOp>::TosaToTTIRDefaultDPSOpConversionPattern;
+  using Adaptor = typename SrcOp::Adaptor;
+
+private:
+  void doRewrite(SrcOp srcOp, Adaptor adaptor,
+                 ConversionPatternRewriter &rewriter,
+                 RankedTensorType outputType) const override {
+    ttir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
+                                               adaptor.getInput1());
+  }
+};
+} // namespace
+
+namespace {
+template <typename SrcOp, typename DestOp>
+class TosaToTTIRDefaultBinaryDPSOpConversionPattern
+    : public TosaToTTIRDefaultDPSOpConversionPattern<SrcOp, DestOp> {
+  using TosaToTTIRDefaultDPSOpConversionPattern<
+      SrcOp, DestOp>::TosaToTTIRDefaultDPSOpConversionPattern;
+  using Adaptor = typename SrcOp::Adaptor;
+
+private:
+  void doRewrite(SrcOp srcOp, Adaptor adaptor,
+                 ConversionPatternRewriter &rewriter,
+                 RankedTensorType outputType) const override {
+    ttir::utils::replaceOpWithNewDPSOp<DestOp>(
+        rewriter, srcOp, outputType, adaptor.getInput1(), adaptor.getInput2());
+  }
 };
 } // namespace
 
 namespace {
 class TosaToTTIRMultiplyOpConversionPattern
-    : public TosaToTTIRDefaultDPSOpConversionPattern<
-          tosa::MulOp, mlir::tt::ttir::MultiplyOp> {
-  using TosaToTTIRDefaultDPSOpConversionPattern<
+    : public TosaToTTIRDefaultBinaryDPSOpConversionPattern<tosa::MulOp,
+                                                           ttir::MultiplyOp> {
+  using TosaToTTIRDefaultBinaryDPSOpConversionPattern<
       tosa::MulOp,
-      mlir::tt::ttir::MultiplyOp>::TosaToTTIRDefaultDPSOpConversionPattern;
+      ttir::MultiplyOp>::TosaToTTIRDefaultBinaryDPSOpConversionPattern;
+  using Adaptor = tosa::MulOp::Adaptor;
 
 private:
   LogicalResult
-  checkConversionLegality(tosa::MulOp srcOp, tosa::MulOp::Adaptor adaptor,
+  checkConversionLegality(tosa::MulOp srcOp, Adaptor adaptor,
                           ConversionPatternRewriter &rewriter) const override {
-    if (srcOp.getShift() != 0) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "TTIR MultiplyOp doesn't support shifted multiply.");
+    TypedValue<RankedTensorType> shift = srcOp.getShift();
+    if (!shift) {
+      return success();
     }
+
+    auto constOp = shift.getDefiningOp<tosa::ConstOp>();
+    if (!constOp) {
+      return srcOp.emitOpError(
+          "conversion expects shift value to be defined by a "
+          "tosa.const op");
+    }
+
+    auto denseIntAttr =
+        mlir::dyn_cast<DenseIntElementsAttr>(constOp.getValues());
+    if (!denseIntAttr) {
+      return srcOp.emitOpError("conversion expects shift value to come from a "
+                               "DenseIntElementsAttr");
+    }
+
+    if (denseIntAttr.getSplatValue<APInt>().getSExtValue() != 0) {
+      return srcOp.emitOpError("conversion does not support shifted multiply");
+    }
+
     return success();
   }
 };
@@ -242,11 +303,10 @@ addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<tosa::ExpOp,
                                                        mlir::tt::ttir::ExpOp>>(
       typeConverter, ctx);
+  patterns.add<TosaToTTIRDefaultUnaryDPSOpConversionPattern<
+      tosa::NegateOp, mlir::tt::ttir::NegOp>>(typeConverter, ctx);
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
       tosa::FloorOp, mlir::tt::ttir::FloorOp>>(typeConverter, ctx);
-  patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<tosa::NegateOp,
-                                                       mlir::tt::ttir::NegOp>>(
-      typeConverter, ctx);
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
       tosa::ReciprocalOp, mlir::tt::ttir::ReciprocalOp>>(typeConverter, ctx);
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<

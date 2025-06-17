@@ -1,1 +1,0 @@
-ttmlir @ https://github.com/tenstorrent/tt-forge/releases/download/tt-mlir-0.1.0.dev20250608/ttmlir-0.1.0.dev20250608-cp310-cp310-manylinux_2_34_x86_64.whl

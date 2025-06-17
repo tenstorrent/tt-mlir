@@ -544,6 +544,46 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, SliceOpInterface) {
+  // create SliceOp
+  llvm::SmallVector<int64_t> tensorShapeA = {1, 56, 56, 96};
+  llvm::SmallVector<int64_t> tensorShapeO = {1, 28, 56, 95};
+
+  auto input = createEmptyTensor(tensorShapeA);
+  auto output = createEmptyTensor(tensorShapeO);
+
+  llvm::SmallVector<int64_t> beginsArray = {0, 0, 0, 0};
+  llvm::SmallVector<int64_t> endsArray = {1, 56, 56, 95};
+  llvm::SmallVector<int64_t> stepArray = {1, 2, 1, 1};
+
+  auto sliceOp = builder.create<SliceOp>(
+      builder.getUnknownLoc(), output.getType(), ::mlir::ValueRange{input});
+
+  sliceOp.setBeginsAttr(builder.getI64ArrayAttr(beginsArray));
+  sliceOp.setEndsAttr(builder.getI64ArrayAttr(endsArray));
+  sliceOp.setStepAttr(builder.getI64ArrayAttr(stepArray));
+
+  // test SliceOp interface
+  auto constraintsExp = getOpConstraints(sliceOp.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_GT(cbSize, 0);
+    EXPECT_GT(peakSize, 0);
+    EXPECT_GT(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(sliceOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, toLayoutOp) {
   llvm::SmallVector<int64_t> tensorShape = {64, 1024};
   RankedTensorType rankedTensorType = createRankedTensorType(tensorShape);
@@ -591,6 +631,43 @@ TEST_F(OpModelBase, toLayoutOp) {
 
   auto runtimeExp =
       backend.getOpRuntime(std::vector{layoutDRAMRowMajor}, layoutDRAMTiled);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, concatOp) {
+  // create concat op
+  llvm::SmallVector<int64_t> tensorShape1 = {1, 2, 8, 32};
+  llvm::SmallVector<int64_t> tensorShape2 = {1, 2, 16, 32};
+  llvm::SmallVector<int64_t> tensorShape3 = {1, 2, 64, 32};
+  llvm::SmallVector<int64_t> tensorShapeO = {1, 2, 88, 32};
+
+  mlir::Value inputTensor1 = createEmptyTensor(tensorShape1);
+  mlir::Value inputTensor2 = createEmptyTensor(tensorShape2);
+  mlir::Value inputTensor3 = createEmptyTensor(tensorShape3);
+  mlir::Value output = createEmptyTensor(tensorShapeO);
+
+  auto concatOp = builder.create<ConcatOp>(
+      builder.getUnknownLoc(), output.getType(),
+      ::mlir::ValueRange{inputTensor1, inputTensor2, inputTensor3}, 2, nullptr);
+
+  // test concat Op interface
+  auto constraintsExp = getOpConstraints(concatOp.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_GT(cbSize, 0);
+    EXPECT_GT(peakSize, 0);
+    EXPECT_GT(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(concatOp.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
