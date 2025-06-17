@@ -2184,12 +2184,17 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
     auto inputGrid =
         (hasInputLayout)
             ? llvm::SmallVector<int64_t>{inputLayout.getGridShape(inputTensor)}
-            : llvm::SmallVector<int64_t>(inputTensor.getRank(), 1);
+            // If the input has no layout, it should use the output's size grid
+            // filled with 1s
+            : llvm::SmallVector<int64_t>(
+                  outputLayout.getGridShape(outputTensor).size(), 1);
     auto outputGrid =
         (hasOutputLayout)
             ? llvm::SmallVector<int64_t>{outputLayout.getGridShape(
-                  outputTensor)}
-            : llvm::SmallVector<int64_t>(outputTensor.getRank(), 1);
+                  outputTensor)} // If the output has no layout, it should use
+                                 // the input's size grid filled with 1s
+            : llvm::SmallVector<int64_t>(
+                  inputLayout.getGridShape(inputTensor).size(), 1);
 
     components.isGridChange = inputGrid != outputGrid;
 
