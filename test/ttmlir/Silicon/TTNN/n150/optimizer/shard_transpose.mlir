@@ -8,6 +8,7 @@
 
 // TODO(rpavlovicTT): transpose-op sharding still not supported by default
 // It will be fixed with #3205 and #2637.
+
 module attributes {} {
   func.func @main(%arg0: tensor<1x3x224x224xf32>) -> tensor<1x224x3x224xf32> {
     %0 = ttir.empty() : tensor<1x224x3x224xf32> loc(#loc1)

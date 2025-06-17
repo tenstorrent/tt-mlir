@@ -5,6 +5,8 @@
 import os
 import sys
 import time
+from functools import reduce
+import operator
 
 from ttrt.common.util import *
 from ttrt.common.query import Query
@@ -264,13 +266,6 @@ class Run:
             default="",
             choices=None,
             help="Configuration for dirtying tensors, format: 'index:iterations,...' (e.g., '0:1,2:3' to dirty tensor 0 after 1 iteration and tensor 2 after 3 iterations)",
-        )
-        Run.register_arg(
-            name="--check-cache-stats",
-            type=str,
-            default="",
-            choices=None,
-            help="Verify tensor cache statistics. Format: 'hits:N,misses:M'",
         )
         Run.register_arg(
             name="--enable-program-cache",
@@ -537,7 +532,7 @@ class Run:
                 not self["--disable-trace-implicit-from-device"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
-            perf_env = ttrt.runtime.DebugPerfEnv.get(
+            perf_env = ttrt.runtime.PerfEnv.get(
                 self["--dump-device-rate"],
                 self["--enable-perf-trace"],
             )
@@ -563,15 +558,31 @@ class Run:
                 if self["--program-index"] == "all":
                     self["--program-index"] = 0
 
-            mesh_shape = [1, len(self.query.device_ids)]
+            num_devices = len(self.query.device_ids)
             mesh_options = ttrt.runtime.MeshDeviceOptions()
             mesh_options.dispatch_core_type = dispatch_core_type
             mesh_options.enable_program_cache = self["--enable-program-cache"]
             mesh_options.trace_region_size = self["--trace-region-size"]
-            device = ttrt.runtime.open_mesh_device(mesh_shape, mesh_options)
+
+            # Initialize `device` to `None` for error handling in case device opening fails
+            device = None
 
             for bin in binaries:
+
                 try:
+
+                    fb_mesh_shape = bin.get_program(0).mesh_shape
+                    num_mesh_devices = reduce(operator.mul, fb_mesh_shape, 1)
+
+                    # Verify that the expected number of devices in the fb mesh shape is valid on this system
+                    if num_mesh_devices > num_devices:
+                        raise Exception(
+                            f"Not enough devices ({num_devices}) to run program with mesh shape {fb_mesh_shape}"
+                        )
+
+                    # Open a device of shape (x,y), where (x,y) is the mesh shape supplied by the flatbuffer
+                    device = ttrt.runtime.open_mesh_device(fb_mesh_shape, mesh_options)
+
                     self.logging.info(f"evaluating binary={bin.file_path}")
 
                     pre_op_callback_runtime_config = CallbackRuntimeConfig(
@@ -793,15 +804,6 @@ class Run:
                                 program_index,
                                 inputs,
                             )
-
-                            if self["--check-cache-stats"]:
-                                # Log cache stats after execution
-                                cache_stats = bin.fbb.get_tensor_cache().get_stats()
-                                hits = cache_stats.get("hits", 0)
-                                misses = cache_stats.get("misses", 0)
-                                self.logging.debug(
-                                    f"Tensor cache stats: hits={hits}, misses={misses}"
-                                )
 
                             ttrt.runtime.wait(runtime_outputs)
                             for i, runtime_output_tensor in enumerate(runtime_outputs):
@@ -1053,8 +1055,6 @@ class Run:
                         # Dump the perf data before deallocating buffers
                         device.dump_device_profile_results()
 
-                        device.deallocate_buffers()
-
                         # if golden comparison is enabled, check golden results json file to see if test passed
                         if not self["--disable-golden"]:
                             if self["--save-artifacts"]:
@@ -1063,60 +1063,6 @@ class Run:
                                 )
                             # check operation level golden comparison result.
                             post_op_callback_runtime_config.check_pcc()
-
-                            # Check cache statistics if requested
-                            if self["--check-cache-stats"]:
-                                # Parse the requested cache stats from the parameter
-                                requested_stats = {}
-                                try:
-                                    stats_configs = self["--check-cache-stats"].split(
-                                        ","
-                                    )
-                                    for config in stats_configs:
-                                        if ":" not in config:
-                                            raise Exception(
-                                                f"Invalid cache stats format: '{config}'. Expected format 'key:value'"
-                                            )
-                                        key, value = config.split(":", 1)
-                                        key = key.strip().lower()
-                                        value = value.strip()
-                                        if not value.isdigit():
-                                            raise Exception(
-                                                f"Invalid cache stats value: '{value}'. Expected a non-negative integer"
-                                            )
-                                        requested_stats[key] = int(value)
-
-                                        # Get the actual cache stats from the device
-                                        cache_stats = (
-                                            bin.fbb.get_tensor_cache().get_stats()
-                                        )
-
-                                        # Compare the requested stats with the actual stats
-                                        for (
-                                            key,
-                                            expected_value,
-                                        ) in requested_stats.items():
-                                            actual_value = cache_stats.get(key, 0)
-                                            self.logging.debug(
-                                                f"Checking cache stat {key}: expected={expected_value}, actual={actual_value}"
-                                            )
-
-                                            if actual_value != expected_value:
-                                                error_msg = f"Cache statistics validation failed: {key} expected={expected_value}, actual={actual_value}"
-                                                self.logging.error(error_msg)
-                                                raise Exception(error_msg)
-
-                                        self.logging.info(
-                                            f"Cache statistics validation successful: {requested_stats}"
-                                        )
-
-                                except Exception as e:
-                                    error_msg = (
-                                        f"Failed to validate cache statistics: {str(e)}"
-                                    )
-                                    self.logging.error(error_msg)
-                                    # Wrap in a TTRTTestException so it gets properly handled as a test error
-                                    raise TTRTTestException(error_msg)
 
                         if self["--memory"]:
                             if self["--save-artifacts"]:
@@ -1146,13 +1092,16 @@ class Run:
                     self.results.add_result(test_result)
                     bin.test_result = result
                 finally:
-                    ttrt.runtime.reshape_mesh_device(device, mesh_shape)
 
                     if self["--emitc"]:
                         ttrt.runtime.test.close_so(emitc_dylib_handle)
 
-            ttrt.runtime.unregister_hooks()
-            ttrt.runtime.close_mesh_device(device)
+                    ttrt.runtime.unregister_hooks()
+
+                    # Only close the device it if was opened
+                    if device is not None:
+                        ttrt.runtime.close_mesh_device(device)
+                        device = None
 
         self.logging.debug(f"executing ttnn binaries")
         _execute(self.ttnn_binaries)

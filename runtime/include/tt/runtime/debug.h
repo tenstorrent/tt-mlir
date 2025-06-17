@@ -2,12 +2,13 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TT_RUNTIME_DETAIL_DEBUG_H
-#define TT_RUNTIME_DETAIL_DEBUG_H
+#ifndef TT_RUNTIME_DEBUG_H
+#define TT_RUNTIME_DEBUG_H
 
 #include <functional>
 #include <optional>
 #include <ostream>
+#include <shared_mutex>
 
 #include "tt/runtime/types.h"
 
@@ -53,39 +54,6 @@ inline std::ostream &operator<<(std::ostream &os, const Env &env) {
      << "deviceAddressValidation: " << env.deviceAddressValidation << "\n"
      << "\t"
      << "blockingCQ: " << env.blockingCQ << "\n"
-     << "}";
-  return os;
-}
-
-struct PerfEnv {
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-  static const PerfEnv &
-#else
-  constexpr static PerfEnv
-#endif
-  get(std::uint32_t dumpDeviceRate = 1000, bool enablePerfTrace = false)
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-      ;
-#else
-  {
-    return PerfEnv(1000, false);
-  }
-#endif
-
-  std::uint32_t dumpDeviceRate;
-  bool enablePerfTrace;
-
-private:
-  constexpr PerfEnv(std::uint32_t dumpDeviceRate, bool enablePerfTrace)
-      : dumpDeviceRate(dumpDeviceRate), enablePerfTrace(enablePerfTrace) {}
-};
-
-inline std::ostream &operator<<(std::ostream &os, const PerfEnv &perfEnv) {
-  os << "debug::PerfEnv{\n"
-     << "\t"
-     << "dumpDeviceRate: " << perfEnv.dumpDeviceRate << "\n"
-     << "\t"
-     << "enablePerfTrace: " << perfEnv.enablePerfTrace << "\n"
      << "}";
   return os;
 }
@@ -148,6 +116,46 @@ inline std::ostream &operator<<(std::ostream &os, const Hooks &hooks) {
      << "}";
   return os;
 }
+
+struct Stats {
+public:
+  Stats(const Stats &) = delete;
+  Stats &operator=(const Stats &) = delete;
+
+  Stats(Stats &&) = delete;
+  Stats &operator=(Stats &&) = delete;
+
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  static Stats &get();
+  void incrementStat(const std::string &stat, std::int64_t value = 1);
+  std::int64_t getStat(const std::string &stat) const;
+  void removeStat(const std::string &stat);
+  void clear();
+  std::string toString() const;
+#else
+  static constexpr Stats get() { return Stats(); }
+  inline void incrementStat(const std::string &, std::int64_t = 1) const {}
+  inline std::int64_t getStat(const std::string &) const { return 0; }
+  inline void removeStat(const std::string &) const {}
+  constexpr void clear() const {}
+  inline std::string toString() const { return "DebugStats Disabled"; }
+#endif
+
+private:
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  Stats() = default;
+  mutable std::shared_mutex countersMutex;
+  std::unordered_map<std::string, std::int64_t> counters;
+#else
+  constexpr Stats() = default;
+#endif
+};
+
+inline std::ostream &operator<<(std::ostream &os, const Stats &stats) {
+  os << stats.toString();
+  return os;
+}
+
 } // namespace tt::runtime::debug
 
-#endif // TT_RUNTIME_DETAIL_DEBUG_H
+#endif // TT_RUNTIME_DEBUG_H

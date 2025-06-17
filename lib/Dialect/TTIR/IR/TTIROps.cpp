@@ -3785,6 +3785,11 @@ unsigned mlir::tt::ttir::GenericOp::getNumDims() {
       .getNumDims();
 }
 
+mlir::AffineMap
+mlir::tt::ttir::GenericOp::getIndexingMap(int64_t operandIndex) {
+  return mlir::cast<AffineMapAttr>(getIndexingMaps()[operandIndex]).getValue();
+}
+
 mlir::SmallVector<mlir::AffineMap>
 mlir::tt::ttir::GenericOp::getIndexingMapsValue() {
   return llvm::to_vector(llvm::map_range(getIndexingMaps(), [](Attribute a) {
@@ -3857,6 +3862,30 @@ mlir::SmallVector<int64_t> mlir::tt::ttir::GenericOp::getLoopBounds() {
   }
 
   return inverse.compose(flattenedGridShapes);
+}
+
+mlir::SmallVector<int64_t>
+mlir::tt::ttir::GenericOp::getParticipatingLoopDims(int64_t operandIndex) {
+  AffineMap indexingMap = getIndexingMap(operandIndex);
+  auto dimExprs =
+      llvm::make_filter_range(indexingMap.getResults(), [](AffineExpr expr) {
+        return mlir::isa<AffineDimExpr>(expr);
+      });
+  return llvm::map_to_vector(dimExprs, [](AffineExpr expr) {
+    return static_cast<int64_t>(mlir::cast<AffineDimExpr>(expr).getPosition());
+  });
+}
+
+mlir::SmallVector<int64_t>
+mlir::tt::ttir::GenericOp::getNonParticipatingLoopDims(int64_t operandIndex) {
+  AffineMap indexingMap = getIndexingMap(operandIndex);
+  SmallVector<int64_t> participatingDims =
+      getParticipatingLoopDims(operandIndex);
+  llvm::BitVector nonParticipatingDims(indexingMap.getNumDims(), true);
+  llvm::for_each(participatingDims, [&nonParticipatingDims](int64_t dim) {
+    nonParticipatingDims.reset(dim);
+  });
+  return llvm::SmallVector<int64_t>(nonParticipatingDims.set_bits());
 }
 
 void mlir::tt::ttir::GenericOp::getAsmBlockArgumentNames(

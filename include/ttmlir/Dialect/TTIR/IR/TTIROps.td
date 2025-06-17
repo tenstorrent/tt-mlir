@@ -183,6 +183,9 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
       unsigned getNumLoops();
       unsigned getNumDims();
       SmallVector<int64_t> getLoopBounds();
+      SmallVector<int64_t> getParticipatingLoopDims(int64_t operandIndex);
+      SmallVector<int64_t> getNonParticipatingLoopDims(int64_t operandIndex);
+      AffineMap getIndexingMap(int64_t operandIndex);
       SmallVector<AffineMap> getIndexingMapsValue();
       SmallVector<IteratorType> getIteratorTypesValue();
       SmallVector<SmallVector<int64_t>> getOperandGridShapes();

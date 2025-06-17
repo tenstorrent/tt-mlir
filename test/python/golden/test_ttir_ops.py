@@ -946,6 +946,9 @@ def test_ones(shape: Shape, request):
     )
 
 
+# Empty will intermittently fail golden checks during many flatbuffer
+# executions since it is uninitialized data (See #3732)
+@pytest.mark.fails_golden
 @pytest.mark.parametrize("shape", [(128, 128)], ids=["128x128"])
 def test_empty(shape: Shape, request):
     def empty(builder: TTIRBuilder):
@@ -1530,9 +1533,6 @@ def test_unary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request
 ):
     pipeline_options = []
-    # Workaround for ttmetal, only support 1x1 grid atm
-    if target == "ttmetal":
-        pipeline_options.append("override-device-shape=1,1")
     compile_to_flatbuffer(
         test_fn,
         inputs_shapes=[shape],
@@ -1580,9 +1580,6 @@ def test_binary_ops(
 ):
     # NOTE: this function is _only_ for binary ops that take the same shape arguments
     pipeline_options = []
-    # Workaround for ttmetal, only support 1x1 grid atm
-    if target == "ttmetal":
-        pipeline_options.append("override-device-shape=1,1")
     compile_to_flatbuffer(
         test_fn,
         [shape, shape],

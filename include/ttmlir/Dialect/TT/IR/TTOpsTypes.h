@@ -344,6 +344,23 @@ inline uint64_t getElementSizeBytes(mlir::Type elementType) {
                   : elementType.getIntOrFloatBitWidth() / 8;
 }
 
+inline MemorySpace getMemorySpace(MemorySpaceAttr memorySpaceAttr) {
+  return memorySpaceAttr.getValue();
+}
+
+inline MemorySpace getMemorySpace(MemRefType memref) {
+  return getMemorySpace(
+      mlir::cast<tt::MemorySpaceAttr>(memref.getMemorySpace()));
+}
+
+inline MemorySpace getMemorySpace(Type memrefType) {
+  return getMemorySpace(mlir::cast<MemRefType>(memrefType));
+}
+
+inline MemorySpace getMemorySpace(Value memrefTypedValue) {
+  return getMemorySpace(memrefTypedValue.getType());
+}
+
 } // namespace mlir::tt
 
 #endif

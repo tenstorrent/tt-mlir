@@ -120,4 +120,22 @@ def TTIR_ViewOpInterface : OpInterface<"ViewOpInterface"> {
   ];
 }
 
+def TTIR_OperandLoadRegisterOpInterface : OpInterface<"OperandLoadRegisterOpInterface"> {
+  let cppNamespace = "::mlir::tt::ttir";
+  let methods = [
+    InterfaceMethod<
+      /*desc=*/[{
+        This interface denotes which op operand indices require their operands to be
+        sourced from the destination register.  It is primarily used by the
+        insert-dst-register-access pass to autogenerate copynests to and from dst.
+      }],
+      /*retTy=*/"::mlir::SmallVector<int64_t>",
+      /*methodName=*/"getOperandsLoadFromDstRegister",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return ::mlir::SmallVector<int64_t>{};"
+    >,
+  ];
+}
+
 #endif
