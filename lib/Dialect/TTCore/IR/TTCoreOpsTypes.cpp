@@ -436,6 +436,8 @@ mlir::FailureOr<mlir::tt::SystemDescAttr> mlir::tt::SystemDescAttr::getFromPath(
         supportedDataTypesAttr.push_back(
             tt::DataTypeAttr::get(context, tt::DataType::Int32));
         break;
+      default:
+        break;
       }
     }
 

@@ -182,6 +182,11 @@ Tensor createBorrowedHostTensor(void *data,
                                 const std::vector<std::uint32_t> &stride,
                                 std::uint32_t itemsize,
                                 ::tt::target::DataType dataType) {
+  LOG_ASSERT(
+      ::tt::runtime::utils::isSupportedDataType(dataType),
+      "Cannot create borrowed tensor with unsupported data type: " +
+          std::string(
+              ::tt::target::EnumNamesDataType()[static_cast<int>(dataType)]));
   using RetType = Tensor;
   LOG_ASSERT(!shape.empty());
   LOG_ASSERT(!stride.empty());
@@ -214,6 +219,12 @@ Tensor createOwnedHostTensor(const void *data,
                                                           itemsize, dataType);
       },
       [&]() -> RetType {
+        LOG_ASSERT(
+            utils::isSupportedDataType(dataType),
+            "Creating owned tensor with unsupported data type: " +
+                std::string(
+                    target::EnumNamesDataType()[static_cast<int>(dataType)]) +
+                "is not implemented for the TTMetal runtime");
         return ::tt::runtime::ttmetal::createOwnedHostTensor(
             data, TensorDesc(shape, stride, itemsize, dataType));
       });
@@ -644,10 +655,11 @@ Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
       });
 }
 
-void memcpy(void *dst, Tensor src) {
+void memcpy(void *dst, Tensor src,
+            std::optional<::tt::target::DataType> dstDataType) {
   using RetType = void;
   DISPATCH_TO_CURRENT_RUNTIME(
-      RetType, [&]() { ::tt::runtime::ttnn::memcpy(dst, src); },
+      RetType, [&]() { ::tt::runtime::ttnn::memcpy(dst, src, dstDataType); },
       [&]() { ::tt::runtime::ttmetal::memcpy(dst, src); });
 }
 
