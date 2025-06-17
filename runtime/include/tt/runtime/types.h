@@ -61,6 +61,17 @@ enum class DispatchCoreType {
 
 enum class Arch { GRAYSKULL = 1, WORMHOLE_B0 = 2, BLACKHOLE = 3, QUASAR = 4 };
 
+enum class TracyLogTag { MLIR_OP_LOCATION, MLIR_CONST_EVAL_OP };
+
+inline std::string toString(TracyLogTag tracyLogTag) {
+  switch (tracyLogTag) {
+  case TracyLogTag::MLIR_OP_LOCATION:
+    return "MLIR_OP_LOCATION";
+  case TracyLogTag::MLIR_CONST_EVAL_OP:
+    return "MLIR_CONST_EVAL_OP";
+  }
+}
+
 namespace detail {
 struct ObjectImpl {
 
@@ -181,9 +192,9 @@ struct Flatbuffer : public detail::ObjectImpl {
   void store(const char *path) const;
   std::string_view getFileIdentifier() const;
   std::string getVersion() const;
-  std::string_view getSchemaHash() const;
+  std::string getSchemaHash() const;
   bool checkSchemaHash() const;
-  std::string_view getTTMLIRGitHash() const;
+  std::string getTTMLIRGitHash() const;
   std::string asJson() const;
 };
 

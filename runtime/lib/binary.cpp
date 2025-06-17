@@ -130,17 +130,20 @@ const ::tt::target::ttnn::TTNNBinary *getBinary(Flatbuffer binary) {
 }
 
 std::string getVersion(Flatbuffer binary) {
+  std::cout << "check4" << std::endl;
   const auto *version = getBinary(binary)->version();
   return std::to_string(version->major()) + "." +
          std::to_string(version->minor()) + "." +
          std::to_string(version->patch());
 }
 
-std::string_view getSchemaHash(Flatbuffer binary) {
+std::string getSchemaHash(Flatbuffer binary) {
   return getBinary(binary)->schema_hash()->c_str();
 }
 
-std::string_view getTTMLIRGitHash(Flatbuffer binary) {
+std::string getTTMLIRGitHash(Flatbuffer binary) {
+  std::cout << "check5 " << getBinary(binary)->ttmlir_git_hash()->c_str()
+            << std::endl;
   return getBinary(binary)->ttmlir_git_hash()->c_str();
 }
 
@@ -271,11 +274,11 @@ std::string getVersion(Flatbuffer binary) {
          std::to_string(version->patch());
 }
 
-std::string_view getSchemaHash(Flatbuffer binary) {
+std::string getSchemaHash(Flatbuffer binary) {
   return getBinary(binary)->schema_hash()->c_str();
 }
 
-std::string_view getTTMLIRGitHash(Flatbuffer binary) {
+std::string getTTMLIRGitHash(Flatbuffer binary) {
   return getBinary(binary)->ttmlir_git_hash()->c_str();
 }
 
@@ -399,11 +402,11 @@ std::string getVersion(Flatbuffer binary) {
          std::to_string(version->patch());
 }
 
-std::string_view getSchemaHash(Flatbuffer binary) {
+std::string getSchemaHash(Flatbuffer binary) {
   return getBinary(binary)->schema_hash()->c_str();
 }
 
-std::string_view getTTMLIRGitHash(Flatbuffer binary) {
+std::string getTTMLIRGitHash(Flatbuffer binary) {
   return getBinary(binary)->ttmlir_git_hash()->c_str();
 }
 
@@ -472,7 +475,7 @@ std::string Flatbuffer::getVersion() const {
   LOG_FATAL("Unsupported binary format");
 }
 
-std::string_view Flatbuffer::getSchemaHash() const {
+std::string Flatbuffer::getSchemaHash() const {
   if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
           handle.get())) {
     return ttnn::getSchemaHash(*this);
@@ -513,7 +516,7 @@ bool Flatbuffer::checkSchemaHash() const {
   LOG_FATAL("Unsupported binary format");
 }
 
-std::string_view Flatbuffer::getTTMLIRGitHash() const {
+std::string Flatbuffer::getTTMLIRGitHash() const {
   if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
           handle.get())) {
     return ttnn::getTTMLIRGitHash(*this);
