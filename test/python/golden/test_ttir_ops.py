@@ -62,7 +62,7 @@ def cos(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = No
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 def test_tan(shape: Shape, dtype: torch.dtype, request):
-    def tan(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
+    def tan(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
         import math
 
         randn_tensor = torch.randn(shape, dtype=dtype)
@@ -95,7 +95,7 @@ def tanh(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 def test_log(shape: Shape, dtype: torch.dtype, request):
-    def log(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
+    def log(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
         randn_tensor = torch.randn(shape, dtype=dtype)
         abs_tensor = torch.abs(randn_tensor)
         error_margin = torch.full(randn_tensor.shape, 0.01)
@@ -118,7 +118,9 @@ def test_log(shape: Shape, dtype: torch.dtype, request):
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 def test_log1p(shape: Shape, dtype: torch.dtype, request):
-    def log1p(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
+    def log1p(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
         randn_tensor = torch.randn(shape, dtype=dtype)
         abs_tensor = torch.abs(randn_tensor)
         error_margin = torch.full(randn_tensor.shape, -0.99)
@@ -549,7 +551,7 @@ def broadcast(
     in0: Operand,
     in1: Operand,
     builder: TTIRBuilder,
-    broadcast_dimensions: List[int] = None,
+    broadcast_dimensions: Optional[List[int]] = None,
     unit_attrs: Optional[List[str]] = None,
 ):
     return builder.broadcast(

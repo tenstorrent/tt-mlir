@@ -1908,7 +1908,10 @@ class TTIRBuilder:
         )
 
     def zeros(
-        self, shape: Shape, data_type: Optional[Type] = None, unit_attrs: dict = None
+        self,
+        shape: Shape,
+        data_type: Optional[Type] = None,
+        unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         output = self.ranked_tensor_type(shape)
         dtype = data_type if data_type is not None else self._default_dtype
@@ -1923,7 +1926,7 @@ class TTIRBuilder:
             unit_attrs=unit_attrs,
         )
 
-    def ones(self, shape: Shape, unit_attrs: dict = None) -> OpView:
+    def ones(self, shape: Shape, unit_attrs: Optional[List[str]] = None) -> OpView:
         output = self.ranked_tensor_type(shape)
         return self.op_proxy(
             torch.ones,
