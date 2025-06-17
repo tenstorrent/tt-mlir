@@ -11,6 +11,7 @@ using namespace mlir;
 
 namespace mlir::tt::ttnn {
 void registerTTNNToFlatbuffer();
+void registerTracedTTNNGraphToMLIR();
 } // namespace mlir::tt::ttnn
 
 namespace mlir::tt::ttmetal {
@@ -29,6 +30,7 @@ void registerTTKernelToCpp();
 static void registerCustomTranslations() {
   static bool initOnce = []() {
     mlir::tt::ttnn::registerTTNNToFlatbuffer();
+    mlir::tt::ttnn::registerTracedTTNNGraphToMLIR();
     mlir::tt::ttmetal::registerTTMetalToFlatbuffer();
     mlir::tt::llvm_to_cpu::registerLLVMToDynamicLibrary();
     mlir::tt::ttkernel::registerTTKernelToCpp();

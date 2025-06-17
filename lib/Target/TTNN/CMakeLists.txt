@@ -1,4 +1,5 @@
 add_mlir_translation_library(TTNNTargetFlatbuffer
+    PARTIAL_SOURCES_INTENDED
     TTNNToFlatbuffer.cpp
     TTNNToFlatbufferRegistration.cpp
 
@@ -16,6 +17,7 @@ add_mlir_translation_library(TTNNTargetFlatbuffer
 )
 
 add_mlir_translation_library(TracedTTNNGraphToMLIR
+    PARTIAL_SOURCES_INTENDED
     TracedTTNNGraphToMLIR.cpp
     TracedTTNNGraphToMLIRRegistration.cpp
 
