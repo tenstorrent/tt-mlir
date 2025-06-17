@@ -375,7 +375,13 @@ std::vector<Tensor> toHost(Tensor tensor, bool untilize) {
   return {tensor};
 }
 
-void memcpy(void *dst, Tensor src) {
+void memcpy(void *dst, Tensor src,
+            std::optional<tt::target::DataType> dstDataType) {
+  if (dstDataType.has_value()) {
+    LOG_ASSERT(
+        ::tt::runtime::utils::isSupportedDataType(dstDataType.value()),
+        "dstDataType must be a supported data type if using TTMetal runtime");
+  }
   const auto &metalSrc = src.as<MetalTensor>(DeviceRuntime::TTMetal);
   LOG_ASSERT(std::holds_alternative<TensorDesc>(metalSrc),
              "Only TensorDesc supported for now");

@@ -131,12 +131,125 @@ T alignUp(T ptr, T alignment) {
   return (ptr + alignment - 1) & ~(alignment - 1);
 }
 
-template <typename FromTy, typename ToTy>
-inline void handleFloatingPointBufferCast(const FromTy *old_buffer,
-                                          ToTy *new_buffer,
+inline void handleDoubleToFloatBufferCast(const double *old_buffer,
+                                          float *new_buffer,
                                           int64_t num_elements) {
   for (int i = 0; i < num_elements; i++) {
-    new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
+    new_buffer[i] = static_cast<float>(old_buffer[i]);
+  }
+}
+
+inline void handleFloatToDoubleBufferCast(const float *old_buffer,
+                                          double *new_buffer,
+                                          int64_t num_elements) {
+  for (int i = 0; i < num_elements; i++) {
+    new_buffer[i] = static_cast<double>(old_buffer[i]);
+  }
+}
+
+template <typename FromTy, typename ToTy>
+inline void handleSignedToSignedIntegerBufferCast(const FromTy *old_buffer,
+                                                  ToTy *new_buffer,
+                                                  int64_t num_elements) {
+  static_assert(std::is_signed<FromTy>::value,
+                "Source type must be a signed integer type");
+  static_assert(std::is_signed<ToTy>::value,
+                "Destination type must be a signed integer type");
+
+  constexpr ToTy toTyMax = std::numeric_limits<ToTy>::max();
+  constexpr ToTy toTyMin = std::numeric_limits<ToTy>::min();
+  if constexpr (sizeof(ToTy) >= sizeof(FromTy)) {
+    for (int64_t i = 0; i < num_elements; i++) {
+      new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
+    }
+  } else {
+    for (int64_t i = 0; i < num_elements; i++) {
+      if (old_buffer[i] < static_cast<FromTy>(toTyMin)) {
+        new_buffer[i] = toTyMin;
+      } else if (old_buffer[i] > static_cast<FromTy>(toTyMax)) {
+        new_buffer[i] = toTyMax;
+      } else {
+        new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
+      }
+    }
+  }
+}
+
+template <typename FromTy, typename ToTy>
+inline void handleUnsignedToSignedIntegerBufferCast(const FromTy *old_buffer,
+                                                    ToTy *new_buffer,
+                                                    int64_t num_elements) {
+  static_assert(std::is_unsigned<FromTy>::value,
+                "Source type must be an unsigned integer type");
+  static_assert(std::is_signed<ToTy>::value,
+                "Destination type must be a signed integer type");
+
+  constexpr ToTy toTyMax = std::numeric_limits<ToTy>::max();
+  if constexpr (sizeof(ToTy) > sizeof(FromTy)) {
+    for (int64_t i = 0; i < num_elements; i++) {
+      new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
+    }
+  } else { // unsigned FromTy has larger or equal bitwidth than signed ToTy
+    for (int64_t i = 0; i < num_elements; i++) {
+      if (old_buffer[i] > static_cast<FromTy>(toTyMax)) {
+        new_buffer[i] = toTyMax;
+      } else {
+        new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
+      }
+    }
+  }
+}
+
+template <typename FromTy, typename ToTy>
+inline void handleSignedToUnsignedIntegerBufferCast(const FromTy *old_buffer,
+                                                    ToTy *new_buffer,
+                                                    int64_t num_elements) {
+  static_assert(std::is_signed<FromTy>::value,
+                "Source type must be a signed integer type");
+  static_assert(std::is_unsigned<ToTy>::value,
+                "Destination type must be an unsigned integer type");
+
+  constexpr ToTy toTyMax = std::numeric_limits<ToTy>::max();
+  constexpr ToTy toTyMin = std::numeric_limits<ToTy>::min();
+  if constexpr (sizeof(ToTy) > sizeof(FromTy)) {
+    for (int64_t i = 0; i < num_elements; i++) {
+      new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
+    }
+  } else { // signed FromTy has larger or equal bitwidth than unsigned ToTy
+    for (int64_t i = 0; i < num_elements; i++) {
+      if (old_buffer[i] < static_cast<FromTy>(toTyMin)) {
+        new_buffer[i] = toTyMin;
+      } else if (old_buffer[i] > static_cast<FromTy>(toTyMax)) {
+        new_buffer[i] = toTyMax;
+      } else {
+        new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
+      }
+    }
+  }
+}
+
+template <typename FromTy, typename ToTy>
+inline void handleUnsignedToUnsignedIntegerBufferCast(const FromTy *old_buffer,
+                                                      ToTy *new_buffer,
+                                                      int64_t num_elements) {
+  static_assert(std::is_unsigned<FromTy>::value,
+                "Source type must be an unsigned integer type");
+  static_assert(std::is_unsigned<ToTy>::value,
+                "Destination type must be an unsigned integer type");
+
+  constexpr ToTy toTyMax = std::numeric_limits<ToTy>::max();
+  if constexpr (sizeof(ToTy) >= sizeof(FromTy)) {
+    for (int64_t i = 0; i < num_elements; i++) {
+      new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
+    }
+  } else { // unsigned FromTy has larger bitwidth than unsigned ToTy
+    for (int64_t i = 0; i < num_elements; i++) {
+      if (old_buffer[i] > static_cast<FromTy>(toTyMax)) {
+        new_buffer[i] = toTyMax;
+      } else {
+        new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
+      }
+    }
   }
 }
 
@@ -148,81 +261,20 @@ inline void handleIntegerBufferCast(const FromTy *old_buffer, ToTy *new_buffer,
   static_assert(std::is_integral<ToTy>::value,
                 "Destination type must be an integer type");
 
-  constexpr ToTy toTyMax = std::numeric_limits<ToTy>::max();
-  constexpr ToTy toTyMin = std::numeric_limits<ToTy>::min();
-
   if constexpr (std::is_signed<FromTy>::value && std::is_signed<ToTy>::value) {
-    if constexpr (sizeof(ToTy) >= sizeof(FromTy)) {
-      for (int64_t i = 0; i < num_elements; i++) {
-        new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
-      }
-    } else {
-      for (int64_t i = 0; i < num_elements; i++) {
-        if (old_buffer[i] < static_cast<FromTy>(toTyMin)) {
-          new_buffer[i] = toTyMin;
-        } else if (old_buffer[i] > static_cast<FromTy>(toTyMax)) {
-          new_buffer[i] = toTyMax;
-        } else {
-          new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
-        }
-      }
-    }
+    handleSignedToSignedIntegerBufferCast<FromTy, ToTy>(old_buffer, new_buffer,
+                                                        num_elements);
   } else if constexpr (std::is_unsigned<FromTy>::value &&
                        std::is_signed<ToTy>::value) {
-    if constexpr (sizeof(ToTy) > sizeof(FromTy)) {
-      for (int64_t i = 0; i < num_elements; i++) {
-        new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
-      }
-    } else if constexpr (sizeof(ToTy) == sizeof(FromTy)) {
-      for (int64_t i = 0; i < num_elements; i++) {
-        if (old_buffer[i] > static_cast<FromTy>(toTyMax)) {
-          new_buffer[i] = toTyMax;
-        } else {
-          new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
-        }
-      }
-    } else { // unsigned FromTy has larger bitwidth than signed ToTy
-      for (int64_t i = 0; i < num_elements; i++) {
-        if (old_buffer[i] > static_cast<FromTy>(toTyMax)) {
-          new_buffer[i] = toTyMax;
-        } else {
-          new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
-        }
-      }
-    }
+    handleUnsignedToSignedIntegerBufferCast<FromTy, ToTy>(
+        old_buffer, new_buffer, num_elements);
   } else if constexpr (std::is_signed<FromTy>::value &&
                        std::is_unsigned<ToTy>::value) {
-    if constexpr (sizeof(ToTy) >= sizeof(FromTy)) {
-      for (int64_t i = 0; i < num_elements; i++) {
-        if (old_buffer[i] < static_cast<FromTy>(toTyMin)) {
-          new_buffer[i] = toTyMin;
-        } else {
-          new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
-        }
-      }
-    } else { // signed FromTy has larger bitwidth than unsigned ToTy
-      for (int64_t i = 0; i < num_elements; i++) {
-        if (old_buffer[i] < static_cast<FromTy>(toTyMin)) {
-          new_buffer[i] = toTyMin;
-        } else {
-          new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
-        }
-      }
-    }
+    handleSignedToUnsignedIntegerBufferCast<FromTy, ToTy>(
+        old_buffer, new_buffer, num_elements);
   } else { // Both are unsigned
-    if constexpr (sizeof(ToTy) >= sizeof(FromTy)) {
-      for (int64_t i = 0; i < num_elements; i++) {
-        new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
-      }
-    } else { // unsigned FromTy has larger bitwidth than unsigned ToTy
-      for (int64_t i = 0; i < num_elements; i++) {
-        if (old_buffer[i] > static_cast<FromTy>(toTyMax)) {
-          new_buffer[i] = toTyMax;
-        } else {
-          new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
-        }
-      }
-    }
+    handleUnsignedToUnsignedIntegerBufferCast<FromTy, ToTy>(
+        old_buffer, new_buffer, num_elements);
   }
 }
 

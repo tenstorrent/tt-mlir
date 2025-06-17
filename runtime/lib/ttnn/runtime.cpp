@@ -96,7 +96,7 @@ createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
           static_cast<const int8_t *>(data),
           static_cast<uint8_t *>(newData.get()), numElements);
     } else if (unsupportedDataType == ::tt::target::DataType::Float64) {
-      tt::runtime::utils::handleFloatingPointBufferCast<double, float>(
+      tt::runtime::utils::handleDoubleToFloatBufferCast(
           static_cast<const double *>(data),
           static_cast<float *>(newData.get()), numElements);
     } else if (unsupportedDataType == ::tt::target::DataType::Bool) {
@@ -770,7 +770,7 @@ void memcpy(void *dst, ::tt::runtime::Tensor src,
           static_cast<const uint8_t *>(srcPtr), static_cast<int8_t *>(dst),
           srcTensor.padded_volume());
     } else if (dstDataType == ::tt::target::DataType::Float64) {
-      tt::runtime::utils::handleFloatingPointBufferCast<float, double>(
+      tt::runtime::utils::handleFloatToDoubleBufferCast(
           static_cast<const float *>(srcPtr), static_cast<double *>(dst),
           srcTensor.padded_volume());
     } else if (dstDataType == ::tt::target::DataType::Bool) {

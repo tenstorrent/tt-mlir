@@ -219,12 +219,6 @@ Tensor createOwnedHostTensor(const void *data,
                                                           itemsize, dataType);
       },
       [&]() -> RetType {
-        LOG_ASSERT(
-            utils::isSupportedDataType(dataType),
-            "Creating owned tensor with unsupported data type: " +
-                std::string(
-                    target::EnumNamesDataType()[static_cast<int>(dataType)]) +
-                "is not implemented for the TTMetal runtime");
         return ::tt::runtime::ttmetal::createOwnedHostTensor(
             data, TensorDesc(shape, stride, itemsize, dataType));
       });
@@ -660,7 +654,7 @@ void memcpy(void *dst, Tensor src,
   using RetType = void;
   DISPATCH_TO_CURRENT_RUNTIME(
       RetType, [&]() { ::tt::runtime::ttnn::memcpy(dst, src, dstDataType); },
-      [&]() { ::tt::runtime::ttmetal::memcpy(dst, src); });
+      [&]() { ::tt::runtime::ttmetal::memcpy(dst, src, dstDataType); });
 }
 
 void memcpy(Tensor dst, Tensor src) {
