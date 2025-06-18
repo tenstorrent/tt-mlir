@@ -444,8 +444,24 @@ def TTCore_DeviceAttr : TTCore_Attr<"Device", "device", []> {
       AffineMap getMemoryMap(std::pair<MemRefType, AffineMap> memrefAndView,
                              size_t pageSize,
                              size_t baseOffset = 0) const;
-      size_t getMemrefSizeBytes(MemRefType memrefType, size_t pageSize, bool includeBuffers = false) const;
+
+      // Returns the size in bytes of the given memref type. Supports memref's of multiple flavors:
+      //   - Generic region memrefs, e.g. memref<64x128xf32, #l1_> this will return the size of the whole memref.
+      //   - Device layout memrefs, e.g. memref<1x2x3x4x!tt.tile<32x32, f32>, #l1_> this will return the size of
+      //     the shard, just 3*4*sizeof(!ttcore.tile).
+      //
+      // Arguments:
+      //   - pageSize: Effectively the alignment size of the memref's size. If 0, will use the default alignment
+      //     of the memref type for the given memory space.
+      //   - includeBuffers: If true, will multiply the size by the number of back buffers.
+      size_t getMemrefSizeBytes(MemRefType memrefType, size_t pageSize = 0, bool includeBuffers = false) const;
+
+      // Returns the circular buffer page size in bytes of the given memref type. The general heursitic is:
+      //   - If element type is tile type, return the size of the tile type.
+      //   - If element type is scalar type, return the size of a tile type with underlying scalar type.
       size_t getMemrefCBPageSizeBytes(MemRefType memrefType) const;
+
+      // Returns the memref size bytes divided by the circular buffer page size.
       size_t getMemrefCBNumPages(MemRefType memrefType) const;
 
       // Returns the footprint size in bytes of the tensor layout distributed across the given memory space.

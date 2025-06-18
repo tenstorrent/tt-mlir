@@ -204,12 +204,8 @@ public:
     std::pair<MemRefType, AffineMap> underlyingMemrefAndView =
         mlir::cast<ttir::ViewOpInterface>(dma.getSrc().getDefiningOp())
             .applyViews();
-    // TODO(#1909) Once we have an allocation pass, we need to lookup the page
-    // size instead of calculating it here.
-    size_t pageSize = device.getMemrefSizeBytes(underlyingMemrefAndView.first,
-                                                /*pageSize=*/0);
-    AffineMap memoryMap =
-        device.getMemoryMap(underlyingMemrefAndView, pageSize);
+    size_t size = device.getMemrefSizeBytes(underlyingMemrefAndView.first);
+    AffineMap memoryMap = device.getMemoryMap(underlyingMemrefAndView, size);
     size_t elemSizeBytes = getElementSizeBytes(memref);
     size_t coalescingFactor =
         calculateCoalescingFactor(memoryMap, memrefGridShape, memrefShardShape,
@@ -289,12 +285,9 @@ public:
     if (isRemote) {
       std::pair<MemRefType, AffineMap> srcUnderlyingMemrefAndView =
           mlir::tt::ttir::applyViews(input.getDefiningOp());
-      // TODO(#1909) Once we have an allocation pass, we need to lookup the page
-      // size instead of calculating it here.
-      size_t srcPageSize =
-          device.getMemrefSizeBytes(srcUnderlyingMemrefAndView.first,
-                                    /*pageSize=*/0);
-      return device.getMemoryMap(srcUnderlyingMemrefAndView, srcPageSize);
+      size_t srcSize =
+          device.getMemrefSizeBytes(srcUnderlyingMemrefAndView.first);
+      return device.getMemoryMap(srcUnderlyingMemrefAndView, srcSize);
     }
 
     MemRefType inputType = mlir::cast<MemRefType>(input.getType());
