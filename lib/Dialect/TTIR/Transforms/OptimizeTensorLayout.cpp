@@ -204,11 +204,10 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
     });
 
     rewriter.setInsertionPointAfter(op);
-    auto emptyOp = rewriter.create<EmptyOp>(op->getLoc(), originalType);
-    auto toLayoutOp = rewriter.create<ToLayoutOp>(
-        op->getLoc(), op->getResult(0), emptyOp.getResult());
-    rewriter.replaceAllUsesExcept(op->getResult(0), toLayoutOp.getResult(0),
-                                  toLayoutOp);
+    auto viewLayoutOp = rewriter.create<ViewLayoutOp>(
+        op->getLoc(), originalType, op->getResult(0));
+    rewriter.replaceAllUsesExcept(op->getResult(0), viewLayoutOp.getResult(),
+                                  viewLayoutOp);
 
     return success();
   }
