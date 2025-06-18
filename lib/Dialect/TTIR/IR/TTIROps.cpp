@@ -4004,7 +4004,12 @@ mlir::tt::ttir::GenericOp::getOperandShardShapes(bool convertTileToScalar) {
       auto tensorType = mlir::cast<RankedTensorType>(operand.getType());
       MetalLayoutAttr layout =
           mlir::cast<MetalLayoutAttr>(tensorType.getEncoding());
-      shardShapes.emplace_back(layout.getShardShape(convertTileToScalar));
+      auto tileType = mlir::dyn_cast<TileType>(tensorType.getElementType());
+      auto shardShape = layout.getShardShape(tensorType);
+      shardShapes.emplace_back(
+          (convertTileToScalar && tileType)
+              ? tileType.getScalarShape(SmallVector<int64_t>(shardShape))
+              : shardShape);
     }
   }
   return shardShapes;
