@@ -2665,7 +2665,9 @@ getTransposeOpOperand(mlir::TypedValue<mlir::RankedTensorType> value) {
   if (producerPermuteOp) {
     int64_t rank = value.getType().getRank();
     if (rank < 2 || producerPermuteOp.getPermutation()[rank - 2] != rank - 1 ||
-        producerPermuteOp.getPermutation()[rank - 1] != rank - 2) {
+        producerPermuteOp.getPermutation()[rank - 1] != rank - 2 ||
+        !std::is_sorted(producerPermuteOp.getPermutation().begin(),
+                        producerPermuteOp.getPermutation().end() - 2)) {
       return std::nullopt;
     }
 
