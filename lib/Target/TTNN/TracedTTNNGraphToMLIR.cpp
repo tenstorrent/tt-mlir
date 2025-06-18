@@ -97,6 +97,21 @@ DataTypeAttr parseDataType(StringRef dataTypeStr, MLIRContext *context) {
   return DataTypeAttr::get(context, DataType::Float32);
 }
 
+// Helper function to parse layout from string like "Layout::TILE"
+LayoutAttr parseLayout(StringRef layoutStr, MLIRContext *context) {
+  if (layoutStr.contains("TILE")) {
+    return LayoutAttr::get(context, ttnn::Layout::Tile);
+  }
+  if (layoutStr.contains("ROW_MAJOR")) {
+    return LayoutAttr::get(context, ttnn::Layout::RowMajor);
+  }
+  if (layoutStr.contains("INVALID")) {
+    return LayoutAttr::get(context, ttnn::Layout::Invalid);
+  }
+
+  llvm_unreachable("Unknown layout");
+}
+
 // Helper function to create a shape attribute from a shape vector
 ShapeAttr createShapeAttr(ArrayRef<int64_t> shape, Builder &builder) {
   // auto shapeType = builder.getIntegerType(32);
@@ -244,12 +259,15 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
 
           const llvm::json::Value &shapeObj = (*argsObj)[0];
           const llvm::json::Value &dtypeObj = (*argsObj)[1];
+          const llvm::json::Value &layoutType = (*argsObj)[2];
           // const llvm::json::Value &layoutObj = (*arrayObj)[2];
 
           shapeVec = parseShape(shapeObj.getAsString()->str());
 
           shapeAttr = createShapeAttr(shapeVec, builder);
           dataTypeAttr = parseDataType(dtypeObj.getAsString()->str(), context);
+          LayoutAttr layoutTypeAttr =
+              parseLayout(layoutType.getAsString()->str(), context);
 
           TTNNLayoutAttr layoutAttr = createLayoutAttr(
               context, GridAttr::get(context),
@@ -266,7 +284,7 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
               // /*optional*/::mlir::tt::ttnn::MemoryConfigAttr memory_config);
               loc,
               RankedTensorType::get(shapeVec, builder.getF32Type(), layoutAttr),
-              shapeAttr, dataTypeAttr, nullptr, nullptr, nullptr);
+              shapeAttr, dataTypeAttr, layoutTypeAttr, nullptr, nullptr);
           onesOp->setAttr("shape", shapeAttr);
           result = onesOp.getResult();
         } else if (name == "ttnn::matmul") {

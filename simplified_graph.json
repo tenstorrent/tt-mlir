@@ -127,7 +127,7 @@
       9
     ],
     "arguments": [
-      "QueueId(0)",
+      "\u0000",
       "tensor: 2",
       "tensor: 7",
       "nullopt",
@@ -146,7 +146,7 @@
       10
     ],
     "arguments": [
-      "QueueId(0)",
+      "\u0000",
       "tensor: 8",
       "nullopt",
       "nullopt"
@@ -182,7 +182,7 @@
       12
     ],
     "arguments": [
-      "QueueId(0)",
+      "\u0000",
       "tensor: 4",
       "tensor: 10",
       "nullopt",
@@ -201,7 +201,7 @@
       13
     ],
     "arguments": [
-      "QueueId(0)",
+      "\u0000",
       "tensor: 11",
       "nullopt",
       "nullopt"
@@ -237,7 +237,7 @@
       15
     ],
     "arguments": [
-      "QueueId(0)",
+      "\u0000",
       "tensor: 6",
       "tensor: 13",
       "nullopt",
