@@ -23,6 +23,7 @@
 #include "ttnn/tensor/tensor_utils.hpp"
 #include "ttnn/tensor/types.hpp"
 #include "types_generated.h"
+#include <numeric>
 
 namespace tt::runtime::ttnn {
 
@@ -57,9 +58,8 @@ static ::ttnn::Tensor
 createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
                       const std::vector<std::uint32_t> &stride,
                       std::uint32_t itemsize, ::tt::target::DataType dataType) {
-  if (!::tt::runtime::utils::isSupportedDataType(dataType)) {
-    assert(data && "Cannot create owned tensor from unsupported data type with "
-                   "null data pointer");
+
+  if (!::tt::runtime::utils::isSupportedDataType(dataType) && data != nullptr) {
     ::tt::target::DataType unsupportedDataType = dataType;
     dataType =
         ::tt::runtime::utils::getUnsupportedDataTypeAlias(unsupportedDataType);
@@ -67,14 +67,12 @@ createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
     LOG_WARNING("User provided a tensor of data type: ",
                 ::tt::target::EnumNamesDataType()[static_cast<int>(
                     unsupportedDataType)],
-                " which is not supported ", "by runtime/ttnn. Casting to: ",
+                " which is not supported by runtime/ttnn. Casting to: ",
                 ::tt::target::EnumNamesDataType()[static_cast<int>(dataType)],
                 ", this may impact throughput and the integrity of the data.");
 
-    uint64_t numElements = 1;
-    for (auto s : shape) {
-      numElements *= s;
-    }
+    uint64_t numElements =
+        std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<>());
 
     std::uint32_t itemsize =
         ::tt::runtime::utils::dataTypeElementSize(dataType);
@@ -105,12 +103,20 @@ createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
       tt::runtime::utils::handleBoolToBFloat16(
           static_cast<const bool *>(data),
           static_cast<uint16_t *>(newData.get()), numElements);
+    } else {
+      LOG_FATAL(
+          "Unhandled unsupported data type: " +
+          std::string(::tt::target::EnumNameDataType(unsupportedDataType)));
     }
 
     // Call recursively so that `newData` does not go out of scope and thus get
     // deallocated
     return createOwnedTTNNTensor(newData.get(), shape, stride, itemsize,
                                  dataType);
+  }
+
+  if (!::tt::runtime::utils::isSupportedDataType(dataType)) {
+    dataType = ::tt::runtime::utils::getUnsupportedDataTypeAlias(dataType);
   }
 
   ::ttnn::Shape ttnnShape(shape);
@@ -750,6 +756,12 @@ void memcpy(void *dst, ::tt::runtime::Tensor src,
                    std::string(target::EnumNamesDataType()[static_cast<int>(
                        unsupportedDataTypeAlias)]));
 
+    LOG_ASSERT(
+        !dstDataType.has_value() || *dstDataType == getTensorDataType(src) ||
+            !::tt::runtime::utils::isSupportedDataType(dstDataType.value()),
+        "If destination data type is specified, it must match the "
+        "source data type or be an unsupported data type.");
+
     LOG_WARNING(
         "User is requesting to copy the data from a runtime tensor with "
         "data type: ",
@@ -780,10 +792,6 @@ void memcpy(void *dst, ::tt::runtime::Tensor src,
           static_cast<const float *>(srcPtr), static_cast<double *>(dst),
           srcTensor.physical_volume());
     } else if (dstDataType == ::tt::target::DataType::Bool) {
-      LOG_ASSERT(getTensorDataType(src) == ::tt::target::DataType::BFloat16,
-                 "Tensor data type must be BFloat16, got " +
-                     std::string(target::EnumNamesDataType()[static_cast<int>(
-                         getTensorDataType(src))]));
       tt::runtime::utils::handleBFloat16ToBool(
           static_cast<const uint16_t *>(srcPtr), static_cast<bool *>(dst),
           srcTensor.physical_volume());
@@ -794,18 +802,10 @@ void memcpy(void *dst, ::tt::runtime::Tensor src,
               dstDataType.value())]));
     }
   } else if (utils::isOnHost(srcTensor.storage_type())) {
-    LOG_ASSERT(!dstDataType.has_value() ||
-                   *dstDataType == getTensorDataType(src),
-               "If destination data type is specified, it must match the "
-               "source data type or be an unsupported data type.");
     const void *srcPtr = utils::getRawHostDataPtr(srcTensor);
     size_t size = srcTensor.physical_volume() * srcTensor.element_size();
     std::memcpy(dst, srcPtr, size);
   } else {
-    LOG_ASSERT(!dstDataType.has_value() ||
-                   *dstDataType == getTensorDataType(src),
-               "If destination data type is specified, it must match the "
-               "source data type or be an unsupported data type.");
     ::tt::tt_metal::memcpy(dst, srcTensor);
   }
 }
