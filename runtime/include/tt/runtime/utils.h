@@ -79,7 +79,6 @@ inline bool isSupportedDataType(::tt::target::DataType dataType) {
   case ::tt::target::DataType::UInt16:
   case ::tt::target::DataType::UInt8:
   case ::tt::target::DataType::Int32:
-
     return true;
   default:
     return false;
@@ -89,6 +88,8 @@ inline bool isSupportedDataType(::tt::target::DataType dataType) {
 inline ::tt::target::DataType
 getUnsupportedDataTypeAlias(::tt::target::DataType unsupportedDataType) {
   switch (unsupportedDataType) {
+  case ::tt::target::DataType::Float64:
+    return ::tt::target::DataType::Float32;
   case ::tt::target::DataType::Int64:
     return ::tt::target::DataType::Int32;
   case ::tt::target::DataType::UInt64:
@@ -97,8 +98,6 @@ getUnsupportedDataTypeAlias(::tt::target::DataType unsupportedDataType) {
     return ::tt::target::DataType::UInt16;
   case ::tt::target::DataType::Int8:
     return ::tt::target::DataType::UInt8;
-  case ::tt::target::DataType::Float64:
-    return ::tt::target::DataType::Float32;
   case ::tt::target::DataType::Bool:
     return ::tt::target::DataType::BFloat16;
   default:
@@ -216,19 +215,11 @@ inline void handleSignedToUnsignedIntegerBufferCast(const FromTy *old_buffer,
 
   constexpr ToTy toTyMax = std::numeric_limits<ToTy>::max();
   constexpr ToTy toTyMin = std::numeric_limits<ToTy>::min();
-  if constexpr (sizeof(ToTy) > sizeof(FromTy)) {
+  if constexpr (sizeof(ToTy) >= sizeof(FromTy)) {
     for (int64_t i = 0; i < num_elements; i++) {
-      if (old_buffer[i] < static_cast<FromTy>(toTyMin)) {
-        new_buffer[i] = toTyMin;
-      } else {
-        new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
-      }
-    }
-  } else if constexpr (sizeof(ToTy) == sizeof(FromTy)) {
-    // when the signed and unsigned type have the same bitwidth then we cannot
-    // it is impossible for the signed type to be beyond the maximum
-    // unsigned value
-    for (int64_t i = 0; i < num_elements; i++) {
+      // when the signed and unsigned type have the same bitwidth then
+      // it is impossible for the signed type to be beyond the maximum
+      // unsigned value
       if (old_buffer[i] < static_cast<FromTy>(toTyMin)) {
         new_buffer[i] = toTyMin;
       } else {
