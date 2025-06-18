@@ -147,13 +147,13 @@ inline void handleFloatToDoubleBufferCast(const float *old_buffer,
 }
 
 template <typename FromTy, typename ToTy>
-inline void handleSignedToSignedIntegerBufferCast(const FromTy *old_buffer,
-                                                  ToTy *new_buffer,
-                                                  int64_t num_elements) {
-  static_assert(std::is_signed<FromTy>::value,
-                "Source type must be a signed integer type");
-  static_assert(std::is_signed<ToTy>::value,
-                "Destination type must be a signed integer type");
+inline void handleEquallySignedIntegerBufferCast(const FromTy *old_buffer,
+                                                 ToTy *new_buffer,
+                                                 int64_t num_elements) {
+  static_assert(
+      (std::is_signed<FromTy>::value && std::is_signed<ToTy>::value) ||
+          (std::is_unsigned<FromTy>::value && std::is_unsigned<ToTy>::value),
+      "Source and destination types must be of the same signedness");
 
   static_assert(!std::is_same<FromTy, ToTy>::value,
                 "Source and destination types are the same! Please use "
@@ -240,36 +240,6 @@ inline void handleSignedToUnsignedIntegerBufferCast(const FromTy *old_buffer,
 }
 
 template <typename FromTy, typename ToTy>
-inline void handleUnsignedToUnsignedIntegerBufferCast(const FromTy *old_buffer,
-                                                      ToTy *new_buffer,
-                                                      int64_t num_elements) {
-  static_assert(std::is_unsigned<FromTy>::value,
-                "Source type must be an unsigned integer type");
-  static_assert(std::is_unsigned<ToTy>::value,
-                "Destination type must be an unsigned integer type");
-
-  static_assert(!std::is_same<FromTy, ToTy>::value,
-                "Source and destination types are the same! Please use "
-                "std::memcpy(new_buffer, old_buffer, num_elements * "
-                "sizeof(FromTy)) instead.");
-
-  constexpr ToTy toTyMax = std::numeric_limits<ToTy>::max();
-  if constexpr (sizeof(ToTy) >= sizeof(FromTy)) {
-    for (int64_t i = 0; i < num_elements; i++) {
-      new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
-    }
-  } else { // unsigned FromTy has larger bitwidth than unsigned ToTy
-    for (int64_t i = 0; i < num_elements; i++) {
-      if (old_buffer[i] > static_cast<FromTy>(toTyMax)) {
-        new_buffer[i] = toTyMax;
-      } else {
-        new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
-      }
-    }
-  }
-}
-
-template <typename FromTy, typename ToTy>
 inline void handleIntegerBufferCast(const FromTy *old_buffer, ToTy *new_buffer,
                                     int64_t num_elements) {
   assert(old_buffer && new_buffer && "Buffer pointers must not be null");
@@ -278,9 +248,12 @@ inline void handleIntegerBufferCast(const FromTy *old_buffer, ToTy *new_buffer,
   static_assert(std::is_integral<ToTy>::value,
                 "Destination type must be an integer type");
 
-  if constexpr (std::is_signed<FromTy>::value && std::is_signed<ToTy>::value) {
-    handleSignedToSignedIntegerBufferCast<FromTy, ToTy>(old_buffer, new_buffer,
-                                                        num_elements);
+  if constexpr ((std::is_signed<FromTy>::value &&
+                 std::is_signed<ToTy>::value) ||
+                (std::is_unsigned<FromTy>::value &&
+                 std::is_unsigned<ToTy>::value)) {
+    handleEquallySignedIntegerBufferCast<FromTy, ToTy>(old_buffer, new_buffer,
+                                                       num_elements);
   } else if constexpr (std::is_unsigned<FromTy>::value &&
                        std::is_signed<ToTy>::value) {
     handleUnsignedToSignedIntegerBufferCast<FromTy, ToTy>(
@@ -290,8 +263,7 @@ inline void handleIntegerBufferCast(const FromTy *old_buffer, ToTy *new_buffer,
     handleSignedToUnsignedIntegerBufferCast<FromTy, ToTy>(
         old_buffer, new_buffer, num_elements);
   } else { // Both are unsigned
-    handleUnsignedToUnsignedIntegerBufferCast<FromTy, ToTy>(
-        old_buffer, new_buffer, num_elements);
+    std::runtime_error("Unhandled integer buffer cast case");
   }
 }
 

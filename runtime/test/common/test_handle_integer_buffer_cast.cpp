@@ -9,8 +9,8 @@ TEST(HandleI64ToI32BufferCast, Sanity) {
   int64_t old_buffer[] = {std::numeric_limits<int64_t>::min(), 0,
                           std::numeric_limits<int64_t>::max()};
   int32_t new_buffer[] = {0, 0, 0};
-  tt::runtime::utils::handleSignedToSignedIntegerBufferCast(old_buffer,
-                                                            new_buffer, 3);
+  tt::runtime::utils::handleEquallySignedIntegerBufferCast(old_buffer,
+                                                           new_buffer, 3);
 
   // Values should be clamped to the int32_t range, not overflowed
   EXPECT_EQ(new_buffer[0], std::numeric_limits<int32_t>::min());
@@ -22,8 +22,8 @@ TEST(HandleI64ToI16BufferCast, Sanity) {
   int64_t old_buffer[] = {std::numeric_limits<int64_t>::min(), 0,
                           std::numeric_limits<int64_t>::max()};
   int16_t new_buffer[] = {0, 0, 0};
-  tt::runtime::utils::handleSignedToSignedIntegerBufferCast(old_buffer,
-                                                            new_buffer, 3);
+  tt::runtime::utils::handleEquallySignedIntegerBufferCast(old_buffer,
+                                                           new_buffer, 3);
 
   // Values should be clamped to the int16_t range, not overflowed
   EXPECT_EQ(new_buffer[0], std::numeric_limits<int16_t>::min());
@@ -35,8 +35,8 @@ TEST(HandleI64ToI8BufferCast, Sanity) {
   int64_t old_buffer[] = {std::numeric_limits<int64_t>::min(), 0,
                           std::numeric_limits<int64_t>::max()};
   int8_t new_buffer[] = {0, 0, 0};
-  tt::runtime::utils::handleSignedToSignedIntegerBufferCast(old_buffer,
-                                                            new_buffer, 3);
+  tt::runtime::utils::handleEquallySignedIntegerBufferCast(old_buffer,
+                                                           new_buffer, 3);
 
   // Values should be clamped to the int8_t range, not overflowed
   EXPECT_EQ(new_buffer[0], std::numeric_limits<int8_t>::min());
@@ -108,8 +108,8 @@ TEST(HandleI32ToI64BufferCast, Sanity) {
   int32_t old_buffer[] = {std::numeric_limits<int32_t>::min(), 0,
                           std::numeric_limits<int32_t>::max()};
   int64_t new_buffer[] = {0, 0, 0};
-  tt::runtime::utils::handleSignedToSignedIntegerBufferCast(old_buffer,
-                                                            new_buffer, 3);
+  tt::runtime::utils::handleEquallySignedIntegerBufferCast(old_buffer,
+                                                           new_buffer, 3);
 
   // Values should be the same in the int64 buffer as int64 has larger bitwidth
   EXPECT_EQ(new_buffer[0], std::numeric_limits<int32_t>::min());
@@ -121,8 +121,8 @@ TEST(HandleI32ToI16BufferCast, Sanity) {
   int32_t old_buffer[] = {std::numeric_limits<int32_t>::min(), 0,
                           std::numeric_limits<int32_t>::max()};
   int16_t new_buffer[] = {0, 0, 0};
-  tt::runtime::utils::handleSignedToSignedIntegerBufferCast(old_buffer,
-                                                            new_buffer, 3);
+  tt::runtime::utils::handleEquallySignedIntegerBufferCast(old_buffer,
+                                                           new_buffer, 3);
 
   // Values should be clamped to the int16_t range, not overflowed
   // int16_t has a smaller max value than int32_t, so the int32_t max value
@@ -136,8 +136,8 @@ TEST(HandleI32ToI8BufferCast, Sanity) {
   int32_t old_buffer[] = {std::numeric_limits<int32_t>::min(), 0,
                           std::numeric_limits<int32_t>::max()};
   int8_t new_buffer[] = {0, 0, 0};
-  tt::runtime::utils::handleSignedToSignedIntegerBufferCast(old_buffer,
-                                                            new_buffer, 3);
+  tt::runtime::utils::handleEquallySignedIntegerBufferCast(old_buffer,
+                                                           new_buffer, 3);
 
   // Values should be clamped to the int8_t range, not overflowed
   // int8_t has a smaller max value than int32_t, so the int32_t max value
@@ -211,8 +211,8 @@ TEST(HandleI16ToI64BufferCast, Sanity) {
   int16_t old_buffer[] = {std::numeric_limits<int16_t>::min(), 0,
                           std::numeric_limits<int16_t>::max()};
   int64_t new_buffer[] = {0, 0, 0};
-  tt::runtime::utils::handleSignedToSignedIntegerBufferCast(old_buffer,
-                                                            new_buffer, 3);
+  tt::runtime::utils::handleEquallySignedIntegerBufferCast(old_buffer,
+                                                           new_buffer, 3);
 
   // Values should be the same in the int64 buffer as int64 has larger bitwidth
   EXPECT_EQ(new_buffer[0], std::numeric_limits<int16_t>::min());
@@ -224,8 +224,8 @@ TEST(HandleI16ToI32BufferCast, Sanity) {
   int16_t old_buffer[] = {std::numeric_limits<int16_t>::min(), 0,
                           std::numeric_limits<int16_t>::max()};
   int32_t new_buffer[] = {0, 0, 0};
-  tt::runtime::utils::handleSignedToSignedIntegerBufferCast(old_buffer,
-                                                            new_buffer, 3);
+  tt::runtime::utils::handleEquallySignedIntegerBufferCast(old_buffer,
+                                                           new_buffer, 3);
 
   // Values should be the same in the int32 buffer as int32 has larger bitwidth
   EXPECT_EQ(new_buffer[0], std::numeric_limits<int16_t>::min());
@@ -237,8 +237,8 @@ TEST(HandleI16ToI8BufferCast, Sanity) {
   int16_t old_buffer[] = {std::numeric_limits<int16_t>::min(), 0,
                           std::numeric_limits<int16_t>::max()};
   int8_t new_buffer[] = {0, 0, 0};
-  tt::runtime::utils::handleSignedToSignedIntegerBufferCast(old_buffer,
-                                                            new_buffer, 3);
+  tt::runtime::utils::handleEquallySignedIntegerBufferCast(old_buffer,
+                                                           new_buffer, 3);
 
   // Values should be clamped to the int8_t range, not overflowed
   // int8_t has a smaller max value than int16_t, so the int16_t max value
@@ -297,8 +297,8 @@ TEST(HandleI8ToI64BufferCast, Sanity) {
   int8_t old_buffer[] = {std::numeric_limits<int8_t>::min(), 0,
                          std::numeric_limits<int8_t>::max()};
   int64_t new_buffer[] = {0, 0, 0};
-  tt::runtime::utils::handleSignedToSignedIntegerBufferCast(old_buffer,
-                                                            new_buffer, 3);
+  tt::runtime::utils::handleEquallySignedIntegerBufferCast(old_buffer,
+                                                           new_buffer, 3);
 
   // Values should be the same in the int64 buffer as int64 has larger bitwidth
   EXPECT_EQ(new_buffer[0], std::numeric_limits<int8_t>::min());
@@ -310,8 +310,8 @@ TEST(HandleI8ToI32BufferCast, Sanity) {
   int8_t old_buffer[] = {std::numeric_limits<int8_t>::min(), 0,
                          std::numeric_limits<int8_t>::max()};
   int32_t new_buffer[] = {0, 0, 0};
-  tt::runtime::utils::handleSignedToSignedIntegerBufferCast(old_buffer,
-                                                            new_buffer, 3);
+  tt::runtime::utils::handleEquallySignedIntegerBufferCast(old_buffer,
+                                                           new_buffer, 3);
 
   // Values should be the same in the int32 buffer as int32 has larger bitwidth
   EXPECT_EQ(new_buffer[0], std::numeric_limits<int8_t>::min());
@@ -323,8 +323,8 @@ TEST(HandleI8ToI16BufferCast, Sanity) {
   int8_t old_buffer[] = {std::numeric_limits<int8_t>::min(), 0,
                          std::numeric_limits<int8_t>::max()};
   int16_t new_buffer[] = {0, 0, 0};
-  tt::runtime::utils::handleSignedToSignedIntegerBufferCast(old_buffer,
-                                                            new_buffer, 3);
+  tt::runtime::utils::handleEquallySignedIntegerBufferCast(old_buffer,
+                                                           new_buffer, 3);
 
   // Values should be the same in the int16 buffer as int16 has larger bitwidth
   EXPECT_EQ(new_buffer[0], std::numeric_limits<int8_t>::min());
