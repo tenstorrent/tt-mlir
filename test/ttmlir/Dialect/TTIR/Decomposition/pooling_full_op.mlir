@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttir-decomposition %s | FileCheck %s
 module attributes {} {
   func.func @test_maxpool2d() -> tensor<1x32x64x64xbf16> {
     // CHECK: %[[FULL:.*]] = "ttir.full"() <{fill_value = 1.000000e+00 : f32, shape = array<i32: 1, 32, 64, 64>}> : () -> tensor<1x32x64x64xbf16>

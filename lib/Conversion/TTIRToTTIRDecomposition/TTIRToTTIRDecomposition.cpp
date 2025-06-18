@@ -1341,6 +1341,82 @@ private:
 };
 } // namespace
 
+// The following pattern rewriter will replace a PoolingOp with a FullOp in the
+// case where the pooling operation is applied to the result of a FullOp
+namespace {
+class PoolingToFullOp : public OpConversionPattern<ttir::PoolingOp> {
+public:
+  using OpConversionPattern<ttir::PoolingOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::PoolingOp op, ttir::PoolingOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    int64_t kernelSize = std::accumulate(op.getWindowDimensions().begin(),
+                                         op.getWindowDimensions().end(), 1,
+                                         std::multiplies<int64_t>());
+    SmallVector<Value> newResults;
+    // If all the inputs are constant ops with splat values then we can easily
+    // cannonicalize this
+    for (size_t i = 0; i < op.getInputs().size(); i++) {
+      ttir::FullOp constant =
+          dyn_cast_or_null<ttir::FullOp>(op.getInputs()[i].getDefiningOp());
+      if (!constant) {
+        return failure();
+      }
+      ttir::FullOp newConstant;
+      if (isa<IntegerAttr>(constant.getFillValue())) {
+        int64_t constValue = dyn_cast<IntegerAttr>(constant.getFillValue())
+                                 .getValue()
+                                 .getSExtValue();
+        int64_t newConstValue;
+
+        if (op.getPoolingMethod() == ttir::PoolingMethod::Max ||
+            op.getPoolingMethod() == ttir::PoolingMethod::Average) {
+          newConstValue = constValue;
+        } else if (op.getPoolingMethod() == ttir::PoolingMethod::Sum) {
+          newConstValue = constValue * kernelSize;
+        } else {
+          return rewriter.notifyMatchFailure(op.getLoc(),
+                                             "Unknown pooling method");
+        }
+        newConstant = rewriter.create<ttir::FullOp>(
+            op.getLoc(), op.getResult(i).getType(),
+            IntegerAttr::get(IntegerType::get(rewriter.getContext(), 32),
+                             newConstValue));
+
+      } else if (isa<FloatAttr>(constant.getFillValue())) {
+        float constValue = dyn_cast<FloatAttr>(constant.getFillValue())
+                               .getValue()
+                               .convertToFloat();
+        float newConstValue;
+
+        if (op.getPoolingMethod() == ttir::PoolingMethod::Max ||
+            op.getPoolingMethod() == ttir::PoolingMethod::Average) {
+          newConstValue = constValue;
+        } else if (op.getPoolingMethod() == ttir::PoolingMethod::Sum) {
+          newConstValue = constValue * kernelSize;
+        } else {
+          return rewriter.notifyMatchFailure(op.getLoc(),
+                                             "Unknown pooling method");
+        }
+        newConstant = rewriter.create<ttir::FullOp>(
+            op.getLoc(), op.getResult(i).getType(),
+            FloatAttr::get(Float32Type::get(rewriter.getContext()),
+                           newConstValue));
+      } else {
+        return rewriter.notifyMatchFailure(op.getLoc(), "Unknown element type");
+      }
+
+      newResults.push_back(newConstant);
+    }
+
+    rewriter.replaceOp(
+        op, ValueRange(ArrayRef<Value>(newResults.begin(), newResults.end())));
+    return success();
+  }
+};
+} // namespace
+
 // SelectOp is converted to a series of SliceOp and potentially a ConcatOp if
 // the sliced dimension is sliced multiple times. For example, if the input
 // tensor is
@@ -1944,6 +2020,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter) {
   patterns.add<PoolingToPool2dPattern>(typeConverter, ctx);
+  patterns.add<PoolingToFullOp>(typeConverter, ctx);
   patterns.add<IndexToSliceConversionPattern>(typeConverter, ctx);
   patterns.add<Legalize1DConvolutionPattern>(typeConverter, ctx);
   patterns.add<ConvolutionToConv2dPattern>(typeConverter, ctx);
