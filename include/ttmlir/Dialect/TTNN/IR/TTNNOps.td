@@ -743,7 +743,9 @@ class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_Op<mnemo
   let hasVerifier = 1;
 }
 
-def TTNN_SumOp : TTNN_ReductionOp<"sum"> {
+def TTNN_SumOp : TTNN_ReductionOp<"sum",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Sum reduction op.";
     let description = [{
       Sum reduction op.
@@ -865,7 +867,9 @@ def TTNN_ProdOp : TTNN_Op<"prod"> {
   let hasVerifier = 1;
 }
 
-def TTNN_EmbeddingOp : TTNN_Op<"embedding"> {
+def TTNN_EmbeddingOp : TTNN_Op<"embedding",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Embedding op.";
     let description = [{
       Embedding operation.
@@ -1164,7 +1168,7 @@ def TTNN_LinearOp : TTNN_Op<"linear"> {
       Produces the matmul of tensors `a` and `b` with optional addition with `bias`.
 
       Example:
-        // %a = [[1., 2.]], [2., 1.]]
+        // %a = [[1., 2.], [2., 1.]]
         // %b = [[0., 1.], [1., 0.]]
         // %bias = [[1.]]
         "ttnn.linear"(%a, %b, %bias, %result) : (tensor<2x2xf16>, tensor<2x2xf16>, tensor<1xf16>, tensor<2x2xf16>) -> tensor<2x2xf16>
@@ -1378,7 +1382,7 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d"> {
             output_padding = array<i32: 0, 0>,
             padding = array<i32: 0, 0>,
             stride = array<i32: 1, 1>
-          > : (tensor<3x8x8x256xbf16>, tensor<256x256x3x3xbf16>, tensor<1x1x1x256xbf16>, tensor<3x10x10x256xbf16>) -> tensor<3x10x10x256xbf16>
+          }> : (tensor<3x8x8x256xbf16>, tensor<256x256x3x3xbf16>, tensor<1x1x1x256xbf16>, tensor<3x10x10x256xbf16>) -> tensor<3x10x10x256xbf16>
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
@@ -2078,7 +2082,7 @@ def TTNN_TraceOp : TTNN_Op<"trace"> {
 
       ```mlir
       %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-      %1 = ttnn.trace(%0, 0, true, @single_add_trace_0, [%arg0, %arg1]) : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
+      %1 = ttnn.trace(%0, 0, false, @single_add_trace_0, [%arg0, %arg1]) : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
       ```
     }];
 

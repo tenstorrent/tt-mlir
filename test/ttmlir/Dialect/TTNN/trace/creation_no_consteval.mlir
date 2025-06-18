@@ -8,7 +8,7 @@ module {
   // CHECK-LABEL: func.func @creation_ops(
   func.func @creation_ops() -> tensor<4x4xbf16> {
     // CHECK: %[[GET_DEVICE:.+]] = "ttnn.get_device"()
-    // CHECK-NEXT: %[[TRACE_RESULT:.+]] = ttnn.trace(%[[GET_DEVICE]], 0, true, @creation_ops_trace_0, [])
+    // CHECK-NEXT: %[[TRACE_RESULT:.+]] = ttnn.trace(%[[GET_DEVICE]], 0, false, @creation_ops_trace_0, [])
     // CHECK-NOT: "ttnn.zeros"
     // CHECK-NOT: "ttnn.ones"
     // CHECK-NOT: "ttnn.arange"

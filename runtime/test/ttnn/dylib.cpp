@@ -253,7 +253,7 @@ bool compareOuts(std::vector<::tt::runtime::Tensor> &lhs,
         ::tt::runtime::ttnn::utils::getRawHostDataPtr(*lhsTensor));
     uint8_t *rhsData = static_cast<uint8_t *>(
         ::tt::runtime::ttnn::utils::getRawHostDataPtr(*rhsTensor));
-    for (size_t i = 0; i < lhsTensor->padded_volume(); ++i) {
+    for (size_t i = 0; i < lhsTensor->physical_volume(); ++i) {
       SupportedTypes lhsVal =
           getValueForDType(lhsTensor->dtype(), lhsData + i * elementSize);
       SupportedTypes rhsVal =

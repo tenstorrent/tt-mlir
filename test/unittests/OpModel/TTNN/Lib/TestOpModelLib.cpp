@@ -233,35 +233,60 @@ INSTANTIATE_TEST_SUITE_P(
 
 // ==== Unary Eltwise Ops Ends ====
 
+enum class ReductionOpType { Sum, Mean };
+
 class OpModelReductionParam
     : public OpModelTest,
       public testing::WithParamInterface<
-          std::tuple<detail::TestTensor,                        // input
-                     detail::TestTensor,                        // output
+          std::tuple<ReductionOpType,    // operation type
+                     detail::TestTensor, // input
+                     detail::TestTensor, // output
                      std::optional<llvm::SmallVector<int64_t>>, // dim arg
                      bool,                                      // keep dim
-                     detail::ExpectedResult>> {};
+                     detail::ExpectedResult>> {
+protected:
+  using ReductionOpConstraintsFunc =
+      std::function<llvm::Expected<OpConstraints>(
+          GridAttr, llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr,
+          std::optional<llvm::ArrayRef<int64_t>>, bool,
+          mlir::tt::ttnn::TTNNLayoutAttr)>;
+
+  using ReductionOpRuntimeFunc = std::function<llvm::Expected<size_t>(
+      llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr,
+      std::optional<llvm::ArrayRef<int64_t>>, bool,
+      mlir::tt::ttnn::TTNNLayoutAttr)>;
+
+  std::map<ReductionOpType,
+           std::pair<ReductionOpConstraintsFunc, ReductionOpRuntimeFunc>>
+      opMap = {
+          {ReductionOpType::Sum,
+           {SumOpInterface::getOpConstraints, SumOpInterface::getOpRuntime}},
+          {ReductionOpType::Mean,
+           {MeanOpInterface::getOpConstraints, MeanOpInterface::getOpRuntime}}};
+};
 
 TEST_P(OpModelReductionParam, Reduction) {
   auto params = GetParam();
+  const ReductionOpType opType = std::get<0>(params);
   const auto [inputShape, inputTensorLayout, inputBufferType,
-              inputVirtualGrid] = std::get<0>(params);
+              inputVirtualGrid] = std::get<1>(params);
 
   const auto [outputShape, outputTensorLayout, outputBufferType,
-              outputVirtualGrid] = std::get<1>(params);
-  const auto dimArg = std::get<2>(params);
-  const auto keepDim = std::get<3>(params);
+              outputVirtualGrid] = std::get<2>(params);
+  const auto dimArg = std::get<3>(params);
+  const auto keepDim = std::get<4>(params);
   const auto [expectedLegal, expectedCbSize, expectedPeakSize,
-              expectedOutputSize] = std::get<4>(params);
+              expectedOutputSize] = std::get<5>(params);
 
   const mlir::tt::ttnn::TTNNLayoutAttr inputLayout = CreateTiledLayout(
       inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
   const mlir::tt::ttnn::TTNNLayoutAttr outputLayout = CreateTiledLayout(
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
-  auto constraintsExp = MeanOpInterface::getOpConstraints(
-      CreateWorkerGrid(), inputShape, inputLayout, dimArg, keepDim,
-      outputLayout);
+  const auto &[constraintsFunc, runtimeFunc] = opMap.at(opType);
+  auto constraintsExp =
+      constraintsFunc(CreateWorkerGrid(), inputShape, inputLayout, dimArg,
+                      keepDim, outputLayout);
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
@@ -276,8 +301,8 @@ TEST_P(OpModelReductionParam, Reduction) {
     llvm::consumeError(constraintsExp.takeError());
   }
 
-  auto runtimeExp = MeanOpInterface::getOpRuntime(
-      inputShape, inputLayout, dimArg, keepDim, outputLayout);
+  auto runtimeExp =
+      runtimeFunc(inputShape, inputLayout, dimArg, keepDim, outputLayout);
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (expectedLegal) {
     EXPECT_TRUE(runtimeExp.get() > 0);
@@ -286,25 +311,33 @@ TEST_P(OpModelReductionParam, Reduction) {
   }
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    MeanTests, OpModelReductionParam,
-    ::testing::Values(
-        std::make_tuple(detail::interleavedN300X1024Dram,
-                        detail::interleavedN300X1024Dram,
-                        llvm::SmallVector<int64_t>{1}, true,
-                        detail::ExpectedResult{true, 12288, 0, 0}),
-        std::make_tuple(detail::interleavedN300X1024Dram,
-                        detail::interleavedN300X1024Dram,
-                        llvm::SmallVector<int64_t>{1, 2}, false,
-                        detail::ExpectedResult{false, 0, 0, 0}),
-        std::make_tuple(detail::interleavedN300X1024Dram,
-                        detail::interleavedN300X1024Dram,
-                        llvm::SmallVector<int64_t>{1, 0}, false,
-                        detail::ExpectedResult{true, 12288, 0, 0}),
-        std::make_tuple(detail::interleavedN300X1024L1,
-                        detail::interleavedN300X1024Dram,
-                        llvm::SmallVector<int64_t>{1}, false,
-                        detail::ExpectedResult{true, 12288, 0, 0})));
+// Helper function to generate test parameters for reduction operations
+template <ReductionOpType OpType>
+static auto generateReductionParams() {
+  return ::testing::Values(
+      std::make_tuple(OpType, detail::interleavedN300X1024Dram,
+                      detail::interleavedN300X1024Dram,
+                      llvm::SmallVector<int64_t>{1}, true,
+                      detail::ExpectedResult{true, 12288, 0, 0}),
+      std::make_tuple(OpType, detail::interleavedN300X1024Dram,
+                      detail::interleavedN300X1024Dram,
+                      llvm::SmallVector<int64_t>{1, 2}, false,
+                      detail::ExpectedResult{false, 0, 0, 0}),
+      std::make_tuple(OpType, detail::interleavedN300X1024Dram,
+                      detail::interleavedN300X1024Dram,
+                      llvm::SmallVector<int64_t>{1, 0}, false,
+                      detail::ExpectedResult{true, 12288, 0, 0}),
+      std::make_tuple(OpType, detail::interleavedN300X1024L1,
+                      detail::interleavedN300X1024Dram,
+                      llvm::SmallVector<int64_t>{1}, false,
+                      detail::ExpectedResult{true, 12288, 0, 0}));
+}
+
+INSTANTIATE_TEST_SUITE_P(SumTests, OpModelReductionParam,
+                         generateReductionParams<ReductionOpType::Sum>());
+
+INSTANTIATE_TEST_SUITE_P(MeanTests, OpModelReductionParam,
+                         generateReductionParams<ReductionOpType::Mean>());
 
 TEST_F(OpModelTest, SoftmaxInterleaved) {
   const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
@@ -1574,5 +1607,89 @@ INSTANTIATE_TEST_SUITE_P(
                            mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
                            mlir::tt::ttnn::BufferType::DRAM},
         2, "nearest", true)));
+
+// ==== EmbeddingOp Tests ====
+class OpModelEmbeddingParam : public OpModelTest,
+                              public ::testing::WithParamInterface<
+                                  std::tuple<detail::TestTensor, // input
+                                             detail::TestTensor, // weight
+                                             detail::ExpectedResult>> {
+protected:
+  void RunTest() {
+    const auto [inputTensor, weightTensor, expected] = GetParam();
+    const auto [inputShape, inputLayout, inputBufferType, inputVirtualGrid] =
+        inputTensor;
+    const auto [weightShape, weightLayout, weightBufferType,
+                weightVirtualGrid] = weightTensor;
+    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+                expectedOutputSize] = expected;
+    // output shape: [batch, seq_len, hidden_size]
+    llvm::SmallVector<int64_t> outputShape = {inputShape[0], inputShape[1],
+                                              weightShape[1]};
+
+    const mlir::tt::ttnn::TTNNLayoutAttr inputTiledLayout = CreateTiledLayout(
+        inputShape, inputBufferType, inputLayout, inputVirtualGrid);
+    const mlir::tt::ttnn::TTNNLayoutAttr weightTiledLayout = CreateTiledLayout(
+        weightShape, weightBufferType, weightLayout, weightVirtualGrid);
+    const mlir::tt::ttnn::TTNNLayoutAttr outputTiledLayout = CreateTiledLayout(
+        outputShape, mlir::tt::ttnn::BufferType::L1,
+        mlir::tt::ttnn::TensorMemoryLayout::Interleaved, std::nullopt);
+
+    auto constraintsExp =
+        op_model::ttnn::EmbeddingOpInterface::getOpConstraints(
+            CreateWorkerGrid(), inputShape, inputTiledLayout, weightShape,
+            weightTiledLayout, outputShape, outputTiledLayout);
+
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+          constraintsExp.get();
+      EXPECT_EQ(cbSize, expectedCbSize);
+      EXPECT_EQ(peakSize, expectedPeakSize);
+      EXPECT_EQ(outputSize, expectedOutputSize);
+      ExpectLayoutsEQ(outputTiledLayout, outputLayoutReadBack);
+    } else {
+      llvm::consumeError(constraintsExp.takeError());
+    }
+
+    // Test runtime using the interface directly
+    auto runtimeExp = op_model::ttnn::EmbeddingOpInterface::getOpRuntime(
+        inputShape, inputTiledLayout, weightShape, weightTiledLayout,
+        outputShape, outputTiledLayout);
+    EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+    if (expectedLegal) {
+      EXPECT_GT(runtimeExp.get(), 0);
+    } else {
+      llvm::consumeError(runtimeExp.takeError());
+    }
+  }
+};
+
+TEST_P(OpModelEmbeddingParam, EmbeddingParam) { RunTest(); }
+
+INSTANTIATE_TEST_SUITE_P(
+    EmbeddingTests, OpModelEmbeddingParam,
+    ::testing::Values(
+        std::make_tuple(
+            // Input: [batch=1, seq_len=1024]
+            detail::TestTensor{{1, 1024},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::DRAM},
+            // Weight: [vocab_size=256, hidden_size=128]
+            detail::TestTensor{{256, 128},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::DRAM},
+            detail::ExpectedResult{true, 32768, 8192, 4096}),
+        std::make_tuple(
+            // Input: [batch=2, seq_len=512] (sharded)
+            detail::TestTensor{{2, 512},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::L1,
+                               llvm::SmallVector<int64_t>{2, 1}},
+            // Weight: [vocab_size=512, hidden_size=256]
+            detail::TestTensor{{512, 256},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::DRAM},
+            detail::ExpectedResult{true, 65536, 16384, 8192})));
 
 } // namespace mlir::tt::op_model::ttnn

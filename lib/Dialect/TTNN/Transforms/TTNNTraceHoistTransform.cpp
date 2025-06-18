@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
@@ -197,7 +198,7 @@ private:
     builder.setInsertionPoint(firstOp);
     auto device = utils::getOrInsertDevice(rewriter, firstOp);
     auto cqIdAttr = builder.getI32IntegerAttr(traceFuncIndex);
-    auto blockingAttr = builder.getBoolAttr(true);
+    auto blockingAttr = builder.getBoolAttr(false);
     auto traceOp = builder.create<mlir::tt::ttnn::TraceOp>(
         firstOp->getLoc(), outputTypes, device, cqIdAttr, blockingAttr,
         calleeAttr, ValueRange(inputs));
