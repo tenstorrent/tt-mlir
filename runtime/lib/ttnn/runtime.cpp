@@ -315,7 +315,7 @@ std::uint32_t getTensorElementSize(::tt::runtime::Tensor tensor) {
 std::uint32_t getTensorVolume(::tt::runtime::Tensor tensor) {
   const ::ttnn::Tensor &ttnnTensor =
       utils::getTTNNTensorFromRuntimeTensor(tensor);
-  return ttnnTensor.padded_volume();
+  return ttnnTensor.physical_volume();
 }
 
 TensorDesc getTensorDesc(::tt::runtime::Tensor tensor) {
@@ -675,7 +675,7 @@ void memcpy(void *dst, ::tt::runtime::Tensor src) {
   const ::ttnn::Tensor &srcTensor = utils::getTTNNTensorFromRuntimeTensor(src);
   if (utils::isOnHost(srcTensor.storage_type())) {
     const void *srcPtr = utils::getRawHostDataPtr(srcTensor);
-    size_t size = srcTensor.padded_volume() * srcTensor.element_size();
+    size_t size = srcTensor.physical_volume() * srcTensor.element_size();
     std::memcpy(dst, srcPtr, size);
   } else {
     ::tt::tt_metal::memcpy(dst, srcTensor);
@@ -685,17 +685,17 @@ void memcpy(void *dst, ::tt::runtime::Tensor src) {
 void memcpy(::tt::runtime::Tensor dst, ::tt::runtime::Tensor src) {
   ::ttnn::Tensor &dstTensor = utils::getTTNNTensorFromRuntimeTensor(dst);
   const ::ttnn::Tensor &srcTensor = utils::getTTNNTensorFromRuntimeTensor(src);
-  LOG_ASSERT(srcTensor.padded_volume() * srcTensor.element_size() ==
-                 dstTensor.padded_volume() * dstTensor.element_size(),
+  LOG_ASSERT(srcTensor.physical_volume() * srcTensor.element_size() ==
+                 dstTensor.physical_volume() * dstTensor.element_size(),
              "Input output tensor size mismatch in memcpy: ",
-             srcTensor.padded_volume(), " * ", srcTensor.element_size(),
-             " != ", dstTensor.padded_volume(), " * ",
+             srcTensor.physical_volume(), " * ", srcTensor.element_size(),
+             " != ", dstTensor.physical_volume(), " * ",
              dstTensor.element_size());
   if (utils::isOnHost(srcTensor.storage_type()) &&
       utils::isOnHost(dstTensor.storage_type())) {
     void *dstPtr = utils::getRawHostDataPtr(dstTensor);
     const void *srcPtr = utils::getRawHostDataPtr(srcTensor);
-    size_t size = srcTensor.padded_volume() * srcTensor.element_size();
+    size_t size = srcTensor.physical_volume() * srcTensor.element_size();
     std::memcpy(dstPtr, srcPtr, size);
   } else {
     ::tt::tt_metal::memcpy(dstTensor, srcTensor);

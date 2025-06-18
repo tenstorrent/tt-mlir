@@ -180,7 +180,8 @@ jobs:
           {runs-on: n150,   sh-run: false, name: "perf", suite: "explorer",          image: "tracy",  type: "pytest",  path: "tools/explorer/test/run_tests.py"},
           {runs-on: n150,   sh-run: false, name: "run",  suite: "op_by_op_infra",    image: "tracy",  type: "pytest",  path: "test/python/op_by_op_infra"},
           {runs-on: n300,   sh-run: true,  name: "run",  suite: "ttnn_runtime",      image: "tracy",  type: "pytest",  path: "runtime/test/python/ttnn/multi_device"},
-          {runs-on: n300,   sh-run: true,  name: "run",  suite: "run",               image: "tracy",  type: "pykernel"},
+          # Pykernel tests are disabled until PR #3802 is merged and we no longer need to pip install ttnn
+          # {runs-on: n300,   sh-run: true,  name: "run",  suite: "run",               image: "tracy",  type: "pykernel"},
         ]
     name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ matrix.build.suite }},${{ matrix.build.type }},${{ strategy.job-index }})"
 
