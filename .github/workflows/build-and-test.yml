@@ -289,12 +289,12 @@ jobs:
         if [ "${{ matrix.build.suite }}" == "op_model" ]; then
           export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
           export TT_METAL_LOGGER_LEVEL="TRACE"
-          echo "Running op-model test Conversion"
-          TT_METAL_WATCHER=10 ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Conversion/TestConversion
-          echo "Running op-model test Lib"
-          TT_METAL_WATCHER=10 ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Lib/TestOpModelLib
           echo "Running op-model test Interface"
           TT_METAL_WATCHER=10 ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Op/TestOpModelInterface
+          echo "Running op-model test Lib"
+          TT_METAL_WATCHER=10 ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Lib/TestOpModelLib
+          echo "Running op-model test Conversion"
+          TT_METAL_WATCHER=10 ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Conversion/TestConversion
         fi
 
     - name: Run TTNN-Standalone test
