@@ -1367,15 +1367,14 @@ public:
 
       std::variant<int64_t, float> constValue;
       std::variant<int64_t, float> newConstValue;
-      if (isa<IntegerAttr>(constant.getFillValue())) {
-        constValue = dyn_cast<IntegerAttr>(constant.getFillValue())
-                         .getValue()
-                         .getSExtValue();
-      } else if (isa<FloatAttr>(constant.getFillValue())) {
-        constValue = dyn_cast<FloatAttr>(constant.getFillValue())
-                         .getValue()
-                         .convertToFloat();
-      }
+
+      constValue = isa<IntegerAttr>(constant.getFillValue())
+                       ? dyn_cast<IntegerAttr>(constant.getFillValue())
+                             .getValue()
+                             .getSExtValue()
+                       : dyn_cast<FloatAttr>(constant.getFillValue())
+                             .getValue()
+                             .convertToFloat();
 
       if (op.getPoolingMethod() == ttir::PoolingMethod::Max ||
           op.getPoolingMethod() == ttir::PoolingMethod::Average) {
@@ -1392,17 +1391,17 @@ public:
                                            "Unknown pooling method");
       }
 
-      if (std::holds_alternative<int64_t>(newConstValue)) {
-        newConstant = rewriter.create<ttir::FullOp>(
-            op.getLoc(), op.getResult(i).getType(),
-            IntegerAttr::get(IntegerType::get(rewriter.getContext(), 32),
-                             std::get<int64_t>(newConstValue)));
-      } else {
-        newConstant = rewriter.create<ttir::FullOp>(
-            op.getLoc(), op.getResult(i).getType(),
-            FloatAttr::get(Float32Type::get(rewriter.getContext()),
-                           std::get<float>(newConstValue)));
-      }
+      mlir::Attribute newConstValueAttr =
+          std::holds_alternative<int64_t>(newConstValue)
+              ? cast<mlir::Attribute>(IntegerAttr::get(
+                    IntegerType::get(rewriter.getContext(), 32),
+                    std::get<int64_t>(newConstValue)))
+              : cast<mlir::Attribute>(
+                    FloatAttr::get(Float32Type::get(rewriter.getContext()),
+                                   std::get<float>(newConstValue)));
+
+      newConstant = rewriter.create<ttir::FullOp>(
+          op.getLoc(), op.getResult(i).getType(), newConstValueAttr);
       newResults.push_back(newConstant);
     }
 
