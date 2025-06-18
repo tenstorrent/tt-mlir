@@ -72,7 +72,7 @@ public:
     // runtime.
     // This will be removed once we switch to virtual device:
     // https://github.com/tenstorrent/tt-metal/issues/14000
-    mlir::tt::op_model::ttnn::SingletonDeviceContext::closeInstance();
+    // mlir::tt::op_model::ttnn::SingletonDeviceContext::closeInstance();
 #endif
   }
 
