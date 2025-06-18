@@ -58,7 +58,8 @@ static ::ttnn::Tensor
 createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
                       const std::vector<std::uint32_t> &stride,
                       std::uint32_t itemsize, ::tt::target::DataType dataType) {
-
+  const void *dataToUse = data;
+  std::unique_ptr<void, decltype(&std::free)> castedData(nullptr, &std::free);
   if (!::tt::runtime::utils::isSupportedDataType(dataType) && data != nullptr) {
     ::tt::target::DataType unsupportedDataType = dataType;
     dataType =
@@ -75,43 +76,12 @@ createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
 
     std::uint32_t itemsize =
         ::tt::runtime::utils::dataTypeElementSize(dataType);
-    std::unique_ptr<void, decltype(&std::free)> newData(
-        malloc(itemsize * numElements), &std::free);
 
-    if (unsupportedDataType == ::tt::target::DataType::Int64) {
-      tt::runtime::utils::handleIntegerBufferCast<int64_t, int32_t>(
-          static_cast<const int64_t *>(data),
-          static_cast<int32_t *>(newData.get()), numElements);
-    } else if (unsupportedDataType == ::tt::target::DataType::UInt64) {
-      tt::runtime::utils::handleIntegerBufferCast<uint64_t, uint32_t>(
-          static_cast<const uint64_t *>(data),
-          static_cast<uint32_t *>(newData.get()), numElements);
-    } else if (unsupportedDataType == ::tt::target::DataType::Int16) {
-      tt::runtime::utils::handleIntegerBufferCast<int16_t, uint16_t>(
-          static_cast<const int16_t *>(data),
-          static_cast<uint16_t *>(newData.get()), numElements);
-    } else if (unsupportedDataType == ::tt::target::DataType::Int8) {
-      tt::runtime::utils::handleIntegerBufferCast<int8_t, uint8_t>(
-          static_cast<const int8_t *>(data),
-          static_cast<uint8_t *>(newData.get()), numElements);
-    } else if (unsupportedDataType == ::tt::target::DataType::Float64) {
-      tt::runtime::utils::handleDoubleToFloatBufferCast(
-          static_cast<const double *>(data),
-          static_cast<float *>(newData.get()), numElements);
-    } else if (unsupportedDataType == ::tt::target::DataType::Bool) {
-      tt::runtime::utils::handleBoolToBFloat16(
-          static_cast<const bool *>(data),
-          static_cast<uint16_t *>(newData.get()), numElements);
-    } else {
-      LOG_FATAL(
-          "Unhandled unsupported data type: " +
-          std::string(::tt::target::EnumNameDataType(unsupportedDataType)));
-    }
+    castedData.reset(malloc(itemsize * numElements));
 
-    // Call recursively so that `newData` does not go out of scope and thus get
-    // deallocated
-    return createOwnedTTNNTensor(newData.get(), shape, stride, itemsize,
-                                 dataType);
+    ::tt::runtime::utils::handleBufferCast(
+        data, castedData.get(), unsupportedDataType, dataType, numElements);
+    dataToUse = castedData.get();
   }
 
   if (!::tt::runtime::utils::isSupportedDataType(dataType)) {
@@ -123,17 +93,20 @@ createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
 
   switch (ttnnDataType) {
   case ::ttnn::DataType::FLOAT32:
-    return utils::createTTNNTensor<float>(data, ttnnShape, ttnnDataType);
+    return utils::createTTNNTensor<float>(dataToUse, ttnnShape, ttnnDataType);
   case ::ttnn::DataType::BFLOAT16:
-    return utils::createTTNNTensor<bfloat16>(data, ttnnShape, ttnnDataType);
+    return utils::createTTNNTensor<bfloat16>(dataToUse, ttnnShape,
+                                             ttnnDataType);
   case ::ttnn::DataType::UINT32:
-    return utils::createTTNNTensor<uint32_t>(data, ttnnShape, ttnnDataType);
+    return utils::createTTNNTensor<uint32_t>(dataToUse, ttnnShape,
+                                             ttnnDataType);
   case ::ttnn::DataType::UINT16:
-    return utils::createTTNNTensor<uint16_t>(data, ttnnShape, ttnnDataType);
+    return utils::createTTNNTensor<uint16_t>(dataToUse, ttnnShape,
+                                             ttnnDataType);
   case ::ttnn::DataType::UINT8:
-    return utils::createTTNNTensor<uint8_t>(data, ttnnShape, ttnnDataType);
+    return utils::createTTNNTensor<uint8_t>(dataToUse, ttnnShape, ttnnDataType);
   case ::ttnn::DataType::INT32:
-    return utils::createTTNNTensor<int32_t>(data, ttnnShape, ttnnDataType);
+    return utils::createTTNNTensor<int32_t>(dataToUse, ttnnShape, ttnnDataType);
   default:
     LOG_FATAL("Unsupported data type");
   }
@@ -766,34 +739,8 @@ void memcpy(void *dst, ::tt::runtime::Tensor src,
         ", the values will be casted, this may impact the throughput and the "
         "integrity of the data.");
 
-    if (dstDataType == ::tt::target::DataType::Int64) {
-      tt::runtime::utils::handleIntegerBufferCast<int32_t, int64_t>(
-          static_cast<const int32_t *>(srcPtr), static_cast<int64_t *>(dst),
-          srcTensor.physical_volume());
-    } else if (dstDataType == ::tt::target::DataType::UInt64) {
-      tt::runtime::utils::handleIntegerBufferCast<uint32_t, uint64_t>(
-          static_cast<const uint32_t *>(srcPtr), static_cast<uint64_t *>(dst),
-          srcTensor.physical_volume());
-    } else if (dstDataType == ::tt::target::DataType::Int16) {
-      tt::runtime::utils::handleIntegerBufferCast<uint16_t, int16_t>(
-          static_cast<const uint16_t *>(srcPtr), static_cast<int16_t *>(dst),
-          srcTensor.physical_volume());
-    } else if (dstDataType == ::tt::target::DataType::Int8) {
-      tt::runtime::utils::handleIntegerBufferCast<uint8_t, int8_t>(
-          static_cast<const uint8_t *>(srcPtr), static_cast<int8_t *>(dst),
-          srcTensor.physical_volume());
-    } else if (dstDataType == ::tt::target::DataType::Float64) {
-      tt::runtime::utils::handleFloatToDoubleBufferCast(
-          static_cast<const float *>(srcPtr), static_cast<double *>(dst),
-          srcTensor.physical_volume());
-    } else if (dstDataType == ::tt::target::DataType::Bool) {
-      tt::runtime::utils::handleBFloat16ToBool(
-          static_cast<const uint16_t *>(srcPtr), static_cast<bool *>(dst),
-          srcTensor.physical_volume());
-    } else {
-      LOG_FATAL("Unhandled unsupported data type: " +
-                std::string(target::EnumNameDataType(dstDataType.value())));
-    }
+    ::tt::runtime::utils::handleBufferCast(
+        srcPtr, dst, srcDataType, *dstDataType, srcTensor.physical_volume());
   } else if (utils::isOnHost(srcTensor.storage_type())) {
     const void *srcPtr = utils::getRawHostDataPtr(srcTensor);
     size_t size = srcTensor.physical_volume() * srcTensor.element_size();
