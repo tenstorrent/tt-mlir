@@ -59,8 +59,8 @@ createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
                       const std::vector<std::uint32_t> &stride,
                       std::uint32_t itemsize, ::tt::target::DataType dataType) {
   const void *dataToUse = data;
-  std::unique_ptr<void, decltype(&std::free)> castedData(nullptr, &std::free);
-  if (!::tt::runtime::utils::isSupportedDataType(dataType) && data != nullptr) {
+  std::vector<std::byte> castedData;
+  if (!::tt::runtime::utils::isSupportedDataType(dataType)) {
     ::tt::target::DataType unsupportedDataType = dataType;
     dataType =
         ::tt::runtime::utils::getUnsupportedDataTypeAlias(unsupportedDataType);
@@ -71,21 +71,19 @@ createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
                 ::tt::target::EnumNameDataType(dataType),
                 ", this may impact throughput and the integrity of the data.");
 
-    uint64_t numElements =
-        std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<>());
+    if (data != nullptr) {
+      uint64_t numElements =
+          std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<>());
 
-    std::uint32_t itemsize =
-        ::tt::runtime::utils::dataTypeElementSize(dataType);
+      std::uint32_t itemsize =
+          ::tt::runtime::utils::dataTypeElementSize(dataType);
 
-    castedData.reset(malloc(itemsize * numElements));
+      castedData.resize(itemsize * numElements);
 
-    ::tt::runtime::utils::handleBufferCast(
-        data, castedData.get(), unsupportedDataType, dataType, numElements);
-    dataToUse = castedData.get();
-  }
-
-  if (!::tt::runtime::utils::isSupportedDataType(dataType)) {
-    dataType = ::tt::runtime::utils::getUnsupportedDataTypeAlias(dataType);
+      ::tt::runtime::utils::handleBufferCast(
+          data, castedData.data(), unsupportedDataType, dataType, numElements);
+      dataToUse = castedData.data();
+    }
   }
 
   ::ttnn::Shape ttnnShape(shape);

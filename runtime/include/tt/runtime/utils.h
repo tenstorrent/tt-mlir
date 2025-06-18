@@ -5,6 +5,7 @@
 #ifndef TT_RUNTIME_UTILS_H
 #define TT_RUNTIME_UTILS_H
 
+#include "tt/runtime/detail/logger.h"
 #include <memory>
 #include <type_traits>
 
@@ -101,7 +102,7 @@ getUnsupportedDataTypeAlias(::tt::target::DataType unsupportedDataType) {
   case ::tt::target::DataType::Bool:
     return ::tt::target::DataType::BFloat16;
   default:
-    throw std::runtime_error(
+    LOG_FATAL(
         "The data type: " +
         std::string(target::EnumNameDataType(unsupportedDataType)) +
         " is either supported and thus needs no alias OR it is not supported "
@@ -201,19 +202,11 @@ T alignUp(T ptr, T alignment) {
 
 namespace detail {
 
-inline void handleDoubleToFloatBufferCast(const double *old_buffer,
-                                          float *new_buffer,
-                                          int64_t num_elements) {
+template <typename FromTy, typename ToTy>
+inline void handleUncheckedBufferCast(const FromTy *old_buffer,
+                                      ToTy *new_buffer, int64_t num_elements) {
   for (int i = 0; i < num_elements; i++) {
-    new_buffer[i] = static_cast<float>(old_buffer[i]);
-  }
-}
-
-inline void handleFloatToDoubleBufferCast(const float *old_buffer,
-                                          double *new_buffer,
-                                          int64_t num_elements) {
-  for (int i = 0; i < num_elements; i++) {
-    new_buffer[i] = static_cast<double>(old_buffer[i]);
+    new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
   }
 }
 
@@ -334,7 +327,7 @@ inline void handleIntegerBufferCast(const FromTy *old_buffer, ToTy *new_buffer,
     detail::handleSignedToUnsignedIntegerBufferCast<FromTy, ToTy>(
         old_buffer, new_buffer, num_elements);
   } else { // Both are unsigned
-    std::runtime_error("Unhandled integer buffer cast case");
+    LOG_FATAL("Unhandled integer buffer cast case");
   }
 }
 
@@ -366,7 +359,7 @@ inline void handleBufferCast(const void *old_buffer, void *new_buffer,
                              target::DataType newDataType,
                              int64_t num_elements) {
   if (!old_buffer || !new_buffer) {
-    throw std::runtime_error("Buffer pointers must not be null");
+    LOG_FATAL("Buffer pointers must not be null");
   }
   if (oldDataType == newDataType) {
     std::memcpy(new_buffer, old_buffer,
@@ -416,12 +409,12 @@ inline void handleBufferCast(const void *old_buffer, void *new_buffer,
         static_cast<int8_t *>(new_buffer), num_elements);
   } else if (oldDataType == tt::target::DataType::Float32 &&
              newDataType == tt::target::DataType::Float64) {
-    detail::handleFloatToDoubleBufferCast(
+    detail::handleUncheckedBufferCast<float, double>(
         static_cast<const float *>(old_buffer),
         static_cast<double *>(new_buffer), num_elements);
   } else if (oldDataType == tt::target::DataType::Float64 &&
              newDataType == tt::target::DataType::Float32) {
-    detail::handleDoubleToFloatBufferCast(
+    detail::handleUncheckedBufferCast<double, float>(
         static_cast<const double *>(old_buffer),
         static_cast<float *>(new_buffer), num_elements);
   } else if (oldDataType == tt::target::DataType::BFloat16 &&
@@ -434,10 +427,9 @@ inline void handleBufferCast(const void *old_buffer, void *new_buffer,
                                  static_cast<uint16_t *>(new_buffer),
                                  num_elements);
   } else {
-    throw std::runtime_error(
-        "Unhandled buffer cast case: From " +
-        std::string(target::EnumNameDataType(oldDataType)) + " to " +
-        std::string(target::EnumNameDataType(newDataType)));
+    LOG_FATAL("Unhandled buffer cast case: From " +
+              std::string(target::EnumNameDataType(oldDataType)) + " to " +
+              std::string(target::EnumNameDataType(newDataType)));
   }
 }
 
