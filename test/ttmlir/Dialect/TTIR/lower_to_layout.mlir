@@ -20,7 +20,7 @@ func.func @from_device(%arg0: tensor<1x1x256x768xf32, #layout>) -> tensor<256x76
 
 func.func @tilize(%arg0: tensor<1x1x256x768xf32, #layout>) -> tensor<1x1x8x24x!ttcore.tile<32x32, f32>, #layout1> {
   %0 = ttir.empty() : tensor<1x1x8x24x!ttcore.tile<32x32, f32>, #layout1>
-  // CHECK: ttir.generic {grid = #ttcore.grid<1x1>
+  // CHECK: ttir.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>
   // CHECK: ttir.tile_tilize_block
   %1 = ttir.to_layout %arg0, %0 : tensor<1x1x256x768xf32, #layout> into tensor<1x1x8x24x!ttcore.tile<32x32, f32>, #layout1> -> tensor<1x1x8x24x!ttcore.tile<32x32, f32>, #layout1>
   return %1 : tensor<1x1x8x24x!ttcore.tile<32x32, f32>, #layout1>
@@ -53,11 +53,11 @@ func.func @compound(%arg0: tensor<256x768xf32>) -> tensor<256x768xf32> {
   // CHECK-NEXT: outs(%{{.*}} : tensor<1x1x8x24x!ttcore.tile<32x32, f32>, [[tiled:#layout[0-9]*]]>)
   // reblock
   // CHECK: ttir.view_layout %{{.*}}: tensor<1x1x8x24x!ttcore.tile<32x32, f32>, [[tiled]]> -> tensor<8x8x1x3x!ttcore.tile<32x32, f32>, [[reblocked:#layout[0-9]*]]>
-  // CHECK-NEXT: ttir.generic {grid = #ttcore.grid<8x8>
+  // CHECK-NEXT: ttir.generic {block_factors = [1, 1], grid = #ttcore.grid<8x8>
   %2 = ttir.to_layout %arg0, %0 : tensor<256x768xf32> into tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout2> -> tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout2>
   // undo reblock
   // CHECK: ttir.view_layout %{{.*}} : tensor<8x8x1x3x!ttcore.tile<32x32, f32>, [[reblocked]]> -> tensor<1x1x8x24x!ttcore.tile<32x32, f32>, [[tiled]]>
-  // CHECK-NEXT: ttir.generic {grid = #ttcore.grid<1x1>
+  // CHECK-NEXT: ttir.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>
   // untilize
   // CHECK: ttir.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>
   // CHECK-NEXT: ins(%{{.*}} : tensor<1x1x8x24x!ttcore.tile<32x32, f32>, [[tiled]]>)

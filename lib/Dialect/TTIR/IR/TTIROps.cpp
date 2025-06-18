@@ -3989,29 +3989,31 @@ mlir::SmallVector<mlir::SmallVector<int64_t>>
 mlir::tt::ttir::GenericOp::getOperandShardShapes(bool convertTileToScalar) {
   SmallVector<SmallVector<int64_t>> shardShapes;
   shardShapes.reserve(getOperands().size());
+
   for (auto operand : this->getOperands()) {
-    auto memrefType = mlir::dyn_cast<MemRefType>(operand.getType());
-    if (memrefType) {
-      mlir::tt::DeviceLayoutInterface layout =
+    auto shapedType = mlir::cast<ShapedType>(operand.getType());
+    mlir::tt::DeviceLayoutInterface layout;
+    Type elementType;
+
+    if (auto memrefType = mlir::dyn_cast<MemRefType>(shapedType)) {
+      layout =
           mlir::cast<mlir::tt::DeviceLayoutInterface>(memrefType.getLayout());
-      auto tileType = mlir::dyn_cast<TileType>(memrefType.getElementType());
-      auto shardShape = layout.getShardShape(memrefType);
-      shardShapes.emplace_back(
-          (convertTileToScalar && tileType)
-              ? tileType.getScalarShape(SmallVector<int64_t>(shardShape))
-              : shardShape);
+      elementType = memrefType.getElementType();
     } else {
-      auto tensorType = mlir::cast<RankedTensorType>(operand.getType());
-      MetalLayoutAttr layout =
-          mlir::cast<MetalLayoutAttr>(tensorType.getEncoding());
-      auto tileType = mlir::dyn_cast<TileType>(tensorType.getElementType());
-      auto shardShape = layout.getShardShape(tensorType);
-      shardShapes.emplace_back(
-          (convertTileToScalar && tileType)
-              ? tileType.getScalarShape(SmallVector<int64_t>(shardShape))
-              : shardShape);
+      auto tensorType = mlir::cast<RankedTensorType>(shapedType);
+      layout =
+          mlir::cast<mlir::tt::DeviceLayoutInterface>(tensorType.getEncoding());
+      elementType = tensorType.getElementType();
     }
+
+    auto tileType = mlir::dyn_cast<TileType>(elementType);
+    auto shardShape = layout.getShardShape(shapedType);
+    shardShapes.emplace_back(
+        (convertTileToScalar && tileType)
+            ? tileType.getScalarShape(SmallVector<int64_t>(shardShape))
+            : shardShape);
   }
+
   return shardShapes;
 }
 

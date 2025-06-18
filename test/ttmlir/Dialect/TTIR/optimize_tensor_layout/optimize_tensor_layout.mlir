@@ -21,7 +21,7 @@ func.func @reduce_large_grid(%arg0: tensor<256x384xf32>, %arg1: tensor<256x384xf
 
   // CHECK: %{{[a-z0-9_]+}} = ttir.to_layout
   // CHECK: %{{[a-z0-9_]+}} = ttir.to_layout
-  %5 = "ttir.generic"(%arg0, %arg1, %0) <{
+  %5 = "ttir.generic"(%1, %3, %4) <{
         block_factors = [1, 1],
         grid = #ttcore.grid<1x1>,
         indexing_maps = [#map1, #map1, #map2],
