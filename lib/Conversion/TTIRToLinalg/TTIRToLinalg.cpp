@@ -34,7 +34,8 @@ namespace mlir::tt {
 //===----------------------------------------------------------------------===//
 namespace {
 // Convert a tensor of floating-point values to a tensor of boolean values
-// by comparing with zero
+// by comparing with zero; zero is false and nonzero is true; logical_not op
+// uses this pattern.
 static Value convertToBooleanTensor(Value input, Location loc,
                                     ConversionPatternRewriter &rewriter) {
   auto inputType = dyn_cast<RankedTensorType>(input.getType());
@@ -73,6 +74,46 @@ static Value convertToBooleanTensor(Value input, Location loc,
       rewriter.create<tosa::LogicalNotOp>(loc, boolType, equalZero);
 
   return notEqualZero;
+}
+
+// Convert a tensor of floating-point values to a tensor of boolean values
+// using comparison semantics (positive values are true, non-positive are
+// false)--whereOp uses this pattern unfortunately.
+static Value
+convertToBooleanTensorComparison(Value input, Location loc,
+                                 ConversionPatternRewriter &rewriter) {
+  auto inputType = dyn_cast<RankedTensorType>(input.getType());
+  if (!inputType) {
+    return input;
+  }
+
+  // If it's already a boolean tensor, return it as is
+  if (inputType.getElementType().isInteger(1)) {
+    return input;
+  }
+
+  // Create a constant tensor with 0.0 for comparison
+  auto elementType = inputType.getElementType();
+  assert(elementType.isF32());
+  TypedAttr zeroAttr = rewriter.getF32FloatAttr(0.0f);
+
+  // Create a constant scalar with the zero value
+  auto zeroValue = rewriter.create<arith::ConstantOp>(loc, zeroAttr);
+
+  // Create a splat tensor with the zero value
+  auto zeroSplat =
+      rewriter.create<tensor::SplatOp>(loc, inputType, zeroValue.getResult());
+
+  // For comparison semantics: positive values are true
+  // So we need: (input > 0)
+  auto boolType =
+      RankedTensorType::get(inputType.getShape(), rewriter.getIntegerType(1));
+
+  // Check if input > 0
+  auto greaterThanZero =
+      rewriter.create<tosa::GreaterOp>(loc, boolType, input, zeroSplat);
+
+  return greaterThanZero;
 }
 
 // Create a tensor of all ones or zeros with the given type
@@ -280,7 +321,8 @@ public:
         this->getTypeConverter()->convertType(op.getResult().getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
 
-    condition = convertToBooleanTensor(condition, op.getLoc(), rewriter);
+    condition =
+        convertToBooleanTensorComparison(condition, op.getLoc(), rewriter);
 
     auto result = rewriter.create<tosa::SelectOp>(
         op.getLoc(), resultType, condition, trueValue, falseValue);

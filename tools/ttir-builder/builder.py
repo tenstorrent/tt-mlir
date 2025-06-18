@@ -775,7 +775,7 @@ class TTIRBuilder:
         # Handle golden condition tensor
         in0_tensor = self._get_golden_tensor(in0)
         condition = torch.full(in0_tensor.shape, False)
-        condition[in0_tensor != 0] = True
+        condition[in0_tensor > 0] = True
         return self.op_proxy(
             torch.where,
             ttir.WhereOp,

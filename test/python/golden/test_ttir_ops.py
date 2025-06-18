@@ -1671,7 +1671,9 @@ hoisted_unary_ops = [
     create_hoisted_unary_op(logical_not, "logical_not"),
     pytest.param(
         create_hoisted_unary_op(max, "max"),
-        marks=pytest.mark.skip(reason="max and torch max do not align, TODO ticket"),
+        marks=pytest.mark.skip(
+            reason="max and torch max do not align, https://github.com/tenstorrent/tt-mlir/issues/3850"
+        ),
     ),
     create_hoisted_unary_op(sum, "sum"),
     pytest.param(
@@ -2416,7 +2418,9 @@ def test_gather(
     ids=["basic_gather", "simple_1d"],
 )
 # note: doesn't work on ttmetal because test generated (nonhoisted) ttir.zeros, which we need to support on device
-@pytest.mark.skip("Fails at runtime on simple_1d case, TODO ticket")
+@pytest.mark.skip(
+    "Fails at runtime on simple_1d case, ticket: https://github.com/tenstorrent/tt-mlir/issues/3849"
+)
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_hoisted_gather(
     input_shape: Shape,
@@ -2463,7 +2467,9 @@ def test_hoisted_gather(
     ids=["standard_matmul", "batched_matmul", "3d_tensor_2d_tensor"],
 )
 @pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.skip("Need to rework this, TODO ticket")
+@pytest.mark.skip(
+    "Need to rework this, https://github.com/tenstorrent/tt-mlir/issues/3851"
+)
 def test_hoisted_dot_general(
     shapes: List[Shape],
     batch_dims_lhs: List[int],
