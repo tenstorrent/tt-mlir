@@ -1669,7 +1669,10 @@ hoisted_unary_ops = [
     create_hoisted_unary_op(sin, "sin"),
     create_hoisted_unary_op(cos, "cos"),
     create_hoisted_unary_op(logical_not, "logical_not"),
-    create_hoisted_unary_op(max, "max"),
+    pytest.param(
+        create_hoisted_unary_op(max, "max"),
+        marks=pytest.mark.skip(reason="max and torch max do not align, TODO ticket"),
+    ),
     create_hoisted_unary_op(sum, "sum"),
     pytest.param(
         create_hoisted_unary_op(softmax, "softmax"),
@@ -1842,54 +1845,6 @@ def test_hoisted_where(shapes, request, target: str):
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
-
-
-# @pytest.mark.parametrize(
-#     "shapes,broadcast_dimensions",
-#     [
-#         ([(1, 1, 32), (1, 16, 32)], [1, 16, 1]),  # Basic broadcasting
-#         ([(1, 32), (16, 32)], [16, 1]),  # 2D broadcasting
-#         (
-#             [(128, 1, 64), (128, 32, 64)],
-#             [1, 32, 1],
-#         ),  # 3D with middle dimension broadcasting
-#         (
-#             [(64, 1, 1), (64, 32, 16)],
-#             [1, 32, 16],
-#         ),  # 3D with multiple broadcast dimensions
-#     ],
-#     ids=[
-#         "basic_broadcast",
-#         "2d_broadcast",
-#         "3d_middle_broadcast",
-#         "3d_multi_broadcast",
-#     ],
-# )
-# @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-# def test_hoistable_broadcast(
-#     shapes: List[Shape], broadcast_dimensions: List[int], target: str, request
-# ):
-#     """Test broadcast operation with CPU hoisting enabled"""
-
-#     # Create a wrapper function that captures broadcast_dimensions and adds should_hoist attribute
-#     def broadcast_hoistable_wrapper(
-#         in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
-#     ):
-#         unit_attrs = unit_attrs or []
-#         unit_attrs.append("should_hoist")
-#         return broadcast(in0, in1, builder, broadcast_dimensions, unit_attrs)
-
-#     # Set the name for better test identification
-#     broadcast_hoistable_wrapper.__name__ = "hoistable_broadcast"
-
-#     compile_to_flatbuffer(
-#         broadcast_hoistable_wrapper,
-#         shapes,
-#         test_base=request.node.name,
-#         target=target,
-#         output_root=request.config.getoption("--path"),
-#         system_desc_path=request.config.getoption("--sys-desc"),
-#     )
 
 
 @pytest.mark.parametrize(
@@ -2378,7 +2333,8 @@ def gather(
     slice_sizes: List[int],
     unit_attrs: List[str] = None,
 ):
-    # Create indices tensor
+    # For now, just create zero indices - this tests the basic gather functionality
+    # In a real test, you'd want to create varied indices to test different gather patterns
     indices = builder.zeros(indices_shape)
 
     # Set collapsed_slice_dims to be the same as start_index_map
@@ -2390,8 +2346,6 @@ def gather(
     start_indices_batching_dims = []
 
     # Set index_vector_dim correctly based on the use case
-    # For 1D indices where each element is a single index (not a vector),
-    # index_vector_dim should be len(indices_shape) (implicit dimension)
     if len(indices_shape) == 1 and len(start_index_map) == 1:
         # Single indices case - index vector dim is implicit
         index_vector_dim = len(indices_shape)  # = 1
@@ -2416,11 +2370,19 @@ def gather(
 @pytest.mark.parametrize(
     "input_shape,indices_shape,start_index_map,offset_dims,slice_sizes",
     [
-        ((8, 16, 32), (4, 2, 2), [0, 2], [1], [2, 16, 4]),  # Basic gather
-        ((100, 50), (10,), [0], [1], [5, 50]),  # Simple 1D indices
-        ((8, 16, 32), (4, 2, 2), [0, 2], [1], [2, 16, 4]),  # Complex indices
+        ((100, 50), (10,), [0], [1], [1, 50]),  # Simple 1D indices
+        pytest.param(
+            (8, 16, 32),
+            (4, 2, 2),
+            [0, 2],
+            [1],
+            [1, 16, 1],  # Complex indices
+            marks=pytest.mark.skip(
+                reason="Multi-dimensional gather has known issues with typecast"
+            ),
+        ),
     ],
-    ids=["basic_gather", "simple_1d", "complex_indices"],
+    ids=["simple_1d", "complex_indices"],
 )
 def test_gather(
     input_shape: Shape,

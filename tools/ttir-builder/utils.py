@@ -498,6 +498,15 @@ def compile_to_flatbuffer(
     output_file_mlir = get_target_path(output_root, test_base + mlir_suffix, target)
     output_file_fbb = ".".join([output_file_mlir, target_extension])
 
+    # Dump the initial IR for debugging to a hardcoded path
+    try:
+        dump_path = "/tmp/initial_ir_dump.mlir"
+        with open(dump_path, "w") as f:
+            f.write(str(module))
+        print(f"Dumped initial IR to {dump_path}")
+    except Exception as e:
+        print(f"Failed to dump initial IR: {e}")
+
     # Compile TTIR MLIR -> TT{Metal,NN} MLIR
     module = run_pipeline(
         module,
