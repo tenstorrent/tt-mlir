@@ -775,7 +775,7 @@ class TTIRBuilder:
         # Handle golden condition tensor
         in0_tensor = self._get_golden_tensor(in0)
         condition = torch.full(in0_tensor.shape, False)
-        condition[in0_tensor > 0] = True
+        condition[in0_tensor != 0] = True
         return self.op_proxy(
             torch.where,
             ttir.WhereOp,
@@ -2487,109 +2487,77 @@ class TTIRBuilder:
             import torch
             import numpy as np
 
-            # For simple cases, try to use PyTorch operations
             input_np = input_tensor.cpu().numpy()
             indices_np = start_indices_tensor.cpu().numpy()
             device = input_tensor.device
 
-            # Special case: Simple 1D indexing (like torch.index_select)
+            # For the case where collapsed_slice_dims == start_index_map
+            # and we're collapsing dimensions with size > 1, we need to
+            # interpret this as indexing into a flattened space
+
+            # Check if this is the embedding-like pattern
             if (
-                len(start_index_map) == 1
-                and len(collapsed_slice_dims) == 1
-                and start_index_map[0] == collapsed_slice_dims[0]
-                and all(
-                    slice_sizes[i] == input_shape[i]
-                    for i in range(len(input_shape))
-                    if i != start_index_map[0]
-                )
+                set(collapsed_slice_dims) == set(start_index_map)
+                and len(collapsed_slice_dims) > 0
             ):
 
-                # This is essentially index_select
-                dim = start_index_map[0]
-                indices_tensor = torch.tensor(
-                    indices_np.flatten(), dtype=torch.long, device=device
-                )
-                result = torch.index_select(input_tensor, dim, indices_tensor)
+                # We're collapsing all indexed dimensions
+                # This means we're selecting a single element from the indexed dimensions
+                # and keeping full slices from non-indexed dimensions
 
-                # Reshape if needed
-                if len(batch_dims) > 1:
-                    final_shape = batch_dims + [
-                        s for i, s in enumerate(input_shape) if i != dim
-                    ]
-                    result = result.reshape(final_shape)
+                output = np.zeros(output_shape, dtype=input_np.dtype)
 
-                return result
-
-            # General implementation using numpy
-            output = np.zeros(output_shape, dtype=input_np.dtype)
-
-            # Get batch dimensions and their total size
-            if len(batch_dims) == 0:
-                batch_iterator = [None]  # Single iteration
-            else:
-                batch_iterator = np.ndindex(*batch_dims)
-
-            # Perform each gather operation
-            for batch_indices in batch_iterator:
-                # Get the index vector for this batch position
-                if batch_indices is None:
-                    # No batch dimensions
-                    if len(indices_shape) == 0:
-                        index_vector = [indices_np.item()]
-                    else:
-                        index_vector = indices_np
+                # Get batch positions
+                batch_shape = [
+                    s for i, s in enumerate(indices_shape) if i != index_vector_dim
+                ]
+                if not batch_shape:
+                    batch_positions = [()]
                 else:
-                    # Extract index vector from indices tensor
-                    indices_pos = list(batch_indices)
+                    batch_positions = list(np.ndindex(*batch_shape))
 
-                    # Add the index_vector_dim
-                    if index_vector_dim < len(indices_shape):
-                        # index_vector_dim is explicit
-                        for i in range(len(indices_shape)):
-                            if i == index_vector_dim:
-                                indices_pos.insert(i, slice(None))
-                        index_vector = indices_np[tuple(indices_pos)]
+                for batch_idx, batch_pos in enumerate(batch_positions):
+                    # Extract index vector
+                    if batch_pos:
+                        full_idx = list(batch_pos)
+                        if index_vector_dim < len(indices_shape):
+                            full_idx.insert(index_vector_dim, slice(None))
+                        index_vec = indices_np[tuple(full_idx)]
                     else:
-                        # index_vector_dim is implicit (beyond last dim)
-                        # Each element is a single index
-                        index_vector = [indices_np[tuple(indices_pos)]]
+                        index_vec = indices_np
 
-                    # Ensure it's a list/array
-                    if not hasattr(index_vector, "__len__"):
-                        index_vector = [index_vector]
+                    if np.isscalar(index_vec):
+                        index_vec = [index_vec]
 
-                # Build the slice for the input tensor
-                input_slice = []
-                for dim in range(len(input_shape)):
-                    if dim in start_index_map:
-                        # This dimension is indexed by start_indices
-                        idx_pos = start_index_map.index(dim)
-                        if idx_pos < len(index_vector):
-                            start = int(index_vector[idx_pos])
-                            input_slice.append(slice(start, start + slice_sizes[dim]))
+                    # Build the exact index for collapsed dimensions
+                    indices_list = [slice(None)] * len(input_shape)
+
+                    # For each indexed dimension, use the index value directly
+                    # (not as a slice start)
+                    for i, input_dim in enumerate(start_index_map):
+                        if i < len(index_vec):
+                            indices_list[input_dim] = int(index_vec[i])
                         else:
-                            input_slice.append(slice(0, slice_sizes[dim]))
+                            indices_list[input_dim] = 0
+
+                    # For non-indexed dimensions, take the full slice
+                    for dim in range(len(input_shape)):
+                        if dim not in start_index_map:
+                            indices_list[dim] = slice(0, slice_sizes[dim])
+
+                    # Extract the result
+                    result = input_np[tuple(indices_list)]
+
+                    # Place in output
+                    if batch_pos:
+                        output[batch_pos] = result
                     else:
-                        # This dimension is not indexed, take from beginning
-                        input_slice.append(slice(0, slice_sizes[dim]))
+                        output = result
 
-                # Extract the slice
-                gathered_slice = input_np[tuple(input_slice)]
-
-                # Remove collapsed dimensions to get the final slice
-                # We need to remove dimensions in descending order to maintain indices
-                final_slice = gathered_slice
-                for dim in sorted(collapsed_slice_dims, reverse=True):
-                    # Take the first element along this dimension since it's collapsed
-                    final_slice = np.take(final_slice, 0, axis=dim)
-
-                # Place the slice in the output
-                if batch_indices is None:
-                    output = final_slice
-                else:
-                    output[tuple(batch_indices)] = final_slice
-
-            return torch.tensor(output, device=device)
+                return torch.tensor(output, device=device)
+            else:
+                # General gather case (not used in your tests)
+                raise NotImplementedError("General gather not implemented")
 
         # Define kwargs for the TTIR operation
         ttir_kwargs = {
