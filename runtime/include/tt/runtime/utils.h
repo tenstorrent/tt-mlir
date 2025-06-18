@@ -266,6 +266,7 @@ inline void handleUnsignedToUnsignedIntegerBufferCast(const FromTy *old_buffer,
 template <typename FromTy, typename ToTy>
 inline void handleIntegerBufferCast(const FromTy *old_buffer, ToTy *new_buffer,
                                     int64_t num_elements) {
+  assert(old_buffer && new_buffer && "Buffer pointers must not be null");
   static_assert(std::is_integral<FromTy>::value,
                 "Source type must be an integer type");
   static_assert(std::is_integral<ToTy>::value,
@@ -290,6 +291,7 @@ inline void handleIntegerBufferCast(const FromTy *old_buffer, ToTy *new_buffer,
 
 inline void handleBFloat16ToBool(const uint16_t *old_buffer, bool *new_buffer,
                                  int64_t num_elements) {
+  assert(old_buffer && new_buffer && "Buffer pointers must not be null");
   for (int i = 0; i < num_elements; i++) {
     new_buffer[i] =
         old_buffer[i] !=
@@ -299,7 +301,7 @@ inline void handleBFloat16ToBool(const uint16_t *old_buffer, bool *new_buffer,
 
 inline void handleBoolToBFloat16(const bool *old_buffer, uint16_t *new_buffer,
                                  int64_t num_elements) {
-
+  assert(old_buffer && new_buffer && "Buffer pointers must not be null");
   assert(sizeof(bool) == 1 && "bool must be 1 byte");
 
   for (int i = 0; i < num_elements; i++) {
