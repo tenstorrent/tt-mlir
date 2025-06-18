@@ -218,7 +218,22 @@ inline void handleSignedToUnsignedIntegerBufferCast(const FromTy *old_buffer,
   constexpr ToTy toTyMin = std::numeric_limits<ToTy>::min();
   if constexpr (sizeof(ToTy) > sizeof(FromTy)) {
     for (int64_t i = 0; i < num_elements; i++) {
-      new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
+      if (old_buffer[i] < static_cast<FromTy>(toTyMin)) {
+        new_buffer[i] = toTyMin;
+      } else {
+        new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
+      }
+    }
+  } else if constexpr (sizeof(ToTy) == sizeof(FromTy)) {
+    // when the signed and unsigned type have the same bitwidth then we cannot
+    // it is impossible for the signed type to be beyond the maximum
+    // unsigned value
+    for (int64_t i = 0; i < num_elements; i++) {
+      if (old_buffer[i] < static_cast<FromTy>(toTyMin)) {
+        new_buffer[i] = toTyMin;
+      } else {
+        new_buffer[i] = static_cast<ToTy>(old_buffer[i]);
+      }
     }
   } else { // signed FromTy has larger or equal bitwidth than unsigned ToTy
     for (int64_t i = 0; i < num_elements; i++) {
