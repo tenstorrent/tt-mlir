@@ -425,6 +425,25 @@ def TTKernel_ExpTileOp : TTKernel_SFPUOp<"exp_tile", [TTKernel_UnaryOpTrait]> {
     let arguments = (ins IndexLike:$tile_index);
 }
 
+def TTKernel_NegativeTileInitOp : TTKernel_InitOp<"negative_tile_init"> {
+    let summary = "Short init function which configures compute unit for execution of negative_tile.";
+    let description = [{
+      Must be run before negative_tile.
+    }];
+}
+
+def TTKernel_NegativeTileOp : TTKernel_SFPUOp<"negative_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Negative operation";
+    let description = [{
+      Performs element-wise computation of negative on each element of a tile
+      in DST register at index tile_index. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call. This call is blocking and is only
+      available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$tile_index);
+}
+
 def TTKernel_SinTileInitOp : TTKernel_InitOp<"sin_tile_init"> {
     let summary = "Init function for sin_tile operation. Refer to documentation for any init function.";
     let description = [{
