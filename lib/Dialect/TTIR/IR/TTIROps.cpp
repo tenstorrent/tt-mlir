@@ -3876,23 +3876,22 @@ mlir::tt::ttir::GenericOp::getIndexingMap(int64_t operandIndex) {
 
 mlir::SmallVector<mlir::AffineMap>
 mlir::tt::ttir::GenericOp::getIndexingMapsValue() {
-  return llvm::to_vector(llvm::map_range(getIndexingMaps(), [](Attribute a) {
+  return llvm::map_to_vector(getIndexingMaps(), [](Attribute a) {
     return mlir::cast<AffineMapAttr>(a).getValue();
-  }));
+  });
 }
 
 mlir::SmallVector<mlir::tt::IteratorType>
 mlir::tt::ttir::GenericOp::getIteratorTypesValue() {
-  return llvm::to_vector<4>(
-      llvm::map_range(getIteratorTypes(), [](Attribute a) {
-        return mlir::cast<IteratorTypeAttr>(a).getValue();
-      }));
+  return llvm::map_to_vector(getIteratorTypes(), [](Attribute a) {
+    return mlir::cast<IteratorTypeAttr>(a).getValue();
+  });
 }
 
 mlir::SmallVector<int64_t> mlir::tt::ttir::GenericOp::getBlockFactorsValue() {
-  return llvm::to_vector<4>(llvm::map_range(getBlockFactors(), [](Attribute a) {
+  return llvm::map_to_vector(getBlockFactors(), [](Attribute a) {
     return mlir::cast<IntegerAttr>(a).getInt();
-  }));
+  });
 }
 
 mlir::SmallVector<mlir::SmallVector<int64_t>>
