@@ -1364,49 +1364,45 @@ public:
         return failure();
       }
       ttir::FullOp newConstant;
-      if (isa<IntegerAttr>(constant.getFillValue())) {
-        int64_t constValue = dyn_cast<IntegerAttr>(constant.getFillValue())
-                                 .getValue()
-                                 .getSExtValue();
-        int64_t newConstValue;
 
-        if (op.getPoolingMethod() == ttir::PoolingMethod::Max ||
-            op.getPoolingMethod() == ttir::PoolingMethod::Average) {
-          newConstValue = constValue;
-        } else if (op.getPoolingMethod() == ttir::PoolingMethod::Sum) {
-          newConstValue = constValue * kernelSize;
-        } else {
-          return rewriter.notifyMatchFailure(op.getLoc(),
-                                             "Unknown pooling method");
-        }
+      std::variant<int64_t, float> constValue;
+      std::variant<int64_t, float> newConstValue;
+      if (isa<IntegerAttr>(constant.getFillValue())) {
+        constValue = dyn_cast<IntegerAttr>(constant.getFillValue())
+                         .getValue()
+                         .getSExtValue();
+      } else if (isa<FloatAttr>(constant.getFillValue())) {
+        constValue = dyn_cast<FloatAttr>(constant.getFillValue())
+                         .getValue()
+                         .convertToFloat();
+      }
+
+      if (op.getPoolingMethod() == ttir::PoolingMethod::Max ||
+          op.getPoolingMethod() == ttir::PoolingMethod::Average) {
+        newConstValue = constValue;
+      } else if (op.getPoolingMethod() == ttir::PoolingMethod::Sum) {
+        // Handle variant multiplication correctly using std::visit
+        newConstValue = std::visit(
+            [kernelSize](auto &&arg) -> std::variant<int64_t, float> {
+              return arg * kernelSize;
+            },
+            constValue);
+      } else {
+        return rewriter.notifyMatchFailure(op.getLoc(),
+                                           "Unknown pooling method");
+      }
+
+      if (std::holds_alternative<int64_t>(newConstValue)) {
         newConstant = rewriter.create<ttir::FullOp>(
             op.getLoc(), op.getResult(i).getType(),
             IntegerAttr::get(IntegerType::get(rewriter.getContext(), 32),
-                             newConstValue));
-
-      } else if (isa<FloatAttr>(constant.getFillValue())) {
-        float constValue = dyn_cast<FloatAttr>(constant.getFillValue())
-                               .getValue()
-                               .convertToFloat();
-        float newConstValue;
-
-        if (op.getPoolingMethod() == ttir::PoolingMethod::Max ||
-            op.getPoolingMethod() == ttir::PoolingMethod::Average) {
-          newConstValue = constValue;
-        } else if (op.getPoolingMethod() == ttir::PoolingMethod::Sum) {
-          newConstValue = constValue * kernelSize;
-        } else {
-          return rewriter.notifyMatchFailure(op.getLoc(),
-                                             "Unknown pooling method");
-        }
+                             std::get<int64_t>(newConstValue)));
+      } else {
         newConstant = rewriter.create<ttir::FullOp>(
             op.getLoc(), op.getResult(i).getType(),
             FloatAttr::get(Float32Type::get(rewriter.getContext()),
-                           newConstValue));
-      } else {
-        return rewriter.notifyMatchFailure(op.getLoc(), "Unknown element type");
+                           std::get<float>(newConstValue)));
       }
-
       newResults.push_back(newConstant);
     }
 
