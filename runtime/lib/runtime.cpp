@@ -182,11 +182,9 @@ Tensor createBorrowedHostTensor(void *data,
                                 const std::vector<std::uint32_t> &stride,
                                 std::uint32_t itemsize,
                                 ::tt::target::DataType dataType) {
-  LOG_ASSERT(
-      ::tt::runtime::utils::isSupportedDataType(dataType),
-      "Cannot create borrowed tensor with unsupported data type: " +
-          std::string(
-              ::tt::target::EnumNamesDataType()[static_cast<int>(dataType)]));
+  LOG_ASSERT(::tt::runtime::utils::isSupportedDataType(dataType),
+             "Cannot create borrowed tensor with unsupported data type: " +
+                 std::string(::tt::target::EnumNameDataType(dataType)));
   using RetType = Tensor;
   LOG_ASSERT(!shape.empty());
   LOG_ASSERT(!stride.empty());

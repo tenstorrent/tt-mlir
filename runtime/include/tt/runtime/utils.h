@@ -103,8 +103,7 @@ getUnsupportedDataTypeAlias(::tt::target::DataType unsupportedDataType) {
   default:
     throw std::runtime_error(
         "The data type: " +
-        std::string(target::EnumNamesDataType()[static_cast<int>(
-            unsupportedDataType)]) +
+        std::string(target::EnumNameDataType(unsupportedDataType)) +
         " is either supported and thus needs no alias OR it is not supported "
         "and is not accounted for in this function (that would be a bug).");
   }

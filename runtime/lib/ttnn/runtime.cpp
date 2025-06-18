@@ -65,10 +65,9 @@ createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
         ::tt::runtime::utils::getUnsupportedDataTypeAlias(unsupportedDataType);
 
     LOG_WARNING("User provided a tensor of data type: ",
-                ::tt::target::EnumNamesDataType()[static_cast<int>(
-                    unsupportedDataType)],
+                ::tt::target::EnumNameDataType(unsupportedDataType),
                 " which is not supported by runtime/ttnn. Casting to: ",
-                ::tt::target::EnumNamesDataType()[static_cast<int>(dataType)],
+                ::tt::target::EnumNameDataType(dataType),
                 ", this may impact throughput and the integrity of the data.");
 
     uint64_t numElements =
@@ -747,10 +746,10 @@ void memcpy(void *dst, ::tt::runtime::Tensor src,
     ::tt::target::DataType unsupportedDataTypeAlias =
         tt::runtime::utils::getUnsupportedDataTypeAlias(*dstDataType);
 
-    LOG_ASSERT(srcDataType == unsupportedDataTypeAlias,
-               "Tensor data type must be " +
-                   std::string(target::EnumNamesDataType()[static_cast<int>(
-                       unsupportedDataTypeAlias)]));
+    LOG_ASSERT(
+        srcDataType == unsupportedDataTypeAlias,
+        "Tensor data type must be " +
+            std::string(target::EnumNameDataType(unsupportedDataTypeAlias)));
 
     LOG_ASSERT(
         !dstDataType.has_value() || *dstDataType == getTensorDataType(src) ||
@@ -761,9 +760,9 @@ void memcpy(void *dst, ::tt::runtime::Tensor src,
     LOG_WARNING(
         "User is requesting to copy the data from a runtime tensor with "
         "data type: ",
-        ::tt::target::EnumNamesDataType()[static_cast<int>(srcDataType)],
+        ::tt::target::EnumNameDataType(srcDataType),
         " into buffer with expected data type: ",
-        ::tt::target::EnumNamesDataType()[static_cast<int>(*dstDataType)],
+        ::tt::target::EnumNameDataType(*dstDataType),
         ", the values will be casted, this may impact the throughput and the "
         "integrity of the data.");
 
@@ -792,10 +791,8 @@ void memcpy(void *dst, ::tt::runtime::Tensor src,
           static_cast<const uint16_t *>(srcPtr), static_cast<bool *>(dst),
           srcTensor.physical_volume());
     } else {
-      throw std::runtime_error(
-          "Unknown unsupported data type: " +
-          std::string(target::EnumNamesDataType()[static_cast<int>(
-              dstDataType.value())]));
+      LOG_FATAL("Unhandled unsupported data type: " +
+                std::string(target::EnumNameDataType(dstDataType.value())));
     }
   } else if (utils::isOnHost(srcTensor.storage_type())) {
     const void *srcPtr = utils::getRawHostDataPtr(srcTensor);
