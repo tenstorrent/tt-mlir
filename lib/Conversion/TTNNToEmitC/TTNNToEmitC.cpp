@@ -1111,7 +1111,8 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit<std::vector<int32_t>>(srcOp.getShape()),
-        emitter.emit(srcOp.getMemoryConfig()),
+        emitter.emit(srcOp.getMemoryConfig()) |
+            emitter.getMemoryConfig(srcOp.getResult()),
     };
 
     emitter.replaceOp(*this, args);
