@@ -37,7 +37,7 @@ class TTNNToEmitCTypeConverter : public TypeConverter {
 public:
   TTNNToEmitCTypeConverter(MLIRContext *ctx) {
     addConversion([](Type type) { return type; });
-    addConversion([ctx](tt::ttnn::DeviceType type) -> emitc::PointerType {
+    addConversion([ctx](mlir::tt::ttnn::DeviceType type) -> emitc::PointerType {
       return emitc::PointerType::get(
           emitc::OpaqueType::get(ctx, "ttnn::distributed::MeshDevice"));
     });
@@ -53,7 +53,8 @@ public:
 };
 
 struct ConvertTTNNToEmitCPass
-    : public tt::ttnn::impl::ConvertTTNNToEmitCBase<ConvertTTNNToEmitCPass> {
+    : public mlir::tt::ttnn::impl::ConvertTTNNToEmitCBase<
+          ConvertTTNNToEmitCPass> {
   void runOnOperation() override {
     mlir::ModuleOp module = getOperation();
     // Only run conversion on top-level moduleOp.
@@ -66,7 +67,7 @@ struct ConvertTTNNToEmitCPass
     // EmitC is legal, TTNN is illegal
     //
     target.addLegalDialect<emitc::EmitCDialect>();
-    target.addIllegalDialect<tt::ttnn::TTNNDialect>();
+    target.addIllegalDialect<mlir::tt::ttnn::TTNNDialect>();
 
     // mlir::ModuleOp is legal only if no attributes are present on it
     //
@@ -97,7 +98,7 @@ struct ConvertTTNNToEmitCPass
     // Unwrap device_module into top-level ModuleOp (if present)
     {
       OpPassManager pm(ModuleOp::getOperationName());
-      pm.addPass(tt::createTTUnwrapDeviceModulePass());
+      pm.addPass(mlir::tt::createTTCoreUnwrapDeviceModulePass());
 
       if (failed(runPipeline(pm, module))) {
         signalPassFailure();

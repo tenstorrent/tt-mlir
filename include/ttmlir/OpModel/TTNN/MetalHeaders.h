@@ -12,7 +12,6 @@
 #include "tt-metalium/core_coord.hpp"
 #include "tt-metalium/device.hpp"
 #include "tt-metalium/host_api.hpp"
-#include "tt-metalium/small_vector.hpp"
 #include "ttnn/graph/graph_processor.hpp"
 // using namespace removed in metal
 // but IDevice cannot be resolved by "ttnn/graph/graph_query_op_constraints.hpp"
