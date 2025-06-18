@@ -254,9 +254,9 @@ bool validateTensorSpec(const ::ttnn::TensorSpec &tensorSpec,
   return true;
 }
 
-::ttnn::SmallVector<int>
+::tt::stl::SmallVector<int>
 convertLLVMSmallVecToTTNNSmallVec(const ::llvm::ArrayRef<int64_t> vec) {
-  return ::ttnn::SmallVector<int>(vec.begin(), vec.end());
+  return ::tt::stl::SmallVector<int>(vec.begin(), vec.end());
 }
 
 std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> getConv2dConfig(

@@ -21,7 +21,7 @@ void runAvgPool2dOp(
     const std::function<::ttnn::Tensor(
         const ::ttnn::Tensor &, uint32_t, uint32_t, uint32_t, uint32_t,
         std::array<uint32_t, 2>, std::array<uint32_t, 2>,
-        std::array<uint32_t, 2>, bool, std::optional<int32_t>,
+        std::array<uint32_t, 2>, bool, bool, std::optional<int32_t>,
         const std::optional<::ttnn::MemoryConfig> &,
         const std::optional<::ttnn::TensorMemoryLayout> &, bool)> &ttnnOp) {
   ::ttnn::Tensor input = tensorPool.getTTNNTensorAndValidate(op->in());
@@ -47,7 +47,8 @@ void runAvgPool2dOp(
   ::ttnn::Tensor out =
       ttnnOp(input, op->batch_size(), op->input_height(), op->input_width(),
              op->channels(), kernelSize, stride, padding, op->ceil_mode(),
-             std::nullopt /*divisor_override*/, outputMemoryConfig,
+             /*count_include_pad=*/false,
+             /*divisor_override=*/std::nullopt, outputMemoryConfig,
              appliedShardScheme, op->in_place_halo());
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);

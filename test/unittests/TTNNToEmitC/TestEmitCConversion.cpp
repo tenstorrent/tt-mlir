@@ -52,14 +52,16 @@ TEST(TypeNameTest, VectorTypes) {
 }
 
 TEST(TypeNameTest, SmallVectorTypes) {
-  EXPECT_EQ(TypeNameV<::ttnn::SmallVector<bool>>, "::ttnn::SmallVector<bool>");
-  EXPECT_EQ(TypeNameV<::ttnn::SmallVector<std::string>>,
-            "::ttnn::SmallVector<::std::string>");
-  EXPECT_EQ(TypeNameV<::ttnn::SmallVector<::ttnn::SmallVector<uint64_t>>>,
-            "::ttnn::SmallVector<::ttnn::SmallVector<uint64_t>>");
+  EXPECT_EQ(TypeNameV<::tt::stl::SmallVector<bool>>,
+            "::tt::stl::SmallVector<bool>");
+  EXPECT_EQ(TypeNameV<::tt::stl::SmallVector<std::string>>,
+            "::tt::stl::SmallVector<::std::string>");
+  EXPECT_EQ(TypeNameV<::tt::stl::SmallVector<::tt::stl::SmallVector<uint64_t>>>,
+            "::tt::stl::SmallVector<::tt::stl::SmallVector<uint64_t>>");
   EXPECT_EQ(
-      (TypeNameV<::ttnn::SmallVector<std::array<std::vector<std::string>, 3>>>),
-      "::ttnn::SmallVector<::std::array<::std::vector<::std::string>, 3>>");
+      (TypeNameV<
+          ::tt::stl::SmallVector<std::array<std::vector<std::string>, 3>>>),
+      "::tt::stl::SmallVector<::std::array<::std::vector<::std::string>, 3>>");
 }
 
 TEST_F(EmitCConversionTest, ConvertStringAttr) {
@@ -272,57 +274,59 @@ TEST_F(EmitCConversionTest, ConvertArrayAttrToTtnnSmallVector) {
       builder.getI32IntegerAttr(3),
   });
   std::string converted =
-      EmitCTypeConverter<::ttnn::SmallVector<int32_t>>::convert(arrayAttr);
-  EXPECT_EQ(converted, "::ttnn::SmallVector<int32_t>{1, 2, 3}");
+      EmitCTypeConverter<::tt::stl::SmallVector<int32_t>>::convert(arrayAttr);
+  EXPECT_EQ(converted, "::tt::stl::SmallVector<int32_t>{1, 2, 3}");
 
   mlir::Attribute arrayAsAttribute = arrayAttr;
   std::optional<std::string> maybeConverted =
-      EmitCTypeConverter<::ttnn::SmallVector<int32_t>>::convert(
+      EmitCTypeConverter<::tt::stl::SmallVector<int32_t>>::convert(
           arrayAsAttribute);
   ASSERT_TRUE(maybeConverted);
-  EXPECT_EQ(*maybeConverted, "::ttnn::SmallVector<int32_t>{1, 2, 3}");
+  EXPECT_EQ(*maybeConverted, "::tt::stl::SmallVector<int32_t>{1, 2, 3}");
 }
 
 TEST_F(EmitCConversionTest, ConvertDenseBoolArrayAttrToTtnnSmallVector) {
   mlir::DenseBoolArrayAttr denseArrayAttr =
       builder.getDenseBoolArrayAttr({true, false, true});
   std::string converted =
-      EmitCTypeConverter<::ttnn::SmallVector<bool>>::convert(denseArrayAttr);
-  EXPECT_EQ(converted, "::ttnn::SmallVector<bool>{true, false, true}");
+      EmitCTypeConverter<::tt::stl::SmallVector<bool>>::convert(denseArrayAttr);
+  EXPECT_EQ(converted, "::tt::stl::SmallVector<bool>{true, false, true}");
 }
 
 TEST_F(EmitCConversionTest, ConvertDenseI32ArrayAttrToTtnnSmallVector) {
   mlir::DenseI32ArrayAttr denseArrayAttr =
       builder.getDenseI32ArrayAttr({1, 2, 3});
   std::string converted =
-      EmitCTypeConverter<::ttnn::SmallVector<int32_t>>::convert(denseArrayAttr);
-  EXPECT_EQ(converted, "::ttnn::SmallVector<int32_t>{1, 2, 3}");
+      EmitCTypeConverter<::tt::stl::SmallVector<int32_t>>::convert(
+          denseArrayAttr);
+  EXPECT_EQ(converted, "::tt::stl::SmallVector<int32_t>{1, 2, 3}");
 }
 
 TEST_F(EmitCConversionTest, ConvertDenseF32ArrayAttrToTtnnSmallVector) {
   mlir::DenseF32ArrayAttr denseArrayAttr =
       builder.getDenseF32ArrayAttr({1.0, 2.0, 3.0});
   std::string converted =
-      EmitCTypeConverter<::ttnn::SmallVector<float>>::convert(denseArrayAttr);
+      EmitCTypeConverter<::tt::stl::SmallVector<float>>::convert(
+          denseArrayAttr);
   EXPECT_EQ(converted,
-            "::ttnn::SmallVector<float>{1.000000f, 2.000000f, 3.000000f}");
+            "::tt::stl::SmallVector<float>{1.000000f, 2.000000f, 3.000000f}");
 }
 
 TEST_F(EmitCConversionTest, ConvertDenseIntElementsAttrToTtnnSmallVector) {
   mlir::DenseIntElementsAttr denseElementsAttr =
       builder.getI32TensorAttr({1, 2, 3});
   std::string converted =
-      EmitCTypeConverter<::ttnn::SmallVector<int32_t>>::convert(
+      EmitCTypeConverter<::tt::stl::SmallVector<int32_t>>::convert(
           denseElementsAttr);
-  EXPECT_EQ(converted, "::ttnn::SmallVector<int32_t>{1, 2, 3}");
+  EXPECT_EQ(converted, "::tt::stl::SmallVector<int32_t>{1, 2, 3}");
 }
 
 TEST_F(EmitCConversionTest, ConvertArrayRefToTtnnSmallVector) {
   std::vector<uint32_t> vec = {1, 2, 3};
   std::string converted =
-      EmitCTypeConverter<::ttnn::SmallVector<int32_t>>::convert(
+      EmitCTypeConverter<::tt::stl::SmallVector<int32_t>>::convert(
           llvm::ArrayRef(vec));
-  EXPECT_EQ(converted, "::ttnn::SmallVector<int32_t>{1, 2, 3}");
+  EXPECT_EQ(converted, "::tt::stl::SmallVector<int32_t>{1, 2, 3}");
 }
 
 TEST_F(EmitCConversionTest, ConvertArrayAttrToStdArray) {
