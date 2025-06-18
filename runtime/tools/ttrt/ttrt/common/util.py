@@ -851,7 +851,20 @@ class Binary(Flatbuffer):
                 return ttrt.runtime.DataType.UInt8
             if dtype == torch.int32:
                 return ttrt.runtime.DataType.Int32
-            raise ValueError(f"unsupported dtype: {dtype}")
+            # Data types which are unsupported on ttnn
+            if dtype == torch.float64:
+                return ttrt.runtime.DataType.Float64
+            if dtype == torch.int64:
+                return ttrt.runtime.DataType.Int64
+            if dtype == torch.uint64:
+                return ttrt.runtime.DataType.UInt64
+            if dtype == torch.int16:
+                return ttrt.runtime.DataType.Int16
+            if dtype == torch.int8:
+                return ttrt.runtime.DataType.Int8
+            if dtype == torch.bool:
+                return ttrt.runtime.DataType.Bool
+            raise ValueError(f"Torch dtype: {dtype} has no runtime DataType equivalent")
 
         @staticmethod
         def from_data_type(dtype):
@@ -871,6 +884,20 @@ class Binary(Flatbuffer):
                 return torch.uint8
             if dtype == "Int32":
                 return torch.int32
+            # Data types which are unsupported on ttnn
+            if dtype == "Float64":
+                return torch.float64
+            if dtype == "Int64":
+                return torch.int64
+            if dtype == "UInt64":
+                return torch.uint64
+            if dtype == "Int16":
+                return torch.int16
+            if dtype == "Int8":
+                return torch.int8
+            if dtype == "Bool":
+                return torch.bool
+
             raise ValueError(f"unsupported dtype: {dtype}")
 
 

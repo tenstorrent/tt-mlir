@@ -167,7 +167,14 @@ void registerRuntimeBindings(nb::module_ &m) {
       .value("UInt32", ::tt::target::DataType::UInt32)
       .value("UInt16", ::tt::target::DataType::UInt16)
       .value("UInt8", ::tt::target::DataType::UInt8)
-      .value("Int32", ::tt::target::DataType::Int32);
+      .value("Int32", ::tt::target::DataType::Int32)
+      // Unsupported data types
+      .value("Float64", ::tt::target::DataType::Float64)
+      .value("Int64", ::tt::target::DataType::Int64)
+      .value("UInt64", ::tt::target::DataType::UInt64)
+      .value("Int16", ::tt::target::DataType::Int16)
+      .value("Int8", ::tt::target::DataType::Int8)
+      .value("Bool", ::tt::target::DataType::Bool);
 
   nb::enum_<::tt::runtime::DeviceRuntime>(m, "DeviceRuntime")
       .value("Disabled", ::tt::runtime::DeviceRuntime::Disabled)
@@ -308,11 +315,12 @@ void registerRuntimeBindings(nb::module_ &m) {
         "Get the location info of the op");
   m.def(
       "memcpy",
-      [](std::uintptr_t dst, ::tt::runtime::Tensor src) {
+      [](std::uintptr_t dst, ::tt::runtime::Tensor src,
+         std::optional<::tt::target::DataType> dstDataType) {
         void *dstPtr = reinterpret_cast<void *>(dst);
-        ::tt::runtime::memcpy(dstPtr, src);
+        ::tt::runtime::memcpy(dstPtr, src, dstDataType);
       },
-      nb::arg("dst"), nb::arg("src"),
+      nb::arg("dst"), nb::arg("src"), nb::arg("dstDataType") = nb::none(),
       "Copy the data from src tensor to dst pointer");
   m.def(
       "memcpy",
