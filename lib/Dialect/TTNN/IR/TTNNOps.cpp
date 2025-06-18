@@ -4,9 +4,9 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
-#include "ttmlir/Dialect/TT/IR/TTOps.h"
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TT/IR/Utils.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/VerificationUtils.h"
@@ -2512,6 +2512,160 @@ verifyReduceProdOp(tt::ttnn::ProdOp *reduceOp,
 // ProdOp verification.
 ::mlir::LogicalResult ProdOp::verify() {
   return verifyReduceProdOp(this, getInput().getType());
+}
+
+//===----------------------------------------------------------------------===//
+// TraceOp
+//===----------------------------------------------------------------------===//
+
+static ::mlir::LogicalResult verifyTensorList(TraceOp *op,
+                                              ::mlir::ValueRange opValues,
+                                              ::mlir::TypeRange fnTypes,
+                                              bool isInput) {
+  // Verify count
+  if (opValues.size() != fnTypes.size()) {
+    return op->emitOpError("Incorrect number of ")
+           << (isInput ? "operands" : "results") << " for callee"
+           << " -- expected " << fnTypes.size()
+           << " but got: " << opValues.size();
+  }
+
+  // Verify types
+  for (unsigned i = 0; i < fnTypes.size(); ++i) {
+    if (opValues[i].getType() != fnTypes[i]) {
+      return op->emitOpError() << (isInput ? "Operand" : "Result")
+                               << " type mismatch at index " << i;
+    }
+  }
+
+  return ::mlir::success();
+}
+
+static bool isTensorOnDevice(::mlir::RankedTensorType tensorType) {
+  auto ttnnLayoutAttr =
+      ::mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+  bool isOnDevice =
+      ttnnLayoutAttr.getBufferType() != ttnn::BufferType::SystemMemory;
+  return isOnDevice;
+}
+
+::mlir::LogicalResult TraceOp::verify() {
+  auto device = this->getDevice();
+  if (!device) {
+    return emitOpError() << "Device must be set for trace op";
+  }
+
+  uint32_t cqId = this->getCqId();
+  if (cqId != 0 && cqId != 1) {
+    return emitOpError() << "CQ ID must be 0 or 1 for trace op, got: " << cqId;
+  }
+
+  // Verify that the callee exists and has the right type.
+  FlatSymbolRefAttr calleeAttr = this->getCalleeAttr();
+  func::FuncOp funcOp =
+      SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(*this, calleeAttr);
+  if (!funcOp) {
+    return emitOpError() << "'" << calleeAttr.getValue()
+                         << "' does not reference a function";
+  }
+
+  FunctionType fnType = funcOp.getFunctionType();
+
+  LogicalResult inputVerificationResult =
+      verifyTensorList(this, this->getInputs(), fnType.getInputs(),
+                       /*isInput=*/true);
+  if (failed(inputVerificationResult)) {
+    return inputVerificationResult;
+  }
+
+  LogicalResult outputVerificationResult =
+      verifyTensorList(this, this->getResults(), fnType.getResults(),
+                       /*isInput=*/false);
+  if (failed(outputVerificationResult)) {
+    return outputVerificationResult;
+  }
+
+  for (BlockArgument arg : funcOp.getArguments()) {
+    if (!::mlir::isa<RankedTensorType>(arg.getType())) {
+      return emitOpError() << "All input arguments of trace function must be "
+                           << "ranked tensors";
+    }
+    auto tensorType = ::mlir::cast<RankedTensorType>(arg.getType());
+    if (!isTensorOnDevice(tensorType)) {
+      return emitOpError()
+             << "All input arguments of trace function must be on device."
+             << arg << " is not on device.";
+    }
+  }
+
+  ::mlir::WalkResult walkResult =
+      funcOp.walk(
+          [&](Operation *op) -> ::mlir::WalkResult {
+            if (::mlir::isa<TraceOp>(op)) {
+              emitOpError()
+                  << "Trace op must not be nested within another trace op";
+              return ::mlir::WalkResult::interrupt();
+            }
+
+            if (::mlir::isa<::mlir::tt::LoadCachedOp>(op)) {
+              emitOpError()
+                  << "LoadCached op must not be nested within trace op";
+              return ::mlir::WalkResult::interrupt();
+            }
+
+            if (::mlir::isa<GetDeviceOp>(op)) {
+              auto traceDevice = this->getDevice();
+              auto traceDeviceOp = traceDevice.getDefiningOp<GetDeviceOp>();
+
+              auto calleeDeviceOp = ::mlir::cast<GetDeviceOp>(op);
+
+              // Need to make sure that the device attributes of the trace op
+              // and the device within the callee function match
+              if (traceDeviceOp.getMeshShape() !=
+                      calleeDeviceOp.getMeshShape() ||
+                  traceDeviceOp.getMeshOffset() !=
+                      calleeDeviceOp.getMeshOffset()) {
+                return emitOpError()
+                       << "Device configuration of get_device op in callee "
+                       << "must match device configuration of trace op";
+              }
+              return ::mlir::WalkResult::advance();
+            }
+
+            // Make sure all input tensors are on device
+            for (Value operand : op->getOperands()) {
+              if (!::mlir::isa<RankedTensorType>(operand.getType())) {
+                continue;
+              }
+              auto tensorType =
+                  ::mlir::cast<RankedTensorType>(operand.getType());
+              if (!isTensorOnDevice(tensorType)) {
+                emitOpError()
+                    << "All input tensors of trace function must be on device."
+                    << operand << " is not on device.";
+                return ::mlir::WalkResult::interrupt();
+              }
+            }
+
+            // Make sure all output tensors are on device
+            for (Value result : op->getResults()) {
+              if (!::mlir::isa<RankedTensorType>(result.getType())) {
+                continue;
+              }
+              auto tensorType =
+                  ::mlir::cast<RankedTensorType>(result.getType());
+              if (!isTensorOnDevice(tensorType)) {
+                emitOpError()
+                    << "All output tensors of trace function must be on device."
+                    << result << " is not on device.";
+                return ::mlir::WalkResult::interrupt();
+              }
+            }
+
+            return ::mlir::WalkResult::advance();
+          });
+
+  return walkResult.wasInterrupted() ? ::mlir::failure() : ::mlir::success();
 }
 
 } // namespace mlir::tt::ttnn

@@ -4,7 +4,7 @@
 
 #include "ttmlir/Conversion/ArithToStableHLO/ArithToStableHLO.h"
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"

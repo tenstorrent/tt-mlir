@@ -2,12 +2,13 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Affine/LoopUtils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -203,12 +204,8 @@ public:
     std::pair<MemRefType, AffineMap> underlyingMemrefAndView =
         mlir::cast<ttir::ViewOpInterface>(dma.getSrc().getDefiningOp())
             .applyViews();
-    // TODO(#1909) Once we have an allocation pass, we need to lookup the page
-    // size instead of calculating it here.
-    size_t pageSize = device.getMemrefSizeBytes(underlyingMemrefAndView.first,
-                                                /*pageSize=*/0);
-    AffineMap memoryMap =
-        device.getMemoryMap(underlyingMemrefAndView, pageSize);
+    size_t size = device.getMemrefSizeBytes(underlyingMemrefAndView.first);
+    AffineMap memoryMap = device.getMemoryMap(underlyingMemrefAndView, size);
     size_t elemSizeBytes = getElementSizeBytes(memref);
     size_t coalescingFactor =
         calculateCoalescingFactor(memoryMap, memrefGridShape, memrefShardShape,
@@ -288,12 +285,9 @@ public:
     if (isRemote) {
       std::pair<MemRefType, AffineMap> srcUnderlyingMemrefAndView =
           mlir::tt::ttir::applyViews(input.getDefiningOp());
-      // TODO(#1909) Once we have an allocation pass, we need to lookup the page
-      // size instead of calculating it here.
-      size_t srcPageSize =
-          device.getMemrefSizeBytes(srcUnderlyingMemrefAndView.first,
-                                    /*pageSize=*/0);
-      return device.getMemoryMap(srcUnderlyingMemrefAndView, srcPageSize);
+      size_t srcSize =
+          device.getMemrefSizeBytes(srcUnderlyingMemrefAndView.first);
+      return device.getMemoryMap(srcUnderlyingMemrefAndView, srcSize);
     }
 
     MemRefType inputType = mlir::cast<MemRefType>(input.getType());

@@ -5,7 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTNN_UTILS_PASSOVERRIDES_H
 #define TTMLIR_DIALECT_TTNN_UTILS_PASSOVERRIDES_H
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "llvm/Support/CommandLine.h"
@@ -29,6 +29,7 @@ struct OptionNames {
   static constexpr StringRef mockSystemDescArch = "mock-system-desc-arch";
   static constexpr StringRef maxLegalLayouts = "max-legal-layouts";
   static constexpr StringRef meshShape = "mesh-shape";
+  static constexpr StringRef tuplifyInputIfEmpty = "tuplify-input-if-empty";
 };
 
 struct Conv2dConfigOverrideParams {

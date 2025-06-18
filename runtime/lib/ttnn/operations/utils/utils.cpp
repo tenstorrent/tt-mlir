@@ -48,7 +48,7 @@ bool isTilized(const ::tt::target::ttnn::TensorRef *tensorRef) {
 bool shouldSwapBinaryOperands(const ::ttnn::Tensor &lhs,
                               const ::ttnn::Tensor &rhs) {
   return (workaround::Env::get().swapBinaryOperands) &&
-         (lhs.padded_volume() < rhs.padded_volume());
+         (lhs.physical_volume() < rhs.physical_volume());
 }
 
 ::ttnn::operations::unary::UnaryOpType
@@ -408,6 +408,24 @@ toTTNNTensorImpl(const ::flatbuffers::Vector<uint8_t> *data,
   default:
     LOG_FATAL("Unsupported data type");
   }
+}
+
+::ttnn::Tensor
+allocateTensorOnDevice(const ::tt::target::ttnn::TensorRef *tensorRef,
+                       ::ttnn::MeshDevice &meshDevice) {
+  ::ttnn::Shape ttnnShape = toTTNNShape(*tensorRef->desc()->shape());
+  ::ttnn::DataType ttnnDataType = ::tt::runtime::ttnn::utils::toTTNNDataType(
+      tensorRef->desc()->layout()->memory_desc()->data_type());
+  ::ttnn::Layout ttnnLayout =
+      ::tt::runtime::ttnn::utils::inferLayoutFromTileShape(tensorRef);
+  std::optional<::ttnn::MemoryConfig> memoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(tensorRef));
+  LOG_ASSERT(memoryConfig.has_value());
+  ::ttnn::Tensor deviceTensor =
+      ::ttnn::operations::core::allocate_tensor_on_device(
+          ttnnShape, ttnnDataType, ttnnLayout, &meshDevice, memoryConfig);
+  return deviceTensor;
 }
 
 } // namespace tt::runtime::ttnn::operations::utils

@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "489eea8b469f7d04848e8d248798238d25b2aba1")
+set(TT_METAL_VERSION "40e1dbf929a94df4de757774f32da61451b660d0")
 
 set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
 
@@ -53,6 +53,8 @@ set(TTMETAL_INCLUDE_DIRS
   ${CPM_SOURCE_CACHE}/magic_enum/4d76fe0a5b27a0e62d6c15976d02b33c54207096/include
   ${CPM_SOURCE_CACHE}/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
   ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
+  ${CPM_SOURCE_CACHE}/spdlog/b1c2586bb5c35a7929362e87f62433eb68206873/include
+  ${CPM_SOURCE_CACHE}/tt-logger/300f1cdffa52ce1010e37283d4e1031431b0cf3b/include
   ${CPM_SOURCE_CACHE}/xtl/0_8_0_patched/include
   ${CPM_SOURCE_CACHE}/xtensor/0_26_0_patched/include
   ${CPM_SOURCE_CACHE}/xtensor-blas/0_22_0_patched/include
@@ -86,6 +88,8 @@ if (TTMLIR_ENABLE_RUNTIME)
 set(TTMETAL_BUILD_TYPE "Release")
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
   set(TTMETAL_BUILD_TYPE "Debug")
+elseif (CMAKE_BUILD_TYPE STREQUAL "Asan")
+  set(TTMETAL_BUILD_TYPE "ASan")
 endif()
 
 set(METAL_BUILD_DIR ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
@@ -177,6 +181,8 @@ install(
     ${CPM_SOURCE_CACHE}/magic_enum
     ${CPM_SOURCE_CACHE}/nlohmann_json
     ${CPM_SOURCE_CACHE}/reflect
+    ${CPM_SOURCE_CACHE}/spdlog
+    ${CPM_SOURCE_CACHE}/tt-logger
     ${CPM_SOURCE_CACHE}/xtensor
     ${CPM_SOURCE_CACHE}/xtensor-blas
     ${CPM_SOURCE_CACHE}/xtl

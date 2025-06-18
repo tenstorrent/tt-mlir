@@ -26,6 +26,9 @@ bool isSharded(
 const ::tt::target::ttnn::TTNNBinary *
 getBinary(::tt::runtime::Flatbuffer binary);
 
+const ::tt::target::ttnn::Program *getProgram(const Binary &executableHandle,
+                                              std::uint32_t programIndex);
+
 ::ttnn::operations::reduction::ReduceType getReduceType(uint32_t reduceType);
 
 ::ttnn::DataType toTTNNDataType(::tt::target::DataType dataType);
@@ -67,6 +70,8 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg);
 
 ::tt::runtime::Tensor createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor,
                                                   bool retain = false);
+
+::ttnn::Tensor &getTTNNTensorFromRuntimeTensor(::tt::runtime::Tensor tensor);
 
 void *getRawHostDataPtr(const ::ttnn::Tensor &tensor);
 

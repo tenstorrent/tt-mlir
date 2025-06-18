@@ -4,9 +4,9 @@
 
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Dialect/TT/IR/TTOps.h"
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
@@ -1633,6 +1633,37 @@ createOp(FlatbufferObjectCache &cache, tt::LoadCachedOp op,
   return ::tt::target::ttnn::CreateLoadCachedOpDirect(
       *cache.fbb, &ins, op.getCallee().str().c_str(), programIdx, &outputs);
 }
+
+::flatbuffers::Offset<::tt::target::ttnn::TraceOp>
+createOp(FlatbufferObjectCache &cache, TraceOp op,
+         const llvm::StringMap<uint32_t> &programIndexMap) {
+
+  ::mlir::Value device = getOperandThroughDPSOps(op.getDevice());
+  uint32_t cqId = op.getCqId();
+  bool blocking = op.getBlocking();
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> inputs;
+  for (auto input : op.getInputs()) {
+    inputs.push_back(cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(input)));
+  }
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> outputs;
+  for (auto result : op.getResults()) {
+    outputs.push_back(
+        cache.getOrCreate(result, tensorValueToFlatbuffer, kHostAllocatedSize));
+  }
+
+  auto it = programIndexMap.find(op.getCallee().str());
+  assert(it != programIndexMap.end() &&
+         "Program name not found in program index map!");
+  const uint32_t programIdx = it->second;
+
+  return ::tt::target::ttnn::CreateTraceOpDirect(
+      *cache.fbb, cache.at<::tt::target::DeviceRef>(device), cqId, blocking,
+      op.getCallee().str().c_str(), programIdx, &inputs, &outputs);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   const llvm::StringMap<uint32_t> &programIndexMap,
@@ -2078,6 +2109,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            createOp(cache, loadCachedOp, programIndexMap),
                            debugString, locInfo);
   }
+  if (auto traceOp = dyn_cast<TraceOp>(op); traceOp) {
+    return createOperation(cache, createOp(cache, traceOp, programIndexMap),
+                           debugString, locInfo);
+  }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");
 }
@@ -2111,14 +2146,8 @@ std::shared_ptr<void> ttnnToFlatbuffer(
       toFlatbuffer(cache, mlir::cast<tt::SystemDescAttr>(
                               module->getAttr(tt::SystemDescAttr::name)));
 
-  std::string cpp;
-  llvm::raw_string_ostream os(cpp);
-  auto result = mlir::tt::ttnn::emitTTNNAsCpp(module, os);
-  (void)result;
-
   flatbuffers::Offset<::tt::target::DebugInfo> debugInfo =
-      debugInfoToFlatbuffer(fbb, "ttnn", rootModule, goldenMap, moduleCache,
-                            cpp.c_str());
+      debugInfoToFlatbuffer(fbb, "ttnn", rootModule, goldenMap, moduleCache);
 
   // Handle dylib creation and packaging, if needed.
   // Currently, we only have 1 CPUModuleOp and 1 top-level ModuleOp; we use a
@@ -2144,49 +2173,68 @@ std::shared_ptr<void> ttnnToFlatbuffer(
 
   size_t programIdx = 0;
   llvm::StringMap<uint32_t> programIdxMap;
-  // Preserve original ordering by skipping const-eval in the first pass.
-  module->walk([&](func::FuncOp func) {
-    if (ttmlir::utils::isConstEvalFunc(func)) {
-      return;
-    }
-    programIdxMap[func.getSymName().str()] = programIdx++;
-  });
 
-  // Add const-eval funcs after normal funcs.
-  module->walk([&](func::FuncOp func) {
-    if (!ttmlir::utils::isConstEvalFunc(func)) {
-      return;
-    }
-    programIdxMap[func.getSymName().str()] = programIdx++;
+  auto populateProgramIdxMap =
+      [&](std::function<bool(func::FuncOp)> shouldSkip) -> void {
+    module->walk([&](func::FuncOp func) {
+      if (shouldSkip(func)) {
+        return;
+      }
+      programIdxMap[func.getSymName().str()] = programIdx++;
+    });
+  };
+
+  // Preserve original ordering by skipping const-eval and tracein the first
+  // pass.
+  populateProgramIdxMap([](func::FuncOp func) {
+    return ttmlir::utils::isConstEvalFunc(func) ||
+           ttnn::utils::isTTNNTraceFunc(func);
   });
+  // Add const-eval funcs after normal funcs.
+  populateProgramIdxMap(
+      [](func::FuncOp func) { return !ttmlir::utils::isConstEvalFunc(func); });
+  // Finally add trace funcs.
+  populateProgramIdxMap(
+      [](func::FuncOp func) { return !ttnn::utils::isTTNNTraceFunc(func); });
 
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::Program>> programs;
-  // Again, process original funcs in order first to perserve input order.
-  module->walk([&](func::FuncOp func) {
-    if (ttmlir::utils::isConstEvalFunc(func)) {
-      return;
-    }
-    Program<::tt::target::ttnn::Operation> program =
-        funcOpToProgram<::tt::target::ttnn::Operation>(
-            cache, func, emitTTNNOperation, tensorValueToFlatbuffer,
-            programIdxMap);
-    programs.push_back(::tt::target::ttnn::CreateProgramDirect(
-        fbb, program.name, &program.inputs, &program.outputs, &program.ops,
-        &dylibs, debugInfo, /*private=*/false));
-  });
+
+  auto generatePrograms = [&](std::function<bool(func::FuncOp)> shouldSkip,
+                              bool isPrivate) -> void {
+    module->walk([&](func::FuncOp func) {
+      if (shouldSkip(func)) {
+        return;
+      }
+      Program<::tt::target::ttnn::Operation> program =
+          funcOpToProgram<::tt::target::ttnn::Operation>(
+              cache, func, emitTTNNOperation, tensorValueToFlatbuffer,
+              programIdxMap);
+
+      DeviceAttr deviceAttr = lookupDevice(func);
+
+      ::tt::target::Dim2d meshShape = deviceToFlatbufferMeshShape(deviceAttr);
+
+      programs.push_back(::tt::target::ttnn::CreateProgramDirect(
+          fbb, program.name, &program.inputs, &program.outputs, &program.ops,
+          &dylibs, debugInfo, isPrivate, &meshShape));
+    });
+  };
+
+  // Again, process original funcs in order first to preserve input order.
+  generatePrograms(
+      [](func::FuncOp func) {
+        return ttmlir::utils::isConstEvalFunc(func) ||
+               ttnn::utils::isTTNNTraceFunc(func);
+      },
+      /*isPrivate=*/false);
   // Then process const-eval funcs in 2nd pass.
-  module->walk([&](func::FuncOp func) {
-    if (!ttmlir::utils::isConstEvalFunc(func)) {
-      return;
-    }
-    Program<::tt::target::ttnn::Operation> program =
-        funcOpToProgram<::tt::target::ttnn::Operation>(
-            cache, func, emitTTNNOperation, tensorValueToFlatbuffer,
-            programIdxMap);
-    programs.push_back(::tt::target::ttnn::CreateProgramDirect(
-        fbb, program.name, &program.inputs, &program.outputs, &program.ops,
-        &dylibs, debugInfo, /*private=*/true));
-  });
+  generatePrograms(
+      [](func::FuncOp func) { return !ttmlir::utils::isConstEvalFunc(func); },
+      /*isPrivate=*/true);
+  // Finally process trace funcs.
+  generatePrograms(
+      [](func::FuncOp func) { return !ttnn::utils::isTTNNTraceFunc(func); },
+      /*isPrivate=*/true);
 
   auto binary = ::tt::target::ttnn::CreateTTNNBinaryDirect(
       fbb, &binaryVersion, ::tt::target::ttnn::binary_bfbs_schema_hash,

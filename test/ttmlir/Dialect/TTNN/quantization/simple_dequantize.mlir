@@ -8,13 +8,13 @@ module {
     // CHECK-SAME: fill_value = 0
     // CHECK-SAME: -> tensor<1xf32,
     // CHECK: "ttnn.typecast"
-    // CHECK-SAME: dtype = #tt.supportedDataTypes<si32>
+    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<si32>
     // CHECK-SAME: -> tensor<1xsi32,
     // CHECK: "ttnn.full"
     // CHECK-SAME: fill_value = 2.000000e-02
     // CHECK-SAME: -> tensor<1xf32,
     // CHECK: "ttnn.dequantize"
-    // CHECK-SAME: output_dtype = #tt.supportedDataTypes<f32>
+    // CHECK-SAME: output_dtype = #ttcore.supportedDataTypes<f32>
     // CHECK-SAME: tensor<1x3x224x224x!quant.uniform<i32:f32, 2.000000e-02>,
     // CHECK-SAME: -> tensor<1x3x224x224xf32,
     %1 = "ttir.constant"() <{value = dense<2.000000e-02> : tensor<1xf32>}> : () -> tensor<1xf32>
@@ -34,11 +34,11 @@ module {
     // CHECK-SAME: fill_value = 0
     // CHECK-SAME: -> tensor<3xf32,
     // CHECK: "ttnn.typecast"
-    // CHECK-SAME: dtype = #tt.supportedDataTypes<si32>
+    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<si32>
     // CHECK-SAME: -> tensor<3xsi32,
     // CHECK: "ttnn.dequantize"
     // CHECK-SAME: axis = 0 : i32
-    // CHECK-SAME: output_dtype = #tt.supportedDataTypes<f32>
+    // CHECK-SAME: output_dtype = #ttcore.supportedDataTypes<f32>
     // CHECK-SAME: tensor<3x3x7x7x!quant.uniform<i32:f32:0, {2.000000e-02,1.000000e-02,5.000000e-03}>,
     // CHECK-SAME: -> tensor<3x3x7x7xf32,
     %1 = "ttir.constant"() <{value = dense<[2.000000e-02, 0.00999999977, 5.000000e-03]> : tensor<3xf32>}> : () -> tensor<3xf32>
@@ -59,7 +59,7 @@ module {
     // CHECK-SAME: -> tensor<3xf32,
     // CHECK: "ttnn.dequantize"
     // CHECK-SAME: axis = 0 : i32
-    // CHECK-SAME: output_dtype = #tt.supportedDataTypes<f32>
+    // CHECK-SAME: output_dtype = #ttcore.supportedDataTypes<f32>
     // CHECK-SAME: tensor<3x3x7x7x!quant.uniform<i32:f32:0, {2.000000e-02:10,1.000000e-02:20,5.000000e-03:30}>,
     // CHECK-SAME: -> tensor<3x3x7x7xf32,
     %1 = "ttir.constant"() <{value = dense<[2.000000e-02, 0.00999999977, 5.000000e-03]> : tensor<3xf32>}> : () -> tensor<3xf32>

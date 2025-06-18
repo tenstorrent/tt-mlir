@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <atomic>
 #include <fstream>
 
 #include "flatbuffers/idl.h"
@@ -20,26 +21,43 @@
 namespace tt::runtime {
 
 Binary::Binary(Flatbuffer fb)
-    : Flatbuffer(fb), cache(std::make_shared<TensorCache>()) {}
+    : Flatbuffer(fb), binaryId(nextBinaryId()),
+      tensorCache(std::make_shared<TensorCache>()) {}
 
 Binary::Binary(std::shared_ptr<void> handle)
-    : Flatbuffer(handle), cache(std::make_shared<TensorCache>()) {}
+    : Flatbuffer(handle), binaryId(nextBinaryId()),
+      tensorCache(std::make_shared<TensorCache>()) {}
 
 Binary &Binary::operator=(Flatbuffer fb) {
   this->handle = fb.handle;
-  if (!cache) {
-    cache = std::make_shared<TensorCache>();
-  }
+
+  binaryId = nextBinaryId();
+
+  // Reinitialize tensor cache since binary handle contents
+  // are now different
+  tensorCache = std::make_shared<TensorCache>();
+
   return *this;
 }
 
 Binary &Binary::operator=(std::shared_ptr<void> handle) {
   this->handle = handle;
-  if (!cache) {
-    cache = std::make_shared<TensorCache>();
-  }
+
+  binaryId = nextBinaryId();
+
+  // Reinitialize tensor cache since binary handle contents
+  // are now different
+  tensorCache = std::make_shared<TensorCache>();
+
   return *this;
 }
+
+std::uint64_t Binary::nextBinaryId() {
+  static std::atomic<uint64_t> id{0};
+  return id++;
+}
+
+std::uint64_t Binary::id() const { return binaryId; }
 
 static flatbuffers::Parser getParser(const uint8_t *binarySchema,
                                      size_t schemaSize) {
@@ -556,6 +574,27 @@ std::uint32_t Binary::getNumPrograms() const {
   if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
           handle.get())) {
     return metal::getBinary(*this)->programs()->size();
+  }
+
+  LOG_FATAL("Unsupported binary format");
+}
+
+const std::pair<std::uint32_t, std::uint32_t>
+Binary::getProgramMeshShape(std::uint32_t programIndex) const {
+  if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
+          handle.get())) {
+    const tt::target::Dim2d *const mesh_shape =
+        ttnn::getBinary(*this)->programs()->Get(programIndex)->mesh_shape();
+    assert(mesh_shape != nullptr);
+    return std::make_pair(mesh_shape->x(), mesh_shape->y());
+  }
+
+  if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
+          handle.get())) {
+    const tt::target::Dim2d *const mesh_shape =
+        metal::getBinary(*this)->programs()->Get(programIndex)->mesh_shape();
+    assert(mesh_shape != nullptr);
+    return std::make_pair(mesh_shape->x(), mesh_shape->y());
   }
 
   LOG_FATAL("Unsupported binary format");

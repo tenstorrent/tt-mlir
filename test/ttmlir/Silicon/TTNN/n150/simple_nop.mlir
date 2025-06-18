@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --tt-register-device="system-desc-path=%system_desc_path%" --ttir-to-ttnn-backend-pipeline %s > %t.mlir
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttir-to-ttnn-backend-pipeline %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 module @jit_convert_element_type attributes {mhlo.num_partitions = 1 : i32, mhlo.num_replicas = 1 : i32} {

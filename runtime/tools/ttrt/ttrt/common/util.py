@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 from pprint import pprint
+from typing import Tuple
 
 import torch
 from pkg_resources import get_distribution
@@ -157,6 +158,37 @@ def get_atol_rtol_pcc(golden, calculated, logging):
         cal_pcc,
         f"Max ATOL Delta: {cal_atol}, Max RTOL Delta: {cal_rtol}, PCC: {cal_pcc}",
     )
+
+
+# Given two torch tensors, return a list of the top k absolute/relative differences.
+# Result format: [(v_golden, v_output, abs_diff/rel_diff, index), ...].
+def get_topk_diff(golden, calculated, top_k, relative=False):
+    import torch
+
+    if not torch.is_floating_point(golden):
+        golden = golden.to(torch.float64)
+    if not torch.is_floating_point(calculated):
+        calculated = calculated.to(torch.float64)
+
+    diff = torch.abs(golden - calculated)
+    if relative:
+        diff = torch.abs(diff / golden)
+        # In case of division by zero
+        diff_nz = torch.abs((calculated + 1.0) / (golden + 1.0)) - 1.0
+        diff = torch.where(torch.isfinite(diff), diff, diff_nz)
+
+    top_values, top_indices = torch.topk(diff.flatten(), top_k)
+
+    golden_shape = golden.shape
+    results = []
+    for i in range(top_k):
+        flat_idx = top_indices[i].item()
+        multi_idx = torch.unravel_index(torch.tensor(flat_idx), golden_shape)
+        v_golden = golden[multi_idx].item()
+        v_output = calculated[multi_idx].item()
+        v_diff = top_values[i].item()
+        results.append((v_golden, v_output, v_diff, tuple(i.item() for i in multi_idx)))
+    return results
 
 
 def golden_tensor_to_torch(golden_tensor: "ttrt.binary.GoldenTensor"):
@@ -749,6 +781,7 @@ class Binary(Flatbuffer):
             self.name = self.fbb.get_program_name(self.index)
             self.inputs = ttrt.binary.program_inputs_as_dict(self.fbb, self.index)
             self.outputs = ttrt.binary.program_outputs_as_dict(self.fbb, self.index)
+            self.mesh_shape = self.fbb.get_program_mesh_shape(self.index)
             self.input_tensors = []
             self.output_tensors = []
 
@@ -854,6 +887,13 @@ class SystemDesc(Flatbuffer):
         # temporary state value to check if test failed
         self.test_result = "pass"
 
+    def check_version(self, ignore: bool = False):
+        if not ignore and not self.fbb.check_schema_hash():
+            raise Exception(
+                "Binary schema mismatch, please recompile the binary with the compiler at the same schema version"
+            )
+        return True
+
 
 class TTRTTestException(Exception):
     """ "Base class for all "Test Specific" Errors in TTRT"""
@@ -863,6 +903,12 @@ class TTRTTestException(Exception):
 
 class PCCErrorException(TTRTTestException):
     """Class to store PCC Comparison Errors"""
+
+    pass
+
+
+class AllCloseErrorException(TTRTTestException):
+    """Class to store AllClose Comparison Errors"""
 
     pass
 

@@ -10,6 +10,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNToCpp.cpp
         TTNNPrepareConv2dWeights.cpp
         TTNNFusing.cpp
+        TTNNTraceHoistTransform.cpp
         Workarounds/Decomposition/ArgMaxOpRewritePattern.cpp
         Workarounds/Decomposition/CumSumOpDimRewritePattern.cpp
         Workarounds/Decomposition/CumSumOpRankRewritePattern.cpp
@@ -24,10 +25,10 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         DEPENDS
         MLIRTTNNOpsIncGen
         MLIRTTNNPassesIncGen
-        MLIRTTOpsIncGen
+        MLIRTTCoreOpsIncGen
 
         LINK_LIBS PUBLIC
         MLIRTTNNDialect
         MLIRTTNNAnalysis
-        MLIRTTDialect
+        MLIRTTCoreDialect
         )
