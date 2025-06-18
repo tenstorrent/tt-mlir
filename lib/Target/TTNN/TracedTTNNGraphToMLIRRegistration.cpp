@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/Operation.h"
@@ -13,9 +14,8 @@
 #include "llvm/Support/ErrorOr.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/SourceMgr.h"
-#include <iostream>
 #include "llvm/Support/raw_ostream.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include <iostream>
 #include <string>
 
 using namespace mlir;
@@ -27,14 +27,14 @@ void registerTracedTTNNGraphToMLIR() {
       "traced-ttnn-to-mlir", "translate graph trace to MLIR",
       [](llvm::SourceMgr &sourceMgr,
          MLIRContext *context) -> OwningOpRef<Operation *> {
-        std::cout << "manually loading dialects..." << std::endl;
+        // std::cout << "manually loading dialects..." << std::endl;
         context->loadDialect<mlir::tt::TTDialect>();
         context->loadDialect<mlir::tt::ttnn::TTNNDialect>();
         context->loadDialect<mlir::func::FuncDialect>();
         return translateTracedTTNNGraphToMLIR(sourceMgr, context);
       },
       [](DialectRegistry &registry) {
-        std::cout << "registering dialects..." << std::endl;
+        // std::cout << "registering dialects..." << std::endl;
         // clang-format off
         registry.insert<mlir::tt::TTDialect,
                         mlir::tt::ttnn::TTNNDialect,

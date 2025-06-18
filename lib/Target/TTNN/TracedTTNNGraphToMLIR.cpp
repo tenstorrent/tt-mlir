@@ -251,6 +251,10 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
           shapeAttr = createShapeAttr(shapeVec, builder);
           dataTypeAttr = parseDataType(dtypeObj.getAsString()->str(), context);
 
+          TTNNLayoutAttr layoutAttr = createLayoutAttr(
+              context, GridAttr::get(context),
+              RankedTensorType::get(shapeVec, builder.getF32Type()));
+
           // Create ones operation
           auto onesOp = builder.create<ttnn::OnesOp>(
               // static void build(::mlir::OpBuilder &odsBuilder,
@@ -260,7 +264,8 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
               // /*optional*/::mlir::tt::ttnn::LayoutAttr layout,
               // /*optional*/::mlir::Value device,
               // /*optional*/::mlir::tt::ttnn::MemoryConfigAttr memory_config);
-              loc, RankedTensorType::get(shapeVec, builder.getF32Type()),
+              loc,
+              RankedTensorType::get(shapeVec, builder.getF32Type(), layoutAttr),
               shapeAttr, dataTypeAttr, nullptr, nullptr, nullptr);
           onesOp->setAttr("shape", shapeAttr);
           result = onesOp.getResult();
@@ -277,6 +282,19 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
           int lhsIndex = std::stoi(lhsStr.substr(lhsStr.find(":") + 1));
           int rhsIndex = std::stoi(rhsStr.substr(rhsStr.find(":") + 1));
 
+          ::llvm::ArrayRef<int64_t> lhsShape =
+              mlir::cast<RankedTensorType>(indexToResultMap[lhsIndex].getType())
+                  .getShape();
+          ::llvm::ArrayRef<int64_t> rhsShape =
+              mlir::cast<RankedTensorType>(indexToResultMap[rhsIndex].getType())
+                  .getShape();
+
+          // Hack: trace doesn't provide info on which tensor is lhs and which
+          // is rhs, so analyze shapes to determine
+          if (lhsShape[lhsShape.size() - 1] != rhsShape[rhsShape.size() - 2]) {
+            std::swap(lhsIndex, rhsIndex);
+          }
+
           Value lhs = indexToResultMap[lhsIndex];
           Value rhs = indexToResultMap[rhsIndex];
 
@@ -284,14 +302,19 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
               mlir::cast<RankedTensorType>(lhs.getType()).getShape().front(),
               mlir::cast<RankedTensorType>(rhs.getType()).getShape().back()};
 
+          TTNNLayoutAttr layoutAttr = createLayoutAttr(
+              context, GridAttr::get(context),
+              RankedTensorType::get(shape, builder.getF32Type()));
+
           auto matmulOp = builder.create<ttnn::MatmulOp>(
               // static void build(::mlir::OpBuilder &odsBuilder,
               // ::mlir::OperationState &odsState, ::mlir::Type result,
               // ::mlir::Value a, ::mlir::Value b, ::mlir::BoolAttr transpose_a,
               // ::mlir::BoolAttr transpose_b, /*optional*/::mlir::Attribute
               // matmul_program_config);
-              loc, RankedTensorType::get(shape, builder.getF32Type()), lhs, rhs,
-              transposeA, transposeB, nullptr);
+              loc,
+              RankedTensorType::get(shape, builder.getF32Type(), layoutAttr),
+              lhs, rhs, transposeA, transposeB, nullptr);
           result = matmulOp.getResult();
         } else if (name == "ttnn::add") {
           // Get operands from arguments
@@ -307,10 +330,10 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
           Value lhs = indexToResultMap[lhsIndex];
           Value rhs = indexToResultMap[rhsIndex];
 
-          std::cout << "  add lhs: " << std::endl;
-          lhs.dump();
-          std::cout << "  add rhs: " << std::endl;
-          rhs.dump();
+          // std::cout << "  add lhs: " << std::endl;
+          // lhs.dump();
+          // std::cout << "  add rhs: " << std::endl;
+          // rhs.dump();
 
           // Get shape from the first operand
           ::llvm::ArrayRef<int64_t> shape =
@@ -339,33 +362,39 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
           ::llvm::ArrayRef<int64_t> shape =
               mlir::cast<RankedTensorType>(input.getType()).getShape();
 
+          TTNNLayoutAttr layoutAttr = createLayoutAttr(
+              context, GridAttr::get(context),
+              RankedTensorType::get(shape, builder.getF32Type()));
+
           auto reluOp = builder.create<ttnn::ReluOp>(
-              loc, RankedTensorType::get(shape, builder.getF32Type()), input);
+              loc,
+              RankedTensorType::get(shape, builder.getF32Type(), layoutAttr),
+              input);
           result = reluOp.getResult();
         } else if (name == "ttnn::softmax") {
           // Get operand from arguments
           std::string inputStr = (*argsObj)[0].getAsString()->str();
-          // int dim = (*argsObj)[1].getAsNumber(); // not proprely traced, hack
-          // for now
-          int dim = -1;
 
           int inputIndex = std::stoi(inputStr.substr(inputStr.find(":") + 1));
 
           Value input = indexToResultMap[inputIndex];
-          auto dimAttr = builder.getI64IntegerAttr(dim);
-
           // Get shape from the input operand
           ::llvm::ArrayRef<int64_t> shape =
               mlir::cast<RankedTensorType>(input.getType()).getShape();
 
-          // Get smallvector from shape
-          SmallVector<int64_t> shapeVec(shape.begin(), shape.end());
-          shapeVec[dim + shapeVec.size()] =
-              1; // Set the dimension to 1 for softmax
+          TTNNLayoutAttr layoutAttr = createLayoutAttr(
+              context, GridAttr::get(context),
+              RankedTensorType::get(shape, builder.getF32Type()));
+
+          // int dim = (*argsObj)[1].getAsNumber(); // not proprely traced, hack
+          // for now
+          int dim = -1;
+          auto dimAttr = builder.getSI32IntegerAttr(dim);
 
           auto softmaxOp = builder.create<ttnn::SoftmaxOp>(
-              loc, RankedTensorType::get(shapeVec, builder.getF32Type()), input,
-              dimAttr);
+              loc,
+              RankedTensorType::get(shape, builder.getF32Type(), layoutAttr),
+              input, dimAttr);
           result = softmaxOp.getResult();
         } else {
           module.emitError("Unsupported operation: ") << name;
@@ -374,14 +403,12 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
 
         // Store the result value with its node index
         if (result) {
-          result.dump();
+          // result.dump();
           indexToResultMap[index] = result;
         }
       }
     }
   }
-
-  module->dump();
 
   // Find the final output node (the one that's not a child of any other node)
   std::unordered_set<int> allChildren;
