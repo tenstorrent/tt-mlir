@@ -5,8 +5,6 @@
 #ifndef TTMLIR_UTILS_H
 #define TTMLIR_UTILS_H
 
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-
 #include "mlir-c/IR.h"
 #include "mlir/CAPI/IR.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -33,12 +31,8 @@ constexpr inline llvm::StringLiteral g_conv2dWeightAttrName =
 
 template <typename T>
 T alignUp(T ptr, T alignment) {
-  return (ptr + alignment - 1) & ~(alignment - 1);
-}
-
-template <typename T>
-T alignDown(T ptr, T alignment) {
-  return ptr & ~(alignment - 1);
+  T distance = ptr % alignment;
+  return ptr + (distance == 0 ? 0 : (alignment - distance));
 }
 
 template <typename T>
@@ -437,53 +431,6 @@ inline bool allUsersOfType(mlir::Operation *srcOp) {
 // Count the number of users of a value.
 inline size_t countUsers(mlir::Value value) {
   return std::distance(value.user_begin(), value.user_end());
-}
-
-// Return vector of currentOp operands and drop:
-// - dps operand if currentOp is a DestinationStyleOpInterface
-// - operand which is defined by currentOpOperand
-inline llvm::SmallVector<mlir::OpOperand *>
-getOtherOperands(mlir::Operation *currentOp,
-                 mlir::Operation *currentOpOperand) {
-  llvm::SmallVector<mlir::OpOperand *> operands;
-  auto dpsOp = mlir::dyn_cast<mlir::DestinationStyleOpInterface>(currentOp);
-  for (auto &opOperand : currentOp->getOpOperands()) {
-    if (dpsOp && dpsOp.isDpsInit(&opOperand)) {
-      continue;
-    }
-
-    if (mlir::Operation *op = opOperand.get().getDefiningOp()) {
-      if (op != currentOpOperand) {
-        operands.push_back(&opOperand);
-      }
-    } else {
-      // This is block argument.
-      operands.push_back(&opOperand);
-    }
-  }
-
-  return operands;
-}
-
-// Filters out the constant parameters from the function signature.
-inline llvm::SmallPtrSet<mlir::BlockArgument, 4>
-populateConstParams(mlir::func::FuncOp funcOp) {
-  assert(!funcOp.isDeclaration() && "Function should not be a declaration.");
-
-  llvm::SmallPtrSet<mlir::BlockArgument, 4> constParams;
-
-  for (auto arg : funcOp.getArguments()) {
-    if (auto typeAttr = funcOp.getArgAttrOfType<mlir::tt::ArgumentTypeAttr>(
-            arg.getArgNumber(), mlir::tt::ArgumentTypeAttr::name)) {
-      auto argTypeValue = typeAttr.getValue();
-      if (argTypeValue == mlir::tt::ArgumentType::Parameter ||
-          argTypeValue == mlir::tt::ArgumentType::Constant) {
-        constParams.insert(arg);
-      }
-    }
-  }
-
-  return constParams;
 }
 
 inline bool isConstEvalFunc(mlir::Operation *op) {

@@ -5,6 +5,9 @@
 #ifndef TTMLIR_DIALECT_TTCORE_IR_UTILS_H
 #define TTMLIR_DIALECT_TTCORE_IR_UTILS_H
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/SymbolTable.h"
@@ -41,6 +44,25 @@ mlir::memref::GlobalOp createGlobal(ModuleOp moduleOp, MemRefType type,
                                     ElementsAttr value, bool constant = true,
                                     bool privateVisibility = true,
                                     size_t alignment = 0);
+
+// Filters out the constant parameters from the function signature.
+inline llvm::SmallPtrSet<mlir::BlockArgument, 4>
+getConstsAndParams(mlir::func::FuncOp funcOp) {
+  llvm::SmallPtrSet<mlir::BlockArgument, 4> constsAndParams;
+
+  for (auto arg : funcOp.getArguments()) {
+    if (auto typeAttr = funcOp.getArgAttrOfType<mlir::tt::ArgumentTypeAttr>(
+            arg.getArgNumber(), mlir::tt::ArgumentTypeAttr::name)) {
+      auto argTypeValue = typeAttr.getValue();
+      if (argTypeValue == mlir::tt::ArgumentType::Parameter ||
+          argTypeValue == mlir::tt::ArgumentType::Constant) {
+        constsAndParams.insert(arg);
+      }
+    }
+  }
+
+  return constsAndParams;
+}
 
 } // namespace mlir::tt
 
