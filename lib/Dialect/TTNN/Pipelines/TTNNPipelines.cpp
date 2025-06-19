@@ -165,35 +165,39 @@ void createTTIRToTTNNBackendPipeline(
   ttir::createTTIRToCPUPipeline(pm, linalgToLLVMOptions);
 }
 
+void createTTNNBackendToEmitCPipeline(
+    OpPassManager &pm, const TTNNBackendToEmitCPipelineOptions &options) {
+  pm.addPass(tt::createTTCoreUnwrapDeviceModulePass());
+
+  if (options.targetDylib) {
+    // In dylib path, only run tuplification with forced settings.
+    // This ensures tensor inputs are always tuplified even when the input is
+    // empty, which is necessary for proper dylib interface generation.
+    //
+    TTNNTuplifyTensorsOptions tuplifyOptions;
+    tuplifyOptions.tuplifyInputIfEmpty = true;
+    pm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
+  } else {
+    // In canonical path, run tuplification + create input generators.
+    //
+    pm.addPass(createTTNNTuplifyTensors());
+    pm.addPass(createTTNNCreateInputGenerators());
+  }
+
+  pm.addPass(createConvertTTNNToEmitCPass());
+}
+
 void createTTIRToEmitCPipeline(OpPassManager &pm,
                                const TTIRToEmitCPipelineOptions &options) {
   if (options.enableTrace) {
     llvm::report_fatal_error(
         "Trace currently not supported in createTTIRToEmitCPipeline");
   }
-  createTTIRToTTNNBackendPipeline(pm, options);
-  pm.addPass(tt::createTTCoreUnwrapDeviceModulePass());
-  pm.addPass(createTTNNTuplifyTensors());
-  pm.addPass(createTTNNCreateInputGenerators());
-  pm.addPass(createConvertTTNNToEmitCPass());
-}
 
-void createTTIRToEmitCSOPipeline(OpPassManager &pm,
-                                 const TTIRToEmitCSOPipelineOptions &options) {
-  // Pass specific options.
-  //
-  // Always set input tuplification to true - dylib signatures are contractual
-  // and required to have tuples/vectors on the input signature (and output).
-  //
-  TTNNTuplifyTensorsOptions tuplifyOptions;
-  tuplifyOptions.tuplifyInputIfEmpty = true;
-
-  // Construct pipeline from other pipelines/passes.
+  // TTIR -> TTNN Backend -> EmitC.
   //
   createTTIRToTTNNBackendPipeline(pm, options);
-  pm.addPass(tt::createTTCoreUnwrapDeviceModulePass());
-  pm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
-  pm.addPass(createConvertTTNNToEmitCPass());
+  createTTNNBackendToEmitCPipeline(pm, options);
 }
 
 //===----------------------------------------------------------------------===//
@@ -209,6 +213,14 @@ void registerTTNNPipelines() {
       "Pipeline lowering TTIR to TTNN backend.",
       mlir::tt::ttnn::createTTIRToTTNNBackendPipeline);
 
+  // TTNN backend to EmitC pipeline.
+  //
+  mlir::PassPipelineRegistration<
+      mlir::tt::ttnn::TTNNBackendToEmitCPipelineOptions>(
+      "ttnn-backend-to-emitc-pipeline",
+      "Pipeline lowering TTNN backend to EmitC.",
+      mlir::tt::ttnn::createTTNNBackendToEmitCPipeline);
+
   // TTIR to EmitC pipeline.
   //
   mlir::PassPipelineRegistration<mlir::tt::ttnn::TTIRToEmitCPipelineOptions>(
@@ -217,14 +229,5 @@ void registerTTNNPipelines() {
       "--ttir-to-ttnn-backend-pipeline and then converts the resulting TTNN "
       "dialect to EmitC.",
       mlir::tt::ttnn::createTTIRToEmitCPipeline);
-
-  // TTIR to EmitC SO pipeline.
-  //
-  mlir::PassPipelineRegistration<mlir::tt::ttnn::TTIRToEmitCSOPipelineOptions>(
-      "ttir-to-emitc-so-pipeline",
-      "Pipeline lowering TTIR to EmitC, similar to TTIRToEmitCPipeline, but "
-      "with emitted C++ code packaged so that it's suitable for compiling into "
-      "a shared object.",
-      mlir::tt::ttnn::createTTIRToEmitCSOPipeline);
 }
 } // namespace mlir::tt::ttnn

@@ -257,15 +257,46 @@ struct TTIRToTTNNBackendPipelineOptions
       llvm::cl::init(32)};
 };
 
-// TTIR to EmitC pipeline options.
-// Inherit from TTIRToTTNNBackendPipelineOptions to reuse the options.
+// TTNN Backend to EmitC PipelineOptions.
 //
-struct TTIRToEmitCPipelineOptions : public TTIRToTTNNBackendPipelineOptions {};
+struct TTNNBackendToEmitCPipelineOptions
+    : public PassPipelineOptions<TTNNBackendToEmitCPipelineOptions> {
+  Option<bool> targetDylib{*this, "target-dylib",
+                           llvm::cl::desc("Tailor passes for dylib target."),
+                           llvm::cl::init(false)};
 
-// TTIR to EmitC SO pipeline options.
-// Inherit from TTIRToEmitCPipelineOptions to reuse the options.
+  // TODO (#3860): https://github.com/tenstorrent/tt-mlir/issues/3860
+  volatile bool sharedTargetDylibOption = false;
+  void propagateOptions() { sharedTargetDylibOption = targetDylib.getValue(); }
+};
+
+// TTIR to EmitC pipeline options.
+// Inherit from TTIRToTTNNBackendPipelineOptions and
+// TTNNBackendToEmitCPipelineOptions to reuse the options.
 //
-struct TTIRToEmitCSOPipelineOptions : public TTIRToEmitCPipelineOptions {};
+// Unfortunately, we can't inherit from both because PassPipelineOptions's base
+// class isn' virtuall inherited. So we inherit from
+// TTIRToTTNNBackendPipelineOptions and add TTNNBackendToEmitCPipelineOptions as
+// a member.
+//
+// Ideally, we fix this by making PassPipelineOptions inherit from
+// `public virtual mlir::detail::PassOptions`.
+// TODO (#3860): https://github.com/tenstorrent/tt-mlir/issues/3860
+//
+struct TTIRToEmitCPipelineOptions : public TTIRToTTNNBackendPipelineOptions,
+                                    public TTNNBackendToEmitCPipelineOptions {
+
+  //   // Need to copy option from TTNNBackendToEmitCPipelineOptions due to the
+  //   // inheritance problem.
+  //   //
+  //   Option<bool> targetDylib{*this, "target-dylib",
+  //                            llvm::cl::desc("Tailor passes for dylib
+  //                            target."), llvm::cl::init(false)};
+};
+
+//===----------------------------------------------------------------------===//
+// Passes and pipelines
+//===----------------------------------------------------------------------===//
 
 void createTTNNPipelineTTIRPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
@@ -285,11 +316,11 @@ void createTTNNPipelineDeallocPass(
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
 
+void createTTNNBackendToEmitCPipeline(
+    OpPassManager &pm, const TTNNBackendToEmitCPipelineOptions &options);
+
 void createTTIRToEmitCPipeline(OpPassManager &pm,
                                const TTIRToEmitCPipelineOptions &options);
-
-void createTTIRToEmitCSOPipeline(OpPassManager &pm,
-                                 const TTIRToEmitCSOPipelineOptions &options);
 
 /// Registers all pipelines for the `bufferization` dialect. Currently,
 /// this includes only the "ttir-to-ttnn-backend-pipeline".

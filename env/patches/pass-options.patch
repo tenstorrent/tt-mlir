@@ -1,0 +1,13 @@
+diff --git a/mlir/include/mlir/Pass/PassOptions.h b/mlir/include/mlir/Pass/PassOptions.h
+index e1f16c6158ad..0c71f78b52d3 100644
+--- a/mlir/include/mlir/Pass/PassOptions.h
++++ b/mlir/include/mlir/Pass/PassOptions.h
+@@ -377,7 +377,7 @@ private:
+ ///   ListOption<int> someListFlag{*this, "flag-name", llvm::cl::desc("...")};
+ /// };
+ template <typename T>
+-class PassPipelineOptions : public detail::PassOptions {
++class PassPipelineOptions : public virtual detail::PassOptions {
+ public:
+   /// Factory that parses the provided options and returns a unique_ptr to the
+   /// struct.
