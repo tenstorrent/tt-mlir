@@ -408,7 +408,7 @@ Flatbuffer Flatbuffer::loadFromPath(const char *path) {
   return Flatbuffer(buffer);
 }
 
-Flatbuffer Flatbuffer::loadFromMemory(const char *memory, size_t size) {
+Flatbuffer Flatbuffer::loadFromMemory(const void *memory, size_t size) {
   // load a flatbuffer from memory
   LOG_ASSERT(memory != nullptr, "Memory pointer is null");
   LOG_ASSERT(size > 0, "Size must be greater than zero");
@@ -426,11 +426,11 @@ void Flatbuffer::store(const char *path) const {
 }
 
 void Flatbuffer::storeToMemory(
-    std::vector<std::byte> &serialized_flatbuffer) const {
+    std::vector<std::byte> &serializedFlatbuffer) const {
   auto size = ::flatbuffers::GetSizePrefixedBufferLength(
       static_cast<const uint8_t *>(handle.get()));
-  serialized_flatbuffer.resize(size);
-  std::memcpy(serialized_flatbuffer.data(), handle.get(), size);
+  serializedFlatbuffer.resize(size);
+  std::memcpy(serializedFlatbuffer.data(), handle.get(), size);
 }
 
 std::string_view Flatbuffer::getFileIdentifier() const {
