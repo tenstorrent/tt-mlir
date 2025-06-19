@@ -8,7 +8,7 @@ add_custom_target(autogen-summary
     python ${CMAKE_CURRENT_SOURCE_DIR}/autogen-summary.py
   WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
   DEPENDS
-    mlir-doc copy-docs-dir
+    copy-docs-dir
 )
 
 add_custom_target(docs
@@ -16,7 +16,7 @@ add_custom_target(docs
     mdbook build
   WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
   DEPENDS
-    autogen-summary mlir-doc copy-docs-dir
+    autogen-summary copy-docs-dir
 )
 
 find_package(Doxygen)
@@ -39,7 +39,7 @@ if (DOXYGEN_FOUND)
       doxygen ${DOXYGEN_DIR}/doxygen.cfg
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
     DEPENDS
-      mlir-headers docs mlir-doc copy-docs-dir
+      mlir-headers docs copy-docs-dir
   )
 else()
   message("Doxygen is required to build documentation")
