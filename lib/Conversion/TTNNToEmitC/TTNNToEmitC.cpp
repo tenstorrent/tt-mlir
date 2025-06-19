@@ -1255,16 +1255,16 @@ public:
 };
 } // namespace
 
-// mlir::tt::DeviceOp conversion pattern
+// mlir::ttcore::DeviceOp conversion pattern
 //
 namespace {
 struct TTDeviceOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::DeviceOp> {
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::ttcore::DeviceOp> {
   using TTNNToEmitCBaseOpConversionPattern<
-      mlir::tt::DeviceOp>::TTNNToEmitCBaseOpConversionPattern;
+      mlir::ttcore::DeviceOp>::TTNNToEmitCBaseOpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mlir::tt::DeviceOp srcOp, OpAdaptor adaptor,
+  matchAndRewrite(mlir::ttcore::DeviceOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.eraseOp(srcOp);
     return success();
@@ -1664,14 +1664,14 @@ public:
 
 namespace {
 class GetTupleElementOpConversionPattern
-    : public OpConversionPattern<mlir::tt::GetTupleElementOp> {
+    : public OpConversionPattern<mlir::ttcore::GetTupleElementOp> {
 
 public:
   using OpConversionPattern::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mlir::tt::GetTupleElementOp getTupleElementOp,
-                  mlir::tt::GetTupleElementOp::Adaptor adaptor,
+  matchAndRewrite(mlir::ttcore::GetTupleElementOp getTupleElementOp,
+                  mlir::ttcore::GetTupleElementOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     // SubscriptOp requires a Value object as index, which is created by
     // invoking the emitc::LiteralOp.
@@ -1704,13 +1704,15 @@ public:
 } // namespace
 
 namespace {
-class TupleOpConversionPattern : public OpConversionPattern<mlir::tt::TupleOp> {
+class TupleOpConversionPattern
+    : public OpConversionPattern<mlir::ttcore::TupleOp> {
 
 public:
   using OpConversionPattern::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mlir::tt::TupleOp tupleOp, mlir::tt::TupleOp::Adaptor adaptor,
+  matchAndRewrite(mlir::ttcore::TupleOp tupleOp,
+                  mlir::ttcore::TupleOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     // EmitC doesn't offer a way to create a vector from a list of values, so
     // we need to create a utility function that does this. This is achieved
@@ -1738,14 +1740,14 @@ public:
 //
 namespace {
 class LoadCachedOpConversionPattern
-    : public OpConversionPattern<mlir::tt::LoadCachedOp> {
+    : public OpConversionPattern<mlir::ttcore::LoadCachedOp> {
 
 public:
-  using OpConversionPattern<mlir::tt::LoadCachedOp>::OpConversionPattern;
+  using OpConversionPattern<mlir::ttcore::LoadCachedOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mlir::tt::LoadCachedOp srcOp,
-                  mlir::tt::LoadCachedOp::Adaptor adaptor,
+  matchAndRewrite(mlir::ttcore::LoadCachedOp srcOp,
+                  mlir::ttcore::LoadCachedOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     // Get the callee function
     llvm::StringRef callee = srcOp.getCallee();

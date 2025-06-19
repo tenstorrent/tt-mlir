@@ -14,7 +14,7 @@
 
 #include <numeric>
 
-namespace mlir::tt {
+namespace mlir::ttcore {
 struct PhysGridResultIdx {
   enum : int64_t {
     DeviceIdx = 0,
@@ -302,7 +302,7 @@ inline uint8_t getNumberOfBits(const DataType dtype) {
   }
 }
 
-} // namespace mlir::tt
+} // namespace mlir::ttcore
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreAttrInterfaces.h.inc"
 
@@ -312,7 +312,7 @@ inline uint8_t getNumberOfBits(const DataType dtype) {
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h.inc"
 
-namespace mlir::tt {
+namespace mlir::ttcore {
 
 mlir::AffineMap collapsedLinearAffineMap(
     mlir::MLIRContext *context, llvm::ArrayRef<int64_t> shape,
@@ -321,15 +321,15 @@ mlir::AffineMap collapsedLinearAffineMap(
 
 mlir::SmallVector<std::int64_t>
 calculateLogicalShardShape(mlir::ArrayRef<int64_t> tensorShape,
-                           mlir::AffineMap linear, mlir::tt::GridAttr grid);
+                           mlir::AffineMap linear, mlir::ttcore::GridAttr grid);
 
 template <typename T, typename TAttr>
 mlir::MemRefType buildMemRef(mlir::MLIRContext *context,
                              llvm::ArrayRef<int64_t> shardShape,
                              mlir::Type elementType, T memorySpace) {
   llvm::SmallVector<int64_t> scalarShardShape(shardShape);
-  if (mlir::isa<mlir::tt::TileType>(elementType)) {
-    scalarShardShape = mlir::cast<mlir::tt::TileType>(elementType)
+  if (mlir::isa<mlir::ttcore::TileType>(elementType)) {
+    scalarShardShape = mlir::cast<mlir::ttcore::TileType>(elementType)
                            .getTiledShape(scalarShardShape);
   }
   return mlir::MemRefType::get(
@@ -349,8 +349,7 @@ inline MemorySpace getMemorySpace(MemorySpaceAttr memorySpaceAttr) {
 }
 
 inline MemorySpace getMemorySpace(MemRefType memref) {
-  return getMemorySpace(
-      mlir::cast<tt::MemorySpaceAttr>(memref.getMemorySpace()));
+  return getMemorySpace(mlir::cast<MemorySpaceAttr>(memref.getMemorySpace()));
 }
 
 inline MemorySpace getMemorySpace(Type memrefType) {
@@ -361,6 +360,6 @@ inline MemorySpace getMemorySpace(Value memrefTypedValue) {
   return getMemorySpace(memrefTypedValue.getType());
 }
 
-} // namespace mlir::tt
+} // namespace mlir::ttcore
 
 #endif

@@ -139,7 +139,7 @@ std::string join(Range &&R, llvm::StringRef separator) {
 //           return wrap(tt::CircularBufferAttributesAttr::get(
 //               unwrap(ctx), static_cast<tt::CB>(cb_id),
 //               mlir::cast<tt::CoreRangeAttr>(unwrap(core_range)), total_size,
-//               page_size, static_cast<tt::DataType>(data_format)));
+//               page_size, static_cast<ttcore::DataType>(data_format)));
 //         })
 //     .def_static("get", [](MlirContext ctx,
 //                           std::vector<MlirAttribute> attributesArray) {

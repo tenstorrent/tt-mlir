@@ -8,7 +8,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
-using namespace mlir::tt;
+using namespace mlir::ttcore;
 
 MlirAttribute ttmlirTTGridAttrGet(MlirContext ctx, int64_t *shape,
                                   int shapeSize) {

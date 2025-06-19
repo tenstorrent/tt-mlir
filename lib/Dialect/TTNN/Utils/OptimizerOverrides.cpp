@@ -210,7 +210,7 @@ void OptimizerOverridesHandler::addOutputLayoutOverride(
 void OptimizerOverridesHandler::addOutputLayoutOverride(
     StringRef opName, SmallVector<int64_t> &grid, BufferType bufferType,
     TensorMemoryLayout tensorMemoryLayout, tt::ttnn::Layout memoryLayout,
-    tt::DataType dataType) {
+    ttcore::DataType dataType) {
   outputLayoutOverrides[opName] = OutputLayoutOverrideParams{
       std::move(grid), bufferType, tensorMemoryLayout, memoryLayout, dataType};
 }

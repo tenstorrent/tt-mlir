@@ -153,15 +153,16 @@ static std::array<int32_t, 2> calculateCoreRangeSetShapeExtents(
 
 static flatbuffers::Offset<target::metal::ShardedBufferConfig>
 memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
-                                          MemRefType memref, DeviceAttr device,
+                                          MemRefType memref,
+                                          ttcore::DeviceAttr device,
                                           target::Dim2d elementShape) {
-  auto deviceLayout =
-      mlir::dyn_cast_if_present<DeviceLayoutInterface>(memref.getLayout());
+  auto deviceLayout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
+      memref.getLayout());
   if (!deviceLayout) {
     return 0;
   }
 
-  auto shardLayout = mlir::cast<ShardLayoutAttr>(deviceLayout);
+  auto shardLayout = mlir::cast<ttcore::ShardLayoutAttr>(deviceLayout);
   ArrayRef<int64_t> stride = shardLayout.getStride();
   int64_t elementSize = stride[stride.size() - 1];
   auto memrefGridShape = shardLayout.getGridShape(memref);
@@ -212,14 +213,14 @@ memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
 static flatbuffers::Offset<target::metal::CircularBufferConfig>
 memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
                                            MemRefType memref,
-                                           DeviceAttr device) {
-  auto deviceLayout =
-      mlir::dyn_cast_if_present<DeviceLayoutInterface>(memref.getLayout());
+                                           ttcore::DeviceAttr device) {
+  auto deviceLayout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
+      memref.getLayout());
   if (!deviceLayout) {
     return 0;
   }
 
-  auto shardLayout = mlir::cast<ShardLayoutAttr>(deviceLayout);
+  auto shardLayout = mlir::cast<ttcore::ShardLayoutAttr>(deviceLayout);
   auto memrefGridShape = shardLayout.getGridShape(memref);
   std::vector<target::Dim2dRange> coreRangeSet =
       toFlatbuffer(cache, memrefGridShape, device.getWorkerGrid().getMapping());
@@ -235,24 +236,24 @@ memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
 
 static flatbuffers::Offset<target::metal::BufferDesc>
 memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
-                       DeviceAttr device) {
+                       ttcore::DeviceAttr device) {
   std::vector<int32_t> shape =
       ttmlir::utils::castContainer<std::vector<int32_t>>(memref.getShape());
   target::Dim2d elementShape(1, 1);
-  DataType dtype = DataType::Float32;
+  ttcore::DataType dtype = ttcore::DataType::Float32;
   target::MemorySpace memorySpace =
       memref.getMemorySpace()
-          ? toFlatbuffer(
-                cache,
-                mlir::cast<MemorySpaceAttr>(memref.getMemorySpace()).getValue())
+          ? toFlatbuffer(cache, mlir::cast<ttcore::MemorySpaceAttr>(
+                                    memref.getMemorySpace())
+                                    .getValue())
           : target::MemorySpace::System;
 
   Type elementType = memref.getElementType();
-  if (auto tileType = mlir::dyn_cast<TileType>(elementType)) {
+  if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType)) {
     dtype = tileType.getDataType();
     elementShape = target::Dim2d(tileType.getHeight(), tileType.getWidth());
   } else {
-    dtype = elementTypeToDataType(elementType);
+    dtype = ttcore::elementTypeToDataType(elementType);
   }
 
   flatbuffers::Offset<target::metal::ShardedBufferConfig> shardedBufferConfig =
@@ -271,7 +272,7 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
 static flatbuffers::Offset<target::metal::BufferRef>
 bufferValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
                         uint64_t address) {
-  auto device = lookupDevice(value.getParentBlock()->getParentOp());
+  auto device = ttcore::lookupDevice(value.getParentBlock()->getParentOp());
   assert(device);
   auto memrefType = mlir::cast<MemRefType>(value.getType());
   auto bufferDesc =
@@ -282,15 +283,15 @@ bufferValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
 
 static flatbuffers::Offset<target::metal::TensorRef>
 tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value) {
-  auto device = lookupDevice(value.getParentBlock()->getParentOp());
+  auto device = ttcore::lookupDevice(value.getParentBlock()->getParentOp());
   assert(device);
   auto memref = mlir::cast<MemRefType>(value.getType());
 
   Type elementType = memref.getElementType();
-  assert(!mlir::isa<TileType>(elementType));
-  DataType dtype = elementTypeToDataType(elementType);
+  assert(!mlir::isa<ttcore::TileType>(elementType));
+  ttcore::DataType dtype = ttcore::elementTypeToDataType(elementType);
 
-  assert(!mlir::isa<DeviceLayoutInterface>(memref.getLayout()));
+  assert(!mlir::isa<ttcore::DeviceLayoutInterface>(memref.getLayout()));
   std::vector<int32_t> shape =
       ttmlir::utils::castContainer<std::vector<int32_t>>(memref.getShape());
   std::vector<int32_t> meshShape;
@@ -460,14 +461,15 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
   // If we have a nested module structure, we want to use nested module inside
   // DeviceModule for most conversions.
   ModuleOp module = rootModule;
-  if (auto deviceModule = utils::findOpAtTopLevel<tt::DeviceModuleOp>(module)) {
+  if (auto deviceModule =
+          utils::findOpAtTopLevel<ttcore::DeviceModuleOp>(module)) {
     module = mlir::cast<mlir::ModuleOp>(
         deviceModule.getBodyRegion().front().front());
   }
   SymbolTable symbolTable(module);
 
-  auto systemDesc =
-      mlir::cast<tt::SystemDescAttr>(module->getAttr(tt::SystemDescAttr::name));
+  auto systemDesc = mlir::cast<ttcore::SystemDescAttr>(
+      module->getAttr(ttcore::SystemDescAttr::name));
   ttmlir::Version ttmlirVersion = ttmlir::getVersion();
   target::Version binaryVersion(ttmlirVersion.major, ttmlirVersion.minor,
                                 ttmlirVersion.patch);
@@ -477,7 +479,7 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
   // Currently, we only have 1 CPUModuleOp and 1 top-level ModuleOp; we use a
   // vector here in case in the future we support more complex arrangements.
   std::vector<::flatbuffers::Offset<::tt::target::DynamicLib>> dylibs;
-  if (auto cpuModule = utils::findOpAtTopLevel<tt::CPUModuleOp>(rootModule);
+  if (auto cpuModule = utils::findOpAtTopLevel<ttcore::CPUModuleOp>(rootModule);
       cpuModule != nullptr) {
     mlir::ModuleOp cpuNestedModule =
         mlir::cast<mlir::ModuleOp>(cpuModule.getBodyRegion().front().front());
@@ -664,7 +666,7 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
     flatbuffers::Offset<target::DebugInfo> debugInfo =
         debugInfoToFlatbuffer(fbb, "ttmetal", module, goldenMap, moduleCache);
 
-    DeviceAttr deviceAttr = lookupDevice(entry);
+    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(entry);
 
     ::tt::target::Dim2d meshShape = deviceToFlatbufferMeshShape(deviceAttr);
 

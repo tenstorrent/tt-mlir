@@ -1546,11 +1546,11 @@ private:
 } // namespace
 
 template <typename SrcOpT>
-static llvm::ErrorOr<ReduceType> getReduceType(SrcOpT srcOp) {
+static llvm::ErrorOr<ttcore::ReduceType> getReduceType(SrcOpT srcOp) {
   if constexpr (!std::is_same<SrcOpT, mlir::stablehlo::AllReduceOp>::value &&
                 !std::is_same<SrcOpT,
                               mlir::stablehlo::ReduceScatterOp>::value) {
-    return llvm::ErrorOr<ReduceType>(
+    return llvm::ErrorOr<ttcore::ReduceType>(
         std::make_error_code(std::errc::operation_not_supported));
   }
   // Check operations in the first block and determine reduce type for now
@@ -1559,17 +1559,17 @@ static llvm::ErrorOr<ReduceType> getReduceType(SrcOpT srcOp) {
   auto &block = srcOp.getRegion().front();
   for (Operation &op : block) {
     if (isa<mlir::stablehlo::AddOp>(op)) {
-      return ReduceType::Sum;
+      return ttcore::ReduceType::Sum;
     }
     if (isa<mlir::stablehlo::MaxOp>(op)) {
-      return ReduceType::Max;
+      return ttcore::ReduceType::Max;
     }
     if (isa<mlir::stablehlo::MinOp>(op)) {
-      return ReduceType::Min;
+      return ttcore::ReduceType::Min;
     }
   }
   // Other reduce types are currently not supported
-  return llvm::ErrorOr<ReduceType>(
+  return llvm::ErrorOr<ttcore::ReduceType>(
       std::make_error_code(std::errc::operation_not_supported));
 }
 
@@ -1682,7 +1682,7 @@ public:
     }
 
     // Convert reduceType stablehlo attribute into ttir attribute
-    llvm::ErrorOr<ReduceType> reduceType = getReduceType(srcOp);
+    llvm::ErrorOr<ttcore::ReduceType> reduceType = getReduceType(srcOp);
     if (!reduceType) {
       return rewriter.notifyMatchFailure(
           srcOp, "AllReduceOp cannot specify reduce type.");
@@ -1757,7 +1757,7 @@ public:
     }
 
     // Convert reduceType stablehlo attribute into ttir attribute
-    llvm::ErrorOr<ReduceType> reduceType = getReduceType(srcOp);
+    llvm::ErrorOr<ttcore::ReduceType> reduceType = getReduceType(srcOp);
     if (!reduceType) {
       return rewriter.notifyMatchFailure(
           srcOp, "ReduceScatterOp cannot specify reduce type.");
@@ -1911,7 +1911,7 @@ public:
       if (!module) {
         llvm_unreachable("Require module as one of parent ops.");
       }
-      mlir::tt::utils::addMeshToModuleAttribute(
+      mlir::ttcore::utils::addMeshToModuleAttribute(
           rewriter, module, StringAttr::get(getContext(), "mesh_gspmd"),
           meshShape);
     }
@@ -1949,7 +1949,7 @@ public:
         ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
             rewriter, srcOp, outputType, inputOperand,
             meshSharding.getShardType(),
-            mlir::tt::MeshShardDirection::ShardToFull,
+            mlir::ttcore::MeshShardDirection::ShardToFull,
             meshSharding.getShardShape(), meshSharding.getShardDims());
       } else {
         // Do not create mesh shard op if input and output shapes are identical:
@@ -1958,7 +1958,8 @@ public:
       }
     } else if (callTargetName ==
                mlir::tt::sharding_utils::kShardingCustomCallTargetName) {
-      if (meshSharding.getShardType() == mlir::tt::MeshShardType::Identity) {
+      if (meshSharding.getShardType() ==
+          mlir::ttcore::MeshShardType::Identity) {
         // @Sharding => @SPMDShardToFullShape pattern
         // "identity" sharding indicates no sharding is required.
         rewriter.replaceOp(srcOp, srcOp->getOperand(0));
@@ -1988,7 +1989,7 @@ public:
           ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
               rewriter, srcOp, outputType, inputOperand,
               meshSharding.getShardType(),
-              mlir::tt::MeshShardDirection::FullToShard,
+              mlir::ttcore::MeshShardDirection::FullToShard,
               meshSharding.getShardShape(), meshSharding.getShardDims());
         } else {
           // Do not create mesh shard op if input and output shapes are

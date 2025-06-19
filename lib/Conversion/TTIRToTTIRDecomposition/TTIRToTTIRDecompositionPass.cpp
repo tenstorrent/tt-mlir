@@ -35,7 +35,7 @@ struct TTIRToTTIRDecompositionPass
           TTIRToTTIRDecompositionPass> {
   void runOnOperation() final {
     mlir::ConversionTarget target(getContext());
-    target.addLegalDialect<ttir::TTIRDialect>();
+    target.addLegalDialect<mlir::tt::ttir::TTIRDialect>();
     target.addLegalDialect<mlir::func::FuncDialect>(); // we wish to keep
                                                        // func.func and
                                                        // func.call as legal ops

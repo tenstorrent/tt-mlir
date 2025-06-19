@@ -109,7 +109,7 @@ void populateTTNNModule(nb::module_ &m) {
           "get",
           [](MlirContext ctx, MlirAffineMap linear, MlirAttribute grid,
              MlirType memref, std::optional<unsigned> memLayout = std::nullopt,
-             std::optional<tt::TensorMeshShardingAttr> tensorMeshSharding =
+             std::optional<ttcore::TensorMeshShardingAttr> tensorMeshSharding =
                  std::nullopt) {
             tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr;
             if (memLayout.has_value()) {
@@ -117,13 +117,13 @@ void populateTTNNModule(nb::module_ &m) {
                   unwrap(ctx),
                   static_cast<tt::ttnn::TensorMemoryLayout>(memLayout.value()));
             }
-            tt::TensorMeshShardingAttr tensorMeshShardingAttr;
+            ttcore::TensorMeshShardingAttr tensorMeshShardingAttr;
             if (tensorMeshSharding.has_value()) {
               tensorMeshShardingAttr = tensorMeshSharding.value();
             }
             return wrap(tt::ttnn::TTNNLayoutAttr::get(
                 unwrap(ctx), mlir::cast<AffineMap>(unwrap(linear)),
-                mlir::cast<tt::GridAttr>(unwrap(grid)),
+                mlir::cast<ttcore::GridAttr>(unwrap(grid)),
                 mlir::cast<MemRefType>(unwrap(memref)), memLayoutAttr,
                 tensorMeshShardingAttr));
           },
@@ -166,9 +166,10 @@ void populateTTNNModule(nb::module_ &m) {
   tt_attribute_class<tt::ttnn::Conv2dConfigAttr>(m, "Conv2dConfigAttr")
       .def_static(
           "get",
-          [](MlirContext ctx, std::optional<tt::DataType> dtype,
-             std::optional<tt::DataType> weightsDtype, StringAttr activation,
-             BoolAttr deallocateActivation, BoolAttr reallocateHaloOutput,
+          [](MlirContext ctx, std::optional<ttcore::DataType> dtype,
+             std::optional<ttcore::DataType> weightsDtype,
+             StringAttr activation, BoolAttr deallocateActivation,
+             BoolAttr reallocateHaloOutput,
              std::optional<uint32_t> actBlockHOverride,
              std::optional<uint32_t> actBlockWDiv, BoolAttr reshardIfNotOptimal,
              BoolAttr overrideShardingConfig,

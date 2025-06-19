@@ -25,8 +25,8 @@ public:
   TTIRTensorBufferizeShapeConverter(MLIRContext *ctx) {
     addConversion([](Type type) { return type; });
     addConversion([](RankedTensorType type) -> Type {
-      auto layout =
-          mlir::dyn_cast_if_present<MetalLayoutAttr>(type.getEncoding());
+      auto layout = mlir::dyn_cast_if_present<mlir::ttcore::MetalLayoutAttr>(
+          type.getEncoding());
       if (!layout) {
         return type;
       }
@@ -60,7 +60,7 @@ class TTIRPrepareTensorsForBufferization
 
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
     registry.insert<mlir::tt::ttir::TTIRDialect>();
-    registry.insert<mlir::tt::TTCoreDialect>();
+    registry.insert<mlir::ttcore::TTCoreDialect>();
   }
 };
 } // namespace

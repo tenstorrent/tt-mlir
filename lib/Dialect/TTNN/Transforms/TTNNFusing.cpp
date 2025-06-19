@@ -27,10 +27,10 @@ public:
     Value reluInput = reluOp.getInput();
 
     mlir::StringAttr activation = rewriter.getStringAttr("relu");
-    DataType inputDtype =
-        elementTypeToDataType(srcOp.getInput().getType().getElementType());
-    DataType weightDtype =
-        elementTypeToDataType(srcOp.getWeight().getType().getElementType());
+    ttcore::DataType inputDtype = ttcore::elementTypeToDataType(
+        srcOp.getInput().getType().getElementType());
+    ttcore::DataType weightDtype = ttcore::elementTypeToDataType(
+        srcOp.getWeight().getType().getElementType());
     Conv2dConfigAttr conv2dConfigAttr =
         srcOp.getConv2dConfigAttr()
             ? srcOp.getConv2dConfigAttr()

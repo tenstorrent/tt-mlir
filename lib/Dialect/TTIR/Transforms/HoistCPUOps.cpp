@@ -301,9 +301,9 @@ public:
       return;
     }
 
-    tt::DeviceModuleOp deviceModule;
+    ttcore::DeviceModuleOp deviceModule;
     for (Operation &op : rootModule.getBodyRegion().front()) {
-      if (auto maybeDeviceModule = dyn_cast<tt::DeviceModuleOp>(op)) {
+      if (auto maybeDeviceModule = dyn_cast<ttcore::DeviceModuleOp>(op)) {
         deviceModule = maybeDeviceModule;
         break;
       }
@@ -314,7 +314,7 @@ public:
     ModuleOp deviceInnerModule = dyn_cast_if_present<mlir::ModuleOp>(
         deviceModule.getBodyRegion().front().front());
     assert(deviceInnerModule &&
-           "tt::DeviceModuleOp must have single ModuleOp child!");
+           "ttcore::DeviceModuleOp must have single ModuleOp child!");
 
     IRRewriter rewriter(&getContext());
 
@@ -329,10 +329,10 @@ public:
     }
 
     // Check if a "cpu_module" already exists.
-    tt::CPUModuleOp cpuModule;
+    ttcore::CPUModuleOp cpuModule;
     mlir::ModuleOp cpuInnerModule;
     for (auto &op : rootModule.getBody()->getOperations()) {
-      if (auto module = llvm::dyn_cast<tt::CPUModuleOp>(op)) {
+      if (auto module = llvm::dyn_cast<ttcore::CPUModuleOp>(op)) {
         cpuModule = module;
         cpuInnerModule = dyn_cast_if_present<mlir::ModuleOp>(
             cpuModule.getBodyRegion().front().front());
@@ -344,7 +344,7 @@ public:
     // If no CPU module exists, create one.
     if (!cpuModule) {
       rewriter.setInsertionPointToEnd(rootModule.getBody());
-      cpuModule = rewriter.create<tt::CPUModuleOp>(loc);
+      cpuModule = rewriter.create<ttcore::CPUModuleOp>(loc);
       rewriter.setInsertionPointToStart(&cpuModule.getBodyRegion().front());
       cpuInnerModule = rewriter.create<mlir::ModuleOp>(loc);
     }

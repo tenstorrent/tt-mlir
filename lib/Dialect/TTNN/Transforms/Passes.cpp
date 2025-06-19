@@ -304,8 +304,8 @@ private:
 
     // Create a tuple from the generated tensors.
     //
-    TupleOp tuple =
-        rewriter.create<tt::TupleOp>(loc, returnTypes, generatedTensors);
+    ttcore::TupleOp tuple =
+        rewriter.create<ttcore::TupleOp>(loc, returnTypes, generatedTensors);
 
     // Create ReturnOp.
     //
@@ -335,7 +335,8 @@ private:
     ShapeAttr shapeAttr = ttnn::ShapeAttr::get(ctx, tensorType.getShape());
     ttnn::LayoutAttr tensorLayoutAttr =
         ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout());
-    DataTypeAttr dTypeAttr = DataTypeAttr::get(ctx, layoutAttr.getDataType());
+    ttcore::DataTypeAttr dTypeAttr =
+        ttcore::DataTypeAttr::get(ctx, layoutAttr.getDataType());
 
     // Create a new tensor of ones.
     //
@@ -468,8 +469,8 @@ public:
       //
       rewriter.setInsertionPointToStart(&entryBlock);
       for (size_t idx = 0; idx < originalFuncType.getNumInputs(); idx++) {
-        tt::GetTupleElementOp getTupleElementOp =
-            rewriter.create<tt::GetTupleElementOp>(
+        ttcore::GetTupleElementOp getTupleElementOp =
+            rewriter.create<ttcore::GetTupleElementOp>(
                 targetFuncOpInput.getLoc(), targetFuncOpInput.getArgument(0),
                 idx);
 
@@ -515,7 +516,7 @@ public:
       targetFuncOpResult.walk<WalkOrder::PostOrder, ReverseIterator>(
           [&](mlir::func::ReturnOp returnOp) {
             rewriter.setInsertionPoint(returnOp);
-            TupleOp tupleOp = rewriter.create<mlir::tt::TupleOp>(
+            ttcore::TupleOp tupleOp = rewriter.create<ttcore::TupleOp>(
                 returnOp.getLoc(), returnOp.getOperands());
             rewriter.modifyOpInPlace(returnOp, [&]() {
               returnOp.getOperandsMutable().assign(tupleOp);

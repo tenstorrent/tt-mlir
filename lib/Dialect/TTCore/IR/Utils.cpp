@@ -9,7 +9,7 @@
 
 #include "mlir/IR/BuiltinOps.h"
 
-namespace mlir::tt {
+namespace mlir::ttcore {
 
 SystemDescAttr getCurrentScopeSystemDesc(mlir::Operation *op) {
   // Find the top level ModuleOp which carries the system desc.
@@ -24,7 +24,7 @@ SystemDescAttr getCurrentScopeSystemDesc(mlir::Operation *op) {
 }
 
 DeviceOp lookupDeviceOp(Operation *op, SymbolRefAttr deviceName) {
-  return SymbolTable::lookupNearestSymbolFrom<tt::DeviceOp>(op, deviceName);
+  return SymbolTable::lookupNearestSymbolFrom<DeviceOp>(op, deviceName);
 }
 
 DeviceOp lookupDeviceOp(Operation *op, llvm::StringRef deviceName) {
@@ -118,4 +118,4 @@ mlir::memref::GlobalOp createGlobal(ModuleOp moduleOp, mlir::MemRefType type,
                       privateVisibility, alignment);
 }
 
-} // namespace mlir::tt
+} // namespace mlir::ttcore
