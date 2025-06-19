@@ -601,7 +601,7 @@ public:
         emitter.template emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
         emitter.template emit<std::array<uint32_t, 2>>(srcOp.getPaddingAttr()),
         emitter.emit(srcOp.getCeilMode()),
-        emitter.emit(/*count_include_pad=*/false),
+        emitter.emit(/*count_include_pad=*/true),
         emitter.emit(/*divisor_override=*/std::nullopt),
         emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getAppliedShardScheme()),
@@ -861,8 +861,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.template emit<::tt::stl::SmallVector<int32_t>>(
-            srcOp.getDimArg()),
+        emitter.template emit<::ttsl::SmallVector<int32_t>>(srcOp.getDimArg()),
         emitter.emit(srcOp.getKeepDim()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
@@ -2034,9 +2033,9 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit<::tt::stl::SmallVector<int32_t>>(srcOp.getBegins()),
-        emitter.emit<::tt::stl::SmallVector<int32_t>>(srcOp.getEnds()),
-        emitter.emit<::tt::stl::SmallVector<int32_t>>(srcOp.getStep()),
+        emitter.emit<::ttsl::SmallVector<int32_t>>(srcOp.getBegins()),
+        emitter.emit<::ttsl::SmallVector<int32_t>>(srcOp.getEnds()),
+        emitter.emit<::ttsl::SmallVector<int32_t>>(srcOp.getStep()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 
@@ -2101,7 +2100,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit<::tt::stl::SmallVector<int64_t>>(srcOp.getPermutation()),
+        emitter.emit<::ttsl::SmallVector<int64_t>>(srcOp.getPermutation()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getPadValue()),
     };

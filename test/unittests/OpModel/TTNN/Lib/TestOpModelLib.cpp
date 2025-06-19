@@ -450,7 +450,7 @@ TEST_F(OpModelTest, ToLayout) {
       layoutDRAMRowMajor, true);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
-  EXPECT_EQ(opCstr.cbL1PeakSize, 262144);
+  EXPECT_EQ(opCstr.cbL1PeakSize, 131072);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
   ExpectLayoutsEQ(layoutDRAMRowMajor, opCstr.outputLayout);
@@ -476,7 +476,7 @@ TEST_F(OpModelTest, ToLayout) {
       layoutDRAMRowMajor, false);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_EQ(opCstr.cbL1PeakSize, 262144);
+  EXPECT_EQ(opCstr.cbL1PeakSize, 131072);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
   ExpectLayoutsEQ(layoutDRAMRowMajor, opCstr.outputLayout);
