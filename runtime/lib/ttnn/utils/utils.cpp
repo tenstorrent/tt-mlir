@@ -325,26 +325,9 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
 }
 
 void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
-  LOG_ASSERT(
-      workaround::Env::get().rawHostDataPointerWrapper,
-      "rawHostDataPointerWrapper workaround must be enabled to use this API");
-  void *dataPtr = std::visit(
-      ::tt::runtime::utils::overloaded{
-          [&](const ::tt::tt_metal::HostStorage &storage) -> void * {
-            ::tt::tt_metal::HostBuffer hostBuffer = storage.buffer;
-            return static_cast<void *>(hostBuffer.view_bytes().data());
-          },
-          [&](const ::tt::tt_metal::MultiDeviceHostStorage &storage) -> void * {
-            LOG_ASSERT(storage.num_buffers() == 1);
-            ::tt::tt_metal::HostBuffer hostBuffer = storage.get_buffer(0);
-            return static_cast<void *>(hostBuffer.view_bytes().data());
-          },
-          [](auto &&storage) -> void * {
-            LOG_FATAL("Unsupported storage type ", debug::toString(storage));
-            return nullptr;
-          }},
-      tensor.storage());
-  return dataPtr;
+  ::tt::tt_metal::HostBuffer hostBuffer =
+      ::tt::tt_metal::host_buffer::get_host_buffer(tensor);
+  return static_cast<void *>(hostBuffer.view_bytes().data());
 }
 
 ::ttnn::TensorSpec createTensorSpec(const ::ttnn::Shape &shape,

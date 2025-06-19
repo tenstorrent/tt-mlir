@@ -1465,7 +1465,7 @@ TEST_F(OpModelBase, EmbeddingOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
-    EXPECT_EQ(cbSize, 32768);
+    EXPECT_EQ(cbSize, 16384);
     EXPECT_EQ(peakSize, 525312);
     EXPECT_EQ(outputSize, 262144);
   } else {
