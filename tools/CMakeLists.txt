@@ -11,6 +11,7 @@ if(TTMLIR_ENABLE_BINDINGS_PYTHON AND MLIR_ENABLE_BINDINGS_PYTHON)
     add_subdirectory(explorer)
   endif()
 
+  add_subdirectory(op-by-op-infra)
 endif()
 add_subdirectory(ttmlir-translate)
 
