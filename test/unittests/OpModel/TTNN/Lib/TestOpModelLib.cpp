@@ -17,6 +17,7 @@
 #include <functional>
 #include <iostream>
 #include <optional>
+#include <ranges>
 #include <tuple>
 
 namespace mlir::tt::op_model::ttnn {
@@ -113,6 +114,8 @@ protected:
     const mlir::tt::ttnn::TTNNLayoutAttr outputLayout = CreateTiledLayout(
         outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
+    SingletonDeviceContext::resetInstance();
+
     auto constraintsExp = constraintsMap.at(opType)(
         CreateWorkerGrid(), inputShape, inputLayout, outputShape, outputLayout);
     // Manually cast to bool because EXPECT_TRUE requires a const bool operator
@@ -129,6 +132,8 @@ protected:
       // Must clean up the error
       llvm::consumeError(constraintsExp.takeError());
     }
+
+    SingletonDeviceContext::resetInstance();
 
     auto runtimeExp = runtimeMap.at(opType)(inputShape, inputLayout,
                                             outputShape, outputLayout);
@@ -283,6 +288,8 @@ TEST_P(OpModelReductionParam, Reduction) {
   const mlir::tt::ttnn::TTNNLayoutAttr outputLayout = CreateTiledLayout(
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
+  SingletonDeviceContext::resetInstance();
+
   const auto &[constraintsFunc, runtimeFunc] = opMap.at(opType);
   auto constraintsExp =
       constraintsFunc(CreateWorkerGrid(), inputShape, inputLayout, dimArg,
@@ -300,6 +307,8 @@ TEST_P(OpModelReductionParam, Reduction) {
     // Must clean up the error
     llvm::consumeError(constraintsExp.takeError());
   }
+
+  SingletonDeviceContext::resetInstance();
 
   auto runtimeExp =
       runtimeFunc(inputShape, inputLayout, dimArg, keepDim, outputLayout);
@@ -352,6 +361,8 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   auto legalExp = Device::getDeviceConstraints(workerGrid);
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
   auto constraintsExp = SoftmaxOpInterface::getOpConstraints(
       CreateWorkerGrid(), tensorShape, inputLayout_dram, -1, tensorShape,
       inputLayout_dram);
@@ -398,6 +409,8 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
   std::vector<std::tuple<mlir::tt::ttnn::TTNNLayoutAttr,
                          mlir::tt::ttnn::TTNNLayoutAttr>>
       layout_combinations = {{inputLayout_dram, inputLayout_dram},
@@ -424,6 +437,8 @@ TEST_F(OpModelTest, Reshape) {
   auto legalExp = Device::getDeviceConstraints(workerGrid);
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
   auto constraintsExp = ReshapeOpInterface::getOpConstraints(
       CreateWorkerGrid(), tensorShape, layoutDRAM, {workerCoresN300 * 4, 256},
       layoutDRAM);
@@ -433,10 +448,14 @@ TEST_F(OpModelTest, Reshape) {
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
   auto runtimeExp = ReshapeOpInterface::getOpRuntime(
       tensorShape, layoutDRAM, {workerCoresN300 * 4, 256}, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
+
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   constraintsExp = ReshapeOpInterface::getOpConstraints(
       CreateWorkerGrid(), tensorShape, layoutDRAM, {workerCoresN300 * 4, 256},
@@ -446,6 +465,8 @@ TEST_F(OpModelTest, Reshape) {
   EXPECT_EQ(opCstr.cbL1PeakSize, 5120);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 2048);
   EXPECT_EQ(opCstr.outputL1BufferSize, 2048);
+
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   runtimeExp = ReshapeOpInterface::getOpRuntime(
       tensorShape, layoutDRAM, {workerCoresN300 * 4, 256}, layoutL1);
@@ -467,6 +488,8 @@ TEST_F(OpModelTest, Slice) {
   auto legalExp = Device::getDeviceConstraints(workerGrid);
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
   auto constraintsExp = SliceOpInterface::getOpConstraints(
       CreateWorkerGrid(), inputTensorShape, layoutDRAM, begins, ends, step,
       outputTensorShape, layoutDRAM);
@@ -475,6 +498,8 @@ TEST_F(OpModelTest, Slice) {
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp =
       SliceOpInterface::getOpRuntime(inputTensorShape, layoutDRAM, begins, ends,
@@ -498,6 +523,8 @@ TEST_F(OpModelTest, ToLayout) {
   auto legalExp = Device::getDeviceConstraints(workerGrid);
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
   auto constraintsExp = ToLayoutOpInterface::getOpConstraints(
       CreateWorkerGrid(), tensorShape, layoutDRAMTiled, std::nullopt,
       layoutDRAMRowMajor, true);
@@ -508,10 +535,14 @@ TEST_F(OpModelTest, ToLayout) {
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
   ExpectLayoutsEQ(layoutDRAMRowMajor, opCstr.outputLayout);
 
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
   auto runtimeExp = ToLayoutOpInterface::getOpRuntime(
       tensorShape, layoutDRAMTiled, std::nullopt, layoutDRAMRowMajor, true);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
+
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   constraintsExp = ToLayoutOpInterface::getOpConstraints(
       CreateWorkerGrid(), tensorShape, layoutDRAMTiled, std::nullopt,
@@ -519,10 +550,14 @@ TEST_F(OpModelTest, ToLayout) {
   EXPECT_FALSE(static_cast<bool>(constraintsExp));
   llvm::consumeError(constraintsExp.takeError());
 
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
   runtimeExp = ToLayoutOpInterface::getOpRuntime(
       tensorShape, layoutDRAMTiled, std::nullopt, layoutL1RowMajorHS, true);
   EXPECT_FALSE(static_cast<bool>(runtimeExp));
   llvm::consumeError(runtimeExp.takeError());
+
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   constraintsExp = ToLayoutOpInterface::getOpConstraints(
       CreateWorkerGrid(), tensorShape, layoutDRAMTiled, std::nullopt,
@@ -533,6 +568,8 @@ TEST_F(OpModelTest, ToLayout) {
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
   ExpectLayoutsEQ(layoutDRAMRowMajor, opCstr.outputLayout);
+
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   runtimeExp = ToLayoutOpInterface::getOpRuntime(
       tensorShape, layoutDRAMTiled, std::nullopt, layoutDRAMRowMajor, false);
@@ -549,6 +586,8 @@ TEST_F(OpModelTest, Concat) {
       CreateTiledLayout(inputTensorShape, mlir::tt::ttnn::BufferType::L1,
                         mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
 
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
   auto constraintsExp = ConcatOpInterface::getOpConstraints(
       CreateWorkerGrid(), {inputTensorShape, inputTensorShape},
       {layoutL1Interleaved, layoutL1Interleaved}, 0, layoutDRAM);
@@ -557,6 +596,8 @@ TEST_F(OpModelTest, Concat) {
   EXPECT_EQ(opCstr.cbL1PeakSize, 4096);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = ConcatOpInterface::getOpRuntime(
       {inputTensorShape, inputTensorShape},
@@ -581,6 +622,8 @@ TEST_F(OpModelTest, Transpose) {
   auto legalExp = Device::getDeviceConstraints(workerGrid);
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
   auto constraintsExp = TransposeOpInterface::getOpConstraints(
       CreateWorkerGrid(), tensorShape, layoutDRAM, 0, 1, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
@@ -589,10 +632,14 @@ TEST_F(OpModelTest, Transpose) {
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
   auto runtimeExp = TransposeOpInterface::getOpRuntime(tensorShape, layoutDRAM,
                                                        0, 1, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
+
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   constraintsExp = TransposeOpInterface::getOpConstraints(
       CreateWorkerGrid(), tensorShape, layoutDRAM, 0, 1, layoutL1Interleaved);
@@ -602,16 +649,22 @@ TEST_F(OpModelTest, Transpose) {
   EXPECT_EQ(opCstr.tensorL1PeakSize, 2048);
   EXPECT_EQ(opCstr.outputL1BufferSize, 2048);
 
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
   runtimeExp = TransposeOpInterface::getOpRuntime(tensorShape, layoutDRAM, 0, 1,
                                                   layoutL1Interleaved);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
+
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   constraintsExp = TransposeOpInterface::getOpConstraints(
       CreateWorkerGrid(), tensorShape, layoutL1Interleaved, 0, 1,
       layoutL1WSharded);
   EXPECT_FALSE(static_cast<bool>(constraintsExp));
   llvm::consumeError(constraintsExp.takeError());
+
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   runtimeExp = TransposeOpInterface::getOpRuntime(
       tensorShape, layoutL1Interleaved, 0, 1, layoutL1WSharded);
@@ -632,6 +685,8 @@ TEST_F(OpModelTest, SoftmaxSharded) {
 
   auto legalExp = Device::getDeviceConstraints(workerGrid);
   EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   auto constraintsExp = SoftmaxOpInterface::getOpConstraints(
       CreateWorkerGrid(), tensorShape, inputLayout_l1_hs, -2, tensorShape,
@@ -660,6 +715,8 @@ TEST_F(OpModelTest, SoftmaxSharded) {
   EXPECT_EQ(opCstr.tensorL1PeakSize, 32768);
   EXPECT_EQ(opCstr.outputL1BufferSize, 32768);
 
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
   auto runtimeExp = SoftmaxOpInterface::getOpRuntime(
       tensorShape, inputLayout_l1_i, -2, tensorShape, inputLayout_l1_hs);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
@@ -683,6 +740,8 @@ TEST_F(OpModelTest, Typecast) {
   auto legalExp = Device::getDeviceConstraints(workerGrid);
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
   auto constraintsExp = TypecastOpInterface::getOpConstraints(
       CreateWorkerGrid(), tensorShape, inputLayoutDRAMIBF16,
       DataTypeAttr::get(&context, DataType::Float32), tensorShape,
@@ -693,12 +752,16 @@ TEST_F(OpModelTest, Typecast) {
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
   auto runtimeExp = TypecastOpInterface::getOpRuntime(
       tensorShape, inputLayoutDRAMIBF16,
       DataTypeAttr::get(&context, DataType::Float32), tensorShape,
       inputLayoutDRAMIF32);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
+
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   constraintsExp = TypecastOpInterface::getOpConstraints(
       CreateWorkerGrid(), tensorShape, inputLayoutDRAMIBF16,
@@ -771,6 +834,8 @@ protected:
     const mlir::tt::ttnn::TTNNLayoutAttr outputLayout = CreateTiledLayout(
         outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
+    mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
     auto constraintsExp = constraintsMap[opType](
         CreateWorkerGrid(), inputShapeA, inputLayoutA, inputShapeB,
         inputLayoutB, outputShape, outputLayout);
@@ -788,6 +853,8 @@ protected:
       // Must clean up the error
       llvm::consumeError(constraintsExp.takeError());
     }
+
+    mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
     llvm::Expected<size_t> runtimeExp =
         runtimeMap[opType](inputShapeA, inputLayoutA, inputShapeB, inputLayoutB,
@@ -961,6 +1028,8 @@ TEST_P(OpModelMatmulParam, MatmulParam) {
   const mlir::tt::ttnn::TTNNLayoutAttr outputLayout = CreateTiledLayout(
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
   auto constraintsExp = MatmulOpInterface::getOpConstraints(
       CreateWorkerGrid(), inputShapeA, inputLayoutA, inputShapeB, inputLayoutB,
       outputShape, outputLayout, false, false);
@@ -978,6 +1047,8 @@ TEST_P(OpModelMatmulParam, MatmulParam) {
     // Must clean up the error
     llvm::consumeError(constraintsExp.takeError());
   }
+
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = MatmulOpInterface::getOpRuntime(
       inputShapeA, inputLayoutA, inputShapeB, inputLayoutB, outputShape,
@@ -1194,7 +1265,7 @@ TEST_P(OpModelConv2dParam, Conv2d) {
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
   // Device hangs otherwise.
-  SingletonDeviceContext::resetInstance();
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   auto constraintsExp = Conv2dOpInterface::getOpConstraints(
       CreateWorkerGrid(), inputShape, inputLayout, weightShape, weightLayout,
@@ -1309,7 +1380,7 @@ TEST_P(OpModelMaxPool2DParam, MaxPool2DParam) {
   const mlir::tt::ttnn::TTNNLayoutAttr outputLayout = CreateTiledLayout(
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
-  SingletonDeviceContext::resetInstance();
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   auto constraintsExp = MaxPool2DOpInterface::getOpConstraints(
       CreateWorkerGrid(), inputShape, inputLayout, batchSize, inputHeight,
@@ -1635,6 +1706,8 @@ protected:
         outputShape, mlir::tt::ttnn::BufferType::L1,
         mlir::tt::ttnn::TensorMemoryLayout::Interleaved, std::nullopt);
 
+    mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
     auto constraintsExp =
         op_model::ttnn::EmbeddingOpInterface::getOpConstraints(
             CreateWorkerGrid(), inputShape, inputTiledLayout, weightShape,
@@ -1651,6 +1724,8 @@ protected:
     } else {
       llvm::consumeError(constraintsExp.takeError());
     }
+
+    mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
     // Test runtime using the interface directly
     auto runtimeExp = op_model::ttnn::EmbeddingOpInterface::getOpRuntime(
