@@ -35,7 +35,7 @@
   - [TTNN Dialect Guidelines](./ttnn-dialect-guidelines.md)
 - [Adding an op](./adding-an-op.md)
 - [Decomposing an op in TTIR](./decomposing-an-op-in-ttir.md)
-- [Doxygen](./doxygen.md)
+- [Markdown Docs & API docs](./docs.md)
 - [Specifications](./specs/specs.md)
   - [Runtime Stitching](./specs/runtime-stitching.md)
   - [Tensor Layout](./specs/tensor-layout.md)
