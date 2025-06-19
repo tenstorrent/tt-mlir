@@ -265,9 +265,8 @@ struct TTNNBackendToEmitCPipelineOptions
                            llvm::cl::desc("Tailor passes for dylib target."),
                            llvm::cl::init(false)};
 
-  // TODO (#3860): https://github.com/tenstorrent/tt-mlir/issues/3860
-  volatile bool sharedTargetDylibOption = false;
-  void propagateOptions() { sharedTargetDylibOption = targetDylib.getValue(); }
+  Option<bool> tuplifyInputIfEmpty{*this, "tuplify-input-if-empty",
+                                   llvm::cl::desc("?"), llvm::cl::init(false)};
 };
 
 // TTIR to EmitC pipeline options.
@@ -284,15 +283,7 @@ struct TTNNBackendToEmitCPipelineOptions
 // TODO (#3860): https://github.com/tenstorrent/tt-mlir/issues/3860
 //
 struct TTIRToEmitCPipelineOptions : public TTIRToTTNNBackendPipelineOptions,
-                                    public TTNNBackendToEmitCPipelineOptions {
-
-  //   // Need to copy option from TTNNBackendToEmitCPipelineOptions due to the
-  //   // inheritance problem.
-  //   //
-  //   Option<bool> targetDylib{*this, "target-dylib",
-  //                            llvm::cl::desc("Tailor passes for dylib
-  //                            target."), llvm::cl::init(false)};
-};
+                                    public TTNNBackendToEmitCPipelineOptions {};
 
 //===----------------------------------------------------------------------===//
 // Passes and pipelines

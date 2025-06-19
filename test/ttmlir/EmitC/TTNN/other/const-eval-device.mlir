@@ -1,6 +1,6 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-const-eval=true" %s > %t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %basename_t.ttnn
-// RUN: ttmlir-opt --ttnn-tuplify-tensors --convert-ttnn-to-emitc --allow-unregistered-dialect %t.mlir > %t2.mlir
+// RUN: ttmlir-opt --ttnn-backend-to-emitc-pipeline="target-dylib=true" --allow-unregistered-dialect %t.mlir > %t2.mlir
 // RUN: ttmlir-translate --mlir-to-cpp --allow-unregistered-dialect %t2.mlir > %basename_t.cpp
 
 func.func @embedding(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg1: tensor<512x128xbf16>) -> tensor<32x32x128xbf16> {
