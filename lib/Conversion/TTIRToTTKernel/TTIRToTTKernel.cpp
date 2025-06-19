@@ -854,7 +854,7 @@ class TTIRKernelFunctionArgsRewriter
 public:
   using OpConversionPattern<func::FuncOp>::OpConversionPattern;
 
-  static ThreadType getThreadType(func::FuncOp op) {
+  static ThreadType getTTKernelThreadType(func::FuncOp op) {
     ttir::ThreadAttr threadAttr =
         op->getAttrOfType<ttir::ThreadAttr>(ttir::ThreadAttr::name);
     switch (threadAttr.getThreadType()) {
@@ -871,7 +871,9 @@ public:
                                    ArrayRef<ArgAttr> rtArgs,
                                    ArrayRef<ArgAttr> ctArgs) {
 
-    ThreadType threadType = getThreadType(op);
+    // Get the TTKernel thread type and replace TTIR thread type with TTKernel
+    // thread type
+    ThreadType threadType = getTTKernelThreadType(op);
     op->removeAttr(ttir::ThreadAttr::name);
     op->setAttr(ThreadTypeAttr::name,
                 builder.getAttr<ThreadTypeAttr>(threadType));
@@ -906,7 +908,7 @@ public:
         ctArgSpecVector.push_back(
             rewriter.getAttr<ArgAttr>(ArgType::CBPort, arg.getArgNumber()));
       } else if (mlir::isa<SemaphoreType>(argType)) {
-        if (getThreadType(op) != ThreadType::Noc) {
+        if (getTTKernelThreadType(op) != ThreadType::Noc) {
           continue;
         }
         size_t ctArgIndex = ctArgSpecVector.size();
