@@ -65,7 +65,7 @@ tt::DataType getDataType(const ::tt::tt_metal::DataType dataType) {
 }
 
 ::ttnn::Shape getShape(const ::llvm::ArrayRef<int64_t> shape) {
-  ::tt::stl::SmallVector<uint32_t> small_vector_shape;
+  ::ttsl::SmallVector<uint32_t> small_vector_shape;
   for (const auto &dim : shape) {
     small_vector_shape.push_back(static_cast<uint32_t>(dim));
   }
@@ -254,9 +254,9 @@ bool validateTensorSpec(const ::ttnn::TensorSpec &tensorSpec,
   return true;
 }
 
-::tt::stl::SmallVector<int>
+::ttsl::SmallVector<int>
 convertLLVMSmallVecToTTNNSmallVec(const ::llvm::ArrayRef<int64_t> vec) {
-  return ::tt::stl::SmallVector<int>(vec.begin(), vec.end());
+  return ::ttsl::SmallVector<int>(vec.begin(), vec.end());
 }
 
 std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> getConv2dConfig(
