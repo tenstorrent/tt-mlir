@@ -589,7 +589,7 @@ llvm::Expected<OpConstraints> getReductionOpConstraints(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
-  std::optional<::tt::stl::SmallVector<int>> dimArgConverted;
+  std::optional<::ttsl::SmallVector<int>> dimArgConverted;
   if (dimArg) {
     dimArgConverted =
         conversion::convertLLVMSmallVecToTTNNSmallVec(dimArg.value());
@@ -626,7 +626,7 @@ getReductionOpRuntime(std::string_view opName, OpSymbol opSymbol,
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
-  std::optional<::tt::stl::SmallVector<int>> dimArgConverted;
+  std::optional<::ttsl::SmallVector<int>> dimArgConverted;
   if (dimArg) {
     dimArgConverted =
         conversion::convertLLVMSmallVecToTTNNSmallVec(dimArg.value());
@@ -1118,11 +1118,11 @@ llvm::Expected<OpConstraints> SliceOpInterface::getOpConstraints(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // convert arrays
-  ::tt::stl::SmallVector<int> beginsVec =
+  ::ttsl::SmallVector<int> beginsVec =
       conversion::convertLLVMSmallVecToTTNNSmallVec(begins);
-  ::tt::stl::SmallVector<int> endsVec =
+  ::ttsl::SmallVector<int> endsVec =
       conversion::convertLLVMSmallVecToTTNNSmallVec(ends);
-  ::tt::stl::SmallVector<int> stepVec =
+  ::ttsl::SmallVector<int> stepVec =
       conversion::convertLLVMSmallVecToTTNNSmallVec(step);
 
   // Create query closure
@@ -1159,11 +1159,11 @@ llvm::Expected<size_t> SliceOpInterface::getOpRuntime(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Convert arrays
-  ::tt::stl::SmallVector<int> beginsVec =
+  ::ttsl::SmallVector<int> beginsVec =
       conversion::convertLLVMSmallVecToTTNNSmallVec(begins);
-  ::tt::stl::SmallVector<int> endsVec =
+  ::ttsl::SmallVector<int> endsVec =
       conversion::convertLLVMSmallVecToTTNNSmallVec(ends);
-  ::tt::stl::SmallVector<int> stepVec =
+  ::ttsl::SmallVector<int> stepVec =
       conversion::convertLLVMSmallVecToTTNNSmallVec(step);
 
   // Create query closure
@@ -1953,7 +1953,7 @@ llvm::Expected<OpConstraints> PermuteOpInterface::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   // Convert permutations of TTNN_PermuteOp to dims of ttnn::permute
-  ::tt::stl::SmallVector<int64_t> dims(permutation.size());
+  ::ttsl::SmallVector<int64_t> dims(permutation.size());
   std::copy(permutation.begin(), permutation.end(), dims.begin());
 
   float defaultedPadValue = padValue.convertToFloat();
@@ -1991,7 +1991,7 @@ PermuteOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
       SingletonDeviceContext::getInstance().getDevice();
 
   // Convert permutations of TTNN_PermuteOp to dims of ttnn::permute
-  ::tt::stl::SmallVector<int64_t> dims(permutation.size());
+  ::ttsl::SmallVector<int64_t> dims(permutation.size());
   std::copy(permutation.begin(), permutation.end(), dims.begin());
 
   // Convert float

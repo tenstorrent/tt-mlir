@@ -46,7 +46,7 @@ static ::ttnn::Tensor createBorrowedTTNNTensor(void *rawData,
                                                const ::ttnn::Shape &shape) {
   std::uint64_t numElements = shape.volume();
   T *typedData = static_cast<T *>(rawData);
-  ::tt::stl::Span<T> data(typedData, typedData + numElements);
+  ::ttsl::Span<T> data(typedData, typedData + numElements);
   ::ttnn::Tensor tensor =
       ::ttnn::Tensor::from_borrowed_data(data, shape, []() {}, []() {});
   return tensor;
