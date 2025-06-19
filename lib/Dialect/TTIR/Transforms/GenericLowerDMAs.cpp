@@ -33,8 +33,9 @@ public:
   // bounds.
   static std::tuple<SmallVector<Value>, SmallVector<int64_t>>
   buildStreamIndex(OpBuilder &builder, Location loc,
-                   ArrayRef<int64_t> gridShape, ArrayRef<int64_t> shardShape,
-                   AffineMap dmaIndexingMap, AffineMap gridIndexingMap) {
+                   ArrayRef<int64_t> gridShape, ArrayRef<int64_t> blockFactors,
+                   ArrayRef<int64_t> shardShape, AffineMap dmaIndexingMap,
+                   AffineMap gridIndexingMap) {
     assert(dmaIndexingMap.getNumDims() == gridIndexingMap.getNumDims());
     assert(dmaIndexingMap.getNumResults() == gridIndexingMap.getNumResults());
     assert(dmaIndexingMap.getNumResults() == shardShape.size());
@@ -72,10 +73,16 @@ public:
           loc, builder.getIndexType(), builder.getI64IntegerAttr(dim));
       Value index;
       if (isGridDim) {
-        // TODO(#3231): Support blocked inputs that are multiples of the grid
-        // shape. Should be added as part of blocking support.
+        // gridI * blockFactorI + iterI
+        Value blockFactor = builder.create<arith::ConstantOp>(
+            loc, builder.getIndexType(),
+            builder.getIndexAttr(blockFactors[dim]));
         index = builder.create<CoreIndexOp>(loc, builder.getIndexType(),
                                             builder.getI64IntegerAttr(dim));
+        index = builder.create<arith::MulIOp>(loc, builder.getIndexType(),
+                                              index, blockFactor);
+        index = builder.create<arith::AddIOp>(loc, builder.getIndexType(),
+                                              index, iterIndex);
       } else {
         index = iterIndex;
       }
@@ -198,18 +205,15 @@ public:
 
     auto [streamIndex, indexBounds] =
         buildStreamIndex(rewriter, dma.getLoc(), memrefGridShape,
-                         memrefShardShape, dmaIndexingMap, gridIndexingMap);
+                         genericParent.getBlockFactorsValue(), memrefShardShape,
+                         dmaIndexingMap, gridIndexingMap);
 
     DeviceAttr device = genericParent.getDevice();
     std::pair<MemRefType, AffineMap> underlyingMemrefAndView =
         mlir::cast<ttir::ViewOpInterface>(dma.getSrc().getDefiningOp())
             .applyViews();
-    // TODO(#1909) Once we have an allocation pass, we need to lookup the page
-    // size instead of calculating it here.
-    size_t pageSize = device.getMemrefSizeBytes(underlyingMemrefAndView.first,
-                                                /*pageSize=*/0);
-    AffineMap memoryMap =
-        device.getMemoryMap(underlyingMemrefAndView, pageSize);
+    size_t size = device.getMemrefSizeBytes(underlyingMemrefAndView.first);
+    AffineMap memoryMap = device.getMemoryMap(underlyingMemrefAndView, size);
     size_t elemSizeBytes = getElementSizeBytes(memref);
     size_t coalescingFactor =
         calculateCoalescingFactor(memoryMap, memrefGridShape, memrefShardShape,
@@ -289,12 +293,9 @@ public:
     if (isRemote) {
       std::pair<MemRefType, AffineMap> srcUnderlyingMemrefAndView =
           mlir::tt::ttir::applyViews(input.getDefiningOp());
-      // TODO(#1909) Once we have an allocation pass, we need to lookup the page
-      // size instead of calculating it here.
-      size_t srcPageSize =
-          device.getMemrefSizeBytes(srcUnderlyingMemrefAndView.first,
-                                    /*pageSize=*/0);
-      return device.getMemoryMap(srcUnderlyingMemrefAndView, srcPageSize);
+      size_t srcSize =
+          device.getMemrefSizeBytes(srcUnderlyingMemrefAndView.first);
+      return device.getMemoryMap(srcUnderlyingMemrefAndView, srcSize);
     }
 
     MemRefType inputType = mlir::cast<MemRefType>(input.getType());

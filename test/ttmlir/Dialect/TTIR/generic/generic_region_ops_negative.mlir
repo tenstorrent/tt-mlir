@@ -7,6 +7,7 @@
 func.func @reduce_dim_arg(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
   %0 = ttir.empty() : tensor<64x128xf32>
   %1 = "ttir.generic"(%arg0, %arg1, %0) <{
+      block_factors = [1, 1],
       grid = #ttcore.grid<1x1>,
       indexing_maps = [#map, #map, #map],
       iterator_types = [#parallel, #parallel],

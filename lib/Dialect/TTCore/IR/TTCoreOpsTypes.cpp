@@ -436,6 +436,16 @@ mlir::FailureOr<mlir::tt::SystemDescAttr> mlir::tt::SystemDescAttr::getFromPath(
         supportedDataTypesAttr.push_back(
             tt::DataTypeAttr::get(context, tt::DataType::Int32));
         break;
+      // Unsupported data types
+      // We will list the cases here (rather than use `default`) so that
+      // if new supported data types are added, we will get a compile error.
+      case ::tt::target::DataType::Float64:
+      case ::tt::target::DataType::Int64:
+      case ::tt::target::DataType::UInt64:
+      case ::tt::target::DataType::Int16:
+      case ::tt::target::DataType::Int8:
+      case ::tt::target::DataType::Bool:
+        break;
       }
     }
 
@@ -1275,12 +1285,25 @@ DeviceAttr::getMemoryMap(std::pair<MemRefType, AffineMap> memrefAndView,
 
 size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType, size_t pageSize,
                                       bool includeBuffers) const {
-  assert(pageSize == 0 && "Page size not supported yet");
   mlir::Type elementType = memrefType.getElementType();
   int64_t elementSizeBytes = getElementSizeBytes(elementType);
-  auto tileType = mlir::dyn_cast<TileType>(elementType);
-  size_t alignSize = tileType ? tileType.getSizeBytes()
-                              : TileType::get(elementType).getSizeBytes();
+  size_t alignSize = pageSize;
+  if (alignSize == 0) {
+    auto memorySpace = getMemorySpace(memrefType);
+    switch (memorySpace) {
+    case MemorySpace::DeviceL1: {
+      alignSize = getMemrefCBPageSizeBytes(memrefType);
+      break;
+    }
+    case MemorySpace::DeviceDRAM: {
+      alignSize = 1;
+      break;
+    }
+    default: {
+      llvm_unreachable("Unsupported memory space");
+    }
+    }
+  }
 
   ShardLayoutAttr layout =
       mlir::dyn_cast<ShardLayoutAttr>(memrefType.getLayout());
@@ -1294,7 +1317,8 @@ size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType, size_t pageSize,
   return ttmlir::utils::alignUp(
       static_cast<size_t>(ttmlir::utils::volume(
           shardShape,
-          elementSizeBytes * (includeBuffers ? layout.getBuffers() : 1))),
+          elementSizeBytes *
+              ((includeBuffers && layout) ? layout.getBuffers() : 1))),
       alignSize);
 }
 
@@ -1307,7 +1331,8 @@ size_t DeviceAttr::getMemrefCBPageSizeBytes(MemRefType memrefType) const {
 
 size_t DeviceAttr::getMemrefCBNumPages(MemRefType memrefType) const {
   size_t sizeBytes =
-      getMemrefSizeBytes(memrefType, /*pageSize=*/0, /*includeBuffers=*/false);
+      getMemrefSizeBytes(memrefType, getMemrefCBPageSizeBytes(memrefType),
+                         /*includeBuffers=*/false);
   size_t pageSize = getMemrefCBPageSizeBytes(memrefType);
   assert(sizeBytes % pageSize == 0);
   return sizeBytes / pageSize;

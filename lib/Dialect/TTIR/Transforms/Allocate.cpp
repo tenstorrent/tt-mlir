@@ -359,7 +359,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
 
         const AllocSizeT alignment =
             memSpaces[llvm::to_underlying(memorySpace)].alignment;
-        const AllocSizeT sizeBytes = device.getMemrefSizeBytes(memrefTy, 0);
+        const AllocSizeT sizeBytes = device.getMemrefSizeBytes(memrefTy);
         const AllocSizeT alignedSize =
             ttmlir::utils::alignUp(sizeBytes, alignment);
 

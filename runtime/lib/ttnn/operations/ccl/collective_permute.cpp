@@ -78,7 +78,8 @@ void run(const ::tt::target::ttnn::CollectivePermuteOp *op,
     // We need to memset this tensor value to 0 based on collective permute
     // operation semantics
     void *dstPtr = ::tt::runtime::ttnn::utils::getRawHostDataPtr(srcHostTensor);
-    size_t size = srcHostTensor.padded_volume() * srcHostTensor.element_size();
+    size_t size =
+        srcHostTensor.physical_volume() * srcHostTensor.element_size();
     std::memset(dstPtr, 0, size);
 
     newHostTensors[i] = srcHostTensor;

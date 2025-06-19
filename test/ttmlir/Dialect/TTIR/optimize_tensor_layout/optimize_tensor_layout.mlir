@@ -14,6 +14,7 @@ func.func @reduce_large_grid(%arg0: tensor<256x384xf32, #layout1>, %arg1: tensor
   // CHECK: %{{[a-z0-9_]+}} = ttir.to_layout
   // CHECK: %{{[a-z0-9_]+}} = ttir.to_layout
   %1 = "ttir.generic"(%arg0, %arg1, %0) <{
+        block_factors = [1, 1],
         grid = #ttcore.grid<1x1>,
         indexing_maps = [#map1, #map1, #map2],
         iterator_types = [#parallel, #reduction],
@@ -55,6 +56,7 @@ func.func @reduce_large_grid(%arg0: tensor<256x384xf32, #layout1>, %arg1: tensor
 func.func @reduce_prime(%arg0: tensor<32x608xf32, #layout1>, %arg1: tensor<32x608xf32, #layout1>) -> tensor<32x32xf32, #layout2> {
   %0 = ttir.empty() : tensor<32x32xf32, #layout2>
   %1 = "ttir.generic"(%arg0, %arg1, %0) <{
+        block_factors = [1, 1],
         grid = #ttcore.grid<1x1>,
         indexing_maps = [#map1, #map1, #map2],
         iterator_types = [#parallel, #reduction],

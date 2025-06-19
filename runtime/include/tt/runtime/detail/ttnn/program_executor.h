@@ -69,7 +69,7 @@ private:
   /**
    * Dumps device profile counters if needed
    */
-  void dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice);
+  void dumpPerfCountersIfNeeded();
 };
 
 } // namespace tt::runtime::ttnn

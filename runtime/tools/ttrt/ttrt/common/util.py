@@ -683,7 +683,7 @@ class Binary(Flatbuffer):
         self.version = self.fbb.version
         self.program_indices = range(self.fbb.get_num_programs())
         self.programs = []
-        self.e2e_duration_milliseconds = 0
+        self.program_results = {}
 
         for i in self.program_indices:
             program = Binary.Program(i, self.fbb)
@@ -770,6 +770,46 @@ class Binary(Flatbuffer):
 
         print()
 
+    def add_program_results(
+        self,
+        program_index,
+        loop,
+        total_duration_ns,
+        total_ttnn_api_duration_ns=None,
+        total_device_kernel_duration_ns=None,
+    ):
+        program_key = f"program_index_{program_index}"
+        if program_key not in self.program_results.keys():
+            self.program_results[program_key] = {}
+
+        loop_key = f"loop_{loop}"
+        if loop_key not in self.program_results[program_key].keys():
+            self.program_results[program_key][loop_key] = {}
+
+        self.program_results[program_key][loop_key][
+            "total_duration_ns"
+        ] = total_duration_ns
+        self.program_results[program_key][loop_key][
+            "total_ttnn_api_duration_ns"
+        ] = total_ttnn_api_duration_ns
+        self.program_results[program_key][loop_key][
+            "total_device_kernel_duration_ns"
+        ] = total_device_kernel_duration_ns
+
+    def update_total_ttnn_api_duration_ns(
+        self, program_index, loop, total_ttnn_api_duration_ns
+    ):
+        self.program_results[f"program_index_{program_index}"][f"loop_{loop}"][
+            "total_ttnn_api_duration_ns"
+        ] = total_ttnn_api_duration_ns
+
+    def update_total_device_kernel_duration_ns(
+        self, program_index, loop, total_device_kernel_duration_ns
+    ):
+        self.program_results[f"program_index_{program_index}"][f"loop_{loop}"][
+            "total_device_kernel_duration_ns"
+        ] = total_device_kernel_duration_ns
+
     class Program:
         def __init__(self, index, binary):
             import ttrt.binary
@@ -849,7 +889,20 @@ class Binary(Flatbuffer):
                 return ttrt.runtime.DataType.UInt8
             if dtype == torch.int32:
                 return ttrt.runtime.DataType.Int32
-            raise ValueError(f"unsupported dtype: {dtype}")
+            # Data types which are unsupported on ttnn
+            if dtype == torch.float64:
+                return ttrt.runtime.DataType.Float64
+            if dtype == torch.int64:
+                return ttrt.runtime.DataType.Int64
+            if dtype == torch.uint64:
+                return ttrt.runtime.DataType.UInt64
+            if dtype == torch.int16:
+                return ttrt.runtime.DataType.Int16
+            if dtype == torch.int8:
+                return ttrt.runtime.DataType.Int8
+            if dtype == torch.bool:
+                return ttrt.runtime.DataType.Bool
+            raise ValueError(f"Torch dtype: {dtype} has no runtime DataType equivalent")
 
         @staticmethod
         def from_data_type(dtype):
@@ -869,6 +922,20 @@ class Binary(Flatbuffer):
                 return torch.uint8
             if dtype == "Int32":
                 return torch.int32
+            # Data types which are unsupported on ttnn
+            if dtype == "Float64":
+                return torch.float64
+            if dtype == "Int64":
+                return torch.int64
+            if dtype == "UInt64":
+                return torch.uint64
+            if dtype == "Int16":
+                return torch.int16
+            if dtype == "Int8":
+                return torch.int8
+            if dtype == "Bool":
+                return torch.bool
+
             raise ValueError(f"unsupported dtype: {dtype}")
 
 

@@ -162,8 +162,6 @@ memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   }
 
   auto shardLayout = mlir::cast<ShardLayoutAttr>(deviceLayout);
-  uint64_t shardSize =
-      device.getMemrefSizeBytes(memref, 0, /*includeBuffers=*/true);
   ArrayRef<int64_t> stride = shardLayout.getStride();
   int64_t elementSize = stride[stride.size() - 1];
   auto memrefGridShape = shardLayout.getGridShape(memref);
@@ -172,7 +170,6 @@ memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
       toFlatbuffer(cache, memrefGridShape, device.getWorkerGrid().getMapping());
   std::array<int32_t, 2> gridShapeExtents =
       calculateCoreRangeSetShapeExtents(coreRangeSet);
-  uint64_t size = gridShapeExtents[0] * gridShapeExtents[1] * shardSize;
 
   // Calculate ShardSpec
   assert(stride[stride.size() - 1] % elementSize == 0);
@@ -203,19 +200,11 @@ memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   assert(pageShape.x() % elementShape.x() == 0);
   std::array<int32_t, 2> pageShapeInElements = {
       pageShape.y() / elementShape.y(), pageShape.x() / elementShape.x()};
-
-  uint64_t pageSize;
-  if (mlir::isa<TileType>(memref.getElementType())) {
-    pageSize = pageShapeInElements[0] * pageShapeInElements[1] * elementSize;
-  } else {
-    auto tileShape = TileType::getDefaultShape();
-    int64_t alignSize = tileShape[0] * tileShape[1] * elementSize;
-
-    pageSize = ttmlir::utils::alignUp(pageShapeInElements[0] *
-                                          pageShapeInElements[1] * elementSize,
-                                      alignSize);
-  }
-
+  uint64_t pageSize =
+      pageShapeInElements[0] * pageShapeInElements[1] * elementSize;
+  uint64_t shardSize =
+      device.getMemrefSizeBytes(memref, pageSize, /*includeBuffers=*/true);
+  uint64_t size = gridShapeExtents[0] * gridShapeExtents[1] * shardSize;
   return target::metal::CreateShardedBufferConfig(*cache.fbb, size, pageSize,
                                                   shardSpecBuffer);
 }
@@ -235,9 +224,9 @@ memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   std::vector<target::Dim2dRange> coreRangeSet =
       toFlatbuffer(cache, memrefGridShape, device.getWorkerGrid().getMapping());
 
-  uint64_t shardSize =
-      device.getMemrefSizeBytes(memref, 0, /*includeBuffers=*/true);
   uint64_t pageSize = device.getMemrefCBPageSizeBytes(memref);
+  uint64_t shardSize =
+      device.getMemrefSizeBytes(memref, pageSize, /*includeBuffers=*/true);
   uint64_t numBuffers = shardLayout.getBuffers();
   return target::metal::CreateCircularBufferConfigDirect(
       *cache.fbb, &coreRangeSet, /*total_size=*/shardSize,
