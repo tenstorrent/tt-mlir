@@ -18,9 +18,6 @@ Version: v1.0.0
 #### Creating TTIR operations
 The `ttir-builder` tool provides functions through the builder class `TTIRBuilder` to create TTIR ops. Refer to the corresponding documentation [section](../../docs/src/ttir-builder.md#creating-a-ttir-module) for an example of using the class.
 
-#### Op coverage
-TODO: Once created, link the documented list of supported ops.
-
 #### Build a TTIR module
 The python package `ttir_builder` exposes the class `TTIRBuilder`, its APIs, and utility function `build_mlir_module` that converts the object into a TTIR module. Refer to the corresponding documentation [section](../../docs/src/ttir-builder.md#creating-a-ttir-module) for usage instructions.
 
@@ -32,25 +29,6 @@ Utility function `compile_to_flatbuffer` compiles an function containing `TTIRBu
 
 #### Golden accuracy checks
 `ttir-builder` provides support to code golden tensors into flatbuffers to be used for comparison with TT device output in `ttrt` runtime for accuracy verification. Refer to the corresponding documentation [section](../../docs/src/ttir-builder.md#golden-mode) for usage instructions.
-
-## Upcoming features
-TODO: Decide whether to include planned Q3 features (and cleanup/explanations):
-
-integration with module splitter + auto generated ttir builder ops
-auto generate unit tests from model tests
-deprecate silicon directory and use builder as compiler + silicon CI driver
-op level golden testing for CCL ops
-currently we only check graph level output, but jax has a way to determine multi-device goldens per device
-optimizer tests + overrides
-stableHLO integration?
-shardy related test sweeps
-ttrt/ttir-builder can dump tons of data - we should find a way to visualize all of this in superset
-
-## Support
-TODO: Potentially add information on FAQs and where to seek customer-support
-
-## Contributing and feedback
-TODO: Potentially add information on community engagement/contributions/feedback
 
 ## License
 SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC

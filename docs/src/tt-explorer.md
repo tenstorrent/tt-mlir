@@ -85,7 +85,7 @@ Model Explorer provides an extension interface where custom adapters can be impl
 **Ingests**: TTIR Modules, TT-MLIR Python Bindings, REST API Calls
 **Emits**: Model-Explorer Graph, REST API Results
 
-#### [`ttrt`](./ttrt.md)
+#### [ttrt](./ttrt.md)
 
 `ttrt` is the runtime library for TT-Forge, which provides an API to run Flatbuffers generated from TT-MLIR. These flatbuffers contain the compiled results of the TTIR module, and `ttrt` allows us to query and execute them. Particularly, a performance trace can be generated using Tracy, which is fed into model-explorer to visualize the performance of operations in the graph.
 

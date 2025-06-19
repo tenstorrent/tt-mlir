@@ -3,8 +3,8 @@
 `ttir-builder` is a tool for creating TTIR operations from pure python. It provides support for MLIR modules to be generated from user-constructed ops, lowered into TTNN or TTMetal backends, and translated into flatbuffers executable by `ttrt`.
 
 ## Build
-1. Build [tt-mlir](./getting-started.md)
-2. Build [ttrt](./ttrt.md#building)
+1. Build [ttmlir](./getting-started.md)
+2. Build [`ttrt`](./ttrt.md#building)
 3. Generate `.ttsys` file from the system you want to compile for using `ttrt` (Shown below). This will create a `ttrt-artifacts` folder containing a `system_desc.ttsys` file.
 ```bash
 ttrt query --save-artifacts

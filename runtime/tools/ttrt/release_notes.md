@@ -15,7 +15,7 @@ This tool is intended to be a swiss army knife for working with flatbuffers gene
 ### Features
 
 #### Application APIs
-Application APIs expose the different options for using ttrt. They can be used as a [command line tool](../../../docs/src/ttrt.md#command-line) or imported as a [python package](../../../docs/src/ttrt.md#ttrt-as-a-python-package). Refer to the corresponding documentation [section](../../../docs/src/ttrt.md#apis).
+Application APIs expose the different options for using `ttrt`. They can be used as a [command line tool](../../../docs/src/ttrt.md#command-line) or imported as a [python package](../../../docs/src/ttrt.md#ttrt-as-a-python-package). Refer to the corresponding documentation [section](../../../docs/src/ttrt.md#apis).
 
 ```bash
 ttrt --help
@@ -27,31 +27,16 @@ ttrt check
 ```
 
 #### Runtime APIs
-Runtime APIs offer pybound functions to interact with ttrt runtime before, during, or after execution. Refer to the corresponding documentation [section](../../../docs/src/ttrt.md#bonus-section-extending-runtime-to-other-fes) for details.
+Runtime APIs offer pybound functions to interact with `ttrt` runtime before, during, or after execution. Refer to the corresponding documentation [section](../../../docs/src/ttrt.md#bonus-section-extending-runtime-to-other-fes) for details.
 
 #### Multi-device support
-ttrt supports working with flatbuffers not just on a single n150 device but also with multi-device setups n300, llmbox, and tg. This functionality is implemented automatically through `system_desc.ttsys` generation and exportation.
+`ttrt` supports working with flatbuffers not just on a single n150 device but also with multi-device setups n300, llmbox, and tg. This functionality is implemented automatically through `system_desc.ttsys` generation and exportation.
 
 #### Standalone whls release
 [Installing](../../../docs/src/ttrt.md#installing-ttrt-as-python-whls)
 
 #### gdb support
 `ttrt` can be relaunched inside of [gdb](../../../docs/src/ttrt.md#gdb) which can be useful for debugging C++ runtime components.
-
-## Upcoming features
-TODO: Decide whether to include planned Q3 features (and cleanup/explanations):
-
-perf supporting multiple program flatbuffers (const-eval, training graphs)
-builtin hang detection and recovery
-blackhole support for all APIs
-more clean integration with CI and reporting to superset
-ttrt/ttir-builder can dump tons of data - we should find a way to visualize all of this in superset
-
-## Support
-TODO: Potentially add information on FAQs and where to seek customer-support
-
-## Contributing and feedback
-TODO: Potentially add information on community engagement/contributions/feedback
 
 ## License
 SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC

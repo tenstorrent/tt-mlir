@@ -18,7 +18,7 @@
     - [Usage & API](./tt-explorer-usage-api.md)
     - [Roadmap](./tt-explorer-roadmap.md)
   - [`ttnn-standalone`](./ttnn-standalone.md)
-  - [PyKernel](./pykernel.md)
+- [PyKernel](./pykernel.md)
 - [Creating bug repros for TTNN](./ttnn-bug-repros.md)
 - [Python Bindings](./python-bindings.md)
 - [Flatbuffers](./flatbuffers.md)
