@@ -5,8 +5,8 @@
 ## Building
 
 1. Build [tt-mlir](./getting-started.md)
-2. Build [ttrt](./ttrt.md#building)
-3. Generate ttsys file from the system you want to compile for using ttrt. This will create a `ttrt-artifacts` folder containing a `system_desc.ttsys` file.
+2. Build [`ttrt`](./ttrt.md#building)
+3. Generate ttsys file from the system you want to compile for using `ttrt`. This will create a `ttrt-artifacts` folder containing a `system_desc.ttsys` file.
 ```bash
 ttrt query --save-artifacts
 ```
@@ -570,8 +570,8 @@ output_0 = torch.zeros((32, 32))
 builder.set_graph_input_output([input_0], [output_0], override=True)
 ```
 
-### Running flatbuffer with golden data in ttrt
-Be sure [ttrt](./ttrt.md#building) has been build correctly before generating flatbuffers and running them in `ttrt`.
+### Running flatbuffer with golden data in `ttrt`
+Be sure [`ttrt`](./ttrt.md#building) has been build correctly before generating flatbuffers and running them in `ttrt`.
 ```bash
 cmake --build build -- ttrt
 ttrt query --save-artifacts

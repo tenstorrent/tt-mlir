@@ -1,8 +1,8 @@
-# TT-Explorer
-This section provides a details about the usage of TT-Explorer.
+# `tt-explorer`
+This section provides a details about the usage of `tt-explorer`.
 
 ## Input Models
-Currently TT-Explorer supports 3 types of models that can be executed/visualized.
+Currently `tt-explorer` supports 3 types of models that can be executed/visualized.
 
 | Input Type | Execution Support | Visualization Support |
 | --- | --- | --- |
@@ -29,7 +29,7 @@ Example usage:
 tt-explorer -p 8000 -u 0.0.0.0 -q
 ```
 
-This command will start the TT-Explorer server on port 8000, accessible at the address 0.0.0.0, and without opening a browser tab.
+This command will start the `tt-explorer` server on port 8000, accessible at the address 0.0.0.0, and without opening a browser tab.
 
 ## UI
 For general reference of the UI, refer to the [model-explorer wiki](https://github.com/google-ai-edge/model-explorer/wiki). This section will highlight specific UI elements added to the Tenstorrent fork of model-explorer.
@@ -95,7 +95,7 @@ class TTAdapter(Adapter):
     pass
 ```
 
-This function is invoked and called from a new instance every time. This is important to understand for the idea of persisting information on the server. As all requests to the server are _stateless_, the onus is often on the end-user to store and preserve important information such as the path of a model they've uploaded, or the paths of important artifacts that the server has produced. `TTExplorer` aims to make this as easy as possible.
+This function is invoked and called from a new instance every time. This is important to understand for the idea of persisting information on the server. As all requests to the server are _stateless_, the onus is often on the end-user to store and preserve important information such as the path of a model they've uploaded, or the paths of important artifacts that the server has produced. `tt-explorer` aims to make this as easy as possible.
 
 Information can be processed in this function however the user would like to define, and often settings becomes a versatile endpoint to provide more information and context for the execution of some function. As an example, refer to `TTAdapter:initialize`, this function to load a SystemDesc into the environment has little to do with `modelPath` or `deleteAfterConversion`, as such these variables are not processed at all, and the function only executes a static initialization process regardless of the parameters passed into the command.
 

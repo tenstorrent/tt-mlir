@@ -4,7 +4,7 @@ This tool is intended to be a swiss army knife for working with flatbuffers gene
 
 ## Building
 1. Build [tt-mlir](./getting-started.md)
-2. Build ttrt:
+2. Build `ttrt`:
 ```bash
 source env/activate
 cmake --build build -- ttrt
@@ -25,7 +25,7 @@ Add the following flags when building the compiler
 ```
 
 ## LOGGER Levels
-ttrt support logging at different logger levels. You will need to set env var `TTRT_LOGGER_LEVEL` in command line or a [python script](./ttrt.md#logging). By default, it's set to `INFO`.
+`ttrt` support logging at different logger levels. You will need to set env var `TTRT_LOGGER_LEVEL` in command line or a [python script](./ttrt.md#logging). By default, it's set to `INFO`.
 
 ```bash
 TTRT_LOGGER_LEVEL=INFO
@@ -36,13 +36,13 @@ TTRT_LOGGER_LEVEL=DEBUG
 ```
 
 ### tt-metal logging
-ttrt runtime uses tt-metal for op execution and device interfacing. For more detailed logs, which can help in troubleshooting build or runtime issues, set env var `TT_METAL_LOGGER_LEVEL`. By default, it is set to `FATAL`.
+`ttrt` runtime uses tt-metal for op execution and device interfacing. For more detailed logs, which can help in troubleshooting build or runtime issues, set env var `TT_METAL_LOGGER_LEVEL`. By default, it is set to `FATAL`.
 ```bash
 export TT_METAL_LOGGER_LEVEL=DEBUG
 ```
 
-## Installing ttrt as python whls
-Every time ttrt is built, it creates a whls file in `build/runtime/tools/ttrt/build`. Ex filename: `ttrt-0.0.235-cp310-cp310-linux_x86_64.whl`. You can take this whls file and install it in any docker container and in any venv outside of ttmlir. After which, you can use all the following functionality as the same.
+## Installing `ttrt` as python whls
+Every time `ttrt` is built, it creates a whls file in `build/runtime/tools/ttrt/build`. Ex filename: `ttrt-0.0.235-cp310-cp310-linux_x86_64.whl`. You can take this whls file and install it in any docker container and in any venv outside of ttmlir. After which, you can use all the following functionality as the same.
 1. Download whls
 2. Create a python venv
 ```bash
@@ -61,8 +61,8 @@ pip install build/runtime/tools/ttrt/build/ttrt-0.0.235-cp310-cp310-linux_x86_64
 The compiler supports a pass to load a system descriptor to compile against. You can feed this pass into ttmlir-opt.
 
 1. Build [tt-mlir](./getting-started.md)
-2. Build ttrt (see building section on this page)
-3. Generate ttsys file from the system you want to compile for using ttrt. This will create a `system_desc.ttsys` file under `ttrt-artifacts` folder.
+2. Build `ttrt` (see building section on this page)
+3. Generate ttsys file from the system you want to compile for using `ttrt`. This will create a `system_desc.ttsys` file under `ttrt-artifacts` folder.
 ```bash
 ttrt query --save-artifacts
 ```
@@ -76,39 +76,39 @@ or (pipe path directly into ttir-to-ttnn-backend-pipeline)
 ```bash
 ./build/bin/ttmlir-translate --ttnn-to-flatbuffer ttnn.mlir -o out.ttnn
 ```
-6. Run your test cases using ttrt
+6. Run your test cases using `ttrt`
 ```bash
 ttrt run /path/to/out.ttnn
 ```
 
 ## Generate flatbuffer files using llvm-lit
-There are already existing .mlir test cases under `test/ttmlir/Silicon`. You can use llvm-lit tool to generate the corresponding ttnn and ttm files.
+There are already existing .mlir test cases under `test/ttmlir/Silicon`. You can use `llvm-lit` tool to generate the corresponding ttnn and ttm files.
 
 1. Build [tt-mlir](./getting-started.md)
-2. Build ttrt (see building section on this page)
-3. Generate ttsys file from the system you want to compile for using ttrt. This will create a `system_desc.ttsys` file under `ttrt-artifacts` folder.
+2. Build `ttrt` (see building section on this page)
+3. Generate ttsys file from the system you want to compile for using `ttrt`. This will create a `system_desc.ttsys` file under `ttrt-artifacts` folder.
 ```bash
 ttrt query --save-artifacts
 ```
-4. Export this file in your environment using `export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys`. When llvm-lit is run, it will query this variable and generate the ttnn and ttm files using this system. Optionally, you can also provide this manually when running llvm-lit.
+4. Export this file in your environment using `export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys`. When `llvm-lit` is run, it will query this variable and generate the ttnn and ttm files using this system. Optionally, you can also provide this manually when running `llvm-lit`.
 5. Generate your test cases. This will generate all your ttnn and ttm files under `build/test/ttmlir/Silicon`. ttnn files have a `.ttnn` file extension and ttmetal files have a `.ttm` extension.
 ```bash
 cmake --build build -- check-ttmlir
 ```
-6. (Optional) If you have a single .mlir file (or a directory of custom .mlir files) that you created using the compiler, and you want to generate the corresponding ttnn and ttm files for it, you can run llvm-lit standalone to the path of your .mlir file or directory of .mlir files to generate the flatbuffer executables. You will have to make sure you add in the correct llvm-lit configs into your .mlir file. See section on adding llvm-lit config options inside a .mlir file to create flatbuffer binaries for more info. You must also make sure your .mlir test is found within test/ttmlir/Silicon folder (and point lit to the build folder)!
+6. (Optional) If you have a single .mlir file (or a directory of custom .mlir files) that you created using the compiler, and you want to generate the corresponding ttnn and ttm files for it, you can run `llvm-lit` standalone to the path of your .mlir file or directory of .mlir files to generate the flatbuffer executables. You will have to make sure you add in the correct `llvm-lit` configs into your .mlir file. See section on adding `llvm-lit` config options inside a .mlir file to create flatbuffer binaries for more info. You must also make sure your .mlir test is found within test/ttmlir/Silicon folder (and point lit to the build folder)!
 ```bash
 llvm-lit -v ./build/test/ttmlir/Silicon
 or
 SYSTEM_DESC_PATH=/path/to/system_desc.ttsys llvm-lit -v ./build/test/ttmlir/Silicon
 ```
-7. Run your test cases using ttrt
+7. Run your test cases using `ttrt`
 ```bash
 ttrt run /path/to/test.ttnn
 ttrt run /path/to/dir/of/flatbuffers
 ```
 
 ## Adding llvm-lit config options inside a .mlir file to create flatbuffer binaries
-Inside of your .mlir file, you can add certain config options that llvm-lit will use when running against that test case. For the purpose of generating flatbuffer executables, you can add `--ttcore-register-device="system-desc-path=%system_desc_path%"` which will tell llvm-lit to parse the system desc found from the environment flag set by `export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys`. You can also paste a custom path to a system desc file as well.
+Inside of your .mlir file, you can add certain config options that `llvm-lit` will use when running against that test case. For the purpose of generating flatbuffer executables, you can add `--ttcore-register-device="system-desc-path=%system_desc_path%"` which will tell `llvm-lit` to parse the system desc found from the environment flag set by `export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys`. You can also paste a custom path to a system desc file as well.
 
 ```bash
 // RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttnn-layout --convert-ttir-to-ttnn %s  > %t.mlir
@@ -117,10 +117,10 @@ Inside of your .mlir file, you can add certain config options that llvm-lit will
 ```
 
 ## Adding new mlir test cases
-You can copy your .mlir test file (with the appropriate llvm-lit config options for generating flatbuffer binaries) into `test/ttmlir/Silicon`. Then, follow generating flatbuffer files using llvm-lit to generate the executables to run!
+You can copy your .mlir test file (with the appropriate `llvm-lit` config options for generating flatbuffer binaries) into `test/ttmlir/Silicon`. Then, follow generating flatbuffer files using `llvm-lit` to generate the executables to run!
 
 ## Versioning
-ttrt and flatbuffers have strict versioning check. When running a flatbuffer against ttrt, you have to make sure the flatbuffer was generated using the same version as ttrt (or vice versa). Major and Minor versions are manually set using github tags when releases are made. Patch versioning is the number of commits from the last major/minor tag.
+`ttrt` and flatbuffers have strict versioning check. When running a flatbuffer against `ttrt`, you have to make sure the flatbuffer was generated using the same version as `ttrt` (or vice versa). Major and Minor versions are manually set using github tags when releases are made. Patch versioning is the number of commits from the last major/minor tag.
 
 ```bash
 vmajor.minor.patch
@@ -140,7 +140,7 @@ ttrt check
 
 ## Command Line
 
-There are different ways you can use the APIs under ttrt. The first is via the command line as follows. All artifacts are saved under `ttrt-artifacts` folder under `TT_MLIR_HOME` environment variable. By default, all logging is printed to the terminal. You can specify a log file to dump output to.
+There are different ways you can use the APIs under `ttrt`. The first is via the command line as follows. All artifacts are saved under `ttrt-artifacts` folder under `TT_MLIR_HOME` environment variable. By default, all logging is printed to the terminal. You can specify a log file to dump output to.
 
 ### read
 Read sections of a binary file
@@ -274,9 +274,9 @@ ttrt --gdb perf ...
 ```
 
 ## ttrt as a python package
-The other way to use the APIs under ttrt is importing it as a library. This allows the user to use it in custom scripts.
+The other way to use the APIs under `ttrt` is importing it as a library. This allows the user to use it in custom scripts.
 
-### Import ttrt as a python package
+### Import `ttrt` as a python package
 ```bash
 from ttrt.common.api import API
 ```
@@ -290,7 +290,7 @@ API.initialize_apis()
 You can specify certain arguments to pass to each API, or use the default arguments provided
 
 #### args
-This can be a dictionary of values to set inside your API instance. These are the same options as found via the command line. You can get the total list of support arguments via ttrt help command line. Any argument not provided will be set to the default.
+This can be a dictionary of values to set inside your API instance. These are the same options as found via the command line. You can get the total list of support arguments via `ttrt` help command line. Any argument not provided will be set to the default.
 ```bash
 custom_args = {}
 custom_args["--clean-artifacts"] = True
@@ -362,7 +362,7 @@ result_code, results = run_instance()
 ## Bonus Section: Extending runtime to other FE's
 MLIR Runtime exposes a feature to register python callback functions. Any two python fuctions can be provided - the first function will be executed before every op in MLIR Runtime, the second after every op. The following steps describe how to extend your application to register python functions.
 
-1. Pybind DebugHooks C++ class, specifically `tt::runtime::debug::Hooks::get`. See `runtime/python/runtime/runtime.cpp` for an example of how TTRT pybinds it.
+1. Pybind DebugHooks C++ class, specifically `tt::runtime::debug::Hooks::get`. See `runtime/python/runtime/runtime.cpp` for an example of how `ttrt` pybinds it.
 ```bash
 tt::runtime::debug::Hooks
 tt::runtime::debug::Hooks::get
@@ -393,45 +393,58 @@ op_golden_tensor = ttrt.runtime.get_debug_info_golden(binary, loc) : get the gol
 op_output_tensor = ttrt.runtime.get_op_output_tensor(op_context, program_context) : get the currently running output tensor from device as a ttrt.runtime Tensor object, if this is called in a preOp function or the op doesn't output a tensor, an empty tensor will be returned.
 ```
 
-5. A potential application for this callback function is implementing a golden callback. TTRT achieves this by first storing the golden data within the flatbuffer binary. This embedding is done through [`ttir-builder`](./ttir-builder.md). See `runtime/tools/ttrt/ttrt/common/callback.py` for how ttrt implements the golden callback function.
+5. A potential application for this callback function is implementing a golden callback. `ttrt` achieves this by first storing the golden data within the flatbuffer binary. This embedding is done through [`ttir-builder`](./ttir-builder.md). See `runtime/tools/ttrt/ttrt/common/callback.py` for how `ttrt` implements the golden callback function.
 ```bash
 std::unordered_map<std::string, mlir::tt::GoldenTensor> goldenMap
 mlir::tt::ttnn::translateTTNNToFlatbuffer(moduleOp, file, goldenMap)
 ```
 
-Note: ttrt is not needed to implement this callback feature. It aims to provide an example of how this callback feature can be implemented for golden application.
+Note: `ttrt` is not needed to implement this callback feature. It aims to provide an example of how this callback feature can be implemented for golden application.
 
 ## FAQ
-### Flatbuffer version does not match ttrt version!
-ttrt and flatbuffer have strict versioning that is checked during ttrt execution. You will have to generate a flatbuffer using the same version of ttrt (or vice versa). This mean you might have to build on the same branch on which the flatbuffer was generated or regenerate the flatbuffer using your current build.
+### Flatbuffer version does not match `ttrt` version!
+`ttrt` and flatbuffer have strict versioning that is checked during `ttrt` execution. You will have to generate a flatbuffer using the same version of `ttrt` (or vice versa). This mean you might have to build on the same branch on which the flatbuffer was generated or regenerate the flatbuffer using your current build.
 
 ### System desc does not match flatbuffer!
 Flatbuffers are compiled using a specific system desc (or default values if no system desc is provided). During runtime, the flatbuffer system desc is checked against the current system to ensure the system being run on supports the flatbuffer that was compiled. If you get this error, you will have to regenerate the flatbuffer using the system you want to run on. See generate a flatbuffer file from compiler section on how to do this.
 
 ### I just want to test and push my commit! What do I do!
 Follow these steps (on both n150 and n300)
-```bash
+
 1. Build ttmlir (sample instructions - subject to change)
+```bash
 source env/activate
 cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-17 -DCMAKE_CXX_COMPILER=clang++-17 -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DTTMLIR_ENABLE_RUNTIME=ON -DTT_RUNTIME_ENABLE_PERF_TRACE=ON
 cmake --build build
+```
 
-2. Build ttrt (sample instructions - subject to change)
+2. Build `ttrt` (sample instructions - subject to change)
+```bash
 cmake --build build -- ttrt
+```
 
 3. Query system
+```bash
 ttrt query --save-artifacts
+```
 
 4. Export system desc file
+```bash
 export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys (path dumped in previous command)
+```
 
 5. Generate test cases
+```bash
 cmake --build build -- check-ttmlir
+```
 
 6. Run test cases
+```bash
 ttrt run build/test/ttmlir/Silicon
+```
 
 7. (Optional) Run perf test cases
+```bash
 ttrt perf build/test/ttmlir/Silicon
 ```
 
