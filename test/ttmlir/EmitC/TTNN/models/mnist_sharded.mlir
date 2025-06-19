@@ -1,6 +1,6 @@
 // RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" %s -o %t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %basename_t.ttnn
-// RUN: ttmlir-opt --ttnn-tuplify-tensors --convert-ttnn-to-emitc %t.mlir > %t2.mlir
+// RUN: ttmlir-opt --ttnn-backend-to-emitc-pipeline="target-dylib=true" %t.mlir > %t2.mlir
 // RUN: ttmlir-translate --mlir-to-cpp %t2.mlir > %basename_t.cpp
 
 // Temporary workaround for running optimizer tests in CI is to run optimizer locally and run the rest of the pipeline on obtained IR:
