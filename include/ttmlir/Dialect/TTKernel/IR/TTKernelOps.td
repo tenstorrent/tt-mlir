@@ -959,7 +959,7 @@ def TTKernel_GetInterleavedAddrGenFastOp : TTKernel_Op<"get_interleaved_addr_gen
     let results = (outs TTKernel_InterleavedAddrGenFast:$result);
 }
 
-def TTKernel_MyXOp : TTKernel_Op<"my_x"> {
+def TTKernel_MyXOp : TTKernel_Op<"my_x", [Pure]> {
     let summary = "MyX";
     let description = [{
       Lowers to the tt-metal supported MY_X macro. This represents the virtual X coordinate of the current core.
@@ -969,7 +969,7 @@ def TTKernel_MyXOp : TTKernel_Op<"my_x"> {
     let results = (outs Index:$x);
 }
 
-def TTKernel_MyYOp : TTKernel_Op<"my_y"> {
+def TTKernel_MyYOp : TTKernel_Op<"my_y", [Pure]> {
     let summary = "MyY";
     let description = [{
       Lowers to the tt-metal supported MY_Y macro. This represents the virtual Y coordinate of the current core.
