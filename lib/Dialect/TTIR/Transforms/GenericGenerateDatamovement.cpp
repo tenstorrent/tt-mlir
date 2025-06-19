@@ -93,8 +93,15 @@ public:
         .getResult();
   }
 
-  static std::tuple<SmallVector<Value>, SmallVector<Value>, SmallVector<Value>,
-                    unsigned, SmallVector<Value>>
+  struct McastArguments {
+    SmallVector<Value> senderCoreIndex;
+    SmallVector<Value> mcastCoreIndex;
+    SmallVector<Value> mcastShape;
+    unsigned mcastVolume = 1;
+    SmallVector<Value> conditions;
+  };
+
+  static McastArguments
   calculateGatherMcastArguments(PatternRewriter &rewriter, Location loc,
                                 GridAttr grid,
                                 ArrayRef<IteratorType> mcastIterators) {
@@ -103,41 +110,36 @@ public:
     Value one = rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexType(),
                                                    rewriter.getIndexAttr(1));
 
-    SmallVector<Value> senderCoreIndex;
-    SmallVector<Value> mcastCoreIndex;
-    SmallVector<Value> mcastShape;
-    unsigned mcastVolume = 1;
-    SmallVector<Value> conditions;
-    senderCoreIndex.reserve(grid.getShape().size());
-    mcastCoreIndex.reserve(grid.getShape().size());
-    mcastShape.reserve(grid.getShape().size());
+    McastArguments args;
+    args.senderCoreIndex.reserve(grid.getShape().size());
+    args.mcastCoreIndex.reserve(grid.getShape().size());
+    args.mcastShape.reserve(grid.getShape().size());
 
     for (auto [dim, iteratorType] : llvm::enumerate(mcastIterators)) {
       Value core = rewriter.create<CoreIndexOp>(
           loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(dim));
       if (iteratorType == IteratorType::Parallel) {
-        senderCoreIndex.push_back(Value(core));
-        mcastCoreIndex.push_back(Value(core));
-        mcastShape.push_back(Value(one));
+        args.senderCoreIndex.push_back(Value(core));
+        args.mcastCoreIndex.push_back(Value(core));
+        args.mcastShape.push_back(Value(one));
       } else {
         int64_t numDests = grid.getShape()[dim] - 1;
         Value gridDimMinusOne = rewriter.create<arith::ConstantOp>(
             loc, rewriter.getIndexType(), rewriter.getIndexAttr(numDests));
         assert(iteratorType == IteratorType::Reduction);
-        senderCoreIndex.push_back(zero);
-        mcastCoreIndex.push_back(one);
-        mcastShape.push_back(gridDimMinusOne);
-        mcastVolume *= numDests;
+        args.senderCoreIndex.push_back(zero);
+        args.mcastCoreIndex.push_back(one);
+        args.mcastShape.push_back(gridDimMinusOne);
+        args.mcastVolume *= numDests;
 
         Value condition = rewriter.create<arith::CmpIOp>(
             loc, rewriter.getI1Type(), mlir::arith::CmpIPredicate::eq, core,
             zero);
-        conditions.push_back(condition);
+        args.conditions.push_back(condition);
       }
     }
 
-    return std::make_tuple(senderCoreIndex, mcastCoreIndex, mcastShape,
-                           mcastVolume, conditions);
+    return args;
   }
 
   // One implementation of mcast by which one core (the 0th core for the
@@ -148,40 +150,41 @@ public:
                                    AffineMap operandIndexingMap, GridAttr grid,
                                    ArrayRef<IteratorType> mcastIterators,
                                    MutableArrayRef<Region> regions) {
-    SmallVector<Value> senderCoreIndex, mcastCoreIndex, mcastShape, conditions;
-    unsigned mcastVolume;
-    std::tie(senderCoreIndex, mcastCoreIndex, mcastShape, mcastVolume,
-             conditions) =
+    McastArguments mcastArgs =
         calculateGatherMcastArguments(builder, loc, grid, mcastIterators);
     Value zero = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
                                                    builder.getIndexAttr(0));
     Value one = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
                                                   builder.getIndexAttr(1));
-    assert(mcastVolume > 0);
+    assert(mcastArgs.mcastVolume > 0);
     Value mcastVolumeVal = builder.create<arith::ConstantOp>(
-        loc, builder.getIndexType(), builder.getIndexAttr(mcastVolume));
+        loc, builder.getIndexType(),
+        builder.getIndexAttr(mcastArgs.mcastVolume));
     Value receiversReadySemaphore = createSemaphore(builder, loc, regions);
     Value senderFinishedSemaphore = createSemaphore(builder, loc, regions);
-    assert(mcastCoreIndex.size() == mcastShape.size());
-    assert(conditions.size() == 1 && "Exactly one condition supported");
+    assert(mcastArgs.mcastCoreIndex.size() == mcastArgs.mcastShape.size());
+    assert(mcastArgs.conditions.size() == 1 &&
+           "Exactly one condition supported");
     builder.create<scf::IfOp>(
-        loc, conditions[0],
+        loc, mcastArgs.conditions[0],
         [&](OpBuilder &builder, Location loc) {
           Value gatherMemTx =
               createDMA(builder, loc, src, dst, operandIndexingMap);
           builder.create<ttir::DMAWaitOp>(loc, gatherMemTx);
           builder.create<ttir::SemaphoreWaitOp>(loc, receiversReadySemaphore,
                                                 mcastVolumeVal, zero);
-          Value mcastMemTx = createDMA(builder, loc, dst, dst, std::nullopt,
-                                       mcastCoreIndex, mcastShape);
+          Value mcastMemTx =
+              createDMA(builder, loc, dst, dst, std::nullopt,
+                        mcastArgs.mcastCoreIndex, mcastArgs.mcastShape);
           builder.create<ttir::DMAWaitOp>(loc, mcastMemTx);
           builder.create<ttir::SemaphoreSetOp>(loc, senderFinishedSemaphore,
-                                               one, mcastCoreIndex, mcastShape);
+                                               one, mcastArgs.mcastCoreIndex,
+                                               mcastArgs.mcastShape);
           builder.create<scf::YieldOp>(loc);
         },
         [&](OpBuilder &builder, Location loc) {
           builder.create<ttir::SemaphoreIncOp>(loc, receiversReadySemaphore,
-                                               one, senderCoreIndex);
+                                               one, mcastArgs.senderCoreIndex);
           builder.create<ttir::SemaphoreWaitOp>(loc, senderFinishedSemaphore,
                                                 one, zero);
           builder.create<scf::YieldOp>(loc);
