@@ -155,6 +155,8 @@ TEST_P(UnaryOpModelTest, TestOpInterface) {
            << "; Error=" << llvm::toString(constraintsExp.takeError());
   }
 
+  op_model::ttnn::SingletonDeviceContext::resetInstance();
+
   // Test runtime
   auto runtimeExp = getOpRuntime(op);
   if (runtimeExp) {
@@ -248,6 +250,8 @@ TEST_F(OpModelBase, SqrtOpInterface) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
+  op_model::ttnn::SingletonDeviceContext::resetInstance();
+
   auto runtimeExp = getOpRuntime(sqrt.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
@@ -278,6 +282,8 @@ TEST_F(OpModelBase, SigmoidOpInterface) {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
+
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(sigmoid.getOperation());
   if (runtimeExp) {
@@ -310,6 +316,8 @@ TEST_F(OpModelBase, SoftmaxOpInterface) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
   auto runtimeExp = getOpRuntime(softmax.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
@@ -341,6 +349,8 @@ TEST_F(OpModelBase, AddOpInterface) {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
+
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(add.getOperation());
   if (runtimeExp) {
@@ -403,6 +413,8 @@ TEST_F(OpModelBase, MultiplyOpInterface) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
   auto runtimeExp = getOpRuntime(multiply.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
@@ -436,6 +448,8 @@ TEST_F(OpModelBase, MatmulOpInterface) {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
+
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(matmul.getOperation());
   if (runtimeExp) {
@@ -509,6 +523,8 @@ void testReductionOp(OpModelBase *testFixture, mlir::OpBuilder &builder,
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
   // Test operation runtime
   auto runtimeExp = (testFixture->*getOpRuntimeFn)(op.getOperation());
   if (runtimeExp) {
@@ -568,6 +584,8 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
   auto runtimeExp = getOpRuntime(reshape.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
@@ -607,6 +625,8 @@ TEST_F(OpModelBase, SliceOpInterface) {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
+
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(sliceOp.getOperation());
   if (runtimeExp) {
