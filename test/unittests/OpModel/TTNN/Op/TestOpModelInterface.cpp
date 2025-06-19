@@ -661,6 +661,8 @@ TEST_F(OpModelBase, toLayoutOp) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
   auto runtimeExp =
       backend.getOpRuntime(std::vector{layoutDRAMRowMajor}, layoutDRAMTiled);
   if (runtimeExp) {
@@ -699,6 +701,8 @@ TEST_F(OpModelBase, concatOp) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
   auto runtimeExp = getOpRuntime(concatOp.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
@@ -730,6 +734,8 @@ TEST_F(OpModelBase, transposeOp) {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
+
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(transpose.getOperation());
   if (runtimeExp) {
@@ -768,6 +774,8 @@ TEST_F(OpModelBase, typecastOp) {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
+
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(typecast.getOperation());
   if (runtimeExp) {
@@ -1287,6 +1295,8 @@ TEST_F(OpModelBase, SubtractOpInterface) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
+  op_model::ttnn::SingletonDeviceContext::resetInstance();
+
   auto runtimeExp = getOpRuntime(sub.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
@@ -1347,6 +1357,8 @@ TEST_F(OpModelBase, MaximumOpInterface) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
+  op_model::ttnn::SingletonDeviceContext::resetInstance();
+
   auto runtimeExp = getOpRuntime(max.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
@@ -1406,6 +1418,8 @@ TEST_F(OpModelBase, MinimumOpInterface) {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
+
+  op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(min.getOperation());
   if (runtimeExp) {
@@ -1472,6 +1486,8 @@ TEST_F(OpModelBase, EmbeddingOpInterface) {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
+
+  op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   // Test EmbeddingOp runtime
   auto runtimeExp = getOpRuntime(embedding.getOperation());
