@@ -437,7 +437,7 @@ def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
     }
     ```
   }];
-  let dependentDialects = ["::mlir::tt::TTCoreDialect", "::mlir::memref::MemRefDialect"];
+  let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect", "::mlir::memref::MemRefDialect"];
 }
 
 def TTIRImplicitBroadcastFold: Pass<"ttir-implicit-broadcast-fold", "::mlir::ModuleOp"> {
@@ -495,7 +495,7 @@ def TTIRHoistTransform: Pass<"ttir-cpu-hoist-transform", "::mlir::ModuleOp">
       }
   }];
 
-  let dependentDialects = ["::mlir::tt::TTCoreDialect"];
+  let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
 }
 
 def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::ModuleOp">
@@ -555,7 +555,7 @@ def TTIREraseInverseOps: Pass<"ttir-erase-inverse-ops", "::mlir::ModuleOp">
     on either end are inverses.
   }];
 
-  let dependentDialects = ["mlir::tt::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
+  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
 def TTIRExplicateTMs: Pass<"ttir-explicate-tms", "::mlir::ModuleOp">
@@ -565,7 +565,7 @@ def TTIRExplicateTMs: Pass<"ttir-explicate-tms", "::mlir::ModuleOp">
     This pass walks through the graph and explicates implicit broadcasts and reshapes on the graph edges.
   }];
 
-  let dependentDialects = ["mlir::tt::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
+  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
 def TTIRQuantDataTypeConversionPass : Pass<"ttir-quant-data-type-conversion", "::mlir::ModuleOp"> {

@@ -7,7 +7,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
-namespace mlir::tt {
+namespace mlir::tt::ttcore {
 struct PhysicalCoreCoord {
   std::int64_t d = 0;
   std::int64_t y = 0;
@@ -51,7 +51,7 @@ class PhysicalCoreCoordMapping {
 public:
   static PhysicalCoreCoordMapping
   getWorkerMapping(ArrayRef<unsigned> chipIds,
-                   ArrayRef<tt::ChipDescAttr> chipDescs) {
+                   ArrayRef<ChipDescAttr> chipDescs) {
     SmallVector<std::array<int64_t, 2>> physCores;
     ArrayRef<int64_t> firstChipGrid = chipDescs[chipIds.front()].getGrid();
     assert(firstChipGrid.size() == 2);
@@ -76,8 +76,7 @@ public:
   }
 
   static PhysicalCoreCoordMapping
-  getDramMapping(ArrayRef<unsigned> chipIds,
-                 ArrayRef<tt::ChipDescAttr> chipDescs) {
+  getDramMapping(ArrayRef<unsigned> chipIds, ArrayRef<ChipDescAttr> chipDescs) {
     ArrayRef<CoreCoordAttr> firstChipDramCores =
         chipDescs[chipIds.front()].getChipPhysicalHelperCores().getDram();
 
@@ -101,7 +100,7 @@ public:
 
   static PhysicalCoreCoordMapping
   getMemorySpaceMapping(ArrayRef<unsigned> chipIds,
-                        ArrayRef<tt::ChipDescAttr> chipDescs,
+                        ArrayRef<ChipDescAttr> chipDescs,
                         MemorySpace memorySpace) {
     switch (memorySpace) {
     case MemorySpace::DeviceL1:
@@ -126,26 +125,26 @@ private:
   std::array<int64_t, 2> grid;
   SmallVector<std::array<int64_t, 2>> physCores;
 };
-} // namespace mlir::tt
+} // namespace mlir::tt::ttcore
 
 // Make PhysicalCoreCoord hashable.
 namespace llvm {
 template <>
-struct DenseMapInfo<mlir::tt::PhysicalCoreCoord> {
-  static mlir::tt::PhysicalCoreCoord getEmptyKey() {
-    return mlir::tt::PhysicalCoreCoord{-1, -1, -1};
+struct DenseMapInfo<mlir::tt::ttcore::PhysicalCoreCoord> {
+  static mlir::tt::ttcore::PhysicalCoreCoord getEmptyKey() {
+    return mlir::tt::ttcore::PhysicalCoreCoord{-1, -1, -1};
   }
 
-  static mlir::tt::PhysicalCoreCoord getTombstoneKey() {
-    return mlir::tt::PhysicalCoreCoord{-2, -2, -2};
+  static mlir::tt::ttcore::PhysicalCoreCoord getTombstoneKey() {
+    return mlir::tt::ttcore::PhysicalCoreCoord{-2, -2, -2};
   }
 
-  static unsigned getHashValue(mlir::tt::PhysicalCoreCoord coord) {
+  static unsigned getHashValue(mlir::tt::ttcore::PhysicalCoreCoord coord) {
     return llvm::hash_combine(coord.d, coord.y, coord.x);
   }
 
-  static bool isEqual(mlir::tt::PhysicalCoreCoord lhs,
-                      mlir::tt::PhysicalCoreCoord rhs) {
+  static bool isEqual(mlir::tt::ttcore::PhysicalCoreCoord lhs,
+                      mlir::tt::ttcore::PhysicalCoreCoord rhs) {
     return lhs == rhs;
   }
 };

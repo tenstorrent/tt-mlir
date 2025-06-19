@@ -61,7 +61,7 @@ MlirType ttmlirTTTileTypeGet(MlirContext ctx, unsigned height, unsigned width, u
         TileType::get(
             unwrap(ctx), // Now we unwrap the MlirContext object to cast it to a mlir::MLIRContext object (w/o affecting ownership)
             llvm::SmallVector<std::int64_t>{height, width}, // We construct the list here since a list isn't natively defined in the C-API,
-            static_cast<tt::DataType>(dataType) // Here we cast the int value to get the Enum value from `tt::DataType`
+            static_cast<ttcore::DataType>(dataType) // Here we cast the int value to get the Enum value from `ttcore::DataType`
         ) // Invoking the builtin get operator to create and get the pointer for some object
     );
 }

@@ -32,21 +32,24 @@ struct AutomaticShardingPipelineOptions
       *this, OptionNames::automaticArgAnalysis,
       llvm::cl::desc("Automatically determine argument shardings.")};
 
-  Option<tt::TTArgumentTypeMap, tt::ArgumentTypeMapParser> argumentTypeMap{
-      *this, tt::OptionNames::argumentTypes,
-      llvm::cl::desc(
-          "Map of function name to argument types. To use this option in the "
-          "command line, you must provide a whitespace-free string\n\t"
-          " which is a sequence of phrases in the form "
-          "\"<FUNC_NAME_STR>=<ARG_TYPES>\" separated by semicolons, where "
-          "<FUNC_NAME_STR>\n\t"
-          " is the name of a function and <ARG_TYPES> is a sequence of "
-          "argument types separated by commas. Each of which must be one\n\t"
-          " of \"input\", \"parameter\" or \"constant\". \n\t"
-          " Example: "
-          "\"argument-types=forward=input,parameter,parameter,constant\""
-          "\n\n"),
-      llvm::cl::init(TTArgumentTypeMap())};
+  Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
+      argumentTypeMap{
+          *this, ttcore::OptionNames::argumentTypes,
+          llvm::cl::desc(
+              "Map of function name to argument types. To use this option in "
+              "the "
+              "command line, you must provide a whitespace-free string\n\t"
+              " which is a sequence of phrases in the form "
+              "\"<FUNC_NAME_STR>=<ARG_TYPES>\" separated by semicolons, where "
+              "<FUNC_NAME_STR>\n\t"
+              " is the name of a function and <ARG_TYPES> is a sequence of "
+              "argument types separated by commas. Each of which must be "
+              "one\n\t"
+              " of \"input\", \"parameter\" or \"constant\". \n\t"
+              " Example: "
+              "\"argument-types=forward=input,parameter,parameter,constant\""
+              "\n\n"),
+          llvm::cl::init(ttcore::TTArgumentTypeMap())};
 };
 
 void createAutomaticShardingPipeline(

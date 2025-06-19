@@ -294,14 +294,14 @@ private:
 
     mlir::func::FuncOp funcOp = conv2dOp->getParentOfType<mlir::func::FuncOp>();
     llvm::SmallPtrSet<BlockArgument, 4> constParams =
-        mlir::tt::getConstsAndParams(funcOp);
+        mlir::tt::ttcore::getConstsAndParams(funcOp);
     auto isConstant = [&constParams, conv2dOp](mlir::Value value) {
       if (auto blockArg = mlir::dyn_cast<BlockArgument>(value)) {
         return constParams.contains(blockArg);
       }
 
       Operation *op = value.getDefiningOp();
-      return op->hasTrait<mlir::tt::Trait::TTCoreCreationOpTrait>() &&
+      return op->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>() &&
              op->isBeforeInBlock(conv2dOp);
     };
 

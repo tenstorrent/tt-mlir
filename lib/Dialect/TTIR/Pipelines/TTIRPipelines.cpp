@@ -113,7 +113,8 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
 
 void createTTIRToCPUPipeline(OpPassManager &manager,
                              const LinalgToLLVMPipelineOptions &options) {
-  OpPassManager &cpuPm = manager.nest<tt::CPUModuleOp>().nest<mlir::ModuleOp>();
+  OpPassManager &cpuPm =
+      manager.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
   // Decomp TTIR to reduce number of conversions we need to support in
   // Linalg/Tosa.
   mlir::tt::TTIRToTTIRDecompositionOptions decompOptions;

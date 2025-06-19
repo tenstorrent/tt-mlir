@@ -12,26 +12,24 @@
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
 
-namespace mlir::tt::utils {
+namespace mlir::tt::ttcore::utils {
 
 // Add a new mesh info to module attribute.
 inline void addMeshToModuleAttribute(PatternRewriter &rewriter,
                                      mlir::ModuleOp module, StringAttr meshName,
                                      llvm::ArrayRef<int64_t> meshShape) {
   MLIRContext *context = rewriter.getContext();
-  llvm::SmallVector<tt::MeshAttr> meshes;
-  if (auto meshesAttr =
-          module->getAttrOfType<tt::MeshesAttr>(tt::MeshesAttr::name)) {
-    meshes = llvm::SmallVector<tt::MeshAttr>(meshesAttr.getMeshes());
+  llvm::SmallVector<MeshAttr> meshes;
+  if (auto meshesAttr = module->getAttrOfType<MeshesAttr>(MeshesAttr::name)) {
+    meshes = llvm::SmallVector<MeshAttr>(meshesAttr.getMeshes());
   }
   // Avoid adding multiple meshes with the same name and shape as GSPMD may try
   // to add the same meshes.
   if (llvm::all_of(meshes,
-                   [&](tt::MeshAttr m) { return m.getName() != meshName; })) {
-    meshes.push_back(tt::MeshAttr::get(context, meshName, meshShape));
+                   [&](MeshAttr m) { return m.getName() != meshName; })) {
+    meshes.push_back(MeshAttr::get(context, meshName, meshShape));
     rewriter.modifyOpInPlace(module, [&]() {
-      module->setAttr(tt::MeshesAttr::name,
-                      tt::MeshesAttr::get(context, meshes));
+      module->setAttr(MeshesAttr::name, MeshesAttr::get(context, meshes));
     });
   }
 }
@@ -42,8 +40,7 @@ inline void addMeshToModuleAttribute(PatternRewriter &rewriter,
 // If both exist, compare mesh and throw error if they are different.
 inline llvm::Expected<llvm::SmallVector<int64_t>>
 determineMeshShape(mlir::ModuleOp module, llvm::ArrayRef<int64_t> meshShape) {
-  if (auto meshesAttr =
-          module->getAttrOfType<tt::MeshesAttr>(tt::MeshesAttr::name)) {
+  if (auto meshesAttr = module->getAttrOfType<MeshesAttr>(MeshesAttr::name)) {
     llvm::ArrayRef<MeshAttr> meshAttr = meshesAttr.getMeshes();
     if (meshAttr.empty()) {
       return llvm::SmallVector<int64_t>(meshShape);
@@ -61,6 +58,6 @@ determineMeshShape(mlir::ModuleOp module, llvm::ArrayRef<int64_t> meshShape) {
   return llvm::SmallVector<int64_t>(meshShape);
 }
 
-} // namespace mlir::tt::utils
+} // namespace mlir::tt::ttcore::utils
 
 #endif // TTMLIR_DIALECT_TTCORE_UTILS_MESH_H

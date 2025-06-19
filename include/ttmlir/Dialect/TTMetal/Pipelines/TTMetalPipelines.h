@@ -33,16 +33,16 @@ struct TTIRToTTMetalPipelineOptions
   // Option to provide a fallback mock system descriptor arch to compile
   // against.
   //
-  Option<tt::Arch> mockSystemDescArch{
+  Option<ttcore::Arch> mockSystemDescArch{
       *this, "mock-system-desc-arch",
       llvm::cl::desc(
           "Arch name for constructing a mock system descriptor in lieu of "
           "system-desc-path."),
-      llvm::cl::values(clEnumValN(tt::Arch::WormholeB0, "wormhole_b0",
+      llvm::cl::values(clEnumValN(ttcore::Arch::WormholeB0, "wormhole_b0",
                                   "Use mock wormhole_b0 system desc."),
-                       clEnumValN(tt::Arch::Blackhole, "blackhole",
+                       clEnumValN(ttcore::Arch::Blackhole, "blackhole",
                                   "Use mock blackhole system desc.")),
-      llvm::cl::init(tt::Arch::WormholeB0)};
+      llvm::cl::init(ttcore::Arch::WormholeB0)};
 
   Option<unsigned> maxDstRegisterSizeTiles{
       *this, "max-dst-register-size-tiles",
@@ -66,18 +66,20 @@ struct TTIRToTTMetalPipelineOptions
 
   // Options to control the default memspaces for placing input/output tensors.
   //
-  Option<MemorySpace> defaultInputMemSpace{
+  Option<ttcore::MemorySpace> defaultInputMemSpace{
       *this, "default-input-memspace",
       llvm::cl::desc("Set default memspace for input tensors"),
-      llvm::cl::values(clEnumValN(MemorySpace::DeviceL1, "l1", "L1"),
-                       clEnumValN(MemorySpace::DeviceDRAM, "dram", "DRAM")),
-      llvm::cl::init(MemorySpace::DeviceL1)};
-  Option<MemorySpace> defaultOutputMemSpace{
+      llvm::cl::values(
+          clEnumValN(ttcore::MemorySpace::DeviceL1, "l1", "L1"),
+          clEnumValN(ttcore::MemorySpace::DeviceDRAM, "dram", "DRAM")),
+      llvm::cl::init(ttcore::MemorySpace::DeviceL1)};
+  Option<ttcore::MemorySpace> defaultOutputMemSpace{
       *this, "default-output-memspace",
       llvm::cl::desc("Set default memspace for output tensors"),
-      llvm::cl::values(clEnumValN(MemorySpace::DeviceL1, "l1", "L1"),
-                       clEnumValN(MemorySpace::DeviceDRAM, "dram", "DRAM")),
-      llvm::cl::init(MemorySpace::DeviceL1)};
+      llvm::cl::values(
+          clEnumValN(ttcore::MemorySpace::DeviceL1, "l1", "L1"),
+          clEnumValN(ttcore::MemorySpace::DeviceDRAM, "dram", "DRAM")),
+      llvm::cl::init(ttcore::MemorySpace::DeviceL1)};
 };
 
 void createTTIRBufferizationPipeline(OpPassManager &pm);

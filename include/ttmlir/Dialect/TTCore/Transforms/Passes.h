@@ -7,7 +7,7 @@
 
 #include "mlir/Pass/Pass.h"
 
-namespace mlir::tt {
+namespace mlir::tt::ttcore {
 
 #define GEN_PASS_DECL
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h.inc"
@@ -15,6 +15,6 @@ namespace mlir::tt {
 #define GEN_PASS_REGISTRATION
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h.inc"
 
-} // namespace mlir::tt
+} // namespace mlir::tt::ttcore
 
 #endif // TTMLIR_DIALECT_TTCORE_TRANSFORMS_PASSES_H

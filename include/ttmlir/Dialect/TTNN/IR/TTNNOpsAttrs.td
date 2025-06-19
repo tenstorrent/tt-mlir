@@ -177,14 +177,14 @@ def TTNN_ShardSpecAttr : TTNN_Attr<"ShardSpec", "shard_spec"> {
 
   let builders =
     [
-      AttrBuilder<(ins "ShapeAttr": $shape, "GridAttr": $shardGrid, "GridAttr": $deviceGrid),
+      AttrBuilder<(ins "ShapeAttr": $shape, "ttcore::GridAttr": $shardGrid, "ttcore::GridAttr": $deviceGrid),
       [{
         CoreRangeSetAttr coreRangeSet = getCoreRangeSet($_ctxt, shardGrid, deviceGrid);
         return Base::get($_ctxt, coreRangeSet, shape, ShardOrientationAttr::get($_ctxt, ::mlir::tt::ttnn::ShardOrientation::RowMajor), ShardModeAttr::get($_ctxt, ::mlir::tt::ttnn::ShardMode::Physical), ShapeAttr());
       }]>,
-      AttrBuilder<(ins "TTNNLayoutAttr": $layout, "GridAttr": $deviceGrid),
+      AttrBuilder<(ins "TTNNLayoutAttr": $layout, "ttcore::GridAttr": $deviceGrid),
       [{
-        GridAttr shardGrid = layout.getGrid();
+        ttcore::GridAttr shardGrid = layout.getGrid();
         CoreRangeSetAttr coreRangeSet = getCoreRangeSet($_ctxt, shardGrid, deviceGrid);
         return Base::get($_ctxt, coreRangeSet, ShapeAttr::get($_ctxt,layout.getScalarShardShape()), ShardOrientationAttr::get($_ctxt, ::mlir::tt::ttnn::ShardOrientation::RowMajor), ShardModeAttr::get($_ctxt, ::mlir::tt::ttnn::ShardMode::Physical), ShapeAttr());
       }]>
@@ -192,7 +192,7 @@ def TTNN_ShardSpecAttr : TTNN_Attr<"ShardSpec", "shard_spec"> {
 
   let assemblyFormat = "`<` params `>`";
   let extraClassDeclaration = [{
-    static CoreRangeSetAttr getCoreRangeSet(mlir::MLIRContext *context, GridAttr shardGrid, GridAttr deviceGrid);
+    static CoreRangeSetAttr getCoreRangeSet(mlir::MLIRContext *context, ttcore::GridAttr shardGrid, ttcore::GridAttr deviceGrid);
   }];
 }
 
@@ -445,8 +445,8 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     TTNN conv2d config attribute
   }];
 
-  let parameters = (ins OptionalParameter<"std::optional<DataType>">:$dtype,
-                        OptionalParameter<"std::optional<DataType>">:$weights_dtype,
+  let parameters = (ins OptionalParameter<"std::optional<ttcore::DataType>">:$dtype,
+                        OptionalParameter<"std::optional<ttcore::DataType>">:$weights_dtype,
                         OptionalParameter<"StringAttr">:$activation,
                         OptionalParameter<"BoolAttr">:$deallocate_activation,
                         OptionalParameter<"BoolAttr">:$reallocate_halo_output,
@@ -471,8 +471,8 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
 
   let extraClassDeclaration = [{
     Conv2dConfigAttr withActivation(StringRef activation) const;
-    Conv2dConfigAttr withDtype(DataType dtype) const;
-    Conv2dConfigAttr withWeightsDtype(DataType dtype) const;
+    Conv2dConfigAttr withDtype(ttcore::DataType dtype) const;
+    Conv2dConfigAttr withWeightsDtype(ttcore::DataType dtype) const;
     Conv2dConfigAttr withDeallocateActivation(bool value) const;
     Conv2dConfigAttr withReallocateHaloOutput(bool value) const;
     Conv2dConfigAttr withActBlockHOverride(uint32_t value) const;
@@ -577,32 +577,32 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
   }];
 
   let parameters = (ins AttrParameter<"AffineMap", "An affine map that defines how the logical tensor dimensions map to a grid shape.">:$linear,
-                        AttrParameter<"GridAttr", "The grid shape that this tensor is divided onto.">:$grid,
+                        AttrParameter<"ttcore::GridAttr", "The grid shape that this tensor is divided onto.">:$grid,
                         AttrParameter<"MemRefType", "A memref that describes the physical footprint allocation of the shard. It must also have a shape with rank equal to grid.">:$memref,
                         OptionalParameter<"TensorMemoryLayoutAttr", "TTNN tensor memory layout">:$mem_layout,
-                        OptionalParameter<"TensorMeshShardingAttr", "TT mesh sharding attr">:$tensor_mesh_sharding,
+                        OptionalParameter<"ttcore::TensorMeshShardingAttr", "TT mesh sharding attr">:$tensor_mesh_sharding,
                         OptionalParameter<"bool", "A status flag, asking the users to ignore the physical layout. This is used to model a sharded layout with unspecified shard shape.">:$ignorePhysicalLayout);
   let assemblyFormat = "`<` $linear`,` $grid`,` (`mesh` `=` $tensor_mesh_sharding^ `,`)? $memref (`,` $mem_layout^)? (`,` $ignorePhysicalLayout^)? `>`";
   let extraClassDeclaration = [{
     static TTNNLayoutAttr get(::mlir::MLIRContext *context,
                         AffineMap linear,
-                        GridAttr grid, MemRefType memref,
+                        ttcore::GridAttr grid, MemRefType memref,
                         TensorMemoryLayoutAttr mem_layout,
-                        TensorMeshShardingAttr tensor_mesh_sharding);
+                        ttcore::TensorMeshShardingAttr tensor_mesh_sharding);
 
     static TTNNLayoutAttr get(::mlir::MLIRContext *context,
                         ArrayRef<int64_t> tensorShape,
                         Type elementType,
                         BufferType bufferType,
-                        GridAttr grid,
+                        ttcore::GridAttr grid,
                         TensorMemoryLayoutAttr memoryLayoutAttr = nullptr,
-                        TensorMeshShardingAttr tensorMeshShardingAttr = nullptr,
+                        ttcore::TensorMeshShardingAttr tensorMeshShardingAttr = nullptr,
                         ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}},
                         bool ignorePhysicalLayout = false);
 
-    TTNNLayoutAttr withGrid(ArrayRef<int64_t> tensorShape, GridAttr grid, ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
+    TTNNLayoutAttr withGrid(ArrayRef<int64_t> tensorShape, ttcore::GridAttr grid, ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
     TTNNLayoutAttr withGrid(RankedTensorType ty,
-                        GridAttr grid,
+                        ttcore::GridAttr grid,
                         ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
     TTNNLayoutAttr withElementType(Type elementType, ArrayRef<int64_t> tensorShape, ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
     TTNNLayoutAttr withBufferType(BufferType bufferType);
@@ -628,10 +628,10 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
     Type getScalarElementType() const;
     uint64_t getShardSizeInBytes() const;
     BufferType getBufferType() const;
-    DataType getDataType() const;
+    ttcore::DataType getDataType() const;
     uint64_t getElementSizeBytes() const;
-    static llvm::SmallVector<int64_t> calculateLogicalShardShapeForSharding(ArrayRef<int64_t> tensorShape, mlir::AffineMap linear, GridAttr grid);
-    static llvm::SmallVector<int64_t> calculateLogicalShardShapeForL1Interleaved(ArrayRef<int64_t> tensorShape, Type elementType, mlir::AffineMap linear, GridAttr grid);
+    static llvm::SmallVector<int64_t> calculateLogicalShardShapeForSharding(ArrayRef<int64_t> tensorShape, mlir::AffineMap linear, ttcore::GridAttr grid);
+    static llvm::SmallVector<int64_t> calculateLogicalShardShapeForL1Interleaved(ArrayRef<int64_t> tensorShape, Type elementType, mlir::AffineMap linear, ttcore::GridAttr grid);
     llvm::SmallVector<int64_t> getShardShape() const;
     llvm::SmallVector<int64_t> getScalarShardShape() const;
     AffineMap getIdentityTileLinearMap() const;

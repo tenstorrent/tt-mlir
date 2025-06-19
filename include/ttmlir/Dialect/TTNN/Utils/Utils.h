@@ -19,14 +19,14 @@ namespace mlir::tt::ttnn::utils {
 
 constexpr inline llvm::StringLiteral g_TTNNTraceAttrName = "ttnn.trace";
 
-// Map tt::MemorySpace to ttnn::BufferType
+// Map ttcore::MemorySpace to ttnn::BufferType
 //
 mlir::tt::ttnn::BufferType
-toTTNNBufferType(const mlir::tt::MemorySpace memorySpace);
+toTTNNBufferType(const mlir::tt::ttcore::MemorySpace memorySpace);
 
-// Map ttnn::BufferType to tt::MemorySpace
+// Map ttnn::BufferType to ttcore::MemorySpace
 //
-mlir::tt::MemorySpace
+mlir::tt::ttcore::MemorySpace
 toTTMemorySpace(const mlir::tt::ttnn::BufferType bufferType);
 
 struct RankedTensorTypeFactory {
@@ -45,9 +45,11 @@ struct RankedTensorTypeFactory {
   static RankedTensorType create(RankedTensorType tensorType,
                                  ttnn::Layout layout);
 
-  static RankedTensorType create(RankedTensorType tensorType, GridAttr grid);
+  static RankedTensorType create(RankedTensorType tensorType,
+                                 mlir::tt::ttcore::GridAttr grid);
 
-  static RankedTensorType create(RankedTensorType tensorType, DataType);
+  static RankedTensorType create(RankedTensorType tensorType,
+                                 mlir::tt::ttcore::DataType);
 
   static RankedTensorType create(RankedTensorType tensorType,
                                  ArrayRef<int64_t> tensorShape);
@@ -63,7 +65,7 @@ TTNNLayoutAttr getLayoutAttrFromTensor(RankedTensorType tensorType);
 
 // Helper method to get the element type for the given tensor layout and data.
 Type getElementType(MLIRContext *context, Layout tensorLayout,
-                    DataType dataType);
+                    mlir::tt::ttcore::DataType dataType);
 
 // Helper method to get op location name if it exists. Else return empty string.
 std::string getOpLocName(Operation *op);
@@ -76,14 +78,16 @@ void irToFile(mlir::Operation *op, std::string filename);
 llvm::SmallVector<int64_t> getTilePaddedShape(llvm::ArrayRef<int64_t> shape);
 
 // Helper method to create a ShardSpecAttr if needed.
-std::optional<ShardSpecAttr> createShardSpecIfNeeded(TTNNLayoutAttr layout,
-                                                     GridAttr deviceGrid);
+std::optional<ShardSpecAttr>
+createShardSpecIfNeeded(TTNNLayoutAttr layout,
+                        mlir::tt::ttcore::GridAttr deviceGrid);
 
 // Helper method to create a ShardSpecAttr if needed.
 std::optional<ShardSpecAttr>
 createShardSpecIfNeeded(TensorMemoryLayoutAttr tensorMemoryLayout,
-                        ShapeAttr shardShape, GridAttr shardGrid,
-                        GridAttr deviceGrid);
+                        ShapeAttr shardShape,
+                        mlir::tt::ttcore::GridAttr shardGrid,
+                        mlir::tt::ttcore::GridAttr deviceGrid);
 
 bool isTTNNTraceFunc(func::FuncOp funcOp);
 
