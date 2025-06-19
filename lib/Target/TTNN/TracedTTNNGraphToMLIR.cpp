@@ -214,7 +214,7 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
   FunctionType funcType = builder.getFunctionType({}, {});
   // FunctionType::get(builder.getContext(), {}, {});
   auto func =
-      builder.create<func::FuncOp>(module.getLoc(), "graph_main", funcType);
+      builder.create<func::FuncOp>(module.getLoc(), "forward", funcType);
   ::mlir::Block *entryBlock = func.addEntryBlock();
   builder.setInsertionPointToStart(entryBlock);
 
@@ -428,40 +428,18 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
     }
   }
 
-  // Find the final output node (the one that's not a child of any other node)
-  std::unordered_set<int> allChildren;
-  std::unordered_set<int> allNodes;
-
-  if (auto *nodesArray = json.getAsArray()) {
-    for (const auto &node : *nodesArray) {
-      if (auto *nodeObj = node.getAsObject()) {
-        if (auto indexVal = nodeObj->getInteger("index")) {
-          allNodes.insert(*indexVal);
-        }
-
-        if (const auto *childrenArray = nodeObj->getArray("children")) {
-          for (const auto &child : *childrenArray) {
-            if (auto childIndex = child.getAsInteger()) {
-              allChildren.insert(*childIndex);
-            }
-          }
-        }
-      }
+  // Find the last operation (highest index)
+  int lastOpIndex = -1;
+  for (const auto &pair : indexToResultMap) {
+    if (pair.first > lastOpIndex) {
+      lastOpIndex = pair.first;
     }
   }
 
-  // Find nodes that are not children of any other node (outputs)
-  std::vector<int> outputNodes;
-  for (int node : allNodes) {
-    if (allChildren.find(node) == allChildren.end()) {
-      outputNodes.push_back(node);
-    }
-  }
-
-  // Create return operation with output values
+  // Create return operation with only the last operation's value
   SmallVector<Value> returnValues;
-  for (int outputNode : outputNodes) {
-    auto it = indexToResultMap.find(outputNode);
+  if (lastOpIndex != -1) {
+    auto it = indexToResultMap.find(lastOpIndex);
     if (it != indexToResultMap.end()) {
       returnValues.push_back(it->second);
     }
