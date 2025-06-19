@@ -51,7 +51,6 @@ def run_cmake_setup(args):
         standalone_source_dir,
         "-DCMAKE_BUILD_TYPE=Release",
         "-DCMAKE_CXX_COMPILER=clang++",
-        "-DTTMLIR_ENABLE_TTNN_PY=" + os.environ.get("TTMLIR_ENABLE_TTNN_PY", "OFF"),
     ]
 
     if args.metal_src_dir:

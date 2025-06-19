@@ -66,7 +66,6 @@ class CMakeBuild(build_ext):
             "-DCMAKE_INSTALL_PREFIX=" + str(install_dir),
             "-DCMAKE_C_COMPILER=clang",
             "-DCMAKE_CXX_COMPILER=clang++",
-            "-DTTMLIR_ENABLE_TTNN_PY=OFF",
         ]
 
         if not self.in_ci():

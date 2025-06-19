@@ -28,8 +28,4 @@ target_link_libraries(TestConversion
     MLIRTTTransforms
 )
 
-if (TTMLIR_ENABLE_TTNN_PY)
-    target_link_libraries(TestConversion PRIVATE Python3::Python)
-endif()
-
 endif()

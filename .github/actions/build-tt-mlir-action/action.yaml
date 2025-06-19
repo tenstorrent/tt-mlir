@@ -25,10 +25,6 @@ inputs:
     description: "Enable PyKernel build"
     default: "OFF"
     required: false
-  enable-ttnn-py:
-    description: "Build _ttnn.so with Python Bindings"
-    default: "OFF"
-    required: false
   build-name:
     description: "A unique name for this build (e.g., 'run' or 'perf')"
     required: true
@@ -64,7 +60,6 @@ runs:
           -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
           -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ inputs.enable-perf }} \
           -DTTMLIR_ENABLE_PYKERNEL=${{ inputs.enable-pykernel }} \
-          -DTTMLIR_ENABLE_TTNN_PY=${{ inputs.enable-ttnn-py }} \
           -DTTMLIR_ENABLE_STABLEHLO=ON \
           -DTTMLIR_ENABLE_OPMODEL=${{ inputs.enable-op-model }} \
           -DTT_RUNTIME_DEBUG=${{ inputs.enable-runtime-debug }} \
@@ -92,7 +87,6 @@ runs:
         source env/activate
         export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         llvm-lit -sv ${{ inputs.work-dir }}/test/ttmlir/EmitC/TTNN
-        export TTMLIR_ENABLE_TTNN_PY=${{ inputs.enable-ttnn-py }}
         ${{ inputs.work-dir }}/tools/ttnn-standalone/ci_compile_dylib.py
 
     - name: Build tt-explorer

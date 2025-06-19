@@ -102,11 +102,6 @@ target_link_libraries(TTMLIRCompiler PRIVATE
     flatbuffers
 )
 
-if (TTMLIR_ENABLE_TTNN_PY)
-  find_package(Python3 COMPONENTS Development.Module REQUIRED)
-  target_link_libraries(TTMLIRCompiler PRIVATE Python3::Module)
-endif()
-
 target_link_libraries(TTMLIRCompiler PUBLIC coverage_config)
 
 target_link_directories(TTMLIRCompiler PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib)

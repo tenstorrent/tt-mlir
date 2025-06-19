@@ -79,7 +79,7 @@ jobs:
       matrix:
         build: [
           {runs-on: ubuntu-latest, enable_op_model: ON, enable_emitc: ON, name: "speedy"},
-          {runs-on: ubuntu-latest, enable_perf: ON, enable_emitc: ON, enable_runtime_debug: ON, enable_explorer: ON, enable_pykernel: ON, enable_ttnn_py: ON, name: "tracy"},
+          {runs-on: ubuntu-latest, enable_perf: ON, enable_emitc: ON, enable_runtime_debug: ON, enable_explorer: ON, enable_pykernel: ON, name: "tracy"},
         ]
 
     name: Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})
@@ -136,7 +136,6 @@ jobs:
         enable-explorer: ${{ matrix.build.enable_explorer }}
         enable-runtime-debug: ${{ matrix.build.enable_runtime_debug }}
         enable-pykernel: ${{ matrix.build.enable_pykernel }}
-        enable-ttnn-py: ${{ matrix.build.enable_ttnn_py }}
         build-name: ${{ matrix.build.name }}
         build-output-dir: ${{ steps.strings.outputs.build-output-dir }}
         install-output-dir: ${{ steps.strings.outputs.install-output-dir }}

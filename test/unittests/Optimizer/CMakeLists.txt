@@ -12,7 +12,3 @@ target_link_libraries(OptimizerTests
     MLIRTTNNAnalysis
     MLIRTTNNPipelines
 )
-
-if (TTMLIR_ENABLE_TTNN_PY)
-    target_link_libraries(OptimizerTests PRIVATE Python3::Python)
-endif()

@@ -28,8 +28,4 @@ target_link_libraries(TestOpModelInterface
     MLIRTTTransforms
 )
 
-if (TTMLIR_ENABLE_TTNN_PY)
-    target_link_libraries(TestOpModelInterface PRIVATE Python3::Python)
-endif()
-
 endif()
