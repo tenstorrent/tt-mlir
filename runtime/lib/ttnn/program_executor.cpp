@@ -84,6 +84,15 @@ static void tracyLogConstEvalProgram(const ::tt::target::ttnn::Operation *op,
 #endif
 }
 
+static void tracyLogProgramMetadata(const ::tt::target::ttnn::Operation *op,
+                                    std::string metaData) {
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+  std::string message =
+      perf::toString(perf::TracyLogTag::MLIR_PROGRAM_METADATA) + ";" + metaData;
+  TracyMessage(message.c_str(), message.size());
+#endif
+}
+
 ProgramExecutor::ProgramExecutor(
     ::tt::runtime::Device deviceHandle, ::tt::runtime::Binary &executableHandle,
     const size_t programIndex,
@@ -140,6 +149,7 @@ void ProgramExecutor::execute() {
               "Executing operation: ", op->debug_info()->c_str());
     tracyLogConstEvalProgram(op, constEvalProgram);
     tracyLogOpLocation(op);
+    tracyLogProgramMetadata(op, perf::Env::get().tracyProgramMetadata);
     runCallback(debug::Hooks::get().getPreOperatorCallback(), executableHandle,
                 op, context.get());
     runOperation(op);

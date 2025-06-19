@@ -341,7 +341,8 @@ void registerRuntimeBindings(nb::module_ &m) {
       });
 
   nb::class_<tt::runtime::perf::Env>(m, "PerfEnv")
-      .def_static("get", &tt::runtime::perf::Env::get)
+      .def_static("get", &tt::runtime::perf::Env::get, nb::rv_policy::reference)
+      .def("set_program_metadata", &tt::runtime::perf::Env::setProgramMetadata)
       .def("__str__", [](const tt::runtime::perf::Env &env) {
         std::stringstream os;
         os << env;
