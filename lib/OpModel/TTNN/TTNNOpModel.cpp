@@ -1650,7 +1650,7 @@ llvm::Expected<OpConstraints> Conv2dOpInterface::getOpConstraints(
         conversion::getTensorSpec(biasShape.value(), biasLayout.value());
     // TODO(odjuricic): This might be really slow. Needs to be done within graph
     // capture block.
-    biasTensor = ::tt::tt_metal::create_device_tensor(biasSpec, device);
+    // biasTensor = ::tt::tt_metal::create_device_tensor(biasSpec, device);
   }
 
   std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
