@@ -444,6 +444,87 @@ jobs:
         check_name: ${{ matrix.build.type }} ${{ matrix.build.runs-on }} ${{ matrix.build.image }} ${{ matrix.build.suite }} Tests
 
 
+
+  # Dedicated job for tt-alchemist tests
+  test-tt-alchemist:
+    timeout-minutes: 45
+    needs:
+      - build-image
+      - build-ttmlir
+    if: ${{ !failure() && !cancelled() }}
+    runs-on:
+      - n150
+      - in-service
+    container:
+      image: ${{ needs.build-image.outputs.docker-image }}
+      options: '--device /dev/tenstorrent'
+      volumes:
+        - /dev/hugepages:/dev/hugepages
+        - /dev/hugepages-1G:/dev/hugepages-1G
+        - /etc/udev/rules.d:/etc/udev/rules.d
+        - /lib/modules:/lib/modules
+        - /opt/tt_metal_infra/provisioning/provisioning_env:/opt/tt_metal_infra/provisioning/provisioning_env
+
+    steps:
+
+    # Sparse checkout tt-alchemist tests
+    - name: Checkout tests only
+      uses: actions/checkout@v4
+      with:
+        sparse-checkout: |
+          tools/tt-alchemist/test
+
+    - name: Fetch job id
+      id: fetch-job-id
+      uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
+      with:
+        job_name: "test-tt-alchemist"
+
+    - name: Download tt-alchemist wheel
+      uses: actions/download-artifact@v4
+      with:
+        name: tt-alchemist-whl-speedy
+
+    - name: Install tt-alchemist wheel
+      shell: bash
+      run: |
+        python3 -m venv testenv
+        source testenv/bin/activate
+        pip install tt_alchemist-*.whl --force-reinstall
+        echo "Wheel installed successfully"
+
+    - name: Run tt-alchemist API test - model-to-cpp
+      shell: bash
+      run: |
+        source testenv/bin/activate
+        tt-alchemist model-to-cpp tools/tt-alchemist/test/models/mnist.mlir
+
+    - name: Run tt-alchemist API test - model-to-python
+      shell: bash
+      run: |
+        source testenv/bin/activate
+        tt-alchemist model-to-python tools/tt-alchemist/test/models/mnist.mlir
+
+    - name: Run tt-alchemist API test - generate-cpp
+      shell: bash
+      run: |
+        source testenv/bin/activate
+        rm -rf /tmp/test-generate-cpp
+        tt-alchemist generate-cpp tools/tt-alchemist/test/models/mnist.mlir /tmp/test-generate-cpp --standalone
+        cd /tmp/test-generate-cpp
+        [ -d /tmp/test-generate-cpp ] || { echo "Directory not found: /tmp/test-generate-cpp" >&2; exit 1; }
+        # ./run  # TODO: enable when fixed
+
+    - name: Run tt-alchemist API test - generate-python
+      shell: bash
+      run: |
+        source testenv/bin/activate
+        rm -rf /tmp/test-generate-python
+        tt-alchemist generate-python tools/tt-alchemist/test/models/mnist.mlir /tmp/test-generate-python --standalone
+        cd /tmp/test-generate-python
+        [ -d /tmp/test-generate-python ] || { echo "Directory not found: /tmp/test-generate-python" >&2; exit 1; }
+        # ./run  # TODO: enable when fixed
+
   lint:
     if: github.event_name == 'pull_request'
     needs: build-image
