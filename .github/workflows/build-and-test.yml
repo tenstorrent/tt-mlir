@@ -380,6 +380,20 @@ jobs:
         perf_report_path: ${{ steps.strings.outputs.perf_report_path }}
         artifact_name: ${{ matrix.build.runs-on }}_${{ matrix.build.image }}_${{ matrix.build.suite }}
 
+    - name: Zip Debug Logs
+      if: success() || failure()
+      run: |
+        mkdir -p debug_logs
+        cp -r /opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/generated/ debug_logs/
+        zip -r debug_logs.zip debug_logs/
+
+    - name: Upload Debug Logs
+      if: success() || failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: debug_logs.zip
+        path: ./debug_logs.zip
+
     - name: Upload ttrt test report json
       if: (success() || failure()) && matrix.build.type == 'ttrt'
       uses: actions/upload-artifact@v4
