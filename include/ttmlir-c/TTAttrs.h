@@ -76,8 +76,8 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTChipPhysicalHelperCoresAttrGet(
     MlirContext ctx, MlirAttribute *dram, size_t dramSize, MlirAttribute *eth,
     size_t ethSize, MlirAttribute *eth_inactive, size_t eth_inactiveSize);
 
-MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTCoreCoordAttrGet(MlirContext ctx,
-                                                          int64_t y, int64_t x);
+MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTCoordAttrGet(MlirContext ctx,
+                                                      int64_t y, int64_t x);
 
 #ifdef __cplusplus
 }
