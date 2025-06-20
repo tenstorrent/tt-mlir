@@ -72,7 +72,7 @@ getTensorLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
 bool validateTensorSpec(const ::ttnn::TensorSpec &tensorSpec,
                         const ::tt::tt_metal::CoreCoord &computeGridSize);
 
-::tt::stl::SmallVector<int>
+::ttsl::SmallVector<int>
 convertLLVMSmallVecToTTNNSmallVec(const ::llvm::ArrayRef<int64_t> vec);
 
 std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> getConv2dConfig(

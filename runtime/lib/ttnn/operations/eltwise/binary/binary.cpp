@@ -17,10 +17,9 @@ static void runEltwiseBinaryOp(
         const std::optional<const ::ttnn::DataType> &,
         const std::optional<::ttnn::MemoryConfig> &,
         std::optional<::ttnn::Tensor>,
-        tt::stl::Span<const ::ttnn::operations::unary::UnaryWithParam>,
-        tt::stl::Span<const ::ttnn::operations::unary::UnaryWithParam>,
-        tt::stl::Span<const ::ttnn::operations::unary::UnaryWithParam>)>
-        &ttnnOp) {
+        ttsl::Span<const ::ttnn::operations::unary::UnaryWithParam>,
+        ttsl::Span<const ::ttnn::operations::unary::UnaryWithParam>,
+        ttsl::Span<const ::ttnn::operations::unary::UnaryWithParam>)> &ttnnOp) {
 
   ::ttnn::Tensor *lhs = &(tensorPool.getTTNNTensorAndValidate(op->lhs()));
   ::ttnn::Tensor *rhs = &(tensorPool.getTTNNTensorAndValidate(op->rhs()));

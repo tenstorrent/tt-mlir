@@ -13,7 +13,6 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         InsertDstRegisterAccess.cpp
         OptimizeTensorLayout.cpp
         HoistCPUOps.cpp
-        Bufferization.cpp
         ElementTypeNormalization.cpp
         LowerToLayout.cpp
         Quantization.cpp

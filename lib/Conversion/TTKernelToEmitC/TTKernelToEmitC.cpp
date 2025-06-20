@@ -660,6 +660,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteBarrierOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocMulticastAddrOp>,
         TTKernelToEmitCOpaqueRewriter<
+            ttkernel::ExperimentalGetNocMulticastAddrOp>,
+        TTKernelToEmitCOpaqueRewriter<
             ttkernel::NocAsyncWriteMulticastOnePacketOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteMulticastOp>,
         TTKernelToEmitCOpaqueRewriter<

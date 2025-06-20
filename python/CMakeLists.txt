@@ -143,22 +143,6 @@ declare_mlir_python_sources(TTMLIRPythonCommon.Main
     compile_and_run.py
 )
 
-declare_mlir_python_sources(TTMLIRPythonOpByOpInfra)
-
-declare_mlir_python_sources(TTMLIRPythonOpByOpInfra.Main
-  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/op_by_op_infra"
-  ADD_TO_PARENT TTMLIRPythonOpByOpInfra
-  SOURCES
-    execution_result.py
-    mlir_module_executor.py
-    mlir_module_splitter.py
-    pydantic_models.py
-    utils.py
-    workflow_internal.py
-    workflow.py
-)
-
-
 ################################################################################
 # Generate packages and shared library
 ################################################################################
@@ -179,7 +163,6 @@ set(TTMLIR_PYTHON_SOURCES
   TTMLIRPythonSources
   TTMLIRPythonExtensions
   TTMLIRPythonCommon
-  TTMLIRPythonOpByOpInfra
   TTMLIRPythonSiteInitialize
 )
 

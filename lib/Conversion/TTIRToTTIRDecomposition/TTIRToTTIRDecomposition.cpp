@@ -501,9 +501,23 @@ public:
 
     // Applying the inverse of permutation to the output will restore the
     // tensor to the original layout.
-    rewriter.replaceOpWithNewOp<ttir::PermuteOp>(
-        op, op.getResult().getType(), newConv, adaptor.getOutput(),
-        ttmlir::utils::inversePermutation(permutation));
+
+    llvm::SmallVector<int64_t> outputLayout(conv2dLayout.size(),
+                                            ConvolutionDimension::INVALID_DIM);
+    outputLayout[op.getConvolutionLayout().getOutputBatchDimension()] =
+        ConvolutionDimension::BATCH;
+    outputLayout[op.getConvolutionLayout().getOutputFeatureDimension()] =
+        ConvolutionDimension::FEATURE;
+    for (const auto [spatialCount, spatialDim] : llvm::enumerate(
+             op.getConvolutionLayout().getOutputSpatialDimensions())) {
+      outputLayout[spatialDim] = spatialCount;
+    }
+    auto outputPermutation = ttmlir::utils::generatePermutation(
+        llvm::ArrayRef(conv2dLayout), llvm::ArrayRef(outputLayout));
+
+    rewriter.replaceOpWithNewOp<ttir::PermuteOp>(op, op.getResult().getType(),
+                                                 newConv, adaptor.getOutput(),
+                                                 outputPermutation);
 
     return success();
   }

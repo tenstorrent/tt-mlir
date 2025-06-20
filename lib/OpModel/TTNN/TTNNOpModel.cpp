@@ -195,6 +195,18 @@ getNullableMemoryConfig(::mlir::tt::ttnn::TTNNLayoutAttr layout) {
   return conversion::getMemoryConfig(layout);
 }
 
+/**
+ * @brief Convenience wrapper to get a DataType from a TTNNLayout attr that
+ * may be a nullptr. Returns std::nullopt if layout is nullptr
+ */
+std::optional<::tt::tt_metal::DataType>
+getNullableDataType(::mlir::tt::ttnn::TTNNLayoutAttr layout) {
+  if (!layout) {
+    return std::nullopt;
+  }
+  return conversion::getDataType(layout.getDataType());
+}
+
 } // namespace detail
 #endif // TTMLIR_ENABLE_OPMODEL
 
@@ -494,18 +506,10 @@ getEltwiseBinaryOpConstraints(std::string_view opName, OpSymbol opSymbol,
   }
   ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
 
-  std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt;
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig = std::nullopt;
-  if (outputLayout) {
-    auto outputSpecExp =
-        detail::convertToTensorSpec(device, outputShape, outputLayout);
-    if (!outputSpecExp) {
-      return outputSpecExp.takeError();
-    }
-    ::ttnn::TensorSpec outputSpec = outputSpecExp.get();
-    outputDType = outputSpec.data_type();
-    outputMemoryConfig = outputSpec.memory_config();
-  }
+  std::optional<::tt::tt_metal::DataType> outputDType =
+      detail::getNullableDataType(outputLayout);
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
 
   // Create query closure
   auto query = [=]() {
@@ -544,18 +548,11 @@ getEltwiseBinaryOpRuntime(std::string_view opName, OpSymbol opSymbol,
   }
   ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
 
-  std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt;
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig = std::nullopt;
-  if (outputLayout) {
-    auto outputSpecExp =
-        detail::convertToTensorSpec(device, outputShape, outputLayout);
-    if (!outputSpecExp) {
-      return outputSpecExp.takeError();
-    }
-    ::ttnn::TensorSpec outputSpec = outputSpecExp.get();
-    outputDType = outputSpec.data_type();
-    outputMemoryConfig = outputSpec.memory_config();
-  }
+  std::optional<::tt::tt_metal::DataType> outputDType =
+      detail::getNullableDataType(outputLayout);
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
+
   // Create query closure
   auto query = [=]() {
     return ::ttnn::graph::query_op_runtime(opSymbol, device, inputSpecA,
@@ -589,7 +586,7 @@ llvm::Expected<OpConstraints> getReductionOpConstraints(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
-  std::optional<::tt::stl::SmallVector<int>> dimArgConverted;
+  std::optional<::ttsl::SmallVector<int>> dimArgConverted;
   if (dimArg) {
     dimArgConverted =
         conversion::convertLLVMSmallVecToTTNNSmallVec(dimArg.value());
@@ -626,7 +623,7 @@ getReductionOpRuntime(std::string_view opName, OpSymbol opSymbol,
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
-  std::optional<::tt::stl::SmallVector<int>> dimArgConverted;
+  std::optional<::ttsl::SmallVector<int>> dimArgConverted;
   if (dimArg) {
     dimArgConverted =
         conversion::convertLLVMSmallVecToTTNNSmallVec(dimArg.value());
@@ -1118,11 +1115,11 @@ llvm::Expected<OpConstraints> SliceOpInterface::getOpConstraints(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // convert arrays
-  ::tt::stl::SmallVector<int> beginsVec =
+  ::ttsl::SmallVector<int> beginsVec =
       conversion::convertLLVMSmallVecToTTNNSmallVec(begins);
-  ::tt::stl::SmallVector<int> endsVec =
+  ::ttsl::SmallVector<int> endsVec =
       conversion::convertLLVMSmallVecToTTNNSmallVec(ends);
-  ::tt::stl::SmallVector<int> stepVec =
+  ::ttsl::SmallVector<int> stepVec =
       conversion::convertLLVMSmallVecToTTNNSmallVec(step);
 
   // Create query closure
@@ -1159,11 +1156,11 @@ llvm::Expected<size_t> SliceOpInterface::getOpRuntime(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Convert arrays
-  ::tt::stl::SmallVector<int> beginsVec =
+  ::ttsl::SmallVector<int> beginsVec =
       conversion::convertLLVMSmallVecToTTNNSmallVec(begins);
-  ::tt::stl::SmallVector<int> endsVec =
+  ::ttsl::SmallVector<int> endsVec =
       conversion::convertLLVMSmallVecToTTNNSmallVec(ends);
-  ::tt::stl::SmallVector<int> stepVec =
+  ::ttsl::SmallVector<int> stepVec =
       conversion::convertLLVMSmallVecToTTNNSmallVec(step);
 
   // Create query closure
@@ -1491,18 +1488,10 @@ MatmulOpInterface::getOpConstraints(GridAttr deviceGrid,
   }
   ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
 
-  std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt;
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig = std::nullopt;
-  if (outputLayout) {
-    auto outputSpecExp =
-        detail::convertToTensorSpec(device, outputShape, outputLayout);
-    if (!outputSpecExp) {
-      return outputSpecExp.takeError();
-    }
-    ::ttnn::TensorSpec outputSpec = outputSpecExp.get();
-    outputDType = outputSpec.data_type();
-    outputMemoryConfig = outputSpec.memory_config();
-  }
+  std::optional<::tt::tt_metal::DataType> outputDType =
+      detail::getNullableDataType(outputLayout);
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
 
   // Create query closure
   auto matmulOpQuery = [=]() {
@@ -1545,18 +1534,10 @@ MatmulOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
   }
   ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
 
-  std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt;
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig = std::nullopt;
-  if (outputLayout) {
-    auto outputSpecExp =
-        detail::convertToTensorSpec(device, outputShape, outputLayout);
-    if (!outputSpecExp) {
-      return outputSpecExp.takeError();
-    }
-    ::ttnn::TensorSpec outputSpec = outputSpecExp.get();
-    outputDType = outputSpec.data_type();
-    outputMemoryConfig = outputSpec.memory_config();
-  }
+  std::optional<::tt::tt_metal::DataType> outputDType =
+      detail::getNullableDataType(outputLayout);
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
 
   // Create query closure
   auto matmulOpQuery = [=]() {
@@ -1953,7 +1934,7 @@ llvm::Expected<OpConstraints> PermuteOpInterface::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   // Convert permutations of TTNN_PermuteOp to dims of ttnn::permute
-  ::tt::stl::SmallVector<int64_t> dims(permutation.size());
+  ::ttsl::SmallVector<int64_t> dims(permutation.size());
   std::copy(permutation.begin(), permutation.end(), dims.begin());
 
   float defaultedPadValue = padValue.convertToFloat();
@@ -1991,7 +1972,7 @@ PermuteOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
       SingletonDeviceContext::getInstance().getDevice();
 
   // Convert permutations of TTNN_PermuteOp to dims of ttnn::permute
-  ::tt::stl::SmallVector<int64_t> dims(permutation.size());
+  ::ttsl::SmallVector<int64_t> dims(permutation.size());
   std::copy(permutation.begin(), permutation.end(), dims.begin());
 
   // Convert float
