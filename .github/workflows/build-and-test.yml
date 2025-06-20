@@ -377,8 +377,10 @@ jobs:
 
     - name: Upload Debug Logs
       if: always()
-      name: ${{ matrix.build.runs-on }}_${{ matrix.build.image }}_${{ matrix.build.suite }}_debug_logs
-      path: /opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/generated/
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.build.runs-on }}_${{ matrix.build.image }}_${{ matrix.build.suite }}_debug_logs
+        path: /opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/generated/
 
     - name: Upload ttrt test report json
       if: (success() || failure()) && matrix.build.type == 'ttrt'
