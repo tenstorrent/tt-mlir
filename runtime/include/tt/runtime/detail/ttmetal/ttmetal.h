@@ -28,6 +28,10 @@ Tensor createBorrowedHostTensor(std::shared_ptr<void> data,
                                 const TensorDesc &desc);
 
 inline Tensor createOwnedHostTensor(const void *data, const TensorDesc &desc) {
+  LOG_ASSERT(utils::isSupportedDataType(desc.dataType),
+             "Creating owned tensor with unsupported data type: " +
+                 std::string(target::EnumNameDataType(desc.dataType)) +
+                 "is not implemented for the TTMetal runtime");
   std::shared_ptr<void> owned = utils::malloc_shared(desc.sizeBytes());
   std::memcpy(owned.get(), data, desc.sizeBytes());
   return ttmetal::createBorrowedHostTensor(owned, desc);
@@ -104,7 +108,8 @@ void wait(const std::vector<Tensor> &tensors);
 
 std::vector<Tensor> toHost(Tensor tensor, bool untilize);
 
-void memcpy(void *dst, Tensor src);
+void memcpy(void *dst, Tensor src,
+            std::optional<tt::target::DataType> dstDataType = std::nullopt);
 
 void memcpy(Tensor dst, Tensor src);
 

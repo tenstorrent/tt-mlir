@@ -594,9 +594,6 @@ def test_broadcast(shapes: List[Shape], broadcast_dimensions: List[int], request
     )
 
 
-@pytest.mark.skip(
-    "This test is not valid for TTRT Perf due to weird issues with perf collection. Issue #2371"
-)
 @pytest.mark.parametrize("shape", [(1, 128, 128, 1)])
 @pytest.mark.parametrize("dim", [0])
 def test_squeeze(shape: Shape, dim: int, request):
@@ -614,9 +611,6 @@ def test_squeeze(shape: Shape, dim: int, request):
     )
 
 
-@pytest.mark.skip(
-    "This test is not valid for TTRT Perf due to weird issues with perf collection. Issue #2371"
-)
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dim", [0])
 def test_unsqueeze(shape: Shape, dim: int, request):

@@ -179,7 +179,8 @@ Tensor toLayout(Tensor tensor, Device device, Layout layout,
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex);
 
-void memcpy(void *dst, Tensor src);
+void memcpy(void *dst, Tensor src,
+            std::optional<tt::target::DataType> targetDataType = std::nullopt);
 
 void memcpy(Tensor dst, Tensor src);
 

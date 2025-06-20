@@ -182,7 +182,8 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex);
 
-void memcpy(void *dst, ::tt::runtime::Tensor src);
+void memcpy(void *dst, ::tt::runtime::Tensor src,
+            std::optional<tt::target::DataType> dstDataType = std::nullopt);
 
 void memcpy(::tt::runtime::Tensor dst, ::tt::runtime::Tensor src);
 

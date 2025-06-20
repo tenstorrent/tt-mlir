@@ -8,8 +8,9 @@
 
 namespace tt::runtime::perf {
 
-const Env &Env::get(std::uint32_t dumpDeviceRate, bool enablePerfTrace) {
-  static Env config(dumpDeviceRate, enablePerfTrace);
+Env &Env::get(std::uint32_t dumpDeviceRate, bool enablePerfTrace,
+              const std::string &tracyProgramMetadata) {
+  static Env config(dumpDeviceRate, enablePerfTrace, tracyProgramMetadata);
   return config;
 }
 

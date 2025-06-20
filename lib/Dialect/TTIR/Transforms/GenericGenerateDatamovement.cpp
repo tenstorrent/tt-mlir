@@ -233,9 +233,9 @@ public:
     threads.append(generic.getThreads().begin(), generic.getThreads().end());
     auto newGeneric = rewriter.create<GenericOp>(
         generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
-        generic.getOutputs(), generic.getGrid(), generic.getIndexingMaps(),
-        generic.getIteratorTypes(), rewriter.getArrayAttr(threads),
-        numTotalRegions);
+        generic.getOutputs(), generic.getGrid(), generic.getBlockFactors(),
+        generic.getIndexingMaps(), generic.getIteratorTypes(),
+        rewriter.getArrayAttr(threads), numTotalRegions);
 
     // Preinitialize all regions so that we can modify their signatures on the
     // fly. i.e. adding semaphore arguments.

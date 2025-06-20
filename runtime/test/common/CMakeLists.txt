@@ -1,1 +1,2 @@
 add_runtime_gtest(sys_desc_sanity test_generate_sys_desc.cpp)
+add_runtime_gtest(handle_integer_buffer_cast test_handle_integer_buffer_cast.cpp)

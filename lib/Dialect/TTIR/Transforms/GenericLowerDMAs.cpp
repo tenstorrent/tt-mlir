@@ -33,8 +33,9 @@ public:
   // bounds.
   static std::tuple<SmallVector<Value>, SmallVector<int64_t>>
   buildStreamIndex(OpBuilder &builder, Location loc,
-                   ArrayRef<int64_t> gridShape, ArrayRef<int64_t> shardShape,
-                   AffineMap dmaIndexingMap, AffineMap gridIndexingMap) {
+                   ArrayRef<int64_t> gridShape, ArrayRef<int64_t> blockFactors,
+                   ArrayRef<int64_t> shardShape, AffineMap dmaIndexingMap,
+                   AffineMap gridIndexingMap) {
     assert(dmaIndexingMap.getNumDims() == gridIndexingMap.getNumDims());
     assert(dmaIndexingMap.getNumResults() == gridIndexingMap.getNumResults());
     assert(dmaIndexingMap.getNumResults() == shardShape.size());
@@ -72,10 +73,16 @@ public:
           loc, builder.getIndexType(), builder.getI64IntegerAttr(dim));
       Value index;
       if (isGridDim) {
-        // TODO(#3231): Support blocked inputs that are multiples of the grid
-        // shape. Should be added as part of blocking support.
+        // gridI * blockFactorI + iterI
+        Value blockFactor = builder.create<arith::ConstantOp>(
+            loc, builder.getIndexType(),
+            builder.getIndexAttr(blockFactors[dim]));
         index = builder.create<CoreIndexOp>(loc, builder.getIndexType(),
                                             builder.getI64IntegerAttr(dim));
+        index = builder.create<arith::MulIOp>(loc, builder.getIndexType(),
+                                              index, blockFactor);
+        index = builder.create<arith::AddIOp>(loc, builder.getIndexType(),
+                                              index, iterIndex);
       } else {
         index = iterIndex;
       }
@@ -198,7 +205,8 @@ public:
 
     auto [streamIndex, indexBounds] =
         buildStreamIndex(rewriter, dma.getLoc(), memrefGridShape,
-                         memrefShardShape, dmaIndexingMap, gridIndexingMap);
+                         genericParent.getBlockFactorsValue(), memrefShardShape,
+                         dmaIndexingMap, gridIndexingMap);
 
     DeviceAttr device = genericParent.getDevice();
     std::pair<MemRefType, AffineMap> underlyingMemrefAndView =

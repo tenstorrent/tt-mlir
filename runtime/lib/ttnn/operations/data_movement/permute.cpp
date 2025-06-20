@@ -16,7 +16,7 @@ void run(const ::tt::target::ttnn::PermuteOp *op, ProgramContext &context) {
 
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
-  ::ttnn::SmallVector<int64_t> permutation(op->permutation()->begin(),
+  ::ttsl::SmallVector<int64_t> permutation(op->permutation()->begin(),
                                            op->permutation()->end());
   std::optional<::ttnn::MemoryConfig> memoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(

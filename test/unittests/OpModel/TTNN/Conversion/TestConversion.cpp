@@ -473,9 +473,22 @@ TEST_P(MlirToTtnnConversionMemoryConfig, MemoryConfig) {
             mlirBufferType == mlir::tt::ttnn::BufferType::L1);
   EXPECT_EQ(memoryConfig.is_dram(),
             mlirBufferType == mlir::tt::ttnn::BufferType::DRAM);
-  EXPECT_EQ(memoryConfig.is_sharded(),
-            mlirTensorMemoryLayout !=
-                mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  EXPECT_FALSE(layout.getIgnorePhysicalLayout());
+
+  if (mlirTensorMemoryLayout !=
+      mlir::tt::ttnn::TensorMemoryLayout::Interleaved) {
+    EXPECT_TRUE(memoryConfig.is_sharded());
+    EXPECT_TRUE(memoryConfig.shard_spec().has_value());
+
+    auto partialLayout = layout.withIgnorePhysicalLayout(true);
+    EXPECT_TRUE(partialLayout.getIgnorePhysicalLayout());
+    EXPECT_TRUE(partialLayout.hasShardedTensorMemoryLayout());
+
+    const auto partialConfig =
+        mlir::tt::op_model::ttnn::conversion::getMemoryConfig(partialLayout);
+    EXPECT_TRUE(partialConfig.is_sharded());
+    EXPECT_FALSE(partialConfig.shard_spec().has_value());
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(

@@ -15,6 +15,7 @@ func.func @main(%arg0: tensor<256x384xf32, #layout1>, %arg1: tensor<256x384xf32,
   // CHECK: ins({{.*}} : tensor<1x1x8x12x!ttcore.tile<32x32, f32>, #layout>, tensor<1x1x8x12x!ttcore.tile<32x32, f32>, #layout>)
   // CHECK-NEXT: outs({{.*}} : tensor<1x1x8x1x!ttcore.tile<32x32, f32>, #layout1>)
   %1 = "ttir.generic"(%arg0, %arg1, %0) <{
+        block_factors = [1, 1],
         grid = #ttcore.grid<1x1>,
         indexing_maps = [#map1, #map1, #map2],
         iterator_types = [#parallel, #reduction],
@@ -46,6 +47,7 @@ func.func @main(%arg0: tensor<256x384xf32, #layout1>, %arg1: tensor<256x384xf32,
   // CHECK: ins({{.*}} : tensor<4x3x2x4x!ttcore.tile<32x32, f32>, #layout>, tensor<4x3x2x4x!ttcore.tile<32x32, f32>, #layout>)
   // CHECK-NEXT: outs({{.*}} : tensor<4x1x2x1x!ttcore.tile<32x32, f32>, #layout1>)
   %1 = "ttir.generic"(%arg0, %arg1, %0) <{
+        block_factors = [1, 1],
         grid = #ttcore.grid<4x1>,
         indexing_maps = [#map1, #map1, #map2],
         iterator_types = [#parallel, #reduction],
