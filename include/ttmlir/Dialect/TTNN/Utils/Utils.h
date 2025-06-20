@@ -47,7 +47,8 @@ struct RankedTensorTypeFactory {
 
   static RankedTensorType create(RankedTensorType tensorType, GridAttr grid);
 
-  static RankedTensorType create(RankedTensorType tensorType, DataType);
+  static RankedTensorType create(RankedTensorType tensorType,
+                                 DataType dataType);
 
   static RankedTensorType create(RankedTensorType tensorType,
                                  ArrayRef<int64_t> tensorShape);
