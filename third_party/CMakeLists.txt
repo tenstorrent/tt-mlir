@@ -99,7 +99,7 @@ ExternalProject_Add(
   PREFIX ${TTMLIR_SOURCE_DIR}/third_party/tt-metal
   BINARY_DIR ${METAL_BUILD_DIR}
   # This patch command creates the build dir that otherwise doesn't get created
-  PATCH_COMMAND ${CMAKE_COMMAND} -E make_directory ${METAL_BUILD_DIR}
+  PATCH_COMMAND patch -N -p1 < ${CMAKE_SOURCE_DIR}/third_party/metal.patch || true && ${CMAKE_COMMAND} -E make_directory ${METAL_BUILD_DIR}
   CMAKE_ARGS
     -DCMAKE_INSTALL_MESSAGE=LAZY
   CMAKE_GENERATOR Ninja
