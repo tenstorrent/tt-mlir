@@ -156,6 +156,14 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
         metalLayout.getShardShape(/*convertTileToScalar=*/false);
     SmallVector<int64_t> blockFactors = calculateOptimalBlockFactors(
         op.getIndexingMapsValue(), outputShardShape, dstRegisterSizeTiles);
+    if (blockFactors.size() == 3 && op.getBlockFactorsValue()[2] == 1) {
+      // blockFactors[2] = mlir::cast<MetalLayoutAttr>(
+      //     mlir::cast<RankedTensorType>(op->getOperand(0).getType()).getEncoding())
+      //                      .getShardShape()[1];
+      blockFactors[2] = 12; // CHANGE ME
+    } else if (blockFactors.size() == 3) {
+      return failure();
+    }
     bool blockFactorsChanged = blockFactors != op.getBlockFactorsValue();
     if (op.getGrid() == metalLayout.getGrid() && !blockFactorsChanged) {
       return failure();
@@ -327,15 +335,19 @@ class TTIROptimizeTensorLayout
       workerGridShape = llvm::to_vector(device.getWorkerGrid().getShape());
     }
 
-    {
-      RewritePatternSet patterns(&getContext());
-      patterns.add<TTIRGenericTensorLayoutRewriter>(&getContext(),
-                                                    workerGridShape);
-      patterns.add<TTIRHostTxsRewriter>(&getContext(), workerGridShape);
-      if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
-        signalPassFailure();
-        return;
-      }
+    unsigned dstRegisterSizeTiles = chipDesc.getDstRegisterSizeTiles();
+    if (maxDstRegisterSizeTiles.getValue() > 0) {
+      dstRegisterSizeTiles =
+          std::min(dstRegisterSizeTiles, maxDstRegisterSizeTiles.getValue());
+    }
+
+    RewritePatternSet patterns(&getContext());
+    patterns.add<TTIRGenericTensorLayoutRewriter>(
+        &getContext(), workerGridShape, dstRegisterSizeTiles);
+    patterns.add<TTIRHostTxsRewriter>(&getContext(), workerGridShape);
+    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
+      signalPassFailure();
+      return;
     }
   }
 

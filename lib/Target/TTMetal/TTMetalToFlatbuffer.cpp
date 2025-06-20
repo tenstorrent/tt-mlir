@@ -220,9 +220,10 @@ memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   }
 
   auto shardLayout = mlir::cast<ShardLayoutAttr>(deviceLayout);
-  auto memrefGridShape = shardLayout.getGridShape(memref);
+  // auto memrefGridShape = shardLayout.getGridShape(memref);
+  SmallVector<int64_t> gridShape{8, 8};
   std::vector<target::Dim2dRange> coreRangeSet =
-      toFlatbuffer(cache, memrefGridShape, device.getWorkerGrid().getMapping());
+      toFlatbuffer(cache, gridShape, device.getWorkerGrid().getMapping());
 
   uint64_t pageSize = device.getMemrefCBPageSizeBytes(memref);
   uint64_t shardSize =
