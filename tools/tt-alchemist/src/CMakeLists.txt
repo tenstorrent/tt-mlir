@@ -1,41 +1,71 @@
-# Source files
-set(TTALCHEMIST_SRCS
-  compiler.cpp
-  solution_generator.cpp
-  runtime.cpp
-  tt_alchemist.cpp
+# Configure envs
+#
+if(NOT DEFINED ENV{TT_MLIR_HOME})
+  message(FATAL_ERROR "TT_MLIR_HOME environment variable is not set")
+endif()
+
+# Set TT_ALCHEMIST_HOME
+#
+set(TT_ALCHEMIST_HOME $ENV{TT_MLIR_HOME}/tools/tt-alchemist)
+
+# Define lib name
+#
+set(LIBRARY_NAME tt-alchemist)
+
+# Sources
+#
+set(SOURCES
+  lib/tt_alchemist.cpp
 )
 
-# Create the shared library
-add_library(tt-alchemist SHARED ${TTALCHEMIST_SRCS})
+# Add library
+#
+add_library(${LIBRARY_NAME}
+  SHARED
+  EXCLUDE_FROM_ALL
+  ${SOURCES}
+)
 
-# Set include directories
-target_include_directories(tt-alchemist
+# Add dependencies
+#
+add_dependencies(${LIBRARY_NAME} TTMLIRCompiler)
+
+# Include dirs
+target_include_directories(${LIBRARY_NAME}
   PUBLIC
-    ${TTALCHEMIST_SOURCE_DIR}/include
-  PRIVATE
-    ${TTALCHEMIST_SOURCE_DIR}/src/include
+    ${TT_ALCHEMIST_HOME}/include
+    ${TT_MLIR_HOME}/include
 )
 
-# Link against required libraries
-target_link_libraries(tt-alchemist
+target_link_directories(${LIBRARY_NAME}
+  PUBLIC
+    $ENV{TT_MLIR_HOME}/lib
+)
+
+# Link libraries
+target_link_libraries(${LIBRARY_NAME}
   PRIVATE
-    MLIRTTNNDialect
-    MLIRTTNNTransforms
+    # TTMLIRCompiler
+    TTMLIRCompilerStatic
+)
+
+# Disable RTTI and set visibility
+target_compile_options(${LIBRARY_NAME}
+  PRIVATE
+    -fno-rtti
+    -fvisibility=hidden
+)
+
+# Define export macro
+target_compile_definitions(${LIBRARY_NAME}
+  PRIVATE
+    TT_ALCHEMIST_EXPORT=__attribute__\(\(visibility\(\"default\"\)\)\)
 )
 
 # Install the library
-install(
-  TARGETS tt-alchemist
+install(TARGETS ${LIBRARY_NAME}
+  EXPORT ${LIBRARY_NAME}Targets
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
-  RUNTIME DESTINATION bin
-  COMPONENT TTAlchemist
-)
-
-# Install the headers
-install(
-  DIRECTORY ${TTALCHEMIST_SOURCE_DIR}/include/
-  DESTINATION include
-  COMPONENT TTAlchemist
+  INCLUDES DESTINATION include
 )
