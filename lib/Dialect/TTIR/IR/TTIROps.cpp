@@ -2573,11 +2573,12 @@ mlir::OpFoldResult mlir::tt::ttir::ViewLayoutOp::fold(FoldAdaptor adaptor) {
   return success();
 }
 
-// If value is defined by TransposeOp with transpose dimensions
-// (rank - 2, rank - 1), return the input of the TransposeOp, otherwise return
-// std::nullopt. This is used for canonicalization of MatmulOp and LinearOp.
+// If value is defined by PermuteOp with permute dimensions
+// (..., rank - 2, rank - 1), return the input of the PermuteOp, otherwise
+// return std::nullopt. This is used for canonicalization of MatmulOp and
+// LinearOp.
 static std::optional<mlir::TypedValue<mlir::RankedTensorType>>
-getTransposeOpOperand(mlir::TypedValue<mlir::RankedTensorType> value) {
+getPermuteOpOperand(mlir::TypedValue<mlir::RankedTensorType> value) {
   auto producerPermuteOp = value.getDefiningOp<mlir::tt::ttir::PermuteOp>();
   if (!producerPermuteOp) {
     return std::nullopt;
@@ -2612,7 +2613,7 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
   // linear(transpose(a), b, bias transpose_a, transpose_b) ->
   //   linear(a, b, bias, !transpose_a, transpose_b)
   patterns.add(+[](ttir::LinearOp op, mlir::PatternRewriter &rewriter) {
-    auto inputACanonical = getTransposeOpOperand(op.getA());
+    auto inputACanonical = getPermuteOpOperand(op.getA());
     if (!inputACanonical) {
       return mlir::failure();
     }
@@ -2627,7 +2628,7 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
   // linear(a, transpose(b), bias transpose_a, transpose_b) ->
   //   linear(a, b, bias, transpose_a, !transpose_b)
   patterns.add(+[](ttir::LinearOp op, mlir::PatternRewriter &rewriter) {
-    auto inputBCanonical = getTransposeOpOperand(op.getB());
+    auto inputBCanonical = getPermuteOpOperand(op.getB());
     if (!inputBCanonical) {
       return mlir::failure();
     }
@@ -2779,7 +2780,7 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
   // matmul(transpose(a), b, transpose_a, transpose_b) ->
   //   matmul(a, b, !transpose_a, transpose_b)
   patterns.add(+[](ttir::MatmulOp op, mlir::PatternRewriter &rewriter) {
-    auto inputACanonical = getTransposeOpOperand(op.getA());
+    auto inputACanonical = getPermuteOpOperand(op.getA());
     if (!inputACanonical) {
       return mlir::failure();
     }
@@ -2794,7 +2795,7 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
   // matmul(a, transpose(b), transpose_a, transpose_b) ->
   //   matmul(a, b, transpose_a, !transpose_b)
   patterns.add(+[](ttir::MatmulOp op, mlir::PatternRewriter &rewriter) {
-    auto inputBCanonical = getTransposeOpOperand(op.getB());
+    auto inputBCanonical = getPermuteOpOperand(op.getB());
     if (!inputBCanonical) {
       return mlir::failure();
     }
