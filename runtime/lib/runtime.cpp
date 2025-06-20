@@ -222,29 +222,6 @@ Tensor createOwnedHostTensor(const void *data,
       });
 }
 
-// TODO(mrakita): Should be deprecated but D2M path is using this, investigate
-// if it can also use the new `createBorrowedHostTensor` function.
-// https://github.com/tenstorrent/tt-mlir/issues/2757
-Tensor createTensor(std::shared_ptr<void> data,
-                    const std::vector<std::uint32_t> &shape,
-                    const std::vector<std::uint32_t> &stride,
-                    std::uint32_t itemsize, ::tt::target::DataType dataType) {
-  using RetType = Tensor;
-  LOG_ASSERT(!shape.empty());
-  LOG_ASSERT(!stride.empty());
-  LOG_ASSERT(itemsize > 0);
-  return DISPATCH_TO_CURRENT_RUNTIME(
-      RetType,
-      [&]() -> RetType {
-        return ::tt::runtime::ttnn::createBorrowedHostTensor(
-            data.get(), shape, stride, itemsize, dataType);
-      },
-      [&]() -> RetType {
-        return ::tt::runtime::ttmetal::createBorrowedHostTensor(
-            data, TensorDesc(shape, stride, itemsize, dataType));
-      });
-}
-
 Tensor createMultiDeviceHostTensor(
     const std::vector<const void *> &data,
     const std::vector<std::uint32_t> &shape,
