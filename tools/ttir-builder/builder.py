@@ -1278,7 +1278,7 @@ class TTIRBuilder:
             ttir.SoftmaxOp,
             [in0],
             golden_kwargs={"dim": dimension},
-            organize_ttir_args=lambda i, o, shape: (
+            organize_ttir_args=lambda i, o, _: (
                 self._get_type(o),
                 i[0],
                 o,
@@ -2314,8 +2314,8 @@ class TTIRBuilder:
         in0: Operand,
         begins: List[int],
         ends: List[int],
-        step: List[int] = None,
-        unit_attrs: List[str] = None,
+        step: Optional[List[int]] = None,
+        unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         # If step is not provided, use 1 for each dimension
         if step is None:
@@ -2438,7 +2438,7 @@ class TTIRBuilder:
         index_vector_dim: int,
         slice_sizes: List[int],
         indices_are_sorted: bool = False,
-        unit_attrs: List[str] = None,
+        unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         """
         Gathers slices from input tensor from offsets specified in start_indices.

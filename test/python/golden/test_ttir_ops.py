@@ -1816,7 +1816,9 @@ def test_hoisted_slice(
     target: str,
     request,
 ):
-    def slice_wrapper(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
+    def slice_wrapper(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
         # Now use the slice operation with the CPU hoisting attribute
         return builder.slice(in0, begins, ends, step, unit_attrs=["should_hoist"])
 
@@ -2236,9 +2238,9 @@ def slice(
     in0: Operand,
     begins: List[int],
     ends: List[int],
-    step: List[int] = None,
+    step: Optional[List[int]] = None,
     builder: TTIRBuilder = None,
-    unit_attrs: List[str] = None,
+    unit_attrs: Optional[List[str]] = None,
 ):
     return builder.slice(in0, begins, ends, step, unit_attrs=unit_attrs)
 
@@ -2255,7 +2257,9 @@ def slice(
 def test_slice(
     shape: Shape, begins: List[int], ends: List[int], step: List[int], request
 ):
-    def slice_op(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
+    def slice_op(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
         return slice(in0, begins, ends, step, builder, unit_attrs)
 
     compile_to_flatbuffer(
@@ -2271,12 +2275,12 @@ def test_slice(
 @pytest.mark.parametrize("shape", [(4, 4)])
 @pytest.mark.parametrize("dim_args", [[0]])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-@pytest.mark.skip("TODO ticket")
+@pytest.mark.skip("Runtime error: https://github.com/tenstorrent/tt-mlir/issues/3883")
 def test_hoisted_reduce_or(shape: Shape, dim_args: List[int], target: str, request):
     """Test the hoisted reduce_or operation with proper dimensions and keep_dim parameter"""
 
     def hoisted_reduce_or_wrapper(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
         return reduce_or(
             in0, builder, dim_args, keep_dim=True, unit_attrs=["should_hoist"]
@@ -2308,7 +2312,10 @@ def test_hoisted_broadcast(shapes_and_broadcast_dims, request, target: str):
     shapes, broadcast_dimensions = shapes_and_broadcast_dims
 
     def broadcast_wrapper(
-        in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
     ):
         return broadcast(
             in0, in1, builder, broadcast_dimensions, unit_attrs=["should_hoist"]
@@ -2333,7 +2340,7 @@ def gather(
     start_index_map: List[int],
     offset_dims: List[int],
     slice_sizes: List[int],
-    unit_attrs: List[str] = None,
+    unit_attrs: Optional[List[str]] = None,
 ):
     # For now, just create zero indices - this tests the basic gather functionality
     # In a real test, you'd want to create varied indices to test different gather patterns
@@ -2380,7 +2387,7 @@ def gather(
             [1],
             [1, 16, 1],  # Complex indices
             marks=pytest.mark.skip(
-                reason="Multi-dimensional gather has known issues with typecast"
+                reason="Multi-dimensional gather has known issues, but the builder golden may also be incorrect: https://github.com/tenstorrent/tt-mlir/issues/3884"
             ),
         ),
     ],
@@ -2432,7 +2439,7 @@ def test_hoisted_gather(
     request,
 ):
     def gather_wrapper(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
         return gather(
             in0,
@@ -2484,7 +2491,7 @@ def test_hoisted_dot_general(
         in1: Operand,
         out0: Operand,
         builder: TTIRBuilder,
-        unit_attrs: List[str] = None,
+        unit_attrs: Optional[List[str]] = None,
     ):
         return builder.dot_general(
             in0,
