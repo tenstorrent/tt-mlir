@@ -7,6 +7,7 @@
 Build [ttmlir](./build.md).
 
 `TTIRBuilder` is a builder class providing the API for creating TTIR ops. The package `ttir_builder` contains everything needed to create ops for a TTIRBuilder object. `ttir_builder.utils` contains the APIs for wrapping op-creating-functions into MLIR modules and flatbuffers files.
+
 ```bash
 from ttir_builder import TTIRBuilder, Operand, Shape
 from ttir_builder.utils import compile_to_flatbuffer
@@ -16,7 +17,9 @@ For the full set of supported ops, see `tools/ttir-builder/builder.py`.
 For more detailed information on available APIs, see `tools/ttir-builder/builder.py` and `tools/ttir-builder/utils.py`.
 
 ## Creating a TTIR module
+
 `build_mlir_module` defines an MLIR module specified as a python function. It wraps `test_fn` in a MLIR FuncOp then wraps that in an MLIR module, and finally ties arguments of that FuncOp to test function inputs. It will instantiate and pass a `TTIRBuilder` object as the last argument of `test_fn`.
+
 ```bash
 def build_mlir_module(
     test_fn: Callable,
@@ -30,6 +33,7 @@ def build_mlir_module(
 ```
 
 ### Example
+
 ```bash
 from ttir_builder.utils import build_mlir_module
 from ttir_builder import Operand, TTIRBuilder
@@ -45,6 +49,7 @@ module, builder = build_mlir_module(model, shapes)
 ```
 
 #### Returns
+
 An MLIR module containing an MLIR op graph defined by `test_fn` and the `TTIRBuilder` object used to create it
 
 ```bash
@@ -62,6 +67,7 @@ module {
 ```
 
 ## Running a pipeline
+
 `run_pipeline` runs a pass on the TTIR module to lower it into a backend, using `pipeline_fn`. You can pass `pipeline_fn` in as one of the following: `ttir_to_ttnn_backend_pipeline`, `ttir_to_ttmetal_backend_pipeline` (both found in `ttmlir.passes`), or a custom pipeline built with `create_custom_pipeline_fn`. The default if none is provided is the TTNN pipeline.
 
 ```bash
@@ -78,7 +84,9 @@ def run_pipeline(
 ```
 
 ### TTNN example
+
 Let's expand on our previous example
+
 ```bash
 from ttir_builder.utils import build_mlir_module, run_pipeline
 from ttir_builder import Operand, TTIRBuilder
@@ -96,6 +104,7 @@ ttnn_module = run_pipeline(module, ttir_to_ttnn_backend_pipeline)
 ```
 
 #### Returns
+
 An MLIR module lowered into TTNN
 
 <details>
@@ -127,13 +136,16 @@ module {
 </details>
 
 ### TTMetal example
+
 Let's use the same code for TTMetal that was used in the TTNN example but change the `pipeline_fn` to `ttir_to_ttmetal_backend_pipeline`. Only one or the other can be run on a module since `run_pipeline` modifies the module in place. Note that while all TTIR ops supported by builder can be lowered to TTNN, not all can be lowered to TTMetal yet. Adding documentation to specify what ops can be lowered to TTMetal is in the works.
+
 ```bash
 from ttmlir.passes import ttir_to_ttmetal_backend_pipeline
 ttmetal_module = run_pipeline(module, ttir_to_ttmetal_backend_pipeline)
 ```
 
 #### Returns
+
 An MLIR module lowered into TTMetal
 
 <details>
@@ -414,7 +426,9 @@ module {
 </details>
 
 ## Compiling into flatbuffer
+
 `compile_to_flatbuffer` compiles a TTIRBuilder function `fn` straight to flatbuffer. This decorator is mainly a wrapper around the following functions, with each next function called on the output of the last: `build_mlir_module`, `run_pipeline`, and `ttnn_to_flatbuffer_file` or `ttmetal_to_flatbuffer_file` as dictated by the `target` parameter.
+
 ```bash
 def compile_to_flatbuffer(
     fn: Callable,
@@ -435,7 +449,9 @@ def compile_to_flatbuffer(
 No flatbuffer is printed or returned. It's only written to a file because it is created as an unsupported text encoding.
 
 ### TTNN example
+
 Let's use our previous model function.
+
 ```bash
 from ttir_builder.utils import compile_to_flatbuffer
 from ttir_builder import Operand, TTIRBuilder
@@ -455,7 +471,9 @@ compile_to_flatbuffer(
 ```
 
 ### TTMetal example
+
 Let's once again use the same code for TTMetal that was used in the TTNN example but change the `target` to `"ttmetal"`. Just as with `run_pipeline`, only one or the other can be run on a module since `compile_to_flatbuffer` modifies the module in place.
+
 ```bash
 compile_to_flatbuffer(
     model,
@@ -467,32 +485,39 @@ compile_to_flatbuffer(
 ## Integrating with other tools
 
 ### Alternatives for file creation
+
 1. The [`ttmlir-opt`](./ttmlir-opt.md) tool runs a compiler pass on an `.mlir` file.
 2. The [`ttmlir-translate`](./ttmlir-translate.md) can generate a flatbuffer from an `.mlir` file.
-3. [`llvm-lit`](
-https://github.com/tenstorrent/tt-mlir/blob/2064844f8140de7d38ba55f8acac107a016f32ab/docs/src/ttrt.md#generate-flatbuffer-files-using-llvm-lit) can also be used to generate a flatbuffer from an existing `.mlir` file.
+3. [`llvm-lit`](https://github.com/tenstorrent/tt-mlir/blob/2064844f8140de7d38ba55f8acac107a016f32ab/docs/src/ttrt.md#generate-flatbuffer-files-using-llvm-lit) can also be used to generate a flatbuffer from an existing `.mlir` file.
 
 ### Running models
 
 #### ttrt
+
 [`ttrt`](./ttrt.md) is intended to be a swiss army knife for working with flatbuffers.
 
 #### tt-explorer
-[`tt-explorer`](./tt-explorer.md) is a visualizer tool for `ttmlir`-powered compiler results.
+
+[`tt-explorer`](./tt-explorer/tt-explorer.md) is a visualizer tool for `ttmlir`-powered compiler results.
 
 #### ttnn-standalone
+
 [`ttnn-standalone`](./ttnn-standalone.md) is a post-compile tuning/debugging tool.
 
 #### llvm-lit
+
 [`llvm-lit`](./lit-testing.md) can also be used for MLIR testing.
 
 ## Golden mode
 
 ### Golden dataclass
+
 `TTIRBuilder` provides support to code golden tensors into flatbuffers which will be used for comparison with TT device output in `ttrt` runtime. `Golden` is the dataclass used to store information about a golden tensor. Each TTIR op should have a matching PyTorch op (or golden function built from PyTorch ops) which should perform exactly the same operation, generating the same outputs given the same inputs. You can use `TTIRBuilder` helper functions to store input, intermediate, and output tensors within the flatbuffer. Input and output goldens are mapped with keys "input_" and "output_" followed by a tensor index: `input_0`. Intermediate output tensors are mapped to the location of the respecive op creation.
 
 ### GoldenCheckLevel Enum
+
 `TTIRBuilder` stores an instance of the class `GoldenCheckLevel(Enum)` that dictates golden handling. It defaults to `GoldenCheckLevel.OP_LEVEL`. The exception is that `TTIRBuilder` CCL ops force the golden level to be set to `GRAPH_LEVEL`.
+
 ```bash
 DISABLED : do not store goldens
 OP_LEVEL : check every single op level goldens
@@ -500,6 +525,7 @@ GRAPH_LEVEL : check graph level goldens only
 ```
 
 Check and set `GoldenCheckLevel` with `TTIRBuilder` APIs.
+
 ```bash
 from ttir_builder import TTIRBuilder, Operand, GoldenCheckLevel
 
@@ -511,6 +537,7 @@ def model(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
 ```
 
 ### Getting golden data
+
 Unless otherwise specified in the `GoldenCheckLevel`, all input and output tensors will generate and store a golden in `TTIRBuilder` as a `Golden` type. The `TTIRBuilder` class has an API to print stored goldens if you want access to the data they contain: `print_goldens(self)`.
 
 <details>
@@ -535,17 +562,21 @@ tensor([[ 4.0450e+00,  1.4274e+00,  5.9156e-01,  ..., -5.9834e-01,
 </details>
 
 The `TTIRBuilder` API `get_golden_map(self)` is used to export golden data for flatbuffer construction. It returns a dictionary of golden tensor names and `GoldenTensor` objects. Printing that map will look something like this:
+
 ```bash
 {'input_0': <ttmlir._mlir_libs._ttmlir.passes.GoldenTensor object at 0x7f77c70fa0d0>, 'input_1': <ttmlir._mlir_libs._ttmlir.passes.GoldenTensor object at 0x7f77c70fa160>, 'input_2': <ttmlir._mlir_libs._ttmlir.passes.GoldenTensor object at 0x7f77c6fc9500>, 'output_0': <ttmlir._mlir_libs._ttmlir.passes.GoldenTensor object at 0x7f77c6fc9590>}
 ```
 
 To get info from a `GoldenTensor` object, use the attributes supported by `ttmlir.passes`: `name`, `shape`, `strides`, `dtype`, `data`.
+
 ```bash
 from ttmlir.passes import GoldenTensor
 ```
 
 ### Setting golden data
+
 Use `TTIRBuilder` API `set_graph_input_output` to set your own input and output golden tensors using PyTorch tensors. Keep in mind that this also sets graph inputs and outputs. There are some functions for which setting custom input tensors is required to pass PCC accuracy checks: `ttir.tan`, `ttir.log`, `ttir.log1p`. See example implementation and explanation in `test/python/golden/test_ttir_ops.py`.
+
 ```bash
 set_graph_input_output(
         self,
@@ -564,7 +595,9 @@ builder.set_graph_input_output([input_0], [output_0], override=True)
 ```
 
 ### Running flatbuffer with golden data in ttrt
+
 Running flatbuffers in `ttrt` requires additional building and setting up the environment. Run these commands before creating MLIR modules or flatbuffers so the system description in the flatbuffers match your device.
+
 ```bash
 cmake --build build -- ttrt
 ttrt query --save-artifacts
@@ -572,23 +605,29 @@ export SYSTEM_DESC_PATH=$(pwd)/ttrt-artifacts/system_desc.ttsys
 ```
 
 Set environment variable `TTRT_LOGGER_LEVEL` to `DEBUG` so `ttrt` logs golden comparison results and prints graph level golden tensors.
+
 ```bash
 export TTRT_LOGGER_LEVEL=DEBUG
 ```
 
 Finally run ttrt. Our example flatbuffer file (since we didn't specify otherwise) defaulted to file path `./ttnn/test_ttnn.mlir.ttnn`. `--log-file ttrt.log` and `--save-golden-tensors` are both optional flags. They ensure that all golden data produced by the `ttrt` run gets written to files.
+
 ```bash
 ttrt run ttnn/test_ttnn.mlir --log-file ttrt.log --save-golden-tensors
 ```
 
 #### Golden callbacks
+
 The `ttrt` documentation contains a [section](https://github.com/tenstorrent/tt-mlir/blob/main/docs/src/ttrt.md#bonus-section-extending-runtime-to-other-fes) on the callback function feature. Callback functions run between each op execution during runtime and contain op level golden analysis. They are also customizable and provide the flexibility for you to get creative with your golden usage.
 
 ## Adding a new op to `ttir-builder`
+
 `ttir-builder` is designed to only create ops supported in TTIR. At the moment, most but not all ops are supported, and new ops are still occasionally added to TTIR. Creating `ttir-builder` support for an op entails writing a function in `tools/ttir-builder/builder.py` that will create the op and its golden counterpart.
 
 ### TTIR op factories
+
 All ops are created when their relevant information is run through the `op_proxy` function which provides a general interface for proxy-ing and creating ops.
+
 ```bash
 def op_proxy(
     self,
@@ -607,6 +646,7 @@ def op_proxy(
 ```
 
 Eltwise ops require less specialized handling and call `op_proxy` through `eltwise_proxy`.
+
 ```bash
 def eltwise_proxy(
     self,
@@ -618,6 +658,7 @@ def eltwise_proxy(
 ```
 
 CCL ops require `GoldenCheckLevel` to be set to `GRAPH_LEVEL` and integrate that into their own proxy function.
+
 ```bash
 def ccl_proxy(
     self,
@@ -629,4 +670,5 @@ def ccl_proxy(
 ```
 
 ### Golden functions
+
 Setting the various inputs, outputs, arguments, shapes, and types are all fairly straightforward. Find the TTIR op in `include/ttmlir/Dialect/TTIR/IR/TTIROps.td` and replicate the pertinents. If there is necessary information that is not included, you may have to take it upon yourself to do some detective work and trial and error. The tricky part can be the finding or writing a golden function. It must perform exactly the same operation as the TTIR op and be written using PyTorch operations.
