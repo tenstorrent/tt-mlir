@@ -33,6 +33,28 @@ matchAndCalculateMatmulInterchange(ArrayRef<AffineMap> maps,
     return std::nullopt;
   }
 
+  if (maps.size() != 3) {
+    return std::nullopt;
+  }
+
+  auto lhs = maps[0];
+  auto rhs = maps[1];
+  auto out = maps[2];
+  auto numResults = lhs.getNumResults();
+  assert(numResults == rhs.getNumResults());
+  assert(numResults == out.getNumResults());
+
+  auto lhsM = lhs.getResult(numResults - 2);
+  auto lhsK = lhs.getResult(numResults - 1);
+  auto rhsK = rhs.getResult(numResults - 2);
+  auto rhsN = rhs.getResult(numResults - 1);
+  auto outM = out.getResult(numResults - 2);
+  auto outN = out.getResult(numResults - 1);
+
+  if (lhsM != outM || lhsK != rhsK || rhsN != outN) {
+    return std::nullopt;
+  }
+
   SmallVector<int64_t> interchange = llvm::map_to_vector(
       llvm::seq<int64_t>(0, iters.size()), [](int64_t i) { return i; });
 
