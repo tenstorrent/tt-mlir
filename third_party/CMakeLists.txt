@@ -97,6 +97,7 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
 elseif (CMAKE_BUILD_TYPE STREQUAL "Asan")
   set(TTMETAL_BUILD_TYPE "ASan")
 endif()
+set(TTMETAL_BUILD_TYPE "Release")
 
 set(METAL_BUILD_DIR ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
 set(METAL_INSTALL_PREFIX "${METAL_BUILD_DIR}")
