@@ -1744,80 +1744,6 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
   return success();
 }
 
-// TransposeOp can be removed if the both 'dim0' and 'dim1' are the same.
-static mlir::OpFoldResult
-foldIdentityTranspose(mlir::tt::ttir::TransposeOp op) {
-  if (op.getDim0() == op.getDim1()) {
-    return op.getInput();
-  }
-  return nullptr;
-}
-
-// Rewrite a transpose op to a canonical form where the 'dim0' is less than
-// 'dim1'.
-static mlir::OpFoldResult sortTansposeDims(mlir::tt::ttir::TransposeOp op) {
-  if (op.getDim0() < op.getDim1()) {
-    return nullptr;
-  }
-
-  auto oldDim0 = op.getDim0();
-  op.setDim0(op.getDim1());
-  op.setDim1(oldDim0);
-  return op.getResult();
-}
-
-// Rewrite tranpose dims to a canonical form where the 'dim0' and 'dim1' are
-// in range [0, N), where N is a rank of input tensor.
-static mlir::OpFoldResult
-forcePositiveTransposeDims(mlir::tt::ttir::TransposeOp op) {
-  if (op.getDim0() >= 0 && op.getDim1() >= 0) {
-    return nullptr;
-  }
-
-  if (op.getDim0() < 0) {
-    op.setDim0(op.getDim0() + op.getInput().getType().getRank());
-  } else if (op.getDim1() < 0) {
-    op.setDim1(op.getDim1() + op.getInput().getType().getRank());
-  }
-
-  return op.getResult();
-}
-
-// Transposing twice in the row over the same dimensions results in identity,
-// hence y = T(T(x)) can be replaced with y = x.
-static mlir::OpFoldResult
-foldInverseTransposeOperand(mlir::tt::ttir::TransposeOp op) {
-  if (auto producerOp =
-          op.getInput().getDefiningOp<mlir::tt::ttir::TransposeOp>()) {
-    if (op.getDim0() == producerOp.getDim0() &&
-        op.getDim1() == producerOp.getDim1()) {
-      return producerOp.getInput();
-    }
-  }
-  return nullptr;
-}
-
-// TransposeOp folder
-mlir::OpFoldResult mlir::tt::ttir::TransposeOp::fold(FoldAdaptor adaptor) {
-  if (auto foldResult = foldIdentityTranspose(*this)) {
-    return foldResult;
-  }
-
-  if (auto foldResult = sortTansposeDims(*this)) {
-    return foldResult;
-  }
-
-  if (auto foldResult = forcePositiveTransposeDims(*this)) {
-    return foldResult;
-  }
-
-  if (auto foldResult = foldInverseTransposeOperand(*this)) {
-    return foldResult;
-  }
-
-  return nullptr;
-}
-
 void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
   patterns.add(+[](TransposeOp op, mlir::PatternRewriter &rewriter) {
@@ -2647,34 +2573,20 @@ mlir::OpFoldResult mlir::tt::ttir::ViewLayoutOp::fold(FoldAdaptor adaptor) {
 // std::nullopt. This is used for canonicalization of MatmulOp and LinearOp.
 static std::optional<mlir::TypedValue<mlir::RankedTensorType>>
 getTransposeOpOperand(mlir::TypedValue<mlir::RankedTensorType> value) {
-  auto producerTransposeOp = value.getDefiningOp<mlir::tt::ttir::TransposeOp>();
   auto producerPermuteOp = value.getDefiningOp<mlir::tt::ttir::PermuteOp>();
-  if (!producerTransposeOp && !producerPermuteOp) {
+  if (!producerPermuteOp) {
     return std::nullopt;
   }
-  if (producerTransposeOp) {
-    int64_t rank = value.getType().getRank();
-    if (rank < 2 || producerTransposeOp.getDim0() != rank - 2 ||
-        producerTransposeOp.getDim1() != rank - 1) {
-      return std::nullopt;
-    }
 
-    return producerTransposeOp.getInput();
+  int64_t rank = value.getType().getRank();
+  if (rank < 2 || producerPermuteOp.getPermutation()[rank - 2] != rank - 1 ||
+      producerPermuteOp.getPermutation()[rank - 1] != rank - 2 ||
+      !std::is_sorted(producerPermuteOp.getPermutation().begin(),
+                      producerPermuteOp.getPermutation().end() - 2)) {
+    return std::nullopt;
   }
 
-  if (producerPermuteOp) {
-    int64_t rank = value.getType().getRank();
-    if (rank < 2 || producerPermuteOp.getPermutation()[rank - 2] != rank - 1 ||
-        producerPermuteOp.getPermutation()[rank - 1] != rank - 2 ||
-        !std::is_sorted(producerPermuteOp.getPermutation().begin(),
-                        producerPermuteOp.getPermutation().end() - 2)) {
-      return std::nullopt;
-    }
-
-    return producerPermuteOp.getInput();
-  }
-  llvm_unreachable("We should have returned earlier if the producer was "
-                   "neither a transpose nor permute");
+  return producerPermuteOp.getInput();
 }
 
 // LinearOp canonicalization
