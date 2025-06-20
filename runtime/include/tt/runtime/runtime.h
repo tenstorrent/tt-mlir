@@ -165,13 +165,15 @@ bool releaseTrace(Device meshDevice, std::uint64_t binaryId, size_t programId);
 
 void wait(Event event);
 
-void wait(Tensor tensor);
+void wait(Tensor tensor, std::optional<uint8_t> cqId = std::nullopt);
 
-void wait(const std::vector<Tensor> &tensors);
+void wait(const std::vector<Tensor> &tensors,
+          std::optional<uint8_t> cqId = std::nullopt);
 
 // Copies device tensor data to host tensor with owned storage, with option to
 // untilize data.
-std::vector<Tensor> toHost(Tensor tensor, bool untilize = false);
+std::vector<Tensor> toHost(Tensor tensor, bool untilize = false,
+                           bool blocking = true);
 
 Tensor toLayout(Tensor tensor, Device device, Layout layout,
                 std::optional<bool> retain = std::nullopt);

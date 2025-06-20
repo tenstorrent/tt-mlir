@@ -593,29 +593,29 @@ void wait(Event event) {
       [&]() { ::tt::runtime::ttmetal::wait(event); });
 }
 
-void wait(Tensor tensor) {
+void wait(Tensor tensor, std::optional<uint8_t> cqId) {
   using RetType = void;
   DISPATCH_TO_CURRENT_RUNTIME(
-      RetType, [&]() { ::tt::runtime::ttnn::wait(tensor); },
-      [&]() { ::tt::runtime::ttmetal::wait(tensor); });
+      RetType, [&]() { ::tt::runtime::ttnn::wait(tensor, cqId); },
+      [&]() { ::tt::runtime::ttmetal::wait(tensor, cqId); });
 }
 
-void wait(const std::vector<Tensor> &tensors) {
+void wait(const std::vector<Tensor> &tensors, std::optional<uint8_t> cqId) {
   using RetType = void;
   DISPATCH_TO_CURRENT_RUNTIME(
-      RetType, [&]() { ::tt::runtime::ttnn::wait(tensors); },
-      [&]() { ::tt::runtime::ttmetal::wait(tensors); });
+      RetType, [&]() { ::tt::runtime::ttnn::wait(tensors, cqId); },
+      [&]() { ::tt::runtime::ttmetal::wait(tensors, cqId); });
 }
 
-std::vector<Tensor> toHost(Tensor tensor, bool untilize) {
+std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
   using RetType = std::vector<Tensor>;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
-        return ::tt::runtime::ttnn::toHost(tensor, untilize);
+        return ::tt::runtime::ttnn::toHost(tensor, untilize, blocking);
       },
       [&]() -> RetType {
-        return ::tt::runtime::ttmetal::toHost(tensor, untilize);
+        return ::tt::runtime::ttmetal::toHost(tensor, untilize, blocking);
       });
 }
 
