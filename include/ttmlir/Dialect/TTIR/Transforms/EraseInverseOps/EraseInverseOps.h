@@ -127,17 +127,6 @@ public:
   }
 };
 
-inline bool checkIdenticalTransposes(Operation *op1, Operation *op2) {
-  auto transposeOp1 = dyn_cast<ttir::TransposeOp>(op1);
-  auto transposeOp2 = dyn_cast<ttir::TransposeOp>(op2);
-  if (transposeOp1 && transposeOp2) {
-    return transposeOp1.getDim0() == transposeOp2.getDim0() &&
-           transposeOp1.getDim1() == transposeOp2.getDim1();
-  }
-
-  return false;
-}
-
 inline bool checkIdenticalPermutes(Operation *op1, Operation *op2) {
   auto permuteOp1 = dyn_cast<ttir::PermuteOp>(op1);
   auto permuteOp2 = dyn_cast<ttir::PermuteOp>(op2);
@@ -159,8 +148,7 @@ inline bool checkIdenticalReshapes(Operation *op1, Operation *op2) {
 }
 
 inline bool checkIdenticalTms(Operation *op1, Operation *op2) {
-  return checkIdenticalTransposes(op1, op2) ||
-         checkIdenticalPermutes(op1, op2) || checkIdenticalReshapes(op1, op2);
+  return checkIdenticalPermutes(op1, op2) || checkIdenticalReshapes(op1, op2);
 }
 
 inline bool checkAllUsersAreIdenticalTms(ArrayRef<Operation *> users) {

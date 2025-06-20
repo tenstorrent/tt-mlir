@@ -249,23 +249,6 @@ getOpRuntime(std::vector<llvm::ArrayRef<int64_t>> inputShapes,
 }; // namespace ConcatOpInterface
 
 //===----------------------------------------------------------------------===//
-// TransposeOp
-//===----------------------------------------------------------------------===//
-
-namespace TransposeOpInterface {
-llvm::Expected<OpConstraints>
-getOpConstraints(GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
-                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout, const int dim0,
-                 const int dim1, mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
-
-llvm::Expected<size_t>
-getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
-             mlir::tt::ttnn::TTNNLayoutAttr inputLayout, const int dim0,
-             const int dim1, mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
-
-}; // namespace TransposeOpInterface
-
-//===----------------------------------------------------------------------===//
 // MatmulOp
 //===----------------------------------------------------------------------===//
 
