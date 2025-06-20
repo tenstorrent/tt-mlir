@@ -13,7 +13,7 @@ import subprocess
 
 def main():
     # Path to the model file
-    model_file = "../test/models/mnist.mlir"
+    model_file = "/localdev/svuckovic/_workspace/repos/tt-mlir/tools/tt-alchemist/test/models/mnist.mlir"
 
     # Output directory
     output_dir = "./output"
@@ -24,7 +24,7 @@ def main():
     # Run the CLI command
     cmd = [
         "python3",
-        "tt_alchemist_cli.py",
+        f"{os.environ['TT_MLIR_HOME']}/tools/tt-alchemist/python/tt_alchemist_cli.py",
         "convert",
         "--input",
         model_file,

@@ -126,6 +126,7 @@ struct TTIRDialectFoldInterface : public DialectFoldInterface {
 //===----------------------------------------------------------------------===//
 
 void TTIRDialect::initialize() {
+  std::cout << "INITIALIZING TTIR DIALECT INLINER" << std::endl;
   addOperations<
 #define GET_OP_LIST
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
