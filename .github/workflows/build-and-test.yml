@@ -388,7 +388,7 @@ jobs:
     #     zip -r debug_logs.zip debug_logs/
 
     - name: Upload Debug Logs
-      if: success() || failure()
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.build.runs-on }}_${{ matrix.build.image }}_${{ matrix.build.suite }}_debug_logs
