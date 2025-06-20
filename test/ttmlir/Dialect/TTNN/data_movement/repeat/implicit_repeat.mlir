@@ -18,9 +18,9 @@ func.func @main(%arg0: tensor<128xf32>, %arg1: tensor<128xf32>) -> tensor<784x12
     // CHECK: %{{[0-9]+}} = "ttnn.reshape"
     // CHECK-NOT: "ttnn.repeat"
     // CHECK: %{{[0-9]+}} = "ttnn.reshape"
+    // CHECK: %{{[0-9]+}} = "ttnn.add"
     // CHECK: %{{[0-9]+}} = "ttnn.repeat"
     // CHECK-SAME: repeat_dims = #ttnn.shape<784x1>
-    // CHECK: %{{[0-9]+}} = "ttnn.add"
     %0 = ttir.empty() : tensor<1x128xf32>
     %1 = "ttir.reshape"(%arg0, %0) <{shape = [1 : i32, 128 : i32]}> : (tensor<128xf32>, tensor<1x128xf32>) -> tensor<1x128xf32>
     %2 = ttir.empty() : tensor<784x128xf32>
@@ -39,16 +39,16 @@ func.func @main(%arg0: tensor<128xf32>, %arg1: tensor<128xf32>) -> tensor<784x12
 
 module {
   func.func @main(%arg0: tensor<1x16x32xf32>, %arg1: tensor<1x1x32xf32>) -> tensor<1x16x32xf32> {
+    // CHECK: %{{[0-9]+}} = "ttnn.multiply"(%arg0, %arg1)
     // CHECK: [[VAL0:%[0-9]+]] = "ttnn.repeat"
     // CHECK-SAME: repeat_dims = #ttnn.shape<1x16x1>
-    // CHECK: %{{[0-9]+}} = "ttnn.multiply"(%arg0, %{{[0-9]+}})
-    // CHECK: %{{[0-9]+}} = "ttnn.maximum"([[VAL0]], %{{[0-9]+}})
+    // CHECK: %{{[0-9]+}} = "ttnn.eq"([[VAL0]], %{{[0-9]+}})
     %0 = ttir.empty() : tensor<1x16x32xf32>
     %1 = "ttir.broadcast"(%arg1, %0) <{broadcast_dimensions = array<i64: 1, 16, 1>}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
     %2 = ttir.empty() : tensor<1x16x32xf32>
     %3 = "ttir.multiply"(%arg0, %1, %2) : (tensor<1x16x32xf32>, tensor<1x16x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
     %4 = ttir.empty() : tensor<1x16x32xf32>
-    %5 = "ttir.maximum"(%1, %3, %4) : (tensor<1x16x32xf32>, tensor<1x16x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
+    %5 = "ttir.eq"(%1, %3, %4) : (tensor<1x16x32xf32>, tensor<1x16x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
     return %5 : tensor<1x16x32xf32>
   }
 }

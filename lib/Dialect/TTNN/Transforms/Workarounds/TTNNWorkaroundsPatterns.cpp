@@ -12,8 +12,10 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpDimRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpRankRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ExplicateOperandBroadcastsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceOpsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RepeatOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SubtractOpImplicitBroadcastRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -717,6 +719,33 @@ public:
               ttnn::MaxOp>,
           workarounds::decomposition::ReduceOpsPadInputRewritePattern<
               ttnn::MinOp>>(&getContext());
+
+      // These operations do not support implicit broadcasting on both operands,
+      // so we need to work around this by explicating broadcasts where needed.
+      patterns.add<
+          workarounds::decomposition::SubtractOpImplicitBroadcastRewritePattern,
+          workarounds::decomposition::ExplicateOperandBroadcastsRewritePattern<
+              ttnn::EqualOp>,
+          workarounds::decomposition::ExplicateOperandBroadcastsRewritePattern<
+              ttnn::NotEqualOp>,
+          workarounds::decomposition::ExplicateOperandBroadcastsRewritePattern<
+              ttnn::LessEqualOp>,
+          workarounds::decomposition::ExplicateOperandBroadcastsRewritePattern<
+              ttnn::LessThanOp>,
+          workarounds::decomposition::ExplicateOperandBroadcastsRewritePattern<
+              ttnn::GreaterEqualOp>,
+          workarounds::decomposition::ExplicateOperandBroadcastsRewritePattern<
+              ttnn::GreaterThanOp>,
+          workarounds::decomposition::ExplicateOperandBroadcastsRewritePattern<
+              ttnn::DivideOp>,
+          workarounds::decomposition::ExplicateOperandBroadcastsRewritePattern<
+              ttnn::RemainderOp>,
+          workarounds::decomposition::ExplicateOperandBroadcastsRewritePattern<
+              ttnn::LogicalAndOp>,
+          workarounds::decomposition::ExplicateOperandBroadcastsRewritePattern<
+              ttnn::LogicalOrOp>,
+          workarounds::decomposition::ExplicateOperandBroadcastsRewritePattern<
+              ttnn::LogicalXorOp>>(&getContext());
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);

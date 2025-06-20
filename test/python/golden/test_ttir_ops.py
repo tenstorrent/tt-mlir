@@ -1699,6 +1699,153 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
 
 
 @pytest.mark.parametrize(
+    "shapes",
+    [
+        pytest.param([(1, 1, 1), (8, 16, 32)], id="broadcast_lhs_1"),
+        pytest.param([(1, 1, 32), (8, 16, 32)], id="broadcast_lhs_2"),
+        pytest.param([(1, 16, 32), (8, 16, 32)], id="broadcast_lhs_3"),
+        pytest.param([(8, 16, 32), (1, 1, 1)], id="broadcast_rhs_1"),
+        pytest.param([(8, 16, 32), (1, 1, 32)], id="broadcast_rhs_2"),
+        pytest.param([(8, 16, 32), (1, 16, 32)], id="broadcast_rhs_3"),
+        pytest.param([(8, 16, 1), (1, 1, 32)], id="broadcast_both_1"),
+        pytest.param([(1, 1, 32), (8, 16, 1)], id="broadcast_both_2"),
+        pytest.param([(8, 1, 32), (8, 16, 1)], id="broadcast_both_3"),
+        pytest.param([(8, 16, 1), (8, 1, 32)], id="broadcast_both_4"),
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        add,
+        multiply,
+        subtract | Marks(pytest.mark.run_error),
+        eq | Marks(pytest.mark.run_error),
+        ne | Marks(pytest.mark.run_error),
+        le | Marks(pytest.mark.run_error),
+        lt | Marks(pytest.mark.run_error),
+        ge | Marks(pytest.mark.run_error),
+        gt | Marks(pytest.mark.run_error),
+        div | Marks(pytest.mark.run_error),
+        remainder | Marks(pytest.mark.run_error),
+        maximum,
+        minimum,
+        pow,
+        logical_and | Marks(pytest.mark.run_error),
+        logical_or | Marks(pytest.mark.run_error),
+        logical_xor | Marks(pytest.mark.run_error),
+    ],
+)
+def test_binary_eltwise_ops_implicit_broadcast(
+    test_fn: Callable,
+    shapes: List[Shape],
+    dtype: torch.dtype,
+    target: str,
+    request,
+):
+    ids = request.node.callspec._idlist
+
+    if test_fn == add and any(
+        bcast_id in ids
+        for bcast_id in {
+            "broadcast_both_1",
+            "broadcast_both_2",
+            "broadcast_both_3",
+            "broadcast_both_4",
+        }
+    ):
+        pytest.skip(
+            "Data missmatch on add op because of implicit broadcast on both operands"
+        )
+
+    if test_fn == multiply and any(
+        bcast_id in ids
+        for bcast_id in {
+            "broadcast_both_1",
+            "broadcast_both_2",
+            "broadcast_both_3",
+            "broadcast_both_4",
+        }
+    ):
+        pytest.skip(
+            "Data missmatch on multiply op because of implicit broadcast on both operands"
+        )
+
+    if test_fn == subtract and any(
+        bcast_id in ids
+        for bcast_id in {
+            "broadcast_both_1",
+            "broadcast_both_2",
+            "broadcast_both_3",
+            "broadcast_both_4",
+        }
+    ):
+        pytest.skip(
+            "Data missmatch on subtract op because of implicit broadcast on both operands"
+        )
+
+    if test_fn == pow and any(
+        bcast_id in ids
+        for bcast_id in {
+            "broadcast_lhs_1",
+            "broadcast_lhs_2",
+            "broadcast_lhs_3",
+            "broadcast_both_2",
+        }
+    ):
+        pytest.skip(
+            "Data missmatch on pow op because of implicit broadcast on both operands"
+        )
+
+    pipeline_options = ["enable-decomposition-workaround-pass=false"]
+
+    compile_to_flatbuffer(
+        test_fn,
+        shapes,
+        [dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        pipeline_options=pipeline_options,
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [(1, 16, 32), (8, 16, 32), (8, 16, 32)],
+        [(8, 16, 32), (1, 16, 32), (8, 16, 32)],
+        [(8, 16, 32), (8, 16, 32), (1, 16, 32)],
+        [(8, 16, 32), (1, 1, 32), (1, 1, 32)],
+        [(1, 1, 32), (8, 16, 32), (1, 1, 32)],
+        [(1, 1, 32), (1, 1, 32), (8, 16, 32)],
+        [(1, 16, 32), (8, 1, 32), (8, 16, 1)],
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("test_fn", [where])
+def test_ternary_eltwise_ops_implicit_broadcast(
+    test_fn: Callable,
+    shapes: List[Shape],
+    dtype: torch.dtype,
+    target: str,
+    request,
+):
+    compile_to_flatbuffer(
+        test_fn,
+        shapes,
+        [dtype, dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
+
+
+@pytest.mark.parametrize(
     "test_fn,inputs_shapes,inputs_dtypes",
     [
         (transpose, [(64, 32)], None),
