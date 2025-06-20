@@ -284,6 +284,25 @@ private:
     return std::nullopt;
   }
 
+  static bool isConstant(const llvm::SmallPtrSet<BlockArgument, 4> &constParams,
+                         Conv2dOp conv2dOp, mlir::Value value) {
+    if (auto blockArg = mlir::dyn_cast<BlockArgument>(value)) {
+      return constParams.contains(blockArg);
+    }
+
+    Operation *op = value.getDefiningOp();
+    if (op->hasTrait<mlir::tt::Trait::TTCoreCreationOpTrait>() &&
+        op->isBeforeInBlock(conv2dOp)) {
+      return true;
+    }
+
+    if (auto typecastOp = mlir::dyn_cast<TypecastOp>(op)) {
+      return isConstant(constParams, conv2dOp, typecastOp.getInput());
+    }
+
+    return false;
+  }
+
   // We can commute only if both scale and weight are constant.
   static bool isCommutable(Conv2dOp conv2dOp,
                            mlir::TypedValue<RankedTensorType> scale) {
@@ -306,7 +325,8 @@ private:
     };
 
     // Both scale and weight must be constant.
-    if (!isConstant(scale) || !isConstant(conv2dOp.getWeight())) {
+    if (!isConstant(constParams, conv2dOp, scale) ||
+        !isConstant(constParams, conv2dOp, conv2dOp.getWeight())) {
       return false;
     }
 

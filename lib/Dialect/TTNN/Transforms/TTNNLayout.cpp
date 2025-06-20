@@ -267,9 +267,9 @@ public:
         // For the weight input of the conv2d op, it specifically needs to be on
         // host, so we create a host to layout op (issue
         // https://github.com/tenstorrent/tt-mlir/issues/1528).
-        if (operand.getOperandNumber() == 1) {
-          modified = changeLayoutToHost(op, operand, rewriter, isDPSResult);
-        }
+        // if (operand.getOperandNumber() == 1) {
+        //   modified = changeLayoutToHost(op, operand, rewriter, isDPSResult);
+        // }
         continue;
       }
 

@@ -27,6 +27,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsEnums.cpp.inc"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreAttrInterfaces.cpp.inc"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreTypeInterfaces.cpp.inc"
 
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.cpp.inc"
