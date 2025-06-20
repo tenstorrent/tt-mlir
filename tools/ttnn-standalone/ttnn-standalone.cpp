@@ -3283,6 +3283,10 @@ static ::std::vector<::ttnn::Tensor> g_cached_result_forward_const_eval_58;
   return v273;
 }
 
+ttnn::Tensor host_input_tensor() {
+  return ttnn::ones(::ttnn::Shape({8, 3, 224, 224}), ::ttnn::DataType::BFLOAT16, ::ttnn::Layout::TILE, ::std::nullopt, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED, ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+}
+
 std::pair<ttnn::Tensor, ttnn::MeshTraceId> capture_trace(const std::vector<ttnn::Tensor> &inputs, ttnn::MeshDevice *device) {
   auto tid = ttnn::operations::trace::begin_trace_capture(device, ttnn::DefaultQueueId);
   auto output = forward(inputs);
@@ -3294,8 +3298,9 @@ void execute_trace(ttnn::MeshDevice *device, const ttnn::MeshTraceId &tid) {
   ttnn::operations::trace::execute_trace(device, tid, ttnn::DefaultQueueId, /*blocking=*/true);
 }
 
-double time_run_wo_trace(const std::string &run_name, const std::vector<::ttnn::Tensor> &v) {
+double time_run_wo_trace(const std::string &run_name, std::vector<::ttnn::Tensor> &v, const ttnn::Tensor &host_input, ttnn::MeshDevice *device) {
   auto start = std::chrono::high_resolution_clock::now();
+  v[0] = ttnn::to_device(host_input, device, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED, ::ttnn::BufferType::DRAM, ::std::nullopt});
   ::std::vector<::ttnn::Tensor> v2 = forward(v);
   auto t = ttnn::from_device(v2[0]);
   auto end = std::chrono::high_resolution_clock::now();
@@ -3308,8 +3313,9 @@ double time_run_wo_trace(const std::string &run_name, const std::vector<::ttnn::
   return duration.count();
 }
 
-double time_run_with_trace(ttnn::MeshDevice *device, const ttnn::MeshTraceId &tid) {
+double time_run_with_trace(ttnn::MeshDevice *device, const ttnn::MeshTraceId &tid, const ttnn::Tensor &host_input, ttnn::Tensor &device_input) {
   auto start = std::chrono::high_resolution_clock::now();
+  tt::tt_metal::write_tensor(host_input, device_input);
   execute_trace(device, tid);
   auto end = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> duration = end - start;
@@ -3453,31 +3459,25 @@ int32_t main() {
   constexpr int NUM_OF_RUNS = 10;
 
   ::std::vector<::ttnn::Tensor> inputs = create_inputs_for_forward();
-  auto host_input = inputs[0];
-  inputs[0] = ttnn::to_device(inputs[0], device, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED, ::ttnn::BufferType::DRAM, ::std::nullopt});
 
-  time_run_wo_trace("warmup", inputs);
-  tt::tt_metal::detail::DumpDeviceProfileResults(device->get_device(0));
+  time_run_wo_trace("warmup", inputs, host_input_tensor(), device);
 
   double total_time = 0.0;
   for (int i = 0; i < NUM_OF_RUNS; ++i) {
-    total_time += time_run_wo_trace("execute-wo/trace", inputs);
-    tt::tt_metal::detail::DumpDeviceProfileResults(device->get_device(0));
+    total_time += time_run_wo_trace("execute-wo/trace", inputs, host_input_tensor(), device);
   }
 
   std::cout << "AVG: " << total_time / NUM_OF_RUNS << " seconds for run: execute-wo/trace" << std::endl;
 
   //====================================================================
-  auto device_input = ttnn::operations::core::allocate_tensor_on_device(host_input.tensor_spec(), device);
-  tt::tt_metal::write_tensor(host_input, device_input);
-  inputs[0] = std::move(device_input);
+  auto device_input = ttnn::operations::core::allocate_tensor_on_device(host_input_tensor().tensor_spec(), device);
+  inputs[0] = device_input;
 
   const auto &[output, tid] = capture_trace(inputs, device);
 
   total_time = 0.0;
   for (int i = 0; i < NUM_OF_RUNS; ++i) {
-    total_time += time_run_with_trace(device, tid);
-    tt::tt_metal::detail::DumpDeviceProfileResults(device->get_device(0));
+    total_time += time_run_with_trace(device, tid, host_input_tensor(), device_input);
   }
 
   std::cout << "AVG: " << total_time / NUM_OF_RUNS << " seconds for run: execute/w-trace" << std::endl;
