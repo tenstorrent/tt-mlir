@@ -8,10 +8,12 @@
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyAttrs.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Quant/IR/Quant.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/IR/Attributes.h"
@@ -34,7 +36,6 @@
 
 using namespace mlir;
 using namespace mlir::tt;
-using namespace ttnn_to_emitpy::utils;
 
 // Eltwise Unary Op conversion pattern
 //
@@ -47,7 +48,8 @@ public:
 
   matchAndRewrite(TTNNOpTy eltwiseUnaryOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    llvm::SmallVector<Attribute, 1> attrs = createIndexArray<1>(rewriter);
+    llvm::SmallVector<Attribute, 1> attrs =
+        ttnn_to_emitpy::utils::createIndexArray<1>(rewriter);
     rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
         eltwiseUnaryOp,
         this->getTypeConverter()->convertType(eltwiseUnaryOp.getType()),
@@ -69,7 +71,8 @@ public:
 
   matchAndRewrite(TTNNOpTy eltwiseBinaryOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    llvm::SmallVector<Attribute, 2> attrs = createIndexArray<2>(rewriter);
+    llvm::SmallVector<Attribute, 2> attrs =
+        ttnn_to_emitpy::utils::createIndexArray<2>(rewriter);
     ;
     rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
         eltwiseBinaryOp,
@@ -85,14 +88,15 @@ public:
 //
 namespace {
 class MatmulOpConversionPattern
-    : public OpConversionPattern<tt::ttnn::MatmulOp> {
+    : public OpConversionPattern<mlir::tt::ttnn::MatmulOp> {
 public:
-  using OpConversionPattern<tt::ttnn::MatmulOp>::OpConversionPattern;
+  using OpConversionPattern<mlir::tt::ttnn::MatmulOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(tt::ttnn::MatmulOp matmulOp, OpAdaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::MatmulOp matmulOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    llvm::SmallVector<Attribute, 2> attrs = createIndexArray<2>(rewriter);
+    llvm::SmallVector<Attribute, 2> attrs =
+        ttnn_to_emitpy::utils::createIndexArray<2>(rewriter);
     rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
         matmulOp, this->getTypeConverter()->convertType(matmulOp.getType()),
         "ttnn.matmul", adaptor.getOperands(), rewriter.getArrayAttr(attrs));
@@ -103,12 +107,12 @@ public:
 
 namespace {
 class SoftmaxOpConversionPattern
-    : public OpConversionPattern<tt::ttnn::SoftmaxOp> {
+    : public OpConversionPattern<mlir::tt::ttnn::SoftmaxOp> {
 public:
-  using OpConversionPattern<tt::ttnn::SoftmaxOp>::OpConversionPattern;
+  using OpConversionPattern<mlir::tt::ttnn::SoftmaxOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(tt::ttnn::SoftmaxOp softmaxOp, OpAdaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::SoftmaxOp softmaxOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
         softmaxOp, this->getTypeConverter()->convertType(softmaxOp.getType()),
@@ -144,14 +148,14 @@ public:
 //
 namespace {
 class GetTupleElementOpConversionPattern
-    : public OpConversionPattern<tt::GetTupleElementOp> {
+    : public OpConversionPattern<mlir::tt::GetTupleElementOp> {
 
 public:
   using OpConversionPattern::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(tt::GetTupleElementOp getTupleElementOp,
-                  tt::GetTupleElementOp::Adaptor adaptor,
+  matchAndRewrite(mlir::tt::GetTupleElementOp getTupleElementOp,
+                  mlir::tt::GetTupleElementOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     // SubscriptOp requires a Value object as index, which is created by
     // invoking the emitpy::LiteralOp.
@@ -187,13 +191,13 @@ public:
 // TupleOp conversion pattern
 //
 namespace {
-class TupleOpConversionPattern : public OpConversionPattern<tt::TupleOp> {
+class TupleOpConversionPattern : public OpConversionPattern<mlir::tt::TupleOp> {
 
 public:
   using OpConversionPattern::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(tt::TupleOp tupleOp, tt::TupleOp::Adaptor adaptor,
+  matchAndRewrite(mlir::tt::TupleOp tupleOp, mlir::tt::TupleOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
         tupleOp, this->getTypeConverter()->convertType(tupleOp.getType()),
@@ -207,15 +211,16 @@ public:
 //
 namespace {
 class DeallocateOpConversionPattern
-    : public OpConversionPattern<tt::ttnn::DeallocateOp> {
+    : public OpConversionPattern<mlir::tt::ttnn::DeallocateOp> {
 
 public:
-  using OpConversionPattern<tt::ttnn::DeallocateOp>::OpConversionPattern;
+  using OpConversionPattern<mlir::tt::ttnn::DeallocateOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(tt::ttnn::DeallocateOp deallocateOp, OpAdaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::DeallocateOp deallocateOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    llvm::SmallVector<Attribute, 1> attrs = createIndexArray<1>(rewriter);
+    llvm::SmallVector<Attribute, 1> attrs =
+        ttnn_to_emitpy::utils::createIndexArray<1>(rewriter);
     rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
         deallocateOp, mlir::TypeRange{}, "ttnn.deallocate",
         adaptor.getOperands(), rewriter.getArrayAttr(attrs));
@@ -224,14 +229,15 @@ public:
 };
 } // namespace
 
-// tt::DeviceOp conversion pattern
+// mlir::tt::DeviceOp conversion pattern
 //
 namespace {
-struct TTDeviceOpConversionPattern : public OpConversionPattern<tt::DeviceOp> {
-  using OpConversionPattern<tt::DeviceOp>::OpConversionPattern;
+struct TTDeviceOpConversionPattern
+    : public OpConversionPattern<mlir::tt::DeviceOp> {
+  using OpConversionPattern<mlir::tt::DeviceOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(tt::DeviceOp deviceOp, OpAdaptor adaptor,
+  matchAndRewrite(mlir::tt::DeviceOp deviceOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.eraseOp(deviceOp);
     return success();
@@ -243,13 +249,13 @@ struct TTDeviceOpConversionPattern : public OpConversionPattern<tt::DeviceOp> {
 //
 namespace {
 class GetDeviceOpConversionPattern
-    : public OpConversionPattern<tt::ttnn::GetDeviceOp> {
+    : public OpConversionPattern<mlir::tt::ttnn::GetDeviceOp> {
 
 public:
-  using OpConversionPattern<tt::ttnn::GetDeviceOp>::OpConversionPattern;
+  using OpConversionPattern<mlir::tt::ttnn::GetDeviceOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(tt::ttnn::GetDeviceOp getDeviceOp, OpAdaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::GetDeviceOp getDeviceOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
         getDeviceOp,
@@ -264,15 +270,16 @@ public:
 //
 namespace {
 class ToDeviceOpConversionPattern
-    : public OpConversionPattern<tt::ttnn::ToDeviceOp> {
+    : public OpConversionPattern<mlir::tt::ttnn::ToDeviceOp> {
 
 public:
-  using OpConversionPattern<tt::ttnn::ToDeviceOp>::OpConversionPattern;
+  using OpConversionPattern<mlir::tt::ttnn::ToDeviceOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(tt::ttnn::ToDeviceOp toDeviceOp, OpAdaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::ToDeviceOp toDeviceOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    llvm::SmallVector<Attribute, 2> attrs = createIndexArray<2>(rewriter);
+    llvm::SmallVector<Attribute, 2> attrs =
+        ttnn_to_emitpy::utils::createIndexArray<2>(rewriter);
     rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
         toDeviceOp, this->getTypeConverter()->convertType(toDeviceOp.getType()),
         "ttnn.to_device", adaptor.getOperands(), rewriter.getArrayAttr(attrs));
@@ -297,11 +304,12 @@ public:
   LogicalResult
   matchAndRewrite(SourceOp namedFullOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    tt::ttnn::ShapeAttr shapeAttr = namedFullOp.getShapeAttr();
+    mlir::tt::ttnn::ShapeAttr shapeAttr = namedFullOp.getShapeAttr();
     llvm::SmallVector<Attribute, 2> attrs;
-    emitpy::OpaqueAttr shapeAttrConverted = convertShape(rewriter, shapeAttr);
-    emitpy::OpaqueAttr layoutAttr =
-        convertLayoutAttr(rewriter, namedFullOp.getLayoutAttr());
+    emitpy::OpaqueAttr shapeAttrConverted =
+        ttnn_to_emitpy::utils::convertShape(rewriter, shapeAttr);
+    emitpy::OpaqueAttr layoutAttr = ttnn_to_emitpy::utils::convertLayoutAttr(
+        rewriter, namedFullOp.getLayoutAttr());
     attrs.push_back(shapeAttrConverted);
     attrs.push_back(layoutAttr);
     rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
@@ -350,7 +358,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // Tensor ops
   //
   // clang-format off
-  patterns.add<NamedFullOpConversionPattern<tt::ttnn::ZerosOp>, NamedFullOpConversionPattern<tt::ttnn::OnesOp>>(typeConverter, ctx);
+  patterns.add<NamedFullOpConversionPattern<mlir::tt::ttnn::ZerosOp>, NamedFullOpConversionPattern<mlir::tt::ttnn::OnesOp>>(typeConverter, ctx);
   // Arith ops
   //
   patterns.add<ArithConstantOpConversionPattern>(typeConverter, ctx);
@@ -363,11 +371,11 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<MatmulOpConversionPattern>(typeConverter, ctx);
   // Eltwise unary ops
   //
-  patterns.add<EltwiseUnaryOpConversionPattern<tt::ttnn::ReluOp>>(typeConverter,
+  patterns.add<EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ReluOp>>(typeConverter,
                                                               ctx);
   // Eltwise binary ops
   //
-  patterns.add<EltwiseBinaryOpConversionPattern<tt::ttnn::AddOp>>(typeConverter,
+  patterns.add<EltwiseBinaryOpConversionPattern<mlir::tt::ttnn::AddOp>>(typeConverter,
                                                               ctx);
   // Memory ops
   //
