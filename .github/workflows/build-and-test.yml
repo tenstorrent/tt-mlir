@@ -391,7 +391,7 @@ jobs:
       if: success() || failure()
       uses: actions/upload-artifact@v4
       with:
-        name: debug_logs
+        name: ${{ matrix.build.runs-on }}_${{ matrix.build.image }}_${{ matrix.build.suite }}_debug_logs
         path: /opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/generated/
 
     - name: Upload ttrt test report json
