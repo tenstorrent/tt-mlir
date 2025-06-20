@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
+#include <iostream>
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
@@ -1629,6 +1630,8 @@ llvm::Expected<OpConstraints> Conv2dOpInterface::getOpConstraints(
   if (biasShape && biasLayout) {
     ::ttnn::TensorSpec biasSpec =
         conversion::getTensorSpec(biasShape.value(), biasLayout.value());
+    std::cerr << "Bias spec: EXISTS" << std::endl;
+
     // TODO(odjuricic): This might be really slow. Needs to be done within graph
     // capture block.
     biasTensor = ::tt::tt_metal::create_device_tensor(biasSpec, device);

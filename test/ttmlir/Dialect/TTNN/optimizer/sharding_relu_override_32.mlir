@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-optimizer=true memory-layout-analysis-enabled=true max-legal-layouts=32" -o output_file.mlir %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-optimizer=true  max-legal-layouts=32" -o output_file.mlir %s
 // RUN: FileCheck %s --input-file=output_file.mlir
 module attributes {} {
   func.func @forward(%arg0: tensor<64x96xbf16>, %arg1: tensor<96x64xbf16>) -> tensor<64x64xbf16> {

@@ -20,10 +20,10 @@ struct TTNNOptimizerOptions {
       llvm::StringMap<OutputLayoutOverrideParams>();
   llvm::StringMap<Conv2dConfigOverrideParams> overrideConv2dConfig =
       llvm::StringMap<Conv2dConfigOverrideParams>();
-  bool memoryLayoutAnalysisEnabled = false;
+  bool memoryLayoutAnalysisEnabled = true;
   MemoryLayoutAnalysisPolicyType memoryLayoutAnalysisPolicy =
       MemoryLayoutAnalysisPolicyType::DFSharding;
-  bool memReconfigEnabled = false;
+  bool memReconfigEnabled = true;
   int64_t maxLegalLayouts = 64;
   bool rowMajorEnabled = false;
 };
