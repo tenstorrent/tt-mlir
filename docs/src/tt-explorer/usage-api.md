@@ -257,10 +257,10 @@ The typescript interface for the `editable` attribute is this:
 
 ```typescript
 interface EditableIntAttribute {
-	input_type: 'int_list';
-	min_value?: number = 0;
-	max_value?: number = 100;
-	step?: number = 1;
+  input_type: 'int_list';
+  min_value?: number = 0;
+  max_value?: number = 100;
+  step?: number = 1;
 }
 ```
 
@@ -346,11 +346,11 @@ The typescript interface for the `editable` attribute is this:
 
 ```typescript
 interface EditableGridAttribute {
-	input_type: 'grid';
-	separator?: string = 'x';
-	min_value?: number = 0;
-	max_value?: number = 100;
-	step?: number = 1;
+  input_type: 'grid';
+  separator?: string = 'x';
+  min_value?: number = 0;
+  max_value?: number = 100;
+  step?: number = 1;
 }
 ```
 
