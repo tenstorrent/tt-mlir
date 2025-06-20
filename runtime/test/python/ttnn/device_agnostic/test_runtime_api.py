@@ -15,7 +15,7 @@ from ..utils import Helper, DeviceContext, assert_pcc, get_runtime_tensor_from_t
 def test_tensor_buffer_api(shape, dtype):
     torch_tensor = torch.randn(shape, dtype=dtype)
     runtime_dtype = Binary.Program.to_data_type(dtype)
-    rt_tensor = ttrt.runtime.create_tensor(
+    rt_tensor = ttrt.runtime.create_borrowed_host_tensor(
         torch_tensor.data_ptr(),
         list(torch_tensor.shape),
         list(torch_tensor.stride()),
@@ -65,14 +65,14 @@ def test_to_layout(helper: Helper, shape, dtype, request):
     torch_input_tensor = torch.randn(shape, dtype=dtype)
     torch_result_tensor = torch.zeros(shape, dtype=dtype)
     runtime_dtype = Binary.Program.to_data_type(dtype)
-    runtime_input_tensor = ttrt.runtime.create_tensor(
+    runtime_input_tensor = ttrt.runtime.create_borrowed_host_tensor(
         torch_input_tensor.data_ptr(),
         list(torch_input_tensor.shape),
         list(torch_input_tensor.stride()),
         torch_input_tensor.element_size(),
         runtime_dtype,
     )
-    runtime_output_tensor = ttrt.runtime.create_tensor(
+    runtime_output_tensor = ttrt.runtime.create_borrowed_host_tensor(
         torch_result_tensor.data_ptr(),
         list(torch_result_tensor.shape),
         list(torch_result_tensor.stride()),
@@ -104,7 +104,7 @@ def test_memcpy_to_pointer(helper: Helper, shape, dtype, request):
 
     # Device to host
     torch_input_tensor = torch.randn(shape, dtype=dtype)
-    runtime_input_tensor = ttrt.runtime.create_tensor(
+    runtime_input_tensor = ttrt.runtime.create_borrowed_host_tensor(
         torch_input_tensor.data_ptr(),
         list(torch_input_tensor.shape),
         list(torch_input_tensor.stride()),
@@ -125,7 +125,7 @@ def test_memcpy_to_pointer(helper: Helper, shape, dtype, request):
 
     # Host to host
     torch_input_tensor2 = torch.randn(shape, dtype=dtype)
-    host_tensor = ttrt.runtime.create_tensor(
+    host_tensor = ttrt.runtime.create_borrowed_host_tensor(
         torch_input_tensor2.data_ptr(),
         list(torch_input_tensor2.shape),
         list(torch_input_tensor2.stride()),
@@ -145,14 +145,14 @@ def test_create_tensor_memcpy(helper: Helper, shape, dtype, request):
     torch_input_tensor = torch.randn(shape, dtype=dtype)
     torch_result_tensor = torch.zeros(shape, dtype=dtype)
     runtime_dtype = Binary.Program.to_data_type(dtype)
-    runtime_input_tensor = ttrt.runtime.create_tensor(
+    runtime_input_tensor = ttrt.runtime.create_borrowed_host_tensor(
         torch_input_tensor.data_ptr(),
         list(torch_input_tensor.shape),
         list(torch_input_tensor.stride()),
         torch_input_tensor.element_size(),
         runtime_dtype,
     )
-    runtime_output_tensor = ttrt.runtime.create_tensor(
+    runtime_output_tensor = ttrt.runtime.create_borrowed_host_tensor(
         torch_result_tensor.data_ptr(),
         list(torch_result_tensor.shape),
         list(torch_result_tensor.stride()),
@@ -214,7 +214,7 @@ def test_create_owned_tensor_with_unsupported_data_type(dtype):
     ttrt.runtime.set_current_runtime(ttrt.runtime.DeviceRuntime.TTNN)
     torch_input_tensor = (127 * torch.rand((64, 128))).to(dtype)
     runtime_dtype = Binary.Program.to_data_type(dtype)
-    runtime_input_tensor = ttrt.runtime.create_owned_tensor(
+    runtime_input_tensor = ttrt.runtime.create_owned_host_tensor(
         torch_input_tensor.data_ptr(),
         list(torch_input_tensor.shape),
         list(torch_input_tensor.stride()),
@@ -239,7 +239,7 @@ def test_unblocking_to_host(num_loops):
     runtime_dtype = Binary.Program.to_data_type(dtype)
     device_layout = ttrt.runtime.test.get_dram_interleaved_tile_layout(runtime_dtype)
     runtime_dtype = Binary.Program.to_data_type(dtype)
-    runtime_input_tensor = ttrt.runtime.create_owned_tensor(
+    runtime_input_tensor = ttrt.runtime.create_owned_host_tensor(
         torch_input_tensor.data_ptr(),
         list(torch_input_tensor.shape),
         list(torch_input_tensor.stride()),

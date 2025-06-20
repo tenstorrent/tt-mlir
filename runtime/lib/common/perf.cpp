@@ -18,7 +18,7 @@ Env &Env::get(std::uint32_t dumpDeviceRate, bool enablePerfTrace,
 }
 #endif
 
-void Env::tracyLogOpLocation(std::string locInfo) {
+void Env::tracyLogOpLocation(const std::string &locInfo) const {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
   std::string message =
       perf::toString(perf::TracyLogTag::MLIR_OP_LOCATION) + ";" + locInfo;
@@ -26,7 +26,7 @@ void Env::tracyLogOpLocation(std::string locInfo) {
 #endif
 }
 
-void Env::tracyLogConstEvalProgram(bool constEvalOp) {
+void Env::tracyLogConstEvalProgram(bool constEvalOp) const {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
   std::string message = perf::toString(perf::TracyLogTag::MLIR_CONST_EVAL_OP) +
                         ";" + std::string(constEvalOp ? "true" : "false");
@@ -34,7 +34,7 @@ void Env::tracyLogConstEvalProgram(bool constEvalOp) {
 #endif
 }
 
-void Env::tracyLogProgramMetadata(std::string metaData) {
+void Env::tracyLogProgramMetadata(const std::string &metaData) const {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
   std::string message =
       perf::toString(perf::TracyLogTag::MLIR_PROGRAM_METADATA) + ";" + metaData;

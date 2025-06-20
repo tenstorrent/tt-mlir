@@ -662,7 +662,7 @@ class Run:
                         inputs = []
                         outputs = []
                         for i in program.input_tensors:
-                            new_input = ttrt.runtime.create_tensor(
+                            new_input = ttrt.runtime.create_borrowed_host_tensor(
                                 i.data_ptr(),
                                 list(i.shape),
                                 list(i.stride()),
@@ -673,7 +673,7 @@ class Run:
 
                         for i in program.output_tensors:
                             outputs.append(
-                                ttrt.runtime.create_tensor(
+                                ttrt.runtime.create_borrowed_host_tensor(
                                     i.data_ptr(),
                                     list(i.shape),
                                     list(i.stride()),

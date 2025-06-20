@@ -141,9 +141,9 @@ class DeviceContext:
 
 def get_runtime_tensor_from_torch(torch_tensor, storage=Storage.Borrowed):
     if storage == Storage.Borrowed:
-        creator_fn = ttrt.runtime.create_tensor
+        creator_fn = ttrt.runtime.create_borrowed_host_tensor
     elif storage == Storage.Owned:
-        creator_fn = ttrt.runtime.create_owned_tensor
+        creator_fn = ttrt.runtime.create_owned_host_tensor
 
     runtime_dtype = Binary.Program.to_data_type(torch_tensor.dtype)
     runtime_tensor = creator_fn(

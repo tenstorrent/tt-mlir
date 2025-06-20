@@ -68,14 +68,6 @@ Tensor createOwnedHostTensor(const void *data,
                              std::uint32_t itemsize,
                              ::tt::target::DataType dataType);
 
-// TODO(mrakita): Should be deprecated but D2M path is using this, investigate
-// if it can also use the new `createBorrowedHostTensor` function.
-// https://github.com/tenstorrent/tt-mlir/issues/2757
-Tensor createTensor(std::shared_ptr<void> data,
-                    const std::vector<std::uint32_t> &shape,
-                    const std::vector<std::uint32_t> &stride,
-                    std::uint32_t itemsize, ::tt::target::DataType dataType);
-
 // Creates multi-device host tensor with owned storage (buffers of the tensor
 // are on the host and their allocation/deallocation is owned by this tensor
 // instance).

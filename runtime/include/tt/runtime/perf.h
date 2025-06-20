@@ -53,9 +53,9 @@ struct Env {
   Env &operator=(Env &&) = delete;
 #endif
 
-  void tracyLogOpLocation(std::string locInfo);
-  void tracyLogConstEvalProgram(bool constEvalOp);
-  void tracyLogProgramMetadata(std::string metaData);
+  void tracyLogOpLocation(const std::string &locInfo) const;
+  void tracyLogConstEvalProgram(bool constEvalOp) const;
+  void tracyLogProgramMetadata(const std::string &metaData) const;
   void setProgramMetadata(const std::string &programMetadata);
 
 private:
