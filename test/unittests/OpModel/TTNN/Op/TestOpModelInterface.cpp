@@ -707,40 +707,8 @@ TEST_F(OpModelBase, concatOp) {
   }
 }
 
-TEST_F(OpModelBase, transposeOp) {
-  // create TransposeOp
-  llvm::SmallVector<int64_t> tensorShapeA = {64, 1024};
-  llvm::SmallVector<int64_t> tensorShapeO = {1024, 64};
-
-  auto input = createEmptyTensor(tensorShapeA);
-  auto output = createEmptyTensor(tensorShapeO);
-
-  auto transpose = builder.create<TransposeOp>(builder.getUnknownLoc(),
-                                               output.getType(), input, 0, 1);
-
-  // test transpose Op interface
-  auto constraintsExp = getOpConstraints(transpose.getOperation());
-  if (constraintsExp) {
-    auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
-    EXPECT_EQ(cbSize, 8192);
-    EXPECT_EQ(peakSize, 2048);
-    EXPECT_EQ(outputSize, 2048);
-  } else {
-    FAIL() << "Missing L1 constraints; Error="
-           << llvm::toString(constraintsExp.takeError()) << std::endl;
-  }
-
-  auto runtimeExp = getOpRuntime(transpose.getOperation());
-  if (runtimeExp) {
-    EXPECT_TRUE(runtimeExp.get() > 0);
-  } else {
-    FAIL() << llvm::toString(runtimeExp.takeError());
-  }
-}
-
 TEST_F(OpModelBase, typecastOp) {
-  // create TransposeOp
+  // create TypecastOp
   llvm::SmallVector<int64_t> tensorShape = {64, 1024};
 
   RankedTensorType rankedTensorTypeBF16 =

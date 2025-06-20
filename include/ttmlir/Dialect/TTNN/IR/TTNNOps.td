@@ -989,7 +989,7 @@ def TTNN_SoftmaxOp : TTNN_Op<"softmax",
 }
 
 def TTNN_TransposeOp : TTNN_Op<"transpose",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      []
       > {
     let summary = "Transpose op.";
     let description = [{
