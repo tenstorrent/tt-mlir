@@ -5,7 +5,6 @@
 #ifndef TT_RUNTIME_UTILS_H
 #define TT_RUNTIME_UTILS_H
 
-#include "tt/runtime/detail/logger.h"
 #include <memory>
 #include <type_traits>
 
