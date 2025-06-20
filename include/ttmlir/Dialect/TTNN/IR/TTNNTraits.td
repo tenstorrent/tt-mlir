@@ -17,4 +17,9 @@ def HasMemoryConfigTrait : NativeOpTrait<"HasMemoryConfigTrait">
   let cppNamespace = "mlir::tt::ttnn";
 }
 
+def CheckBFloat8BTrait : NativeOpTrait<"CheckBFloat8BTrait">
+{
+  let cppNamespace = "mlir::tt::ttnn";
+}
+
 #endif // TTMLIR_TTMLIR_DIALECT_TTNN_TTNNTRAITS_TD

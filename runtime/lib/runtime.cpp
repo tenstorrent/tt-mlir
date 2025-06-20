@@ -230,6 +230,18 @@ Tensor createTensor(std::shared_ptr<void> data,
   LOG_ASSERT(!shape.empty());
   LOG_ASSERT(!stride.empty());
   LOG_ASSERT(itemsize > 0);
+  #include <iostream>
+  #include <sstream>
+  std::ostringstream shapeStream;
+
+  for (const auto &dim : shape) {
+    shapeStream << dim << " ";
+  }
+
+  std::cout << "createTensor called with data: "
+            << ", shape: " << shapeStream.str()
+            << ", itemsize: " << itemsize
+            << ", dataType: " << static_cast<int32_t>(dataType) << std::endl;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
