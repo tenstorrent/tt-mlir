@@ -37,3 +37,13 @@ To build the API docs use the `doxygen` target in CMake
 cmake -B build
 cmake --build build -- doxygen
 ```
+
+### Serving the docs locally
+
+To start a server for local viewing of the docs, after building, run:
+
+```sh
+mdbook serve build/docs
+```
+
+`mdbook` will start a local server at `http://localhost:3000` with the built docs.
