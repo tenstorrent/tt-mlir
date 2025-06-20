@@ -1751,8 +1751,13 @@ void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
     for (int64_t i = 0; i < op.getInput().getType().getRank(); ++i) {
       permutation.push_back(i);
     }
-
-    std::swap(permutation[op.getDim0()], permutation[op.getDim1()]);
+    int64_t dim0 = op.getDim0() < 0
+                       ? op.getDim0() + op.getInput().getType().getRank()
+                       : op.getDim0();
+    int64_t dim1 = op.getDim1() < 0
+                       ? op.getDim1() + op.getInput().getType().getRank()
+                       : op.getDim1();
+    std::swap(permutation[dim0], permutation[dim1]);
     ttir::utils::replaceOpWithNewDPSOp<PermuteOp>(rewriter, op, op.getType(),
                                                   op.getInput(), permutation);
     return success();
