@@ -80,8 +80,6 @@ private:
 
 } // namespace
 
-// Define the op names with external linkage at file scope
-
 namespace mlir::tt {
 
 std::unique_ptr<OperationPass<ModuleOp>>
