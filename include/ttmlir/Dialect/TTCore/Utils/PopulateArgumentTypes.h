@@ -10,7 +10,7 @@
 
 #include "llvm/Support/CommandLine.h"
 
-namespace mlir::tt {
+namespace mlir::ttcore {
 
 using TTArgumentTypeMap = llvm::StringMap<SmallVector<ArgumentType>>;
 
@@ -42,6 +42,6 @@ inline void registerTTPopulateArgumentTypes() {
     return createTTPopulateArgumentTypes();
   });
 }
-} // namespace mlir::tt
+} // namespace mlir::ttcore
 
 #endif // TTMLIR_DIALECT_TTCORE_UTILS_POPULATEARGUMENTTYPES_H

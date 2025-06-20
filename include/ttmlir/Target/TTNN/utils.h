@@ -64,29 +64,30 @@ toTargetTensorLayout(::mlir::tt::ttnn::Layout layout) {
   llvm_unreachable("Unsupported Layout");
 }
 
-inline ::tt::target::DataType toTargetDataType(::mlir::tt::DataType dataType) {
+inline ::tt::target::DataType
+toTargetDataType(::mlir::ttcore::DataType dataType) {
   switch (dataType) {
-  case ::mlir::tt::DataType::Float32:
+  case ::mlir::ttcore::DataType::Float32:
     return ::tt::target::DataType::Float32;
-  case ::mlir::tt::DataType::BFloat16:
+  case ::mlir::ttcore::DataType::BFloat16:
     return ::tt::target::DataType::BFloat16;
-  case ::mlir::tt::DataType::BFP_BFloat8:
+  case ::mlir::ttcore::DataType::BFP_BFloat8:
     return ::tt::target::DataType::BFP_BFloat8;
-  case ::mlir::tt::DataType::BFP_BFloat4:
+  case ::mlir::ttcore::DataType::BFP_BFloat4:
     return ::tt::target::DataType::BFP_BFloat4;
-  case ::mlir::tt::DataType::UInt8:
+  case ::mlir::ttcore::DataType::UInt8:
     return ::tt::target::DataType::UInt8;
-  case ::mlir::tt::DataType::UInt16:
+  case ::mlir::ttcore::DataType::UInt16:
     return ::tt::target::DataType::UInt16;
-  case ::mlir::tt::DataType::UInt32:
+  case ::mlir::ttcore::DataType::UInt32:
     return ::tt::target::DataType::UInt32;
-  case ::mlir::tt::DataType::Int32:
+  case ::mlir::ttcore::DataType::Int32:
     return ::tt::target::DataType::Int32;
-  case ::mlir::tt::DataType::Float16:
-  case ::mlir::tt::DataType::BFP_Float2:
-  case ::mlir::tt::DataType::BFP_Float4:
-  case ::mlir::tt::DataType::BFP_Float8:
-  case ::mlir::tt::DataType::BFP_BFloat2:
+  case ::mlir::ttcore::DataType::Float16:
+  case ::mlir::ttcore::DataType::BFP_Float2:
+  case ::mlir::ttcore::DataType::BFP_Float4:
+  case ::mlir::ttcore::DataType::BFP_Float8:
+  case ::mlir::ttcore::DataType::BFP_BFloat2:
     llvm_unreachable("Unsupported DataType");
   }
 

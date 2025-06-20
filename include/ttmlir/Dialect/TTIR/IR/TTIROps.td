@@ -124,7 +124,7 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
                      "ArrayAttr": $indexingMaps,
                      "ArrayAttr": $iteratorTypes,
                      CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
-                     CArg<"GridAttr", "nullptr">: $grid,
+                     CArg<"ttcore::GridAttr", "nullptr">: $grid,
                      CArg<"ArrayRef<int64_t>", "{}">: $blockFactors),
       [{
         assert(!indexingMaps.empty() && "expected non-empty indexing maps");
@@ -132,11 +132,11 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
         if (!grid) {
           RankedTensorType tensorType = mlir::dyn_cast<RankedTensorType>(outputs[0].getType());
           if (tensorType) {
-            grid = mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding()).getGrid();
+            grid = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding()).getGrid();
           } else {
             MemRefType memrefType = mlir::cast<MemRefType>(outputs[0].getType());
-            DeviceLayoutInterface layout = mlir::cast<DeviceLayoutInterface>(memrefType.getLayout());
-            grid = $_builder.getAttr<tt::GridAttr>(layout.getGridShape(memrefType));
+            ttcore::DeviceLayoutInterface layout = mlir::cast<ttcore::DeviceLayoutInterface>(memrefType.getLayout());
+            grid = $_builder.getAttr<ttcore::GridAttr>(layout.getGridShape(memrefType));
           }
         }
         auto threads = $_builder.getArrayAttr($_builder.getAttr<ThreadAttr>(singleThreadType));
@@ -151,13 +151,13 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
                      "ArrayAttr": $iteratorTypes,
                      "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
                      CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
-                     CArg<"GridAttr", "nullptr">: $grid,
+                     CArg<"ttcore::GridAttr", "nullptr">: $grid,
                      CArg<"ArrayRef<int64_t>", "{}">: $blockFactors),
       [{
         build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadType, grid, blockFactors);
         llvm::SmallVector<Type> blockTypes = llvm::map_to_vector(TypeRange($_state.operands), [&](Type t) -> Type {
           mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
-          return mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding()).getMemref();
+          return mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding()).getMemref();
         });
         Region& region = *$_state.regions.front().get();
         llvm::SmallVector<mlir::Location> locs($_state.operands.size(), $_state.location);
@@ -169,12 +169,12 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
                      "ValueRange": $outputs,
                      "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
                      CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
-                     CArg<"GridAttr", "nullptr">: $grid,
+                     CArg<"ttcore::GridAttr", "nullptr">: $grid,
                      CArg<"ArrayRef<int64_t>", "{}">: $blockFactors),
       [{
         assert(outputs.size() == 1 && "expected single output");
         RankedTensorType tensorType = mlir::cast<RankedTensorType>(outputs[0].getType());
-        MetalLayoutAttr layout = mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding());
+        ttcore::MetalLayoutAttr layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
         auto [indexingMaps, iteratorTypes] = buildParallelAffineMapsAndIteratorTypes($_builder, inputs.size() + outputs.size(), layout.getRank());
         build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadRegionBuilder, singleThreadType, grid, blockFactors);
       }]>,
@@ -183,7 +183,7 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
     let extraClassDeclaration = [{
       static std::pair<ArrayAttr, ArrayAttr> buildParallelAffineMapsAndIteratorTypes(mlir::OpBuilder &builder, size_t arity, size_t rank) {
         auto map = builder.getMultiDimIdentityMap(rank);
-        Attribute parallel = builder.getAttr<tt::IteratorTypeAttr>(tt::IteratorType::Parallel);
+        Attribute parallel = builder.getAttr<ttcore::IteratorTypeAttr>(ttcore::IteratorType::Parallel);
         return std::make_pair(builder.getAffineMapArrayAttr(SmallVector<AffineMap>(arity, map)),
                               builder.getArrayAttr(SmallVector<Attribute>(rank, parallel)));
       }
@@ -195,7 +195,7 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
       SmallVector<int64_t> getNonParticipatingLoopDims(int64_t operandIndex);
       AffineMap getIndexingMap(int64_t operandIndex);
       SmallVector<AffineMap> getIndexingMapsValue();
-      SmallVector<IteratorType> getIteratorTypesValue();
+      SmallVector<ttcore::IteratorType> getIteratorTypesValue();
       SmallVector<int64_t> getBlockFactorsValue();
       SmallVector<SmallVector<int64_t>> getOperandGridShapes();
       SmallVector<SmallVector<int64_t>> getOperandShardShapes(bool convertTileToScalar = false);
@@ -238,7 +238,7 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
 
     let builders =
     [
-      OpBuilder<(ins "Value": $input, "Value": $output, CArg<"MetalLayoutAttr", "nullptr">: $layout),
+      OpBuilder<(ins "Value": $input, "Value": $output, CArg<"ttcore::MetalLayoutAttr", "nullptr">: $layout),
       [{
         build($_builder, $_state, {output.getType()}, input, output, layout);
       }]>,
@@ -261,8 +261,8 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
       // Returns booleans indicating if the op changes layout, grid, format, memory space or memory layout.
       CompoundComponents compoundComponents();
       bool isCompound() { return compoundComponents().isCompound(); }
-      MetalLayoutAttr getInputLayout();
-      MetalLayoutAttr getOutputLayout();
+      ttcore::MetalLayoutAttr getInputLayout();
+      ttcore::MetalLayoutAttr getOutputLayout();
     }];
 
     let hasVerifier = 1;

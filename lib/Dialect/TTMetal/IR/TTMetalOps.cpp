@@ -16,8 +16,8 @@ namespace mlir::tt::ttmetal {
 
 ::mlir::LogicalResult EnqueueWriteBufferOp::verify() {
   ::mlir::MemRefType outputTy = getOutput().getType();
-  MemorySpaceAttr memSpaceAttr =
-      mlir::cast<MemorySpaceAttr>(outputTy.getMemorySpace());
+  ttcore::MemorySpaceAttr memSpaceAttr =
+      mlir::cast<ttcore::MemorySpaceAttr>(outputTy.getMemorySpace());
   if (not isDeviceMemorySpace(memSpaceAttr.getValue())) {
     return emitOpError("Output tensor must be in device memory space");
   }
@@ -26,8 +26,9 @@ namespace mlir::tt::ttmetal {
 
 ::mlir::LogicalResult EnqueueReadBufferOp::verify() {
   ::mlir::MemRefType outputTy = getOutput().getType();
-  MemorySpaceAttr memSpaceAttr =
-      mlir::dyn_cast_if_present<MemorySpaceAttr>(outputTy.getMemorySpace());
+  ttcore::MemorySpaceAttr memSpaceAttr =
+      mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
+          outputTy.getMemorySpace());
   if (memSpaceAttr && not isSystemMemorySpace(memSpaceAttr.getValue())) {
     return emitOpError("Output tensor must be in system memory space");
   }
@@ -37,8 +38,8 @@ namespace mlir::tt::ttmetal {
 ::mlir::LogicalResult EnqueueProgramOp::verify() {
   for (auto operand : getOperands()) {
     ::mlir::MemRefType operandType = mlir::cast<MemRefType>(operand.getType());
-    MemorySpaceAttr memSpaceAttr =
-        mlir::cast<MemorySpaceAttr>(operandType.getMemorySpace());
+    ttcore::MemorySpaceAttr memSpaceAttr =
+        mlir::cast<ttcore::MemorySpaceAttr>(operandType.getMemorySpace());
     if (not isDeviceMemorySpace(memSpaceAttr.getValue())) {
       return emitOpError(
           "Operand tensor to EnqueueProgramOp must be in device memory space");

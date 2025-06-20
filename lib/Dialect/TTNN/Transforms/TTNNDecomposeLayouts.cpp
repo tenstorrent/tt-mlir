@@ -55,10 +55,10 @@ private:
   struct LayoutInfo {
     ttnn::BufferType bufferType;
     ttnn::Layout layoutEnum;
-    DataType dataType;
+    ttcore::DataType dataType;
     ttnn::TensorMemoryLayoutAttr tensorMemoryLayout;
-    GridAttr deviceGrid;
-    GridAttr shardGrid;
+    ttcore::GridAttr deviceGrid;
+    ttcore::GridAttr shardGrid;
     llvm::SmallVector<int64_t> shardShape;
 
     ttnn::MemoryConfigAttr createMemoryConfigAttr(MLIRContext *context) const {
@@ -132,12 +132,12 @@ private:
   // TODO (jnie): Add support for fp32, currently there's some precision loss
   // which causes some FE tests to fail.
   // Tracking here: https://github.com/tenstorrent/tt-metal/issues/21023
-  bool canTilizeDataTypeOnDevice(const DataType &dataType) const {
-    return dataType == DataType::BFloat16;
+  bool canTilizeDataTypeOnDevice(const ttcore::DataType &dataType) const {
+    return dataType == ttcore::DataType::BFloat16;
   }
 
-  bool canUntilizeDataTypeOnDevice(const DataType &dataType) const {
-    return dataType == DataType::BFloat16;
+  bool canUntilizeDataTypeOnDevice(const ttcore::DataType &dataType) const {
+    return dataType == ttcore::DataType::BFloat16;
   }
 
   std::pair<LayoutInfo, LayoutInfo>
@@ -172,8 +172,8 @@ private:
     input.shardShape = inputLayoutAttr.getScalarShardShape();
     output.shardShape = outputLayoutAttr.getScalarShardShape();
 
-    DeviceAttr deviceAttr =
-        lookupDevice(op.getResult().getParentBlock()->getParentOp());
+    ttcore::DeviceAttr deviceAttr =
+        ttcore::lookupDevice(op.getResult().getParentBlock()->getParentOp());
     input.deviceGrid = deviceAttr.getWorkerGrid();
     output.deviceGrid = deviceAttr.getWorkerGrid();
 
@@ -345,8 +345,8 @@ private:
   mlir::Value createDataTypeCastingOp(ttnn::ToLayoutOp op, IRRewriter &rewriter,
                                       mlir::Value currentInput,
                                       const OpCreationInfo &info) const {
-    DataTypeAttr dtypeAttr =
-        DataTypeAttr::get(op.getContext(), info.output.dataType);
+    ttcore::DataTypeAttr dtypeAttr =
+        ttcore::DataTypeAttr::get(op.getContext(), info.output.dataType);
     RankedTensorType newResultType = utils::RankedTensorTypeFactory::create(
         mlir::cast<RankedTensorType>(currentInput.getType()),
         info.output.dataType);

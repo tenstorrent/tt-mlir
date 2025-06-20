@@ -33,8 +33,8 @@ struct OptionNames {
 };
 
 struct Conv2dConfigOverrideParams {
-  std::optional<tt::DataType> dtype = std::nullopt;
-  std::optional<tt::DataType> weightsDtype = std::nullopt;
+  std::optional<ttcore::DataType> dtype = std::nullopt;
+  std::optional<ttcore::DataType> weightsDtype = std::nullopt;
   std::optional<std::string> activation = std::nullopt;
   std::optional<bool> deallocateActivation = std::nullopt;
   std::optional<bool> reallocateHaloOutput = std::nullopt;
@@ -76,7 +76,7 @@ struct OutputLayoutOverrideParams {
   std::optional<TensorMemoryLayout> tensorMemoryLayout =
       std::nullopt; // INTERLEAVED / SHARDED etc...
   std::optional<Layout> memoryLayout = std::nullopt; // ROW_MAJOR / TILE
-  std::optional<tt::DataType> dataType = std::nullopt;
+  std::optional<ttcore::DataType> dataType = std::nullopt;
 
   bool empty() const {
     return !grid.has_value() && !bufferType.has_value() &&

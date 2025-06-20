@@ -27,10 +27,12 @@ public:
 
   static LogicalResult lowerSystemLayoutChange(PatternRewriter &rewriter,
                                                ToLayoutOp op) {
-    MetalLayoutAttr inputLayout = op.getInputLayout();
-    MetalLayoutAttr outputLayout = op.getOutputLayout();
-    bool inputSystem = inputLayout.getMemorySpace() == MemorySpace::System;
-    bool outputSystem = outputLayout.getMemorySpace() == MemorySpace::System;
+    ttcore::MetalLayoutAttr inputLayout = op.getInputLayout();
+    ttcore::MetalLayoutAttr outputLayout = op.getOutputLayout();
+    bool inputSystem =
+        inputLayout.getMemorySpace() == ttcore::MemorySpace::System;
+    bool outputSystem =
+        outputLayout.getMemorySpace() == ttcore::MemorySpace::System;
     assert(inputSystem != outputSystem &&
            "one of input or output must be system for now");
     if (op.getLayout()) {
@@ -46,10 +48,10 @@ public:
 
   static LogicalResult lowerDatamovementGeneric(PatternRewriter &rewriter,
                                                 ToLayoutOp op) {
-    MetalLayoutAttr inputLayout = op.getInputLayout();
-    MetalLayoutAttr outputLayout = op.getOutputLayout();
-    if (inputLayout.getMemorySpace() == MemorySpace::System ||
-        outputLayout.getMemorySpace() == MemorySpace::System) {
+    ttcore::MetalLayoutAttr inputLayout = op.getInputLayout();
+    ttcore::MetalLayoutAttr outputLayout = op.getOutputLayout();
+    if (inputLayout.getMemorySpace() == ttcore::MemorySpace::System ||
+        outputLayout.getMemorySpace() == ttcore::MemorySpace::System) {
       // To/From host mem is a special case that is lowered to
       // ttmetal.enqueue_write_buffer or ttmetal.enqueue_read_buffer
       return lowerSystemLayoutChange(rewriter, op);
@@ -127,9 +129,9 @@ public:
   TTIRSplitCompoundLayoutRewriter(MLIRContext *context)
       : OpRewritePattern(context, PatternBenefit(2)) {}
 
-  ttir::ToLayoutOp createToLayoutOp(PatternRewriter &rewriter, Location loc,
-                                    Value input,
-                                    MetalLayoutAttr desiredLayout) const {
+  ttir::ToLayoutOp
+  createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
+                   ttcore::MetalLayoutAttr desiredLayout) const {
     auto ty = mlir::cast<RankedTensorType>(input.getType());
     auto output = rewriter.create<ttir::EmptyOp>(
         loc, ty.getShape(), ty.getElementType(), desiredLayout);
@@ -137,7 +139,7 @@ public:
   }
 
   Value bounce(PatternRewriter &rewriter, ToLayoutOp op,
-               MetalLayoutAttr bounceLayout) const {
+               ttcore::MetalLayoutAttr bounceLayout) const {
     auto bounced =
         createToLayoutOp(rewriter, op.getLoc(), op.getInput(), bounceLayout);
     return rewriter
@@ -157,22 +159,24 @@ public:
     auto inputLayout = op.getInputLayout();
     auto outputLayout = op.getOutputLayout();
 
-    bool inputL1 = inputLayout.getMemorySpace() == MemorySpace::DeviceL1;
-    bool outputL1 = outputLayout.getMemorySpace() == MemorySpace::DeviceL1;
+    bool inputL1 =
+        inputLayout.getMemorySpace() == ttcore::MemorySpace::DeviceL1;
+    bool outputL1 =
+        outputLayout.getMemorySpace() == ttcore::MemorySpace::DeviceL1;
 
     // First prioritize moving the data into L1 so we can work with it in L1
     if (!inputL1) {
       // read first into L1, then format convert
       bounce(rewriter, op,
              inputLayout.withMemorySpace(rewriter.getContext(),
-                                         MemorySpace::DeviceL1));
+                                         ttcore::MemorySpace::DeviceL1));
     } else if (!outputL1) {
       // format convert first in L1 first, then write
       assert(inputL1 && "input should guaranteed be in L1 because of the "
                         "previous case");
       bounce(rewriter, op,
              outputLayout.withMemorySpace(rewriter.getContext(),
-                                          MemorySpace::DeviceL1));
+                                          ttcore::MemorySpace::DeviceL1));
     } else if (inputLayout.isTiled() != outputLayout.isTiled()) {
       // Prioritize moving tiled data
       if (inputLayout.isTiled()) {

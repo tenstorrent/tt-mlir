@@ -35,9 +35,9 @@ static mlir::AffineMap reblockViewWorkaround(mlir::MemRefType inputMemref,
   auto *ctx = inputMemref.getContext();
   int64_t rank = inputMemref.getRank();
   auto inputLayout =
-      mlir::cast<mlir::tt::DeviceLayoutInterface>(inputMemref.getLayout());
+      mlir::cast<mlir::ttcore::DeviceLayoutInterface>(inputMemref.getLayout());
   auto resultLayout =
-      mlir::cast<mlir::tt::DeviceLayoutInterface>(resultMemref.getLayout());
+      mlir::cast<mlir::ttcore::DeviceLayoutInterface>(resultMemref.getLayout());
   mlir::ArrayRef<int64_t> inputGridShape =
       inputLayout.getGridShape(inputMemref);
   mlir::ArrayRef<int64_t> inputShardShape =
@@ -85,12 +85,12 @@ mlir::tt::ttir::applyViews(mlir::Operation *op) {
         resultMemref, mlir::AffineMap::getMultiDimIdentityMap(
                           resultMemref.getRank(), resultMemref.getContext()));
   }
-  auto map =
-      mlir::cast<tt::ViewLayoutAttr>(resultMemref.getLayout()).getAffineMap();
+  auto map = mlir::cast<ttcore::ViewLayoutAttr>(resultMemref.getLayout())
+                 .getAffineMap();
   Value input = viewOp.getInput();
   auto inputMemref = mlir::cast<mlir::MemRefType>(input.getType());
   assert(
-      mlir::isa<tt::ShardLayoutAttr>(inputMemref.getLayout()) &&
+      mlir::isa<ttcore::ShardLayoutAttr>(inputMemref.getLayout()) &&
       "Expected ShardLayoutAttr, only one level of view nesting is supported");
   auto reblockMap = reblockViewWorkaround(inputMemref, resultMemref);
   return std::make_pair(inputMemref, reblockMap.compose(map));
