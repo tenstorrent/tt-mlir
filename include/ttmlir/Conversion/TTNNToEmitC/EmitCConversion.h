@@ -32,12 +32,14 @@
 
 // This namespace contains mock definitions of TTNN types for the purpose of
 // conversion.
-namespace ttnn {
+namespace ttsl {
 template <typename T>
 struct SmallVector {
   using value_type = T;
 };
+} // namespace ttsl
 
+namespace ttnn {
 struct Shape;
 
 struct ShardSpec;
@@ -162,9 +164,9 @@ struct TypeName<std::vector<T>> {
 };
 
 template <typename T>
-struct TypeName<::ttnn::SmallVector<T>> {
+struct TypeName<::ttsl::SmallVector<T>> {
   inline static const std::string value =
-      "::ttnn::SmallVector<" + TypeNameV<T> + ">";
+      "::ttsl::SmallVector<" + TypeNameV<T> + ">";
 };
 
 template <typename T>
@@ -766,8 +768,8 @@ struct EmitCTypeConverter<std::vector<T>>
     : public EmitCContainerTypeConverter<std::vector<T>> {};
 
 template <typename T>
-struct EmitCTypeConverter<::ttnn::SmallVector<T>>
-    : public EmitCContainerTypeConverter<::ttnn::SmallVector<T>> {};
+struct EmitCTypeConverter<::ttsl::SmallVector<T>>
+    : public EmitCContainerTypeConverter<::ttsl::SmallVector<T>> {};
 
 template <typename T>
 struct EmitCTypeConverter<std::set<T>>

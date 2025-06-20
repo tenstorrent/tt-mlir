@@ -78,7 +78,7 @@ If an operand has a default value in the TTNN lib, it should have a default valu
 ```C++
 static ttnn::Tensor invoke(
     const ttnn::Tensor& input_tensor,
-    tt::stl::Span<const int64_t> dims,
+    ttsl::Span<const int64_t> dims,
     const std::optional<MemoryConfig>& memory_config,
     const std::optional<float>& pad_value = 0.0f);
 ```
