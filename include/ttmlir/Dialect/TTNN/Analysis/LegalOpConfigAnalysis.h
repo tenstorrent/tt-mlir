@@ -44,13 +44,13 @@ struct Conv2dConfigSearchSpaceFactory {
 
     // 0 is default and will use most memory. Must be multiple of 32. 32 is
     // recommended for memory savings.
-    searchSpace.actBlockHOverride = {0, 32, 64};
+    // searchSpace.actBlockHOverride = {0, 32, 64};
 
-    searchSpace.deallocateActivation = {false, true};
+    // searchSpace.deallocateActivation = {false, true};
 
-    searchSpace.reshardIfNotOptimal = {false, true};
+    // searchSpace.reshardIfNotOptimal = {false, true};
 
-    searchSpace.enableSplitReader = {false, true};
+    // searchSpace.enableSplitReader = {false, true};
 
     return searchSpace;
   }
