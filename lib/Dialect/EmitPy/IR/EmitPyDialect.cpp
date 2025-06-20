@@ -5,7 +5,7 @@
 #include "ttmlir/Dialect/EmitPy/IR/EmitPy.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyTypes.h"
-#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 
 #include "mlir/InitAllDialects.h"
 #include "llvm/ADT/TypeSwitch.h"
@@ -18,8 +18,6 @@ using namespace mlir::tt::emitpy;
 //===----------------------------------------------------------------------===//
 // EmitPy dialect.
 //===----------------------------------------------------------------------===//
-
-#include "ttmlir/Dialect/EmitPy/IR/EmitPyOpsDialect.cpp.inc"
 
 void EmitPyDialect::initialize() {
   addOperations<

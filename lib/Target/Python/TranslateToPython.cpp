@@ -119,6 +119,17 @@ struct PythonEmitter {
   /// Return the existing or a new name for a Value.
   StringRef getOrCreateName(Value val);
 
+  // Return the textual representation of a subscript operation.
+  std::string getSubscriptName(SubscriptOp op);
+
+  /// Determine whether op result should be emitted in a deferred way.
+  static bool hasDeferredEmission(Operation *op) {
+    return isa_and_nonnull<LiteralOp, SubscriptOp>(op);
+  }
+
+  /// Insert the op result into the value cache.
+  void cacheDeferredOpResult(Value value, StringRef str);
+
   /// RAII helper function to manage entering/exiting Python scopes.
   struct Scope {
     Scope(PythonEmitter &emitter)
@@ -160,6 +171,22 @@ StringRef PythonEmitter::getOrCreateName(Value val) {
   return *valueMapper.begin(val);
 }
 
+std::string PythonEmitter::getSubscriptName(SubscriptOp op) {
+  std::string name;
+  llvm::raw_string_ostream ss(name);
+  ss << getOrCreateName(op.getValue());
+  for (auto index : op.getIndices()) {
+    ss << "[" << getOrCreateName(index) << "]";
+  }
+  return name;
+}
+
+void PythonEmitter::cacheDeferredOpResult(Value value, StringRef str) {
+  if (!valueMapper.count(value)) {
+    valueMapper.insert(value, str.str());
+  }
+}
+
 static LogicalResult printOperation(PythonEmitter &emitter,
                                     CallOpaqueOp callOpaqueOp) {
   raw_indented_ostream &os = emitter.ostream();
@@ -196,6 +223,12 @@ static LogicalResult printOperation(PythonEmitter &emitter,
                                      callOpaqueOp.getArgs()->getValue()[0]))) {
       return failure();
     }
+  } else if (callee == "util_create_list") {
+    os << "[";
+    if (failed(emitter.emitOperands(op))) {
+      return failure();
+    }
+    os << "]";
   } else {
     os << callee << "(";
     LogicalResult emittedArgs =
@@ -347,14 +380,30 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   return success();
 }
 
+static LogicalResult printOperation(PythonEmitter &emitter, LoadOp loadOp) {
+  if (failed(emitter.emitAssignPrefix(*loadOp))) {
+    return failure();
+  }
+
+  return emitter.emitOperand(loadOp.getOperand());
+}
+
 LogicalResult PythonEmitter::emitOperation(Operation &op) {
   LogicalResult status =
       llvm::TypeSwitch<Operation *, LogicalResult>(&op)
           // Builtin ops.
           .Case<ModuleOp>([&](auto op) { return printOperation(*this, op); })
           // EmitPy ops.
-          .Case<CallOpaqueOp, ImportOp>(
+          .Case<CallOpaqueOp, ImportOp, LoadOp>(
               [&](auto op) { return printOperation(*this, op); })
+          .Case<LiteralOp>([&](auto op) {
+            cacheDeferredOpResult(op.getResult(), op.getValue());
+            return success();
+          })
+          .Case<SubscriptOp>([&](auto op) {
+            cacheDeferredOpResult(op.getResult(), getSubscriptName(op));
+            return success();
+          })
           // Func ops.
           .Case<func::CallOp, func::FuncOp, func::ReturnOp>(
               [&](auto op) { return printOperation(*this, op); })
@@ -366,7 +415,9 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
     return failure();
   }
 
-  os << "\n";
+  if (!hasDeferredEmission(&op)) {
+    os << "\n";
+  }
   return success();
 }
 

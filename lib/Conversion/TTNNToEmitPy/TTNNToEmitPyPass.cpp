@@ -4,10 +4,11 @@
 
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
 
+#include "ttmlir/Conversion/TTNNToEmitPy/EmitPyConversion.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPy.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyTypes.h"
-#include "ttmlir/Dialect/TT/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
@@ -39,14 +40,16 @@ class TTNNToEmitPyTypeConverter : public TypeConverter {
 public:
   TTNNToEmitPyTypeConverter(MLIRContext *ctx) {
     addConversion([](Type type) { return type; });
-    addConversion([ctx](ttnn::DeviceType type) -> emitpy::OpaqueType {
+    addConversion([ctx](tt::ttnn::DeviceType type) -> emitpy::OpaqueType {
       return emitpy::OpaqueType::get(ctx, "ttnn.Device");
     });
     addConversion([ctx](mlir::TensorType type) -> emitpy::OpaqueType {
-      return emitpy::OpaqueType::get(ctx, "undefined tensor type");
+      return emitpy::OpaqueType::get(ctx,
+                                     ttnn_to_emitpy::TypeNameV<::ttnn::Tensor>);
     });
     addConversion([ctx](mlir::TupleType type) -> emitpy::OpaqueType {
-      return emitpy::OpaqueType::get(ctx, "undefined tuple type");
+      return emitpy::OpaqueType::get(
+          ctx, ttnn_to_emitpy::TypeNameV<std::vector<::ttnn::Tensor>>);
     });
   }
 };
@@ -62,7 +65,7 @@ struct ConvertTTNNToEmitPyPass
 
     mlir::ConversionTarget target(getContext());
     target.addLegalDialect<emitpy::EmitPyDialect>();
-    target.addIllegalDialect<ttnn::TTNNDialect>();
+    target.addIllegalDialect<tt::ttnn::TTNNDialect>();
     // mlir::ModuleOp is legal only if no attributes are present on it
     //
     target.addDynamicallyLegalOp<mlir::ModuleOp>(
@@ -94,7 +97,7 @@ struct ConvertTTNNToEmitPyPass
     // Unwrap device_module into top-level ModuleOp (if present)
     {
       OpPassManager pm(ModuleOp::getOperationName());
-      pm.addPass(tt::createTTUnwrapDeviceModulePass());
+      pm.addPass(tt::createTTCoreUnwrapDeviceModulePass());
 
       if (failed(runPipeline(pm, module))) {
         signalPassFailure();
