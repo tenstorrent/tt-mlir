@@ -5,7 +5,7 @@
 #ifndef TTMLIR_DIALECT_EMITPY_IR_EMITPYTYPES_H
 #define TTMLIR_DIALECT_EMITPY_IR_EMITPYTYPES_H
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 

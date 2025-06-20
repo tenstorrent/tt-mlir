@@ -36,4 +36,4 @@ def EmitPy_Dialect : Dialect {
 class EmitPy_Op<string mnemonic, list<Trait> traits = []>
     : Op<EmitPy_Dialect, mnemonic, traits>;
 
-#endif
+#endif // TTMLIR_TTMLIR_DIALECT_EMITPY_EMITPYDIALECT_TD
