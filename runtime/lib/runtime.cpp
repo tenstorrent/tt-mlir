@@ -182,6 +182,9 @@ Tensor createBorrowedHostTensor(void *data,
                                 const std::vector<std::uint32_t> &stride,
                                 std::uint32_t itemsize,
                                 ::tt::target::DataType dataType) {
+  LOG_ASSERT(::tt::runtime::utils::isSupportedDataType(dataType),
+             "Cannot create borrowed tensor with unsupported data type: " +
+                 std::string(::tt::target::EnumNameDataType(dataType)));
   using RetType = Tensor;
   LOG_ASSERT(!shape.empty());
   LOG_ASSERT(!stride.empty());
@@ -644,11 +647,12 @@ Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
       });
 }
 
-void memcpy(void *dst, Tensor src) {
+void memcpy(void *dst, Tensor src,
+            std::optional<::tt::target::DataType> dstDataType) {
   using RetType = void;
   DISPATCH_TO_CURRENT_RUNTIME(
-      RetType, [&]() { ::tt::runtime::ttnn::memcpy(dst, src); },
-      [&]() { ::tt::runtime::ttmetal::memcpy(dst, src); });
+      RetType, [&]() { ::tt::runtime::ttnn::memcpy(dst, src, dstDataType); },
+      [&]() { ::tt::runtime::ttmetal::memcpy(dst, src, dstDataType); });
 }
 
 void memcpy(Tensor dst, Tensor src) {

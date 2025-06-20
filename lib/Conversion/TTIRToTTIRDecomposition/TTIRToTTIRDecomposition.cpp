@@ -501,9 +501,23 @@ public:
 
     // Applying the inverse of permutation to the output will restore the
     // tensor to the original layout.
-    rewriter.replaceOpWithNewOp<ttir::PermuteOp>(
-        op, op.getResult().getType(), newConv, adaptor.getOutput(),
-        ttmlir::utils::inversePermutation(permutation));
+
+    llvm::SmallVector<int64_t> outputLayout(conv2dLayout.size(),
+                                            ConvolutionDimension::INVALID_DIM);
+    outputLayout[op.getConvolutionLayout().getOutputBatchDimension()] =
+        ConvolutionDimension::BATCH;
+    outputLayout[op.getConvolutionLayout().getOutputFeatureDimension()] =
+        ConvolutionDimension::FEATURE;
+    for (const auto [spatialCount, spatialDim] : llvm::enumerate(
+             op.getConvolutionLayout().getOutputSpatialDimensions())) {
+      outputLayout[spatialDim] = spatialCount;
+    }
+    auto outputPermutation = ttmlir::utils::generatePermutation(
+        llvm::ArrayRef(conv2dLayout), llvm::ArrayRef(outputLayout));
+
+    rewriter.replaceOpWithNewOp<ttir::PermuteOp>(op, op.getResult().getType(),
+                                                 newConv, adaptor.getOutput(),
+                                                 outputPermutation);
 
     return success();
   }
@@ -1341,6 +1355,77 @@ private:
 };
 } // namespace
 
+// The following pattern rewriter will replace a PoolingOp with a FullOp in the
+// case where the pooling operation is applied to the result of a FullOp
+namespace {
+class PoolingToFullOp : public OpConversionPattern<ttir::PoolingOp> {
+public:
+  using OpConversionPattern<ttir::PoolingOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::PoolingOp op, ttir::PoolingOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    int64_t kernelSize = std::accumulate(op.getWindowDimensions().begin(),
+                                         op.getWindowDimensions().end(), 1,
+                                         std::multiplies<int64_t>());
+    SmallVector<Value> newResults;
+    // If all the inputs are constant ops with splat values then we can easily
+    // cannonicalize this
+    for (size_t i = 0; i < op.getInputs().size(); i++) {
+      ttir::FullOp constant =
+          dyn_cast_or_null<ttir::FullOp>(op.getInputs()[i].getDefiningOp());
+      if (!constant) {
+        return failure();
+      }
+      ttir::FullOp newConstant;
+
+      std::variant<int64_t, float> constValue;
+      std::variant<int64_t, float> newConstValue;
+
+      constValue = isa<IntegerAttr>(constant.getFillValue())
+                       ? dyn_cast<IntegerAttr>(constant.getFillValue())
+                             .getValue()
+                             .getSExtValue()
+                       : dyn_cast<FloatAttr>(constant.getFillValue())
+                             .getValue()
+                             .convertToFloat();
+
+      if (op.getPoolingMethod() == ttir::PoolingMethod::Max ||
+          op.getPoolingMethod() == ttir::PoolingMethod::Average) {
+        newConstValue = constValue;
+      } else if (op.getPoolingMethod() == ttir::PoolingMethod::Sum) {
+        // Handle variant multiplication correctly using std::visit
+        newConstValue = std::visit(
+            [kernelSize](auto &&arg) -> std::variant<int64_t, float> {
+              return arg * kernelSize;
+            },
+            constValue);
+      } else {
+        return rewriter.notifyMatchFailure(op.getLoc(),
+                                           "Unknown pooling method");
+      }
+
+      mlir::Attribute newConstValueAttr =
+          std::holds_alternative<int64_t>(newConstValue)
+              ? cast<mlir::Attribute>(IntegerAttr::get(
+                    IntegerType::get(rewriter.getContext(), 32),
+                    std::get<int64_t>(newConstValue)))
+              : cast<mlir::Attribute>(
+                    FloatAttr::get(Float32Type::get(rewriter.getContext()),
+                                   std::get<float>(newConstValue)));
+
+      newConstant = rewriter.create<ttir::FullOp>(
+          op.getLoc(), op.getResult(i).getType(), newConstValueAttr);
+      newResults.push_back(newConstant);
+    }
+
+    rewriter.replaceOp(
+        op, ValueRange(ArrayRef<Value>(newResults.begin(), newResults.end())));
+    return success();
+  }
+};
+} // namespace
+
 // SelectOp is converted to a series of SliceOp and potentially a ConcatOp if
 // the sliced dimension is sliced multiple times. For example, if the input
 // tensor is
@@ -1944,6 +2029,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter) {
   patterns.add<PoolingToPool2dPattern>(typeConverter, ctx);
+  patterns.add<PoolingToFullOp>(typeConverter, ctx);
   patterns.add<IndexToSliceConversionPattern>(typeConverter, ctx);
   patterns.add<Legalize1DConvolutionPattern>(typeConverter, ctx);
   patterns.add<ConvolutionToConv2dPattern>(typeConverter, ctx);

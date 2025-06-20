@@ -173,9 +173,7 @@ void closeMeshDevice(Device parentMesh) {
   }
 
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-  for (tt_metal::IDevice *ttmetalDevice : metalMeshDevice.get_devices()) {
-    tt_metal::detail::DumpDeviceProfileResults(ttmetalDevice);
-  }
+  ::tt::tt_metal::DumpMeshDeviceProfileResults(metalMeshDevice);
 #endif
 
   metalMeshDevice.close();
@@ -321,9 +319,7 @@ void dumpDeviceProfileResults(Device deviceHandle) {
              "Mesh device must be a parent mesh");
 
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
-  for (tt_metal::IDevice *metalDevice : metalMeshDevice.get_devices()) {
-    ::tt::tt_metal::detail::DumpDeviceProfileResults(metalDevice);
-  }
+  ::tt::tt_metal::DumpMeshDeviceProfileResults(metalMeshDevice);
 #endif
 }
 
@@ -379,7 +375,13 @@ std::vector<Tensor> toHost(Tensor tensor, bool untilize) {
   return {tensor};
 }
 
-void memcpy(void *dst, Tensor src) {
+void memcpy(void *dst, Tensor src,
+            std::optional<tt::target::DataType> dstDataType) {
+  if (dstDataType.has_value()) {
+    LOG_ASSERT(
+        ::tt::runtime::utils::isSupportedDataType(dstDataType.value()),
+        "dstDataType must be a supported data type if using TTMetal runtime");
+  }
   const auto &metalSrc = src.as<MetalTensor>(DeviceRuntime::TTMetal);
   LOG_ASSERT(std::holds_alternative<TensorDesc>(metalSrc),
              "Only TensorDesc supported for now");

@@ -15,7 +15,6 @@ from ttmlir.passes import (
     ttmetal_to_flatbuffer_file,
     ttnn_to_flatbuffer_file,
 )
-from ttmlir.utils import create_mlir_module_from_string
 from ttrt.common.api import API
 from ttrt.common.util import Binary, FileManager, Logger
 

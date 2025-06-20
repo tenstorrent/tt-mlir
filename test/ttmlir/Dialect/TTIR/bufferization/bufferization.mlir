@@ -6,10 +6,10 @@
 #map2 = affine_map<(d0, d1, d2) -> (d0, d1)>
 #parallel = #ttcore.iterator_type<parallel>
 #reduction = #ttcore.iterator_type<reduction>
-#layout = #ttcore.metal_layout<(d0, d1, d2, d3) -> (d0 * 64 + d1 * 64 + d2, d3), undef, <1x1>, memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>
-#layout1 = #ttcore.metal_layout<(d0, d1, d2, d3) -> (d0 * 128 + d1 * 128 + d2, d3), undef, <1x1>, memref<4x2x!ttcore.tile<32x32, f32>, #l1_>>
-#layout2 = #ttcore.metal_layout<(d0, d1, d2, d3) -> (d0 * 64 + d1 * 64 + d2, d3), undef, <1x1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>
-#layout3 = #ttcore.metal_layout<(d0, d1, d2, d3) -> (d0 * 64 + d1 * 64 + d2, d3), undef, <1x2>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>
+#layout = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1>
+#layout1 = #ttcore.metal_layout<logical_shape = 128x64, dim_alignments = 32x32, collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1>
+#layout2 = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1>
+#layout3 = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1>
 
 func.func @matmul() -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout2> {
   %arg0 = ttir.empty() : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout>
@@ -19,7 +19,7 @@ func.func @matmul() -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout2> {
   // CHECK: = memref.alloc
   %0 = ttir.empty() : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout2>
   // CHECK: {{^  ttir.generic.*}}
-  %1 = "ttir.generic"(%arg0, %arg1, %0) <{grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map1, #map2], iterator_types = [#parallel, #parallel, #reduction], threads = [#ttir.thread<compute>], operandSegmentSizes = array<i32: 2, 1>}> ({
+  %1 = "ttir.generic"(%arg0, %arg1, %0) <{block_factors = [1, 1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map1, #map2], iterator_types = [#parallel, #parallel, #reduction], threads = [#ttir.thread<compute>], operandSegmentSizes = array<i32: 2, 1>}> ({
   ^bb0(%arg2: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %arg3: memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, %arg4: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>):
     "ttir.tile_matmul_block"(%arg2, %arg3, %arg4) : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
   }) : (tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout>, tensor<1x1x4x2x!ttcore.tile<32x32, f32>, #layout1>, tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout2>) -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout2>

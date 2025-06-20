@@ -14,19 +14,23 @@ func.func @matmul_single_core_stream(%arg0: memref<1x2x2x2x!ttcore.tile<32x32, f
   %alloc_1 = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>
   %stream = "ttir.stream_layout"(%arg0, %alloc_0) : (memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>) -> memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_>
   %stream_2 = "ttir.stream_layout"(%arg1, %alloc_1) : (memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>) -> memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_>
-  "ttir.generic"(%stream, %stream_2, %alloc) <{grid = #ttcore.grid<1x1>, indexing_maps = [#map1, #map2, #map3], iterator_types = [#parallel, #parallel, #reduction], threads = [#ttir.thread<datamovement>, #ttir.thread<datamovement>, #ttir.thread<datamovement>, #ttir.thread<compute>], operandSegmentSizes = array<i32: 2, 1>}> ({
+  "ttir.generic"(%stream, %stream_2, %alloc) <{block_factors = [1, 1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map1, #map2, #map3], iterator_types = [#parallel, #parallel, #reduction], threads = [#ttir.thread<datamovement>, #ttir.thread<datamovement>, #ttir.thread<datamovement>, #ttir.thread<compute>], operandSegmentSizes = array<i32: 2, 1>}> ({
   ^datamovement0(%cb0: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>):
+    // CHECK-DAG: [[iter0:%.*]] = ttir.iter_index(0)
     // CHECK-DAG: [[iter2:%.*]] = ttir.iter_index(2)
     // CHECK-DAG: [[core0:%.*]] = ttir.core_index(0)
-    // CHECK: ttir.dma %stream{{[_0-9]*}} [[[core0]], [[iter2]], %c0]
+    // CHECK-DAG: [[offset:%.*]] = arith.addi [[core0]], [[iter0]]
+    // CHECK: ttir.dma %stream{{[_0-9]*}} [[[offset]], [[iter2]], %c0]
     %tx = ttir.dma %stream<#map1>, %cb0 : (memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
     ttir.dma_wait %tx
     ttir.yield %cb0 : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>)
   }, {
   ^datamovement1(%cb0: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>):
     // CHECK-DAG: [[iter2:%.*]] = ttir.iter_index(2)
+    // CHECK-DAG: [[iter1:%.*]] = ttir.iter_index(1)
     // CHECK-DAG: [[core1:%.*]] = ttir.core_index(1)
-    // CHECK: ttir.dma %stream{{[_0-9]*}} [[[iter2]], [[core1]], %c0]
+    // CHECK-DAG: [[offset:%.*]] = arith.addi [[core1]], [[iter1]]
+    // CHECK: ttir.dma %stream{{[_0-9]*}} [[[iter2]], [[offset]], %c0]
     %tx = ttir.dma %stream_2<#map2>, %cb1 : (memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
     ttir.dma_wait %tx
     ttir.yield %cb1 : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>)
@@ -48,11 +52,13 @@ func.func @matmul_single_core_transpose(%arg0: memref<1x2x2x2x!ttcore.tile<32x32
   %alloc_1 = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>
   %stream = "ttir.stream_layout"(%arg0, %alloc_0) : (memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>) -> memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_>
   %stream_2 = "ttir.stream_layout"(%arg1, %alloc_1) : (memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>) -> memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<(d0, d1, d2, d3) -> (d1, d0, d3, d2)>, #l1_>
-  "ttir.generic"(%stream, %stream_2, %alloc) <{grid = #ttcore.grid<1x1>, indexing_maps = [#map1, #map2, #map3], iterator_types = [#parallel, #parallel, #reduction], threads = [#ttir.thread<datamovement>, #ttir.thread<datamovement>, #ttir.thread<datamovement>, #ttir.thread<compute>], operandSegmentSizes = array<i32: 2, 1>}> ({
+  "ttir.generic"(%stream, %stream_2, %alloc) <{block_factors = [1, 1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map1, #map2, #map3], iterator_types = [#parallel, #parallel, #reduction], threads = [#ttir.thread<datamovement>, #ttir.thread<datamovement>, #ttir.thread<datamovement>, #ttir.thread<compute>], operandSegmentSizes = array<i32: 2, 1>}> ({
   ^datamovement0(%cb0: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>):
+    // CHECK-DAG: [[iter0:%.*]] = ttir.iter_index(0)
     // CHECK-DAG: [[iter2:%.*]] = ttir.iter_index(2)
     // CHECK-DAG: [[core0:%.*]] = ttir.core_index(0)
-    // CHECK: ttir.dma %stream{{[_0-9]*}} [[[core0]], [[iter2]], %c0]
+    // CHECK-DAG: [[offset:%.*]] = arith.addi [[core0]], [[iter0]]
+    // CHECK: ttir.dma %stream{{[_0-9]*}} [[[offset]], [[iter2]], %c0]
     %tx = ttir.dma %stream<#map1>, %cb0 : (memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
     ttir.dma_wait %tx
     ttir.yield %cb0 : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>)
@@ -87,7 +93,7 @@ func.func @matmul_multi_core(%arg0: memref<2x4x4x6x!ttcore.tile<32x32, f32>, #tt
   %alloc_1 = memref.alloc() {alignment = 64 : i64} : memref<2x4x6x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096>, #l1_>
   %stream = "ttir.stream_layout"(%arg0, %alloc_0) : (memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.shard<24576x4096>, #l1_>, memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.shard<24576x4096>, #l1_>) -> memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_>
   %stream_2 = "ttir.stream_layout"(%arg1, %alloc_1) : (memref<4x4x6x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096>, #l1_>, memref<2x4x6x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096>, #l1_>) -> memref<4x4x6x8x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_>
-  "ttir.generic"(%stream, %stream_2, %alloc) <{grid = #ttcore.grid<2x4>, indexing_maps = [#map1, #map2, #map3], iterator_types = [#parallel, #parallel, #reduction], threads = [#ttir.thread<datamovement>, #ttir.thread<datamovement>, #ttir.thread<datamovement>, #ttir.thread<compute>], operandSegmentSizes = array<i32: 2, 1>}> ({
+  "ttir.generic"(%stream, %stream_2, %alloc) <{block_factors = [1, 1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map1, #map2, #map3], iterator_types = [#parallel, #parallel, #reduction], threads = [#ttir.thread<datamovement>, #ttir.thread<datamovement>, #ttir.thread<datamovement>, #ttir.thread<compute>], operandSegmentSizes = array<i32: 2, 1>}> ({
   ^datamovement0(%cb0: memref<4x6x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<6x8x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<4x8x!ttcore.tile<32x32, f32>, #l1_>, %sem0: !ttir.semaphore, %sem1: !ttir.semaphore, %sem2: !ttir.semaphore, %sem3: !ttir.semaphore):
     %c3 = arith.constant 3 : index
     %c4 = arith.constant 4 : index
@@ -97,9 +103,11 @@ func.func @matmul_multi_core(%arg0: memref<2x4x4x6x!ttcore.tile<32x32, f32>, #tt
     %core1 = ttir.core_index(1) : index
     %0 = arith.cmpi eq, %core1, %c0 : index
     scf.if %0 {
+      // CHECK-DAG: [[iter0:%.*]] = ttir.iter_index(0)
       // CHECK-DAG: [[iter2:%.*]] = ttir.iter_index(2)
       // CHECK-DAG: [[core0:%.*]] = ttir.core_index(0)
-      // CHECK: ttir.dma %stream{{[_0-9]*}} [[[core0]], [[iter2]], %c0]
+      // CHECK-DAG: [[offset:%.*]] = arith.addi [[core0]], [[iter0]]
+      // CHECK: ttir.dma %stream{{[_0-9]*}} [[[offset]], [[iter2]], %c0]
       %tx = ttir.dma %stream<#map1>, %cb0 : (memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_>, memref<4x6x!ttcore.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ttir.dma_wait %tx
       ttir.semaphore_wait %sem0, %c3 reset %c0
@@ -121,8 +129,10 @@ func.func @matmul_multi_core(%arg0: memref<2x4x4x6x!ttcore.tile<32x32, f32>, #tt
     %core1 = ttir.core_index(1) : index
     scf.if %0 {
       // CHECK-DAG: [[iter2:%.*]] = ttir.iter_index(2)
+      // CHECK-DAG: [[iter1:%.*]] = ttir.iter_index(1)
       // CHECK-DAG: [[core1:%.*]] = ttir.core_index(1)
-      // CHECK: ttir.dma %stream{{[_0-9]*}} [[[iter2]], [[core1]], %c0]
+      // CHECK-DAG: [[offset:%.*]] = arith.addi [[core1]], [[iter1]]
+      // CHECK: ttir.dma %stream{{[_0-9]*}} [[[iter2]], [[offset]], %c0]
       %tx = ttir.dma %stream_2<#map2>, %cb1 : (memref<4x4x6x8x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_>, memref<6x8x!ttcore.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ttir.dma_wait %tx
       ttir.semaphore_wait %sem2, %c1 reset %c0
@@ -152,7 +162,7 @@ func.func @matmul_multi_core_dram_params(%arg0: memref<2x4x4x6x!ttcore.tile<32x3
   %alloc_1 = memref.alloc() {alignment = 64 : i64} : memref<2x4x6x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096>, #l1_>
   %stream = "ttir.stream_layout"(%arg0, %alloc_0) : (memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.shard<24576x4096>, #l1_>, memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.shard<24576x4096>, #l1_>) -> memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_>
   %stream_2 = "ttir.stream_layout"(%arg1, %alloc_1) : (memref<4x4x6x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096>, #dram>, memref<2x4x6x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096>, #l1_>) -> memref<4x4x6x8x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>
-  "ttir.generic"(%stream, %stream_2, %alloc) <{grid = #ttcore.grid<2x4>, indexing_maps = [#map1, #map2, #map3], iterator_types = [#parallel, #parallel, #reduction], threads = [#ttir.thread<datamovement>, #ttir.thread<datamovement>, #ttir.thread<datamovement>, #ttir.thread<compute>], operandSegmentSizes = array<i32: 2, 1>}> ({
+  "ttir.generic"(%stream, %stream_2, %alloc) <{block_factors = [1, 1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map1, #map2, #map3], iterator_types = [#parallel, #parallel, #reduction], threads = [#ttir.thread<datamovement>, #ttir.thread<datamovement>, #ttir.thread<datamovement>, #ttir.thread<compute>], operandSegmentSizes = array<i32: 2, 1>}> ({
   ^datamovement0(%cb0: memref<4x6x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<6x8x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<4x8x!ttcore.tile<32x32, f32>, #l1_>, %sem0: !ttir.semaphore, %sem1: !ttir.semaphore, %sem2: !ttir.semaphore, %sem3: !ttir.semaphore):
     %c3 = arith.constant 3 : index
     %c4 = arith.constant 4 : index
@@ -162,9 +172,11 @@ func.func @matmul_multi_core_dram_params(%arg0: memref<2x4x4x6x!ttcore.tile<32x3
     %core1 = ttir.core_index(1) : index
     %0 = arith.cmpi eq, %core1, %c0 : index
     scf.if %0 {
+      // CHECK-DAG: [[iter0:%.*]] = ttir.iter_index(0)
       // CHECK-DAG: [[iter2:%.*]] = ttir.iter_index(2)
       // CHECK-DAG: [[core0:%.*]] = ttir.core_index(0)
-      // CHECK: ttir.dma %stream{{[_0-9]*}} [[[core0]], [[iter2]], %c0]
+      // CHECK-DAG: [[offset:%.*]] = arith.addi [[core0]], [[iter0]]
+      // CHECK: ttir.dma %stream{{[_0-9]*}} [[[offset]], [[iter2]], %c0]
       %tx = ttir.dma %stream<#map1>, %cb0 : (memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_>, memref<4x6x!ttcore.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ttir.dma_wait %tx
       ttir.semaphore_wait %sem0, %c3 reset %c0

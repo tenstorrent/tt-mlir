@@ -84,6 +84,15 @@ static void tracyLogConstEvalProgram(const ::tt::target::ttnn::Operation *op,
 #endif
 }
 
+static void tracyLogProgramMetadata(const ::tt::target::ttnn::Operation *op,
+                                    std::string metaData) {
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+  std::string message =
+      perf::toString(perf::TracyLogTag::MLIR_PROGRAM_METADATA) + ";" + metaData;
+  TracyMessage(message.c_str(), message.size());
+#endif
+}
+
 ProgramExecutor::ProgramExecutor(
     ::tt::runtime::Device deviceHandle, ::tt::runtime::Binary &executableHandle,
     const size_t programIndex,
@@ -140,12 +149,13 @@ void ProgramExecutor::execute() {
               "Executing operation: ", op->debug_info()->c_str());
     tracyLogConstEvalProgram(op, constEvalProgram);
     tracyLogOpLocation(op);
+    tracyLogProgramMetadata(op, perf::Env::get().tracyProgramMetadata);
     runCallback(debug::Hooks::get().getPreOperatorCallback(), executableHandle,
                 op, context.get());
     runOperation(op);
     runCallback(debug::Hooks::get().getPostOperatorCallback(), executableHandle,
                 op, context.get());
-    dumpPerfCountersIfNeeded(context->getMeshDevice());
+    dumpPerfCountersIfNeeded();
   }
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Finished execution of program: ", program->name()->c_str());
@@ -336,16 +346,14 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
 }
 
-void ProgramExecutor::dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice) {
+void ProgramExecutor::dumpPerfCountersIfNeeded() {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
   static uint32_t counter = 0;
   if (++counter >= perf::Env::get().dumpDeviceRate) {
     LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +
                                            std::to_string(counter) +
                                            " operations");
-    for (::ttnn::IDevice *ttnnDevice : meshDevice.get_devices()) {
-      ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
-    }
+    ::tt::tt_metal::DumpMeshDeviceProfileResults(context->getMeshDevice());
     counter = 0;
   }
 #endif

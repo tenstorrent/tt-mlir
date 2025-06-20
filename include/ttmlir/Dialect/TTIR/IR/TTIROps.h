@@ -46,6 +46,8 @@ inline void getDpsEffects(
   }
 }
 
+MemRefType getBufferType(Type type, bool isView);
+
 } // namespace mlir::tt::ttir
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsEnums.h.inc"

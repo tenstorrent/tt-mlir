@@ -32,12 +32,14 @@
 
 // This namespace contains mock definitions of TTNN types for the purpose of
 // conversion.
-namespace ttnn {
+namespace ttsl {
 template <typename T>
 struct SmallVector {
   using value_type = T;
 };
+} // namespace ttsl
 
+namespace ttnn {
 struct Shape;
 
 struct ShardSpec;
@@ -162,9 +164,9 @@ struct TypeName<std::vector<T>> {
 };
 
 template <typename T>
-struct TypeName<::ttnn::SmallVector<T>> {
+struct TypeName<::ttsl::SmallVector<T>> {
   inline static const std::string value =
-      "::ttnn::SmallVector<" + TypeNameV<T> + ">";
+      "::ttsl::SmallVector<" + TypeNameV<T> + ">";
 };
 
 template <typename T>
@@ -766,8 +768,8 @@ struct EmitCTypeConverter<std::vector<T>>
     : public EmitCContainerTypeConverter<std::vector<T>> {};
 
 template <typename T>
-struct EmitCTypeConverter<::ttnn::SmallVector<T>>
-    : public EmitCContainerTypeConverter<::ttnn::SmallVector<T>> {};
+struct EmitCTypeConverter<::ttsl::SmallVector<T>>
+    : public EmitCContainerTypeConverter<::ttsl::SmallVector<T>> {};
 
 template <typename T>
 struct EmitCTypeConverter<std::set<T>>
@@ -1419,8 +1421,8 @@ public:
   }
 
   template <typename OpConversionPatternTy>
-  emitc::CallOpaqueOp replaceOp(OpConversionPatternTy &&opConversionPattern,
-                                llvm::ArrayRef<mlir::Attribute> args) {
+  mlir::Value replaceOp(OpConversionPatternTy &&opConversionPattern,
+                        llvm::ArrayRef<mlir::Attribute> args) {
     // Special handling for Conv2dOp and ConvTranspose2dOp. These ops have a
     // different return type than the other TTNN ops. They return
     // `std::tuple<::ttnn::Tensor, uint32_t, uint32_t, ::ttnn::Tensor,
@@ -1439,26 +1441,46 @@ public:
               ::ttnn::Tensor, std::tuple<OutputHeight, OutputWidth>,
               std::tuple<::ttnn::Tensor, std::optional<::ttnn::Tensor>>>>;
 
-      auto opResult = rewriter.create<emitc::CallOpaqueOp>(
+      emitc::ExpressionOp conv2dExpr = rewriter.create<emitc::ExpressionOp>(
+          op.getLoc(),
+          rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>));
+
+      mlir::Block &bodyBlock = conv2dExpr.getBodyRegion().emplaceBlock();
+      rewriter.setInsertionPointToStart(&bodyBlock);
+
+      auto conv2dOp = rewriter.create<emitc::CallOpaqueOp>(
           op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
           opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
-          nullptr, adaptor.getOperands());
+          /*template_args=*/nullptr, adaptor.getOperands());
+      auto getTensorOp = rewriter.create<emitc::CallOpaqueOp>(
+          op.getLoc(),
+          rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>),
+          "::std::get", /*args=*/nullptr,
+          /*template_args=*/
+          rewriter.getArrayAttr({rewriter.getI32IntegerAttr(0)}),
+          conv2dOp.getResult(0));
+      rewriter.create<emitc::YieldOp>(op.getLoc(), getTensorOp.getResult(0));
 
-      return rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-          op, rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>),
-          "::std::get", rewriter.getArrayAttr({rewriter.getIndexAttr(0)}),
-          rewriter.getArrayAttr(
-              {rewriter.getIntegerAttr(rewriter.getI32Type(), 0)}),
-          opResult.getResult(0));
+      rewriter.replaceOp(op, conv2dExpr);
+
+      rewriter.setInsertionPointAfter(conv2dExpr);
+
+      return conv2dExpr;
     }
 
     auto resultTypes = llvm::to_vector(
         llvm::map_range(op->getResultTypes(), [&](Type type) -> Type {
           return opConversionPattern.getTypeConverter()->convertType(type);
         }));
-    return rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+    auto callOpaqueOp = rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         op, resultTypes, opConversionPattern.convertOpName(op),
         rewriter.getArrayAttr(args), nullptr, operands);
+
+    assert(callOpaqueOp.getNumResults() <= 1 && "expected at most one result");
+    if (callOpaqueOp.getNumResults() == 0) {
+      return {};
+    }
+    return callOpaqueOp.getResult(0);
   }
 
   // TODO (azecevic): This is a temporary solution for handling the case when
