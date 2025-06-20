@@ -15,10 +15,10 @@ void run(const ::tt::target::ttnn::SliceOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
-  ::ttnn::SmallVector<int32_t> begins(op->begins()->begin(),
+  ::ttsl::SmallVector<int32_t> begins(op->begins()->begin(),
                                       op->begins()->end());
-  ::ttnn::SmallVector<int32_t> ends(op->ends()->begin(), op->ends()->end());
-  ::ttnn::SmallVector<int32_t> step(op->step()->begin(), op->step()->end());
+  ::ttsl::SmallVector<int32_t> ends(op->ends()->begin(), op->ends()->end());
+  ::ttsl::SmallVector<int32_t> step(op->step()->begin(), op->step()->end());
 
   ::ttnn::Tensor out = ::ttnn::slice(in, begins, ends, step);
 

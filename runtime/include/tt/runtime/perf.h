@@ -9,7 +9,11 @@
 
 namespace tt::runtime::perf {
 
-enum class TracyLogTag { MLIR_OP_LOCATION, MLIR_CONST_EVAL_OP };
+enum class TracyLogTag {
+  MLIR_OP_LOCATION,
+  MLIR_CONST_EVAL_OP,
+  MLIR_PROGRAM_METADATA
+};
 
 inline std::string toString(TracyLogTag tracyLogTag) {
   switch (tracyLogTag) {
@@ -17,30 +21,47 @@ inline std::string toString(TracyLogTag tracyLogTag) {
     return "MLIR_OP_LOCATION";
   case TracyLogTag::MLIR_CONST_EVAL_OP:
     return "MLIR_CONST_EVAL_OP";
+  case TracyLogTag::MLIR_PROGRAM_METADATA:
+    return "MLIR_PROGRAM_METADATA";
   }
 }
 
 struct Env {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-  static const Env &
+  static Env &
 #else
-  constexpr static Env
+  static Env
 #endif
-  get(std::uint32_t dumpDeviceRate = 1000, bool enablePerfTrace = false)
+  get(std::uint32_t dumpDeviceRate = 1000, bool enablePerfTrace = false,
+      const std::string &tracyProgramMetadata = "")
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
       ;
 #else
   {
-    return Env(1000, false);
+    return Env(1000, false, "");
   }
 #endif
 
   std::uint32_t dumpDeviceRate;
   bool enablePerfTrace;
+  std::string tracyProgramMetadata;
+
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+  Env(const Env &) = delete;
+  Env &operator=(const Env &) = delete;
+  Env(Env &&) = delete;
+  Env &operator=(Env &&) = delete;
+#endif
+
+  void setProgramMetadata(const std::string &programMetadata) {
+    tracyProgramMetadata = programMetadata;
+  }
 
 private:
-  constexpr Env(std::uint32_t dumpDeviceRate, bool enablePerfTrace)
-      : dumpDeviceRate(dumpDeviceRate), enablePerfTrace(enablePerfTrace) {}
+  Env(std::uint32_t dumpDeviceRate, bool enablePerfTrace,
+      const std::string &tracyProgramMetadata)
+      : dumpDeviceRate(dumpDeviceRate), enablePerfTrace(enablePerfTrace),
+        tracyProgramMetadata(tracyProgramMetadata) {}
 };
 
 inline std::ostream &operator<<(std::ostream &os, const Env &env) {
@@ -49,6 +70,8 @@ inline std::ostream &operator<<(std::ostream &os, const Env &env) {
      << "dumpDeviceRate: " << env.dumpDeviceRate << "\n"
      << "\t"
      << "enablePerfTrace: " << env.enablePerfTrace << "\n"
+     << "\t"
+     << "tracyProgramMetadata: " << env.tracyProgramMetadata << "\n"
      << "}";
   return os;
 }

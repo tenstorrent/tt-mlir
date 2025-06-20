@@ -88,7 +88,7 @@ inline ::ttnn::Tensor createTTNNTensor(const void *rawData,
   ::ttnn::TensorSpec tensorSpec = createTensorSpec(shape, dataType);
   if (rawData != nullptr) {
     const T *typedData = static_cast<const T *>(rawData);
-    ::tt::stl::Span<const T> data(typedData, typedData + numElements);
+    ::ttsl::Span<const T> data(typedData, typedData + numElements);
     ::ttnn::Tensor tensor = ::ttnn::Tensor::from_span(data, tensorSpec);
     return tensor;
   }

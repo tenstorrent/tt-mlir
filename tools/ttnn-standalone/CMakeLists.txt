@@ -84,7 +84,7 @@ set(INCLUDE_DIRS
     ${CPM_SOURCE_CACHE}/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
     ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
     ${CPM_SOURCE_CACHE}/spdlog/b1c2586bb5c35a7929362e87f62433eb68206873/include
-    ${CPM_SOURCE_CACHE}/tt-logger/300f1cdffa52ce1010e37283d4e1031431b0cf3b/include
+    ${CPM_SOURCE_CACHE}/tt-logger/c30f8fb4715bdecd616b807c316670986667f679/include
     ${CPM_SOURCE_CACHE}/xtl/0_8_0_patched/include
     ${CPM_SOURCE_CACHE}/xtensor/0_26_0_patched/include
     ${CPM_SOURCE_CACHE}/xtensor-blas/0_22_0_patched/include

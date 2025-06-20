@@ -118,4 +118,18 @@ mlir::memref::GlobalOp createGlobal(ModuleOp moduleOp, mlir::MemRefType type,
                       privateVisibility, alignment);
 }
 
+bool isTiled(RankedTensorType tensorType) {
+  return mlir::isa<TileType>(tensorType.getElementType());
+}
+
+ArrayRef<int64_t> getTensorTileShape(RankedTensorType tensorType) {
+  auto tileType = mlir::cast<TileType>(tensorType.getElementType());
+  return tileType.getShape();
+}
+
+ArrayRef<int64_t> getTensorTileShapeOrEmpty(RankedTensorType tensorType) {
+  return isTiled(tensorType) ? getTensorTileShape(tensorType)
+                             : ArrayRef<int64_t>{};
+}
+
 } // namespace mlir::tt

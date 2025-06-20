@@ -638,16 +638,15 @@ public:
             op.getLoc(), op.getMcastShape()[0], op.getMcastShape()[1]);
         auto numDests = rewriter.create<arith::IndexCastOp>(
             op.getLoc(), rewriter.getI32Type(), numDestsIdx);
-        auto mcastAddr = rewriter.create<ttkernel::GetNocMulticastAddrOp>(
-            op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, dstL1Start,
-            nullptr);
+        auto mcastAddr =
+            rewriter.create<ttkernel::ExperimentalGetNocMulticastAddrOp>(
+                op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, dstL1Start,
+                nullptr);
         if (adaptor.getSrc() == adaptor.getDst()) {
           // If src and dst refer to the same memref, we do not loopback mcast
           // Dests are one less because the sender core is not included
-          auto numDestsLessOne = rewriter.create<arith::SubIOp>(
-              op.getLoc(), numDests, i32(rewriter, op->getLoc(), 1));
           rewriter.create<ttkernel::NocAsyncWriteMulticastOp>(
-              op.getLoc(), srcL1Start, mcastAddr, transferSize, numDestsLessOne,
+              op.getLoc(), srcL1Start, mcastAddr, transferSize, numDests,
               nullptr, nullptr, nullptr);
         } else {
           // If src != dst, we loopback mcast
@@ -854,23 +853,27 @@ class TTIRKernelFunctionArgsRewriter
 public:
   using OpConversionPattern<func::FuncOp>::OpConversionPattern;
 
+  static ThreadType getTTKernelThreadType(func::FuncOp op) {
+    ttir::ThreadAttr threadAttr =
+        op->getAttrOfType<ttir::ThreadAttr>(ttir::ThreadAttr::name);
+    switch (threadAttr.getThreadType()) {
+    case ttir::ThreadType::Compute: {
+      return ThreadType::Compute;
+    }
+    case ttir::ThreadType::Datamovement: {
+      return ThreadType::Noc;
+    }
+    }
+  }
+
   static void convertFunctionAttrs(Builder &builder, func::FuncOp op,
                                    ArrayRef<ArgAttr> rtArgs,
                                    ArrayRef<ArgAttr> ctArgs) {
-    ttir::ThreadAttr threadAttr =
-        op->getAttrOfType<ttir::ThreadAttr>(ttir::ThreadAttr::name);
+
+    // Get the TTKernel thread type and replace TTIR thread type with TTKernel
+    // thread type
+    ThreadType threadType = getTTKernelThreadType(op);
     op->removeAttr(ttir::ThreadAttr::name);
-    ThreadType threadType;
-    switch (threadAttr.getThreadType()) {
-    case ttir::ThreadType::Compute: {
-      threadType = ThreadType::Compute;
-      break;
-    }
-    case ttir::ThreadType::Datamovement: {
-      threadType = ThreadType::Noc;
-      break;
-    }
-    }
     op->setAttr(ThreadTypeAttr::name,
                 builder.getAttr<ThreadTypeAttr>(threadType));
     ArgSpecAttr::setArgSpec(op, builder.getAttr<ArgSpecAttr>(rtArgs, ctArgs));
@@ -904,6 +907,9 @@ public:
         ctArgSpecVector.push_back(
             rewriter.getAttr<ArgAttr>(ArgType::CBPort, arg.getArgNumber()));
       } else if (mlir::isa<SemaphoreType>(argType)) {
+        if (getTTKernelThreadType(op) != ThreadType::Noc) {
+          continue;
+        }
         size_t ctArgIndex = ctArgSpecVector.size();
         auto semaphoreIndex = rewriter.create<GetCompileArgValOp>(
             op.getLoc(), rewriter.getI32Type(),
@@ -984,9 +990,10 @@ public:
           op.getLoc(), op.getMcastShape()[0], op.getMcastShape()[1]);
       Value numDests = rewriter.create<arith::IndexCastOp>(
           op.getLoc(), rewriter.getI32Type(), numDestsIdx);
-      auto mcastAddr = rewriter.create<ttkernel::GetNocMulticastAddrOp>(
-          op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, semaphoreAddr,
-          nullptr);
+      auto mcastAddr =
+          rewriter.create<ttkernel::ExperimentalGetNocMulticastAddrOp>(
+              op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, semaphoreAddr,
+              nullptr);
 
       auto semaphorePtr =
           rewriter.create<ttkernel::CastToL1PtrOp>(op.getLoc(), semaphoreAddr);
