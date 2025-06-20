@@ -319,9 +319,9 @@ inline Type dataTypeToElementType(mlir::MLIRContext *context, DataType dtype) {
   case DataType::BFloat16:
     return BFloat16Type::get(context);
   case DataType::BFP_Float8:
-    return BFloat8BType::get(context);
-  case DataType::BFP_BFloat8:
     return BFloat16Type::get(context);
+  case DataType::BFP_BFloat8:
+    return BFloat8BType::get(context);
   case DataType::BFP_Float4:
     return Float16Type::get(context);
   case DataType::BFP_BFloat4:
