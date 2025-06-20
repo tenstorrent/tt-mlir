@@ -47,46 +47,40 @@ struct LegalizeStableHLOCompositeToTTIR
 } // namespace
 
 namespace {
-class StableHLOToTTIRCompositeOpGeluConversionPattern
+
+template <typename TargetOp>
+class StableHLOToTTIRCompositeOpConversionPattern
     : public OpRewritePattern<mlir::stablehlo::CompositeOp> {
-
-  using OpRewritePattern<mlir::stablehlo::CompositeOp>::OpRewritePattern;
-
 public:
+  StableHLOToTTIRCompositeOpConversionPattern(mlir::MLIRContext *context,
+                                              const char *opName)
+      : OpRewritePattern<mlir::stablehlo::CompositeOp>(context),
+        opName(opName) {}
+
   LogicalResult matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
                                 PatternRewriter &rewriter) const override {
-
-    // Check legality of the conversion.
-    LogicalResult err = checkConversionLegality(srcOp, rewriter);
-    if (failed(err)) {
-      return err;
+    if (srcOp.getName() != opName) {
+      return rewriter.notifyMatchFailure(
+          srcOp, ("CompositeOp must be " + std::string(opName) + ".").c_str());
     }
-
-    // Check that the composite op has exactly one result
     if (srcOp.getNumResults() != 1) {
       return rewriter.notifyMatchFailure(
           srcOp, "CompositeOp must have exactly one result.");
     }
-
-    ttir::utils::replaceOpWithNewDPSOp<ttir::GeluOp>(
+    ttir::utils::replaceOpWithNewDPSOp<TargetOp>(
         rewriter, srcOp,
         mlir::cast<RankedTensorType>(srcOp->getResult(0).getType()),
         srcOp->getOperands());
-
     return success();
   }
 
 private:
-  LogicalResult checkConversionLegality(mlir::stablehlo::CompositeOp &srcOp,
-                                        PatternRewriter &rewriter) const {
-    if (srcOp.getName() == "tt.gelu" || srcOp.getName() == "tt.gelu_tanh") {
-      return success();
-    }
-    return rewriter.notifyMatchFailure(srcOp,
-                                       "CompositeOp must be tt.gelu for now.");
-  }
+  const char *opName;
 };
+
 } // namespace
+
+// Define the op names with external linkage at file scope
 
 namespace mlir::tt {
 
@@ -97,6 +91,12 @@ createLegalizeStableHLOCompositeToTTIRPass() {
 
 void populateStableHLOCompositeLegalizationPatterns(
     MLIRContext *context, RewritePatternSet &patterns) {
-  patterns.add<StableHLOToTTIRCompositeOpGeluConversionPattern>(context);
+  patterns.add<StableHLOToTTIRCompositeOpConversionPattern<ttir::GeluOp>>(
+      context, "tenstorrent.gelu");
+  // GeluOp doesn't currently have a flag to use the tanh approximation
+  // nor is there a GeluNewOp/GeluTanhOp, otherwise we would be targetting that
+  // instead.
+  patterns.add<StableHLOToTTIRCompositeOpConversionPattern<ttir::GeluOp>>(
+      context, "tenstorrent.gelu_tanh");
 }
 } // namespace mlir::tt
