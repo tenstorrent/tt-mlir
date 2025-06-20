@@ -193,6 +193,6 @@ MlirAttribute ttmlirTTChipPhysicalHelperCoresAttrGet(
                                                ethInactiveVec));
 }
 
-MlirAttribute ttmlirTTCoreCoordAttrGet(MlirContext ctx, int64_t y, int64_t x) {
+MlirAttribute ttmlirTTCoordAttrGet(MlirContext ctx, int64_t y, int64_t x) {
   return wrap(CoreCoordAttr::get(unwrap(ctx), y, x));
 }
