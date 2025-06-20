@@ -105,13 +105,13 @@ bool ShardSolver::resolveStep() {
 
     // For now, we don't change op-specific attributes in this analysis so we
     // can check that all consumer configs have the same op-specific attribute.
-    auto mismatch =
+    auto mismatchIt =
         std::adjacent_find(consumerConfigs.begin(), consumerConfigs.end(),
                            [](const OpConfig &a, const OpConfig &b) {
                              return a.opSpecificAttrs != b.opSpecificAttrs;
                            });
 
-    if (mismatch != consumerConfigs.end()) {
+    if (mismatchIt != consumerConfigs.end()) {
       llvm::report_fatal_error("[TTNN Optimizer] All consumer configs must "
                                "have the same op-specific attribute");
     }
@@ -414,12 +414,12 @@ bool ShardSolver::insertReshard(const Edge &edge) {
   bool validConfigExists = false;
 
   // Check that all consumer configs have the same op-specific attribute
-  auto mismatch =
+  auto mismatchIt =
       std::adjacent_find(consumerConfigs.begin(), consumerConfigs.end(),
                          [](const OpConfig &a, const OpConfig &b) {
                            return a.opSpecificAttrs != b.opSpecificAttrs;
                          });
-  if (mismatch != consumerConfigs.end()) {
+  if (mismatchIt != consumerConfigs.end()) {
     llvm::report_fatal_error("[TTNN Optimizer] All consumer configs must "
                              "have the same op-specific attribute");
   }

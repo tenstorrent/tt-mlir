@@ -1104,7 +1104,6 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
 
 TEST_F(OpModelBase, conv2dInterfaceComputeKernelConfig) {
   // create Conv2dOp
-  // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
   llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
   llvm::SmallVector<int64_t> outputShape = {1, 1, 12544, 64};

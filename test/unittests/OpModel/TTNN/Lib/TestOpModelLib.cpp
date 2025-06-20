@@ -1196,7 +1196,7 @@ TEST_P(OpModelConv2dParam, Conv2d) {
   // Device hangs otherwise.
   SingletonDeviceContext::resetInstance();
 
-  // I didn't make this configurable, as the backend doesn't support it for now.
+  // This is not configurable, as the backend doesn't support it for now.
   // But this test shows that this information is parsed and passes to the
   // backed correctly.
   ::mlir::tt::ttnn::DeviceComputeKernelConfigAttr deviceConfig =

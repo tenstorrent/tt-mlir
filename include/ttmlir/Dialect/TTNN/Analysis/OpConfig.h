@@ -37,12 +37,11 @@ struct OpConfig {
       : outputLayout(outputLayout), opSpecificAttrs(std::move(config)) {}
 
   // Some utility functions:
-  bool isAttrUnintialized() const {
+  bool isAttrUninitialized() const {
     // This function is helpful to determine whether opSpecificAttrs has been
     // initialized with an actual T or not. If this function returns true, it's
-    // safe to ignore/override the content of opSpecificAttrs. I decided to
-    // provide this function instead of using std::optional<std::variant<T,...>>
-    // because I don't want the caller to worry about std::nullopt.
+    // safe to ignore/override the content of opSpecificAttrs. This function
+    // is provided so that the caller doesn't need to worry about std::nullopt.
     return std::holds_alternative<Uninitialized>(opSpecificAttrs);
   }
   bool operator==(const OpConfig &other) const {
