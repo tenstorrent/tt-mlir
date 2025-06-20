@@ -70,7 +70,8 @@ public:
     }
 
     static std::shared_ptr<ttnn::MeshDevice> ownedInstance =
-        ::ttnn::MeshDevice::create_unit_mesh(0, l1SmallSize);
+        ::ttnn::MeshDevice::create_unit_mesh(0, l1SmallSize,
+                                             /*trace_region_size=*/896000);
     hasOwnedDevice = true;
     return ownedInstance.get();
   }
