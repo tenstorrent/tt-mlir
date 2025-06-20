@@ -124,13 +124,19 @@ getCoreRangeSet(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
 
 std::optional<::tt::tt_metal::ShardSpec>
 getShardSpec(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
+  if (layout.getIgnorePhysicalLayout()) {
+    return std::nullopt;
+  }
+
+  if (!isShardedMemoryLayout(layout.getMemLayout().getValue())) {
+    return std::nullopt;
+  }
+
   // tt_ShardOrientation is not part of ttnn::TTNNLayoutAttr;
   // defaulting to ROW_MAJOR. TODO(jserbedzija): with issue #620
-  return isShardedMemoryLayout(layout.getMemLayout().getValue())
-             ? std::make_optional(::tt::tt_metal::ShardSpec(
-                   getCoreRangeSet(layout), getShardShape(layout),
-                   ::tt::tt_metal::ShardOrientation::ROW_MAJOR))
-             : std::nullopt;
+  return ::tt::tt_metal::ShardSpec(getCoreRangeSet(layout),
+                                   getShardShape(layout),
+                                   ::tt::tt_metal::ShardOrientation::ROW_MAJOR);
 }
 
 ::tt::tt_metal::BufferType
@@ -223,6 +229,8 @@ getTensorLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
 
 ::ttnn::TensorSpec getTensorSpec(const ::llvm::ArrayRef<int64_t> shape,
                                  const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
+  assert(!layout.getIgnorePhysicalLayout() &&
+         "TensorSpecs cannot be created without physical layouts");
   return ::ttnn::TensorSpec(getShape(shape), getTensorLayout(layout));
 }
 
@@ -230,7 +238,7 @@ bool validateTensorSpec(const ::ttnn::TensorSpec &tensorSpec,
                         const ::tt::tt_metal::CoreCoord &computeGridSize) {
   // Check the shard bounding box
   auto memoryConfig = tensorSpec.memory_config();
-  if (memoryConfig.is_sharded()) {
+  if (memoryConfig.is_sharded() && memoryConfig.shard_spec().has_value()) {
     ::tt::tt_metal::CoreRange shardBoundingBox =
         memoryConfig.shard_spec().value().grid.bounding_box();
     ::tt::tt_metal::CoreRangeSet deviceWorkerCores{::tt::tt_metal::CoreRange{

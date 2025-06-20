@@ -195,6 +195,18 @@ getNullableMemoryConfig(::mlir::tt::ttnn::TTNNLayoutAttr layout) {
   return conversion::getMemoryConfig(layout);
 }
 
+/**
+ * @brief Convenience wrapper to get a DataType from a TTNNLayout attr that
+ * may be a nullptr. Returns std::nullopt if layout is nullptr
+ */
+std::optional<::tt::tt_metal::DataType>
+getNullableDataType(::mlir::tt::ttnn::TTNNLayoutAttr layout) {
+  if (!layout) {
+    return std::nullopt;
+  }
+  return conversion::getDataType(layout.getDataType());
+}
+
 } // namespace detail
 #endif // TTMLIR_ENABLE_OPMODEL
 
@@ -494,18 +506,10 @@ getEltwiseBinaryOpConstraints(std::string_view opName, OpSymbol opSymbol,
   }
   ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
 
-  std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt;
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig = std::nullopt;
-  if (outputLayout) {
-    auto outputSpecExp =
-        detail::convertToTensorSpec(device, outputShape, outputLayout);
-    if (!outputSpecExp) {
-      return outputSpecExp.takeError();
-    }
-    ::ttnn::TensorSpec outputSpec = outputSpecExp.get();
-    outputDType = outputSpec.data_type();
-    outputMemoryConfig = outputSpec.memory_config();
-  }
+  std::optional<::tt::tt_metal::DataType> outputDType =
+      detail::getNullableDataType(outputLayout);
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
 
   // Create query closure
   auto query = [=]() {
@@ -544,18 +548,11 @@ getEltwiseBinaryOpRuntime(std::string_view opName, OpSymbol opSymbol,
   }
   ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
 
-  std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt;
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig = std::nullopt;
-  if (outputLayout) {
-    auto outputSpecExp =
-        detail::convertToTensorSpec(device, outputShape, outputLayout);
-    if (!outputSpecExp) {
-      return outputSpecExp.takeError();
-    }
-    ::ttnn::TensorSpec outputSpec = outputSpecExp.get();
-    outputDType = outputSpec.data_type();
-    outputMemoryConfig = outputSpec.memory_config();
-  }
+  std::optional<::tt::tt_metal::DataType> outputDType =
+      detail::getNullableDataType(outputLayout);
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
+
   // Create query closure
   auto query = [=]() {
     return ::ttnn::graph::query_op_runtime(opSymbol, device, inputSpecA,
@@ -1491,18 +1488,10 @@ MatmulOpInterface::getOpConstraints(GridAttr deviceGrid,
   }
   ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
 
-  std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt;
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig = std::nullopt;
-  if (outputLayout) {
-    auto outputSpecExp =
-        detail::convertToTensorSpec(device, outputShape, outputLayout);
-    if (!outputSpecExp) {
-      return outputSpecExp.takeError();
-    }
-    ::ttnn::TensorSpec outputSpec = outputSpecExp.get();
-    outputDType = outputSpec.data_type();
-    outputMemoryConfig = outputSpec.memory_config();
-  }
+  std::optional<::tt::tt_metal::DataType> outputDType =
+      detail::getNullableDataType(outputLayout);
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
 
   // Create query closure
   auto matmulOpQuery = [=]() {
@@ -1545,18 +1534,10 @@ MatmulOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
   }
   ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
 
-  std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt;
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig = std::nullopt;
-  if (outputLayout) {
-    auto outputSpecExp =
-        detail::convertToTensorSpec(device, outputShape, outputLayout);
-    if (!outputSpecExp) {
-      return outputSpecExp.takeError();
-    }
-    ::ttnn::TensorSpec outputSpec = outputSpecExp.get();
-    outputDType = outputSpec.data_type();
-    outputMemoryConfig = outputSpec.memory_config();
-  }
+  std::optional<::tt::tt_metal::DataType> outputDType =
+      detail::getNullableDataType(outputLayout);
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
 
   // Create query closure
   auto matmulOpQuery = [=]() {

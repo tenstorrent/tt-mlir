@@ -37,6 +37,11 @@ bool TTNNLayoutAttr::hasDRAMBufferType() const {
   return isDRAMBufferType(getBufferType());
 }
 
+std::pair<std::int64_t, std::int64_t>
+TTNNLayoutAttr::getDefaultCollapseIntervals() const {
+  return {0, -1};
+}
+
 // Check if the tensor memory layout is sharded
 bool TTNNLayoutAttr::hasShardedTensorMemoryLayout() const {
   return isDeviceBufferType() &&
@@ -332,7 +337,8 @@ TTNNLayoutAttr TTNNLayoutAttr::withGrid(
     ArrayRef<int64_t> tensorShape, GridAttr grid,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
   return get(getContext(), tensorShape, getElementType(), getBufferType(), grid,
-             getMemLayout(), getTensorMeshSharding(), collapseIntervals);
+             getMemLayout(), getTensorMeshSharding(), collapseIntervals,
+             getIgnorePhysicalLayout());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -367,7 +373,8 @@ TTNNLayoutAttr TTNNLayoutAttr::withElementType(
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
   return TTNNLayoutAttr::get(getContext(), tensorShape, elementType,
                              getBufferType(), getGrid(), getMemLayout(),
-                             getTensorMeshSharding(), collapseIntervals);
+                             getTensorMeshSharding(), collapseIntervals,
+                             getIgnorePhysicalLayout());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -408,7 +415,7 @@ TTNNLayoutAttr TTNNLayoutAttr::withBufferType(BufferType memorySpace) {
       getContext(), getLinear(), grid,
       buildMemRef<BufferType, BufferTypeAttr>(
           getContext(), getScalarShardShape(), getElementType(), memorySpace),
-      memLayoutAttr, getTensorMeshSharding());
+      memLayoutAttr, getTensorMeshSharding(), getIgnorePhysicalLayout());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -425,7 +432,8 @@ TTNNLayoutAttr::withMemoryLayout(TensorMemoryLayoutAttr memLayoutAttr) {
                              buildMemRef<BufferType, BufferTypeAttr>(
                                  getContext(), getScalarShardShape(),
                                  getElementType(), getBufferType()),
-                             memLayoutAttr, getTensorMeshSharding());
+                             memLayoutAttr, getTensorMeshSharding(),
+                             getIgnorePhysicalLayout());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -457,7 +465,7 @@ TTNNLayoutAttr::withShardShape(llvm::SmallVector<int64_t> shardShape) {
       getContext(), getLinear(), getGrid(),
       buildMemRef<BufferType, BufferTypeAttr>(
           getContext(), shardShape, getElementType(), getBufferType()),
-      getMemLayout(), getTensorMeshSharding());
+      getMemLayout(), getTensorMeshSharding(), getIgnorePhysicalLayout());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -473,9 +481,37 @@ TTNNLayoutAttr TTNNLayoutAttr::withTensorShape(ArrayRef<int64_t> tensorShape) {
   // which might be different than the original value used to create the layout
   // attribute. This will work for now since we always use default value, but in
   // the future we would need to take this into account.
-  return TTNNLayoutAttr::get(getContext(), tensorShape, getElementType(),
-                             getBufferType(), getGrid(), getMemLayout(),
-                             getTensorMeshSharding());
+  return TTNNLayoutAttr::get(
+      getContext(), tensorShape, getElementType(), getBufferType(), getGrid(),
+      getMemLayout(), getTensorMeshSharding(), getDefaultCollapseIntervals(),
+      getIgnorePhysicalLayout());
+}
+
+// Construct a new TTNNLayoutAttr
+//
+// This function creates a deep copy of the current TTNNLayoutAttr, setting the
+// ignorePhysicalLayout property to the provided value. This is a status bit.
+// The physical properties of the layout are preserved as calculated previously
+// and remain accessible via getters
+//
+// param context The MLIR context.
+// param ignorePhysicalLayout The new value for ignorePhysicalLayout.
+// return The new TTNNLayoutAttr.
+TTNNLayoutAttr
+TTNNLayoutAttr::withIgnorePhysicalLayout(bool ignorePhysicalLayout) {
+  return TTNNLayoutAttr::get(getContext(), getLinear(), getGrid(), getMemref(),
+                             getMemLayout(), getTensorMeshSharding(),
+                             ignorePhysicalLayout);
+};
+
+TTNNLayoutAttr
+TTNNLayoutAttr::get(::mlir::MLIRContext *context, AffineMap linear,
+                    GridAttr grid, MemRefType memref,
+                    TensorMemoryLayoutAttr mem_layout,
+                    TensorMeshShardingAttr tensor_mesh_sharding) {
+  return TTNNLayoutAttr::get(context, linear, grid, memref, mem_layout,
+                             tensor_mesh_sharding,
+                             /*ignorePhysicalLayout=*/false);
 }
 
 // Construct a new TTNNLayoutAttr
@@ -495,7 +531,8 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
     Type elementType, BufferType bufferType, GridAttr grid,
     TensorMemoryLayoutAttr memLayoutAttr,
     TensorMeshShardingAttr tensorMeshSharding,
-    ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
+    ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals,
+    bool ignorePhysicalLayout) {
 
   llvm::SmallVector<int64_t, 4> physicalShape(tensorShape.begin(),
                                               tensorShape.end());
@@ -526,13 +563,13 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
   MemRefType memRefType = buildMemRef<BufferType, BufferTypeAttr>(
       context, shardShape, elementType, bufferType);
   return get(context, linear, grid, memRefType, memLayoutAttr,
-             tensorMeshSharding);
+             tensorMeshSharding, ignorePhysicalLayout);
 }
 
 ::llvm::LogicalResult TTNNLayoutAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError, AffineMap,
     GridAttr, MemRefType memref, TensorMemoryLayoutAttr memLayout,
-    TensorMeshShardingAttr tensorMeshSharding) {
+    TensorMeshShardingAttr tensorMeshSharding, bool ignorePhysicalLayout) {
   BufferType bufferType =
       mlir::cast<BufferTypeAttr>(memref.getMemorySpace()).getValue();
   return verifyBufferAndMemoryLayout(emitError, bufferType, memLayout);
