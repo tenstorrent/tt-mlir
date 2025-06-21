@@ -20,6 +20,7 @@
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Target/Cpp/CppEmitter.h"
 
 #include <cstdlib>
 #include <filesystem>
@@ -73,22 +74,20 @@ bool TTAlchemist::modelToCpp(const std::string &input_file) {
     return false;
   }
 
-  // Read the result
-  std::string moduleStr;
-  llvm::raw_string_ostream rso(moduleStr);
-
-  // Print the MLIR module
-  mlir::OpPrintingFlags printFlags;
-  printFlags.enableDebugInfo();
-  module.get()->print(rso, printFlags);
-  rso.flush();
-
   module->dump();
 
-  // std::cout << "Successfully converted model to MLIR: " << moduleStr
-  //           << std::endl;
+  // Convert MLIR module to C++
+  std::string cppCode;
+  llvm::raw_string_ostream cppStream(cppCode);
+  if (mlir::failed(mlir::emitc::translateToCpp(*module, cppStream))) {
+    std::cout << "Failed to translate MLIR module to C++" << std::endl;
+    return false;
+  }
+  cppStream.flush();
 
-  // TODO (svuckovic): convert to C++
+  // Output the generated C++ code
+  std::cout << cppCode << std::endl;
+
   return true;
 }
 
