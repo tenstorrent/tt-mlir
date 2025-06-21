@@ -17,6 +17,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         ElementTypeNormalization.cpp
         LowerToLayout.cpp
         Quantization.cpp
+        QuantDequantConversion.cpp
         Transforms.cpp
         TTIRFusing.cpp
 
