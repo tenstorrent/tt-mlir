@@ -3,18 +3,21 @@
 if(NOT DEFINED ENV{TT_MLIR_HOME})
   message(FATAL_ERROR "TT_MLIR_HOME environment variable is not set")
 endif()
+if(NOT DEFINED ENV{TT_ALCHEMIST_LIB_DIR})
+  message(FATAL_ERROR "TT_ALCHEMIST_LIB_DIR environment variable is not set")
+endif()
 
 # Set TT_ALCHEMIST_HOME
 #
 set(TT_ALCHEMIST_HOME $ENV{TT_MLIR_HOME}/tools/tt-alchemist)
 
-# Define lib name
+# Define target names
 #
-set(LIBRARY_NAME tt-alchemist)
+set(LIBRARY_NAME tt-alchemist-lib)
 
 # Sources
 #
-set(SOURCES
+set(LIB_SOURCES
   lib/tt_alchemist.cpp
 )
 
@@ -23,7 +26,7 @@ set(SOURCES
 add_library(${LIBRARY_NAME}
   SHARED
   EXCLUDE_FROM_ALL
-  ${SOURCES}
+  ${LIB_SOURCES}
 )
 
 # Add dependencies
@@ -89,10 +92,17 @@ add_custom_command(
   COMMENT "Creating Python build directory"
 )
 
+# Find all Python files in the source directory
+file(GLOB_RECURSE PYTHON_SOURCE_FILES
+  ${PYTHON_SRC_DIR}/*.py
+  ${PYTHON_SRC_DIR}/pyproject.toml
+  ${PYTHON_SRC_DIR}/setup.py
+)
+
 # Copy Python files
 add_custom_command(
   OUTPUT ${PYTHON_BUILD_DIR}/pyproject.toml
-  DEPENDS ${PYTHON_SRC_DIR}/pyproject.toml ${PYTHON_BUILD_DIR}
+  DEPENDS ${PYTHON_SOURCE_FILES} ${PYTHON_BUILD_DIR}
   COMMAND ${CMAKE_COMMAND} -E copy_directory ${PYTHON_SRC_DIR} ${PYTHON_BUILD_DIR}
   COMMENT "Copying Python files to build directory"
 )
@@ -100,7 +110,7 @@ add_custom_command(
 # Build wheel
 add_custom_target(python_wheel
   DEPENDS ${PYTHON_BUILD_DIR}/pyproject.toml ${LIBRARY_NAME}
-  COMMAND ${CMAKE_COMMAND} -E env TT_ALCHEMIST_LIB_PATH=$<TARGET_FILE:${LIBRARY_NAME}>
+  COMMAND ${CMAKE_COMMAND} -E env TT_ALCHEMIST_LIB_DIR=$<TARGET_FILE:${LIBRARY_NAME}>
           ${Python3_EXECUTABLE} -m pip wheel --no-deps -w ${CMAKE_CURRENT_BINARY_DIR}/dist ${PYTHON_BUILD_DIR}
   WORKING_DIRECTORY ${PYTHON_BUILD_DIR}
   COMMENT "Building Python wheel"
