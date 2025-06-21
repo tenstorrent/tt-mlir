@@ -40,12 +40,12 @@ def convert(input, verbose):
         # Call the API function
         result = model_to_cpp(input_path)
 
-        if result:
-            click.echo(f"Successfully converted model to C++")
-            return 0
-        else:
-            click.echo("Failed to convert model to C++", err=True)
-            return 1
+        # if result:
+        #     click.echo(f"Successfully converted model to C++")
+        #     return 0
+        # else:
+        #     click.echo("Failed to convert model to C++", err=True)
+        #     return 1
 
     except Exception as e:
         click.echo(f"Error: {str(e)}", err=True)
