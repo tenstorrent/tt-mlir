@@ -39,7 +39,6 @@ def load_library():
         )
 
     try:
-        print(f"loading alchemist lib: {lib_path}")
         return ctypes.CDLL(lib_path)
     except Exception as e:
         raise RuntimeError(f"Failed to load tt-alchemist library: {e}")
@@ -82,10 +81,6 @@ def convert(input, output_dir, verbose):
 
         # Load the library
         lib = load_library()
-        print(f"Loaded library: {lib}")
-        # # Sleep for 10 seconds
-        # import time
-        # time.sleep(10)
 
         # Get the singleton instance
         lib.tt_alchemist_TTAlchemist_getInstance.restype = ctypes.c_void_p

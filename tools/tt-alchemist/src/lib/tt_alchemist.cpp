@@ -31,7 +31,6 @@ namespace fs = std::filesystem;
 namespace tt::alchemist {
 
 TTAlchemist::TTAlchemist() {
-
   mlir::DialectRegistry registry;
   mlir::func::registerInlinerExtension(registry);
   mlir::LLVM::registerInlinerInterface(registry);
@@ -41,20 +40,12 @@ TTAlchemist::TTAlchemist() {
                   mlir::emitc::EmitCDialect, mlir::LLVM::LLVMDialect>();
   context.appendDialectRegistry(registry);
 
-  std::cout << "HERE" << std::endl;
   context.loadDialect<mlir::tt::TTCoreDialect>();
-  std::cout << "HERE2" << std::endl;
   context.loadDialect<mlir::tt::ttir::TTIRDialect>();
-  std::cout << "HERE3" << std::endl;
   context.loadDialect<mlir::tt::ttnn::TTNNDialect>();
-  std::cout << "HERE4" << std::endl;
   context.loadDialect<mlir::func::FuncDialect>();
-  std::cout << "HERE5" << std::endl;
   context.loadDialect<mlir::emitc::EmitCDialect>();
-  std::cout << "HERE6" << std::endl;
   context.loadDialect<mlir::LLVM::LLVMDialect>();
-
-  std::cout << "Exiting TTAlchemist constructor" << std::endl;
 }
 
 bool TTAlchemist::modelToCpp(const std::string &input_file,
