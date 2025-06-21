@@ -133,7 +133,7 @@ calculateOptimalBlockFactors(ArrayRef<AffineMap> indexingMaps,
   // 1s, these are free variables that don't depend on the sizing of dst. In the
   // future we might do something more intellegent with the free variables, or
   // enable downstream passes like allocation to adjust them based on memory
-  // requirements. factors.
+  // requirements.
   //
   SmallVector<int64_t> flattenedBlockFactors(outputBlockFactors);
   flattenedBlockFactors.resize(inverse.getNumDims(), 1);
