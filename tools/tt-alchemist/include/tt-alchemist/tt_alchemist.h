@@ -30,7 +30,7 @@ public:
   TTAlchemist(TTAlchemist &&) = delete;
   TTAlchemist &operator=(TTAlchemist &&) = delete;
 
-  bool modelToCpp(const std::string &input_file, const std::string &output_dir);
+  bool modelToCpp(const std::string &input_file);
 
 private:
   TTAlchemist();
@@ -50,8 +50,7 @@ TT_ALCHEMIST_EXPORT void *tt_alchemist_TTAlchemist_getInstance();
 
 // Model to CPP conversion
 TT_ALCHEMIST_EXPORT bool
-tt_alchemist_TTAlchemist_modelToCpp(void *instance, const char *input_file,
-                                    const char *output_dir);
+tt_alchemist_TTAlchemist_modelToCpp(void *instance, const char *input_file);
 
 #ifdef __cplusplus
 }
