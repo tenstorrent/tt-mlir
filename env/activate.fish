@@ -19,3 +19,4 @@ set -gx TT_METAL_BUILD_HOME (pwd)/third_party/tt-metal/src/tt-metal/build
 set -gx TT_MLIR_HOME (pwd)
 set -gx PYTHONPATH (pwd)/build/python_packages:(pwd)/.local/toolchain/python_packages/mlir_core:$TT_METAL_HOME:$TT_METAL_HOME/tt_eager:$TT_METAL_BUILD_HOME/tools/profiler/bin
 set -gx ARCH_NAME (set -q ARCH_NAME; and echo $ARCH_NAME; or echo "wormhole_b0")
+set -gx TT_ALCHEMIST_LIB_PATH (pwd)/build/tools/tt-alchemist/src/libtt-alchemist.so
