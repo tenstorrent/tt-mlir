@@ -8,7 +8,6 @@ import json
 import os
 import shutil
 from pprint import pprint
-from typing import Tuple
 
 import torch
 from pkg_resources import get_distribution

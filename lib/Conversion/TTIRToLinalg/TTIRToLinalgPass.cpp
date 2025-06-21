@@ -10,6 +10,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
@@ -36,6 +37,7 @@ struct ConvertTTIRToLinalgPass
     target.addLegalDialect<func::FuncDialect>();
     target.addLegalDialect<tensor::TensorDialect>();
     target.addLegalDialect<linalg::LinalgDialect>();
+    target.addLegalDialect<tosa::TosaDialect>();
     target.addLegalDialect<arith::ArithDialect>();
     target.addLegalDialect<math::MathDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
@@ -47,9 +49,14 @@ struct ConvertTTIRToLinalgPass
     typeConverter.addConversion([](Type type) { return type; });
 
     RewritePatternSet patterns(&getContext());
+
+    // Add TTIR to Tosa patterns.
+    populateTTIRToTosaPatterns(&getContext(), patterns, typeConverter);
+
+    // Add direct TTIR to Linalg patterns.
     populateTTIRToLinalgPatterns(&getContext(), patterns, typeConverter);
 
-    // Apply full conversion
+    // Apply full conversion for both paths.
     //
     if (failed(
             applyFullConversion(getOperation(), target, std::move(patterns)))) {
