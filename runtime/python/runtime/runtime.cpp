@@ -343,6 +343,11 @@ void registerRuntimeBindings(nb::module_ &m) {
   nb::class_<tt::runtime::perf::Env>(m, "PerfEnv")
       .def_static("get", &tt::runtime::perf::Env::get, nb::rv_policy::reference)
       .def("set_program_metadata", &tt::runtime::perf::Env::setProgramMetadata)
+      .def("tracy_log_op_location", &tt::runtime::perf::Env::tracyLogOpLocation)
+      .def("tracy_log_const_eval_program",
+           &tt::runtime::perf::Env::tracyLogConstEvalProgram)
+      .def("tracy_log_program_metadata",
+           &tt::runtime::perf::Env::tracyLogProgramMetadata)
       .def("__str__", [](const tt::runtime::perf::Env &env) {
         std::stringstream os;
         os << env;
