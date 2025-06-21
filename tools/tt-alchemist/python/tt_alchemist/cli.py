@@ -16,22 +16,6 @@ from pathlib import Path
 def load_library():
     # Adjust this path based on where the library is installed
     lib_path = os.environ.get("TT_ALCHEMIST_LIB_PATH", None)
-    if not lib_path:
-        # Try to find the library in common locations
-        possible_paths = [
-            # Add paths relative to this script
-            os.path.join(
-                os.path.dirname(os.path.abspath(__file__)),
-                "../../../build/lib/libtt-alchemist.so",
-            ),
-            "/usr/local/lib/libtt-alchemist.so",
-            "/usr/lib/libtt-alchemist.so",
-        ]
-
-        for path in possible_paths:
-            if os.path.exists(path):
-                lib_path = path
-                break
 
     if not lib_path or not os.path.exists(lib_path):
         raise RuntimeError(
