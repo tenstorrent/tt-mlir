@@ -1796,7 +1796,7 @@ class TTIRBuilder:
         index = torch.tensor([begin, end])
         return self.op_proxy(
             torch.index_select,
-            ttir.SelectOp,
+            ttir.IndexSelectOp,
             [in0],
             golden_kwargs={"dim": dim, "index": index},
             ttir_kwargs={
