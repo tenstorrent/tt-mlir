@@ -214,8 +214,6 @@ class Logger:
                 LEVEL = self.logging.ERROR
             elif os.environ["TTRT_LOGGER_LEVEL"] == "WARNING":
                 LEVEL = self.logging.WARNING
-            elif os.environ["TTRT_LOGGER_LEVEL"] == "INFO":
-                LEVEL = self.logging.INFO
             elif os.environ["TTRT_LOGGER_LEVEL"] == "DEBUG":
                 LEVEL = self.logging.DEBUG
 
