@@ -58,26 +58,15 @@ def cli():
     type=click.Path(exists=True, file_okay=True, dir_okay=False),
     help="Input MLIR model file",
 )
-@click.option(
-    "--output-dir",
-    "-o",
-    required=True,
-    type=click.Path(file_okay=False, dir_okay=True),
-    help="Output directory for generated C++ code",
-)
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
-def convert(input, output_dir, verbose):
+def convert(input, verbose):
     """Convert MLIR model to C++ code."""
     try:
-        # Ensure output directory exists
-        os.makedirs(output_dir, exist_ok=True)
-
-        # Get absolute paths
+        # Get absolute path
         input_path = os.path.abspath(input)
-        output_dir_path = os.path.abspath(output_dir)
 
         if verbose:
-            click.echo(f"Converting {input_path} to C++ in {output_dir_path}")
+            click.echo(f"Converting {input_path} to C++")
 
         # Load the library
         lib = load_library()
@@ -90,13 +79,12 @@ def convert(input, output_dir, verbose):
         lib.tt_alchemist_TTAlchemist_modelToCpp.argtypes = [
             ctypes.c_void_p,  # instance pointer
             ctypes.c_char_p,  # input_file
-            ctypes.c_char_p,  # output_dir
         ]
         lib.tt_alchemist_TTAlchemist_modelToCpp.restype = ctypes.c_bool
 
         # Call the modelToCpp function
         result = lib.tt_alchemist_TTAlchemist_modelToCpp(
-            instance, input_path.encode("utf-8"), output_dir_path.encode("utf-8")
+            instance, input_path.encode("utf-8")
         )
 
         if result:

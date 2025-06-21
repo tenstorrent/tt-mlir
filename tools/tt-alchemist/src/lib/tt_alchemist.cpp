@@ -48,20 +48,10 @@ TTAlchemist::TTAlchemist() {
   context.loadDialect<mlir::LLVM::LLVMDialect>();
 }
 
-bool TTAlchemist::modelToCpp(const std::string &input_file,
-                             const std::string &output_dir) {
+bool TTAlchemist::modelToCpp(const std::string &input_file) {
   // Check if input file exists
   if (!fs::exists(input_file)) {
     std::cout << "Input file does not exist: " << input_file << std::endl;
-    return false;
-  }
-
-  // Create output directory if it doesn't exist
-  try {
-    fs::create_directories(output_dir);
-  } catch (const std::exception &e) {
-    std::cout << "Failed to create output directory: " << std::string(e.what())
-              << std::endl;
     return false;
   }
 
@@ -93,8 +83,10 @@ bool TTAlchemist::modelToCpp(const std::string &input_file,
   module.get()->print(rso, printFlags);
   rso.flush();
 
-  std::cout << "Successfully converted model to MLIR: " << moduleStr
-            << std::endl;
+  module->dump();
+
+  // std::cout << "Successfully converted model to MLIR: " << moduleStr
+  //           << std::endl;
 
   // TODO (svuckovic): convert to C++
   return true;
@@ -111,10 +103,10 @@ void *tt_alchemist_TTAlchemist_getInstance() {
 }
 
 // Model to CPP conversion
-bool tt_alchemist_TTAlchemist_modelToCpp(void *instance, const char *input_file,
-                                         const char *output_dir) {
+bool tt_alchemist_TTAlchemist_modelToCpp(void *instance,
+                                         const char *input_file) {
   auto *alchemist = static_cast<tt::alchemist::TTAlchemist *>(instance);
-  return alchemist->modelToCpp(input_file, output_dir);
+  return alchemist->modelToCpp(input_file);
 }
 
 } // extern "C"
