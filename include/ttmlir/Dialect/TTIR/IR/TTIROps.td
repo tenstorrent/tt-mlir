@@ -1974,7 +1974,7 @@ def TTIR_DivOp : TTIR_ElementwiseBinaryOp<"div"> {
     }];
 }
 
-def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum"> {
+def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["rewriteWithQuantizedInputs"]>]> {
     let summary = "Elementwise maximum operation.";
     let description = [{
       The `maximum` operation calculates the elementwise maximum between two tensors.
@@ -3454,7 +3454,7 @@ def TTIR_GatherOp: TTIR_NamedOp<"gather"> {
     let results = (outs AnyRankedTensor:$result);
 }
 
-def TTIR_PoolingOp : TTIR_NamedOp<"pooling", [AttrSizedOperandSegments]> {
+def TTIR_PoolingOp : TTIR_NamedOp<"pooling", [AttrSizedOperandSegments, DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["rewriteWithQuantizedInputs"]>]> {
   let summary = "General pooling operation.";
   let description = [{
     The `pooling` operation is a generalized pooling operation that can implement various pooling methods
