@@ -2,3 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """TT-Alchemist Python package."""
+
+# Import the CLI function to make it available when importing the package
+from .cli import cli

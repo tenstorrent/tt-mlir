@@ -67,5 +67,59 @@ install(TARGETS ${LIBRARY_NAME}
   EXPORT ${LIBRARY_NAME}Targets
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
+  RUNTIME DESTINATION bin
   INCLUDES DESTINATION include
+)
+
+
+# ======================================
+
+
+# Python wheel building and installation
+find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
+
+# Copy Python files to build directory
+set(PYTHON_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../python)
+set(PYTHON_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/python)
+
+# Create Python build directory
+add_custom_command(
+  OUTPUT ${PYTHON_BUILD_DIR}
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${PYTHON_BUILD_DIR}
+  COMMENT "Creating Python build directory"
+)
+
+# Copy Python files
+add_custom_command(
+  OUTPUT ${PYTHON_BUILD_DIR}/setup.py
+  DEPENDS ${PYTHON_SRC_DIR}/setup.py ${PYTHON_BUILD_DIR}
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${PYTHON_SRC_DIR} ${PYTHON_BUILD_DIR}
+  COMMENT "Copying Python files to build directory"
+)
+
+# Build wheel
+add_custom_target(python_wheel
+  DEPENDS ${PYTHON_BUILD_DIR}/setup.py ${LIBRARY_NAME}
+  COMMAND ${CMAKE_COMMAND} -E env TT_ALCHEMIST_LIB_PATH=$<TARGET_FILE:${LIBRARY_NAME}>
+          ${Python3_EXECUTABLE} -m pip wheel --no-deps -w ${CMAKE_CURRENT_BINARY_DIR}/dist ${PYTHON_BUILD_DIR}
+  WORKING_DIRECTORY ${PYTHON_BUILD_DIR}
+  COMMENT "Building Python wheel"
+)
+
+# Install wheel
+add_custom_target(install_wheel
+  DEPENDS python_wheel
+  COMMAND ${Python3_EXECUTABLE} -m pip install --force-reinstall ${CMAKE_CURRENT_BINARY_DIR}/dist/*.whl
+  COMMENT "Installing Python wheel"
+)
+
+# Add top-level Python wheel targets
+add_custom_target(build_wheel
+  DEPENDS python_wheel
+  COMMENT "Building Python wheel"
+)
+
+add_custom_target(install_wheel_package
+  DEPENDS install_wheel
+  COMMENT "Installing Python wheel package"
 )

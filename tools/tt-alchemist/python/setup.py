@@ -12,7 +12,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "tt-alchemist=tt_alchemist_cli:cli",
+            "tt-alchemist=tt_alchemist.cli:cli",
         ],
     },
     author="Tenstorrent",
