@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel", "pip"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tt-alchemist"
+version = "0.1.0"
+description = "Python CLI for tt-alchemist library"
+authors = [
+  { name = "Tenstorrent", email = "info@tenstorrent.com" }
+]
+requires-python = ">=3.8"
+keywords = ["tt-alchemist", "tt-mlir", "compiler", "machine learning", "tenstorrent"]
+license = "Apache-2.0"
+
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence"
+]
+
+dependencies = [
+  "click>=7.0",
+]
+
+[project.urls]
+Repository = "https://github.com/tenstorrent/tt-mlir"
+Issues = "https://github.com/tenstorrent/tt-mlir/issues"
+
+[project.scripts]
+tt-alchemist = "tt_alchemist.cli:cli"
