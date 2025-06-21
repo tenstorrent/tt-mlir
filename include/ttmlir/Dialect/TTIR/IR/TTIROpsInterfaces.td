@@ -128,4 +128,18 @@ def TTIR_OperandLoadRegisterOpInterface : OpInterface<"OperandLoadRegisterOpInte
   ];
 }
 
+def TTIR_QuantizableOpInterface : OpInterface<"QuantizableOpInterface"> {
+  let cppNamespace = "::mlir::tt::ttir";
+  let methods = [
+    InterfaceMethod<
+      /*desc=*/[{
+        Rewrites the op using quantized operands.
+      }],
+      /*retTy=*/"mlir::Operation *",
+      /*methodName=*/"rewriteWithQuantizedInputs",
+      /*args=*/(ins "PatternRewriter&":$rewriter, "ArrayRef<mlir::Value>":$quantizedOperands, "mlir::Type":$quantizedResultType)
+    >,
+  ];
+}
+
 #endif

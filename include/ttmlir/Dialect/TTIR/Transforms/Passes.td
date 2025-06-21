@@ -607,6 +607,15 @@ def TTIRQuantDataTypeConversionPass : Pass<"ttir-quant-data-type-conversion", ":
   ];
 }
 
+def TTIRQuantDequantConversion : Pass<"ttir-quant-dequant-conversion", "::mlir::ModuleOp">
+{
+  let summary = "Fuse (de-quantize, floating-point operation and quantize) pattern into a TTIR quantized operation.";
+  let description = [{
+    Fuse (de-quantize, floating-point operation and quantize) pattern into TTIR quantized operation.
+  }];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::quant::QuantDialect"];
+}
+
 def TTIRFusing: Pass<"ttir-fusing", "::mlir::ModuleOp">
 {
   let summary = "TTIR fusing pass.";
