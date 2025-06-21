@@ -91,15 +91,15 @@ add_custom_command(
 
 # Copy Python files
 add_custom_command(
-  OUTPUT ${PYTHON_BUILD_DIR}/setup.py
-  DEPENDS ${PYTHON_SRC_DIR}/setup.py ${PYTHON_BUILD_DIR}
+  OUTPUT ${PYTHON_BUILD_DIR}/pyproject.toml
+  DEPENDS ${PYTHON_SRC_DIR}/pyproject.toml ${PYTHON_BUILD_DIR}
   COMMAND ${CMAKE_COMMAND} -E copy_directory ${PYTHON_SRC_DIR} ${PYTHON_BUILD_DIR}
   COMMENT "Copying Python files to build directory"
 )
 
 # Build wheel
 add_custom_target(python_wheel
-  DEPENDS ${PYTHON_BUILD_DIR}/setup.py ${LIBRARY_NAME}
+  DEPENDS ${PYTHON_BUILD_DIR}/pyproject.toml ${LIBRARY_NAME}
   COMMAND ${CMAKE_COMMAND} -E env TT_ALCHEMIST_LIB_PATH=$<TARGET_FILE:${LIBRARY_NAME}>
           ${Python3_EXECUTABLE} -m pip wheel --no-deps -w ${CMAKE_CURRENT_BINARY_DIR}/dist ${PYTHON_BUILD_DIR}
   WORKING_DIRECTORY ${PYTHON_BUILD_DIR}
