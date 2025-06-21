@@ -2,30 +2,15 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-"""
-TT-Alchemist CLI - Python wrapper for the tt-alchemist library
-"""
+"""Command-line interface for tt-alchemist library."""
 
 import os
 import sys
 import click
-import ctypes
 from pathlib import Path
 
-# Load the tt-alchemist shared library
-def load_library():
-    # Adjust this path based on where the library is installed
-    lib_path = os.environ.get("TT_ALCHEMIST_LIB_PATH", None)
-
-    if not lib_path or not os.path.exists(lib_path):
-        raise RuntimeError(
-            "Could not find tt-alchemist library. Set TT_ALCHEMIST_LIB_PATH environment variable."
-        )
-
-    try:
-        return ctypes.CDLL(lib_path)
-    except Exception as e:
-        raise RuntimeError(f"Failed to load tt-alchemist library: {e}")
+# Import the API functions
+from .api import model_to_cpp
 
 
 @click.group()
@@ -52,24 +37,8 @@ def convert(input, verbose):
         if verbose:
             click.echo(f"Converting {input_path} to C++")
 
-        # Load the library
-        lib = load_library()
-
-        # Get the singleton instance
-        lib.tt_alchemist_TTAlchemist_getInstance.restype = ctypes.c_void_p
-        instance = lib.tt_alchemist_TTAlchemist_getInstance()
-
-        # Set up function argument types
-        lib.tt_alchemist_TTAlchemist_modelToCpp.argtypes = [
-            ctypes.c_void_p,  # instance pointer
-            ctypes.c_char_p,  # input_file
-        ]
-        lib.tt_alchemist_TTAlchemist_modelToCpp.restype = ctypes.c_bool
-
-        # Call the modelToCpp function
-        result = lib.tt_alchemist_TTAlchemist_modelToCpp(
-            instance, input_path.encode("utf-8")
-        )
+        # Call the API function
+        result = model_to_cpp(input_path)
 
         if result:
             click.echo(f"Successfully converted model to C++")
