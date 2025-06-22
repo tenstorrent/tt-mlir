@@ -8,7 +8,7 @@ This page walks you through the steps required to set up tt-mlir.
 
 ### Hardware Setup
 
-Use this guide to set up your hardware - [Hardware Setup](https://docs.tenstorrent.com/getting-started/README.html).
+Use this guide to set up your hardware - [Hardware Setup](./getting-started.md).
 
 ### System Dependencies
 

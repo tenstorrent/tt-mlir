@@ -36,7 +36,7 @@ TTRT_LOGGER_LEVEL=DEBUG
 ```
 
 ### tt-metal logging
-`ttrt` runtime uses tt-metal for op execution and device interfacing. For more detailed logs, which can help in troubleshooting build or runtime issues, set env var `TT_METAL_LOGGER_LEVEL`. By default, it is set to `FATAL`.
+`ttrt` runtime uses [tt-metal](https://github.com/tenstorrent/tt-metal) for op execution and device interfacing. For more detailed logs, which can help in troubleshooting build or runtime issues, set env var `TT_METAL_LOGGER_LEVEL`. By default, it is set to `FATAL`.
 ```bash
 export TT_METAL_LOGGER_LEVEL=DEBUG
 ```
@@ -54,10 +54,13 @@ source ttrt_env/bin/activate
 pip install build/runtime/tools/ttrt/build/ttrt-0.0.235-cp310-cp310-linux_x86_64.whl
 ```
 
-## Generate a flatbuffer file from ttir-builder
+## Generating a flatbuffer
+tt-mlir exposes a few ways to generate flatbuffers.
+
+### Generate a flatbuffer file from ttir-builder
 `ttir-builder` is a tool for creating TTIR ops, converting them into MLIR modules, running passes to lower modules into backends, and translating to flatbuffers. See [documentation](./ttir-builder.md) for further instructions.
 
-## Generate a flatbuffer file from compiler
+### Generate a flatbuffer file from compiler
 The compiler supports a pass to load a system descriptor to compile against. You can feed this pass into `ttmlir-opt`.
 
 1. Build [ttmlir](./getting-started.md)
@@ -81,7 +84,7 @@ or (pipe path directly into ttir-to-ttnn-backend-pipeline)
 ttrt run /path/to/out.ttnn
 ```
 
-## Generate flatbuffer files using llvm-lit
+### Generate flatbuffer files using llvm-lit
 There are already existing .mlir test cases under `test/ttmlir/Silicon`. You can use `llvm-lit` tool to generate the corresponding ttnn and ttm files.
 
 1. Build [ttmlir](./getting-started.md)
@@ -107,7 +110,7 @@ ttrt run /path/to/test.ttnn
 ttrt run /path/to/dir/of/flatbuffers
 ```
 
-## Adding llvm-lit config options inside a .mlir file to create flatbuffer binaries
+### Adding llvm-lit config options inside a .mlir file to create flatbuffer binaries
 Inside of your .mlir file, you can add certain config options that `llvm-lit` will use when running against that test case. For the purpose of generating flatbuffer executables, you can add `--ttcore-register-device="system-desc-path=%system_desc_path%"` which will tell `llvm-lit` to parse the system desc found from the environment flag set by `export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys`. You can also paste a custom path to a system desc file as well.
 
 ```bash
@@ -166,7 +169,7 @@ ttrt read out.ttnn --save-artifacts --artifact-dir /path/to/some/dir
 ttrt read out.ttnn --result-file result.json
 ```
 
-### run ** allclose?
+### run
 Run a binary file or a directory of binary files
 Note: It's required to be on a system with silicon and to have a runtime enabled build `-DTTMLIR_ENABLE_RUNTIME=ON`.
 
@@ -255,13 +258,6 @@ ttrt check out.ttnn --log-file ttrt.log
 ttrt check /dir/of/flatbuffers --system-desc /dir/of/system_desc
 ttrt check --save-artifacts --artifact-dir /path/to/some/dir out.ttnn
 ttrt check out.ttnn --result-file result.json
-```
-
-### whls
-Using APIs using installed whls
-
-```bash
-python runtime/tools/ttrt/ttrt/__init__.py run out.ttnn
 ```
 
 ### gdb

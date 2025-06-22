@@ -1,7 +1,7 @@
 # `ttrt`
 
 ## Overview
-Release Date: June 30th, 2025
+Release Date: June 27th, 2025
 
 Version: v1.0.0
 
