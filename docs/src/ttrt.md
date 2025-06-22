@@ -141,8 +141,7 @@ ttrt perf
 ttrt check
 ```
 
-## Command Line
-
+## Command line usage
 There are different ways you can use the APIs under `ttrt`. The first is via the command line as follows. All artifacts are saved under `ttrt-artifacts` folder under `TT_MLIR_HOME` environment variable. By default, all logging is printed to the terminal. You can specify a log file to dump output to.
 
 ### read
@@ -199,6 +198,250 @@ ttrt run out.ttnn --memory --save-artifacts
 ttrt run out.ttnn --memory --check-memory-leak
 ```
 
+#### Run results
+The `run` api saves a `run_results.json` file that records information about the run including any errors that were thrown and location of other saved run data.
+
+<details>
+
+```bash
+{
+[
+  {
+    "file_path": "ttnn/test_tan[f32-shape0]_ttnn.mlir.ttnn",
+    "result": "pass",
+    "exception": "",
+    "log_file": "ttrt.log",
+    "artifacts": "/home/$USER/tt-mlir/ttrt-artifacts",
+    "program_index": "all",
+    "program_results": {
+      "program_index_0": {
+        "loop_0": {
+          "total_duration_ns": 3269341588,
+          "total_ttnn_api_duration_ns": null,
+          "total_device_kernel_duration_ns": null
+        }
+      }
+    }
+  }
+]
+```
+
+</details>
+
+#### Golden checks
+Golden checks are used to verify runtime op accuracy. They are run by default during the golden callback unless flag `--disable-golden` is used. If flag `--save-artifacts` is used, a golden results report will be saved under the artifacts directory.
+
+<details>
+
+```bash
+{
+    "loc(\"/home/$USER/tt-mlir/test/python/golden/test_ttir_ops.py:74:id(0)\")": {
+        "expected_pcc": 0.99,
+        "actual_pcc": 0.0015917614829425491,
+        "atol": 1e-08,
+        "rtol": 1e-05,
+        "allclose": false,
+        "max": 8529.765625,
+        "mean_absolute_error": 6.644593238830566,
+        "root_mean_square_error": 100.30211639404297,
+        "cosine_similarity": 0.0016297339461743832
+    }
+}
+```
+
+</details>
+
+#### Memory
+Memory callback functions are run when flag `--memory` is used. A memory report will be written under the artifacts directory that contains information on op memory usage.
+
+<details>
+
+```bash
+{
+    "0": {
+        "loc": "loc(\"/home/$USER/tt-mlir/test/python/golden/test_ttir_ops.py:74:id(0)\")",
+        "debug_str": "%0 = \"ttnn.tan\"(%arg0) : (tensor<128x128xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<4x4x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>>) -> tensor<128x128xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<4x4x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>> loc(\"/home/$USER/tt-mlir/test/python/golden/test_ttir_ops.py:74:id(0)\")",
+        "dram": {
+            "num_banks": 12,
+            "total_bytes_per_bank": 1071181792,
+            "total_bytes_allocated_per_bank": 16384,
+            "total_bytes_free_per_bank": 1071167456,
+            "largest_contiguous_bytes_free_per_bank": 1071165408,
+            "block_table": [
+                {
+                    "allocated": "yes",
+                    "nextID": "1",
+                    "prevID": "-1",
+                    "size": "8192",
+                    "address": "0",
+                    "blockID": "0"
+                },
+                {
+                    "allocated": "yes",
+                    "nextID": "3",
+                    "prevID": "0",
+                    "size": "8192",
+                    "address": "8192",
+                    "blockID": "1"
+                },
+                {
+                    "allocated": "no",
+                    "nextID": "-1",
+                    "prevID": "1",
+                    "size": "1071165408",
+                    "address": "16384",
+                    "blockID": "3"
+                }
+            ]
+        },
+        "l1": {
+            "num_banks": 64,
+            "total_bytes_per_bank": 1369120,
+            "total_bytes_allocated_per_bank": 0,
+            "total_bytes_free_per_bank": 1369120,
+            "largest_contiguous_bytes_free_per_bank": 1369120,
+            "block_table": [
+                {
+                    "allocated": "no",
+                    "nextID": "-1",
+                    "prevID": "-1",
+                    "size": "1369120",
+                    "address": "0",
+                    "blockID": "0"
+                }
+            ]
+        },
+        "l1_small": {
+            "num_banks": 64,
+            "total_bytes_per_bank": 32768,
+            "total_bytes_allocated_per_bank": 0,
+            "total_bytes_free_per_bank": 32768,
+            "largest_contiguous_bytes_free_per_bank": 32768,
+            "block_table": [
+                {
+                    "allocated": "no",
+                    "nextID": "-1",
+                    "prevID": "-1",
+                    "size": "32768",
+                    "address": "0",
+                    "blockID": "0"
+                }
+            ]
+        },
+        "trace": {
+            "num_banks": 12,
+            "total_bytes_per_bank": 0,
+            "total_bytes_allocated_per_bank": 0,
+            "total_bytes_free_per_bank": 0,
+            "largest_contiguous_bytes_free_per_bank": 0,
+            "block_table": [
+                {
+                    "allocated": "no",
+                    "nextID": "-1",
+                    "prevID": "-1",
+                    "size": "0",
+                    "address": "0",
+                    "blockID": "0"
+                }
+            ]
+        }
+    },
+    "1": {
+        "loc": "loc(\"/home/$USER/tt-mlir/test/python/golden/test_ttir_ops.py:74:id(0)\")",
+        "debug_str": "\"ttnn.deallocate\"(%arg0) <{force = false}> : (tensor<128x128xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<4x4x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>>) -> () loc(\"/home/$USER/tt-mlir/test/python/golden/test_ttir_ops.py:74:id(0)\")",
+        "dram": {
+            "num_banks": 12,
+            "total_bytes_per_bank": 1071181792,
+            "total_bytes_allocated_per_bank": 16384,
+            "total_bytes_free_per_bank": 1071167456,
+            "largest_contiguous_bytes_free_per_bank": 1071165408,
+            "block_table": [
+                {
+                    "allocated": "yes",
+                    "nextID": "1",
+                    "prevID": "-1",
+                    "size": "8192",
+                    "address": "0",
+                    "blockID": "0"
+                },
+                {
+                    "allocated": "yes",
+                    "nextID": "3",
+                    "prevID": "0",
+                    "size": "8192",
+                    "address": "8192",
+                    "blockID": "1"
+                },
+                {
+                    "allocated": "no",
+                    "nextID": "-1",
+                    "prevID": "1",
+                    "size": "1071165408",
+                    "address": "16384",
+                    "blockID": "3"
+                }
+            ]
+        },
+        "l1": {
+            "num_banks": 64,
+            "total_bytes_per_bank": 1369120,
+            "total_bytes_allocated_per_bank": 0,
+            "total_bytes_free_per_bank": 1369120,
+            "largest_contiguous_bytes_free_per_bank": 1369120,
+            "block_table": [
+                {
+                    "allocated": "no",
+                    "nextID": "-1",
+                    "prevID": "-1",
+                    "size": "1369120",
+                    "address": "0",
+                    "blockID": "0"
+                }
+            ]
+        },
+        "l1_small": {
+            "num_banks": 64,
+            "total_bytes_per_bank": 32768,
+            "total_bytes_allocated_per_bank": 0,
+            "total_bytes_free_per_bank": 32768,
+            "largest_contiguous_bytes_free_per_bank": 32768,
+            "block_table": [
+                {
+                    "allocated": "no",
+                    "nextID": "-1",
+                    "prevID": "-1",
+                    "size": "32768",
+                    "address": "0",
+                    "blockID": "0"
+                }
+            ]
+        },
+        "trace": {
+            "num_banks": 12,
+            "total_bytes_per_bank": 0,
+            "total_bytes_allocated_per_bank": 0,
+            "total_bytes_free_per_bank": 0,
+            "largest_contiguous_bytes_free_per_bank": 0,
+            "block_table": [
+                {
+                    "allocated": "no",
+                    "nextID": "-1",
+                    "prevID": "-1",
+                    "size": "0",
+                    "address": "0",
+                    "blockID": "0"
+                }
+            ]
+        }
+    }
+}
+```
+
+</details>
+
+#### Debugger
+Enabling the `--debugger` flag sets a [pbd trace](https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://docs.python.org/3/library/pdb.html&ved=2ahUKEwjT6Znv9oWOAxXe48kDHVs2KwAQFnoECBcQAQ&usg=AOvVaw3vJ9FXJKiMDkCwRHDUYrsr) to run after each op during the callback hook.
+
 ### query
 Query the system to obtain the system desc file (optionally store it to disk)
 Note: It's required to be on a system with silicon and to have a runtime enabled build `-DTTMLIR_ENABLE_RUNTIME=ON`.
@@ -221,11 +464,463 @@ Note: You can collect host only related performance data via `--host-only` flag.
 If the saving artifacts flag is provided, perf mode will dump the following files in the artifacts directory
 ```bash
 ops_perf_results.csv : compiled op performance results
+```
+
+<details>
+
+```bash
+OP CODE,OP TYPE,GLOBAL CALL COUNT,DEVICE ID,ATTRIBUTES,MATH FIDELITY,CORE COUNT,PARALLELIZATION STRATEGY,HOST START TS,HOST END TS,HOST DURATION [ns],DEVICE FW START CYCLE,DEVICE FW END CYCLE,OP TO OP LATENCY [ns],OP TO OP LATENCY BR/NRISC START [ns],DEVICE FW DURATION [ns],DEVICE KERNEL DURATION [ns],DEVICE KERNEL DURATION DM START [ns],DEVICE KERNEL DURATION PER CORE MIN [ns],DEVICE KERNEL DURATION PER CORE MAX [ns],DEVICE KERNEL DURATION PER CORE AVG [ns],DEVICE KERNEL FIRST TO LAST START [ns],DEVICE BRISC KERNEL DURATION [ns],DEVICE NCRISC KERNEL DURATION [ns],DEVICE TRISC0 KERNEL DURATION [ns],DEVICE TRISC1 KERNEL DURATION [ns],DEVICE TRISC2 KERNEL DURATION [ns],DEVICE ERISC KERNEL DURATION [ns],DEVICE COMPUTE CB WAIT FRONT [ns],DEVICE COMPUTE CB RESERVE BACK [ns],DISPATCH TOTAL CQ CMD OP TIME [ns],DISPATCH GO SEND WAIT TIME [ns],INPUT_0_W,INPUT_0_Z,INPUT_0_Y,INPUT_0_X,INPUT_0_LAYOUT,INPUT_0_DATATYPE,INPUT_0_MEMORY,OUTPUT_0_W,OUTPUT_0_Z,OUTPUT_0_Y,OUTPUT_0_X,OUTPUT_0_LAYOUT,OUTPUT_0_DATATYPE,OUTPUT_0_MEMORY,METAL TRACE ID,METAL TRACE REPLAY SESSION ID,COMPUTE KERNEL SOURCE,COMPUTE KERNEL HASH,DATA MOVEMENT KERNEL SOURCE,DATA MOVEMENT KERNEL HASH,BRISC MAX KERNEL SIZE [B],NCRISC MAX KERNEL SIZE [B],TRISC 0 MAX KERNEL SIZE [B],TRISC 1 MAX KERNEL SIZE [B],TRISC 2 MAX KERNEL SIZE [B],ERISC MAX KERNEL SIZE [B],PM IDEAL [ns],PM COMPUTE [ns],PM BANDWIDTH [ns],PM REQ I BW,PM REQ O BW,PM FPU UTIL (%),NOC UTIL (%),DRAM BW UTIL (%),NPE CONG IMPACT (%),LOC,CONST_EVAL_OP,PROGRAM_METADATA
+UnaryDeviceOperation,tt_dnn_device,1024,0,{'bfp8_pack_precise': 'false'; 'fp32_dest_acc_en': 'true'; 'op_chain': '{UnaryWithParam(op_type=UnaryOpType::TAN;param={})}'; 'output_dtype': 'DataType::FLOAT32'; 'output_memory_config': 'MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED;buffer_type=BufferType::DRAM;shard_spec=std::nullopt;nd_shard_spec=std::nullopt;created_with_nd_shard_spec=0)'; 'preserve_fp32_precision': 'true'},HiFi4,16,,4556959654,4557518500,558846,9815181939513,9815181946491,0,0,6978,6314,6126,4982,6216,5652,335,6087,1375,1656,4957,465,,,,,,1,1,128,128,TILE,FLOAT32,DEV_1_DRAM_INTERLEAVED,1,1,128,128,TILE,FLOAT32,DEV_1_DRAM_INTERLEAVED,,,['ttnn/cpp/ttnn/operations/eltwise/unary/device/kernels/compute//eltwise_sfpu.cpp'],['eltwise_sfpu/3265258334475852953/'],['ttnn/cpp/ttnn/operations/eltwise/unary/device/kernels/dataflow/reader_unary_interleaved_start_id.cpp'; 'ttnn/cpp/ttnn/operations/eltwise/unary/device/kernels/dataflow/writer_unary_interleaved_start_id.cpp'],['reader_unary_interleaved_start_id/1146610629329498539/'; 'writer_unary_interleaved_start_id/1727642094059197364/'],708,736,1344,1568,1380,0,1,1,1,[],[],0.016,,,,"loc(""/home/$USER/tt-mlir/test/python/golden/test_ttir_ops.py:74:id(0)"")",false,"{'loop_number': 0, 'program_index': 0, 'disable_eth_dispatch': False, 'enable_program_cache': False, 'dump_device_rate': 1000}"
+```
+
+</details>
+
+```bash
 profile_log_device.csv : dump of all device side profiled results
+```
+
+<details>
+
+```bash
+ARCH: wormhole_b0, CHIP_FREQ[MHz]: 1000
+PCIe slot, core_x, core_y, RISC processor type, timer_id, time[cycles since reset], data, run host ID,  zone name, type, source line, source file, meta data
+0,1,1,BRISC,20482,9815181939513,0,1024,BRISC-FW,ZONE_START,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,1,1,BRISC,20482,9815181945210,0,1024,BRISC-FW,ZONE_END,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,1,1,BRISC,41643,9815181940240,0,1024,BRISC-KERNEL,ZONE_START,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,1,1,BRISC,41643,9815181945047,0,1024,BRISC-KERNEL,ZONE_END,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,1,1,NCRISC,51614,9815181939664,0,1024,NCRISC-FW,ZONE_START,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,1,1,NCRISC,51614,9815181940941,0,1024,NCRISC-FW,ZONE_END,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,1,1,NCRISC,39179,9815181940201,0,1024,NCRISC-KERNEL,ZONE_START,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,1,1,NCRISC,39179,9815181940905,0,1024,NCRISC-KERNEL,ZONE_END,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,1,1,TRISC_0,46101,9815181939763,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,1,TRISC_0,46101,9815181941103,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,1,TRISC_0,47562,9815181940078,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,1,TRISC_0,47562,9815181941066,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,1,TRISC_1,46101,9815181939760,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,1,TRISC_1,46101,9815181944359,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,1,TRISC_1,47562,9815181940067,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,1,TRISC_1,47562,9815181944312,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,1,TRISC_2,46101,9815181939761,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,1,TRISC_2,46101,9815181944447,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,1,TRISC_2,47562,9815181940065,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,1,TRISC_2,47562,9815181940435,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,2,BRISC,20482,9815181939526,0,1024,BRISC-FW,ZONE_START,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,1,2,BRISC,20482,9815181946001,0,1024,BRISC-FW,ZONE_END,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,1,2,BRISC,41643,9815181940251,0,1024,BRISC-KERNEL,ZONE_START,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,1,2,BRISC,41643,9815181945839,0,1024,BRISC-KERNEL,ZONE_END,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,1,2,NCRISC,51614,9815181939674,0,1024,NCRISC-FW,ZONE_START,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,1,2,NCRISC,51614,9815181941467,0,1024,NCRISC-FW,ZONE_END,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,1,2,NCRISC,39179,9815181940219,0,1024,NCRISC-KERNEL,ZONE_START,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,1,2,NCRISC,39179,9815181941433,0,1024,NCRISC-KERNEL,ZONE_END,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,1,2,TRISC_0,46101,9815181939784,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,2,TRISC_0,46101,9815181941629,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,2,TRISC_0,47562,9815181940101,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,2,TRISC_0,47562,9815181941592,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,2,TRISC_1,46101,9815181939782,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,2,TRISC_1,46101,9815181944885,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,2,TRISC_1,47562,9815181940060,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,2,TRISC_1,47562,9815181944838,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,2,TRISC_2,46101,9815181939783,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,2,TRISC_2,46101,9815181944973,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,2,TRISC_2,47562,9815181940065,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,2,TRISC_2,47562,9815181940432,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,4,BRISC,20482,9815181939526,0,1024,BRISC-FW,ZONE_START,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,1,4,BRISC,20482,9815181945461,0,1024,BRISC-FW,ZONE_END,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,1,4,BRISC,41643,9815181940260,0,1024,BRISC-KERNEL,ZONE_START,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,1,4,BRISC,41643,9815181945298,0,1024,BRISC-KERNEL,ZONE_END,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,1,4,NCRISC,51614,9815181939675,0,1024,NCRISC-FW,ZONE_START,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,1,4,NCRISC,51614,9815181941172,0,1024,NCRISC-FW,ZONE_END,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,1,4,NCRISC,39179,9815181940229,0,1024,NCRISC-KERNEL,ZONE_START,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,1,4,NCRISC,39179,9815181941136,0,1024,NCRISC-KERNEL,ZONE_END,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,1,4,TRISC_0,46101,9815181939786,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,4,TRISC_0,46101,9815181941328,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,4,TRISC_0,47562,9815181940104,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,4,TRISC_0,47562,9815181941294,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,4,TRISC_1,46101,9815181939790,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,4,TRISC_1,46101,9815181944577,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,4,TRISC_1,47562,9815181940042,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,4,TRISC_1,47562,9815181944530,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,4,TRISC_2,46101,9815181939782,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,4,TRISC_2,46101,9815181944667,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,4,TRISC_2,47562,9815181940058,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,4,TRISC_2,47562,9815181940419,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,5,BRISC,20482,9815181939555,0,1024,BRISC-FW,ZONE_START,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,1,5,BRISC,20482,9815181946172,0,1024,BRISC-FW,ZONE_END,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,1,5,BRISC,41643,9815181940280,0,1024,BRISC-KERNEL,ZONE_START,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,1,5,BRISC,41643,9815181946008,0,1024,BRISC-KERNEL,ZONE_END,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,1,5,NCRISC,51614,9815181939702,0,1024,NCRISC-FW,ZONE_START,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,1,5,NCRISC,51614,9815181941424,0,1024,NCRISC-FW,ZONE_END,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,1,5,NCRISC,39179,9815181940249,0,1024,NCRISC-KERNEL,ZONE_START,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,1,5,NCRISC,39179,9815181941390,0,1024,NCRISC-KERNEL,ZONE_END,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,1,5,TRISC_0,46101,9815181939804,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,5,TRISC_0,46101,9815181941586,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,5,TRISC_0,47562,9815181940126,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,5,TRISC_0,47562,9815181941549,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,5,TRISC_1,46101,9815181939807,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,5,TRISC_1,46101,9815181944840,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,5,TRISC_1,47562,9815181940030,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,5,TRISC_1,47562,9815181944795,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,5,TRISC_2,46101,9815181939808,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,5,TRISC_2,46101,9815181944932,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,5,TRISC_2,47562,9815181940091,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,5,TRISC_2,47562,9815181940451,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,7,BRISC,20482,9815181939562,0,1024,BRISC-FW,ZONE_START,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,1,7,BRISC,20482,9815181945646,0,1024,BRISC-FW,ZONE_END,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,1,7,BRISC,41643,9815181940289,0,1024,BRISC-KERNEL,ZONE_START,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,1,7,BRISC,41643,9815181945484,0,1024,BRISC-KERNEL,ZONE_END,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,1,7,NCRISC,51614,9815181939707,0,1024,NCRISC-FW,ZONE_START,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,1,7,NCRISC,51614,9815181941293,0,1024,NCRISC-FW,ZONE_END,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,1,7,NCRISC,39179,9815181940258,0,1024,NCRISC-KERNEL,ZONE_START,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,1,7,NCRISC,39179,9815181941257,0,1024,NCRISC-KERNEL,ZONE_END,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,1,7,TRISC_0,46101,9815181939818,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,7,TRISC_0,46101,9815181941449,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,7,TRISC_0,47562,9815181940139,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,7,TRISC_0,47562,9815181941415,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,7,TRISC_1,46101,9815181939816,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,7,TRISC_1,46101,9815181944697,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,7,TRISC_1,47562,9815181940121,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,7,TRISC_1,47562,9815181944651,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,7,TRISC_2,46101,9815181939817,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,7,TRISC_2,46101,9815181944792,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,7,TRISC_2,47562,9815181940119,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,7,TRISC_2,47562,9815181940492,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,8,BRISC,20482,9815181939595,0,1024,BRISC-FW,ZONE_START,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,1,8,BRISC,20482,9815181946491,0,1024,BRISC-FW,ZONE_END,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,1,8,BRISC,41643,9815181940323,0,1024,BRISC-KERNEL,ZONE_START,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,1,8,BRISC,41643,9815181946327,0,1024,BRISC-KERNEL,ZONE_END,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,1,8,NCRISC,51614,9815181939745,0,1024,NCRISC-FW,ZONE_START,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,1,8,NCRISC,51614,9815181941525,0,1024,NCRISC-FW,ZONE_END,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,1,8,NCRISC,39179,9815181940286,0,1024,NCRISC-KERNEL,ZONE_START,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,1,8,NCRISC,39179,9815181941489,0,1024,NCRISC-KERNEL,ZONE_END,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,1,8,TRISC_0,46101,9815181939855,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,8,TRISC_0,46101,9815181941681,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,8,TRISC_0,47562,9815181940171,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,8,TRISC_0,47562,9815181941647,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,8,TRISC_1,46101,9815181939861,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,8,TRISC_1,46101,9815181944930,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,8,TRISC_1,47562,9815181940111,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,8,TRISC_1,47562,9815181944883,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,8,TRISC_2,46101,9815181939862,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,8,TRISC_2,46101,9815181945020,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,8,TRISC_2,47562,9815181940144,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,8,TRISC_2,47562,9815181940505,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,9,BRISC,20482,9815181939574,0,1024,BRISC-FW,ZONE_START,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,1,9,BRISC,20482,9815181946276,0,1024,BRISC-FW,ZONE_END,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,1,9,BRISC,41643,9815181940304,0,1024,BRISC-KERNEL,ZONE_START,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,1,9,BRISC,41643,9815181946112,0,1024,BRISC-KERNEL,ZONE_END,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,1,9,NCRISC,51614,9815181939717,0,1024,NCRISC-FW,ZONE_START,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,1,9,NCRISC,51614,9815181941256,0,1024,NCRISC-FW,ZONE_END,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,1,9,NCRISC,39179,9815181940273,0,1024,NCRISC-KERNEL,ZONE_START,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,1,9,NCRISC,39179,9815181941222,0,1024,NCRISC-KERNEL,ZONE_END,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,1,9,TRISC_0,46101,9815181939820,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,9,TRISC_0,46101,9815181941418,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,9,TRISC_0,47562,9815181940144,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,9,TRISC_0,47562,9815181941381,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,9,TRISC_1,46101,9815181939824,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,9,TRISC_1,46101,9815181944672,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,9,TRISC_1,47562,9815181940105,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,9,TRISC_1,47562,9815181944627,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,9,TRISC_2,46101,9815181939834,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,9,TRISC_2,46101,9815181944762,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,9,TRISC_2,47562,9815181940106,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,9,TRISC_2,47562,9815181940469,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,10,BRISC,20482,9815181939594,0,1024,BRISC-FW,ZONE_START,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,1,10,BRISC,20482,9815181945530,0,1024,BRISC-FW,ZONE_END,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,1,10,BRISC,41643,9815181940318,0,1024,BRISC-KERNEL,ZONE_START,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,1,10,BRISC,41643,9815181945367,0,1024,BRISC-KERNEL,ZONE_END,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,1,10,NCRISC,51614,9815181939739,0,1024,NCRISC-FW,ZONE_START,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,1,10,NCRISC,51614,9815181941139,0,1024,NCRISC-FW,ZONE_END,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,1,10,NCRISC,39179,9815181940289,0,1024,NCRISC-KERNEL,ZONE_START,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,1,10,NCRISC,39179,9815181941105,0,1024,NCRISC-KERNEL,ZONE_END,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,1,10,TRISC_0,46101,9815181939850,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,10,TRISC_0,46101,9815181941301,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,10,TRISC_0,47562,9815181940174,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,10,TRISC_0,47562,9815181941264,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,10,TRISC_1,46101,9815181939848,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,10,TRISC_1,46101,9815181944557,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,10,TRISC_1,47562,9815181940094,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,10,TRISC_1,47562,9815181944510,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,10,TRISC_2,46101,9815181939849,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,10,TRISC_2,46101,9815181944645,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,1,10,TRISC_2,47562,9815181940128,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,1,10,TRISC_2,47562,9815181940491,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,1,BRISC,20482,9815181939520,0,1024,BRISC-FW,ZONE_START,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,2,1,BRISC,20482,9815181945858,0,1024,BRISC-FW,ZONE_END,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,2,1,BRISC,41643,9815181940260,0,1024,BRISC-KERNEL,ZONE_START,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,2,1,BRISC,41643,9815181945696,0,1024,BRISC-KERNEL,ZONE_END,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,2,1,NCRISC,51614,9815181939673,0,1024,NCRISC-FW,ZONE_START,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,2,1,NCRISC,51614,9815181941341,0,1024,NCRISC-FW,ZONE_END,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,2,1,NCRISC,39179,9815181940222,0,1024,NCRISC-KERNEL,ZONE_START,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,2,1,NCRISC,39179,9815181941306,0,1024,NCRISC-KERNEL,ZONE_END,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,2,1,TRISC_0,46101,9815181939772,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,1,TRISC_0,46101,9815181941503,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,1,TRISC_0,47562,9815181940093,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,1,TRISC_0,47562,9815181941466,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,1,TRISC_1,46101,9815181939769,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,1,TRISC_1,46101,9815181944759,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,1,TRISC_1,47562,9815181940057,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,1,TRISC_1,47562,9815181944712,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,1,TRISC_2,46101,9815181939777,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,1,TRISC_2,46101,9815181944847,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,1,TRISC_2,47562,9815181940054,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,1,TRISC_2,47562,9815181940419,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,2,BRISC,20482,9815181939521,0,1024,BRISC-FW,ZONE_START,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,2,2,BRISC,20482,9815181945407,0,1024,BRISC-FW,ZONE_END,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,2,2,BRISC,41643,9815181940248,0,1024,BRISC-KERNEL,ZONE_START,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,2,2,BRISC,41643,9815181945244,0,1024,BRISC-KERNEL,ZONE_END,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,2,2,NCRISC,51614,9815181939671,0,1024,NCRISC-FW,ZONE_START,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,2,2,NCRISC,51614,9815181941082,0,1024,NCRISC-FW,ZONE_END,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,2,2,NCRISC,39179,9815181940211,0,1024,NCRISC-KERNEL,ZONE_START,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,2,2,NCRISC,39179,9815181941046,0,1024,NCRISC-KERNEL,ZONE_END,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,2,2,TRISC_0,46101,9815181939781,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,2,TRISC_0,46101,9815181941238,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,2,TRISC_0,47562,9815181940096,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,2,TRISC_0,47562,9815181941204,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,2,TRISC_1,46101,9815181939787,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,2,TRISC_1,46101,9815181944486,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,2,TRISC_1,47562,9815181940040,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,2,TRISC_1,47562,9815181944440,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,2,TRISC_2,46101,9815181939788,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,2,TRISC_2,46101,9815181944581,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,2,TRISC_2,47562,9815181940073,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,2,TRISC_2,47562,9815181940432,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,4,BRISC,20482,9815181939544,0,1024,BRISC-FW,ZONE_START,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,2,4,BRISC,20482,9815181945719,0,1024,BRISC-FW,ZONE_END,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,2,4,BRISC,41643,9815181940267,0,1024,BRISC-KERNEL,ZONE_START,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,2,4,BRISC,41643,9815181945557,0,1024,BRISC-KERNEL,ZONE_END,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,2,4,NCRISC,51614,9815181939689,0,1024,NCRISC-FW,ZONE_START,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,2,4,NCRISC,51614,9815181941101,0,1024,NCRISC-FW,ZONE_END,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,2,4,NCRISC,39179,9815181940230,0,1024,NCRISC-KERNEL,ZONE_START,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,2,4,NCRISC,39179,9815181941065,0,1024,NCRISC-KERNEL,ZONE_END,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,2,4,TRISC_0,46101,9815181939800,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,4,TRISC_0,46101,9815181941257,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,4,TRISC_0,47562,9815181940115,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,4,TRISC_0,47562,9815181941223,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,4,TRISC_1,46101,9815181939806,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,4,TRISC_1,46101,9815181944506,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,4,TRISC_1,47562,9815181940022,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,4,TRISC_1,47562,9815181944459,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,4,TRISC_2,46101,9815181939807,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,4,TRISC_2,46101,9815181944595,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,4,TRISC_2,47562,9815181940089,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,4,TRISC_2,47562,9815181940449,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,5,BRISC,20482,9815181939560,0,1024,BRISC-FW,ZONE_START,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,2,5,BRISC,20482,9815181946020,0,1024,BRISC-FW,ZONE_END,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,2,5,BRISC,41643,9815181940283,0,1024,BRISC-KERNEL,ZONE_START,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,2,5,BRISC,41643,9815181945859,0,1024,BRISC-KERNEL,ZONE_END,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,2,5,NCRISC,51614,9815181939706,0,1024,NCRISC-FW,ZONE_START,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,2,5,NCRISC,51614,9815181941544,0,1024,NCRISC-FW,ZONE_END,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,2,5,NCRISC,39179,9815181940254,0,1024,NCRISC-KERNEL,ZONE_START,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,2,5,NCRISC,39179,9815181941510,0,1024,NCRISC-KERNEL,ZONE_END,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,2,5,TRISC_0,46101,9815181939817,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,5,TRISC_0,46101,9815181941706,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,5,TRISC_0,47562,9815181940139,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,5,TRISC_0,47562,9815181941669,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,5,TRISC_1,46101,9815181939815,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,5,TRISC_1,46101,9815181944962,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,5,TRISC_1,47562,9815181940013,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,5,TRISC_1,47562,9815181944915,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,5,TRISC_2,46101,9815181939816,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,5,TRISC_2,46101,9815181945050,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,5,TRISC_2,47562,9815181940094,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,5,TRISC_2,47562,9815181940456,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,7,BRISC,20482,9815181939580,0,1024,BRISC-FW,ZONE_START,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,2,7,BRISC,20482,9815181946048,0,1024,BRISC-FW,ZONE_END,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,2,7,BRISC,41643,9815181940300,0,1024,BRISC-KERNEL,ZONE_START,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,2,7,BRISC,41643,9815181945884,0,1024,BRISC-KERNEL,ZONE_END,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,2,7,NCRISC,51614,9815181939725,0,1024,NCRISC-FW,ZONE_START,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,2,7,NCRISC,51614,9815181941386,0,1024,NCRISC-FW,ZONE_END,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,2,7,NCRISC,39179,9815181940270,0,1024,NCRISC-KERNEL,ZONE_START,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,2,7,NCRISC,39179,9815181941350,0,1024,NCRISC-KERNEL,ZONE_END,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,2,7,TRISC_0,46101,9815181939837,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,7,TRISC_0,46101,9815181941542,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,7,TRISC_0,47562,9815181940155,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,7,TRISC_0,47562,9815181941508,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,7,TRISC_1,46101,9815181939834,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,7,TRISC_1,46101,9815181944791,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,7,TRISC_1,47562,9815181940102,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,7,TRISC_1,47562,9815181944744,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,7,TRISC_2,46101,9815181939835,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,7,TRISC_2,46101,9815181944881,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,7,TRISC_2,47562,9815181940119,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,7,TRISC_2,47562,9815181940481,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,8,BRISC,20482,9815181939574,0,1024,BRISC-FW,ZONE_START,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,2,8,BRISC,20482,9815181945764,0,1024,BRISC-FW,ZONE_END,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,2,8,BRISC,41643,9815181940289,0,1024,BRISC-KERNEL,ZONE_START,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,2,8,BRISC,41643,9815181945600,0,1024,BRISC-KERNEL,ZONE_END,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,2,8,NCRISC,51614,9815181939719,0,1024,NCRISC-FW,ZONE_START,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,2,8,NCRISC,51614,9815181941177,0,1024,NCRISC-FW,ZONE_END,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,2,8,NCRISC,39179,9815181940258,0,1024,NCRISC-KERNEL,ZONE_START,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,2,8,NCRISC,39179,9815181941143,0,1024,NCRISC-KERNEL,ZONE_END,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,2,8,TRISC_0,46101,9815181939830,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,8,TRISC_0,46101,9815181941339,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,8,TRISC_0,47562,9815181940140,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,8,TRISC_0,47562,9815181941302,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,8,TRISC_1,46101,9815181939837,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,8,TRISC_1,46101,9815181944592,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,8,TRISC_1,47562,9815181940094,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,8,TRISC_1,47562,9815181944548,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,8,TRISC_2,46101,9815181939829,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,8,TRISC_2,46101,9815181944681,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,8,TRISC_2,47562,9815181940112,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,8,TRISC_2,47562,9815181940473,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,9,BRISC,20482,9815181939610,0,1024,BRISC-FW,ZONE_START,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,2,9,BRISC,20482,9815181946166,0,1024,BRISC-FW,ZONE_END,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,2,9,BRISC,41643,9815181940348,0,1024,BRISC-KERNEL,ZONE_START,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,2,9,BRISC,41643,9815181946004,0,1024,BRISC-KERNEL,ZONE_END,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,2,9,NCRISC,51614,9815181939757,0,1024,NCRISC-FW,ZONE_START,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,2,9,NCRISC,51614,9815181941460,0,1024,NCRISC-FW,ZONE_END,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,2,9,NCRISC,39179,9815181940317,0,1024,NCRISC-KERNEL,ZONE_START,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,2,9,NCRISC,39179,9815181941424,0,1024,NCRISC-KERNEL,ZONE_END,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,2,9,TRISC_0,46101,9815181939855,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,9,TRISC_0,46101,9815181941616,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,9,TRISC_0,47562,9815181940189,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,9,TRISC_0,47562,9815181941582,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,9,TRISC_1,46101,9815181939875,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,9,TRISC_1,46101,9815181944864,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,9,TRISC_1,47562,9815181940086,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,9,TRISC_1,47562,9815181944818,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,9,TRISC_2,46101,9815181939863,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,9,TRISC_2,46101,9815181944959,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,9,TRISC_2,47562,9815181940138,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,9,TRISC_2,47562,9815181940498,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,10,BRISC,20482,9815181939614,0,1024,BRISC-FW,ZONE_START,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,2,10,BRISC,20482,9815181946393,0,1024,BRISC-FW,ZONE_END,396,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisc.cc,
+0,2,10,BRISC,41643,9815181940337,0,1024,BRISC-KERNEL,ZONE_START,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,2,10,BRISC,41643,9815181946230,0,1024,BRISC-KERNEL,ZONE_END,49,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/brisck.cc,
+0,2,10,NCRISC,51614,9815181939759,0,1024,NCRISC-FW,ZONE_START,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,2,10,NCRISC,51614,9815181941612,0,1024,NCRISC-FW,ZONE_END,118,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisc.cc,
+0,2,10,NCRISC,39179,9815181940300,0,1024,NCRISC-KERNEL,ZONE_START,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,2,10,NCRISC,39179,9815181941576,0,1024,NCRISC-KERNEL,ZONE_END,63,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/ncrisck.cc,
+0,2,10,TRISC_0,46101,9815181939870,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,10,TRISC_0,46101,9815181941768,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,10,TRISC_0,47562,9815181940185,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,10,TRISC_0,47562,9815181941734,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,10,TRISC_1,46101,9815181939876,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,10,TRISC_1,46101,9815181945017,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,10,TRISC_1,47562,9815181940082,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,10,TRISC_1,47562,9815181944970,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,10,TRISC_2,46101,9815181939877,0,1024,TRISC-FW,ZONE_START,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,10,TRISC_2,46101,9815181945107,0,1024,TRISC-FW,ZONE_END,129,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisc.cc,
+0,2,10,TRISC_2,47562,9815181940159,0,1024,TRISC-KERNEL,ZONE_START,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+0,2,10,TRISC_2,47562,9815181940519,0,1024,TRISC-KERNEL,ZONE_END,64,/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/ttrt/runtime/tt_metal/hw/firmware/src/trisck.cc,
+```
+
+</details>
+
+```bash
 tracy_ops_data.csv : op data results dumped in a readable format
+```
+
+<details>
+
+```bash
+MessageName;total_ns
+MLIR_CONST_EVAL_OP;false;3905576862
+MLIR_OP_LOCATION;loc("/home/$USER/tt-mlir/test/python/golden/test_ttir_ops.py:74:id(0)");3905586332
+MLIR_PROGRAM_METADATA;{'loop_number': 0, 'program_index': 0, 'disable_eth_dispatch': False, 'enable_program_cache': False, 'dump_device_rate': 1000};3905591252
+`TT_DNN_DEVICE_OP: "UnaryDeviceOperation", 14192112467379437694, 0, 1024 ->
+{
+    "attributes": {
+        "bfp8_pack_precise": "false",
+        "fp32_dest_acc_en": "true",
+        "op_chain": "{UnaryWithParam(op_type=UnaryOpType::TAN,param={})}",
+        "output_dtype": "DataType::FLOAT32",
+        "output_memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)",
+        "preserve_fp32_precision": "true"
+    },
+    "device_id": 0,
+    "global_call_count": 1024,
+    "input_tensors": [
+        {
+            "dtype": "FLOAT32",
+            "layout": "TILE",
+            "shape": {
+                "W": 1,
+                "X": 128,
+                "Y": 128,
+                "Z": 1
+            },
+            "storage_type": {
+                "device_id": 1,
+                "memory_config": {
+                    "buffer_type": "DRAM",
+                    "memory_layout": "INTERLEAVED"
+                }
+            }
+        }
+    ],
+    "kernel_info": {
+        "compute_kernels": [
+            {
+                "math_fidelity": "HiFi4",
+                "name": "eltwise_sfpu/3265258334475852953/",
+                "source": "ttnn/cpp/ttnn/operations/eltwise/unary/device/kernels/compute//eltwise_sfpu.cpp"
+            }
+        ],
+        "datamovement_kernels": [
+            {
+                "name": "reader_unary_interleaved_start_id/1146610629329498539/",
+                "source": "ttnn/cpp/ttnn/operations/eltwise/unary/device/kernels/dataflow/reader_unary_interleaved_start_id.cpp"
+            },
+            {
+                "name": "writer_unary_interleaved_start_id/1727642094059197364/",
+                "source": "ttnn/cpp/ttnn/operations/eltwise/unary/device/kernels/dataflow/writer_unary_interleaved_start_id.cpp"
+            }
+        ],
+        "kernel_sizes": {
+            "brisc_max_kernel_size": 708,
+            "erisc_max_kernel_size": 0,
+            "ncrisc_max_kernel_size": 736,
+            "trisc_0_max_kernel_size": 1344,
+            "trisc_1_max_kernel_size": 1568,
+            "trisc_2_max_kernel_size": 1380
+        }
+    },
+    "op_code": "UnaryDeviceOperation",
+    "op_hash": 14192112467379437694,
+    "op_type": "tt_dnn_device",
+    "optional_input_tensors": [],
+    "output_tensors": [
+        {
+            "dtype": "FLOAT32",
+            "layout": "TILE",
+            "shape": {
+                "W": 1,
+                "X": 128,
+                "Y": 128,
+                "Z": 1
+            },
+            "storage_type": {
+                "device_id": 1,
+                "memory_config": {
+                    "buffer_type": "DRAM",
+                    "memory_layout": "INTERLEAVED"
+                }
+            }
+        }
+    ],
+    "performance_model": {
+        "bandwidth_ns": 1,
+        "compute_ns": 1,
+        "ideal_ns": 1,
+        "input_bws": [],
+        "output_bws": []
+    }
+}`;4557518040
+MLIR_CONST_EVAL_OP;false;4558135605
+MLIR_OP_LOCATION;loc("/home/$USER/tt-mlir/test/python/golden/test_ttir_ops.py:74:id(0)");4558137635
+MLIR_PROGRAM_METADATA;{'loop_number': 0, 'program_index': 0, 'disable_eth_dispatch': False, 'enable_program_cache': False, 'dump_device_rate': 1000};4558140045
+```
+
+</details>
+
+```bash
 tracy_ops_times.csv : op time results dumped in a readable format
 tracy_profile_log_host.tracy : tracy profiled results file, this file can be fed into the tracy GUI
 ```
+
+Viewing the `tracy_profile_log_host.tracy` file requires installing the [Tracy Profiler](https://github.com/tenstorrent-metal/tracy) program.
 
 ```bash
 ttrt perf --help
@@ -241,8 +936,36 @@ ttrt perf /dir/of/flatbuffers --loops 10 --host-only
 ttrt perf /dir/of/flatbuffers --log-file ttrt.log --host-only
 ttrt perf --save-artifacts --artifact-dir /path/to/some/dir
 ttrt perf out.ttnn --result-file result.json
-ttrt run out.ttnn --memory
+ttrt perf out.ttnn --memory
 ```
+
+The `perf` API exposes all the same options to save runtime data that the `run` API saves. See above for information and examples. It also returns a `perf_results.json` file that records information about the perf run including any errors that were thrown and location of other saved data.
+
+<details>
+
+```bash
+[
+  {
+    "file_path": "ttnn/test_tan[f32-shape0]_ttnn.mlir.ttnn",
+    "result": "pass",
+    "exception": "",
+    "log_file": "ttrt.log",
+    "artifacts": "/home/$USER/tt-mlir/ttrt-artifacts",
+    "program_index": "all",
+    "program_results": {
+      "program_index_0": {
+        "loop_0": {
+          "total_duration_ns": 653035690,
+          "total_ttnn_api_duration_ns": 558846,
+          "total_device_kernel_duration_ns": 6314
+        }
+      }
+    }
+  }
+]
+```
+
+</details>
 
 ### check
 Check a binary file or a directory of binary files against a system desc (by default, uses the host machine)
@@ -269,7 +992,7 @@ ttrt --gdb run ...
 ttrt --gdb perf ...
 ```
 
-## ttrt as a python package
+## Using as a python package
 The other way to use the APIs under `ttrt` is importing it as a library. This allows the user to use it in custom scripts.
 
 ### Import `ttrt` as a python package
@@ -285,15 +1008,15 @@ API.initialize_apis()
 ### Setup arguments
 You can specify certain arguments to pass to each API, or use the default arguments provided
 
-#### args
-This can be a dictionary of values to set inside your API instance. These are the same options as found via the command line. You can get the total list of support arguments via `ttrt` help command line. Any argument not provided will be set to the default.
+#### Args
+This can be a dictionary of values to set inside your API instance. These are the same options as found via the command line. You can get the total list of support arguments via the `ttrt --help` command. Any argument not provided will be set to the default.
 ```bash
 custom_args = {}
 custom_args["--clean-artifacts"] = True
 query_instance = API.Query(args=custom_args)
 ```
 
-#### logging
+#### Logging
 You can specify a specific logging module you want to set inside your API instance. The rationale behind this is to support different instances of different APIs, all being able to be logged to a different file. You can also customize the level of detail your log file contains.
 
 ```bash
@@ -306,7 +1029,7 @@ custom_logger = Logger(log_file_name)
 read_instance = API.Read(logger=custom_logger)
 ```
 
-#### artifacts
+#### Artifacts
 You can specify a specific artifacts directory to store all the generate metadata during the execution of any API run. This allows you to specify different artifact directories if you wish for different instances of APIs.
 
 ```bash
@@ -355,8 +1078,11 @@ run_instance = API.Run(args=custom_args, logger=custom_logger, artifacts=custom_
 result_code, results = run_instance()
 ```
 
-## Bonus Section: Extending runtime to other FE's
-MLIR Runtime exposes a feature to register python callback functions. Any two python fuctions can be provided - the first function will be executed before every op in MLIR Runtime, the second after every op. The following steps describe how to extend your application to register python functions.
+## Runtime integration
+The full set of `ttrt.runtime` exposed APIs and types can be found in `runtime/python/runtime/runtime.cpp`, however only the ones intended to be used for runtime customization through callback hooks are outlined here.
+
+### Callback hooks
+MLIR Runtime exposes a feature to register python callback functions. Any two python fuctions can be provided - the first function will be executed before every op in MLIR Runtime, the second after every op. The following steps describe how to extend your application to register python functions. Callback functions are already implemented by default for pbd debugger implementation and gathering memory and golden check data as outlined in the `run` API section.
 
 1. Pybind DebugHooks C++ class, specifically `tt::runtime::debug::Hooks::get`. See `runtime/python/runtime/runtime.cpp` for an example of how `ttrt` pybinds it.
 ```bash
@@ -364,22 +1090,22 @@ tt::runtime::debug::Hooks
 tt::runtime::debug::Hooks::get
 ```
 
-2. Register callback functions in your python script. The following is registering two golden python functions. Assume the Debug Hooks get function has been pybinded to `ttrt.runtime.DebugHooks.get`
+2. Register callback functions in your python script. The following is registering the two callback functions written in `runtime/tools/ttrt/ttrt/common/callback.py`. The Debug Hooks get function has been pybinded to `ttrt.runtime.DebugHooks.get`
 ```bash
 import ttrt.runtime
 
-callback_env = ttrt.runtime.DebugHooks.get(preOpGolden, postOpGolden)
+callback_env = ttrt.runtime.DebugHooks.get(pre_op_callback_runtime_config, post_op_callback_runtime_config)
 ```
 
 3. The callback function has a particular function signature, which looks like the following
 ```bash
-def preOpGolden(binary, program_context, op_context):
+def pre_op_callback_runtime_config(binary, program_context, op_context):
 ```
 `binary`: reference to the binary you are currently running, ttrt.binary Binary object
 `program_context`: reference to the program currently running, ttrt.runtime ProgramContext object
 `op_context`: reference to the op that is currently running, ttrt.runtime OpContext object
 
-4. Each of these parameters has certain runtime APIs exposed which can be called within the callback functions.
+4. Each of these parameters has certain runtime APIs exposed which can only be called within the callback functions since they rely on the `op_context` variable that is only available from runtime during callbacks.
 ```bash
 import ttrt.runtime
 
@@ -387,12 +1113,6 @@ loc = ttrt.runtime.get_op_loc_info(op_context) : get the location of the op as a
 op_debug_str = ttrt.runtime.get_op_debug_str(op_context) : get the op debug str (contains op metadata inculding op type, attributes, input tensor shapes and dtypes, memref with layout and buffer type, and loc)
 op_golden_tensor = ttrt.runtime.get_debug_info_golden(binary, loc) : get the golden tensor from the binary as a ttrt.binary GoldenTensor object
 op_output_tensor = ttrt.runtime.get_op_output_tensor(op_context, program_context) : get the currently running output tensor from device as a ttrt.runtime Tensor object, if this is called in a preOp function or the op doesn't output a tensor, an empty tensor will be returned.
-```
-
-5. A potential application for this callback function is implementing a golden callback. `ttrt` achieves this by first storing the golden data within the flatbuffer binary. This embedding is done through [`ttir-builder`](./ttir-builder.md). See `runtime/tools/ttrt/ttrt/common/callback.py` for how `ttrt` implements the golden callback function.
-```bash
-std::unordered_map<std::string, mlir::tt::GoldenTensor> goldenMap
-mlir::tt::ttnn::translateTTNNToFlatbuffer(moduleOp, file, goldenMap)
 ```
 
 Note: `ttrt` is not needed to implement this callback feature. It aims to provide an example of how this callback feature can be implemented for golden application.
@@ -405,7 +1125,7 @@ Note: `ttrt` is not needed to implement this callback feature. It aims to provid
 Flatbuffers are compiled using a specific system desc (or default values if no system desc is provided). During runtime, the flatbuffer system desc is checked against the current system to ensure the system being run on supports the flatbuffer that was compiled. If you get this error, you will have to regenerate the flatbuffer using the system you want to run on. See generate a flatbuffer file from compiler section on how to do this.
 
 ### I just want to test and push my commit! What do I do!
-Follow these steps (on both n150 and n300)
+Follow these steps (on n150, n300, and llmbox)
 
 1. Build ttmlir (sample instructions - subject to change)
 ```bash
@@ -444,7 +1164,7 @@ ttrt run build/test/ttmlir/Silicon
 ttrt perf build/test/ttmlir/Silicon
 ```
 
-### TTRT yields an ambiguous segmentation fault when I try to read/run a .ttnn file!
+### TTRT yields an ambiguous segmentation fault!
 The `ttrt` toolchain has specific behaviors and requirements that can lead to build and runtime issues, particularly when dealing with version mismatches or out-of-sync dependencies.
 
 #### Version Mismatch Due to Local Commits
