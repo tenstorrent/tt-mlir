@@ -126,8 +126,7 @@ static ::tt::runtime::Tensor toHostSingleTensor(::tt::runtime::Tensor tensor,
 
   if (untilize) {
     hostTensor = ::ttnn::to_layout(hostTensor, ::ttnn::Layout::ROW_MAJOR,
-                                   std::nullopt, std::nullopt,
-                                   static_cast<::ttnn::MeshDevice *>(nullptr));
+                                   std::nullopt, std::nullopt);
   }
 
   return utils::createRuntimeTensorFromTTNN(hostTensor, shouldRetain);
@@ -1003,9 +1002,9 @@ std::string getOpLocInfo(OpContext opContextHandle) {
     return createNullTensor();
   }
 
-  ::ttnn::Tensor hostTensor = ::ttnn::to_layout(
-      ::ttnn::from_device(*outPtr), ::ttnn::Layout::ROW_MAJOR, std::nullopt,
-      std::nullopt, static_cast<::ttnn::MeshDevice *>(nullptr));
+  ::ttnn::Tensor hostTensor =
+      ::ttnn::to_layout(::ttnn::from_device(*outPtr), ::ttnn::Layout::ROW_MAJOR,
+                        std::nullopt, std::nullopt);
 
   return utils::createRuntimeTensorFromTTNN(hostTensor);
 }

@@ -1475,8 +1475,6 @@ public:
         emitter.emit(srcOp.getDtype()),
         emitter.emit(srcOp.getMemoryConfig()) |
             emitter.getMemoryConfig(srcOp.getResult()),
-        emitter.emit(srcOp.getDevice()) |
-            emitter.emit<::ttnn::distributed::MeshDevice>(nullptr),
     };
 
     emitter.replaceOp(*this, args);
