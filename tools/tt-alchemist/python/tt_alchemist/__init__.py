@@ -6,5 +6,5 @@
 # Import the CLI function to make it available when importing the package
 from .cli import cli
 
-# Import the API function for direct use
-from .api import model_to_cpp
+# Import and expose the API functions
+from .api import model_to_cpp, create_solution
