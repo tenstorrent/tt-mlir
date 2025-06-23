@@ -2176,9 +2176,15 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
     const bool hasInputLayout = inputTensor.getEncoding() != nullptr;
     const bool hasOutputLayout = outputTensor.getEncoding() != nullptr;
 
-    // Construct layouts with default values if no layout attr present.
-    auto inputLayout = getOrCreateInputLayout();
-    auto outputLayout = getOrCreateOutputLayout();
+    MetalLayoutAttr inputLayout;
+    if (hasInputLayout) {
+      inputLayout = mlir::cast<tt::MetalLayoutAttr>(inputTensor.getEncoding());
+    }
+    MetalLayoutAttr outputLayout;
+    if (hasOutputLayout) {
+      outputLayout =
+          mlir::cast<tt::MetalLayoutAttr>(outputTensor.getEncoding());
+    }
 
     // Tensors without grids are assume to have 1 grids for comparison.
     auto inputGrid =
@@ -2196,6 +2202,16 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
             : llvm::SmallVector<int64_t>(
                   inputLayout.getGridShape(inputTensor).size(), 1);
 
+    // Construct layouts with default values if no layout attr present.
+    if (!hasInputLayout) {
+      llvm::errs() << "call getOrCreateInputLayout in from CC: \n";
+      inputLayout = getOrCreateInputLayout(inputGrid.size());
+    }
+    if (!hasOutputLayout) {
+      llvm::errs() << "call getOrCreateInputLayout out from CC: \n";
+      outputLayout = getOrCreateOutputLayout(outputGrid.size());
+    }
+
     components.isGridChange = inputGrid != outputGrid;
 
     components.isMemorySpaceChange =
@@ -2204,11 +2220,31 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
     components.isFormatChange =
         inputTensor.getElementType() != outputTensor.getElementType();
 
-    // This field will track different logical ranks, different
     components.isLayoutChange =
         inputLayout.getNormalizedIntervals() !=
             outputLayout.getNormalizedIntervals() ||
         inputLayout.getDimAlignments() != outputLayout.getDimAlignments();
+
+    llvm::errs() << "In normalized intv: ";
+    llvm::interleaveComma(inputLayout.getNormalizedIntervals(), llvm::errs());
+    llvm::errs() << "\n";
+    llvm::errs() << "In dim align: ";
+    llvm::interleaveComma(inputLayout.getDimAlignments(), llvm::errs());
+    llvm::errs() << "\n";
+    llvm::errs() << "Out normalized intv: ";
+    llvm::interleaveComma(outputLayout.getNormalizedIntervals(), llvm::errs());
+    llvm::errs() << "\n";
+    llvm::errs() << "Out dim align: ";
+    llvm::interleaveComma(outputLayout.getDimAlignments(), llvm::errs());
+    llvm::errs() << "\n";
+
+    llvm::errs() << "Compound components:\n";
+    llvm::errs() << "  isCompound: " << components.isCompound() << "\n";
+    llvm::errs() << "  isLayoutChange: " << components.isLayoutChange << "\n";
+    llvm::errs() << "  isGridChange: " << components.isGridChange << "\n";
+    llvm::errs() << "  isMemorySpaceChange: " << components.isMemorySpaceChange
+                 << "\n";
+    llvm::errs() << "  isFormatChange: " << components.isFormatChange << "\n";
   } else {
     auto inputMemref = mlir::cast<mlir::MemRefType>(getInput().getType());
     auto outputMemref = mlir::cast<mlir::MemRefType>(getOutput().getType());
@@ -2224,7 +2260,8 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
   return components;
 }
 
-mlir::tt::MetalLayoutAttr mlir::tt::ttir::ToLayoutOp::getOrCreateInputLayout() {
+mlir::tt::MetalLayoutAttr
+mlir::tt::ttir::ToLayoutOp::getOrCreateInputLayout(uint64_t gridRank) {
   auto tensorType = mlir::cast<mlir::RankedTensorType>(getInput().getType());
   auto inputLayout =
       mlir::dyn_cast_if_present<tt::MetalLayoutAttr>(tensorType.getEncoding());
@@ -2235,13 +2272,12 @@ mlir::tt::MetalLayoutAttr mlir::tt::ttir::ToLayoutOp::getOrCreateInputLayout() {
   // Create default layout for tensor without encoding
   llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
 
-  return tt::MetalLayoutAttr::get(getContext(), logicalShape,
-                                  logicalShape.size(), tt::OOBVal::Undef,
-                                  tt::MemorySpace::System);
+  return tt::MetalLayoutAttr::get(getContext(), logicalShape, gridRank,
+                                  tt::OOBVal::Undef, tt::MemorySpace::System);
 }
 
 mlir::tt::MetalLayoutAttr
-mlir::tt::ttir::ToLayoutOp::getOrCreateOutputLayout() {
+mlir::tt::ttir::ToLayoutOp::getOrCreateOutputLayout(uint64_t gridRank) {
   auto tensorType = mlir::cast<mlir::RankedTensorType>(getOutput().getType());
   auto outputLayout =
       mlir::dyn_cast_if_present<tt::MetalLayoutAttr>(tensorType.getEncoding());
@@ -2252,9 +2288,8 @@ mlir::tt::ttir::ToLayoutOp::getOrCreateOutputLayout() {
   // Create default layout for tensor without encoding
   llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
 
-  return tt::MetalLayoutAttr::get(getContext(), logicalShape,
-                                  logicalShape.size(), tt::OOBVal::Undef,
-                                  tt::MemorySpace::System);
+  return tt::MetalLayoutAttr::get(getContext(), logicalShape, gridRank,
+                                  tt::OOBVal::Undef, tt::MemorySpace::System);
 }
 
 mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::fold(

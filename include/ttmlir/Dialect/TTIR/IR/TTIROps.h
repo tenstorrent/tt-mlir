@@ -48,6 +48,8 @@ inline void getDpsEffects(
 
 MemRefType getBufferType(Type type, bool isView);
 
+static constexpr size_t kDefaultGridRank = 2;
+
 } // namespace mlir::tt::ttir
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsEnums.h.inc"

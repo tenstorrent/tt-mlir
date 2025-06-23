@@ -894,7 +894,10 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      MemorySpace memorySpace,
                                      DenseIntElementsAttr collapseIntervals,
                                      ArrayRef<int64_t> dimAlignments) {
+  llvm::errs() << "MetalLayoutAttr::get has deviceGridRank of:"
+               << deviceGridRank << "\n";
   if (!collapseIntervals) {
+    llvm::errs() << "MetalLayoutAttr::get has null collpaseIntv\n";
     // Create collapse intervals.
     int64_t numDimsToCollapse = logicalShape.size() - deviceGridRank + 1;
     llvm::SmallVector<int64_t> flattenedIntervals;
@@ -917,6 +920,10 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
 
   assert(collapseIntervals.getType().getRank() == 2 &&
          "Collapse intervals must be a 2D array");
+
+  llvm::errs() << "get intv: ";
+  llvm::interleaveComma(collapseIntervals, llvm::errs());
+  llvm::errs() << "\n";
 
   if (dimAlignments.empty()) {
     // Set alignments based on the collapse intervals.
