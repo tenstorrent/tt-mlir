@@ -27,8 +27,8 @@ public:
 
   static LogicalResult lowerSystemLayoutChange(PatternRewriter &rewriter,
                                                ToLayoutOp op) {
-    MetalLayoutAttr inputLayout = op.getOrCreateInputLayout(kDefaultGridRank);
-    MetalLayoutAttr outputLayout = op.getOrCreateOutputLayout(kDefaultGridRank);
+    MetalLayoutAttr inputLayout = op.getOrCreateInputLayout();
+    MetalLayoutAttr outputLayout = op.getOrCreateOutputLayout();
     bool inputSystem = inputLayout.getMemorySpace() == MemorySpace::System;
     bool outputSystem = outputLayout.getMemorySpace() == MemorySpace::System;
     assert(inputSystem != outputSystem &&
@@ -46,8 +46,8 @@ public:
 
   static LogicalResult lowerDatamovementGeneric(PatternRewriter &rewriter,
                                                 ToLayoutOp op) {
-    MetalLayoutAttr inputLayout = op.getOrCreateInputLayout(kDefaultGridRank);
-    MetalLayoutAttr outputLayout = op.getOrCreateOutputLayout(kDefaultGridRank);
+    MetalLayoutAttr inputLayout = op.getOrCreateInputLayout();
+    MetalLayoutAttr outputLayout = op.getOrCreateOutputLayout();
     if (inputLayout.getMemorySpace() == MemorySpace::System ||
         outputLayout.getMemorySpace() == MemorySpace::System) {
       // To/From host mem is a special case that is lowered to
@@ -154,8 +154,6 @@ public:
                RankedTensorType bounceType) const {
     auto bounced =
         createToLayoutOp(rewriter, op.getLoc(), op.getInput(), bounceType);
-    llvm::errs() << "bounced: ";
-    bounced->dump();
     return rewriter
         .replaceOpWithNewOp<ttir::ToLayoutOp>(op, bounced->getResult(0),
                                               op.getOutput())
@@ -203,12 +201,8 @@ public:
 
     if (!newCollapseIntervals && baseTypeHasLayout) {
       newCollapseIntervals = maybeBaseTypeLayout.getCollapseIntervals();
-      llvm::errs() << "Collapse intv: ";
-      llvm::interleaveComma(newCollapseIntervals, llvm::errs());
-      llvm::errs() << "\n";
     }
 
-    llvm::errs() << "call MetalLayoutAttr::get from createModifiedType: \n";
     // Create new layout
     auto newLayout = MetalLayoutAttr::get(
         ctx, baseLayout.getLogicalShape(), gridShape.size(),
@@ -241,14 +235,12 @@ public:
       return failure();
     }
 
-    op.dump();
-
     auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
     auto outputType = mlir::cast<RankedTensorType>(op.getOutput().getType());
     const bool hasInputLayout = inputType.getEncoding() != nullptr;
     const bool hasOutputLayout = outputType.getEncoding() != nullptr;
-    auto inputLayout = op.getOrCreateInputLayout(kDefaultGridRank);
-    auto outputLayout = op.getOrCreateOutputLayout(kDefaultGridRank);
+    auto inputLayout = op.getOrCreateInputLayout();
+    auto outputLayout = op.getOrCreateOutputLayout();
 
     bool inputL1 = inputLayout.getMemorySpace() == MemorySpace::DeviceL1;
     bool outputL1 = outputLayout.getMemorySpace() == MemorySpace::DeviceL1;
