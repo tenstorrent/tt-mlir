@@ -167,9 +167,7 @@ public:
                      std::optional<MemorySpace> newMemSpace = {},
                      std::optional<ArrayRef<int64_t>> newGrid = {},
                      std::optional<Type> newElementType = {},
-                     std::optional<ArrayRef<int64_t>> newTileShape = {},
-                     std::optional<ArrayRef<int64_t>> newDimAlignments = {},
-                     DenseIntElementsAttr newCollapseIntervals = {}) const {
+                     std::optional<ArrayRef<int64_t>> newTileShape = {}) const {
     // Use existing values if not overridden
     auto memSpace = newMemSpace.value_or(baseLayout.getMemorySpace());
     auto maybeBaseTypeLayout =
@@ -191,22 +189,11 @@ public:
                          ? *newTileShape
                          : getTensorTileShapeOrEmpty(baseType);
 
-    SmallVector<int64_t, 2> dimAlignments;
-    if (newDimAlignments.has_value()) {
-      dimAlignments.assign(newDimAlignments->begin(), newDimAlignments->end());
-    } else {
-      auto baseAlignments = baseLayout.getDimAlignments();
-      dimAlignments.assign(baseAlignments.begin(), baseAlignments.end());
-    }
-
-    if (!newCollapseIntervals && baseTypeHasLayout) {
-      newCollapseIntervals = maybeBaseTypeLayout.getCollapseIntervals();
-    }
-
     // Create new layout
     auto newLayout = MetalLayoutAttr::get(
         ctx, baseLayout.getLogicalShape(), gridShape.size(),
-        baseLayout.getOobVal(), memSpace, newCollapseIntervals, dimAlignments);
+        baseLayout.getOobVal(), memSpace, baseLayout.getCollapseIntervals(),
+        baseLayout.getDimAlignments());
 
     // For physical shape derivation, use tile shape ONLY if element type is
     // tiled
