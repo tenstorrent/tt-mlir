@@ -1274,8 +1274,7 @@ llvm::Expected<OpConstraints> ToLayoutOpInterface::getOpConstraints(
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::to_layout, device, inputSpec,
         conversion::getPageLayout(outputLayout.getLayout()), dtype,
-        detail::getNullableMemoryConfig(outputLayout),
-        passDevicePtr ? device : nullptr);
+        detail::getNullableMemoryConfig(outputLayout));
   };
   return operation::getOpConstraints("ToLayoutOpInterface",
                                      inputLayout.getContext(), deviceGrid,
@@ -1314,8 +1313,7 @@ ToLayoutOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::to_layout, device, inputSpec,
         conversion::getPageLayout(outputLayout.getLayout()), dtype,
-        detail::getNullableMemoryConfig(outputLayout),
-        passDevicePtr ? device : nullptr);
+        detail::getNullableMemoryConfig(outputLayout));
   };
 
   return operation::getOpRuntime("ToLayoutOpInterface", toLayoutOpQuery);
