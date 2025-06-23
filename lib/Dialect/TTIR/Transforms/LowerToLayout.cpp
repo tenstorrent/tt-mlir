@@ -10,6 +10,7 @@
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include <iostream>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRLOWERTOLAYOUT
@@ -110,18 +111,22 @@ public:
     auto components = op.compoundComponents();
 
     if (components.isCompound()) {
+      std::cout<<"A"<<std::endl;
       return failure();
     }
 
     if (components.isLayoutChange) {
+      std::cout<<"B"<<std::endl;
       return lowerLayoutChange(rewriter, op);
     }
 
     if (components.isGridChange || components.isMemorySpaceChange) {
+      std::cout<<"C"<<std::endl;
       return lowerDatamovementGeneric(rewriter, op);
     }
 
     if (components.isFormatChange) {
+      std::cout<<"D"<<std::endl;
       return lowerFormatConversionGeneric(rewriter, op);
     }
 
@@ -148,6 +153,14 @@ public:
                RankedTensorType bounceType) const {
     auto bounced =
         createToLayoutOp(rewriter, op.getLoc(), op.getInput(), bounceType);
+    bounced.dump();
+    std::cout<<"is compound: "<<bounced.isCompound()<<std::endl;
+    std::cout<<"format change:"<<bounced.compoundComponents().isFormatChange<<std::endl;
+    std::cout<<"grid change:"<<bounced.compoundComponents().isGridChange<<std::endl;
+    std::cout<<"layout change:"<<bounced.compoundComponents().isLayoutChange<<std::endl;
+    std::cout<<"MemorySpace change:"<<bounced.compoundComponents().isMemorySpaceChange<<std::endl;
+    std::cout<<"==========================================================="<<std::endl;
+
     return rewriter
         .replaceOpWithNewOp<ttir::ToLayoutOp>(op, bounced->getResult(0),
                                               op.getOutput())
@@ -232,6 +245,9 @@ public:
     bool inputL1 = inputLayout.getMemorySpace() == MemorySpace::DeviceL1;
     bool outputL1 = outputLayout.getMemorySpace() == MemorySpace::DeviceL1;
 
+    bool hostTx = inputLayout.getMemorySpace() == MemorySpace::System ||
+                   outputLayout.getMemorySpace() == MemorySpace::System;
+
     // First prioritize moving the data into L1 so we can work with it in L1
     if (!inputL1) {
       // Read into L1, then do other conversions.
@@ -240,11 +256,13 @@ public:
       if (!hasInputLayout && hasOutputLayout) {
         auto gridShape = llvm::SmallVector<int64_t>(
             outputLayout.getGridShape(outputType).size(), 1);
+        std::cout<<"1"<<std::endl;
         auto bounceType =
             createModifiedType(rewriter.getContext(), inputType, inputLayout,
                                MemorySpace::DeviceL1, gridShape);
         bounce(rewriter, op, bounceType);
       } else {
+        std::cout<<"2"<<std::endl;
         // For other cases, we want to use input's current grid
         auto bounceType =
             createModifiedType(rewriter.getContext(), inputType, inputLayout,
@@ -258,13 +276,27 @@ public:
       // Conversely, if we're going from grid -> no grid, we need to use the
       // input grid size (1s filled).
       if (!hasOutputLayout && hasInputLayout) {
+        std::cout<<"3"<<std::endl;
+        std::cout<<"hostTx: "<<hostTx<<std::endl;
         auto gridShape = llvm::SmallVector<int64_t>(
             inputLayout.getGridShape(inputType).size(), 1);
+        std::cout<<"==========================================================="<<std::endl;
+        std::cout<<"grid size: "<<gridShape.size()<<std::endl;
+        op->dump();
+        std::cout<<"is compound: "<<op.isCompound()<<std::endl;
+        std::cout<<"format change:"<<op.compoundComponents().isFormatChange<<std::endl;
+        std::cout<<"grid change:"<<op.compoundComponents().isGridChange<<std::endl;
+        std::cout<<"layout change:"<<op.compoundComponents().isLayoutChange<<std::endl;
+        std::cout<<"MemorySpace change:"<<op.compoundComponents().isMemorySpaceChange<<std::endl;
+        std::cout<<"++++++++++++++++++++++++++++ BEFORE BOUNCE +++++++++++++++++++++++++++++++"<<std::endl;
+        op->getParentOfType<ModuleOp>().dump();
+        std::cout<<"++++++++++++++++++++++++++++ BEFORE BOUNCE +++++++++++++++++++++++++++++++"<<std::endl;
         auto bounceType =
             createModifiedType(rewriter.getContext(), outputType, outputLayout,
                                MemorySpace::DeviceL1, gridShape);
         bounce(rewriter, op, bounceType);
       } else {
+        std::cout<<"4"<<std::endl;
         // For other cases, we want to use input's current grid
         auto bounceType =
             createModifiedType(rewriter.getContext(), outputType, outputLayout,
@@ -274,6 +306,7 @@ public:
     } else if (tt::isTiled(inputType) != tt::isTiled(outputType)) {
       // Prioritize moving tiled data
       if (tt::isTiled(inputType)) {
+        std::cout<<"5"<<std::endl;
         auto bounceType =
             createModifiedType(rewriter.getContext(), outputType, outputLayout,
                                /*memSpace=*/{},
@@ -281,6 +314,7 @@ public:
                                getTensorTileShapeOrEmpty(inputType));
         bounce(rewriter, op, bounceType);
       } else {
+        std::cout<<"6"<<std::endl;
         assert(tt::isTiled(outputType));
         auto bounceType =
             createModifiedType(rewriter.getContext(), inputType, inputLayout,
@@ -292,6 +326,7 @@ public:
     } else if (components.isLayoutChange && tt::isTiled(inputType)) {
       // For now to flexibly support layout changes, we need to bounce to scalar
       // first Get scalar element type
+      std::cout<<"7"<<std::endl;
       Type scalarType = inputType.getElementType();
       if (auto tileType = mlir::dyn_cast<TileType>(scalarType)) {
         scalarType = tileType.getElementType();
@@ -308,6 +343,7 @@ public:
              "Changing layout and grid at the same time is currently "
              "not supported");
       // Keep output layout but with input's grid
+      std::cout<<"8"<<std::endl;
       auto bounceType = createModifiedType(
           rewriter.getContext(), outputType, outputLayout,
           /*memSpace=*/{}, inputLayout.getGridShape(inputType));
