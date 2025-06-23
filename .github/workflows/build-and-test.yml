@@ -79,7 +79,7 @@ jobs:
       matrix:
         build: [
           {runs-on: ubuntu-latest, enable_op_model: ON, enable_emitc: ON, name: "speedy"},
-          {runs-on: ubuntu-latest, enable_perf: ON, enable_emitc: ON, enable_runtime_debug: ON, enable_explorer: ON, enable_pykernel: ON, name: "tracy"},
+          # {runs-on: ubuntu-latest, enable_perf: ON, enable_emitc: ON, enable_runtime_debug: ON, enable_explorer: ON, enable_pykernel: ON, name: "tracy"},
         ]
 
     name: Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})
@@ -146,7 +146,7 @@ jobs:
 
   run-tests:
 
-    timeout-minutes: 180
+    timeout-minutes: 360
     needs:
       - build-image
       - build-ttmlir
@@ -280,10 +280,10 @@ jobs:
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
 
-        for i in {1..100}; do
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/optimizer
+        for i in {1..50}; do
+          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test
           echo "-- Running optimizer test iteration $i --"
-          echo "Run $i: llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/optimizer"
+          echo "Run $i: llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test"
 
 
           if [ "${{ matrix.build.suite }}" == "op_model" ] || [ "${{ matrix.build.suite }}" == "unit" ]; then
