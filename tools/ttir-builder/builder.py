@@ -1305,7 +1305,6 @@ class TTIRBuilder:
         self, in0: Operand, dimension: int = 1, unit_attrs: Optional[List[str]] = None
     ) -> OpView:
         return self.op_proxy(
-            # torch.softmax,
             torch.nn.functional.softmax,
             ttir.SoftmaxOp,
             [in0],
@@ -1789,17 +1788,14 @@ class TTIRBuilder:
         dim: int = 0,
         begin: int = 0,
         length: int = 2,
-        stride: Optional[int] = None,
+        stride: int = 2,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         end = begin + length - 1
         index = torch.tensor([begin, end])
-        # TODO: handle stride. Issue #2488
-        if stride:
-            pass
         return self.op_proxy(
             torch.index_select,
-            ttir.SelectOp,
+            ttir.IndexSelectOp,
             [in0],
             golden_kwargs={"dim": dim, "index": index},
             ttir_kwargs={

@@ -1581,11 +1581,11 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
 // ANCHOR_END: decomposing_an_op_index_ttir_verify
 
 //===----------------------------------------------------------------------===//
-// SelectOp
+// IndexSelectOp
 //===----------------------------------------------------------------------===//
 
-// SelectOp verification
-::mlir::LogicalResult mlir::tt::ttir::SelectOp::verify() {
+// IndexSelectOp verification
+::mlir::LogicalResult mlir::tt::ttir::IndexSelectOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType outputType = getOutput().getType();
 

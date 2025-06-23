@@ -63,7 +63,9 @@ set_property(TARGET TTRuntimePerf PROPERTY CXX_STANDARD 20)
 target_include_directories(TTRuntimePerf
   PUBLIC
     ${PROJECT_SOURCE_DIR}/runtime/include
+    "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>"
 )
+add_dependencies(TTRuntimePerf tt-metal)
 target_link_libraries(TTRuntimePerf PUBLIC coverage_config)
 
 add_library(TTRuntimeDylibs STATIC dylib.cpp)
