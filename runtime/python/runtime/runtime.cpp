@@ -137,10 +137,10 @@ void registerRuntimeBindings(nb::module_ &m) {
            })
       .def(
           "get_data_buffer",
-          [](tt::runtime::Tensor self) {
+          [](tt::runtime::Tensor self) -> nb::bytearray {
             std::vector<std::byte> vec = tt::runtime::getTensorDataBuffer(self);
-            return nb::bytes(reinterpret_cast<const char *>(vec.data()),
-                             vec.size());
+            return nb::bytearray(reinterpret_cast<const char *>(vec.data()),
+                                 vec.size());
           },
           nb::rv_policy::take_ownership);
 
@@ -205,18 +205,16 @@ void registerRuntimeBindings(nb::module_ &m) {
         nb::arg("mesh_device") = nb::none(),
         "Get the current system descriptor");
   m.def(
-      "create_tensor",
+      "create_borrowed_host_tensor",
       [](std::uintptr_t ptr, const std::vector<std::uint32_t> &shape,
          const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
          ::tt::target::DataType dataType) {
-        return tt::runtime::createTensor(
-            ::tt::runtime::utils::unsafe_borrow_shared(
-                reinterpret_cast<void *>(ptr)),
-            shape, stride, itemsize, dataType);
+        return tt::runtime::createBorrowedHostTensor(
+            reinterpret_cast<void *>(ptr), shape, stride, itemsize, dataType);
       },
       "Create a host tensor with borrowed memory");
   m.def(
-      "create_owned_tensor",
+      "create_owned_host_tensor",
       [](std::uintptr_t ptr, const std::vector<std::uint32_t> &shape,
          const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
          ::tt::target::DataType dataType) {
@@ -235,7 +233,7 @@ void registerRuntimeBindings(nb::module_ &m) {
       },
       "Create an empty tensor with the specified layout");
   m.def(
-      "create_multi_device_tensor",
+      "create_multi_device_host_tensor",
       [](std::vector<std::uintptr_t> &ptrs,
          const std::vector<std::uint32_t> &shape,
          const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,

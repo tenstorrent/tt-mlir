@@ -12,12 +12,7 @@ namespace tt::runtime::workaround {
 struct Env {
   static const Env &get(bool swapBinaryOperands = true,
                         bool readUpdateIndexFromDeviceForKVCache = true,
-                        bool traceImplicitFromDevice = true) {
-    static const Env config(swapBinaryOperands,
-                            readUpdateIndexFromDeviceForKVCache,
-                            traceImplicitFromDevice);
-    return config;
-  }
+                        bool traceImplicitFromDevice = true);
 
   // TODO(bug #1124): We're currently swapping the operands for binary ops
   // in runtime if the lhs operand is smaller (and requires broadcast onto the

@@ -124,9 +124,8 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
   if (utils::isOnHost(inputTensor.storage_type())) {
     ::ttnn::Tensor hostTensor = inputTensor;
     if (untilize) {
-      hostTensor = ::ttnn::to_layout(
-          hostTensor, ::ttnn::Layout::ROW_MAJOR, std::nullopt, std::nullopt,
-          static_cast<::ttnn::MeshDevice *>(nullptr));
+      hostTensor = ::ttnn::to_layout(hostTensor, ::ttnn::Layout::ROW_MAJOR,
+                                     std::nullopt, std::nullopt);
     }
     return utils::createRuntimeTensorFromTTNN(
         hostTensor, /*meshEvent=*/std::nullopt, shouldRetain);
@@ -140,8 +139,7 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
   if (untilize && utils::canUntilizeDataTypeOnDevice(inputTensor.dtype())) {
     ::ttnn::Tensor hostTensor = ::ttnn::from_device(
         ::ttnn::to_layout(inputTensor, ::ttnn::Layout::ROW_MAJOR, std::nullopt,
-                          std::nullopt,
-                          static_cast<::ttnn::MeshDevice *>(nullptr)),
+                          std::nullopt),
         blocking);
 
     std::optional<::ttnn::MeshEvent> meshEvent = std::nullopt;
@@ -456,6 +454,8 @@ Device openMeshDevice(const std::vector<uint32_t> &meshShape,
 
   if (options.enableProgramCache) {
     meshDevice->enable_program_cache();
+  } else {
+    meshDevice->disable_and_clear_program_cache();
   }
 
   LOG_DEBUG("Device grid size = { ",
