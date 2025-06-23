@@ -337,12 +337,12 @@ We can finally generate a binary with our new Op!  We can use the following comm
 ./build/bin/ttmlir-opt --ttcore-register-device="system-desc-path=<PATH_TO_SYSTEM_DESC>" --ttir-to-ttnn-backend-pipeline test/ttmlir/Dialect/TTNN/matmul/simple_matmul.mlir | ./build/bin/ttmlir-translate --ttnn-to-flatbuffer -o out.ttnn
 ```
 
-And we can inspect the with [`ttrt`](./ttrt.md):
+And we can inspect the with [`ttrt`](./ttrt.md#read):
 ```bash
 ttrt read out.ttnn
 ```
 
-Note: If the above ttrt command yields a segfault, a clean build of your workspace may be required: [Build Instructions](./build.md#build)
+Note: If the above `ttrt` command yields a segfault, a clean build of your workspace may be required: [Build Instructions](./getting-started.md#building-the-tt-mlir-project)
 
 ## 7. Add runtime support for the Op
 

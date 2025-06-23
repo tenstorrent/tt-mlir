@@ -1481,7 +1481,7 @@ hoisted_unary_ops = [
     create_hoisted_unary_op(neg, "neg"),
     pytest.param(
         create_hoisted_unary_op(reshape, "reshape"),
-        marks=pytest.mark.xfail(reason="Softmax does not lower to loops properly"),
+        marks=pytest.mark.xfail(reason="Reshape does not lower to loops properly"),
     ),
     pytest.param(
         create_hoisted_unary_op(reshape, "reshape"),

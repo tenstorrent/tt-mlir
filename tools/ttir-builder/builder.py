@@ -1305,7 +1305,6 @@ class TTIRBuilder:
         self, in0: Operand, dimension: int = 1, unit_attrs: Optional[List[str]] = None
     ) -> OpView:
         return self.op_proxy(
-            # torch.softmax,
             torch.nn.functional.softmax,
             ttir.SoftmaxOp,
             [in0],
