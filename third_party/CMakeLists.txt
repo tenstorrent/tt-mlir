@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "1a9ff3036e4298f30b644ffeeeb40812f5f4b89f")
+set(TT_METAL_VERSION "6f08ca89a87b285ac64eee15f9e9c16235342b15")
 
 set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
 
@@ -24,7 +24,12 @@ else()
 endif()
 message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
 
+set(TRACY_INCLUDE_DIRS
+  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/third_party/tracy/public
+)
+
 set(TTMETAL_INCLUDE_DIRS
+  ${TRACY_INCLUDE_DIRS}
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/api
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/core
@@ -41,7 +46,6 @@ set(TTMETAL_INCLUDE_DIRS
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/hw/inc/${ARCH_NAME}
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/hw/inc/${ARCH_EXTRA_DIR}
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/third_party/umd/src/firmware/riscv/${ARCH_NAME}
-  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/third_party/tracy/public
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/third_party/taskflow
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_stl
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_stl/tt_stl
@@ -62,7 +66,9 @@ set(TTMETAL_INCLUDE_DIRS
 )
 
 set(TTMETAL_LIBRARY_DIR ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build/lib)
+
 set(TTNN_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/_ttnncpp.so)
+
 set(TTMETAL_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtt_metal.so)
 set(DEVICE_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libdevice.so)
 if (TT_RUNTIME_ENABLE_PERF_TRACE)
@@ -242,3 +248,46 @@ else() # TTMLIR_ENABLE_RUNTIME
   add_library(tt-metal-update INTERFACE EXCLUDE_FROM_ALL)
   add_library(tt-metal-configure INTERFACE EXCLUDE_FROM_ALL)
 endif() # TTMLIR_ENABLE_RUNTIME
+
+# Add an external project that will build Python Bindings for `ttnn` when requested)
+set(TTNN_PY_LIBRARY_DIR ${PROJECT_SOURCE_DIR}/third_party/ttnn-python/src/ttnn-python/build/lib)
+set(TTNN_PY_LIBRARY_PATH ${TTNN_PY_LIBRARY_DIR}/_ttnn.so)
+set(TTNN_PY_TTMETAL_LIBRARY_PATH ${TTNN_PY_LIBRARY_DIR}/libtt_metal.so)
+
+set(TTNN_PY_BUILD_DIR ${TTMLIR_SOURCE_DIR}/third_party/ttnn-python/src/ttnn-python/build)
+set(TTNN_PY_INSTALL_PREFIX "${TTNN_PY_BUILD_DIR}")
+
+ExternalProject_Add(
+  ttnn-python
+  PREFIX ${TTMLIR_SOURCE_DIR}/third_party/ttnn-python
+  BINARY_DIR ${TTNN_PY_BUILD_DIR}
+  # This patch command creates the build dir that otherwise doesn't get created
+  PATCH_COMMAND ${CMAKE_COMMAND} -E make_directory ${TTNN_PY_BUILD_DIR}
+  CMAKE_ARGS
+    -DCMAKE_INSTALL_MESSAGE=LAZY
+  CMAKE_GENERATOR Ninja
+  CMAKE_ARGS
+    -DCMAKE_BUILD_TYPE=${TTMETAL_BUILD_TYPE}
+    -DCMAKE_INSTALL_PREFIX=${TTNN_PY_INSTALL_PREFIX}
+    -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+    -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+    -DCMAKE_CXX_COMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}
+    -DCMAKE_LINKER_TYPE=${CMAKE_LINKER_TYPE}
+    -DCPM_SOURCE_CACHE=${CPM_SOURCE_CACHE}
+    -DENABLE_CCACHE=${TTMETAL_ENABLE_CCACHE}
+    -DWITH_PYTHON_BINDINGS=ON
+    -DCMAKE_DISABLE_PRECOMPILE_HEADERS=${TTMETAL_DISABLE_PRECOMPILE_HEADERS}
+    -DENABLE_TRACY=OFF
+    -DENABLE_LIBCXX=OFF
+  GIT_REPOSITORY https://github.com/tenstorrent/tt-metal.git
+  GIT_TAG ${TT_METAL_VERSION}
+  GIT_PROGRESS OFF
+  BUILD_BYPRODUCTS ${TTNN_PY_LIBRARY_PATH} ${TTNN_PY_TTMETAL_LIBRARY_PATH}
+)
+
+# Make it so target must be built explicitly
+set_target_properties(ttnn-python PROPERTIES EXCLUDE_FROM_ALL TRUE)
+
+add_library(TTNN_PY_LIBRARY SHARED IMPORTED GLOBAL)
+set_target_properties(TTNN_PY_LIBRARY PROPERTIES EXCLUDE_FROM_ALL TRUE IMPORTED_LOCATION TTNN_PY_LIBRARY_PATH)
+add_dependencies(TTNN_PY_LIBRARY ttnn-python)
