@@ -404,8 +404,8 @@ Device openMeshDevice(const std::vector<uint32_t> &meshShape,
       ::ttnn::MeshDevice::create(meshConfig, l1SmallSize, traceRegionSize,
                                  options.numHWCQs, dispatchCoreTypeValue);
 
-  if (options.enableProgramCache) {
-    meshDevice->enable_program_cache();
+  if (!options.enableProgramCache) {
+    meshDevice->disable_and_clear_program_cache();
   }
 
   LOG_DEBUG("Device grid size = { ",
