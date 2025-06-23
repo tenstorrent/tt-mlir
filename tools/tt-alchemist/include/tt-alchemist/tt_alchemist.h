@@ -40,7 +40,7 @@ private:
 
 } // namespace tt::alchemist
 
-// C-compatible API for Python bindings
+// C-compatible API for external usage
 #ifdef __cplusplus
 extern "C" {
 #endif
