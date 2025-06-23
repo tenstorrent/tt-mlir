@@ -20,24 +20,10 @@ namespace mlir::tt::ttnn {
 
 // This is useful for detecting whether OpConfig::OpSpecificAttrs has been
 // initialized or not.
-struct Uninitialized {
-  bool operator==(const Uninitialized &) const { return true; }
-  bool operator!=(const Uninitialized &) const { return false; }
+struct UninitializedAttrs {
+  bool operator==(const UninitializedAttrs &) const { return true; }
+  bool operator!=(const UninitializedAttrs &) const { return false; }
   void dump() const {}
-};
-
-struct DefaultAttrs {
-  Attribute attr;
-
-  bool operator==(const DefaultAttrs &other) const {
-    return attr == other.attr;
-  }
-  bool operator!=(const DefaultAttrs &other) const { return !(*this == other); }
-  void dump() const {
-    if (attr) {
-      attr.dump();
-    }
-  }
 };
 
 struct Conv2dAttrs {

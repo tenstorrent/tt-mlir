@@ -1198,7 +1198,7 @@ TEST_P(OpModelConv2dParam, Conv2d) {
 
   // This is not configurable, as the backend doesn't support it for now.
   // But this test shows that this information is parsed and passes to the
-  // backed correctly.
+  // backend correctly.
   ::mlir::tt::ttnn::DeviceComputeKernelConfigAttr deviceConfig =
       ::mlir::tt::ttnn::DeviceComputeKernelConfigAttr::get(
           &context, ::mlir::tt::ttnn::MathFidelity::LoFi, // mathFidelity

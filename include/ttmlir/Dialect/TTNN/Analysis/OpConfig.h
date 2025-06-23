@@ -15,23 +15,17 @@ namespace mlir::tt::ttnn {
 struct OpConfig {
   // Desired output layout for the op.
   TTNNLayoutAttr outputLayout;
-  // Holds attributes for the op. Note: Please prevent using the DefaultAttrs
-  // unless it's absolutely necessary. For most cases, a new type should be
+  // Holds attributes for the op. For most cases, a new type should be
   // added to the following std::variant.
-  using OpSpecificAttrs =
-      std::variant<DefaultAttrs, Conv2dAttrs, Uninitialized>;
+  using OpSpecificAttrs = std::variant<UninitializedAttrs, Conv2dAttrs>;
   OpSpecificAttrs opSpecificAttrs;
 
   // Default Config Constructors:
   OpConfig() = default;
   OpConfig(TTNNLayoutAttr outputLayout)
-      : outputLayout(outputLayout), opSpecificAttrs(Uninitialized{}) {}
+      : outputLayout(outputLayout), opSpecificAttrs(UninitializedAttrs{}) {}
   OpConfig(TTNNLayoutAttr outputLayout, OpSpecificAttrs attrs)
       : outputLayout(outputLayout), opSpecificAttrs(std::move(attrs)) {}
-  OpConfig(TTNNLayoutAttr outputLayout, Attribute attr)
-      : outputLayout(outputLayout), opSpecificAttrs(DefaultAttrs{attr}) {}
-  OpConfig(TTNNLayoutAttr outputLayout, DefaultAttrs config)
-      : outputLayout(outputLayout), opSpecificAttrs(std::move(config)) {}
   // Op Specific Constructors:
   OpConfig(TTNNLayoutAttr outputLayout, Conv2dAttrs config)
       : outputLayout(outputLayout), opSpecificAttrs(std::move(config)) {}
@@ -42,7 +36,7 @@ struct OpConfig {
     // initialized with an actual T or not. If this function returns true, it's
     // safe to ignore/override the content of opSpecificAttrs. This function
     // is provided so that the caller doesn't need to worry about std::nullopt.
-    return std::holds_alternative<Uninitialized>(opSpecificAttrs);
+    return std::holds_alternative<UninitializedAttrs>(opSpecificAttrs);
   }
   bool operator==(const OpConfig &other) const {
     if (outputLayout != other.outputLayout) {
@@ -55,7 +49,8 @@ struct OpConfig {
           // defined
           using T = std::decay_t<decltype(lhs)>;
           if constexpr (std::is_same_v<T, std::decay_t<decltype(rhs)>>) {
-            return lhs == rhs; // Use the type's own operator==
+            // Use the type's own operator==
+            return lhs == rhs;
           }
           return false; // Different types are not equal
         },
