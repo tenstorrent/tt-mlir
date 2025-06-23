@@ -1553,7 +1553,9 @@ hoisted_unary_ops = [
     create_hoisted_unary_op(sum, "sum"),
     pytest.param(
         create_hoisted_unary_op(softmax, "softmax"),
-        marks=pytest.mark.xfail(reason="Softmax does not lower to loops properly"),
+        marks=pytest.mark.xfail(
+            reason="Softmax does not lower to loops properly https://github.com/tenstorrent/tt-mlir/issues/3232"
+        ),
     ),
     create_hoisted_unary_op(reshape, "reshape"),
     create_hoisted_unary_op(transpose, "transpose"),
@@ -2105,10 +2107,16 @@ def test_gather(
 @pytest.mark.parametrize(
     "input_shape,indices_shape,start_index_map,offset_dims,slice_sizes",
     [
-        ((8, 16, 32), (4, 2, 2), [0, 2], [1], [2, 16, 4]),  # Basic gather
-        ((100, 50), (10,), [0], [1], [5, 50]),  # Simple 1D indices
+        ((100, 50), (10,), [0], [1], [1, 50]),  # Simple 1D indices
+        (
+            (8, 16, 32),
+            (4, 2, 2),
+            [0, 2],
+            [1],
+            [1, 16, 1],
+        ),  # Complex indices)
     ],
-    ids=["basic_gather", "simple_1d"],
+    ids=["simple_1d", "complex_indices"],
 )
 # note: doesn't work on ttmetal because test generated (nonhoisted) ttir.zeros, which we need to support on device
 @pytest.mark.skip(
