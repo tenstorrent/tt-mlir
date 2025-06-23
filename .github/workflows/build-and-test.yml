@@ -284,22 +284,24 @@ jobs:
           llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/optimizer
           echo "-- Running optimizer test iteration $i --"
           echo "Run $i: llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/optimizer"
+        
+
+          if [ "${{ matrix.build.suite }}" == "op_model" ] || [ "${{ matrix.build.suite }}" == "unit" ]; then
+            echo "Running optimizer tests"
+            ${{ steps.strings.outputs.build-output-dir }}/test/unittests/Optimizer/OptimizerTests --gtest_brief=1
+          fi
+
+          if [ "${{ matrix.build.suite }}" == "op_model" ]; then
+            export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
+            echo "Running op-model test Conversion"
+            ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Conversion/TestConversion
+            echo "Running op-model test Lib"
+            ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Lib/TestOpModelLib
+            echo "Running op-model test Interface"
+            ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Op/TestOpModelInterface
+          fi
+
         done
-
-        if [ "${{ matrix.build.suite }}" == "op_model" ] || [ "${{ matrix.build.suite }}" == "unit" ]; then
-          echo "Running optimizer tests"
-          ${{ steps.strings.outputs.build-output-dir }}/test/unittests/Optimizer/OptimizerTests --gtest_brief=1
-        fi
-
-        if [ "${{ matrix.build.suite }}" == "op_model" ]; then
-          export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
-          echo "Running op-model test Conversion"
-          ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Conversion/TestConversion
-          echo "Running op-model test Lib"
-          ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Lib/TestOpModelLib
-          echo "Running op-model test Interface"
-          ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Op/TestOpModelInterface
-        fi
 
     - name: Run TTNN-Standalone test
       shell: bash
