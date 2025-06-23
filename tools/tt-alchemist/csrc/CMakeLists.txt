@@ -108,28 +108,17 @@ add_custom_command(
 )
 
 # Build wheel
-add_custom_target(python_wheel
+add_custom_target(build-wheel-tt-alchemist
   DEPENDS ${PYTHON_BUILD_DIR}/pyproject.toml ${LIBRARY_NAME}
   COMMAND ${CMAKE_COMMAND} -E env TT_ALCHEMIST_LIB_DIR=$<TARGET_FILE:${LIBRARY_NAME}>
           ${Python3_EXECUTABLE} -m pip wheel --no-deps -w ${CMAKE_CURRENT_BINARY_DIR}/dist ${PYTHON_BUILD_DIR}
   WORKING_DIRECTORY ${PYTHON_BUILD_DIR}
-  COMMENT "Building Python wheel"
+  COMMENT "Building tt-alchemist wheel"
 )
 
-# Install wheel
-add_custom_target(install_wheel
-  DEPENDS python_wheel
+# Install tt-alchemist wheel
+add_custom_target(tt-alchemist
+  DEPENDS build-wheel-tt-alchemist
   COMMAND ${Python3_EXECUTABLE} -m pip install --force-reinstall ${CMAKE_CURRENT_BINARY_DIR}/dist/*.whl
-  COMMENT "Installing Python wheel"
-)
-
-# Add top-level Python wheel targets
-add_custom_target(build_wheel
-  DEPENDS python_wheel
-  COMMENT "Building Python wheel"
-)
-
-add_custom_target(install_wheel_package
-  DEPENDS install_wheel
-  COMMENT "Installing Python wheel package"
+  COMMENT "Installing tt-alchemist wheel"
 )
