@@ -10,7 +10,7 @@ import click
 from pathlib import Path
 
 # Import the API functions
-from .api import model_to_cpp
+from tt_alchemist.api import model_to_cpp, create_solution
 
 
 @click.group()
@@ -20,33 +20,48 @@ def cli():
 
 
 @cli.command()
-@click.option(
-    "--input",
-    "-i",
-    required=True,
-    type=click.Path(exists=True, file_okay=True, dir_okay=False),
-    help="Input MLIR model file",
-)
+@click.argument("input_file", type=click.Path(exists=True))
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
-def convert(input, verbose):
+def model_to_cpp_cmd(input_file, verbose):
     """Convert MLIR model to C++ code."""
     try:
-        # Get absolute path
-        input_path = os.path.abspath(input)
-
         if verbose:
-            click.echo(f"Converting {input_path} to C++")
+            click.echo(f"Converting {input_file} to C++")
 
-        # Call the API function
-        result = model_to_cpp(input_path)
+        success = model_to_cpp(input_file)
 
-        # if result:
-        #     click.echo(f"Successfully converted model to C++")
+        # if success:
+        #     click.echo("Conversion successful!")
         #     return 0
         # else:
-        #     click.echo("Failed to convert model to C++", err=True)
+        #     click.echo("Conversion failed!")
         #     return 1
+    except Exception as e:
+        click.echo(f"Error: {str(e)}", err=True)
+        return 1
 
+
+@cli.command()
+@click.argument("input_file", type=click.Path(exists=True))
+@click.argument("output_dir", type=click.Path())
+@click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
+def create_solution_cmd(input_file, output_dir, verbose):
+    """Create a standalone solution with the generated C++ code.
+
+    This creates a directory with all necessary files to build and run the generated code,
+    including CMakeLists.txt, precompiled headers, and a main C++ file.
+    """
+    try:
+        if verbose:
+            click.echo(f"Creating solution from {input_file} in directory {output_dir}")
+
+        success = create_solution(input_file, output_dir)
+        if success:
+            click.echo(f"Successfully created solution in: {output_dir}")
+            return 0
+        else:
+            click.echo(f"Failed to create solution in: {output_dir}")
+            return 1
     except Exception as e:
         click.echo(f"Error: {str(e)}", err=True)
         return 1
