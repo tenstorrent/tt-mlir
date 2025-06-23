@@ -137,7 +137,9 @@ def TTIR_QuantizableOpInterface : OpInterface<"QuantizableOpInterface"> {
       }],
       /*retTy=*/"mlir::Operation *",
       /*methodName=*/"rewriteWithQuantizedInputs",
-      /*args=*/(ins "PatternRewriter&":$rewriter, "ArrayRef<mlir::Value>":$quantizedOperands, "mlir::Type":$quantizedResultType)
+      /*args=*/(ins "PatternRewriter&":$rewriter, "ArrayRef<mlir::Value>":$quantizedOperands, "mlir::Type":$quantizedResultType),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return nullptr;"
     >,
   ];
 }
