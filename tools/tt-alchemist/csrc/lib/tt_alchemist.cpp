@@ -24,6 +24,7 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 
@@ -91,6 +92,91 @@ bool TTAlchemist::modelToCpp(const std::string &input_file) {
   return true;
 }
 
+bool TTAlchemist::createSolution(const std::string &input_file,
+                                 const std::string &output_dir) {
+  // Check if input file exists
+  if (!fs::exists(input_file)) {
+    std::cout << "Input file does not exist: " << input_file << std::endl;
+    return false;
+  }
+
+  // Read input file into MLIR
+  mlir::OwningOpRef<mlir::ModuleOp> module =
+      mlir::parseSourceFile<mlir::ModuleOp>(input_file,
+                                            mlir::ParserConfig(&context));
+  if (!module) {
+    std::cout << "Failed to parse input file: " << input_file << std::endl;
+    return false;
+  }
+
+  mlir::PassManager pm(&context);
+  mlir::tt::ttnn::createTTIRToEmitCPipeline(
+      pm, mlir::tt::ttnn::TTIRToEmitCPipelineOptions());
+
+  if (mlir::failed(pm.run(module.get()))) {
+    std::cout << "Failed to run TTIR to EmitC pipeline" << std::endl;
+    return false;
+  }
+
+  // Convert MLIR module to C++
+  std::string cppCode;
+  llvm::raw_string_ostream cppStream(cppCode);
+  if (mlir::failed(mlir::emitc::translateToCpp(*module, cppStream))) {
+    std::cout << "Failed to translate MLIR module to C++" << std::endl;
+    return false;
+  }
+  cppStream.flush();
+
+  // Create output directory if it doesn't exist
+  fs::path outputPath(output_dir);
+  if (!fs::exists(outputPath)) {
+    if (!fs::create_directories(outputPath)) {
+      std::cout << "Failed to create output directory: " << output_dir
+                << std::endl;
+      return false;
+    }
+  }
+
+  // Get the path to the templates directory
+  char *tt_mlir_home = std::getenv("TT_MLIR_HOME");
+  if (!tt_mlir_home) {
+    std::cout << "TT_MLIR_HOME environment variable is not set" << std::endl;
+    return false;
+  }
+
+  fs::path templatesPath(tt_mlir_home);
+  templatesPath /= "tools/tt-alchemist/templates/cpp";
+
+  if (!fs::exists(templatesPath) || !fs::is_directory(templatesPath)) {
+    std::cout << "Templates directory does not exist: " << templatesPath
+              << std::endl;
+    return false;
+  }
+
+  // Copy all files from templates directory to output directory
+  try {
+    for (const auto &entry : fs::directory_iterator(templatesPath)) {
+      fs::path destPath = outputPath / entry.path().filename();
+      fs::copy(entry.path(), destPath, fs::copy_options::overwrite_existing);
+    }
+  } catch (const fs::filesystem_error &e) {
+    std::cout << "Failed to copy template files: " << e.what() << std::endl;
+    return false;
+  }
+
+  // Create ttnn-standalone.cpp with the generated C++ code
+  fs::path cppFilePath = outputPath / "ttnn-standalone.cpp";
+  std::ofstream cppFile(cppFilePath);
+  if (!cppFile.is_open()) {
+    std::cout << "Failed to create C++ file: " << cppFilePath << std::endl;
+    return false;
+  }
+
+  cppFile.close();
+
+  return true;
+}
+
 } // namespace tt::alchemist
 
 // C-compatible API implementations
@@ -106,6 +192,14 @@ bool tt_alchemist_TTAlchemist_modelToCpp(void *instance,
                                          const char *input_file) {
   auto *alchemist = static_cast<tt::alchemist::TTAlchemist *>(instance);
   return alchemist->modelToCpp(input_file);
+}
+
+// Create standalone solution
+bool tt_alchemist_TTAlchemist_createSolution(void *instance,
+                                             const char *input_file,
+                                             const char *output_dir) {
+  auto *alchemist = static_cast<tt::alchemist::TTAlchemist *>(instance);
+  return alchemist->createSolution(input_file, output_dir);
 }
 
 } // extern "C"
