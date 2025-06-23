@@ -1156,7 +1156,7 @@ static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
 //     0,                                                                    # Device index
 //     0,                                                                    # Not Applicable
 //     global_page_index % num_dram_banks,                                   # Channel Idx
-//     (channel_page_index * page_size) + (d2 % page_size) + base_address    # Byte Offset In Channel
+//     (channel_page_index * PAGE_SIZE) + (addr % PAGE_SIZE) + base_address    # Byte Offset In Channel
 //   )
 //
 // Where `addr` is the linearized address as though it were indexing all of DRAM
@@ -1164,10 +1164,10 @@ static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
 //   addr = (d0 * s2 * s3 * s1) + (d1 * s2 * s3) + d2
 //  
 // Where global_page_index is the global page index corresponding to the address:
-//   global_page_index  = addr floorDiv page_size
+//   global_page_index  = addr floorDiv PAGE_SIZE
 // 
 // Where channel_page_index is the page index within a bank
-//  channel_page_index = global_page_index floorDiv num_dram_banks
+//   channel_page_index = global_page_index floorDiv NUM_DRAM_BANKS
 //
 
 static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
@@ -1184,12 +1184,12 @@ static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
   }
 
   // addr is an expression representing the address as-if the memory was completely flat 
-  mlir::AffineExpr flat_byte_address = getAffineDimExpr(workerMap.getNumDims(), context);
+  mlir::AffineExpr flatAddr = getAffineDimExpr(workerMap.getNumDims(), context);
   mlir::AffineExpr gridVolumeExpr = getAffineConstantExpr(1, context);
   for (int i = workerMap.getNumDims() - 1; i >= 0; i--) {
     mlir::AffineExpr dim = getAffineDimExpr(i, context);
     mlir::AffineExpr gridDim = getAffineSymbolExpr(i, context);
-    flat_byte_address = dim * gridVolumeExpr * shardVolumeExpr + flat_byte_address;
+    flatAddr = dim * gridVolumeExpr * shardVolumeExpr + flatAddr;
     gridVolumeExpr = gridVolumeExpr * gridDim;
   }
 
@@ -1203,14 +1203,14 @@ static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
   assert(numDramCores % 2 == 0);
   mlir::AffineExpr numDramBanksExpr =
       getAffineConstantExpr(numDramCores/2, context);
-  mlir::AffineExpr pageIndex = flat_byte_address.floorDiv(pageSizeExpr);
+  mlir::AffineExpr pageIndex = flatAddr.floorDiv(pageSizeExpr);
   mlir::AffineExpr channelPageIndex = pageIndex.floorDiv(numDramBanksExpr);
 
   mlir::SmallVector<mlir::AffineExpr> dramMapResults = {
       getAffineConstantExpr(0, context),
       getAffineConstantExpr(0, context),
       pageIndex % numDramBanksExpr,
-      (channelPageIndex * dramPageSize) + baseAddressExpr
+      (channelPageIndex * dramPageSize) + (flatAddr % dramPageSize) + baseAddressExpr
   };
 
   unsigned dim_count = workerMap.getNumDims() + 1;

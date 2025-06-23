@@ -557,6 +557,19 @@ def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
       bool isLowered() {
         return bool(getOptNumElems());
       }
+      bool isSrcDeviceDram() {
+        return mlir::cast<MemorySpaceAttr>(getSrcMemRefType().getMemorySpace()).getValue() == MemorySpace::DeviceDRAM;
+      }
+      bool isDstDeviceDram() {
+        return mlir::cast<MemorySpaceAttr>(getDstMemRefType().getMemorySpace()).getValue() == MemorySpace::DeviceDRAM;
+      }
+      bool isSrcDeviceL1() {
+        return mlir::cast<MemorySpaceAttr>(getSrcMemRefType().getMemorySpace()).getValue() == MemorySpace::DeviceL1;
+      }
+      bool isDstDeviceL1() {
+        return mlir::cast<MemorySpaceAttr>(getDstMemRefType().getMemorySpace()).getValue() == MemorySpace::DeviceL1;
+      }
+      
     }];
 }
 
