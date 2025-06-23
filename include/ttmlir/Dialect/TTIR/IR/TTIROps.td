@@ -3835,12 +3835,12 @@ def TTIR_SliceOp: TTIR_NamedOp<"slice"> {
     let hasVerifier = 1;
 }
 
-def TTIR_SelectOp: TTIR_NamedOp<"select"> {
+def TTIR_IndexSelectOp: TTIR_NamedOp<"index_select"> {
     let summary = "Tensor selection operation.";
     let description = [{
-      The `select` operation extracts a sub-tensor (slice) from the input tensor along a specified dimension.
+      The `index_select` operation extracts a sub-tensor (slice) from the input tensor along a specified dimension.
 
-      Unlike the more general `slice` operation, `select` operates on a single dimension with a specified
+      Unlike the more general `slice` operation, `index_select` operates on a single dimension with a specified
       starting index, length, and optional stride. This is useful for extracting specific segments of a tensor
       along a particular axis.
 
@@ -3849,7 +3849,7 @@ def TTIR_SelectOp: TTIR_NamedOp<"select"> {
       // Select elements 2, 3, 4 from a 1D tensor along dimension 0
       %input = ... : tensor<6xf32>  // Input tensor with values: [1, 2, 3, 4, 5, 6]
       %output = ttir.empty() : tensor<3xf32>  // Output tensor shape
-      %result = ttir.select(%input, %output) {
+      %result = ttir.index_select(%input, %output) {
           dim = 0 : i32,     // Dimension to select from
           begin = 2 : i32,   // Start index
           length = 3 : i32,  // Number of elements to select
@@ -3864,7 +3864,7 @@ def TTIR_SelectOp: TTIR_NamedOp<"select"> {
                                       //  [7, 8, 9],
                                       //  [10, 11, 12]]
       %output = ttir.empty() : tensor<2x3xf32>  // Output tensor shape
-      %result = ttir.select(%input, %output) {
+      %result = ttir.index_select(%input, %output) {
           dim = 0 : i32,     // Select along rows
           begin = 0 : i32,   // Start from the first row
           length = 2 : i32,  // Select 2 rows
