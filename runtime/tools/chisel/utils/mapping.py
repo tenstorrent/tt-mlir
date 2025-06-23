@@ -317,12 +317,14 @@ ttir_to_torch_mapping = {
     "ttir.le": OpMapping(torch.le),
     "ttir.ne": OpMapping(torch.ne),
     "ttir.logical_and": OpMapping(torch.logical_and),
+    "ttir.log": OpMapping(torch.log, unpack_inputs=False),
     "ttir.lt": OpMapping(torch.lt),
     "ttir.matmul": OpMapping(torch.matmul),
     "ttir.max": OpMapping(
         custom_max, {"dim_arg": "dim", "keep_dim": "keepdim"}, unpack_inputs=False
     ),
     "ttir.maximum": OpMapping(torch.maximum),
+    "ttir.minimum": OpMapping(torch.minimum),
     "ttir.multiply": OpMapping(torch.multiply),
     "ttir.cumsum": OpMapping(torch.cumsum, {"dim": "dim"}, unpack_inputs=False),
     "ttir.permute": OpMapping(
