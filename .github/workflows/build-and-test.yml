@@ -284,7 +284,7 @@ jobs:
           llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/optimizer
           echo "-- Running optimizer test iteration $i --"
           echo "Run $i: llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/optimizer"
-        
+
 
           if [ "${{ matrix.build.suite }}" == "op_model" ] || [ "${{ matrix.build.suite }}" == "unit" ]; then
             echo "Running optimizer tests"
