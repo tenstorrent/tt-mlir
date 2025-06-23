@@ -35,13 +35,11 @@ LayoutConverter::convertTensorLayout(const ::ttnn::Tensor &input,
 ::ttnn::Tensor LayoutConverter::toLayoutIfNeeded(const ::ttnn::Tensor &input) {
   if (shouldTilize) {
     return ::ttnn::to_layout(input, ::ttnn::Layout::TILE, std::nullopt,
-                             std::nullopt,
-                             static_cast<::ttnn::MeshDevice *>(nullptr));
+                             std::nullopt);
   }
   if (shouldUntilize) {
     return ::ttnn::to_layout(input, ::ttnn::Layout::ROW_MAJOR, std::nullopt,
-                             std::nullopt,
-                             static_cast<::ttnn::MeshDevice *>(nullptr));
+                             std::nullopt);
   }
   return input;
 }
