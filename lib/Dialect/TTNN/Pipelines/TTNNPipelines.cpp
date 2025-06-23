@@ -44,7 +44,9 @@ void createTTNNPipelineTTIRPasses(
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
-  pm.addPass(mlir::tt::ttir::createTTIRQuantDequantConversion());
+  if (options.enableQuantDequantConversion) {
+    pm.addPass(mlir::tt::ttir::createTTIRQuantDequantConversion());
+  }
   pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
