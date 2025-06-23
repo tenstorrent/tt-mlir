@@ -229,3 +229,40 @@ def test_create_owned_tensor_with_unsupported_data_type(dtype):
         Binary.Program.to_data_type(dtype),
     )
     assert torch.all(torch_output_tensor == torch_input_tensor)
+
+
+@pytest.mark.parametrize("num_loops", [64])
+def test_unblocking_to_host(num_loops):
+    ttrt.runtime.set_current_runtime(ttrt.runtime.DeviceRuntime.TTNN)
+    dtype = torch.bfloat16
+    torch_input_tensor = torch.randn((256, 784, 892), dtype=dtype)
+    runtime_dtype = Binary.Program.to_data_type(dtype)
+    device_layout = ttrt.runtime.test.get_dram_interleaved_tile_layout(runtime_dtype)
+    runtime_dtype = Binary.Program.to_data_type(dtype)
+    runtime_input_tensor = ttrt.runtime.create_owned_tensor(
+        torch_input_tensor.data_ptr(),
+        list(torch_input_tensor.shape),
+        list(torch_input_tensor.stride()),
+        torch_input_tensor.element_size(),
+        runtime_dtype,
+    )
+
+    with DeviceContext(mesh_shape=[1, 1]) as device:
+        for _ in range(num_loops):
+            runtime_device_tensor = ttrt.runtime.to_layout(
+                runtime_input_tensor, device, device_layout
+            )
+            runtime_host_tensor = ttrt.runtime.to_host(
+                runtime_device_tensor, untilize=True, blocking=False
+            )
+            ttrt.runtime.wait(runtime_host_tensor)
+            ttrt.runtime.deallocate_tensor(runtime_device_tensor, force=True)
+
+            torch_output_tensor = torch.zeros_like(torch_input_tensor)
+            ttrt.runtime.memcpy(
+                torch_output_tensor.data_ptr(),
+                runtime_input_tensor,
+                Binary.Program.to_data_type(dtype),
+            )
+
+            assert torch.allclose(torch_input_tensor, torch_output_tensor)
