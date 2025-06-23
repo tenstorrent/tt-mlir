@@ -180,14 +180,15 @@ public:
     if (newGrid.has_value()) {
       gridShape.assign(newGrid->begin(), newGrid->end());
     } else if (baseTypeHasLayout) {
-      auto tempGrid = maybeBaseTypeLayout.getGridShape(baseType);
+      llvm::ArrayRef<int64_t> tempGrid =
+          maybeBaseTypeLayout.getGridShape(baseType);
       gridShape.assign(tempGrid.begin(), tempGrid.end());
     }
 
-    auto elementType = newElementType.value_or(baseType.getElementType());
-    auto tileShape = newTileShape.has_value()
-                         ? *newTileShape
-                         : getTensorTileShapeOrEmpty(baseType);
+    Type elementType = newElementType.value_or(baseType.getElementType());
+    llvm::ArrayRef<int64_t> tileShape =
+        newTileShape.has_value() ? *newTileShape
+                                 : getTensorTileShapeOrEmpty(baseType);
 
     // Create new layout
     auto newLayout = MetalLayoutAttr::get(
@@ -207,9 +208,10 @@ public:
     }
 
     // Derive physical shape
-    auto physicalShape = MetalLayoutAttr::derivePhysicalShape(
-        baseLayout.getLogicalShape(), gridShape, tileShapeForPhysical,
-        newLayout.getCollapseIntervals(), newLayout.getDimAlignments());
+    llvm::SmallVector<int64_t> physicalShape =
+        MetalLayoutAttr::derivePhysicalShape(
+            baseLayout.getLogicalShape(), gridShape, tileShapeForPhysical,
+            newLayout.getCollapseIntervals(), newLayout.getDimAlignments());
 
     return RankedTensorType::get(physicalShape, elementType, newLayout);
   }
