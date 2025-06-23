@@ -4527,17 +4527,6 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 }
 
 //===----------------------------------------------------------------------===//
-// MaximumOp
-//===----------------------------------------------------------------------===//
-
-mlir::Operation *mlir::tt::ttir::MaximumOp::rewriteWithQuantizedInputs(
-    mlir::PatternRewriter &rewriter,
-    mlir::ArrayRef<mlir::Value> quantizedOperands,
-    mlir::Type quantizedResultType) {
-  return nullptr;
-}
-
-//===----------------------------------------------------------------------===//
 // MeanOp
 //===----------------------------------------------------------------------===//
 
