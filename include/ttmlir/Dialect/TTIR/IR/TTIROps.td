@@ -1281,7 +1281,7 @@ def TTIR_LeakyReluOp : TTIR_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
 }
 
 class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, [ThreeOperands, TTIR_ElementwiseBinary] #  traits> {
+    TTIR_ElementwiseOp<mnemonic, [ThreeOperands, TTIR_ElementwiseBinary, TTIR_QuantizableOpInterface] #  traits> {
     let summary = "Base class for elementwise operations with two input tensors.";
     let description = [{
       A base class for elementwise operations that apply a binary function to corresponding
@@ -1974,7 +1974,7 @@ def TTIR_DivOp : TTIR_ElementwiseBinaryOp<"div"> {
     }];
 }
 
-def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["rewriteWithQuantizedInputs"]>]> {
+def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum", [TTIR_QuantizableOpInterface]> {
     let summary = "Elementwise maximum operation.";
     let description = [{
       The `maximum` operation calculates the elementwise maximum between two tensors.
