@@ -43,18 +43,14 @@ struct TTIRToTTIRDecompositionPass
   void runOnOperation() override {
     mlir::ConversionTarget target(getContext());
     target.addLegalDialect<ttir::TTIRDialect>();
-    target.addLegalDialect<mlir::func::FuncDialect>();
-    target.addLegalDialect<BuiltinDialect>();
-    target.addLegalOp<ttir::EmptyOp>();
+    target.addLegalDialect<mlir::func::FuncDialect>(); // we wish to keep
+                                                       // func.func and
+                                                       // func.call as legal ops
+    target.addLegalDialect<BuiltinDialect>(); // This contains the "module" op
+                                              // which is necessary
 
-    // Build set of ops to decompose
-    llvm::DenseSet<StringRef> opsSet;
-    bool decomposeAll = opsToDecompose.empty();
-    if (!decomposeAll) {
-      for (const auto &opName : opsToDecompose) {
-        opsSet.insert(opName);
-      }
-    }
+    target.addLegalOp<ttir::EmptyOp>(); // DPS operands are create with
+                                        // ttir::EmptyOp
 
     // Use addDynamicallyLegalOp to control which ops get decomposed
     // The op is legal (won't be converted) if we're NOT decomposing it
@@ -104,8 +100,8 @@ struct TTIRToTTIRDecompositionPass
       return !decomposeAll && !opsSet.contains("dequantize");
     });
 
-    // ArangeOp has additional constraints - it's only illegal if dimension != 0
-    // or rank != 1
+
+    // These are the ops that must satisfy some additional conditions after this pass
     target.addDynamicallyLegalOp<ttir::ArangeOp>([&](ttir::ArangeOp op) {
       // First check if we're even decomposing arange ops
       if (!decomposeAll && !opsSet.contains("arange")) {

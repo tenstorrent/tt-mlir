@@ -18,6 +18,9 @@ void populateUtilModule(nb::module_ &m) {
     return source;
   });
 
+  m.def("is_name_loc",
+        [](MlirLocation loc) { return mlir::isa<mlir::NameLoc>(unwrap(loc)); });
+
   m.def("get_loc_name", [](MlirLocation _loc) -> nb::object {
     mlir::Location loc = unwrap(_loc);
     if (mlir::isa<mlir::NameLoc>(loc)) {
@@ -36,6 +39,28 @@ void populateUtilModule(nb::module_ &m) {
     output.flush();
 
     return locationStr;
+  });
+
+  m.def("is_file_line_col_loc", [](MlirLocation loc) {
+    return mlir::isa<mlir::FileLineColLoc>(unwrap(loc));
+  });
+
+  m.def("is_fused_loc", [](MlirLocation loc) {
+    return mlir::isa<mlir::FusedLoc>(unwrap(loc));
+  });
+
+  m.def("get_fused_locations", [](MlirLocation _loc) {
+    std::vector<MlirLocation> result;
+    mlir::Location loc = unwrap(_loc);
+
+    if (mlir::isa<mlir::FusedLoc>(loc)) {
+      mlir::FusedLoc fusedLoc = mlir::cast<mlir::FusedLoc>(loc);
+      for (const auto &location : fusedLoc.getLocations()) {
+        result.emplace_back(wrap(location));
+      }
+    }
+
+    return result;
   });
 
   m.def("is_dps", [](MlirOperation op) {

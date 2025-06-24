@@ -8,7 +8,7 @@ This page walks you through the steps required to set up tt-mlir.
 
 ### Hardware Setup
 
-Use this guide to set up your hardware - [Hardware Setup](https://docs.tenstorrent.com/getting-started/README.html).
+Use this guide to set up your hardware - [Hardware Setup](./getting-started.md).
 
 ### System Dependencies
 
@@ -106,7 +106,7 @@ You can add different flags to your build. Here are some options to consider:
 * To workaround OOM issues it can be useful to decrease the number of parallel jobs with `-DCMAKE_BUILD_PARALLEL_LEVEL=4`.
 * If Python bindings aren't required for your project, you can accelerate builds further with the command `-DTTMLIR_ENABLE_BINDINGS_PYTHON=OFF`.
 * The TTNN build is automatically integrated / handled by the tt-mlir cmake build system.  For debugging and further information regarding the TTNN backend build step, please refer to [TTNN Documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html).
-* The runtime build depends on the `TT_METAL_HOME` variable, which is also set in `env/activate` script. For more information, please refer to [TT-NN and TT-Metailium installation documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html#step-4-install-and-start-using-tt-nn-and-tt-metalium).
+* The runtime build depends on the `TT_METAL_HOME` variable, which is also set in `env/activate` script. For more information, please refer to [TTNN and TT-Metailium installation documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html#step-4-install-and-start-using-tt-nn-and-tt-metalium).
 
 | OS | Offline Compiler Only | Runtime Enabled Build | Runtime + Perf Enabled Build |
 |----|-----------------------|-----------------------| -----------------------------|

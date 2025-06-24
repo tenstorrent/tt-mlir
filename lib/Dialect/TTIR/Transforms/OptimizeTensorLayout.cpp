@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -18,6 +19,7 @@ namespace mlir::tt::ttir {
 static GridAttr getOptimalGrid(PatternRewriter &rewriter,
                                ArrayRef<int64_t> memrefShape,
                                ArrayRef<int64_t> deviceGridShape) {
+  assert(memrefShape.size() == deviceGridShape.size());
   std::vector<int64_t> gridShape;
   for (size_t i = 0; i < memrefShape.size(); i++) {
     int64_t dim = memrefShape[i];
@@ -34,29 +36,28 @@ static GridAttr getOptimalGrid(PatternRewriter &rewriter,
 static RankedTensorType calculateOptimalLayoutForTensorType(
     PatternRewriter &rewriter, Value tensor,
     const SmallVector<int64_t> &workerGridShape) {
-  RankedTensorType resultType = mlir::cast<RankedTensorType>(tensor.getType());
-  auto resultEncoding =
-      mlir::cast_if_present<MetalLayoutAttr>(resultType.getEncoding());
-  assert(resultEncoding && "Tensor type must have a MetalLayoutAttr encoding");
-  assert(resultEncoding.getGrid().getShape().size() ==
-             resultEncoding.getMemref().getShape().size() &&
-         "Grid rank must match memref rank.");
+  RankedTensorType tensorType = mlir::cast<RankedTensorType>(tensor.getType());
+  auto tensorEncoding =
+      mlir::cast_if_present<MetalLayoutAttr>(tensorType.getEncoding());
+  assert(tensorEncoding && "Tensor type must have a MetalLayoutAttr encoding");
 
-  SmallVector<int64_t> canonicalShape;
-  canonicalShape.reserve(resultEncoding.getMemref().getShape().size());
+  auto logicalShape = tensorEncoding.getLogicalShape();
 
-  for (size_t i = 0; i < resultEncoding.getMemref().getShape().size(); i++) {
-    canonicalShape.push_back(resultEncoding.getMemref().getShape()[i] *
-                             resultEncoding.getGrid().getShape()[i]);
-  }
+  auto optimalOutputGrid = getOptimalGrid(
+      rewriter, tensorEncoding.getShardShape(tensorType), workerGridShape);
 
-  auto optimalOutputGrid =
-      getOptimalGrid(rewriter, canonicalShape, workerGridShape);
-  auto newResultEncoding = resultEncoding.withGrid(
-      tensor.getContext(), resultType, optimalOutputGrid);
+  auto newTensorEncoding = MetalLayoutAttr::get(
+      tensor.getContext(), logicalShape, workerGridShape.size(),
+      tensorEncoding.getOobVal(), tensorEncoding.getMemorySpace(),
+      tensorEncoding.getCollapseIntervals(), tensorEncoding.getDimAlignments());
 
-  return RankedTensorType::get(resultType.getShape(),
-                               resultType.getElementType(), newResultEncoding);
+  auto newPhysicalShape = MetalLayoutAttr::derivePhysicalShape(
+      logicalShape, optimalOutputGrid.getShape(),
+      tt::getTensorTileShapeOrEmpty(tensorType),
+      newTensorEncoding.getCollapseIntervals(),
+      newTensorEncoding.getDimAlignments());
+  return RankedTensorType::get(newPhysicalShape, tensorType.getElementType(),
+                               newTensorEncoding);
 }
 
 namespace {
@@ -69,6 +70,11 @@ struct TTIRGenericTensorLayoutRewriter
 
   LogicalResult matchAndRewrite(ttir::GenericOp op,
                                 PatternRewriter &rewriter) const final {
+
+    if (op->hasAttr("ttir.layout_optimized")) {
+      return failure();
+    }
+
     // Update output tensor type
     assert(op->getResults().size() == 1 &&
            "Only one result tensor is supported for now");
@@ -78,11 +84,12 @@ struct TTIRGenericTensorLayoutRewriter
       return failure();
     }
 
-    Type originalType = op->getResult(0).getType();
+    auto layout = mlir::cast<MetalLayoutAttr>(newTensorType.getEncoding());
     rewriter.modifyOpInPlace(op, [&]() {
       // Update generic grid (match worker cores to output grid)
       op.setGridAttr(
-          mlir::cast<MetalLayoutAttr>(newTensorType.getEncoding()).getGrid());
+          rewriter.getAttr<GridAttr>(layout.getGridShape(newTensorType)));
+      op->setAttr("ttir.layout_optimized", rewriter.getUnitAttr());
     });
 
     auto dpsOp = mlir::cast<DestinationStyleOpInterface>(op.getOperation());
@@ -108,6 +115,7 @@ struct TTIRGenericTensorLayoutRewriter
       }
     }
 
+    Type originalType = op->getResult(0).getType();
     rewriter.setInsertionPointAfter(op);
     auto emptyOp = rewriter.create<ttir::EmptyOp>(op->getLoc(), originalType);
     auto toLayoutOp = rewriter.create<ttir::ToLayoutOp>(
@@ -138,16 +146,18 @@ struct TTIRMemrefLayoutRewriter : public OpRewritePattern<ttir::GenericOp> {
              "operands");
       for (size_t i = 0; i < genericBlock.getNumArguments(); i++) {
         auto arg = genericBlock.getArgument(i);
-        auto operand =
+        auto operandType =
             mlir::cast<RankedTensorType>(op->getOperand(i).getType());
-        auto operandEncoding =
-            mlir::cast<MetalLayoutAttr>(operand.getEncoding());
-        if (arg.getType() == operandEncoding.getMemref()) {
+
+        auto expectedMemrefType =
+            tt::MetalLayoutAttr::getMemRefType(operandType);
+
+        if (arg.getType() == expectedMemrefType) {
           continue;
         }
         modified = true;
-        rewriter.modifyOpInPlace(
-            op, [&]() { arg.setType(operandEncoding.getMemref()); });
+        rewriter.modifyOpInPlace(op,
+                                 [&]() { arg.setType(expectedMemrefType); });
       }
     }
 

@@ -30,8 +30,12 @@ using TensorPtrMapIterator = typename TensorPtrMap::iterator;
 // additional metadata specific to our ttnn runtime
 class TTNNTensorWrapper {
 public:
-  TTNNTensorWrapper(const ::ttnn::Tensor &tensor, bool retain = false)
-      : tensor(tensor), retain(retain), version(getLatestVersion()) {}
+  TTNNTensorWrapper(
+      const ::ttnn::Tensor &tensor,
+      const std::optional<::ttnn::MeshEvent> &meshEvent = std::nullopt,
+      bool retain = false)
+      : tensor(tensor), meshEvent(meshEvent), retain(retain),
+        version(getLatestVersion()) {}
 
   TTNNTensorWrapper(const TTNNTensorWrapper &other) = delete;
   TTNNTensorWrapper &operator=(const TTNNTensorWrapper &other) = delete;
@@ -40,6 +44,15 @@ public:
 
   const ::ttnn::Tensor &getTensor() const { return tensor; }
   ::ttnn::Tensor &getTensor() { return tensor; }
+
+  const std::optional<::ttnn::MeshEvent> &getMeshEvent() const {
+    std::shared_lock<std::shared_mutex> lock(meshEventMutex);
+    return meshEvent;
+  }
+  void setMeshEvent(const ::ttnn::MeshEvent &meshEvent) {
+    std::unique_lock<std::shared_mutex> lock(meshEventMutex);
+    this->meshEvent = meshEvent;
+  }
 
   bool shouldRetain() const { return retain.load(std::memory_order_relaxed); }
   void setRetain(bool val) { retain.store(val, std::memory_order_relaxed); }
@@ -56,6 +69,16 @@ public:
 
 private:
   ::ttnn::Tensor tensor;
+
+  // The mesh device command queue event associated with this tensor.
+  // This is used to synchronize the tensor with the mesh device.
+  // Most of the time this will not be set, but it is required now
+  // that we are adding non-blocking readbacks and multiple command queue
+  // support. This will be used increasingly in the future once we start adding
+  // such support to all of our operations.
+  mutable std::shared_mutex meshEventMutex;
+  std::optional<::ttnn::MeshEvent> meshEvent;
+
   // Whether the tensor should be retained during execution
   // Setting this to true will prohibit deallocate ops within
   // the program from deallocating the tensor

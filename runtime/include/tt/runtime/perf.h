@@ -53,9 +53,10 @@ struct Env {
   Env &operator=(Env &&) = delete;
 #endif
 
-  void setProgramMetadata(const std::string &programMetadata) {
-    tracyProgramMetadata = programMetadata;
-  }
+  void tracyLogOpLocation(const std::string &locInfo) const;
+  void tracyLogConstEvalProgram(bool constEvalOp) const;
+  void tracyLogProgramMetadata(const std::string &metaData) const;
+  void setProgramMetadata(const std::string &programMetadata);
 
 private:
   Env(std::uint32_t dumpDeviceRate, bool enablePerfTrace,

@@ -1002,6 +1002,63 @@ public:
 };
 } // namespace
 
+// PrepareConv2dBias op conversion pattern
+//
+namespace {
+class PrepareConv2dBiasOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::PrepareConv2dBiasOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.prepare_conv2d_bias";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::operations::conv::conv2d::prepare_conv_bias";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::PrepareConv2dBiasOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PrepareConv2dBiasOp srcOp,
+                  mlir::tt::ttnn::PrepareConv2dBiasOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::PrepareConv2dBiasOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getBiasTensor()),
+        emitter.emit(srcOp.getInputMemoryConfig()),
+        emitter.emit(srcOp.getInputTensorLayout()),
+        emitter.emit(srcOp.getInChannels()),
+        emitter.emit(srcOp.getOutChannels()),
+        emitter.emit(srcOp.getBatchSize()),
+        emitter.emit(srcOp.getInputHeight()),
+        emitter.emit(srcOp.getInputWidth()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getKernelSizeAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
+        emitter.emit<
+            std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
+            srcOp.getPaddingAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
+        emitter.emit(srcOp.getGroups()),
+        emitter.emit(srcOp.getDevice()),
+        emitter.emit<
+            std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>>(
+            srcOp.getConv2dConfig()),
+        /*compute_config_=*/emitter.emit(std::nullopt),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // Conv2d op conversion pattern
 //
 namespace {
@@ -1475,8 +1532,6 @@ public:
         emitter.emit(srcOp.getDtype()),
         emitter.emit(srcOp.getMemoryConfig()) |
             emitter.getMemoryConfig(srcOp.getResult()),
-        emitter.emit(srcOp.getDevice()) |
-            emitter.emit<::ttnn::distributed::MeshDevice>(nullptr),
     };
 
     emitter.replaceOp(*this, args);
@@ -2258,6 +2313,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Convolution ops
   //
   patterns.add<PrepareConv2dWeightsOpConversionPattern>(typeConverter, ctx);
+  patterns.add<PrepareConv2dBiasOpConversionPattern>(typeConverter, ctx);
   patterns.add<Conv2dOpConversionPattern>(typeConverter, ctx);
   patterns.add<ConvTranspose2dOpConversionPattern>(typeConverter, ctx);
 

@@ -26,8 +26,6 @@ public:
                                      OptionalMeshDeviceRef targetDevice);
 
 private:
-  bool canTilizeDataTypeOnDevice(const ::ttnn::DataType &dataType) const;
-  bool canUntilizeDataTypeOnDevice(const ::ttnn::DataType &dataType) const;
   ::ttnn::Tensor toLayoutIfNeeded(const ::ttnn::Tensor &input);
   ::ttnn::Tensor typecastIfNeeded(const ::ttnn::Tensor &input);
   ::ttnn::Tensor toDeviceIfNeeded(const ::ttnn::Tensor &input,

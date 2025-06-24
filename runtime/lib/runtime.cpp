@@ -222,29 +222,6 @@ Tensor createOwnedHostTensor(const void *data,
       });
 }
 
-// TODO(mrakita): Should be deprecated but D2M path is using this, investigate
-// if it can also use the new `createBorrowedHostTensor` function.
-// https://github.com/tenstorrent/tt-mlir/issues/2757
-Tensor createTensor(std::shared_ptr<void> data,
-                    const std::vector<std::uint32_t> &shape,
-                    const std::vector<std::uint32_t> &stride,
-                    std::uint32_t itemsize, ::tt::target::DataType dataType) {
-  using RetType = Tensor;
-  LOG_ASSERT(!shape.empty());
-  LOG_ASSERT(!stride.empty());
-  LOG_ASSERT(itemsize > 0);
-  return DISPATCH_TO_CURRENT_RUNTIME(
-      RetType,
-      [&]() -> RetType {
-        return ::tt::runtime::ttnn::createBorrowedHostTensor(
-            data.get(), shape, stride, itemsize, dataType);
-      },
-      [&]() -> RetType {
-        return ::tt::runtime::ttmetal::createBorrowedHostTensor(
-            data, TensorDesc(shape, stride, itemsize, dataType));
-      });
-}
-
 Tensor createMultiDeviceHostTensor(
     const std::vector<const void *> &data,
     const std::vector<std::uint32_t> &shape,
@@ -593,29 +570,29 @@ void wait(Event event) {
       [&]() { ::tt::runtime::ttmetal::wait(event); });
 }
 
-void wait(Tensor tensor) {
+void wait(Tensor tensor, std::optional<uint8_t> cqId) {
   using RetType = void;
   DISPATCH_TO_CURRENT_RUNTIME(
-      RetType, [&]() { ::tt::runtime::ttnn::wait(tensor); },
-      [&]() { ::tt::runtime::ttmetal::wait(tensor); });
+      RetType, [&]() { ::tt::runtime::ttnn::wait(tensor, cqId); },
+      [&]() { ::tt::runtime::ttmetal::wait(tensor, cqId); });
 }
 
-void wait(const std::vector<Tensor> &tensors) {
+void wait(const std::vector<Tensor> &tensors, std::optional<uint8_t> cqId) {
   using RetType = void;
   DISPATCH_TO_CURRENT_RUNTIME(
-      RetType, [&]() { ::tt::runtime::ttnn::wait(tensors); },
-      [&]() { ::tt::runtime::ttmetal::wait(tensors); });
+      RetType, [&]() { ::tt::runtime::ttnn::wait(tensors, cqId); },
+      [&]() { ::tt::runtime::ttmetal::wait(tensors, cqId); });
 }
 
-std::vector<Tensor> toHost(Tensor tensor, bool untilize) {
+std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
   using RetType = std::vector<Tensor>;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
-        return ::tt::runtime::ttnn::toHost(tensor, untilize);
+        return ::tt::runtime::ttnn::toHost(tensor, untilize, blocking);
       },
       [&]() -> RetType {
-        return ::tt::runtime::ttmetal::toHost(tensor, untilize);
+        return ::tt::runtime::ttmetal::toHost(tensor, untilize, blocking);
       });
 }
 

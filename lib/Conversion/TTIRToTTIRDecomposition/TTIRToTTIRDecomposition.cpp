@@ -501,9 +501,23 @@ public:
 
     // Applying the inverse of permutation to the output will restore the
     // tensor to the original layout.
-    rewriter.replaceOpWithNewOp<ttir::PermuteOp>(
-        op, op.getResult().getType(), newConv, adaptor.getOutput(),
-        ttmlir::utils::inversePermutation(permutation));
+
+    llvm::SmallVector<int64_t> outputLayout(conv2dLayout.size(),
+                                            ConvolutionDimension::INVALID_DIM);
+    outputLayout[op.getConvolutionLayout().getOutputBatchDimension()] =
+        ConvolutionDimension::BATCH;
+    outputLayout[op.getConvolutionLayout().getOutputFeatureDimension()] =
+        ConvolutionDimension::FEATURE;
+    for (const auto [spatialCount, spatialDim] : llvm::enumerate(
+             op.getConvolutionLayout().getOutputSpatialDimensions())) {
+      outputLayout[spatialDim] = spatialCount;
+    }
+    auto outputPermutation = ttmlir::utils::generatePermutation(
+        llvm::ArrayRef(conv2dLayout), llvm::ArrayRef(outputLayout));
+
+    rewriter.replaceOpWithNewOp<ttir::PermuteOp>(op, op.getResult().getType(),
+                                                 newConv, adaptor.getOutput(),
+                                                 outputPermutation);
 
     return success();
   }
@@ -1412,8 +1426,8 @@ public:
 };
 } // namespace
 
-// SelectOp is converted to a series of SliceOp and potentially a ConcatOp if
-// the sliced dimension is sliced multiple times. For example, if the input
+// IndexSelectOp is converted to a series of SliceOp and potentially a ConcatOp
+// if the sliced dimension is sliced multiple times. For example, if the input
 // tensor is
 //    [[[1, 2, 3],
 //      [4, 5, 6],
@@ -1428,8 +1442,8 @@ public:
 //      [31, 32, 33],
 //      [34, 35, 36]]],
 //    shape = [2, 6, 3]
-// and the SelectOp is dim=1, begin=0, length=2, stride=4, the output tensor
-// will be
+// and the IndexSelectOp is dim=1, begin=0, length=2, stride=4, the output
+// tensor will be
 //    [[[1, 2, 3],
 //      [4, 5, 6],
 //      [13, 14, 15],
@@ -1444,12 +1458,12 @@ public:
 // second slice has begins=[0, 4, 0], ends=[2, 6, 3], steps=[1, 1, 1].
 namespace {
 struct SelectToSliceConversionPattern
-    : public OpConversionPattern<ttir::SelectOp> {
+    : public OpConversionPattern<ttir::IndexSelectOp> {
 public:
-  using OpConversionPattern<ttir::SelectOp>::OpConversionPattern;
+  using OpConversionPattern<ttir::IndexSelectOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::SelectOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::IndexSelectOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
     auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());

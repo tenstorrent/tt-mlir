@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 
+#include "ttmlir/Target/TTKernel/LLKs/experimental_dataflow_api_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_tilize_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_untilize_llks_generated.h"
 
@@ -43,6 +44,7 @@ public:
 
       builder->create<emitc::IncludeOp>(loc, "dataflow_api.h",
                                         /*isStandard=*/false);
+      emitExperimentalLLKs();
     }
     if (threadType == ThreadType::Compute) {
       builder->create<emitc::IncludeOp>(loc, "llk_defs.h",
@@ -164,6 +166,13 @@ void dprint(Arg &&arg, ArgV&&... argv) {
           StringRef(experimental_untilize_llks_generated,
                     experimental_untilize_llks_generated_len);
       builder->create<emitc::VerbatimOp>(loc, experimentalUntilizeLLKs);
+    }
+
+    if (hasCall("experimental::get_noc_multicast_addr")) {
+      auto experimentalDataflowLLKs =
+          StringRef(experimental_dataflow_api_generated,
+                    experimental_dataflow_api_generated_len);
+      builder->create<emitc::VerbatimOp>(loc, experimentalDataflowLLKs);
     }
   }
 

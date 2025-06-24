@@ -986,7 +986,17 @@ def TTKernel_MyYOp : TTKernel_Op<"my_y"> {
 def TTKernel_GetNocMulticastAddrOp : TTKernel_Op<"get_noc_multicast_addr"> {
   let summary = "GetNocMulticastAddr";
   let description = [{
-    GetNocMulticastAddr
+    Default tt-metal get_noc_multicast_addr
+  }];
+
+  let arguments = (ins IndexLike:$noc_x_start, IndexLike:$noc_y_start, IndexLike:$noc_x_end, IndexLike:$noc_y_end, AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_Semaphore]>:$addr, Optional<I8>:$noc);
+  let results = (outs TTKernel_NocAddr:$mcastNocAddr);
+}
+
+def TTKernel_ExperimentalGetNocMulticastAddrOp : TTKernel_Op<"experimental::get_noc_multicast_addr"> {
+  let summary = "Experimental GetNocMulticastAddr";
+  let description = [{
+    Default tt-metal get_noc_multicast_addr, but flips mcast start and end coordinates on NOC1.
   }];
 
   let arguments = (ins IndexLike:$noc_x_start, IndexLike:$noc_y_start, IndexLike:$noc_x_end, IndexLike:$noc_y_end, AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_Semaphore]>:$addr, Optional<I8>:$noc);

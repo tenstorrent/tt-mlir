@@ -12,11 +12,11 @@ include "mlir/IR/BuiltinAttributeInterfaces.td"
 // TT attribute interface definitions
 //===----------------------------------------------------------------------===//
 
-def TTCore_DeviceLayoutInterface : AttrInterface<"DeviceLayoutInterface", [MemRefLayoutAttrInterface]> {
+def TTCore_DeviceLayoutInterface : AttrInterface<"DeviceLayoutInterface"> {
   let summary = "TT DeviceLayoutInterface";
   let cppNamespace = "::mlir::tt";
   let description = [{
-    This interface implies a MemRefLayoutAttrInterface that conforms to Tenstorrent device layout.
+    This interface implies supporting a shaped type that conforms to Tenstorrent device layout.
     Tenstorrent devices are divided into a grid of cores, onto which we map tensors that have been
     chunked into shards.  This device layout attribute semantically means exactly this, i.e. we have
     some tensors that are distributed amongst the device core grid. This means that memref shapes
@@ -27,28 +27,28 @@ def TTCore_DeviceLayoutInterface : AttrInterface<"DeviceLayoutInterface", [MemRe
   let methods = [
     InterfaceMethod<
       "Get the grid shape part of the memref shape (aka the first half)",
-      "llvm::ArrayRef<int64_t>", "getGridShape", (ins "MemRefType":$memrefType),
+      "llvm::ArrayRef<int64_t>", "getGridShape", (ins "ShapedType":$shapedType),
       /*methodBody=*/"",
       /*defaultImplementation=*/[{
-        assert(memrefType.getRank() % 2 == 0 && "rank must be even");
-        return memrefType.getShape().take_front(memrefType.getRank() / 2);
+        assert(shapedType.getRank() % 2 == 0 && "rank must be even");
+        return shapedType.getShape().take_front(shapedType.getRank() / 2);
       }]
     >,
     InterfaceMethod<
       "Get the shard shape part of the memref shape (aka the second half)",
-      "llvm::ArrayRef<int64_t>", "getShardShape", (ins "MemRefType":$memrefType),
+      "llvm::ArrayRef<int64_t>", "getShardShape", (ins "ShapedType":$shapedType),
       /*methodBody=*/"",
       /*defaultImplementation=*/[{
-        assert(memrefType.getRank() % 2 == 0 && "rank must be even");
-        return memrefType.getShape().drop_front(memrefType.getRank() / 2);
+        assert(shapedType.getRank() % 2 == 0 && "rank must be even");
+        return shapedType.getShape().drop_front(shapedType.getRank() / 2);
       }]
     >,
     InterfaceMethod<
       "Get the number of elements for the shard shape part of the memref shape (aka the second half)",
-      "int64_t", "getShardNumElements", (ins "MemRefType":$memrefType),
+      "int64_t", "getShardNumElements", (ins "ShapedType":$shapedType),
       /*methodBody=*/"",
       /*defaultImplementation=*/[{
-        auto shardShape = getShardShape(memrefType);
+        auto shardShape = getShardShape(shapedType);
         return std::accumulate(shardShape.begin(), shardShape.end(), 1LL, std::multiplies<int64_t>());
       }]
     >,

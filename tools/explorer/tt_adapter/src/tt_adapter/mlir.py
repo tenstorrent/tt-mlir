@@ -734,8 +734,21 @@ class OpHandler:
 
     def __init__(self, op):
         self.op = op
+
         self.named_location = util.get_loc_name(self.op.location)
         self.full_location = util.get_loc_full(self.op.location)
+
+        if util.is_fused_loc(self.op.location):
+            self.locations = util.get_fused_locations(self.op.location)
+            for loc in self.locations:
+                # Use the first locations to fit the bill for "legacy" location support.
+                if util.is_name_loc(loc):
+                    self.named_location = util.get_loc_name(loc)
+                elif util.is_file_line_col_loc(loc):
+                    self.full_location = util.get_loc_full(loc)
+        else:
+            self.named_location = util.get_loc_name(self.op.location)
+            self.full_location = util.get_loc_full(self.op.location)
         self.id = self._create_unique_id()
 
     def _create_unique_id(self):
@@ -748,6 +761,20 @@ class OpHandler:
     def get_namespace(self, parent_op=None):
         op = self.op if not parent_op else parent_op
         name = util.get_loc_name(op.location)
+
+        # Fused Loc Logic
+        if util.is_fused_loc(op.location):
+            locs = util.get_fused_locations(op.location)
+            for loc in locs:
+                if util.is_name_loc(loc):
+                    name = util.get_loc_name(loc)
+
+        name = name or ""
+
+        # Don't process returns since they should be on the bottom of the graph
+        if op.name == "func.return":
+            return ""
+
         if op.parent and op.parent.name != "builtin.module":
             parent_name = self.get_namespace(op.parent)
             if parent_name:
