@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-enable-quant-dequant-conversion-pass %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-quant-dequant-conversion %s | FileCheck %s
 module {
   func.func @commute_quantize_past_maxpool2d(%arg0: tensor<1x64x112x112xf32>) -> tensor<1x64x56x56x!quant.uniform<i8:f32, 0.1>> {
     // CHECK-LABEL: func.func @commute_quantize_past_maxpool2d
