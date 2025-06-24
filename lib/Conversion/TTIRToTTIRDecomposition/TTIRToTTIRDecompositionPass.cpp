@@ -100,8 +100,8 @@ struct TTIRToTTIRDecompositionPass
       return !decomposeAll && !opsSet.contains("dequantize");
     });
 
-
-    // These are the ops that must satisfy some additional conditions after this pass
+    // These are the ops that must satisfy some additional conditions after this
+    // pass
     target.addDynamicallyLegalOp<ttir::ArangeOp>([&](ttir::ArangeOp op) {
       // First check if we're even decomposing arange ops
       if (!decomposeAll && !opsSet.contains("arange")) {
