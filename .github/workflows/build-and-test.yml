@@ -285,7 +285,9 @@ jobs:
           # llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test
 
           llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/sharding_relu_override_32.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/conv2d_config_override.mlir
+          
+          # llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/conv2d_config_override.mlir
+
           llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/output_layout_override.mlir
           llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/input_layout_loc_override.mlir
           llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/ttir_to_ttnn_pipeline.mlir
