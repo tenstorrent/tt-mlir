@@ -24,13 +24,22 @@ bool rewriteWeight(Conv2dOp srcOp, PatternRewriter &rewriter) {
     return false;
   }
 
-  ToLayoutOp toLayoutOp = utils::createToLayoutOp(
+  if (srcOp.getBias()) {
+    ToLayoutOp biasToLayout = utils::createToLayoutOp(
+        srcOp, srcOp.getBias(), rewriter, ttnn::Layout::RowMajor,
+        ttnn::BufferType::SystemMemory, std::nullopt, DataType::BFloat16,
+        "_to_layout_bias");
+    rewriter.modifyOpInPlace(
+        srcOp, [&]() { srcOp.getBiasMutable().assign(biasToLayout); });
+  }
+
+  ToLayoutOp weightToLayout = utils::createToLayoutOp(
       srcOp, srcOp.getWeight(), rewriter, ttnn::Layout::RowMajor,
       ttnn::BufferType::SystemMemory, std::nullopt, DataType::BFloat16,
       "_to_layout_weight");
 
   rewriter.modifyOpInPlace(
-      srcOp, [&]() { srcOp.getWeightMutable().assign(toLayoutOp); });
+      srcOp, [&]() { srcOp.getWeightMutable().assign(weightToLayout); });
 
   return true;
 }
