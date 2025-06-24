@@ -20,7 +20,7 @@ GetDeviceOp getOrInsertDevice(mlir::RewriterBase &rewriter,
 // desired tensor layout, buffer type and memory layout.
 ToLayoutOp createToLayoutOp(
     mlir::Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
-    PatternRewriter &rewriter, Layout targetTensorLayout,
+    RewriterBase &rewriter, Layout targetTensorLayout,
     BufferType targetTensorBufferType,
     std::optional<TensorMemoryLayout> targetTensorMemoryLayout,
     ttcore::DataType targetTensorDataType, llvm::StringRef locSuffix = "");
