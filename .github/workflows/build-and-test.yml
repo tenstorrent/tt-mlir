@@ -287,48 +287,8 @@ jobs:
           llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/sharding_relu_override_32.mlir
           llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/conv2d_config_override.mlir
           llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/output_layout_override.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/input_layout_loc_override.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/ttir_to_ttnn_pipeline.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/sharding_matmul_override_0.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/multiple_add_with_loc.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/greedy_l1_interleaved_policy/mnist_l1_interleaved.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/greedy_l1_interleaved_policy/simple_join_tests/dram_ABC_l1_None.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/greedy_l1_interleaved_policy/simple_join_tests/dram_A_l1_BC.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/greedy_l1_interleaved_policy/simple_join_tests/dram_C_l1_AB.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/greedy_l1_interleaved_policy/simple_join_tests/dram_AB_l1_C.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/greedy_l1_interleaved_policy/simple_join_tests/dram_None_l1_ABC.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/greedy_l1_interleaved_policy/simple_join_tests/dram_B_l1_AC.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/greedy_l1_interleaved_policy/simple_join_tests/dram_BC_l1_A.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/greedy_l1_interleaved_policy/simple_join_tests/dram_AC_l1_B.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/greedy_l1_interleaved_policy/fork_join.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/greedy_l1_interleaved_policy/all_l1_interleaved_policy.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/partial_output_layout_override.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/insert_memreconfig.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/bf_interleaved_policy/all_dram_operands_l1_op.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/bf_interleaved_policy/fork_join_01.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/bf_interleaved_policy/all_l1_operands_dram_op.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/bf_interleaved_policy/fork_join_02.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/optimizer/bf_interleaved_policy/all_dram_buffer_type.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Dialect/TTNN/const-eval/prep_conv2d.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/optimizer/resnet50_layer2_module2.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/optimizer/prep_conv2d_weights_const_eval.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/optimizer/resnet50_layer3_module2.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/optimizer/mnist_linear.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/optimizer/resnet50_first_module.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/optimizer/simple_fork_join.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/optimizer/resnet50_last_module.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/optimizer/shard_transpose.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/optimizer/prepare_conv2d_weights.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/optimizer/llama_prefill_single_layer_ttir.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/optimizer/resnet50_layer1_module2.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/optimizer/resnet50_layer3_module1.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/optimizer/resnet50_layer4_module1.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/optimizer/resnet50_layer2_module1.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/optimizer/mnist_sharding.mlir
-          llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/deallocate_override.mlir
 
           echo "-- Running optimizer test iteration $i --"
-
 
           if [ "${{ matrix.build.suite }}" == "op_model" ] || [ "${{ matrix.build.suite }}" == "unit" ]; then
             echo "Running optimizer tests"
