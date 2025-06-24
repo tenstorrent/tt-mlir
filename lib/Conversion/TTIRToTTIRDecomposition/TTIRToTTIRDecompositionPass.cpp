@@ -92,8 +92,17 @@ struct TTIRToTTIRDecompositionPass
       }
     }
 
+    // Build set of ops to decompose
+    llvm::DenseSet<StringRef> opsSet;
+    bool decomposeAll = opsToDecompose.empty();
+    if (!decomposeAll) {
+      for (const auto &opName : opsToDecompose) {
+        opsSet.insert(opName);
+      }
+    }
+
     // Use addDynamicallyLegalOp to control which ops get decomposed
-    // The op is legal (won't be converted) if we're NOT decomposing it
+    // The op is legal (won't be converted) if we're NOT decomposing it.
     target.addDynamicallyLegalOp<ttir::IndexOp>([&](ttir::IndexOp) {
       return !decomposeAll && !opsSet.contains("index");
     });
@@ -113,10 +122,6 @@ struct TTIRToTTIRDecompositionPass
 
     target.addDynamicallyLegalOp<ttir::GatherOp>([&](ttir::GatherOp) {
       return !decomposeAll && !opsSet.contains("gather");
-    });
-
-    target.addDynamicallyLegalOp<ttir::SelectOp>([&](ttir::SelectOp) {
-      return !decomposeAll && !opsSet.contains("select");
     });
 
     target.addDynamicallyLegalOp<ttir::DotGeneralOp>([&](ttir::DotGeneralOp) {
