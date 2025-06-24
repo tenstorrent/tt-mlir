@@ -179,7 +179,7 @@ getBufferType(const ::tt::tt_metal::BufferType bufferType) {
   case mlir::tt::ttnn::TensorMemoryLayout::Interleaved:
     return ::tt::tt_metal::TensorMemoryLayout::INTERLEAVED;
   case mlir::tt::ttnn::TensorMemoryLayout::SingleBank:
-    return ::tt::tt_metal::TensorMemoryLayout::SINGLE_BANK;
+    return ::tt::tt_metal::TensorMemoryLayout::INTERLEAVED;
   case mlir::tt::ttnn::TensorMemoryLayout::HeightSharded:
     return ::tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED;
   case mlir::tt::ttnn::TensorMemoryLayout::WidthSharded:
@@ -193,8 +193,6 @@ getTensorMemoryLayout(const ::tt::tt_metal::TensorMemoryLayout memLayout) {
   switch (memLayout) {
   case ::tt::tt_metal::TensorMemoryLayout::INTERLEAVED:
     return mlir::tt::ttnn::TensorMemoryLayout::Interleaved;
-  case ::tt::tt_metal::TensorMemoryLayout::SINGLE_BANK:
-    return mlir::tt::ttnn::TensorMemoryLayout::SingleBank;
   case ::tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED:
     return mlir::tt::ttnn::TensorMemoryLayout::HeightSharded;
   case ::tt::tt_metal::TensorMemoryLayout::WIDTH_SHARDED:
@@ -255,7 +253,7 @@ bool validateTensorSpec(const ::ttnn::TensorSpec &tensorSpec,
   try {
     tensorSpec.compute_packed_buffer_size_bytes();
     tensorSpec.compute_page_size_bytes();
-    tensorSpec.compute_distribution_spec();
+    tensorSpec.compute_buffer_sharding_args();
   } catch (const std::exception &e) {
     return false;
   }
