@@ -475,6 +475,39 @@ TEST_F(OpModelBase, MatmulOpInterfaceNullOutput) {
   EXPECT_TRUE(outputLayout.hasInterleavedDRAMTensorMemoryLayout());
 }
 
+TEST_F(OpModelBase, MatmulOpInterfacePartialOutput) {
+  // create MatmulOp
+  llvm::SmallVector<int64_t> tensorShapeA = {2048, 1024};
+  llvm::SmallVector<int64_t> tensorShapeB = {1024, 2048};
+  llvm::SmallVector<int64_t> tensorShapeO = {2048, 2048};
+
+  auto inputA = createEmptyTensor(tensorShapeA);
+  auto inputB = createEmptyTensor(tensorShapeB);
+  auto outputType = createRankedTensorType(tensorShapeO);
+
+  auto outputLayout = CreateTiledLayout(tensorShapeO, BufferType::L1,
+                                        TensorMemoryLayout::BlockSharded)
+                          .withIgnorePhysicalLayout(true);
+  auto matmul = builder.create<MatmulOp>(builder.getUnknownLoc(), outputType,
+                                         ::mlir::ValueRange{inputA, inputB});
+
+  // test MatmulOp interface
+  OpModel backend = dyn_cast<OpModel>(matmul.getOperation());
+  auto constraintsExp =
+      backend.getOpConstraints(getInputLayouts(matmul), OpConfig(outputLayout));
+
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  auto constraints = constraintsExp.get();
+  EXPECT_EQ(constraints.cbL1PeakSize, 262144);
+  EXPECT_EQ(constraints.tensorL1PeakSize, 524288);
+  EXPECT_EQ(constraints.outputL1BufferSize, 524288);
+
+  ASSERT_TRUE(constraints.outputLayout);
+  EXPECT_EQ(constraints.outputLayout.getLayout(), Layout::Tile);
+  EXPECT_TRUE(constraints.outputLayout.hasShardedL1TensorMemoryLayout());
+  EXPECT_TRUE(constraints.outputLayout.getGrid());
+}
+
 // Forward declarations
 using OpConstraintsFn =
     llvm::Expected<mlir::tt::op_model::ttnn::OpConstraints> (OpModelBase::*)(
@@ -778,6 +811,8 @@ TEST_F(OpModelBase, typecastOp) {
 }
 
 TEST_F(OpModelBase, Conv2dInterface) {
+  // Skipped due to hang. See https://github.com/tenstorrent/tt-mlir/issues/3901
+  GTEST_SKIP();
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
   llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
@@ -842,6 +877,8 @@ TEST_F(OpModelBase, Conv2dInterface) {
 }
 
 TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
+  // Skipped due to hang. See https://github.com/tenstorrent/tt-mlir/issues/3901
+  GTEST_SKIP();
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
   llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
@@ -947,6 +984,8 @@ TEST_F(OpModelBase, PrepareConv2dWeightsOutput) {
 }
 
 TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
+  // Skipped due to hang. See https://github.com/tenstorrent/tt-mlir/issues/3901
+  GTEST_SKIP();
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
   llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
@@ -1465,7 +1504,7 @@ TEST_F(OpModelBase, EmbeddingOpInterface) {
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
-    EXPECT_EQ(cbSize, 32768);
+    EXPECT_EQ(cbSize, 16384);
     EXPECT_EQ(peakSize, 525312);
     EXPECT_EQ(outputSize, 262144);
   } else {

@@ -48,7 +48,7 @@ static ::ttnn::Tensor createBorrowedTTNNTensor(void *rawData,
                                                const ::ttnn::Shape &shape) {
   std::uint64_t numElements = shape.volume();
   T *typedData = static_cast<T *>(rawData);
-  ::tt::stl::Span<T> data(typedData, typedData + numElements);
+  ::ttsl::Span<T> data(typedData, typedData + numElements);
   ::ttnn::Tensor tensor =
       ::ttnn::Tensor::from_borrowed_data(data, shape, []() {}, []() {});
   return tensor;
@@ -59,35 +59,35 @@ createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
                       const std::vector<std::uint32_t> &stride,
                       std::uint32_t itemsize, ::tt::target::DataType dataType) {
   const void *dataToUse = data;
+  ::tt::target::DataType dataTypeToUse = dataType;
   std::vector<std::byte> castedData;
   if (!::tt::runtime::utils::isSupportedDataType(dataType)) {
-    ::tt::target::DataType unsupportedDataType = dataType;
-    dataType =
-        ::tt::runtime::utils::getUnsupportedDataTypeAlias(unsupportedDataType);
+    dataTypeToUse = ::tt::runtime::utils::getUnsupportedDataTypeAlias(dataType);
 
     LOG_WARNING("User provided a tensor of data type: ",
-                ::tt::target::EnumNameDataType(unsupportedDataType),
-                " which is not supported by runtime/ttnn. Casting to: ",
                 ::tt::target::EnumNameDataType(dataType),
+                " which is not supported by runtime/ttnn. Casting to: ",
+                ::tt::target::EnumNameDataType(dataTypeToUse),
                 ", this may impact throughput and the integrity of the data.");
 
+    uint64_t numElements = std::accumulate(shape.begin(), shape.end(),
+                                           static_cast<std::uint64_t>(1),
+                                           std::multiplies<std::uint64_t>());
+
+    std::uint32_t itemSizeToUse =
+        ::tt::runtime::utils::dataTypeElementSize(dataTypeToUse);
+
+    castedData.resize(itemSizeToUse * numElements);
+
     if (data != nullptr) {
-      uint64_t numElements =
-          std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<>());
-
-      std::uint32_t itemsize =
-          ::tt::runtime::utils::dataTypeElementSize(dataType);
-
-      castedData.resize(itemsize * numElements);
-
-      ::tt::runtime::utils::handleBufferCast(
-          data, castedData.data(), unsupportedDataType, dataType, numElements);
-      dataToUse = castedData.data();
+      ::tt::runtime::utils::handleBufferCast(data, castedData.data(), dataType,
+                                             dataTypeToUse, numElements);
     }
+    dataToUse = castedData.data();
   }
 
   ::ttnn::Shape ttnnShape(shape);
-  ::ttnn::DataType ttnnDataType = utils::toTTNNDataType(dataType);
+  ::ttnn::DataType ttnnDataType = utils::toTTNNDataType(dataTypeToUse);
 
   switch (ttnnDataType) {
   case ::ttnn::DataType::FLOAT32:
@@ -114,23 +114,70 @@ static ::tt::runtime::Tensor createNullTensor() {
   return ::tt::runtime::Tensor(nullptr, nullptr, DeviceRuntime::TTNN);
 }
 
-static ::tt::runtime::Tensor toHostSingleTensor(::tt::runtime::Tensor tensor,
-                                                bool untilize) {
-  const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
-      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
-
-  const ::ttnn::Tensor &deviceTensor = tensorWrapper.getTensor();
+static ::tt::runtime::Tensor
+toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
+                   bool untilize, bool blocking) {
+  const ::ttnn::Tensor &inputTensor = tensorWrapper.getTensor();
   bool shouldRetain = tensorWrapper.shouldRetain();
 
-  ::ttnn::Tensor hostTensor = ::ttnn::from_device(deviceTensor);
+  // If the tensor is on host, no event recording needed
+  if (utils::isOnHost(inputTensor.storage_type())) {
+    ::ttnn::Tensor hostTensor = inputTensor;
+    if (untilize) {
+      hostTensor = ::ttnn::to_layout(hostTensor, ::ttnn::Layout::ROW_MAJOR,
+                                     std::nullopt, std::nullopt);
+    }
+    return utils::createRuntimeTensorFromTTNN(
+        hostTensor, /*meshEvent=*/std::nullopt, shouldRetain);
+  }
+
+  ::ttnn::MeshDevice *meshDevice = inputTensor.mesh_device();
+  LOG_ASSERT(meshDevice, "Device tensor must live on a mesh device");
+
+  // If untilize is true and the data type can be untilized on device
+  // Untilize on device first before reading back to host
+  if (untilize && utils::canUntilizeDataTypeOnDevice(inputTensor.dtype())) {
+    ::ttnn::Tensor hostTensor = ::ttnn::from_device(
+        ::ttnn::to_layout(inputTensor, ::ttnn::Layout::ROW_MAJOR, std::nullopt,
+                          std::nullopt),
+        blocking);
+
+    std::optional<::ttnn::MeshEvent> meshEvent = std::nullopt;
+    if (!blocking) {
+      meshEvent =
+          ::ttnn::events::record_mesh_event(meshDevice, ::ttnn::DefaultQueueId);
+    }
+
+    return utils::createRuntimeTensorFromTTNN(hostTensor, meshEvent,
+                                              shouldRetain);
+  }
+
+  // Host untilization requires data to be fully transferred first
+  // Therefore we need to block on from_device if untilize is true
+  if (untilize && !blocking) {
+    LOG_WARNING("Overriding blocking parameter to true because tensor cannot "
+                "be untilized on device.");
+    blocking = true;
+  }
+
+  ::ttnn::Tensor hostTensor =
+      ::ttnn::from_device(inputTensor, /*blocking=*/blocking);
 
   if (untilize) {
     hostTensor = ::ttnn::to_layout(hostTensor, ::ttnn::Layout::ROW_MAJOR,
-                                   std::nullopt, std::nullopt,
-                                   static_cast<::ttnn::MeshDevice *>(nullptr));
+                                   std::nullopt, std::nullopt);
   }
 
-  return utils::createRuntimeTensorFromTTNN(hostTensor, shouldRetain);
+  std::optional<::ttnn::MeshEvent> meshEvent = std::nullopt;
+  // if we don't need to untilize, then from_device can execute asynchronously
+  // in this case we need to populate the event
+  if (!untilize && !blocking) {
+    meshEvent =
+        ::ttnn::events::record_mesh_event(meshDevice, ::ttnn::DefaultQueueId);
+  }
+
+  return utils::createRuntimeTensorFromTTNN(hostTensor, /*meshEvent=*/meshEvent,
+                                            shouldRetain);
 }
 
 ::tt::runtime::Tensor
@@ -407,6 +454,8 @@ Device openMeshDevice(const std::vector<uint32_t> &meshShape,
 
   if (options.enableProgramCache) {
     meshDevice->enable_program_cache();
+  } else {
+    meshDevice->disable_and_clear_program_cache();
   }
 
   LOG_DEBUG("Device grid size = { ",
@@ -603,42 +652,61 @@ getMemoryView(Device deviceHandle) {
 }
 
 void wait(Event event) {
-  // Nothing to do for ttnn runtime
-  LOG_ASSERT(event.matchesRuntime(DeviceRuntime::TTNN));
+  LOG_FATAL("Waiting on events is not supported for ttnn runtime. Please use "
+            "wait on tensors instead.");
 }
 
-void wait(::tt::runtime::Tensor tensor) {
+void wait(::tt::runtime::Tensor tensor, std::optional<uint8_t> cqId) {
   LOG_ASSERT(tensor.matchesRuntime(DeviceRuntime::TTNN),
              "Expected ttnn tensor");
-  ::tt::runtime::ttnn::wait(tensor.event);
+
+  const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
+      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
+  const std::optional<::ttnn::MeshEvent> &meshEvent =
+      tensorWrapper.getMeshEvent();
+
+  if (!meshEvent.has_value()) {
+    return;
+  }
+
+  // If no cqId provided, block and wait until the event is recorded
+  if (!cqId.has_value()) {
+    ::ttnn::events::event_synchronize(meshEvent.value());
+    return;
+  }
+
+  // tell cqId to wait until the event is recorded
+  ::ttnn::QueueId cqIdValue(cqId.value());
+  ::ttnn::events::wait_for_mesh_event(cqIdValue, meshEvent.value());
 }
 
-void wait(const std::vector<::tt::runtime::Tensor> &tensors) {
+void wait(const std::vector<::tt::runtime::Tensor> &tensors,
+          std::optional<uint8_t> cqId) {
   for (const ::tt::runtime::Tensor &tensor : tensors) {
-    ::tt::runtime::ttnn::wait(tensor);
+    ::tt::runtime::ttnn::wait(tensor, cqId);
   }
 }
 
 std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
-                                          bool untilize) {
+                                          bool untilize, bool blocking) {
   const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
       tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
 
-  const ::ttnn::Tensor &multiDeviceTensor = tensorWrapper.getTensor();
-  bool shouldRetain = tensorWrapper.shouldRetain();
+  ::tt::runtime::Tensor multiDeviceHostTensor =
+      ::tt::runtime::ttnn::toHostSingleTensor(tensorWrapper, untilize,
+                                              blocking);
 
-  ::tt::runtime::Tensor hostMultiDeviceTensor =
-      ::tt::runtime::ttnn::toHostSingleTensor(
-          utils::createRuntimeTensorFromTTNN(multiDeviceTensor, shouldRetain),
-          untilize);
   std::vector<::ttnn::Tensor> singleTensors =
       ::ttnn::distributed::get_device_tensors(
-          utils::getTTNNTensorFromRuntimeTensor(hostMultiDeviceTensor));
+          utils::getTTNNTensorFromRuntimeTensor(multiDeviceHostTensor));
+
+  const std::optional<::ttnn::MeshEvent> &meshEvent =
+      tensorWrapper.getMeshEvent();
 
   std::vector<::tt::runtime::Tensor> hostTensors;
   for (const ::ttnn::Tensor &tensor : singleTensors) {
-    hostTensors.push_back(
-        utils::createRuntimeTensorFromTTNN(tensor, shouldRetain));
+    hostTensors.push_back(utils::createRuntimeTensorFromTTNN(
+        tensor, meshEvent, tensorWrapper.shouldRetain()));
   }
 
   return hostTensors;
@@ -663,8 +731,8 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
   LayoutConverter converter(tensorLayoutDesc, desiredLayoutDesc);
   ::ttnn::Tensor out = converter.convertTensorLayout(ttnnTensor, meshDevice);
 
-  ::tt::runtime::Tensor result =
-      utils::createRuntimeTensorFromTTNN(out, shouldRetain);
+  ::tt::runtime::Tensor result = utils::createRuntimeTensorFromTTNN(
+      out, /*meshEvent=*/std::nullopt, shouldRetain);
 
   if (!shouldRetain) {
     ::tt::runtime::ttnn::deallocateTensor(tensor);
@@ -706,7 +774,18 @@ Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
 
 void memcpy(void *dst, ::tt::runtime::Tensor src,
             std::optional<::tt::target::DataType> dstDataType) {
+
+  if (dstDataType.has_value()) {
+    LOG_ASSERT(
+        dstDataType.value() == getTensorDataType(src) ||
+            !::tt::runtime::utils::isSupportedDataType(dstDataType.value()),
+        "If destination data type is specified, it must match the "
+        "source data type or be an unsupported data type.");
+  }
+
   const ::ttnn::Tensor &srcTensor = utils::getTTNNTensorFromRuntimeTensor(src);
+
+  // Handle cast and copy
   if (dstDataType.has_value() &&
       !::tt::runtime::utils::isSupportedDataType(dstDataType.value())) {
     LOG_ASSERT(utils::isOnHost(srcTensor.storage_type()),
@@ -715,18 +794,12 @@ void memcpy(void *dst, ::tt::runtime::Tensor src,
 
     ::tt::target::DataType srcDataType = getTensorDataType(src);
     ::tt::target::DataType unsupportedDataTypeAlias =
-        tt::runtime::utils::getUnsupportedDataTypeAlias(*dstDataType);
+        tt::runtime::utils::getUnsupportedDataTypeAlias(dstDataType.value());
 
     LOG_ASSERT(
         srcDataType == unsupportedDataTypeAlias,
-        "Tensor data type must be " +
+        "Tensor data type must be the alias of the unsupported data type: " +
             std::string(target::EnumNameDataType(unsupportedDataTypeAlias)));
-
-    LOG_ASSERT(
-        !dstDataType.has_value() || *dstDataType == getTensorDataType(src) ||
-            !::tt::runtime::utils::isSupportedDataType(dstDataType.value()),
-        "If destination data type is specified, it must match the "
-        "source data type or be an unsupported data type.");
 
     LOG_WARNING(
         "User is requesting to copy the data from a runtime tensor with "
@@ -737,9 +810,14 @@ void memcpy(void *dst, ::tt::runtime::Tensor src,
         ", the values will be casted, this may impact the throughput and the "
         "integrity of the data.");
 
-    ::tt::runtime::utils::handleBufferCast(
-        srcPtr, dst, srcDataType, *dstDataType, srcTensor.physical_volume());
-  } else if (utils::isOnHost(srcTensor.storage_type())) {
+    // Cast to dstDataType, mempy into dst, and return
+    return ::tt::runtime::utils::handleBufferCast(srcPtr, dst, srcDataType,
+                                                  dstDataType.value(),
+                                                  srcTensor.physical_volume());
+  }
+
+  // Handle direct copy without cast
+  if (utils::isOnHost(srcTensor.storage_type())) {
     const void *srcPtr = utils::getRawHostDataPtr(srcTensor);
     size_t size = srcTensor.physical_volume() * srcTensor.element_size();
     std::memcpy(dst, srcPtr, size);
@@ -1003,9 +1081,9 @@ std::string getOpLocInfo(OpContext opContextHandle) {
     return createNullTensor();
   }
 
-  ::ttnn::Tensor hostTensor = ::ttnn::to_layout(
-      ::ttnn::from_device(*outPtr), ::ttnn::Layout::ROW_MAJOR, std::nullopt,
-      std::nullopt, static_cast<::ttnn::MeshDevice *>(nullptr));
+  ::ttnn::Tensor hostTensor =
+      ::ttnn::to_layout(::ttnn::from_device(*outPtr), ::ttnn::Layout::ROW_MAJOR,
+                        std::nullopt, std::nullopt);
 
   return utils::createRuntimeTensorFromTTNN(hostTensor);
 }

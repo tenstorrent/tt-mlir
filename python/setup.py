@@ -92,7 +92,7 @@ class CMakeBuild(build_ext):
         else:
             self.spawn(["cmake", *cmake_args])
 
-        self.spawn(["cmake", "--build", str(build_dir)])
+        self.spawn(["cmake", "--build", str(build_dir), "--", "TTMLIRPythonModules"])
 
         # Install the PythonWheel Component
         self.spawn(

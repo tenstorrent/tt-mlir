@@ -9,6 +9,8 @@ import torch
 from ttrt.common.query import Query
 from ttrt.common.util import *
 from enum import Enum
+from dataclasses import dataclass
+from typing import Callable, List, Any
 
 TT_MLIR_HOME = os.environ.get("TT_MLIR_HOME", "")
 
@@ -52,6 +54,67 @@ class Helper:
         self.binary.check_system_desc(self.query)
 
 
+@dataclass
+class ProgramTestConfig:
+    name: str
+    expected_num_inputs: int
+    compute_golden: Callable[[List[Any]], Any]
+    description: str = ""
+
+
+class ProgramTestRunner:
+    def __init__(self, config: ProgramTestConfig, binary: Binary, program_index: int):
+
+        program = binary.get_program(program_index)
+        assert not program.is_private()
+        assert program.num_inputs() == config.expected_num_inputs
+        assert program.num_outputs() == 1, "Currently only single output is supported"
+
+        self.config = config
+        self.binary = binary
+        self.program = program
+        self.program_index = program_index
+
+    def get_inputs_and_golden(self, device):
+        inputs_torch = get_torch_inputs(self.program)
+        inputs_runtime = [
+            get_runtime_tensor_from_torch(torch_input) for torch_input in inputs_torch
+        ]
+        input_layouts = [
+            ttrt.runtime.get_layout(
+                executable=self.binary.fbb,
+                program_index=self.program_index,
+                input_index=i,
+            )
+            for i in range(len(inputs_runtime))
+        ]
+        inputs_runtime_with_layout = [
+            ttrt.runtime.to_layout(rt_input, device, layout, True)
+            for rt_input, layout in zip(inputs_runtime, input_layouts)
+        ]
+
+        golden = None
+        if self.config.compute_golden:
+            golden = self.config.compute_golden(inputs_torch)
+
+        return inputs_runtime_with_layout, golden
+
+    def run_program(self, device, inputs, blocking_to_host=True):
+        output = ttrt.runtime.submit(
+            device, self.binary.fbb, self.program_index, inputs
+        )[0]
+        output = ttrt.runtime.to_host(output, untilize=True, blocking=blocking_to_host)[
+            0
+        ]
+        return output
+
+    def run_program_and_compare_golden(self, device, inputs, golden):
+        output_torch = get_torch_output_container(self.program)
+        output = self.run_program(device, inputs)
+        ttrt.runtime.memcpy(output_torch.data_ptr(), output)
+        assert_pcc(output_torch, golden)
+
+
 class DeviceContext:
     def __init__(
         self,
@@ -59,12 +122,14 @@ class DeviceContext:
         mesh_offset=None,
         enable_program_cache=False,
         trace_region_size=0,
+        num_hw_cqs=1,
     ):
         options = ttrt.runtime.MeshDeviceOptions()
         if mesh_offset is not None:
             options.mesh_offset = mesh_offset
         options.enable_program_cache = enable_program_cache
         options.trace_region_size = trace_region_size
+        options.num_hw_cqs = num_hw_cqs
         self.device = ttrt.runtime.open_mesh_device(mesh_shape, options)
 
     def __enter__(self):
@@ -76,9 +141,9 @@ class DeviceContext:
 
 def get_runtime_tensor_from_torch(torch_tensor, storage=Storage.Borrowed):
     if storage == Storage.Borrowed:
-        creator_fn = ttrt.runtime.create_tensor
+        creator_fn = ttrt.runtime.create_borrowed_host_tensor
     elif storage == Storage.Owned:
-        creator_fn = ttrt.runtime.create_owned_tensor
+        creator_fn = ttrt.runtime.create_owned_host_tensor
 
     runtime_dtype = Binary.Program.to_data_type(torch_tensor.dtype)
     runtime_tensor = creator_fn(

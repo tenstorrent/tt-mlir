@@ -130,9 +130,8 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
         assert(!indexingMaps.empty() && "expected non-empty indexing maps");
         assert(outputs.size() == 1 && "expected single output");
         if (!grid) {
-          RankedTensorType tensorType = mlir::dyn_cast<RankedTensorType>(outputs[0].getType());
-          if (tensorType) {
-            grid = mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding()).getGrid();
+          if (RankedTensorType tensorType = mlir::dyn_cast<RankedTensorType>(outputs[0].getType()); tensorType) {
+             grid = $_builder.getAttr<tt::GridAttr>(mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding()).getGridShape(tensorType));
           } else {
             MemRefType memrefType = mlir::cast<MemRefType>(outputs[0].getType());
             DeviceLayoutInterface layout = mlir::cast<DeviceLayoutInterface>(memrefType.getLayout());
@@ -157,7 +156,8 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
         build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadType, grid, blockFactors);
         llvm::SmallVector<Type> blockTypes = llvm::map_to_vector(TypeRange($_state.operands), [&](Type t) -> Type {
           mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
-          return mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding()).getMemref();
+          auto layout = mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding());
+          return layout.getMemRefType(tensorType);
         });
         Region& region = *$_state.regions.front().get();
         llvm::SmallVector<mlir::Location> locs($_state.operands.size(), $_state.location);
@@ -174,9 +174,11 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
       [{
         assert(outputs.size() == 1 && "expected single output");
         RankedTensorType tensorType = mlir::cast<RankedTensorType>(outputs[0].getType());
-        MetalLayoutAttr layout = mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding());
-        auto [indexingMaps, iteratorTypes] = buildParallelAffineMapsAndIteratorTypes($_builder, inputs.size() + outputs.size(), layout.getRank());
-        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadRegionBuilder, singleThreadType, grid, blockFactors);
+        MetalLayoutAttr maybeLayout = mlir::dyn_cast_or_null<tt::MetalLayoutAttr>(tensorType.getEncoding());
+        const size_t rank = (maybeLayout != nullptr) ? maybeLayout.getShardShape(tensorType).size() : tensorType.getShape().size();
+        auto [indexingMaps, iteratorTypes] = buildParallelAffineMapsAndIteratorTypes($_builder,
+            inputs.size() + outputs.size(), rank);
+        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadRegionBuilder, singleThreadType, grid);
       }]>,
     ];
 
@@ -261,8 +263,8 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
       // Returns booleans indicating if the op changes layout, grid, format, memory space or memory layout.
       CompoundComponents compoundComponents();
       bool isCompound() { return compoundComponents().isCompound(); }
-      MetalLayoutAttr getInputLayout();
-      MetalLayoutAttr getOutputLayout();
+      MetalLayoutAttr getOrCreateInputLayout();
+      MetalLayoutAttr getOrCreateOutputLayout();
     }];
 
     let hasVerifier = 1;
@@ -3833,12 +3835,12 @@ def TTIR_SliceOp: TTIR_NamedOp<"slice"> {
     let hasVerifier = 1;
 }
 
-def TTIR_SelectOp: TTIR_NamedOp<"select"> {
+def TTIR_IndexSelectOp: TTIR_NamedOp<"index_select"> {
     let summary = "Tensor selection operation.";
     let description = [{
-      The `select` operation extracts a sub-tensor (slice) from the input tensor along a specified dimension.
+      The `index_select` operation extracts a sub-tensor (slice) from the input tensor along a specified dimension.
 
-      Unlike the more general `slice` operation, `select` operates on a single dimension with a specified
+      Unlike the more general `slice` operation, `index_select` operates on a single dimension with a specified
       starting index, length, and optional stride. This is useful for extracting specific segments of a tensor
       along a particular axis.
 
@@ -3847,7 +3849,7 @@ def TTIR_SelectOp: TTIR_NamedOp<"select"> {
       // Select elements 2, 3, 4 from a 1D tensor along dimension 0
       %input = ... : tensor<6xf32>  // Input tensor with values: [1, 2, 3, 4, 5, 6]
       %output = ttir.empty() : tensor<3xf32>  // Output tensor shape
-      %result = ttir.select(%input, %output) {
+      %result = ttir.index_select(%input, %output) {
           dim = 0 : i32,     // Dimension to select from
           begin = 2 : i32,   // Start index
           length = 3 : i32,  // Number of elements to select
@@ -3862,7 +3864,7 @@ def TTIR_SelectOp: TTIR_NamedOp<"select"> {
                                       //  [7, 8, 9],
                                       //  [10, 11, 12]]
       %output = ttir.empty() : tensor<2x3xf32>  // Output tensor shape
-      %result = ttir.select(%input, %output) {
+      %result = ttir.index_select(%input, %output) {
           dim = 0 : i32,     // Select along rows
           begin = 0 : i32,   // Start from the first row
           length = 2 : i32,  // Select 2 rows

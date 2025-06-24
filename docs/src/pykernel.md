@@ -1,27 +1,27 @@
 # PyKernel Guide
 
-PyKernel is a Python interface for developing custom TT-NN operations for Tenstorrent's AI accelerators. This guide explains how to use the PyKernel interface to implement your own TT-NN operations.
+PyKernel is a Python interface for developing custom TTNN operations for Tenstorrent's AI accelerators. This guide explains how to use the PyKernel interface to implement your own TTNN operations.
 
 ## Introduction to PyKernel
 
-PyKernel provides a Python-based framework to define hardware-specific kernels that can be used with the TT-NN framework. It allows developers to implement custom operations by defining compute kernels, reader/writer kernels, and control logic in a high-level Python interface.
+PyKernel provides a Python-based framework to define hardware-specific kernels that can be used with the TTNN framework. It allows developers to implement custom operations by defining compute kernels, reader/writer kernels, and control logic in a high-level Python interface.
 
 The PyKernel framework consists of:
 - **PyKernelOp**: Base class that manages kernel selection, compilation, and execution
-- **AST Module**: Decorators and utilities for defining kernels
-- **Types Module**: Type definitions for PyKernel operations
+- **AST module**: Decorators and utilities for defining kernels
+- **Types module**: Type definitions for PyKernel operations
 
 ### PyKernel Architecture
 Foundationally, PyKernel is a compiler built on top of 3 core components, described below.
 
 #### Python `ast` Frontend
-The frontend of PyKernel is made to parse Python code, the behaviour is enabled through using the `ast` (Abstract Syntax Tree) parser builtin to Python. By walking through the AST produced by this module, a MLIR Module is created with the `ttkernel` dialect (including others like `arith`, `memref`, `scf`). This MLIR Module is then piped into the next step of the PyKernel compiler. For more information about the type of kernel code that can be parsed by the Frontend, refer to the [`ttkernel` Op spec](https://docs.tenstorrent.com/tt-mlir/autogen/md/Dialect/TTKernelOp.html).
+The frontend of PyKernel is made to parse Python code, the behaviour is enabled through using the `ast` (Abstract Syntax Tree) parser builtin to Python. By walking through the AST produced by this module, a MLIR module is created with the `ttkernel` dialect (including others like `arith`, `memref`, `scf`). This MLIR module is then piped into the next step of the PyKernel compiler. For more information about the type of kernel code that can be parsed by the Frontend, refer to the [`ttkernel` Op spec](https://docs.tenstorrent.com/tt-mlir/autogen/md/Dialect/TTKernelOp.html).
 
 #### Direct To Metal (D2M) Kernel Code Generation
 Another component of the `tt-mlir` project that PyKernel is built on is the D2M compiler infrastructure. This infrastructure is made to dynamically create Kernels to performantly execute ML models. By replacing the entry point with the custom MLIR module created by the PyKernel Frontend, the same backend can be leveraged. This backend will take the MLIR module and run it through a series of rewritter passes such that it gets lowered to `emitc`, and eventually translated to `C++` code. This C++ code is the artifact that is consumed by the runtime to execute on Tenstorrent Hardware.
 
-#### TT-NN Generic Op
-TT-NN comprises of python bound precompiled kernels and factories that operate in a manner similar to PyTorch. The Generic Op builds one step on top of this, intaking and operating on TT-NN tensors and primitives, but has a completely undefined factory and set of kernels, these must be provided into the generic op such that it can operate. PyKernel leverages this generality to deploy it's dynamically compiled C++ Kernels into the Generic Op and interface with TT-NN data as if a "custom" op was implemented. This is the glue that binds all of the compiler together.
+#### TTNN Generic Op
+TTNN comprises of python bound precompiled kernels and factories that operate in a manner similar to PyTorch. The Generic Op builds one step on top of this, intaking and operating on TTNN tensors and primitives, but has a completely undefined factory and set of kernels, these must be provided into the generic op such that it can operate. PyKernel leverages this generality to deploy it's dynamically compiled C++ Kernels into the Generic Op and interface with TTNN data as if a "custom" op was implemented. This is the glue that binds all of the compiler together.
 
 
 ## Prerequisites
@@ -434,17 +434,17 @@ This demo shows the complete workflow:
 2. Creates input and output tensors with appropriate memory configuration
 3. Instantiates the `EltwiseSFPUPyKernelOp` class
 4. Executes the operation by calling the op with tensors and options
-5. Compares the result with the built-in TT-NN implementation
+5. Compares the result with the built-in TTNN implementation
 
-## Comparison with Native TT-NN Operations
+## Comparison with Native TTNN Operations
 
-PyKernel operations integrate seamlessly with native TT-NN operations. As shown in the demo, you can compare your custom PyKernel operation with built-in TT-NN operations:
+PyKernel operations integrate seamlessly with native TTNN operations. As shown in the demo, you can compare your custom PyKernel operation with built-in TTNN operations:
 
 ```python
 # Execute your custom PyKernel operation
 output = eltwise_exp_op(*io_tensors, num_tiles=num_tiles)
 
-# Execute the equivalent built-in TT-NN operation
+# Execute the equivalent built-in TTNN operation
 golden = ttnn.exp(input_tensor)
 
 # Convert both to torch tensors for comparison
@@ -460,7 +460,7 @@ assert matching
 This approach allows you to:
 1. Validate your custom operation against known implementations
 2. Benchmark performance differences between custom and built-in operations
-3. Extend the TT-NN framework with operations not available in the standard library
+3. Extend the TTNN framework with operations not available in the standard library
 
 ## Building and Testing
 
@@ -509,13 +509,13 @@ When developing with PyKernel, follow these best practices:
 
 6. **Leverage caching**: PyKernelOp automatically caches compiled kernels for performance
 
-7. **Test thoroughly**: Always compare results with reference implementations or built-in TT-NN operations
+7. **Test thoroughly**: Always compare results with reference implementations or built-in TTNN operations
 
 8. **Document parameters**: Clearly document the expected parameters for your PyKernel operation
 
 ## Summary
 
-PyKernel provides a flexible and powerful way to implement custom operations for Tenstorrent hardware. By following the pattern outlined in this guide, you can create your own operations that integrate seamlessly with the TT-NN framework.
+PyKernel provides a flexible and powerful way to implement custom operations for Tenstorrent hardware. By following the pattern outlined in this guide, you can create your own operations that integrate seamlessly with the TTNN framework.
 
 Key components of the PyKernel framework:
 
@@ -531,4 +531,4 @@ The workflow for creating a custom PyKernel operation is:
 3. Implement the `invoke` method to create circular buffers and connect kernels
 4. Use the operation by instantiating your class and calling it with tensors and options
 
-With PyKernel, you can extend the TT-NN framework with custom operations that leverage the full power of Tenstorrent hardware while maintaining a clean, high-level Python interface.
+With PyKernel, you can extend the TTNN framework with custom operations that leverage the full power of Tenstorrent hardware while maintaining a clean, high-level Python interface.

@@ -12,13 +12,7 @@ namespace tt::runtime::workaround {
 struct Env {
   static const Env &get(bool swapBinaryOperands = true,
                         bool readUpdateIndexFromDeviceForKVCache = true,
-                        bool rawHostDataPointerWrapper = true,
-                        bool traceImplicitFromDevice = true) {
-    static const Env config(swapBinaryOperands,
-                            readUpdateIndexFromDeviceForKVCache,
-                            rawHostDataPointerWrapper, traceImplicitFromDevice);
-    return config;
-  }
+                        bool traceImplicitFromDevice = true);
 
   // TODO(bug #1124): We're currently swapping the operands for binary ops
   // in runtime if the lhs operand is smaller (and requires broadcast onto the
@@ -31,14 +25,6 @@ struct Env {
   // to be able to pluck this update index from a runtime tensor.
   bool readUpdateIndexFromDeviceForKVCache;
 
-  // TODO(bug #3176): With the new mesh device flow, all tensors read back to
-  // host will be in MULTI_DEVICE_HOST storage. Currently metal does not have
-  // support for getting the raw host data pointer for MULTI_DEVICE_HOST storage
-  // nor do they support host to host memcpy directly. Working around this by
-  // implementing a custom wrapper around get_raw_host_data_ptr until support is
-  // added
-  bool rawHostDataPointerWrapper;
-
   // TODO(bug #3695): Currently ttnn only supports writing to a pre-allocated
   // device tensor from host. Therefore, the trace op implicitly reads any
   // device input back to host, then writes it to the designated buffer. This
@@ -49,11 +35,10 @@ struct Env {
 private:
   constexpr Env(bool swapBinaryOperands,
                 bool readUpdateIndexFromDeviceForKVCache,
-                bool rawHostDataPointerWrapper, bool traceImplicitFromDevice)
+                bool traceImplicitFromDevice)
       : swapBinaryOperands(swapBinaryOperands),
         readUpdateIndexFromDeviceForKVCache(
             readUpdateIndexFromDeviceForKVCache),
-        rawHostDataPointerWrapper(rawHostDataPointerWrapper),
         traceImplicitFromDevice(traceImplicitFromDevice) {}
 };
 
@@ -64,8 +49,6 @@ inline std::ostream &operator<<(std::ostream &os, const Env &env) {
   os << "\t"
      << "readUpdateIndexFromDeviceForKVCache: "
      << env.readUpdateIndexFromDeviceForKVCache << "\n";
-  os << "\t"
-     << "rawHostDataPointerWrapper: " << env.rawHostDataPointerWrapper << "\n";
   os << "\t"
      << "traceImplicitFromDevice: " << env.traceImplicitFromDevice << "\n";
   os << "}";

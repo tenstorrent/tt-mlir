@@ -127,14 +127,16 @@ MlirAttribute ttmlirTTSystemDescAttrGet(
       chipCapabilitiesUnwrapped, chipCoordsUnwrapped, chipChannelsUnwrapped));
 }
 
-MlirAttribute ttmlirTTMetalLayoutAttrGet(MlirContext ctx, MlirAffineMap linear,
-                                         unsigned oobVal, MlirAttribute grid,
-                                         MlirType memref) {
-  mlir::AffineMap affineMap = mlir::AffineMap::getFromOpaquePointer(linear.ptr);
-  return wrap(
-      MetalLayoutAttr::get(unwrap(ctx), affineMap, static_cast<OOBVal>(oobVal),
-                           mlir::cast<GridAttr>(unwrap(grid)),
-                           mlir::cast<mlir::MemRefType>(unwrap(memref))));
+MlirAttribute ttmlirTTMetalLayoutAttrGet(MlirContext ctx, intptr_t logicalRank,
+                                         const int64_t *logicalShape,
+                                         unsigned oobVal,
+                                         unsigned memorySpace) {
+
+  llvm::ArrayRef<int64_t> logicalShapeRef(logicalShape, logicalRank);
+
+  return wrap(MetalLayoutAttr::get(unwrap(ctx), logicalShapeRef, logicalRank,
+                                   static_cast<OOBVal>(oobVal),
+                                   static_cast<MemorySpace>(memorySpace)));
 }
 
 MlirAttribute ttmlirTTMemorySpaceAttrGet(MlirContext ctx,

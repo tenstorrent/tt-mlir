@@ -415,6 +415,7 @@ class Read:
             binaries,
             lambda binary: {
                 "version": binary.fbb.version,
+                "schema_hash": binary.fbb.schema_hash,
                 "tt-mlir git hash": binary.fbb.ttmlir_git_hash,
             },
         )

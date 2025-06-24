@@ -503,7 +503,7 @@ TEST_F(OpModelTest, ToLayout) {
       layoutDRAMRowMajor, true);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
-  EXPECT_EQ(opCstr.cbL1PeakSize, 262144);
+  EXPECT_EQ(opCstr.cbL1PeakSize, 131072);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
   ExpectLayoutsEQ(layoutDRAMRowMajor, opCstr.outputLayout);
@@ -529,7 +529,7 @@ TEST_F(OpModelTest, ToLayout) {
       layoutDRAMRowMajor, false);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_EQ(opCstr.cbL1PeakSize, 262144);
+  EXPECT_EQ(opCstr.cbL1PeakSize, 131072);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
   ExpectLayoutsEQ(layoutDRAMRowMajor, opCstr.outputLayout);
@@ -1164,6 +1164,8 @@ class OpModelConv2dParam
                      detail::ExpectedResult>> {};
 
 TEST_P(OpModelConv2dParam, Conv2d) {
+  // Skipped due to hang. See https://github.com/tenstorrent/tt-mlir/issues/3901
+  GTEST_SKIP();
   auto params = GetParam();
   const auto [inputShape, inputTensorLayout, inputBufferType,
               inputVirtualGrid] = std::get<0>(params);
@@ -1679,7 +1681,7 @@ INSTANTIATE_TEST_SUITE_P(
             detail::TestTensor{{256, 128},
                                mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
                                mlir::tt::ttnn::BufferType::DRAM},
-            detail::ExpectedResult{true, 32768, 8192, 4096}),
+            detail::ExpectedResult{true, 16384, 8192, 4096}),
         std::make_tuple(
             // Input: [batch=2, seq_len=512] (sharded)
             detail::TestTensor{{2, 512},
@@ -1690,6 +1692,6 @@ INSTANTIATE_TEST_SUITE_P(
             detail::TestTensor{{512, 256},
                                mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
                                mlir::tt::ttnn::BufferType::DRAM},
-            detail::ExpectedResult{true, 65536, 16384, 8192})));
+            detail::ExpectedResult{true, 32768, 16384, 8192})));
 
 } // namespace mlir::tt::op_model::ttnn

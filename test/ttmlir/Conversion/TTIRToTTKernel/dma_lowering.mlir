@@ -42,7 +42,7 @@ func.func @test_local_to_remote_multicast_regular(%arg0: memref<2x2x!ttcore.tile
   %c4 = arith.constant 4 : index
   // CHECK: ttkernel.get_read_ptr
   // CHECK: ttkernel.get_write_ptr
-  // CHECK: ttkernel.get_noc_multicast_addr
+  // CHECK: ttkernel.experimental::get_noc_multicast_addr
   // CHECK: ttkernel.noc_async_write_multicast
   %0 = ttir.dma %arg0[%c0, %c0], %arg0[%c0, %c0] core[%c1, %c2] mcast[%c3, %c4] : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
   ttir.dma_wait %0
@@ -59,7 +59,7 @@ func.func @test_local_to_remote_multicast_loopback(%arg0: memref<2x2x!ttcore.til
   %c4 = arith.constant 4 : index
   // CHECK: ttkernel.get_read_ptr
   // CHECK: ttkernel.get_write_ptr
-  // CHECK: ttkernel.get_noc_multicast_addr
+  // CHECK: ttkernel.experimental::get_noc_multicast_addr
   // CHECK: ttkernel.noc_async_write_multicast_loopback_src
   %0 = ttir.dma %arg0[%c0, %c0], %arg1[%c0, %c0] core[%c1, %c2] mcast[%c3, %c4] : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
   ttir.dma_wait %0
