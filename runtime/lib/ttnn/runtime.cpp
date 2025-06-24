@@ -406,6 +406,8 @@ Device openMeshDevice(const std::vector<uint32_t> &meshShape,
 
   if (options.enableProgramCache) {
     meshDevice->enable_program_cache();
+  } else {
+    meshDevice->disable_and_clear_program_cache();
   }
 
   LOG_DEBUG("Device grid size = { ",
