@@ -30,6 +30,13 @@ def TTIRToTTIRDecomposition: Pass<"ttir-to-ttir-decomposition", "::mlir::ModuleO
   let summary = "Decomposes TTIR operations into simpler TTIR operations.";
   let constructor = "createTTIRToTTIRDecompositionPass()";
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+
+  list<Option> options = [
+    ListOption<"opsToDecompose", "ops", "std::string",
+                "List of ops to decompose. Valid values: index, convolution, "
+                "get-dimension-size, pooling, gather, select, dot-general, "
+                "reduce-and, reduce-or, arange. If empty, all ops are decomposed.">
+  ];
 }
 
 def TTIRToTTIRGeneric: Pass<"ttir-to-ttir-generic", "::mlir::ModuleOp"> {
