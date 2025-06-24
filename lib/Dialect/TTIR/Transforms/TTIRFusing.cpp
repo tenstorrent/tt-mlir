@@ -374,10 +374,20 @@ public:
   Conv2dTagWeights(MLIRContext *context)
       : OpRewritePattern(context, PatternBenefit(2)) {}
 
+  static BlockArgument getBlockArg(mlir::Value value) {
+    if (auto blockArg = mlir::dyn_cast<BlockArgument>(value)) {
+      return blockArg;
+    }
+    if (auto typecastOp = mlir::dyn_cast<TypecastOp>(value.getDefiningOp())) {
+      return getBlockArg(typecastOp.getInput());
+    }
+    return BlockArgument();
+  }
+
   mlir::LogicalResult
   matchAndRewrite(Conv2dOp conv2d,
                   mlir::PatternRewriter &rewriter) const final {
-    if (BlockArgument blockArg = dyn_cast<BlockArgument>(conv2d.getWeight())) {
+    if (auto blockArg = getBlockArg(conv2d.getWeight())) {
       // Get the function that owns this block argument.
       func::FuncOp owningFunc =
           cast<func::FuncOp>(blockArg.getOwner()->getParentOp());
