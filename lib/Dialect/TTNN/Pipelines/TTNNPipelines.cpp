@@ -45,9 +45,6 @@ void createTTNNPipelineTTIRPasses(
     pm.addPass(mlir::tt::ttir::createTTIRQuantDequantConversion());
   }
   pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
-  if (options.enableFusing) {
-    pm.addPass(mlir::tt::ttir::createTTIRFusing());
-  }
   pm.addPass(mlir::createCanonicalizerPass());
 
   // Inlines all private functions. I.e flattens the program into the main
@@ -64,9 +61,6 @@ void createTTNNPipelineTTIRPasses(
   if (options.eraseInverseOpsEnabled) {
     pm.addPass(mlir::tt::ttir::createTTIRExplicateTMs());
     pm.addPass(mlir::tt::ttir::createTTIREraseInverseOps());
-  }
-  if (options.enableFusing) {
-    pm.addPass(mlir::tt::ttir::createTTIRFusing());
   }
 }
 
