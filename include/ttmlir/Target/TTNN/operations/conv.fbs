@@ -47,6 +47,25 @@ table PrepareConv2dWeightsOp {
   conv2d_config: tt.target.ttnn.Conv2dConfig;
 }
 
+table PrepareConv2dBiasOp {
+  bias_tensor: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  input_memory_config: tt.target.ttnn.MemoryConfig;
+  input_tensor_layout: tt.target.TensorLayout;
+  in_channels: uint32;
+  out_channels: uint32;
+  batch_size: uint32;
+  input_height: uint32;
+  input_width: uint32;
+  kernel_size: [int32];
+  stride: [int32];
+  padding: [int32];
+  dilation: [int32];
+  groups: uint32;
+  device: tt.target.DeviceRef;
+  conv2d_config: tt.target.ttnn.Conv2dConfig;
+}
+
 table Conv2dOp {
   input: tt.target.ttnn.TensorRef;
   weight: tt.target.ttnn.TensorRef;
