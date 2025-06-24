@@ -193,7 +193,7 @@ public:
     // Create new layout
     auto newLayout = MetalLayoutAttr::get(
         ctx, baseLayout.getLogicalShape(), gridShape.size(),
-        baseLayout.getOobVal(), memSpace, baseLayout.getCollapseIntervals(),
+        baseLayout.getOobVal(), memSpace, baseLayout.getCollapsedIntervals(),
         baseLayout.getDimAlignments());
 
     // For physical shape derivation, use tile shape ONLY if element type is
@@ -211,7 +211,7 @@ public:
     llvm::SmallVector<int64_t> physicalShape =
         MetalLayoutAttr::derivePhysicalShape(
             baseLayout.getLogicalShape(), gridShape, tileShapeForPhysical,
-            newLayout.getCollapseIntervals(), newLayout.getDimAlignments());
+            newLayout.getCollapsedIntervals(), newLayout.getDimAlignments());
 
     return RankedTensorType::get(physicalShape, elementType, newLayout);
   }
