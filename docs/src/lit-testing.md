@@ -13,4 +13,4 @@ llvm-lit -sv ./build/test/ttmlir/Dialect/TTIR/test_allocate.mlir
 llvm-lit -sv ./build/test/ttmlir/Dialect/TTIR
 ```
 
-> See the full [llvm-lit documentation](https://llvm.org/docs/CommandGuide/lit.html) for more information.
+> See the full [`llvm-lit` documentation](https://llvm.org/docs/CommandGuide/lit.html) for more information.

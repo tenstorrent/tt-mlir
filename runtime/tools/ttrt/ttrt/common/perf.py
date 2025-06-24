@@ -127,6 +127,20 @@ class Perf:
             help="toggles emitc testing",
         )
         Perf.register_arg(
+            name="--trace-region-size",
+            type=int,
+            default=0,
+            choices=None,
+            help="Device trace region size",
+        )
+        Perf.register_arg(
+            name="--dump-device-rate",
+            type=int,
+            default=1000,
+            choices=None,
+            help="Rate at which to flush device perf information",
+        )
+        Perf.register_arg(
             name="binary",
             type=str,
             default="",
@@ -426,6 +440,16 @@ class Perf:
 
                     if self["--emitc"]:
                         command_options += " --emitc "
+
+                    if self["--trace-region-size"] > 0:
+                        command_options += (
+                            f" --trace-region-size {self['--trace-region-size']} "
+                        )
+
+                    if self["--dump-device-rate"] != 1000:
+                        command_options += (
+                            f" --dump-device-rate {self['--dump-device-rate']} "
+                        )
 
                     ttrt_executable_path = shutil.which("ttrt")
                     test_command = (

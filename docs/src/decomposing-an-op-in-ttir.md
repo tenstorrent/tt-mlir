@@ -47,7 +47,7 @@ TODO
 
 To register the new pattern, go to the `populateTTIRToTTIRDecompositionPatterns` function in `TTIRToTTIRDecomposition.cpp` and add it to `RewritePatternSet` using the add method. After that is done you should mark the decomposed op as illegal in `runOnOperation` method of `TTIRToTTIRDecompositionPass` in `TTIRToTTIRDecompositionPass.cpp`.
 
-You should also add a silicon test like described here: [Add a silicon unit test for the Op](./adding-an-op.md##8-add-a-silicon-unit-test-for-the-op). This is how the silicon test for the `Index` operation looks like:
+You should also add a silicon test like described here: [Add a silicon unit test for the Op](./adding-an-op.md#8-add-a-silicon-unit-test-for-the-op). This is how the silicon test for the `Index` operation looks like:
 ```mlir
 {{#include ../../../test/ttmlir/Silicon/TTNN/n150/simple_index.mlir}}
 ```

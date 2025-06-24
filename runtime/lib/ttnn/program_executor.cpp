@@ -12,6 +12,7 @@
 #include "operations/context/get_device.h"
 #include "operations/conv/conv2d.h"
 #include "operations/conv/conv_transpose2d.h"
+#include "operations/conv/prepare_conv2d_bias.h"
 #include "operations/conv/prepare_conv2d_weights.h"
 #include "operations/cpu/cpu.h"
 #include "operations/creation/arange.h"
@@ -59,39 +60,9 @@
 #include "tt/runtime/perf.h"
 #include "tt/runtime/utils.h"
 
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-#include "tracy/Tracy.hpp"
-#endif
-
 namespace tt::runtime::ttnn {
 
 using LogType = ::tt::runtime::logger::LogType;
-
-static void tracyLogOpLocation(const ::tt::target::ttnn::Operation *op) {
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-  std::string message = perf::toString(perf::TracyLogTag::MLIR_OP_LOCATION) +
-                        ";" + std::string(op->loc_info()->c_str());
-  TracyMessage(message.c_str(), message.size());
-#endif
-}
-
-static void tracyLogConstEvalProgram(const ::tt::target::ttnn::Operation *op,
-                                     bool constEvalOp) {
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-  std::string message = perf::toString(perf::TracyLogTag::MLIR_CONST_EVAL_OP) +
-                        ";" + std::string(constEvalOp ? "true" : "false");
-  TracyMessage(message.c_str(), message.size());
-#endif
-}
-
-static void tracyLogProgramMetadata(const ::tt::target::ttnn::Operation *op,
-                                    std::string metaData) {
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-  std::string message =
-      perf::toString(perf::TracyLogTag::MLIR_PROGRAM_METADATA) + ";" + metaData;
-  TracyMessage(message.c_str(), message.size());
-#endif
-}
 
 ProgramExecutor::ProgramExecutor(
     ::tt::runtime::Device deviceHandle, ::tt::runtime::Binary &executableHandle,
@@ -147,9 +118,10 @@ void ProgramExecutor::execute() {
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
-    tracyLogConstEvalProgram(op, constEvalProgram);
-    tracyLogOpLocation(op);
-    tracyLogProgramMetadata(op, perf::Env::get().tracyProgramMetadata);
+    perf::Env::get().tracyLogOpLocation(std::string(op->loc_info()->c_str()));
+    perf::Env::get().tracyLogConstEvalProgram(constEvalProgram);
+    perf::Env::get().tracyLogProgramMetadata(
+        perf::Env::get().tracyProgramMetadata);
     runCallback(debug::Hooks::get().getPreOperatorCallback(), executableHandle,
                 op, context.get());
     runOperation(op);
@@ -285,6 +257,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::PrepareConv2dWeightsOp: {
     return operations::conv::run(op->type_as_PrepareConv2dWeightsOp(),
+                                 getContext());
+  }
+  case ::tt::target::ttnn::OpType::PrepareConv2dBiasOp: {
+    return operations::conv::run(op->type_as_PrepareConv2dBiasOp(),
                                  getContext());
   }
   case ::tt::target::ttnn::OpType::Conv2dOp: {

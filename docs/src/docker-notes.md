@@ -41,7 +41,7 @@ sudo docker run -it -d --rm \
 >   device number.
 > - `-v /dev/hugepages:/dev/hugepages` / `-v /dev/hugepages-1G:/dev/hugepages-1G`:
 >   this is required to map the hugepages volume into the container. For more
->   information on hugepages, please refer to the [Getting Started Guide](https://docs.tenstorrent.com/getting-started/README.html#step-4-set-up-hugepages).
+>   information on hugepages, please refer to the [Getting Started Guide](./getting-started#step-4-set-up-hugepages).
 >
 > The base or CI image can also be used in the same way, but the IRD image is
 > recommended for development.

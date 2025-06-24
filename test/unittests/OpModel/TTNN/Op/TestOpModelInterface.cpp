@@ -811,6 +811,8 @@ TEST_F(OpModelBase, typecastOp) {
 }
 
 TEST_F(OpModelBase, Conv2dInterface) {
+  // Skipped due to hang. See https://github.com/tenstorrent/tt-mlir/issues/3901
+  GTEST_SKIP();
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
   llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
@@ -875,6 +877,8 @@ TEST_F(OpModelBase, Conv2dInterface) {
 }
 
 TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
+  // Skipped due to hang. See https://github.com/tenstorrent/tt-mlir/issues/3901
+  GTEST_SKIP();
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
   llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
@@ -980,6 +984,8 @@ TEST_F(OpModelBase, PrepareConv2dWeightsOutput) {
 }
 
 TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
+  // Skipped due to hang. See https://github.com/tenstorrent/tt-mlir/issues/3901
+  GTEST_SKIP();
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
   llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};

@@ -969,15 +969,19 @@ def test_index(shape: Shape, dim: int, begin: int, end: int, step: int, request)
     )
 
 
-@pytest.mark.skip("`select` throwing floating point exception. See issue #2496")
 @pytest.mark.parametrize("shape", [(4, 4)])
-@pytest.mark.parametrize("dim,begin,length", [(1, 2, 2)])
-def test_select(shape: Shape, dim: int, begin: int, length: int, request):
+@pytest.mark.parametrize("dim,begin,length,stride", [(1, 2, 2, 2)])
+def test_select(shape: Shape, dim: int, begin: int, length: int, stride: int, request):
     def select(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
         return builder.select(
-            in0, dim=dim, begin=begin, length=length, unit_attrs=unit_attrs
+            in0,
+            dim=dim,
+            begin=begin,
+            length=length,
+            stride=stride,
+            unit_attrs=unit_attrs,
         )
 
     compile_to_flatbuffer(
@@ -1481,7 +1485,7 @@ hoisted_unary_ops = [
     create_hoisted_unary_op(neg, "neg"),
     pytest.param(
         create_hoisted_unary_op(reshape, "reshape"),
-        marks=pytest.mark.xfail(reason="Softmax does not lower to loops properly"),
+        marks=pytest.mark.xfail(reason="Reshape does not lower to loops properly"),
     ),
     pytest.param(
         create_hoisted_unary_op(reshape, "reshape"),
