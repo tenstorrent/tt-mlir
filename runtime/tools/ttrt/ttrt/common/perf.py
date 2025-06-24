@@ -376,11 +376,6 @@ class Perf:
         self.file_manager.create_directory(profiler_logs_dir)
 
         def _execute(binaries):
-            # need to temporary add these sys paths so TTRT whls can find the `process_ops` function
-            # ideally we want process_ops to be in a standalone module we can import from tt_metal
-            sys.path.append(f"{get_ttrt_metal_home_path()}")
-            sys.path.append(f"{get_ttrt_metal_home_path()}/ttnn")
-
             from tt_metal.tools.profiler.process_ops_logs import process_ops
 
             def get_available_port():
