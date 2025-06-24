@@ -11,11 +11,7 @@
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTIR/Utils/VerificationUtils.h"
 #include "ttmlir/Utils.h"
-#include "llvm/ADT/SmallVector.h"
 
-#include "mlir/Dialect/Quant/IR/QuantTypes.h"
-#include "mlir/IR/BuiltinTypes.h"
-#include "mlir/Support/LogicalResult.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
@@ -26,6 +22,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallSet.h"
@@ -962,162 +959,6 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
   return success();
 }
 
-// ::llvm::SmallVector<mlir::Value>
-// mlir::tt::ttir::ConvolutionOp::getQuantizableOperands() {
-//   return {getInput(), getWeight()};
-// }
-
-// ::mlir::LogicalResult
-// mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
-//     mlir::PatternRewriter &rewriter, ArrayRef<mlir::Value> quantizedOperands)
-//     {
-//   if (quantizedOperands.size() != 2) {
-//     return emitError("Expected 2 quantized operands");
-//   }
-
-//   auto inputTensorType =
-//   mlir::dyn_cast<RankedTensorType>(quantizedOperands[0].getType()); if
-//   (!inputTensorType)
-//     return emitError("Expected ranked tensor type for quantized input");
-
-//   auto inputQuantType =
-//   mlir::dyn_cast<quant::QuantizedType>(inputTensorType.getElementType()); if
-//   (!inputQuantType)
-//     return emitError("Expected quantized element type for input");
-
-//   auto weightTensorType =
-//   mlir::dyn_cast<RankedTensorType>(quantizedOperands[1].getType()); if
-//   (!weightTensorType)
-//     return emitError("Expected ranked tensor type for quantized weight");
-
-//   auto weightQuantType =
-//   mlir::dyn_cast<quant::QuantizedType>(weightTensorType.getElementType()); if
-//   (!weightQuantType)
-//     return emitError("Expected quantized element type for weight");
-
-//   llvm::SmallVector<double> outputScales;
-//   llvm::SmallVector<int64_t> outputZeroPoints;
-
-//   if (auto perTensorInput =
-//   mlir::dyn_cast<mlir::quant::UniformQuantizedType>(inputQuantType)) {
-//     if (auto perTensorWeight =
-//     mlir::dyn_cast<mlir::quant::UniformQuantizedType>(weightQuantType)) {
-//       if (perTensorInput.getZeroPoint() != perTensorWeight.getZeroPoint()) {
-//         return emitError("Zero points must match for per-tensor quantized
-//         convolution.");
-//       }
-//       outputScales.push_back(perTensorInput.getScale() *
-//       perTensorWeight.getScale());
-//       outputZeroPoints.push_back(perTensorInput.getZeroPoint());
-//     }
-//     if (auto perAxisWeight =
-//     mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(weightQuantType))
-//     {
-//       // the output scale is the broadcasted per tensor scale * the per axis
-//       weight auto inScale = perTensorInput.getScale(); auto wtScales =
-//       perAxisWeight.getScales(); auto inZp = perTensorInput.getZeroPoint();
-//       auto wtZps = perAxisWeight.getZeroPoints();
-
-//       for (size_t i = 0; i < wtScales.size(); ++i) {
-//         if (inZp != wtZps[i]) {
-//           return emitError("Mismatched per-axis zero points at index ") << i;
-//         }
-//         outputScales.push_back(inScale * wtScales[i]);
-//         outputZeroPoints.push_back(inZp);
-//       }
-//     }
-//   } else if (auto perAxisInput =
-//   mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(inputQuantType)) {
-//     if (auto perAxisWeight =
-//     mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(weightQuantType))
-//     {
-//       auto inScales = perAxisInput.getScales();
-//       auto wtScales = perAxisWeight.getScales();
-//       auto inZps = perAxisInput.getZeroPoints();
-//       auto wtZps = perAxisWeight.getZeroPoints();
-
-//       if (inZps.size() != wtZps.size() || inScales.size() != wtScales.size())
-//       {
-//         return emitError("Mismatched number of per-axis scales or zero
-//         points.");
-//       }
-
-//       for (size_t i = 0; i < inScales.size(); ++i) {
-//         if (inZps[i] != wtZps[i]) {
-//           return emitError("Mismatched per-axis zero points at index ") << i;
-//         }
-//         outputScales.push_back(inScales[i] * wtScales[i]);
-//         outputZeroPoints.push_back(inZps[i]);
-//       }
-//     }
-//   }
-
-//   mlir::quant::QuantizedType outputQuantType;
-//   if (outputScales.size() == 1) {
-//     // Per-tensor quantization
-//     outputQuantType = mlir::quant::UniformQuantizedType::get(
-//         inputQuantType.getFlags(),
-//         inputQuantType.getStorageType(),
-//         inputQuantType.getExpressedType(),
-//         outputScales[0],
-//         outputZeroPoints[0],
-//         inputQuantType.getStorageTypeMin(),
-//         inputQuantType.getStorageTypeMax());
-//   } else {
-//     // Per-axis quantization
-//     auto axis =
-//     mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(weightQuantType).getQuantizedDimension();
-
-//     outputQuantType = mlir::quant::UniformQuantizedPerAxisType::get(
-//         inputQuantType.getFlags(),
-//         inputQuantType.getStorageType(),
-//         inputQuantType.getExpressedType(),
-//         llvm::ArrayRef<double>(outputScales),
-//         llvm::ArrayRef<int64_t>(outputZeroPoints),
-//         axis,
-//         inputQuantType.getStorageTypeMin(),
-//         inputQuantType.getStorageTypeMax());
-//   }
-//   llvm::errs() << "Output Quantized Type: " << outputQuantType << "\n";
-//   for (size_t i = 0; i < outputScales.size(); ++i) {
-//     llvm::errs() << "Output scales: " << outputScales[i] << "\n";
-//   }
-
-//   auto outputType = mlir::dyn_cast<RankedTensorType>(getResult().getType());
-//   if (!outputType)
-//     return emitError("Expected ranked tensor type for output");
-//   auto outputQuantizedType = RankedTensorType::get(outputType.getShape(),
-//   outputQuantType);
-
-//   Value newOutput = rewriter.create<mlir::tt::ttir::EmptyOp>(
-//     getLoc(), outputQuantizedType);
-
-//   // Create the new quantized convolution operation
-//   auto newConvOp = rewriter.create<ConvolutionOp>(
-//       getLoc(),                   // Location
-//       outputQuantizedType,        // Result type
-//       quantizedOperands[0],       // Quantized input
-//       quantizedOperands[1],       // Quantized weight
-//       getBias(),                  // Original bias
-//       newOutput,                  // New output buffer
-//       getWindowStrides(),         // Window strides
-//       getPadding(),               // Padding
-//       getInputDilation(),         // Input dilation
-//       getWeightDilation(),        // Weight dilation
-//       getWindowReversal(),        // Window reversal
-//       getConvolutionLayout(),     // Convolution layout
-//       getFeatureGroupCount(),     // Feature group count
-//       getBatchGroupCount());      // Batch group count
-
-//   // Replace the original op with the new op
-//   llvm::errs() << "New Conv: " << newConvOp << "\n";
-//   llvm::errs() << "Quantized Operands: " << quantizedOperands[0] << "\n";
-//   llvm::errs() << "Quantized Operands: " << quantizedOperands[1] << "\n";
-
-//   rewriter.replaceOp(getOperation(), newConvOp.getResult());
-//   return success();
-// }
-
 //===----------------------------------------------------------------------===//
 // PoolingOp
 // Ensures the following constraints:
@@ -1168,6 +1009,14 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
   return success();
 }
 
+// Rewrites the current PoolingOp to operate directly on quantized operands.
+//
+// This method constructs a new PoolingOp using the provided quantized inputs
+// and result type, preserving the original operation’s attributes.
+//
+// Returns:
+// - A pointer to the newly created quantized PoolingOp.
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
 mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
     mlir::PatternRewriter &rewriter,
     mlir::ArrayRef<mlir::Value> quantizedOperands,
@@ -1184,6 +1033,7 @@ mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
   rewriter.replaceOp(*this, newOp.getResults());
   return newOp.getOperation();
 }
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
 
 //===----------------------------------------------------------------------===//
 // Generic Pool2dOp verification
