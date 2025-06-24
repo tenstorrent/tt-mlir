@@ -177,13 +177,6 @@ class Run:
             help="disable read update index for kv cache workaround",
         )
         Run.register_arg(
-            name="--disable-raw-host-data-pointer-wrapper",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="disable runtime raw host data pointer wrapper workaround",
-        )
-        Run.register_arg(
             name="--disable-trace-implicit-from-device",
             type=bool,
             default=False,
@@ -308,13 +301,6 @@ class Run:
             default=1,
             choices=None,
             help="Random ones vs zeroes density, 1 = 100% ones, 2 = 50% ones, 3 = 33% ones, etc.",
-        )
-        Run.register_arg(
-            name="--benchmark",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="Enable benchmark mode with warmup and e2e time measurements. Only one program is executed, specified by --program-index. If --program-index is set to 'all', the first program is used. (automatically enables program cache and disables golden comparison)",
         )
 
     def __init__(self, args={}, logger=None, artifacts=None):
@@ -507,6 +493,7 @@ class Run:
                     input_layout = ttrt.runtime.get_layout(
                         fbb, program_index, input_index
                     )
+                    perf_env.tracy_log_op_location(f"loc(arg_{input_index})")
                     inputs_converted.append(
                         ttrt.runtime.to_layout(
                             inputs[input_index], device, input_layout, True
@@ -528,13 +515,18 @@ class Run:
             workaround_env = ttrt.runtime.WorkaroundEnv.get(
                 not self["--disable-swap-binary-operands"],
                 not self["--disable-read-update-index-for-kv-cache"],
-                not self["--disable-raw-host-data-pointer-wrapper"],
                 not self["--disable-trace-implicit-from-device"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
+            tracy_program_metadata = {
+                "disable_eth_dispatch": self["--disable-eth-dispatch"],
+                "enable_program_cache": self["--enable-program-cache"],
+                "dump_device_rate": self["--dump-device-rate"],
+            }
             perf_env = ttrt.runtime.PerfEnv.get(
                 self["--dump-device-rate"],
                 self["--enable-perf-trace"],
+                str(tracy_program_metadata),
             )
             self.logging.debug(f"setting tt runtime perf env={perf_env}")
             self.logging.debug(f"setting torch manual seed={self['--seed']}")
@@ -549,14 +541,6 @@ class Run:
 
             if "--init" in sys.argv:
                 self["--disable-golden"] = True
-
-            if self["--benchmark"]:
-                self["--enable-program-cache"] = True
-                self["--disable-golden"] = True
-
-                # In benchmark mode, only execute one program.
-                if self["--program-index"] == "all":
-                    self["--program-index"] = 0
 
             num_devices = len(self.query.device_ids)
             mesh_options = ttrt.runtime.MeshDeviceOptions()
@@ -678,7 +662,7 @@ class Run:
                         inputs = []
                         outputs = []
                         for i in program.input_tensors:
-                            new_input = ttrt.runtime.create_tensor(
+                            new_input = ttrt.runtime.create_borrowed_host_tensor(
                                 i.data_ptr(),
                                 list(i.shape),
                                 list(i.stride()),
@@ -689,7 +673,7 @@ class Run:
 
                         for i in program.output_tensors:
                             outputs.append(
-                                ttrt.runtime.create_tensor(
+                                ttrt.runtime.create_borrowed_host_tensor(
                                     i.data_ptr(),
                                     list(i.shape),
                                     list(i.stride()),
@@ -758,20 +742,19 @@ class Run:
                             device, inputs, bin.fbb, program_index
                         )
 
-                        if self["--benchmark"]:
-                            self.logging.info("Warming up device.")
-                            ttrt.runtime.submit(
-                                device,
-                                bin.fbb,
-                                program_index,
-                                inputs,
-                            )
-
-                        start_loop = time.perf_counter()
                         for loop in range(self["--loops"]):
                             self.logging.debug(
                                 f"starting loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
                             )
+                            tracy_program_metadata = {
+                                "loop_number": loop,
+                                "program_index": program_index,
+                                "disable_eth_dispatch": self["--disable-eth-dispatch"],
+                                "enable_program_cache": self["--enable-program-cache"],
+                                "dump_device_rate": self["--dump-device-rate"],
+                            }
+                            perf_env.set_program_metadata(str(tracy_program_metadata))
+
                             # Check if we need to dirty any input tensors in this iteration
                             if loop in update_tensor_schedule:
                                 for input_idx in update_tensor_schedule[loop]:
@@ -781,6 +764,9 @@ class Run:
                                         # Call the dirtyTensor function to increment the version counter
                                         expected_layout = ttrt.runtime.get_layout(
                                             bin.fbb, program_index, input_idx
+                                        )
+                                        perf_env.tracy_log_op_location(
+                                            f"loc(arg_{input_idx})"
                                         )
                                         result_tensor = ttrt.runtime.to_layout(
                                             tensor_to_dirty,
@@ -797,7 +783,7 @@ class Run:
                                             f"Cannot dirty input tensor {input_idx}, only {len(inputs)} inputs available"
                                         )
 
-                            start = time.perf_counter()
+                            start = time.perf_counter_ns()
                             runtime_outputs = ttrt.runtime.submit(
                                 device,
                                 bin.fbb,
@@ -806,6 +792,12 @@ class Run:
                             )
 
                             ttrt.runtime.wait(runtime_outputs)
+                            end = time.perf_counter_ns()
+                            e2e_duration_nanoseconds = end - start
+                            bin.add_program_results(
+                                program_index, loop, e2e_duration_nanoseconds
+                            )
+
                             for i, runtime_output_tensor in enumerate(runtime_outputs):
                                 output_host = ttrt.runtime.to_host(
                                     runtime_output_tensor, untilize=True
@@ -953,27 +945,6 @@ class Run:
 
                             self.logging.debug(
                                 f"finished loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
-                            )
-
-                        end = time.perf_counter()
-                        if self["--benchmark"]:
-                            bin.e2e_duration_milliseconds_all_loops = (
-                                end - start_loop
-                            ) * 1000
-                            bin.e2e_duration_milliseconds = (end - start) * 1000
-                            batch_size = inputs[0].get_shape()[0]
-                            samples_per_second = (
-                                batch_size / bin.e2e_duration_milliseconds * 1000
-                            )
-                            self.logging.info(
-                                f"Total execution time over {self['--loops']} loops: {bin.e2e_duration_milliseconds_all_loops} ms"
-                            )
-                            self.logging.info(
-                                f"Execution time last loop: {bin.e2e_duration_milliseconds} ms"
-                            )
-                            self.logging.info(f"Batch size: {batch_size}")
-                            self.logging.info(
-                                f"Samples per second: {samples_per_second}"
                             )
 
                         if event is not None:
@@ -1132,7 +1103,7 @@ class Run:
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
                     "program_index": self["--program-index"],
-                    "e2e_duration_milliseconds": bin.e2e_duration_milliseconds,
+                    "program_results": bin.program_results,
                 }
                 self.results.add_result(test_result)
                 self.logging.info(f"PASS: test case={bin.file_path}")
@@ -1148,7 +1119,7 @@ class Run:
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
                     "program_index": self["--program-index"],
-                    "e2e_duration_milliseconds": bin.e2e_duration_milliseconds,
+                    "program_results": bin.program_results,
                 }
                 self.results.add_result(test_result)
                 self.logging.info(f"PASS: test case={bin.file_path}")

@@ -2,27 +2,37 @@
 
 `ttir-builder` is a tool for creating TTIR operations. It provides support for MLIR modules to be generated from user-constructed ops, lowered into TTNN or TTMetal backends, and finally translated into executable flatbuffers. Or you can do all three at once!
 
-## Getting started and building
+## Building
 
-Build [ttmlir](./build.md).
-
-`TTIRBuilder` is a builder class providing the API for creating TTIR ops. The package `ttir_builder` contains everything needed to create ops for a TTIRBuilder object. `ttir_builder.utils` contains the APIs for wrapping op-creating-functions into MLIR modules and flatbuffers files.
+1. Build [tt-mlir](./getting-started.md)
+2. Build [`ttrt`](./ttrt.md#building)
+3. Generate ttsys file from the system you want to compile for using `ttrt`. This will create a `ttrt-artifacts` folder containing a `system_desc.ttsys` file.
 
 ```bash
-from ttir_builder import TTIRBuilder, Operand, Shape
+ttrt query --save-artifacts
+```
+
+4. Export this file in your environment using `export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys`. `ttir_builder.utils` uses the `system_desc.ttsys` file as it runs a pass over an MLIR module to the TTNN or TTMetal backend.
+
+## Getting started
+
+`TTIRBuilder` is a builder class providing the API for creating TTIR ops. The python package `ttir_builder` contains everything needed to create ops through a `TTIRBuilder` object. `ttir_builder.utils` contains the APIs for wrapping op-creating-functions into MLIR modules and flatbuffers files.
+
+```bash
+from ttir_builder import TTIRBuilder
 from ttir_builder.utils import compile_to_flatbuffer
 ```
 
-For the full set of supported ops, see `tools/ttir-builder/builder.py`.
+For the full set of supported TTIR ops, see `tools/ttir-builder/builder.py`.
 For more detailed information on available APIs, see `tools/ttir-builder/builder.py` and `tools/ttir-builder/utils.py`.
 
 ## Creating a TTIR module
 
-`build_mlir_module` defines an MLIR module specified as a python function. It wraps `test_fn` in a MLIR FuncOp then wraps that in an MLIR module, and finally ties arguments of that FuncOp to test function inputs. It will instantiate and pass a `TTIRBuilder` object as the last argument of `test_fn`.
+`build_mlir_module` defines an MLIR module specified as a python function. It wraps `fn` in a MLIR FuncOp then wraps that in an MLIR module, and finally ties arguments of that FuncOp to test function inputs. It will instantiate and pass a `TTIRBuilder` object as the last argument of `fn`.
 
 ```bash
 def build_mlir_module(
-    test_fn: Callable,
+    fn: Callable,
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
     mesh_shape: Optional[Tuple[int, int]] = None,
@@ -482,7 +492,7 @@ compile_to_flatbuffer(
 )
 ```
 
-## Integrating with other tools
+## Integrating with other tt-mlir tools
 
 ### Alternatives for file creation
 
@@ -530,9 +540,9 @@ Check and set `GoldenCheckLevel` with `TTIRBuilder` APIs.
 from ttir_builder import TTIRBuilder, Operand, GoldenCheckLevel
 
 def model(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
+    builder.golden_check_level = GoldenCheckLevel.GRAPH_LEVEL
     add_0 = builder.add(in0, in1)
     multiply_1 = builder.multiply(in1, add_0)
-    builder.golden_check_level = GoldenCheckLevel.GRAPH_LEVEL
     return builder.multiply(multiply_1, in2)
 ```
 
@@ -601,7 +611,7 @@ Running flatbuffers in `ttrt` requires additional building and setting up the en
 ```bash
 cmake --build build -- ttrt
 ttrt query --save-artifacts
-export SYSTEM_DESC_PATH=$(pwd)/ttrt-artifacts/system_desc.ttsys
+export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys
 ```
 
 Set environment variable `TTRT_LOGGER_LEVEL` to `DEBUG` so `ttrt` logs golden comparison results and prints graph level golden tensors.
@@ -613,7 +623,7 @@ export TTRT_LOGGER_LEVEL=DEBUG
 Finally run ttrt. Our example flatbuffer file (since we didn't specify otherwise) defaulted to file path `./ttnn/test_ttnn.mlir.ttnn`. `--log-file ttrt.log` and `--save-golden-tensors` are both optional flags. They ensure that all golden data produced by the `ttrt` run gets written to files.
 
 ```bash
-ttrt run ttnn/test_ttnn.mlir --log-file ttrt.log --save-golden-tensors
+ttrt run ttnn/test_ttnn.mlir.ttnn --log-file ttrt.log --save-golden-tensors
 ```
 
 #### Golden callbacks
@@ -644,6 +654,41 @@ def op_proxy(
     ttir_kwargs: dict = {},
 )
 ```
+
+Start by finding the TTIR op you wish to replicate in `include/ttmlir/Dialect/TTIR/IR/TTIROps.td` or the TTIR dialect [documentation](https://docs.tenstorrent.com/tt-mlir/autogen/md/Dialect/TTIROp.html).
+
+All op attributes should be included as arguments in your function and passed into a proxy function as keyword arguments using `ttir_kwargs`.
+
+All input operands should be passed into a proxy function using the argument `inputs`. Output operands are considered inputs and can optionally be passed into `inputs` if their shape or datatype is relevant to the op's result operand. `organize_ttir_args` dictates what information gets passed into autogenerated file `build/python_packages/ttmlir/dialects/_ttir_ops_gen.py` and can be used if operand arguments require special handling.
+
+Before writing a golden function, you need to know exactly what the TTIR op does to its input data because you will have to replicate that exactly using Pytorch operations. This information is usually covered in TTIR documentation, but if not, you may have to take it upon yourself to do some detective work and trial and error.
+
+Writing a golden function is very straightforward if Pytorch has a function that performs exactly the same operation. If so, pass that function into a proxy function as `op_golden_function`, any keywords into `golden_kwargs`, and use `organize_golden_args` if input operands differ from those of the TTIR op.
+
+If Pytorch doesn't have an identical operation, your job is about to get a little harder. Get creative with keyword argument handling, using similar Pytorch operations, and maybe multiple operations. Google is your friend. If you have to figure out how to do something Pytorch doesn't, odds are someone online has encountered the same situation.
+
+Example implementation:
+
+```bash
+def softmax(
+    self, in0: Operand, dimension: int = 1, unit_attrs: Optional[List[str]] = None
+) -> OpView:
+    return self.op_proxy(
+        torch.nn.functional.softmax,
+        ttir.SoftmaxOp,
+        [in0],
+        golden_kwargs={"dim": dimension},
+        organize_ttir_args=lambda i, o, _: (
+            self._get_type(o),
+            i[0],
+            o,
+            dimension,
+        ),
+        unit_attrs=unit_attrs,
+    )
+```
+
+#### Eltwise operations
 
 Eltwise ops require less specialized handling and call `op_proxy` through `eltwise_proxy`.
 

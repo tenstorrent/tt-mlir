@@ -31,7 +31,7 @@ struct device_operation_t {
     const char *loc;
 
     operation_attributes_t(const char *loc) : loc(loc) {}
-    tt::stl::reflection::Attributes attributes() const { return {}; }
+    ttsl::reflection::Attributes attributes() const { return {}; }
   };
   using tensor_args_t = std::vector<tt::tt_metal::Tensor>;
   using tensor_return_value_t = std::vector<tt::tt_metal::Tensor>;

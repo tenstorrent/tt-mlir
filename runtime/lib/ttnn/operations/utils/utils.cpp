@@ -8,6 +8,13 @@
 
 namespace tt::runtime::ttnn::operations::utils {
 
+void eventSync(::ttnn::MeshDevice *meshDevice, const ::ttnn::QueueId &recordCq,
+               const ::ttnn::QueueId &waitCq) {
+  ::ttnn::MeshEvent event =
+      ::ttnn::events::record_mesh_event(meshDevice, recordCq);
+  ::ttnn::events::wait_for_mesh_event(waitCq, event);
+}
+
 bool isTilized(const ::tt::target::ttnn::TensorRef *tensorRef) {
   const ::tt::target::Dim2d *tileShape =
       tensorRef->desc()->layout()->memory_desc()->tile_shape();
@@ -48,7 +55,7 @@ bool isTilized(const ::tt::target::ttnn::TensorRef *tensorRef) {
 bool shouldSwapBinaryOperands(const ::ttnn::Tensor &lhs,
                               const ::ttnn::Tensor &rhs) {
   return (workaround::Env::get().swapBinaryOperands) &&
-         (lhs.padded_volume() < rhs.padded_volume());
+         (lhs.physical_volume() < rhs.physical_volume());
 }
 
 ::ttnn::operations::unary::UnaryOpType

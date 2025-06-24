@@ -1,12 +1,12 @@
-# TT-Explorer - Project Architecture
+# `tt-explorer` - Project Architecture
 
-TT-Explorer is a tool made to ease the pain of tuning a model and developing on Tenstorrent hardware. It provides a “Human-In-Loop” interface such that the compiler results can be actively tuned and understood by the person compiling the model. To complete this goal, the tool has to be designed such that users of any level of experience are all able to glean useful information from the visualization of the model, and be able to **explore** what the model does.
+`tt-explorer` is a tool made to ease the pain of tuning a model and developing on Tenstorrent hardware. It provides a “Human-In-Loop” interface such that the compiler results can be actively tuned and understood by the person compiling the model. To complete this goal, the tool has to be designed such that users of any level of experience are all able to glean useful information from the visualization of the model, and be able to **explore** what the model does.
 
 ## Software Architecture
 
-The software will be built around the TT-Forge compiler to provide most of the functionality. [Model Explorer](https://github.com/google-ai-edge/model-explorer) will be used for the visualization functionality and as the main platform upon which TT-Explorer is built on.
+The software will be built around the TT-Forge compiler to provide most of the functionality. [Model Explorer](https://github.com/google-ai-edge/model-explorer) will be used for the visualization functionality and as the main platform upon which `tt-explorer` is built on.
 
-Since Model-Explorer is built using Python, the majority of TT-Explorer will be structured in Python, with frequent use of the bindings to C++ provided by TT-MLIR.
+Since Model-Explorer is built using Python, the majority of `tt-explorer` will be structured in Python, with frequent use of the bindings to C++ provided by TT-MLIR.
 
 The following components will be put together:
 
@@ -47,23 +47,23 @@ TT-Forge FE is _currently_ the primary frontend which uses TVM to transform conv
 **Ingests**: AI Model defined in PyTorch, TF, etc…
 **Emits**: Rudimentary TTIR Module consisting of Ops from AI Model.
 
-### [TT-MLIR](https://docs.tenstorrent.com/tt-mlir/overview.html)
+### [TT-MLIR](../overview.md)
 
-TT-MLIR currently defines the out-of-tree MLIR compiler created by Tenstorrent to specifically target TT Hardware as a backend. It comprises a platform of several dialects (TTIR, TTNN, TTMetal) and the passes and transformations to compile a model into an executable that can run on TT hardware. In the scope of TT-Explorer the python bindings will be leveraged.
+TT-MLIR currently defines the out-of-tree MLIR compiler created by Tenstorrent to specifically target TT Hardware as a backend. It comprises a platform of several dialects (TTIR, TTNN, TTMetal) and the passes and transformations to compile a model into an executable that can run on TT hardware. In the scope of `tt-explorer` the python bindings will be leveraged.
 
 **Ingests**: TTIR Module, Overrides JSON
 **Emits:** Python Bindings to interface with TTIR Module, Overridden TTIR Modules, Flatbuffers
 
 ### [TT-Adapter](https://github.com/tenstorrent/tt-mlir/tree/main/tools/explorer/tt_adapter)
 
-TT-Adapter is the adapter created for TT-Explorer that parses TTIR Modules using the Python Bindings provided by TT-MLIR to create a graph legible by model-explorer. It also has an extensible REST endpoint that is leveraged to implement functionality, this endpoint acts as the main bridge between the Client and Host side processes.
+TT-Adapter is the adapter created for `tt-explorer` that parses TTIR Modules using the Python Bindings provided by TT-MLIR to create a graph legible by model-explorer. It also has an extensible REST endpoint that is leveraged to implement functionality, this endpoint acts as the main bridge between the Client and Host side processes.
 
 It is the piece that connects Model Explorer, through a custom adapters that can visualize TTIR, to the rest of the architecture.
 
 **Ingests**: TTIR Modules, TT-MLIR Python Bindings, REST API Calls
 **Emits**: Model-Explorer Graph, REST API Results
 
-### [TTRT](https://docs.tenstorrent.com/tt-mlir/ttrt.html)
+### [`ttrt`](../ttrt.md)
 
 TT-RT is the runtime library for TT-Forge, which provides an API to run Flatbuffers generated from TT-MLIR. These flatbuffers contain the compiled results of the TTIR module, and TTRT allows us to query and execute them. Particularly, a performance trace can be generated using Tracy, which is fed into model-explorer to visualize the performance of operations in the graph.
 
@@ -72,7 +72,7 @@ TT-RT is the runtime library for TT-Forge, which provides an API to run Flatbuff
 
 ### [Model-Explorer](https://github.com/tenstorrent/model-explorer)
 
-Model Explorer is the backbone of the client and visualization of these models. It is placed in the “Client” portion of the diagram as this is where most interactions with Model Explorer will happen. Due to the "client and server" architecture, TT-Explorer will be run on the host, and so will the model-explorer instance.
+Model Explorer is the backbone of the client and visualization of these models. It is placed in the “Client” portion of the diagram as this is where most interactions with Model Explorer will happen. Due to the "client and server" architecture, `tt-explorer` will be run on the host, and so will the model-explorer instance.
 
 The frontend will be a client of the REST API created by TT-Adapter and will use URLs from the model-explorer server to visualize the models.
 
@@ -81,12 +81,12 @@ Currently TT maintains a fork of model-explorer which has changes to the UI elem
 **Ingests**: Model Explorer Graph, User-Provided Overrides (UI), Performance Trace
 **Emits**: Overrides JSON, Model Visualization
 
-These components all work together to provide the TT-Explorer platform.
+These components all work together to provide the `tt-explorer` platform.
 
 ## Client-Server Design Paradigm
 
-Since performance traces and execution rely on Silicon machines, there is a push to decouple the execution and MLIR-environment heavy aspects of TT-Explorer onto some host device with TT hardware on it. Then have a lightweight REST server, provided by TT-Adapter, to leverage the host device without having to constantly be on said host.
+Since performance traces and execution rely on Silicon machines, there is a push to decouple the execution and MLIR-environment heavy aspects of `tt-explorer` onto some host device with TT hardware on it. Then have a lightweight REST server, provided by TT-Adapter, to leverage the host device without having to constantly be on said host.
 
 And finally connect to a client through a web interface, thus removing the need to run the client and server in the same machine.
 
-This is very useful for cloud development (as is common Tenstorrent). In doing so, TT-Explorer is a project that can be spun up in either a `tt-mlir` environment, or without one. The lightweight python version of TT-Explorer provides a set of utilities that call upon and visualize models from the host, the host will start the server and serve the API to be consumed. The client can then be any browser that connects to that server.
+This is very useful for cloud development (as is common Tenstorrent). In doing so, `tt-explorer` is a project that can be spun up in either a `tt-mlir` environment, or without one. The lightweight python version of `tt-explorer` provides a set of utilities that call upon and visualize models from the host, the host will start the server and serve the API to be consumed. The client can then be any browser that connects to that server.

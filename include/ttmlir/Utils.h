@@ -31,12 +31,8 @@ constexpr inline llvm::StringLiteral g_conv2dWeightAttrName =
 
 template <typename T>
 T alignUp(T ptr, T alignment) {
-  return (ptr + alignment - 1) & ~(alignment - 1);
-}
-
-template <typename T>
-T alignDown(T ptr, T alignment) {
-  return ptr & ~(alignment - 1);
+  T distance = ptr % alignment;
+  return ptr + (distance == 0 ? 0 : (alignment - distance));
 }
 
 template <typename T>

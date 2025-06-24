@@ -2,12 +2,13 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from ttmlir.mlir_module_executor import (
+from op_by_op_infra.mlir_module_executor import (
     ExecutionPhase,
     ExecutionResult,
     MLIRModuleExecutor,
 )
-from ttmlir.utils import ModuleDialect, ModuleWrapper
+from op_by_op_infra.utils import ModuleWrapper
+from ttmlir.compile_and_run_utils import ModuleDialect
 
 from .fixtures import *
 

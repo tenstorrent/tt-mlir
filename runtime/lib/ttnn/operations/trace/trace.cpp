@@ -53,7 +53,7 @@ static void executeTraceProgramAndCaptureTrace(
     // Store the trace input tensor
     ::tt::runtime::Tensor traceInputTensor =
         ::tt::runtime::ttnn::utils::createRuntimeTensorFromTTNN(
-            traceInputTensorTTNN, /*retain=*/true);
+            traceInputTensorTTNN, /*meshEvent=*/std::nullopt, /*retain=*/true);
     ::tt::runtime::ttnn::TTNNTensorWrapper &traceInputTensorWrapper =
         traceInputTensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(
             DeviceRuntime::TTNN);

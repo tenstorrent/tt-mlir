@@ -1,4 +1,4 @@
-# TT-Explorer - API
+# `tt-explorer` - API
 
 ## TT-Adapter
 
@@ -36,7 +36,7 @@ class TTAdapter(Adapter):
     pass
 ```
 
-This function is invoked and called from a new instance every time. This is important to understand for the idea of persisting information on the server. As all requests to the server are _stateless_, the onus is often on the end-user to keep track of important information such as the path of a model they've uploaded, or the paths of important artifacts that the server has produced. `TTExplorer` aims to make this as easy as possible, but this may not always be possible due to the very nature of how the server works.
+This function is invoked and called from a new instance every time. This is important to understand for the idea of persisting information on the server. As all requests to the server are _stateless_, the onus is often on the end-user to keep track of important information such as the path of a model they've uploaded, or the paths of important artifacts that the server has produced. `tt-explorer` aims to make this as easy as possible, but this may not always be possible due to the very nature of how the server works.
 
 Information can be processed in this function as defined by the user, and often settings becomes a versatile endpoint to provide more information and context for the execution of some function. As an example, refer to `ModelRunner:initialize`, this function doesn't use any of the parameter, as such they are not processed at all, and the function only executes a static initialization process regardless of the parameters passed into the command.
 

@@ -1,6 +1,6 @@
 # `tt-explorer`
 
-Welcome to the tt-explorer wiki! The Wiki will serve as a source for documentation, examples, and general knowledge related to the TT-MLIR visualization project. The sidebar will provide navigation to relevant pages. If this is your first time hearing about the project, take a look at Project Architecture for an in-depth introduction to the tool and motivations behind it :)
+Welcome to the `tt-explorer` wiki! The Wiki will serve as a source for documentation, examples, and general knowledge related to the TT-MLIR visualization project. The sidebar will provide navigation to relevant pages. If this is your first time hearing about the project, take a look at Project Architecture for an in-depth introduction to the tool and motivations behind it. 🙂
 
 ## Overview
 
@@ -8,7 +8,7 @@ Visualizer tool for `ttmlir`-powered compiler results. Visualizes from emitted `
 
 ## Quick Start
 
-TT-Explorer comes packaged as a tool in the `tt-mlir` repo. If you haven't done so yet, please refer to ["Setting up the environment manually"](../getting-started.md#setting-up-the-environment-manually) section from the Getting Started Guide to build the environment manually.
+`tt-explorer` comes packaged as a tool in the `tt-mlir` repo. If you haven't done so yet, please refer to ["Setting up the environment manually"](../getting-started.md#setting-up-the-environment-manually) section from the Getting Started Guide to build the environment manually.
 
 Here is a summary of the steps needed:
 
@@ -19,7 +19,7 @@ Here is a summary of the steps needed:
    - `-DTTMLIR_ENABLE_RUNTIME=ON`
    - `-DTT_RUNTIME_DEBUG=ON`
 4. Build `explorer` target in `tt-mlir` using `cmake --build build -- explorer`
-5. Run `tt-explorer` in terminal to start tt-explorer instance. (Refer to CLI section in API for specifics)
+5. Run `tt-explorer` in terminal to start `tt-explorer` instance. (Refer to CLI section in API for specifics)
    - **Note**: `tt-explorer` requires [Pandas](https://pypi.org/project/pandas/) in addition to the `tt-mlir` [System Dependencies](https://docs.tenstorrent.com/tt-mlir/getting-started.html#system-dependencies).
 6. Ensure server has started in `tt-explorer` shell instance (check for message below)
    ```
@@ -58,11 +58,11 @@ Starting Model Explorer server at:
 http://localhost:8080
 ```
 
-### Running TT-Explorer CI Tests Locally
+### Running `tt-explorer` CI Tests Locally
 
 > **Note:** CI tests are ran like described below. Here we provide the steps needed to reproduce it and debug failing CI tests locally.
 
-TT-Explorer relies on tests that are present in the `tests/` directory as well as tests dynamically created through `llvm-lit`. Below are the steps to replicate the testing procedure seen in CI:
+`tt-explorer` relies on tests that are present in the `tests/` directory as well as tests dynamically created through `llvm-lit`. Below are the steps to replicate the testing procedure seen in CI:
 
 1. Make sure you're in the `tt-mlir` directory
 2. You need to build the explorer target with `cmake --build build -- explorer`

@@ -1,10 +1,10 @@
-# TT-Explorer UI
+# `tt-explorer` UI
 
 For general reference of the UI, refer to the [model-explorer wiki](https://github.com/google-ai-edge/model-explorer/wiki). This section will highlight specific UI elements added to the Tenstorrent fork of model-explorer.
 
 ## Model Execution
 
-![Toolbar added by TT-Explorer fork](../images/tt-explorer/toolbar.png)
+![Toolbar added by `tt-explorer` fork](../images/tt-explorer/toolbar.png)
 
 In the top right of the screen an additional button has been added to the top bar, it sends the model to the server for execution and updates the visualization once it has been executed. Once the model has executed, _overlays_ are also created. These overlays provide information on how the execution went.
 

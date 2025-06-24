@@ -137,10 +137,10 @@ void registerRuntimeBindings(nb::module_ &m) {
            })
       .def(
           "get_data_buffer",
-          [](tt::runtime::Tensor self) {
+          [](tt::runtime::Tensor self) -> nb::bytearray {
             std::vector<std::byte> vec = tt::runtime::getTensorDataBuffer(self);
-            return nb::bytes(reinterpret_cast<const char *>(vec.data()),
-                             vec.size());
+            return nb::bytearray(reinterpret_cast<const char *>(vec.data()),
+                                 vec.size());
           },
           nb::rv_policy::take_ownership);
 
@@ -167,7 +167,14 @@ void registerRuntimeBindings(nb::module_ &m) {
       .value("UInt32", ::tt::target::DataType::UInt32)
       .value("UInt16", ::tt::target::DataType::UInt16)
       .value("UInt8", ::tt::target::DataType::UInt8)
-      .value("Int32", ::tt::target::DataType::Int32);
+      .value("Int32", ::tt::target::DataType::Int32)
+      // Unsupported data types
+      .value("Float64", ::tt::target::DataType::Float64)
+      .value("Int64", ::tt::target::DataType::Int64)
+      .value("UInt64", ::tt::target::DataType::UInt64)
+      .value("Int16", ::tt::target::DataType::Int16)
+      .value("Int8", ::tt::target::DataType::Int8)
+      .value("Bool", ::tt::target::DataType::Bool);
 
   nb::enum_<::tt::runtime::DeviceRuntime>(m, "DeviceRuntime")
       .value("Disabled", ::tt::runtime::DeviceRuntime::Disabled)
@@ -198,18 +205,16 @@ void registerRuntimeBindings(nb::module_ &m) {
         nb::arg("mesh_device") = nb::none(),
         "Get the current system descriptor");
   m.def(
-      "create_tensor",
+      "create_borrowed_host_tensor",
       [](std::uintptr_t ptr, const std::vector<std::uint32_t> &shape,
          const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
          ::tt::target::DataType dataType) {
-        return tt::runtime::createTensor(
-            ::tt::runtime::utils::unsafe_borrow_shared(
-                reinterpret_cast<void *>(ptr)),
-            shape, stride, itemsize, dataType);
+        return tt::runtime::createBorrowedHostTensor(
+            reinterpret_cast<void *>(ptr), shape, stride, itemsize, dataType);
       },
       "Create a host tensor with borrowed memory");
   m.def(
-      "create_owned_tensor",
+      "create_owned_host_tensor",
       [](std::uintptr_t ptr, const std::vector<std::uint32_t> &shape,
          const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
          ::tt::target::DataType dataType) {
@@ -228,7 +233,7 @@ void registerRuntimeBindings(nb::module_ &m) {
       },
       "Create an empty tensor with the specified layout");
   m.def(
-      "create_multi_device_tensor",
+      "create_multi_device_host_tensor",
       [](std::vector<std::uintptr_t> &ptrs,
          const std::vector<std::uint32_t> &shape,
          const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
@@ -261,7 +266,8 @@ void registerRuntimeBindings(nb::module_ &m) {
   m.def("reshape_mesh_device", &tt::runtime::reshapeMeshDevice,
         nb::arg("mesh_device"), nb::arg("mesh_shape"), "Reshape a mesh device");
   m.def("to_host", &tt::runtime::toHost, nb::arg("tensor"),
-        nb::arg("untilize") = false, "Copy the tensor to the host");
+        nb::arg("untilize") = false, nb::arg("blocking") = true,
+        "Copy the tensor to host");
   m.def("to_layout", &tt::runtime::toLayout, nb::arg("tensor"),
         nb::arg("device"), nb::arg("layout"), nb::arg("retain") = nb::none(),
         "Create a copy of the tensor with the specified layout");
@@ -283,14 +289,16 @@ void registerRuntimeBindings(nb::module_ &m) {
       "wait", [](::tt::runtime::Event event) { ::tt::runtime::wait(event); },
       nb::arg("event"));
   m.def(
-      "wait", [](::tt::runtime::Tensor tensor) { ::tt::runtime::wait(tensor); },
-      nb::arg("tensor"));
+      "wait",
+      [](::tt::runtime::Tensor tensor, std::optional<uint8_t> cqId) {
+        ::tt::runtime::wait(tensor, cqId);
+      },
+      nb::arg("tensor"), nb::arg("cq_id") = nb::none());
   m.def(
       "wait",
-      [](const std::vector<::tt::runtime::Tensor> &tensors) {
-        ::tt::runtime::wait(tensors);
-      },
-      nb::arg("tensors"));
+      [](const std::vector<::tt::runtime::Tensor> &tensors,
+         std::optional<uint8_t> cqId) { ::tt::runtime::wait(tensors, cqId); },
+      nb::arg("tensors"), nb::arg("cq_id") = nb::none());
   m.def(
       "get_op_output_tensor",
       [](tt::runtime::OpContext &opContextHandle,
@@ -308,11 +316,12 @@ void registerRuntimeBindings(nb::module_ &m) {
         "Get the location info of the op");
   m.def(
       "memcpy",
-      [](std::uintptr_t dst, ::tt::runtime::Tensor src) {
+      [](std::uintptr_t dst, ::tt::runtime::Tensor src,
+         std::optional<::tt::target::DataType> dstDataType) {
         void *dstPtr = reinterpret_cast<void *>(dst);
-        ::tt::runtime::memcpy(dstPtr, src);
+        ::tt::runtime::memcpy(dstPtr, src, dstDataType);
       },
-      nb::arg("dst"), nb::arg("src"),
+      nb::arg("dst"), nb::arg("src"), nb::arg("dstDataType") = nb::none(),
       "Copy the data from src tensor to dst pointer");
   m.def(
       "memcpy",
@@ -333,7 +342,13 @@ void registerRuntimeBindings(nb::module_ &m) {
       });
 
   nb::class_<tt::runtime::perf::Env>(m, "PerfEnv")
-      .def_static("get", &tt::runtime::perf::Env::get)
+      .def_static("get", &tt::runtime::perf::Env::get, nb::rv_policy::reference)
+      .def("set_program_metadata", &tt::runtime::perf::Env::setProgramMetadata)
+      .def("tracy_log_op_location", &tt::runtime::perf::Env::tracyLogOpLocation)
+      .def("tracy_log_const_eval_program",
+           &tt::runtime::perf::Env::tracyLogConstEvalProgram)
+      .def("tracy_log_program_metadata",
+           &tt::runtime::perf::Env::tracyLogProgramMetadata)
       .def("__str__", [](const tt::runtime::perf::Env &env) {
         std::stringstream os;
         os << env;

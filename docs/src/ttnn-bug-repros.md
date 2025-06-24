@@ -12,7 +12,7 @@ While developing in [tt-mlir](https://github.com/tenstorrent/tt-mlir), it's not 
 
 Use the `ttnn-standalone` tool to run the compiler and emit C++ code.
 
-> 📖 See [ttnn-standalone.md](ttnn-standalone.md) for instructions on how to generate C++ code from your MLIR input using EmitC.
+> 📖 See [`ttnn-standalone`](./ttnn-standalone.md) for instructions on how to generate C++ code from your MLIR input using EmitC.
 
 ### 2. Scope Down the Repro
 

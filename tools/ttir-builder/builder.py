@@ -479,21 +479,28 @@ class TTIRBuilder:
     def metal_tensor_layout(
         self,
         shape: Shape,
-        grid,
-        tiled=False,
-        memorySpace=ttcore.MemorySpace.DeviceL1,
-        collapseIntervals=[(0, -1)],
+        tilize=False,
         oobVal=ttcore.OOBVal.Undef,
+        memorySpace=ttcore.MemorySpace.DeviceL1,
     ):
         ctx = self._ctx
-        if isinstance(grid, list) or isinstance(grid, tuple):
-            grid = ttcore.ir.GridAttr.get(ctx, list(grid))
-        tensorTy = RankedTensorType.get(shape, F32Type.get(ctx))
-        layout = ttcore.ir.MetalLayoutAttr.get(
-            self._ctx, tensorTy, grid, tiled, memorySpace, collapseIntervals, oobVal
-        )
+
+        # Create layout with original logical shape.
+        layout = ttcore.ir.MetalLayoutAttr.get(ctx, shape, oobVal, memorySpace)
+
+        # Then shard the new shape by adding 1-filled grid dims.
+        original_rank = len(shape)
+        extended_shape = [1] * original_rank + list(shape)
+
+        elemType = F32Type.get(ctx)
+
+        if tilize:
+            elemType = ttcore.ir.TileType.get(ctx, 32, 32, ttcore.DataType.Float32)
+            extended_shape[-2] //= 32
+            extended_shape[-1] //= 32
+
         return RankedTensorType.get(
-            shape, F32Type.get(ctx), layout, Location.unknown(ctx)
+            extended_shape, elemType, layout, Location.unknown(ctx)
         )
 
     def empty_from_tensor_type(
@@ -1298,7 +1305,6 @@ class TTIRBuilder:
         self, in0: Operand, dimension: int = 1, unit_attrs: Optional[List[str]] = None
     ) -> OpView:
         return self.op_proxy(
-            # torch.softmax,
             torch.nn.functional.softmax,
             ttir.SoftmaxOp,
             [in0],
@@ -1782,17 +1788,14 @@ class TTIRBuilder:
         dim: int = 0,
         begin: int = 0,
         length: int = 2,
-        stride: Optional[int] = None,
+        stride: int = 2,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         end = begin + length - 1
         index = torch.tensor([begin, end])
-        # TODO: handle stride. Issue #2488
-        if stride:
-            pass
         return self.op_proxy(
             torch.index_select,
-            ttir.SelectOp,
+            ttir.IndexSelectOp,
             [in0],
             golden_kwargs={"dim": dim, "index": index},
             ttir_kwargs={

@@ -7,7 +7,6 @@ import json
 import importlib.machinery
 import sys
 import signal
-import os
 import io
 import subprocess
 import time
@@ -18,6 +17,7 @@ import atexit
 import traceback
 from pathlib import Path
 import csv
+import ast
 
 from ttrt.common.util import *
 from ttrt.common.query import Query
@@ -125,6 +125,20 @@ class Perf:
             default=False,
             choices=[True, False],
             help="toggles emitc testing",
+        )
+        Perf.register_arg(
+            name="--trace-region-size",
+            type=int,
+            default=0,
+            choices=None,
+            help="Device trace region size",
+        )
+        Perf.register_arg(
+            name="--dump-device-rate",
+            type=int,
+            default=1000,
+            choices=None,
+            help="Rate at which to flush device perf information",
         )
         Perf.register_arg(
             name="binary",
@@ -427,6 +441,16 @@ class Perf:
                     if self["--emitc"]:
                         command_options += " --emitc "
 
+                    if self["--trace-region-size"] > 0:
+                        command_options += (
+                            f" --trace-region-size {self['--trace-region-size']} "
+                        )
+
+                    if self["--dump-device-rate"] != 1000:
+                        command_options += (
+                            f" --dump-device-rate {self['--dump-device-rate']} "
+                        )
+
                     ttrt_executable_path = shutil.which("ttrt")
                     test_command = (
                         f"{ttrt_executable_path} run {bin.file_path} {command_options}"
@@ -572,8 +596,11 @@ class Perf:
                     global_call_count_const_eval_op_mapping = get_mlir_analysis_results(
                         "MLIR_CONST_EVAL_OP"
                     )
+                    global_call_count_program_metadata_op_mapping = (
+                        get_mlir_analysis_results("MLIR_PROGRAM_METADATA")
+                    )
 
-                    # Add location data and const_eval_op op data to profiler csv file
+                    # Add location data, const_eval_op data and program metadata to profiler csv file
                     dir_name = os.path.dirname(profiler_csv_file_path)
                     base_name = os.path.basename(profiler_csv_file_path)
                     file_root, file_ext = os.path.splitext(base_name)
@@ -583,7 +610,11 @@ class Perf:
                         profiler_csv_file_path, mode="r", newline=""
                     ) as infile, open(temp_file, mode="w", newline="") as outfile:
                         reader = csv.DictReader(infile)
-                        fieldnames = reader.fieldnames + ["LOC", "CONST_EVAL_OP"]
+                        fieldnames = reader.fieldnames + [
+                            "LOC",
+                            "CONST_EVAL_OP",
+                            "PROGRAM_METADATA",
+                        ]
                         writer = csv.DictWriter(outfile, fieldnames=fieldnames)
                         writer.writeheader()
 
@@ -613,6 +644,19 @@ class Perf:
                             else:
                                 row["CONST_EVAL_OP"] = "false"
 
+                            # Append the program metadata column with its metadata
+                            if (
+                                local_call_count
+                                in global_call_count_program_metadata_op_mapping.keys()
+                            ):
+                                row[
+                                    "PROGRAM_METADATA"
+                                ] = global_call_count_program_metadata_op_mapping[
+                                    local_call_count
+                                ]
+                            else:
+                                row["PROGRAM_METADATA"] = "{}"
+
                             writer.writerow(row)
 
                     os.replace(temp_file, profiler_csv_file_path)
@@ -632,6 +676,97 @@ class Perf:
                             if result["result"] == "test_error":
                                 raise TTRTTestException(str(result["exception"]))
                             raise Exception(f'{result["exception"]}')
+
+                        if result["file_path"] == bin.file_path:
+                            # post-process statistics for ttnn host duration, device fw duration
+                            bin.program_results = result["program_results"]
+                            total_ttnn_api_duration_map = {}
+                            total_device_kernel_duration_map = {}
+
+                            with open(
+                                profiler_csv_file_path,
+                                mode="r",
+                                newline="",
+                                encoding="utf-8",
+                            ) as csvfile:
+                                reader = csv.DictReader(csvfile)
+
+                                for row in reader:
+                                    const_eval_op = bool(row.get("CONST_EVAL_OP"))
+                                    program_metadata = ast.literal_eval(
+                                        row.get("PROGRAM_METADATA")
+                                    )
+                                    device_kernel_duration = int(
+                                        row.get("DEVICE KERNEL DURATION [ns]")
+                                    )
+                                    ttnn_api_duration = int(
+                                        row.get("HOST DURATION [ns]")
+                                    )
+
+                                    if len(program_metadata) == 0:
+                                        continue
+
+                                    program_index = program_metadata["program_index"]
+                                    loop_number = program_metadata["loop_number"]
+
+                                    if (
+                                        program_index
+                                        not in total_ttnn_api_duration_map.keys()
+                                    ):
+                                        total_ttnn_api_duration_map[program_index] = {}
+
+                                    if (
+                                        program_index
+                                        not in total_device_kernel_duration_map.keys()
+                                    ):
+                                        total_device_kernel_duration_map[
+                                            program_index
+                                        ] = {}
+
+                                    if (
+                                        loop_number
+                                        not in total_ttnn_api_duration_map[
+                                            program_index
+                                        ].keys()
+                                    ):
+                                        total_ttnn_api_duration_map[program_index][
+                                            loop_number
+                                        ] = 0
+
+                                    if (
+                                        loop_number
+                                        not in total_device_kernel_duration_map[
+                                            program_index
+                                        ].keys()
+                                    ):
+                                        total_device_kernel_duration_map[program_index][
+                                            loop_number
+                                        ] = 0
+
+                                    total_device_kernel_duration_map[program_index][
+                                        loop_number
+                                    ] += device_kernel_duration
+                                    total_ttnn_api_duration_map[program_index][
+                                        loop_number
+                                    ] += ttnn_api_duration
+
+                            for (
+                                program_index,
+                                loop_dic,
+                            ) in total_ttnn_api_duration_map.items():
+                                for loop_number, duration in loop_dic.items():
+                                    bin.update_total_ttnn_api_duration_ns(
+                                        program_index, loop_number, duration
+                                    )
+
+                            for (
+                                program_index,
+                                loop_dic,
+                            ) in total_device_kernel_duration_map.items():
+                                for loop_number, duration in loop_dic.items():
+                                    bin.update_total_device_kernel_duration_ns(
+                                        program_index, loop_number, duration
+                                    )
 
                 except Exception as e:
                     result = "error"
@@ -675,6 +810,7 @@ class Perf:
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
                     "program_index": self["--program-index"],
+                    "program_results": bin.program_results,
                 }
                 self.results.add_result(test_result)
                 self.logging.info(f"PASS: test case={bin.file_path}")
@@ -690,6 +826,7 @@ class Perf:
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
                     "program_index": self["--program-index"],
+                    "program_results": bin.program_results,
                 }
                 self.results.add_result(test_result)
                 self.logging.info(f"PASS: test case={bin.file_path}")

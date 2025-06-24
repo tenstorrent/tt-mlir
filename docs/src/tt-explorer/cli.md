@@ -1,10 +1,10 @@
-# TT-Explorer CLI
+# `tt-explorer` CLI
 
-This section provides a details about the usage of TT-Explorer.
+This section provides a details about the usage of `tt-explorer`.
 
 ## Input Models
 
-Currently TT-Explorer supports 3 types of models that can be executed/visualized.
+Currently `tt-explorer` supports 3 types of models that can be executed/visualized.
 
 | Input Type                             | Execution Support | Visualization Support |
 | -------------------------------------- | ----------------- | --------------------- |
@@ -40,4 +40,4 @@ Example usage:
 tt-explorer -p 8000 -u 0.0.0.0 -q
 ```
 
-This command will start the TT-Explorer server on port 8000, accessible at the address 0.0.0.0, and without opening a browser tab.
+This command will start the `tt-explorer` server on port 8000, accessible at the address 0.0.0.0, and without opening a browser tab.
