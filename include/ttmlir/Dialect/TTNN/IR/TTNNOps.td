@@ -1424,6 +1424,7 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d"> {
                          DenseI32ArrayAttr:$output_padding,
                          DenseI32ArrayAttr:$dilation,
                          I32Attr:$groups,
+                         OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);

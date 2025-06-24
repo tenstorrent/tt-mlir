@@ -1104,7 +1104,7 @@ public:
         adaptor.getBias(), device, inChannelsAttr, outChannelsAttr,
         batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
         *strideAttr, reducedPaddingAttr, *outputPaddingAttr, *dilationAttr,
-        groupsAttr, /*memoryConfig=*/nullptr);
+        groupsAttr, /*conv2d_config=*/nullptr, /*memoryConfig=*/nullptr);
 
     // Restore the normal shape (N x H x W x C).
     Value output =
