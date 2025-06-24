@@ -6,9 +6,6 @@
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
-
 namespace mlir::tt::ttir {
 
 static std::optional<SmallVector<int64_t>>
@@ -68,24 +65,11 @@ matchAndCalculateMatmulInterchange(ArrayRef<AffineMap> maps,
   return interchange;
 }
 
-static std::optional<SmallVector<int64_t>>
-calculateInterchange(ArrayRef<AffineMap> maps, ArrayRef<IteratorType> iters,
-                     const InterchangeOptions &options) {
-  std::optional<SmallVector<int64_t>> interchange;
-
-  interchange = matchAndCalculateMatmulInterchange(maps, iters,
-                                                   options.matmulInterchange);
-  if (interchange) {
-    return interchange;
-  }
-
-  return interchange;
-}
-
 std::optional<SmallVector<int64_t>>
 calculateInterchange(GenericOp op, const InterchangeOptions &options) {
-  return calculateInterchange(op.getIndexingMapsValue(),
-                              op.getIteratorTypesValue(), options);
+  return matchAndCalculateMatmulInterchange(op.getIndexingMapsValue(),
+                                            op.getIteratorTypesValue(),
+                                            options.matmulInterchange);
 }
 
 } // namespace mlir::tt::ttir

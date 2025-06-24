@@ -53,10 +53,10 @@ public:
     SmallVector<AffineMap> newIndexingMaps;
     SmallVector<Attribute> newIteratorTypes;
     SmallVector<Attribute> newBlockFactors;
+    AffineMap permutationMap = mlir::inversePermutation(
+        AffineMap::getPermutationMap(interchange, builder.getContext()));
     for (size_t i = 0; i < indexingMaps.size(); i++) {
-      AffineMap permuatationMap = mlir::inversePermutation(
-          AffineMap::getPermutationMap(interchange, builder.getContext()));
-      newIndexingMaps.push_back(indexingMaps[i].compose(permuatationMap));
+      newIndexingMaps.push_back(indexingMaps[i].compose(permutationMap));
       newIteratorTypes.push_back(iteratorTypes[interchange[i]]);
       newBlockFactors.push_back(blockFactors[interchange[i]]);
     }
