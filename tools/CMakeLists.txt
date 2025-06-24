@@ -1,5 +1,6 @@
 add_subdirectory(ttmlir-opt)
 add_subdirectory(ttmlir-lsp-server)
+add_subdirectory(ttmlir-reduce)
 if(TTMLIR_ENABLE_BINDINGS_PYTHON AND MLIR_ENABLE_BINDINGS_PYTHON)
   add_subdirectory(ttir-builder)
 
