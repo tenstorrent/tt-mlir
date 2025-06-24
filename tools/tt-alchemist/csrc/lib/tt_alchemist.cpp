@@ -172,6 +172,8 @@ bool TTAlchemist::createSolution(const std::string &input_file,
     return false;
   }
 
+  cppFile << cppCode;
+
   cppFile.close();
 
   return true;
