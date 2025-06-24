@@ -162,7 +162,7 @@ jobs:
           # {runs-on: n150,   sh-run: false, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n150/perf"},
           # {runs-on: n150,   sh-run: false, name: "perf", suite: "optimizer",         image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n150/optimizer"},
           # {runs-on: n150,   sh-run: false, name: "run",  suite: "emitc",             image: "tracy",  type: "ttrt",     path: "EmitC", flags: "--emitc"},
-          {runs-on: cane,   sh-run: false, name: "run",  suite: "op_model",          image: "speedy", type: "ttrt",     path: "Silicon/TTNN/n150/optimizer", flags: "--non-zero"},
+          {runs-on: n150,   sh-run: false, name: "run",  suite: "op_model",          image: "speedy", type: "ttrt",     path: "Silicon/TTNN/n150/optimizer", flags: "--non-zero"},
           # {runs-on: n150,   sh-run: false, name: "run",  suite: "runtime_debug",     image: "tracy",  type: "ttrt",     path: "Silicon", flags: "--non-zero"},
           # {runs-on: n300,   sh-run: true,  name: "run",  suite: "run",               image: "speedy", type: "ttrt",     path: "Silicon", flags: "--non-zero"},
           # {runs-on: n300,   sh-run: true, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n300/perf"},
@@ -495,119 +495,6 @@ jobs:
         # pull requests
         suggestions_per_comment: 10
         python_path: "python3"
-
-  debug:
-    needs: build-image
-    timeout-minutes: 120
-    strategy:
-      fail-fast: false
-    name: Debug Build
-    runs-on: ubuntu-latest
-    container:
-      image: ${{ needs.build-image.outputs.docker-image }}
-
-    steps:
-
-    - name: Maximize space
-      if: ${{ matrix.build.runs-on }} == 'ubuntu-latest'
-      uses: tenstorrent/tt-github-actions/.github/actions/maximize_space@main
-
-    - uses: actions/checkout@v4
-      with:
-          fetch-depth: 0
-
-    - name: Set reusable strings
-      id: strings
-      shell: bash
-      run: |
-        echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
-        echo "build-output-dir=$(pwd)/build_debug" >> "$GITHUB_OUTPUT"
-
-    - name: Git safe dir
-      run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
-
-    - name: ccache
-      uses: hendrikmuhs/ccache-action@v1.2
-      with:
-        create-symlink: true
-        key: debug-${{ env.SDK_VERSION }}
-
-    - name: Configure CMake
-      shell: bash
-      run: |
-        source env/activate
-        cmake -G Ninja \
-        -B ${{ steps.strings.outputs.build-output-dir }} \
-        -DCMAKE_CXX_COMPILER=clang++-17 \
-        -DCMAKE_C_COMPILER=clang-17 \
-        -DCMAKE_BUILD_TYPE=Debug \
-        -DCMAKE_INSTALL_PREFIX=${{ steps.strings.outputs.install-output-dir }} \
-        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-        -DTTMLIR_ENABLE_RUNTIME=OFF \
-        -DTTMLIR_ENABLE_RUNTIME_TESTS=OFF \
-        -DTTMLIR_ENABLE_STABLEHLO=ON \
-        -DTTMLIR_ENABLE_OPMODEL=OFF \
-        -DCODE_COVERAGE=ON \
-        -S ${{ steps.strings.outputs.work-dir }}
-
-    - name: Build
-      id: build
-      shell: bash
-      run: |
-        source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }}
-
-    - name: Check
-      id: check
-      shell: bash
-      run: |
-        source env/activate
-        lcov --directory ${{ steps.strings.outputs.build-output-dir }} --capture --initial --output-file baseline.info --gcov-tool ${{ steps.strings.outputs.work-dir }}/.github/workflows/gcov_for_clang.sh
-        # this will output `test/report.xml` in the build dir:
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} --target check-ttmlir
-
-    - name: Upload Check Test Report xml
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: check_test_report.xml
-        path: ${{ steps.strings.outputs.build-output-dir }}/test/report.xml
-        if-no-files-found: 'ignore'
-
-    - name: Show Check Test Report
-      continue-on-error: true
-      uses: mikepenz/action-junit-report@v5
-      if: always()
-      with:
-        report_paths: ${{ steps.strings.outputs.build-output-dir }}/test/report.xml
-        check_name: Debug
-        detailed_summary: true
-        include_time_in_summary: true
-        include_passed: true
-
-    - name: Prepare code coverage report
-      run: |
-        lcov --directory ${{ steps.strings.outputs.build-output-dir }} --capture --output-file coverage.info --gcov-tool ${{ steps.strings.outputs.work-dir }}/.github/workflows/gcov_for_clang.sh
-        lcov --add-tracefile baseline.info --add-tracefile coverage.info --output-file coverage.total
-        lcov --extract coverage.total '**/tt-mlir/*' --output-file coverage.info
-        sed -i 's|SF:/__w/tt-mlir/tt-mlir/|SF:|' coverage.info
-        lcov --list coverage.info
-
-    - name: Upload coverage reports to Codecov
-      if: success() || failure()
-      uses: codecov/codecov-action@v5
-      with:
-        files: coverage.info
-        disable_search: true
-        token: ${{ secrets.CODECOV_TOKEN }}
-
-    - name: Upload test results to Codecov
-      if: success() || failure()
-      uses: codecov/test-results-action@v1
-      with:
-        files: ${{ steps.strings.outputs.test_report_path }}
-        disable_search: true
-        token: ${{ secrets.CODECOV_TOKEN }}
 
   # Call wheel-build workflow to build the ttmlir wheel
   build-ttmlir-wheel:
