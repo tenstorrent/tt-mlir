@@ -133,7 +133,11 @@ def TTIR_QuantizableOpInterface : OpInterface<"QuantizableOpInterface"> {
   let methods = [
     InterfaceMethod<
       /*desc=*/[{
-        Rewrites the op using quantized operands.
+        This interface denotes that an op can be rewritten to accept quantized inputs.
+        It is used by quant-dequant pattern passes to replace floating-point operations
+        with quantized equivalents when possible. The interface provides a hook for
+        rewriting the operation using quantized operands and an explicitly specified
+        quantized output type.
       }],
       /*retTy=*/"mlir::Operation *",
       /*methodName=*/"rewriteWithQuantizedInputs",
