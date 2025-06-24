@@ -23,7 +23,7 @@ public:
   virtual ~TTIRCommuteRewritePatternBase() noexcept = default;
 
   TTIRCommuteRewritePatternBase(mlir::func::FuncOp funcOp) {
-    constParams = ttmlir::utils::populateConstParams(funcOp);
+    constParams = mlir::tt::getConstsAndParams(funcOp);
   }
 
   bool valueTracesToConstantArgs(Value value) const {
