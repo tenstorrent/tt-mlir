@@ -28,7 +28,7 @@ jobs:
         id: get_issue_id
         run: |
           issue_number=${{ github.event.issue.number }}
-          issue_details=$(curl -H "Authorization: Bearer ${{ secrets.GH_SECRET_PROJECTS }}" -s "https://api.github.com/repos/${{ github.repository }}/issues/$issue_number")
+          issue_details=$(curl -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" -s "https://api.github.com/repos/${{ github.repository }}/issues/$issue_number")
           issue_id=$(echo "$issue_details" | jq -r '.node_id')
           echo "issue_id=$issue_id" >> $GITHUB_ENV
 
@@ -74,7 +74,7 @@ jobs:
 
 
             # Make the GraphQL request
-            RESPONSE=$(curl -s -X POST -H "Authorization: Bearer ${{ secrets.GH_SECRET_PROJECTS }}" \
+            RESPONSE=$(curl -s -X POST -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
                                  -H "Content-Type: application/json" \
                                  -d "$JSON_PAYLOAD" \
                                  https://api.github.com/graphql)
@@ -127,7 +127,7 @@ jobs:
         if: env.ITEM_ID  # Only runs if ITEM_ID was set
         run: |
           current_date=$(date +%Y-%m-%d)
-          curl -H "Authorization: Bearer ${{ secrets.GH_SECRET_PROJECTS }}" \
+          curl -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
                -H "Content-Type: application/json" \
                -d "{ \"query\": \"mutation { updateProjectV2ItemFieldValue(input: { projectId: \\\"${{ env.project_id }}\\\", itemId: \\\"${{ env.ITEM_ID }}\\\", fieldId: \\\"${{ env.field_id }}\\\", value: { date: \\\"$current_date\\\" } }) { clientMutationId } }\" }" \
                -X POST \
