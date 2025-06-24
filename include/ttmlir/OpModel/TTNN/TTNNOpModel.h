@@ -367,6 +367,7 @@ llvm::Expected<OpConstraints> getOpConstraints(
     llvm::ArrayRef<int32_t> kernel_size, llvm::ArrayRef<int32_t> stride,
     llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> output_padding,
     llvm::ArrayRef<int32_t> dilation, uint32_t groups,
+    std::optional<mlir::tt::ttnn::Conv2dConfigAttr> conv2dConfig,
     llvm::ArrayRef<int64_t> outputShape,
     mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 
@@ -383,6 +384,7 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
              llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
              llvm::ArrayRef<int32_t> output_padding,
              llvm::ArrayRef<int32_t> dilation, uint32_t groups,
+             std::optional<mlir::tt::ttnn::Conv2dConfigAttr> conv2dConfig,
              llvm::ArrayRef<int64_t> outputShape,
              mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 }; // namespace ConvTranspose2dOpInterface

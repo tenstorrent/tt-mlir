@@ -829,12 +829,23 @@ ConvTranspose2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   }
   GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();
 
+  // If a conv config has been specified, use that. If not, read the op property
+  std::optional<Conv2dConfigAttr> conv2dConfig = std::nullopt;
+  if (opConfig.opSpecificAttr) {
+    assert(mlir::isa<Conv2dConfigAttr>(opConfig.opSpecificAttr) &&
+           "Unexpected type for OpConfig.opSpecificAttr. Expected "
+           "Conv2ConfigAttr");
+    conv2dConfig = mlir::cast<Conv2dConfigAttr>(opConfig.opSpecificAttr);
+  } else {
+    conv2dConfig = getConv2dConfig();
+  }
+
   return op_model::ttnn::ConvTranspose2dOpInterface::getOpConstraints(
       deviceGrid, inputShape, inputs[0], weightShape, inputs[1], biasShape,
       biasLayout, getInChannels(), getOutChannels(), getBatchSize(),
       getInputHeight(), getInputWidth(), getKernelSize(), getStride(),
-      getPadding(), getOutputPadding(), getDilation(), getGroups(), outputShape,
-      opConfig.outputLayout);
+      getPadding(), getOutputPadding(), getDilation(), getGroups(),
+      conv2dConfig, outputShape, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -854,11 +865,22 @@ ConvTranspose2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto outputShape = getResult().getType().getShape();
 
+  // If a conv config has been specified, use that. If not, read the op property
+  std::optional<Conv2dConfigAttr> conv2dConfig = std::nullopt;
+  if (opConfig.opSpecificAttr) {
+    assert(mlir::isa<Conv2dConfigAttr>(opConfig.opSpecificAttr) &&
+           "Unexpected type for OpConfig.confopSpecificAttrig. Expected "
+           "Conv2ConfigAttr");
+    conv2dConfig = mlir::cast<Conv2dConfigAttr>(opConfig.opSpecificAttr);
+  } else {
+    conv2dConfig = getConv2dConfig();
+  }
+
   return op_model::ttnn::ConvTranspose2dOpInterface::getOpRuntime(
       inputShape, inputs[0], weightShape, inputs[1], biasShape, biasLayout,
       getInChannels(), getOutChannels(), getBatchSize(), getInputHeight(),
       getInputWidth(), getKernelSize(), getStride(), getPadding(),
-      getOutputPadding(), getDilation(), getGroups(), outputShape,
+      getOutputPadding(), getDilation(), getGroups(), conv2dConfig, outputShape,
       opConfig.outputLayout);
 }
 
