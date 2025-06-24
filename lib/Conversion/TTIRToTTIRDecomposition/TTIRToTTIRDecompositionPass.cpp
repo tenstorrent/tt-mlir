@@ -47,7 +47,7 @@ struct TTIRToTTIRDecompositionPass
     target.addLegalOp<ttir::EmptyOp>(); // DPS operands are create with
                                         // ttir::EmptyOp
 
-    // Build set of ops to decompose
+    // Build set of ops to decompose.
     llvm::DenseSet<StringRef> opsSet;
     bool decomposeAll = opsToDecompose.empty();
     if (!decomposeAll) {
@@ -107,12 +107,12 @@ struct TTIRToTTIRDecompositionPass
     // These are the ops that must satisfy some additional conditions after this
     // pass
     target.addDynamicallyLegalOp<ttir::ArangeOp>([&](ttir::ArangeOp op) {
-      // First check if we're even decomposing arange ops
+      // First check if we're even decomposing arange ops.
       if (!decomposeAll && !opsSet.contains("arange")) {
         return true; // Legal - don't decompose
       }
       // If we are decomposing, only decompose if it doesn't meet our
-      // constraints
+      // constraints.
       auto shape = op.getResult().getType().getShape();
       return (static_cast<int64_t>(op.getArangeDimension()) == 0 &&
               shape.size() == 1);
@@ -140,7 +140,7 @@ struct TTIRToTTIRDecompositionPass
 
     RewritePatternSet patterns(&getContext());
     // Populate ALL patterns - the conversion infrastructure will only
-    // apply patterns for ops marked as illegal
+    // apply patterns for ops marked as illegal.
     populateTTIRToTTIRDecompositionPatterns(&getContext(), patterns,
                                             typeConverter);
 
