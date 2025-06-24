@@ -105,6 +105,7 @@ You can add different flags to your build. Here are some options to consider:
 * To accelerate the builds with ccache use `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`.
 * To workaround OOM issues it can be useful to decrease the number of parallel jobs with `-DCMAKE_BUILD_PARALLEL_LEVEL=4`.
 * If Python bindings aren't required for your project, you can accelerate builds further with the command `-DTTMLIR_ENABLE_BINDINGS_PYTHON=OFF`.
+* To enable `tt-explorer` add the `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`, `-DTTMLIR_ENABLE_RUNTIME=ON`, and `-DTT_RUNTIME_DEBUG=ON`.
 * The TTNN build is automatically integrated / handled by the tt-mlir cmake build system.  For debugging and further information regarding the TTNN backend build step, please refer to [TTNN Documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html).
 * The runtime build depends on the `TT_METAL_HOME` variable, which is also set in `env/activate` script. For more information, please refer to [TTNN and TT-Metailium installation documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html#step-4-install-and-start-using-tt-nn-and-tt-metalium).
 
