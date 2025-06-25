@@ -11,12 +11,48 @@ add_custom_target(autogen-summary
     copy-docs-dir mlir-doc
 )
 
+add_custom_command(
+  OUTPUT /opt/ttmlir-toolchain/src/shardy/shardy/dialect/sdy/transforms/export/Passes.td
+  COMMAND ${CMAKE_COMMAND} -E create_symlink passes.td Passes.td
+  WORKING_DIRECTORY /opt/ttmlir-toolchain/src/shardy/shardy/dialect/sdy/transforms/export
+  DEPENDS /opt/ttmlir-toolchain/src/shardy/shardy/dialect/sdy/transforms/export/passes.td
+  COMMENT "Creating symlink Passes.td -> passes.td in shardy export"
+)
+
+add_custom_target(SdyExportPassesSymlink ALL
+  DEPENDS /opt/ttmlir-toolchain/src/shardy/shardy/dialect/sdy/transforms/export/Passes.td
+)
+
+add_custom_command(
+  OUTPUT /opt/ttmlir-toolchain/src/shardy/shardy/dialect/sdy/transforms/import/Passes.td
+  COMMAND ${CMAKE_COMMAND} -E create_symlink passes.td Passes.td
+  WORKING_DIRECTORY /opt/ttmlir-toolchain/src/shardy/shardy/dialect/sdy/transforms/import
+  DEPENDS /opt/ttmlir-toolchain/src/shardy/shardy/dialect/sdy/transforms/import/passes.td
+  COMMENT "Creating symlink Passes.td -> passes.td in shardy import"
+)
+
+add_custom_target(SdyImportPassesSymlink ALL
+  DEPENDS /opt/ttmlir-toolchain/src/shardy/shardy/dialect/sdy/transforms/import/Passes.td
+)
+
+add_custom_command(
+  OUTPUT /opt/ttmlir-toolchain/src/shardy/shardy/dialect/sdy/transforms/propagation/Passes.td
+  COMMAND ${CMAKE_COMMAND} -E create_symlink passes.td Passes.td
+  WORKING_DIRECTORY /opt/ttmlir-toolchain/src/shardy/shardy/dialect/sdy/transforms/propagation
+  DEPENDS /opt/ttmlir-toolchain/src/shardy/shardy/dialect/sdy/transforms/propagation/passes.td
+  COMMENT "Creating symlink Passes.td -> passes.td in shardy propagation"
+)
+
+add_custom_target(SdyPropagationPassesSymlink ALL
+  DEPENDS /opt/ttmlir-toolchain/src/shardy/shardy/dialect/sdy/transforms/propagation/Passes.td
+)
+
 add_custom_target(docs
   COMMAND
     mdbook build
   WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
   DEPENDS
-    autogen-summary mlir-doc copy-docs-dir
+    autogen-summary mlir-doc copy-docs-dir SdyExportPassesSymlink SdyImportPassesSymlink SdyPropagationPassesSymlink
 )
 
 find_package(Doxygen)
