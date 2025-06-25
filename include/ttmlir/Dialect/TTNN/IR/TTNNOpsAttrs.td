@@ -203,7 +203,7 @@ def TTNN_MemoryConfigAttr : TTNN_Attr<"MemoryConfig", "memory_config"> {
 
     This attribute specifies:
     - `bufferType` - specifies which memory type to use (L1, DRAM, System Memory).
-    - `tensorMemoryLayout` - defines how the tensor is laid out in memory (interleaved, single_bank, block_sharded, width_sharded, height_sharded)
+    - `tensorMemoryLayout` - defines how the tensor is laid out in memory (interleaved, block_sharded, width_sharded, height_sharded)
     - `shardSpec` - optional parameter is only used with sharded memory layouts and defines how the tensor is distributed across multiple cores.
 
     Examples:

@@ -68,7 +68,7 @@ module {
 module{
   func.func @forward(%arg0: tensor<32x32xf32, #device_tile_layout1>) -> tensor<32x96xf32, #device_tile_layout2> {
     // CHECK: error: DRAM buffer type must have Interleaved memory layout.
-    %1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#dram, <single_bank>>}> : (tensor<32x32xf32, #device_tile_layout1>) -> tensor<32x96xf32, #device_tile_layout2>
+    %1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#dram, <width_sharded>>}> : (tensor<32x32xf32, #device_tile_layout1>) -> tensor<32x96xf32, #device_tile_layout2>
     return %1 : tensor<32x96xf32, #device_tile_layout2>
   }
 }

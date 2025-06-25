@@ -55,7 +55,7 @@ struct TTIRToTTNNBackendPipelineOptions
   //
   // * grid_size=2x2
   // * memory_space: system, mmio, dram or l1
-  // * tensor_memory_layout: none, interleaved, single_bank, height_sharded,
+  // * tensor_memory_layout: none, interleaved, height_sharded,
   //   width_sharded or block_sharded
   // * memory_layout: row_major or tile
   // * data_type: f32, f16, bf16, bfp_f8, bfp_bf8, bfp_f4, bfp_bf4, bfp_f2,
@@ -99,7 +99,7 @@ struct TTIRToTTNNBackendPipelineOptions
   // * act_block_w_div: uint32_t
   // * reshard_if_not_optimal: [true, false]
   // * override_sharding_config: [true, false]
-  // * shard_layout: [block_sharded, interleaved, single_bank, height_sharded,
+  // * shard_layout: [block_sharded, interleaved, height_sharded,
   // width_sharded]
   // * core_grid:
   // * transpose_shards: [true, false]
