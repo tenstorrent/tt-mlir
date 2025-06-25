@@ -99,8 +99,8 @@ protected:
 
   static Operation *unLayoutResult(mlir::ConversionPatternRewriter &rewriter,
                                    Value fromValue, Type toResultType) {
-    auto output = rewriter.create<tt::ttir::EmptyOp>(
-        fromValue.getLoc(), toResultType); // TODO mem space?
+    auto output =
+        rewriter.create<tt::ttir::EmptyOp>(fromValue.getLoc(), toResultType);
     return rewriter.create<tt::ttir::ToLayoutOp>(fromValue.getLoc(), fromValue,
                                                  output);
   }
