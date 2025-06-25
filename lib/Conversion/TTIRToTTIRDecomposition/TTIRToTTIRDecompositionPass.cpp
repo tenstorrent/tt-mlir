@@ -83,11 +83,6 @@ struct TTIRToTTIRDecompositionPass
 
     // These ops have additional conditions regardless of configuration
     target.addDynamicallyLegalOp<ttir::ArangeOp>([&](ttir::ArangeOp op) {
-      // For CPU fallback, arange is always legal (not decomposed)
-      if (decompConfig == DecompMode::CPUFallback) {
-        return true;
-      }
-      // For TTNN and TTMetal, only decompose if it doesn't meet constraints
       auto shape = op.getResult().getType().getShape();
       return (static_cast<int64_t>(op.getArangeDimension()) == 0 &&
               shape.size() == 1);
@@ -112,12 +107,15 @@ struct TTIRToTTIRDecompositionPass
     });
 
     TypeConverter typeConverter;
+    // All types map 1:1.
     typeConverter.addConversion([](Type type) { return type; });
 
     RewritePatternSet patterns(&getContext());
     populateTTIRToTTIRDecompositionPatterns(&getContext(), patterns,
                                             typeConverter);
 
+    // Apply partial conversion
+    //
     if (failed(applyPartialConversion(getOperation(), target,
                                       std::move(patterns)))) {
       signalPassFailure();
