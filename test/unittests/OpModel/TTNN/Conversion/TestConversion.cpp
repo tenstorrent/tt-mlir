@@ -441,8 +441,6 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Values(
         std::make_tuple(mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
                         tt::tt_metal::TensorMemoryLayout::INTERLEAVED),
-        std::make_tuple(mlir::tt::ttnn::TensorMemoryLayout::SingleBank,
-                        tt::tt_metal::TensorMemoryLayout::SINGLE_BANK),
         std::make_tuple(mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
                         tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED),
         std::make_tuple(mlir::tt::ttnn::TensorMemoryLayout::WidthSharded,
