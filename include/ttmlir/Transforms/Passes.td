@@ -58,7 +58,7 @@ def UndoConstEvalTransform : Pass<"undo-const-eval", "mlir::ModuleOp"> {
   let dependentDialects = ["::mlir::tt::TTCoreDialect"];
 }
 
-def WorkaroundReenableDPS: Pass<"ttir-workaround-reenable-dps", "::mlir::ModuleOp">
+def ReenableLostDPS: Pass<"ttir-reenable-dps", "::mlir::ModuleOp">
 {
   let summary = "Transform functions with return values to use output parameters.";
   let description = [{

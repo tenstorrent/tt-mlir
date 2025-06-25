@@ -80,6 +80,37 @@ def TTIR_HoistedCallAttr : AttrDef<TTIR_Dialect, "HoistedCall", [], "::mlir::Att
   }];
 }
 
+// Unit attribute for should_hoist flag
+def TTIR_ShouldHoistAttr : AttrDef<TTIR_Dialect, "ShouldHoist", [], "::mlir::Attribute"> {
+  let mnemonic = "should_hoist";
+  let summary = "Indicates that this function should be hoisted";
+  let description = [{
+    This attribute marks functions that should be hoisted during optimization.
+    It is used as a marker and doesn't carry any additional data.
+  }];
+}
+
+// Integer attribute for return mapping
+def TTIR_ReturnToOutputMappingAttr : AttrDef<TTIR_Dialect, "ReturnToOutputMapping", [], "::mlir::Attribute"> {
+  let mnemonic = "return_to_output_mapping";
+  let summary = "Maps return values to output indices";
+  let description = [{
+    This attribute stores an integer mapping value that indicates how
+    return values correspond to output indices.
+  }];
+
+  let parameters = (ins
+    "int64_t":$value
+  );
+
+  let assemblyFormat = [{ `<` $value `>` }];
+
+  let extraClassDeclaration = [{
+    // Convenience getter that matches IntegerAttr interface
+    int64_t getInt() const { return getValue(); }
+  }];
+}
+
 def TTIR_ThreadAttr : AttrDef<TTIR_Dialect, "Thread", [], "::mlir::Attribute"> {
   let mnemonic = "thread";
   let summary = "Thread information for a generic op.";

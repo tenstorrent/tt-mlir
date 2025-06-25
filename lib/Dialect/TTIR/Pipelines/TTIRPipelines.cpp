@@ -132,7 +132,7 @@ void createTTIRToCPUPipeline(OpPassManager &manager,
 
   // Workaround for any DPS assumptions broken by either TTIRToTTIRDecomp or
   // TTIRToTosa + TosaToLinalg decomp.
-  cpuPm.addPass(transforms::createWorkaroundReenableDPS());
+  cpuPm.addPass(transforms::createReenableLostDPS());
 
   // Cleanup the funcs s.t. they don't return values.
   cpuPm.addPass(transforms::createRemoveReturnValues());
