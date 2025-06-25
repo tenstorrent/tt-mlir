@@ -329,8 +329,7 @@ private:
         return true;
       }
 
-      if (isa<stablehlo::BroadcastInDimOp>(op) ||
-          isa<stablehlo::ReshapeOp>(op)) {
+      if (isa<stablehlo::BroadcastInDimOp, stablehlo::ReshapeOp>(op)) {
         val = op->getOperand(0);
         op = val.getDefiningOp();
         continue;
@@ -418,32 +417,32 @@ private:
     }
 
     op = op->getNextNode();
-    if (!op || !(isa<stablehlo::SelectOp>(op) || isa<stablehlo::MaxOp>(op))) {
+    if (!isa_and_nonnull<stablehlo::SelectOp, stablehlo::MaxOp>(op)) {
       return false;
     }
 
     op = op->getNextNode();
-    if (!op || !isa<stablehlo::CompareOp>(op)) {
+    if (!isa_and_nonnull<stablehlo::CompareOp>(op)) {
       return false;
     }
 
     op = op->getNextNode();
-    if (!op || !isa<stablehlo::MinOp>(op)) {
+    if (!isa_and_nonnull<stablehlo::MinOp>(op)) {
       return false;
     }
 
     op = op->getNextNode();
-    if (!op || !isa<stablehlo::SelectOp>(op)) {
+    if (!isa_and_nonnull<stablehlo::SelectOp>(op)) {
       return false;
     }
 
     op = op->getNextNode();
-    if (!op || !isa<stablehlo::SelectOp>(op)) {
+    if (!isa_and_nonnull<stablehlo::SelectOp>(op)) {
       return false;
     }
 
     op = op->getNextNode();
-    if (!op || !isa<stablehlo::ReturnOp>(op)) {
+    if (!isa_and_nonnull<stablehlo::ReturnOp>(op)) {
       return false;
     }
 
