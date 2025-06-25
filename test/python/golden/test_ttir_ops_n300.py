@@ -8,6 +8,7 @@ import pytest
 from typing import List, Tuple
 from ttir_builder.utils import compile_to_flatbuffer
 from ttir_builder import Operand, TTIRBuilder, Shape
+import test_util
 
 pytestmark = pytest.mark.n300
 
@@ -707,4 +708,165 @@ def test_matmul_and_binary_op_2(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+def pseudo_golden_all_to_all(
+    input: torch.Tensor,
+    split_dim: int,
+    concat_dim: int,
+    mesh_shape: Tuple[int, int],
+    shard_dims: Tuple[int, int],
+    replica_groups: Tuple[
+        Tuple[
+            int,
+        ]
+    ],
+):
+    shards: List[torch.Tensor] = test_util.shardTensor2dMesh(
+        input, mesh_shape, shard_dims
+    )
+    output_shards: List[torch.Tensor] = [None] * len(shards)
+    for group in replica_groups:
+        size = len(group)
+        split_sets = [torch.chunk(shards[r], size, dim=split_dim) for r in group]
+        for dst_idx, r in enumerate(group):
+            output_shards[r] = torch.cat(
+                [split_sets[src_idx][dst_idx] for src_idx in range(size)],
+                dim=concat_dim,
+            )
+    output = test_util.concatMesh2dToTensor(output_shards, mesh_shape, shard_dims)
+    return output
+
+
+def all_to_all_test(
+    input_shape: Shape,
+    split_dim,
+    concat_dim,
+    mesh_shape,
+    shard_dims,
+    shard_shape,
+    cluster_axis,
+    replica_groups,
+    request,
+):
+    if not test_util.shape_divisible(input_shape, shard_shape):
+        pytest.skip("Sharding is not possible")
+    if (input_shape[split_dim] / shard_shape[split_dim]) % mesh_shape[
+        cluster_axis
+    ] != 0:
+        pytest.skip("Cannot split tensor evenly")
+
+    def all_to_all(in0: Operand, builder: TTIRBuilder):
+        input = builder._get_golden_tensor(in0)
+        golden_output = pseudo_golden_all_to_all(
+            input,
+            split_dim=split_dim,
+            concat_dim=concat_dim,
+            mesh_shape=mesh_shape,
+            shard_dims=shard_dims,
+            replica_groups=replica_groups,
+        )
+        builder.set_graph_input_output([input], [golden_output])
+
+        sharded = builder.mesh_shard(
+            in0,
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
+            shard_shape=shard_shape,
+            shard_dims=shard_dims,
+        )
+        gathered = builder.all_to_all(
+            sharded,
+            split_dim=split_dim,
+            concat_dim=concat_dim,
+            split_count=mesh_shape[cluster_axis],
+            replica_groups=replica_groups,
+        )
+        return builder.mesh_shard(
+            gathered,
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type="#ttcore.shard_type<devices>",
+            shard_shape=shard_shape,
+            shard_dims=shard_dims,
+        )
+
+    compile_to_flatbuffer(
+        all_to_all,
+        [input_shape],
+        mesh_shape=mesh_shape,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize("input_shape", [(256, 256), (64, 64), (128, 64), (192, 64)])
+@pytest.mark.parametrize("split_dim", range(2))
+@pytest.mark.parametrize("concat_dim", range(2))
+@pytest.mark.parametrize(
+    "mesh_shape, shard_dims, shard_shape, cluster_axis, replica_groups",
+    list(test_util.all_sharding_configs(input_rank=2, num_devices=2)),
+)
+def test_all_to_all_2d(
+    input_shape: Shape,
+    split_dim,
+    concat_dim,
+    mesh_shape,
+    shard_dims,
+    shard_shape,
+    cluster_axis,
+    replica_groups,
+    request,
+):
+    all_to_all_test(
+        input_shape=input_shape,
+        split_dim=split_dim,
+        concat_dim=concat_dim,
+        mesh_shape=mesh_shape,
+        shard_dims=shard_dims,
+        shard_shape=shard_shape,
+        cluster_axis=cluster_axis,
+        replica_groups=replica_groups,
+        request=request,
+    )
+
+
+@pytest.mark.parametrize(
+    "input_shape",
+    [
+        (1, 1, 256, 256),
+        (1, 1, 64, 64),
+        (1, 1, 256, 128),
+        (1, 64, 128, 1),
+        (64, 1, 1, 128),
+    ],
+)
+@pytest.mark.parametrize("split_dim", range(4))
+@pytest.mark.parametrize("concat_dim", range(4))
+@pytest.mark.parametrize(
+    "mesh_shape, shard_dims, shard_shape, cluster_axis, replica_groups",
+    list(test_util.all_sharding_configs(input_rank=4, num_devices=2)),
+)
+def test_all_to_all_4d(
+    input_shape: Shape,
+    split_dim,
+    concat_dim,
+    mesh_shape,
+    shard_dims,
+    shard_shape,
+    cluster_axis,
+    replica_groups,
+    request,
+):
+    all_to_all_test(
+        input_shape=input_shape,
+        split_dim=split_dim,
+        concat_dim=concat_dim,
+        mesh_shape=mesh_shape,
+        shard_dims=shard_dims,
+        shard_shape=shard_shape,
+        cluster_axis=cluster_axis,
+        replica_groups=replica_groups,
+        request=request,
     )
