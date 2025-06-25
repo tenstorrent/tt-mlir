@@ -107,8 +107,8 @@ template <typename T>
 mlir::DenseElementsAttr
 createQuantizedDenseAttr(mlir::ShapedType outputType,
                          llvm::SmallVector<double> &quantizedVals) {
-  auto data = llvm::to_vector<T>(quantizedVals);
-  return mlir::DenseElementsAttr::get(outputType, data);
+  llvm::SmallVector<T> data(quantizedVals.begin(), quantizedVals.end());
+  return mlir::DenseElementsAttr::get(outputType, llvm::ArrayRef<T>(data));
 }
 
 // Computes the quantization of a constant tensor according to the
