@@ -32,27 +32,26 @@ class TTIRNamedRewriterCommon {
 protected:
   using base = TTIRNamedRewriterCommon;
 
-  TTIRNamedRewriterCommon(uint64_t deviceGridRank)
-      : deviceGridRank(deviceGridRank) {}
+  TTIRNamedRewriterCommon(const TTIRToTTIRGenericOptions &options,
+                          uint64_t deviceGridRank)
+      : memorySpaces{options.defaultInputMemSpace,
+                     options.defaultOutputMemSpace},
+        deviceGridRank(deviceGridRank) {}
 
-  // Common need to navigate DPS (<inputs>;<inits>) operand split:
-  // note that this requires only 'getDpsInits()' to be available.
-  template <typename Adaptor>
-  static std::array<mlir::SmallVector<Value>, 2>
-  splitDpsSignature(Adaptor adaptor, size_t numDPSInits) {
-    auto numOperands = adaptor.getOperands().size();
-    assert(numDPSInits <= numOperands && "expected numDPSInits <= numOperands");
-    auto numInputs = numOperands - numDPSInits;
-    mlir::ValueRange inputs = adaptor.getOperands().take_front(numInputs);
-    mlir::ValueRange outputs = adaptor.getOperands().drop_front(numInputs);
-    return {inputs, outputs};
+  std::array<mlir::SmallVector<Value>, 2>
+  toLayoutOperands(mlir::ConversionPatternRewriter &rewriter,
+                   std::array<mlir::SmallVector<Value>, 2> operands,
+                   bool tiled) const {
+    return {toLayoutOperands(rewriter, operands[0], tiled, memorySpaces[0]),
+            toLayoutOperands(rewriter, operands[1], tiled, memorySpaces[1])};
   }
 
-  static std::function<Value(Value)>
-  toLayoutRewriter(mlir::ConversionPatternRewriter &rewriter,
-                   uint64_t deviceGridRank, bool tiled,
-                   MemorySpace memorySpace) {
-    return [=, &rewriter](Value value) -> Value {
+  mlir::SmallVector<Value>
+  toLayoutOperands(mlir::ConversionPatternRewriter &rewriter,
+                   mlir::SmallVector<Value> operands, bool tiled,
+                   MemorySpace memorySpace) const {
+    mlir::SmallVector<Value> newOperands;
+    for (Value value : operands) {
       mlir::RankedTensorType tensorType =
           mlir::cast<mlir::RankedTensorType>(value.getType());
 
@@ -91,40 +90,32 @@ protected:
 
       auto output =
           rewriter.create<tt::ttir::EmptyOp>(value.getLoc(), layoutResultType);
-      return rewriter
-          .create<tt::ttir::ToLayoutOp>(value.getLoc(), value, output)
-          ->getResult(0);
-    };
-  }
-
-  static std::array<mlir::SmallVector<Value>, 2>
-  toLayoutOperands(mlir::ConversionPatternRewriter &rewriter,
-                   std::array<mlir::SmallVector<Value>, 2> operands,
-                   uint64_t deviceGridRank, bool tiled,
-                   MemorySpace memorySpace = MemorySpace::DeviceL1) {
-    auto [inputs, outputs] = operands;
-    return {
-        llvm::map_to_vector(inputs, toLayoutRewriter(rewriter, deviceGridRank,
-                                                     tiled, memorySpace)),
-        llvm::map_to_vector(outputs, toLayoutRewriter(rewriter, deviceGridRank,
-                                                      tiled, memorySpace))};
-  }
-
-  template <typename Adaptor>
-  static std::array<mlir::SmallVector<Value>, 2>
-  toLayoutOperands(mlir::ConversionPatternRewriter &rewriter, Adaptor adaptor,
-                   size_t numDPSInits, uint64_t deviceGridRank, bool tiled,
-                   MemorySpace memorySpace = MemorySpace::DeviceL1) {
-    return toLayoutOperands(rewriter, splitDpsSignature(adaptor, numDPSInits),
-                            deviceGridRank, tiled, memorySpace);
+      newOperands.emplace_back(
+          rewriter.create<tt::ttir::ToLayoutOp>(value.getLoc(), value, output)
+              ->getResult(0));
+    }
+    return newOperands;
   }
 
   static Operation *unLayoutResult(mlir::ConversionPatternRewriter &rewriter,
                                    Value fromValue, Type toResultType) {
-    auto output =
-        rewriter.create<tt::ttir::EmptyOp>(fromValue.getLoc(), toResultType);
+    auto output = rewriter.create<tt::ttir::EmptyOp>(
+        fromValue.getLoc(), toResultType); // TODO mem space?
     return rewriter.create<tt::ttir::ToLayoutOp>(fromValue.getLoc(), fromValue,
                                                  output);
+  }
+
+  // Common need to navigate DPS (<inputs>;<inits>) operand split:
+  // note that this requires only 'getDpsInits()' to be available.
+  template <typename Adaptor>
+  static std::array<mlir::SmallVector<Value>, 2>
+  splitDpsSignature(Adaptor adaptor, size_t numDPSInits) {
+    auto numOperands = adaptor.getOperands().size();
+    assert(numDPSInits <= numOperands && "expected numDPSInits <= numOperands");
+    auto numInputs = numOperands - numDPSInits;
+    mlir::ValueRange inputs = adaptor.getOperands().take_front(numInputs);
+    mlir::ValueRange outputs = adaptor.getOperands().drop_front(numInputs);
+    return {inputs, outputs};
   }
 
   static SmallVector<mlir::AffineMap>
@@ -172,13 +163,27 @@ protected:
     return block->getArguments();
   }
 
+  template <typename ConcreteOp>
+  static MemorySpace getDefaultMemorySpace(ConcreteOp op, MemorySpace dflt) {
+    mlir::ModuleOp parent = op->template getParentOfType<mlir::ModuleOp>();
+    if (!parent) {
+      return dflt;
+    }
+    tt::MemorySpaceAttr defaultMemSpaceAttr =
+        parent->getAttrOfType<tt::MemorySpaceAttr>(tt::MemorySpaceAttr::name);
+    return defaultMemSpaceAttr ? defaultMemSpaceAttr.getValue() : dflt;
+  }
+
   static constexpr mlir::ArrayRef<int64_t> expectedInputGridShape() {
     return s_expectedInputGridShape;
   }
 
+  // Default memory spaces for {inputs, outputs}.
+  std::array<MemorySpace, 2> memorySpaces;
+  uint64_t deviceGridRank;
+
   static constexpr std::array<int64_t, 2> s_expectedInputGridShape{1, 1};
 
-  uint64_t deviceGridRank;
 }; // end of class
 } // namespace
 // ............................................................................
@@ -193,9 +198,9 @@ class TTIRNamedElementwiseRewriter final
 public:
   TTIRNamedElementwiseRewriter<ConcreteOp, TileOp>(
       const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
-      uint64_t deviceGridRank)
+      const TTIRToTTIRGenericOptions &options, uint64_t deviceGridRank)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
-        TTIRNamedRewriterCommon(deviceGridRank) {}
+        TTIRNamedRewriterCommon(options, deviceGridRank) {}
 
 private:
   LogicalResult
@@ -204,9 +209,11 @@ private:
     mlir::MLIRContext *ctx = rewriter.getContext();
     mlir::Location loc = op->getLoc();
 
+    auto [origInputs, origOutputs] =
+        splitDpsSignature(adaptor, op.getDpsInits().size());
     auto [inputs, outputs] =
-        toLayoutOperands(rewriter, adaptor, op.getDpsInits().size(),
-                         deviceGridRank, /*tiled*/ true);
+        toLayoutOperands(rewriter, {origInputs, origOutputs},
+                         /*tiled*/ true);
 
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
@@ -296,9 +303,9 @@ class TTIRNamedReductionRewriter final
 public:
   TTIRNamedReductionRewriter<ConcreteOp, TileOp>(
       const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
-      uint64_t deviceGridRank)
+      const TTIRToTTIRGenericOptions &options, uint64_t deviceGridRank)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
-        TTIRNamedRewriterCommon(deviceGridRank) {}
+        TTIRNamedRewriterCommon(options, deviceGridRank) {}
 
 private:
   LogicalResult
@@ -316,8 +323,9 @@ private:
         rewriter, loc,
         mlir::cast<mlir::RankedTensorType>(origInputs.front().getType())
             .getElementType()));
-    auto [inputs, outputs] = toLayoutOperands(
-        rewriter, {newInputs, origOutputs}, deviceGridRank, /*tiled*/ true);
+    auto [inputs, outputs] =
+        toLayoutOperands(rewriter, {newInputs, origOutputs},
+                         /*tiled*/ true);
 
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
@@ -521,9 +529,10 @@ class TTIRMatmulRewriter final
 
 public:
   TTIRMatmulRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
+                     const TTIRToTTIRGenericOptions &options,
                      uint64_t deviceGridRank)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
-        TTIRNamedRewriterCommon(deviceGridRank) {}
+        TTIRNamedRewriterCommon(options, deviceGridRank) {}
 
 private:
   LogicalResult
@@ -534,9 +543,10 @@ private:
     mlir::MLIRContext *ctx = rewriter.getContext();
     mlir::Location loc = op->getLoc();
 
+    auto [origInputs, origOutputs] =
+        splitDpsSignature(adaptor, op.getDpsInits().size());
     auto [inputs, outputs] =
-        toLayoutOperands(rewriter, adaptor, op.getDpsInits().size(),
-                         deviceGridRank, /*tiled*/ true);
+        toLayoutOperands(rewriter, {origInputs, origOutputs}, /*tiled*/ true);
 
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
@@ -651,8 +661,8 @@ private:
 void populateTTIRToTTIRGenericPatterns(MLIRContext *ctx,
                                        RewritePatternSet &patterns,
                                        TypeConverter &typeConverter,
-                                       uint64_t deviceGridRank,
-                                       bool useTileMatmul) {
+                                       const TTIRToTTIRGenericOptions &options,
+                                       uint64_t deviceGridRank) {
   // clang-format off
   patterns.add<
     // Elementwise.
@@ -674,14 +684,14 @@ void populateTTIRToTTIRGenericPatterns(MLIRContext *ctx,
     TTIRNamedReductionRewriter<ttir::SumOp,         ttir::TileReduceSumOp>,
     // Data movement.
     TTIRNamedElementwiseRewriter<ttir::TypecastOp,  ttir::TileTypecastOp>
-  >(typeConverter, ctx, deviceGridRank);
+  >(typeConverter, ctx, options, deviceGridRank);
 
   // Matmul.
-  if (useTileMatmul) {
-    patterns.add<TTIRMatmulRewriter<ttir::TileMatmulOp>>(typeConverter, ctx, deviceGridRank);
+  if (options.useTileMatmul) {
+    patterns.add<TTIRMatmulRewriter<ttir::TileMatmulOp>>(typeConverter, ctx, options, deviceGridRank);
   }
   else {
-    patterns.add<TTIRMatmulRewriter<ttir::TileMatmulBlockOp>>(typeConverter, ctx, deviceGridRank);
+    patterns.add<TTIRMatmulRewriter<ttir::TileMatmulBlockOp>>(typeConverter, ctx, options, deviceGridRank);
   }
   // clang-format on
 }

@@ -5,18 +5,21 @@
 #ifndef TTMLIR_CONVERSION_TTIRTOTTIRGENERIC_TTIRTOTTIRGENERIC_H
 #define TTMLIR_CONVERSION_TTIRTOTTIRGENERIC_TTIRTOTTIRGENERIC_H
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 
 namespace mlir::tt {
 
+#define GEN_PASS_DECL_TTIRTOTTIRGENERIC
+#include "ttmlir/Conversion/Passes.h.inc"
+
 void populateTTIRToTTIRGenericPatterns(MLIRContext *ctx,
                                        RewritePatternSet &patterns,
                                        TypeConverter &typeConverter,
-                                       uint64_t deviceGridRank,
-                                       bool useTileMatmul);
-
-std::unique_ptr<OperationPass<ModuleOp>> createTTIRToTTIRGenericPass();
+                                       const TTIRToTTIRGenericOptions &options,
+                                       uint64_t deviceGridRank);
 
 } // namespace mlir::tt
 
