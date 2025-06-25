@@ -107,12 +107,8 @@ template <typename T>
 mlir::DenseElementsAttr
 createQuantizedDenseAttr(mlir::ShapedType outputType,
                          llvm::SmallVector<double> &quantizedVals) {
-  std::vector<T> data;
-  data.reserve(quantizedVals.size());
-  for (double q : quantizedVals) {
-    data.emplace_back(static_cast<T>(q));
-  }
-  return mlir::DenseElementsAttr::get(outputType, llvm::ArrayRef<T>(data));
+  auto data = llvm::to_vector<T>(quantizedVals);
+  return mlir::DenseElementsAttr::get(outputType, data);
 }
 
 // Computes the quantization of a constant tensor according to the
@@ -121,14 +117,13 @@ createQuantizedDenseAttr(mlir::ShapedType outputType,
 inline mlir::DenseElementsAttr
 computeQuantization(mlir::DenseElementsAttr inputTensor,
                     mlir::RankedTensorType outputType) {
-  mlir::ShapedType inputType =
-      mlir::cast<mlir::ShapedType>(inputTensor.getType());
   mlir::quant::QuantizedType quantType =
       mlir::dyn_cast<mlir::quant::QuantizedType>(outputType.getElementType());
 
   if (!quantType || !mlir::isa<mlir::FloatType>(quantType.getExpressedType())) {
     return nullptr;
   }
+  mlir::ShapedType inputType = inputTensor.getType();
 
   auto inputValues = inputTensor.getValues<mlir::APFloat>();
   llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
