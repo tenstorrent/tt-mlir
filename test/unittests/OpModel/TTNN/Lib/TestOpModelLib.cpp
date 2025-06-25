@@ -1555,7 +1555,7 @@ TEST_P(OpModelUpsampleParam, UpsampleParam) {
               inputVirtualGrid] = std::get<0>(params);
   const auto [outputShape, outputTensorLayout, outputBufferType,
               outputVirtualGrid] = std::get<1>(params);
-  const auto scaleFactor = builder.getI64IntegerAttr(std::get<2>(params));
+  const auto scaleFactor = builder.getSI32IntegerAttr(std::get<2>(params));
   const auto mode = std::get<3>(params);
   const auto expectedLegal = std::get<4>(params);
 

@@ -2012,7 +2012,7 @@ llvm::Expected<OpConstraints> UpsampleOpInterface::getOpConstraints(
   // Convert params
   std::variant<int, ::tt::tt_metal::Array2D> convertedScaleFactor;
   if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(scaleFactor)) {
-    convertedScaleFactor = static_cast<int>(value.getInt());
+    convertedScaleFactor = static_cast<int>(value.getSInt());
   } else if (auto tuple =
                  mlir::dyn_cast<::mlir::detail::DenseArrayAttrImpl<int32_t>>(
                      scaleFactor);
@@ -2060,7 +2060,7 @@ llvm::Expected<size_t> UpsampleOpInterface::getOpRuntime(
   // Convert parameters
   std::variant<int, ::tt::tt_metal::Array2D> convertedScaleFactor;
   if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(scaleFactor)) {
-    convertedScaleFactor = static_cast<int>(value.getInt());
+    convertedScaleFactor = static_cast<int>(value.getSInt());
   } else if (auto tuple =
                  mlir::dyn_cast<::mlir::detail::DenseArrayAttrImpl<int32_t>>(
                      scaleFactor);
