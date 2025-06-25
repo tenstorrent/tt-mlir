@@ -97,9 +97,9 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /test/unittests/Allocation @tenstorrent/forge-developers-mlir-d2m
 
 # TTIR Erase Inverse Ops Optimization Pass
-/include/ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/ @LPanosTT @azecevicTT
-/lib/Dialect/TTIR/Transforms/EraseInverseOps/ @LPanosTT @azecevicTT
-/test/ttmlir/Dialect/TTIR/erase_inverse_ops/ @LPanosTT @azecevicTT
+/include/ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/ @LPanosTT @azecevicTT @odjuricicTT
+/lib/Dialect/TTIR/Transforms/EraseInverseOps/ @LPanosTT @azecevicTT @odjuricicTT
+/test/ttmlir/Dialect/TTIR/erase_inverse_ops/ @LPanosTT @azecevicTT @odjuricicTT
 
 # TTNN Dialects
 /include/ttmlir/Dialect/TTNN/ @tenstorrent/forge-developers-mlir-core
