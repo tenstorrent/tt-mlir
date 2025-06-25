@@ -5,9 +5,11 @@
 #ifndef TTMLIR_DIALECT_TTIR_IR_CONSTEVALUTILS_H
 #define TTMLIR_DIALECT_TTIR_IR_CONSTEVALUTILS_H
 
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+
 #include <cfenv>
 
 namespace mlir::tt::ttir {
@@ -73,10 +75,6 @@ computePermutation(mlir::DenseElementsAttr inputTensor,
 
   llvm::SmallVector<uint64_t> indices(inputShape.size(), 0);
   llvm::SmallVector<uint64_t> inputIndices(inputShape.size(), 0);
-  llvm::SmallVector<uint64_t> limits;
-  for (auto dim : outputShape) {
-    limits.push_back(dim);
-  }
 
   // Iterate through all elements in output order.
   bool done = false;
@@ -90,7 +88,7 @@ computePermutation(mlir::DenseElementsAttr inputTensor,
     // Increment indices (row-major order).
     for (int i = indices.size() - 1; i >= 0; --i) {
       indices[i]++;
-      if (indices[i] < limits[i]) {
+      if (indices[i] < outputShape[i]) {
         break;
       }
       indices[i] = 0;
