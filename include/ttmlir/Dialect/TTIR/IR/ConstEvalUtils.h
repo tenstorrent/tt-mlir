@@ -88,7 +88,7 @@ computePermutation(mlir::DenseElementsAttr inputTensor,
     // Increment indices (row-major order).
     for (int i = indices.size() - 1; i >= 0; --i) {
       indices[i]++;
-      if (indices[i] < outputShape[i]) {
+      if (indices[i] < static_cast<uint64_t>(outputShape[i])) {
         break;
       }
       indices[i] = 0;
