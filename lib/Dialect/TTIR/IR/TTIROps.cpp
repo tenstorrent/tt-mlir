@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTIR/IR/ConstEvalUtils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
@@ -630,6 +631,44 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
   return verifyQuantizeOpCommon([&]() { return emitOpError(); },
                                 getInput().getType(), getOutput().getType(),
                                 /*axis=*/std::nullopt, /*isUnrolled=*/false);
+}
+
+// Fold the operation if the quantize is preceded by a dequantize that uses the
+// same scale factor, zeroPoint and has the same types.
+static mlir::OpFoldResult foldIdentityQuantize(mlir::tt::ttir::QuantizeOp op) {
+  if (auto dequantizeOperand =
+          op.getInput().getDefiningOp<mlir::tt::ttir::DequantizeOp>()) {
+    auto dequantizeInput = dequantizeOperand.getInput();
+    if (op.getOutput().getType() != dequantizeInput.getType()) {
+      return nullptr;
+    }
+    if (op.getInput().getType() != dequantizeOperand.getResult().getType()) {
+      return nullptr;
+    }
+    return dequantizeInput;
+  }
+  return nullptr;
+}
+
+// Fold quantize of a constant into a new constant with the quantized data.
+static mlir::OpFoldResult foldConstantQuantize(mlir::tt::ttir::QuantizeOp op) {
+  return mlir::tt::ttir::foldConstantOpHelper(
+      op->getOperand(0),
+      [&](mlir::DenseElementsAttr inputTensor) -> mlir::Attribute {
+        auto outputType = op.getOutput().getType();
+        return mlir::tt::ttir::computeQuantization(inputTensor, outputType);
+      });
+}
+
+// QuantizeOp folder
+::mlir::OpFoldResult mlir::tt::ttir::QuantizeOp::fold(FoldAdaptor adaptor) {
+  if (auto foldResult = foldIdentityQuantize(*this)) {
+    return foldResult;
+  }
+  if (auto foldResult = foldConstantQuantize(*this)) {
+    return foldResult;
+  }
+  return nullptr;
 }
 
 // QuantizeUnrolledOp verification.
@@ -1276,6 +1315,17 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
   return nullptr;
 }
 
+// Fold reshape of a constant into a new constant with the reshaped data.
+static mlir::OpFoldResult foldConstantReshape(mlir::tt::ttir::ReshapeOp op) {
+  auto reshapedType = mlir::cast<mlir::RankedTensorType>(op.getType());
+  // foldConstantOpHelper checks if the input is a constant and returns a
+  // constant with the reshaped data using the DenseElementsAttr.reshape API.
+  return mlir::tt::ttir::foldConstantOpHelper(
+      op->getOperand(0), [&](mlir::DenseElementsAttr attr) -> mlir::Attribute {
+        return attr.reshape(reshapedType);
+      });
+}
+
 // ReshapeOp folder
 ::mlir::OpFoldResult mlir::tt::ttir::ReshapeOp::fold(FoldAdaptor adaptor) {
   if (auto foldResult = foldIdentityReshape(*this)) {
@@ -1283,6 +1333,10 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
   }
 
   if (auto foldResult = foldConsecutiveReshape(*this)) {
+    return foldResult;
+  }
+
+  if (auto foldResult = foldConstantReshape(*this)) {
     return foldResult;
   }
 
@@ -1776,7 +1830,7 @@ foldIdentityTranspose(mlir::tt::ttir::TransposeOp op) {
 
 // Rewrite a transpose op to a canonical form where the 'dim0' is less than
 // 'dim1'.
-static mlir::OpFoldResult sortTansposeDims(mlir::tt::ttir::TransposeOp op) {
+static mlir::OpFoldResult sortTransposeDims(mlir::tt::ttir::TransposeOp op) {
   if (op.getDim0() < op.getDim1()) {
     return nullptr;
   }
@@ -1818,13 +1872,41 @@ foldInverseTransposeOperand(mlir::tt::ttir::TransposeOp op) {
   return nullptr;
 }
 
+// Fold transpose of a constant into a new constant with permuted data.
+static mlir::OpFoldResult
+foldConstantTranspose(mlir::tt::ttir::TransposeOp op) {
+  auto resultType = mlir::cast<mlir::RankedTensorType>(op.getType());
+  int64_t rank = resultType.getRank();
+
+  // Build the permutation vector: [0, 1, 2, ...] with dim0 and dim1 swapped.
+  // Example: [0, 1, 2] -> [0, 2, 1] with dim0 = 1 and dim1 = 2.
+  llvm::SmallVector<int32_t, 4> perm(rank);
+  std::iota(perm.begin(), perm.end(), 0);
+  int32_t dim0 = op.getDim0();
+  int32_t dim1 = op.getDim1();
+  std::swap(perm[dim0], perm[dim1]);
+
+  llvm::SmallVector<int64_t, 4> outputShape(resultType.getShape().begin(),
+                                            resultType.getShape().end());
+
+  // foldConstantOpHelper checks if the input is a constant and returns a
+  // constant with permuted data using the computePermutation function.
+  return mlir::tt::ttir::foldConstantOpHelper(
+      op->getOperand(0),
+      [&](mlir::DenseElementsAttr inputAttr) -> mlir::Attribute {
+        llvm::SmallVector<int64_t> permInt64(perm.begin(), perm.end());
+        return mlir::tt::ttir::computePermutation(inputAttr, permInt64);
+      });
+}
+
 // TransposeOp folder
 mlir::OpFoldResult mlir::tt::ttir::TransposeOp::fold(FoldAdaptor adaptor) {
+
   if (auto foldResult = foldIdentityTranspose(*this)) {
     return foldResult;
   }
 
-  if (auto foldResult = sortTansposeDims(*this)) {
+  if (auto foldResult = sortTransposeDims(*this)) {
     return foldResult;
   }
 
@@ -1833,6 +1915,10 @@ mlir::OpFoldResult mlir::tt::ttir::TransposeOp::fold(FoldAdaptor adaptor) {
   }
 
   if (auto foldResult = foldInverseTransposeOperand(*this)) {
+    return foldResult;
+  }
+
+  if (auto foldResult = foldConstantTranspose(*this)) {
     return foldResult;
   }
 
@@ -3564,8 +3650,31 @@ static mlir::OpFoldResult foldConsecutivePermute(mlir::tt::ttir::PermuteOp op) {
   return nullptr;
 }
 
+// Fold permute of a constant into a new constant with permuted data.
+static mlir::OpFoldResult foldConstantPermute(mlir::tt::ttir::PermuteOp op) {
+  // Extract permutation values as integers.
+  auto permVals = op.getPermutation();
+  llvm::SmallVector<int32_t, 4> perm;
+  for (auto v : permVals) {
+    perm.push_back(static_cast<int32_t>(v));
+  }
+
+  // foldConstantOpHelper checks if the input is a constant and returns a
+  // constant with permuted data using the computePermutation function.
+  return mlir::tt::ttir::foldConstantOpHelper(
+      op->getOperand(0),
+      [&](mlir::DenseElementsAttr inputAttr) -> mlir::Attribute {
+        llvm::SmallVector<int64_t> permInt64(perm.begin(), perm.end());
+        return mlir::tt::ttir::computePermutation(inputAttr, permInt64);
+      });
+}
+
 // PermuteOp folder
 mlir::OpFoldResult mlir::tt::ttir::PermuteOp::fold(FoldAdaptor adaptor) {
+
+  if (auto foldResult = foldConstantPermute(*this)) {
+    return foldResult;
+  }
 
   if (auto foldResult = foldIdentityPermute(*this)) {
     return foldResult;
@@ -3574,7 +3683,6 @@ mlir::OpFoldResult mlir::tt::ttir::PermuteOp::fold(FoldAdaptor adaptor) {
   if (auto foldResult = foldConsecutivePermute(*this)) {
     return foldResult;
   }
-
   return nullptr;
 }
 

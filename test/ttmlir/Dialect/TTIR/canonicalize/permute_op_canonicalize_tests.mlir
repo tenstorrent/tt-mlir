@@ -17,4 +17,17 @@ module {
     %1 = "ttir.permute"(%arg0, %0) <{permutation = array<i64: 0, 1, 2, 3, 4>}> : (tensor<1x2x3x4x5xbf16>, tensor<1x2x3x4x5xbf16>) -> tensor<1x2x3x4x5xbf16>
     return %1 : tensor<1x2x3x4x5xbf16>
   }
+
+  func.func @permute_constant() -> tensor<3x1x2xf32> {
+    // CHECK-NOT: "ttir.permute"
+    %cst = "ttir.constant"() <{
+      value = dense<[
+        [[1.0], [2.0], [3.0]],
+        [[4.0], [5.0], [6.0]]
+      ]> : tensor<2x3x1xf32>
+    }> : () -> tensor<2x3x1xf32>
+    %0 = ttir.empty() : tensor<3x1x2xf32>
+    %1 = "ttir.permute"(%cst, %0) <{permutation = array<i64: 1, 2, 0>}> : (tensor<2x3x1xf32>, tensor<3x1x2xf32>) -> tensor<3x1x2xf32>
+    return %1 : tensor<3x1x2xf32>
+  }
 }

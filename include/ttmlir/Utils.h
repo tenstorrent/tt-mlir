@@ -170,6 +170,9 @@ inline T identity(T x) {
 // Returns a vector of indices `permutation` such that input[permutation[i]] ==
 // output[i], for all i. Assumes that input and output have the same elements.
 // Example:  input = [1, 2, 3], output = [3, 1, 2] -> [2, 0, 1]
+// Use-case: Given two lists with the same elements but different orders,
+// generatePermutation returns the permutation vector that can reorder the input
+// to get the output.
 template <typename T>
 inline llvm::SmallVector<int64_t>
 generatePermutation(llvm::ArrayRef<T> input, llvm::ArrayRef<T> output) {
@@ -189,6 +192,8 @@ generatePermutation(llvm::ArrayRef<T> input, llvm::ArrayRef<T> output) {
 // Returns a vector `output`, such that output[i] = input[permutation[i]], for
 // all i. Assumes that permutation is a valid permutation of the indices of
 // input. Example:  input = [1, 2, 3], permutation = [2, 0, 1] -> [3, 1, 2]
+// Use-case: Directly reorders a 1D array or shape vector according to a given
+// permutation vector.
 template <typename T>
 inline llvm::SmallVector<T>
 applyPermutation(llvm::ArrayRef<T> input, llvm::ArrayRef<int64_t> permutation) {
@@ -206,6 +211,8 @@ applyPermutation(llvm::ArrayRef<T> input, llvm::ArrayRef<int64_t> permutation) {
 // inversePermutation[permutation[i]] = i, for all i. Assumes that permutation
 // is a valid permutation of a range(0, permutation.size()). Example:
 // permutation = [2, 0, 1] -> [1, 2, 0]
+// Use-case: Given a permutation vector, this produces the vector that will undo
+// (invert) the permutation.
 inline llvm::SmallVector<int64_t>
 inversePermutation(llvm::ArrayRef<int64_t> permutation) {
   llvm::SmallVector<int64_t> inversePermutation(permutation.size());
