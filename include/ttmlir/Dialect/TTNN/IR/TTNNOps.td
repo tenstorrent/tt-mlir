@@ -513,70 +513,70 @@ def TTNN_AddOp : TTNN_ElementwiseBinaryOp<"add",
     }];
 }
 
-def TTNN_DivideOp : TTNN_ElementwiseBinaryOp<"divide"> {
+def TTNN_DivideOp : TTNN_ElementwiseBinaryOp<"divide", [DeclareOpInterfaceMethods<TTNN_RequiresExplicitBroadcastInterface>]> {
     let summary = "Eltwise divide.";
     let description = [{
       Eltwise divide operation.
     }];
 }
 
-def TTNN_EqualOp : TTNN_ElementwiseBinaryOp<"eq"> {
+def TTNN_EqualOp : TTNN_ElementwiseBinaryOp<"eq", [DeclareOpInterfaceMethods<TTNN_RequiresExplicitBroadcastInterface>]> {
     let summary = "Eltwise equal to.";
     let description = [{
       Eltwise equal to operation.
     }];
 }
 
-def TTNN_NotEqualOp : TTNN_ElementwiseBinaryOp<"ne"> {
+def TTNN_NotEqualOp : TTNN_ElementwiseBinaryOp<"ne", [DeclareOpInterfaceMethods<TTNN_RequiresExplicitBroadcastInterface>]> {
     let summary = "Eltwise not equal to.";
     let description = [{
       Eltwise not equal to operation.
     }];
 }
 
-def TTNN_GreaterEqualOp : TTNN_ElementwiseBinaryOp<"ge"> {
+def TTNN_GreaterEqualOp : TTNN_ElementwiseBinaryOp<"ge", [DeclareOpInterfaceMethods<TTNN_RequiresExplicitBroadcastInterface>]> {
     let summary = "Eltwise greater than or equal to.";
     let description = [{
       Eltwise greater than or equal to operation.
     }];
 }
 
-def TTNN_GreaterThanOp : TTNN_ElementwiseBinaryOp<"gt"> {
+def TTNN_GreaterThanOp : TTNN_ElementwiseBinaryOp<"gt", [DeclareOpInterfaceMethods<TTNN_RequiresExplicitBroadcastInterface>]> {
     let summary = "Eltwise greater than.";
     let description = [{
       Eltwise greater than operation.
     }];
 }
 
-def TTNN_LessEqualOp : TTNN_ElementwiseBinaryOp<"le"> {
+def TTNN_LessEqualOp : TTNN_ElementwiseBinaryOp<"le", [DeclareOpInterfaceMethods<TTNN_RequiresExplicitBroadcastInterface>]> {
     let summary = "Eltwise less than or equal to.";
     let description = [{
       Eltwise less than or equal to operation.
     }];
 }
 
-def TTNN_LessThanOp : TTNN_ElementwiseBinaryOp<"lt"> {
+def TTNN_LessThanOp : TTNN_ElementwiseBinaryOp<"lt", [DeclareOpInterfaceMethods<TTNN_RequiresExplicitBroadcastInterface>]> {
     let summary = "Eltwise less than.";
     let description = [{
       Eltwise less than operation.
     }];
 }
 
-def TTNN_LogicalAndOp : TTNN_ElementwiseBinaryOp<"logical_and"> {
+def TTNN_LogicalAndOp : TTNN_ElementwiseBinaryOp<"logical_and", [DeclareOpInterfaceMethods<TTNN_RequiresExplicitBroadcastInterface>]> {
     let summary = "Eltwise logical and.";
     let description = [{
       Eltwise logical and operation.
     }];
 }
 
-def TTNN_LogicalOrOp : TTNN_ElementwiseBinaryOp<"logical_or"> {
+def TTNN_LogicalOrOp : TTNN_ElementwiseBinaryOp<"logical_or", [DeclareOpInterfaceMethods<TTNN_RequiresExplicitBroadcastInterface>]> {
     let summary = "Eltwise logical or.";
     let description = [{
       Eltwise logical or operation.
     }];
 }
 
-def TTNN_LogicalXorOp : TTNN_ElementwiseBinaryOp<"logical_xor"> {
+def TTNN_LogicalXorOp : TTNN_ElementwiseBinaryOp<"logical_xor", [DeclareOpInterfaceMethods<TTNN_RequiresExplicitBroadcastInterface>]> {
     let summary = "Eltwise logical xor.";
     let description = [{
       Eltwise logical xor operation.
@@ -673,7 +673,7 @@ def TTNN_SubtractOp : TTNN_ElementwiseBinaryOp<"subtract",
     }];
 }
 
-def TTNN_RemainderOp : TTNN_ElementwiseBinaryOp<"remainder"> {
+def TTNN_RemainderOp : TTNN_ElementwiseBinaryOp<"remainder", [DeclareOpInterfaceMethods<TTNN_RequiresExplicitBroadcastInterface>]> {
     let summary = "Eltwise remainder.";
     let description = [{
       Performs element-wise remainder of dividend lhs and divisor rhs tensors and produces a
