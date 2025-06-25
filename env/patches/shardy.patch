@@ -273,9 +273,7 @@ index 0000000..097780a
 +mlir_tablegen(passes.h.inc -gen-pass-decls -name=SdyExport)
 +add_public_tablegen_target(SdyExportPassesIncGen)
 +add_dependencies(mlir-headers SdyExportPassesIncGen)
-+if(NOT TTMLIR_ENABLE_STABLEHLO)
-+  add_mlir_doc(Passes SdyTransformsExportPasses ./ -gen-pass-doc)
-+endif()
++add_mlir_doc(Passes SdyTransformsExportPasses ./ -gen-pass-doc)
 +
 +add_mlir_library(SdyExplicitReshardsUtil
 +  explicit_reshards_util.cc
@@ -374,9 +372,8 @@ index 0000000..9415122
 +mlir_tablegen(passes.h.inc -gen-pass-decls -name=SdyImport)
 +add_public_tablegen_target(SdyTransformsImportPassesIncGen)
 +add_dependencies(mlir-headers SdyTransformsImportPassesIncGen)
-+if(NOT TTMLIR_ENABLE_STABLEHLO)
-+   add_mlir_doc(Passes SdyTransformsImportPasses ./ -gen-pass-doc)
-+endif()
++add_mlir_doc(Passes SdyTransformsImportPasses ./ -gen-pass-doc)
++
 +add_mlir_library(SdyTransformsImportPasses
 +  add_data_flow_edges.cc
 +  apply_sharding_constraints.cc
@@ -429,9 +426,8 @@ index 0000000..02948f6
 +mlir_tablegen(passes.h.inc -gen-pass-decls -name=SdyPropagation)
 +add_public_tablegen_target(SdyTransformsPropagationPassesIncGen)
 +add_dependencies(mlir-headers SdyTransformsPropagationPassesIncGen)
-+if(NOT TTMLIR_ENABLE_STABLEHLO)
-+   add_mlir_doc(Passes SdyTransformsPropagationPasses ./ -gen-pass-doc)
-+endif()
++add_mlir_doc(Passes SdyTransformsPropagationPasses ./ -gen-pass-doc)
++
 +add_mlir_library(SdyTransformsPropagationPasses
 +  aggressive_propagation.cc
 +  basic_propagation.cc
