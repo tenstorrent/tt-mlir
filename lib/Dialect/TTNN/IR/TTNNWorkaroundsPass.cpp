@@ -633,4 +633,20 @@ TTNNOperandsWorkaroundsFactory::createReductionOpOperandsWorkarounds(
       .addInputOperandWorkaround(operandWorkaround)
       .addOutputOperandWorkaround(operandWorkaround);
 }
+
+// Factory method to create a set of workarounds for reduce product op operands.
+// tt-metal only supports full product reduction for bfloat16 data type.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createReduceProdOpOperandsWorkarounds(
+    mlir::Type elementType, bool allDimensions) {
+  bool isDataTypeWARequired = allDimensions && !elementType.isBF16();
+  TTNNOperandWorkarounds bf16Workaround;
+  if (isDataTypeWARequired) {
+    bf16Workaround.tensorDataTypeWorkaround = DataType::BFloat16;
+  }
+
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(bf16Workaround)
+      .addOutputOperandWorkaround(bf16Workaround);
+}
 } // namespace mlir::tt::ttnn::wa
