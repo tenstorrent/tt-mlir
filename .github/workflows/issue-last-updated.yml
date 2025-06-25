@@ -13,9 +13,9 @@ permissions:
   issues: read
   contents: read
 
-
 jobs:
   update_project_date:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Set Environment Variables
@@ -36,11 +36,6 @@ jobs:
       - name: Get Item ID for Issue
         id: get_item_id_by_issue_id
         run: |
-          # Initialize variables
-          CURSOR=null
-          ITEM_ID=""
-
-
           # Define the GraphQL query as a string
           QUERY='query($projectId: ID!) {
             node(id: $projectId) {
@@ -54,87 +49,59 @@ jobs:
                       }
                     }
                   }
-                  pageInfo {
-                    hasNextPage
-                    endCursor
-                  }
                 }
               }
             }
           }'
 
 
-          while : ; do
-            # Construct JSON payload using jq for proper formatting
-            JSON_PAYLOAD=$(jq -n \
-              --arg query "$QUERY" \
-              --arg projectId "${{ env.project_id }}" \
-              '{ query: $query, variables: { projectId: $projectId }}')
+          JSON_PAYLOAD=$(jq -n \
+            --arg query "$QUERY" \
+            --arg projectId "${{ env.project_id }}" \
+            '{ query: $query, variables: { projectId: $projectId }}')
 
 
-            # Make the GraphQL request
-            RESPONSE=$(curl -s -X POST -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
-                                 -H "Content-Type: application/json" \
-                                 -d "$JSON_PAYLOAD" \
-                                 https://api.github.com/graphql)
+          # Make the GraphQL request
+          RESPONSE=$(curl -s -X POST -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
+                                -H "Content-Type: application/json" \
+                                -d "$JSON_PAYLOAD" \
+                                https://api.github.com/graphql)
 
 
-            # Debug: print entire response
-            echo "RESPONSE: $RESPONSE"
+          # Debug: print entire response
+          echo "RESPONSE: $RESPONSE"
+
+          # Check if the response contains errors
+          ERRORS=$(echo "$RESPONSE" | jq -r '.errors')
+          if [[ "$ERRORS" != "null" ]]; then
+            echo "GraphQL Error: $ERRORS"
+            exit 1
+          fi
+
+          # Parse the item ID if it matches the issue_id
+          ITEM_ID=$(echo "$RESPONSE" | jq -r --arg issue_id "$issue_id" \
+                      '.data.node.items.nodes[] | select(.content.id==$issue_id) | .id')
 
 
-            # Check if the response contains errors
-            ERRORS=$(echo "$RESPONSE" | jq -r '.errors')
-            if [[ "$ERRORS" != "null" ]]; then
-              echo "GraphQL Error: $ERRORS"
-              exit 1
-            fi
+          if [[ -z "$ITEM_ID" || "$ITEM_ID" == "null" ]]; then
+            echo "Error: Issue not found in the first 100 project items."
+            exit 1
+          fi
 
-            # Check if the response contains `items` data
-            ITEMS_DATA=$(echo "$RESPONSE" | jq -r '.data.node.items.nodes' 2>/dev/null)
-            if [[ "$ITEMS_DATA" == "null" ]]; then
-              echo "Error: Items data not found. Please check your PROJECT_ID and GITHUB_TOKEN permissions."
-              exit 1
-            fi
-
-
-            # Parse the item ID if it matches the issue_id
-            ITEM_ID=$(echo "$RESPONSE" | jq -r --arg issue_id "$issue_id" \
-                       '.data.node.items.nodes[] | select(.content.id==$issue_id) | .id')
-
-
-            # If ITEM_ID is found, output it and stop the loop
-            if [[ -n "$ITEM_ID" && "$ITEM_ID" != "null" ]]; then
-              echo "Found ITEM_ID: $ITEM_ID"
-              echo "ITEM_ID=$ITEM_ID" >> $GITHUB_ENV  # Save ITEM_ID to environment for future steps
-              break
-            fi
-
-
-            # Extract pagination information
-            HAS_NEXT_PAGE=$(echo "$RESPONSE" | jq -r '.data.node.items.pageInfo.hasNextPage')
-            CURSOR=$(echo "$RESPONSE" | jq -r '.data.node.items.pageInfo.endCursor')
-
-
-            # If no more pages, exit loop
-            if [[ "$HAS_NEXT_PAGE" != "true" ]]; then
-              echo "Issue not found in project items."
-              break
-            fi
-          done
-
+          echo "Found ITEM_ID: $ITEM_ID"
+          echo "ITEM_ID=$ITEM_ID" >> $GITHUB_OUTPUT
 
       - name: Use Found ITEM_ID
-        if: env.ITEM_ID  # Only runs if ITEM_ID was set
-        run: echo "The ITEM_ID is ${{ env.ITEM_ID }}"
+        if: steps.get_item_id_by_issue_id.outputs.ITEM_ID != ''
+        run: echo "The ITEM_ID is ${{ steps.get_item_id_by_issue_id.outputs.ITEM_ID }}"
 
 
       - name: Update Project Field
-        if: env.ITEM_ID  # Only runs if ITEM_ID was set
+        if: steps.get_item_id_by_issue_id.outputs.ITEM_ID != ''
         run: |
           current_date=$(date +%Y-%m-%d)
           curl -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
                -H "Content-Type: application/json" \
-               -d "{ \"query\": \"mutation { updateProjectV2ItemFieldValue(input: { projectId: \\\"${{ env.project_id }}\\\", itemId: \\\"${{ env.ITEM_ID }}\\\", fieldId: \\\"${{ env.field_id }}\\\", value: { date: \\\"$current_date\\\" } }) { clientMutationId } }\" }" \
+               -d "{ \"query\": \"mutation { updateProjectV2ItemFieldValue(input: { projectId: \\\"${{ env.project_id }}\\\", itemId: \\\"${{ steps.get_item_id_by_issue_id.outputs.ITEM_ID }}\\\", fieldId: \\\"${{ env.field_id }}\\\", value: { date: \\\"$current_date\\\" } }) { clientMutationId } }\" }" \
                -X POST \
                "https://api.github.com/graphql"
