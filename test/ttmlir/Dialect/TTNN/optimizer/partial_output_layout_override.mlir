@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-optimizer=true override-output-layout=add_1=row_major" %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-optimizer=true memory-layout-analysis-enabled=false override-output-layout=add_1=row_major" %s | FileCheck %s
 // UNSUPPORTED: true
 #loc = loc("test_ops.py:17_0_0":0:0)
 module attributes {} {

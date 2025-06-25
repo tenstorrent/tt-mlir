@@ -20,4 +20,5 @@ set -gx TTNN_PY_HOME (pwd)/third_party/ttnn-python/src/ttnn-python
 set -gx TTNN_PY_BUILD_HOME (pwd)/third_party/ttnn-python/src/ttnn-python/build
 set -gx TT_MLIR_HOME (pwd)
 set -gx PYTHONPATH (pwd)/build/python_packages:(pwd)/.local/toolchain/python_packages/mlir_core:$TT_METAL_HOME/tt_eager:$TT_METAL_BUILD_HOME/tools/profiler/bin:$TTNN_PY_HOME/ttnn
+set -gx PYTHONPATH $PYTHONPATH:$TT_METAL_HOME/ttnn:$TT_METAL_HOME  # These paths are needed for tracy (profiling)
 set -gx ARCH_NAME (set -q ARCH_NAME; and echo $ARCH_NAME; or echo "wormhole_b0")

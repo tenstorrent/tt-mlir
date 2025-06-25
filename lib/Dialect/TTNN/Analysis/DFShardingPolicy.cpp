@@ -87,37 +87,10 @@ void DFShardingPolicy::run() {
 
         // Consider sharding only if we found at least single legal config for
         // the current op.
-        bool validForSharding = legalConfigs.lookup(currentOp).size() > 0;
-
-        // TODO(odjuricic): Skip all ops that don't support sharding due to
-        // bugs and incomplete implementation. This needs to be addressed in
-        // the near future.
-        //
-        if (llvm::isa<
-                // TODO(rpavlovicTT) Eliminating Transpose because we are
-                // failing to shard it thus it bumps our successful sharding
-                // percentage. Re-enable once we have a fix for transpose
-                // sharding.
-                ttnn::TransposeOp,
-
-                ttnn::ZerosOp, ttnn::OnesOp,
-                // TODO(#3242): Re-enable once we are able to query backend
-                // for matmul.
-                ttnn::MatmulOp,
-                // TODO(#2038): Remove this once this bug is fixed.
-                // TODO(#2042): And constraints are implemented.
-                ttnn::ReshapeOp,
-                // TODO(#2038): Remove this once this bug is fixed.
-                ttnn::ConcatOp,
-                // TODO(#2041): Remove once constraints are added for MeanOp.
-                // TODO(#2084): Remove once constraints are added for all
-                // Llama ops.
-                ttnn::MeanOp, ttnn::SinOp, ttnn::CosOp, ttnn::ReciprocalOp,
-
-                // TODO(#2588): Blocked by graph capture issue.
-                ttnn::MaxPool2dOp>(currentOp)) {
-          validForSharding = false;
-        }
+        bool validForSharding =
+            llvm::isa<ttnn::AddOp, ttnn::SubtractOp, ttnn::MultiplyOp,
+                      ttnn::ReluOp, ttnn::Conv2dOp>(currentOp) &&
+            legalConfigs.lookup(currentOp).size() > 0;
 
         if (validForSharding) {
           OpL1MemSpec shardSpec;
@@ -128,13 +101,13 @@ void DFShardingPolicy::run() {
           //
           shardSpec.tensorSplitFactor = 1;
           l1ChainConfigs->back().addOpL1MemSpec(std::move(shardSpec));
-        }
 
-        if (nextOp && currentOp->hasOneUse()) {
-          // Only if nextOp is valid and currentOp is not a fork keep
-          // growing the chain.
-          currentOp = nextOp;
-          continue;
+          if (nextOp && currentOp->hasOneUse()) {
+            // Only if nextOp is valid and currentOp is not a fork keep
+            // growing the chain.
+            currentOp = nextOp;
+            continue;
+          }
         }
 
         currentOp = nullptr;

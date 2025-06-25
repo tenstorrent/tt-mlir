@@ -615,7 +615,7 @@ struct EmitCTypeConverter<::ttnn::TensorMemoryLayout> {
       rso << "INTERLEAVED";
       break;
     case ttnn::TensorMemoryLayout::SingleBank:
-      rso << "SINGLE_BANK";
+      rso << "INTERLEAVED";
       break;
     case ttnn::TensorMemoryLayout::WidthSharded:
       rso << "WIDTH_SHARDED";

@@ -28,7 +28,7 @@ jobs:
         id: get_issue_id
         run: |
           issue_number=${{ github.event.issue.number }}
-          issue_details=$(curl -H "Authorization: Bearer ${{ secrets.GH_SECRET_PROJECTS }}" -s "https://api.github.com/repos/${{ github.repository }}/issues/$issue_number")
+          issue_details=$(curl -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" -s "https://api.github.com/repos/${{ github.repository }}/issues/$issue_number")
           issue_id=$(echo "$issue_details" | jq -r '.node_id')
           echo "issue_id=$issue_id" >> $GITHUB_ENV
 
@@ -42,10 +42,10 @@ jobs:
 
 
           # Define the GraphQL query as a string
-          QUERY='query($projectId: ID!, $cursor: String) {
+          QUERY='query($projectId: ID!) {
             node(id: $projectId) {
               ... on ProjectV2 {
-                items(first: 100, after: $cursor) {
+                items(first: 100) {
                   nodes {
                     id
                     content {
@@ -69,12 +69,11 @@ jobs:
             JSON_PAYLOAD=$(jq -n \
               --arg query "$QUERY" \
               --arg projectId "${{ env.project_id }}" \
-              --arg cursor "$CURSOR" \
-              '{ query: $query, variables: { projectId: $projectId, cursor: $cursor }}')
+              '{ query: $query, variables: { projectId: $projectId }}')
 
 
             # Make the GraphQL request
-            RESPONSE=$(curl -s -X POST -H "Authorization: Bearer ${{ secrets.GH_SECRET_PROJECTS }}" \
+            RESPONSE=$(curl -s -X POST -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
                                  -H "Content-Type: application/json" \
                                  -d "$JSON_PAYLOAD" \
                                  https://api.github.com/graphql)
@@ -84,11 +83,18 @@ jobs:
             echo "RESPONSE: $RESPONSE"
 
 
+            # Check if the response contains errors
+            ERRORS=$(echo "$RESPONSE" | jq -r '.errors')
+            if [[ "$ERRORS" != "null" ]]; then
+              echo "GraphQL Error: $ERRORS"
+              exit 1
+            fi
+
             # Check if the response contains `items` data
             ITEMS_DATA=$(echo "$RESPONSE" | jq -r '.data.node.items.nodes' 2>/dev/null)
             if [[ "$ITEMS_DATA" == "null" ]]; then
               echo "Error: Items data not found. Please check your PROJECT_ID and GITHUB_TOKEN permissions."
-              break
+              exit 1
             fi
 
 
@@ -127,7 +133,7 @@ jobs:
         if: env.ITEM_ID  # Only runs if ITEM_ID was set
         run: |
           current_date=$(date +%Y-%m-%d)
-          curl -H "Authorization: Bearer ${{ secrets.GH_SECRET_PROJECTS }}" \
+          curl -H "Authorization: Bearer ${{ secrets.TT_FORGE_PROJECT }}" \
                -H "Content-Type: application/json" \
                -d "{ \"query\": \"mutation { updateProjectV2ItemFieldValue(input: { projectId: \\\"${{ env.project_id }}\\\", itemId: \\\"${{ env.ITEM_ID }}\\\", fieldId: \\\"${{ env.field_id }}\\\", value: { date: \\\"$current_date\\\" } }) { clientMutationId } }\" }" \
                -X POST \
