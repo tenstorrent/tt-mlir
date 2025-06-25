@@ -63,7 +63,7 @@ static RankedTensorType calculateOptimalLayoutForTensorType(
       mlir::cast_if_present<MetalLayoutAttr>(tensorType.getEncoding());
   assert(tensorEncoding && "Tensor type must have a MetalLayoutAttr encoding");
   auto optimalOutputGrid = getOptimalGrid(
-      rewriter, tensorEncoding.getShardShape(tensorType), workerGridShape);
+      rewriter, tensorEncoding.getLogicalShape(), workerGridShape);
   return applyGridShape(tensorType, optimalOutputGrid.getShape());
 }
 
@@ -306,6 +306,10 @@ public:
   LogicalResult matchAndRewrite(ToLayoutOp op,
                                 PatternRewriter &rewriter) const override {
 
+    if (op->hasAttr("ttir.layout_optimized")) {
+      return failure();
+    }
+
     auto inputTy = mlir::cast<RankedTensorType>(op.getInput().getType());
     auto outputTy = mlir::cast<RankedTensorType>(op.getOutput().getType());
     tt::MetalLayoutAttr inputMemoryLayout =
@@ -325,8 +329,10 @@ public:
     }
 
     // Update device tensor type
-    rewriter.modifyOpInPlace(
-        op, [&]() { deviceTensor.setType(optimalDeviceLayout); });
+    rewriter.modifyOpInPlace(op, [&]() {
+      deviceTensor.setType(optimalDeviceLayout);
+      op->setAttr("ttir.layout_optimized", rewriter.getUnitAttr());
+    });
     if (outputMemoryLayout) {
       rewriter.modifyOpInPlace(
           op, [&]() { op->getResult(0).setType(optimalDeviceLayout); });
