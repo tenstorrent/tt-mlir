@@ -260,42 +260,6 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
 } // namespace
 
 namespace {
-struct TTIRMemrefLayoutRewriter : public OpRewritePattern<ttir::GenericOp> {
-  using OpRewritePattern<ttir::GenericOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(ttir::GenericOp op,
-                                PatternRewriter &rewriter) const final {
-    bool modified = false;
-    for (auto &region : op->getRegions()) {
-      assert(region.getBlocks().size() == 1 &&
-             "Only one block per region is supported.");
-      Block &genericBlock = region.front();
-      assert(genericBlock.getNumArguments() == op->getNumOperands() &&
-             "Number of block arguments should match the number of generic op "
-             "operands");
-      for (size_t i = 0; i < genericBlock.getNumArguments(); i++) {
-        auto arg = genericBlock.getArgument(i);
-        auto operandType =
-            mlir::cast<RankedTensorType>(op->getOperand(i).getType());
-
-        auto expectedMemrefType =
-            tt::MetalLayoutAttr::getMemRefType(operandType);
-
-        if (arg.getType() == expectedMemrefType) {
-          continue;
-        }
-        modified = true;
-        rewriter.modifyOpInPlace(op,
-                                 [&]() { arg.setType(expectedMemrefType); });
-      }
-    }
-
-    return modified ? success() : failure();
-  }
-};
-} // namespace
-
-namespace {
 struct TTIRHostTxsRewriter : public OpRewritePattern<ToLayoutOp> {
   TTIRHostTxsRewriter(MLIRContext *context,
                       SmallVector<int64_t> workerGridShape)
