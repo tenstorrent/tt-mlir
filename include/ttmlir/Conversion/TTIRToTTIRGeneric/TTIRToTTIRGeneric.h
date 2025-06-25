@@ -10,16 +10,22 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 
-namespace mlir::tt {
+namespace mlir::tt::ttir {
 
 #define GEN_PASS_DECL_TTIRTOTTIRGENERIC
 #include "ttmlir/Conversion/Passes.h.inc"
 
-void populateTTIRToTTIRGenericPatterns(MLIRContext *ctx,
-                                       RewritePatternSet &patterns,
-                                       TypeConverter &typeConverter,
-                                       const TTIRToTTIRGenericOptions &options,
-                                       uint64_t deviceGridRank);
+} // namespace mlir::tt::ttir
+// ............................................................................
+namespace mlir::tt {
+
+void populateTTIRToTTIRGenericPatterns(
+    MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
+    const ttir::TTIRToTTIRGenericOptions &options, uint64_t deviceGridRank);
+
+std::unique_ptr<OperationPass<ModuleOp>> createTTIRToTTIRGenericPass();
+std::unique_ptr<OperationPass<ModuleOp>>
+createTTIRToTTIRGenericPass(const ttir::TTIRToTTIRGenericOptions &options);
 
 } // namespace mlir::tt
 

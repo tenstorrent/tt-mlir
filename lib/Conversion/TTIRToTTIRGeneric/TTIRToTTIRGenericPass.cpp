@@ -16,7 +16,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 
 // ----------------------------------------------------------------------------
-namespace mlir::tt {
+namespace mlir::tt::ttir {
 
 #define GEN_PASS_DEF_TTIRTOTTIRGENERIC
 #include "ttmlir/Conversion/Passes.h.inc" // impl::TTIRToTTIRGenericBase
@@ -27,9 +27,9 @@ using namespace llvm;
 namespace {
 
 struct TTIRToTTIRGenericPass final
-    : tt::impl::TTIRToTTIRGenericBase<TTIRToTTIRGenericPass> {
+    : impl::TTIRToTTIRGenericBase<TTIRToTTIRGenericPass> {
 
-  using Base = tt::impl::TTIRToTTIRGenericBase<TTIRToTTIRGenericPass>;
+  using Base = impl::TTIRToTTIRGenericBase<TTIRToTTIRGenericPass>;
 
   TTIRToTTIRGenericPass(const TTIRToTTIRGenericOptions &options)
       : Base(options) {}
@@ -86,9 +86,6 @@ struct TTIRToTTIRGenericPass final
       typeConverter.addConversion([](Type type) { return type; });
     }
 
-    // llvm::outs() << "runOnOperation(): DEFAULT MS = " << defaultInputMemSpace
-    //              << "/" << defaultOutputMemSpace << "\n";
-
     mlir::RewritePatternSet patterns{&ctx};
     populateTTIRToTTIRGenericPatterns(
         &ctx, patterns, typeConverter,
@@ -103,6 +100,18 @@ struct TTIRToTTIRGenericPass final
 
 }; // end of class
 } // namespace
+} // namespace mlir::tt::ttir
+// ............................................................................
+namespace mlir::tt {
+
+std::unique_ptr<OperationPass<ModuleOp>> createTTIRToTTIRGenericPass() {
+  return std::make_unique<ttir::TTIRToTTIRGenericPass>();
+}
+
+std::unique_ptr<OperationPass<ModuleOp>>
+createTTIRToTTIRGenericPass(const ttir::TTIRToTTIRGenericOptions &options) {
+  return std::make_unique<ttir::TTIRToTTIRGenericPass>(options);
+}
 
 } // namespace mlir::tt
 // ----------------------------------------------------------------------------

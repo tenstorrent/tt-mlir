@@ -32,7 +32,7 @@ class TTIRNamedRewriterCommon {
 protected:
   using base = TTIRNamedRewriterCommon;
 
-  TTIRNamedRewriterCommon(const TTIRToTTIRGenericOptions &options,
+  TTIRNamedRewriterCommon(const ttir::TTIRToTTIRGenericOptions &options,
                           uint64_t deviceGridRank)
       : memorySpaces{options.defaultInputMemSpace,
                      options.defaultOutputMemSpace},
@@ -198,7 +198,7 @@ class TTIRNamedElementwiseRewriter final
 public:
   TTIRNamedElementwiseRewriter<ConcreteOp, TileOp>(
       const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
-      const TTIRToTTIRGenericOptions &options, uint64_t deviceGridRank)
+      const ttir::TTIRToTTIRGenericOptions &options, uint64_t deviceGridRank)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
         TTIRNamedRewriterCommon(options, deviceGridRank) {}
 
@@ -303,7 +303,7 @@ class TTIRNamedReductionRewriter final
 public:
   TTIRNamedReductionRewriter<ConcreteOp, TileOp>(
       const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
-      const TTIRToTTIRGenericOptions &options, uint64_t deviceGridRank)
+      const ttir::TTIRToTTIRGenericOptions &options, uint64_t deviceGridRank)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
         TTIRNamedRewriterCommon(options, deviceGridRank) {}
 
@@ -529,7 +529,7 @@ class TTIRMatmulRewriter final
 
 public:
   TTIRMatmulRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
-                     const TTIRToTTIRGenericOptions &options,
+                     const ttir::TTIRToTTIRGenericOptions &options,
                      uint64_t deviceGridRank)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
         TTIRNamedRewriterCommon(options, deviceGridRank) {}
@@ -656,7 +656,11 @@ private:
   }
 }; // end of class
 } // namespace
+} // namespace mlir::tt
 // ............................................................................
+namespace mlir::tt {
+
+using namespace ttir;
 
 void populateTTIRToTTIRGenericPatterns(MLIRContext *ctx,
                                        RewritePatternSet &patterns,

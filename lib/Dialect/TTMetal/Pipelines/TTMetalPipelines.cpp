@@ -61,13 +61,13 @@ void createTTIRToTTMetalFrontendPipeline(
   pm.addPass(tt::createTTCoreRegisterDevicePass(registerDeviceOptions));
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
   pm.addPass(mlir::createCanonicalizerPass());
-  tt::TTIRToTTIRGenericOptions toTTIRGenericOptions;
+  ttir::TTIRToTTIRGenericOptions toTTIRGenericOptions;
   {
     toTTIRGenericOptions.useTileMatmul = options.useTileMatmul;
     toTTIRGenericOptions.defaultInputMemSpace = options.defaultInputMemSpace;
     toTTIRGenericOptions.defaultOutputMemSpace = options.defaultOutputMemSpace;
   }
-  pm.addPass(tt::createTTIRToTTIRGeneric(toTTIRGenericOptions));
+  pm.addPass(tt::createTTIRToTTIRGenericPass(toTTIRGenericOptions));
   pm.addPass(mlir::createCanonicalizerPass());
   ttir::TTIROptimizeTensorLayoutOptions optimizeTensorLayoutOptions;
   {
