@@ -29,4 +29,5 @@ export TTNN_PY_HOME="$(pwd)/third_party/ttnn-python/src/ttnn-python"
 export TTNN_PY_BUILD_HOME="$(pwd)/third_party/ttnn-python/src/ttnn-python/build"
 export TT_MLIR_HOME="$(pwd)"
 export PYTHONPATH="$(pwd)/${BUILD_DIR:=build}/python_packages:$(pwd)/.local/toolchain/python_packages/mlir_core:${TT_METAL_HOME}/tt_eager:${TT_METAL_BUILD_HOME}/tools/profiler/bin:${TTNN_PY_HOME}/ttnn"
+export PYTHONPATH="${PYTHONPATH}:${TT_METAL_HOME}/ttnn:${TT_METAL_HOME}"  # These paths are needed for tracy (profiling)
 export ARCH_NAME="${ARCH_NAME:-wormhole_b0}"
