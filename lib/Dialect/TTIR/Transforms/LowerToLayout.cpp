@@ -237,11 +237,9 @@ public:
     // First prioritize moving the data into L1 so we can work with it in L1
     if (!inputL1) {
       // Read into L1, then do other conversions.
-      // If we're going from no grid -> grid, we need to use the output grid
-      // size (1s filled).
+      // If we're going from no grid -> grid, we need to use the output grid.
       if (!hasInputLayout && hasOutputLayout) {
-        auto gridShape = llvm::SmallVector<int64_t>(
-            outputLayout.getGridShape(outputType).size(), 1);
+        auto gridShape = outputLayout.getGridShape(outputType);
         auto bounceType =
             createModifiedType(rewriter.getContext(), inputType, inputLayout,
                                MemorySpace::DeviceL1, gridShape);
@@ -258,10 +256,9 @@ public:
       assert(inputL1 && "input should guaranteed be in L1 because of the "
                         "previous case");
       // Conversely, if we're going from grid -> no grid, we need to use the
-      // input grid size (1s filled).
+      // input grid.
       if (!hasOutputLayout && hasInputLayout) {
-        auto gridShape = llvm::SmallVector<int64_t>(
-            inputLayout.getGridShape(inputType).size(), 1);
+        auto gridShape = inputLayout.getGridShape(inputType);
         auto bounceType =
             createModifiedType(rewriter.getContext(), outputType, outputLayout,
                                MemorySpace::DeviceL1, gridShape);

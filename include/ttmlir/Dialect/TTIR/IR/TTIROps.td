@@ -354,6 +354,22 @@ def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
 
     let hasVerifier = 1;
     let hasFolder = 1;
+
+    let builders =
+    [
+      OpBuilder<(ins "Value": $input, "AffineMap": $view, CArg<"bool", "false">: $reinterpretLayout),
+      [{
+        auto outputShape = view.compose(input.getType().getShape());
+        auto outputType = ShapedType(outputShape, ..., ViewLayoutAttribute(view));
+        build($_builder, $_state, outputType, input, reinterpretLayout);
+      }]>,
+      OpBuilder<(ins "Value": $input, "ArrayRef<int64_t>": $reblockedShape, CArg<"bool", "false">: $reinterpretLayout),
+      [{
+        auto view = inlineReblockViewWorkaroundHere(input.getType().getShape(), reblockedShape);
+        auto outputType = ShapedType(outputShape, ..., ViewLayoutAttribute(view));
+        build($_builder, $_state, outputType, input, reinterpretLayout);
+      }]>,
+    ];
 }
 
 //===----------------------------------------------------------------------===//
