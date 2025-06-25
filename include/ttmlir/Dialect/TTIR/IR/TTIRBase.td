@@ -8,8 +8,6 @@
 include "mlir/IR/OpBase.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
-include "mlir/IR/AttrTypeBase.td"
-
 
 //===----------------------------------------------------------------------===//
 // TTIR dialect definition.
