@@ -269,7 +269,6 @@ struct TTIRHostTxsRewriter : public OpRewritePattern<ToLayoutOp> {
 public:
   LogicalResult matchAndRewrite(ToLayoutOp op,
                                 PatternRewriter &rewriter) const override {
-
     if (op->hasAttr("ttir.layout_optimized")) {
       return failure();
     }
@@ -308,6 +307,7 @@ public:
 };
 } // namespace
 
+namespace {
 class TTIROptimizeTensorLayout
     : public impl::TTIROptimizeTensorLayoutBase<TTIROptimizeTensorLayout> {
 
@@ -348,5 +348,6 @@ class TTIROptimizeTensorLayout
     registry.insert<mlir::tt::TTCoreDialect>();
   }
 };
+} // namespace
 
 } // namespace mlir::tt::ttir
