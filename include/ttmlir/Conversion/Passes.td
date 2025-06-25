@@ -31,11 +31,17 @@ def TTIRToTTIRDecomposition: Pass<"ttir-to-ttir-decomposition", "::mlir::ModuleO
   let constructor = "createTTIRToTTIRDecompositionPass()";
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
 
-  list<Option> options = [
-    ListOption<"opsToDecompose", "ops", "std::string",
-                "List of ops to decompose. Valid values: index, convolution, "
-                "get-dimension-size, pooling, gather, select, dot-general, "
-                "reduce-and, reduce-or, arange. If empty, all ops are decomposed.">
+  let options = [
+    Option<"decompConfig", "config", "::mlir::tt::DecompMode", /*default=*/"::mlir::tt::DecompMode::TTNN",
+           "Decomposition configuration for different backends",
+           [{::llvm::cl::values(
+             clEnumValN(::mlir::tt::DecompMode::TTNN, "ttnn",
+                        "Default configuration for TTNN backend"),
+             clEnumValN(::mlir::tt::DecompMode::TTMetal, "ttmetal",
+                        "Configuration for TTMetal backend"),
+             clEnumValN(::mlir::tt::DecompMode::CPUFallback, "cpu-fallback",
+                        "Configuration for CPU fallback path")
+           )}]>
   ];
 }
 

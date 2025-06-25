@@ -38,85 +38,61 @@ struct TTIRToTTIRDecompositionPass
   void runOnOperation() override {
     mlir::ConversionTarget target(getContext());
     target.addLegalDialect<ttir::TTIRDialect>();
-    target.addLegalDialect<mlir::func::FuncDialect>(); // we wish to keep
-                                                       // func.func and
-                                                       // func.call as legal ops
-    target.addLegalDialect<BuiltinDialect>(); // This contains the "module" op
-                                              // which is necessary
+    target.addLegalDialect<mlir::func::FuncDialect>();
+    target.addLegalDialect<BuiltinDialect>();
+    target.addLegalOp<ttir::EmptyOp>();
 
-    target.addLegalOp<ttir::EmptyOp>(); // DPS operands are create with
-                                        // ttir::EmptyOp
+    // Configure which ops to decompose based on the configuration
+    switch (decompConfig) {
+    case DecompMode::CPUFallback:
+      // CPU fallback only decomposes dot_general, reduce_or, reduce_and
+      // All other ops are legal (won't be decomposed)
+      target.addLegalOp<ttir::IndexOp>();
+      target.addLegalOp<ttir::ConvolutionOp>();
+      target.addLegalOp<ttir::GetDimensionSizeOp>();
+      target.addLegalOp<ttir::PoolingOp>();
+      target.addLegalOp<ttir::GatherOp>();
+      target.addLegalOp<ttir::IndexSelectOp>();
+      target.addLegalOp<ttir::QuantizeOp>();
+      target.addLegalOp<ttir::RequantizeOp>();
+      target.addLegalOp<ttir::DequantizeOp>();
 
-    // Build set of ops to decompose.
-    llvm::DenseSet<StringRef> opsSet;
-    bool decomposeAll = opsToDecompose.empty();
-    if (!decomposeAll) {
-      for (const auto &opName : opsToDecompose) {
-        opsSet.insert(opName);
-      }
+      // These three are illegal (will be decomposed)
+      target.addIllegalOp<ttir::DotGeneralOp>();
+      target.addIllegalOp<ttir::ReduceAndOp>();
+      target.addIllegalOp<ttir::ReduceOrOp>();
+      break;
+
+    case DecompMode::TTNN:
+    case DecompMode::TTMetal:
+      // TTNN and TTMetal decompose all ops
+      target.addIllegalOp<ttir::IndexOp>();
+      target.addIllegalOp<ttir::ConvolutionOp>();
+      target.addIllegalOp<ttir::GetDimensionSizeOp>();
+      target.addIllegalOp<ttir::PoolingOp>();
+      target.addIllegalOp<ttir::GatherOp>();
+      target.addIllegalOp<ttir::DotGeneralOp>();
+      target.addIllegalOp<ttir::IndexSelectOp>();
+      target.addIllegalOp<ttir::ReduceAndOp>();
+      target.addIllegalOp<ttir::ReduceOrOp>();
+      target.addIllegalOp<ttir::QuantizeOp>();
+      target.addIllegalOp<ttir::RequantizeOp>();
+      target.addIllegalOp<ttir::DequantizeOp>();
+      break;
     }
 
-    // Use addDynamicallyLegalOp to control which ops get decomposed
-    // The op is legal (won't be converted) if we're NOT decomposing it.
-    target.addDynamicallyLegalOp<ttir::IndexOp>([&](ttir::IndexOp) {
-      return !decomposeAll && !opsSet.contains("index");
-    });
-
-    target.addDynamicallyLegalOp<ttir::ConvolutionOp>([&](ttir::ConvolutionOp) {
-      return !decomposeAll && !opsSet.contains("convolution");
-    });
-
-    target.addDynamicallyLegalOp<ttir::GetDimensionSizeOp>(
-        [&](ttir::GetDimensionSizeOp) {
-          return !decomposeAll && !opsSet.contains("get-dimension-size");
-        });
-
-    target.addDynamicallyLegalOp<ttir::PoolingOp>([&](ttir::PoolingOp) {
-      return !decomposeAll && !opsSet.contains("pooling");
-    });
-
-    target.addDynamicallyLegalOp<ttir::GatherOp>([&](ttir::GatherOp) {
-      return !decomposeAll && !opsSet.contains("gather");
-    });
-
-    target.addDynamicallyLegalOp<ttir::DotGeneralOp>([&](ttir::DotGeneralOp) {
-      return !decomposeAll && !opsSet.contains("dot-general");
-    });
-
-    target.addDynamicallyLegalOp<ttir::IndexSelectOp>([&](ttir::IndexSelectOp) {
-      return !decomposeAll && !opsSet.contains("index-select");
-    });
-
-    target.addDynamicallyLegalOp<ttir::ReduceAndOp>([&](ttir::ReduceAndOp) {
-      return !decomposeAll && !opsSet.contains("reduce-and");
-    });
-
-    target.addDynamicallyLegalOp<ttir::ReduceOrOp>([&](ttir::ReduceOrOp) {
-      return !decomposeAll && !opsSet.contains("reduce-or");
-    });
-    target.addDynamicallyLegalOp<ttir::QuantizeOp>([&](ttir::QuantizeOp) {
-      return !decomposeAll && !opsSet.contains("quantize");
-    });
-    target.addDynamicallyLegalOp<ttir::RequantizeOp>([&](ttir::RequantizeOp) {
-      return !decomposeAll && !opsSet.contains("requantize");
-    });
-    target.addDynamicallyLegalOp<ttir::DequantizeOp>([&](ttir::DequantizeOp) {
-      return !decomposeAll && !opsSet.contains("dequantize");
-    });
-
-    // These are the ops that must satisfy some additional conditions after this
-    // pass
+    // These ops have additional conditions regardless of configuration
     target.addDynamicallyLegalOp<ttir::ArangeOp>([&](ttir::ArangeOp op) {
-      // First check if we're even decomposing arange ops.
-      if (!decomposeAll && !opsSet.contains("arange")) {
-        return true; // Legal - don't decompose
+      // For CPU fallback, arange is always legal (not decomposed)
+      if (decompConfig == DecompMode::CPUFallback) {
+        return true;
       }
-      // If we are decomposing, only decompose if it doesn't meet our
-      // constraints.
+      // For TTNN and TTMetal, only decompose if it doesn't meet constraints
       auto shape = op.getResult().getType().getShape();
       return (static_cast<int64_t>(op.getArangeDimension()) == 0 &&
               shape.size() == 1);
     });
+
     target.addDynamicallyLegalOp<ttir::BatchNormOp>([&](ttir::BatchNormOp op) {
       auto scaleType = op.getScale().getType();
       auto offsetType = op.getOffset().getType();
@@ -139,8 +115,6 @@ struct TTIRToTTIRDecompositionPass
     typeConverter.addConversion([](Type type) { return type; });
 
     RewritePatternSet patterns(&getContext());
-    // Populate ALL patterns - the conversion infrastructure will only
-    // apply patterns for ops marked as illegal.
     populateTTIRToTTIRDecompositionPatterns(&getContext(), patterns,
                                             typeConverter);
 

@@ -10,6 +10,8 @@
 
 namespace mlir::tt {
 
+enum class DecompMode { TTNN, TTMetal, CPUFallback };
+
 #define GEN_PASS_DECL_TTIRTOTTIRDECOMPOSITION
 #include "ttmlir/Conversion/Passes.h.inc"
 
