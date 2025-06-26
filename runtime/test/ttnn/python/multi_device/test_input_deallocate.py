@@ -22,8 +22,6 @@ from ..utils import (
     get_to_layout_inputs,
 )
 
-from .constants import FLATBUFFER_BASE_PATH
-
 
 def verify_to_layout_deallocation(helper: Helper, retain_flags, storage):
     """Test memory deallocation behavior after to_layout operation"""
