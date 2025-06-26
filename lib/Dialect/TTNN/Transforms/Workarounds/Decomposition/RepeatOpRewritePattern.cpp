@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RepeatOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
+#include "ttmlir/Utils.h"
 
 #include <algorithm>
 
@@ -30,8 +31,8 @@ TTNNRepeatFoldingWorkaround::matchAndRewrite(ttnn::RepeatOp op,
 
   // Create a ZerosOp to be used with AddOp
   ttnn::ZerosOp zerosOp = rewriter.create<ttnn::ZerosOp>(
-      op->getLoc(), resultType, shapeAttr, dTypeAttr, layout, device,
-      ttnn::MemoryConfigAttr());
+      ttmlir::utils::appendLocationSuffix(op->getLoc(), "_zeros"), resultType,
+      shapeAttr, dTypeAttr, layout, device, ttnn::MemoryConfigAttr());
 
   SmallVector<Value> addInputs;
   addInputs.push_back(op.getOperand());

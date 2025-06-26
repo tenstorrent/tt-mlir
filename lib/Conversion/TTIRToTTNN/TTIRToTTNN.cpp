@@ -1252,7 +1252,8 @@ public:
       // addOp(lhs, negOp(rhs))
     } else {
       ttnn::NegOp negOp = rewriter.create<ttnn::NegOp>(
-          srcOp.getLoc(), adaptor.getRhs().getType(), adaptor.getRhs());
+          ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_neg"),
+          adaptor.getRhs().getType(), adaptor.getRhs());
 
       rewriter.replaceOpWithNewOp<ttnn::AddOp>(srcOp, outputType,
                                                adaptor.getLhs(), negOp);
