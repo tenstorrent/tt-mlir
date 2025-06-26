@@ -7,12 +7,13 @@
 
 #include "tools/profiler/op_profiler.hpp"
 #include "tracy/Tracy.hpp"
+#include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common.h"
-#include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/dylib.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttmetal/profiler.h"
 #include "tt/runtime/detail/ttmetal/ttmetal.h"
+#include "tt/runtime/perf.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
 
@@ -209,15 +210,11 @@ void CQExecutor::execute(const target::metal::HostAllocCommand *command) {
   LOG_ASSERT(bufferDesc->sharded_buffer_config() == nullptr);
   LOG_ASSERT(bufferDesc->shape()->size() > 0);
 
-  TensorDesc desc;
-  desc.shape = std::vector<std::uint32_t>(bufferDesc->shape()->begin(),
-                                          bufferDesc->shape()->end());
-  desc.stride = utils::calculateStride(desc.shape);
-  desc.itemsize = utils::dataTypeElementSize(bufferDesc->data_type());
-  desc.dataType = bufferDesc->data_type();
-
-  size_t size =
-      utils::alignUp(desc.shape[0] * desc.stride[0], 1024U) * desc.itemsize;
+  std::vector<std::uint32_t> shape(bufferDesc->shape()->begin(),
+                                   bufferDesc->shape()->end());
+  TensorDesc desc(shape, bufferDesc->data_type(),
+                  utils::tileAlignment(bufferDesc->data_type()));
+  size_t size = desc.sizeBytes();
   auto data = std::shared_ptr<void>(std::malloc(size), std::free);
   if (!data) {
     LOG_FATAL("HostAllocCommand: Failed to allocate host memory.");
@@ -309,7 +306,7 @@ void CQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
 
   tt_metal::EnqueueProgram(*cq, program, blockingCQ);
 
-  if (debug::PerfEnv::get().enablePerfTrace) {
+  if (perf::Env::get().enablePerfTrace) {
     profiler::profileProgram(device, program, loc);
   }
 }

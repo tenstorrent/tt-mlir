@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
+
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemReconfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
@@ -167,6 +169,9 @@ bool ShardSolver::resolveStep() {
       } else {
         for (std::uint64_t producerId = 0; producerId < producerCount;
              ++producerId) {
+          // TODO(rpavlovicTT) After we inserted reshard in
+          // preprocessFirstOp we dont need to try every producerId here, right?
+
           // If the producer cannot accomodate this path, continue.
           // Also if this is not the OpConfig we selected, continue.
           if (!producerBitset->test(producerId)) {
@@ -189,6 +194,12 @@ bool ShardSolver::resolveStep() {
                  ++consumerId) {
 
               if (consumerConfigs[consumerId].outputLayout != consumerLayout) {
+                TTMLIR_TRACE(
+                    ttmlir::LogComponent::Optimizer,
+                    "OpName: {} Generated consumer layout {} does not match "
+                    "backend returned layout {}",
+                    consumerOp->getName(),
+                    consumerConfigs[consumerId].outputLayout, consumerLayout);
                 continue;
               }
 
@@ -336,6 +347,9 @@ bool ShardSolver::preprocessFirstOp() {
     TTNNLayoutAttr firstOpLayout = firstOpConfigs[i].outputLayout;
     assert(firstOpLayout.hasShardedL1TensorMemoryLayout());
 
+    // TODO(rpavlovicTT) this is bad as we are hardcoding this layout, while it
+    // could be overriden.
+    // https://github.com/tenstorrent/tt-mlir/issues/3749
     if (!supportsInterleavedInputShardedOutput(firstOp, firstOpConfigs[i])) {
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                    "Interleaved to sharded not possible for config idx {}", i);
@@ -820,18 +834,13 @@ llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
     auto layout = mlir::cast<TTNNLayoutAttr>(input.getEncoding());
 
     assert(layout && "Input operand must have a layout");
-
-    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                 "Op {0} has additional operand with layout {1}",
-                 consumerOp->getName(), layout);
     inputLayouts.push_back(layout);
   }
 
   assert(inputUnderCheckFound && "Input under check not found");
 
-  llvm::Expected<
-      std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
-      l1UsageExp = backend.getOpConstraints(inputLayouts, consumerConfig);
+  llvm::Expected<op_model::ttnn::OpConstraints> l1UsageExp =
+      backend.getOpConstraints(inputLayouts, consumerConfig);
 
   if (!l1UsageExp) {
     llvm::Error error = l1UsageExp.takeError();
@@ -866,9 +875,14 @@ llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
 
   if (!l1UsageValid) {
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                 "OpModel constraints failed: {0}->{1} :: {2}",
+                 "Not enough L1 memory. OpModel constraints failed: {0}->{1} "
+                 "\n producerLayout: {2}, outputLayout: {3}, l1Usage: {4}, "
+                 "producerL1OutputUsage: {5}, "
+                 "outputTensorUsage: {6}, cBUsagePeak: {7}",
                  producerOperand.getLoc(), consumerOp->getName(),
-                 "Not enough L1 memory");
+                 producerLayout, outputLayout,
+                 cBUsagePeak + outputTensorUsage + producerL1OutputUsage,
+                 producerL1OutputUsage, outputTensorUsage, cBUsagePeak);
     return llvm::createStringError("Not enough L1 memory");
   }
 
@@ -876,10 +890,13 @@ llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
       ttmlir::LogComponent::Optimizer,
       "OpModel constraints valid. Producer: {0} -> Consumer: {1}\n"
       "ProducerLayout: {2}\nOutputLayout: {3}\n"
-      "L1 usage: cBUsagePeak: {4}, tensorUsage: {5}, outputTensorUsage: {6}\n"
+      "L1 usage: cBUsagePeak: {4}, tensorUsage: {5}, outputTensorUsage: {6}, "
+      "producerL1OutputUsage: {7}, totalL1Usage: {8}\n"
       "=== End of debug dump ===",
       producerOperand.getLoc(), consumerOp->getName(), producerLayout,
-      outputLayout, cBUsagePeak, tensorUsage, outputTensorUsage);
+      outputLayout, cBUsagePeak, tensorUsage, outputTensorUsage,
+      producerL1OutputUsage,
+      cBUsagePeak + outputTensorUsage + producerL1OutputUsage);
 
   return outputLayout;
 }

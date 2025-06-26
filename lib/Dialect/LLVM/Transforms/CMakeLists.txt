@@ -7,5 +7,5 @@ add_mlir_dialect_library(MLIRLLVMTransforms
         DEPENDS
         MLIRTTIROpsIncGen
         MLIRTTIRPassesIncGen
-        MLIRTTOpsIncGen
+        MLIRTTCoreOpsIncGen
         )

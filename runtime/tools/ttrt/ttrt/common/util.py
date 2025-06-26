@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 from pprint import pprint
+from typing import Tuple
 
 import torch
 from pkg_resources import get_distribution
@@ -74,9 +75,15 @@ def get_atol_rtol_pcc(golden, calculated, logging):
     import numpy as np
     import torch
 
+    # abs() and masked_fill() don't support unsigned integers
+    if not torch.is_floating_point(golden):
+        golden = golden.to(torch.float64)
+    if not torch.is_floating_point(calculated):
+        calculated = calculated.to(torch.float64)
+
     # Calculate atol and rtol
     cal_atol = torch.max(torch.abs(golden - calculated)).item()
-    cal_rtol = torch.max(torch.abs(golden - calculated) / torch.abs(calculated)).item()
+    cal_rtol = torch.max(torch.abs((golden - calculated) / calculated)).item()
 
     # Calculate PCC
     def get_pcc(golden, calculated):
@@ -153,6 +160,37 @@ def get_atol_rtol_pcc(golden, calculated, logging):
     )
 
 
+# Given two torch tensors, return a list of the top k absolute/relative differences.
+# Result format: [(v_golden, v_output, abs_diff/rel_diff, index), ...].
+def get_topk_diff(golden, calculated, top_k, relative=False):
+    import torch
+
+    if not torch.is_floating_point(golden):
+        golden = golden.to(torch.float64)
+    if not torch.is_floating_point(calculated):
+        calculated = calculated.to(torch.float64)
+
+    diff = torch.abs(golden - calculated)
+    if relative:
+        diff = torch.abs(diff / golden)
+        # In case of division by zero
+        diff_nz = torch.abs((calculated + 1.0) / (golden + 1.0)) - 1.0
+        diff = torch.where(torch.isfinite(diff), diff, diff_nz)
+
+    top_values, top_indices = torch.topk(diff.flatten(), top_k)
+
+    golden_shape = golden.shape
+    results = []
+    for i in range(top_k):
+        flat_idx = top_indices[i].item()
+        multi_idx = torch.unravel_index(torch.tensor(flat_idx), golden_shape)
+        v_golden = golden[multi_idx].item()
+        v_output = calculated[multi_idx].item()
+        v_diff = top_values[i].item()
+        results.append((v_golden, v_output, v_diff, tuple(i.item() for i in multi_idx)))
+    return results
+
+
 def golden_tensor_to_torch(golden_tensor: "ttrt.binary.GoldenTensor"):
     dtype = ttrt_datatype_to_torch_dtype(golden_tensor.dtype)
     torch_tensor = torch.frombuffer(
@@ -176,8 +214,6 @@ class Logger:
                 LEVEL = self.logging.ERROR
             elif os.environ["TTRT_LOGGER_LEVEL"] == "WARNING":
                 LEVEL = self.logging.WARNING
-            elif os.environ["TTRT_LOGGER_LEVEL"] == "INFO":
-                LEVEL = self.logging.INFO
             elif os.environ["TTRT_LOGGER_LEVEL"] == "DEBUG":
                 LEVEL = self.logging.DEBUG
 
@@ -617,19 +653,7 @@ class Flatbuffer:
         self.test_result = "pass"
 
     def check_version(self, ignore: bool = False):
-        package_name = "ttrt"
-
-        try:
-            package_version = get_distribution(package_name).version
-        except Exception as e:
-            raise Exception(f"error retrieving version: {e} for {package_name}")
-
-        if package_version != self.version and not ignore:
-            raise Exception(
-                f"{package_name}: v{package_version} does not match flatbuffer: v{self.version} for flatbuffer: {self.file_path} - skipping this test"
-            )
-
-        return True
+        raise UnimplementedError
 
     @staticmethod
     def get_ttnn_file_extension():
@@ -655,19 +679,28 @@ class Binary(Flatbuffer):
             self.fbb = ttrt.binary.load_binary_from_path(file_path)
         else:
             self.fbb = ttrt.binary.load_binary_from_capsule(capsule)
-        self.fbb_dict = ttrt.binary.as_dict(self.fbb)
+        self.system_desc_dict = ttrt.binary.system_desc_as_dict(self.fbb)
         self.version = self.fbb.version
+        self.program_indices = range(self.fbb.get_num_programs())
         self.programs = []
+        self.program_results = {}
 
-        for i in range(len(self.fbb_dict["programs"])):
-            program = Binary.Program(i, self.fbb_dict["programs"][i])
+        for i in self.program_indices:
+            program = Binary.Program(i, self.fbb)
             self.programs.append(program)
+
+    def check_version(self, ignore: bool = False):
+        if not ignore and not self.fbb.check_schema_hash():
+            raise Exception(
+                "Binary schema mismatch, please recompile the binary with the compiler at the same schema version"
+            )
+        return True
 
     def check_system_desc(self, query):
         import ttrt.binary
 
         try:
-            fbb_system_desc = self.fbb_dict["system_desc"]
+            fbb_system_desc = self.system_desc_dict
             device_system_desc = query.get_system_desc_as_dict()["system_desc"]
 
             if fbb_system_desc != device_system_desc:
@@ -709,7 +742,7 @@ class Binary(Flatbuffer):
         return True
 
     def get_num_programs(self):
-        return len(self.programs)
+        return self.fbb.get_num_programs()
 
     def check_program_index_exists(self, program_index):
         if program_index >= self.get_num_programs():
@@ -733,33 +766,79 @@ class Binary(Flatbuffer):
 
         for i, p in enumerate(self.programs):
             print(f"\nProgram {i+1} operations:")
-            pprint(p.to_dict())
+            pprint(p.fbb_to_dict())
 
         print()
 
+    def add_program_results(
+        self,
+        program_index,
+        loop,
+        total_duration_ns,
+        total_ttnn_api_duration_ns=None,
+        total_device_kernel_duration_ns=None,
+    ):
+        program_key = f"program_index_{program_index}"
+        if program_key not in self.program_results.keys():
+            self.program_results[program_key] = {}
+
+        loop_key = f"loop_{loop}"
+        if loop_key not in self.program_results[program_key].keys():
+            self.program_results[program_key][loop_key] = {}
+
+        self.program_results[program_key][loop_key][
+            "total_duration_ns"
+        ] = total_duration_ns
+        self.program_results[program_key][loop_key][
+            "total_ttnn_api_duration_ns"
+        ] = total_ttnn_api_duration_ns
+        self.program_results[program_key][loop_key][
+            "total_device_kernel_duration_ns"
+        ] = total_device_kernel_duration_ns
+
+    def update_total_ttnn_api_duration_ns(
+        self, program_index, loop, total_ttnn_api_duration_ns
+    ):
+        self.program_results[f"program_index_{program_index}"][f"loop_{loop}"][
+            "total_ttnn_api_duration_ns"
+        ] = total_ttnn_api_duration_ns
+
+    def update_total_device_kernel_duration_ns(
+        self, program_index, loop, total_device_kernel_duration_ns
+    ):
+        self.program_results[f"program_index_{program_index}"][f"loop_{loop}"][
+            "total_device_kernel_duration_ns"
+        ] = total_device_kernel_duration_ns
+
     class Program:
-        def __init__(self, index, program):
+        def __init__(self, index, binary):
+            import ttrt.binary
+
+            self.fbb = binary
             self.index = index
-            self.program = program
+            self.name = self.fbb.get_program_name(self.index)
+            self.inputs = ttrt.binary.program_inputs_as_dict(self.fbb, self.index)
+            self.outputs = ttrt.binary.program_outputs_as_dict(self.fbb, self.index)
+            self.mesh_shape = self.fbb.get_program_mesh_shape(self.index)
             self.input_tensors = []
             self.output_tensors = []
 
         def num_inputs(self):
-            return len(self.program["inputs"])
+            return len(self.inputs)
 
         def num_outputs(self):
-            return len(self.program["outputs"])
+            return len(self.outputs)
 
         def populate_inputs(self, init_fn, golden_inputs=[]):
             if len(golden_inputs) > 0:
-                assert len(golden_inputs) == len(self.program["inputs"])
-                for index, input_fb in enumerate(self.program["inputs"]):
+                assert len(golden_inputs) == len(self.inputs)
+                for index, input_fb in enumerate(self.inputs):
                     reshaped = torch.reshape(
                         golden_inputs[index], input_fb["desc"]["shape"]
                     )
                     self.input_tensors.append(reshaped)
             else:
-                for i in self.program["inputs"]:
+                for i in self.inputs:
                     torch_tensor = init_fn(
                         i["desc"]["shape"],
                         dtype=Binary.Program.from_data_type(
@@ -769,7 +848,7 @@ class Binary(Flatbuffer):
                     self.input_tensors.append(torch_tensor)
 
         def populate_outputs(self, init_fn):
-            for i in self.program["outputs"]:
+            for i in self.outputs:
                 torch_tensor = init_fn(
                     i["desc"]["shape"],
                     dtype=Binary.Program.from_data_type(
@@ -778,9 +857,17 @@ class Binary(Flatbuffer):
                 )
                 self.output_tensors.append(torch_tensor)
 
+        def is_private(self):
+            import ttrt.binary
+
+            return self.fbb.is_program_private(self.index)
+
         def to_dict(self) -> dict:
             return {
-                i: op["debug_info"] for i, op in enumerate(self.program["operations"])
+                i: op["debug_info"]
+                for i, op in enumerate(
+                    self.ttrt.binary.program_ops_as_dict(self.fbb, i)
+                )
             }
 
         @staticmethod
@@ -802,7 +889,20 @@ class Binary(Flatbuffer):
                 return ttrt.runtime.DataType.UInt8
             if dtype == torch.int32:
                 return ttrt.runtime.DataType.Int32
-            raise ValueError(f"unsupported dtype: {dtype}")
+            # Data types which are unsupported on ttnn
+            if dtype == torch.float64:
+                return ttrt.runtime.DataType.Float64
+            if dtype == torch.int64:
+                return ttrt.runtime.DataType.Int64
+            if dtype == torch.uint64:
+                return ttrt.runtime.DataType.UInt64
+            if dtype == torch.int16:
+                return ttrt.runtime.DataType.Int16
+            if dtype == torch.int8:
+                return ttrt.runtime.DataType.Int8
+            if dtype == torch.bool:
+                return ttrt.runtime.DataType.Bool
+            raise ValueError(f"Torch dtype: {dtype} has no runtime DataType equivalent")
 
         @staticmethod
         def from_data_type(dtype):
@@ -822,6 +922,20 @@ class Binary(Flatbuffer):
                 return torch.uint8
             if dtype == "Int32":
                 return torch.int32
+            # Data types which are unsupported on ttnn
+            if dtype == "Float64":
+                return torch.float64
+            if dtype == "Int64":
+                return torch.int64
+            if dtype == "UInt64":
+                return torch.uint64
+            if dtype == "Int16":
+                return torch.int16
+            if dtype == "Int8":
+                return torch.int8
+            if dtype == "Bool":
+                return torch.bool
+
             raise ValueError(f"unsupported dtype: {dtype}")
 
 
@@ -832,11 +946,18 @@ class SystemDesc(Flatbuffer):
         import ttrt.binary
 
         self.fbb = ttrt.binary.load_system_desc_from_path(file_path)
-        self.fbb_dict = ttrt.binary.as_dict(self.fbb)
+        self.fbb_dict = ttrt.binary.fbb_as_dict(self.fbb)
         self.version = self.fbb.version
 
         # temporary state value to check if test failed
         self.test_result = "pass"
+
+    def check_version(self, ignore: bool = False):
+        if not ignore and not self.fbb.check_schema_hash():
+            raise Exception(
+                "Binary schema mismatch, please recompile the binary with the compiler at the same schema version"
+            )
+        return True
 
 
 class TTRTTestException(Exception):
@@ -847,6 +968,12 @@ class TTRTTestException(Exception):
 
 class PCCErrorException(TTRTTestException):
     """Class to store PCC Comparison Errors"""
+
+    pass
+
+
+class AllCloseErrorException(TTRTTestException):
+    """Class to store AllClose Comparison Errors"""
 
     pass
 

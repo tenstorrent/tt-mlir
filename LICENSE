@@ -199,3 +199,5 @@ distributed as part of the software:
 
 - llvm-project - Apache 2.0 with LLVM Exceptions (https://github.com/llvm/llvm-project/blob/main/LICENSE.TXT)
 - flatbuffers - Apache 2.0 (https://github.com/google/flatbuffers/blob/master/LICENSE)
+- stablehlo - Apache 2.0 (https://github.com/openxla/stablehlo/blob/main/LICENSE)
+- shardy - Apache 2.0 (https://github.com/openxla/shardy/blob/main/LICENSE)

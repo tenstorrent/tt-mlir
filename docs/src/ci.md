@@ -56,7 +56,7 @@ In reality it is the type of test to perform:
 
 #### path
 This field represents the path inside the tt-mlir repository where your tests resides.
-For ttrt test this is the relative path for generated mlir files inside the build/test/ttmlir directory.
+For `ttrt` test this is the relative path for generated mlir files inside the build/test/ttmlir directory.
 For pytest the path is relative to the repository root.
 
 #### suite
@@ -73,13 +73,14 @@ Please take a look at the [Builds](#builds) section for a more detailed descript
 #### type
 Specify the type of test run. Currently supported:
 - __pytest__ - run python tests using pytest
-- __ttrt__ - run tests using ttrt tool
+- __ttrt__ - run tests using `ttrt` tool
 - __unit__ - run unit tests
 - __builder__ - run builder tests and execute generated flatbuffers iff `run-ttrt` flag is set
-- __ttnn_standalone__ - run ttnn_standalone sanity test
+- __ttnn_standalone__ - run `ttnn_standalone` sanity test
+- __pykernel__ - run `pykernel` tests and runtime demo.
 
 #### flags (optional)
-Additional flags may be used when running tests. These are passed to ttrt or pytest as an additional parameter.
+Additional flags may be used when running tests. These are passed to `ttrt` or pytest as an additional parameter.
 
 #### container-options (optional)
 Each test runs in a docker container and this option specifies docker container options.
@@ -90,14 +91,14 @@ If no value is passed, the default value will be used (`"--device /dev/tenstorre
 Usually, it is enough to add a single line to the test matrix and your tests will become part of tt-mlir CI.
 Here is a checklist of what you should decide before adding it:
 - On which TT hardware should your tests should run? Put the specific hardware in "runs-on" field or `NXX0` if you don't care. If you want your test to run on multiple hardware types add multiple lines to the matrix, one for each hardware type.
-- Are your test run with ttrt or pytest? Put this decision in "type" field.
+- Are your test run with `ttrt` or pytest? Put this decision in "type" field.
 - Does your test generate performance report? If it does put name as "perf". If not put name as "run".
 - Use creativity and name your test. Write result of your hard intellectual work inside "suite" field.
 > __Each line__ in matrix __MUST__ be __unique__! Check if it is. If it is not, use more of your creative and intellectual energy to create better (at least different) name for "suite" field.
 
 #### Consider
 Here are few things to consider:
-- Design your ttrt test so it is generated with a `-- check_ttmlir` CMake target.
+- Design your `ttrt` test so it is generated with a `-- check_ttmlir` CMake target.
 - For pytest, use pytest test discovery to run all tests in subdirectories. In most cases there is no need for two sets of tests.
 - If you want to have separate test reports, do not add additional XML file paths and steps to upload these. Use `test_report_path` because it will be automatically picked up and sent to analytics.
 - If separate reports are required, treat them as different tests. Add an additional line to the test matrix.

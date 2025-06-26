@@ -10,9 +10,10 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         GenericHWThreadSelection.cpp
         GenericLowerDMAs.cpp
         GenericRegionsToFuncs.cpp
+        InsertDstRegisterAccess.cpp
+        GenericApplyInterchange.cpp
         OptimizeTensorLayout.cpp
         HoistCPUOps.cpp
-        Bufferization.cpp
         ElementTypeNormalization.cpp
         LowerToLayout.cpp
         Quantization.cpp
@@ -25,8 +26,9 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         DEPENDS
         MLIRTTIROpsIncGen
         MLIRTTIRPassesIncGen
-        MLIRTTOpsIncGen
+        MLIRTTCoreOpsIncGen
 
         LINK_LIBS PUBLIC
         MLIRTTIREraseInverseOps
+        MLIRTTIRAnalysis
         )

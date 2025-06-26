@@ -32,7 +32,7 @@ def TTIR_Dialect : Dialect {
       "::mlir::linalg::LinalgDialect",
       "::mlir::scf::SCFDialect",
       "::mlir::cf::ControlFlowDialect",
-      "::mlir::tt::TTDialect"
+      "::mlir::tt::TTCoreDialect"
     ];
 
     let hasConstantMaterializer = 1;
@@ -53,13 +53,12 @@ class TTIR_Op<string mnemonic, list<Trait> traits = []> :
 // TTIR traits definition.
 //===----------------------------------------------------------------------===//
 
-def TwoOperands : ParamNativeOpTrait<"NOperands", "2">;
-def ThreeOperands : ParamNativeOpTrait<"NOperands", "3">;
-def FourOperands : ParamNativeOpTrait<"NOperands", "4">;
-
 class TTIR_Trait<string name, list<Trait> traits = []> : NativeOpTrait<name, traits> {
   let cppNamespace = "::mlir::tt::ttir";
 }
+
+def TwoOperands : ParamNativeOpTrait<"NOperands", "2">;
+def ThreeOperands : ParamNativeOpTrait<"NOperands", "3">;
 
 // Involution is property of an operation where applying the operation twice results in the original value.
 // Example: not(not(x)) == x
@@ -74,6 +73,8 @@ def TTIR_BinaryIdempotence : TTIR_Trait<"TTIRBinaryIdempotence", [DestinationSty
 def TTIR_GenericRegionComputeOpTrait : TTIR_Trait<"TTIRGenericRegionComputeOpTrait">;
 // GenericRegionDatamovementOpTrait is a trait that verifies that the operation is inside a datamovement thread.
 def TTIR_GenericRegionDatamovementOpTrait : TTIR_Trait<"TTIRGenericRegionDatamovementOpTrait">;
+
+def TTIR_Broadcastable : TTIR_Trait<"Broadcastable">;
 
 //===----------------------------------------------------------------------===//
 // TTIR common types.

@@ -4,7 +4,7 @@
 
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/Analysis/AllocationPlanner.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
@@ -56,13 +56,17 @@ using SequenceT = AllocationPlanner::SequenceT;
 struct MemorySpaceInfo {
 
   MemorySpaceInfo() = default;
-  MemorySpaceInfo(AllocSizeT baseAddress, AllocSizeT size, AllocSizeT alignment)
-      : baseAddress(baseAddress), size(size), alignment(alignment) {
-    assert(baseAddress % alignment == 0 && "expected aligned base address");
+  MemorySpaceInfo(AllocSizeT baseAddress, AllocSizeT maxAddress,
+                  AllocSizeT alignment)
+      : baseAddress(baseAddress), maxAddress(maxAddress), alignment(alignment) {
+    TT_assert(baseAddress % alignment == 0, "expected aligned base address");
+    TT_assert(baseAddress < maxAddress, "expected positive memory capacity");
   }
 
+  // Valid address range is [baseAddress, maxAddress).
+
   AllocSizeT baseAddress = 0;
-  AllocSizeT size = 0;
+  AllocSizeT maxAddress = 0;
   AllocSizeT alignment = 0;
 
   static constexpr std::size_t kMaxEnumValForMemorySpace =
@@ -145,12 +149,6 @@ class TTIRAllocateStreams final : public OpRewritePattern<ttir::GenericOp> {
     // Greedy driver fixed point reached?
     if (mlir::isa_and_nonnull<ttir::StreamLayoutOp>(definingOp)) {
       return false;
-    }
-
-    // A view_layout signals that an op wants to take a view of an
-    // operand, possibly to switch to a different core grid shape.
-    if (mlir::isa_and_nonnull<ttir::ViewLayoutOp>(definingOp)) {
-      return true;
     }
 
     // No stream (NOC ops) will be needed if 'operand' is already
@@ -257,7 +255,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     MemorySpaces memSpaces = getMemorySpaces(chipDesc);
     ModuleAnalysisData moduleAnalysis(memSpaces);
 
-    moduleOp->walk([&](func::FuncOp func) {
+    WalkResult analysisWalk = moduleOp->walk([&](func::FuncOp func) {
       if (func.isDeclaration()) {
         return WalkResult::skip();
       }
@@ -271,6 +269,10 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
       moduleAnalysis.funcAnalysis[func] = std::move(*funcAnalysis);
       return WalkResult::advance();
     });
+
+    if (analysisWalk.wasInterrupted()) {
+      return failure();
+    }
 
     return moduleAnalysis;
   }
@@ -357,7 +359,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
 
         const AllocSizeT alignment =
             memSpaces[llvm::to_underlying(memorySpace)].alignment;
-        const AllocSizeT sizeBytes = device.getMemrefSizeBytes(memrefTy, 0);
+        const AllocSizeT sizeBytes = device.getMemrefSizeBytes(memrefTy);
         const AllocSizeT alignedSize =
             ttmlir::utils::alignUp(sizeBytes, alignment);
 
@@ -372,11 +374,14 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     // AllocationPlanner::Stats stats = AllocationPlanner::verify(analysis);
     TT_ALLOC_DEBUG("allocation planning outcome: {}", stats);
 
-    const auto memSizeL1 =
-        memSpaces[llvm::to_underlying(MemorySpace::DeviceL1)].size;
-    if (stats.memUsage > memSizeL1) {
+    const auto &memSpace =
+        memSpaces[llvm::to_underlying(MemorySpace::DeviceL1)];
+    const auto memCapacity = memSpace.maxAddress - memSpace.baseAddress;
+    if (stats.memUsage > memCapacity) {
       return func.emitOpError() << "required memory usage " << stats.memUsage
-                                << " exceeds memory size " << memSizeL1;
+                                << " exceeds memory capacity " << memCapacity
+                                << " (usable space is [" << memSpace.baseAddress
+                                << ", " << memSpace.maxAddress << "))";
     }
 
     return analysis;
@@ -476,10 +481,9 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
         info;
     // Currently, we only need some slots in 'info'.
     {
-      info[llvm::to_underlying(MemorySpace::DeviceL1)] = MemorySpaceInfo(
-          chipDesc.getL1UnreservedBase(),
-          chipDesc.getL1Size() - chipDesc.getScratchL1RegionSize(),
-          chipDesc.getNocL1AddressAlignBytes());
+      info[llvm::to_underlying(MemorySpace::DeviceL1)] =
+          MemorySpaceInfo(chipDesc.getL1UnreservedBase(), chipDesc.getL1Size(),
+                          chipDesc.getNocL1AddressAlignBytes());
 
       info[llvm::to_underlying(MemorySpace::DeviceDRAM)] = MemorySpaceInfo(
           chipDesc.getDramUnreservedBase(), chipDesc.getDramChannelSize(),

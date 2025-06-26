@@ -68,17 +68,7 @@ class CMakeBuild(build_ext):
             "-DCMAKE_CXX_COMPILER=clang++",
         ]
 
-        # Use LLD if in cibuildwheel
-        if self.in_ci():
-            cmake_args.extend(
-                [
-                    f"-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld",
-                    f"-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld",
-                    f"-DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld",
-                ]
-            )
-        # Otherwise, force the source to be set
-        else:
+        if not self.in_ci():
             cmake_args.extend(["-S", str(cwd.parent)])
 
         # Run source env/activate if in ci, otherwise onus is on dev
@@ -102,7 +92,7 @@ class CMakeBuild(build_ext):
         else:
             self.spawn(["cmake", *cmake_args])
 
-        self.spawn(["cmake", "--build", str(build_dir)])
+        self.spawn(["cmake", "--build", str(build_dir), "--", "TTMLIRPythonModules"])
 
         # Install the PythonWheel Component
         self.spawn(

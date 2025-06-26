@@ -4,10 +4,12 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TT/IR/Utils.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
+#include "ttmlir/Dialect/TTNN/Utils/VerificationUtils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
@@ -148,7 +150,7 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
     return emitOpError("Expected dilation attribute to be a 2D tensor");
   }
 
-  if (getPadding().size() != 2) {
+  if (getPadding().size() != 2 && getPadding().size() != 4) {
     return emitOpError("Expected padding attribute to be a 2D tensor");
   }
 
@@ -161,166 +163,101 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
 
 // Conv2dOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::Conv2dOp::verify() {
-  mlir::RankedTensorType inputType = getInput().getType();
-  mlir::RankedTensorType weightType = getWeight().getType();
-  mlir::RankedTensorType outputType = getResult().getType();
-  std::optional<mlir::RankedTensorType> bias =
-      getBias().getImpl() ? std::make_optional(getBias().getType())
-                          : std::nullopt;
+  using namespace mlir::tt::ttnn::utils::verification_utils::
+      conv2d_verification;
 
-  if (inputType.getRank() != 4) {
-    return emitOpError("Input must be a 4D tensor");
+  if (verifyTensorRanks(this).failed()) {
+    return mlir::failure();
   }
 
-  if (outputType.getRank() != 4) {
-    return emitOpError("Output must be a 4D tensor");
-  }
-
-  if (weightType.getRank() != 4) {
-    return emitOpError("Weight must be a 4D tensor");
-  }
-
-  if (bias) {
-    if (bias->getRank() != 4) {
-      return emitOpError("Bias must be a 4D tensor");
-    }
-    auto biasShape = bias->getShape();
-    if (biasShape[0] != 1 || biasShape[1] != 1 || biasShape[2] != 1) {
-      return emitOpError("Bias must only have data on the final dimenstion");
+  if (getConv2dConfig() && getConv2dConfig()->getDeallocateActivation() &&
+      getConv2dConfig()->getDeallocateActivation().getValue()) {
+    for (auto *user : getInput().getUsers()) {
+      if (this->getOperation()->isBeforeInBlock(user)) {
+        return emitOpError()
+               << "Conv2dOp with `deallocate_activation` set to true "
+                  "must be the last user of the input tensor. ";
+      }
     }
   }
 
-  constexpr unsigned int CHANNEL_DIM = 3;
-  uint32_t inChannels = getInChannels();
-  if (inChannels != inputType.getDimSize(CHANNEL_DIM)) {
-    return emitOpError()
-           << "Expected input channels attribute (" << inChannels
-           << ") to match the last dimension of the input tensor ("
-           << inputType.getDimSize(3) << ")";
+  auto expectedParams = getAndVerifyConv2dParams(this);
+  if (auto error = expectedParams.takeError()) {
+    return emitOpError() << llvm::toString(std::move(error));
+  }
+  Conv2dParams params = *expectedParams;
+
+  if (!getWeight().getDefiningOp<mlir::tt::ttnn::PrepareConv2dWeightsOp>() &&
+      !getWeight().getDefiningOp<mlir::tt::LoadCachedOp>()) {
+    // Only check when the weight is not prepared because it changes the shape
+    // and ordering of dims.
+    if (getWeight().getType().getDimSize(WEIGHT_OUT_CHANNEL) !=
+        getOutChannels()) {
+      return emitOpError()
+             << "Expected output channels attribute (" << getOutChannels()
+             << ") to match the output channels in the weight tensor ("
+             << getWeight().getType().getDimSize(WEIGHT_OUT_CHANNEL) << ").";
+    }
+
+    if (getWeight().getType().getDimSize(WEIGHT_IN_CHANNEL) !=
+        getInChannels() / getGroups()) {
+      return emitOpError()
+             << "Expected input channels / groups attribute ("
+             << getInChannels() << "/" << getGroups()
+             << ") = " << getInChannels() / getGroups()
+             << " to match the number of input channels per group in the "
+                "weight tensor ("
+             << getWeight().getType().getDimSize(WEIGHT_IN_CHANNEL) << ").";
+    }
+
+    if (getWeight().getType().getDimSize(WEIGHT_KERNEL_HEIGHT) !=
+        params.kernelSize.vertical) {
+      return emitOpError()
+             << "Expected kernel height attribute ("
+             << params.kernelSize.vertical
+             << ") to match the kernel height in the weight tensor ("
+             << getWeight().getType().getDimSize(WEIGHT_KERNEL_HEIGHT) << ").";
+    }
+
+    if (getWeight().getType().getDimSize(WEIGHT_KERNEL_WIDTH) !=
+        params.kernelSize.horizontal) {
+      return emitOpError()
+             << "Expected kernel width attribute ("
+             << params.kernelSize.horizontal
+             << ") to match the kernel width in the weight tensor ("
+             << getWeight().getType().getDimSize(WEIGHT_KERNEL_WIDTH) << ").";
+    }
   }
 
-  uint32_t outChannels = getOutChannels();
-  if (bias && outChannels != bias->getDimSize(CHANNEL_DIM)) {
-    return emitOpError() << "Expected output channels attribute ("
-                         << outChannels
-                         << ") to match the last dimension of the bias tensor ("
-                         << bias->getDimSize(3) << ")";
-  }
-  if (outChannels != outputType.getDimSize(CHANNEL_DIM)) {
-    return emitOpError()
-           << "Expected output channels attribute (" << outChannels
-           << ") to match the last dimension of the output tensor ("
-           << outputType.getDimSize(3) << ")";
-  }
-
-  uint32_t batchSize = getBatchSize();
-  uint32_t inputHeight = getInputHeight();
-  uint32_t inputWidth = getInputWidth();
-  if (batchSize * inputHeight * inputWidth != inputType.getDimSize(2)) {
-    return emitOpError()
-           << "Input is flattened, so batch_size * input_height * input_width ("
-           << (batchSize * inputHeight * inputWidth)
-           << ") must match the third dimension of the input tensor ("
-           << inputType.getDimSize(2) << "). Got batch_size = " << batchSize
-           << ", input_height = " << inputHeight
-           << ", input_width = " << inputWidth;
+  int64_t expectedInputFlattenSize =
+      getBatchSize() * getInputHeight() * getInputWidth();
+  if (expectedInputFlattenSize !=
+      getInput().getType().getDimSize(FLATTENED_DIM)) {
+    int64_t actualSize = getInput().getType().getDimSize(FLATTENED_DIM);
+    return emitOpError() << "The input tensor's flattened dimension ("
+                         << actualSize
+                         << ") does not match the product of batch_size_attr * "
+                            "input_height_attr * input_width_attr ("
+                         << getBatchSize() << " * " << getInputHeight() << " * "
+                         << getInputWidth() << " = " << expectedInputFlattenSize
+                         << ").";
   }
 
-  llvm::ArrayRef<int32_t> stride = getStride();
-  if (stride.size() != 2) {
-    return emitOpError() << "Stride attribute must have two values, got: "
-                         << stride.size();
-  }
-  if (!llvm::all_of(stride, [](int32_t value) { return value >= 1; })) {
-    return emitOpError() << "Stride attribute (" << stride[0] << ", "
-                         << stride[1] << ") must be greater than 0";
+  auto [inputDims, weightDims, biasDims] = getConv2dInputDims(this);
+  OutputTensorDims outputDims = getConv2dOutputDims(this);
+
+  if (verifyConv2dInputDims(this, inputDims, weightDims, biasDims, params)
+          .failed()) {
+    return mlir::failure();
   }
 
-  llvm::ArrayRef<int32_t> padding = getPadding();
-  if (padding.size() != 2) {
-    return emitOpError() << "Padding attribute must have two values, got: "
-                         << padding.size();
-  }
-  if (!llvm::all_of(padding, [](int32_t value) { return value >= 0; })) {
-    return emitOpError() << "Padding attribute (" << padding[0] << ", "
-                         << padding[1]
-                         << ") must be greater than or equal to 0";
+  if (verifyOutputDimensions(this, inputDims, weightDims, biasDims, outputDims,
+                             params)
+          .failed()) {
+    return mlir::failure();
   }
 
-  llvm::ArrayRef<int32_t> dilation = getDilation();
-  if (dilation.size() != 2) {
-    return emitOpError() << "Dilation attribute must have two values, got: "
-                         << dilation.size();
-  }
-  if (!llvm::all_of(dilation, [](int32_t value) { return value >= 1; })) {
-    return emitOpError() << "Dilation attribute (" << dilation[0] << ", "
-                         << dilation[1] << ") must be greater than 0";
-  }
-
-  llvm::ArrayRef<int32_t> kernelSize = getKernelSize();
-  if (kernelSize.size() != 2) {
-    return emitOpError() << "Kernel size attribute must have two values, got: "
-                         << kernelSize.size();
-  }
-
-  llvm::SmallVector<uint32_t, 2> paddedInputSize{inputHeight + 2 * padding[0],
-                                                 inputWidth + 2 * padding[1]};
-  llvm::SmallVector<uint32_t, 2> effectiveKernelSize{
-      static_cast<uint32_t>(kernelSize[0] +
-                            (kernelSize[0] - 1) * (dilation[0] - 1)),
-      static_cast<uint32_t>(kernelSize[1] +
-                            (kernelSize[1] - 1) * (dilation[1] - 1))};
-  if (paddedInputSize[0] < effectiveKernelSize[0] ||
-      paddedInputSize[1] < effectiveKernelSize[1]) {
-    return emitOpError()
-           << "Calculated padded input size per channel: ("
-           << paddedInputSize[0] << ", " << paddedInputSize[1]
-           << "). Kernel size: (" << effectiveKernelSize[0] << ", "
-           << effectiveKernelSize[1]
-           << "). Kernel size can't be greater than actual input size";
-  }
-
-  uint32_t groups = getGroups();
-  if (inChannels % groups != 0) {
-    return emitOpError() << "Number of input channels (" << inChannels
-                         << ") must be divisible by the number of groups ("
-                         << groups << ")";
-  }
-
-  if (outChannels % groups != 0) {
-    return emitOpError() << "Number of output channels (" << outChannels
-                         << ") must be divisible by the number of groups ("
-                         << groups << ")";
-  }
-
-  int32_t calculatedHOut =
-      (inputHeight + 2 * padding[0] - dilation[0] * (kernelSize[0] - 1) - 1) /
-          stride[0] +
-      1;
-  int32_t calculatedWOut =
-      (inputWidth + 2 * padding[1] - dilation[1] * (kernelSize[1] - 1) - 1) /
-          stride[1] +
-      1;
-  if (calculatedHOut < 0 || calculatedWOut < 0) {
-    return emitOpError() << "Given input size per channel: (" << inputHeight
-                         << " x " << inputWidth << "). "
-                         << "Calculated output size per channel: ("
-                         << calculatedHOut << " x " << calculatedWOut << "). "
-                         << "Output size is too small";
-  }
-
-  if (batchSize * calculatedHOut * calculatedWOut != outputType.getDimSize(2)) {
-    return emitOpError()
-           << "Output is flattened, so batch_size * output_height * "
-              "output_width ("
-           << (batchSize * calculatedHOut * calculatedWOut)
-           << ") must match the third dimension of the output tensor ("
-           << outputType.getDimSize(2) << "). Got batch_size = " << batchSize
-           << ", output_height = " << calculatedHOut
-           << ", output_width = " << calculatedWOut;
-  }
-
-  return success();
+  return mlir::success();
 }
 
 // Get number of output channels.
@@ -339,23 +276,36 @@ bool mlir::tt::ttnn::Conv2dOp::isBiasCompatible(llvm::ArrayRef<int64_t> bias) {
 // Quantize Ops
 //===----------------------------------------------------------------------===//
 
+// Helper function to verify that a zero point is within the range of the
+// storage type.
+static ::mlir::LogicalResult verifyZeroPointInRange(
+    llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
+    int64_t zeroPoint, int64_t min, int64_t max, mlir::Type storageType) {
+  if (zeroPoint < min || zeroPoint > max) {
+    return emitOpError() << "Zero point " << zeroPoint
+                         << " is out of the range for storage type "
+                         << storageType;
+  }
+  return ::mlir::success();
+}
+
 static ::mlir::LogicalResult verifyQuantizeOpCommon(
     llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
     ::mlir::RankedTensorType inputType, ::mlir::RankedTensorType outputType,
     std::optional<uint32_t> axis) {
-  // Sanity check to make sure that input rank matches the rank of the output
-  // tensor.
+  // Verify that the input rank matches the rank of the output tensor.
   if (inputType.getRank() != outputType.getRank()) {
     return emitOpError() << "Input tensor rank of " << inputType.getRank()
-                         << " does not match output tensor rank of "
+                         << " does not match the output tensor rank of "
                          << outputType.getRank();
   }
 
-  // Shapes of input and output of a quantize operation must be the same.
+  // Verify that the shapes of the input and output of a quantize operation are
+  // the same.
   if (inputType.getShape() != outputType.getShape()) {
     return emitOpError() << "Output tensor shape ("
                          << ttmlir::utils::join(outputType.getShape(), ",") +
-                                ") must match the inferred shape: (" +
+                                ") must match the input tensor shape: (" +
                                 ttmlir::utils::join(inputType.getShape(), ",") +
                                 ")";
   }
@@ -363,11 +313,57 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
   // Verify that the axis, if provided, is within the bounds of the input tensor
   // rank.
   if (axis.has_value()) {
-    uint32_t axisValue = axis.value();
+    int32_t axisValue = axis.value();
     if (axisValue < 0 || axisValue >= inputType.getRank()) {
       return emitOpError() << "Axis value " << axisValue
-                           << " is out of range for tensor of rank "
+                           << " is out of the range [0, " << inputType.getRank()
+                           << ") for the input tensor of rank "
                            << inputType.getRank();
+    }
+  }
+
+  for (auto tensorType : {inputType, outputType}) {
+    auto elemType = tensorType.getElementType();
+    if (auto quantPerAxisType =
+            mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
+                elemType)) {
+      // Verify that the scales size matches the axis size for per-axis
+      // quantization on both input and output types. This aligns with the
+      // runtime's behavior.
+      int64_t axis = quantPerAxisType.getQuantizedDimension();
+      auto shape = tensorType.getShape();
+      auto scales = quantPerAxisType.getScales();
+      if (scales.size() != static_cast<size_t>(shape[axis])) {
+        return emitOpError()
+               << "Number of scales (" << scales.size()
+               << ") does not match the size of the quantized axis ("
+               << shape[axis] << ")";
+      }
+      // Verify that the zero point is in the range of the storage type.
+      // This aligns with the frontends' behavior.
+      llvm::ArrayRef<int64_t> zps = quantPerAxisType.getZeroPoints();
+      int64_t min = quantPerAxisType.getStorageTypeMin();
+      int64_t max = quantPerAxisType.getStorageTypeMax();
+      for (int64_t zp : zps) {
+        if (auto result = verifyZeroPointInRange(
+                emitOpError, zp, min, max, quantPerAxisType.getStorageType());
+            failed(result)) {
+          return result;
+        }
+      }
+    }
+    if (auto quantType =
+            mlir::dyn_cast<mlir::quant::UniformQuantizedType>(elemType)) {
+      // Verify that the zero point is in the range of the storage type
+      // (per-tensor). This aligns with the frontends' behavior.
+      int64_t zp = quantType.getZeroPoint();
+      int64_t min = quantType.getStorageTypeMin();
+      int64_t max = quantType.getStorageTypeMax();
+      if (auto result = verifyZeroPointInRange(emitOpError, zp, min, max,
+                                               quantType.getStorageType());
+          failed(result)) {
+        return result;
+      }
     }
   }
 
@@ -381,10 +377,10 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 // QuantizeOp verification.
 ::mlir::LogicalResult QuantizeOp::verify() {
   RankedTensorType inputTensorType = getInput().getType();
-  RankedTensorType resultTensorType = getResult().getType();
+  RankedTensorType outputTensorType = getResult().getType();
 
   auto inputElemType = inputTensorType.getElementType();
-  auto resultElemType = resultTensorType.getElementType();
+  auto outputElemType = outputTensorType.getElementType();
 
   if (!mlir::isa<mlir::FloatType>(inputElemType)) {
     return emitOpError() << "Input element type must be float, but got "
@@ -392,15 +388,15 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
   }
 
   if (!mlir::isa<mlir::quant::UniformQuantizedType,
-                 mlir::quant::UniformQuantizedPerAxisType>(resultElemType)) {
+                 mlir::quant::UniformQuantizedPerAxisType>(outputElemType)) {
     return emitOpError()
-           << "Result element type must be UniformQuantizedType or "
+           << "Output element type must be UniformQuantizedType or "
               "UniformQuantizedPerAxisType, but got "
-           << resultElemType;
+           << outputElemType;
   }
 
   return verifyQuantizeOpCommon([&]() { return emitOpError(); },
-                                inputTensorType, resultTensorType, getAxis());
+                                inputTensorType, outputTensorType, getAxis());
 }
 
 //===----------------------------------------------------------------------===//
@@ -410,10 +406,10 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 // DequantizeOp verification.
 ::mlir::LogicalResult DequantizeOp::verify() {
   RankedTensorType inputTensorType = getInput().getType();
-  RankedTensorType resultTensorType = getResult().getType();
+  RankedTensorType outputTensorType = getResult().getType();
 
   auto inputElemType = inputTensorType.getElementType();
-  auto resultElemType = resultTensorType.getElementType();
+  auto outputElemType = outputTensorType.getElementType();
 
   if (!mlir::isa<mlir::quant::UniformQuantizedType,
                  mlir::quant::UniformQuantizedPerAxisType>(inputElemType)) {
@@ -422,13 +418,13 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
                          << inputElemType;
   }
 
-  if (!mlir::isa<mlir::FloatType>(resultElemType)) {
-    return emitOpError() << "Result element type must be float, but got "
-                         << resultElemType;
+  if (!mlir::isa<mlir::FloatType>(outputElemType)) {
+    return emitOpError() << "Output element type must be float, but got "
+                         << outputElemType;
   }
 
   return verifyQuantizeOpCommon([&]() { return emitOpError(); },
-                                inputTensorType, resultTensorType, getAxis());
+                                inputTensorType, outputTensorType, getAxis());
 }
 
 //===----------------------------------------------------------------------===//
@@ -438,27 +434,30 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 // RequantizeOp verification.
 ::mlir::LogicalResult RequantizeOp::verify() {
   const RankedTensorType inputTensorType = getInput().getType();
-  const RankedTensorType resultTensorType = getResult().getType();
+  const RankedTensorType outputTensorType = getResult().getType();
 
   auto inputElemType = inputTensorType.getElementType();
-  auto resultElemType = resultTensorType.getElementType();
+  auto outputElemType = outputTensorType.getElementType();
 
-  if (!mlir::isa<mlir::quant::UniformQuantizedType,
-                 mlir::quant::UniformQuantizedPerAxisType>(inputElemType)) {
-    return emitOpError() << "Input element type must be UniformQuantizedType "
-                            "or UniformQuantizedPerAxisType, but got "
-                         << inputElemType;
-  }
+  auto inputIsPerAxis =
+      mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(inputElemType);
+  auto outputIsPerAxis =
+      mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(outputElemType);
+  auto inputIsPerTensor =
+      mlir::isa<mlir::quant::UniformQuantizedType>(inputElemType);
+  auto outputIsPerTensor =
+      mlir::isa<mlir::quant::UniformQuantizedType>(outputElemType);
 
-  if (!mlir::isa<mlir::quant::UniformQuantizedType,
-                 mlir::quant::UniformQuantizedPerAxisType>(resultElemType)) {
-    return emitOpError() << "Result element type must be UniformQuantizedType "
-                            "or UniformQuantizedPerAxisType, but got "
-                         << resultElemType;
+  if (!((inputIsPerAxis && outputIsPerAxis) ||
+        (inputIsPerTensor && outputIsPerTensor))) {
+    return emitOpError()
+           << "Input and output element types must both be per-axis "
+              "or both be per-tensor quantized types, but got "
+           << inputElemType << " and " << outputElemType;
   }
 
   return verifyQuantizeOpCommon([&]() { return emitOpError(); },
-                                inputTensorType, resultTensorType, getAxis());
+                                inputTensorType, outputTensorType, getAxis());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1902,6 +1901,33 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// BatchNormOp
+//===----------------------------------------------------------------------===//
+
+// BatchNormOp verification
+::mlir::LogicalResult mlir::tt::ttnn::BatchNormOp::verify() {
+
+  // Verify that all inputs have dimension 4.
+  if (getInput().getType().getRank() != 4) {
+    return emitOpError("Input tensor must have rank 4");
+  }
+  if (getRunningMean().getType().getRank() != 4) {
+    return emitOpError("Scale tensor must have rank 4");
+  }
+  if (getRunningVar().getType().getRank() != 4) {
+    return emitOpError("Bias tensor must have rank 4");
+  }
+  if (getWeight().getType().getRank() != 4) {
+    return emitOpError("Weight tensor must have rank 4");
+  }
+  if (getBias().getType().getRank() != 4) {
+    return emitOpError("Bias tensor must have rank 4");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // AllGatherOp
 //===----------------------------------------------------------------------===//
 
@@ -2011,19 +2037,11 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
   llvm::SmallVector<int64_t> meshShape{device.getMeshShape()};
   // AllReduce Op is semantically meaningless when gathering across a single
   // mesh device.
-  if (meshShape.empty() || meshShape[getClusterAxis()] != 1) {
-    return {};
+  if (!meshShape.empty() && meshShape[getClusterAxis()] == 1) {
+    return getInput();
   }
-  // The input and output shapes must be identical in order to fold this op as
-  // a no-op.
-  llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
-  llvm::ArrayRef<int64_t> outputShape = getResult().getType().getShape();
-  if (inputShape != outputShape) {
-    return {};
-  }
-  emitWarning() << "Removing this CCL op because performing a CCL operation "
-                   "on a single mesh device is semantically meaningless.";
-  return getInput();
+
+  return {};
 }
 
 //===----------------------------------------------------------------------===//
@@ -2424,20 +2442,10 @@ static mlir::LogicalResult
 verifyReduceProdOp(tt::ttnn::ProdOp *reduceOp,
                    mlir::RankedTensorType inputType) {
   int64_t inputTensorRank = inputType.getRank();
-  mlir::Type elementType = inputType.getElementType();
 
   if (inputTensorRank > 4) {
     return reduceOp->emitOpError(
         "Input tensor rank is greater than 4 for reduce(product).");
-  }
-
-  bool allDimensions = !reduceOp->getDimArg();
-  // [TODO](mmanzoor) Add workaround to typecast the input tensor to bfloat16
-  // then typecast the output again to match the requirements.
-  // https://github.com/tenstorrent/tt-mlir/issues/1864
-  if (allDimensions && !elementType.isBF16()) {
-    return reduceOp->emitOpError("TTNN only supports Reduce(prod) along all "
-                                 "dimensions for bfloat16 datatype.");
   }
 
   return mlir::success();
@@ -2494,6 +2502,160 @@ verifyReduceProdOp(tt::ttnn::ProdOp *reduceOp,
 // ProdOp verification.
 ::mlir::LogicalResult ProdOp::verify() {
   return verifyReduceProdOp(this, getInput().getType());
+}
+
+//===----------------------------------------------------------------------===//
+// TraceOp
+//===----------------------------------------------------------------------===//
+
+static ::mlir::LogicalResult verifyTensorList(TraceOp *op,
+                                              ::mlir::ValueRange opValues,
+                                              ::mlir::TypeRange fnTypes,
+                                              bool isInput) {
+  // Verify count
+  if (opValues.size() != fnTypes.size()) {
+    return op->emitOpError("Incorrect number of ")
+           << (isInput ? "operands" : "results") << " for callee"
+           << " -- expected " << fnTypes.size()
+           << " but got: " << opValues.size();
+  }
+
+  // Verify types
+  for (unsigned i = 0; i < fnTypes.size(); ++i) {
+    if (opValues[i].getType() != fnTypes[i]) {
+      return op->emitOpError() << (isInput ? "Operand" : "Result")
+                               << " type mismatch at index " << i;
+    }
+  }
+
+  return ::mlir::success();
+}
+
+static bool isTensorOnDevice(::mlir::RankedTensorType tensorType) {
+  auto ttnnLayoutAttr =
+      ::mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+  bool isOnDevice =
+      ttnnLayoutAttr.getBufferType() != ttnn::BufferType::SystemMemory;
+  return isOnDevice;
+}
+
+::mlir::LogicalResult TraceOp::verify() {
+  auto device = this->getDevice();
+  if (!device) {
+    return emitOpError() << "Device must be set for trace op";
+  }
+
+  uint32_t cqId = this->getCqId();
+  if (cqId != 0 && cqId != 1) {
+    return emitOpError() << "CQ ID must be 0 or 1 for trace op, got: " << cqId;
+  }
+
+  // Verify that the callee exists and has the right type.
+  FlatSymbolRefAttr calleeAttr = this->getCalleeAttr();
+  func::FuncOp funcOp =
+      SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(*this, calleeAttr);
+  if (!funcOp) {
+    return emitOpError() << "'" << calleeAttr.getValue()
+                         << "' does not reference a function";
+  }
+
+  FunctionType fnType = funcOp.getFunctionType();
+
+  LogicalResult inputVerificationResult =
+      verifyTensorList(this, this->getInputs(), fnType.getInputs(),
+                       /*isInput=*/true);
+  if (failed(inputVerificationResult)) {
+    return inputVerificationResult;
+  }
+
+  LogicalResult outputVerificationResult =
+      verifyTensorList(this, this->getResults(), fnType.getResults(),
+                       /*isInput=*/false);
+  if (failed(outputVerificationResult)) {
+    return outputVerificationResult;
+  }
+
+  for (BlockArgument arg : funcOp.getArguments()) {
+    if (!::mlir::isa<RankedTensorType>(arg.getType())) {
+      return emitOpError() << "All input arguments of trace function must be "
+                           << "ranked tensors";
+    }
+    auto tensorType = ::mlir::cast<RankedTensorType>(arg.getType());
+    if (!isTensorOnDevice(tensorType)) {
+      return emitOpError()
+             << "All input arguments of trace function must be on device."
+             << arg << " is not on device.";
+    }
+  }
+
+  ::mlir::WalkResult walkResult =
+      funcOp.walk(
+          [&](Operation *op) -> ::mlir::WalkResult {
+            if (::mlir::isa<TraceOp>(op)) {
+              emitOpError()
+                  << "Trace op must not be nested within another trace op";
+              return ::mlir::WalkResult::interrupt();
+            }
+
+            if (::mlir::isa<::mlir::tt::LoadCachedOp>(op)) {
+              emitOpError()
+                  << "LoadCached op must not be nested within trace op";
+              return ::mlir::WalkResult::interrupt();
+            }
+
+            if (::mlir::isa<GetDeviceOp>(op)) {
+              auto traceDevice = this->getDevice();
+              auto traceDeviceOp = traceDevice.getDefiningOp<GetDeviceOp>();
+
+              auto calleeDeviceOp = ::mlir::cast<GetDeviceOp>(op);
+
+              // Need to make sure that the device attributes of the trace op
+              // and the device within the callee function match
+              if (traceDeviceOp.getMeshShape() !=
+                      calleeDeviceOp.getMeshShape() ||
+                  traceDeviceOp.getMeshOffset() !=
+                      calleeDeviceOp.getMeshOffset()) {
+                return emitOpError()
+                       << "Device configuration of get_device op in callee "
+                       << "must match device configuration of trace op";
+              }
+              return ::mlir::WalkResult::advance();
+            }
+
+            // Make sure all input tensors are on device
+            for (Value operand : op->getOperands()) {
+              if (!::mlir::isa<RankedTensorType>(operand.getType())) {
+                continue;
+              }
+              auto tensorType =
+                  ::mlir::cast<RankedTensorType>(operand.getType());
+              if (!isTensorOnDevice(tensorType)) {
+                emitOpError()
+                    << "All input tensors of trace function must be on device."
+                    << operand << " is not on device.";
+                return ::mlir::WalkResult::interrupt();
+              }
+            }
+
+            // Make sure all output tensors are on device
+            for (Value result : op->getResults()) {
+              if (!::mlir::isa<RankedTensorType>(result.getType())) {
+                continue;
+              }
+              auto tensorType =
+                  ::mlir::cast<RankedTensorType>(result.getType());
+              if (!isTensorOnDevice(tensorType)) {
+                emitOpError()
+                    << "All output tensors of trace function must be on device."
+                    << result << " is not on device.";
+                return ::mlir::WalkResult::interrupt();
+              }
+            }
+
+            return ::mlir::WalkResult::advance();
+          });
+
+  return walkResult.wasInterrupted() ? ::mlir::failure() : ::mlir::success();
 }
 
 } // namespace mlir::tt::ttnn

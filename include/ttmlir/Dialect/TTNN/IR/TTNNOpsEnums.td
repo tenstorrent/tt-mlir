@@ -147,16 +147,15 @@ def TTNN_UnaryOpType_BitwiseAnd  : I32EnumAttrCase<"BitwiseAnd", 66, "bitwise_an
 def TTNN_UnaryOpType_BitwiseOr  : I32EnumAttrCase<"BitwiseOr", 67, "bitwise_or">;
 def TTNN_UnaryOpType_RightShift  : I32EnumAttrCase<"RightShift", 68, "right_shift">;
 def TTNN_UnaryOpType_Floor  : I32EnumAttrCase<"Floor", 69, "floor">;
-def TTNN_UnaryOpType_FloorFloat32  : I32EnumAttrCase<"FloorFloat32", 70, "floor_float32">;
-def TTNN_UnaryOpType_Ceil  : I32EnumAttrCase<"Ceil", 71, "ceil">;
-def TTNN_UnaryOpType_CeilFloat32  : I32EnumAttrCase<"CeilFloat32", 72, "ceil_float32">;
-def TTNN_UnaryOpType_LeftShift  : I32EnumAttrCase<"LeftShift", 73, "left_shift">;
-def TTNN_UnaryOpType_Remainder  : I32EnumAttrCase<"Remainder", 74, "remainder">;
-def TTNN_UnaryOpType_Fmod  : I32EnumAttrCase<"Fmod", 75, "fmod">;
-def TTNN_UnaryOpType_Dropout  : I32EnumAttrCase<"Dropout", 76, "dropout">;
-def TTNN_UnaryOpType_Fill  : I32EnumAttrCase<"Fill", 77, "fill">;
-def TTNN_UnaryOpType_PreluSfpu  : I32EnumAttrCase<"PreluSfpu", 78, "prelu_sfpu">;
-def TTNN_UnaryOpType_ZeroPoint  : I32EnumAttrCase<"ZeroPoint", 79, "zero_point">;
+def TTNN_UnaryOpType_Ceil  : I32EnumAttrCase<"Ceil", 70, "ceil">;
+def TTNN_UnaryOpType_Round  : I32EnumAttrCase<"Round", 71, "round">;
+def TTNN_UnaryOpType_LeftShift  : I32EnumAttrCase<"LeftShift", 72, "left_shift">;
+def TTNN_UnaryOpType_Remainder  : I32EnumAttrCase<"Remainder", 73, "remainder">;
+def TTNN_UnaryOpType_Fmod  : I32EnumAttrCase<"Fmod", 74, "fmod">;
+def TTNN_UnaryOpType_Dropout  : I32EnumAttrCase<"Dropout", 75, "dropout">;
+def TTNN_UnaryOpType_Fill  : I32EnumAttrCase<"Fill", 76, "fill">;
+def TTNN_UnaryOpType_PreluSfpu  : I32EnumAttrCase<"PreluSfpu", 77, "prelu_sfpu">;
+def TTNN_UnaryOpType_ZeroPoint  : I32EnumAttrCase<"ZeroPoint", 78, "zero_point">;
 
 def TTNN_UnaryOpType : I32EnumAttr<"UnaryOpType", "TTNN Unary Operation Type",
                           [
@@ -230,9 +229,8 @@ def TTNN_UnaryOpType : I32EnumAttr<"UnaryOpType", "TTNN Unary Operation Type",
                             TTNN_UnaryOpType_BitwiseOr,
                             TTNN_UnaryOpType_RightShift,
                             TTNN_UnaryOpType_Floor,
-                            TTNN_UnaryOpType_FloorFloat32,
                             TTNN_UnaryOpType_Ceil,
-                            TTNN_UnaryOpType_CeilFloat32,
+                            TTNN_UnaryOpType_Round,
                             TTNN_UnaryOpType_LeftShift,
                             TTNN_UnaryOpType_Remainder,
                             TTNN_UnaryOpType_Fmod,
@@ -264,6 +262,22 @@ def TTNN_ShardMode : I32EnumAttr<"ShardMode", "TTNN ShardMode",
                            [
                             TTNN_ShardMode_Physical,
                             TTNN_ShardMode_Logical
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
+def TTNN_MathFidelityLoFi : I32EnumAttrCase<"LoFi", 0, "lofi">;
+def TTNN_MathFidelityHiFi2 : I32EnumAttrCase<"HiFi2", 2, "hifi2">;
+def TTNN_MathFidelityHiFi3 : I32EnumAttrCase<"HiFi3", 3, "hifi3">;
+def TTNN_MathFidelityHiFi4 : I32EnumAttrCase<"HiFi4", 4, "hifi4">;
+
+def TTNN_MathFidelity : I32EnumAttr<"MathFidelity", "TT MathFidelity",
+                           [
+                            TTNN_MathFidelityLoFi,
+                            TTNN_MathFidelityHiFi2,
+                            TTNN_MathFidelityHiFi3,
+                            TTNN_MathFidelityHiFi4,
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttnn";

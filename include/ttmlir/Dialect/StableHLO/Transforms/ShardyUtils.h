@@ -210,8 +210,8 @@ getDefaultTensorSdyShardingAttr(MLIRContext *context, llvm::StringRef meshName,
   llvm::SmallVector<mlir::sdy::DimensionShardingAttr> dimShardings;
 
   for (uint32_t i = 0; i < rankedTensorType.getShape().size(); i++) {
-    dimShardings.push_back(
-        mlir::sdy::DimensionShardingAttr::get(context, {}, true));
+    dimShardings.push_back(mlir::sdy::DimensionShardingAttr::get(
+        context, {}, /*is_closed*/ false));
   }
 
   return mlir::sdy::TensorShardingAttr::get(context, meshName, dimShardings, {},
@@ -306,9 +306,9 @@ getOutShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
 
 // Calculate the updated shape based on the tensor sharding annotation.
 inline FailureOr<int64_t>
-calculateUpdatedShapeDim(mlir::sdy::MeshAttr meshAttr,
-                         mlir::sdy::DimensionShardingAttr dimShardingAttr,
-                         int64_t oldShapeDim) {
+calculateUpdatedDim(mlir::sdy::MeshAttr meshAttr,
+                    mlir::sdy::DimensionShardingAttr dimShardingAttr,
+                    int64_t oldShapeDim) {
   int64_t updatedShapeDim = oldShapeDim;
   MeshMap meshMap = createMeshMapFromMeshAttr(meshAttr);
   llvm::ArrayRef<mlir::sdy::AxisRefAttr> shardingAxes =
@@ -339,7 +339,7 @@ populateShardedOutputType(mlir::sdy::MeshAttr meshAttr,
 
   for (uint32_t i = 0; i < newShape.size(); i++) {
     FailureOr<int64_t> updatedShapeDim =
-        calculateUpdatedShapeDim(meshAttr, dimShardings[i], newShape[i]);
+        calculateUpdatedDim(meshAttr, dimShardings[i], newShape[i]);
 
     if (failed(updatedShapeDim)) {
       return failure();
@@ -350,6 +350,52 @@ populateShardedOutputType(mlir::sdy::MeshAttr meshAttr,
 
   return RankedTensorType::get(newShape, oldType.getElementType());
 };
+
+// Loop through all the tensorShardings and apply them to each output.
+inline FailureOr<llvm::SmallVector<mlir::RankedTensorType>> getNewResultTypes(
+    mlir::Operation *op, mlir::sdy::MeshOp &globalMeshOp,
+    llvm::ArrayRef<mlir::sdy::TensorShardingAttr> tensorShardings) {
+  llvm::SmallVector<mlir::RankedTensorType> newTypes;
+  for (uint32_t i = 0; i < tensorShardings.size(); i++) {
+    mlir::sdy::TensorShardingAttr tensorShardingAttr = tensorShardings[i];
+    mlir::RankedTensorType oldType =
+        mlir::cast<mlir::RankedTensorType>(op->getResult(i).getType());
+    FailureOr<mlir::RankedTensorType> newType = populateShardedOutputType(
+        globalMeshOp.getMesh(), oldType, tensorShardingAttr);
+
+    if (failed(newType)) {
+      return mlir::failure();
+    }
+
+    newTypes.push_back(*newType);
+  }
+
+  return newTypes;
+}
+
+// Copy nested regions between srcOp and destOp
+inline void copyNestedRegions(mlir::OpBuilder &builder, mlir::Operation *srcOp,
+                              mlir::Operation *destOp) {
+  for (unsigned i = 0; i < srcOp->getNumRegions(); i++) {
+    auto &oldRegion = srcOp->getRegion(i);
+    auto &newRegion = destOp->getRegion(i);
+
+    // Figure out new operand mapping and apply to newly created op.
+    mlir::IRMapping mapping;
+    auto *oldBlock = &oldRegion.front();
+    std::unique_ptr<mlir::Block> newBlock = std::make_unique<mlir::Block>();
+    for (auto oldArg : oldBlock->getArguments()) {
+      auto newArg = newBlock->addArgument(oldArg.getType(), oldArg.getLoc());
+      mapping.map(oldArg, newArg);
+    }
+
+    for (auto &srcOp : *oldBlock) {
+      builder.setInsertionPointToEnd(newBlock.get());
+      builder.clone(srcOp, mapping);
+    }
+    newRegion.push_back(newBlock.release());
+  }
+}
 
 #endif // #ifdef TTMLIR_ENABLE_STABLEHLO
 

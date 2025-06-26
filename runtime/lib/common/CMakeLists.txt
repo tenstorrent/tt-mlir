@@ -34,6 +34,8 @@ endif()
 if (NOT ANY_RUNTIME_ENABLED)
   add_library(TTRuntimeSysDesc INTERFACE)
   add_library(TTRuntimeDebug INTERFACE)
+  add_library(TTRuntimePerf INTERFACE)
+  add_library(TTRuntimeWorkarounds INTERFACE)
   add_library(TTRuntimeDylibs INTERFACE)
   return()
 endif()
@@ -56,6 +58,24 @@ target_include_directories(TTRuntimeDebug
     ${PROJECT_SOURCE_DIR}/runtime/include
 )
 target_link_libraries(TTRuntimeDebug PUBLIC coverage_config)
+
+add_library(TTRuntimePerf STATIC perf.cpp)
+set_property(TARGET TTRuntimePerf PROPERTY CXX_STANDARD 20)
+target_include_directories(TTRuntimePerf
+  PUBLIC
+    ${PROJECT_SOURCE_DIR}/runtime/include
+    "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>"
+)
+add_dependencies(TTRuntimePerf tt-metal)
+target_link_libraries(TTRuntimePerf PUBLIC coverage_config)
+
+add_library(TTRuntimeWorkarounds STATIC workarounds.cpp)
+set_property(TARGET TTRuntimeWorkarounds PROPERTY CXX_STANDARD 20)
+target_include_directories(TTRuntimeWorkarounds
+  PUBLIC
+    ${PROJECT_SOURCE_DIR}/runtime/include
+)
+target_link_libraries(TTRuntimeWorkarounds PUBLIC coverage_config)
 
 add_library(TTRuntimeDylibs STATIC dylib.cpp)
 set_property(TARGET TTRuntimeDylibs PROPERTY CXX_STANDARD 20)

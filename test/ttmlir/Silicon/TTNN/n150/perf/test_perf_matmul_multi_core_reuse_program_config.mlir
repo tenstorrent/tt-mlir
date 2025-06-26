@@ -1,8 +1,8 @@
-// RUN: ttmlir-opt --tt-register-device="system-desc-path=%system_desc_path%" %s > %t.mlir
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" %s > %t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 
 #dram = #ttnn.buffer_type<dram>
-#ttnn_layout = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 2304 + d1 * 256 + d2, d3), <1x1>, memref<504x8x!tt.tile<32x32, bf16>, #dram>, <interleaved>>
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 2304 + d1 * 256 + d2, d3), <1x1>, memref<504x8x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 
 #matmul_program_config = #ttnn.matmul_multi_core_reuse_program_config<
   compute_with_storage_grid_size = #ttnn.core_coord<7, 9>,

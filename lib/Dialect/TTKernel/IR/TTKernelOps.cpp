@@ -7,7 +7,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinOps.h"
-#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
@@ -159,25 +159,11 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
 ::mlir::LogicalResult CBReinterpretShapeOp::verify() {
   auto inCBType = getInput().getType();
   auto outCBType = getOutput().getType();
-  if (inCBType.getPort() != outCBType.getPort()) {
-    return emitOpError("input circular buffer port and output circular buffer "
-                       "port must be the same");
-  }
-
-  if (inCBType.getAddress() != outCBType.getAddress()) {
-    return emitOpError("input circular buffer address and output circular "
-                       "buffer address must be the same");
-  }
 
   if (inCBType.getMemref().getElementType() !=
       outCBType.getMemref().getElementType()) {
     return emitOpError("input circular buffer element type and output "
                        "circular buffer element type must be the same");
-  }
-
-  if (inCBType.getNumBuffers() != outCBType.getNumBuffers()) {
-    return emitOpError("input circular buffer number of buffers and output "
-                       "circular buffer number of buffers must be the same");
   }
 
   return success();

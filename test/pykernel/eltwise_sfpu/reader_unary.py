@@ -10,18 +10,20 @@ from pykernel.types import *
 
 
 @ttkernel_noc_compile(verbose=True)
-def reader_unary(cb_in: CircularBuffer, cb_out: CircularBuffer, rt_args):
+def reader_unary(cb_in: CircularBuffer, cb_out: CircularBuffer):
     # CHECK: module {
-    # CHECK: func.func @{{.*}}(%arg0: !ttkernel.cb<{{.*}}>, %arg1: !ttkernel.cb<{{.*}}>) attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+    # CHECK: func.func @reader_unary() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     # CHECK: emitc.verbatim "// --- Python Function {{.*}}"
-    # CHECK: emitc.verbatim "// src_addr: int = rt_args[0]"
+    # CHECK: emitc.verbatim "// src_addr: int = get_arg_val{{.*}}"
     # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
     # CHECK: %[[SRC_ADDR:.*]] = memref.alloca(){{.*}}
-    # CHECK: emitc.verbatim "// bank_id, num_tiles = rt_args[1:3]"
+    # CHECK: emitc.verbatim "// bank_id = get_arg_val{{.*}}"
     # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
+    # CHECK: emitc.verbatim "// num_tiles = get_arg_val{{.*}}"
     # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
-    src_addr: int = rt_args[0]
-    bank_id, num_tiles = rt_args[1:3]
+    src_addr: int = get_arg_val(int, 0)
+    bank_id = get_arg_val(int, 1)
+    num_tiles = get_arg_val(int, 2)
 
     # CHECK: emitc.verbatim "// ublock_size_tiles = 1"
     # CHECK: emitc.verbatim "// ublock_size_bytes = get_tile_size(cb_in) * ublock_size_tiles"

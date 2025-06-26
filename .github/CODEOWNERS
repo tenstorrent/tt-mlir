@@ -55,6 +55,7 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /test/ttmlir/Conversion/TTIRToTTNN/ @tenstorrent/forge-developers-mlir-core
 /test/ttmlir/Conversion/TTNNToEmitC/ @tenstorrent/forge-developers-mlir-core
 /test/ttmlir/EmitC/ @tenstorrent/forge-developers-mlir-core
+/test/unittests/TTNNToEmitC/ @tenstorrent/forge-developers-mlir-core
 
 # Metal Conversions
 /include/ttmlir/Conversion/TTIRToTTIRGeneric/ @tenstorrent/forge-developers-mlir-d2m
@@ -75,9 +76,9 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /test/ttmlir/Dialect/LLVM/ @vwellsTT @mtopalovicTT
 
 # TT Dialect
-/include/ttmlir/Dialect/TT/ @tenstorrent/forge-developers-mlir-core @nsmithtt @mrakitaTT
-/lib/Dialect/TT/ @tenstorrent/forge-developers-mlir-core @nsmithtt @mrakitaTT
-/test/ttmlir/Dialect/TT/ @tenstorrent/forge-developers-mlir-core @nsmithtt @mrakitaTT
+/include/ttmlir/Dialect/TTCore/ @tenstorrent/forge-developers-mlir-core @nsmithtt @mrakitaTT
+/lib/Dialect/TTCore/ @tenstorrent/forge-developers-mlir-core @nsmithtt @mrakitaTT
+/test/ttmlir/Dialect/TTCore/ @tenstorrent/forge-developers-mlir-core @nsmithtt @mrakitaTT
 
 # TTIR Dialect
 /include/ttmlir/Dialect/TTIR/ @tenstorrent/forge-developers-mlir-core @mrakitaTT
@@ -93,11 +94,12 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /lib/Dialect/TTMetal/ @tenstorrent/forge-developers-mlir-d2m
 /test/ttmlir/Dialect/TTKernel/ @tenstorrent/forge-developers-mlir-d2m
 /test/ttmlir/Dialect/TTMetal/ @tenstorrent/forge-developers-mlir-d2m
+/test/unittests/Allocation @tenstorrent/forge-developers-mlir-d2m
 
 # TTIR Erase Inverse Ops Optimization Pass
-/include/ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/ @LPanosTT @azecevicTT
-/lib/Dialect/TTIR/Transforms/EraseInverseOps/ @LPanosTT @azecevicTT
-/test/ttmlir/Dialect/TTIR/erase_inverse_ops/ @LPanosTT @azecevicTT
+/include/ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/ @LPanosTT @azecevicTT @odjuricicTT
+/lib/Dialect/TTIR/Transforms/EraseInverseOps/ @LPanosTT @azecevicTT @odjuricicTT
+/test/ttmlir/Dialect/TTIR/erase_inverse_ops/ @LPanosTT @azecevicTT @odjuricicTT
 
 # TTNN Dialects
 /include/ttmlir/Dialect/TTNN/ @tenstorrent/forge-developers-mlir-core

@@ -5,10 +5,10 @@
 #ifndef UNITTESTS_OPMODEL_TTNN_OPMODELFIXTURE_H
 #define UNITTESTS_OPMODEL_TTNN_OPMODELFIXTURE_H
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TT/IR/Utils.h"
-#include "ttmlir/Dialect/TT/Transforms/Transforms.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/Dialect/TTCore/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
@@ -20,6 +20,7 @@
 #include "mlir/IR/MLIRContext.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
+
 #include "gtest/gtest.h"
 
 #include <algorithm>
@@ -34,7 +35,7 @@ public:
 
   void SetUp() override {
     // Initialize context and module
-    context.loadDialect<mlir::tt::TTDialect>();
+    context.loadDialect<mlir::tt::TTCoreDialect>();
     context.loadDialect<mlir::tt::ttnn::TTNNDialect>();
     module = mlir::ModuleOp::create(builder.getUnknownLoc());
     builder.setInsertionPointToStart(&module->getBodyRegion().front());

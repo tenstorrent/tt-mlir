@@ -97,17 +97,22 @@ void dumpMemoryReport(Device device) {
       [&]() { ::tt::runtime::ttmetal::dumpMemoryReport(device); });
 }
 
+void dumpDeviceProfileResults(Device device) {
+  using RetType = void;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType, [&]() { ::tt::runtime::ttnn::dumpDeviceProfileResults(device); },
+      [&]() { ::tt::runtime::ttmetal::dumpDeviceProfileResults(device); });
+}
+
 using MemoryViewResult = std::unordered_map<::tt::runtime::MemoryBufferType,
                                             ::tt::runtime::MemoryView>;
-MemoryViewResult getMemoryView(Device device, int deviceID) {
+MemoryViewResult getMemoryView(Device device) {
   using RetType = MemoryViewResult;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
+      [&]() -> RetType { return ::tt::runtime::ttnn::getMemoryView(device); },
       [&]() -> RetType {
-        return ::tt::runtime::ttnn::getMemoryView(device, deviceID);
-      },
-      [&]() -> RetType {
-        return ::tt::runtime::ttmetal::getMemoryView(device, deviceID);
+        return ::tt::runtime::ttmetal::getMemoryView(device);
       });
 }
 } // namespace detail
@@ -177,6 +182,9 @@ Tensor createBorrowedHostTensor(void *data,
                                 const std::vector<std::uint32_t> &stride,
                                 std::uint32_t itemsize,
                                 ::tt::target::DataType dataType) {
+  LOG_ASSERT(::tt::runtime::utils::isSupportedDataType(dataType),
+             "Cannot create borrowed tensor with unsupported data type: " +
+                 std::string(::tt::target::EnumNameDataType(dataType)));
   using RetType = Tensor;
   LOG_ASSERT(!shape.empty());
   LOG_ASSERT(!stride.empty());
@@ -210,29 +218,6 @@ Tensor createOwnedHostTensor(const void *data,
       },
       [&]() -> RetType {
         return ::tt::runtime::ttmetal::createOwnedHostTensor(
-            data, TensorDesc(shape, stride, itemsize, dataType));
-      });
-}
-
-// TODO(mrakita): Should be deprecated but D2M path is using this, investigate
-// if it can also use the new `createBorrowedHostTensor` function.
-// https://github.com/tenstorrent/tt-mlir/issues/2757
-Tensor createTensor(std::shared_ptr<void> data,
-                    const std::vector<std::uint32_t> &shape,
-                    const std::vector<std::uint32_t> &stride,
-                    std::uint32_t itemsize, ::tt::target::DataType dataType) {
-  using RetType = Tensor;
-  LOG_ASSERT(!shape.empty());
-  LOG_ASSERT(!stride.empty());
-  LOG_ASSERT(itemsize > 0);
-  return DISPATCH_TO_CURRENT_RUNTIME(
-      RetType,
-      [&]() -> RetType {
-        return ::tt::runtime::ttnn::createBorrowedHostTensor(
-            data.get(), shape, stride, itemsize, dataType);
-      },
-      [&]() -> RetType {
-        return ::tt::runtime::ttmetal::createBorrowedHostTensor(
             data, TensorDesc(shape, stride, itemsize, dataType));
       });
 }
@@ -565,6 +550,19 @@ size_t getL1SizePerCore(Device meshDevice) {
       });
 }
 
+bool releaseTrace(Device meshDevice, std::uint64_t binaryId, size_t programId) {
+  using RetType = bool;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::releaseTrace(meshDevice, binaryId,
+                                                 programId);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::TTMetal);
+      });
+}
+
 void wait(Event event) {
   using RetType = void;
   DISPATCH_TO_CURRENT_RUNTIME(
@@ -572,29 +570,29 @@ void wait(Event event) {
       [&]() { ::tt::runtime::ttmetal::wait(event); });
 }
 
-void wait(Tensor tensor) {
+void wait(Tensor tensor, std::optional<uint8_t> cqId) {
   using RetType = void;
   DISPATCH_TO_CURRENT_RUNTIME(
-      RetType, [&]() { ::tt::runtime::ttnn::wait(tensor); },
-      [&]() { ::tt::runtime::ttmetal::wait(tensor); });
+      RetType, [&]() { ::tt::runtime::ttnn::wait(tensor, cqId); },
+      [&]() { ::tt::runtime::ttmetal::wait(tensor, cqId); });
 }
 
-void wait(const std::vector<Tensor> &tensors) {
+void wait(const std::vector<Tensor> &tensors, std::optional<uint8_t> cqId) {
   using RetType = void;
   DISPATCH_TO_CURRENT_RUNTIME(
-      RetType, [&]() { ::tt::runtime::ttnn::wait(tensors); },
-      [&]() { ::tt::runtime::ttmetal::wait(tensors); });
+      RetType, [&]() { ::tt::runtime::ttnn::wait(tensors, cqId); },
+      [&]() { ::tt::runtime::ttmetal::wait(tensors, cqId); });
 }
 
-std::vector<Tensor> toHost(Tensor tensor, bool untilize) {
+std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
   using RetType = std::vector<Tensor>;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
-        return ::tt::runtime::ttnn::toHost(tensor, untilize);
+        return ::tt::runtime::ttnn::toHost(tensor, untilize, blocking);
       },
       [&]() -> RetType {
-        return ::tt::runtime::ttmetal::toHost(tensor, untilize);
+        return ::tt::runtime::ttmetal::toHost(tensor, untilize, blocking);
       });
 }
 
@@ -626,11 +624,12 @@ Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
       });
 }
 
-void memcpy(void *dst, Tensor src) {
+void memcpy(void *dst, Tensor src,
+            std::optional<::tt::target::DataType> dstDataType) {
   using RetType = void;
   DISPATCH_TO_CURRENT_RUNTIME(
-      RetType, [&]() { ::tt::runtime::ttnn::memcpy(dst, src); },
-      [&]() { ::tt::runtime::ttmetal::memcpy(dst, src); });
+      RetType, [&]() { ::tt::runtime::ttnn::memcpy(dst, src, dstDataType); },
+      [&]() { ::tt::runtime::ttmetal::memcpy(dst, src, dstDataType); });
 }
 
 void memcpy(Tensor dst, Tensor src) {

@@ -4,16 +4,14 @@
 
 #include "ttmlir/Conversion/TTIRToTTKernel/TTIRToTTKernel.h"
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Dialect/TT/IR/TTOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 
-#include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
-#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
@@ -45,20 +43,30 @@ struct ConvertTTIRToTTKernel
     target.addLegalDialect<BuiltinDialect>();
     target.addLegalDialect<arith::ArithDialect>();
     target.addLegalDialect<func::FuncDialect>();
-    target.addLegalDialect<memref::MemRefDialect>();
     target.addLegalDialect<ttmetal::TTMetalDialect>();
-    target.addLegalDialect<tt::TTDialect>();
+    target.addLegalDialect<tt::TTCoreDialect>();
     target.addLegalDialect<ttkernel::TTKernelDialect>();
     target.addLegalDialect<scf::SCFDialect>();
     target.addIllegalDialect<math::MathDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
+    target.addIllegalDialect<memref::MemRefDialect>();
 
     target.addLegalOp<ttir::ToLayoutOp>();
     target.addLegalOp<ttir::StreamLayoutOp>();
     target.addLegalOp<ttir::ViewLayoutOp>();
     target.addLegalOp<ttir::GenericOp>();
-    target.addIllegalOp<memref::CollapseShapeOp>();
-    target.addIllegalOp<memref::StoreOp>();
+
+    // Allow loads and stores to integer element types.
+    //   i.e. riscv accesses to L1.
+    target.addDynamicallyLegalOp<memref::LoadOp>([&](memref::LoadOp op) {
+      return op.getMemRefType().getElementType().isIntOrIndex();
+    });
+    target.addDynamicallyLegalOp<memref::StoreOp>([&](memref::StoreOp op) {
+      return op.getMemRefType().getElementType().isIntOrIndex();
+    });
+    target.addLegalOp<memref::AllocOp>();
+    target.addLegalOp<memref::DeallocOp>();
+    target.addLegalOp<memref::CopyOp>();
 
     target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
       return !op->hasAttr(ttir::ThreadAttr::name) ||
@@ -67,12 +75,16 @@ struct ConvertTTIRToTTKernel
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });
+    typeConverter.addConversion(
+        [](tt::TileType tile) { return IndexType::get(tile.getContext()); });
     typeConverter.addConversion([](ttir::MemTxType memtx) {
       return IndexType::get(memtx.getContext());
     });
-    typeConverter.addConversion([](MemRefType memref) {
-      return ttkernel::CBType::get(
-          memref.getContext(), ttkernel::symbolizeCBPort(0).value(), 0, memref);
+    typeConverter.addConversion([](MemRefType memref) -> Type {
+      if (tt::getMemorySpace(memref) == tt::MemorySpace::RegisterDst) {
+        return IndexType::get(memref.getContext());
+      }
+      return ttkernel::CBType::get(memref.getContext(), memref);
     });
     typeConverter.addConversion([](ttir::SemaphoreType semaphore) {
       return ttkernel::SemaphoreType::get(semaphore.getContext());
@@ -98,7 +110,6 @@ struct ConvertTTIRToTTKernel
         patterns, typeConverter);
     populateTTIRToTTKernelPatterns(&getContext(), patterns, typeConverter,
                                    associatedDMAWaits);
-    populateAffineToStdConversionPatterns(patterns);
     scf::populateSCFStructuralTypeConversionsAndLegality(typeConverter,
                                                          patterns, target);
 

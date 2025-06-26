@@ -43,7 +43,7 @@ install_requires = []
 install_requires += ["nanobind"]
 
 if enable_ttnn:
-    runlibs += ["_ttnn.so"]
+    runlibs += ["_ttnncpp.so"]
 
 if enable_ttmetal:
     runlibs += ["libtt_metal.so"]

@@ -31,3 +31,15 @@ func.func @concat_operands_are_from_slices_of_the_same_tensor(%arg0: tensor<4x40
 // CHECK: stablehlo.slice %arg1 [0:2, 0:32, 0:256] : (tensor<2x40x256xf32>) -> tensor<2x32x256xf32>
 // CHECK: stablehlo.slice %arg1 [0:2, 0:24, 0:256] : (tensor<2x40x256xf32>) -> tensor<2x24x256xf32>
 // CHECK: sdy.return %3 : tensor<2x96x256xf32>
+
+func.func @non_batch_dim_slice(%arg0: tensor<4x40x256xf32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"batch"}, {}]>}, %arg1: tensor<4x60x256xf32>) -> tensor<4x80x256xf32> {
+  %0 = stablehlo.slice %arg0 [0:4, 0:32, 0:256] : (tensor<4x40x256xf32>) -> tensor<4x32x256xf32>
+  %1 = stablehlo.slice %arg1 [0:4, 0:48, 0:256] : (tensor<4x60x256xf32>) -> tensor<4x48x256xf32>
+  %2 = stablehlo.concatenate %0, %1, dim = 1 : (tensor<4x32x256xf32>, tensor<4x48x256xf32>) -> tensor<4x80x256xf32>
+  return %2 : tensor<4x80x256xf32>
+}
+
+// CHECK: sdy.manual_computation(%arg0, %arg1) in_shardings=[<@mesh, [{}, {"batch"}, {}]>, <@mesh, [{}, {"batch"}, {}]>] out_shardings=[<@mesh, [{}, {"batch"}, {}]>]
+// CHECK: stablehlo.slice %arg2 [0:4, 0:16, 0:256] : (tensor<4x20x256xf32>) -> tensor<4x16x256xf32>
+// CHECK: stablehlo.slice %arg3 [0:4, 0:24, 0:256] : (tensor<4x30x256xf32>) -> tensor<4x24x256xf32>
+// CHECK: sdy.return %3 : tensor<4x40x256xf32>

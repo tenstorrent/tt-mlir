@@ -1,11 +1,11 @@
 # EmitC testing
 
-#### NOTE: This is a developer's guide on how to test EmitC as a feature. For usage of EmitC, please refer to [ttnn-standalone](ttnn-standalone.md) docs.
+#### NOTE: This is a developer's guide on how to test EmitC as a feature. For usage of EmitC, please refer to [`ttnn-standalone`](./ttnn-standalone.md) docs.
 
 ## Prerequisites
 
-* [Built ttmlir](https://docs.tenstorrent.com/tt-mlir/build.html#build)
-* [Built ttrt](https://docs.tenstorrent.com/tt-mlir/ttrt.html#building)
+* [Built ttmlir](./getting-started.md)
+* [Built `ttrt`](./ttrt.md#building)
 * Saved system descriptor file:
 
   ```bash

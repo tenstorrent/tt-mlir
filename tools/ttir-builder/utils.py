@@ -58,9 +58,11 @@ def get_target_path(output_path, filename, target):
     return os.path.join(target_dir, filename)
 
 
-def create_custom_pipeline_fn(pipeline: str, verify: bool = True) -> Callable:
+def create_custom_pipeline_fn(
+    pipeline: str, verify: bool = True, print_ir: Union[bool, str] = False
+) -> Callable:
     def wrapper(module, device_register_options):
-        register_device = "tt-register-device"
+        register_device = "ttcore-register-device"
         if device_register_options:
             register_device = f"{register_device}{{{device_register_options}}}"
 
@@ -69,13 +71,16 @@ def create_custom_pipeline_fn(pipeline: str, verify: bool = True) -> Callable:
             pm = PassManager.parse(pipeline_str)
             pm.enable_verifier(verify)
             print("Running custom pipeline:", pm)
+            if print_ir:
+                print_ir_path = print_ir if isinstance(print_ir, str) else None
+                pm.enable_ir_printing(tree_printing_dir_path=print_ir_path)
             pm.run(module.operation)
 
     return wrapper
 
 
 def build_mlir_module(
-    test_fn: Callable,
+    fn: Callable,
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
     mesh_shape: Optional[Tuple[int, int]] = None,
@@ -86,13 +91,13 @@ def build_mlir_module(
     """
     Define a MLIR module specified as a python function.
 
-    It will wrap `test_fn` in a MLIR FuncOp and then wrap that in a MLIR
+    It will wrap `fn` in a MLIR FuncOp and then wrap that in a MLIR
     module, and finally tie arguments of that FuncOp to test function inputs. It will
     also pass a `TTIRBuilder` object as the last argument of test function.
 
     Arguments
     ---------
-    test_fn : Callable
+    fn : Callable
         Python function to be converted to MLIR
 
     inputs_shapes: List[Shape]
@@ -107,7 +112,7 @@ def build_mlir_module(
 
     Returns
     -------
-    MLIR module containing MLIR op graph defined by `test_fn`
+    MLIR module containing MLIR op graph defined by `fn`
 
     Example
     -------
@@ -122,7 +127,7 @@ def build_mlir_module(
     which returns
 
     ```
-        #any = #tt.operand_constraint<...>
+        #any = #ttcore.operand_constraint<...>
         module {
             func.func @test_add(
                 %arg0: tensor<32x32xf32>,
@@ -143,14 +148,14 @@ def build_mlir_module(
 
     # Grab the location of the test function in python for later debugging
     try:
-        fname = inspect.getfile(test_fn)
-        line_no = inspect.getsourcelines(test_fn)[1]
+        fname = inspect.getfile(fn)
+        line_no = inspect.getsourcelines(fn)[1]
         loc = Location.file(fname, line_no, 0, ctx)
     except (OSError, TypeError):
         loc = Location.unknown(ctx)
 
     # Instantiate builder which is passed as the last argument to
-    # `test_fn` so the user can use it to build ops.
+    # `fn` so the user can use it to build ops.
     builder = TTIRBuilder(ctx, loc)
 
     # deliver mesh_shape to TTIRBuilder
@@ -164,7 +169,7 @@ def build_mlir_module(
 
     assert inputs_types is not None and len(inputs_shapes) == len(inputs_types)
     with ctx, loc:
-        test_fn_input_types = [
+        fn_input_types = [
             builder.ranked_tensor_type(
                 shape,
                 builder.get_type_from_torch_dtype(
@@ -178,7 +183,7 @@ def build_mlir_module(
         module = Module.create()
         with InsertionPoint(module.body):
             # Wrap everything in a mlir function.
-            @func.func(*test_fn_input_types, name=test_fn.__name__)
+            @func.func(*fn_input_types, name=fn.__name__)
             def decorated_func(*inputs):
                 # Randomly generate golden tensors for function inputs.
                 input_goldens = []
@@ -186,15 +191,15 @@ def build_mlir_module(
                     input_goldens.append(
                         builder.generate_input_golden(operand, dtype, index).tensor
                     )
-                result = test_fn(*inputs, builder=builder)
+                result = fn(*inputs, builder=builder)
                 output_ops = result if hasattr(result, "__iter__") else (result,)
                 output_goldens = [builder._get_golden_tensor(op) for op in output_ops]
                 builder.set_graph_input_output(input_goldens, output_goldens)
                 return result
 
-        print(f"`{test_fn.__name__}` sucessfully transformed into a MLIR module.")
+        print(f"`{fn.__name__}` sucessfully transformed into a MLIR module.")
 
-        base = test_fn.__name__ if base is None else base
+        base = fn.__name__ if base is None else base
 
         filename = get_target_path(output_root, base + "_ttir.mlir", "ttir")
 
@@ -208,8 +213,7 @@ def build_mlir_module(
 
 def run_pipeline(
     module,
-    target: Literal["ttnn", "ttmetal"],
-    pipeline_fn: Callable,
+    pipeline_fn: Callable = ttir_to_ttnn_backend_pipeline,
     pipeline_options: List[str] = None,
     dump_to_file: bool = True,
     output_file_name: str = "test.mlir",
@@ -233,7 +237,7 @@ def run_pipeline(
 
     Returns
     -------
-    MLIR module containing MLIR op graph defined by `module` and instance of TTIRBuilder.
+    MLIR module containing MLIR op graph defined by `module` and pipeline_fn.
     """
 
     if pipeline_options is None:
@@ -276,8 +280,9 @@ def compile_to_flatbuffer(
     mesh_shape: Optional[Tuple[int, int]] = None,
     module_dump: bool = True,
     argument_types_string: Optional[str] = None,
-    custom_pipeline: Union[Callable, str] = None,
-    pipeline_options: List[str] = None,
+    custom_pipeline: Optional[Union[Callable, str]] = None,
+    pipeline_options: Optional[List[str]] = None,
+    print_ir: Union[bool, str] = False,
 ):
     """
     Compiles a TTIRBuilder function `fn` to TTIR MLIR -> TT{Metal,NN} MLIR -> Flatbuffer
@@ -329,13 +334,17 @@ def compile_to_flatbuffer(
 
     module_dump: bool
         Set to `True` to print out generated TTIR MLIR module.
+
+    print_ir: Union[bool, str]
+        Set to `True` to print IR to stdout.  Set to dir path to print IR after
+        each pass to its own file under _this_ directory.
     """
 
     if inputs_types is not None:
         assert len(inputs_shapes) == len(inputs_types)
 
     if type(custom_pipeline) is str:
-        custom_pipeline = create_custom_pipeline_fn(custom_pipeline)
+        custom_pipeline = create_custom_pipeline_fn(custom_pipeline, print_ir=print_ir)
 
     if pipeline_options is None:
         pipeline_options = []
@@ -378,7 +387,6 @@ def compile_to_flatbuffer(
     # Compile TTIR MLIR -> TT{Metal,NN} MLIR
     module = run_pipeline(
         module,
-        target,
         pipeline_fn,
         pipeline_options=pipeline_options,
         dump_to_file=module_dump,

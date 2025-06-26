@@ -3,6 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+import sys
+import time
+from functools import reduce
+import operator
 
 from ttrt.common.util import *
 from ttrt.common.query import Query
@@ -65,7 +69,7 @@ class Run:
             type=str,
             default="randn",
             choices=Run.TorchInitializer.init_fns,
-            help="function to initialize tensors with",
+            help="function to initialize tensors with (implies --disable-golden)",
         )
         Run.register_arg(
             name="--identity",
@@ -86,14 +90,28 @@ class Run:
             type=float,
             default=1e-05,
             choices=None,
-            help="rtol for golden test",
+            help="rtol for the PCC and identity golden tests",
         )
         Run.register_arg(
             name="--atol",
             type=float,
             default=1e-08,
             choices=None,
-            help="atol for golden test",
+            help="atol for the PCC and identity golden tests",
+        )
+        Run.register_arg(
+            name="--rtol-allclose",
+            type=float,
+            default=5e-02,
+            choices=None,
+            help="rtol for the allclose golden test",
+        )
+        Run.register_arg(
+            name="--atol-allclose",
+            type=float,
+            default=1e-03,
+            choices=None,
+            help="atol for the allclose golden test",
         )
         Run.register_arg(
             name="--pcc",
@@ -101,6 +119,13 @@ class Run:
             default=0.99,
             choices=None,
             help="pcc for golden test",
+        )
+        Run.register_arg(
+            name="--golden-diff-topk",
+            type=int,
+            default=10,
+            choices=None,
+            help="print the top k golden and output tensor elemtent pairs sorted by absolute/relative difference",
         )
         Run.register_arg(
             name="--seed",
@@ -152,18 +177,11 @@ class Run:
             help="disable read update index for kv cache workaround",
         )
         Run.register_arg(
-            name="--disable-raw-host-data-pointer-wrapper",
+            name="--disable-trace-implicit-from-device",
             type=bool,
             default=False,
             choices=[True, False],
-            help="disable runtime raw host data pointer wrapper workaround",
-        )
-        Run.register_arg(
-            name="--disable-manual-device-storage-from-borrowed-storage",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="disable converting a borrowed storage tensor to device storage tensor workaround",
+            help="disable trace from implicitly bouncing tensors off of host",
         )
         Run.register_arg(
             name="--result-file",
@@ -192,6 +210,13 @@ class Run:
             default=False,
             choices=[True, False],
             help="save golden and device tensors that are compared during callback runtime",
+        )
+        Run.register_arg(
+            name="--print-input-output-tensors",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="print input and output tensors",
         )
         Run.register_arg(
             name="--debugger",
@@ -236,18 +261,18 @@ class Run:
             help="Configuration for dirtying tensors, format: 'index:iterations,...' (e.g., '0:1,2:3' to dirty tensor 0 after 1 iteration and tensor 2 after 3 iterations)",
         )
         Run.register_arg(
-            name="--check-cache-stats",
-            type=str,
-            default="",
-            choices=None,
-            help="Verify tensor cache statistics. Format: 'hits:N,misses:M'",
-        )
-        Run.register_arg(
             name="--enable-program-cache",
             type=bool,
             default=False,
             choices=[True, False],
             help="enable program cache in ttnn runtime",
+        )
+        Run.register_arg(
+            name="--trace-region-size",
+            type=int,
+            default=0,
+            choices=None,
+            help="Device trace region size",
         )
         Run.register_arg(
             name="--dump-device-rate",
@@ -468,6 +493,7 @@ class Run:
                     input_layout = ttrt.runtime.get_layout(
                         fbb, program_index, input_index
                     )
+                    perf_env.tracy_log_op_location(f"loc(arg_{input_index})")
                     inputs_converted.append(
                         ttrt.runtime.to_layout(
                             inputs[input_index], device, input_layout, True
@@ -489,12 +515,18 @@ class Run:
             workaround_env = ttrt.runtime.WorkaroundEnv.get(
                 not self["--disable-swap-binary-operands"],
                 not self["--disable-read-update-index-for-kv-cache"],
-                not self["--disable-raw-host-data-pointer-wrapper"],
+                not self["--disable-trace-implicit-from-device"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
-            perf_env = ttrt.runtime.DebugPerfEnv.get(
+            tracy_program_metadata = {
+                "disable_eth_dispatch": self["--disable-eth-dispatch"],
+                "enable_program_cache": self["--enable-program-cache"],
+                "dump_device_rate": self["--dump-device-rate"],
+            }
+            perf_env = ttrt.runtime.PerfEnv.get(
                 self["--dump-device-rate"],
                 self["--enable-perf-trace"],
+                str(tracy_program_metadata),
             )
             self.logging.debug(f"setting tt runtime perf env={perf_env}")
             self.logging.debug(f"setting torch manual seed={self['--seed']}")
@@ -507,14 +539,34 @@ class Run:
             if self["--disable-eth-dispatch"]:
                 dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
 
-            mesh_shape = [1, len(self.query.device_ids)]
+            if "--init" in sys.argv:
+                self["--disable-golden"] = True
+
+            num_devices = len(self.query.device_ids)
             mesh_options = ttrt.runtime.MeshDeviceOptions()
             mesh_options.dispatch_core_type = dispatch_core_type
             mesh_options.enable_program_cache = self["--enable-program-cache"]
-            device = ttrt.runtime.open_mesh_device(mesh_shape, mesh_options)
+            mesh_options.trace_region_size = self["--trace-region-size"]
+
+            # Initialize `device` to `None` for error handling in case device opening fails
+            device = None
 
             for bin in binaries:
+
                 try:
+
+                    fb_mesh_shape = bin.get_program(0).mesh_shape
+                    num_mesh_devices = reduce(operator.mul, fb_mesh_shape, 1)
+
+                    # Verify that the expected number of devices in the fb mesh shape is valid on this system
+                    if num_mesh_devices > num_devices:
+                        raise Exception(
+                            f"Not enough devices ({num_devices}) to run program with mesh shape {fb_mesh_shape}"
+                        )
+
+                    # Open a device of shape (x,y), where (x,y) is the mesh shape supplied by the flatbuffer
+                    device = ttrt.runtime.open_mesh_device(fb_mesh_shape, mesh_options)
+
                     self.logging.info(f"evaluating binary={bin.file_path}")
 
                     pre_op_callback_runtime_config = CallbackRuntimeConfig(
@@ -579,9 +631,13 @@ class Run:
                         # Implement optional pre_op_callback functionality here
 
                         program = bin.get_program(program_index)
+                        # Skip private programs (e.g. subgraphs created by const-eval)
+                        if program.is_private():
+                            continue
+
                         golden_inputs = []
 
-                        for i in range(len(program.program["inputs"])):
+                        for i in range(program.num_inputs()):
                             golden_tensor = None
 
                             if not self["--disable-golden"]:
@@ -590,28 +646,23 @@ class Run:
                                 )
 
                             if golden_tensor is not None:
-
-                                dtype = ttrt_datatype_to_torch_dtype(
-                                    golden_tensor.dtype
-                                )
-
                                 golden_tensor_torch = golden_tensor_to_torch(
                                     golden_tensor
                                 )
                                 golden_inputs.append(golden_tensor_torch)
 
                         program.populate_inputs(
-                            self.torch_initializer.get_initilizer(self["--init"]),
+                            self.torch_initializer.get_initializer(self["--init"]),
                             golden_inputs,
                         )
                         program.populate_outputs(
-                            self.torch_initializer.get_initilizer("zeros")
+                            self.torch_initializer.get_initializer("zeros")
                         )
 
                         inputs = []
                         outputs = []
                         for i in program.input_tensors:
-                            new_input = ttrt.runtime.create_tensor(
+                            new_input = ttrt.runtime.create_borrowed_host_tensor(
                                 i.data_ptr(),
                                 list(i.shape),
                                 list(i.stride()),
@@ -622,7 +673,7 @@ class Run:
 
                         for i in program.output_tensors:
                             outputs.append(
-                                ttrt.runtime.create_tensor(
+                                ttrt.runtime.create_borrowed_host_tensor(
                                     i.data_ptr(),
                                     list(i.shape),
                                     list(i.stride()),
@@ -695,6 +746,15 @@ class Run:
                             self.logging.debug(
                                 f"starting loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
                             )
+                            tracy_program_metadata = {
+                                "loop_number": loop,
+                                "program_index": program_index,
+                                "disable_eth_dispatch": self["--disable-eth-dispatch"],
+                                "enable_program_cache": self["--enable-program-cache"],
+                                "dump_device_rate": self["--dump-device-rate"],
+                            }
+                            perf_env.set_program_metadata(str(tracy_program_metadata))
+
                             # Check if we need to dirty any input tensors in this iteration
                             if loop in update_tensor_schedule:
                                 for input_idx in update_tensor_schedule[loop]:
@@ -704,6 +764,9 @@ class Run:
                                         # Call the dirtyTensor function to increment the version counter
                                         expected_layout = ttrt.runtime.get_layout(
                                             bin.fbb, program_index, input_idx
+                                        )
+                                        perf_env.tracy_log_op_location(
+                                            f"loc(arg_{input_idx})"
                                         )
                                         result_tensor = ttrt.runtime.to_layout(
                                             tensor_to_dirty,
@@ -720,22 +783,21 @@ class Run:
                                             f"Cannot dirty input tensor {input_idx}, only {len(inputs)} inputs available"
                                         )
 
+                            start = time.perf_counter_ns()
                             runtime_outputs = ttrt.runtime.submit(
                                 device,
                                 bin.fbb,
                                 program_index,
                                 inputs,
                             )
-                            if self["--check-cache-stats"]:
-                                # Log cache stats after execution
-                                cache_stats = bin.fbb.get_tensor_cache().get_stats()
-                                hits = cache_stats.get("hits", 0)
-                                misses = cache_stats.get("misses", 0)
-                                self.logging.debug(
-                                    f"Tensor cache stats: hits={hits}, misses={misses}"
-                                )
 
                             ttrt.runtime.wait(runtime_outputs)
+                            end = time.perf_counter_ns()
+                            e2e_duration_nanoseconds = end - start
+                            bin.add_program_results(
+                                program_index, loop, e2e_duration_nanoseconds
+                            )
+
                             for i, runtime_output_tensor in enumerate(runtime_outputs):
                                 output_host = ttrt.runtime.to_host(
                                     runtime_output_tensor, untilize=True
@@ -748,20 +810,28 @@ class Run:
                                     runtime_output_tensor, force=True
                                 )
 
-                                # compare program level golden.
+                                output_tensor_torch = None
+                                if (
+                                    self["--print-input-output-tensors"]
+                                    or not self["--disable-golden"]
+                                ):
+                                    output_tensor_torch = torch.frombuffer(
+                                        bytearray(outputs[i].get_data_buffer()),
+                                        dtype=ttrt_datatype_to_torch_dtype(
+                                            outputs[i].get_dtype()
+                                        ),
+                                    ).reshape(outputs[i].get_shape())
+
+                                # Compare program level golden.
+                                golden_tensor_torch = None
+                                pcc_fail = False
+                                allclose_fail = False
                                 if (not self["--disable-golden"]) and (
                                     i < len(golden_outputs_torch)
                                 ):
                                     self.logging.debug(
                                         f"executing program level golden comparison for output_{i}"
                                     )
-                                    output_tensor = outputs[i]
-                                    output_tensor_torch = torch.frombuffer(
-                                        bytearray(output_tensor.get_data_buffer()),
-                                        dtype=ttrt_datatype_to_torch_dtype(
-                                            output_tensor.get_dtype()
-                                        ),
-                                    ).reshape(output_tensor.get_shape())
                                     golden_tensor_torch = golden_outputs_torch[i]
                                     if (
                                         golden_tensor_torch.shape
@@ -770,17 +840,107 @@ class Run:
                                         raise Exception(
                                             f"Failed: program-level output doesn't match golden shape! golden_shape={golden_tensor_torch.shape}, output_shape={output_tensor_torch.shape}"
                                         )
+
+                                    # PCC check.
                                     _, _, cal_pcc, _ = get_atol_rtol_pcc(
                                         golden_tensor_torch,
                                         output_tensor_torch,
                                         self.logging,
                                     )
-                                    if cal_pcc < post_op_callback_runtime_config.pcc:
-                                        raise PCCErrorException(
-                                            f"Failed: prgram-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={post_op_callback_runtime_config.pcc}"
+                                    pcc_fail = (
+                                        cal_pcc < post_op_callback_runtime_config.pcc
+                                    )
+                                    if not pcc_fail:
+                                        self.logging.info(
+                                            f"Program level golden for output_{idx} matched. pcc={cal_pcc}"
+                                        )
+
+                                    # Allclose check.
+                                    # TODO(wenbinlyuTT):
+                                    # 0. Fix NaNs and set equal_nan=False
+                                    # 1. Quant ops may generate extreme outliers, we may need to
+                                    #    implement our own allclose() that allows for a certain
+                                    #    percentage of outliers.
+                                    if bin.extension == ".ttm":
+                                        allclose_fail = not torch.allclose(
+                                            golden_tensor_torch,
+                                            output_tensor_torch,
+                                            rtol=self["--rtol-allclose"],
+                                            atol=self["--atol-allclose"],
+                                            equal_nan=True,
+                                        )
+                                        if not allclose_fail:
+                                            self.logging.info(
+                                                f"Program level golden for output_{idx} passed allclose check."
+                                            )
+
+                                golden_fail = pcc_fail or allclose_fail
+                                if self["--print-input-output-tensors"] or golden_fail:
+                                    torch.set_printoptions(
+                                        threshold=100, edgeitems=3, linewidth=120
+                                    )
+                                    for j, golden_input_tensor_torch in enumerate(
+                                        program.input_tensors
+                                    ):
+                                        self.logging.info(
+                                            f"Input {j}:\n{golden_input_tensor_torch}"
                                         )
                                     self.logging.info(
-                                        f"Program level golden for output_{idx} matched. pcc={cal_pcc}"
+                                        f"Output {i}:\n{output_tensor_torch}"
+                                    )
+                                    if golden_tensor_torch is not None:
+                                        self.logging.info(
+                                            f"Golden:\n{golden_tensor_torch}"
+                                        )
+
+                                # Print the top k differences.
+                                if golden_fail:
+                                    top_k = self["--golden-diff-topk"]
+                                    top_k_list = get_topk_diff(
+                                        golden_tensor_torch,
+                                        output_tensor_torch,
+                                        top_k,
+                                        relative=False,
+                                    )
+                                    self.logging.info(
+                                        f"Top {top_k} absolute differences:"
+                                    )
+                                    for rank, (
+                                        v_golden,
+                                        v_output,
+                                        v_diff,
+                                        idx,
+                                    ) in enumerate(top_k_list):
+                                        self.logging.info(
+                                            f"{rank}: golden {v_golden:+.6e}, output {v_output:+.6e}, abs diff {v_diff:.6e}, idx {idx}"
+                                        )
+                                    top_k_list = get_topk_diff(
+                                        golden_tensor_torch,
+                                        output_tensor_torch,
+                                        top_k,
+                                        relative=True,
+                                    )
+                                    self.logging.info(
+                                        f"Top {top_k} relative differences:"
+                                    )
+                                    for rank, (
+                                        v_golden,
+                                        v_output,
+                                        v_diff,
+                                        idx,
+                                    ) in enumerate(top_k_list):
+                                        diff_percent = v_diff * 100
+                                        self.logging.info(
+                                            f"{rank}: golden {v_golden:+.6e}, output {v_output:+.6e}, rel diff {diff_percent:4.1f}%, idx {idx}"
+                                        )
+
+                                if pcc_fail:
+                                    raise PCCErrorException(
+                                        f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={post_op_callback_runtime_config.pcc}"
+                                    )
+                                if allclose_fail:
+                                    raise AllCloseErrorException(
+                                        f"Failed: program-level output golden comparison failed the allclose check"
                                     )
 
                             self.logging.debug(
@@ -793,7 +953,7 @@ class Run:
                         # Compare to EmitC
                         if self["--emitc"]:
                             # Create symbol string to read from dylib
-                            fwd_func_name = program.program["name"]
+                            fwd_func_name = program.name
 
                             # pre-upload inputs
                             inputs = convert_input_layouts(
@@ -863,7 +1023,8 @@ class Run:
                         for tensor in program.output_tensors:
                             self.logging.debug(f"{tensor}\n")
 
-                        device.deallocate_buffers()
+                        # Dump the perf data before deallocating buffers
+                        device.dump_device_profile_results()
 
                         # if golden comparison is enabled, check golden results json file to see if test passed
                         if not self["--disable-golden"]:
@@ -873,60 +1034,6 @@ class Run:
                                 )
                             # check operation level golden comparison result.
                             post_op_callback_runtime_config.check_pcc()
-
-                            # Check cache statistics if requested
-                            if self["--check-cache-stats"]:
-                                # Parse the requested cache stats from the parameter
-                                requested_stats = {}
-                                try:
-                                    stats_configs = self["--check-cache-stats"].split(
-                                        ","
-                                    )
-                                    for config in stats_configs:
-                                        if ":" not in config:
-                                            raise Exception(
-                                                f"Invalid cache stats format: '{config}'. Expected format 'key:value'"
-                                            )
-                                        key, value = config.split(":", 1)
-                                        key = key.strip().lower()
-                                        value = value.strip()
-                                        if not value.isdigit():
-                                            raise Exception(
-                                                f"Invalid cache stats value: '{value}'. Expected a non-negative integer"
-                                            )
-                                        requested_stats[key] = int(value)
-
-                                        # Get the actual cache stats from the device
-                                        cache_stats = (
-                                            bin.fbb.get_tensor_cache().get_stats()
-                                        )
-
-                                        # Compare the requested stats with the actual stats
-                                        for (
-                                            key,
-                                            expected_value,
-                                        ) in requested_stats.items():
-                                            actual_value = cache_stats.get(key, 0)
-                                            self.logging.debug(
-                                                f"Checking cache stat {key}: expected={expected_value}, actual={actual_value}"
-                                            )
-
-                                            if actual_value != expected_value:
-                                                error_msg = f"Cache statistics validation failed: {key} expected={expected_value}, actual={actual_value}"
-                                                self.logging.error(error_msg)
-                                                raise Exception(error_msg)
-
-                                        self.logging.info(
-                                            f"Cache statistics validation successful: {requested_stats}"
-                                        )
-
-                                except Exception as e:
-                                    error_msg = (
-                                        f"Failed to validate cache statistics: {str(e)}"
-                                    )
-                                    self.logging.error(error_msg)
-                                    # Wrap in a TTRTTestException so it gets properly handled as a test error
-                                    raise TTRTTestException(error_msg)
 
                         if self["--memory"]:
                             if self["--save-artifacts"]:
@@ -956,13 +1063,16 @@ class Run:
                     self.results.add_result(test_result)
                     bin.test_result = result
                 finally:
-                    ttrt.runtime.reshape_mesh_device(device, mesh_shape)
 
                     if self["--emitc"]:
                         ttrt.runtime.test.close_so(emitc_dylib_handle)
 
-            ttrt.runtime.unregister_hooks()
-            ttrt.runtime.close_mesh_device(device)
+                    ttrt.runtime.unregister_hooks()
+
+                    # Only close the device it if was opened
+                    if device is not None:
+                        ttrt.runtime.close_mesh_device(device)
+                        device = None
 
         self.logging.debug(f"executing ttnn binaries")
         _execute(self.ttnn_binaries)
@@ -993,6 +1103,7 @@ class Run:
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
                     "program_index": self["--program-index"],
+                    "program_results": bin.program_results,
                 }
                 self.results.add_result(test_result)
                 self.logging.info(f"PASS: test case={bin.file_path}")
@@ -1008,6 +1119,7 @@ class Run:
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
                     "program_index": self["--program-index"],
+                    "program_results": bin.program_results,
                 }
                 self.results.add_result(test_result)
                 self.logging.info(f"PASS: test case={bin.file_path}")
@@ -1083,7 +1195,7 @@ class Run:
         def __init__(self, run):
             self.run = run
 
-        def get_initilizer(self, name):
+        def get_initializer(self, name):
             import inspect
 
             for func_name, func in inspect.getmembers(self, predicate=inspect.ismethod):

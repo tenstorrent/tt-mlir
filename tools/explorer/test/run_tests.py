@@ -10,9 +10,11 @@ import pytest
 import glob
 import os
 import logging
+import portpicker
 
 HOST = "localhost"
-PORT = 8002
+# Use portpicker to pick a port for us. (say that 10 times fast)
+PORT = portpicker.pick_unused_port()
 COMMAND_URL = "http://" + HOST + ":" + str(PORT) + "/apipost/v1/send_command"
 TEST_LOAD_MODEL_PATHS = [
     "test/ttmlir/Explorer/**/*.mlir",
@@ -199,7 +201,7 @@ def test_execute_mnist_with_overrides():
                 {"key": "memory_layout", "value": "tile"},
                 {"key": "buffer_type", "value": "dram"},
                 {"key": "tensor_memory_layout", "value": "interleaved"},
-                {"key": "grid_shape", "value": "[8,8]"},
+                {"key": "grid_shape", "value": "[8x8]"},
             ],
         }
     }

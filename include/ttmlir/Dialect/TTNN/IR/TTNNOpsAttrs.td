@@ -495,6 +495,59 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
   let assemblyFormat = "`<` struct(params) `>`";
 }
 
+def TTNN_DeviceComputeKernelConfig : TTNN_Attr<"DeviceComputeKernelConfig", "device_compute_kernel_config"> {
+  let summary = "TTNN DeviceComputeKernelConfig attribute";
+  let description = [{
+    The TTNN_DeviceComputeKernelConfig attribute configures compute kernel execution parameters for tensor operations on Tenstorrent devices. This attribute provides fine-grained control over mathematical precision, memory usage, and synchronization behavior during compute operations.
+
+    Parameters:
+      - `math_fidelity`: Controls the mathematical precision and accuracy of compute operations. This parameter affects the trade-off between computational speed and numerical precision. Higher fidelity modes provide more accurate results but may require additional computational cycles.
+      - `math_approx_mode`: Configures SFPU operation mode:
+        - Precise mode (false): Higher accuracy with more computational cycles and better PCC
+        - Approximate mode (true): Faster execution with fewer cycles but reduced accuracy
+      - `fp32_dest_acc_en`: Configures destination registers to use 32-bit floating-point precision instead of the default 16-bit mode. It provides higher precision at the cost of reducing available destination register count by half.
+      - `packer_l1_acc`: When packing multiple tiles to the same address, subsequent packs perform accumulation (addition using FP16 or FP32 precision) rather than overwriting.
+      - `dst_full_sync_en`: Configures destination register acquisition mode:
+        - Half mode (false): Acquires 8 tiles in destination registers
+        - Full mode (true): Acquires 16 tiles in destination registers, providing increased parallelism at the cost of higher resource usage
+
+    Example:
+
+    ```mlir
+    #device_compute_kernel_config = #ttnn.device_compute_kernel_config<
+      math_fidelity = lofi,
+      math_approx_mode = true,
+      fp32_dest_acc_en = false,
+      packer_l1_acc = false,
+      dst_full_sync_en = false
+    >
+    ```
+  }];
+
+  let parameters = (ins OptionalParameter<"std::optional<MathFidelity>">:$math_fidelity,
+                        OptionalParameter<"BoolAttr">:$math_approx_mode,
+                        OptionalParameter<"BoolAttr">:$fp32_dest_acc_en,
+                        OptionalParameter<"BoolAttr">:$packer_l1_acc,
+                        OptionalParameter<"BoolAttr">:$dst_full_sync_en);
+
+  let builders = [
+    AttrBuilder<(ins ),
+    [{
+      return Base::get($_ctxt, std::nullopt, nullptr, nullptr, nullptr, nullptr);
+    }]>,
+  ];
+
+  let extraClassDeclaration = [{
+    DeviceComputeKernelConfigAttr withMathFidelity(MathFidelity mathFidelity) const;
+    DeviceComputeKernelConfigAttr withMathApproxMode(bool value) const;
+    DeviceComputeKernelConfigAttr withFp32DestAccEn(bool value) const;
+    DeviceComputeKernelConfigAttr withPackerL1Acc(bool value) const;
+    DeviceComputeKernelConfigAttr withDstFullSyncEn(bool value) const;
+  }];
+
+  let assemblyFormat = "`<` struct(params) `>`";
+}
+
 def TTNN_MeshShapeAttr : TTNN_Mesh2DCoordAttr<"MeshShape", "mesh_shape"> {
   let summary = "TTNN Mesh Shape";
   let description = [{
@@ -527,9 +580,16 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
                         AttrParameter<"GridAttr", "The grid shape that this tensor is divided onto.">:$grid,
                         AttrParameter<"MemRefType", "A memref that describes the physical footprint allocation of the shard. It must also have a shape with rank equal to grid.">:$memref,
                         OptionalParameter<"TensorMemoryLayoutAttr", "TTNN tensor memory layout">:$mem_layout,
-                        OptionalParameter<"TensorMeshShardingAttr", "TT mesh sharding attr">:$tensor_mesh_sharding);
-  let assemblyFormat = "`<` $linear`,` $grid`,` (`mesh` `=` $tensor_mesh_sharding^ `,`)? $memref (`,` $mem_layout^)? `>`";
+                        OptionalParameter<"TensorMeshShardingAttr", "TT mesh sharding attr">:$tensor_mesh_sharding,
+                        OptionalParameter<"bool", "A status flag, asking the users to ignore the physical layout. This is used to model a sharded layout with unspecified shard shape.">:$ignorePhysicalLayout);
+  let assemblyFormat = "`<` $linear`,` $grid`,` (`mesh` `=` $tensor_mesh_sharding^ `,`)? $memref (`,` $mem_layout^)? (`,` $ignorePhysicalLayout^)? `>`";
   let extraClassDeclaration = [{
+    static TTNNLayoutAttr get(::mlir::MLIRContext *context,
+                        AffineMap linear,
+                        GridAttr grid, MemRefType memref,
+                        TensorMemoryLayoutAttr mem_layout,
+                        TensorMeshShardingAttr tensor_mesh_sharding);
+
     static TTNNLayoutAttr get(::mlir::MLIRContext *context,
                         ArrayRef<int64_t> tensorShape,
                         Type elementType,
@@ -537,7 +597,8 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
                         GridAttr grid,
                         TensorMemoryLayoutAttr memoryLayoutAttr = nullptr,
                         TensorMeshShardingAttr tensorMeshShardingAttr = nullptr,
-                        ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
+                        ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}},
+                        bool ignorePhysicalLayout = false);
 
     TTNNLayoutAttr withGrid(ArrayRef<int64_t> tensorShape, GridAttr grid, ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
     TTNNLayoutAttr withGrid(RankedTensorType ty,
@@ -549,6 +610,7 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
     TTNNLayoutAttr withMemoryLayout(TensorMemoryLayout memLayout);
     TTNNLayoutAttr withShardShape(llvm::SmallVector<int64_t> shardShape);
     TTNNLayoutAttr withTensorShape(ArrayRef<int64_t> tensorShape);
+    TTNNLayoutAttr withIgnorePhysicalLayout(bool ignorePhysicalLayout);
 
     bool isSystemBufferType() const { return ::mlir::tt::ttnn::isSystemBufferType(getBufferType()); }
     bool isDeviceBufferType() const { return ::mlir::tt::ttnn::isDeviceBufferType(getBufferType()); }
@@ -575,6 +637,7 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
     AffineMap getIdentityTileLinearMap() const;
     llvm::SmallVector<int64_t> getTiledShape(ArrayRef<int64_t> logicalTensorShape) const;
     AffineMap replaceMemoryMapSymbolsWithShardShape(AffineMap physicalMemoryMap) const;
+    std::pair<std::int64_t, std::int64_t> getDefaultCollapseIntervals() const;
   }];
 
   let genVerifyDecl = 1;

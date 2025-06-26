@@ -4,10 +4,10 @@
 #loc = loc("MNISTLinear":0:0)
 module @MNISTLinear attributes {} {
   func.func @forward(%arg0: tensor<1x784xf32> {ttir.name = "input_1"} loc("MNISTLinear":0:0), %arg1: tensor<784x256xf32> {ttir.name = "l1.weight"} loc("MNISTLinear":0:0), %arg2: tensor<256xf32> {ttir.name = "l1.bias"} loc("MNISTLinear":0:0), %arg3: tensor<256x10xf32> {ttir.name = "l2.weight"} loc("MNISTLinear":0:0), %arg4: tensor<10xf32> {ttir.name = "l2.bias"} loc("MNISTLinear":0:0)) -> (tensor<1x10xf32> {ttir.name = "MNISTLinear.output_softmax_9"}) {
-    // CHECK-DAG: #[[LAYOUT_8:.*]] = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x8x!tt.tile<32x32, f32>, #dram>, <interleaved>>
-    // CHECK-DAG: #[[LAYOUT_10:.*]] = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<8x1x!tt.tile<32x32, f32>, #dram>, <interleaved>>
-    // CHECK-DAG: #[[LAYOUT_11:.*]] = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!tt.tile<32x32, f32>, #dram>, <interleaved>>
-    // CHECK-DAG: #[[LAYOUT_12:.*]] = #ttnn.ttnn_layout<(d0) -> (0, d0), <1x1>, memref<1x1x!tt.tile<32x32, f32>, #dram>, <interleaved>>
+    // CHECK-DAG: #[[LAYOUT_8:.*]] = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x8x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+    // CHECK-DAG: #[[LAYOUT_10:.*]] = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<8x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+    // CHECK-DAG: #[[LAYOUT_11:.*]] = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+    // CHECK-DAG: #[[LAYOUT_12:.*]] = #ttnn.ttnn_layout<(d0) -> (0, d0), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
     %0 = ttir.empty() : tensor<1x256xf32> loc(#loc8)
     // CHECK: %{{.*}} = "ttnn.matmul"{{.*}} -> tensor<1x256xf32, #[[LAYOUT_8]]>
     %1 = "ttir.matmul"(%arg0, %arg1, %0) : (tensor<1x784xf32>, tensor<784x256xf32>, tensor<1x256xf32>) -> tensor<1x256xf32> loc(#loc8)

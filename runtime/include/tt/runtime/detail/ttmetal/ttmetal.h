@@ -28,6 +28,10 @@ Tensor createBorrowedHostTensor(std::shared_ptr<void> data,
                                 const TensorDesc &desc);
 
 inline Tensor createOwnedHostTensor(const void *data, const TensorDesc &desc) {
+  LOG_ASSERT(utils::isSupportedDataType(desc.dataType),
+             "Creating owned tensor with unsupported data type: " +
+                 std::string(target::EnumNameDataType(desc.dataType)) +
+                 "is not implemented for the TTMetal runtime");
   std::shared_ptr<void> owned = utils::malloc_shared(desc.sizeBytes());
   std::memcpy(owned.get(), data, desc.sizeBytes());
   return ttmetal::createBorrowedHostTensor(owned, desc);
@@ -91,18 +95,22 @@ void deallocateBuffers(Device device);
 
 void dumpMemoryReport(Device device);
 
+void dumpDeviceProfileResults(Device device);
+
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
-getMemoryView(Device device, int deviceID = 0);
+getMemoryView(Device device);
 
 void wait(Event event);
 
-void wait(Tensor tensor);
+void wait(Tensor tensor, std::optional<uint8_t> cqId = std::nullopt);
 
-void wait(const std::vector<Tensor> &tensors);
+void wait(const std::vector<Tensor> &tensors,
+          std::optional<uint8_t> cqId = std::nullopt);
 
-std::vector<Tensor> toHost(Tensor tensor, bool untilize);
+std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking);
 
-void memcpy(void *dst, Tensor src);
+void memcpy(void *dst, Tensor src,
+            std::optional<tt::target::DataType> dstDataType = std::nullopt);
 
 void memcpy(Tensor dst, Tensor src);
 

@@ -5,7 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTNN_IR_TTNNOPSTYPES_H
 #define TTMLIR_DIALECT_TTNN_IR_TTNNOPSTYPES_H
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/IR/BuiltinAttributes.h"

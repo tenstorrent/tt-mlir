@@ -14,13 +14,13 @@ namespace mlir::tt::ttnn {
 // TTNNOptimizer
 //===----------------------------------------------------------------------===//
 struct TTNNOptimizerOptions {
-  llvm::StringMap<InputLayoutOverrideParams> overrideInputLayout =
-      llvm::StringMap<InputLayoutOverrideParams>();
+  llvm::StringMap<InsertMemReconfigParams> insertMemReconfig =
+      llvm::StringMap<InsertMemReconfigParams>();
   llvm::StringMap<OutputLayoutOverrideParams> overrideOutputLayout =
       llvm::StringMap<OutputLayoutOverrideParams>();
   llvm::StringMap<Conv2dConfigOverrideParams> overrideConv2dConfig =
       llvm::StringMap<Conv2dConfigOverrideParams>();
-  bool memoryLayoutAnalysisEnabled = false;
+  bool memoryLayoutAnalysisEnabled = true;
   MemoryLayoutAnalysisPolicyType memoryLayoutAnalysisPolicy =
       MemoryLayoutAnalysisPolicyType::DFSharding;
   bool memReconfigEnabled = false;

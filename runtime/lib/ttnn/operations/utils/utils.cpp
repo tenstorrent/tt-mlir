@@ -8,6 +8,13 @@
 
 namespace tt::runtime::ttnn::operations::utils {
 
+void eventSync(::ttnn::MeshDevice *meshDevice, const ::ttnn::QueueId &recordCq,
+               const ::ttnn::QueueId &waitCq) {
+  ::ttnn::MeshEvent event =
+      ::ttnn::events::record_mesh_event(meshDevice, recordCq);
+  ::ttnn::events::wait_for_mesh_event(waitCq, event);
+}
+
 bool isTilized(const ::tt::target::ttnn::TensorRef *tensorRef) {
   const ::tt::target::Dim2d *tileShape =
       tensorRef->desc()->layout()->memory_desc()->tile_shape();
@@ -48,7 +55,7 @@ bool isTilized(const ::tt::target::ttnn::TensorRef *tensorRef) {
 bool shouldSwapBinaryOperands(const ::ttnn::Tensor &lhs,
                               const ::ttnn::Tensor &rhs) {
   return (workaround::Env::get().swapBinaryOperands) &&
-         (lhs.padded_volume() < rhs.padded_volume());
+         (lhs.physical_volume() < rhs.physical_volume());
 }
 
 ::ttnn::operations::unary::UnaryOpType
@@ -127,9 +134,8 @@ toTTNNUnaryOpType(::tt::target::ttnn::UnaryOpType unaryOpType) {
       {FbUnaryOpType::BitwiseOr, TTNNUnaryOpType::BITWISE_OR},
       {FbUnaryOpType::RightShift, TTNNUnaryOpType::RIGHT_SHIFT},
       {FbUnaryOpType::Floor, TTNNUnaryOpType::FLOOR},
-      {FbUnaryOpType::FloorFloat32, TTNNUnaryOpType::FLOOR_FLOAT32},
       {FbUnaryOpType::Ceil, TTNNUnaryOpType::CEIL},
-      {FbUnaryOpType::CeilFloat32, TTNNUnaryOpType::CEIL_FLOAT32},
+      {FbUnaryOpType::Round, TTNNUnaryOpType::ROUND},
       {FbUnaryOpType::LeftShift, TTNNUnaryOpType::LEFT_SHIFT},
       {FbUnaryOpType::Remainder, TTNNUnaryOpType::REMAINDER},
       {FbUnaryOpType::Fmod, TTNNUnaryOpType::FMOD},
@@ -343,6 +349,27 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
   return conv2dConfig;
 }
 
+::ttnn::DeviceComputeKernelConfig createDeviceComputeKernelConfig(
+    const ::tt::target::ttnn::DeviceComputeKernelConfig *config) {
+  ::ttnn::WormholeComputeKernelConfig computeKernelConfig;
+
+  if (config->math_fidelity()) {
+    computeKernelConfig.math_fidelity =
+        ::tt::runtime::ttnn::utils::toTTNNMathFidelity(
+            *config->math_fidelity());
+  }
+
+  if (config->math_approx_mode()) {
+    computeKernelConfig.math_approx_mode = *config->math_approx_mode();
+  }
+
+  if (config->dst_full_sync_en()) {
+    computeKernelConfig.dst_full_sync_en = *config->dst_full_sync_en();
+  }
+
+  return computeKernelConfig;
+}
+
 template <typename T>
 static ::ttnn::Tensor
 toTTNNTensorImpl(const ::flatbuffers::Vector<uint8_t> *data,
@@ -388,6 +415,24 @@ toTTNNTensorImpl(const ::flatbuffers::Vector<uint8_t> *data,
   default:
     LOG_FATAL("Unsupported data type");
   }
+}
+
+::ttnn::Tensor
+allocateTensorOnDevice(const ::tt::target::ttnn::TensorRef *tensorRef,
+                       ::ttnn::MeshDevice &meshDevice) {
+  ::ttnn::Shape ttnnShape = toTTNNShape(*tensorRef->desc()->shape());
+  ::ttnn::DataType ttnnDataType = ::tt::runtime::ttnn::utils::toTTNNDataType(
+      tensorRef->desc()->layout()->memory_desc()->data_type());
+  ::ttnn::Layout ttnnLayout =
+      ::tt::runtime::ttnn::utils::inferLayoutFromTileShape(tensorRef);
+  std::optional<::ttnn::MemoryConfig> memoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(tensorRef));
+  LOG_ASSERT(memoryConfig.has_value());
+  ::ttnn::Tensor deviceTensor =
+      ::ttnn::operations::core::allocate_tensor_on_device(
+          ttnnShape, ttnnDataType, ttnnLayout, &meshDevice, memoryConfig);
+  return deviceTensor;
 }
 
 } // namespace tt::runtime::ttnn::operations::utils

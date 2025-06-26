@@ -5,9 +5,9 @@
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 
 #include "ttmlir/Conversion/StableHLOToTTIR/ShardingUtils.h"
-#include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TT/Utils/Mesh.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/Utils/Mesh.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
@@ -552,6 +552,34 @@ public:
 } // namespace
 
 namespace {
+
+class StableHLOToBatchNormOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::BatchNormInferenceOp> {
+
+  using OpConversionPattern<
+      mlir::stablehlo::BatchNormInferenceOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::BatchNormInferenceOp srcOp,
+                  mlir::stablehlo::BatchNormInferenceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+    mlir::Type integerType = mlir::IntegerType::get(getContext(), 32);
+    IntegerAttr dimensionAttr =
+        mlir::IntegerAttr::get(integerType, srcOp.getFeatureIndex());
+    BoolAttr trainingAttr = mlir::BoolAttr::get(rewriter.getContext(), false);
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::BatchNormOp>(
+        rewriter, srcOp, outputType, adaptor.getOperand(), adaptor.getScale(),
+        adaptor.getOffset(), adaptor.getMean(), adaptor.getVariance(),
+        adaptor.getEpsilonAttr(), dimensionAttr, trainingAttr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOToTTIRReshapeOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ReshapeOp> {
   using OpConversionPattern<mlir::stablehlo::ReshapeOp>::OpConversionPattern;
@@ -703,7 +731,7 @@ public:
     }
 
     // Call the Requantize op if the input type is quantized
-    // per-tensor/per-channel.
+    // per-tensor/per-axis.
     if (mlir::isa<mlir::quant::UniformQuantizedType,
                   mlir::quant::UniformQuantizedPerAxisType>(
             inputType.getElementType())) {
@@ -2498,6 +2526,11 @@ static void addPadOpConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOToTTIROpPadOpConversionPattern>(typeConverter, ctx);
 }
 
+static void addBatchNormOpConversionPattern(MLIRContext *ctx,
+                                            RewritePatternSet &patterns,
+                                            TypeConverter &typeConverter) {
+  patterns.add<StableHLOToBatchNormOpConversionPattern>(typeConverter, ctx);
+}
 namespace mlir::tt {
 
 void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
@@ -2526,6 +2559,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addScatterOpConversionPatterns(ctx, patterns, typeConverter);
   addReverseOpConversionPattern(ctx, patterns, typeConverter);
   addPadOpConversionPattern(ctx, patterns, typeConverter);
+  addBatchNormOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt

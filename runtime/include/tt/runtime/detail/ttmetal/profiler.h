@@ -31,7 +31,7 @@ struct device_operation_t {
     const char *loc;
 
     operation_attributes_t(const char *loc) : loc(loc) {}
-    tt::stl::reflection::Attributes attributes() const { return {}; }
+    ttsl::reflection::Attributes attributes() const { return {}; }
   };
   using tensor_args_t = std::vector<tt::tt_metal::Tensor>;
   using tensor_return_value_t = std::vector<tt::tt_metal::Tensor>;
@@ -74,7 +74,7 @@ inline void profileProgram(tt::tt_metal::IDevice *device,
   std::string op_text = fmt::format("id:{}", program.get_runtime_id());
   ZoneText(op_text.c_str(), op_text.size());
   TracyMessage(op_message.c_str(), op_message.size());
-  tt_metal::DumpDeviceProfileResults(device, program);
+  tt_metal::detail::DumpDeviceProfileResults(device);
 }
 
 #else

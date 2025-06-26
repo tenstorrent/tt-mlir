@@ -267,6 +267,8 @@ public:
   static TTNNOperandsWorkarounds
   createBinaryOpOperandsWorkarounds(mlir::Operation *op);
 
+  static TTNNOperandsWorkarounds createTanhOpOperandsWorkarounds();
+
   // Create workarounds for ArgMax op operands.
   static TTNNOperandsWorkarounds createArgMaxOpOperandsWorkarounds();
 
@@ -289,6 +291,11 @@ public:
   // Create workarounds for reduction op operands.
   static TTNNOperandsWorkarounds
   createReductionOpOperandsWorkarounds(mlir::Operation *op);
+
+  // Create workaround for reduce (full) product op operands.
+  static TTNNOperandsWorkarounds
+  createReduceProdOpOperandsWorkarounds(mlir::Type elementType,
+                                        bool allDimensions);
 };
 
 } // namespace mlir::tt::ttnn::wa

@@ -1,13 +1,13 @@
-// RUN: ttmlir-opt --tt-register-device="system-desc-path=%system_desc_path%" --ttir-allocate --convert-ttir-to-ttmetal %s > %t.mlir
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttir-allocate --convert-ttir-to-ttmetal %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttmetal-to-flatbuffer %t.mlir > %t.ttm
 // UNSUPPORTED: true
 
-#l1_ = #tt.memory_space<l1>
-#dram = #tt.memory_space<dram>
+#l1_ = #ttcore.memory_space<l1>
+#dram = #ttcore.memory_space<dram>
 
-#layout = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<4x16xf32, #l1_>>
-#layout1 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <2x2>, memref<2x8xf32, #l1_>>
+#layout = #ttcore.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<4x16xf32, #l1_>>
+#layout1 = #ttcore.metal_layout<(d0, d1) -> (d0, d1), undef, <2x2>, memref<2x8xf32, #l1_>>
 func.func @simple(%arg0: tensor<4x16xf32, #layout>) -> tensor<4x16xf32, #layout1> {
   %0 = ttir.empty() : tensor<4x16xf32, #layout1>
   // CHECK: = "ttmetal.enqueue_program"
@@ -15,8 +15,8 @@ func.func @simple(%arg0: tensor<4x16xf32, #layout>) -> tensor<4x16xf32, #layout1
   return %1 : tensor<4x16xf32, #layout1>
 }
 
-#untilized = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<64x128xf32, #l1_>>
-#tilized = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<2x4x!tt.tile<32 x 32, f32>, #l1_>>
+#untilized = #ttcore.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<64x128xf32, #l1_>>
+#tilized = #ttcore.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<2x4x!ttcore.tile<32 x 32, f32>, #l1_>>
 func.func @tilize(%arg0: tensor<64x128xf32, #untilized>) -> tensor<64x128xf32, #untilized> {
   %0 = ttir.empty() : tensor<64x128xf32, #tilized>
   // CHECK: = "ttmetal.enqueue_program"
@@ -27,11 +27,11 @@ func.func @tilize(%arg0: tensor<64x128xf32, #untilized>) -> tensor<64x128xf32, #
   return %3 : tensor<64x128xf32, #untilized>
 }
 
-#untilized_dram = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<16x64xf32, #dram>>
-#untilized_l1 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<16x64xf32, #l1_>>
-#untilized2x2_dram = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <2x2>, memref<8x32xf32, #dram>>
-#untilized2x2_l1 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <2x2>, memref<8x32xf32, #l1_>>
-#untilized1x4_l1 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x4>, memref<16x16xf32, #l1_>>
+#untilized_dram = #ttcore.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<16x64xf32, #dram>>
+#untilized_l1 = #ttcore.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<16x64xf32, #l1_>>
+#untilized2x2_dram = #ttcore.metal_layout<(d0, d1) -> (d0, d1), undef, <2x2>, memref<8x32xf32, #dram>>
+#untilized2x2_l1 = #ttcore.metal_layout<(d0, d1) -> (d0, d1), undef, <2x2>, memref<8x32xf32, #l1_>>
+#untilized1x4_l1 = #ttcore.metal_layout<(d0, d1) -> (d0, d1), undef, <1x4>, memref<16x16xf32, #l1_>>
 func.func @dram_to_l1(%arg0: tensor<16x64xf32, #untilized_dram>) -> tensor<16x64xf32, #untilized_l1> {
   %0 = ttir.empty() : tensor<16x64xf32, #untilized_l1>
   // CHECK: = "ttmetal.enqueue_program"

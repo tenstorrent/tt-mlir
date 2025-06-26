@@ -72,7 +72,7 @@ getTensorLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
 bool validateTensorSpec(const ::ttnn::TensorSpec &tensorSpec,
                         const ::tt::tt_metal::CoreCoord &computeGridSize);
 
-::ttnn::SmallVector<int>
+::ttsl::SmallVector<int>
 convertLLVMSmallVecToTTNNSmallVec(const ::llvm::ArrayRef<int64_t> vec);
 
 std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> getConv2dConfig(
@@ -89,6 +89,25 @@ std::array<To, N> convertLLVMArrayRefToStdArray(::llvm::ArrayRef<From> vec) {
   std::array<To, N> stdArray;
   std::copy(vec.begin(), vec.end(), stdArray.begin());
   return stdArray;
+}
+
+template <typename To, size_t... Sizes, typename From>
+std::variant<std::array<To, Sizes>...>
+convertLLVMArrayRefToMultiSizeStdArray(::llvm::ArrayRef<From> vec) {
+  std::variant<std::array<To, Sizes>...> stdVariantArray;
+
+  bool matched =
+      ((vec.size() == Sizes &&
+        (stdVariantArray = convertLLVMArrayRefToStdArray<To, Sizes>(vec),
+         true)) ||
+       ...);
+
+  if (!matched) {
+    throw std::runtime_error(
+        "Size of LLVM ArrayRef does not match any expected size");
+  }
+
+  return stdVariantArray;
 }
 
 llvm::SmallVector<int64_t>

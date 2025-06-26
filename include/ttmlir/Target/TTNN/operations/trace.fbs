@@ -1,0 +1,14 @@
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+
+namespace tt.target.ttnn;
+
+table TraceOp {
+  device: tt.target.DeviceRef;
+  cq_id: uint32;
+  blocking: bool;
+  callee_name: string;
+  callee_program_idx: uint32;
+  inputs: [tt.target.ttnn.TensorRef];
+  outputs: [tt.target.ttnn.TensorRef];
+}

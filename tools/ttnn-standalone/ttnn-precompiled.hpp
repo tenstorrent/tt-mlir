@@ -28,6 +28,7 @@
 #include "operations/embedding_backward/embedding_backward.hpp"
 #include "operations/matmul/matmul.hpp"
 #include "operations/moreh/moreh_cumsum/moreh_cumsum.hpp"
+#include "operations/normalization/batch_norm/batch_norm.hpp"
 #include "operations/normalization/softmax/softmax.hpp"
 #include "operations/pool/generic/generic_pools.hpp"
 #include "operations/pool/upsample/upsample.hpp"
@@ -35,7 +36,6 @@
 #include "operations/reduction/generic/generic_reductions.hpp"
 #include "operations/reduction/prod/prod.hpp"
 #include "tt-metalium/bfloat16.hpp"
-#include "tt-metalium/small_vector.hpp"
 #include "ttnn/core.hpp"
 #include "ttnn/device.hpp"
 #include "ttnn/operations/copy/typecast/typecast.hpp"
@@ -64,21 +64,20 @@ public:
   static ttnn::MeshDevice *getInstance() {
     // If we have an external device, use it.
     if (externalDevice) {
-      assert(ownedDevice == nullptr);
+      assert(!hasOwnedDevice);
       return externalDevice;
     }
 
-    // Otherwise, create and use our own device.
-    if (!ownedDevice) {
-      ownedDevice = ::ttnn::MeshDevice::create_unit_mesh(0, l1SmallSize);
-    }
-    return ownedDevice.get();
+    static std::shared_ptr<ttnn::MeshDevice> ownedInstance =
+        ::ttnn::MeshDevice::create_unit_mesh(0, l1SmallSize);
+    hasOwnedDevice = true;
+    return ownedInstance.get();
   }
 
   // Set an external device (we don't own it)
   static void setInstance(ttnn::MeshDevice *newInstance) {
     // We don't want to mix and match owned/external devices.
-    assert(ownedDevice == nullptr);
+    assert(!hasOwnedDevice);
 
     // Store the external device pointer.
     externalDevice = newInstance;
@@ -92,13 +91,12 @@ private:
 
   // External device (not owned by us).
   static ttnn::MeshDevice *externalDevice;
-
-  // Our owned device (only used if no external device is set).
-  static std::shared_ptr<ttnn::MeshDevice> ownedDevice;
+  // Flag to track if we've set local ownedInstance or not.
+  static bool hasOwnedDevice;
 };
 
 inline ttnn::MeshDevice *DeviceGetter::externalDevice = nullptr;
-inline std::shared_ptr<ttnn::MeshDevice> DeviceGetter::ownedDevice;
+inline bool DeviceGetter::hasOwnedDevice = false;
 
 // Function to be exported from the dylib that can be called to set the
 // device--extern to avoid mangling.

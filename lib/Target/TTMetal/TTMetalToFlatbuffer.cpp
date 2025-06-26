@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
-#include "ttmlir/Dialect/TT/IR/TTOps.h"
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TT/IR/Utils.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
 #include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
@@ -21,6 +21,8 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/BuiltinTypeInterfaces.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/STLForwardCompat.h"
@@ -32,8 +34,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <mlir/IR/BuiltinTypeInterfaces.h>
-#include <mlir/IR/BuiltinTypes.h>
 #include <vector>
 
 namespace mlir::tt::ttmetal {
@@ -162,8 +162,6 @@ memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   }
 
   auto shardLayout = mlir::cast<ShardLayoutAttr>(deviceLayout);
-  uint64_t shardSize =
-      device.getMemrefSizeBytes(memref, 0, /*includeBuffers=*/true);
   ArrayRef<int64_t> stride = shardLayout.getStride();
   int64_t elementSize = stride[stride.size() - 1];
   auto memrefGridShape = shardLayout.getGridShape(memref);
@@ -172,7 +170,6 @@ memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
       toFlatbuffer(cache, memrefGridShape, device.getWorkerGrid().getMapping());
   std::array<int32_t, 2> gridShapeExtents =
       calculateCoreRangeSetShapeExtents(coreRangeSet);
-  uint64_t size = gridShapeExtents[0] * gridShapeExtents[1] * shardSize;
 
   // Calculate ShardSpec
   assert(stride[stride.size() - 1] % elementSize == 0);
@@ -203,19 +200,11 @@ memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   assert(pageShape.x() % elementShape.x() == 0);
   std::array<int32_t, 2> pageShapeInElements = {
       pageShape.y() / elementShape.y(), pageShape.x() / elementShape.x()};
-
-  uint64_t pageSize;
-  if (mlir::isa<TileType>(memref.getElementType())) {
-    pageSize = pageShapeInElements[0] * pageShapeInElements[1] * elementSize;
-  } else {
-    auto tileShape = TileType::getDefaultShape();
-    int64_t alignSize = tileShape[0] * tileShape[1] * elementSize;
-
-    pageSize = ttmlir::utils::alignUp(pageShapeInElements[0] *
-                                          pageShapeInElements[1] * elementSize,
-                                      alignSize);
-  }
-
+  uint64_t pageSize =
+      pageShapeInElements[0] * pageShapeInElements[1] * elementSize;
+  uint64_t shardSize =
+      device.getMemrefSizeBytes(memref, pageSize, /*includeBuffers=*/true);
+  uint64_t size = gridShapeExtents[0] * gridShapeExtents[1] * shardSize;
   return target::metal::CreateShardedBufferConfig(*cache.fbb, size, pageSize,
                                                   shardSpecBuffer);
 }
@@ -235,9 +224,9 @@ memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   std::vector<target::Dim2dRange> coreRangeSet =
       toFlatbuffer(cache, memrefGridShape, device.getWorkerGrid().getMapping());
 
-  uint64_t shardSize =
-      device.getMemrefSizeBytes(memref, 0, /*includeBuffers=*/true);
   uint64_t pageSize = device.getMemrefCBPageSizeBytes(memref);
+  uint64_t shardSize =
+      device.getMemrefSizeBytes(memref, pageSize, /*includeBuffers=*/true);
   uint64_t numBuffers = shardLayout.getBuffers();
   return target::metal::CreateCircularBufferConfigDirect(
       *cache.fbb, &coreRangeSet, /*total_size=*/shardSize,
@@ -675,14 +664,19 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
     flatbuffers::Offset<target::DebugInfo> debugInfo =
         debugInfoToFlatbuffer(fbb, "ttmetal", module, goldenMap, moduleCache);
 
+    DeviceAttr deviceAttr = lookupDevice(entry);
+
+    ::tt::target::Dim2d meshShape = deviceToFlatbufferMeshShape(deviceAttr);
+
     programs.push_back(target::metal::CreateProgramDirect(
         fbb, cqBuilder.name, &tensorInputs, &tensorOutputs, &devicePrograms,
-        debugInfo));
+        debugInfo, /*private=*/false, &meshShape));
   });
 
   auto binary = target::metal::CreateTTMetalBinaryDirect(
-      fbb, &binaryVersion, ttmlir::getGitHash(),
-      toFlatbuffer(cache, systemDesc), &programs, &dylibs);
+      fbb, &binaryVersion, target::ttmetal::binary_bfbs_schema_hash,
+      ttmlir::getGitHash(), toFlatbuffer(cache, systemDesc), &programs,
+      &dylibs);
 
   FinishSizePrefixedTTMetalBinaryBuffer(fbb, binary);
   flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());

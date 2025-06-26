@@ -5,7 +5,7 @@
 #ifndef TTMLIR_CONVERSION_TTNNTOEMITC_UTILS_H
 #define TTMLIR_CONVERSION_TTNNTOEMITC_UTILS_H
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
@@ -16,7 +16,7 @@ namespace mlir::tt::ttnn_to_emitc::utils {
 // Name for the function that creates a std::vector from a variadic number of
 // `ttnn::Tensor`s
 //
-inline constexpr char kCreateVectorFunctionName[] = "utilCreateVec";
+inline constexpr char kCreateVectorFunctionName[] = "util_create_vec";
 
 // Inserts a func::FuncOp to top of the caller's module that takes in a variadic
 // number of `ttnn::Tensor`s and returns them packed into a `std::vector`
@@ -58,7 +58,7 @@ emitc::OpaqueAttr convertReduceType(ConversionPatternRewriter &rewriter,
 emitc::OpaqueAttr convertArrayAttrToTTNNSmallVector(Builder &builder,
                                                     ArrayAttr attr);
 
-// Create emitc::OpaqueAttr for tt::stl::Span from ArrayAttr of ints
+// Create emitc::OpaqueAttr for ttsl::Span from ArrayAttr of ints
 //
 emitc::OpaqueAttr convertArrayAttrToSpan(Builder &builder, ArrayAttr attr);
 

@@ -4,7 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h"
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Utils.h"
@@ -175,7 +175,7 @@ TTNNOperandsWorkaroundsFactory::createUpsampleOpOperandsWorkarounds() {
 
 // Factory method to create a set of workarounds for zeros op output operand.
 // ttnn::zeros does not support output dtype int32. If the output data type of
-// ttnn::zeros is int32, we override to uint32 and typecast separately.
+// ttnn::zeros is int32, we override to float32 and typecast separately.
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createZerosOpOperandsWorkarounds(
     RankedTensorType outputType) {
@@ -184,7 +184,7 @@ TTNNOperandsWorkaroundsFactory::createZerosOpOperandsWorkarounds(
       elementTypeToDataType(outputType.getElementType());
   if (dataType == mlir::tt::DataType::Int32) {
     fullOpOutputWorkarounds.tensorDataTypeWorkaround =
-        mlir::tt::DataType::UInt32;
+        mlir::tt::DataType::Float32;
   }
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addOutputOperandWorkaround(fullOpOutputWorkarounds);
@@ -195,7 +195,7 @@ TTNNOperandsWorkaroundsFactory::createZerosOpOperandsWorkarounds(
 // If the output of full is a 1D tensor and is tiled
 // we need to convert it to row major layout then tilize separately
 // ttnn::full does not support output dtype int32. If the output data type of
-// full is int32, we override to uint32 and typecast separately.
+// full is int32, we override to float32 and typecast separately.
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createFullOpOperandsWorkarounds(
     RankedTensorType outputType) {
@@ -209,7 +209,7 @@ TTNNOperandsWorkaroundsFactory::createFullOpOperandsWorkarounds(
       elementTypeToDataType(outputType.getElementType());
   if (dataType == mlir::tt::DataType::Int32) {
     fullOpOutputWorkarounds.tensorDataTypeWorkaround =
-        mlir::tt::DataType::UInt32;
+        mlir::tt::DataType::Float32;
   }
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addOutputOperandWorkaround(fullOpOutputWorkarounds);
@@ -375,7 +375,7 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
 }
 
 // Factory method to create a set of workarounds for reshape operation operands.
-// Reshape op only does not work with int32 - force to uint32 then typecast
+// Reshape op only does not work with int32 - force to float32 then typecast
 // separately.
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createReshapeOpOperandsWorkarounds(
@@ -384,7 +384,7 @@ TTNNOperandsWorkaroundsFactory::createReshapeOpOperandsWorkarounds(
   TTNNOperandWorkarounds typeWorkarounds;
   mlir::tt::DataType dataType = elementTypeToDataType(inputElementType);
   if (dataType == mlir::tt::DataType::Int32) {
-    typeWorkarounds.tensorDataTypeWorkaround = mlir::tt::DataType::UInt32;
+    typeWorkarounds.tensorDataTypeWorkaround = mlir::tt::DataType::Float32;
   }
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(typeWorkarounds)
@@ -486,6 +486,18 @@ TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(operandWorkaround)
+      .addInputOperandWorkaround(operandWorkaround)
+      .addOutputOperandWorkaround(operandWorkaround);
+}
+
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createTanhOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds operandWorkaround;
+  // Tanh op accurate mode requires bfloat16 data type.
+  // Issue: https://github.com/tenstorrent/tt-metal/issues/22593
+  operandWorkaround.tensorDataTypeWorkaround = DataType::BFloat16;
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(operandWorkaround)
       .addOutputOperandWorkaround(operandWorkaround);
 }
@@ -620,5 +632,21 @@ TTNNOperandsWorkaroundsFactory::createReductionOpOperandsWorkarounds(
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(operandWorkaround)
       .addOutputOperandWorkaround(operandWorkaround);
+}
+
+// Factory method to create a set of workarounds for reduce product op operands.
+// tt-metal only supports full product reduction for bfloat16 data type.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createReduceProdOpOperandsWorkarounds(
+    mlir::Type elementType, bool allDimensions) {
+  bool isDataTypeWARequired = allDimensions && !elementType.isBF16();
+  TTNNOperandWorkarounds bf16Workaround;
+  if (isDataTypeWARequired) {
+    bf16Workaround.tensorDataTypeWorkaround = DataType::BFloat16;
+  }
+
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(bf16Workaround)
+      .addOutputOperandWorkaround(bf16Workaround);
 }
 } // namespace mlir::tt::ttnn::wa

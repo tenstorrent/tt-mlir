@@ -6,8 +6,8 @@ module {
   // CHECK: "ttir.subtract"(%{{.*}}, %{{.*}}, %{{.*}})
 
   // CHECK: func.func @forward(
-  func.func @forward(%arg0: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<input>}, %arg1: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<parameter>}, %arg3: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<constant>}) -> tensor<32x32xbf16> {
-    // CHECK: tt.load_cached(@forward_const_eval_0, [%arg2, %arg3])
+  func.func @forward(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}, %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg3: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<32x32xbf16> {
+    // CHECK: ttcore.load_cached(@forward_const_eval_0, [%arg2, %arg3])
     // CHECK: ttir.empty()
     %0 = ttir.empty() : tensor<32x32xbf16>
     // CHECK: "ttir.add"(%arg0, %arg1, %{{.*}})
@@ -28,9 +28,9 @@ module {
   // CHECK: "ttir.add"(%{{.*}}, %{{.*}}, %{{.*}})
 
   // CHECK: func.func @forward_split(
-  func.func @forward_split(%arg0: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<input>}, %arg1: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<parameter>}, %arg3: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<constant>}) -> tensor<32x32xbf16> {
-    // CHECK: tt.load_cached(@forward_split_const_eval_0, [%arg1, %arg2])
-    // CHECK: tt.load_cached(@forward_split_const_eval_1, [%arg2, %arg3])
+  func.func @forward_split(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}, %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg3: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<32x32xbf16> {
+    // CHECK: ttcore.load_cached(@forward_split_const_eval_0, [%arg1, %arg2])
+    // CHECK: ttcore.load_cached(@forward_split_const_eval_1, [%arg2, %arg3])
     // CHECK: ttir.empty()
     %0 = ttir.empty() : tensor<32x32xbf16>
     // CHECK: "ttir.add"(%arg0, %arg1, %{{.*}})
@@ -57,8 +57,8 @@ module {
   // CHECK: "ttir.subtract"(%{{.*}}, %{{.*}}, %{{.*}})
 
   // CHECK: func.func @forward_merge(
-  func.func @forward_merge(%arg0: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<input>}, %arg1: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<parameter>}, %arg3: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<constant>}) -> tensor<32x32xbf16> {
-    // CHECK: = tt.load_cached(@forward_merge_const_eval_0, [%arg1, %arg2, %arg3])
+  func.func @forward_merge(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}, %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg3: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<32x32xbf16> {
+    // CHECK: = ttcore.load_cached(@forward_merge_const_eval_0, [%arg1, %arg2, %arg3])
     // CHECK: = ttir.empty()
     %0 = ttir.empty() : tensor<32x32xbf16>
     // CHECK: = "ttir.add"(%arg0, %arg1, %{{.*}})
@@ -83,8 +83,8 @@ module {
   // CHECK: "ttir.subtract"(%{{.*}}, %{{.*}}, %{{.*}})
 
   // CHECK: func.func @forward_merge_return_multiple_values(
-  func.func @forward_merge_return_multiple_values(%arg0: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<input>}, %arg1: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<parameter>}, %arg3: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<constant>}) -> tensor<32x32xbf16> {
-    // CHECK: = tt.load_cached(@forward_merge_return_multiple_values_const_eval_0, [%arg1, %arg2, %arg3])
+  func.func @forward_merge_return_multiple_values(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}, %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg3: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<32x32xbf16> {
+    // CHECK: = ttcore.load_cached(@forward_merge_return_multiple_values_const_eval_0, [%arg1, %arg2, %arg3])
     // CHECK: = ttir.empty()
     %0 = ttir.empty() : tensor<32x32xbf16>
     // CHECK: = "ttir.add"(%arg0, %arg1, %{{.*}})
@@ -113,8 +113,8 @@ module {
   // CHECK: "ttir.multiply"(%{{.*}}, %{{.*}}, %{{.*}})
 
   // CHECK: func.func @forward_reuse_zeros(
-  func.func @forward_reuse_zeros(%arg0: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<input>}, %arg1: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<parameter>}, %arg3: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<constant>}) -> tensor<32x32xbf16> {
-      // CHECK: = tt.load_cached(@forward_reuse_zeros_const_eval_0, [%arg1, %arg2])
+  func.func @forward_reuse_zeros(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}, %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg3: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<32x32xbf16> {
+      // CHECK: = ttcore.load_cached(@forward_reuse_zeros_const_eval_0, [%arg1, %arg2])
       %0 = "ttir.zeros"() <{shape = array<i32:32, 32>}> : () -> tensor<32x32xbf16>
       // CHECK: = ttir.empty()
       %1 = ttir.empty() : tensor<32x32xbf16>

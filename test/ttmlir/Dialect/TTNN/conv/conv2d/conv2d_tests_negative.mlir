@@ -136,28 +136,6 @@ module {
 
 // -----
 module {
-  func.func @conv2d_invalid_padding_shape(%arg0: tensor<1x1x1024x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x1x900x64xbf16> {
-    %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    // CHECK: error: 'ttnn.conv2d' op Padding attribute must have two values, got: 4
-    %1 = "ttnn.conv2d"(%arg0, %arg1, %arg2, %0)
-            <{
-              in_channels = 64: i32,
-              out_channels = 64: i32,
-              batch_size = 1: i32,
-              input_height = 32: i32,
-              input_width = 32: i32,
-              kernel_size = array<i32: 3, 3>,
-              stride = array<i32: 1, 1>,
-              padding = array<i32: 0, 0, 0, 0>,
-              dilation = array<i32: 1, 1>,
-              groups = 1: i32
-            }> : (tensor<1x1x1024x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, !ttnn.device) -> tensor<1x1x900x64xbf16>
-    return %1 : tensor<1x1x900x64xbf16>
-  }
-}
-
-// -----
-module {
   func.func @conv2d_invalid_dilation_shape(%arg0: tensor<1x1x1024x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x1x900x64xbf16> {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     // CHECK: error: 'ttnn.conv2d' op Dilation attribute must have two values, got: 3
@@ -183,7 +161,7 @@ module {
 module {
   func.func @conv2d_invalid_stride_values(%arg0: tensor<1x1x1024x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x1x900x64xbf16> {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    // CHECK: error: 'ttnn.conv2d' op Stride attribute (2, -2) must be greater than 0
+    // CHECK: error: 'ttnn.conv2d' op Stride attribute values must be greater than 0, got: (2, -2)
     %1 = "ttnn.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               in_channels = 64: i32,
@@ -205,7 +183,7 @@ module {
 module {
   func.func @conv2d_invalid_padding_values(%arg0: tensor<1x1x1024x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x1x900x64xbf16> {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    // CHECK: error: 'ttnn.conv2d' op Padding attribute (-1, 0) must be greater than or equal to 0
+    // CHECK: error: 'ttnn.conv2d' op Padding attribute values must be greater than or equal to 0, got: (-1, 0)
     %1 = "ttnn.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               in_channels = 64: i32,
@@ -227,7 +205,7 @@ module {
 module {
   func.func @conv2d_invalid_dilation_values(%arg0: tensor<1x1x1024x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x1x900x64xbf16> {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    // CHECK: error: 'ttnn.conv2d' op Dilation attribute (-2, -2) must be greater than 0
+    // CHECK: error: 'ttnn.conv2d' op Dilation attribute values must be greater than 0, got: (-2, -2)
     %1 = "ttnn.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               in_channels = 64: i32,
@@ -247,13 +225,13 @@ module {
 
 // -----
 module {
-  func.func @conv2d_input_channels_missmatch_with_input_tensor(%arg0: tensor<1x1x1024x64xbf16>, %arg1: tensor<64x32x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x1x900x64xbf16> {
+  func.func @conv2d_output_channels_missmatch_with_weight_tensor(%arg0: tensor<1x1x1024x64xbf16>, %arg1: tensor<64x32x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x1x900x64xbf16> {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    // CHECK: error: 'ttnn.conv2d' op Expected input channels attribute (32) to match the last dimension of the input tensor (64)
+    // CHECK: error: 'ttnn.conv2d' op Expected output channels attribute (32) to match the output channels in the weight tensor (64).
     %1 = "ttnn.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
-              in_channels = 32: i32,
-              out_channels = 64: i32,
+              in_channels = 64: i32,
+              out_channels = 32: i32,
               batch_size = 1: i32,
               input_height = 32: i32,
               input_width = 32: i32,
@@ -269,13 +247,13 @@ module {
 
 // -----
 module {
-  func.func @conv2d_input_channels_missmatch_with_bias_tensor(%arg0: tensor<1x1x1024x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x1x900x32xbf16> {
+  func.func @conv2d_input_channels_missmatch_with_weight_tensor(%arg0: tensor<1x1x1024x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x1x900x32xbf16> {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    // CHECK: error: 'ttnn.conv2d' op Expected output channels attribute (32) to match the last dimension of the bias tensor (64)
+    // CHECK: error: 'ttnn.conv2d' op  Expected input channels / groups attribute (32/1) = 32 to match the number of input channels per group in the weight tensor (64).
     %1 = "ttnn.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
-              in_channels = 64: i32,
-              out_channels = 32: i32,
+              in_channels = 32: i32,
+              out_channels = 64: i32,
               batch_size = 1: i32,
               input_height = 32: i32,
               input_width = 32: i32,
@@ -291,31 +269,54 @@ module {
 
 // -----
 module {
-  func.func @conv2d_input_channels_missmatch_with_output_tensor(%arg0: tensor<1x1x1024x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x1x900x64xbf16> {
+  func.func @conv2d_kernel_height_missmatch_with_weight_tensor(%arg0: tensor<1x1x1024x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x1x900x32xbf16> {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    // CHECK: error: 'ttnn.conv2d' op Expected output channels attribute (32) to match the last dimension of the bias tensor (64)
+    // CHECK: error: 'ttnn.conv2d' op Expected kernel height attribute (6) to match the kernel height in the weight tensor (3).
     %1 = "ttnn.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               in_channels = 64: i32,
-              out_channels = 32: i32,
+              out_channels = 64: i32,
               batch_size = 1: i32,
               input_height = 32: i32,
               input_width = 32: i32,
-              kernel_size = array<i32: 3, 3>,
+              kernel_size = array<i32: 6, 3>,
               stride = array<i32: 1, 1>,
               padding = array<i32: 0, 0>,
               dilation = array<i32: 1, 1>,
               groups = 1: i32
-            }> : (tensor<1x1x1024x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, !ttnn.device) -> tensor<1x1x900x64xbf16>
-    return %1 : tensor<1x1x900x64xbf16>
+            }> : (tensor<1x1x1024x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, !ttnn.device) -> tensor<1x1x900x32xbf16>
+    return %1 : tensor<1x1x900x32xbf16>
   }
 }
 
 // -----
 module {
+  func.func @conv2d_kernel_width_missmatch_with_weight_tensor(%arg0: tensor<1x1x1024x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x1x900x32xbf16> {
+    %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
+    // CHECK: error: 'ttnn.conv2d' op Expected kernel width attribute (6) to match the kernel width in the weight tensor (3).
+    %1 = "ttnn.conv2d"(%arg0, %arg1, %arg2, %0)
+            <{
+              in_channels = 64: i32,
+              out_channels = 64: i32,
+              batch_size = 1: i32,
+              input_height = 32: i32,
+              input_width = 32: i32,
+              kernel_size = array<i32: 3, 6>,
+              stride = array<i32: 1, 1>,
+              padding = array<i32: 0, 0>,
+              dilation = array<i32: 1, 1>,
+              groups = 1: i32
+            }> : (tensor<1x1x1024x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, !ttnn.device) -> tensor<1x1x900x32xbf16>
+    return %1 : tensor<1x1x900x32xbf16>
+  }
+}
+
+
+// -----
+module {
   func.func @conv2d_flattened_input_missmatch(%arg0: tensor<1x1x1024x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x1x900x64xbf16> {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    // CHECK: error: 'ttnn.conv2d' op Input is flattened, so batch_size * input_height * input_width (2048) must match the third dimension of the input tensor (1024). Got batch_size = 2, input_height = 32, input_width = 32
+    // CHECK: error: 'ttnn.conv2d' op The input tensor's flattened dimension (1024) does not match the product of batch_size_attr * input_height_attr * input_width_attr (2 * 32 * 32 = 2048).
     %1 = "ttnn.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               in_channels = 64: i32,
@@ -337,7 +338,7 @@ module {
 module {
   func.func @conv2d_flattened_output_missmatch(%arg0: tensor<1x1x1024x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x1x900x64xbf16> {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    // CHECK: error: 'ttnn.conv2d' op Output is flattened, so batch_size * output_height * output_width (840) must match the third dimension of the output tensor (900). Got batch_size = 2, output_height = 14, output_width = 30
+    // CHECK: error: 'ttnn.conv2d' op The output tensor's flattened dimension (900) does not match the product of batch_size * output_height * output_width (2 * 14 * 30 = 840)
     %1 = "ttnn.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               in_channels = 64: i32,
@@ -359,7 +360,7 @@ module {
 module {
   func.func @conv2d_input_channels_not_divisible_by_group(%arg0: tensor<1x1x1024x64xbf16>, %arg1: tensor<96x64x3x3xbf16>, %arg2: tensor<1x1x1x96xbf16>) -> tensor<1x1x900x96xbf16> {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    // CHECK: error: 'ttnn.conv2d' op Number of input channels (64) must be divisible by the number of groups (3)
+    // CHECK: error: 'ttnn.conv2d' op Expected input channels / groups attribute (64/3) = 21 to match the number of input channels per group in the weight tensor (64).
     %1 = "ttnn.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               in_channels = 64: i32,
@@ -381,7 +382,7 @@ module {
 module {
   func.func @conv2d_kernel_size_bigger_than_input_size(%arg0: tensor<4x1x1024x64xbf16>, %arg1: tensor<64x32x12x12xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<4x1x900x64xbf16> {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    // CHECK: error: 'ttnn.conv2d' op Calculated padded input size per channel: (36, 40). Kernel size: (67, 133). Kernel size can't be greater than actual input size
+    // CHECK: error: 'ttnn.conv2d' op The effective kernel size (67, 133) cannot be greater than the padded input size per channel (36, 40).
     %1 = "ttnn.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               in_channels = 64: i32,

@@ -8,6 +8,7 @@
 #include "tt/runtime/types.h"
 
 #include "tt/runtime/detail/python/nanobind_headers.h"
+#include <nanobind/stl/pair.h>
 
 namespace nb = nanobind;
 
@@ -16,6 +17,8 @@ namespace tt::runtime::python {
 void registerBinaryBindings(nb::module_ &m) {
   nb::class_<tt::runtime::Flatbuffer>(m, "Flatbuffer")
       .def_prop_ro("version", &tt::runtime::Flatbuffer::getVersion)
+      .def_prop_ro("schema_hash", &tt::runtime::Flatbuffer::getSchemaHash)
+      .def("check_schema_hash", &tt::runtime::Flatbuffer::checkSchemaHash)
       .def_prop_ro("ttmlir_git_hash",
                    &tt::runtime::Flatbuffer::getTTMLIRGitHash)
       .def_prop_ro("file_identifier",
@@ -25,19 +28,36 @@ void registerBinaryBindings(nb::module_ &m) {
 
   nb::class_<tt::runtime::Binary>(m, "Binary")
       .def_prop_ro("version", &tt::runtime::Binary::getVersion)
+      .def_prop_ro("schema_hash", &tt::runtime::Flatbuffer::getSchemaHash)
+      .def("check_schema_hash", &tt::runtime::Flatbuffer::checkSchemaHash)
       .def_prop_ro("ttmlir_git_hash", &tt::runtime::Binary::getTTMLIRGitHash)
       .def_prop_ro("file_identifier", &tt::runtime::Binary::getFileIdentifier)
       .def("as_json", &tt::runtime::Binary::asJson)
       .def("store", &tt::runtime::Binary::store)
       .def("get_debug_info_golden", &::tt::runtime::Binary::getDebugInfoGolden,
            nb::rv_policy::reference)
-      .def(
-          "get_tensor_cache",
-          [](tt::runtime::Binary &bin) { return bin.getCache(); },
-          nb::rv_policy::reference);
+      .def("get_system_desc_as_json", &tt::runtime::Binary::getSystemDescAsJson)
+      .def("get_num_programs", &tt::runtime::Binary::getNumPrograms)
+      .def("get_program_name", &tt::runtime::Binary::getProgramName)
+      .def("is_program_private", &tt::runtime::Binary::isProgramPrivate)
+      .def("get_program_ops_as_json", &tt::runtime::Binary::getProgramOpsAsJson)
+      .def("get_program_inputs_as_json",
+           &tt::runtime::Binary::getProgramInputsAsJson)
+      .def("get_program_outputs_as_json",
+           &tt::runtime::Binary::getProgramOutputsAsJson)
+      .def("get_program_mlir_as_json",
+           &tt::runtime::Binary::getProgramMlirAsJson)
+      .def("get_program_cpp", &tt::runtime::Binary::getProgramCpp)
+      .def("get_tensor_cache",
+           [](tt::runtime::Binary &bin) {
+             return bin.getConstEvalTensorCache();
+           })
+      .def("get_program_mesh_shape", &tt::runtime::Binary::getProgramMeshShape);
 
   nb::class_<tt::runtime::SystemDesc>(m, "SystemDesc")
       .def_prop_ro("version", &tt::runtime::SystemDesc::getVersion)
+      .def_prop_ro("schema_hash", &tt::runtime::Flatbuffer::getSchemaHash)
+      .def("check_schema_hash", &tt::runtime::Flatbuffer::checkSchemaHash)
       .def_prop_ro("ttmlir_git_hash",
                    &tt::runtime::SystemDesc::getTTMLIRGitHash)
       .def_prop_ro("file_identifier",
@@ -122,7 +142,6 @@ void registerBinaryBindings(nb::module_ &m) {
       .def(nb::init<>())
       .def("clear", &tt::runtime::TensorCache::clear)
       .def("size", &tt::runtime::TensorCache::size)
-      .def("get_stats", &tt::runtime::TensorCache::getStats)
       .def(
           "remove_program",
           [](tt::runtime::TensorCache &cache, const int meshId,

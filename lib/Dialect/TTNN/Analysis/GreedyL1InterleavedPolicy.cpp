@@ -147,7 +147,7 @@ void GreedyL1InterleavedPolicy::run() {
     llvm::SmallVector<Operation *> scheduleableOps;
 
     while (scheduler.hasUnscheduledOps()) {
-      scheduleableOps = scheduler.getScheduleableOps();
+      scheduleableOps = scheduler.getSchedulableOps();
 
       for (Operation *op : scheduleableOps) {
         // Schedule the op.

@@ -3,7 +3,7 @@
 // Commute multiply before conv2d.
 module {
   // CHECK-LABEL: func.func @commute_multiply
-  func.func @commute_multiply(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16> {tt.argument_type = #tt.argument_type<constant>}, %arg2: tensor<1x1x1x64xbf16> {tt.argument_type = #tt.argument_type<constant>}) -> tensor<1x30x30x64xbf16> {
+  func.func @commute_multiply(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg2: tensor<1x1x1x64xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<1x30x30x64xbf16> {
     // CHECK: %[[SCALE:.*]] = "ttir.reshape"
     // CHECK-SAME: (%arg2
     // CHECK: %[[WEIGHT_SCALED:.*]] = "ttir.multiply"
@@ -27,7 +27,7 @@ module {
 
   // Check that we can't commute because conv has more than one use.
   // CHECK-LABEL: func.func @conv2d_with_multiple_uses
-  func.func @conv2d_with_multiple_uses(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16> {tt.argument_type = #tt.argument_type<constant>}, %arg2: tensor<1x1x1x64xbf16> {tt.argument_type = #tt.argument_type<constant>}) -> tensor<1x30x30x64xbf16> {
+  func.func @conv2d_with_multiple_uses(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg2: tensor<1x1x1x64xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<1x30x30x64xbf16> {
     // CHECK: "ttir.conv2d"
     // CHECK: "ttir.multiply"
     // CHECK: "ttir.multiply"
@@ -51,7 +51,7 @@ module {
 
   // Check that we can't commute because scale operand is not in format (1, 1, 1, out_channels).
   // CHECK-LABEL: func.func @conv2d_with_invalid_scale
-  func.func @conv2d_with_invalid_scale(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16> {tt.argument_type = #tt.argument_type<constant>}, %arg2: tensor<1x1x30x64xbf16> {tt.argument_type = #tt.argument_type<constant>}) -> tensor<1x30x30x64xbf16> {
+  func.func @conv2d_with_invalid_scale(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg2: tensor<1x1x30x64xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<1x30x30x64xbf16> {
     // CHECK: "ttir.conv2d"
     // CHECK: "ttir.multiply"
     %0 = ttir.empty() : tensor<1x30x30x64xbf16>
@@ -69,7 +69,7 @@ module {
 
   // Verify that we can't commute because function arguments are not constants.
   // %arg2 is not constant in this case.
-  func.func @conv2d_with_non_constant_scale(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16> {tt.argument_type = #tt.argument_type<constant>}, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
+  func.func @conv2d_with_non_constant_scale(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
     // CHECK: "ttir.conv2d"
     // CHECK: "ttir.multiply"
     %0 = ttir.empty() : tensor<1x30x30x64xbf16>
@@ -89,7 +89,7 @@ module {
   // This is because when rewriting we check if weight argument to conv is constant block argument, which is not the case after we commute first multiply.
   // Ideally we would commute second one also, but it would require more complex analysis.
   // CHECK-LABEL: func.func @conv2d_with_chain_of_multiply
-  func.func @conv2d_with_chain_of_multiply(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16> {tt.argument_type = #tt.argument_type<constant>}, %arg2: tensor<1x1x1x64xbf16> {tt.argument_type = #tt.argument_type<constant>}) -> tensor<1x30x30x64xbf16> {
+  func.func @conv2d_with_chain_of_multiply(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg2: tensor<1x1x1x64xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<1x30x30x64xbf16> {
     // CHECK: "ttir.reshape"
     // CHECK: "ttir.multiply"
     // CHECK: "ttir.conv2d"

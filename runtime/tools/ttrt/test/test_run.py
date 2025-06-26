@@ -308,3 +308,15 @@ def test_enable_async_ttnn_run():
 def test_enable_async_ttnn_cmd_run():
     command = f"ttrt run {BINARY_FILE_PATH} --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     sub_process_command(command)
+
+
+def test_benchmark_run():
+    API.initialize_apis()
+    custom_args = {}
+    custom_args[
+        "--result-file"
+    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+    custom_args["binary"] = BINARY_FILE_PATH
+    custom_args["--benchmark"] = True
+    run_instance = API.Run(args=custom_args)
+    run_instance()

@@ -8,7 +8,7 @@
 #ifdef TTMLIR_ENABLE_OPMODEL
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 
-#include "ttmlir/Dialect/TT/Utils/CoreRangeSet.h"
+#include "ttmlir/Dialect/TTCore/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 
@@ -65,7 +65,7 @@ tt::DataType getDataType(const ::tt::tt_metal::DataType dataType) {
 }
 
 ::ttnn::Shape getShape(const ::llvm::ArrayRef<int64_t> shape) {
-  ::tt::stl::SmallVector<uint32_t> small_vector_shape;
+  ::ttsl::SmallVector<uint32_t> small_vector_shape;
   for (const auto &dim : shape) {
     small_vector_shape.push_back(static_cast<uint32_t>(dim));
   }
@@ -124,13 +124,19 @@ getCoreRangeSet(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
 
 std::optional<::tt::tt_metal::ShardSpec>
 getShardSpec(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
+  if (layout.getIgnorePhysicalLayout()) {
+    return std::nullopt;
+  }
+
+  if (!isShardedMemoryLayout(layout.getMemLayout().getValue())) {
+    return std::nullopt;
+  }
+
   // tt_ShardOrientation is not part of ttnn::TTNNLayoutAttr;
   // defaulting to ROW_MAJOR. TODO(jserbedzija): with issue #620
-  return isShardedMemoryLayout(layout.getMemLayout().getValue())
-             ? std::make_optional(::tt::tt_metal::ShardSpec(
-                   getCoreRangeSet(layout), getShardShape(layout),
-                   ::tt::tt_metal::ShardOrientation::ROW_MAJOR))
-             : std::nullopt;
+  return ::tt::tt_metal::ShardSpec(getCoreRangeSet(layout),
+                                   getShardShape(layout),
+                                   ::tt::tt_metal::ShardOrientation::ROW_MAJOR);
 }
 
 ::tt::tt_metal::BufferType
@@ -173,7 +179,7 @@ getBufferType(const ::tt::tt_metal::BufferType bufferType) {
   case mlir::tt::ttnn::TensorMemoryLayout::Interleaved:
     return ::tt::tt_metal::TensorMemoryLayout::INTERLEAVED;
   case mlir::tt::ttnn::TensorMemoryLayout::SingleBank:
-    return ::tt::tt_metal::TensorMemoryLayout::SINGLE_BANK;
+    return ::tt::tt_metal::TensorMemoryLayout::INTERLEAVED;
   case mlir::tt::ttnn::TensorMemoryLayout::HeightSharded:
     return ::tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED;
   case mlir::tt::ttnn::TensorMemoryLayout::WidthSharded:
@@ -187,8 +193,6 @@ getTensorMemoryLayout(const ::tt::tt_metal::TensorMemoryLayout memLayout) {
   switch (memLayout) {
   case ::tt::tt_metal::TensorMemoryLayout::INTERLEAVED:
     return mlir::tt::ttnn::TensorMemoryLayout::Interleaved;
-  case ::tt::tt_metal::TensorMemoryLayout::SINGLE_BANK:
-    return mlir::tt::ttnn::TensorMemoryLayout::SingleBank;
   case ::tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED:
     return mlir::tt::ttnn::TensorMemoryLayout::HeightSharded;
   case ::tt::tt_metal::TensorMemoryLayout::WIDTH_SHARDED:
@@ -223,6 +227,8 @@ getTensorLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
 
 ::ttnn::TensorSpec getTensorSpec(const ::llvm::ArrayRef<int64_t> shape,
                                  const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
+  assert(!layout.getIgnorePhysicalLayout() &&
+         "TensorSpecs cannot be created without physical layouts");
   return ::ttnn::TensorSpec(getShape(shape), getTensorLayout(layout));
 }
 
@@ -230,7 +236,7 @@ bool validateTensorSpec(const ::ttnn::TensorSpec &tensorSpec,
                         const ::tt::tt_metal::CoreCoord &computeGridSize) {
   // Check the shard bounding box
   auto memoryConfig = tensorSpec.memory_config();
-  if (memoryConfig.is_sharded()) {
+  if (memoryConfig.is_sharded() && memoryConfig.shard_spec().has_value()) {
     ::tt::tt_metal::CoreRange shardBoundingBox =
         memoryConfig.shard_spec().value().grid.bounding_box();
     ::tt::tt_metal::CoreRangeSet deviceWorkerCores{::tt::tt_metal::CoreRange{
@@ -247,16 +253,16 @@ bool validateTensorSpec(const ::ttnn::TensorSpec &tensorSpec,
   try {
     tensorSpec.compute_packed_buffer_size_bytes();
     tensorSpec.compute_page_size_bytes();
-    tensorSpec.compute_shard_spec_buffer();
+    tensorSpec.compute_buffer_sharding_args();
   } catch (const std::exception &e) {
     return false;
   }
   return true;
 }
 
-::ttnn::SmallVector<int>
+::ttsl::SmallVector<int>
 convertLLVMSmallVecToTTNNSmallVec(const ::llvm::ArrayRef<int64_t> vec) {
-  return ::ttnn::SmallVector<int>(vec.begin(), vec.end());
+  return ::ttsl::SmallVector<int>(vec.begin(), vec.end());
 }
 
 std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> getConv2dConfig(

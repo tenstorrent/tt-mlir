@@ -38,7 +38,7 @@ jobs:
         uses: pypa/cibuildwheel@v2.23.2
         env:
           CIBW_ENVIRONMENT: "IN_CIBW_ENV=ON"
-          CIBW_MANYLINUX_X86_64_IMAGE: ghcr.io/tenstorrent/tt-mlir/tt-mlir-manylinux-2-34
+          CIBW_MANYLINUX_X86_64_IMAGE: ghcr.io/tenstorrent/tt-mlir/tt-mlir-manylinux-2-34:latest
         with:
           output-dir: ${{ steps.strings.outputs.wheel-output-dir }}
           package-dir: ${{ steps.strings.outputs.work-dir }}/python
@@ -54,12 +54,9 @@ jobs:
   build-pykernel-wheel:
     timeout-minutes: 60
     name: Build pykernel Python Wheel
-    runs-on: ubuntu-latest
+    runs-on: builder
 
     steps:
-      - name: Maximize space
-        uses: tenstorrent/tt-github-actions/.github/actions/maximize_space@main
-
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -75,37 +72,17 @@ jobs:
       - name: Git safe dir
         run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
 
-      - name: Install jq and curl
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq curl
-
-      - name: Set up Python 3.10
+      - name: Set up Python 3.12
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.12'
 
-      - name: Install Required Packages to Build
-        shell: bash
-        run: |
-          python3.10 -m pip install wheel setuptools
-
-      # Add some of John's Bash Dark Magic to Update requirements.txt if possible.
-      - name: Update ttmlir Requirement
-        shell: bash
-        run: |
-          URL=$(curl -s https://api.github.com/repos/tenstorrent/tt-forge/releases | jq -r 'map(select(.prerelease)) | first | .assets | map(select(.browser_download_url | contains("mlir"))) | .[].browser_download_url')
-          echo "ttmlir @ $URL" > tools/pykernel/requirements.txt
-          echo "Updated requirements.txt with: $URL"
-
-      - name: Build pykernel wheel
-        shell: bash
-        run: |
-          source env/activate
-          mkdir -p ${{ steps.strings.outputs.wheel-output-dir }}
-          cd tools
-          python3.10 -m pip wheel ./pykernel --wheel-dir ${{ steps.strings.outputs.wheel-output-dir }} --verbose
+      - name: Build pykernel Wheel (manylinux)
+        uses: pypa/cibuildwheel@v2.23.2
+        with:
+          output-dir: ${{ steps.strings.outputs.wheel-output-dir }}
+          package-dir: ${{ steps.strings.outputs.work-dir }}/tools/pykernel
+          config-file: "${{ steps.strings.outputs.work-dir }}/tools/pykernel/pyproject.toml"
 
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v4

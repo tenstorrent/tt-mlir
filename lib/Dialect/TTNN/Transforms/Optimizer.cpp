@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TT/IR/Utils.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/AllPossibleLayoutsAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalLayoutAnalysis.h"
@@ -30,6 +30,7 @@
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/Visitors.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -94,7 +95,7 @@ public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TTNNOptimizerBase<DerivedT>)
 
   TTNNOptimizerBase(TTNNOptimizerOptions options) : TTNNOptimizerBase() {
-    overrideInputLayout = std::move(options.overrideInputLayout);
+    insertMemReconfig = std::move(options.insertMemReconfig);
     overrideOutputLayout = std::move(options.overrideOutputLayout);
     overrideConv2dConfig = std::move(options.overrideConv2dConfig);
     memoryLayoutAnalysisEnabled =
@@ -106,13 +107,13 @@ public:
   }
 
 protected:
-  ::mlir::Pass::Option<llvm::StringMap<InputLayoutOverrideParams>,
-                       mlir::tt::ttnn::InputLayoutOverrideParser>
-      overrideInputLayout{
-          *this, OptionNames::overrideInputLayout,
+  ::mlir::Pass::Option<llvm::StringMap<InsertMemReconfigParams>,
+                       mlir::tt::ttnn::InsertMemReconfigParser>
+      insertMemReconfig{
+          *this, OptionNames::insertMemReconfig,
           ::llvm::cl::desc(
               "Manually insert memory reconfig op for specific op's operand."),
-          ::llvm::cl::init(llvm::StringMap<InputLayoutOverrideParams>())};
+          ::llvm::cl::init(llvm::StringMap<InsertMemReconfigParams>())};
   ::mlir::Pass::Option<llvm::StringMap<OutputLayoutOverrideParams>,
                        mlir::tt::ttnn::OutputLayoutOverrideParser>
       overrideOutputLayout{
@@ -305,8 +306,6 @@ public:
         return;
       }
 
-      SmallVector<Type> funcResultTypes;
-
       // If schedule is set, apply order of operations to func.
       //
       if (opSchedule[func].size() > 1) {
@@ -327,11 +326,7 @@ public:
 
       func->walk([&](Operation *op) {
         if (op->getNumResults() == 0) {
-          func::ReturnOp funcReturn = dyn_cast<func::ReturnOp>(op);
-          if (funcReturn) {
-            funcResultTypes.append(funcReturn.getOperandTypes().begin(),
-                                   funcReturn.getOperandTypes().end());
-          }
+          // Skip ops with no results.
           return;
         }
 
@@ -420,11 +415,27 @@ public:
         }
       });
 
+      llvm::DenseMap<Operation *, Operation *> insertedMemoryReconfigOps;
       if (memReconfigEnabled) {
-        processMemReconfigEdges(memReconfigEntryMap, deviceGrid);
+        insertedMemoryReconfigOps =
+            processMemReconfigEdges(memReconfigEntryMap, deviceGrid);
       }
 
-      processSpillOps(spillToDramOps, deviceGrid);
+      processSpillOps(spillToDramOps, deviceGrid, insertedMemoryReconfigOps);
+
+      SmallVector<Type> funcResultTypes;
+
+      // Pick up return op result types and update func type.
+      func->walk([&](Operation *op) {
+        if (op->getNumResults() == 0) {
+          func::ReturnOp funcReturn = dyn_cast<func::ReturnOp>(op);
+          if (funcReturn) {
+            funcResultTypes.append(funcReturn.getOperandTypes().begin(),
+                                   funcReturn.getOperandTypes().end());
+          }
+          return;
+        }
+      });
 
       // Update the function type to reflect the updated return operation's
       // result types.
@@ -446,7 +457,7 @@ private:
     for (const auto &[opLoc, _] : overrideOutputLayout) {
       overridenOpExists[opLoc] = false;
     }
-    for (const auto &[opLoc, _] : overrideInputLayout) {
+    for (const auto &[opLoc, _] : insertMemReconfig) {
       overridenOpExists[opLoc] = false;
     }
     for (const auto &[opLoc, _] : overrideConv2dConfig) {
@@ -494,9 +505,9 @@ private:
       }
 
       StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
-      auto opInputOverride = overrideInputLayout.find(opLocName);
+      auto opInputOverride = insertMemReconfig.find(opLocName);
 
-      if (opInputOverride == overrideInputLayout.end()) {
+      if (opInputOverride == insertMemReconfig.end()) {
         return;
       }
 
@@ -511,11 +522,11 @@ private:
 
     // Check for non-existing ops in override
     //
-    assert(overrideInputLayout.size() == overrideReshardEdges.size());
+    assert(insertMemReconfig.size() == overrideReshardEdges.size());
   }
 
-  mlir::TypedValue<DeviceType> getOrCreateDeviceOpValue(Operation *contextOp,
-                                                        OpBuilder &builder) {
+  static mlir::TypedValue<DeviceType>
+  getOrCreateDeviceOpValue(Operation *contextOp, OpBuilder &builder) {
     Block *block = contextOp->getBlock();
     for (auto &op : block->getOperations()) {
       if (GetDeviceOp deviceOp = dyn_cast<GetDeviceOp>(op)) {
@@ -545,9 +556,12 @@ private:
     return deviceOp;
   }
 
-  void processMemReconfigEdges(
+  static llvm::DenseMap<Operation *, Operation *> processMemReconfigEdges(
       const llvm::DenseMap<Edge, MemReconfigEntry> &memReconfigEntryMap,
       GridAttr deviceGrid) {
+
+    // Mapping from producer op to inserted memory reconfig op.
+    llvm::DenseMap<Operation *, Operation *> insertedMemoryReconfigOps;
 
     // Insert memory reconfig ops here based on results of memory layout
     // analysis.
@@ -630,17 +644,26 @@ private:
         TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                      "Inserted memory reconfig op: {}",
                      mlir::cast<ToLayoutOp>(memoryReconfigOp));
+        if (producerOp) {
+          insertedMemoryReconfigOps[producerOp] = memoryReconfigOp;
+        }
       }
     }
+    return insertedMemoryReconfigOps;
   }
 
   void processSpillOps(const std::vector<Operation *> &spillToDramOps,
-                       GridAttr deviceGrid) {
-    for (Operation *op : spillToDramOps) {
-      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "Processing spill op: {}",
-                   op->getName());
+                       GridAttr deviceGrid,
+                       const llvm::DenseMap<Operation *, Operation *>
+                           &insertedMemoryReconfigOps) {
+
+    for (Operation *spilledOp : spillToDramOps) {
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "Processing spilled op: {} {} @{}", spilledOp,
+                   spilledOp->getName(), spilledOp->getLoc());
+
       RankedTensorType tensorType =
-          mlir::cast<RankedTensorType>(op->getResult(0).getType());
+          mlir::cast<RankedTensorType>(spilledOp->getResult(0).getType());
       llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
       TTNNLayoutAttr layoutAttr =
           mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
@@ -653,31 +676,93 @@ private:
           tensorShape, tensorType.getElementType(), dramLayout);
 
       // Create a ToLayoutOp with the new DRAM layout.
-      OpBuilder builder(op->getContext());
+      OpBuilder builder(spilledOp->getContext());
       DataTypeAttr dataType =
-          DataTypeAttr::get(op->getContext(), dramLayout.getDataType());
+          DataTypeAttr::get(spilledOp->getContext(), dramLayout.getDataType());
       LayoutAttr newLayout =
-          LayoutAttr::get(op->getContext(), dramLayout.getLayout());
+          LayoutAttr::get(spilledOp->getContext(), dramLayout.getLayout());
 
       MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(
-          op->getContext(), dramLayout.getMemLayout(),
-          BufferTypeAttr::get(op->getContext(), BufferType::DRAM),
+          spilledOp->getContext(), dramLayout.getMemLayout(),
+          BufferTypeAttr::get(spilledOp->getContext(), BufferType::DRAM),
           utils::createShardSpecIfNeeded(dramLayout, deviceGrid));
 
-      builder.setInsertionPointAfter(op);
+      builder.setInsertionPointAfter(spilledOp);
       Location loc =
-          ttmlir::utils::appendLocationSuffix(op->getLoc(), "_spill");
-      Operation *toLayoutOp = builder.create<ToLayoutOp>(
-          loc, newTensorType, op->getResult(0), newLayout, dataType,
-          memConfigAttr, getOrCreateDeviceOpValue(op, builder));
-      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                   "Inserted spill to DRAM prevLayout: {}\nnewLayout: {}",
-                   layoutAttr, newLayout);
+          ttmlir::utils::appendLocationSuffix(spilledOp->getLoc(), "_spill");
 
-      for (auto &use : op->getResult(0).getUses()) {
-        if (use.getOwner() != toLayoutOp) {
-          use.getOwner()->setOperand(use.getOperandNumber(),
-                                     toLayoutOp->getResult(0));
+      // Step 1: Save all uses as (Operation*, operand index).
+      llvm::SmallVector<std::pair<Operation *, unsigned>> uses;
+      for (auto &use : spilledOp->getResult(0).getUses()) {
+        uses.emplace_back(use.getOwner(), use.getOperandNumber());
+      }
+
+      // Step 2: Insert spilling to DRAM.
+      Operation *spillToDRAMOp = builder.create<ToLayoutOp>(
+          loc, newTensorType, spilledOp->getResult(0), newLayout, dataType,
+          memConfigAttr, getOrCreateDeviceOpValue(spilledOp, builder));
+
+      // Step 3: Reconnect uses.
+      for (auto &use : uses) {
+        Operation *useOp = use.first;
+        useOp->setOperand(use.second, spillToDRAMOp->getResult(0));
+      }
+
+      // TODO(rpavlovicTT): It's possible that spilled op was followed by
+      // memory reconfig ops. It's also possible that spilled op is a fork and
+      // has memory reconfig ops on more than one branch. In that case we should
+      // wire through each memory reconfig op and choose one which can inherit
+      // L1 tensor. Rest of the users must read from tensor spilled to DRAM.
+      // Right now we save only last memory reconfig op and try to skip spill
+      // to DRAM on that branch.
+      if (insertedMemoryReconfigOps.count(spilledOp)) {
+        // There is a memory reconfig op inserted on a branch outgoing from
+        // spilled op. We will avoid spill to DRAM on that branch.
+        Operation *memoryReconfigOp = insertedMemoryReconfigOps.at(spilledOp);
+        auto spilledOpResultLayout = mlir::cast<TTNNLayoutAttr>(
+            mlir::cast<RankedTensorType>(spilledOp->getResult(0).getType())
+                .getEncoding());
+        assert(spilledOpResultLayout &&
+               "Expected spilled op result to have layout");
+        auto memoryReconfigOpLayout = mlir::cast<TTNNLayoutAttr>(
+            mlir::cast<RankedTensorType>(
+                memoryReconfigOp->getResult(0).getType())
+                .getEncoding());
+        assert(memoryReconfigOpLayout &&
+               "Expected memory reconfig op result to have layout");
+
+        if (memoryReconfigOpLayout == spilledOpResultLayout) {
+          // Memory reconfig op has same layout as spilled op. We will avoid
+          // memory reconfig op on that branch. Data will flow directly from
+          // spilled op to consumer of memory reconfig op and will not leave L1.
+          assert(memoryReconfigOp->hasOneUse() &&
+                 "Expected memory reconfig op to have one use");
+          auto memoryReconfigOpConsumerOperand =
+              memoryReconfigOp->getResult(0).getUses().begin();
+
+          Operation *memoryReconfigOpConsumerOp =
+              memoryReconfigOpConsumerOperand->getOwner();
+          memoryReconfigOpConsumerOp->setOperand(
+              memoryReconfigOpConsumerOperand->getOperandNumber(),
+              spilledOp->getResult(0));
+
+          // Ensure memory reconfig op consumer is after spilling to DRAM to
+          // avoid losing data. This is a sanity check. Schedule should
+          // guarantee valid order.
+          assert(
+              spillToDRAMOp->isBeforeInBlock(memoryReconfigOpConsumerOp) &&
+              "Memory reconfig op consumer should be after spilling to DRAM");
+
+          memoryReconfigOp->erase();
+          TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                       "Erased memory reconfig op: {}@{}",
+                       memoryReconfigOp->getName(), memoryReconfigOp->getLoc());
+        } else {
+          // Memory reconfig op does not have the same layout as spilled op.
+          // We can't get rid of memory reconfig op but we can avoid reading
+          // from DRAM on that branch. MemoryReconfigOp has only one operand and
+          // we will wire it to spilled op's result.
+          memoryReconfigOp->setOperand(0, spilledOp->getResult(0));
         }
       }
     }

@@ -34,9 +34,9 @@ public:
               newBroadcastDimensions[transposeUser.getDim1()]);
 
     auto newTranspose = ttir::utils::createDPSOp<ttir::TransposeOp>(
-        rewriter, op->getLoc(), newShape, tmResultType.getElementType(),
-        tmResultType.getEncoding(), operand, transposeUser.getDim0(),
-        transposeUser.getDim1());
+        rewriter, transposeUser.getLoc(), newShape,
+        tmResultType.getElementType(), tmResultType.getEncoding(), operand,
+        transposeUser.getDim0(), transposeUser.getDim1());
 
     assert(newBroadcastDimensions.size() ==
            static_cast<size_t>(tmResultType.getRank()));
@@ -281,7 +281,7 @@ public:
                               tmResultType.getEncoding());
 
     auto newReshape = ttir::utils::createDPSOp<ttir::ReshapeOp>(
-        rewriter, op->getLoc(), newTMResultType, op.getInput(),
+        rewriter, reshapeUser.getLoc(), newTMResultType, op.getInput(),
         rewriter.getI32ArrayAttr(SmallVector<int32_t>(newReshapeShape.begin(),
                                                       newReshapeShape.end())));
 
@@ -359,8 +359,9 @@ public:
                                         permutation);
 
     auto newPermute = ttir::utils::createDPSOp<ttir::PermuteOp>(
-        rewriter, op->getLoc(), newShape, tmResultType.getElementType(),
-        tmResultType.getEncoding(), operand, permutation);
+        rewriter, permuteUser->getLoc(), newShape,
+        tmResultType.getElementType(), tmResultType.getEncoding(), operand,
+        permutation);
 
     assert(newBroadcastDimensions.size() ==
            static_cast<size_t>(tmResultType.getRank()));

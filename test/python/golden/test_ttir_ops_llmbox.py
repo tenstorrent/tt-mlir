@@ -48,8 +48,8 @@ def test_all_gather(shape: Shape, mesh_shape: Tuple[int, int], request):
 
         sharded = builder.mesh_shard(
             in0,
-            shard_direction="#tt.shard_direction<full_to_shard>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(1, 1, 2, 4),
             shard_dims=(2, 3),
         )
@@ -60,8 +60,8 @@ def test_all_gather(shape: Shape, mesh_shape: Tuple[int, int], request):
         )
         return builder.mesh_shard(
             gathered,
-            shard_direction="#tt.shard_direction<shard_to_full>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(1, 1, 2, 1),
             shard_dims=(2, -1),
         )
@@ -101,20 +101,20 @@ def test_all_reduce(shape: Shape, mesh_shape: Tuple[int, int], request):
 
         sharded = builder.mesh_shard(
             in0,
-            shard_direction="#tt.shard_direction<full_to_shard>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(1, 1, 2, 4),
             shard_dims=(2, 3),
         )
         reduced = builder.all_reduce(
             sharded,
-            reduce_type="#tt.reduce_type<sum>",
+            reduce_type="#ttcore.reduce_type<sum>",
             cluster_axis=1,
         )
         return builder.mesh_shard(
             reduced,
-            shard_direction="#tt.shard_direction<shard_to_full>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(1, 1, 2, 1),
             shard_dims=(2, -1),
         )
@@ -167,21 +167,21 @@ def test_reduce_scatter(shape: Shape, mesh_shape: Tuple[int, int], request):
 
         sharded = builder.mesh_shard(
             in0,
-            shard_direction="#tt.shard_direction<full_to_shard>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(1, 1, 2, 4),
             shard_dims=(2, 3),
         )
         reduced = builder.reduce_scatter(
             sharded,
-            reduce_type="#tt.reduce_type<sum>",
+            reduce_type="#ttcore.reduce_type<sum>",
             scatter_dim=3,
             cluster_axis=1,
         )
         return builder.mesh_shard(
             reduced,
-            shard_direction="#tt.shard_direction<shard_to_full>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(1, 1, 2, 4),
             shard_dims=(2, 3),
         )
@@ -243,8 +243,8 @@ def test_collective_permute(shape: Shape, mesh_shape: Tuple[int, int], request):
 
         sharded = builder.mesh_shard(
             in0,
-            shard_direction="#tt.shard_direction<full_to_shard>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(1, 1, 2, 4),
             shard_dims=(2, 3),
         )
@@ -254,8 +254,8 @@ def test_collective_permute(shape: Shape, mesh_shape: Tuple[int, int], request):
         )
         return builder.mesh_shard(
             reduced,
-            shard_direction="#tt.shard_direction<shard_to_full>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(1, 1, 2, 4),
             shard_dims=(2, 3),
         )
@@ -281,7 +281,9 @@ def test_collective_permute(shape: Shape, mesh_shape: Tuple[int, int], request):
         [(256, 128), (128, 128)],
         [(256, 128), (128, 124)],
         [(256, 128), (128, 120)],
-        [(256, 130), (130, 128)],
+        # TODO (#3662), re-enable once tensor spec check
+        # accounts for non-uniform shapes due to non-divisibility
+        # [(256, 130), (130, 128)],
         [(254, 128), (128, 128)],
         [(252, 128), (128, 128)],
         pytest.param(
@@ -307,28 +309,28 @@ def test_matmul_2x4(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
 
         sharded_in0 = builder.mesh_shard(
             in0,
-            shard_direction="#tt.shard_direction<full_to_shard>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(2, 4),
             shard_dims=(0, 1),
         )
         sharded_in1 = builder.mesh_shard(
             in1,
-            shard_direction="#tt.shard_direction<full_to_shard>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(4, 1),
             shard_dims=(-1, 0),
         )
         partial_matmul = builder.matmul(sharded_in0, sharded_in1)
         reduced = builder.all_reduce(
             partial_matmul,
-            reduce_type="#tt.reduce_type<sum>",
+            reduce_type="#ttcore.reduce_type<sum>",
             cluster_axis=1,
         )
         return builder.mesh_shard(
             reduced,
-            shard_direction="#tt.shard_direction<shard_to_full>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(2, 1),
             shard_dims=(0, -1),
         )
@@ -377,28 +379,28 @@ def test_matmul_1x8(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
 
         sharded_in0 = builder.mesh_shard(
             in0,
-            shard_direction="#tt.shard_direction<full_to_shard>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(1, 8),
             shard_dims=(-1, 1),
         )
         sharded_in1 = builder.mesh_shard(
             in1,
-            shard_direction="#tt.shard_direction<full_to_shard>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(8, 1),
             shard_dims=(-1, 0),
         )
         partial_matmul = builder.matmul(sharded_in0, sharded_in1)
         reduced = builder.all_reduce(
             partial_matmul,
-            reduce_type="#tt.reduce_type<sum>",
+            reduce_type="#ttcore.reduce_type<sum>",
             cluster_axis=1,
         )
         return builder.mesh_shard(
             reduced,
-            shard_direction="#tt.shard_direction<shard_to_full>",
-            shard_type="#tt.shard_type<replicate>",
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type="#ttcore.shard_type<replicate>",
             shard_shape=(1,),
             shard_dims=(-1,),
         )
@@ -437,16 +439,16 @@ def test_neg_2x4(shape: Shape, mesh_shape: Tuple[int, int], request):
 
         sharded_in0 = builder.mesh_shard(
             in0,
-            shard_direction="#tt.shard_direction<full_to_shard>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(1, 2, 1, 4),
             shard_dims=(1, 3),
         )
         neg_output = builder.neg(sharded_in0)
         return builder.mesh_shard(
             neg_output,
-            shard_direction="#tt.shard_direction<shard_to_full>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(1, 2, 1, 4),
             shard_dims=(1, 3),
         )
@@ -485,16 +487,16 @@ def test_neg_2x4_cluster_0(shape: Shape, mesh_shape: Tuple[int, int], request):
 
         sharded_in0 = builder.mesh_shard(
             in0,
-            shard_direction="#tt.shard_direction<full_to_shard>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(1, 2, 1, 1),
             shard_dims=(1, -1),
         )
         neg_output = builder.neg(sharded_in0)
         return builder.mesh_shard(
             neg_output,
-            shard_direction="#tt.shard_direction<shard_to_full>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(1, 2, 1, 1),
             shard_dims=(1, -1),
         )
@@ -533,16 +535,16 @@ def test_neg_2x4_cluster_1(shape: Shape, mesh_shape: Tuple[int, int], request):
 
         sharded_in0 = builder.mesh_shard(
             in0,
-            shard_direction="#tt.shard_direction<full_to_shard>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(1, 1, 1, 4),
             shard_dims=(1, 3),
         )
         neg_output = builder.neg(sharded_in0)
         return builder.mesh_shard(
             neg_output,
-            shard_direction="#tt.shard_direction<shard_to_full>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(1, 1, 1, 4),
             shard_dims=(1, 3),
         )
@@ -581,16 +583,16 @@ def test_neg_2x4_reversed_cluster(shape: Shape, mesh_shape: Tuple[int, int], req
 
         sharded_in0 = builder.mesh_shard(
             in0,
-            shard_direction="#tt.shard_direction<full_to_shard>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(1, 4, 1, 2),
             shard_dims=(3, 1),
         )
         neg_output = builder.neg(sharded_in0)
         return builder.mesh_shard(
             neg_output,
-            shard_direction="#tt.shard_direction<shard_to_full>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(1, 4, 1, 2),
             shard_dims=(3, 1),
         )
@@ -629,16 +631,16 @@ def test_neg_2x4_reversed_cluster_0(shape: Shape, mesh_shape: Tuple[int, int], r
 
         sharded_in0 = builder.mesh_shard(
             in0,
-            shard_direction="#tt.shard_direction<full_to_shard>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(1, 1, 1, 2),
             shard_dims=(3, -1),
         )
         neg_output = builder.neg(sharded_in0)
         return builder.mesh_shard(
             neg_output,
-            shard_direction="#tt.shard_direction<shard_to_full>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(1, 1, 1, 2),
             shard_dims=(3, -1),
         )
@@ -678,16 +680,16 @@ def test_neg_1x8_dim_3(shape: Shape, mesh_shape: Tuple[int, int], request):
 
         sharded_in0 = builder.mesh_shard(
             in0,
-            shard_direction="#tt.shard_direction<full_to_shard>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(1, 1, 1, 8),
             shard_dims=(-1, 3),
         )
         neg_output = builder.neg(sharded_in0)
         return builder.mesh_shard(
             neg_output,
-            shard_direction="#tt.shard_direction<shard_to_full>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(1, 1, 1, 8),
             shard_dims=(-1, 3),
         )
@@ -727,16 +729,16 @@ def test_neg_1x8_dim_1(shape: Shape, mesh_shape: Tuple[int, int], request):
 
         sharded_in0 = builder.mesh_shard(
             in0,
-            shard_direction="#tt.shard_direction<full_to_shard>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(1, 8, 1, 1),
             shard_dims=(-1, 1),
         )
         neg_output = builder.neg(sharded_in0)
         return builder.mesh_shard(
             neg_output,
-            shard_direction="#tt.shard_direction<shard_to_full>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(1, 8, 1, 1),
             shard_dims=(-1, 1),
         )
@@ -777,23 +779,23 @@ def test_eltwise_multidevice(shapes: List[Shape], mesh_shape: Tuple[int, int], r
 
         sharded_in0 = builder.mesh_shard(
             in0,
-            shard_direction="#tt.shard_direction<full_to_shard>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(2, 4),
             shard_dims=(0, 1),
         )
         sharded_in1 = builder.mesh_shard(
             in1,
-            shard_direction="#tt.shard_direction<full_to_shard>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(2, 4),
             shard_dims=(0, 1),
         )
         partial_sum = builder.add(sharded_in0, sharded_in1)
         return builder.mesh_shard(
             partial_sum,
-            shard_direction="#tt.shard_direction<shard_to_full>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(2, 4),
             shard_dims=(0, 1),
         )
@@ -826,28 +828,28 @@ def test_matmul_and_binary_op(
 
         sharded_in0 = builder.mesh_shard(
             in0,
-            shard_direction="#tt.shard_direction<full_to_shard>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(2, 4),
             shard_dims=(0, 1),
         )
         sharded_in1 = builder.mesh_shard(
             in1,
-            shard_direction="#tt.shard_direction<full_to_shard>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(4, 1),
             shard_dims=(-1, 0),
         )
         partial_matmul = builder.matmul(sharded_in0, sharded_in1)
         reduced = builder.all_reduce(
             partial_matmul,
-            reduce_type="#tt.reduce_type<sum>",
+            reduce_type="#ttcore.reduce_type<sum>",
             cluster_axis=1,
         )
         unsharded = builder.mesh_shard(
             reduced,
-            shard_direction="#tt.shard_direction<shard_to_full>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(2, 1),
             shard_dims=(0, -1),
         )
@@ -881,28 +883,28 @@ def test_matmul_and_unary_op(shapes: List[Shape], mesh_shape: Tuple[int, int], r
 
         sharded_in0 = builder.mesh_shard(
             in0,
-            shard_direction="#tt.shard_direction<full_to_shard>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(2, 4),
             shard_dims=(0, 1),
         )
         sharded_in1 = builder.mesh_shard(
             in1,
-            shard_direction="#tt.shard_direction<full_to_shard>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(4, 1),
             shard_dims=(-1, 0),
         )
         partial_matmul = builder.matmul(sharded_in0, sharded_in1)
         reduced = builder.all_reduce(
             partial_matmul,
-            reduce_type="#tt.reduce_type<sum>",
+            reduce_type="#ttcore.reduce_type<sum>",
             cluster_axis=1,
         )
         unsharded = builder.mesh_shard(
             reduced,
-            shard_direction="#tt.shard_direction<shard_to_full>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(2, 1),
             shard_dims=(0, -1),
         )
@@ -946,56 +948,56 @@ def test_matmul_and_binary_op_2(
 
         sharded_in0 = builder.mesh_shard(
             in0,
-            shard_direction="#tt.shard_direction<full_to_shard>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(2, 4),
             shard_dims=(0, 1),
         )
         sharded_in1 = builder.mesh_shard(
             in1,
-            shard_direction="#tt.shard_direction<full_to_shard>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(4, 1),
             shard_dims=(-1, 0),
         )
         partial_matmul_0 = builder.matmul(sharded_in0, sharded_in1)
         reduced_0 = builder.all_reduce(
             partial_matmul_0,
-            reduce_type="#tt.reduce_type<sum>",
+            reduce_type="#ttcore.reduce_type<sum>",
             cluster_axis=1,
         )
         matmul_0 = builder.mesh_shard(
             reduced_0,
-            shard_direction="#tt.shard_direction<shard_to_full>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(2, 1),
             shard_dims=(0, -1),
         )
 
         sharded_in2 = builder.mesh_shard(
             in2,
-            shard_direction="#tt.shard_direction<full_to_shard>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(2, 4),
             shard_dims=(0, 1),
         )
         sharded_in3 = builder.mesh_shard(
             in3,
-            shard_direction="#tt.shard_direction<full_to_shard>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(4, 1),
             shard_dims=(-1, 0),
         )
         partial_matmul_2 = builder.matmul(sharded_in2, sharded_in3)
         reduced_2 = builder.all_reduce(
             partial_matmul_2,
-            reduce_type="#tt.reduce_type<sum>",
+            reduce_type="#ttcore.reduce_type<sum>",
             cluster_axis=1,
         )
         matmul_2 = builder.mesh_shard(
             reduced_2,
-            shard_direction="#tt.shard_direction<shard_to_full>",
-            shard_type="#tt.shard_type<devices>",
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type="#ttcore.shard_type<devices>",
             shard_shape=(2, 1),
             shard_dims=(0, -1),
         )

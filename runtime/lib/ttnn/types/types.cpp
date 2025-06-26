@@ -15,8 +15,7 @@ using tt::runtime::DeviceRuntime;
 //
 LayoutDesc LayoutDesc::fromTensor(const ::tt::runtime::Tensor &tensor) {
   const ::ttnn::Tensor &ttnnTensor =
-      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
-          .getTensor();
+      ::tt::runtime::ttnn::utils::getTTNNTensorFromRuntimeTensor(tensor);
   ::ttnn::StorageType storageType = ttnnTensor.storage_type();
   ::ttnn::Layout layout = ttnnTensor.layout();
   ::ttnn::DataType dtype = ttnnTensor.dtype();
@@ -73,9 +72,7 @@ const ::tt::runtime::Tensor &ProgramTensorPool::getRuntimeTensorAndValidate(
   const ::tt::runtime::Tensor &runtimeTensor =
       getRuntimeTensor(tensorRef->global_id());
   const ::ttnn::Tensor &ttnnTensor =
-      runtimeTensor
-          .as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
-          .getTensor();
+      ::tt::runtime::ttnn::utils::getTTNNTensorFromRuntimeTensor(runtimeTensor);
   DEBUG_ASSERT(ttnnTensor.is_allocated());
   debug::checkTensorRefMatchesTTNNTensor(tensorRef, ttnnTensor);
   return runtimeTensor;
@@ -128,8 +125,8 @@ ProgramTensorPool::insertTTNNTensorAndValidate(
   DEBUG_ASSERT(ttnnTensor.is_allocated());
   debug::checkTensorRefMatchesTTNNTensor(tensorRef, ttnnTensor);
 
-  ::tt::runtime::Tensor runtimeTensor =
-      utils::createRuntimeTensorFromTTNN(ttnnTensor, retain);
+  ::tt::runtime::Tensor runtimeTensor = utils::createRuntimeTensorFromTTNN(
+      ttnnTensor, /*meshEvent=*/std::nullopt, retain);
   auto [iter, inserted] =
       intermedTensors.insert_or_assign(globalId, runtimeTensor);
 
@@ -142,10 +139,6 @@ std::vector<::tt::runtime::Tensor> ProgramTensorPool::gatherOutputTensors() {
   std::transform(programOutputIds.begin(), programOutputIds.end(),
                  std::back_inserter(outputs), [this](std::uint32_t globalId) {
                    ::tt::runtime::Tensor &out = getRuntimeTensor(globalId);
-                   ::tt::runtime::ttnn::TTNNTensorWrapper &ttnnTensor =
-                       out.as<::tt::runtime::ttnn::TTNNTensorWrapper>(
-                           DeviceRuntime::TTNN);
-                   ttnnTensor.setRetain(false);
                    return out;
                  });
   return outputs;

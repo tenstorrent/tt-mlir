@@ -5,7 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 #define TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 
-#include "ttmlir/Dialect/TT/Utils/PopulateArgumentTypes.h"
+#include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
@@ -24,6 +24,15 @@ struct TTIRToTTNNBackendPipelineOptions
       llvm::cl::desc("Determine and set max valid grid for Op execution."),
       llvm::cl::init(false)};
 
+  // If this option is true, run a pass that checks if all ops relevant
+  // to the optimizer (e.g. toLayout is ignored) have unique named locations.
+  // If not, it will emit an error. This is necessary for the overrides to be
+  // applied correctly.
+  Option<bool> checkUniqueLocations{
+      *this, "check-unique-locs",
+      llvm::cl::desc("Check if all operations have unique locations."),
+      llvm::cl::init(false)};
+
   // Option to manually insert TTNN_ToLayoutOp for specific op's operand.
   // The format is a comma separated list of op names and operand index
   // separated by ':' separator.
@@ -36,12 +45,12 @@ struct TTIRToTTNNBackendPipelineOptions
   //
   // Note: This option is only valid if optimizerPassEnabled is true.
   //
-  Option<llvm::StringMap<InputLayoutOverrideParams>, InputLayoutOverrideParser>
-      overrideInputLayout{
-          *this, OptionNames::overrideInputLayout,
+  Option<llvm::StringMap<InsertMemReconfigParams>, InsertMemReconfigParser>
+      insertMemReconfig{
+          *this, OptionNames::insertMemReconfig,
           llvm::cl::desc(
               "Manually insert memory reconfig op for specific op's operand."),
-          llvm::cl::init(llvm::StringMap<InputLayoutOverrideParams>())};
+          llvm::cl::init(llvm::StringMap<InsertMemReconfigParams>())};
 
   // Option to override output layout for specific operations. You can
   // override any number or combination of layout parameters. If not all are
@@ -125,7 +134,7 @@ struct TTIRToTTNNBackendPipelineOptions
   Option<bool> memoryLayoutAnalysisEnabled{
       *this, OptionNames::memoryLayoutAnalysisEnabled,
       llvm::cl::desc("Enable memory layout optimization."),
-      llvm::cl::init(false)};
+      llvm::cl::init(true)};
 
   // If this option is true, insert memory reconfiguration ops.
   //
@@ -242,6 +251,10 @@ struct TTIRToTTNNBackendPipelineOptions
       *this, "enable-const-eval",
       llvm::cl::desc("Enable const-eval optimization pass."),
       llvm::cl::init(true)};
+
+  Option<bool> enableTrace{*this, "enable-trace",
+                           llvm::cl::desc("Enable trace optimization pass."),
+                           llvm::cl::init(false)};
 
   // Option to specify the target bit width for quantized data types.
   Option<uint32_t> quantBitWidth{

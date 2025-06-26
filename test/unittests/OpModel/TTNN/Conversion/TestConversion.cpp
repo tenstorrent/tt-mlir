@@ -3,11 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "OpModelFixture.h"
+
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 
 #include "llvm/ADT/SmallVector.h"
-#include "gtest/gtest.h"
 
 class MlirToTtnnConversion : public OpModelFixture {};
 class Conversion : public OpModelFixture {};
@@ -441,8 +441,6 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Values(
         std::make_tuple(mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
                         tt::tt_metal::TensorMemoryLayout::INTERLEAVED),
-        std::make_tuple(mlir::tt::ttnn::TensorMemoryLayout::SingleBank,
-                        tt::tt_metal::TensorMemoryLayout::SINGLE_BANK),
         std::make_tuple(mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
                         tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED),
         std::make_tuple(mlir::tt::ttnn::TensorMemoryLayout::WidthSharded,
@@ -473,9 +471,22 @@ TEST_P(MlirToTtnnConversionMemoryConfig, MemoryConfig) {
             mlirBufferType == mlir::tt::ttnn::BufferType::L1);
   EXPECT_EQ(memoryConfig.is_dram(),
             mlirBufferType == mlir::tt::ttnn::BufferType::DRAM);
-  EXPECT_EQ(memoryConfig.is_sharded(),
-            mlirTensorMemoryLayout !=
-                mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  EXPECT_FALSE(layout.getIgnorePhysicalLayout());
+
+  if (mlirTensorMemoryLayout !=
+      mlir::tt::ttnn::TensorMemoryLayout::Interleaved) {
+    EXPECT_TRUE(memoryConfig.is_sharded());
+    EXPECT_TRUE(memoryConfig.shard_spec().has_value());
+
+    auto partialLayout = layout.withIgnorePhysicalLayout(true);
+    EXPECT_TRUE(partialLayout.getIgnorePhysicalLayout());
+    EXPECT_TRUE(partialLayout.hasShardedTensorMemoryLayout());
+
+    const auto partialConfig =
+        mlir::tt::op_model::ttnn::conversion::getMemoryConfig(partialLayout);
+    EXPECT_TRUE(partialConfig.is_sharded());
+    EXPECT_FALSE(partialConfig.shard_spec().has_value());
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(

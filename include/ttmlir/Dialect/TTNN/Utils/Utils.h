@@ -5,16 +5,19 @@
 #ifndef TTMLIR_DIALECT_TTNN_UTILS_UTILS_H
 #define TTMLIR_DIALECT_TTNN_UTILS_UTILS_H
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Value.h"
-#include "llvm/Support/CommandLine.h"
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
+#include "llvm/Support/CommandLine.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 
 namespace mlir::tt::ttnn::utils {
+
+constexpr inline llvm::StringLiteral g_TTNNTraceAttrName = "ttnn.trace";
 
 // Map tt::MemorySpace to ttnn::BufferType
 //
@@ -26,29 +29,29 @@ toTTNNBufferType(const mlir::tt::MemorySpace memorySpace);
 mlir::tt::MemorySpace
 toTTMemorySpace(const mlir::tt::ttnn::BufferType bufferType);
 
-// Helper method to create a RankedTensorType with the given encoding.
-RankedTensorType
-createRankedTensorTypeWithEncoding(RankedTensorType tensorType,
-                                   ttnn::TTNNLayoutAttr encoding);
+struct RankedTensorTypeFactory {
+  static RankedTensorType create(RankedTensorType tensorType,
+                                 ttnn::TTNNLayoutAttr encoding);
 
-// Helper method to create a RankedTensorType with the given element type.
-RankedTensorType
-createRankedTensorTypeWithElementType(RankedTensorType tensorType,
-                                      Type elementType);
+  static RankedTensorType create(RankedTensorType tensorType,
+                                 Type memrefElementType);
 
-// Helper method to create a RankedTensorType with the given buffer type.
-RankedTensorType
-createRankedTensorTypeWithBufferType(RankedTensorType tensorType,
-                                     ttnn::BufferType bufferType);
+  static RankedTensorType create(RankedTensorType tensorType,
+                                 ttnn::BufferType bufferType);
 
-// Helper method to create a RankedTensorType with the given memory layout.
-RankedTensorType
-createRankedTensorTypeWithMemoryLayout(RankedTensorType tensorType,
-                                       ttnn::TensorMemoryLayout memoryLayout);
+  static RankedTensorType create(RankedTensorType tensorType,
+                                 ttnn::TensorMemoryLayout memoryLayout);
 
-// Helper method to create a RankedTensorType with the given grid.
-RankedTensorType createRankedTensorTypeWithGrid(RankedTensorType tensorType,
-                                                GridAttr grid);
+  static RankedTensorType create(RankedTensorType tensorType,
+                                 ttnn::Layout layout);
+
+  static RankedTensorType create(RankedTensorType tensorType, GridAttr grid);
+
+  static RankedTensorType create(RankedTensorType tensorType, DataType);
+
+  static RankedTensorType create(RankedTensorType tensorType,
+                                 ArrayRef<int64_t> tensorShape);
+};
 
 // Return the L1 memory usage of the output tensor of the given op.
 // Used within L1 interleaved policies.
@@ -81,6 +84,8 @@ std::optional<ShardSpecAttr>
 createShardSpecIfNeeded(TensorMemoryLayoutAttr tensorMemoryLayout,
                         ShapeAttr shardShape, GridAttr shardGrid,
                         GridAttr deviceGrid);
+
+bool isTTNNTraceFunc(func::FuncOp funcOp);
 
 } // namespace mlir::tt::ttnn::utils
 

@@ -6,13 +6,14 @@
 #define TTMLIR_DIALECT_TTNN_TRANSFORMS_WORKAROUNDS_DECOMPOSITION_REDUCEOPSREWRITEPATTERN_H
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <cmath>
@@ -79,12 +80,8 @@ private:
     llvm::SmallVector<int64_t> outputShapeVec =
         calculateNewReduceShape(inputType, srcOp.getDimArg());
 
-    TTNNLayoutAttr newOutputLayoutAttr =
-        mlir::cast<TTNNLayoutAttr>(outputType.getEncoding())
-            .withTensorShape(outputShapeVec);
-
-    RankedTensorType newOutputType = RankedTensorType::get(
-        outputShapeVec, outputType.getElementType(), newOutputLayoutAttr);
+    RankedTensorType newOutputType =
+        utils::RankedTensorTypeFactory::create(outputType, outputShapeVec);
 
     return rewriter.create<ReduceOp>(srcOp.getLoc(), newOutputType,
                                      srcOp.getInput(), true /*keep_dim*/,
@@ -156,8 +153,8 @@ public:
     auto resultType = RankedTensorType::get(
         newShape, inputType.getElementType(), inputType.getEncoding());
     auto padOp = rewriter.create<mlir::tt::ttnn::PadOp>(
-        srcOp.getLoc(), resultType, srcOp.getInput(),
-        rewriter.getDenseI32ArrayAttr(paddingArray),
+        ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_pad"), resultType,
+        srcOp.getInput(), rewriter.getDenseI32ArrayAttr(paddingArray),
         rewriter.getFloatAttr(rewriter.getF32Type(), getPaddingValue()),
         /*use_multicore=*/rewriter.getBoolAttr(true),
         /*memory_config=*/nullptr);

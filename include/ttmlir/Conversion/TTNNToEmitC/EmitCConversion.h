@@ -6,8 +6,8 @@
 #define TTMLIR_CONVERSION_TTNNTOEMITC_EMITCCONVERSION_H
 
 #include "ttmlir/Conversion/TTNNToEmitC/Utils.h"
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TT/IR/Utils.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
@@ -15,6 +15,7 @@
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLForwardCompat.h"
@@ -31,11 +32,29 @@
 
 // This namespace contains mock definitions of TTNN types for the purpose of
 // conversion.
-namespace ttnn {
+namespace ttsl {
 template <typename T>
 struct SmallVector {
   using value_type = T;
 };
+} // namespace ttsl
+
+namespace ttnn {
+struct Shape;
+
+struct ShardSpec;
+struct CoreRangeSet;
+struct CoreRange;
+struct CoreCoord;
+
+struct DataType;
+struct TensorMemoryLayout;
+struct Layout;
+
+namespace types {
+struct ShardOrientation;
+struct ShardMode;
+} // namespace types
 
 namespace distributed {
 struct MeshDevice;
@@ -145,9 +164,14 @@ struct TypeName<std::vector<T>> {
 };
 
 template <typename T>
-struct TypeName<::ttnn::SmallVector<T>> {
+struct TypeName<::ttsl::SmallVector<T>> {
   inline static const std::string value =
-      "::ttnn::SmallVector<" + TypeNameV<T> + ">";
+      "::ttsl::SmallVector<" + TypeNameV<T> + ">";
+};
+
+template <typename T>
+struct TypeName<std::set<T>> {
+  inline static const std::string value = "::std::set<" + TypeNameV<T> + ">";
 };
 
 template <typename T>
@@ -202,6 +226,51 @@ template <>
 struct TypeName<::ttnn::operations::conv::conv2d::Conv2dConfig> {
   inline static const std::string value =
       "::ttnn::operations::conv::conv2d::Conv2dConfig";
+};
+
+template <>
+struct TypeName<::ttnn::CoreCoord> {
+  inline static const std::string value = "::ttnn::CoreCoord";
+};
+
+template <>
+struct TypeName<::ttnn::CoreRange> {
+  inline static const std::string value = "::ttnn::CoreRange";
+};
+
+template <>
+struct TypeName<::ttnn::CoreRangeSet> {
+  inline static const std::string value = "::ttnn::CoreRangeSet";
+};
+
+template <>
+struct TypeName<::ttnn::ShardSpec> {
+  inline static const std::string value = "::ttnn::ShardSpec";
+};
+
+template <>
+struct TypeName<::ttnn::types::ShardOrientation> {
+  inline static const std::string value = "::ttnn::types::ShardOrientation";
+};
+
+template <>
+struct TypeName<::ttnn::types::ShardMode> {
+  inline static const std::string value = "::ttnn::types::ShardMode";
+};
+
+template <>
+struct TypeName<::ttnn::DataType> {
+  inline static const std::string value = "::ttnn::DataType";
+};
+
+template <>
+struct TypeName<::ttnn::TensorMemoryLayout> {
+  inline static const std::string value = "::ttnn::TensorMemoryLayout";
+};
+
+template <>
+struct TypeName<::ttnn::Layout> {
+  inline static const std::string value = "::ttnn::Layout";
 };
 
 template <>
@@ -335,6 +404,265 @@ struct EmitCTypeConverter<T,
   }
 };
 
+template <>
+struct EmitCTypeConverter<::ttnn::CoreCoord> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto coreCoordAttr =
+            mlir::dyn_cast_if_present<ttnn::CoreCoordAttr>(attr)) {
+      return convert(coreCoordAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::CoreCoordAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<::ttnn::CoreCoord>;
+    rso << "{";
+    rso << EmitCTypeConverter<size_t>::convert(attr.getX()) << ", ";
+    rso << EmitCTypeConverter<size_t>::convert(attr.getY());
+    rso << "}";
+
+    return buf;
+  }
+};
+
+template <>
+struct EmitCTypeConverter<::ttnn::CoreRange> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto coreRangeAttr =
+            mlir::dyn_cast_if_present<ttnn::CoreRangeAttr>(attr)) {
+      return convert(coreRangeAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::CoreRangeAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<::ttnn::CoreRange>;
+    rso << "{";
+    rso << EmitCTypeConverter<::ttnn::CoreCoord>::convert(attr.getStartCoord())
+        << ", ";
+    rso << EmitCTypeConverter<::ttnn::CoreCoord>::convert(attr.getEndCoord());
+    rso << "}";
+
+    return buf;
+  }
+};
+
+template <>
+struct EmitCTypeConverter<::ttnn::types::ShardOrientation> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto shardOrientationAttr =
+            mlir::dyn_cast_if_present<ttnn::ShardOrientationAttr>(attr)) {
+      return convert(shardOrientationAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::ShardOrientationAttr attr) {
+    assert(attr &&
+           "expected non-null attribute, call "
+           "EmitCTypeConverter<std::optional<::ttnn::types::ShardOrientation>>:"
+           ":convert(attr) if attribute is optional");
+    return convert(attr.getValue());
+  }
+
+  static std::string convert(ttnn::ShardOrientation attr) {
+    switch (attr) {
+    case ttnn::ShardOrientation::RowMajor:
+      return TypeNameV<::ttnn::types::ShardOrientation> + "::ROW_MAJOR";
+    case ttnn::ShardOrientation::ColMajor:
+      return TypeNameV<::ttnn::types::ShardOrientation> + "::COL_MAJOR";
+    }
+
+    llvm_unreachable("Unknown ttnn::ShardOrientation");
+  }
+};
+
+template <>
+struct EmitCTypeConverter<::ttnn::types::ShardMode> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto shardModeAttr =
+            mlir::dyn_cast_if_present<ttnn::ShardModeAttr>(attr)) {
+      return convert(shardModeAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::ShardModeAttr attr) {
+    assert(attr && "expected non-null attribute, call "
+                   "EmitCTypeConverter<std::optional<::ttnn::types::ShardMode>>"
+                   "::convert(attr) if attribute is optional");
+    return convert(attr.getValue());
+  }
+
+  static std::string convert(ttnn::ShardMode attr) {
+    switch (attr) {
+    case ttnn::ShardMode::Physical:
+      return TypeNameV<::ttnn::types::ShardMode> + "::PHYSICAL";
+    case ttnn::ShardMode::Logical:
+      return TypeNameV<::ttnn::types::ShardMode> + "::LOGICAL";
+    }
+
+    llvm_unreachable("Unknown ttnn::ShardMode");
+  }
+};
+
+template <>
+struct EmitCTypeConverter<::ttnn::DataType> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto dataTypeAttr = mlir::dyn_cast_if_present<tt::DataTypeAttr>(attr)) {
+      return convert(dataTypeAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(tt::DataTypeAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+
+    return convert(attr.getValue());
+  }
+
+  static std::string convert(tt::DataType attr) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<::ttnn::DataType> << "::";
+    switch (attr) {
+    case tt::DataType::BFloat16:
+      rso << "BFLOAT16";
+      break;
+    case tt::DataType::Float32:
+      rso << "FLOAT32";
+      break;
+    case tt::DataType::UInt32:
+      rso << "UINT32";
+      break;
+    case tt::DataType::BFP_BFloat8:
+      rso << "BFLOAT8_B";
+      break;
+    case tt::DataType::BFP_BFloat4:
+      rso << "BFLOAT4_B";
+      break;
+    case tt::DataType::UInt8:
+      rso << "UINT8";
+      break;
+    case tt::DataType::UInt16:
+      rso << "UINT16";
+      break;
+    case tt::DataType::Int32:
+      rso << "INT32";
+      break;
+    case tt::DataType::Float16:
+    case tt::DataType::BFP_Float2:
+    case tt::DataType::BFP_Float4:
+    case tt::DataType::BFP_Float8:
+    case tt::DataType::BFP_BFloat2:
+      llvm_unreachable("Unsupported ttnn::DataType");
+    }
+
+    return buf;
+  }
+};
+
+template <>
+struct EmitCTypeConverter<::ttnn::TensorMemoryLayout> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto tensorMemoryLayoutAttr =
+            mlir::dyn_cast_if_present<ttnn::TensorMemoryLayoutAttr>(attr)) {
+      return convert(tensorMemoryLayoutAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::TensorMemoryLayoutAttr attr) {
+    // TODO (azecevic): There is a dissonance between the way we model
+    // TensorMemoryLayout in TTNN dialect and TTNN library. This should be fixed
+    // with https://github.com/tenstorrent/tt-mlir/issues/2521. For now, we
+    // default to Interleaved, which is default value in TTNN library.
+    if (!attr) {
+      return convert(ttnn::TensorMemoryLayout::Interleaved);
+    }
+    return convert(attr.getValue());
+  }
+
+  static std::string convert(ttnn::TensorMemoryLayout attr) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<::ttnn::TensorMemoryLayout> << "::";
+    switch (attr) {
+    case ttnn::TensorMemoryLayout::BlockSharded:
+      rso << "BLOCK_SHARDED";
+      break;
+    case ttnn::TensorMemoryLayout::HeightSharded:
+      rso << "HEIGHT_SHARDED";
+      break;
+    case ttnn::TensorMemoryLayout::Interleaved:
+      rso << "INTERLEAVED";
+      break;
+    case ttnn::TensorMemoryLayout::SingleBank:
+      rso << "INTERLEAVED";
+      break;
+    case ttnn::TensorMemoryLayout::WidthSharded:
+      rso << "WIDTH_SHARDED";
+      break;
+    }
+
+    return buf;
+  }
+};
+
+template <>
+struct EmitCTypeConverter<::ttnn::Layout> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto layoutAttr = mlir::dyn_cast_if_present<ttnn::LayoutAttr>(attr)) {
+      return convert(layoutAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::LayoutAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+    return convert(attr.getValue());
+  }
+
+  static std::string convert(ttnn::Layout attr) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<::ttnn::Layout> << "::";
+    switch (attr) {
+    case ttnn::Layout::RowMajor:
+      rso << "ROW_MAJOR";
+      break;
+    case ttnn::Layout::Tile:
+      rso << "TILE";
+      break;
+    case ttnn::Layout::Invalid:
+      rso << "INVALID";
+      break;
+    }
+
+    return buf;
+  }
+};
+
 // Convert container types (std::vector, ttnn::SmallVector, etc.).
 template <typename T>
 struct EmitCContainerTypeConverter {
@@ -440,8 +768,12 @@ struct EmitCTypeConverter<std::vector<T>>
     : public EmitCContainerTypeConverter<std::vector<T>> {};
 
 template <typename T>
-struct EmitCTypeConverter<::ttnn::SmallVector<T>>
-    : public EmitCContainerTypeConverter<::ttnn::SmallVector<T>> {};
+struct EmitCTypeConverter<::ttsl::SmallVector<T>>
+    : public EmitCContainerTypeConverter<::ttsl::SmallVector<T>> {};
+
+template <typename T>
+struct EmitCTypeConverter<std::set<T>>
+    : public EmitCContainerTypeConverter<std::set<T>> {};
 
 template <typename T, size_t k>
 struct EmitCTypeConverter<std::array<T, k>> {
@@ -587,6 +919,192 @@ struct EmitCTypeConverter<std::variant<First, Rest...>> {
   }
 };
 
+template <>
+struct EmitCTypeConverter<::ttnn::CoreRangeSet> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto coreRangeSetAttr =
+            mlir::dyn_cast_if_present<ttnn::CoreRangeSetAttr>(attr)) {
+      return convert(coreRangeSetAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::CoreRangeSetAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+    rso << TypeNameV<::ttnn::CoreRangeSet>;
+    rso << "{";
+    rso << EmitCTypeConverter<std::set<::ttnn::CoreRange>>::convert(
+        attr.getCoreRanges());
+    rso << "}";
+    return buf;
+  }
+};
+
+template <>
+struct EmitCTypeConverter<::ttnn::ShardSpec> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto shardSpecAttr =
+            mlir::dyn_cast_if_present<ttnn::ShardSpecAttr>(attr)) {
+      return convert(shardSpecAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::ShardSpecAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<::ttnn::ShardSpec>;
+    rso << "{";
+    rso << EmitCTypeConverter<::ttnn::CoreRangeSet>::convert(
+               attr.getCoreRangeSet())
+        << ", ";
+    rso << EmitCTypeConverter<std::array<uint32_t, 2>>::convert(
+               attr.getShape().getShape())
+        << ", ";
+    rso << EmitCTypeConverter<::ttnn::types::ShardOrientation>::convert(
+        attr.getShardOrientation());
+    // ShardMode is modeled as optional in TTNN dialect, but it's either
+    // required or defaulted to `Physical` in TTNN library.
+    if (attr.getShardMode()) {
+      rso << ", "
+          << EmitCTypeConverter<::ttnn::types::ShardMode>::convert(
+                 attr.getShardMode());
+    }
+    rso << "}";
+
+    return buf;
+  }
+};
+
+template <typename T>
+struct EmitCTypeConverter<std::optional<T>> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (!attr) {
+      return {};
+    }
+    return EmitCTypeConverter<T>::convert(attr);
+  }
+
+  template <typename U>
+  static std::string convert(std::optional<U> &&attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+    return EmitCTypeConverter<T>::convert(*attr);
+  }
+
+  template <typename U>
+  static std::string convert(U &&attr) {
+    return EmitCTypeConverter<T>::convert(std::forward<U>(attr));
+  }
+};
+
+template <>
+struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto conv2dConfigAttr =
+            mlir::dyn_cast_if_present<ttnn::Conv2dConfigAttr>(attr)) {
+      return convert(conv2dConfigAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::Conv2dConfigAttr attr) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    bool firstElement = true;
+    rso << TypeNameV<::ttnn::operations::conv::conv2d::Conv2dConfig> << "{";
+    if (attr.getDtype()) {
+      rso << (firstElement ? "" : ", ") << ".dtype = "
+          << EmitCTypeConverter<::ttnn::DataType>::convert(*attr.getDtype());
+      firstElement = false;
+    }
+    if (attr.getWeightsDtype()) {
+      rso << (firstElement ? "" : ", ") << ".weights_dtype = "
+          << EmitCTypeConverter<::ttnn::DataType>::convert(
+                 *attr.getWeightsDtype());
+      firstElement = false;
+    }
+    if (attr.getActivation()) {
+      rso << (firstElement ? "" : ", ") << ".activation = "
+          << EmitCTypeConverter<std::string>::convert(attr.getActivation());
+      firstElement = false;
+    }
+    if (attr.getDeallocateActivation()) {
+      rso << (firstElement ? "" : ", ") << ".deallocate_activation = "
+          << EmitCTypeConverter<bool>::convert(attr.getDeallocateActivation());
+      firstElement = false;
+    }
+    if (attr.getReallocateHaloOutput()) {
+      rso << (firstElement ? "" : ", ") << ".reallocate_halo_output = "
+          << EmitCTypeConverter<bool>::convert(attr.getReallocateHaloOutput());
+      firstElement = false;
+    }
+    if (attr.getActBlockHOverride()) {
+      rso << (firstElement ? "" : ", ") << ".act_block_h_override = "
+          << EmitCTypeConverter<uint32_t>::convert(
+                 *attr.getActBlockHOverride());
+      firstElement = false;
+    }
+    if (attr.getActBlockWDiv()) {
+      rso << (firstElement ? "" : ", ") << ".act_block_w_div = "
+          << EmitCTypeConverter<uint32_t>::convert(*attr.getActBlockWDiv());
+      firstElement = false;
+    }
+    if (attr.getReshardIfNotOptimal()) {
+      rso << (firstElement ? "" : ", ") << ".reshard_if_not_optimal = "
+          << EmitCTypeConverter<bool>::convert(attr.getReshardIfNotOptimal());
+      firstElement = false;
+    }
+    if (attr.getOverrideShardingConfig()) {
+      rso << (firstElement ? "" : ", ") << ".override_sharding_config = "
+          << EmitCTypeConverter<bool>::convert(
+                 attr.getOverrideShardingConfig());
+      firstElement = false;
+    }
+    if (attr.getShardLayout()) {
+      rso << (firstElement ? "" : ", ") << ".shard_layout = "
+          << EmitCTypeConverter<::ttnn::TensorMemoryLayout>::convert(
+                 *attr.getShardLayout());
+      firstElement = false;
+    }
+    if (attr.getCoreGrid()) {
+      rso << (firstElement ? "" : ", ") << ".core_grid = "
+          << EmitCTypeConverter<::ttnn::CoreRangeSet>::convert(
+                 attr.getCoreGrid());
+      firstElement = false;
+    }
+    if (attr.getTransposeShards()) {
+      rso << (firstElement ? "" : ", ") << ".transpose_shards = "
+          << EmitCTypeConverter<bool>::convert(attr.getTransposeShards());
+      firstElement = false;
+    }
+    if (attr.getOutputLayout()) {
+      rso << (firstElement ? "" : ", ") << ".output_layout = "
+          << EmitCTypeConverter<::ttnn::Layout>::convert(
+                 *attr.getOutputLayout());
+      firstElement = false;
+    }
+    if (attr.getPreprocessWeightsOnDevice()) {
+      rso << (firstElement ? "" : ", ") << ".preprocess_weights_on_device = "
+          << EmitCTypeConverter<bool>::convert(
+                 attr.getPreprocessWeightsOnDevice());
+    }
+    rso << "}";
+    return buf;
+  }
+};
+
 // This template struct is used to retrieve the single most relevant C++ type in
 // TTNN for a given template type.
 template <typename T>
@@ -624,32 +1142,9 @@ inline std::string convert(ttnn::ShapeAttr attr) {
 }
 
 inline std::string convert(tt::DataType attr) {
-  switch (attr) {
-  case tt::DataType::BFloat16:
-    return "::ttnn::DataType::BFLOAT16";
-  case tt::DataType::Float32:
-    return "::ttnn::DataType::FLOAT32";
-  case tt::DataType::UInt32:
-    return "::ttnn::DataType::UINT32";
-  case tt::DataType::BFP_BFloat8:
-    return "::ttnn::DataType::BFLOAT8_B";
-  case tt::DataType::BFP_BFloat4:
-    return "::ttnn::DataType::BFLOAT4_B";
-  case tt::DataType::UInt8:
-    return "::ttnn::DataType::UINT8";
-  case tt::DataType::UInt16:
-    return "::ttnn::DataType::UINT16";
-  case tt::DataType::Int32:
-    return "::ttnn::DataType::INT32";
-  case tt::DataType::Float16:
-  case tt::DataType::BFP_Float2:
-  case tt::DataType::BFP_Float4:
-  case tt::DataType::BFP_Float8:
-  case tt::DataType::BFP_BFloat2:
-    llvm_unreachable("Unsupported ttnn::DataType");
-  }
-
-  llvm_unreachable("Unkonwn tt::DataType");
+  // TODO (azecevic): Will be deprecated!
+  // https://github.com/tenstorrent/tt-mlir/issues/3635
+  return EmitCTypeConverter<::ttnn::DataType>::convert(attr);
 }
 
 inline std::string convert(tt::DataTypeAttr attr) {
@@ -661,16 +1156,9 @@ inline std::string convert(tt::DataTypeAttr attr) {
 }
 
 inline std::string convert(ttnn::Layout attr) {
-  switch (attr) {
-  case ttnn::Layout::RowMajor:
-    return "::ttnn::Layout::ROW_MAJOR";
-  case ttnn::Layout::Tile:
-    return "::ttnn::Layout::TILE";
-  case ttnn::Layout::Invalid:
-    return "::ttnn::Layout::INVALID";
-  }
-
-  llvm_unreachable("Unknown ttnn::Layout");
+  // TODO (azecevic): Will be deprecated!
+  // https://github.com/tenstorrent/tt-mlir/issues/3635
+  return EmitCTypeConverter<::ttnn::Layout>::convert(attr);
 }
 
 inline std::string convert(ttnn::LayoutAttr attr) {
@@ -682,20 +1170,9 @@ inline std::string convert(ttnn::LayoutAttr attr) {
 }
 
 inline std::string convert(ttnn::TensorMemoryLayout attr) {
-  switch (attr) {
-  case ttnn::TensorMemoryLayout::BlockSharded:
-    return "::ttnn::TensorMemoryLayout::BLOCK_SHARDED";
-  case ttnn::TensorMemoryLayout::HeightSharded:
-    return "::ttnn::TensorMemoryLayout::HEIGHT_SHARDED";
-  case ttnn::TensorMemoryLayout::Interleaved:
-    return "::ttnn::TensorMemoryLayout::INTERLEAVED";
-  case ttnn::TensorMemoryLayout::SingleBank:
-    return "::ttnn::TensorMemoryLayout::SINGLE_BANK";
-  case ttnn::TensorMemoryLayout::WidthSharded:
-    return "::ttnn::TensorMemoryLayout::WIDTH_SHARDED";
-  }
-
-  llvm_unreachable("Unknown ttnn::TensorMemoryLayout");
+  // TODO (azecevic): Will be deprecated!
+  // https://github.com/tenstorrent/tt-mlir/issues/3635
+  return EmitCTypeConverter<::ttnn::TensorMemoryLayout>::convert(attr);
 }
 
 inline std::string convert(ttnn::TensorMemoryLayoutAttr attr) {
@@ -740,12 +1217,13 @@ inline std::string convert(ttnn::MemoryConfigAttr attr) {
     return TypeNameV<std::nullopt_t>;
   }
 
-  // TODO (azecevic): Add ShardSpec once it's modeled in the `MemoryConfigAttr`.
   std::string buf;
   llvm::raw_string_ostream rso(buf);
   rso << "::ttnn::MemoryConfig{";
   rso << convert(attr.getTensorMemoryLayout()) << ", ";
-  rso << convert(attr.getBufferType());
+  rso << convert(attr.getBufferType()) << ", ";
+  rso << EmitCTypeConverter<std::optional<::ttnn::ShardSpec>>::convert(
+      attr.getShardSpec());
   rso << "}";
   return buf;
 }
@@ -865,11 +1343,14 @@ public:
   // ttnn::SmallVector<int32_t>}).
   template <typename TargetTy>
   mlir::Attribute emit(mlir::Attribute attr) {
-    // It's assumed that the conversion might fail, in which case the result
-    // will be `emitc::OpaqueAttr("::std::nullopt")`.
-    if (auto convertedValue = EmitCTypeConverter<TargetTy>::convert(attr)) {
+    auto convertedValue = EmitCTypeConverter<TargetTy>::convert(attr);
+    if constexpr (std::is_same_v<decltype(convertedValue), std::string>) {
+      return rewriter.getType<emitc::OpaqueAttr>(convertedValue);
+    } else if (convertedValue) {
       return rewriter.getType<emitc::OpaqueAttr>(*convertedValue);
     }
+    // It's assumed that the conversion might fail, in which case the result
+    // will be `emitc::OpaqueAttr("::std::nullopt")`.
     return emit(std::nullopt);
   }
 
@@ -940,8 +1421,8 @@ public:
   }
 
   template <typename OpConversionPatternTy>
-  emitc::CallOpaqueOp replaceOp(OpConversionPatternTy &&opConversionPattern,
-                                llvm::ArrayRef<mlir::Attribute> args) {
+  mlir::Value replaceOp(OpConversionPatternTy &&opConversionPattern,
+                        llvm::ArrayRef<mlir::Attribute> args) {
     // Special handling for Conv2dOp and ConvTranspose2dOp. These ops have a
     // different return type than the other TTNN ops. They return
     // `std::tuple<::ttnn::Tensor, uint32_t, uint32_t, ::ttnn::Tensor,
@@ -960,26 +1441,46 @@ public:
               ::ttnn::Tensor, std::tuple<OutputHeight, OutputWidth>,
               std::tuple<::ttnn::Tensor, std::optional<::ttnn::Tensor>>>>;
 
-      auto opResult = rewriter.create<emitc::CallOpaqueOp>(
+      emitc::ExpressionOp conv2dExpr = rewriter.create<emitc::ExpressionOp>(
+          op.getLoc(),
+          rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>));
+
+      mlir::Block &bodyBlock = conv2dExpr.getBodyRegion().emplaceBlock();
+      rewriter.setInsertionPointToStart(&bodyBlock);
+
+      auto conv2dOp = rewriter.create<emitc::CallOpaqueOp>(
           op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
           opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
-          nullptr, adaptor.getOperands());
+          /*template_args=*/nullptr, adaptor.getOperands());
+      auto getTensorOp = rewriter.create<emitc::CallOpaqueOp>(
+          op.getLoc(),
+          rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>),
+          "::std::get", /*args=*/nullptr,
+          /*template_args=*/
+          rewriter.getArrayAttr({rewriter.getI32IntegerAttr(0)}),
+          conv2dOp.getResult(0));
+      rewriter.create<emitc::YieldOp>(op.getLoc(), getTensorOp.getResult(0));
 
-      return rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-          op, rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>),
-          "::std::get", rewriter.getArrayAttr({rewriter.getIndexAttr(0)}),
-          rewriter.getArrayAttr(
-              {rewriter.getIntegerAttr(rewriter.getI32Type(), 0)}),
-          opResult.getResult(0));
+      rewriter.replaceOp(op, conv2dExpr);
+
+      rewriter.setInsertionPointAfter(conv2dExpr);
+
+      return conv2dExpr;
     }
 
     auto resultTypes = llvm::to_vector(
         llvm::map_range(op->getResultTypes(), [&](Type type) -> Type {
           return opConversionPattern.getTypeConverter()->convertType(type);
         }));
-    return rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+    auto callOpaqueOp = rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         op, resultTypes, opConversionPattern.convertOpName(op),
         rewriter.getArrayAttr(args), nullptr, operands);
+
+    assert(callOpaqueOp.getNumResults() <= 1 && "expected at most one result");
+    if (callOpaqueOp.getNumResults() == 0) {
+      return {};
+    }
+    return callOpaqueOp.getResult(0);
   }
 
   // TODO (azecevic): This is a temporary solution for handling the case when

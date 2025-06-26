@@ -8,7 +8,7 @@ from typing import Callable, List
 
 from ttir_builder.utils import compile_to_flatbuffer, Marks, shape_str
 from ttir_builder import Operand, TTIRBuilder, UnitAttr, Shape, TypeInfo
-from ttmlir.dialects import ttir, tt
+from ttmlir.dialects import ttir, ttcore
 from ttmlir.ir import *
 
 
@@ -22,13 +22,13 @@ def test_tilize(shape: Shape, request):
 
         to_device = builder.tilize(
             in0,
-            output_type=builder.metal_tensor_layout(shape, (1, 1), True),
+            output_type=builder.metal_tensor_layout(shape, tilize=True),
             unit_attrs=unit_attrs,
         )
 
         view_as_rm = builder.view_layout(
             to_device,
-            output_type=builder.metal_tensor_layout(shape, (1, 1), False),
+            output_type=builder.metal_tensor_layout(shape, tilize=False),
             reinterpret_layout=True,
             unit_attrs=unit_attrs,
         )

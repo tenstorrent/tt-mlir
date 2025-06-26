@@ -6,12 +6,12 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
-#include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/IR/Location.h"
 #include "mlir/IR/Value.h"
 #include "llvm/Support/Casting.h"
+
 #include <optional>
 
 namespace mlir::tt::ttnn::utils {
@@ -27,6 +27,8 @@ toTTNNBufferType(const mlir::tt::MemorySpace memorySpace) {
     return BufferType::DRAM;
   case MemorySpace::DeviceL1:
     return BufferType::L1;
+  case MemorySpace::RegisterDst:
+    llvm_unreachable("MemorySpace::RegisterDst not supported");
   }
 
   llvm_unreachable("Unknown MemorySpace");
@@ -50,54 +52,73 @@ toTTMemorySpace(const mlir::tt::ttnn::BufferType bufferType) {
   llvm_unreachable("Unknown MemorySpace");
 }
 
-// Helper method to create a RankedTensorType with the given encoding.
 RankedTensorType
-createRankedTensorTypeWithEncoding(RankedTensorType tensorType,
-                                   ttnn::TTNNLayoutAttr encoding) {
+RankedTensorTypeFactory::create(RankedTensorType tensorType,
+                                ttnn::TTNNLayoutAttr encoding) {
   return RankedTensorType::get(tensorType.getShape(),
                                tensorType.getElementType(), encoding);
 }
 
-// Helper method to create a RankedTensorType with the given element type.
-RankedTensorType
-createRankedTensorTypeWithElementType(RankedTensorType tensorType,
-                                      Type elementType) {
+RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
+                                                 Type memrefElementType) {
   TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
   TTNNLayoutAttr newEncoding =
-      oldEncoding.withElementType(elementType, tensorType.getShape());
-  Type newElementType = elementType;
-  if (TileType tileType = dyn_cast<TileType>(elementType)) {
+      oldEncoding.withElementType(memrefElementType, tensorType.getShape());
+  Type newElementType = memrefElementType;
+  if (TileType tileType = dyn_cast<TileType>(newElementType)) {
     newElementType = tileType.getElementType();
   }
   return RankedTensorType::get(tensorType.getShape(), newElementType,
                                newEncoding);
 }
 
-// Helper method to create a RankedTensorType with the given buffer type.
-RankedTensorType
-createRankedTensorTypeWithBufferType(RankedTensorType tensorType,
-                                     ttnn::BufferType bufferType) {
+RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
+                                                 ttnn::BufferType bufferType) {
   TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
   TTNNLayoutAttr newEncoding = oldEncoding.withBufferType(bufferType);
-  return createRankedTensorTypeWithEncoding(tensorType, newEncoding);
+  return create(tensorType, newEncoding);
 }
 
-// Helper method to create a RankedTensorType with the given memory layout.
 RankedTensorType
-createRankedTensorTypeWithMemoryLayout(RankedTensorType tensorType,
-                                       ttnn::TensorMemoryLayout memoryLayout) {
+RankedTensorTypeFactory::create(RankedTensorType tensorType,
+                                ttnn::TensorMemoryLayout memoryLayout) {
   TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
   TTNNLayoutAttr newEncoding = oldEncoding.withMemoryLayout(memoryLayout);
-  return createRankedTensorTypeWithEncoding(tensorType, newEncoding);
+  return create(tensorType, newEncoding);
 }
 
-// Helper method to create a RankedTensorType with the given grid.
-RankedTensorType createRankedTensorTypeWithGrid(RankedTensorType tensorType,
-                                                GridAttr grid) {
+RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
+                                                 Layout layout) {
+  DataType dataType =
+      mlir::tt::elementTypeToDataType(tensorType.getElementType());
+  Type memrefElementType =
+      utils::getElementType(tensorType.getContext(), layout, dataType);
+  return create(tensorType, memrefElementType);
+}
+
+RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
+                                                 GridAttr grid) {
   TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
   TTNNLayoutAttr newEncoding =
       oldEncoding.withGrid(tensorType.getShape(), grid);
-  return createRankedTensorTypeWithEncoding(tensorType, newEncoding);
+  return create(tensorType, newEncoding);
+}
+
+RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
+                                                 DataType dataType) {
+  TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
+  Type nmemrefElementType = utils::getElementType(
+      tensorType.getContext(), oldEncoding.getLayout(), dataType);
+  return create(tensorType, nmemrefElementType);
+}
+
+RankedTensorType
+RankedTensorTypeFactory::create(RankedTensorType tensorType,
+                                ArrayRef<int64_t> tensorShape) {
+  TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
+  TTNNLayoutAttr newEncoding = oldEncoding.withTensorShape(tensorShape);
+  return RankedTensorType::get(tensorShape, tensorType.getElementType(),
+                               newEncoding);
 }
 
 // Return the L1 memory usage of the output tensor of the given op.
@@ -185,6 +206,10 @@ createShardSpecIfNeeded(TensorMemoryLayoutAttr tensorMemoryLayoutAttr,
                            shardGridAttr, deviceGridAttr);
   }
   return shardSpecAttr;
+}
+
+bool isTTNNTraceFunc(func::FuncOp funcOp) {
+  return funcOp->hasAttr(g_TTNNTraceAttrName);
 }
 
 } // namespace mlir::tt::ttnn::utils

@@ -4,8 +4,8 @@
 
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TT/IR/Utils.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -73,13 +73,12 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
           .withMemoryLayout(outputMemLayoutAttr);
 
   // Create the output result type with the new data type and encoding.
-  RankedTensorType toLayoutOpResultType =
-      ttnn::utils::createRankedTensorTypeWithEncoding(
-          ttnn::utils::createRankedTensorTypeWithElementType(
-              inputToLayoutOpType,
-              mlir::tt::dataTypeToElementType(rewriter.getContext(),
-                                              targetTensorDataType)),
-          toLayoutOpResultEncoding);
+  RankedTensorType toLayoutOpResultType = RankedTensorTypeFactory::create(
+      RankedTensorTypeFactory::create(
+          inputToLayoutOpType,
+          mlir::tt::dataTypeToElementType(rewriter.getContext(),
+                                          targetTensorDataType)),
+      toLayoutOpResultEncoding);
 
   DeviceAttr deviceAttr = lookupDevice(op);
 

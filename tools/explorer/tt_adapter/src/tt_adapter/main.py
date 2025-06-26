@@ -46,9 +46,9 @@ def settings_to_overrides(settings, artifacts_dir):
     # Convert settings to output layout overrides.
     if settings.get("overrides"):
         for op_id, overrides in settings["overrides"].items():
+            op_name_loc = overrides["named_location"]
             output_layout_override = optimizer_overrides.OutputLayoutOverrideParams()
             conv2d_config_override = optimizer_overrides.Conv2dConfigOverrideParams()
-            op_loc = overrides["named_location"]
             for attr in overrides["attributes"]:
                 match attr["key"]:
                     case "data_type":
@@ -63,7 +63,7 @@ def settings_to_overrides(settings, artifacts_dir):
                         )
                     case "grid_shape":
                         output_layout_override.grid = [
-                            int(x) for x in attr["value"].strip("[]").split(",")
+                            int(x) for x in attr["value"].strip("[]").split("x")
                         ]
                     case "dtype":
                         conv2d_config_override.set_dtype_from_str(attr["value"])
@@ -140,11 +140,11 @@ def settings_to_overrides(settings, artifacts_dir):
                         raise ValueError(f"Invalid override attribute: {attr['key']}")
             if not output_layout_override.empty():
                 override_handler.add_output_layout_override(
-                    op_loc, output_layout_override
+                    op_name_loc, output_layout_override
                 )
             if not conv2d_config_override.empty():
                 override_handler.add_conv2d_config_override(
-                    op_id, conv2d_config_override
+                    op_name_loc, conv2d_config_override
                 )
 
     return override_handler

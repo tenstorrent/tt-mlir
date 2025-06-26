@@ -100,76 +100,76 @@ module @jit_loss_fsdp attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replic
 // CHECK-LABEL @main
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 0>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 8, 1>
-// CHECK-SAME: shard_type = #tt.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 0>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 8>
-// CHECK-SAME: shard_type = #tt.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 0>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 8, 1>
-// CHECK-SAME: shard_type = #tt.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 0>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 8>
-// CHECK-SAME: shard_type = #tt.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 0>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 8, 1>
-// CHECK-SAME: shard_type = #tt.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 0>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 8>
-// CHECK-SAME: shard_type = #tt.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 0>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 8, 1>
-// CHECK-SAME: shard_type = #tt.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 0>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 8>
-// CHECK-SAME: shard_type = #tt.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 0>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 8, 1>
-// CHECK-SAME: shard_type = #tt.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 0>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 8>
-// CHECK-SAME: shard_type = #tt.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 0>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 8, 1>
-// CHECK-SAME: shard_type = #tt.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 0>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 8>
-// CHECK-SAME: shard_type = #tt.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 0>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 8, 1>
-// CHECK-SAME: shard_type = #tt.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 0>
-// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 8, 1>
-// CHECK-SAME: shard_type = #tt.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1>
-// CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
+// CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1>
-// CHECK-SAME: shard_type = #tt.shard_type<replicate>
+// CHECK-SAME: shard_type = #ttcore.shard_type<replicate>

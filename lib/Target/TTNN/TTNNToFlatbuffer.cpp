@@ -4,9 +4,9 @@
 
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Dialect/TT/IR/TTOps.h"
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
@@ -610,12 +610,16 @@ createOp(FlatbufferObjectCache &cache, Conv2dOp op) {
   std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>>
       conv2dConfig = toFlatbuffer(cache, op.getConv2dConfig());
 
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
   return ::tt::target::ttnn::CreateConv2dOp(
       *cache.fbb, input, weight, bias, output,
       cache.at<::tt::target::DeviceRef>(device), op.getInChannels(),
       op.getOutChannels(), op.getBatchSize(), op.getInputHeight(),
       op.getInputWidth(), kernelSize, stride, padding, dilation, op.getGroups(),
-      conv2dConfig.value_or(0));
+      conv2dConfig.value_or(0), computeConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ConvTranspose2dOp>
@@ -644,6 +648,9 @@ createOp(FlatbufferObjectCache &cache, ConvTranspose2dOp op) {
   ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> dilation =
       toFlatbuffer(cache, op.getDilation());
 
+  std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>>
+      conv2dConfig = toFlatbuffer(cache, op.getConv2dConfig());
+
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
   return ::tt::target::ttnn::CreateConvTranspose2dOp(
@@ -651,7 +658,7 @@ createOp(FlatbufferObjectCache &cache, ConvTranspose2dOp op) {
       cache.at<::tt::target::DeviceRef>(device), op.getInChannels(),
       op.getOutChannels(), op.getBatchSize(), op.getInputHeight(),
       op.getInputWidth(), kernelSize, stride, padding, outputPadding, dilation,
-      op.getGroups(), memoryConfig);
+      op.getGroups(), conv2dConfig.value_or(0), memoryConfig);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::AllGatherOp>
@@ -753,6 +760,37 @@ createOp(FlatbufferObjectCache &cache, PermuteOp op) {
       *cache.fbb, input, permutation,
       memoryConfig ? toFlatbuffer(cache, memoryConfig.value()) : 0, padValue,
       output);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::BatchNormOp>
+createOp(FlatbufferObjectCache &cache, BatchNormOp op) {
+  flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
+      cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(op.getInput()));
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> runningMean =
+      cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(op.getRunningMean()));
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> runningVar =
+      cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(op.getRunningVar()));
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> weight =
+      cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(op.getWeight()));
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> bias =
+      cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(op.getBias()));
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> output =
+      cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                        kHostAllocatedSize);
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
+      op.getMemoryConfig() ? toFlatbuffer(cache, *op.getMemoryConfig()) : 0;
+
+  return ::tt::target::ttnn::CreateBatchNormOp(
+      *cache.fbb, input, runningMean, runningVar, op.getTraining(),
+      op.getEpsilon().convertToFloat(), op.getMomentum().convertToFloat(),
+      weight, bias, memoryConfig, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::UpsampleOp>
@@ -962,6 +1000,127 @@ createEltwiseTernaryWhereOp(FlatbufferObjectCache &cache, WhereOp op) {
       *cache.fbb, first, second, third, memoryConfig, out);
 }
 
+// Helper to walk typecast (optional) -> to_device -> to_layout -> from_device
+// -> full and extract attribute to get the original value for the constant
+// quantization scale or zero point.
+template <typename AttrType>
+static AttrType getAttrFromConstantChain(mlir::Value tensorVal,
+                                         const char *expectedTypeMsg) {
+  mlir::Value firstInput = tensorVal;
+  if constexpr (std::is_same_v<AttrType, int32_t>) {
+    // typecast first op for per-tensor zp
+    if (auto typeCastOp = firstInput.getDefiningOp<ttnn::TypecastOp>()) {
+      firstInput = typeCastOp.getInput();
+    } else {
+      llvm_unreachable(
+          "Expected ttnn.typecast as defining op for per-tensor zp.");
+    }
+  }
+  ttnn::ToDeviceOp toDeviceOp =
+      mlir::dyn_cast<ttnn::ToDeviceOp>(firstInput.getDefiningOp());
+  if (!toDeviceOp) {
+    llvm_unreachable(
+        "Expected ttnn.to_device as defining op for per-tensor scale/zp.");
+  }
+  ttnn::ToLayoutOp toLayoutOp =
+      mlir::dyn_cast<ttnn::ToLayoutOp>(toDeviceOp.getInput().getDefiningOp());
+  if (!toLayoutOp) {
+    llvm_unreachable(
+        "Expected ttnn.to_layout as defining op for per-tensor scale/zp.");
+  }
+  ttnn::FromDeviceOp fromDeviceOp =
+      mlir::dyn_cast<ttnn::FromDeviceOp>(toLayoutOp.getInput().getDefiningOp());
+  if (!fromDeviceOp) {
+    llvm_unreachable(
+        "Expected ttnn.from_device as defining op for per-tensor scale/zp.");
+  }
+  ttnn::FullOp fullOp =
+      mlir::dyn_cast<ttnn::FullOp>(fromDeviceOp.getInput().getDefiningOp());
+  if (!fullOp) {
+    llvm_unreachable(
+        "Expected ttnn.full as defining op for per-tensor scale/zp.");
+  }
+  if constexpr (std::is_same_v<AttrType, float>) {
+    if (auto fillValueAttr =
+            mlir::dyn_cast<mlir::FloatAttr>(fullOp.getFillValue())) {
+      return fillValueAttr.getValue().convertToDouble();
+    }
+  } else if constexpr (std::is_same_v<AttrType, int32_t>) {
+    if (auto fillValueAttr =
+            mlir::dyn_cast<mlir::IntegerAttr>(fullOp.getFillValue())) {
+      return fillValueAttr.getValue().getSExtValue();
+    }
+  }
+  llvm_unreachable(expectedTypeMsg);
+}
+
+// Process scale tensor (float values)
+static std::pair<::tt::target::ttnn::QuantizationScale,
+                 flatbuffers::Offset<void>>
+processScaleTensor(FlatbufferObjectCache &cache, mlir::Value scale) {
+  ::tt::target::ttnn::QuantizationScale scaleType;
+  flatbuffers::Offset<void> scaleUnion;
+
+  mlir::Value scaleTensor = getOperandThroughDPSOps(scale);
+  mlir::RankedTensorType scaleTensorType =
+      mlir::cast<mlir::RankedTensorType>(scaleTensor.getType());
+
+  if (scaleTensorType.getNumElements() == 1) {
+    // In the per-tensor case, the scale is a float scalar.
+    scaleType = ::tt::target::ttnn::QuantizationScale::PerTensorScale;
+    float scaleValue = getAttrFromConstantChain<float>(
+        scaleTensor, "Scale tensor constant must be a float attribute for "
+                     "per-tensor quantization.");
+    scaleUnion =
+        ::tt::target::ttnn::CreatePerTensorScale(*cache.fbb, scaleValue)
+            .Union();
+  } else {
+    // In the per-axis case, the scale is a tensor.
+    scaleType = ::tt::target::ttnn::QuantizationScale::PerAxisScale;
+    flatbuffers::Offset<::tt::target::ttnn::TensorRef> scaleTensorRef =
+        cache.at<::tt::target::ttnn::TensorRef>(scaleTensor);
+    scaleUnion =
+        ::tt::target::ttnn::CreatePerAxisScale(*cache.fbb, scaleTensorRef)
+            .Union();
+  }
+
+  return {scaleType, scaleUnion};
+}
+
+// Process zero point tensor (int32 values)
+static std::pair<::tt::target::ttnn::QuantizationZeroPoint,
+                 flatbuffers::Offset<void>>
+processZeroPointTensor(FlatbufferObjectCache &cache, mlir::Value zeroPoint) {
+  ::tt::target::ttnn::QuantizationZeroPoint zeroPointType;
+  flatbuffers::Offset<void> zeroPointUnion;
+
+  mlir::Value zeroPointTensor = getOperandThroughDPSOps(zeroPoint);
+  mlir::RankedTensorType zeroPointTensorType =
+      mlir::cast<mlir::RankedTensorType>(zeroPointTensor.getType());
+
+  // In the per-tensor case, the zero point is an int32 scalar.
+  if (zeroPointTensorType.getNumElements() == 1) {
+    zeroPointType =
+        ::tt::target::ttnn::QuantizationZeroPoint::PerTensorZeroPoint;
+    int32_t zeroPointValue = getAttrFromConstantChain<int32_t>(
+        zeroPointTensor, "Zero point tensor constant must be an integer "
+                         "attribute for per-tensor quantization.");
+    zeroPointUnion =
+        ::tt::target::ttnn::CreatePerTensorZeroPoint(*cache.fbb, zeroPointValue)
+            .Union();
+  } else {
+    // In the per-axis case, the zero point is a tensor.
+    zeroPointType = ::tt::target::ttnn::QuantizationZeroPoint::PerAxisZeroPoint;
+    flatbuffers::Offset<::tt::target::ttnn::TensorRef> zeroPointTensorRef =
+        cache.at<::tt::target::ttnn::TensorRef>(zeroPointTensor);
+    zeroPointUnion = ::tt::target::ttnn::CreatePerAxisZeroPoint(
+                         *cache.fbb, zeroPointTensorRef)
+                         .Union();
+  }
+
+  return {zeroPointType, zeroPointUnion};
+}
+
 template <typename EltwiseQuantizationOp>
 ::flatbuffers::Offset<::tt::target::ttnn::EltwiseQuantizationOp>
 createEltwiseQuantizationOp(FlatbufferObjectCache &cache,
@@ -971,21 +1130,42 @@ createEltwiseQuantizationOp(FlatbufferObjectCache &cache,
       [&cache](std::variant<QuantizeOp, DequantizeOp> opVariant) {
         return std::visit(
             [&cache](auto &&op) {
-              auto scale = op.getScale().convertToFloat();
-              auto zeroPoint = op.getZeroPoint();
+              // Process scale.
+              auto [scaleType, scaleValue] =
+                  processScaleTensor(cache, op.getScale());
+
+              // Process zero point.
+              auto [zeroPointType, zeroPointValue] =
+                  processZeroPointTensor(cache, op.getZeroPoint());
+
               return ::tt::target::ttnn::CreateQuantizeDequantizeOpParams(
-                  *cache.fbb, scale, zeroPoint);
+                  *cache.fbb, scaleType, scaleValue, zeroPointType,
+                  zeroPointValue);
             },
             opVariant);
       };
 
   auto createRequantOpParams = [&cache](RequantizeOp op) {
-    auto inScale = op.getInScale().convertToFloat();
-    auto inZeroPoint = op.getInZeroPoint();
-    auto outScale = op.getOutScale().convertToFloat();
-    auto outZeroPoint = op.getOutZeroPoint();
+    // Process in_scale.
+    auto [inScaleType, inScaleValue] =
+        processScaleTensor(cache, op.getInScale());
+
+    // Process in_zero_point.
+    auto [inZeroPointType, inZeroPointValue] =
+        processZeroPointTensor(cache, op.getInZeroPoint());
+
+    // Process out_scale.
+    auto [outScaleType, outScaleValue] =
+        processScaleTensor(cache, op.getOutScale());
+
+    // Process out_zero_point.
+    auto [outZeroPointType, outZeroPointValue] =
+        processZeroPointTensor(cache, op.getOutZeroPoint());
+
     return ::tt::target::ttnn::CreateRequantizeOpParams(
-        *cache.fbb, inScale, inZeroPoint, outScale, outZeroPoint);
+        *cache.fbb, inScaleType, inScaleValue, inZeroPointType,
+        inZeroPointValue, outScaleType, outScaleValue, outZeroPointType,
+        outZeroPointValue);
   };
 
   ::tt::target::ttnn::EltwiseQuantizationOpType type;
@@ -1081,6 +1261,10 @@ createEltwiseUnaryOp(FlatbufferObjectCache &cache, EltwiseUnaryOp op) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Atan;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, ExpOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Exp;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, ErfOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Erf;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, ErfcOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Erfc;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, LogOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Log;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, Expm1Op>) {
@@ -1452,6 +1636,37 @@ createOp(FlatbufferObjectCache &cache, tt::LoadCachedOp op,
   return ::tt::target::ttnn::CreateLoadCachedOpDirect(
       *cache.fbb, &ins, op.getCallee().str().c_str(), programIdx, &outputs);
 }
+
+::flatbuffers::Offset<::tt::target::ttnn::TraceOp>
+createOp(FlatbufferObjectCache &cache, TraceOp op,
+         const llvm::StringMap<uint32_t> &programIndexMap) {
+
+  ::mlir::Value device = getOperandThroughDPSOps(op.getDevice());
+  uint32_t cqId = op.getCqId();
+  bool blocking = op.getBlocking();
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> inputs;
+  for (auto input : op.getInputs()) {
+    inputs.push_back(cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(input)));
+  }
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> outputs;
+  for (auto result : op.getResults()) {
+    outputs.push_back(
+        cache.getOrCreate(result, tensorValueToFlatbuffer, kHostAllocatedSize));
+  }
+
+  auto it = programIndexMap.find(op.getCallee().str());
+  assert(it != programIndexMap.end() &&
+         "Program name not found in program index map!");
+  const uint32_t programIdx = it->second;
+
+  return ::tt::target::ttnn::CreateTraceOpDirect(
+      *cache.fbb, cache.at<::tt::target::DeviceRef>(device), cqId, blocking,
+      op.getCallee().str().c_str(), programIdx, &inputs, &outputs);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   const llvm::StringMap<uint32_t> &programIndexMap,
@@ -1664,6 +1879,14 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createEltwiseUnaryOp(cache, expOp),
                            debugString, locInfo);
   }
+  if (auto erfOp = dyn_cast<ErfOp>(op); erfOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, erfOp),
+                           debugString, locInfo);
+  }
+  if (auto erfcOp = dyn_cast<ErfcOp>(op); erfcOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, erfcOp),
+                           debugString, locInfo);
+  }
   if (auto logOp = dyn_cast<LogOp>(op); logOp) {
     return createOperation(cache, createEltwiseUnaryOp(cache, logOp),
                            debugString, locInfo);
@@ -1869,6 +2092,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, upsampleOp), debugString,
                            locInfo);
   }
+  if (auto batchNormOp = dyn_cast<BatchNormOp>(op); batchNormOp) {
+    return createOperation(cache, createOp(cache, batchNormOp), debugString,
+                           locInfo);
+  }
   if (auto constantOp = dyn_cast<ConstantOp>(op); constantOp) {
     return createOperation(cache, createOp(cache, constantOp), debugString,
                            locInfo);
@@ -1883,6 +2110,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto loadCachedOp = dyn_cast<tt::LoadCachedOp>(op); loadCachedOp) {
     return createOperation(cache,
                            createOp(cache, loadCachedOp, programIndexMap),
+                           debugString, locInfo);
+  }
+  if (auto traceOp = dyn_cast<TraceOp>(op); traceOp) {
+    return createOperation(cache, createOp(cache, traceOp, programIndexMap),
                            debugString, locInfo);
   }
 
@@ -1918,14 +2149,8 @@ std::shared_ptr<void> ttnnToFlatbuffer(
       toFlatbuffer(cache, mlir::cast<tt::SystemDescAttr>(
                               module->getAttr(tt::SystemDescAttr::name)));
 
-  std::string cpp;
-  llvm::raw_string_ostream os(cpp);
-  auto result = mlir::tt::ttnn::emitTTNNAsCpp(module, os);
-  (void)result;
-
   flatbuffers::Offset<::tt::target::DebugInfo> debugInfo =
-      debugInfoToFlatbuffer(fbb, "ttnn", rootModule, goldenMap, moduleCache,
-                            cpp.c_str());
+      debugInfoToFlatbuffer(fbb, "ttnn", rootModule, goldenMap, moduleCache);
 
   // Handle dylib creation and packaging, if needed.
   // Currently, we only have 1 CPUModuleOp and 1 top-level ModuleOp; we use a
@@ -1951,52 +2176,72 @@ std::shared_ptr<void> ttnnToFlatbuffer(
 
   size_t programIdx = 0;
   llvm::StringMap<uint32_t> programIdxMap;
-  // Preserve original ordering by skipping const-eval in the first pass.
-  module->walk([&](func::FuncOp func) {
-    if (ttmlir::utils::isConstEvalFunc(func)) {
-      return;
-    }
-    programIdxMap[func.getSymName().str()] = programIdx++;
-  });
 
-  // Add const-eval funcs after normal funcs.
-  module->walk([&](func::FuncOp func) {
-    if (!ttmlir::utils::isConstEvalFunc(func)) {
-      return;
-    }
-    programIdxMap[func.getSymName().str()] = programIdx++;
+  auto populateProgramIdxMap =
+      [&](std::function<bool(func::FuncOp)> shouldSkip) -> void {
+    module->walk([&](func::FuncOp func) {
+      if (shouldSkip(func)) {
+        return;
+      }
+      programIdxMap[func.getSymName().str()] = programIdx++;
+    });
+  };
+
+  // Preserve original ordering by skipping const-eval and tracein the first
+  // pass.
+  populateProgramIdxMap([](func::FuncOp func) {
+    return ttmlir::utils::isConstEvalFunc(func) ||
+           ttnn::utils::isTTNNTraceFunc(func);
   });
+  // Add const-eval funcs after normal funcs.
+  populateProgramIdxMap(
+      [](func::FuncOp func) { return !ttmlir::utils::isConstEvalFunc(func); });
+  // Finally add trace funcs.
+  populateProgramIdxMap(
+      [](func::FuncOp func) { return !ttnn::utils::isTTNNTraceFunc(func); });
 
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::Program>> programs;
-  // Again, process original funcs in order first to perserve input order.
-  module->walk([&](func::FuncOp func) {
-    if (ttmlir::utils::isConstEvalFunc(func)) {
-      return;
-    }
-    Program<::tt::target::ttnn::Operation> program =
-        funcOpToProgram<::tt::target::ttnn::Operation>(
-            cache, func, emitTTNNOperation, tensorValueToFlatbuffer,
-            programIdxMap);
-    programs.push_back(::tt::target::ttnn::CreateProgramDirect(
-        fbb, program.name, &program.inputs, &program.outputs, &program.ops,
-        &dylibs, debugInfo));
-  });
+
+  auto generatePrograms = [&](std::function<bool(func::FuncOp)> shouldSkip,
+                              bool isPrivate) -> void {
+    module->walk([&](func::FuncOp func) {
+      if (shouldSkip(func)) {
+        return;
+      }
+      Program<::tt::target::ttnn::Operation> program =
+          funcOpToProgram<::tt::target::ttnn::Operation>(
+              cache, func, emitTTNNOperation, tensorValueToFlatbuffer,
+              programIdxMap);
+
+      DeviceAttr deviceAttr = lookupDevice(func);
+
+      ::tt::target::Dim2d meshShape = deviceToFlatbufferMeshShape(deviceAttr);
+
+      programs.push_back(::tt::target::ttnn::CreateProgramDirect(
+          fbb, program.name, &program.inputs, &program.outputs, &program.ops,
+          &dylibs, debugInfo, isPrivate, &meshShape));
+    });
+  };
+
+  // Again, process original funcs in order first to preserve input order.
+  generatePrograms(
+      [](func::FuncOp func) {
+        return ttmlir::utils::isConstEvalFunc(func) ||
+               ttnn::utils::isTTNNTraceFunc(func);
+      },
+      /*isPrivate=*/false);
   // Then process const-eval funcs in 2nd pass.
-  module->walk([&](func::FuncOp func) {
-    if (!ttmlir::utils::isConstEvalFunc(func)) {
-      return;
-    }
-    Program<::tt::target::ttnn::Operation> program =
-        funcOpToProgram<::tt::target::ttnn::Operation>(
-            cache, func, emitTTNNOperation, tensorValueToFlatbuffer,
-            programIdxMap);
-    programs.push_back(::tt::target::ttnn::CreateProgramDirect(
-        fbb, program.name, &program.inputs, &program.outputs, &program.ops,
-        &dylibs, debugInfo));
-  });
+  generatePrograms(
+      [](func::FuncOp func) { return !ttmlir::utils::isConstEvalFunc(func); },
+      /*isPrivate=*/true);
+  // Finally process trace funcs.
+  generatePrograms(
+      [](func::FuncOp func) { return !ttnn::utils::isTTNNTraceFunc(func); },
+      /*isPrivate=*/true);
 
   auto binary = ::tt::target::ttnn::CreateTTNNBinaryDirect(
-      fbb, &binaryVersion, ::ttmlir::getGitHash(), systemDesc, &programs);
+      fbb, &binaryVersion, ::tt::target::ttnn::binary_bfbs_schema_hash,
+      ::ttmlir::getGitHash(), systemDesc, &programs);
 
   ::tt::target::ttnn::FinishSizePrefixedTTNNBinaryBuffer(fbb, binary);
   ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());

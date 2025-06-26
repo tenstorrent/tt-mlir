@@ -6,9 +6,9 @@
 
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
-#include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Dialect/TT/Transforms/Passes.h"
-#include "ttmlir/Dialect/TT/Utils/PopulateArgumentTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
@@ -45,7 +45,7 @@
 
 void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
   registry.insert<
-      mlir::tt::TTDialect, mlir::tt::ttir::TTIRDialect,
+      mlir::tt::TTCoreDialect, mlir::tt::ttir::TTIRDialect,
       mlir::tt::ttnn::TTNNDialect, mlir::tt::ttmetal::TTMetalDialect,
       mlir::tt::ttkernel::TTKernelDialect, mlir::func::FuncDialect,
       mlir::arith::ArithDialect, mlir::ml_program::MLProgramDialect,

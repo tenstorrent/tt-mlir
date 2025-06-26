@@ -1,6 +1,6 @@
-// RUN: ttmlir-opt --tt-wrap-device-module --ttir-cpu-hoist-transform --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-wrap-device-module --ttir-cpu-hoist-transform --canonicalize %s | FileCheck %s
 
-// CHECK: tt.device_module {
+// CHECK: ttcore.device_module {
 // CHECK: builtin.module {
 
 // CHECK: func.func @add1
@@ -49,7 +49,7 @@ func.func @add4(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<
 // CHECK: func.func private @hoisted_ttir_add_32x32_32x32_32x32_func_decl
 // CHECK: func.func private @hoisted_ttir_add_32x3_32x3_32x3_func_decl
 
-// CHECK: tt.cpu_module {
+// CHECK: ttcore.cpu_module {
 // CHECK: builtin.module {
 // CHECK: func.func @hoisted_ttir_add_32x32_32x32_32x32_func
 // CHECK: func.func @hoisted_ttir_add_32x3_32x3_32x3_func

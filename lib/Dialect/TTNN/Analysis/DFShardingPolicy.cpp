@@ -4,7 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/DFShardingPolicy.h"
 
-#include "ttmlir/Dialect/TT/IR/Utils.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
@@ -37,7 +37,7 @@ void DFShardingPolicy::run() {
     // 4. Op is considered sharded if its output is sharded to L1.
     //
     while (scheduler.hasUnscheduledOps()) {
-      scheduleableOps = scheduler.getScheduleableOps();
+      scheduleableOps = scheduler.getSchedulableOps();
 
       // Before starting a sharding chain, schedule layout/memory management ops
       // first until they are exhausted from schedulable ops.
@@ -71,7 +71,7 @@ void DFShardingPolicy::run() {
       }
 
       if (scheduler.hasUnscheduledOps()) {
-        scheduleableOps = scheduler.getScheduleableOps();
+        scheduleableOps = scheduler.getSchedulableOps();
 
         // Check if currentOp has a valid successor.
         //
@@ -85,126 +85,33 @@ void DFShardingPolicy::run() {
           }
         }
 
-        if (nextOp) {
+        // Consider sharding only if we found at least single legal config for
+        // the current op.
+        bool validForSharding =
+            llvm::isa<ttnn::AddOp, ttnn::SubtractOp, ttnn::MultiplyOp,
+                      ttnn::ReluOp, ttnn::Conv2dOp>(currentOp) &&
+            legalConfigs.lookup(currentOp).size() > 0;
 
-          // V0 Before adding to shard chain config check that currentOp is not
-          // fork/join op.
+        if (validForSharding) {
+          OpL1MemSpec shardSpec;
+          shardSpec.op = currentOp;
+
+          // Hardcoded tensor split factor for now, until pipeline OP
+          // support is added.
           //
-          bool validForSharding = currentOp->hasOneUse() &&
-                                  legalConfigs.lookup(currentOp).size() > 0 &&
-                                  legalConfigs.lookup(nextOp).size() > 0;
+          shardSpec.tensorSplitFactor = 1;
+          l1ChainConfigs->back().addOpL1MemSpec(std::move(shardSpec));
 
-          // TODO(odjuricic): Skip all ops that don't support sharding due to
-          // bugs and incomplete implementation. This needs to be addressed in
-          // the near future.
-          //
-          if (llvm::isa<
-                  ttnn::ZerosOp, ttnn::OnesOp,
-                  // TODO(#3242): Re-enable once we are able to query backend
-                  // for matmul.
-                  ttnn::MatmulOp,
-                  // TODO(#2038): Remove this once this bug is fixed.
-                  // TODO(#2042): And constraints are implemented.
-                  ttnn::ReshapeOp,
-                  // TODO(#2038): Remove this once this bug is fixed.
-                  ttnn::ConcatOp,
-                  // TODO(#2041): Remove once constraints are added for MeanOp.
-                  // TODO(#2084): Remove once constraints are added for all
-                  // Llama ops.
-                  ttnn::MeanOp, ttnn::SinOp, ttnn::CosOp, ttnn::ReciprocalOp,
-
-                  // Following binary eltwise ops are blocked by metal issue
-                  // https://github.com/tenstorrent/tt-metal/issues/21846
-                  ttnn::AddOp, ttnn::SubtractOp, ttnn::MultiplyOp,
-
-                  // TODO(#2588): Blocked by graph capture issue.
-                  ttnn::MaxPool2dOp>(currentOp)) {
-            validForSharding = false;
-          }
-
-          if (validForSharding) {
-            // Fetch largest legal sharded L1 layouts for currentOp and nextOp.
-            //
-            // Calculate L1 tensor memory usage based on :
-            // currentOp output tensor shard spec, nextOp exec and nextOp output
-            // tensor.
-            //
-            OpConfig currentOpConfig = legalConfigs.lookup(currentOp).front();
-            assert(
-                currentOpConfig.outputLayout.hasShardedL1TensorMemoryLayout());
-            uint64_t currentOpL1OutputUsage =
-                currentOpConfig.outputLayout.getShardSizeInBytes();
-
-            OpConfig nextOpConfig = legalConfigs.lookup(nextOp).front();
-            assert(nextOpConfig.outputLayout.hasShardedL1TensorMemoryLayout());
-            uint64_t nextOpL1OutputUsage =
-                nextOpConfig.outputLayout.getShardSizeInBytes();
-
-            // Figure out this const based on exec data, but will be replaced
-            // with API.
-            //
-            constexpr float tensorL1UsageCap = 0.8;
-            bool l1UsageValid = (currentOpL1OutputUsage + nextOpL1OutputUsage) <
-                                tensorL1UsageCap * usableL1CacheSize;
-
-            if (l1UsageValid) {
-              // TODO(nobradovic)
-              // It seems that some TTNN ops have constraints which prevent
-              // them from being sharded if both inputs are interleaved,
-              // so proposal for now is starting a shard chain
-              // with reshard op. For this reason we also need to validate that
-              // currentOp can fit into L1 with its first input sharded.
-              //
-              bool firstInputL1UsageValid = true;
-              if (l1ChainConfigs->back().isEmpty() &&
-                  (overrideReshardEdges.count(
-                       Edge(currentOp->getOperand(0).getDefiningOp(), currentOp,
-                            0)) > 0)) {
-                RankedTensorType firstOpInputTensorType =
-                    mlir::cast<RankedTensorType>(currentOp->getOperand(0)
-                                                     .getDefiningOp()
-                                                     ->getResult(0)
-                                                     .getType());
-                TTNNLayoutAttr firstOpInputLayout = mlir::cast<TTNNLayoutAttr>(
-                    firstOpInputTensorType.getEncoding());
-
-                TTNNLayoutAttr firstOpInputShardedLayout =
-                    firstOpInputLayout
-                        .withBufferType(
-                            currentOpConfig.outputLayout.getBufferType())
-                        .withMemoryLayout(
-                            currentOpConfig.outputLayout.getMemLayout())
-                        .withGrid(firstOpInputTensorType,
-                                  currentOpConfig.outputLayout.getGrid());
-
-                uint64_t firstInputL1Usage =
-                    firstOpInputShardedLayout.getShardSizeInBytes();
-
-                firstInputL1UsageValid =
-                    (firstInputL1Usage + currentOpL1OutputUsage) <
-                    tensorL1UsageCap * usableL1CacheSize;
-              }
-
-              if (firstInputL1UsageValid) {
-                // Add to shard chain config.
-                //
-                OpL1MemSpec shardSpec;
-                shardSpec.op = currentOp;
-
-                // Hardcoded tensor split factor for now, until pipeline OP
-                // support is added.
-                //
-                shardSpec.tensorSplitFactor = 1;
-                l1ChainConfigs->back().addOpL1MemSpec(std::move(shardSpec));
-                currentOp = nextOp;
-                continue;
-              }
-            }
+          if (nextOp && currentOp->hasOneUse()) {
+            // Only if nextOp is valid and currentOp is not a fork keep
+            // growing the chain.
+            currentOp = nextOp;
+            continue;
           }
         }
 
         currentOp = nullptr;
-      }
+      } // endif hasUnscheduledOps
 
       if (!l1ChainConfigs->back().isEmpty()) {
         l1ChainConfigs->back().build();
@@ -217,6 +124,11 @@ void DFShardingPolicy::run() {
 
   if (l1ChainConfigs->back().isEmpty()) {
     l1ChainConfigs->pop_back();
+  }
+
+  for ([[maybe_unused]] L1ChainConfig &l1ChainConfig : *l1ChainConfigs) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "L1 chain config {}",
+                 l1ChainConfig);
   }
 
   // Resolve shard chain configs.

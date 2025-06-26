@@ -28,6 +28,18 @@ class Kernel:
     def dump(self):
         print(self.kernel_string)
 
-    def dump_to_file(self, file_path):
+    def dump_to_file(self, file_path=""):
+        if not file_path:
+            file_path = f"generated/pykernels/{self.kernel_name}.cpp"
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
         with open(file_path, "w") as f:
             f.write(self.kernel_string)
+
+        return file_path
+
+
+class CompiledValue:
+    def __init__(self, key, value):
+        self.key = key
+        self.value = value

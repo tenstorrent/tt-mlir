@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TT/IR/Utils.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
@@ -33,7 +33,7 @@ public:
         return;
       }
       assert(func.getBody().hasOneBlock() &&
-             "found func that didn't have one block!");
+             "Found func that didn't have one block!");
       func->walk([&](Operation *op) {
         if (!isa<ttnn::ToLayoutOp>(op)) {
           return;
@@ -286,14 +286,13 @@ private:
         info.output.createMemoryConfigAttr(op.getContext());
     RankedTensorType currentInputType =
         mlir::cast<RankedTensorType>(currentInput.getType());
-    RankedTensorType newResultType =
-        utils::createRankedTensorTypeWithBufferType(currentInputType,
-                                                    info.output.bufferType);
-    newResultType = utils::createRankedTensorTypeWithMemoryLayout(
+    RankedTensorType newResultType = utils::RankedTensorTypeFactory::create(
+        currentInputType, info.output.bufferType);
+    newResultType = utils::RankedTensorTypeFactory::create(
         newResultType, info.output.tensorMemoryLayout.getValue());
 
     // Respect grid attribute of the output layout
-    newResultType = utils::createRankedTensorTypeWithGrid(
+    newResultType = utils::RankedTensorTypeFactory::create(
         newResultType, info.output.shardGrid);
 
     // Create new ranked tensor type with host memory buffer type
@@ -313,9 +312,8 @@ private:
     }
     RankedTensorType currentInputType =
         mlir::cast<RankedTensorType>(currentInput.getType());
-    RankedTensorType newResultType =
-        utils::createRankedTensorTypeWithBufferType(
-            currentInputType, ttnn::BufferType::SystemMemory);
+    RankedTensorType newResultType = utils::RankedTensorTypeFactory::create(
+        currentInputType, ttnn::BufferType::SystemMemory);
     return this->createOp<ttnn::FromDeviceOp>(rewriter, op, newResultType,
                                               currentInput);
   }
@@ -329,24 +327,18 @@ private:
     }
     ttnn::LayoutAttr layoutAttr =
         ttnn::LayoutAttr::get(op.getContext(), info.output.layoutEnum);
-    RankedTensorType currentInputType =
-        mlir::cast<RankedTensorType>(currentInput.getType());
-    DataType currentInputDataType =
-        mlir::tt::elementTypeToDataType(currentInputType.getElementType());
-    Type memrefElementType = utils::getElementType(
-        op.getContext(), info.output.layoutEnum, currentInputDataType);
-    RankedTensorType newResultType =
-        utils::createRankedTensorTypeWithElementType(currentInputType,
-                                                     memrefElementType);
+    RankedTensorType newResultType = utils::RankedTensorTypeFactory::create(
+        mlir::cast<RankedTensorType>(currentInput.getType()),
+        info.output.layoutEnum);
+    BufferType bufferType =
+        mlir::cast<TTNNLayoutAttr>(newResultType.getEncoding()).getBufferType();
+    mlir::Value device =
+        bufferType == ttnn::BufferType::SystemMemory ? nullptr : info.device;
 
-    TTNNLayoutAttr inputLayout =
-        mlir::cast<TTNNLayoutAttr>(currentInputType.getEncoding());
-
-    return this->createOp<ttnn::ToLayoutOp>(
-        rewriter, op, newResultType, currentInput, layoutAttr,
-        /*dtype*/ nullptr,
-        /*memory_config*/ nullptr,
-        inputLayout.isSystemBufferType() ? nullptr : info.device);
+    return this->createOp<ttnn::ToLayoutOp>(rewriter, op, newResultType,
+                                            currentInput, layoutAttr,
+                                            /*dtype*/ nullptr,
+                                            /*memory_config*/ nullptr, device);
   }
 
   template <typename OpType>
@@ -355,15 +347,9 @@ private:
                                       const OpCreationInfo &info) const {
     DataTypeAttr dtypeAttr =
         DataTypeAttr::get(op.getContext(), info.output.dataType);
-    RankedTensorType currentInputType =
-        mlir::cast<RankedTensorType>(currentInput.getType());
-    TTNNLayoutAttr currentInputLayout =
-        mlir::cast<TTNNLayoutAttr>(currentInputType.getEncoding());
-    Type nmemrefElementType = utils::getElementType(
-        op.getContext(), currentInputLayout.getLayout(), info.output.dataType);
-    RankedTensorType newResultType =
-        utils::createRankedTensorTypeWithElementType(currentInputType,
-                                                     nmemrefElementType);
+    RankedTensorType newResultType = utils::RankedTensorTypeFactory::create(
+        mlir::cast<RankedTensorType>(currentInput.getType()),
+        info.output.dataType);
     return this->createOp<OpType>(rewriter, op, newResultType, currentInput,
                                   dtypeAttr);
   }

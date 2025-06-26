@@ -10,7 +10,7 @@ module @jit_constant attributes {} {
     // CHECK-LABEL: func.func public @test_int64_scalar
     // CHECK: ttnn.full
     // CHECK-SAME: fill_value = 3 : i32
-    // CHECK-SAME: -> tensor<1xui32
+    // CHECK-SAME: -> tensor<1xf32
     // CHECK: ttnn.typecast
     // CHECK-SAME: -> tensor<1xsi32
     %0 = stablehlo.constant dense<3> : tensor<i64>
@@ -21,7 +21,7 @@ module @jit_constant attributes {} {
     // CHECK-LABEL: func.func public @test_int64_scalar_empty
     // CHECK: ttnn.full
     // CHECK-SAME: fill_value = 0 : i32
-    // CHECK-SAME: -> tensor<1xui32
+    // CHECK-SAME: -> tensor<1xf32
     // CHECK: ttnn.typecast
     // CHECK-SAME: -> tensor<1xsi32
     %0 = stablehlo.constant dense<0> : tensor<i64>
@@ -32,7 +32,7 @@ module @jit_constant attributes {} {
     // CHECK-LABEL: func.func public @test_int64_empty
     // CHECK: ttnn.full
     // CHECK-SAME: fill_value = 0 : i32
-    // CHECK-SAME: -> tensor<64x128xui32
+    // CHECK-SAME: -> tensor<64x128xf32
     // CHECK: ttnn.typecast
     // CHECK-SAME: -> tensor<64x128xsi32
     %0 = stablehlo.constant dense<0> : tensor<64x128xi64>
@@ -43,7 +43,7 @@ module @jit_constant attributes {} {
     // CHECK-LABEL: func.func public @test_int64_splat
     // CHECK: ttnn.full
     // CHECK-SAME: fill_value = 3 : i32
-    // CHECK-SAME: -> tensor<64x128xui32
+    // CHECK-SAME: -> tensor<64x128xf32
     // CHECK: ttnn.typecast
     // CHECK-SAME: -> tensor<64x128xsi32
     %0 = stablehlo.constant dense<3> : tensor<64x128xi64>

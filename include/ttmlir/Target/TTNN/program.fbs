@@ -17,9 +17,10 @@ include "ttmlir/Target/TTNN/operations/load_cached.fbs";
 include "ttmlir/Target/TTNN/operations/matmul.fbs";
 // ANCHOR_END: adding_an_op_matmul_fbs_include
 include "ttmlir/Target/TTNN/operations/moreh_cumsum.fbs";
-include "ttmlir/Target/TTNN/operations/softmax.fbs";
+include "ttmlir/Target/TTNN/operations/normalization.fbs";
 include "ttmlir/Target/TTNN/operations/pool.fbs";
 include "ttmlir/Target/TTNN/operations/reduction.fbs";
+include "ttmlir/Target/TTNN/operations/trace.fbs";
 
 namespace tt.target.ttnn;
 
@@ -75,6 +76,8 @@ union OpType {
   ReductionOp,
   ReductionProdOp,
   LoadCachedOp,
+  BatchNormOp,
+  TraceOp
 }
 
 table Operation {
@@ -90,4 +93,7 @@ table Program {
   operations: [Operation];
   dylibs: [DynamicLib];
   debug_info: DebugInfo;
+  // Flag to indicate if this program is intended to be called or only for internal use (e.g. hoisted const-eval func).
+  private: bool;
+  mesh_shape: Dim2d;
 }

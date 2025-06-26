@@ -13,17 +13,17 @@ module {
 
   // UNDONE-LABEL: func.func @test_undo_redo
   // UNDONE-NOT: func.func @test_undo_redo_const_eval_0
-  // UNDONE-NOT: tt.load_cached
+  // UNDONE-NOT: ttcore.load_cached
   // UNDONE: "ttir.add"(%arg2, %arg3, %{{.*}})
   // UNDONE: "ttir.add"(%arg0, %arg1, %{{.*}})
   // UNDONE: "ttir.add"(%{{.*}}, %{{.*}}, %{{.*}})
 
   // CHECK: func.func @test_undo_redo(
-  func.func @test_undo_redo(%arg0: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<input>},
-                    %arg1: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<input>},
-                    %arg2: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<parameter>},
-                    %arg3: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<constant>}) -> tensor<32x32xbf16> {
-    // CHECK: tt.load_cached(@test_undo_redo_const_eval_0, [%arg2, %arg3])
+  func.func @test_undo_redo(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>},
+                    %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>},
+                    %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>},
+                    %arg3: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<32x32xbf16> {
+    // CHECK: ttcore.load_cached(@test_undo_redo_const_eval_0, [%arg2, %arg3])
     %0 = ttir.empty() : tensor<32x32xbf16>
     %1 = "ttir.add"(%arg2, %arg3, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     %2 = ttir.empty() : tensor<32x32xbf16>
@@ -45,7 +45,7 @@ module {
   // UNDONE-LABEL: func.func @test_multi_undo_redo
   // UNDONE-NOT: func.func @test_multi_undo_redo_const_eval_0
   // UNDONE-NOT: func.func @test_multi_undo_redo_const_eval_1
-  // UNDONE-NOT: tt.load_cached
+  // UNDONE-NOT: ttcore.load_cached
   // UNDONE: "ttir.add"(%arg2, %arg3, %{{.*}})
   // UNDONE: "ttir.multiply"(%arg3, %arg4, %{{.*}})
   // UNDONE: "ttir.add"(%arg0, %arg1, %{{.*}})
@@ -53,16 +53,16 @@ module {
   // UNDONE: "ttir.multiply"(%{{.*}}, %{{.*}}, %{{.*}})
 
   // CHECK: func.func @test_multi_undo_redo(
-  func.func @test_multi_undo_redo(%arg0: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<input>},
-                          %arg1: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<input>},
-                          %arg2: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<parameter>},
-                          %arg3: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<constant>},
-                          %arg4: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<constant>}) -> tensor<32x32xbf16> {
-    // CHECK: tt.load_cached(@test_multi_undo_redo_const_eval_0, [%arg2, %arg3])
+  func.func @test_multi_undo_redo(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>},
+                          %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>},
+                          %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>},
+                          %arg3: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>},
+                          %arg4: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<32x32xbf16> {
+    // CHECK: ttcore.load_cached(@test_multi_undo_redo_const_eval_0, [%arg2, %arg3])
     %0 = ttir.empty() : tensor<32x32xbf16>
     %1 = "ttir.add"(%arg2, %arg3, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
 
-    // CHECK: tt.load_cached(@test_multi_undo_redo_const_eval_1, [%arg3, %arg4])
+    // CHECK: ttcore.load_cached(@test_multi_undo_redo_const_eval_1, [%arg3, %arg4])
     %2 = ttir.empty() : tensor<32x32xbf16>
     %3 = "ttir.multiply"(%arg3, %arg4, %2) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
 

@@ -2,33 +2,27 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <random>
-
-#include "llvm-gtest/gtest/gtest.h"
-#include "mlir/IR/Attributes.h"
-#include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/Value.h"
-#include "mlir/IR/ValueRange.h"
-#include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/StringRef.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/Transforms/Transforms.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
+#include "ttmlir/Scheduler/Scheduler.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OperationSupport.h"
+#include "mlir/IR/Value.h"
 #include "mlir/IR/Verifier.h"
+#include "llvm/ADT/SmallVector.h"
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Dialect/TT/Transforms/Transforms.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
-#include "ttmlir/Scheduler/Scheduler.h"
+#include "gtest/gtest.h"
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
+#include <random>
 
 using namespace mlir::tt;
 
@@ -57,7 +51,7 @@ public:
 
   void SetUp() override {
     // Initialize context and module
-    context.loadDialect<TTDialect>();
+    context.loadDialect<TTCoreDialect>();
     context.loadDialect<ttir::TTIRDialect>();
     module = mlir::ModuleOp::create(builder.getUnknownLoc());
     builder.setInsertionPointToStart(&module->getBodyRegion().front());
@@ -135,7 +129,7 @@ TEST_F(SchedulerBase, FixedSchedule) {
   mlir::tt::scheduler::Scheduler scheduler(&func);
   for (std::size_t i = 0; i < NumberOfOps; i++) {
     llvm::SmallVector<mlir::Operation *> scheduleableOps =
-        scheduler.getScheduleableOps();
+        scheduler.getSchedulableOps();
     ASSERT_EQ(scheduleableOps.size(), 1);
     ASSERT_TRUE(scheduler.hasUnscheduledOps());
     ;
@@ -167,7 +161,7 @@ TEST_F(SchedulerBase, SingleOp) {
   mlir::tt::scheduler::Scheduler scheduler(&func);
   ASSERT_TRUE(scheduler.hasUnscheduledOps());
   llvm::SmallVector<mlir::Operation *> scheduleableOps =
-      scheduler.getScheduleableOps();
+      scheduler.getSchedulableOps();
   ASSERT_EQ(scheduleableOps.size(), 1);
   scheduler.scheduleOp(scheduleableOps[0]);
   ASSERT_FALSE(scheduler.hasUnscheduledOps());
@@ -213,19 +207,19 @@ TEST_F(SchedulerBase, VerifyFork) {
 
   mlir::tt::scheduler::Scheduler scheduler(&func);
   llvm::SmallVector<mlir::Operation *> scheduleableOps =
-      scheduler.getScheduleableOps();
+      scheduler.getSchedulableOps();
   ASSERT_EQ(scheduleableOps.size(), 1);
 
   scheduler.scheduleOp(scheduleableOps[0]);
-  scheduleableOps = scheduler.getScheduleableOps();
+  scheduleableOps = scheduler.getSchedulableOps();
   ASSERT_EQ(scheduleableOps.size(), 2);
 
   scheduler.scheduleOp(scheduleableOps[0]);
-  scheduleableOps = scheduler.getScheduleableOps();
+  scheduleableOps = scheduler.getSchedulableOps();
   ASSERT_EQ(scheduleableOps.size(), 1);
 
   scheduler.scheduleOp(scheduleableOps[0]);
-  scheduleableOps = scheduler.getScheduleableOps();
+  scheduleableOps = scheduler.getSchedulableOps();
   ASSERT_EQ(scheduleableOps.size(), 1);
 
   scheduler.scheduleOp(scheduleableOps[0]);

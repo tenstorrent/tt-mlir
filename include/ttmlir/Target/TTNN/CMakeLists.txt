@@ -3,6 +3,7 @@ include(BuildFlatbuffers)
 set(TTNN_OPERATIONS_FBS_GEN_SOURCES
   operations/ccl.fbs
   operations/get_device.fbs
+  operations/configs.fbs
   operations/conv.fbs
   operations/cpu.fbs
   operations/creation.fbs
@@ -17,9 +18,10 @@ set(TTNN_OPERATIONS_FBS_GEN_SOURCES
   operations/matmul.fbs
   # ANCHOR_END: adding_an_op_matmul_fbs_cmake
   operations/moreh_cumsum.fbs
-  operations/softmax.fbs
+  operations/normalization.fbs
   operations/pool.fbs
   operations/reduction.fbs
+  operations/trace.fbs
 )
 
 set(TTNN_FBS_GEN_SOURCES
@@ -29,4 +31,4 @@ set(TTNN_FBS_GEN_SOURCES
   binary.fbs
 )
 
-build_flatbuffers("${TTNN_FBS_GEN_SOURCES}" TTNN_FBS COMMON_FBS)
+build_flatbuffers("ttnn" "${TTNN_FBS_GEN_SOURCES}" TTNN_FBS COMMON_FBS)

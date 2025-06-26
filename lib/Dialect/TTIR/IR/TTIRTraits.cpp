@@ -99,3 +99,44 @@ mlir::tt::ttir::impl::verifyGenericRegionDatamovementOp(mlir::Operation *op) {
   return verifyGenericRegionOpThreadType(
       op, ::mlir::tt::ttir::ThreadType::Datamovement);
 }
+
+mlir::LogicalResult
+mlir::tt::ttir::impl::verifyBroadcastable(mlir::Operation *op) {
+  assert(op->getNumResults() == 1 &&
+         "Expected a single result for broadcastable operation");
+
+  auto getShape = [](const Value val) {
+    return mlir::cast<mlir::RankedTensorType>(val.getType()).getShape();
+  };
+
+  auto operands = op->getOperands();
+  // DPS operands shouldn't affect the result shape.
+  if (auto dpsOp = mlir::dyn_cast<mlir::DestinationStyleOpInterface>(op)) {
+    assert(dpsOp.getNumDpsInits() == 1 &&
+           "Expected a single dps init for broadcastable operation");
+    operands = operands.drop_back(dpsOp.getNumDpsInits());
+  }
+  auto operandShapes = llvm::map_range(operands, getShape);
+  llvm::SmallVector<int64_t> broadcastedShape;
+  for (llvm::ArrayRef<int64_t> operandShape : operandShapes) {
+    llvm::SmallVector<int64_t> prevBroadcastedShape = broadcastedShape;
+    if (!mlir::OpTrait::util::getBroadcastedShape(
+            prevBroadcastedShape, operandShape, broadcastedShape)) {
+      return op->emitOpError()
+             << "operand shape (" << operandShape
+             << ") is not broadcast compatible with inferred operand shapes ("
+             << prevBroadcastedShape << ")";
+    }
+  }
+
+  // Check that the result shape matches the broadcasted shape of the operands.
+  llvm::SmallVector<int64_t> resultShape(getShape(op->getResult(0)));
+  if (broadcastedShape != resultShape) {
+    return op->emitOpError()
+           << "result shape (" << resultShape
+           << ") doesn't match expected shape after broadcasting ("
+           << broadcastedShape << ")";
+  }
+
+  return success();
+}

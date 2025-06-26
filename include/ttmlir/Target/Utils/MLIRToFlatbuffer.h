@@ -5,8 +5,8 @@
 #ifndef TTMLIR_TARGET_UTILS_MLIRTOFLATBUFFER_H
 #define TTMLIR_TARGET_UTILS_MLIRTOFLATBUFFER_H
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TT/Utils/CoreRangeSet.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/TTNN/Target.h"
@@ -38,6 +38,28 @@ struct GoldenTensor {
   // Create an explicit empty constructor
   GoldenTensor() = default;
 };
+
+/**
+ * Given a `DeviceAttr`, returns a flatbuffer representation (i.e. a `Dim2d`) of
+ * the mesh shape of the device.
+ *
+ * If no mesh shape is specified (i.e. the mesh
+ * shape is an empty array), then the default value of 1x1 will be returned.
+ */
+inline ::tt::target::Dim2d deviceToFlatbufferMeshShape(const DeviceAttr attr) {
+  assert(attr);
+  ArrayRef<int64_t> meshShapeArr = attr.getMeshShape();
+  ::tt::target::Dim2d meshShape;
+
+  // Default to 1x1 if not specified.
+  if (meshShapeArr.empty()) {
+    meshShape = ::tt::target::Dim2d(1, 1);
+  } else {
+    assert(meshShapeArr.size() == 2 && "Ill-Sized Mesh Shape");
+    meshShape = ::tt::target::Dim2d(meshShapeArr[0], meshShapeArr[1]);
+  }
+  return meshShape;
+}
 
 inline flatbuffers::Offset<::tt::target::MLIR>
 toDebugInfo(::flatbuffers::FlatBufferBuilder &fbb, const std::string &name,
@@ -158,6 +180,20 @@ inline ::tt::target::DataType toFlatbuffer(FlatbufferObjectCache &,
   }
 }
 
+inline ::tt::target::MathFidelity
+toFlatbuffer(FlatbufferObjectCache &, ttnn::MathFidelity mathFidelity) {
+  switch (mathFidelity) {
+  case ttnn::MathFidelity::LoFi:
+    return ::tt::target::MathFidelity::LoFi;
+  case ttnn::MathFidelity::HiFi2:
+    return ::tt::target::MathFidelity::HiFi2;
+  case ttnn::MathFidelity::HiFi3:
+    return ::tt::target::MathFidelity::HiFi3;
+  case ttnn::MathFidelity::HiFi4:
+    return ::tt::target::MathFidelity::HiFi4;
+  }
+}
+
 inline ::tt::target::ttnn::TensorMemoryLayout
 toFlatbuffer(FlatbufferObjectCache &, ttnn::TensorMemoryLayout memLayout) {
   switch (memLayout) {
@@ -217,6 +253,8 @@ inline ::tt::target::MemorySpace toFlatbuffer(FlatbufferObjectCache &,
     return ::tt::target::MemorySpace::DeviceDRAM;
   case MemorySpace::DeviceL1:
     return ::tt::target::MemorySpace::DeviceL1;
+  case MemorySpace::RegisterDst:
+    llvm_unreachable("MemorySpace::RegisterDst not supported");
   }
 }
 
@@ -394,8 +432,8 @@ toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
       toFlatbuffer(cache, chipDesc.getChipPhysicalHelperCores()),
       toFlatbuffer(cache, chipDesc.getSupportedDataTypes()),
       toFlatbuffer(cache, chipDesc.getSupportedTileSizes()),
-      chipDesc.getNumCBs(), chipDesc.getNumComputeThreads(),
-      chipDesc.getNumDatamovementThreads());
+      chipDesc.getDstRegisterSizeTiles(), chipDesc.getNumCBs(),
+      chipDesc.getNumComputeThreads(), chipDesc.getNumDatamovementThreads());
 }
 
 inline ::tt::target::CPURole toFlatbuffer(FlatbufferObjectCache &,
@@ -610,9 +648,8 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::UnaryOpType unaryOpType) {
       {MlirUnaryOpType::BitwiseOr, FbUnaryOpType::BitwiseOr},
       {MlirUnaryOpType::RightShift, FbUnaryOpType::RightShift},
       {MlirUnaryOpType::Floor, FbUnaryOpType::Floor},
-      {MlirUnaryOpType::FloorFloat32, FbUnaryOpType::FloorFloat32},
       {MlirUnaryOpType::Ceil, FbUnaryOpType::Ceil},
-      {MlirUnaryOpType::CeilFloat32, FbUnaryOpType::CeilFloat32},
+      {MlirUnaryOpType::Round, FbUnaryOpType::Round},
       {MlirUnaryOpType::LeftShift, FbUnaryOpType::LeftShift},
       {MlirUnaryOpType::Remainder, FbUnaryOpType::Remainder},
       {MlirUnaryOpType::Fmod, FbUnaryOpType::Fmod},
@@ -751,6 +788,17 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
       toFlatbuffer(cache, config.getEnableWeightsDoubleBuffer()),
       toFlatbuffer(cache, config.getEnableSplitReader()),
       toFlatbuffer(cache, config.getEnableSubblockPadding()));
+}
+
+inline ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ttnn::DeviceComputeKernelConfigAttr computeConfigAttr) {
+  return ::tt::target::ttnn::CreateDeviceComputeKernelConfig(
+      *cache.fbb, toFlatbuffer(cache, computeConfigAttr.getMathFidelity()),
+      toFlatbuffer(cache, computeConfigAttr.getMathApproxMode()),
+      toFlatbuffer(cache, computeConfigAttr.getFp32DestAccEn()),
+      toFlatbuffer(cache, computeConfigAttr.getPackerL1Acc()),
+      toFlatbuffer(cache, computeConfigAttr.getDstFullSyncEn()));
 }
 
 template <typename T>

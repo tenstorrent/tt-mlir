@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/IR/Value.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::ttir {
@@ -293,14 +294,14 @@ private:
 
     mlir::func::FuncOp funcOp = conv2dOp->getParentOfType<mlir::func::FuncOp>();
     llvm::SmallPtrSet<BlockArgument, 4> constParams =
-        ttmlir::utils::populateConstParams(funcOp);
+        mlir::tt::getConstsAndParams(funcOp);
     auto isConstant = [&constParams, conv2dOp](mlir::Value value) {
       if (auto blockArg = mlir::dyn_cast<BlockArgument>(value)) {
         return constParams.contains(blockArg);
       }
 
       Operation *op = value.getDefiningOp();
-      return op->hasTrait<mlir::tt::Trait::TTCreationOpTrait>() &&
+      return op->hasTrait<mlir::tt::Trait::TTCoreCreationOpTrait>() &&
              op->isBeforeInBlock(conv2dOp);
     };
 
@@ -392,6 +393,340 @@ public:
   }
 };
 
+class CacheFillUpdatePattern : public mlir::OpRewritePattern<ScatterOp> {
+  using mlir::OpRewritePattern<ScatterOp>::OpRewritePattern;
+
+public:
+  /// Pattern: scatter(input, indices, updates)
+  ///
+  /// This pattern detects when a ScatterOp is used as a fill/update for a
+  /// cache. We check for its input, indices, and update tensors to ensure they
+  /// match the expected cache fill/update pattern.
+  ///
+  /// Input pattern:
+  ///   %result = scatter(%cache, %indices, %updates)
+  ///   - Given a cache with shape (B, N, M, H) and a updates tensor with shape
+  ///   (B, N, S, H), the indices tensor should have shape (B, N, S, H, 4),
+  ///   representing the index where each element in %updates should placed in
+  ///   the %cache.
+  ///   - %indices can be tracked back to the function's cachePositions input
+  ///   that represents the indices of the cache to fill/update.
+  /// Output pattern:
+  ///   %result = fillCacheOp(%cache, %updates)
+  ///   or (if S == 1)
+  ///   %result = updateCacheOp(%cache, %updates, %update_index)
+  mlir::LogicalResult
+  matchAndRewrite(ScatterOp scatterOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    auto CachePositions = getCacheUpdatePositions(scatterOp);
+    if (!CachePositions) {
+      return mlir::failure();
+    }
+
+    auto cacheUpdateInputType =
+        mlir::cast<RankedTensorType>((*CachePositions).getType());
+    auto cacheUpdateInputShape = cacheUpdateInputType.getShape();
+    if (cacheUpdateInputShape.size() != 1) {
+      return mlir::failure();
+    }
+
+    Value cache = scatterOp.getInput();
+    Value updates = scatterOp.getUpdate();
+    auto batchOffsetAttr = rewriter.getI32IntegerAttr(0);
+
+    // If the cachePositions tensor has more than one element we assume it
+    // represents a set of aranged indices (0, cachePositions.size), so we
+    // replace it with FillCacheOp. If the tensor has only one element, we
+    // assume it represents the update index for UpateCacheOp.
+    if (cacheUpdateInputShape[0] != 1) {
+      rewriter.replaceOpWithNewOp<FillCacheOp>(
+          scatterOp, scatterOp.getResult().getType(), // Result type
+          cache,                                      // Cache tensor
+          updates,                                    // Updates tensor
+          batchOffsetAttr                             // Batch offset
+      );
+    } else {
+      rewriter.replaceOpWithNewOp<UpdateCacheOp>(
+          scatterOp, scatterOp.getResult().getType(), // Result type
+          cache,                                      // Cache tensor
+          updates,                                    // Updates tensor
+          *CachePositions,                            // Cache Idx
+          batchOffsetAttr                             // Batch offset
+      );
+    }
+
+    return mlir::success();
+  }
+
+private:
+  // Check if the scatter op is a cache fill/update, and track the
+  // cachePositions input tensor if it is.
+  //
+  // We are looking for:
+  // %indices = "ttir.concat"(%0, %1, %2, %3):
+  //        (B,N,S,H,1), (B,N,S,H,1), (B,N,S,H,1), (B,N,S,H,1)) -> (B,N,S,H,4)
+  // %result = "ttir.scatter"(%cache, %indices, %updates)
+  // Where:
+  //    1. %0, %1, and %3 come from a const aranged vector representing
+  //       the first, second, and fourth dimension indices of the cache.
+  //    2. %2 comes from the input representing the cachePositions tensor.
+  static std::optional<mlir::Value>
+  getCacheUpdatePositions(ttir::ScatterOp scatterOp) {
+    // Check that the scatter op inputs represent a cache fill/update:
+    //    1. The input is a 4D (B, N, M, H)
+    //    2. The update tensor is a 4D tensor (B, N, S, H)
+    //    3. The scatter indices is a 5D tensor (B, N, S, H, 4)
+    auto scatterIndices = scatterOp.getScatterIndices();
+    ArrayRef<int64_t> inputShape =
+        mlir::cast<RankedTensorType>(scatterOp.getInput().getType()).getShape();
+    ArrayRef<int64_t> scatterIdxShape =
+        mlir::cast<RankedTensorType>(scatterIndices.getType()).getShape();
+    ArrayRef<int64_t> updateShape =
+        mlir::cast<RankedTensorType>(scatterOp.getUpdate().getType())
+            .getShape();
+    if (inputShape.size() != 4 || scatterIdxShape.size() != 5 ||
+        updateShape.size() != 4) {
+      return std::nullopt;
+    }
+    for (size_t i = 0; i < updateShape.size(); ++i) {
+      if (scatterIdxShape[i] != updateShape[i]) {
+        return std::nullopt;
+      }
+    }
+    if (scatterIdxShape[4] != 4) {
+      return std::nullopt;
+    }
+    if (!(inputShape[0] == updateShape[0] && inputShape[1] == updateShape[1] &&
+          inputShape[3] == updateShape[3])) {
+      return std::nullopt;
+    }
+
+    // Check that the scatter indices input is a concat op that produces the
+    // scatter indices for a cache update/fill:
+    //    1. Check that the 1st, 2nd and 4th inputs come from a 1D const aranged
+    //    tensor
+    //    2. Check that the 3rd input comes from the cachePositions func input
+    ConcatOp concatOp = scatterIndices.getDefiningOp<ttir::ConcatOp>();
+    if (!concatOp) {
+      return std::nullopt;
+    }
+
+    mlir::OperandRange inputs = concatOp.getInputs();
+    int32_t dim = concatOp.getDim();
+    if (inputs.size() != 4 || dim != 4) {
+      return std::nullopt;
+    }
+
+    if (!isBroadcastedDimIndices(inputs[0], 0) ||
+        !isBroadcastedDimIndices(inputs[1], 1) ||
+        !isBroadcastedDimIndices(inputs[3], 3)) {
+      return std::nullopt;
+    }
+
+    auto cachePositionInput = getCachePositionsInput(inputs[2]);
+    return cachePositionInput;
+  }
+
+  // For the concat input that can be tracked to the cachePositions input,
+  // check the pattern and track value up to the cachePositions tensor input.
+  //  %1 = "ttir.reshape"(%arg, %0) -> (S, 1)
+  //  %3 = "ttir.reshape"(%1, %2) -> (1, 1, S, 1)
+  //  %5 = "ttir.broadcast"(%3, %4) -> (B, N, S, H)
+  //  %7 = "ttir.reshape"(%5, %6) -> (B, N, S, H, 1)
+  // Where:
+  //  1. %arg is (S, ) and is the cachePositions input tensor.
+  //  2. B, S and H are const values.
+  static std::optional<mlir::Value>
+  getCachePositionsInput(mlir::Value inputValue) {
+    // 1. Check that value is a reshape op.
+    // 2. Check that the reshape's input and output shapes are compatible:
+    //    - Output.rank() = Input.rank() + 1
+    //    - All the input dims are the same as the output dims except the
+    //      last one which is 1.
+    auto reshapeOp = inputValue.getDefiningOp<ttir::ReshapeOp>();
+    if (!reshapeOp) {
+      return std::nullopt;
+    }
+    auto reshapeInput = reshapeOp.getInput();
+    auto inputShape =
+        mlir::cast<RankedTensorType>(reshapeInput.getType()).getShape();
+    auto outputShape =
+        mlir::cast<RankedTensorType>(reshapeOp.getOutput().getType())
+            .getShape();
+    if (inputShape.size() != outputShape.size() - 1) {
+      return std::nullopt;
+    }
+    for (size_t i = 0; i < inputShape.size(); ++i) {
+      if (inputShape[i] != outputShape[i]) {
+        return std::nullopt;
+      }
+    }
+
+    // 1. Check that input to reshape is a broadcast op.
+    // 2. Check that the broadcast's input and output ranks are the same.
+    // 3. Check that all dims in broadcast input are 1 or inputShape[i] ==
+    //    outputShape[i]
+    auto broadcastOp = reshapeInput.getDefiningOp<BroadcastOp>();
+    if (!broadcastOp) {
+      return std::nullopt;
+    }
+    inputShape = mlir::cast<RankedTensorType>(broadcastOp.getInput().getType())
+                     .getShape();
+    outputShape =
+        mlir::cast<RankedTensorType>(broadcastOp.getOutput().getType())
+            .getShape();
+    if (inputShape.size() != outputShape.size()) {
+      return std::nullopt;
+    }
+    for (size_t i = 0; i < inputShape.size(); ++i) {
+      if (inputShape[i] != 1 && inputShape[i] != outputShape[i]) {
+        return std::nullopt;
+      }
+    }
+
+    // Check that the input to broadcast are reshapes and loop through them
+    // until we reach the input to the first reshape.
+    auto nextInput = broadcastOp.getInput();
+    while (auto intermediateReshapeOp =
+               nextInput.getDefiningOp<ttir::ReshapeOp>()) {
+      nextInput = intermediateReshapeOp.getInput();
+    }
+
+    // Check that the input of the reshape chain is a single dim flat
+    // tensor. We will assume that this is the cachePositions tensor.
+    // TODO(jazpur): Check that this is a 1D aranged tensor coming from the
+    // input.
+    auto inputTensor = nextInput;
+    auto inputTensorShape =
+        mlir::cast<RankedTensorType>(inputTensor.getType()).getShape();
+    if (inputTensorShape.size() != 1) {
+      return std::nullopt;
+    }
+
+    return inputTensor;
+  }
+
+  // For each (const) input of the concat op we check for:
+  //  %2 = "ttir.reshape"(%0, %1) -> (N, 1)
+  //  %4 = "ttir.reshape"(%2, %3) -> (N, 1, 1)
+  //  %6 = "ttir.reshape"(%4, %5) -> (1, N, 1, 1)
+  //  %8 = "ttir.broadcast"(%6, %7) -> (B, N, S, H)
+  //  %10 = "ttir.reshape"(%8, %9) -> (B, N, S, H, 1)
+  // Where:
+  //  1. %0 is a const aranged tensor with shape (N,))
+  //  2. depending on dimIdx, same pattern applies for the B, and H dims
+  static bool isBroadcastedDimIndices(mlir::Value inputValue, int64_t dimIdx) {
+    // 1. Check that valueInput is a reshape op.
+    // 2. Check that the reshape's input and output shapes are compatible:
+    //    - Output.rank() = input.rank() + 1
+    //    - All the input dims are the same as the output dims except the
+    //      last one which is 1.
+    auto reshapeOp = inputValue.getDefiningOp<ttir::ReshapeOp>();
+    if (!reshapeOp) {
+      return false;
+    }
+    auto reshapeInput = reshapeOp.getInput();
+    auto inputShape =
+        mlir::cast<RankedTensorType>(reshapeInput.getType()).getShape();
+    auto outputShape =
+        mlir::cast<RankedTensorType>(reshapeOp.getOutput().getType())
+            .getShape();
+    if (inputShape.size() != outputShape.size() - 1) {
+      return false;
+    }
+    for (size_t i = 0; i < inputShape.size(); ++i) {
+      if (inputShape[i] != outputShape[i]) {
+        return false;
+      }
+    }
+
+    // 1. Check that input to reshape is a broadcast op.
+    // 2. Check that broadcast input and output rank is the same.
+    // 3. Check that all dims in broadcast input are 1 or inputShape[i] ==
+    //    outputShape[i]
+    auto broadcastOp = reshapeInput.getDefiningOp<BroadcastOp>();
+    if (!broadcastOp) {
+      return false;
+    }
+    inputShape = mlir::cast<RankedTensorType>(broadcastOp.getInput().getType())
+                     .getShape();
+    outputShape =
+        mlir::cast<RankedTensorType>(broadcastOp.getOutput().getType())
+            .getShape();
+    if (inputShape.size() != outputShape.size()) {
+      return false;
+    }
+    for (size_t i = 0; i < inputShape.size(); ++i) {
+      if (inputShape[i] != 1 && inputShape[i] != outputShape[i]) {
+        return false;
+      }
+    }
+
+    // Check that the input to broadcast is a reshape and loop through it until
+    // we reach the input to the first reshape.
+    auto nextInput = broadcastOp.getInput();
+    while (auto intermediateReshapeOp =
+               nextInput.getDefiningOp<ttir::ReshapeOp>()) {
+      nextInput = intermediateReshapeOp.getInput();
+    }
+
+    // 1. Check that the first input of the reshape chain is a single dim flat
+    //    tensor.
+    // 2. Check that the input is a const aranged tensor.
+    auto arangedTensor = nextInput;
+    auto arangedTensorShape =
+        mlir::cast<RankedTensorType>(arangedTensor.getType()).getShape();
+    if (arangedTensorShape.size() != 1) {
+      return false;
+    }
+
+    auto tensorType = mlir::cast<RankedTensorType>(inputValue.getType());
+    auto tensorShape = tensorType.getShape();
+    int64_t dim = tensorShape[dimIdx];
+    if (!isConstArangedTensor(arangedTensor, dim)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  // We are looking for a pattern like to this (from bottom up):
+  //  %0 = "ttir.arange"() {arr_dim = 0, end = N, start = 0, step = 1} -> (N, )
+  //  %2 = "ttir.multiply"(%0, 1, %1) -> (N,)
+  //  %4 = "ttir.add"(%2, 0, %3) -> (N,)
+  static bool isConstArangedTensor(mlir::Value inputValue, int64_t dim) {
+    // 1. Check that inputValue is an add op.
+    // 2. Check that the add's input is a multiply op.
+    auto addOp = inputValue.getDefiningOp<AddOp>();
+    if (!addOp) {
+      return false;
+    }
+    auto addInput = addOp.getLhs();
+    auto multiplyOp = addInput.getDefiningOp<MultiplyOp>();
+    if (!multiplyOp) {
+      return false;
+    }
+
+    // 1. Check that the multiply's input is an arange op.
+    // 2. Check that the arange op has start=0, end=dim, step=1, and
+    //    arange_dim=0.
+    auto arangeOp = multiplyOp.getLhs().getDefiningOp<ArangeOp>();
+    if (!arangeOp) {
+      return false;
+    }
+    const int64_t arangeStart = arangeOp.getStart();
+    const int64_t arangeEnd = arangeOp.getEnd();
+    const int64_t arangeStep = arangeOp.getStep();
+    const int64_t arangeDim = arangeOp.getArangeDimension();
+    if (arangeStart != 0 || arangeEnd != dim || arangeStep != 1 ||
+        arangeDim != 0) {
+      return false;
+    }
+
+    return true;
+  }
+};
+
 class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
 public:
   using impl::TTIRFusingBase<TTIRFusingPass>::TTIRFusingBase;
@@ -420,6 +755,7 @@ public:
 
       patterns.add<SoftmaxFusionPattern>(&getContext());
       patterns.add<Conv2dWithMultiply>(&getContext());
+      patterns.add<CacheFillUpdatePattern>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);

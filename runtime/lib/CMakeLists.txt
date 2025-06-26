@@ -43,6 +43,8 @@ target_link_libraries(TTMLIRRuntime
     TTRuntimeTTNN
     TTRuntimeTTMetal
     TTRuntimeDebug
+    TTRuntimePerf
+    TTRuntimeWorkarounds
     TTRuntimeDylibs
     # This ensures that symbols from libTTRuntimeTTNNTestLib.a (libA) are linked into libTTMLIRRuntime.so (libB).
     # Since the symbols from libA aren't used in libB, linker will just ignore them. By using --whole-archive,
@@ -58,15 +60,17 @@ target_link_libraries(TTMLIRRuntime PUBLIC coverage_config)
 set_target_properties(TTMLIRRuntime PROPERTIES INSTALL_RPATH "$ORIGIN")
 set_target_properties(TTMLIRRuntime PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
 
-add_dependencies(TTMLIRRuntime TTBinary TTRuntimeSysDesc TTRuntimeDebug TTRuntimeDylibs TTRuntimeTTNNTestLib TTRuntimeTTNN TTRuntimeTTMetal FBS_GENERATION)
+add_dependencies(TTMLIRRuntime TTBinary TTRuntimeSysDesc TTRuntimeDebug TTRuntimePerf TTRuntimeWorkarounds TTRuntimeDylibs TTRuntimeTTNNTestLib TTRuntimeTTNN TTRuntimeTTMetal FBS_GENERATION)
 
 if (TTMLIR_ENABLE_RUNTIME)
   set(TTMLIR_RUNTIME_PUBLIC_HEADERS
+    "../include/tt/runtime/debug.h"
+    "../include/tt/runtime/perf.h"
     "../include/tt/runtime/runtime.h"
+    "../include/tt/runtime/tensor_cache.h"
     "../include/tt/runtime/types.h"
     "../include/tt/runtime/utils.h"
     "../include/tt/runtime/workarounds.h"
-    "../include/tt/runtime/tensor_cache.h"
   )
   set_target_properties(TTMLIRRuntime PROPERTIES PUBLIC_HEADER "${TTMLIR_RUNTIME_PUBLIC_HEADERS}")
   install(TARGETS TTMLIRRuntime

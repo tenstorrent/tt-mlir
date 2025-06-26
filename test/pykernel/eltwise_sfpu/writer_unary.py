@@ -10,16 +10,16 @@ from pykernel.types import *
 
 
 @ttkernel_noc_compile()
-def writer_unary(cb_in: CircularBuffer, cb_out: CircularBuffer, rt_args):
+def writer_unary(cb_in: CircularBuffer, cb_out: CircularBuffer):
     # CHECK: module {
-    # CHECK: func.func @{{.*}}(%arg0: !ttkernel.cb<{{.*}}>, %arg1: !ttkernel.cb<{{.*}}>) attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+    # CHECK: func.func @writer_unary() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
     # CHECK: %[[DST_ADDR:.*]] = memref.alloca(){{.*}}
     # CHECK: %[[BANK_ID:.*]] = "ttkernel.get_arg_val"{{.*}}
     # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
-    dst_addr: int = rt_args[0]
-    bank_id = rt_args[1]
-    num_tiles = rt_args[2]
+    dst_addr: int = get_arg_val(int, 0)
+    bank_id = get_arg_val(int, 1)
+    num_tiles = get_arg_val(int, 2)
 
     # CHECK: {{.*}}"ttkernel.get_tile_size"{{.*}}
     ublock_size_bytes = get_tile_size(cb_out)

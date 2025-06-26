@@ -26,11 +26,11 @@ declare_mlir_python_sources(TTMLIRPythonSources.Dialects
 declare_mlir_dialect_python_bindings(
   ADD_TO_PARENT TTMLIRPythonSources.Dialects
   ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
-  TD_FILE dialects/TTBinding.td
+  TD_FILE dialects/TTCoreBinding.td
   GEN_ENUM_BINDINGS ON
-  GEN_ENUM_BINDINGS_TD_FILE dialects/TTEnumBinding.td
-  SOURCES dialects/tt.py
-  DIALECT_NAME tt
+  GEN_ENUM_BINDINGS_TD_FILE dialects/TTCoreEnumBinding.td
+  SOURCES dialects/ttcore.py
+  DIALECT_NAME ttcore
 )
 
 declare_mlir_dialect_python_bindings(
@@ -45,6 +45,8 @@ declare_mlir_dialect_python_bindings(
   ADD_TO_PARENT TTMLIRPythonSources.Dialects
   ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
   TD_FILE dialects/TTKernelBinding.td
+  GEN_ENUM_BINDINGS ON
+  GEN_ENUM_BINDINGS_TD_FILE dialects/TTKernelEnumBinding.td
   SOURCES dialects/ttkernel.py
   DIALECT_NAME ttkernel
 )
@@ -137,24 +139,9 @@ declare_mlir_python_sources(TTMLIRPythonCommon.Main
   ADD_TO_PARENT TTMLIRPythonCommon
   SOURCES
     compile_and_run_internal.py
+    compile_and_run_utils.py
     compile_and_run.py
 )
-
-declare_mlir_python_sources(TTMLIRPythonOpByOpInfra)
-
-declare_mlir_python_sources(TTMLIRPythonOpByOpInfra.Main
-  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/op_by_op_infra"
-  ADD_TO_PARENT TTMLIRPythonOpByOpInfra
-  SOURCES
-    execution_result.py
-    mlir_module_executor.py
-    mlir_module_splitter.py
-    pydantic_models.py
-    utils.py
-    workflow_internal.py
-    workflow.py
-)
-
 
 ################################################################################
 # Generate packages and shared library
@@ -176,7 +163,6 @@ set(TTMLIR_PYTHON_SOURCES
   TTMLIRPythonSources
   TTMLIRPythonExtensions
   TTMLIRPythonCommon
-  TTMLIRPythonOpByOpInfra
   TTMLIRPythonSiteInitialize
 )
 

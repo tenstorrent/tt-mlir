@@ -272,8 +272,8 @@ MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(
 
 using namespace mlir::tt::ttkernel;
 
-MlirType ttmlirTTKernelCBTypeGet(MlirContext ctx, uint64_t port, uint64_t address, MlirType memrefType) {
-  return wrap(CBType::get(unwrap(ctx), symbolizeCBPort(port).value(), address, mlir::cast<mlir::MemRefType>(unwrap(memrefType))));
+MlirType ttmlirTTKernelCBTypeGet(MlirContext ctx, MlirType memrefType) {
+  return wrap(CBType::get(unwrap(ctx), mlir::cast<mlir::MemRefType>(unwrap(memrefType))));
 }
 ```
 7. Define the `nanobind` build target in `python/CMakeLists.txt` by adding `ttkernel` as a dialect, and providing `TTkernelModule.cpp` as a source for `TTMLIRPythonExtensions.Main`.
