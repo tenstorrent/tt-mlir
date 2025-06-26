@@ -158,49 +158,6 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
 }
 
 //===----------------------------------------------------------------------===//
-// PrepareConv2dBiasOp
-//===----------------------------------------------------------------------===//
-
-// PrepareConv2dBiasOp verification
-::mlir::LogicalResult mlir::tt::ttnn::PrepareConv2dBiasOp::verify() {
-  mlir::RankedTensorType biasType = getBiasTensor().getType();
-
-  if (biasType.getRank() != 4) {
-    return emitOpError("Weight must be a 4D tensor");
-  }
-
-  constexpr unsigned int BIAS_OUT_CHANNEL_DIM = 3;
-  if (biasType.getShape()[BIAS_OUT_CHANNEL_DIM] != getOutChannels()) {
-    return emitOpError()
-           << "Expected output channels attribute (" << getOutChannels()
-           << ") to match the number of output channels in the bias tensor ("
-           << biasType.getShape()[BIAS_OUT_CHANNEL_DIM] << ")";
-  }
-
-  if (getKernelSize().size() != 2) {
-    return emitOpError("Kernel size attribute must have two values, got: " +
-                       std::to_string(getKernelSize().size()));
-  }
-
-  if (getStride().size() != 2) {
-    return emitOpError("Stride attribute must have two values, got: " +
-                       std::to_string(getStride().size()));
-  }
-
-  if (getPadding().size() != 2 && getPadding().size() != 4) {
-    return emitOpError("Padding attribute must have two or four values, got: " +
-                       std::to_string(getPadding().size()));
-  }
-
-  if (getDilation().size() != 2) {
-    return emitOpError("Dilation attribute must have two values, got: " +
-                       std::to_string(getDilation().size()));
-  }
-
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
 // Conv2dOp
 //===----------------------------------------------------------------------===//
 

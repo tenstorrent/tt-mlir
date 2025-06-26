@@ -623,7 +623,6 @@ private:
       //
       if (isa_and_nonnull<ToLayoutOp>(producerOp)) {
         ToLayoutOp toLayoutOp = llvm::cast<ToLayoutOp>(producerOp);
-        toLayoutOp.setLayout(producerOpLayout.getLayout());
         toLayoutOp.setMemoryConfigAttr(outputMemConfigAttr);
         toLayoutOp.getResult().setType(newTensorType);
       } else {

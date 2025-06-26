@@ -23,7 +23,6 @@
 #include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/binary_generated.h"
-#include "ttmlir/Target/TTNN/operations/conv_generated.h"
 #include "ttmlir/Target/TTNN/operations/creation_generated.h"
 #include "ttmlir/Target/TTNN/operations/pool_generated.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
@@ -582,39 +581,6 @@ createOp(FlatbufferObjectCache &cache, PrepareConv2dWeightsOp op) {
       op.getInputHeight(), op.getInputWidth(), kernelSize, stride, padding,
       dilation, op.getHasBias(), op.getGroups(),
       cache.at<::tt::target::DeviceRef>(device), conv2dConfig.value_or(0));
-}
-
-::flatbuffers::Offset<::tt::target::ttnn::PrepareConv2dBiasOp>
-createOp(FlatbufferObjectCache &cache, PrepareConv2dBiasOp op) {
-  auto biasTensor = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getBiasTensor()));
-  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
-                                  kHostAllocatedSize);
-
-  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
-      toFlatbuffer(cache, op.getInputMemoryConfig());
-  ::tt::target::TensorLayout inputTensorLayout =
-      toFlatbuffer(cache, op.getInputTensorLayout());
-
-  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> kernelSize =
-      toFlatbuffer(cache, op.getKernelSize());
-  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> stride =
-      toFlatbuffer(cache, op.getStride());
-  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> padding =
-      toFlatbuffer(cache, op.getPadding());
-  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> dilation =
-      toFlatbuffer(cache, op.getDilation());
-  auto device = getOperandThroughDPSOps(op.getDevice());
-
-  std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>>
-      conv2dConfig = toFlatbuffer(cache, op.getConv2dConfig());
-
-  return ::tt::target::ttnn::CreatePrepareConv2dBiasOp(
-      *cache.fbb, biasTensor, output, memoryConfig, inputTensorLayout,
-      op.getInChannels(), op.getOutChannels(), op.getBatchSize(),
-      op.getInputHeight(), op.getInputWidth(), kernelSize, stride, padding,
-      dilation, op.getGroups(), cache.at<::tt::target::DeviceRef>(device),
-      conv2dConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::Conv2dOp>
@@ -2050,11 +2016,6 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto prepareConv2dWeightsOp = dyn_cast<PrepareConv2dWeightsOp>(op);
       prepareConv2dWeightsOp) {
     return createOperation(cache, createOp(cache, prepareConv2dWeightsOp),
-                           debugString, locInfo);
-  }
-  if (auto prepareConv2dBiasOp = dyn_cast<PrepareConv2dBiasOp>(op);
-      prepareConv2dBiasOp) {
-    return createOperation(cache, createOp(cache, prepareConv2dBiasOp),
                            debugString, locInfo);
   }
   if (auto conv2dOp = dyn_cast<Conv2dOp>(op); conv2dOp) {
