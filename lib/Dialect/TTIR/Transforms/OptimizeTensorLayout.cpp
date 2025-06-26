@@ -44,11 +44,12 @@ static RankedTensorType applyGridShape(RankedTensorType tensorType,
   auto newTensorEncoding = MetalLayoutAttr::get(
       tensorType.getContext(), logicalShape, gridShape.size(),
       tensorEncoding.getOobVal(), tensorEncoding.getMemorySpace(),
-      tensorEncoding.getCollapseIntervals(), tensorEncoding.getDimAlignments());
+      tensorEncoding.getCollapsedIntervals(),
+      tensorEncoding.getDimAlignments());
 
   auto newPhysicalShape = MetalLayoutAttr::derivePhysicalShape(
       logicalShape, gridShape, tt::getTensorTileShapeOrEmpty(tensorType),
-      newTensorEncoding.getCollapseIntervals(),
+      newTensorEncoding.getCollapsedIntervals(),
       newTensorEncoding.getDimAlignments());
   return RankedTensorType::get(newPhysicalShape, tensorType.getElementType(),
                                newTensorEncoding);

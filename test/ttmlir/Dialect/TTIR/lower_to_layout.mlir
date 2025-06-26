@@ -1,9 +1,9 @@
 // RUN: ttmlir-opt --ttcore-register-device --ttir-lower-to-layout %s | FileCheck %s
 
 #l1_ = #ttcore.memory_space<l1>
-#layout = #ttcore.metal_layout<logical_shape = 256x768, dim_alignments = 32x32, collapse_dims = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
-#layout1 = #ttcore.metal_layout<logical_shape = 256x768, dim_alignments = 32x32, collapse_dims = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
-#layout2 = #ttcore.metal_layout<logical_shape = 256x768, dim_alignments = 32x32, collapse_dims = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
+#layout = #ttcore.metal_layout<logical_shape = 256x768, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
+#layout1 = #ttcore.metal_layout<logical_shape = 256x768, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
+#layout2 = #ttcore.metal_layout<logical_shape = 256x768, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
 func.func @to_device(%arg0: tensor<256x768xf32>) -> tensor<1x1x256x768xf32, #layout> {
   %0 = ttir.empty() : tensor<1x1x256x768xf32, #layout>
   // CHECK: ttir.to_layout %arg0, %0 : tensor<256x768xf32> into tensor<1x1x256x768xf32, #layout> hostInfo = #layout -> tensor<1x1x256x768xf32, #layout>

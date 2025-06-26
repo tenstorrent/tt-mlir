@@ -2176,9 +2176,8 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
     const bool hasInputLayout = inputTensor.getEncoding() != nullptr;
     const bool hasOutputLayout = outputTensor.getEncoding() != nullptr;
 
-    // Construct layouts with default values if no layout attr present.
-    auto inputLayout = getOrCreateInputLayout();
-    auto outputLayout = getOrCreateOutputLayout();
+    MetalLayoutAttr inputLayout = getOrCreateInputLayout();
+    MetalLayoutAttr outputLayout = getOrCreateOutputLayout();
 
     // Tensors without grids are assume to have 1 grids for comparison.
     auto inputGrid =
@@ -2204,7 +2203,6 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
     components.isFormatChange =
         inputTensor.getElementType() != outputTensor.getElementType();
 
-    // This field will track different logical ranks, different
     components.isLayoutChange =
         inputLayout.getNormalizedIntervals() !=
             outputLayout.getNormalizedIntervals() ||
@@ -2224,6 +2222,18 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
   return components;
 }
 
+static mlir::tt::MetalLayoutAttr
+createDefaultLayout(mlir::MLIRContext *ctx, mlir::RankedTensorType tensorType) {
+  // This can be safely hardcoded for now; we may need to revisit in the future.
+  static constexpr size_t kDefaultGridRank = 2;
+  // Create default layout for tensor without encoding
+  llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
+
+  return mlir::tt::MetalLayoutAttr::get(ctx, logicalShape, kDefaultGridRank,
+                                        mlir::tt::OOBVal::Undef,
+                                        mlir::tt::MemorySpace::System);
+}
+
 mlir::tt::MetalLayoutAttr mlir::tt::ttir::ToLayoutOp::getOrCreateInputLayout() {
   auto tensorType = mlir::cast<mlir::RankedTensorType>(getInput().getType());
   auto inputLayout =
@@ -2231,13 +2241,7 @@ mlir::tt::MetalLayoutAttr mlir::tt::ttir::ToLayoutOp::getOrCreateInputLayout() {
   if (inputLayout) {
     return inputLayout;
   }
-
-  // Create default layout for tensor without encoding
-  llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
-
-  return tt::MetalLayoutAttr::get(getContext(), logicalShape,
-                                  logicalShape.size(), tt::OOBVal::Undef,
-                                  tt::MemorySpace::System);
+  return createDefaultLayout(getContext(), tensorType);
 }
 
 mlir::tt::MetalLayoutAttr
@@ -2248,13 +2252,7 @@ mlir::tt::ttir::ToLayoutOp::getOrCreateOutputLayout() {
   if (outputLayout) {
     return outputLayout;
   }
-
-  // Create default layout for tensor without encoding
-  llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
-
-  return tt::MetalLayoutAttr::get(getContext(), logicalShape,
-                                  logicalShape.size(), tt::OOBVal::Undef,
-                                  tt::MemorySpace::System);
+  return createDefaultLayout(getContext(), tensorType);
 }
 
 mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::fold(
