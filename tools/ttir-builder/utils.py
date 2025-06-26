@@ -20,7 +20,7 @@ from ttmlir.passes import (
     MLIRModuleLogger,
 )
 
-from .apis import Shape, TTIRBuilder, TypeInfo
+from .apis import Shape, TTIRBuilder, TypeInfo, GoldenCheckLevel
 
 TT_MLIR_HOME = os.environ.get("TT_MLIR_HOME", "")
 
@@ -390,6 +390,7 @@ def compile_to_flatbuffer(
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: Optional[List[str]] = None,
     print_ir: Union[bool, str] = False,
+    golden_check_level: Optional[GoldenCheckLevel] = None,
 ):
     """
     Compiles a TTIRBuilder function `fn` to TTIR MLIR -> TT{Metal,NN} MLIR -> Flatbuffer.
@@ -494,6 +495,9 @@ def compile_to_flatbuffer(
         module_dump=module_dump,
         output_root=output_root,
     )
+
+    if golden_check_level:
+        builder.golden_check_level = golden_check_level
 
     output_file_mlir = get_target_path(output_root, test_base + mlir_suffix, target)
     output_file_fbb = ".".join([output_file_mlir, target_extension])
