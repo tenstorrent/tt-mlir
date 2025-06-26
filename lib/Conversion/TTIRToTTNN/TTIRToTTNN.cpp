@@ -29,6 +29,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 
+#include "llvm/Support/LogicalResult.h"
 #include <cstdint>
 #include <optional>
 
@@ -1419,6 +1420,11 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ScatterOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (!hasValidInsertedWindowDims(op)) {
+      return rewriter.notifyMatchFailure(
+          op, "ttnn and tt-metal have limited scatter support. Inserted window "
+              "dimenstion must be 1 in the input tensor shape.");
+    }
     // The ttnn interface has the inverse inputs of the TTIR dialect op (which
     // matches torch ops).
     rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(
@@ -1426,6 +1432,20 @@ public:
         adaptor.getInput());
 
     return success();
+  }
+
+private:
+  bool hasValidInsertedWindowDims(ttir::ScatterOp op) const {
+    ArrayRef<int64_t> inputShape = op.getInput().getType().getShape();
+
+    for (uint64_t insertedWindowDims : op.getInsertedWindowDims()) {
+      if (insertedWindowDims < inputShape.size() &&
+          inputShape[insertedWindowDims] != 1) {
+        return false;
+      }
+    }
+
+    return true;
   }
 };
 } // namespace
