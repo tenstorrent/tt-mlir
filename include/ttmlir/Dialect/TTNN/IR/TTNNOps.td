@@ -864,6 +864,16 @@ def TTNN_ProdOp : TTNN_Op<"prod"> {
 
   let results = (outs AnyRankedTensor:$result);
 
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      mlir::Type elementType = getInput().getType().getElementType();
+      bool allDimensions = !getDimArg();
+      return
+        wa::TTNNOperandsWorkaroundsFactory::createReduceProdOpOperandsWorkarounds(
+                                                    elementType, allDimensions);
+    }
+  }];
+
   let hasVerifier = 1;
 }
 
