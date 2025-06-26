@@ -1268,7 +1268,7 @@ TEST_F(OpModelBase, upsampleOp) {
                            mlir::tt::ttnn::TensorMemoryLayout::Interleaved));
 
   // Convert to Attr
-  mlir::IntegerAttr scaleFactorAttr = builder.getI32IntegerAttr(scaleFactor);
+  mlir::IntegerAttr scaleFactorAttr = builder.getSI32IntegerAttr(scaleFactor);
   mlir::StringAttr modeAttr = builder.getStringAttr(mode);
 
   UpsampleOp upsampleOp =
