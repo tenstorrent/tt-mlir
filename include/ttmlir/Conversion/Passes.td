@@ -77,8 +77,21 @@ def TTIRToTTIRGeneric: Pass<"ttir-to-ttir-generic", "::mlir::ModuleOp"> {
       %7 = "ttir.to_layout"(%5, %6) : (tensor<256x1024xf32, #layout2>, tensor<256x1024xf32>) -> tensor<256x1024xf32>
     ```
   }];
-  let constructor = "createTTIRToTTIRGenericPass()";
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::linalg::LinalgDialect"];
+  let constructor = "createTTIRToTTIRGenericPass()";
+  let options = [
+      Option<"useTileMatmul", "use-tile-matmul", "bool", /*default=*/"true", "Use tile_matmul">,
+      Option<"defaultInputMemSpace", "default-input-memspace", "MemorySpace", /*default=*/"MemorySpace::DeviceL1", "Set default memspace for input tensors",
+          [{::llvm::cl::values(
+            clEnumValN(MemorySpace::DeviceL1, "l1", "L1"),
+            clEnumValN(MemorySpace::DeviceDRAM, "dram", "DRAM")
+          )}]>,
+      Option<"defaultOutputMemSpace", "default-output-memspace", "MemorySpace", /*default=*/"MemorySpace::DeviceL1", "Set default memspace for output tensors",
+          [{::llvm::cl::values(
+            clEnumValN(MemorySpace::DeviceL1, "l1", "L1"),
+            clEnumValN(MemorySpace::DeviceDRAM, "dram", "DRAM")
+          )}]>
+  ];
 }
 
 def ConvertTTIRToTTNN: Pass<"convert-ttir-to-ttnn", "::mlir::ModuleOp"> {

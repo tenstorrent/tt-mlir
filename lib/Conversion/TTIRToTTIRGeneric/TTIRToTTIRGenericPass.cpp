@@ -21,26 +21,31 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRTOTTIRGENERIC
 #include "ttmlir/Conversion/Passes.h.inc" // impl::TTIRToTTIRGenericBase
 
-} // namespace mlir::tt::ttir
 // ............................................................................
-namespace mlir::tt {
-
 using namespace llvm;
 
 namespace {
-struct TTIRToTTIRGenericPass final
-    : ttir::impl::TTIRToTTIRGenericBase<TTIRToTTIRGenericPass> {
 
-  TTIRToTTIRGenericPass(const TTIRToTTIRGenericPass &other)
-      : TTIRToTTIRGenericBase<TTIRToTTIRGenericPass>(other) {
-    useTileMatmul = other.useTileMatmul;
-  }
-  TTIRToTTIRGenericPass() : TTIRToTTIRGenericBase<TTIRToTTIRGenericPass>() {}
+struct TTIRToTTIRGenericPass final
+    : impl::TTIRToTTIRGenericBase<TTIRToTTIRGenericPass> {
+
+  using Base = impl::TTIRToTTIRGenericBase<TTIRToTTIRGenericPass>;
+
+  TTIRToTTIRGenericPass(const TTIRToTTIRGenericOptions &options)
+      : Base(options) {}
+  TTIRToTTIRGenericPass() = default;
+
+  TTIRToTTIRGenericPass(const TTIRToTTIRGenericPass &rhs) : Base(rhs) {
+    // Workaround: Passes are required to be copy-constructible but autogen'ed
+    // base class copy constructors ignore Pass option fields.
+    this->useTileMatmul = rhs.useTileMatmul;
+    this->defaultInputMemSpace = rhs.defaultInputMemSpace;
+    this->defaultOutputMemSpace = rhs.defaultOutputMemSpace;
+  };
 
   void runOnOperation() final {
-
     auto &ctx = getContext();
-    auto op = getOperation();
+    auto moduleOp = getOperation();
 
     mlir::ConversionTarget target{ctx};
     {
@@ -57,6 +62,7 @@ struct TTIRToTTIRGenericPass final
       target.addLegalDialect<tt::TTCoreDialect>();
 
       // An explicit list of legal ttir.* ops.
+
       target.addLegalOp<ttir::GenericOp>();
       target.addLegalOp<ttir::ToLayoutOp>();
       target.addLegalOp<ttir::StreamLayoutOp>();
@@ -71,7 +77,7 @@ struct TTIRToTTIRGenericPass final
           >();
     }
 
-    DeviceAttr deviceAttr = lookupDevice(getOperation());
+    DeviceAttr deviceAttr = lookupDevice(moduleOp);
 
     TypeConverter typeConverter;
     {
@@ -81,26 +87,30 @@ struct TTIRToTTIRGenericPass final
     }
 
     mlir::RewritePatternSet patterns{&ctx};
-    populateTTIRToTTIRGenericPatterns(&ctx, patterns, typeConverter,
-                                      deviceAttr.getWorkerGrid().getRank(),
-                                      useTileMatmul);
+    populateTTIRToTTIRGenericPatterns(
+        &ctx, patterns, typeConverter,
+        {useTileMatmul, defaultInputMemSpace, defaultOutputMemSpace},
+        deviceAttr.getWorkerGrid().getRank());
 
-    if (failed(mlir::applyFullConversion(op, target, std::move(patterns)))) {
+    if (failed(
+            mlir::applyFullConversion(moduleOp, target, std::move(patterns)))) {
       signalPassFailure();
     }
   }
 
-protected:
-  Option<bool> useTileMatmul{*this, "use-tile-matmul",
-                             llvm::cl::desc("Use tile_matmul"),
-                             llvm::cl::init(true)};
-
 }; // end of class
 } // namespace
+} // namespace mlir::tt::ttir
 // ............................................................................
+namespace mlir::tt {
 
 std::unique_ptr<OperationPass<ModuleOp>> createTTIRToTTIRGenericPass() {
-  return std::make_unique<TTIRToTTIRGenericPass>();
+  return std::make_unique<ttir::TTIRToTTIRGenericPass>();
+}
+
+std::unique_ptr<OperationPass<ModuleOp>>
+createTTIRToTTIRGenericPass(const ttir::TTIRToTTIRGenericOptions &options) {
+  return std::make_unique<ttir::TTIRToTTIRGenericPass>(options);
 }
 
 } // namespace mlir::tt
