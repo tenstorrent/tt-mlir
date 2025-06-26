@@ -12,6 +12,7 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Types.h"
@@ -98,6 +99,42 @@ getCollapseDims(ArrayRef<int64_t> inputShape, ArrayRef<int64_t> targetShape) {
 
   return reassocIndexes;
 }
+
+// Get dimensions from the dim_arg attribute; if the attribute is not present or
+// empty, return all dimensions
+static SmallVector<int64_t> getDimsFromAttribute(Operation *op, int64_t rank) {
+  if (auto dimAttr = op->getAttrOfType<ArrayAttr>("dim_arg")) {
+    if (dimAttr.size() == 0) {
+      // If dim_arg is present but empty, reduce along all dimensions
+      SmallVector<int64_t> allDims(rank);
+      std::iota(allDims.begin(), allDims.end(), 0);
+      return allDims;
+    }
+
+    // Otherwise, use the provided dimensions
+    SmallVector<int64_t> dims;
+    for (auto dim : dimAttr) {
+      if (auto intAttr = dyn_cast<IntegerAttr>(dim)) {
+        dims.push_back(intAttr.getInt());
+      }
+    }
+    return dims;
+  }
+
+  // If no dim_arg attribute, reduce along all dimensions
+  SmallVector<int64_t> allDims(rank);
+  std::iota(allDims.begin(), allDims.end(), 0);
+  return allDims;
+}
+
+// Get keep_dim attribute; return false is not present.
+static bool getKeepDimFromAttribute(Operation *op) {
+  if (auto keepDimAttr = op->getAttrOfType<BoolAttr>("keep_dim")) {
+    return keepDimAttr.getValue();
+  }
+  return false;
+}
+
 } // namespace
 
 namespace {
