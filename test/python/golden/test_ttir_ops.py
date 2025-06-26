@@ -1402,7 +1402,7 @@ def create_hoisted_unary_op(op_func, name):
 
     def hoisted_op(in0, builder, **kwargs):
         # For unary ops
-        return op_func(in0, builder, unit_attrs=["should_hoist"], **kwargs)
+        return op_func(in0, builder, unit_attrs=["ttir.should_hoist"], **kwargs)
 
     # Set the name for better test identification
     hoisted_op.__name__ = f"hoisted_{name}"
@@ -1413,7 +1413,7 @@ def create_hoisted_binary_op(op_func, name):
     """Create a hoisted version of a binary operation by adding the should_hoist unit attribute"""
 
     def hoisted_op(in0, in1, builder, **kwargs):
-        return op_func(in0, in1, builder, unit_attrs=["should_hoist"], **kwargs)
+        return op_func(in0, in1, builder, unit_attrs=["ttir.should_hoist"], **kwargs)
 
     hoisted_op.__name__ = f"hoisted_{name}"
     return hoisted_op
@@ -1433,7 +1433,7 @@ def create_hoisted_permute_op(op_func, name):
         permutation.reverse()
 
         return op_func(
-            in0, in1, builder, permutation, unit_attrs=["should_hoist"], **kwargs
+            in0, in1, builder, permutation, unit_attrs=["ttir.should_hoist"], **kwargs
         )
 
     hoisted_op.__name__ = f"hoisted_{name}"
@@ -1450,7 +1450,7 @@ def create_hoisted_softmax_op(op_func, name):
             in0,
             builder,
             dimension=default_dimension,
-            unit_attrs=["should_hoist"],
+            unit_attrs=["ttir.should_hoist"],
             **kwargs,
         )
 
@@ -1465,7 +1465,13 @@ def create_hoisted_concat_op(op_func, name):
         # Default dimension for the hoisted version (dimension 0)
         default_dim = 0
         return op_func(
-            in0, in1, in2, default_dim, builder, unit_attrs=["should_hoist"], **kwargs
+            in0,
+            in1,
+            in2,
+            default_dim,
+            builder,
+            unit_attrs=["ttir.should_hoist"],
+            **kwargs,
         )
 
     hoisted_op.__name__ = f"hoisted_{name}"
@@ -1577,7 +1583,7 @@ def test_hoisted_permute(shapes_and_perms, request, target: str):
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        return permute(in0, in1, builder, permutation, unit_attrs=["should_hoist"])
+        return permute(in0, in1, builder, permutation, unit_attrs=["ttir.should_hoist"])
 
     permute_wrapper.__name__ = "hoisted_permute"
 
