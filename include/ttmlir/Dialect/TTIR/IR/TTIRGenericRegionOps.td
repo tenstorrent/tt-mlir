@@ -223,6 +223,16 @@ def TTIR_TileCeilOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_ceil"> {
     let results = (outs TTCore_Tile:$result);
 }
 
+def TTIR_TileLogicalNotOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_logical_not"> {
+    let summary = "TTIR Tile Logical Not Op";
+    let description = [{
+        The `tile_logical_not` operation computes the logical negation of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def TTIR_TileMaximumOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_maximum">{
     let summary = "TTIR Tile Maximum Op";
     let description = [{

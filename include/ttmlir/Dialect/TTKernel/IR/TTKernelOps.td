@@ -529,6 +529,35 @@ def TTKernel_CeilTileF32Op : TTKernel_SFPUOp<"ceil_tile_float32", [TTKernel_Unar
     let arguments = (ins IndexLike:$dst0_index);
 }
 
+def TTKernel_LogicalNotTileInitOp : TTKernel_InitOp<"logical_not_unary_tile_init"> {
+    let summary = "Init function for logical_not_unary_tile(_int32) operation. Refer to documentation for any init function.";
+    let description = [{
+      Must be run before logical_not_unary_tile(_int32).
+    }];
+
+    let arguments = (ins);
+}
+
+def TTKernel_LogicalNotTileOp : TTKernel_SFPUOp<"logical_not_unary_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Logical negation tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise computation of logical negation operation
+      DST[dst0_index] <- !DST[dst0_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+}
+
+def TTKernel_LogicalNotTileI32Op : TTKernel_SFPUOp<"logical_not_unary_tile_int32", [TTKernel_UnaryOpTrait]> {
+    let summary = "Logical negation tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise computation of logical negation operation for the int32 data type
+      DST[dst0_index] <- !DST[dst0_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+}
+
 def TTKernel_FillTileInitOp : TTKernel_InitOp<"fill_tile_init"> {
     let summary = "Init function for fill_tile operation. Refer to documentation for any init function.";
     let description = [{

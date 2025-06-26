@@ -391,6 +391,20 @@ public:
       } else {
         rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
       }
+    } else if constexpr (std::is_same_v<SFPUOp, ttkernel::LogicalNotTileOp>) {
+      const auto elemType =
+          mlir::cast<TileType>(op.getInput().getType()).getElementType();
+      bool isCBI32 = false;
+      if (llvm::isa<IntegerType>(elemType)) {
+        isCBI32 = mlir::cast<IntegerType>(elemType).isSigned() &&
+                  mlir::cast<IntegerType>(elemType).getWidth() == 32;
+      }
+      if (isCBI32) {
+        rewriter.create<ttkernel::LogicalNotTileI32Op>(op->getLoc(),
+                                                       adaptor.getInput());
+      } else {
+        rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
+      }
     } else if constexpr (arity == 1) {
       rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
     } else {
