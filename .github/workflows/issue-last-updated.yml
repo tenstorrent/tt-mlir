@@ -110,7 +110,7 @@ jobs:
           ERRORS=$(echo "$RESPONSE" | jq -r '.errors // empty')
           if [[ -n "$ERRORS" && "$ERRORS" != "null" ]]; then
             echo "GraphQL Error: $ERRORS"
-            exit 1
+            exit 0
           fi
 
            # Look for the issue in current batch
@@ -147,7 +147,7 @@ jobs:
             echo "Issue not found in project after searching all pages."
             echo "The issue may not be added to this project yet."
             echo "Please manually add the issue to the project first."
-            exit 1
+            exit 0
           fi
 
           echo "ITEM_ID=$found_item_id" >> $GITHUB_OUTPUT
