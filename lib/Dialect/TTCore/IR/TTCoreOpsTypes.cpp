@@ -19,6 +19,7 @@
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Casting.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <fstream>
 #include <numeric>
@@ -833,6 +834,16 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::derivePhysicalShape(
   }
 
   return physicalShape;
+}
+
+llvm::SmallVector<int64_t>
+MetalLayoutAttr::getUnshardedShape(llvm::ArrayRef<int64_t> gridShape,
+                                   llvm::ArrayRef<int64_t> shardShape) {
+  assert(gridShape.size() == shardShape.size());
+  llvm::SmallVector<int64_t> unshardedShape(gridShape.size());
+  std::transform(gridShape.begin(), gridShape.end(), shardShape.begin(),
+                 unshardedShape.begin(), std::multiplies<int64_t>());
+  return unshardedShape;
 }
 
 static llvm::SmallVector<int64_t>

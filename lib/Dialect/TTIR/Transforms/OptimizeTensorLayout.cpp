@@ -288,12 +288,12 @@ public:
     }
 
     // Update device tensor type
-    rewriter.modifyOpInPlace(
-        op, [&]() { deviceTensor.setType(optimalDeviceLayout); });
-    if (outputMemoryLayout) {
-      rewriter.modifyOpInPlace(
-          op, [&]() { op->getResult(0).setType(optimalDeviceLayout); });
-    }
+    rewriter.modifyOpInPlace(op, [&]() {
+      deviceTensor.setType(optimalDeviceLayout);
+      if (outputMemoryLayout) {
+        op->getResult(0).setType(optimalDeviceLayout);
+      }
+    });
     return success();
   }
 
