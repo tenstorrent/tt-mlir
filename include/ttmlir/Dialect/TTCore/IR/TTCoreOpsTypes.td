@@ -353,6 +353,14 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
         DenseIntElementsAttr collapseIntervals,
         ArrayRef<int64_t> dimAlignments);
 
+    // Returns gridShape eltwise-mul shardShape
+    static llvm::SmallVector<int64_t> getUnshardedShape(ArrayRef<int64_t> gridShape, ArrayRef<int64_t> shardShape) {
+      llvm::SmallVector<int64_t> unshardedShape;
+      unshardedShape.resize(gridShape.size());
+      std::transform(gridShape.begin(), gridShape.end(), shardShape.begin(), unshardedShape.begin(), std::multiplies<int64_t>());
+      return unshardedShape;
+    }
+
     // Get the corresponding memref type (essentially just drops grid dimensions).
     static MemRefType getMemRefType(RankedTensorType tensorType);
 

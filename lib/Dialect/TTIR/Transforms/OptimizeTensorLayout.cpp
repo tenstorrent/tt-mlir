@@ -62,8 +62,12 @@ static RankedTensorType calculateOptimalLayoutForTensorType(
   auto tensorEncoding =
       mlir::cast_if_present<MetalLayoutAttr>(tensorType.getEncoding());
   assert(tensorEncoding && "Tensor type must have a MetalLayoutAttr encoding");
-  auto optimalOutputGrid = getOptimalGrid(
-      rewriter, tensorEncoding.getLogicalShape(), workerGridShape);
+  auto optimalOutputGrid =
+      getOptimalGrid(rewriter,
+                     tensorEncoding.getUnshardedShape(
+                         tensorEncoding.getGridShape(tensorType),
+                         tensorEncoding.getShardShape(tensorType)),
+                     workerGridShape);
   return applyGridShape(tensorType, optimalOutputGrid.getShape());
 }
 
@@ -154,13 +158,10 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
   LogicalResult matchAndRewrite(GenericOp op,
                                 PatternRewriter &rewriter) const final {
 
-    if (op->hasAttr("ttir.layout_optimized")) {
-      return failure();
-    }
-
     // Update output tensor type
     assert(op->getResults().size() == 1 &&
            "Only one result tensor is supported for now");
+    Type originalType = op->getResult(0).getType();
     auto newTensorType = calculateOptimalLayoutForTensorType(
         rewriter, op->getResult(0), workerGridShape);
     MetalLayoutAttr metalLayout =
@@ -181,7 +182,6 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
       op.setGridAttr(
           rewriter.getAttr<GridAttr>(layout.getGridShape(newTensorType)));
       op.setBlockFactorsAttr(rewriter.getI64ArrayAttr(blockFactors));
-      op->setAttr("ttir.layout_optimized", rewriter.getUnitAttr());
     });
 
     auto dpsOp = mlir::cast<DestinationStyleOpInterface>(op.getOperation());
@@ -217,7 +217,6 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
       }
     }
 
-    Type originalType = op->getResult(0).getType();
     rewriter.setInsertionPointAfter(op);
     auto emptyOp = rewriter.create<EmptyOp>(op->getLoc(), originalType);
     auto toLayoutOp = rewriter.create<ToLayoutOp>(
@@ -269,9 +268,6 @@ struct TTIRHostTxsRewriter : public OpRewritePattern<ToLayoutOp> {
 public:
   LogicalResult matchAndRewrite(ToLayoutOp op,
                                 PatternRewriter &rewriter) const override {
-    if (op->hasAttr("ttir.layout_optimized")) {
-      return failure();
-    }
 
     auto inputTy = mlir::cast<RankedTensorType>(op.getInput().getType());
     auto outputTy = mlir::cast<RankedTensorType>(op.getOutput().getType());
@@ -292,10 +288,8 @@ public:
     }
 
     // Update device tensor type
-    rewriter.modifyOpInPlace(op, [&]() {
-      deviceTensor.setType(optimalDeviceLayout);
-      op->setAttr("ttir.layout_optimized", rewriter.getUnitAttr());
-    });
+    rewriter.modifyOpInPlace(
+        op, [&]() { deviceTensor.setType(optimalDeviceLayout); });
     if (outputMemoryLayout) {
       rewriter.modifyOpInPlace(
           op, [&]() { op->getResult(0).setType(optimalDeviceLayout); });
