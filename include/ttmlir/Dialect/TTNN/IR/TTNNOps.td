@@ -998,6 +998,23 @@ def TTNN_SoftmaxOp : TTNN_Op<"softmax",
     let hasVerifier = 1;
 }
 
+def TTNN_SortOp : TTNN_Op<"sort"> {
+  let summary = "Softmax op.";
+  let description = [{
+    Softmax operation.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       DefaultValuedAttr<SI8Attr, "-1">:$dim,
+                       DefaultValuedAttr<BoolAttr, "false">:$descending,
+                       DefaultValuedAttr<BoolAttr, "false">:$stable,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs Variadic<AnyRankedTensor>:$result);
+
+  //let hasVerifier = 1;
+}
+
 def TTNN_TransposeOp : TTNN_Op<"transpose",
       [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
       > {

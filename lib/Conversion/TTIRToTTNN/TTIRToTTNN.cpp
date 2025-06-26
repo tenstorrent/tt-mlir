@@ -477,6 +477,27 @@ public:
 } // namespace
 
 namespace {
+class SortOpConversionPattern : public OpConversionPattern<ttir::SortOp> {
+public:
+  using OpConversionPattern<ttir::SortOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SortOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Type> resultTypes;
+    if (failed(this->getTypeConverter()->convertTypes(op->getResultTypes(),
+                                                      resultTypes))) {
+      return failure();
+    }
+    rewriter.replaceOpWithNewOp<ttnn::SortOp>(
+        op, resultTypes, adaptor.getInput(), adaptor.getDim(),
+        adaptor.getDescending(), adaptor.getStable(), ttnn::MemoryConfigAttr());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class TransposeOpConversionPattern
     : public OpConversionPattern<ttir::TransposeOp> {
 public:
@@ -1621,6 +1642,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            CumSumOpConversionPattern,
            RepeatInterleaveOpConversionPattern,
            SoftmaxOpConversionPattern,
+           SortOpConversionPattern,
            TransposeOpConversionPattern,
            TypecastOpConversionPattern,
            ClampOpConversionPattern<ttir::ClampScalarOp, ttnn::ClampScalarOp>,
