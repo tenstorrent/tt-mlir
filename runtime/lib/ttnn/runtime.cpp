@@ -908,7 +908,7 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   return std::string(opContext.loc_info()->c_str());
 }
 
-Tensor getOpOutputTensor(OpContext opContextHandle,
+::tt::runtime::Tensor getOpOutputTensor(OpContext opContextHandle,
                          CallbackContext programContextHandle) {
   std::optional<tt::runtime::TensorRef> tensorRef =
       getOpOutputRef(opContextHandle, programContextHandle);
@@ -1072,6 +1072,14 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_PrepareConv2dWeightsOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::PrepareConv2dBiasOp: {
+    tensorRef = opContext.type_as_PrepareConv2dBiasOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::BatchNormOp: {
+    tensorRef = opContext.type_as_BatchNormOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     tensorRef = opContext.type_as_AllGatherOp()->out();
     break;
@@ -1110,6 +1118,10 @@ getOpOutputRef(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::UpdateCacheOp: {
     tensorRef = opContext.type_as_UpdateCacheOp()->cache();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::TraceOp: {
+    tensorRef = {};
     break;
   }
   case ::tt::target::ttnn::OpType::LoadCachedOp:
@@ -1303,6 +1315,18 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_PrepareConv2dWeightsOp()->weight_tensor()};
     break;
   }
+  case ::tt::target::ttnn::OpType::PrepareConv2dBiasOp: {
+    tensorRefs = {opContext.type_as_PrepareConv2dBiasOp()->bias_tensor()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::BatchNormOp: {
+    tensorRefs = {opContext.type_as_BatchNormOp()->input(),
+                  opContext.type_as_BatchNormOp()->running_mean(),
+                  opContext.type_as_BatchNormOp()->running_var(),
+                  opContext.type_as_BatchNormOp()->weight(),
+                  opContext.type_as_BatchNormOp()->bias()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     tensorRefs = {opContext.type_as_AllGatherOp()->in()};
     break;
@@ -1348,6 +1372,10 @@ getOpInputRefs(OpContext opContextHandle,
         opContext.type_as_LoadCachedOp()->inputs());
     break;
   }
+  case ::tt::target::ttnn::OpType::TraceOp: {
+    tensorRefs = {};
+    break;
+  }
   case ::tt::target::ttnn::OpType::NamedFullOp: {
     tensorRefs = {};
     break;
@@ -1360,28 +1388,11 @@ getOpInputRefs(OpContext opContextHandle,
   std::vector<tt::runtime::TensorRef> rtTensorRefs;
   rtTensorRefs.reserve(tensorRefs.size());
 
-  const auto &tensorRefPtr =
-      &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
-
-  if (!tensorRefPtr) {
-    LOG_WARNING("Tensor not found in tensor pool");
-    return std::nullopt;
-  }
-  // TODO(ndrakulicTT): Check what happens if the tensor is not live
-  if (!tensorPool.contains(tensorRefPtr)) {
-    LOG_WARNING("Tensor not found in tensor pool");
-    return std::nullopt;
+  for (const auto *ref : tensorRefs) {
+    rtTensorRefs.emplace_back(utils::createRuntimeTensorRefFromTTNN(ref));
   }
 
-  const auto &outPtr = &tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
-
-  // WHat happens if the tensor is not on device when you cann from device?
-  std::shared_ptr<::ttnn::Tensor> hostTensor =
-      std::make_shared<::ttnn::Tensor>(::ttnn::to_layout(
-          ::ttnn::from_device(*outPtr), ::ttnn::Layout::ROW_MAJOR, std::nullopt,
-          std::nullopt, static_cast<::ttnn::IDevice *>(nullptr)));
-
-  return utils::createRuntimeTensorFromTTNN(*hostTensor);
+  return rtTensorRefs;
 }
 
 std::vector<::tt::runtime::Tensor>
