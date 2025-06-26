@@ -112,11 +112,9 @@ void createTTIRToCPUPipeline(OpPassManager &manager,
   OpPassManager &cpuPm = manager.nest<tt::CPUModuleOp>().nest<mlir::ModuleOp>();
   // Decomp TTIR to reduce number of conversions we need to support in
   // Linalg/Tosa.
-  // TODO (vwells): uncomment this once
-  // https://github.com/tenstorrent/tt-mlir/pull/3908 lands.
-  // mlir::tt::TTIRToTTIRDecompositionOptions ttirDecompOptions;
-  // ttirDecompOptions.opsToDecompose = {"dot-general", "reduce-or"};
-  // cpuPm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass(ttirDecompOptions));
+  mlir::tt::TTIRToTTIRDecompositionOptions decompOptions;
+  decompOptions.decompConfig = mlir::tt::DecompMode::CPUFallback;
+  cpuPm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass(decompOptions));
 
   // Lower TTIR to mix of linalg direct, TOSA (which we can subsequently lower
   // to linalg), and Tensor dialect ops.
