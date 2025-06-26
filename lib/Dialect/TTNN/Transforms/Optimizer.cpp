@@ -405,11 +405,20 @@ public:
 
           // Set specific Conv2d Op configuration if it is exists.
           //
+
           if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(op)) {
-            if (auto conv2dConfig =
-                    mlir::dyn_cast_if_present<ttnn::Conv2dConfigAttr>(
-                        opConfigAnalysis.getResult().at(op).opSpecificAttr)) {
-              conv2dOp.setConv2dConfigAttr(conv2dConfig);
+            auto opAttributes = opConfigAnalysis.getResult().at(op);
+            if (std::holds_alternative<ttnn::Conv2dAttrs>(
+                    opAttributes.opSpecificAttrs)) {
+              ttnn::Conv2dAttrs conv2dAttrs =
+                  std::get<ttnn::Conv2dAttrs>(opAttributes.opSpecificAttrs);
+              if (conv2dAttrs.conv2dConfig.has_value()) {
+                conv2dOp.setConv2dConfigAttr(conv2dAttrs.conv2dConfig.value());
+              }
+              if (conv2dAttrs.deviceComputeKernelConfig.has_value()) {
+                conv2dOp.setComputeConfigAttr(
+                    conv2dAttrs.deviceComputeKernelConfig.value());
+              }
             }
           }
         }

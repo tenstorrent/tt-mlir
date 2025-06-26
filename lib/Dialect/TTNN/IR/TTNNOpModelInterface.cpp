@@ -724,6 +724,26 @@ MultiplyOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // Conv2dOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+// If a config has been specified, use that. Otherwise, use the op property.
+static Conv2dAttrs unpackConv2dAttrs(const OpConfig::OpSpecificAttrs &attrs,
+                                     mlir::tt::ttnn::Conv2dOp op) {
+  assert((std::holds_alternative<Conv2dAttrs>(attrs) ||
+          std::holds_alternative<UninitializedAttrs>(attrs)) &&
+         "Please create a Conv2dAttrs or leave it to be uninitialized.");
+
+  if (std::holds_alternative<UninitializedAttrs>(attrs)) {
+    return Conv2dAttrs{op.getConv2dConfig(), op.getComputeConfig()};
+  }
+
+  Conv2dAttrs conv2dAttrs = std::get<Conv2dAttrs>(attrs);
+
+  return Conv2dAttrs{conv2dAttrs.conv2dConfig ? conv2dAttrs.conv2dConfig
+                                              : op.getConv2dConfig(),
+                     conv2dAttrs.deviceComputeKernelConfig
+                         ? conv2dAttrs.deviceComputeKernelConfig
+                         : op.getComputeConfig()};
+}
+
 llvm::Expected<op_model::ttnn::OpConstraints>
 Conv2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                            const OpConfig &opConfig) {
@@ -746,24 +766,14 @@ Conv2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
     return check.takeError();
   }
   GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();
-
-  // If a conv config has been specified, use that. If not, read the op property
-  std::optional<Conv2dConfigAttr> conv2dConfig = std::nullopt;
-  if (opConfig.opSpecificAttr) {
-    assert(mlir::isa<Conv2dConfigAttr>(opConfig.opSpecificAttr) &&
-           "Unexpected type for OpConfig.opSpecificAttr. Expected "
-           "Conv2ConfigAttr");
-    conv2dConfig = mlir::cast<Conv2dConfigAttr>(opConfig.opSpecificAttr);
-  } else {
-    conv2dConfig = getConv2dConfig();
-  }
+  Conv2dAttrs attr = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
 
   return op_model::ttnn::Conv2dOpInterface::getOpConstraints(
       deviceGrid, inputShape, inputs[0], weightShape, inputs[1], biasShape,
       biasLayout, getInChannels(), getOutChannels(), getBatchSize(),
       getInputHeight(), getInputWidth(), getKernelSize(), getStride(),
-      getPadding(), getDilation(), getGroups(), conv2dConfig, outputShape,
-      opConfig.outputLayout);
+      getPadding(), getDilation(), getGroups(), attr.conv2dConfig,
+      attr.deviceComputeKernelConfig, outputShape, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -782,24 +792,14 @@ Conv2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   }
 
   const auto outputShape = getResult().getType().getShape();
-
-  // If a conv config has been specified, use that. If not, read the op property
-  std::optional<Conv2dConfigAttr> conv2dConfig = std::nullopt;
-  if (opConfig.opSpecificAttr) {
-    assert(mlir::isa<Conv2dConfigAttr>(opConfig.opSpecificAttr) &&
-           "Unexpected type for OpConfig.confopSpecificAttrig. Expected "
-           "Conv2ConfigAttr");
-    conv2dConfig = mlir::cast<Conv2dConfigAttr>(opConfig.opSpecificAttr);
-  } else {
-    conv2dConfig = getConv2dConfig();
-  }
+  Conv2dAttrs attr = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
 
   return op_model::ttnn::Conv2dOpInterface::getOpRuntime(
       inputShape, inputs[0], weightShape, inputs[1], biasShape, biasLayout,
       getInChannels(), getOutChannels(), getBatchSize(), getInputHeight(),
       getInputWidth(), getKernelSize(), getStride(), getPadding(),
-      getDilation(), getGroups(), conv2dConfig, outputShape,
-      opConfig.outputLayout);
+      getDilation(), getGroups(), attr.conv2dConfig,
+      attr.deviceComputeKernelConfig, outputShape, opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
