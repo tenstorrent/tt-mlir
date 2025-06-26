@@ -83,9 +83,9 @@ static void tagBufferizationAccess(mlir::func::FuncOp funcOp, unsigned argIdx,
 // Helper function to hoist an arbitrary op into a new function in targetModule,
 // generate a matching extern prototype in the sourceModule, and replace the
 // original op with a callOp to the extern function.
-static Value hoistOperationToFunction(mlir::Operation *opToHoist,
-                                      mlir::ModuleOp sourceModule,
-                                      mlir::ModuleOp targetModule) {
+static void hoistOperationToFunction(mlir::Operation *opToHoist,
+                                     mlir::ModuleOp sourceModule,
+                                     mlir::ModuleOp targetModule) {
 
   const llvm::SmallVector<int64_t, 4> ranks = getOperandTensorRanks(opToHoist);
   mlir::MLIRContext *context = sourceModule.getContext();
@@ -282,8 +282,6 @@ static Value hoistOperationToFunction(mlir::Operation *opToHoist,
 
   // Erase the original operation
   opToHoist->erase();
-
-  return finalResults.empty() ? Value() : finalResults[0];
 }
 
 // An analysis class which currently relies on manually tagging ops with a
