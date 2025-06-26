@@ -41,11 +41,7 @@ class RemoveReturnValuesPass
         }
       }
 
-      if (!returnOp) {
-        funcOp->emitError() << "Function does not have a return operation";
-        signalPassFailure();
-        return;
-      }
+      assert(returnOp && "Function does not have a return operation");
 
       if (returnOp.getNumOperands() == 0) {
         // Function already has no return values, nothing to transform.
