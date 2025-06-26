@@ -30,6 +30,19 @@ def TTIRToTTIRDecomposition: Pass<"ttir-to-ttir-decomposition", "::mlir::ModuleO
   let summary = "Decomposes TTIR operations into simpler TTIR operations.";
   let constructor = "createTTIRToTTIRDecompositionPass()";
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+
+  let options = [
+    Option<"decompConfig", "config", "::mlir::tt::DecompMode", /*default=*/"::mlir::tt::DecompMode::TTNN",
+           "Decomposition configuration for different backends",
+           [{::llvm::cl::values(
+             clEnumValN(::mlir::tt::DecompMode::TTNN, "ttnn",
+                        "Default configuration for TTNN backend"),
+             clEnumValN(::mlir::tt::DecompMode::TTMetal, "ttmetal",
+                        "Configuration for TTMetal backend"),
+             clEnumValN(::mlir::tt::DecompMode::CPUFallback, "cpu-fallback",
+                        "Configuration for CPU fallback path")
+           )}]>
+  ];
 }
 
 def TTIRToTTIRGeneric: Pass<"ttir-to-ttir-generic", "::mlir::ModuleOp"> {
