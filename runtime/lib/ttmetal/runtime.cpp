@@ -500,16 +500,17 @@ getOpInputRefs(OpContext opContextHandle,
   return {};
 }
 
-std::optional<Tensor> getTensor(CallbackContext programContextHandle,
-                                TensorRef tensorRef, bool untilize) {
+std::optional<Tensor>
+retrieveTensorFromPool(CallbackContext programContextHandle,
+                       TensorRef tensorRef, bool untilize) {
   // Not implemented
   LOG_FATAL(
       "Obtaining tensor from device for metal runtime is not implemented");
   return std::nullopt;
 }
 
-void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef,
-                  Tensor srcTensor) {
+void updateTensorInPool(CallbackContext programContextHandle,
+                        TensorRef tensorRef, Tensor srcTensor) {
   // Not implemented
   LOG_FATAL("Updating tensor from device for metal runtime is not implemented");
 }

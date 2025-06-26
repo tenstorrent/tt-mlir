@@ -909,13 +909,14 @@ std::string getOpLocInfo(OpContext opContextHandle) {
 }
 
 ::tt::runtime::Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle) {
+                                        CallbackContext programContextHandle) {
   std::optional<tt::runtime::TensorRef> tensorRef =
       getOpOutputRef(opContextHandle, programContextHandle);
   if (!tensorRef) {
     return createNullTensor();
   }
-  auto tensor = getTensor(programContextHandle, *tensorRef, true);
+  auto tensor = ::tt::runtime::ttnn::retrieveTensorFromPool(
+      programContextHandle, *tensorRef, true);
   return tensor ? *tensor : createNullTensor();
 }
 
@@ -1408,9 +1409,9 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
   return outputTensors;
 }
 
-std::optional<Tensor> getTensor(CallbackContext programContextHandle,
-                                tt::runtime::TensorRef tensorRef,
-                                bool untilize) {
+std::optional<Tensor>
+retrieveTensorFromPool(CallbackContext programContextHandle,
+                       tt::runtime::TensorRef tensorRef, bool untilize) {
   const auto &programContext =
       programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
           DeviceRuntime::TTNN);
@@ -1420,12 +1421,12 @@ std::optional<Tensor> getTensor(CallbackContext programContextHandle,
       &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
 
   if (!tensorRefPtr) {
-    LOG_WARNING("Tensor not found in tensor pool");
+    LOG_WARNING("Tensor ref pointer is null when retrieving tensor");
     return std::nullopt;
   }
 
   if (!tensorPool.contains(tensorRefPtr)) {
-    LOG_WARNING("Tensor not found in tensor pool");
+    LOG_WARNING("Tensor not found in tensor pool when retrieving tensor");
     return std::nullopt;
   }
 
@@ -1436,19 +1437,19 @@ std::optional<Tensor> getTensor(CallbackContext programContextHandle,
       ::tt::runtime::ttnn::toHost(outTensor, untilize);
 
   if (hostTensors.empty()) {
-    LOG_WARNING("Tensor not found in tensor pool");
+    LOG_WARNING("Failed to get host tensor when retrieving tensor");
     return std::nullopt;
   }
 
   if (hostTensors.size() != 1) {
-    LOG_FATAL("Multi device tensor not supported");
+    LOG_FATAL("Multi device tensor not supported when retrieving tensor");
   }
 
   return hostTensors[0];
 }
 
-void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef,
-                  Tensor tensor) {
+void updateTensorInPool(CallbackContext programContextHandle,
+                        TensorRef tensorRef, Tensor tensor) {
   auto &programContext =
       programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
           DeviceRuntime::TTNN);
@@ -1457,20 +1458,22 @@ void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef,
       &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
 
   if (!tensorRefPtr) {
-    LOG_WARNING("Null tensor ref pointer");
+    LOG_WARNING("Tensor ref pointer is null when updating tensor");
     return;
   }
   if (!tensorPool.contains(tensorRefPtr)) {
-    LOG_WARNING("Tensor not found in tensor pool");
+    LOG_WARNING("Tensor not found in tensor pool when updating tensor");
     return;
   }
 
-  ::ttnn::Tensor &srcTensor = tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  ::ttnn::Tensor &srcTensor =
+      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
+          .getTensor();
   ::ttnn::Tensor &dstTensor = tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
-  srcTensor = srcTensor.pad_to_tile(0.0f);
-  srcTensor = srcTensor.to_layout(dstTensor.layout());
+  srcTensor = ::ttnn::to_layout(srcTensor, dstTensor.layout());
   if (dstTensor.mesh_device()) {
-    srcTensor = srcTensor.to_device(dstTensor.mesh_device());
+    srcTensor = ::ttnn::to_device(srcTensor, dstTensor.mesh_device(),
+                                  dstTensor.memory_config());
   }
   tensorPool.insertTTNNTensorAndValidate(tensorRefPtr, srcTensor);
 }

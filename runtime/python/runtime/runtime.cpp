@@ -367,11 +367,11 @@ void registerRuntimeBindings(nb::module_ &m) {
     )");
 
   m.def(
-      "get_tensor",
+      "retrieve_tensor_from_pool",
       [](tt::runtime::CallbackContext program_context_handle,
          tt::runtime::TensorRef tensor_ref, bool untilize = true) {
-        return tt::runtime::getTensor(program_context_handle, tensor_ref,
-                                      untilize);
+        return tt::runtime::retrieveTensorFromPool(program_context_handle,
+                                                   tensor_ref, untilize);
       },
       nb::arg("program_context_handle"), nb::arg("tensor_ref"),
       nb::arg("untilize") = true,
@@ -395,12 +395,12 @@ void registerRuntimeBindings(nb::module_ &m) {
     )");
 
   m.def(
-      "update_tensor",
+      "update_tensor_in_pool",
       [](tt::runtime::CallbackContext program_context_handle,
          tt::runtime::TensorRef tensor_ref_handle,
          tt::runtime::Tensor tensor_handle) {
-        tt::runtime::updateTensor(program_context_handle, tensor_ref_handle,
-                                  tensor_handle);
+        tt::runtime::updateTensorInPool(program_context_handle,
+                                        tensor_ref_handle, tensor_handle);
       },
       nb::arg("program_context_handle"), nb::arg("tensor_ref_handle"),
       nb::arg("tensor_handle"),

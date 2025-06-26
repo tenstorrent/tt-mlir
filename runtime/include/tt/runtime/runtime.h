@@ -208,14 +208,18 @@ std::optional<TensorRef> getOpOutputRef(OpContext opContextHandle,
 std::vector<TensorRef> getOpInputRefs(OpContext opContextHandle,
                                       CallbackContext programContextHandle);
 
-// For the given tensor reference, returns the tensor that it refers to.
-// cases
-std::optional<Tensor> getTensor(CallbackContext programContextHandle,
-                                TensorRef tensorRef, bool untilize);
+// For the given tensor reference, retrieves the tensor from the program's
+// tensor pool. Returns the tensor if found, or nullopt if not found or on
+// error.
+std::optional<Tensor>
+retrieveTensorFromPool(CallbackContext programContextHandle,
+                       TensorRef tensorRef, bool untilize);
 
-// Updates the tensor that is referenced by the given tensor reference.
-void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef,
-                  Tensor srcTensor);
+// Updates the tensor in the program's tensor pool that is referenced by the
+// given tensor reference. Performs necessary layout and device conversions to
+// match the existing tensor.
+void updateTensorInPool(CallbackContext programContextHandle,
+                        TensorRef tensorRef, Tensor srcTensor);
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
