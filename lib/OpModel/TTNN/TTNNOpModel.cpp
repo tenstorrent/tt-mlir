@@ -1,4 +1,3 @@
-
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
@@ -338,7 +337,9 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
         conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
             padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
-        hasBias, groups, device, localConfig, std::nullopt, std::nullopt);
+        hasBias, groups, device, localConfig,
+        /* compute_config_ */ std::nullopt,
+        /* dram_slice_config_ */ std::nullopt);
   };
 
   auto prepareConvTranspose2dWeightsOpQuery = [=]() {
@@ -353,7 +354,9 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
-        hasBias, groups, device, localConfig, std::nullopt, true);
+        hasBias, groups, device, localConfig,
+        /* compute_config_ */ std::nullopt,
+        /* mirror_kernel */ true);
   };
 
   auto output =
@@ -388,7 +391,8 @@ getPreparedConv2dWeightsOutputTensor(mlir::tt::ttnn::Conv2dOp *op) {
           op->getInChannels(), op->getOutChannels(), op->getBatchSize(),
           op->getInputHeight(), op->getInputWidth(), op->getKernelSize(),
           op->getStride(), op->getPadding(), op->getDilation(), op->getGroups(),
-          op->getConv2dConfig(), op->getBias() != nullptr, false);
+          op->getConv2dConfig(), op->getBias() != nullptr,
+          /* transpose */ false);
   if (!outputTensorSpec) {
     llvm::errs() << llvm::toString(outputTensorSpec.takeError());
     assert(false && "Failed to calculate conv2d prepared weights shape.");
