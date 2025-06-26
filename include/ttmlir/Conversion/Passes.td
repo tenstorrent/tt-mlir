@@ -30,6 +30,13 @@ def TTIRToTTIRDecomposition: Pass<"ttir-to-ttir-decomposition", "::mlir::ModuleO
   let summary = "Decomposes TTIR operations into simpler TTIR operations.";
   let constructor = "createTTIRToTTIRDecompositionPass()";
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+
+  list<Option> options = [
+    ListOption<"opsToDecompose", "ops", "std::string",
+               "List of ops to decompose. Valid values: index, convolution, "
+               "get-dimension-size, pooling, gather, select, dot-general, "
+               "reduce-and, reduce-or, arange. If empty, all ops are decomposed.">
+  ];
 }
 
 def TTIRToTTIRGeneric: Pass<"ttir-to-ttir-generic", "::mlir::ModuleOp"> {
@@ -152,8 +159,7 @@ def ConvertTTIRToLinalg: Pass<"convert-ttir-to-linalg", "::mlir::ModuleOp"> {
     }
   }];
   let constructor = "createConvertTTIRToLinalgPass()";
-  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::linalg::LinalgDialect"];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::linalg::LinalgDialect", "mlir::tosa::TosaDialect"];
 }
-
 
 #endif // TTMLIR_CONVERSION_PASSES

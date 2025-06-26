@@ -479,8 +479,8 @@ def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where", [TTIR_PartiallyBroadcastabl
       The `where` operation performs element-wise conditional selection based on a predicate.
 
       For each element position, it selects between two values based on a boolean condition in first tensor:
-      - If the condition is true (non-zero), it selects the corresponding element from the second tensor
-      - If the condition is false (zero), it selects the corresponding element from the third tensor
+      - If the condition is true (> 0), it selects the corresponding element from the second tensor
+      - If the condition is false (<= 0), it selects the corresponding element from the third tensor
 
       This operation supports broadcasting, allowing inputs of different shapes to be combined
       according to standard broadcasting rules.
