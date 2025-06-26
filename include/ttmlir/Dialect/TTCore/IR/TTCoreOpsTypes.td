@@ -283,7 +283,8 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
   let summary = "Tensor layout attribute with explicit physical shape";
   let description = [{
     The tensor layout attribute captures how tensor data is sharded across a grid of devices/cores
-    and is laid out in memory.
+    and is laid out in memory.  Note that the presence of this attribute implies that the tensor
+    shape includes sharding (i.e. the first half of the tensor shape represents the grid shape).
 
     Some high level goals:
       - **Logical shapes**: Store the original tensor shape and rank intact and agnostic
@@ -292,10 +293,12 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
         simpler, in particular convs, but it makes the lowered IR much easier to read
         and reason about.  The original tensor shapes leave breadcrumbs that make it
         much easier to map back to the input representation.
-      - **Collapse-able dims**: We may collapse dimensions during transformation, but it
+      - **Collapsed dims**: We may collapse dimensions during transformation, but it
         is important we capture this information such that it is not lost during tensor
-        transformation
-      - **Padding**: store the desired alignments s.t. padding can be simply encoded
+        transformation.  The collapsed_intervals field stores the collapses performed
+        during conversion from logical_shape to physical tensor shape.
+      - **Padding**: store the desired alignments s.t. padding can be simply encoded;
+      dim_alignments field represents alignment along each logical dim during collapse.
       - **Memref translation**: ensure we have all necessary info s.t. we can trivally
         lower a tensor into a memref without any intermediate passes.
 
@@ -322,8 +325,8 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     // Alignment for each logical dim, default is 32x1x...x1x32.
     ArrayRefParameter<"int64_t">:$dim_alignments,
 
-    // Dim collapse info--must be encoded as 2D array of pairs, where each pair represent a half-open range--negative indexing is supported.
-    AttrParameter<"DenseIntElementsAttr", "Intervals of dims to collpase">:$collapse_intervals,
+    // Dim collapse info; must be encoded as 2D array of pairs, where each pair represent a half-open range. Negative indexing is supported.
+    AttrParameter<"DenseIntElementsAttr", "Intervals of dims to collpase">:$collapsed_intervals,
 
     // Out of bounds value.
     AttrParameter<"OOBVal", "Out of bounds fill value">:$oob_val,
@@ -332,7 +335,7 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     DefaultValuedParameter<"MemorySpace", "MemorySpace::System">:$memory_space
   );
 
-  let assemblyFormat = "`<` `logical_shape` `=` custom<DimensionList>($logical_shape) `,` `dim_alignments` `=` custom<DimensionList>($dim_alignments) `,` `collapse_dims` `=` $collapse_intervals `,` $oob_val (`,` $memory_space^)? `>`";
+  let assemblyFormat = "`<` `logical_shape` `=` custom<DimensionList>($logical_shape) `,` `dim_alignments` `=` custom<DimensionList>($dim_alignments) `,` `collapsed_intervals` `=` $collapsed_intervals `,` $oob_val (`,` $memory_space^)? `>`";
 
   let extraClassDeclaration = [{
     static  MetalLayoutAttr get(::mlir::MLIRContext *context,

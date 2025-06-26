@@ -884,7 +884,7 @@ normalizeAndFlattenIntervals(const mlir::DenseIntElementsAttr &inputIntervals,
 }
 
 llvm::SmallVector<int64_t> MetalLayoutAttr::getNormalizedIntervals() const {
-  return normalizeAndFlattenIntervals(getCollapseIntervals(),
+  return normalizeAndFlattenIntervals(getCollapsedIntervals(),
                                       getLogicalShape().size());
 }
 

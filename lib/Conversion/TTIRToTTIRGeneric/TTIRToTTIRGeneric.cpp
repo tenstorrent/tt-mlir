@@ -82,7 +82,7 @@ protected:
 
       // Calculate new physical shape based on grid + tiling.
       auto physicalShape = tt::MetalLayoutAttr::derivePhysicalShape(
-          logicalShape, gridShape, tileShape, layout.getCollapseIntervals(),
+          logicalShape, gridShape, tileShape, layout.getCollapsedIntervals(),
           layout.getDimAlignments());
 
       mlir::RankedTensorType layoutResultType =
