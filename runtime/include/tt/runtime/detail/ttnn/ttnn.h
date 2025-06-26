@@ -225,15 +225,15 @@ getOpInputRefs(OpContext opContextHandle, CallbackContext programContextHandle);
 // Returns tensor to which tensorRef refers
 // In case that that tensor is not in the tensor pool, returns std::nullopt
 // For now only supports single device tensors
-std::optional<Tensor> getTensor(CallbackContext programContextHandle,
-                                tt::runtime::TensorRef tensorRef,
-                                bool untilize);
+std::optional<Tensor>
+retrieveTensorFromPool(CallbackContext programContextHandle,
+                       tt::runtime::TensorRef tensorRef, bool untilize);
 
 // Update tensor to which tensorRef refers
 // Prefered to be owned tensor to avoid unexpected behavior in case of
 // deallocation
-void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef,
-                  Tensor srcTensor);
+void updateTensorInPool(CallbackContext programContextHandle,
+                        TensorRef tensorRef, Tensor srcTensor);
 
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,

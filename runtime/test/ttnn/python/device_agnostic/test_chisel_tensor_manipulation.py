@@ -17,8 +17,8 @@ from ttrt.runtime import (
     get_op_output_tensor,
     get_op_output_ref,
     get_op_input_refs,
-    get_tensor,
-    update_tensor,
+    retrieve_tensor_from_pool,
+    update_tensor_in_pool,
     memcpy,
     create_owned_host_tensor,
     DataType,
@@ -34,6 +34,7 @@ WEIGHT_SHAPE = (10, 10)
 BIAS_SHAPE = (1, 10)
 DTYPE = torch.float32
 
+
 def get_torch_tensor(tensor):
     rt_data_ptr = tensor.get_data_buffer()
     rt_dtype = tensor.get_dtype()
@@ -45,6 +46,7 @@ def get_torch_tensor(tensor):
     torch_tensor = torch_tensor.reshape(shape)
     return torch_tensor
 
+
 def update_device_tensor(program_context, tensor_ref, dst_tensor, src_tensor):
     data_ptr = src_tensor.data_ptr()
     shape = dst_tensor.get_shape()
@@ -52,13 +54,15 @@ def update_device_tensor(program_context, tensor_ref, dst_tensor, src_tensor):
     dtype = dst_tensor.get_dtype()
     size = torch.numel(src_tensor)
     tensor = create_owned_host_tensor(data_ptr, shape, stride, size, dtype)
-    update_tensor(program_context, tensor_ref, tensor)
+    update_tensor_in_pool(program_context, tensor_ref, tensor)
+
 
 def linear_model(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
     builder._golden_check_level = GoldenCheckLevel.DISABLED
     matmul_result = builder.matmul(in0, in1)
     output = builder.add(matmul_result, in2)
     return output
+
 
 @pytest.mark.parametrize(
     "golden_input_tensors,golden_out_tensors,update_in_tensors",
@@ -103,7 +107,7 @@ def test_tensor_manipulation_apis(
         tensor_refs = get_op_input_refs(opContext, programContext)
 
         for ref in tensor_refs:
-            tensor = get_tensor(programContext, ref)
+            tensor = retrieve_tensor_from_pool(programContext, ref)
             torch_tensor = get_torch_tensor(tensor)
             if in_counter in golden_input_tensors:
                 print(f"Input {in_counter}: {torch_tensor}")
@@ -127,7 +131,7 @@ def test_tensor_manipulation_apis(
             print(f"Golden {out_counter}: {golden_out_tensors[out_counter]}")
             assert torch.all(torch_tensor == golden_out_tensors[out_counter])
         out_counter += 1
-    
+
     args = {
         "binary": str(flatbuffer_path),
         "save-artifacts": True,
