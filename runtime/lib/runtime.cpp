@@ -738,33 +738,34 @@ getOpInputRefs(OpContext opContextHandle,
       });
 }
 
-std::optional<Tensor> getTensor(CallbackContext programContextHandle,
-                                TensorRef tensorRef, bool untilize) {
+std::optional<Tensor>
+retrieveTensorFromPool(CallbackContext programContextHandle,
+                       TensorRef tensorRef, bool untilize) {
   using RetType = std::optional<Tensor>;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
-        return ::tt::runtime::ttnn::getTensor(programContextHandle, tensorRef,
-                                              untilize);
+        return tt::runtime::ttnn::retrieveTensorFromPool(programContextHandle,
+                                                         tensorRef, untilize);
       },
       [&]() -> RetType {
-        return ::tt::runtime::ttmetal::getTensor(programContextHandle,
-                                                 tensorRef, untilize);
+        return tt::runtime::ttmetal::retrieveTensorFromPool(
+            programContextHandle, tensorRef, untilize);
       });
 }
 
-void updateTensor(CallbackContext programContextHandle, TensorRef tensorRef,
-                  Tensor srcTensor) {
+void updateTensorInPool(CallbackContext programContextHandle,
+                        TensorRef tensorRef, Tensor srcTensor) {
   using RetType = void;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
-        return ::tt::runtime::ttnn::updateTensor(programContextHandle,
-                                                 tensorRef, srcTensor);
+        return ::tt::runtime::ttnn::updateTensorInPool(programContextHandle,
+                                                       tensorRef, srcTensor);
       },
       [&]() -> RetType {
-        return ::tt::runtime::ttmetal::updateTensor(programContextHandle,
-                                                    tensorRef, srcTensor);
+        return ::tt::runtime::ttmetal::updateTensorInPool(programContextHandle,
+                                                          tensorRef, srcTensor);
       });
 }
 
