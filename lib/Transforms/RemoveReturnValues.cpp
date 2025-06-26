@@ -18,7 +18,6 @@ namespace {
 // tensors etc.
 class RemoveReturnValuesPass
     : public impl::RemoveReturnValuesBase<RemoveReturnValuesPass> {
-public:
   using impl::RemoveReturnValuesBase<
       RemoveReturnValuesPass>::RemoveReturnValuesBase;
 

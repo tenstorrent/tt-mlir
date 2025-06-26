@@ -183,25 +183,25 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
     auto *clonedOp = builder.clone(*opToHoist, mapping);
 
     // Update operand types to f32 for tensor types
-    for (size_t i = 0; i < clonedOp->getNumOperands(); i++) {
-      if (auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(
-              clonedOp->getOperand(i).getType())) {
+    for (auto operand : clonedOp->getOperands()) {
+      if (auto tensorType =
+              mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
         if (!tensorType.getElementType().isF32()) {
           auto newType = RankedTensorType::get(tensorType.getShape(), f32Type,
                                                tensorType.getEncoding());
-          clonedOp->getOperand(i).setType(newType);
+          operand.setType(newType);
         }
       }
     }
 
     // Update result types to f32 for tensor types
-    for (size_t i = 0; i < clonedOp->getNumResults(); i++) {
-      if (auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(
-              clonedOp->getResult(i).getType())) {
+    for (auto result : clonedOp->getResults()) {
+      if (auto tensorType =
+              mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
         if (!tensorType.getElementType().isF32()) {
           auto newType = RankedTensorType::get(tensorType.getShape(), f32Type,
                                                tensorType.getEncoding());
-          clonedOp->getResult(i).setType(newType);
+          result.setType(newType);
         }
       }
     }
@@ -220,7 +220,7 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
 
       // Store this mapping as an attribute on the function
       hoistedFunc->setAttr(ttir::ReturnToOutputMappingAttr::name,
-                           builder.getI32IntegerAttr(outputIdx));
+                           builder.getI64IntegerAttr(outputIdx));
     }
 
     // Add a return operation to the function with the operation results

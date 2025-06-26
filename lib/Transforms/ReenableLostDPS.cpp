@@ -31,12 +31,11 @@ namespace mlir::tt::transforms {
 static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
   IRRewriter rewriter(moduleOp.getContext());
 
-  bool failed = false;
   // Find all functions with the return_to_output_mapping attribute
-  moduleOp.walk([&](func::FuncOp funcOp) {
+  auto result = moduleOp.walk([&](func::FuncOp funcOp) {
     // Only process functions that have the mapping attribute
     if (!funcOp->hasAttr(ttir::ReturnToOutputMappingAttr::name)) {
-      return;
+      return WalkResult::skip();
     }
 
     // Get the return_to_output_mapping attribute
@@ -45,8 +44,7 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
     if (!mappingAttr) {
       funcOp->emitError() << "Function has ttir.return_to_output_mapping "
                              "attribute but it's not an IntegerAttr";
-      failed = true;
-      return;
+      return WalkResult::interrupt();
     }
 
     // Get the output operand index
@@ -55,8 +53,7 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
       funcOp->emitError() << "Output argument index " << outputArgIdx
                           << " is out of range (function has "
                           << funcOp.getNumArguments() << " arguments)";
-      failed = true;
-      return;
+      return WalkResult::interrupt();
     }
 
     // Check if the output parameter is actually used in the function
@@ -68,13 +65,13 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
       // The output argument is already being used, so DPS is already enabled
       // Remove the mapping attribute and skip this function
       funcOp->removeAttr(ttir::ReturnToOutputMappingAttr::name);
-      return;
+      return WalkResult::skip();
     }
 
     // Find the return operation
     func::ReturnOp returnOp;
     for (Block &block : funcOp.getBlocks()) {
-      if (auto retOp = dyn_cast<func::ReturnOp>(block.getTerminator())) {
+      if (auto retOp = llvm::dyn_cast<func::ReturnOp>(block.getTerminator())) {
         returnOp = retOp;
         break;
       }
@@ -82,15 +79,14 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
 
     if (!returnOp) {
       funcOp->emitError() << "Function does not have a return operation";
-      failed = true;
-      return;
+      return WalkResult::interrupt();
     }
 
     if (returnOp.getNumOperands() == 0) {
       funcOp->emitWarning()
           << "Function already has no return values, nothing to transform";
       funcOp->removeAttr(ttir::ReturnToOutputMappingAttr::name);
-      return;
+      return WalkResult::skip();
     }
 
     Value returnVal = returnOp.getOperands()[0];
@@ -98,14 +94,16 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
     // Check if the return value is a block argument--this indicates the hoisted
     // op has been optimized away, and we must replace it with a copy s.t. the
     // output tensor gets the proper value.
-    if (auto blockArg = dyn_cast<BlockArgument>(returnVal)) {
+    if (auto blockArg = llvm::dyn_cast<BlockArgument>(returnVal)) {
       // This is a NOOP case - we need to copy the input to the output.
       Value outputTensor = funcOp.getArgument(outputArgIdx);
 
       rewriter.setInsertionPoint(returnOp);
 
-      if (auto inputType = dyn_cast<RankedTensorType>(returnVal.getType())) {
-        auto outputType = dyn_cast<RankedTensorType>(outputTensor.getType());
+      if (auto inputType =
+              llvm::dyn_cast<RankedTensorType>(returnVal.getType())) {
+        auto outputType =
+            llvm::dyn_cast<RankedTensorType>(outputTensor.getType());
 
         assert(inputType == outputType);
 
@@ -115,15 +113,14 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
 
       // Remove the mapping attribute since we've applied it
       funcOp->removeAttr(ttir::ReturnToOutputMappingAttr::name);
-      return;
+      return WalkResult::skip();
     }
 
     // Find the operation that produces the return value
     Operation *producer = returnVal.getDefiningOp();
     if (!producer) {
       funcOp->emitError() << "Return value is not produced by an operation";
-      failed = true;
-      return;
+      return WalkResult::interrupt();
     }
 
     // Handle different types of operations
@@ -158,7 +155,7 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
 
     // Helper lambda to find and replace empty ops in DPS init operands
     auto processInitOperands = [&](Operation *op) {
-      auto dpsInterface = dyn_cast<DestinationStyleOpInterface>(op);
+      auto dpsInterface = llvm::dyn_cast<DestinationStyleOpInterface>(op);
       if (!dpsInterface) {
         return false;
       }
@@ -229,14 +226,16 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
     if (!transformed) {
       funcOp->emitWarning()
           << "Could not find any tensor.empty operations to replace";
-      return;
+      return WalkResult::skip();
     }
 
     // Remove the mapping attribute since we've applied it
     funcOp->removeAttr(ttir::ReturnToOutputMappingAttr::name);
+
+    return WalkResult::advance();
   });
 
-  return failed ? failure() : success();
+  return success(!result.wasInterrupted());
 }
 
 namespace {
@@ -258,7 +257,7 @@ namespace {
 // function argument, effectively re-enabling DPS.
 class ReenableLostDPS : public impl::ReenableLostDPSBase<ReenableLostDPS> {
   using impl::ReenableLostDPSBase<ReenableLostDPS>::ReenableLostDPSBase;
-  void runOnOperation() override {
+  void runOnOperation() final {
     if (failed(reenableDpsFromAttr(getOperation()))) {
       signalPassFailure();
     }

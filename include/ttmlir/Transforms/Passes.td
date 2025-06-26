@@ -58,8 +58,7 @@ def UndoConstEvalTransform : Pass<"undo-const-eval", "mlir::ModuleOp"> {
   let dependentDialects = ["::mlir::tt::TTCoreDialect"];
 }
 
-def ReenableLostDPS: Pass<"ttir-reenable-dps", "::mlir::ModuleOp">
-{
+def ReenableLostDPS: Pass<"ttir-reenable-dps", "::mlir::ModuleOp"> {
   let summary = "Transform functions with return values to use output parameters.";
   let description = [{
     This pass finds functions with the ttir.return_to_output_mapping attribute and
@@ -91,11 +90,14 @@ def ReenableLostDPS: Pass<"ttir-reenable-dps", "::mlir::ModuleOp">
   let dependentDialects = ["mlir::linalg::LinalgDialect", "mlir::tensor::TensorDialect", "mlir::func::FuncDialect"];
 }
 
-def RemoveReturnValues: Pass<"ttir-remove-return-values", "::mlir::ModuleOp">
-{
+def RemoveReturnValues: Pass<"ttir-remove-return-values", "::mlir::ModuleOp"> {
   let summary = "Remove return values from functions.";
   let description = [{
-    This pass finds functions with return values and transforms them to have no return values.  We use this on the CPU hoisting path, since we want to avoid RVO issues at runtime, but model the functions as returning values during some intermediate stages to avoid op elimination, track which operation is the final output (corresponding to DPS output tensor), etc.
+    This pass finds functions with return values and transforms them to have no return
+    values.  We use this on the CPU hoisting path, since we want to avoid RVO issues at
+    runtime, but model the functions as returning values during some intermediate stages
+    to avoid op elimination, track which operation is the final output (corresponding
+    to DPS output tensor), etc.
 
     Example:
     ```mlir
