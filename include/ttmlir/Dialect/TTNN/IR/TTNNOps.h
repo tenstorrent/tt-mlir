@@ -9,8 +9,8 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreTraits.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpModelInterface.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsInterfaces.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNRequiresExplicitBroadcastInterface.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNTraits.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundInterface.h"
 
@@ -27,6 +27,5 @@
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpModelInterface.h.inc"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h.inc"
-#include "ttmlir/Dialect/TTNN/IR/TTNNRequiresExplicitBroadcastInterface.h.inc"
 
 #endif

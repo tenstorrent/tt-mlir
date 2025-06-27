@@ -8,7 +8,7 @@
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
 LogicalResult ExplicateOperandBroadcastsRewritePattern::matchAndRewrite(
-    ttnn::TTNNRequiresExplicitBroadcastInterface srcOp,
+    ttnn::RequiresExplicitBroadcastInterface srcOp,
     PatternRewriter &rewriter) const {
   auto resultShape =
       mlir::cast<mlir::RankedTensorType>(srcOp->getResult(0).getType())

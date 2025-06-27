@@ -4,7 +4,6 @@ add_mlir_doc(TTNNOps TTNNOp src/autogen/md/Dialect/ -gen-op-doc)
 
 add_mlir_interface(TTNNOpModelInterface)
 add_mlir_interface(TTNNWorkaroundInterface)
-add_mlir_interface(TTNNRequiresExplicitBroadcastInterface)
 
 set(LLVM_TARGET_DEFINITIONS TTNNOpsEnums.td)
 mlir_tablegen(TTNNOpsEnums.h.inc -gen-enum-decls)
@@ -23,3 +22,9 @@ mlir_tablegen(TTNNOpsTypeDefs.h.inc -gen-typedef-decls)
 mlir_tablegen(TTNNOpsTypeDefs.cpp.inc -gen-typedef-defs)
 add_public_tablegen_target(MLIRTTNNOpsTypesIncGen)
 add_dependencies(mlir-headers MLIRTTNNOpsTypesIncGen)
+
+set(LLVM_TARGET_DEFINITIONS TTNNOpsInterfaces.td)
+mlir_tablegen(TTNNOpsInterfaces.h.inc -gen-op-interface-decls)
+mlir_tablegen(TTNNOpsInterfaces.cpp.inc -gen-op-interface-defs)
+add_public_tablegen_target(TTNNOpsInterfacesIncGen)
+add_dependencies(mlir-headers TTNNOpsInterfacesIncGen)

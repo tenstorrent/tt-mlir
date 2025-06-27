@@ -16,14 +16,13 @@ namespace mlir::tt::ttnn::workarounds::decomposition {
 // the broadcast on each operand.
 class ExplicateOperandBroadcastsRewritePattern
     : public OpInterfaceRewritePattern<
-          ttnn::TTNNRequiresExplicitBroadcastInterface> {
+          ttnn::RequiresExplicitBroadcastInterface> {
 public:
   using OpInterfaceRewritePattern<
-      ttnn::TTNNRequiresExplicitBroadcastInterface>::OpInterfaceRewritePattern;
+      ttnn::RequiresExplicitBroadcastInterface>::OpInterfaceRewritePattern;
 
-  LogicalResult
-  matchAndRewrite(ttnn::TTNNRequiresExplicitBroadcastInterface srcOp,
-                  PatternRewriter &rewriter) const override;
+  LogicalResult matchAndRewrite(ttnn::RequiresExplicitBroadcastInterface srcOp,
+                                PatternRewriter &rewriter) const override;
 };
 
 } // namespace mlir::tt::ttnn::workarounds::decomposition

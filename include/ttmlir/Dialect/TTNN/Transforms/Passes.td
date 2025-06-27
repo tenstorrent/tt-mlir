@@ -51,6 +51,14 @@ def TTNNWorkarounds : Pass<"ttnn-workaround", "::mlir::ModuleOp"> {
   ];
 }
 
+def TTNNLegalizeEltwiseBinaryNgOpsBroadcasts : Pass<"ttnn-legalize-eltwise-binary-ng-ops-broadcasts", "::mlir::ModuleOp"> {
+  let summary = "Check if binary NG ops satisfy tt-metal constraints for implicit broadcasting after the optimizer has finished.";
+  let description = [{
+    There are constraints in tt-metal that prevent binary NG ops from supporting implicit broadcasting.
+    In such cases, we need to convert the operation to use explicit broadcasting instead.
+  }];
+}
+
 def TTNNCreateInputGenerators: Pass<"ttnn-create-input-gens", "::mlir::ModuleOp"> {
   let summary = "Create input generators for the forward functions.";
   let description = [{
