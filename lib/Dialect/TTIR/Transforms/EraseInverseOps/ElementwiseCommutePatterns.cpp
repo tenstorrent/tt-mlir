@@ -12,7 +12,7 @@ namespace mlir::tt::ttir {
 namespace {
 template <typename TMOpType, typename ElementwiseInterfaceType,
           CommuteDirection commuteDirection>
-class TTIRCommuteTmsAboveElementwiseRewriter
+class TTIRCommuteTmsThroughElementwiseRewriter
     : public TTIRCommuteOpInterfaceRewritePattern<
           TMOpType, ElementwiseInterfaceType, commuteDirection> {
 public:
@@ -108,10 +108,12 @@ public:
         op->getLoc(), rewriter.getStringAttr(op->getName().getStringRef()),
         newEltwiseOperands, newEltwiseType, op->getAttrs());
 
+    RankedTensorType newTMType =
+        cast<RankedTensorType>(op->getResult(0).getType())
+            .clone(tmOperand.getType().getShape());
     TMOpType newUserTM = ttir::utils::createDPSOp<TMOpType>(
-        rewriter, op->getLoc(),
-        cast<RankedTensorType>(tmOperand->getResult(0).getType()),
-        newEltwise->getResult(0), tmOperand->getAttrs());
+        rewriter, op->getLoc(), newTMType, newEltwise->getResult(0),
+        tmOperand->getAttrs());
 
     rewriter.replaceOp(op, newUserTM);
   }
@@ -142,8 +144,10 @@ private:
 
   bool isCommuteDownwardsFavorable(ElementwiseInterfaceType op,
                                    TMOpType tmOperand) const override {
-    // Commuting downwars is favorable if the all other operands a satisfy one
-    // of the following: Are an identical TM Are on a consteval-able path
+    // Commuting downwards is favorable if the all other operands a satisfy one
+    // of the following:
+    // - Are an identical TM
+    // - Are on a consteval-able path
 
     // Do not check the final operand as it is the DPS operand
     for (uint32_t i = 0; i < op->getNumOperands() - 1; i++) {
@@ -158,47 +162,20 @@ private:
 };
 } // namespace
 
-// namespace {
-// template <typename TMOpType>
-// class TTIRCommuteTmsAboveElementwiseUnaryRewriter
-//     : public TTIRCommuteTmsAboveElementwiseRewriter<TMOpType,
-//                                                     ElementwiseUnary> {
-// public:
-//   using TTIRCommuteTmsAboveElementwiseRewriter<
-//       TMOpType, ElementwiseUnary>::TTIRCommuteTmsAboveElementwiseRewriter;
-
-// private:
-// };
-// } // namespace
-
-// namespace {
-// template <typename TMOpType>
-// class TTIRCommuteTmsAboveElementwiseBinaryRewriter
-//     : public TTIRCommuteTmsAboveElementwiseRewriter<TMOpType,
-//                                                     ElementwiseBinary> {
-// public:
-//   using TTIRCommuteTmsAboveElementwiseRewriter<
-//       TMOpType, ElementwiseBinary>::TTIRCommuteTmsAboveElementwiseRewriter;
-
-// private:
-
-// };
-// } // namespace
-
 template <CommuteDirection commuteDirection>
 void populateElementwiseCommutePatterns(
     MLIRContext *ctx, RewritePatternSet &patterns,
     const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams) {
-  patterns
-      .add<TTIRCommuteTmsAboveElementwiseRewriter<PermuteOp, ElementwiseUnary,
-                                                  commuteDirection>,
-           TTIRCommuteTmsAboveElementwiseRewriter<ReshapeOp, ElementwiseUnary,
-                                                  commuteDirection>,
-           TTIRCommuteTmsAboveElementwiseRewriter<PermuteOp, ElementwiseBinary,
-                                                  commuteDirection>,
-           TTIRCommuteTmsAboveElementwiseRewriter<ReshapeOp, ElementwiseBinary,
-                                                  commuteDirection>>(
-          ctx, constParams);
+  patterns.add<
+      TTIRCommuteTmsThroughElementwiseRewriter<PermuteOp, ElementwiseUnary,
+                                               commuteDirection>,
+      TTIRCommuteTmsThroughElementwiseRewriter<ReshapeOp, ElementwiseUnary,
+                                               commuteDirection>,
+      TTIRCommuteTmsThroughElementwiseRewriter<PermuteOp, ElementwiseBinary,
+                                               commuteDirection>,
+      TTIRCommuteTmsThroughElementwiseRewriter<ReshapeOp, ElementwiseBinary,
+                                               commuteDirection>>(ctx,
+                                                                  constParams);
 }
 
 template void populateElementwiseCommutePatterns<CommuteDirection::UPWARDS>(

@@ -191,7 +191,7 @@ getNewReshapeAndBroadcastDims(ArrayRef<int64_t> originalShape,
 
 namespace {
 template <CommuteDirection commuteDirection>
-class TTIRCommuteReshapeAboveBroadcast
+class TTIRCommuteReshapeThroughBroadcast
     : public TTIRCommuteOpRewritePattern<ttir::ReshapeOp, ttir::BroadcastOp,
                                          commuteDirection> {
 public:
@@ -301,7 +301,7 @@ private:
 
 namespace {
 template <CommuteDirection commuteDirection>
-class TTIRCommutePermuteAboveBroadcast
+class TTIRCommutePermuteThroughBroadcast
     : public TTIRCommuteOpRewritePattern<ttir::PermuteOp, ttir::BroadcastOp,
                                          commuteDirection> {
 public:
@@ -393,9 +393,9 @@ template <CommuteDirection commuteDirection>
 void populateBroadcastCommutePatterns(
     MLIRContext *ctx, RewritePatternSet &patterns,
     const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams) {
-  patterns.add<TTIRCommuteReshapeAboveBroadcast<commuteDirection>,
-               TTIRCommutePermuteAboveBroadcast<commuteDirection>>(ctx,
-                                                                   constParams);
+  patterns.add<TTIRCommuteReshapeThroughBroadcast<commuteDirection>,
+               TTIRCommutePermuteThroughBroadcast<commuteDirection>>(
+      ctx, constParams);
 }
 
 template void populateBroadcastCommutePatterns<CommuteDirection::UPWARDS>(

@@ -319,6 +319,10 @@ template <CommuteDirection commuteDirection>
 extern void populateBroadcastCommutePatterns(
     MLIRContext *ctx, RewritePatternSet &patterns,
     const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams);
+template <CommuteDirection commuteDirection>
+extern void populateConcatCommutePatterns(
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams);
 
 } // namespace mlir::tt::ttir
 

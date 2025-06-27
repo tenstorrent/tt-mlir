@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Support/Logger.h"
 
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OperationSupport.h"
@@ -59,6 +60,10 @@ public:
     frozenCommuteBelowPatterns =
         getCommuteRewritePatternSet<CommuteDirection::DOWNWARDS>(constParams);
     for (auto funcOp : funcOps) {
+      // Surround with ifdef as this would otherwise unnecessarily count TMs
+#ifdef TTMLIR_ENABLE_DEBUG_LOGS
+      const int64_t nonConstevalableTMsBefore = countTms(funcOp, constParams);
+#endif
       while (true) {
         // We do not yet have a way of returning the beginning state of the
         // graph So we will return after we have commuted the TMs above at least
@@ -91,6 +96,17 @@ public:
           break;
         }
       }
+      // Surround with ifdef as this would otherwise unnecessarily count TMs
+#ifdef TTMLIR_ENABLE_DEBUG_LOGS
+      const int64_t nonConstevalableTMsAfter = countTms(funcOp, constParams);
+      TTMLIR_DEBUG(ttmlir::LogComponent::General,
+                   "Non-constevalable TMs before EraseInverseOps: {}, num "
+                   "non-constevalable TMs removed: {}, non-constevalable TMs "
+                   "after EraseInverseOps: {}",
+                   nonConstevalableTMsBefore,
+                   nonConstevalableTMsBefore - nonConstevalableTMsAfter,
+                   nonConstevalableTMsAfter);
+#endif
     }
   }
 
@@ -106,6 +122,9 @@ private:
                                                          patterns, constParams);
     populateBroadcastCommutePatterns<commuteDirection>(&getContext(), patterns,
                                                        constParams);
+    populateConcatCommutePatterns<commuteDirection>(&getContext(), patterns,
+                                                    constParams);
+
     populateTTIRTMFusionPatterns(&getContext(), patterns);
     return patterns;
   }
