@@ -137,10 +137,8 @@ private:
 
 void populateElementwiseCommutePatterns(MLIRContext *ctx,
                                         RewritePatternSet &patterns) {
-  patterns.add<TTIRCommuteTmsAboveElementwiseUnaryRewriter<TransposeOp>,
-               TTIRCommuteTmsAboveElementwiseUnaryRewriter<PermuteOp>,
+  patterns.add<TTIRCommuteTmsAboveElementwiseUnaryRewriter<PermuteOp>,
                TTIRCommuteTmsAboveElementwiseUnaryRewriter<ReshapeOp>,
-               TTIRCommuteTmsAboveElementwiseBinaryRewriter<TransposeOp>,
                TTIRCommuteTmsAboveElementwiseBinaryRewriter<PermuteOp>,
                TTIRCommuteTmsAboveElementwiseBinaryRewriter<ReshapeOp>>(ctx);
 }

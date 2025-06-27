@@ -8,6 +8,7 @@
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
+#include "mlir/IR/Operation.h"
 #include "llvm/ADT/SmallVector.h"
 
 namespace mlir {
@@ -43,6 +44,21 @@ generateNHWFlatten(mlir::TypedValue<mlir::RankedTensorType> input,
   llvm::SmallVector<int64_t> newShape = {1, 1, shape[0] * shape[1] * shape[2],
                                          shape[3]};
   return generateReshape(input, newShape, rewriter, locSuffix);
+}
+
+// Returns DataTypeAttr from tensor layout if present, or an empty DataTypeAttr
+// otherwise.
+DataTypeAttr getDataTypeAttrFromTensorLayout(RankedTensorType type,
+                                             PatternRewriter &rewriter) {
+  DataTypeAttr dataTypeAttr = DataTypeAttr();
+  ttnn::TTNNLayoutAttr layoutAttr =
+      mlir::dyn_cast<ttnn::TTNNLayoutAttr>(type.getEncoding());
+
+  if (layoutAttr) {
+    dataTypeAttr = rewriter.getAttr<DataTypeAttr>(layoutAttr.getDataType());
+  }
+
+  return dataTypeAttr;
 }
 
 } // namespace ttir_to_ttnn::utils
