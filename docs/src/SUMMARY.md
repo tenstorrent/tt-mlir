@@ -14,7 +14,7 @@
   - [`ttmlir-translate`](./ttmlir-translate.md)
   - [`ttrt`](./ttrt.md)
   - [`ttir-builder`](./ttir-builder/ttir-builder.md)
-    - [Adding TTIR op](/ttir-builder/adding-a-ttir-op.md)
+    - [Adding a TTIR op](/ttir-builder/adding-a-ttir-op.md)
   - [`tt-explorer`](./tt-explorer/tt-explorer.md)
     - [UI & changes to Model Explorer](./tt-explorer/ui.md)
     - [CLI](./tt-explorer/cli.md)
