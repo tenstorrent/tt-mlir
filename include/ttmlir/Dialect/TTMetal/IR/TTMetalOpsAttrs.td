@@ -86,16 +86,16 @@ def TTMetal_ComputeConfigAttr: TTMetal_Attr<"ComputeConfig", "compute_config", [
                                  mlir::SymbolRefAttr kernelSymbol,
                                  CoreRangeAttr coreRange,
                                  KernelArgsAttr kernelArgs,
-                                 bool fp32_dest_acc_en,
-                                 ::llvm::ArrayRef<UnpackToDestMode> unpack_to_dest_mode) {
+                                 bool fp32DestAccEn,
+                                 ::llvm::ArrayRef<UnpackToDestMode> unpackToDestMode) {
       return ComputeConfigAttr::get(context,
                                     kernelSymbol,
                                     coreRange,
                                     kernelArgs,
                                     MathFidelity::HiFi4,
-                                    fp32_dest_acc_en,
+                                    fp32DestAccEn,
                                     false,
-                                    unpack_to_dest_mode);
+                                    unpackToDestMode);
     };
 
     mlir::tt::ttkernel::ThreadType getThreadType() const { return mlir::tt::ttkernel::ThreadType::Compute; }
