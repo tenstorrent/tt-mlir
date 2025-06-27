@@ -921,18 +921,17 @@ createEltwiseBinaryOp(FlatbufferObjectCache &cache, EltwiseBinaryOp op) {
   auto out =
       cache.getOrCreate(result, tensorValueToFlatbuffer, kHostAllocatedSize);
 
-  // TODO (#2856): we should be getting output data type and memory config from
-  // the binary op directly instead of deriving from the output tensor.
-  // Requires compiler support.
-  auto outputType = mlir::cast<RankedTensorType>(result.getType());
-  DataType outputDtype = elementTypeToDataType(outputType.getElementType());
-  ::tt::target::DataType targetDtype =
-      ::mlir::tt::ttnn::utils::toTargetDataType(outputDtype);
+  ::flatbuffers::Optional<::tt::target::DataType> outputDtype =
+      ::flatbuffers::nullopt;
+  if (op.getOutputDtype()) {
+    outputDtype =
+        ::mlir::tt::ttnn::utils::toTargetDataType(*op.getOutputDtype());
+  }
 
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
   return ::tt::target::ttnn::CreateEltwiseBinaryOp(
-      *cache.fbb, type, lhs, rhs, targetDtype, memoryConfig, out);
+      *cache.fbb, type, lhs, rhs, outputDtype, memoryConfig, out);
 }
 
 template <typename EltwiseBinaryCompositeOp>
