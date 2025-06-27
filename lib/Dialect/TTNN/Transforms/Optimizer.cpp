@@ -525,37 +525,6 @@ private:
     assert(insertMemReconfig.size() == overrideReshardEdges.size());
   }
 
-  static mlir::TypedValue<DeviceType>
-  getOrCreateDeviceOpValue(Operation *contextOp, OpBuilder &builder) {
-    Block *block = contextOp->getBlock();
-    for (auto &op : block->getOperations()) {
-      if (GetDeviceOp deviceOp = dyn_cast<GetDeviceOp>(op)) {
-        return deviceOp.getResult();
-      }
-    }
-
-    // Device op does not exist in the block, hence we need to create it.
-    DeviceAttr deviceAttr = lookupDevice(contextOp);
-    auto currentInsertionPoint = builder.saveInsertionPoint();
-    builder.setInsertionPoint(block, block->begin());
-    llvm::SmallVector<int64_t> meshShape{deviceAttr.getMeshShape()};
-    if (meshShape.empty()) {
-      meshShape = llvm::SmallVector<int64_t, 2>{1, 1};
-    }
-    // TODO (jnie): Currently hardcoding the mesh offset to 0x0
-    // Need a proper plan to dynamically determine this.
-    llvm::SmallVector<int64_t, 2> meshOffset{0, 0};
-
-    auto deviceOp = builder.create<ttnn::GetDeviceOp>(
-        contextOp->getLoc(), builder.getType<DeviceType>(),
-        ttnn::MeshShapeAttr::get(contextOp->getContext(), meshShape[0],
-                                 meshShape[1]),
-        ttnn::MeshOffsetAttr::get(contextOp->getContext(), meshOffset[0],
-                                  meshOffset[1]));
-    builder.restoreInsertionPoint(currentInsertionPoint);
-    return deviceOp;
-  }
-
   static llvm::DenseMap<Operation *, Operation *> processMemReconfigEdges(
       const llvm::DenseMap<Edge, MemReconfigEntry> &memReconfigEntryMap,
       GridAttr deviceGrid) {
@@ -637,7 +606,7 @@ private:
                             producerOpLayout.getLayout()),
             DataTypeAttr::get(consumerOp->getContext(),
                               producerOpLayout.getDataType()),
-            outputMemConfigAttr, getOrCreateDeviceOpValue(consumerOp, builder));
+            outputMemConfigAttr);
 
         consumerOp->setOperand(edge.operandIndex,
                                memoryReconfigOp->getResult(0));
@@ -700,7 +669,7 @@ private:
       // Step 2: Insert spilling to DRAM.
       Operation *spillToDRAMOp = builder.create<ToLayoutOp>(
           loc, newTensorType, spilledOp->getResult(0), newLayout, dataType,
-          memConfigAttr, getOrCreateDeviceOpValue(spilledOp, builder));
+          memConfigAttr);
 
       // Step 3: Reconnect uses.
       for (auto &use : uses) {

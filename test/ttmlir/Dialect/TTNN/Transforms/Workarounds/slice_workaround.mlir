@@ -7,7 +7,7 @@
 module attributes {} {
   func.func @test_strided_slice_workaround(%arg0: tensor<4x32x32xf32, #ttnn_layout>) -> tensor<2x16x8xf32, #ttnn_layout1> {
     // CHECK-LABEL: @test_strided_slice_workaround(
-    // CHECK: %[[ARG0:[0-9]+]] = "ttnn.to_layout"(%arg0,
+    // CHECK: %[[ARG0:[0-9]+]] = "ttnn.to_layout"(%arg0)
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
     // CHECK-SAME: tensor<4x32x32xf32
     // CHECK-SAME: -> tensor<4x32x32xbf16
@@ -17,11 +17,11 @@ module attributes {} {
     // CHECK-SAME: step = [1 : i32, 1 : i32, 2 : i32]}
     // CHECK-SAME: tensor<4x32x32xbf16
     // CHECK-SAME: -> tensor<2x16x8xbf16
-    %1 = "ttnn.slice"(%arg0) <{begins = [0 : i32, 0 : i32, 0 : i32], ends = [2 : i32, 16 : i32, 16 : i32], step = [1 : i32, 1 : i32, 2 : i32]}> : (tensor<4x32x32xf32, #ttnn_layout>) -> tensor<2x16x8xf32, #ttnn_layout1>
-    // CHECK: "ttnn.to_layout"(%[[SLICE]]
+    %0 = "ttnn.slice"(%arg0) <{begins = [0 : i32, 0 : i32, 0 : i32], ends = [2 : i32, 16 : i32, 16 : i32], step = [1 : i32, 1 : i32, 2 : i32]}> : (tensor<4x32x32xf32, #ttnn_layout>) -> tensor<2x16x8xf32, #ttnn_layout1>
+    // CHECK: "ttnn.to_layout"(%[[SLICE]])
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<f32>
     // CHECK-SAME: tensor<2x16x8xbf16
     // CHECK-SAME: -> tensor<2x16x8xf32
-    return %1 : tensor<2x16x8xf32, #ttnn_layout1>
+    return %0 : tensor<2x16x8xf32, #ttnn_layout1>
   }
 }

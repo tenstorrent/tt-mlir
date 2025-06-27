@@ -217,8 +217,6 @@ public:
 
     ttnn::Layout outputLayoutEnum = outputLayoutAttr.getLayout();
 
-    bool isOutputOnHost = (outputBufferType == ttnn::BufferType::SystemMemory);
-
     RankedTensorType result = mlir::cast<RankedTensorType>(op.getType(0));
 
     ttnn::LayoutAttr outputLayout =
@@ -231,10 +229,7 @@ public:
 
     rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
         op, this->getTypeConverter()->convertType(result), adaptor.getInput(),
-        outputLayout, outputDataType, outputMemConfigAttr,
-        isOutputOnHost
-            ? nullptr
-            : mlir::Value(::ttnn::utils::getOrInsertDevice(rewriter, op)));
+        outputLayout, outputDataType, outputMemConfigAttr);
 
     return success();
   }

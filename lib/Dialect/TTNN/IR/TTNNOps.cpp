@@ -1497,8 +1497,7 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
                                   : previousToLayoutOp.getDtypeAttr(),
         toLayoutOp.getMemoryConfigAttr()
             ? toLayoutOp.getMemoryConfigAttr()
-            : previousToLayoutOp.getMemoryConfigAttr(),
-        toLayoutOp.getDevice());
+            : previousToLayoutOp.getMemoryConfigAttr());
 
     // Replace all uses of the current op with the merged ToLayoutOp.
     rewriter.replaceAllUsesWith(toLayoutOp, mergedToLayout);
