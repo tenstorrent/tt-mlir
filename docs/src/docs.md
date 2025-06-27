@@ -1,16 +1,22 @@
 # Docs & Doxygen
 
-Markdown documentation is built using `mdbook` and API documentation is built using `doxygen`.
+Markdown documentation is built using `mdbook` and API documentation is built using `doxygen`, and `sphinx`, and `sphinx-markdown-builder`.
 
 ## Markdown documentation (docs)
 
 ### Requirements
 
-The markdown documentation is built using [`mdbook`](https://github.com/rust-lang/mdBook).
+The markdown documentation is built using [`mdbook`](https://github.com/rust-lang/mdBook) and [`sphinx`](https://www.sphinx-doc.org/en/master/).
 
 ### Build command
 
-To build the markdown docs use the `docs` target in CMake
+If not already installed, be sure to install `sphinx-markdown-builder`.
+
+```bash
+pip install sphinx-markdown-builder
+```
+
+To build the markdown docs use the `docs` target in CMake.
 
 ```sh
 cmake -B build
