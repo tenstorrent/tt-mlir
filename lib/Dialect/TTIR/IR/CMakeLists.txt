@@ -5,6 +5,7 @@ add_mlir_dialect_library(MLIRTTIRDialect
         TTIROpsInterfaces.cpp
         TTIRTraits.cpp
         TTIRGenericRegionOps.cpp
+        TTIRTMFusionPatterns.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir
