@@ -1009,6 +1009,15 @@ mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
     mlir::PatternRewriter &rewriter,
     mlir::ArrayRef<mlir::Value> quantizedOperands,
     mlir::Type quantizedResultType) {
+  // Can only commute if the pooling method is Max.
+  if (this->getPoolingMethod() != PoolingMethod::Max) {
+    return nullptr;
+  }
+  // Can only commute in the per tensor quantized case.
+  if (auto quantType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
+          quantizedResultType)) {
+    return nullptr;
+  }
   unsigned numInputs = getInputs().size();
   unsigned numOutputs = getOutputs().size();
   mlir::ValueRange inputs = quantizedOperands.take_front(numInputs);
