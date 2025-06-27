@@ -387,7 +387,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getLhs()),
         emitter.emit(srcOp.getRhs()),
-        /*dtype=*/emitter.emit(std::nullopt),
+        emitter.emit(srcOp.getOutputDtype()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 

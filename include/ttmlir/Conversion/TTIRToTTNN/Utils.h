@@ -26,6 +26,11 @@ generateNHWFlatten(mlir::TypedValue<mlir::RankedTensorType> input,
                    mlir::PatternRewriter &rewriter,
                    llvm::StringRef locSuffix = "_flatten");
 
+// Returns DataTypeAttr from tensor layout if present, or an empty DataTypeAttr
+// otherwise.
+DataTypeAttr getDataTypeAttrFromTensorLayout(RankedTensorType type,
+                                             PatternRewriter &rewriter);
+
 } // namespace mlir::tt::ttir_to_ttnn::utils
 
 #endif
