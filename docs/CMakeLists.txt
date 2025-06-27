@@ -1,6 +1,21 @@
+include(${CMAKE_SOURCE_DIR}/cmake/modules/ConfigureSphinx.cmake)
+
 add_custom_target(copy-docs-dir
   COMMAND
     cp -r ${CMAKE_CURRENT_SOURCE_DIR}/* ${CMAKE_CURRENT_BINARY_DIR}
+)
+
+# Add Sphinx documentation target
+add_custom_target(sphinx-docs
+  COMMAND ${CMAKE_COMMAND} -E remove_directory ${SPHINX_BUILD_DIR}
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${SPHINX_BUILD_DIR}
+  COMMAND ${CMAKE_COMMAND} -E env LC_ALL=C ${SPHINX_APIDOC_COMMAND}
+  COMMAND ${CMAKE_COMMAND} -E env LC_ALL=C ${SPHINX_BUILD_COMMAND}
+  WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+  DEPENDS
+    TTIRBuilderModules
+    copy-docs-dir mlir-doc
+  COMMENT "Generating Sphinx documentation"
 )
 
 add_custom_target(autogen-summary
@@ -8,7 +23,12 @@ add_custom_target(autogen-summary
     python ${CMAKE_CURRENT_SOURCE_DIR}/autogen-summary.py
   WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
   DEPENDS
-    copy-docs-dir mlir-doc
+    mlir-doc copy-docs-dir sphinx-docs
+)
+
+add_custom_target(remove-index
+    COMMAND ${CMAKE_COMMAND} -E remove ${SPHINX_MD_DIR}/index.md
+    DEPENDS sphinx-docs
 )
 
 add_custom_target(docs
@@ -16,7 +36,11 @@ add_custom_target(docs
     mdbook build
   WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
   DEPENDS
-    autogen-summary mlir-doc copy-docs-dir
+    mlir-doc
+    copy-docs-dir
+    sphinx-docs
+    autogen-summary
+    remove-index
 )
 
 find_package(Doxygen)

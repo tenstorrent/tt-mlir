@@ -24,6 +24,8 @@ RUN apt-get update && apt-get install -y \
     cmake \
     ccache \
     doxygen \
+    sphinx \
+    sphinx-markdown-builder \
     graphviz \
     patchelf \
     libyaml-cpp-dev \

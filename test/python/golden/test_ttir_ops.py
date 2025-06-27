@@ -227,7 +227,6 @@ def get_dimension_size(
     return builder.get_dimension_size(in0, unit_attrs=unit_attrs)
 
 
-@pytest.mark.fails_golden
 @pytest.mark.parametrize(
     "shapes,batch_dims_lhs,contract_dims_lhs,batch_dims_rhs,contract_dims_rhs",
     [
@@ -926,7 +925,6 @@ def test_max_pool2d(
     )
 
 
-@pytest.mark.fails_golden
 @pytest.mark.parametrize("shapes", [[(1, 1, 5, 5), (2, 6, 14, 18)]])
 @pytest.mark.parametrize("padding", [[0, 1, 2, 3, 4, 5, 6, 7]])
 @pytest.mark.parametrize("value", [0])
@@ -1175,7 +1173,6 @@ def test_arange(shape: Shape, start: int, end: int, step: int, dim: int, request
     )
 
 
-@pytest.mark.fails_golden
 @pytest.mark.parametrize("shape", [(32, 32)], ids=shape_str)
 @pytest.mark.parametrize(
     "from_type,to_type", [(torch.int32, torch.float32)], ids=["i32-f32"]

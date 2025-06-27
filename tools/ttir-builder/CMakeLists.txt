@@ -11,6 +11,8 @@ declare_mlir_python_sources(TTIRBuilderSources
     test_optimizer_overrides.py
     utils.py
     builder.py
+    apis.py
+    ops.py
 )
 
 add_mlir_python_modules(TTIRBuilderModules

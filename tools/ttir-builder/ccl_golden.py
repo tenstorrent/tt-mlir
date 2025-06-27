@@ -14,6 +14,11 @@ import torch
 # ToDo(hongseok): Develop support for generating Op Level golden for CCL Ops.
 
 
+def autodoc_skip(func):
+    func.__autodoc_skip__ = True
+    return func
+
+
 def mesh_shard_golden(
     input: torch.Tensor,
     mesh_shape: Tuple[int, int],

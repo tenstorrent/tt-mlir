@@ -23,8 +23,7 @@ from ttir_builder import TTIRBuilder
 from ttir_builder.utils import compile_to_flatbuffer
 ```
 
-For the full set of supported TTIR ops, see `tools/ttir-builder/builder.py`.
-For more detailed information on available APIs, see `tools/ttir-builder/builder.py` and `tools/ttir-builder/utils.py`.
+For more detailed information on `ttir-builder` APIs, utility functions, and supported TTIR operations, see the full set of [documentation](https://docs.tenstorrent.com/tt-mlir/autogen/md/Module/ttir_builder.ops.html).
 
 ## Creating a TTIR module
 
@@ -714,6 +713,97 @@ def ccl_proxy(
 )
 ```
 
-### Golden functions
+### Adding Silicon tests
+Silicon tests are created in the `test/python/golden` directory.
+```bash
+pytest test/python/golden/test_ttir_ops.py
+```
+Be sure to file an issue for failing tests and add a pytest mark for any failing or unsupported tests. The pytest marks instruct CI to ignore tests.
+```bash
+pytest.mark.skip("Issue number") : skip flatbuffer creation for this test
+pytest.mark.fails_golden : expect this test to fail the ttrt golden check
+pytest.mark.skip_target("ttmetal") : skip ttmetal flatbuffer creation, an op in this test has no support in ttmetal
+```
 
-Setting the various inputs, outputs, arguments, shapes, and types are all fairly straightforward. Find the TTIR op in `include/ttmlir/Dialect/TTIR/IR/TTIROps.td` and replicate the pertinents. If there is necessary information that is not included, you may have to take it upon yourself to do some detective work and trial and error. The tricky part can be the finding or writing a golden function. It must perform exactly the same operation as the TTIR op and be written using PyTorch operations.
+For tests exclusive to n300 or llmbox, use the following pytest marks or add them to their respective test files.
+```bash
+pytestmark = pytest.mark.n300
+pytestmark = pytest.mark.llmbox
+```
+
+### Running Silicon tests
+Follow these steps
+```bash
+1. Build ttmlir
+source env/activate
+cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-17 -DCMAKE_CXX_COMPILER=clang++-17 -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DTTMLIR_ENABLE_RUNTIME=ON -DTT_RUNTIME_ENABLE_PERF_TRACE=ON
+cmake --build build
+
+2. Build ttrt (sample instructions - subject to change)
+cmake --build build -- ttrt
+
+3. Query system
+ttrt query --save-artifacts
+
+4. Export system desc file
+export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys (path dumped in previous command)
+
+5. Generate test cases
+cmake --build build -- check-ttmlir
+
+6. Run test cases
+ttrt run build/test/ttmlir/Silicon
+```
+
+### Sphinx documentation
+
+#### Docstrings
+Sphinx generates documentation for builder ops from the docstrings in `TTIRBuilder` functions. Here is an example of how to structure your docstring
+
+```bash
+"""
+Creates ``ttir.add``.
+
+*Elementwise addition operation.*
+
+Performs elementwise addition between two tensors.
+For each pair of corresponding elements, adds the element in the second
+tensor to the element in the first tensor.
+
+Mathematical definition: add(x, y) = x + y
+
+.. code-block:: mlir
+
+    // Add corresponding elements
+    %result = ttir.add(%lhs, %rhs, %output) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
+    // Input tensors:
+    // lhs: [3.5, 0.0, -1.2]
+    // rhs: [1.5, 2.0, -3.2]
+    // Output tensor:
+    // [5.0, 2.0, -4.4]
+
+Parameters
+----------
+in0 : Operand
+    First input tensor
+in1 : Operand
+    Second input tensor
+unit_attrs : Optional[List[str]], optional
+    Optional list of unit attributes
+
+Returns
+-------
+*OpView*
+    A tensor containing the elementwise sum of the inputs
+"""
+```
+
+#### Autogen skip
+All functions in `TTIRBuilder` are included in documentation by default. If your op is failing any of the tests, it can't yet be added to the documentation. Custom golden functions also must be excluded. Do so by importing the `autogen_skip` tag from `ttir_builder.ccl_golden`.
+
+```bash
+@autodoc_skip
+def bitwise_not(
+    self, in0: Operand, unit_attrs: Optional[List[str]] = None
+) -> OpView:
+```
