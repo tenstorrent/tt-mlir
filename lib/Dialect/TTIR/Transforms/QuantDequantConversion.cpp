@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIRTraits.h"
 #include "ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/EraseInverseOps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTIR/Utils/QuantUtils.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 namespace mlir::tt::ttir {
 
@@ -114,6 +115,178 @@ private:
   }
 };
 
+struct QuantizeConvolutionRewriter
+    : public OpRewritePattern<ttir::ConvolutionOp> {
+  using OpRewritePattern<ttir::ConvolutionOp>::OpRewritePattern;
+
+  // helper function that takes an arbitrary set of mlir::Operations, checks
+  // their inputs are both dequantize ops, then checks the inputs of those are
+  // quantize ops
+  LogicalResult checkQuantizeDequantizePair(SmallVector<Value> ops) const {
+    for (auto op : ops) {
+      ttir::DequantizeOp dequantize =
+          mlir::dyn_cast<ttir::DequantizeOp>(op.getDefiningOp());
+      if (!dequantize) {
+        return failure();
+      }
+      ttir::QuantizeOp quantize = mlir::dyn_cast<ttir::QuantizeOp>(
+          dequantize.getInput().getDefiningOp());
+      if (!quantize) {
+        return failure();
+      }
+      // check that dequantize and quantize have the same quantization scales
+      // and zero points check both UniformQuantizedType and
+      // UniformQuantizedPerAxisType
+      auto dequantizeElementType =
+          mlir::cast<RankedTensorType>(dequantize.getInput().getType())
+              .getElementType();
+      auto quantizeElementType =
+          mlir::cast<RankedTensorType>(quantize.getResult().getType())
+              .getElementType();
+      if (dequantizeElementType != quantizeElementType) {
+        return failure();
+      }
+    }
+    return success();
+  }
+
+  // Computes effective output scale given input and weight quantized types.
+  // Handles:
+  // 1. Per-tensor input + per-tensor weight
+  // 2. Per-tensor input + per-channel weight
+  // 3. Per-channel input + per-channel weight (must match axis length)
+  // Returns scale[i] = input_scale * weight_scale[i] for each channel.
+  FailureOr<std::pair<SmallVector<double>, SmallVector<int64_t>>>
+  computeOutputScalesAndZeroPoint(quant::QuantizedType inputType,
+                                  quant::QuantizedType weightType) const {
+    SmallVector<double> scales;
+    SmallVector<int64_t> zeroPoints;
+    double inputScale;
+    int64_t inputZeroPoint;
+    if (quant::UniformQuantizedType uniformType =
+            dyn_cast<quant::UniformQuantizedType>(inputType)) {
+      inputScale = uniformType.getScale();
+      inputZeroPoint = uniformType.getZeroPoint();
+    } else if (quant::UniformQuantizedPerAxisType perAxisType =
+                   dyn_cast<quant::UniformQuantizedPerAxisType>(inputType)) {
+      return failure();
+    }
+
+    if (quant::UniformQuantizedType uniformType =
+            dyn_cast<quant::UniformQuantizedType>(weightType)) {
+      if (uniformType.getZeroPoint() != inputZeroPoint) {
+        return failure();
+      }
+      double weightScale = uniformType.getScale();
+      scales.push_back(inputScale * weightScale);
+      zeroPoints.push_back(inputZeroPoint);
+      return std::make_pair(scales, zeroPoints);
+    }
+
+    if (quant::UniformQuantizedPerAxisType perAxisType =
+            dyn_cast<quant::UniformQuantizedPerAxisType>(weightType)) {
+      auto weightZeroPoints = perAxisType.getZeroPoints();
+      for (auto zeroPoint : weightZeroPoints) {
+        if (zeroPoint != inputZeroPoint) {
+          return failure();
+        }
+        zeroPoints.push_back(inputZeroPoint);
+      }
+      auto weightScales = perAxisType.getScales();
+      for (auto scale : weightScales) {
+        scales.push_back(inputScale * scale);
+      }
+      return std::make_pair(scales, zeroPoints);
+    }
+
+    return failure();
+  }
+
+  LogicalResult matchAndRewrite(ttir::ConvolutionOp op,
+                                PatternRewriter &rewriter) const override {
+    // call the helper function for both op.getInput and op.getWeight
+    SmallVector<Value> ops = {op.getInput(), op.getWeight()};
+    if (failed(checkQuantizeDequantizePair(ops))) {
+      return failure();
+    }
+
+    // check the quantization is i8:f32
+    auto quantInputOp = mlir::dyn_cast<ttir::QuantizeOp>(
+        op.getInput().getDefiningOp()->getOperand(0).getDefiningOp());
+    auto quantWeightOp = mlir::dyn_cast<ttir::QuantizeOp>(
+        op.getWeight().getDefiningOp()->getOperand(0).getDefiningOp());
+    auto quantInputType = mlir::dyn_cast<mlir::quant::QuantizedType>(
+        mlir::cast<RankedTensorType>(quantInputOp.getOutput().getType())
+            .getElementType());
+    auto quantWeightType = mlir::dyn_cast<mlir::quant::QuantizedType>(
+        mlir::cast<RankedTensorType>(quantWeightOp.getOutput().getType())
+            .getElementType());
+    if (!quantInputType || !quantWeightType) {
+      return failure();
+    }
+    if (quantInputType.getStorageType().getIntOrFloatBitWidth() != 8 ||
+        quantWeightType.getStorageType().getIntOrFloatBitWidth() != 8) {
+      return failure();
+    }
+
+    // rewrite the convolution op to be quantized
+
+    // create the output quantized type, whose scale is input * weight and
+    // storage type is i32
+    auto storageType =
+        IntegerType::get(rewriter.getContext(), 32, IntegerType::Signed);
+    mlir::FailureOr<std::pair<int64_t, int64_t>> storageTypeMinMax =
+        mlir::tt::ttir::utils::getStorageTypeMinMax(storageType, op->getLoc());
+    if (mlir::failed(storageTypeMinMax)) {
+      return failure();
+    }
+    auto [storageTypeMin, storageTypeMax] = *storageTypeMinMax;
+    mlir::FailureOr<std::pair<SmallVector<double>, SmallVector<int64_t>>>
+        scalesAndZeroPoints =
+            computeOutputScalesAndZeroPoint(quantInputType, quantWeightType);
+    if (mlir::failed(scalesAndZeroPoints)) {
+      return failure();
+    }
+    mlir::quant::QuantizedType quantOutputType;
+    if (scalesAndZeroPoints->first.size() == 1) {
+      quantOutputType = quant::UniformQuantizedType::get(
+          quantInputType.getFlags(), storageType,
+          quantInputType.getExpressedType(), scalesAndZeroPoints->first[0],
+          scalesAndZeroPoints->second[0], storageTypeMin, storageTypeMax);
+    } else {
+      // get the axis from the per-axis weight
+      quant::UniformQuantizedPerAxisType perAxisWeightType =
+          dyn_cast<quant::UniformQuantizedPerAxisType>(quantWeightType);
+      quantOutputType = quant::UniformQuantizedPerAxisType::get(
+          perAxisWeightType.getFlags(), storageType,
+          perAxisWeightType.getExpressedType(), scalesAndZeroPoints->first,
+          scalesAndZeroPoints->second,
+          perAxisWeightType.getQuantizedDimension(), storageTypeMin,
+          storageTypeMax);
+    }
+    // output shape and encoding is same as original op output shape
+    auto oldConvOutputType = cast<RankedTensorType>(op->getResult(0).getType());
+    auto quantConvOutputType =
+        RankedTensorType::get(oldConvOutputType.getShape(), quantOutputType,
+                              oldConvOutputType.getEncoding());
+    auto quantConv =
+        mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::ConvolutionOp>(
+            rewriter, op->getLoc(), quantConvOutputType,
+            op.getInput().getDefiningOp()->getOperand(0),
+            op.getWeight().getDefiningOp()->getOperand(0), op.getBias(),
+            op.getInputDilationAttr(), op.getWeightDilationAttr(),
+            op.getWindowStridesAttr(), op.getPaddingAttr(),
+            op.getWindowReversalAttr(), op.getConvolutionLayoutAttr(),
+            op.getFeatureGroupCountAttr(), op.getBatchGroupCountAttr());
+    llvm::errs() << quantConv << "\n";
+    //  gdb --args ttmlir-opt --ttir-quant-dequant-conversion
+    //  resnet_snippet_to_ttir.mlir
+    // create the quantized output
+    llvm::errs() << quantInputType << "\n" << quantWeightType << "\n";
+    return failure();
+  }
+};
+
 } // namespace
 
 class TTIRQuantDequantConversion
@@ -124,6 +297,8 @@ public:
 
   void runOnOperation() override {
     RewritePatternSet patterns(&getContext());
+    // Rewrite the quantized convolution.
+    patterns.add<QuantizeConvolutionRewriter>(&getContext());
     // Register the QDQ commutation pattern and apply greedily to the module.
     patterns.add<CommuteQuantizeAboveQuantizableOpRewriter>(&getContext());
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
