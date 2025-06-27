@@ -165,7 +165,7 @@ def create_custom_pipeline_fn(
 
 
 def build_mlir_module(
-    fn: Callable,
+    test_fn: Callable,
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
     mesh_shape: Optional[Tuple[int, int]] = None,
@@ -176,7 +176,7 @@ def build_mlir_module(
     """
     Define a MLIR module specified as a python function.
 
-    It will wrap `fn` in a MLIR FuncOp and then wrap that in a MLIR
+    It will wrap `test_fn` in a MLIR FuncOp and then wrap that in a MLIR
     module, and finally tie arguments of that FuncOp to test function inputs. It will
     also pass a `TTIRBuilder` object as the last argument of test function.
 
@@ -230,14 +230,14 @@ def build_mlir_module(
 
     # Grab the location of the test function in python for later debugging
     try:
-        fname = inspect.getfile(fn)
-        line_no = inspect.getsourcelines(fn)[1]
+        fname = inspect.getfile(test_fn)
+        line_no = inspect.getsourcelines(test_fn)[1]
         loc = Location.file(fname, line_no, 0, ctx)
     except (OSError, TypeError):
         loc = Location.unknown(ctx)
 
     # Instantiate builder which is passed as the last argument to
-    # `fn` so the user can use it to build ops.
+    # `test_fn` so the user can use it to build ops.
     builder = TTIRBuilder(ctx, loc)
 
     # deliver mesh_shape to TTIRBuilder
@@ -251,7 +251,7 @@ def build_mlir_module(
 
     assert inputs_types is not None and len(inputs_shapes) == len(inputs_types)
     with ctx, loc:
-        fn_input_types = [
+        test_fn_input_types = [
             builder.ranked_tensor_type(
                 shape,
                 builder.get_type_from_torch_dtype(
@@ -265,7 +265,7 @@ def build_mlir_module(
         module = Module.create()
         with InsertionPoint(module.body):
             # Wrap everything in a mlir function.
-            @func.func(*fn_input_types, name=fn.__name__)
+            @func.func(*test_fn_input_types, name=test_fn.__name__)
             def decorated_func(*inputs):
                 # Randomly generate golden tensors for function inputs.
                 input_goldens = []
@@ -273,15 +273,15 @@ def build_mlir_module(
                     input_goldens.append(
                         builder.generate_input_golden(operand, dtype, index).tensor
                     )
-                result = fn(*inputs, builder=builder)
+                result = test_fn(*inputs, builder=builder)
                 output_ops = result if hasattr(result, "__iter__") else (result,)
                 output_goldens = [builder._get_golden_tensor(op) for op in output_ops]
                 builder.set_graph_input_output(input_goldens, output_goldens)
                 return result
 
-        print(f"`{fn.__name__}` sucessfully transformed into a MLIR module.")
+        print(f"`{test_fn.__name__}` sucessfully transformed into a MLIR module.")
 
-        base = fn.__name__ if base is None else base
+        base = test_fn.__name__ if base is None else base
 
         filename = get_target_path(output_root, base + "_ttir.mlir", "ttir")
 
