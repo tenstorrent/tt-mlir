@@ -284,8 +284,8 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
     uint32_t input_width, llvm::ArrayRef<int32_t> kernel_size,
     llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
     llvm::ArrayRef<int32_t> dilation, uint32_t groups,
-    std::optional<mlir::tt::ttnn::Conv2dConfigAttr> conv2dConfig,
-    bool hasBias) {
+    std::optional<mlir::tt::ttnn::Conv2dConfigAttr> conv2dConfig, bool hasBias,
+    bool transpose) {
   if (weightLayout.getBufferType() !=
       mlir::tt::ttnn::BufferType::SystemMemory) {
     llvm::report_fatal_error("Conv2d weight tensor assumed to be on host.");
@@ -313,34 +313,57 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
   std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
       conv2dConfigConverted = conversion::getConv2dConfig(conv2dConfig);
 
-  auto prepare_fn = &::ttnn::operations::conv::conv2d::prepare_conv_weights<
-      ::tt::tt_metal::distributed::MeshDevice>;
+  ::ttnn::operations::conv::conv2d::Conv2dConfig localConfig;
+  if (!conv2dConfigConverted.has_value()) {
+    localConfig = ::ttnn::operations::conv::conv2d::Conv2dConfig();
+    // TODO(#2441): Need to match tensor dtypes with conv2d config.
+    // This will be fixed on IR side shortly.
+    localConfig.dtype = inputSpec.data_type();
+    localConfig.weights_dtype = weightTensor.dtype();
+  } else {
+    localConfig = *conv2dConfigConverted;
+  }
+
   // Create query closure
   auto prepareConv2dWeightsOpQuery = [=]() {
-    ::ttnn::operations::conv::conv2d::Conv2dConfig localConfig;
-    if (!conv2dConfigConverted.has_value()) {
-      localConfig = ::ttnn::operations::conv::conv2d::Conv2dConfig();
-      // TODO(#2441): Need to match tensor dtypes with conv2d config.
-      // This will be fixed on IR side shortly.
-      localConfig.dtype = inputSpec.data_type();
-      localConfig.weights_dtype = weightTensor.dtype();
-    } else {
-      localConfig = *conv2dConfigConverted;
-    }
-
     return ::ttnn::graph::query_op_constraints(
-        prepare_fn, device, weightTensor, inputSpec.memory_config(),
-        inputSpec.layout(), "OIHW", in_channels, out_channels, batch_size,
-        input_height, input_width,
+        &::ttnn::operations::conv::conv2d::prepare_conv_weights<
+            ::tt::tt_metal::distributed::MeshDevice>,
+        device, weightTensor, inputSpec.memory_config(), inputSpec.layout(),
+        "OIHW", in_channels, out_channels, batch_size, input_height,
+        input_width,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
         conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
             padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
-        hasBias, groups, device, localConfig, std::nullopt, std::nullopt);
+        hasBias, groups, device, localConfig,
+        /* compute_config_ */ std::nullopt,
+        /* dram_slice_config_ */ std::nullopt);
   };
 
-  auto output = operation::executeConstraintQuery(prepareConv2dWeightsOpQuery);
+  auto prepareConvTranspose2dWeightsOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        &::ttnn::operations::conv::conv_transpose2d::
+            prepare_conv_transpose2d_weights<
+                ::tt::tt_metal::distributed::MeshDevice>,
+        device, weightTensor, inputSpec.memory_config(), inputSpec.layout(),
+        "IOHW", in_channels, out_channels, batch_size, input_height,
+        input_width,
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
+        hasBias, groups, device, localConfig,
+        /* compute_config_ */ std::nullopt,
+        /* mirror_kernel */ true);
+  };
+
+  auto output =
+      transpose
+          ? operation::executeConstraintQuery(
+                prepareConvTranspose2dWeightsOpQuery)
+          : operation::executeConstraintQuery(prepareConv2dWeightsOpQuery);
 
   if (!output) {
     return output.takeError();
@@ -368,7 +391,8 @@ getPreparedConv2dWeightsOutputTensor(mlir::tt::ttnn::Conv2dOp *op) {
           op->getInChannels(), op->getOutChannels(), op->getBatchSize(),
           op->getInputHeight(), op->getInputWidth(), op->getKernelSize(),
           op->getStride(), op->getPadding(), op->getDilation(), op->getGroups(),
-          op->getConv2dConfig(), op->getBias() != nullptr);
+          op->getConv2dConfig(), op->getBias() != nullptr,
+          /* transpose */ false);
   if (!outputTensorSpec) {
     llvm::errs() << llvm::toString(outputTensorSpec.takeError());
     assert(false && "Failed to calculate conv2d prepared weights shape.");
@@ -1607,7 +1631,7 @@ llvm::Expected<OpConstraints> Conv2dOpInterface::getOpConstraints(
           inputShape, inputLayout, weightShape, weightLayout, in_channels,
           out_channels, batch_size, input_height, input_width, kernel_size,
           stride, padding, dilation, groups, conv2dConfig,
-          biasLayout.has_value());
+          biasLayout.has_value(), /*transpose*/ false);
   if (!preparedWeightExp) {
     return preparedWeightExp.takeError();
   }
@@ -1690,7 +1714,7 @@ llvm::Expected<size_t> Conv2dOpInterface::getOpRuntime(
           inputShape, inputLayout, weightShape, weightLayout, in_channels,
           out_channels, batch_size, input_height, input_width, kernel_size,
           stride, padding, dilation, groups, conv2dConfig,
-          biasLayout.has_value());
+          biasLayout.has_value(), /*transpose*/ false);
   if (!preparedWeightExp) {
     return preparedWeightExp.takeError();
   }
@@ -1742,6 +1766,173 @@ llvm::Expected<size_t> Conv2dOpInterface::getOpRuntime(
   };
 
   return operation::getOpRuntime("Conv2dOpInterface", conv2dOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// ConvTranspose2dOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> ConvTranspose2dOpInterface::getOpConstraints(
+    GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> weightShape,
+    mlir::tt::ttnn::TTNNLayoutAttr weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout,
+    uint32_t in_channels, uint32_t out_channels, uint32_t batch_size,
+    uint32_t input_height, uint32_t input_width,
+    llvm::ArrayRef<int32_t> kernel_size, llvm::ArrayRef<int32_t> stride,
+    llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> output_padding,
+    llvm::ArrayRef<int32_t> dilation, uint32_t groups,
+    std::optional<mlir::tt::ttnn::Conv2dConfigAttr> conv2dConfig,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  // Prepare weight tensor first.
+  llvm::Expected<::ttnn::TensorSpec> preparedWeightExp =
+      getPrepareConv2dWeightsOpOutputTensorSpec(
+          inputShape, inputLayout, weightShape, weightLayout, in_channels,
+          out_channels, batch_size, input_height, input_width, kernel_size,
+          stride, padding, dilation, groups, conv2dConfig,
+          biasLayout.has_value(), /*transpose*/ true);
+  if (!preparedWeightExp) {
+    return preparedWeightExp.takeError();
+  }
+  ::ttnn::TensorSpec weightSpec = preparedWeightExp.get();
+
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::tt::tt_metal::Tensor> biasTensor;
+  if (biasShape && biasLayout) {
+    ::ttnn::TensorSpec biasSpec =
+        conversion::getTensorSpec(biasShape.value(), biasLayout.value());
+    // TODO(odjuricic): This might be really slow. Needs to be done within graph
+    // capture block.
+    biasTensor = ::tt::tt_metal::create_device_tensor(biasSpec, device);
+  }
+
+  std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
+      conv2dConfigConverted = conversion::getConv2dConfig(conv2dConfig);
+
+  // Create query closure
+  auto convTranspose2dOpQuery = [=]() {
+    ::ttnn::operations::conv::conv2d::Conv2dConfig localConfig;
+    if (!conv2dConfigConverted.has_value()) {
+      localConfig = ::ttnn::operations::conv::conv2d::Conv2dConfig();
+      // TODO(#2441): Need to match tensor dtypes with conv2d config.
+      // This will be fixed on IR side shortly.
+      localConfig.dtype = inputSpec.data_type();
+      localConfig.weights_dtype = weightSpec.data_type();
+    } else {
+      localConfig = *conv2dConfigConverted;
+    }
+
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::conv_transpose2d, device, inputSpec, weightSpec, device,
+        in_channels, out_channels, batch_size, input_height, input_width,
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(output_padding),
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
+        groups, biasTensor, localConfig, /* compute_config */ std::nullopt,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints("ConvTranspose2dOpInterface",
+                                     inputLayout.getContext(), deviceGrid,
+                                     convTranspose2dOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> ConvTranspose2dOpInterface::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> weightShape,
+    mlir::tt::ttnn::TTNNLayoutAttr weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout,
+    uint32_t in_channels, uint32_t out_channels, uint32_t batch_size,
+    uint32_t input_height, uint32_t input_width,
+    llvm::ArrayRef<int32_t> kernel_size, llvm::ArrayRef<int32_t> stride,
+    llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> output_padding,
+    llvm::ArrayRef<int32_t> dilation, uint32_t groups,
+    std::optional<mlir::tt::ttnn::Conv2dConfigAttr> conv2dConfig,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  // Prepare weight tensor first.
+  llvm::Expected<::ttnn::TensorSpec> preparedWeightExp =
+      getPrepareConv2dWeightsOpOutputTensorSpec(
+          inputShape, inputLayout, weightShape, weightLayout, in_channels,
+          out_channels, batch_size, input_height, input_width, kernel_size,
+          stride, padding, dilation, groups, conv2dConfig,
+          biasLayout.has_value(), /*transpose*/ true);
+  if (!preparedWeightExp) {
+    return preparedWeightExp.takeError();
+  }
+
+  ::ttnn::TensorSpec weightSpec = preparedWeightExp.get();
+
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::tt::tt_metal::Tensor> biasTensor;
+  if (biasShape && biasLayout) {
+    ::ttnn::TensorSpec biasSpec =
+        conversion::getTensorSpec(biasShape.value(), biasLayout.value());
+    biasTensor = ::tt::tt_metal::create_device_tensor(biasSpec, device);
+  }
+
+  std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
+      conv2dConfigConverted = conversion::getConv2dConfig(conv2dConfig);
+
+  // Create query closure
+  auto convTranspose2dOpQuery = [=]() {
+    ::ttnn::operations::conv::conv2d::Conv2dConfig localConfig;
+    if (!conv2dConfigConverted.has_value()) {
+      localConfig = ::ttnn::operations::conv::conv2d::Conv2dConfig();
+      // TODO(#2441): Need to match tensor dtypes with conv2d config.
+      // This will be fixed on IR side shortly.
+      localConfig.dtype = inputSpec.data_type();
+      localConfig.weights_dtype = weightSpec.data_type();
+    } else {
+      localConfig = *conv2dConfigConverted;
+    }
+
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::conv_transpose2d, device, inputSpec, weightSpec, device,
+        in_channels, out_channels, batch_size, input_height, input_width,
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(output_padding),
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
+        groups, biasTensor, localConfig, /* compute_config */ std::nullopt,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime("ConvTranspose2dOpInterface",
+                                 convTranspose2dOpQuery);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL

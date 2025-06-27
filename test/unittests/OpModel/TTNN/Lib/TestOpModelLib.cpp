@@ -1268,6 +1268,113 @@ INSTANTIATE_TEST_SUITE_P(
             llvm::SmallVector<int32_t>{1, 1}, 1,
             detail::ExpectedResult{false, 0, 0, 0})));
 
+class OpModelConvTranspose2dParam
+    : public OpModelTest,
+      public testing::WithParamInterface<
+          std::tuple<detail::TestTensor,         // input
+                     detail::TestTensor,         // weight
+                     detail::TestTensor,         // output
+                     uint32_t,                   // in_channels
+                     uint32_t,                   // out_channels
+                     uint32_t,                   // batch_size
+                     uint32_t,                   // input_height
+                     uint32_t,                   // input_width
+                     llvm::SmallVector<int32_t>, // kernel_size
+                     llvm::SmallVector<int32_t>, // stride
+                     llvm::SmallVector<int32_t>, // padding
+                     llvm::SmallVector<int32_t>, // output_padding
+                     llvm::SmallVector<int32_t>, // dilation
+                     uint32_t,                   // groups
+                     detail::ExpectedResult>> {};
+
+TEST_P(OpModelConvTranspose2dParam, ConvTranspose2d) {
+  auto params = GetParam();
+  const auto [inputShape, inputTensorLayout, inputBufferType,
+              inputVirtualGrid] = std::get<0>(params);
+  const auto [weightShape, weightTensorLayout, weightBufferType,
+              weightVirtualGrid] = std::get<1>(params);
+  const auto [outputShape, outputTensorLayout, outputBufferType,
+              outputVirtualGrid] = std::get<2>(params);
+  const auto in_channels = std::get<3>(params);
+  const auto out_channels = std::get<4>(params);
+  const auto batch_size = std::get<5>(params);
+  const auto input_height = std::get<6>(params);
+  const auto input_width = std::get<7>(params);
+  const auto kernel_size = std::get<8>(params);
+  const auto stride = std::get<9>(params);
+  const auto padding = std::get<10>(params);
+  const auto output_padding = std::get<11>(params);
+  const auto dilation = std::get<12>(params);
+  const auto groups = std::get<13>(params);
+  const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+              expectedOutputSize] = std::get<14>(params);
+
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout =
+      CreateRowMajorLayout(inputShape, inputBufferType, inputTensorLayout,
+                           inputVirtualGrid, GetPhysicalGridSize());
+  const mlir::tt::ttnn::TTNNLayoutAttr weightLayout =
+      CreateRowMajorLayout(weightShape, weightBufferType, weightTensorLayout,
+                           weightVirtualGrid, GetPhysicalGridSize());
+  const mlir::tt::ttnn::TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+  // Device hangs otherwise.
+  SingletonDeviceContext::resetInstance();
+
+  auto constraintsExp = ConvTranspose2dOpInterface::getOpConstraints(
+      CreateWorkerGrid(), inputShape, inputLayout, weightShape, weightLayout,
+      std::nullopt, std::nullopt, in_channels, out_channels, batch_size,
+      input_height, input_width, kernel_size, stride, padding, output_padding,
+      dilation, groups, std::nullopt, outputShape, outputLayout);
+  // Manually cast to bool because EXPECT_TRUE requires a const bool operator
+  // which llvm::Expected<T> does not have
+  EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+  if (constraintsExp) {
+    OpConstraints &opCstr = constraintsExp.get();
+    EXPECT_GT(opCstr.cbL1PeakSize, 0);
+    EXPECT_GT(opCstr.tensorL1PeakSize, 0);
+  } else {
+    // Must clean up the error
+    llvm::consumeError(constraintsExp.takeError());
+  }
+
+  // Device hangs otherwise.
+  SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp = ConvTranspose2dOpInterface::getOpRuntime(
+      inputShape, inputLayout, weightShape, weightLayout, std::nullopt,
+      std::nullopt, in_channels, out_channels, batch_size, input_height,
+      input_width, kernel_size, stride, padding, output_padding, dilation,
+      groups, std::nullopt, outputShape, outputLayout);
+  // Manually cast to bool because EXPECT_TRUE requires a const bool operator
+  // which llvm::Expected<T> does not have
+  EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+  if (runtimeExp) {
+    const auto runtime = runtimeExp.get();
+    EXPECT_GT(runtime, 0);
+  } else {
+    // Must clean up the error
+    llvm::consumeError(runtimeExp.takeError());
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ConvTranspose2dTests, OpModelConvTranspose2dParam,
+    ::testing::Values(std::make_tuple(
+        detail::TestTensor{{1, 1, 50176, 3},
+                           mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                           mlir::tt::ttnn::BufferType::DRAM},
+        detail::TestTensor{{3, 64, 7, 7},
+                           mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                           mlir::tt::ttnn::BufferType::SystemMemory},
+        detail::TestTensor{{1, 1, 12544, 64},
+                           mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                           mlir::tt::ttnn::BufferType::DRAM},
+        3, 64, 1, 224, 224, llvm::SmallVector<int32_t>{7, 7},
+        llvm::SmallVector<int32_t>{2, 2}, llvm::SmallVector<int32_t>{3, 3},
+        llvm::SmallVector<int32_t>{0, 0}, llvm::SmallVector<int32_t>{1, 1}, 1,
+        detail::ExpectedResult{true, 0, 0, 0})));
+
 class OpModelMaxPool2DParam
     : public OpModelTest,
       public testing::WithParamInterface<
