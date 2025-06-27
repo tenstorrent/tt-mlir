@@ -8,7 +8,7 @@ import numpy as np
 import torch
 
 from ttrt.runtime import (
-    create_owned_tensor,
+    create_owned_host_tensor,
     memcpy,
     DataType,
     update_tensor,
@@ -74,7 +74,7 @@ class TensorValue:
         shape = list(data.shape)
         size = np.prod(data.shape)
         dtype = tensor.get_dtype()
-        src_rtensor = create_owned_tensor(data_ptr, shape, stride, size, dtype)
+        src_rtensor = create_owned_host_tensor(data_ptr, shape, stride, size, dtype)
 
         # Update pool
         update_tensor(program_context, self.tensor_ref, src_rtensor)

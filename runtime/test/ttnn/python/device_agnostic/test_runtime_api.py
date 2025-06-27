@@ -210,7 +210,7 @@ def test_get_system_desc(runtime, dispatch_core_type, with_device):
     "dtype",
     [torch.float64, torch.int64, torch.uint64, torch.int16, torch.int8, torch.bool],
 )
-def test_create_owned_tensor_with_unsupported_data_type(dtype):
+def test_create_owned_host_tensor_with_unsupported_data_type(dtype):
     ttrt.runtime.set_current_runtime(ttrt.runtime.DeviceRuntime.TTNN)
     torch_input_tensor = (127 * torch.rand((64, 128))).to(dtype)
     runtime_dtype = Binary.Program.to_data_type(dtype)
