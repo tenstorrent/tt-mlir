@@ -587,6 +587,9 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::CBReserveBackOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CBWaitFrontOp>,
 
+        // Compute kernel hardware startup
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ComputeKernelHWStartupOp>,
+
         // Tilize & untilize
         TTKernelToEmitCOpaqueRewriter<ttkernel::TilizeInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TilizeInitShortOp>,
