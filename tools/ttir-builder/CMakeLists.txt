@@ -10,7 +10,6 @@ declare_mlir_python_sources(TTIRBuilderSources
     ccl_golden.py
     test_optimizer_overrides.py
     utils.py
-    builder.py
     apis.py
     ops.py
 )

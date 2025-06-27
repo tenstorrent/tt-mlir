@@ -26,7 +26,8 @@ Shape = Union[List[int], Tuple[int, ...]]
 
 
 def get_loc_of_extra_file_callee(id: int = 0) -> Location:
-    """When called, this function returns a `Location` referring to first
+    """
+    When called, this function returns a `Location` referring to first
     callee outside the file of the caller of this function. E.G., if a function
     in `foo.py` called a function in `bar.py` that then called this function,
     the location would be pointing to the call in `foo.py`.
@@ -38,14 +39,12 @@ def get_loc_of_extra_file_callee(id: int = 0) -> Location:
 
     Arguments
     ---------
-
     id : int
         An optional variable that defaults to 0 to be appended to the location,
         disambiguating calls on the same line.
 
     Returns
     -------
-
     A `Location` referring to the first extra file callee of the caller of this function
 
     """
@@ -104,15 +103,17 @@ class Golden:
 
 @dataclass
 class TypeInfo:
-    """Encapsulates type information for quantized tensors.
+    """
+    Encapsulates type information for quantized tensors.
 
-    Contains both the base data type and quantization parameters (scale and zero point)
-    required for quantized operations.
-
-    Attributes:
-        dtype: Base PyTorch data type (e.g. torch.float32, torch.qint32).
-        scale: Scaling factor for quantization. Required for quantized types.
-        zero_point: Zero point offset for quantization. Required for quantized types.
+    Parameters
+    ----------
+        dtype : torch.dtype
+            Base PyTorch data type (e.g. torch.float32, torch.qint32).
+        scale : Optional[float]
+            Scaling factor for quantization. Required for quantized types.
+        zero_point : Optional[int]
+            Zero point offset for quantization. Required for quantized types.
     """
 
     dtype: torch.dtype
