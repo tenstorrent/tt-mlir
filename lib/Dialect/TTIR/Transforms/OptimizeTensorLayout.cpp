@@ -62,7 +62,7 @@ static RankedTensorType calculateOptimalLayoutForTensorType(
   auto tensorEncoding =
       mlir::cast_if_present<MetalLayoutAttr>(tensorType.getEncoding());
   assert(tensorEncoding && "Tensor type must have a MetalLayoutAttr encoding");
-  auto optimalOutputGrid =
+  GridAttr optimalOutputGrid =
       getOptimalGrid(rewriter,
                      tensorEncoding.getUnshardedShape(
                          tensorEncoding.getGridShape(tensorType),
@@ -258,6 +258,10 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
 };
 } // namespace
 
+// This pass rewrites ToLayoutOps that are host transactions (host tensor ->
+// device / device tensor -> host) with the largest possible grid. This enables
+// us to load much larger tensors to device, by reading/writing them directly
+// from/to multiple cores, instead of forcing the default <1x1> grid.
 namespace {
 struct TTIRHostTxsRewriter : public OpRewritePattern<ToLayoutOp> {
   TTIRHostTxsRewriter(MLIRContext *context,
