@@ -493,37 +493,37 @@ private:
     }
     if (isa<stablehlo::OrOp>(op)) {
       op = op->getNextNode();
-      if (!op || !isa<stablehlo::CompareOp>(op)) {
+      if (!isa_and_nonnull<stablehlo::CompareOp>(op)) {
         return false;
       }
 
       op = op->getNextNode();
-      if (!op || !isa<stablehlo::CompareOp>(op)) {
+      if (!isa_and_nonnull<stablehlo::CompareOp>(op)) {
         return false;
       }
 
       op = op->getNextNode();
-      if (!op || !isa<stablehlo::AndOp>(op)) {
+      if (!isa_and_nonnull<stablehlo::AndOp>(op)) {
         return false;
       }
 
       op = op->getNextNode();
-      if (!op || !isa<stablehlo::OrOp>(op)) {
+      if (!isa_and_nonnull<stablehlo::OrOp>(op)) {
         return false;
       }
 
       op = op->getNextNode();
-      if (!op || !isa<stablehlo::SelectOp>(op)) {
+      if (!isa_and_nonnull<stablehlo::SelectOp>(op)) {
         return false;
       }
 
       op = op->getNextNode();
-      if (!op || !isa<stablehlo::SelectOp>(op)) {
+      if (!isa_and_nonnull<stablehlo::SelectOp>(op)) {
         return false;
       }
 
       op = op->getNextNode();
-      if (!op || !isa<stablehlo::ReturnOp>(op)) {
+      if (!isa_and_nonnull<stablehlo::ReturnOp>(op)) {
         return false;
       }
 
@@ -541,27 +541,28 @@ private:
       }
 
       op = op->getNextNode();
-      if (!op || !isa<stablehlo::AndOp>(op)) {
+      if (!isa_and_nonnull<stablehlo::AndOp>(op)) {
         return false;
       }
 
       op = op->getNextNode();
-      if (!op || !isa<stablehlo::OrOp>(op)) {
+      if (!isa_and_nonnull<stablehlo::OrOp>(op)) {
         return false;
       }
 
       op = op->getNextNode();
-      if (!op || !(isa<stablehlo::SelectOp>(op) || isa<stablehlo::MaxOp>(op))) {
+      if (!isa_and_nonnull<stablehlo::SelectOp>(op) &&
+          !isa_and_nonnull<stablehlo::MaxOp>(op)) {
         return false;
       }
 
       op = op->getNextNode();
-      if (!op || !isa<stablehlo::SelectOp>(op)) {
+      if (!isa_and_nonnull<stablehlo::SelectOp>(op)) {
         return false;
       }
 
       op = op->getNextNode();
-      if (!op || !isa<stablehlo::ReturnOp>(op)) {
+      if (!isa_and_nonnull<stablehlo::ReturnOp>(op)) {
         return false;
       }
 
