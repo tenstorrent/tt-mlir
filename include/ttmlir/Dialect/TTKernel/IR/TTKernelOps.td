@@ -29,7 +29,7 @@ def TTKernel_ComputeKernelHWStartupOp : TTKernel_InitOp<"compute_kernel_hw_start
     }];
 
     let arguments = (ins TTKernel_CB:$icb0,
-                         TTKernel_CB:$icb1,
+                         Optional<TTKernel_CB>:$icb1,
                          TTKernel_CB:$ocb);
 }
 
