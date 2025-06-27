@@ -137,8 +137,6 @@ private:
   bool isCommuteDownwardsViable(ElementwiseInterfaceType op,
                                 TMOpType) const override {
     // We can always commute a TM below an elementwise op
-    // TODO(@LPanosTT): performCommuteDownwardsRewrite is not implemented, thus
-    // it is not viable
     return true;
   }
 
