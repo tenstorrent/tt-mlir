@@ -90,7 +90,7 @@ public:
           // At this point the TMs are as far down the graph as they can be
           // If there were less TMs when they were as far up as they could be
           // then we must commute them up again.
-          if (afterCommuteAboveTMCount <= afterCommuteBelowTMCount) {
+          if (afterCommuteAboveTMCount < afterCommuteBelowTMCount) {
             applyCommuteAbovePatterns(funcOp);
           }
           break;
@@ -130,14 +130,18 @@ private:
   }
 
   void applyCommuteAbovePatterns(Operation *op) {
-    if (failed(applyPatternsGreedily(op, frozenCommuteAbovePatterns))) {
-      signalPassFailure();
+    if (enableCommuteUpwards.getValue()) {
+      if (failed(applyPatternsGreedily(op, frozenCommuteAbovePatterns))) {
+        signalPassFailure();
+      }
     }
   }
 
   void applyCommuteBelowPatterns(Operation *op) {
-    if (failed(applyPatternsGreedily(op, frozenCommuteBelowPatterns))) {
-      signalPassFailure();
+    if (enableCommuteDownwards.getValue()) {
+      if (failed(applyPatternsGreedily(op, frozenCommuteBelowPatterns))) {
+        signalPassFailure();
+      }
     }
   }
 };

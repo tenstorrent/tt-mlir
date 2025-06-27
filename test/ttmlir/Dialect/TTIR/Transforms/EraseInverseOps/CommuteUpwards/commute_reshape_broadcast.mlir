@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-erase-inverse-ops %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-erase-inverse-ops="enable-commute-downwards=false" %s | FileCheck %s
 
 module {
     func.func @test_commute_reshape_through_broadcast(%arg0: tensor<2048x1x1xbf16>) -> tensor<2048x32x1x64xbf16> {
