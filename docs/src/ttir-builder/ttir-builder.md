@@ -59,7 +59,7 @@ module, builder = build_mlir_module(model, shapes)
 
 #### Returns
 
-An MLIR module containing an MLIR op graph defined by `test_fn` and the `TTIRBuilder` object used to create it
+An MLIR module containing an MLIR op graph defined by `fn` and the `TTIRBuilder` object used to create it
 
 ```bash
 module {

@@ -1511,10 +1511,10 @@ hoisted_ternary_ops = [
 
 
 @pytest.mark.parametrize("shape", [(128, 128)])
-@pytest.mark.parametrize("test_fn", hoisted_unary_ops)
+@pytest.mark.parametrize("fn", hoisted_unary_ops)
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_cpu_hoistable_unary_ops(
-    test_fn: Callable,
+    fn: Callable,
     shape: Shape,
     request,
     target: str,
@@ -1522,7 +1522,7 @@ def test_cpu_hoistable_unary_ops(
 ):
     """Test unary ops that support CPU hoisting"""
     compile_to_flatbuffer(
-        test_fn,
+        fn,
         inputs_shapes=[shape],
         inputs_types=[dtype],
         test_base=f"{request.node.name}",
@@ -1542,14 +1542,14 @@ def test_cpu_hoistable_unary_ops(
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("test_fn", hoisted_binary_ops)
+@pytest.mark.parametrize("fn", hoisted_binary_ops)
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_cpu_hoistable_binary_ops(
-    test_fn: Callable, shapes: List[Shape], dtype: torch.dtype, request, target: str
+    fn: Callable, shapes: List[Shape], dtype: torch.dtype, request, target: str
 ):
     """Test binary ops that support CPU hoisting"""
     compile_to_flatbuffer(
-        test_fn,
+        fn,
         shapes,
         [dtype] * len(shapes),
         test_base=f"{request.node.name}",
@@ -1627,13 +1627,13 @@ unary_ops = [
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-@pytest.mark.parametrize("test_fn", unary_ops)
+@pytest.mark.parametrize("fn", unary_ops)
 def test_unary_ops(
-    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request
+    fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request
 ):
     pipeline_options = []
     compile_to_flatbuffer(
-        test_fn,
+        fn,
         inputs_shapes=[shape],
         inputs_types=[dtype],
         test_base=request.node.name,
@@ -1648,7 +1648,7 @@ def test_unary_ops(
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 @pytest.mark.parametrize(
-    "test_fn",
+    "fn",
     [
         add,
         multiply,
@@ -1671,7 +1671,7 @@ def test_unary_ops(
     ],
 )
 def test_binary_ops(
-    test_fn: Callable,
+    fn: Callable,
     shape: Shape,
     dtype: torch.dtype,
     target: str,
@@ -1680,7 +1680,7 @@ def test_binary_ops(
     # NOTE: this function is _only_ for binary ops that take the same shape arguments
     pipeline_options = []
     compile_to_flatbuffer(
-        test_fn,
+        fn,
         [shape, shape],
         [dtype, dtype],
         test_base=request.node.name,
@@ -1693,10 +1693,10 @@ def test_binary_ops(
 
 @pytest.mark.run_error
 @pytest.mark.parametrize("shape", [(128, 128)])
-@pytest.mark.parametrize("test_fn", [bitwise_and, bitwise_or, bitwise_xor])
-def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
+@pytest.mark.parametrize("fn", [bitwise_and, bitwise_or, bitwise_xor])
+def test_bitwise_binary_ops(fn: Callable, shape: Shape, request):
     compile_to_flatbuffer(
-        test_fn,
+        fn,
         inputs_shapes=[shape] * 2,
         inputs_types=[torch.int8] * 2,
         test_base=request.node.name,
@@ -1706,7 +1706,7 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
 
 
 @pytest.mark.parametrize(
-    "test_fn,inputs_shapes,inputs_dtypes",
+    "fn,inputs_shapes,inputs_dtypes",
     [
         (transpose, [(64, 32)], None),
         (reshape, [(64, 32)], None),
@@ -1723,13 +1723,13 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
     ],
 )
 def test_unique_ops(
-    test_fn: Callable,
+    fn: Callable,
     inputs_shapes: List[Shape],
     inputs_dtypes: List[torch.dtype],
     request,
 ):
     compile_to_flatbuffer(
-        test_fn,
+        fn,
         inputs_shapes=inputs_shapes,
         inputs_types=inputs_dtypes,
         test_base=request.node.name,
