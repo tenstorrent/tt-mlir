@@ -158,6 +158,9 @@ public:
   void performCommuteUpwardsRewrite(ConcatOp op, ReshapeOp reshapeUser,
                                     PatternRewriter &rewriter) const override {
     SmallVector<Value> newConcatOperands;
+    int64_t newConcatDim = this->retrieveReshapeUserConcatDim(op, reshapeUser);
+    assert(newConcatDim != -1 && "isCommuteUpwardsViable should have confirmed "
+                                 "that this value is not -1");
 
     ArrayRef<int64_t> newConcatShape = reshapeUser.getType().getShape();
     // Do not check the final operand as it is the DPS operand
@@ -165,8 +168,7 @@ public:
       Value operand = op->getOperand(i);
       RankedTensorType operandType = cast<RankedTensorType>(operand.getType());
       SmallVector<int32_t> newOperandShape(newConcatShape);
-      newOperandShape[this->retrieveReshapeUserConcatDim(op, reshapeUser)] =
-          operandType.getShape()[op.getDim()];
+      newOperandShape[newConcatDim] = operandType.getShape()[op.getDim()];
       RankedTensorType newOperandType = RankedTensorType::get(
           SmallVector<int64_t>(newOperandShape.begin(), newOperandShape.end()),
           operandType.getElementType(), operandType.getEncoding());
@@ -179,7 +181,7 @@ public:
         RankedTensorType::get(newConcatShape, op.getType().getElementType(),
                               op.getType().getEncoding());
     ConcatOp newConcat = utils::createDPSOp<ConcatOp>(
-        rewriter, op->getLoc(), newConcatType, newConcatOperands, op.getDim());
+        rewriter, op->getLoc(), newConcatType, newConcatOperands, newConcatDim);
 
     SmallVector<Operation *> users(op->getUsers());
     for (auto *user : users) {
@@ -196,7 +198,7 @@ public:
   performCommuteDownwardsRewrite(ConcatOp op, ReshapeOp reshapeOperand,
                                  PatternRewriter &rewriter) const override {
     // TODO(@LPanosTT): implement this
-    llvm_unreachable("Not implemented");
+    llvm_unreachable("Not implemented, this should not be called.");
   }
 
 private:
@@ -239,11 +241,10 @@ private:
 
   bool isCommuteUpwardsViable(ConcatOp op,
                               ReshapeOp reshapeUser) const override {
-    // We can commute a reshape above a concat op the size of at least
-    // one dimension after the reshape is identical to the to size of the
-    // concat dimension after the concat AND the volume on either side
-    // of said dimension is identical before and after the reshape.
-
+    // We can commute a reshape above a concat op if there exists a
+    // dimension in the reshaped shape that is identical to the size
+    // of the concat dimension AND the volume on either side of that
+    // dimension is identical before and after the reshape.
     if (retrieveReshapeUserConcatDim(op, reshapeUser) != -1) {
       return true;
     }
@@ -258,17 +259,33 @@ private:
   }
 
   bool isCommuteDownwardsViable(ConcatOp op, ReshapeOp) const override {
-    // We can always commute a reshape below a concat.
+    // We can commute a reshape below a concat op if the shape BEFORE the
+    // reshape has a dimension with the same size as the concat dimension,
+    // AND the volume on either side of that dimension is identical before
+    // and after the reshape.
+
     // TODO(@LPanosTT): commute logic not implemented, thus the commute is not
     // viable
     return false;
   }
 
-  bool isCommuteDownwardsFavorable(ConcatOp op, ReshapeOp) const override {
-    // We should always commute a reshape below a concat if all other operands
-    // are an identical concat. This includes the case where there is one user.
-    SmallVector<Operation *> users(op->getUsers());
-    return !users.empty() && checkAllUsersAreIdenticalTms(users);
+  bool isCommuteDownwardsFavorable(ConcatOp op,
+                                   ReshapeOp reshapeOperand) const override {
+    // Commuting downwards is favorable if the all other operands a satisfy one
+    // of the following:
+    // - Are an identical TM
+    // - Are on a consteval-able path
+
+    // Do not check the final operand as it is the DPS operand
+    for (uint32_t i = 0; i < op->getNumOperands() - 1; i++) {
+      if (checkIdenticalTms(op->getOperand(i).getDefiningOp(),
+                            reshapeOperand) ||
+          valueTracesToConstantArgs(op->getOperand(i), this->constParams)) {
+        continue;
+      }
+      return false;
+    }
+    return true;
   }
 };
 } // namespace

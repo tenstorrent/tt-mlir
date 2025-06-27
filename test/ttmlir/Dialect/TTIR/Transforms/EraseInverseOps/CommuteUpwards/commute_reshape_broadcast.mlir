@@ -1,7 +1,7 @@
 // RUN: ttmlir-opt --ttir-erase-inverse-ops="enable-commute-downwards=false" %s | FileCheck %s
 
 module {
-    func.func @test_commute_reshape_through_broadcast(%arg0: tensor<2048x1x1xbf16>) -> tensor<2048x32x1x64xbf16> {
+    func.func @test_reshape_broadcast_commute_upwards(%arg0: tensor<2048x1x1xbf16>) -> tensor<2048x32x1x64xbf16> {
         // CHECK: %[[RESHAPE:[0-9]+]] = "ttir.reshape"(%arg0,
         // CHECK: %[[BROADCAST:[0-9]+]] = "ttir.broadcast"(%[[RESHAPE]]
         %0 = tensor.empty() : tensor<2048x2048x1xbf16>

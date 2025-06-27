@@ -247,7 +247,7 @@ public:
                                  ttir::ReshapeOp reshapeOperand,
                                  PatternRewriter &rewriter) const override {
     // TODO(@LPanosTT): implement this
-    llvm_unreachable("Not implemented, this should not be called");
+    llvm_unreachable("Not implemented, this should not be called.");
   }
 
 private:
@@ -352,7 +352,7 @@ public:
                                  ttir::PermuteOp permuteOperand,
                                  PatternRewriter &rewriter) const override {
     // TODO(@LPanosTT): implement this
-    llvm_unreachable("Not implemented, this should not be called");
+    llvm_unreachable("Not implemented, this should not be called.");
   }
 
 private:
