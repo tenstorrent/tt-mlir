@@ -46,23 +46,6 @@ generateNHWFlatten(mlir::TypedValue<mlir::RankedTensorType> input,
   return generateReshape(input, newShape, rewriter, locSuffix);
 }
 
-// Returns DataTypeAttr from tensor layout if present, or an empty DataTypeAttr
-// otherwise.
-ttcore::DataTypeAttr
-getDataTypeAttrFromTensorLayout(RankedTensorType type,
-                                PatternRewriter &rewriter) {
-  ttcore::DataTypeAttr dataTypeAttr = ttcore::DataTypeAttr();
-  ttnn::TTNNLayoutAttr layoutAttr =
-      mlir::dyn_cast<ttnn::TTNNLayoutAttr>(type.getEncoding());
-
-  if (layoutAttr) {
-    dataTypeAttr =
-        rewriter.getAttr<ttcore::DataTypeAttr>(layoutAttr.getDataType());
-  }
-
-  return dataTypeAttr;
-}
-
 } // namespace ttir_to_ttnn::utils
 } // namespace tt
 } // namespace mlir

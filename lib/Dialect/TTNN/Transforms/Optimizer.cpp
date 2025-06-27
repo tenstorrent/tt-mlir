@@ -17,6 +17,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNTraits.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
@@ -365,6 +366,15 @@ public:
               mlir::cast<TTNNLayoutAttr>(newTensorType.getEncoding());
 
           op->getResult(0).setType(newTensorType);
+
+          // Update output data type for ops that have output data type
+          // attribute.
+          if (op->hasTrait<HasOutputDTypeTrait>()) {
+            ttcore::DataTypeAttr newDataTypeAttr = ttcore::DataTypeAttr::get(
+                op->getContext(), layoutAttr.getDataType());
+            op->setAttr(HasOutputDTypeTraitBase::getOutputDTypeAttributeName(),
+                        newDataTypeAttr);
+          }
 
           // Update DPS operand layout as well.
           //
