@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
@@ -31,24 +32,23 @@ public:
       return failure();
     }
 
-    auto finalShape = op.getType().getShape();
+    ArrayRef<int64_t> finalShape = op.getType().getShape();
 
-    auto reshapeOperand =
-        op.getInput().getDefiningOp<mlir::tt::ttir::ReshapeOp>();
+    ReshapeOp reshapeOperand = op.getInput().getDefiningOp<ReshapeOp>();
     if (!reshapeOperand) {
       return failure();
     }
 
-    auto permuteOperand =
-        reshapeOperand.getInput().getDefiningOp<mlir::tt::ttir::PermuteOp>();
+    PermuteOp permuteOperand =
+        reshapeOperand.getInput().getDefiningOp<PermuteOp>();
     if (!permuteOperand) {
       return failure();
     }
 
     // Check that the reshape fuses the dims which were moved by the
     // permuteOperand
-    auto permuteShape = permuteOperand.getType().getShape();
-    auto reshapeShape = reshapeOperand.getType().getShape();
+    ArrayRef<int64_t> permuteShape = permuteOperand.getType().getShape();
+    ArrayRef<int64_t> reshapeShape = reshapeOperand.getType().getShape();
 
     bool isCorectReshape = reshapeShape[0] == permuteShape[0] &&
                            reshapeShape[1] == 1 &&
@@ -72,11 +72,11 @@ public:
                        "replace this TM sequence with to be identical to the "
                        "output shape of the final TM in the sequence");
     }
-    auto newReshapeType = mlir::RankedTensorType::get(
+    RankedTensorType newReshapeType = RankedTensorType::get(
         newReshapeShape, permuteOperand.getType().getElementType());
-    auto newShapeAttr = rewriter.getI32ArrayAttr(
+    ArrayAttr newShapeAttr = rewriter.getI32ArrayAttr(
         SmallVector<int32_t>(newReshapeShape.begin(), newReshapeShape.end()));
-    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ReshapeOp>(
+    utils::replaceOpWithNewDPSOp<ReshapeOp>(
         rewriter, op, newReshapeType, permuteOperand.getInput(), newShapeAttr);
 
     return success();
