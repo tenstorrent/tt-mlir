@@ -56,8 +56,10 @@ void createTTNNPipelineTTIRPasses(
   // Flattening sliding window ops for compatibility with conversion to TTNN
   pm.addPass(mlir::tt::ttir::createTTIRFlattenSlidingWindow());
 
-  // Add pass to erase inverse ops. This is enabled by default
-  // while the pass is experimental.
+  // Add pass to erase inverse ops. We will explicate TMs so that
+  // erase inverse ops can commute TMs through otherwise implicit
+  // broadcasts, and handle rank-changing reshape ops which are
+  // also otherwise implicit.
   if (options.eraseInverseOpsEnabled) {
     pm.addPass(mlir::tt::ttir::createTTIRExplicateTMs());
     pm.addPass(mlir::tt::ttir::createTTIREraseInverseOps());
