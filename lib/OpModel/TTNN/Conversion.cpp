@@ -178,8 +178,6 @@ getBufferType(const ::tt::tt_metal::BufferType bufferType) {
   switch (tensorMemoryLayout) {
   case mlir::tt::ttnn::TensorMemoryLayout::Interleaved:
     return ::tt::tt_metal::TensorMemoryLayout::INTERLEAVED;
-  case mlir::tt::ttnn::TensorMemoryLayout::SingleBank:
-    return ::tt::tt_metal::TensorMemoryLayout::INTERLEAVED;
   case mlir::tt::ttnn::TensorMemoryLayout::HeightSharded:
     return ::tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED;
   case mlir::tt::ttnn::TensorMemoryLayout::WidthSharded:
