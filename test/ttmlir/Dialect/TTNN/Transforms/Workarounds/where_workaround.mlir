@@ -10,7 +10,7 @@ module @moreh_cumsum attributes {} {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     %1 = "ttnn.reshape"(%arg2) <{shape = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1xf32, #ttnn_layout2>) -> tensor<1x1x1x1xf32, #ttnn_layout3>
     %2 = "ttnn.repeat"(%1) <{repeat_dims = #ttnn.shape<1x12x1x46>}> : (tensor<1x1x1x1xf32, #ttnn_layout3>) -> tensor<1x12x1x46xf32, #ttnn_layout1>
-    // CHECK: %[[ARG0:[0-9]+]] = {{.*}}(%arg0,
+    // CHECK: %[[ARG0:[0-9]+]] = {{.*}}(%arg0
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<f32>
     // CHECK-SAME: tensor<1x1x1x46xbf16
     // CHECK-SAME: -> tensor<1x1x1x46xf32

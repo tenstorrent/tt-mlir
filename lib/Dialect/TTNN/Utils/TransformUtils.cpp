@@ -90,11 +90,6 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
           mlir::cast<TTNNLayoutAttr>(toLayoutOpResultType.getEncoding()),
           deviceAttr.getWorkerGrid()));
 
-  // Get the device value if the tensor output is not on the host.
-  auto deviceValue = targetTensorBufferType == ttnn::BufferType::SystemMemory
-                         ? nullptr
-                         : Value(utils::getOrInsertDevice(rewriter, op));
-
   Location loc = ttmlir::utils::appendLocationSuffix(op->getLoc(), locSuffix);
   // Create a ToLayoutOp to convert the input operand to the desired
   // tensor layout, buffer type and memory layout.o
@@ -102,6 +97,6 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
       loc, toLayoutOpResultType, inputValue,
       LayoutAttr::get(rewriter.getContext(), targetTensorLayout),
       DataTypeAttr::get(rewriter.getContext(), targetTensorDataType),
-      outputMemConfigAttr, deviceValue);
+      outputMemConfigAttr);
 }
 } // namespace mlir::tt::ttnn::utils

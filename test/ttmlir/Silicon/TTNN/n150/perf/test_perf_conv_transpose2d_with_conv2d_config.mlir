@@ -34,7 +34,7 @@
 module attributes {} {
   func.func @forward(%arg0: tensor<3x8x8x256xbf16, #ttnn_layout>, %arg1: tensor<256x256x3x3xbf16, #ttnn_layout1>, %arg2: tensor<1x1x1x256xbf16, #ttnn_layout2>) -> tensor<3x10x10x256xbf16, #ttnn_layout3> {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.to_layout"(%arg0, %0) <{layout = #ttnn.layout<row_major>}> : (tensor<3x8x8x256xbf16, #ttnn_layout>, !ttnn.device) -> tensor<3x8x8x256xbf16, #ttnn_layout4>
+    %1 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<row_major>}> : (tensor<3x8x8x256xbf16, #ttnn_layout>) -> tensor<3x8x8x256xbf16, #ttnn_layout4>
     "ttnn.deallocate"(%arg0) <{force = false}> : (tensor<3x8x8x256xbf16, #ttnn_layout>) -> ()
     %2 = "ttnn.conv_transpose2d"(%1, %arg1, %arg2, %0)
             <{
