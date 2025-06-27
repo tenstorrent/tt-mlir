@@ -742,6 +742,7 @@ class Run:
                             device, inputs, bin.fbb, program_index
                         )
 
+                        pytorch_result_tensors = []
                         for loop in range(self["--loops"]):
                             self.logging.debug(
                                 f"starting loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
@@ -821,6 +822,7 @@ class Run:
                                             outputs[i].get_dtype()
                                         ),
                                     ).reshape(outputs[i].get_shape())
+                                    pytorch_result_tensors.append(output_tensor_torch)
 
                                 # Compare program level golden.
                                 golden_tensor_torch = None
@@ -949,6 +951,32 @@ class Run:
 
                         if event is not None:
                             ttrt.runtime.wait(event)
+
+                        # bug repro: compare all loops produce same results (they have same inputs)
+                        #
+                        # After all loops have run, hash each result tensor and print it out
+                        #
+                        # Then compare all tensors and error out if any differ
+                        #
+                        def hash_tensor(tensor):
+                            return hash(tuple(tensor.reshape(-1).tolist()))
+
+                        hashed_pytorch_result_tensors = [
+                            hash_tensor(tensor) for tensor in pytorch_result_tensors
+                        ]
+                        print("Hashed pytorch result tensors:")
+                        for i, hashed_tensor in enumerate(
+                            hashed_pytorch_result_tensors
+                        ):
+                            print(f"{i}: {hashed_tensor}")
+                        assert len(pytorch_result_tensors) == self["--loops"]
+                        for i in range(1, len(pytorch_result_tensors)):
+                            if hash_tensor(pytorch_result_tensors[i]) != hash_tensor(
+                                pytorch_result_tensors[0]
+                            ):
+                                raise Exception(
+                                    "Failed: all loops did not produce the same output"
+                                )
 
                         # Compare to EmitC
                         if self["--emitc"]:
