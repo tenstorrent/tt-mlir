@@ -17,4 +17,10 @@ def HasMemoryConfigTrait : NativeOpTrait<"HasMemoryConfigTrait">
   let cppNamespace = "mlir::tt::ttnn";
 }
 
+// Trait for ops that have output data type attribute.
+def HasOutputDTypeTrait: NativeOpTrait<"HasOutputDTypeTrait">
+{
+  let cppNamespace = "mlir::tt::ttnn";
+}
+
 #endif // TTMLIR_TTMLIR_DIALECT_TTNN_TTNNTRAITS_TD
