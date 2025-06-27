@@ -589,6 +589,13 @@ def TTIRQuantDataTypeConversionPass : Pass<"ttir-quant-data-type-conversion", ":
   ];
 }
 
+def TTIRConv2DToMatmulPass : Pass<"ttir-conv2d-to-matmul", "::mlir::ModuleOp">
+{
+  let summary = "Convert Conv2D to Matmul.";
+  let description = "This pass converts Conv2D operations to Matmul operations.";
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+}
+
 def TTIRFusing: Pass<"ttir-fusing", "::mlir::ModuleOp">
 {
   let summary = "TTIR fusing pass.";
