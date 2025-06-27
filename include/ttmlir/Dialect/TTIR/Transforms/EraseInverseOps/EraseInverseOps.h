@@ -11,6 +11,10 @@
 
 namespace mlir::tt::ttir {
 
+// This function will return true if a given Value is the result of operations
+// performed only between constant-like ops and/or block arguments in
+// `constParams`. `constParams` should contain all function arguments
+// which are consteval-able.
 static bool valueTracesToConstantArgs(
     Value value, const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams) {
   if (isa_and_nonnull<ConstantOp, ArangeOp, FullOp, EmptyOp, OnesOp>(
@@ -135,11 +139,11 @@ protected:
   llvm::SmallPtrSet<mlir::BlockArgument, 4> constParams;
 
 private:
-  // This should return `success()` if `tmUser` can be commuted above `op`.
+  // This should return `true` if `tmUser` can be commuted above `op`.
   virtual bool isCommuteUpwardsViable(CommutableOpOrInterface op,
                                       TMOpType tmUser) const = 0;
 
-  // This should return `success()` if there is a user of `op` that we should
+  // This should return `true` if there is a user of `op` that we should
   // commute above `op`. Note that the difference between this method and
   // `isCommuteUpwardsViable` is that this function should be used to determine
   // if commuting is favourable, while `isCommuteUpwardsViable` should be used
@@ -169,16 +173,21 @@ private:
   virtual bool isCommuteUpwardsFavorable(CommutableOpOrInterface op,
                                          TMOpType tmUser) const = 0;
 
+  // This should return `true` if `tmOperand` can be commuted below `op`.
+  virtual bool isCommuteDownwardsViable(CommutableOpOrInterface op,
+                                        TMOpType tmOperand) const = 0;
+
+  // Similarly to `isCommuteUpwardsFavorable`, this should return `true` if
+  // commuting `tmOperand` below `op` is favourable.
+  virtual bool isCommuteDownwardsFavorable(CommutableOpOrInterface op,
+                                           TMOpType tmOperand) const = 0;
+
+  // This should perform the commute of `tmUser` above `op`.
   virtual void
   performCommuteUpwardsRewrite(CommutableOpOrInterface op, TMOpType tmUser,
                                PatternRewriter &rewriter) const = 0;
 
-  virtual bool isCommuteDownwardsViable(CommutableOpOrInterface op,
-                                        TMOpType tmOperand) const = 0;
-
-  virtual bool isCommuteDownwardsFavorable(CommutableOpOrInterface op,
-                                           TMOpType tmOperand) const = 0;
-
+  // This should perform the commute of `tmOperand` below `op`.
   virtual void
   performCommuteDownwardsRewrite(CommutableOpOrInterface op, TMOpType tmOperand,
                                  PatternRewriter &rewriter) const = 0;
@@ -268,16 +277,6 @@ inline Operation *getInverseTM(Operation *tm, Value input,
     llvm_unreachable("Input to inverse TM must be a ranked tensor type");
   }
 
-  if (TransposeOp transpose = dyn_cast_or_null<TransposeOp>(tm); transpose) {
-    SmallVector<int64_t> outputShape(inputType.getShape());
-    std::swap(outputShape[transpose.getDim0()],
-              outputShape[transpose.getDim1()]);
-
-    RankedTensorType resultType = inputType.clone(outputShape);
-    return ttir::utils::createDPSOp<TransposeOp>(
-        rewriter, transpose->getLoc(), resultType, input, transpose.getDim0(),
-        transpose.getDim1());
-  }
   if (PermuteOp permute = dyn_cast_or_null<PermuteOp>(tm); permute) {
     SmallVector<int64_t> permutation(permute.getPermutation());
     SmallVector<int64_t> inversePermutation;

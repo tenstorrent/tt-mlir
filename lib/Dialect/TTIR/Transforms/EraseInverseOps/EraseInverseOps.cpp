@@ -9,7 +9,6 @@
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Support/Logger.h"
 
-#include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LLVM.h"
@@ -55,16 +54,27 @@ public:
     }
 
     auto constParams = mlir::tt::getConstsAndParams(funcOps[0]);
-    frozenCommuteAbovePatterns =
+    commuteAbovePatterns =
         getCommuteRewritePatternSet<CommuteDirection::UPWARDS>(constParams);
-    frozenCommuteBelowPatterns =
+    commuteBelowPatterns =
         getCommuteRewritePatternSet<CommuteDirection::DOWNWARDS>(constParams);
     for (auto funcOp : funcOps) {
       // Surround with ifdef as this would otherwise unnecessarily count TMs
 #ifdef TTMLIR_ENABLE_DEBUG_LOGS
       const int64_t nonConstevalableTMsBefore = countTms(funcOp, constParams);
 #endif
-      while (true) {
+
+      // If the maxIterations is 0, then the loop will run until no more TMs
+      // will be removed from the activation paths, or indefinetly if there
+      // is a bug in the algorithm and/or halting condition.
+      // If the maxIterations > 0 then the loop will run until no more TMs
+      // will be removed from the activation paths, or until the maxIterations
+      // is reached.
+      uint64_t maxIterationsValue = maxIterations.getValue();
+      auto loopCondition = [maxIterationsValue](uint64_t iter) {
+        return maxIterationsValue == 0 ? true : iter < maxIterationsValue;
+      };
+      for (uint64_t iter = 0; loopCondition(iter); ++iter) {
         // We do not yet have a way of returning the beginning state of the
         // graph So we will return after we have commuted the TMs above at least
         // once
@@ -100,19 +110,20 @@ public:
 #ifdef TTMLIR_ENABLE_DEBUG_LOGS
       const int64_t nonConstevalableTMsAfter = countTms(funcOp, constParams);
       TTMLIR_DEBUG(ttmlir::LogComponent::General,
-                   "Non-constevalable TMs before EraseInverseOps: {}, num "
-                   "non-constevalable TMs removed: {}, non-constevalable TMs "
-                   "after EraseInverseOps: {}",
-                   nonConstevalableTMsBefore,
-                   nonConstevalableTMsBefore - nonConstevalableTMsAfter,
-                   nonConstevalableTMsAfter);
+                   "Function: {} | Num TMs on the activation paths before "
+                   "EraseInverseOps: {}, "
+                   "num TMs on the activation paths after EraseInverseOps: {}, "
+                   "total removed: {}",
+                   funcOp.getName(), nonConstevalableTMsBefore,
+                   nonConstevalableTMsAfter,
+                   nonConstevalableTMsBefore - nonConstevalableTMsAfter);
 #endif
     }
   }
 
 private:
-  FrozenRewritePatternSet frozenCommuteAbovePatterns;
-  FrozenRewritePatternSet frozenCommuteBelowPatterns;
+  FrozenRewritePatternSet commuteAbovePatterns;
+  FrozenRewritePatternSet commuteBelowPatterns;
 
   template <CommuteDirection commuteDirection>
   RewritePatternSet getCommuteRewritePatternSet(
@@ -131,7 +142,7 @@ private:
 
   void applyCommuteAbovePatterns(Operation *op) {
     if (enableCommuteUpwards.getValue()) {
-      if (failed(applyPatternsGreedily(op, frozenCommuteAbovePatterns))) {
+      if (failed(applyPatternsGreedily(op, commuteAbovePatterns))) {
         signalPassFailure();
       }
     }
@@ -139,7 +150,7 @@ private:
 
   void applyCommuteBelowPatterns(Operation *op) {
     if (enableCommuteDownwards.getValue()) {
-      if (failed(applyPatternsGreedily(op, frozenCommuteBelowPatterns))) {
+      if (failed(applyPatternsGreedily(op, commuteBelowPatterns))) {
         signalPassFailure();
       }
     }
