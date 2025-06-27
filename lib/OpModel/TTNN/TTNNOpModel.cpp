@@ -1274,7 +1274,7 @@ llvm::Expected<OpConstraints> ToLayoutOpInterface::getOpConstraints(
     mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
     std::optional<mlir::tt::ttcore::DataType> outputDtype,
-    mlir::tt::ttnn::TTNNLayoutAttr outputLayout, bool passDevicePtr) {
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -1312,7 +1312,7 @@ llvm::Expected<size_t> ToLayoutOpInterface::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
     std::optional<mlir::tt::ttcore::DataType> outputDtype,
-    mlir::tt::ttnn::TTNNLayoutAttr outputLayout, bool passDevicePtr) {
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();

@@ -14,7 +14,7 @@ module {
       // CHECK-NEXT: %[[ARANGE_OP:.*]] = "ttnn.arange"(%[[GET_DEVICE_OP]])
       // CHECK-SAME: -> tensor<1024xsi32, #[[TTNN_LAYOUT_ARANGE_OUTPUT]]>
       // Verify that after arange op, there is a to layout op to convert the layout to tile.
-      // CHECK-NEXT: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%[[ARANGE_OP]], %[[GET_DEVICE_OP]])
+      // CHECK-NEXT: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%[[ARANGE_OP]])
       // CHECK-SAME: dtype = #ttcore.supportedDataTypes<si32>
       // CHECK-SAME: layout = #ttnn.layout<tile>
       // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <interleaved>>
