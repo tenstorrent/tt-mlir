@@ -4,13 +4,10 @@
 
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/Utils.h"
-#include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNPREPARECONV2DWEIGHTSANDBIAS
@@ -37,7 +34,8 @@ public:
       mlir::RankedTensorType inputType = conv2dOp.getInput().getType();
       ttnn::TTNNLayoutAttr inputLayoutAttr =
           mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
-      GridAttr deviceGrid = lookupDevice(moduleOp).getWorkerGrid();
+      ttcore::GridAttr deviceGrid =
+          ttcore::lookupDevice(moduleOp).getWorkerGrid();
       ttnn::MemoryConfigAttr inputMemConfigAttr =
           rewriter.getAttr<ttnn::MemoryConfigAttr>(
               inputLayoutAttr.getMemLayout(),
@@ -92,8 +90,9 @@ public:
         auto conv2dConfig = conv2dOp.getConv2dConfigAttr()
                                 ? conv2dOp.getConv2dConfigAttr()
                                 : Conv2dConfigAttr::get(&getContext());
-        conv2dConfig = conv2dConfig.withWeightsDtype(elementTypeToDataType(
-            conv2dOp.getWeight().getType().getElementType()));
+        conv2dConfig =
+            conv2dConfig.withWeightsDtype(ttcore::elementTypeToDataType(
+                conv2dOp.getWeight().getType().getElementType()));
 
         prepareConv2dBiasOp = rewriter.create<ttnn::PrepareConv2dBiasOp>(
             ttmlir::utils::appendLocationSuffix(conv2dOp.getLoc(),
@@ -145,7 +144,7 @@ private:
 
     auto newLayout = ttnn::TTNNLayoutAttr::get(
         &getContext(), oldType.getShape(),
-        TileType::get(oldType.getElementType()), BufferType::DRAM,
+        ttcore::TileType::get(oldType.getElementType()), BufferType::DRAM,
         oldLayout.getGrid(),
         ttnn::TensorMemoryLayoutAttr::get(
             &getContext(), ttnn::TensorMemoryLayout::Interleaved));
