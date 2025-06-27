@@ -556,6 +556,12 @@ def TTIREraseInverseOps: Pass<"ttir-erase-inverse-ops", "::mlir::ModuleOp">
   }];
 
   let dependentDialects = ["mlir::tt::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
+
+  list<Option> options = [
+    Option<"enableCommuteUpwards", "enable-commute-upwards", "bool", "true", "Enable commuting upwards. This should only be false for testing purposes (i.e you want to test a commute downwards pattern)">,
+    Option<"enableCommuteDownwards", "enable-commute-downwards", "bool", "true", "Enable commuting downwards. This should only be false for testing purposes (i.e you want to test a commute upwards pattern)">,
+    Option<"maxIterations", "max-iterations", "uint64_t", "0", "Maximum number of iterations to perform commuting. Setting to 0 will cause the the pass to run until no more TMs can be erased. This option may be useful for debugging infinite looping within the pass.">
+  ];
 }
 
 def TTIRExplicateTMs: Pass<"ttir-explicate-tms", "::mlir::ModuleOp">
