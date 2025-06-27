@@ -1103,6 +1103,83 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
   EXPECT_GT(runtimeExp.get(), 0);
 }
 
+TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
+  // create ConvTranspose2dOp
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
+  llvm::SmallVector<int64_t> weightShape = {3, 64, 7, 7};
+  llvm::SmallVector<int64_t> outputShape = {1, 1, 12544, 64};
+
+  Type elemetType = builder.getBF16Type();
+
+  auto inputLayout = mlir::tt::ttnn::TTNNLayoutAttr::get(
+      &context, inputShape, elemetType, mlir::tt::ttnn::BufferType::DRAM,
+      GridAttr::get(&context, 2),
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
+  auto input = createEmptyTensor(inputShape, elemetType, inputLayout);
+
+  auto weightLayout = mlir::tt::ttnn::TTNNLayoutAttr::get(
+      &context, weightShape, elemetType,
+      mlir::tt::ttnn::BufferType::SystemMemory, GridAttr::get(&context, 2));
+  auto weight = createEmptyTensor(weightShape, elemetType, weightLayout);
+
+  auto outputType = createRankedTensorType(outputShape);
+
+  GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
+      builder.getUnknownLoc(), builder.getType<DeviceType>(),
+      ttnn::MeshShapeAttr::get(builder.getContext(), 1, 1),
+      ttnn::MeshOffsetAttr::get(builder.getContext(), 0, 0));
+
+  ConvTranspose2dOp convTranspose2d = builder.create<ConvTranspose2dOp>(
+      builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
+      64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
+      llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
+      llvm::ArrayRef<int32_t>({0, 0}), llvm::ArrayRef<int32_t>({1, 1}), 1,
+      nullptr, nullptr);
+
+  // Device hangs otherwise.
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  auto goodConvConfig = Conv2dConfigAttr::get(
+      &context, /*dtype=*/DataType::BFloat16,
+      /*weights_dtype=*/DataType::BFloat16,
+      /*activation=*/StringAttr::get(&context, ""),
+      /*deallocate_activation=*/BoolAttr::get(&context, false),
+      /*reallocate_halo_output=*/BoolAttr::get(&context, true),
+      /*act_block_h_override=*/0, /*act_block_w_div=*/1,
+      /*reshard_if_not_optimal=*/BoolAttr::get(&context, false),
+      /*override_sharding_config=*/BoolAttr::get(&context, false),
+      /*shard_layout=*/std::nullopt,
+      /*core_grid=*/ttnn::CoreRangeSetAttr(),
+      /*transpose_shards=*/BoolAttr::get(&context, false),
+      /*output_layout=*/Layout::Tile,
+      /*preprocess_weights_on_device=*/BoolAttr::get(&context, false),
+      /*always_preprocess_weights=*/BoolAttr::get(&context, false),
+      /*enable_act_double_buffer=*/BoolAttr::get(&context, true),
+      /*enable_weights_double_buffer=*/BoolAttr::get(&context, true),
+      /*enable_split_reader=*/BoolAttr::get(&context, false),
+      /*enable_subblock_padding=*/BoolAttr::get(&context, false));
+
+  OpModel backend = dyn_cast<OpModel>(convTranspose2d.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(convTranspose2d),
+      OpConfig(getOutputLayout(convTranspose2d), goodConvConfig));
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cb_size, peak_size, output_size, outputLayout] =
+      constraintsExp.get();
+  EXPECT_GT(cb_size, 0);
+  EXPECT_GT(peak_size, 0);
+  EXPECT_GT(output_size, 0);
+
+  // Device hangs otherwise.
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp = backend.getOpRuntime(
+      getInputLayouts(convTranspose2d),
+      OpConfig(getOutputLayout(convTranspose2d), goodConvConfig));
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(runtimeExp.get(), 0);
+}
+
 TEST_F(OpModelBase, maxPool2DOp) {
   // TODO(2976): Some of these test cases return L1 interleaved row major
   // tensors which triggers an assertion in TTNNLayoutAttr. Will be reenabled
