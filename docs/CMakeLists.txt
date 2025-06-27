@@ -6,7 +6,7 @@ add_custom_target(copy-docs-dir
 )
 
 # Add Sphinx documentation target
-add_custom_target(sphinx-docs
+add_custom_target(sphinx
   COMMAND ${CMAKE_COMMAND} -E remove_directory ${SPHINX_BUILD_DIR}
   COMMAND ${CMAKE_COMMAND} -E make_directory ${SPHINX_BUILD_DIR}
   COMMAND ${CMAKE_COMMAND} -E env LC_ALL=C ${SPHINX_APIDOC_COMMAND}
@@ -23,12 +23,12 @@ add_custom_target(autogen-summary
     python ${CMAKE_CURRENT_SOURCE_DIR}/autogen-summary.py
   WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
   DEPENDS
-    mlir-doc copy-docs-dir sphinx-docs
+    mlir-doc copy-docs-dir sphinx
 )
 
 add_custom_target(remove-index
     COMMAND ${CMAKE_COMMAND} -E remove ${SPHINX_MD_DIR}/index.md
-    DEPENDS sphinx-docs
+    DEPENDS sphinx
 )
 
 add_custom_target(docs
@@ -38,7 +38,7 @@ add_custom_target(docs
   DEPENDS
     mlir-doc
     copy-docs-dir
-    sphinx-docs
+    sphinx
     autogen-summary
     remove-index
 )
