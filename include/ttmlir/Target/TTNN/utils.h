@@ -18,8 +18,6 @@ inline ::tt::target::ttnn::TensorMemoryLayout toTargetTensorMemoryLayout(
   switch (tensorMemoryLayout) {
   case ::mlir::tt::ttnn::TensorMemoryLayout::Interleaved:
     return ::tt::target::ttnn::TensorMemoryLayout::Interleaved;
-  case ::mlir::tt::ttnn::TensorMemoryLayout::SingleBank:
-    return ::tt::target::ttnn::TensorMemoryLayout::SingleBank;
   case ::mlir::tt::ttnn::TensorMemoryLayout::HeightSharded:
     return ::tt::target::ttnn::TensorMemoryLayout::HeightSharded;
   case ::mlir::tt::ttnn::TensorMemoryLayout::WidthSharded:
