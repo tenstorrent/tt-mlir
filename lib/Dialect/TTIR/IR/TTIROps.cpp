@@ -1765,78 +1765,24 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
   return success();
 }
 
-// TransposeOp can be removed if the both 'dim0' and 'dim1' are the same.
-static mlir::OpFoldResult
-foldIdentityTranspose(mlir::tt::ttir::TransposeOp op) {
-  if (op.getDim0() == op.getDim1()) {
-    return op.getInput();
-  }
-  return nullptr;
-}
-
-// Rewrite a transpose op to a canonical form where the 'dim0' is less than
-// 'dim1'.
-static mlir::OpFoldResult sortTansposeDims(mlir::tt::ttir::TransposeOp op) {
-  if (op.getDim0() < op.getDim1()) {
-    return nullptr;
-  }
-
-  auto oldDim0 = op.getDim0();
-  op.setDim0(op.getDim1());
-  op.setDim1(oldDim0);
-  return op.getResult();
-}
-
-// Rewrite tranpose dims to a canonical form where the 'dim0' and 'dim1' are
-// in range [0, N), where N is a rank of input tensor.
-static mlir::OpFoldResult
-forcePositiveTransposeDims(mlir::tt::ttir::TransposeOp op) {
-  if (op.getDim0() >= 0 && op.getDim1() >= 0) {
-    return nullptr;
-  }
-
-  if (op.getDim0() < 0) {
-    op.setDim0(op.getDim0() + op.getInput().getType().getRank());
-  } else if (op.getDim1() < 0) {
-    op.setDim1(op.getDim1() + op.getInput().getType().getRank());
-  }
-
-  return op.getResult();
-}
-
-// Transposing twice in the row over the same dimensions results in identity,
-// hence y = T(T(x)) can be replaced with y = x.
-static mlir::OpFoldResult
-foldInverseTransposeOperand(mlir::tt::ttir::TransposeOp op) {
-  if (auto producerOp =
-          op.getInput().getDefiningOp<mlir::tt::ttir::TransposeOp>()) {
-    if (op.getDim0() == producerOp.getDim0() &&
-        op.getDim1() == producerOp.getDim1()) {
-      return producerOp.getInput();
+void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
+  patterns.add(+[](TransposeOp op, mlir::PatternRewriter &rewriter) {
+    SmallVector<int64_t> permutation;
+    for (int64_t i = 0; i < op.getInput().getType().getRank(); ++i) {
+      permutation.push_back(i);
     }
-  }
-  return nullptr;
-}
-
-// TransposeOp folder
-mlir::OpFoldResult mlir::tt::ttir::TransposeOp::fold(FoldAdaptor adaptor) {
-  if (auto foldResult = foldIdentityTranspose(*this)) {
-    return foldResult;
-  }
-
-  if (auto foldResult = sortTansposeDims(*this)) {
-    return foldResult;
-  }
-
-  if (auto foldResult = forcePositiveTransposeDims(*this)) {
-    return foldResult;
-  }
-
-  if (auto foldResult = foldInverseTransposeOperand(*this)) {
-    return foldResult;
-  }
-
-  return nullptr;
+    int64_t dim0 = op.getDim0() < 0
+                       ? op.getDim0() + op.getInput().getType().getRank()
+                       : op.getDim0();
+    int64_t dim1 = op.getDim1() < 0
+                       ? op.getDim1() + op.getInput().getType().getRank()
+                       : op.getDim1();
+    std::swap(permutation[dim0], permutation[dim1]);
+    ttir::utils::replaceOpWithNewDPSOp<PermuteOp>(rewriter, op, op.getType(),
+                                                  op.getInput(), permutation);
+    return success();
+  });
 }
 
 //===----------------------------------------------------------------------===//
@@ -2695,23 +2641,35 @@ mlir::OpFoldResult mlir::tt::ttir::ViewLayoutOp::fold(FoldAdaptor adaptor) {
   return success();
 }
 
-// If value is defined by TransposeOp with transpose dimensions
-// (rank - 2, rank - 1), return the input of the TransposeOp, otherwise return
-// std::nullopt. This is used for canonicalization of MatmulOp and LinearOp.
+// If value is defined by PermuteOp with permute dimensions
+// (..., rank - 2, rank - 1), return the input of the PermuteOp, otherwise
+// return std::nullopt. This is used for canonicalization of MatmulOp and
+// LinearOp.
 static std::optional<mlir::TypedValue<mlir::RankedTensorType>>
-getTransposeOpOperand(mlir::TypedValue<mlir::RankedTensorType> value) {
-  auto producerOp = value.getDefiningOp<mlir::tt::ttir::TransposeOp>();
-  if (!producerOp) {
+getPermuteOpOperand(mlir::TypedValue<mlir::RankedTensorType> value) {
+  auto producerPermuteOp = value.getDefiningOp<mlir::tt::ttir::PermuteOp>();
+  if (!producerPermuteOp) {
     return std::nullopt;
   }
 
   int64_t rank = value.getType().getRank();
-  if (rank < 2 || producerOp.getDim0() != rank - 2 ||
-      producerOp.getDim1() != rank - 1) {
+  // If the rank is less than two than it is impossible for this permute to be a
+  // transpose
+  bool rankIsLessThan2 = rank < 2;
+  // Ensure that the rightmost two dims are swapped by the permute
+  bool XYDimsTransposed =
+      producerPermuteOp.getPermutation()[rank - 2] == rank - 1 &&
+      producerPermuteOp.getPermutation()[rank - 1] == rank - 2;
+  // Ensure that the other dims are unchanged by the permute.
+  // Therefore this permute is equivalent to transpose(-1, -2)
+  bool otherDimsUnchanged =
+      std::is_sorted(producerPermuteOp.getPermutation().begin(),
+                     producerPermuteOp.getPermutation().end() - 2);
+  if (rankIsLessThan2 || !XYDimsTransposed || !otherDimsUnchanged) {
     return std::nullopt;
   }
 
-  return producerOp.getInput();
+  return producerPermuteOp.getInput();
 }
 
 // LinearOp canonicalization
@@ -2732,7 +2690,7 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
   // linear(transpose(a), b, bias transpose_a, transpose_b) ->
   //   linear(a, b, bias, !transpose_a, transpose_b)
   patterns.add(+[](ttir::LinearOp op, mlir::PatternRewriter &rewriter) {
-    auto inputACanonical = getTransposeOpOperand(op.getA());
+    auto inputACanonical = getPermuteOpOperand(op.getA());
     if (!inputACanonical) {
       return mlir::failure();
     }
@@ -2747,7 +2705,7 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
   // linear(a, transpose(b), bias transpose_a, transpose_b) ->
   //   linear(a, b, bias, transpose_a, !transpose_b)
   patterns.add(+[](ttir::LinearOp op, mlir::PatternRewriter &rewriter) {
-    auto inputBCanonical = getTransposeOpOperand(op.getB());
+    auto inputBCanonical = getPermuteOpOperand(op.getB());
     if (!inputBCanonical) {
       return mlir::failure();
     }
@@ -2899,7 +2857,7 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
   // matmul(transpose(a), b, transpose_a, transpose_b) ->
   //   matmul(a, b, !transpose_a, transpose_b)
   patterns.add(+[](ttir::MatmulOp op, mlir::PatternRewriter &rewriter) {
-    auto inputACanonical = getTransposeOpOperand(op.getA());
+    auto inputACanonical = getPermuteOpOperand(op.getA());
     if (!inputACanonical) {
       return mlir::failure();
     }
@@ -2914,7 +2872,7 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
   // matmul(a, transpose(b), transpose_a, transpose_b) ->
   //   matmul(a, b, transpose_a, !transpose_b)
   patterns.add(+[](ttir::MatmulOp op, mlir::PatternRewriter &rewriter) {
-    auto inputBCanonical = getTransposeOpOperand(op.getB());
+    auto inputBCanonical = getPermuteOpOperand(op.getB());
     if (!inputBCanonical) {
       return mlir::failure();
     }

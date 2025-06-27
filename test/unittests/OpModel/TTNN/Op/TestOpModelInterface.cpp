@@ -773,7 +773,7 @@ TEST_F(OpModelBase, transposeOp) {
 }
 
 TEST_F(OpModelBase, typecastOp) {
-  // create TransposeOp
+  // create TypecastOp
   llvm::SmallVector<int64_t> tensorShape = {64, 1024};
 
   RankedTensorType rankedTensorTypeBF16 =
