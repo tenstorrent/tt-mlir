@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTIR/Utils/QuantUtils.h"
 #include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
 
 #include "mlir/Dialect/Quant/IR/Quant.h"
@@ -11,7 +12,6 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "llvm/ADT/APInt.h"
 
 #include <limits>
 
@@ -37,32 +37,13 @@ static IntegerType getIntegerTypeFromBitWidth(MLIRContext *context,
   }
 }
 
-static mlir::FailureOr<std::pair<int64_t, int64_t>>
-getStorageTypeMinMax(IntegerType intType, Location loc) {
-  unsigned bitWidth = intType.getWidth();
-  bool isSigned = intType.isSigned();
-  if (bitWidth == 0 || bitWidth > 64) {
-    emitError(loc, "Quantized min/max bitwidth must be in (0, 64].");
-    return mlir::failure();
-  }
-  int64_t min, max;
-  if (isSigned) {
-    min = llvm::APInt::getSignedMinValue(bitWidth).getSExtValue();
-    max = llvm::APInt::getSignedMaxValue(bitWidth).getSExtValue();
-  } else {
-    min = 0;
-    max = llvm::APInt::getMaxValue(bitWidth).getZExtValue();
-  }
-  return std::make_pair(min, max);
-}
-
 // Convert quantized type to use the target integer bit width.
 static mlir::FailureOr<Type>
 convertQuantizedType(quant::QuantizedType quantType, IntegerType targetIntType,
                      Location loc) {
   // Use the target integer type's min and max values.
   mlir::FailureOr<std::pair<int64_t, int64_t>> storageTypeMinMax =
-      getStorageTypeMinMax(targetIntType, loc);
+      mlir::tt::ttir::utils::getStorageTypeMinMax(targetIntType, loc);
   if (mlir::failed(storageTypeMinMax)) {
     return mlir::failure();
   }
