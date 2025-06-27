@@ -222,7 +222,7 @@ struct TTIRToTTNNBackendPipelineOptions
 
   Option<bool> conv2dToMatmulEnabled{
       *this, "enable-conv2d-to-matmul-pass",
-      llvm::cl::desc("Enable conv2d to matmul pass."), llvm::cl::init(false)};
+      llvm::cl::desc("Enable conv2d to matmul pass."), llvm::cl::init(true)};
 
   Option<bool> enableFusing{*this, "enable-fusing-pass",
                             llvm::cl::desc("Enable fusing pass."),

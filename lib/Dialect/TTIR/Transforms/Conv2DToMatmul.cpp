@@ -50,20 +50,41 @@ public:
 
     // Check stride is 1.
     mlir::Attribute rawStrideAttr = op.getStride();
-    mlir::DenseI32ArrayAttr strideAttr =
-        mlir::dyn_cast<mlir::DenseI32ArrayAttr>(rawStrideAttr);
-    llvm::ArrayRef<int32_t> strides = strideAttr.asArrayRef();
-    if (strides.size() != 2 || strides[0] != 1 || strides[1] != 1) {
+    if (mlir::IntegerAttr strideAttr =
+            mlir::dyn_cast<mlir::IntegerAttr>(rawStrideAttr)) {
+      if (strideAttr.getInt() != 1) {
+        return failure();
+      }
+    } else if (mlir::DenseI32ArrayAttr strideAttr =
+                   mlir::dyn_cast<mlir::DenseI32ArrayAttr>(rawStrideAttr)) {
+      llvm::ArrayRef<int32_t> strides = strideAttr.asArrayRef();
+      if (strides.size() != 2 || strides[0] != 1 || strides[1] != 1) {
+        return failure();
+      }
+    } else {
       return failure();
     }
 
     // Check padding is 0.
-    mlir::Attribute paddingAttr = op.getPadding();
-    mlir::DenseI32ArrayAttr paddingArrayAttr =
-        mlir::dyn_cast<mlir::DenseI32ArrayAttr>(paddingAttr);
-    if (!paddingArrayAttr || paddingArrayAttr.size() != 4 ||
-        llvm::any_of(paddingArrayAttr.asArrayRef(),
-                     [](int32_t v) { return v != 0; })) {
+    mlir::Attribute rawPaddingAttr = op.getPadding();
+    if (mlir::IntegerAttr paddingAttr =
+            mlir::dyn_cast<mlir::IntegerAttr>(rawPaddingAttr)) {
+      if (paddingAttr.getInt() != 0) {
+        return failure();
+      }
+    } else if (mlir::DenseI32ArrayAttr paddingArrayAttr =
+                   mlir::dyn_cast<mlir::DenseI32ArrayAttr>(rawPaddingAttr)) {
+      if (paddingArrayAttr.asArrayRef().size() != 4 ||
+          llvm::any_of(paddingArrayAttr.asArrayRef(),
+                       [](int32_t v) { return v != 0; })) {
+        return failure();
+      }
+    } else {
+      return failure();
+    }
+
+    // only groups = 1 is supported for now
+    if (op.getGroups() != 1) {
       return failure();
     }
 
