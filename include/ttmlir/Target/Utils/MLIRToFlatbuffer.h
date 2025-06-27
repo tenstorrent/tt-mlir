@@ -197,8 +197,6 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::MathFidelity mathFidelity) {
 inline ::tt::target::ttnn::TensorMemoryLayout
 toFlatbuffer(FlatbufferObjectCache &, ttnn::TensorMemoryLayout memLayout) {
   switch (memLayout) {
-  case ttnn::TensorMemoryLayout::SingleBank:
-    return ::tt::target::ttnn::TensorMemoryLayout::SingleBank;
   case ttnn::TensorMemoryLayout::Interleaved:
     return ::tt::target::ttnn::TensorMemoryLayout::Interleaved;
   case ttnn::TensorMemoryLayout::HeightSharded:

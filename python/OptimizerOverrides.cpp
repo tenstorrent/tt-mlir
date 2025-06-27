@@ -96,7 +96,6 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
 
   nb::enum_<mlir::tt::ttnn::TensorMemoryLayout>(m, "TensorMemoryLayout")
       .value("Interleaved", mlir::tt::ttnn::TensorMemoryLayout::Interleaved)
-      .value("SingleBank", mlir::tt::ttnn::TensorMemoryLayout::SingleBank)
       .value("HeightSharded", mlir::tt::ttnn::TensorMemoryLayout::HeightSharded)
       .value("WidthSharded", mlir::tt::ttnn::TensorMemoryLayout::WidthSharded)
       .value("BlockSharded", mlir::tt::ttnn::TensorMemoryLayout::BlockSharded);

@@ -84,9 +84,6 @@ emitc::OpaqueAttr convertTensorMemoryLayout(Builder &builder,
   case ttnn::TensorMemoryLayout::Interleaved:
     return builder.getType<emitc::OpaqueAttr>(
         "ttnn::TensorMemoryLayout::INTERLEAVED");
-  case ttnn::TensorMemoryLayout::SingleBank:
-    return builder.getType<emitc::OpaqueAttr>(
-        "ttnn::TensorMemoryLayout::INTERLEAVED");
   case ttnn::TensorMemoryLayout::WidthSharded:
     return builder.getType<emitc::OpaqueAttr>(
         "ttnn::TensorMemoryLayout::WIDTH_SHARDED");
