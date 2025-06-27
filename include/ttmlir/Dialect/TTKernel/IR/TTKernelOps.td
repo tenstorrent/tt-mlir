@@ -19,6 +19,21 @@ def AnyMemRefOrCB: AnyTypeOf<[AnyNon0RankedMemRef, TTKernel_CB]>;
 def IndexLike: AnyTypeOf<[Index, I32]>;
 
 //===----------------------------------------------------------------------===//
+// TTKernel Compute Kernel Hardware Startup operation
+//===----------------------------------------------------------------------===//
+
+def TTKernel_ComputeKernelHWStartupOp : TTKernel_InitOp<"compute_kernel_hw_startup"> {
+    let summary = "compute_kernel_hw_startup";
+    let description = [{
+      Must be run at the start of compute kernel.
+    }];
+
+    let arguments = (ins TTKernel_CB:$icb0,
+                         Optional<TTKernel_CB>:$icb1,
+                         TTKernel_CB:$ocb);
+}
+
+//===----------------------------------------------------------------------===//
 // TTKernel Register operations
 //===----------------------------------------------------------------------===//
 

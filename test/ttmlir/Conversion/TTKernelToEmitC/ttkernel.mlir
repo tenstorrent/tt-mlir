@@ -11,6 +11,33 @@
 !cb2_tiles = !ttkernel.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>
 
 module {
+  //===----------------------------------------------------------------------===//
+  // TTKernel Compute Kernel Hardware Startup operation
+  //===----------------------------------------------------------------------===//
+
+  // CHECK-LABEL: func @compute_kernel_hw_startup_unary
+  func.func @compute_kernel_hw_startup_unary() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    // CHECK: %[[INCB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+    %icb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+    // CHECK: %[[OCB:.*]] = emitc.literal "get_compile_time_arg_val(1)"
+    %ocb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb2_tiles
+    // CHECK: emitc.call_opaque "compute_kernel_hw_startup"(%[[INCB]], %[[OCB]])
+    "ttkernel.compute_kernel_hw_startup"(%icb, %ocb) : (!cb0_tiles, !cb2_tiles) -> ()
+    return
+  }
+
+  // CHECK-LABEL: func @compute_kernel_hw_startup_binary
+  func.func @compute_kernel_hw_startup_binary() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    // CHECK: %[[INCB0:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+    %icb0 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+    // CHECK: %[[INCB1:.*]] = emitc.literal "get_compile_time_arg_val(1)"
+    %icb1 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
+    // CHECK: %[[OCB:.*]] = emitc.literal "get_compile_time_arg_val(2)"
+    %ocb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 2 : i32}> : () -> !cb2_tiles
+    // CHECK: emitc.call_opaque "compute_kernel_hw_startup"(%[[INCB0]], %[[INCB1]], %[[OCB]])
+    "ttkernel.compute_kernel_hw_startup"(%icb0, %icb1, %ocb) : (!cb0_tiles, !cb1_tiles, !cb2_tiles) -> ()
+    return
+  }
 
   //===----------------------------------------------------------------------===//
   // TTKernel Register operations
