@@ -29,12 +29,6 @@ def autodoc_skip(func):
     return func
 
 
-# Limit documented members to TTIRBuilderOps
-__all__ = [
-    "TTIRBuilderOps",
-]
-
-
 class TTIRBuilderOps:
     def get_dimension_size(
         self, in0: Operand, dimension: int = 0, unit_attrs: Optional[List[str]] = None

@@ -7,6 +7,6 @@ TTIR Builder
 This module contains the `TTIRBuilder` class, which is the main entry point for creating TTIR from python.
 
 """
-from .builder import *
-from .apis import *
+
 from .ops import *
+from .builder import *
