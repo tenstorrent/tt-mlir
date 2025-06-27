@@ -476,23 +476,6 @@ public:
 } // namespace
 
 namespace {
-class TransposeOpConversionPattern
-    : public OpConversionPattern<ttir::TransposeOp> {
-public:
-  using OpConversionPattern<ttir::TransposeOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::TransposeOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<ttnn::TransposeOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getDim0(), adaptor.getDim1());
-    return success();
-  }
-};
-} // namespace
-
-namespace {
 template <typename TTIROpTy, typename TTNNOpTy>
 class ClampOpConversionPattern : public OpConversionPattern<TTIROpTy> {
 public:
@@ -1601,7 +1584,6 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            CumSumOpConversionPattern,
            RepeatInterleaveOpConversionPattern,
            SoftmaxOpConversionPattern,
-           TransposeOpConversionPattern,
            TypecastOpConversionPattern,
            ClampOpConversionPattern<ttir::ClampScalarOp, ttnn::ClampScalarOp>,
            ClampOpConversionPattern<ttir::ClampTensorOp, ttnn::ClampTensorOp>,
