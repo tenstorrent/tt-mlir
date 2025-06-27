@@ -19,6 +19,7 @@
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Casting.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <fstream>
 #include <numeric>
@@ -835,6 +836,21 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::derivePhysicalShape(
   return physicalShape;
 }
 
+// Returns gridShape multiplied with shard shape, elementwise.
+// eg. gridShape = [2, 3], shardShape = [6, 4] -> [12, 12]
+llvm::SmallVector<int64_t>
+MetalLayoutAttr::getUnshardedShape(llvm::ArrayRef<int64_t> gridShape,
+                                   llvm::ArrayRef<int64_t> shardShape) {
+  assert(gridShape.size() == shardShape.size());
+  // Initialize empty unsharded shape vector
+  llvm::SmallVector<int64_t> unshardedShape(gridShape.size());
+  // Use std::transform to multiply each element of gridShape with corresponding
+  // element of shardShape, and store in unshardedShape.
+  std::transform(gridShape.begin(), gridShape.end(), shardShape.begin(),
+                 unshardedShape.begin(), std::multiplies<int64_t>());
+  return unshardedShape;
+}
+
 static llvm::SmallVector<int64_t>
 normalizeAndFlattenIntervals(const mlir::DenseIntElementsAttr &inputIntervals,
                              size_t inputRank) {
@@ -884,7 +900,7 @@ normalizeAndFlattenIntervals(const mlir::DenseIntElementsAttr &inputIntervals,
 }
 
 llvm::SmallVector<int64_t> MetalLayoutAttr::getNormalizedIntervals() const {
-  return normalizeAndFlattenIntervals(getCollapseIntervals(),
+  return normalizeAndFlattenIntervals(getCollapsedIntervals(),
                                       getLogicalShape().size());
 }
 

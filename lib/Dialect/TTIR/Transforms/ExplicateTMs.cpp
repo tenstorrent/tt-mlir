@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIRTraits.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -44,8 +45,9 @@ public:
 
       // Create a new reshape operation.
       auto reshapeOp = ttir::utils::createDPSOp<ttir::ReshapeOp>(
-          rewriter, op.getLoc(), newShape, operandType.getElementType(),
-          operandType.getEncoding(),
+          rewriter,
+          ttmlir::utils::appendLocationSuffix(op.getLoc(), "_reshape"),
+          newShape, operandType.getElementType(), operandType.getEncoding(),
           op->getOperand(operand->getOperandNumber()),
           rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(newShape)));
 
@@ -107,7 +109,9 @@ public:
 
       // Create a new broadcast operation.
       auto broadcastOp = ttir::utils::createDPSOp<ttir::BroadcastOp>(
-          rewriter, op.getLoc(), broadcastedShape, operandType.getElementType(),
+          rewriter,
+          ttmlir::utils::appendLocationSuffix(op.getLoc(), "_broadcast"),
+          broadcastedShape, operandType.getElementType(),
           operandType.getEncoding(),
           op->getOperand(operand->getOperandNumber()), broadcastDimensions);
 

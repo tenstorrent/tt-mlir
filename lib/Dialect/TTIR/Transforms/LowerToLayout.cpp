@@ -60,15 +60,21 @@ public:
                                           op.getInput())
                     .getResult();
 
-    assert(inputLayout.getLogicalShape().size() ==
-           outputLayout.getLogicalShape().size());
+    const size_t gridRank =
+        inputLayout
+            .getGridShape(mlir::cast<RankedTensorType>(op.getInput().getType()))
+            .size();
 
-    const size_t logicalRank = inputLayout.getLogicalShape().size();
+    // The DMA Op must have equivalent grid ranks on input/output.
+    assert(gridRank == outputLayout
+                           .getGridShape(mlir::cast<RankedTensorType>(
+                               op.getOutput().getType()))
+                           .size());
 
     ArrayAttr indexingMaps, iteratorTypes;
     std::tie(indexingMaps, iteratorTypes) =
         GenericOp::buildParallelAffineMapsAndIteratorTypes(
-            rewriter, /*arity=*/2, logicalRank);
+            rewriter, /*arity=*/2, gridRank);
     rewriter.replaceOpWithNewOp<GenericOp>(
         op, view, op.getOutput(),
         [&](OpBuilder &builder, Location loc, ValueRange blockArgs) {
@@ -164,9 +170,9 @@ public:
                      std::optional<ArrayRef<int64_t>> newTileShape = {}) const {
     // Use existing values if not overridden
     auto memSpace = newMemSpace.value_or(baseLayout.getMemorySpace());
-    auto maybeBaseLayout =
+    auto maybeBaseTypeLayout =
         mlir::dyn_cast_or_null<MetalLayoutAttr>(baseType.getEncoding());
-    const bool baseTypeHasLayout = maybeBaseLayout != nullptr;
+    const bool baseTypeHasLayout = maybeBaseTypeLayout != nullptr;
 
     // We need to create an owning version of gridShape for the case where we
     // default 1-fill it, which makes this more complex/ugly.
@@ -174,26 +180,21 @@ public:
     if (newGrid.has_value()) {
       gridShape.assign(newGrid->begin(), newGrid->end());
     } else if (baseTypeHasLayout) {
-      auto tempGrid = maybeBaseLayout.getGridShape(baseType);
+      llvm::ArrayRef<int64_t> tempGrid =
+          maybeBaseTypeLayout.getGridShape(baseType);
       gridShape.assign(tempGrid.begin(), tempGrid.end());
     }
 
-    auto elementType = newElementType.value_or(baseType.getElementType());
-    auto tileShape = newTileShape.has_value()
-                         ? *newTileShape
-                         : getTensorTileShapeOrEmpty(baseType);
+    Type elementType = newElementType.value_or(baseType.getElementType());
+    llvm::ArrayRef<int64_t> tileShape =
+        newTileShape.has_value() ? *newTileShape
+                                 : getTensorTileShapeOrEmpty(baseType);
 
     // Create new layout
-    auto newLayout =
-        baseTypeHasLayout
-            ? MetalLayoutAttr::get(ctx, baseLayout.getLogicalShape(),
-                                   gridShape.size(), baseLayout.getOobVal(),
-                                   memSpace,
-                                   maybeBaseLayout.getCollapseIntervals(),
-                                   maybeBaseLayout.getDimAlignments())
-            : MetalLayoutAttr::get(ctx, baseLayout.getLogicalShape(),
-                                   gridShape.size(), baseLayout.getOobVal(),
-                                   memSpace);
+    auto newLayout = MetalLayoutAttr::get(
+        ctx, baseLayout.getLogicalShape(), gridShape.size(),
+        baseLayout.getOobVal(), memSpace, baseLayout.getCollapsedIntervals(),
+        baseLayout.getDimAlignments());
 
     // For physical shape derivation, use tile shape ONLY if element type is
     // tiled
@@ -207,9 +208,10 @@ public:
     }
 
     // Derive physical shape
-    auto physicalShape = MetalLayoutAttr::derivePhysicalShape(
-        baseLayout.getLogicalShape(), gridShape, tileShapeForPhysical,
-        newLayout.getCollapseIntervals(), newLayout.getDimAlignments());
+    llvm::SmallVector<int64_t> physicalShape =
+        MetalLayoutAttr::derivePhysicalShape(
+            baseLayout.getLogicalShape(), gridShape, tileShapeForPhysical,
+            newLayout.getCollapsedIntervals(), newLayout.getDimAlignments());
 
     return RankedTensorType::get(physicalShape, elementType, newLayout);
   }
@@ -235,11 +237,9 @@ public:
     // First prioritize moving the data into L1 so we can work with it in L1
     if (!inputL1) {
       // Read into L1, then do other conversions.
-      // If we're going from no grid -> grid, we need to use the output grid
-      // size (1s filled).
+      // If we're going from no grid -> grid, we need to use the output grid.
       if (!hasInputLayout && hasOutputLayout) {
-        auto gridShape = llvm::SmallVector<int64_t>(
-            outputLayout.getGridShape(outputType).size(), 1);
+        auto gridShape = outputLayout.getGridShape(outputType);
         auto bounceType =
             createModifiedType(rewriter.getContext(), inputType, inputLayout,
                                MemorySpace::DeviceL1, gridShape);
@@ -256,16 +256,15 @@ public:
       assert(inputL1 && "input should guaranteed be in L1 because of the "
                         "previous case");
       // Conversely, if we're going from grid -> no grid, we need to use the
-      // input grid size (1s filled).
+      // input grid.
       if (!hasOutputLayout && hasInputLayout) {
-        auto gridShape = llvm::SmallVector<int64_t>(
-            inputLayout.getGridShape(inputType).size(), 1);
+        auto gridShape = inputLayout.getGridShape(inputType);
         auto bounceType =
             createModifiedType(rewriter.getContext(), outputType, outputLayout,
                                MemorySpace::DeviceL1, gridShape);
         bounce(rewriter, op, bounceType);
       } else {
-        // For other cases, we want to use input's current grid
+        // For other cases, we want to use output's current grid
         auto bounceType =
             createModifiedType(rewriter.getContext(), outputType, outputLayout,
                                MemorySpace::DeviceL1);

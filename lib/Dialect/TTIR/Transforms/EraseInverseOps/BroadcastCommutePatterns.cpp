@@ -8,70 +8,6 @@
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 namespace mlir::tt::ttir {
-
-namespace {
-class TTIRCommuteTransposesAboveBroadcast
-    : public TTIRCommuteOpRewritePattern<ttir::TransposeOp, ttir::BroadcastOp> {
-public:
-  using TTIRCommuteOpRewritePattern<
-      ttir::TransposeOp, ttir::BroadcastOp>::TTIRCommuteOpRewritePattern;
-
-  void performCommuteRewrite(ttir::BroadcastOp op,
-                             ttir::TransposeOp transposeUser,
-                             PatternRewriter &rewriter) const override {
-
-    auto operand = op.getInput();
-    auto tmResultType = transposeUser.getResult().getType();
-
-    SmallVector<int64_t> newShape(operand.getType().getShape());
-    std::swap(newShape[transposeUser.getDim0()],
-              newShape[transposeUser.getDim1()]);
-
-    // Commuting a transpose above a broadcast requires us to swap the broadcast
-    // dimensions according to the transpose dimensions.
-    SmallVector<int64_t> newBroadcastDimensions(op.getBroadcastDimensions());
-    std::swap(newBroadcastDimensions[transposeUser.getDim0()],
-              newBroadcastDimensions[transposeUser.getDim1()]);
-
-    auto newTranspose = ttir::utils::createDPSOp<ttir::TransposeOp>(
-        rewriter, op->getLoc(), newShape, tmResultType.getElementType(),
-        tmResultType.getEncoding(), operand, transposeUser.getDim0(),
-        transposeUser.getDim1());
-
-    assert(newBroadcastDimensions.size() ==
-           static_cast<size_t>(tmResultType.getRank()));
-
-    auto newBroadcast = ttir::utils::createDPSOp<ttir::BroadcastOp>(
-        rewriter, op->getLoc(), tmResultType, newTranspose,
-        newBroadcastDimensions);
-
-    SmallVector<Operation *> users(op->getUsers());
-    for (auto *user : users) {
-      assert(checkIdenticalTms(transposeUser, user) &&
-             "shouldCommute should have ensured this is true");
-    }
-
-    for (auto *user : users) {
-      rewriter.replaceOp(user, newBroadcast);
-    }
-  }
-
-private:
-  bool isCommuteViable(ttir::BroadcastOp op, ttir::TransposeOp) const override {
-    // We can always commute a transpose above a broadcast.
-    return true;
-  }
-
-  bool isCommuteFavorable(ttir::BroadcastOp op,
-                          ttir::TransposeOp) const override {
-    // We should always commute a transpose above a broadcast if all users are
-    // an identical transpose. This includes the case where there is one user.
-    SmallVector<Operation *> users(op->getUsers());
-    return !users.empty() && checkAllUsersAreIdenticalTms(users);
-  }
-};
-} // namespace
-
 // This function will return std::nullopt if the reshape places broadcasted
 // data along the same axes as the original data. If this is the case for
 // a particular broadcast -> reshape sequence, the reshape cannot be commuted
@@ -281,7 +217,7 @@ public:
                               tmResultType.getEncoding());
 
     auto newReshape = ttir::utils::createDPSOp<ttir::ReshapeOp>(
-        rewriter, op->getLoc(), newTMResultType, op.getInput(),
+        rewriter, reshapeUser.getLoc(), newTMResultType, op.getInput(),
         rewriter.getI32ArrayAttr(SmallVector<int32_t>(newReshapeShape.begin(),
                                                       newReshapeShape.end())));
 
@@ -359,8 +295,9 @@ public:
                                         permutation);
 
     auto newPermute = ttir::utils::createDPSOp<ttir::PermuteOp>(
-        rewriter, op->getLoc(), newShape, tmResultType.getElementType(),
-        tmResultType.getEncoding(), operand, permutation);
+        rewriter, permuteUser->getLoc(), newShape,
+        tmResultType.getElementType(), tmResultType.getEncoding(), operand,
+        permutation);
 
     assert(newBroadcastDimensions.size() ==
            static_cast<size_t>(tmResultType.getRank()));
@@ -398,8 +335,7 @@ private:
 void populateBroadcastCommutePatterns(MLIRContext *ctx,
                                       RewritePatternSet &patterns) {
   patterns
-      .add<TTIRCommuteTransposesAboveBroadcast,
-           TTIRCommuteReshapeAboveBroadcast, TTIRCommutePermuteAboveBroadcast>(
+      .add<TTIRCommuteReshapeAboveBroadcast, TTIRCommutePermuteAboveBroadcast>(
           ctx);
 }
 

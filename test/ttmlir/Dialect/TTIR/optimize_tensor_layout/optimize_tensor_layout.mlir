@@ -6,8 +6,8 @@
 #parallel = #ttcore.iterator_type<parallel>
 #reduction = #ttcore.iterator_type<reduction>
 #l1 = #ttcore.memory_space<l1>
-#layout1 = #ttcore.metal_layout<logical_shape = 256x384, dim_alignments = 32x32, collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1>
-#layout2 = #ttcore.metal_layout<logical_shape = 256x32, dim_alignments = 32x32, collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1>
+#layout1 = #ttcore.metal_layout<logical_shape = 256x384, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1>
+#layout2 = #ttcore.metal_layout<logical_shape = 256x32, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1>
 
 func.func @reduce_large_grid(%arg0: tensor<256x384xf32>, %arg1: tensor<256x384xf32>) -> tensor<256x32xf32> {
   %0 = ttir.empty() : tensor<1x1x8x12x!ttcore.tile<32x32, f32>, #layout1>
@@ -60,8 +60,8 @@ func.func @reduce_large_grid(%arg0: tensor<256x384xf32>, %arg1: tensor<256x384xf
 #parallel = #ttcore.iterator_type<parallel>
 #reduction = #ttcore.iterator_type<reduction>
 #l1 = #ttcore.memory_space<l1>
-#layout1 = #ttcore.metal_layout<logical_shape = 32x608, dim_alignments = 32x32, collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1>
-#layout2 = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapse_dims = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1>
+#layout1 = #ttcore.metal_layout<logical_shape = 32x608, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1>
+#layout2 = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1>
 
 func.func @reduce_prime(%arg0: tensor<32x608xf32>, %arg1: tensor<32x608xf32>) -> tensor<32x32xf32> {
   // Convert inputs to device layout

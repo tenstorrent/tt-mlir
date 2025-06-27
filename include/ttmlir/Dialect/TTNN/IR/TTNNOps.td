@@ -165,6 +165,7 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
 
     let arguments = (ins AnyRankedTensor:$lhs,
                          AnyRankedTensor:$rhs,
+                         OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
     let results = (outs AnyRankedTensor:$result);
 
@@ -179,7 +180,7 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     [
       OpBuilder<(ins "Type": $resultType, "Value": $lhs, "Value": $rhs),
       [{
-        build($_builder, $_state, resultType, lhs, rhs, /*memory_config=*/nullptr);
+        build($_builder, $_state, resultType, lhs, rhs, /*output_dtype=*/nullptr, /*memory_config=*/nullptr);
       }]>
     ];
 }
@@ -864,6 +865,16 @@ def TTNN_ProdOp : TTNN_Op<"prod"> {
 
   let results = (outs AnyRankedTensor:$result);
 
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      mlir::Type elementType = getInput().getType().getElementType();
+      bool allDimensions = !getDimArg();
+      return
+        wa::TTNNOperandsWorkaroundsFactory::createReduceProdOpOperandsWorkarounds(
+                                                    elementType, allDimensions);
+    }
+  }];
+
   let hasVerifier = 1;
 }
 
@@ -1234,30 +1245,6 @@ def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights"> {
     let hasVerifier = 1;
 }
 
-def TTNN_PrepareConv2dBiasOp : TTNN_Op<"prepare_conv2d_bias"> {
-    let summary = "Prepares conv2d bias so that it can be consumed by the conv2d op.";
-
-    let arguments = (ins AnyRankedTensor:$bias_tensor,
-                         TTNN_MemoryConfigAttr:$input_memory_config,
-                         TTNN_LayoutAttr:$input_tensor_layout,
-                         I32Attr:$in_channels,
-                         I32Attr:$out_channels,
-                         I32Attr:$batch_size,
-                         I32Attr:$input_height,
-                         I32Attr:$input_width,
-                         DenseI32ArrayAttr:$kernel_size,
-                         DenseI32ArrayAttr:$stride,
-                         DenseI32ArrayAttr:$padding,
-                         DenseI32ArrayAttr:$dilation,
-                         I32Attr:$groups,
-                         TTNN_Device:$device,
-                         OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config);
-
-    let results = (outs AnyRankedTensor:$result);
-
-    let hasVerifier = 1;
-}
-
 def TTNN_Conv2dOp : TTNN_Op<"conv2d",
       [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
       > {
@@ -1351,7 +1338,9 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d",
     }];
 }
 
-def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d"> {
+def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "ConvTranspose2d operation.";
     let description = [{
       Applies a 2D transposed convolution operator over an input image composed of several input planes.

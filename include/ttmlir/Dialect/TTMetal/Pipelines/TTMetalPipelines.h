@@ -56,6 +56,28 @@ struct TTIRToTTMetalPipelineOptions
           "Set an interchange for generic ops that match matmul style indexing "
           "maps and iterator types. The interchange indices here always "
           "correspond to the innermost 3 dims.")};
+
+  // Option to control whether generic conversion uses 'tile_matmul'
+  // (default) or 'tile_matmul_block'.
+  //
+  Option<bool> useTileMatmul{*this, "use-tile-matmul",
+                             llvm::cl::desc("Use tile_matmul"),
+                             llvm::cl::init(true)};
+
+  // Options to control the default memspaces for placing input/output tensors.
+  //
+  Option<MemorySpace> defaultInputMemSpace{
+      *this, "default-input-memspace",
+      llvm::cl::desc("Set default memspace for input tensors"),
+      llvm::cl::values(clEnumValN(MemorySpace::DeviceL1, "l1", "L1"),
+                       clEnumValN(MemorySpace::DeviceDRAM, "dram", "DRAM")),
+      llvm::cl::init(MemorySpace::DeviceL1)};
+  Option<MemorySpace> defaultOutputMemSpace{
+      *this, "default-output-memspace",
+      llvm::cl::desc("Set default memspace for output tensors"),
+      llvm::cl::values(clEnumValN(MemorySpace::DeviceL1, "l1", "L1"),
+                       clEnumValN(MemorySpace::DeviceDRAM, "dram", "DRAM")),
+      llvm::cl::init(MemorySpace::DeviceL1)};
 };
 
 void createTTIRBufferizationPipeline(OpPassManager &pm);

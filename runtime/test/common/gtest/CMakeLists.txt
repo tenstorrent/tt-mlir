@@ -1,0 +1,2 @@
+add_runtime_gtest(test_generate_sys_desc)
+add_runtime_gtest(test_handle_integer_buffer_cast)

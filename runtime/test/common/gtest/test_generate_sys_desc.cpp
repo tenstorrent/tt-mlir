@@ -4,6 +4,6 @@
 #include "tt/runtime/runtime.h"
 #include <gtest/gtest.h>
 
-TEST(GenerateSysDesc, Sanity) {
+TEST(SystemDesc, GenerateSystemDescSanity) {
   auto sysDesc = ::tt::runtime::getCurrentSystemDesc();
 }

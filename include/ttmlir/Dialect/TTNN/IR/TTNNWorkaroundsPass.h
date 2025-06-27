@@ -291,6 +291,11 @@ public:
   // Create workarounds for reduction op operands.
   static TTNNOperandsWorkarounds
   createReductionOpOperandsWorkarounds(mlir::Operation *op);
+
+  // Create workaround for reduce (full) product op operands.
+  static TTNNOperandsWorkarounds
+  createReduceProdOpOperandsWorkarounds(mlir::Type elementType,
+                                        bool allDimensions);
 };
 
 } // namespace mlir::tt::ttnn::wa

@@ -134,12 +134,12 @@ def TTNNTuplifyTensors: Pass<"ttnn-tuplify-tensors", "::mlir::ModuleOp"> {
   ];
 }
 
-def TTNNPrepareConv2dWeightsAndBias : Pass<"ttnn-prepare-conv2d-weights-and-bias", "::mlir::ModuleOp"> {
-  let summary = "Optimize Conv2d ops by inserting PrepareConv2dWeights and PrepareConv2dBias ops before them.";
+def TTNNPrepareConv2dWeights : Pass<"ttnn-prepare-conv2d-weights", "::mlir::ModuleOp"> {
+  let summary = "Optimize Conv2d ops by inserting PrepareConv2dWeights before them.";
   let description = [{
-    This pass inserts a PrepareConv2dWeights and a PrepareConv2dBias operation before each Conv2d op, which preprocess the weights and bias used by the Conv2d operations.
-    These operations can then be const-evaluated, leading to improved performance.
-    To use this pass, the project must be built with the op model library by setting -DTTMLIR_ENABLE_OPMODEL=ON during the build process.
+    This pass inserts a PrepareConv2dWeights operation before each Conv2d op which preprocess the weights used by Conv2d operations.
+    The PrepareConv2dWeights op can be then const-evaled, leading to improved performance. In order to use this pass,
+    the project must be built with the op model library by setting -DTTMLIR_ENABLE_OPMODEL=ON during the build process.
   }];
 }
 
@@ -182,6 +182,12 @@ def TTNNTraceHoistTransform : Pass<"ttnn-trace-hoist-transform", "::mlir::Module
     %1 = ttnn.trace(%0, 0, false, @single_add_trace_0, [%arg0, %arg1]) : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
     ```
   }];
+}
+
+def TTNNUniqueLocations: Pass<"ttnn-unique-locations", "::mlir::ModuleOp">
+{
+  let summary = "Check if operations have unique locations.";
+  let description = "This pass checks if all operations relevant to the optimizer have unique locations. If not, it will emit an error. This is necessary for the overrides to be applied correctly.";
 }
 
 #endif

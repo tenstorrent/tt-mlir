@@ -157,13 +157,13 @@ jobs:
           # When sh-run is true, the runner will use TT-shared GH infra and pull from harbor for image cache pull through
           {runs-on: n150,   sh-run: true,  name: "run",  suite: "unit",              image: "speedy", type: "unit"},
           {runs-on: n300,   sh-run: true,  name: "run",  suite: "unit",              image: "tracy",  type: "unit"},
-          {runs-on: n150,   sh-run: false, name: "run",  suite: "run",               image: "speedy", type: "ttnn_standalone",    path: "tools/ttnn-standalone"},
+          {runs-on: n150,   sh-run: true, name: "run",  suite: "run",               image: "speedy", type: "ttnn_standalone",    path: "tools/ttnn-standalone"},
           {runs-on: n150,   sh-run: true,  name: "run",  suite: "run",               image: "speedy", type: "ttrt",    path: "Silicon", flags: "--non-zero"},
           {runs-on: n150,   sh-run: false, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n150/perf"},
           {runs-on: n150,   sh-run: false, name: "perf", suite: "optimizer",         image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n150/optimizer"},
-          {runs-on: n150,   sh-run: false, name: "run",  suite: "emitc",             image: "tracy",  type: "ttrt",     path: "EmitC", flags: "--emitc"},
-          {runs-on: n150,   sh-run: false, name: "run",  suite: "op_model",          image: "speedy", type: "ttrt",     path: "Silicon/TTNN/n150/optimizer", flags: "--non-zero"},
-          {runs-on: n150,   sh-run: false, name: "run",  suite: "runtime_debug",     image: "tracy",  type: "ttrt",     path: "Silicon", flags: "--non-zero"},
+          {runs-on: n150,   sh-run: true, name: "run",  suite: "emitc",             image: "tracy",  type: "ttrt",     path: "EmitC", flags: "--emitc"},
+          {runs-on: n150,   sh-run: true, name: "run",  suite: "op_model",          image: "speedy", type: "ttrt",     path: "Silicon/TTNN/n150/optimizer", flags: "--non-zero"},
+          {runs-on: n150,   sh-run: true, name: "run",  suite: "runtime_debug",     image: "tracy",  type: "ttrt",     path: "Silicon", flags: "--non-zero"},
           {runs-on: n300,   sh-run: true,  name: "run",  suite: "run",               image: "speedy", type: "ttrt",     path: "Silicon", flags: "--non-zero"},
           {runs-on: n300,   sh-run: true, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",     path: "Silicon/TTNN/n300/perf"},
           {runs-on: llmbox, sh-run: false, name: "run",  suite: "run",               image: "speedy", type: "ttrt",     path: "Silicon", flags: "--non-zero"},
@@ -176,11 +176,12 @@ jobs:
           {runs-on: n300-llmbox, sh-run: true, name: "run",  suite: "silicon",       image: "tracy",  type: "builder",  path: "test/python/golden", flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true},
           # Although these runtime tests are device agnostic, they depend on n150 compiled mlir artifacts
           # Therefore running these tests on n150 specifically
-          {runs-on: n150,   sh-run: true,  name: "run",  suite: "ttnn_runtime",      image: "tracy",  type: "pytest",  path: "runtime/test/python/ttnn/device_agnostic"},
+          {runs-on: n150,   sh-run: true,  name: "run",  suite: "ttnn_runtime",      image: "tracy",  type: "pytest",  path: "runtime/test/ttnn/python/device_agnostic"},
           {runs-on: n150,   sh-run: false, name: "perf", suite: "explorer",          image: "tracy",  type: "pytest",  path: "tools/explorer/test/run_tests.py"},
           {runs-on: n150,   sh-run: false, name: "run",  suite: "op_by_op",          image: "tracy",  type: "pytest",  path: "test/python/op_by_op"},
-          {runs-on: n300,   sh-run: true,  name: "run",  suite: "ttnn_runtime",      image: "tracy",  type: "pytest",  path: "runtime/test/python/ttnn/multi_device"},
+          {runs-on: n300,   sh-run: true,  name: "run",  suite: "ttnn_runtime",      image: "tracy",  type: "pytest",  path: "runtime/test/ttnn/python/multi_device"},
           {runs-on: n150,   sh-run: true,  name: "run",  suite: "run",               image: "tracy",  type: "pykernel"},
+          {runs-on: n300,   sh-run: false, name: "run",  suite: "runtime_debug",     image: "tracy",  type: "unit"},
         ]
     name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ matrix.build.suite }},${{ matrix.build.type }},${{ strategy.job-index }})"
 
@@ -294,6 +295,18 @@ jobs:
           echo "Running op-model test Interface"
           ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Op/TestOpModelInterface
         fi
+
+    - name: Run Runtime Unit Tests
+      shell: bash
+      if: ${{ matrix.build.suite == 'runtime_debug' && matrix.build.type == 'unit' }}
+      run: |
+        source env/activate
+        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
+        ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
+        echo "Running TTNN Runtime Unit Tests"
+        ${{ steps.strings.outputs.build-output-dir }}/runtime/test/common/gtest/test_generate_sys_desc
+        ${{ steps.strings.outputs.build-output-dir }}/runtime/test/common/gtest/test_handle_integer_buffer_cast
 
     - name: Run TTNN-Standalone test
       shell: bash

@@ -8,6 +8,14 @@
 #include "mlir/Bytecode/BytecodeOpInterface.h"
 #include "mlir/IR/Dialect.h"
 
+#include "mlir/IR/PatternMatch.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsDialect.h.inc"
+
+namespace mlir::tt::ttir {
+
+void populateTTIRTMFusionPatterns(mlir::MLIRContext *context,
+                                  mlir::RewritePatternSet &patterns);
+
+} // namespace mlir::tt::ttir
 
 #endif
