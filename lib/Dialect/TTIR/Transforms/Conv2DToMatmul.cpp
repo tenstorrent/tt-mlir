@@ -26,7 +26,8 @@ namespace ttir {
 
 namespace {
 // Pattern to convert Conv2D operations with 1x1 kernels to MatMul operations
-// when applicable. Requirements: The kernel size must be 1x1, the stride must
+// when applicable. If a bias is present, a Linear operation is used instead.
+// Requirements: The kernel size must be 1x1, the stride must
 // be 1 and the padding must be 0. Resulting transform:
 //     Input of [N, C, H, W] reshaped to [N*H*W, C]
 //     Weight vector of [O, I, H, W] permuted to [I, O, H, W] and reshaped to
@@ -158,12 +159,28 @@ public:
     Value emptyTensor =
         rewriter.create<ttir::EmptyOp>(op.getLoc(), matmulOutputType);
 
-    // Create the matmul operation.
-    Value matmulResult = rewriter.create<ttir::MatmulOp>(
-        op.getLoc(), matmulOutputType, reshapedInput, reshapedWeight,
-        emptyTensor);
+    // Create the matmul operation (or Linear if bias is present).
+    Value matmulOrLinearResult;
+    if (op.getBias()) {
+      // reshape bias to 1D
+      SmallVector<int64_t> biasShape = {outputChannel};
+      RankedTensorType biasType = RankedTensorType::get(
+          biasShape, op.getBias().getType().getElementType());
+      Value emptyReshapedBias =
+          rewriter.create<ttir::EmptyOp>(op.getLoc(), biasType);
+      Value reshapedBias = rewriter.create<ttir::ReshapeOp>(
+          op.getLoc(), biasType, op.getBias(), emptyReshapedBias,
+          rewriter.getI32ArrayAttr({static_cast<int32_t>(biasShape[0])}));
+      matmulOrLinearResult = rewriter.create<ttir::LinearOp>(
+          op.getLoc(), matmulOutputType, reshapedInput, reshapedWeight,
+          reshapedBias, emptyTensor);
+    } else {
+      matmulOrLinearResult = rewriter.create<ttir::MatmulOp>(
+          op.getLoc(), matmulOutputType, reshapedInput, reshapedWeight,
+          emptyTensor);
+    }
 
-    // Reshape matmul result back to NHWC format
+    // Reshape matmul or linear result back to NHWC format
     SmallVector<int64_t> finalOutputShape = {inputShape[0], inputShape[1],
                                              inputShape[2], outputChannel};
     SmallVector<int32_t> finalOutputShape32;
@@ -175,7 +192,8 @@ public:
 
     // Replace the original op with a new ReshapeOp in one step
     rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(
-        op, outputType, matmulResult, op.getOutput(), finalOutputShapeAttr);
+        op, outputType, matmulOrLinearResult, op.getOutput(),
+        finalOutputShapeAttr);
     return success();
   }
 };
