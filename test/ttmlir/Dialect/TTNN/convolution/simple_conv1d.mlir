@@ -9,7 +9,15 @@ module {
     // CHECK-SAME: shape = [1024 : i32, 256 : i32, 1 : i32, 1 : i32]
     // CHECK: "ttnn.permute"
     // CHECK-SAME: permutation = array<i64: 0, 2, 3, 1>
-    // CHECK: "ttnn.conv2d"
+    // CHECK: "ttnn.reshape"
+    // CHECK-SAME: shape = [512 : i32, 256 : i32]
+    // CHECK: "ttnn.permute"
+    // CHECK-SAME: permutation = array<i64: 1, 0, 2, 3>
+    // CHECK: "ttnn.reshape"
+    // CHECK-SAME: shape = [256 : i32, 1024 : i32]
+    // CHECK: "ttnn.matmul"
+    // CHECK: "ttnn.reshape"
+    // CHECK-SAME: shape = [1 : i32, 512 : i32, 1 : i32, 1024 : i32]
     // CHECK: "ttnn.permute"
     // CHECK-SAME: permutation = array<i64: 0, 3, 1, 2>
     // CHECK: "ttnn.reshape"
