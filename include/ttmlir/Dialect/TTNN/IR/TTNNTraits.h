@@ -85,6 +85,57 @@ public:
   }
 };
 
+template <typename ConcreteType>
+class HasOutputDTypeTrait
+    : public mlir::OpTrait::TraitBase<ConcreteType, HasOutputDTypeTrait> {
+public:
+  static mlir::LogicalResult verifyTrait(mlir::Operation *op) {
+    // Check if the operation defines output data type attribute.
+    auto attributeNames = ConcreteType::getAttributeNames();
+    if (std::find(attributeNames.begin(), attributeNames.end(),
+                  getOutputDTypeAttributeName()) == attributeNames.end()) {
+      return op->emitOpError(
+          "Operation must define output data type attribute.");
+    }
+
+    // Retrieve output layout.
+    RankedTensorType output =
+        mlir::cast<RankedTensorType>(op->getResult(0).getType());
+    TTNNLayoutAttr outputLayoutAttr =
+        mlir::dyn_cast<TTNNLayoutAttr>(output.getEncoding());
+
+    // If output layout isn't present, skip the verification.
+    if (!outputLayoutAttr) {
+      return mlir::success();
+    }
+
+    // Retrieve output data type attribute.
+    auto outputDTypeAttr =
+        op->getAttrOfType<DataTypeAttr>(getOutputDTypeAttributeName());
+    if (!outputDTypeAttr) {
+      return op->emitOpError("Output data type attribute is not defined for op "
+                             "that has output layout attribute.");
+    }
+
+    // Compare output data type attribute with output tensor data type.
+    if (outputDTypeAttr.getValue() != outputLayoutAttr.getDataType()) {
+      return op->emitOpError()
+             << "Output tensor layout data type "
+             << DataTypeEnumToString(outputLayoutAttr.getDataType())
+             << " must match output data type attribute "
+             << DataTypeEnumToString(outputDTypeAttr.getValue());
+    }
+
+    return mlir::success();
+  }
+
+private:
+  /// Returns the attribute name attached to this pass.
+  static constexpr ::llvm::StringLiteral getOutputDTypeAttributeName() {
+    return "output_dtype";
+  }
+};
+
 } // namespace mlir::tt::ttnn
 
 #endif

@@ -9,7 +9,7 @@ module attributes {ttcore.system_desc = #system_desc} {
   func.func @add(%arg0: tuple<tensor<64x128xf32, #ttnn_layout>, tensor<64x128xf32, #ttnn_layout>>) -> tuple<tensor<64x128xf32, #ttnn_layout>> {
     %0 = ttcore.get_tuple_element %arg0[0] : (tuple<tensor<64x128xf32, #ttnn_layout>, tensor<64x128xf32, #ttnn_layout>>) -> tensor<64x128xf32, #ttnn_layout>
     %1 = ttcore.get_tuple_element %arg0[1] : (tuple<tensor<64x128xf32, #ttnn_layout>, tensor<64x128xf32, #ttnn_layout>>) -> tensor<64x128xf32, #ttnn_layout>
-    %2 = "ttnn.add"(%0, %1) : (tensor<64x128xf32, #ttnn_layout>, tensor<64x128xf32, #ttnn_layout>) -> tensor<64x128xf32, #ttnn_layout>
+    %2 = "ttnn.add"(%0, %1) <{output_dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<64x128xf32, #ttnn_layout>, tensor<64x128xf32, #ttnn_layout>) -> tensor<64x128xf32, #ttnn_layout>
     "ttnn.deallocate"(%1) <{force = false}> : (tensor<64x128xf32, #ttnn_layout>) -> ()
     "ttnn.deallocate"(%0) <{force = false}> : (tensor<64x128xf32, #ttnn_layout>) -> ()
     %3 = ttcore.tuple %2 : tuple<tensor<64x128xf32, #ttnn_layout>>

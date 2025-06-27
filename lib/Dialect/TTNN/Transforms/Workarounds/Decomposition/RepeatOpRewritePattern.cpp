@@ -34,13 +34,9 @@ TTNNRepeatFoldingWorkaround::matchAndRewrite(ttnn::RepeatOp op,
       ttmlir::utils::appendLocationSuffix(op->getLoc(), "_zeros"), resultType,
       shapeAttr, dTypeAttr, layout, device, ttnn::MemoryConfigAttr());
 
-  SmallVector<Value> addInputs;
-  addInputs.push_back(op.getOperand());
-  addInputs.push_back(zerosOp.getResult());
-
   // Replace the RepeatOp with an AddOp to perform implicit repeat.
-  rewriter.replaceOpWithNewOp<ttnn::AddOp>(op, op.getResult().getType(),
-                                           addInputs);
+  rewriter.replaceOpWithNewOp<ttnn::AddOp>(
+      op, op.getResult().getType(), op.getOperand(), zerosOp.getResult());
 
   return success();
 }

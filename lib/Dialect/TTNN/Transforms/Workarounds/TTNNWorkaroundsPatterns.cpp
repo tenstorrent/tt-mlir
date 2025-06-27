@@ -195,6 +195,13 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
       op->setAttr("dtype", updatedDataTypeAttr);
     }
 
+    if (outputWorkaroundResults.tensorDataTypeResult.isModified() &&
+        op->getAttrDictionary().get("output_dtype")) {
+      DataTypeAttr updatedDataTypeAttr = rewriter.getAttr<DataTypeAttr>(
+          outputWorkaroundResults.tensorDataTypeResult.targetValue);
+      op->setAttr("output_dtype", updatedDataTypeAttr);
+    }
+
     if ((outputWorkaroundResults.tensorBufferTypeResult.isModified() ||
          outputWorkaroundResults.tensorMemoryLayoutResult.isModified()) &&
         op->getAttrDictionary().get("memory_config")) {
