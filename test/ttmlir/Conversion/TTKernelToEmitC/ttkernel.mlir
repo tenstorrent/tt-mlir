@@ -379,7 +379,7 @@ module {
       // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
       %dst0_index = arith.constant 1 : i32
       // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
-      %dst1_index = arith.constant 1 : i32
+      %dst1_index = arith.constant 2 : i32
       // CHECK: emitc.call_opaque "max_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]])
       "ttkernel.max_tile"(%dst0_index, %dst1_index) : (i32, i32) -> ()
       return
@@ -397,7 +397,7 @@ module {
       // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
       %dst0_index = arith.constant 1 : i32
       // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
-      %dst1_index = arith.constant 1 : i32
+      %dst1_index = arith.constant 2 : i32
       // CHECK: emitc.call_opaque "div_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]])
       "ttkernel.div_binary_tile"(%dst0_index, %dst1_index) : (i32, i32) -> ()
       return
@@ -416,6 +416,24 @@ module {
       %dst_index = arith.constant 3 : i32
       // CHECK: emitc.call_opaque "recip_tile"(%[[DST_INDEX]])
       "ttkernel.recip_tile"(%dst_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @power_binary_tile_init
+    func.func @power_binary_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "power_binary_tile_init"()
+      "ttkernel.power_binary_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @power_binary_tile
+    func.func @power_binary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
+      %dst1_index = arith.constant 2 : i32
+      // CHECK: emitc.call_opaque "power_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]])
+      "ttkernel.power_binary_tile"(%dst0_index, %dst1_index) : (i32, i32) -> ()
       return
     }
 
