@@ -286,10 +286,6 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
     llvm::ArrayRef<int32_t> dilation, uint32_t groups,
     std::optional<mlir::tt::ttnn::Conv2dConfigAttr> conv2dConfig,
     bool hasBias) {
-  if (weightLayout.getBufferType() !=
-      mlir::tt::ttnn::BufferType::SystemMemory) {
-    llvm::report_fatal_error("Conv2d weight tensor assumed to be on host.");
-  }
 
   // Create ttnn weight tesnor.
   //

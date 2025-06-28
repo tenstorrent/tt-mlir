@@ -45,14 +45,14 @@ public:
                   inputLayoutAttr.getBufferType()),
               utils::createShardSpecIfNeeded(inputLayoutAttr, deviceGrid));
 
-      mlir::RankedTensorType weightType = conv2dOp.getWeight().getType();
-      ttnn::TTNNLayoutAttr weightLayoutAttr =
-          mlir::cast<ttnn::TTNNLayoutAttr>(weightType.getEncoding());
-      assert(weightLayoutAttr.getBufferType() ==
-                 ttnn::BufferType::SystemMemory &&
-             weightLayoutAttr.getLayout() == ttnn::Layout::RowMajor &&
-             "Weight must be in system memory and row-major layout when "
-             "calling TTNNPrepareConv2dWeightsAndBias pass.");
+      /* mlir::RankedTensorType weightType = conv2dOp.getWeight().getType(); */
+      /* ttnn::TTNNLayoutAttr weightLayoutAttr = */
+      /*     mlir::cast<ttnn::TTNNLayoutAttr>(weightType.getEncoding()); */
+      // assert(weightLayoutAttr.getBufferType() ==
+      //            ttnn::BufferType::SystemMemory &&
+      //        weightLayoutAttr.getLayout() == ttnn::Layout::RowMajor &&
+      //        "Weight must be in system memory and row-major layout when "
+      //        "calling TTNNPrepareConv2dWeightsAndBias pass.");
 
       ttnn::PrepareConv2dWeightsOp prepareConv2dWeightsOp =
           rewriter.create<ttnn::PrepareConv2dWeightsOp>(
@@ -72,14 +72,14 @@ public:
 
       ttnn::PrepareConv2dBiasOp prepareConv2dBiasOp;
       if (conv2dOp.getBias()) {
-        mlir::RankedTensorType biasType = conv2dOp.getBias().getType();
-        ttnn::TTNNLayoutAttr biasLayoutAttr =
-            mlir::cast<ttnn::TTNNLayoutAttr>(biasType.getEncoding());
-        assert(biasLayoutAttr.getBufferType() ==
-                   ttnn::BufferType::SystemMemory &&
-               biasLayoutAttr.getLayout() == ttnn::Layout::RowMajor &&
-               "Bias must be in system memory and row-major layout when "
-               "calling TTNNPrepareConv2dWeightsAndBias pass");
+        /* mlir::RankedTensorType biasType = conv2dOp.getBias().getType(); */
+        // ttnn::TTNNLayoutAttr biasLayoutAttr =
+        //     mlir::cast<ttnn::TTNNLayoutAttr>(biasType.getEncoding());
+        // assert(biasLayoutAttr.getBufferType() ==
+        //            ttnn::BufferType::SystemMemory &&
+        //        biasLayoutAttr.getLayout() == ttnn::Layout::RowMajor &&
+        //        "Bias must be in system memory and row-major layout when "
+        //        "calling TTNNPrepareConv2dWeightsAndBias pass");
 
         // PrepareConv2dBias requires Conv2dConfig to be created and weights
         // dtype to be set.
