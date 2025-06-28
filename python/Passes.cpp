@@ -52,7 +52,7 @@ void populatePassesModule(nb::module_ &m) {
                                      passWithOptions);
           }
         } else {
-          pm.addPass(mlir::tt::createTTPopulateArgumentTypes());
+          pm.addPass(mlir::tt::ttcore::createTTPopulateArgumentTypes());
         }
 
         if (mlir::failed(pm.run(moduleOp))) {

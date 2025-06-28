@@ -24,7 +24,7 @@ namespace mlir::tt::ttnn {
 // heuristic to reduce the search space.
 static bool tensorShapeCompatibleWithShard(RankedTensorType tensorType,
                                            TTNNLayoutAttr layout,
-                                           GridAttr maxGrid) {
+                                           ttcore::GridAttr maxGrid) {
 
   if (!layout.hasShardedTensorMemoryLayout()) {
     return true;
@@ -69,10 +69,12 @@ static bool tensorShapeCompatibleWithShard(RankedTensorType tensorType,
 // Function generates all possible TTNNLayout attributes for the given tensor
 // type. maxNumGeneratedLayouts limits the number of generated layouts. If
 // maxNumGeneratedLayouts is -1, all possible layouts are returned.
-static std::vector<TTNNLayoutAttr> generateAllPossibleLayouts(
-    mlir::MLIRContext *ctx, RankedTensorType tensorType, GridAttr maxGrid,
-    Type scalarElementType, bool onlyShardedLayouts = false,
-    int64_t maxNumGeneratedLayouts = -1, bool rowMajorAllowed = true) {
+static std::vector<TTNNLayoutAttr>
+generateAllPossibleLayouts(mlir::MLIRContext *ctx, RankedTensorType tensorType,
+                           ttcore::GridAttr maxGrid, Type scalarElementType,
+                           bool onlyShardedLayouts = false,
+                           int64_t maxNumGeneratedLayouts = -1,
+                           bool rowMajorAllowed = true) {
 
   std::vector<TTNNLayoutAttr> allPossibleLayouts;
 
@@ -82,7 +84,7 @@ static std::vector<TTNNLayoutAttr> generateAllPossibleLayouts(
       mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
 
   auto tensorShape = tensorType.getShape();
-  Type tileElementType = TileType::get(scalarElementType);
+  Type tileElementType = ttcore::TileType::get(scalarElementType);
 
   std::vector<TTNNLayoutAttr> shardedResults;
 
@@ -99,7 +101,7 @@ static std::vector<TTNNLayoutAttr> generateAllPossibleLayouts(
 
       // L1 Interleaved - It must be tiled.
       // TODO(odjuricic): Check that this is always the case.
-      if (mlir::isa<TileType>(elementType)) {
+      if (mlir::isa<ttcore::TileType>(elementType)) {
         allPossibleLayouts.push_back(TTNNLayoutAttr::get(
             ctx, tensorShape, elementType, BufferType::L1, maxGrid,
             TensorMemoryLayoutAttr::get(ctx, TensorMemoryLayout::Interleaved)));
@@ -136,8 +138,8 @@ static std::vector<TTNNLayoutAttr> generateAllPossibleLayouts(
       for (int width = 1; width <= maxGrid.getShape()[1]; ++width) {
         shardedResults.push_back(
             shardedBase
-                .withGrid(tensorType,
-                          GridAttr::get(ctx, {height, width}, affineMapBs))
+                .withGrid(tensorType, ttcore::GridAttr::get(
+                                          ctx, {height, width}, affineMapBs))
                 .withMemoryLayout(TensorMemoryLayout::BlockSharded));
         if (checkIfShardShapeExists(
                 shardedResults.back().getMemref().getShape())) {
@@ -158,7 +160,7 @@ static std::vector<TTNNLayoutAttr> generateAllPossibleLayouts(
       shardedResults.push_back(
           shardedBase
               .withGrid(tensorType,
-                        GridAttr::get(ctx, {height, 1}, affineMapHs))
+                        ttcore::GridAttr::get(ctx, {height, 1}, affineMapHs))
               .withMemoryLayout(TensorMemoryLayout::HeightSharded));
 
       if (checkIfShardShapeExists(
@@ -176,7 +178,8 @@ static std::vector<TTNNLayoutAttr> generateAllPossibleLayouts(
     for (int width = 1; width <= numCores; ++width) {
       shardedResults.push_back(
           shardedBase
-              .withGrid(tensorType, GridAttr::get(ctx, {1, width}, affineMapWs))
+              .withGrid(tensorType,
+                        ttcore::GridAttr::get(ctx, {1, width}, affineMapWs))
               .withMemoryLayout(TensorMemoryLayout::WidthSharded));
       if (checkIfShardShapeExists(
               shardedResults.back().getMemref().getShape())) {

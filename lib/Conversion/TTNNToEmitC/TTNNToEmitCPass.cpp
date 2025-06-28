@@ -98,7 +98,7 @@ struct ConvertTTNNToEmitCPass
     // Unwrap device_module into top-level ModuleOp (if present)
     {
       OpPassManager pm(ModuleOp::getOperationName());
-      pm.addPass(mlir::tt::createTTCoreUnwrapDeviceModulePass());
+      pm.addPass(mlir::tt::ttcore::createTTCoreUnwrapDeviceModulePass());
 
       if (failed(runPipeline(pm, module))) {
         signalPassFailure();

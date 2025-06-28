@@ -522,13 +522,14 @@ struct EmitCTypeConverter<::ttnn::types::ShardMode> {
 template <>
 struct EmitCTypeConverter<::ttnn::DataType> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
-    if (auto dataTypeAttr = mlir::dyn_cast_if_present<tt::DataTypeAttr>(attr)) {
+    if (auto dataTypeAttr =
+            mlir::dyn_cast_if_present<ttcore::DataTypeAttr>(attr)) {
       return convert(dataTypeAttr);
     }
     return {};
   }
 
-  static std::string convert(tt::DataTypeAttr attr) {
+  static std::string convert(ttcore::DataTypeAttr attr) {
     if (!attr) {
       return TypeNameV<std::nullopt_t>;
     }
@@ -536,41 +537,41 @@ struct EmitCTypeConverter<::ttnn::DataType> {
     return convert(attr.getValue());
   }
 
-  static std::string convert(tt::DataType attr) {
+  static std::string convert(ttcore::DataType attr) {
     std::string buf;
     llvm::raw_string_ostream rso(buf);
 
     rso << TypeNameV<::ttnn::DataType> << "::";
     switch (attr) {
-    case tt::DataType::BFloat16:
+    case ttcore::DataType::BFloat16:
       rso << "BFLOAT16";
       break;
-    case tt::DataType::Float32:
+    case ttcore::DataType::Float32:
       rso << "FLOAT32";
       break;
-    case tt::DataType::UInt32:
+    case ttcore::DataType::UInt32:
       rso << "UINT32";
       break;
-    case tt::DataType::BFP_BFloat8:
+    case ttcore::DataType::BFP_BFloat8:
       rso << "BFLOAT8_B";
       break;
-    case tt::DataType::BFP_BFloat4:
+    case ttcore::DataType::BFP_BFloat4:
       rso << "BFLOAT4_B";
       break;
-    case tt::DataType::UInt8:
+    case ttcore::DataType::UInt8:
       rso << "UINT8";
       break;
-    case tt::DataType::UInt16:
+    case ttcore::DataType::UInt16:
       rso << "UINT16";
       break;
-    case tt::DataType::Int32:
+    case ttcore::DataType::Int32:
       rso << "INT32";
       break;
-    case tt::DataType::Float16:
-    case tt::DataType::BFP_Float2:
-    case tt::DataType::BFP_Float4:
-    case tt::DataType::BFP_Float8:
-    case tt::DataType::BFP_BFloat2:
+    case ttcore::DataType::Float16:
+    case ttcore::DataType::BFP_Float2:
+    case ttcore::DataType::BFP_Float4:
+    case ttcore::DataType::BFP_Float8:
+    case ttcore::DataType::BFP_BFloat2:
       llvm_unreachable("Unsupported ttnn::DataType");
     }
 
@@ -1138,13 +1139,13 @@ inline std::string convert(ttnn::ShapeAttr attr) {
   return buf;
 }
 
-inline std::string convert(tt::DataType attr) {
+inline std::string convert(ttcore::DataType attr) {
   // TODO (azecevic): Will be deprecated!
   // https://github.com/tenstorrent/tt-mlir/issues/3635
   return EmitCTypeConverter<::ttnn::DataType>::convert(attr);
 }
 
-inline std::string convert(tt::DataTypeAttr attr) {
+inline std::string convert(ttcore::DataTypeAttr attr) {
   if (!attr) {
     return TypeNameV<std::nullopt_t>;
   }
@@ -1250,11 +1251,11 @@ public:
     return rewriter.getAttr<emitc::OpaqueAttr>(convert(attr));
   }
 
-  mlir::Attribute emit(tt::DataType attr) {
+  mlir::Attribute emit(ttcore::DataType attr) {
     return rewriter.getAttr<emitc::OpaqueAttr>(convert(attr));
   }
 
-  mlir::Attribute emit(tt::DataTypeAttr attr) {
+  mlir::Attribute emit(ttcore::DataTypeAttr attr) {
     return rewriter.getAttr<emitc::OpaqueAttr>(
         tt::ttnn_to_emitc::convert(attr));
   }
@@ -1491,7 +1492,7 @@ public:
         layoutAttr.getContext(), layoutAttr.getBufferType());
     ttnn::TensorMemoryLayoutAttr tensorMemoryLayout = layoutAttr.getMemLayout();
 
-    DeviceAttr deviceAttr = lookupDevice(op);
+    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
 
     ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
         layoutAttr.getContext(), tensorMemoryLayout, bufferTypeAttr,
@@ -1513,8 +1514,8 @@ public:
     auto weightLayoutAttr =
         mlir::cast<ttnn::TTNNLayoutAttr>(weightType.getEncoding());
 
-    DataType inputDataType = inputLayoutAttr.getDataType();
-    DataType weightDataType = weightLayoutAttr.getDataType();
+    ttcore::DataType inputDataType = inputLayoutAttr.getDataType();
+    ttcore::DataType weightDataType = weightLayoutAttr.getDataType();
 
     std::string buf;
     llvm::raw_string_ostream rso(buf);

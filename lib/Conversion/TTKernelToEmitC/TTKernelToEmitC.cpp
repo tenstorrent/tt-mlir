@@ -114,48 +114,49 @@ emitc::OpaqueAttr convertCBPort(Builder &builder, ttkernel::CBPort port) {
   return nullptr;
 }
 
-emitc::OpaqueAttr datatypeToDataformatEnumValue(Builder &builder,
-                                                ::mlir::tt::DataType dtype) {
+emitc::OpaqueAttr
+datatypeToDataformatEnumValue(Builder &builder,
+                              ::mlir::tt::ttcore::DataType dtype) {
   std::string expression =
       "static_cast<std::underlying_type_t<DataFormat>>(DataFormat::";
   switch (dtype) {
-  case ::mlir::tt::DataType::Float32:
+  case ::mlir::tt::ttcore::DataType::Float32:
     expression += "Float32";
     break;
-  case ::mlir::tt::DataType::Float16:
+  case ::mlir::tt::ttcore::DataType::Float16:
     expression += "Float16";
     break;
-  case ::mlir::tt::DataType::BFloat16:
+  case ::mlir::tt::ttcore::DataType::BFloat16:
     expression += "Float16_b";
     break;
-  case ::mlir::tt::DataType::BFP_Float8:
+  case ::mlir::tt::ttcore::DataType::BFP_Float8:
     expression += "Bfp8";
     break;
-  case ::mlir::tt::DataType::BFP_BFloat8:
+  case ::mlir::tt::ttcore::DataType::BFP_BFloat8:
     expression += "Bfp8_b";
     break;
-  case ::mlir::tt::DataType::BFP_Float4:
+  case ::mlir::tt::ttcore::DataType::BFP_Float4:
     expression += "Bfp4";
     break;
-  case ::mlir::tt::DataType::BFP_BFloat4:
+  case ::mlir::tt::ttcore::DataType::BFP_BFloat4:
     expression += "Bfp4_b";
     break;
-  case ::mlir::tt::DataType::BFP_Float2:
+  case ::mlir::tt::ttcore::DataType::BFP_Float2:
     expression += "Bfp2";
     break;
-  case ::mlir::tt::DataType::BFP_BFloat2:
+  case ::mlir::tt::ttcore::DataType::BFP_BFloat2:
     expression += "Bfp2_b";
     break;
-  case ::mlir::tt::DataType::UInt32:
+  case ::mlir::tt::ttcore::DataType::UInt32:
     expression += "UInt32";
     break;
-  case ::mlir::tt::DataType::UInt16:
+  case ::mlir::tt::ttcore::DataType::UInt16:
     expression += "UInt16";
     break;
-  case ::mlir::tt::DataType::UInt8:
+  case ::mlir::tt::ttcore::DataType::UInt8:
     expression += "UInt8";
     break;
-  case ::mlir::tt::DataType::Int32:
+  case ::mlir::tt::ttcore::DataType::Int32:
     expression += "Int32";
     break;
   }

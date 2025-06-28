@@ -14,7 +14,7 @@ include "mlir/IR/BuiltinAttributeInterfaces.td"
 
 def TTCore_DeviceLayoutInterface : AttrInterface<"DeviceLayoutInterface"> {
   let summary = "TT DeviceLayoutInterface";
-  let cppNamespace = "::mlir::tt";
+  let cppNamespace = "::mlir::tt::ttcore";
   let description = [{
     This interface implies supporting a shaped type that conforms to Tenstorrent device layout.
     Tenstorrent devices are divided into a grid of cores, onto which we map tensors that have been

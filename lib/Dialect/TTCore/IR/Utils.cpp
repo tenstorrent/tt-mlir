@@ -9,7 +9,7 @@
 
 #include "mlir/IR/BuiltinOps.h"
 
-namespace mlir::tt {
+namespace mlir::tt::ttcore {
 
 SystemDescAttr getCurrentScopeSystemDesc(mlir::Operation *op) {
   // Find the top level ModuleOp which carries the system desc.
@@ -24,7 +24,7 @@ SystemDescAttr getCurrentScopeSystemDesc(mlir::Operation *op) {
 }
 
 DeviceOp lookupDeviceOp(Operation *op, SymbolRefAttr deviceName) {
-  return SymbolTable::lookupNearestSymbolFrom<tt::DeviceOp>(op, deviceName);
+  return SymbolTable::lookupNearestSymbolFrom<DeviceOp>(op, deviceName);
 }
 
 DeviceOp lookupDeviceOp(Operation *op, llvm::StringRef deviceName) {
@@ -132,4 +132,4 @@ ArrayRef<int64_t> getTensorTileShapeOrEmpty(RankedTensorType tensorType) {
                              : ArrayRef<int64_t>{};
 }
 
-} // namespace mlir::tt
+} // namespace mlir::tt::ttcore

@@ -13,13 +13,48 @@
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/TypeSwitch.h"
 
+using namespace mlir;
+using namespace mlir::tt::ttir;
+
+namespace mlir::tt::ttir {
+static void printDimensionList(::mlir::AsmPrinter &printer,
+                               ::llvm::ArrayRef<int64_t> shape) {
+  printer.printDimensionList(shape);
+}
+
+static ::mlir::ParseResult
+parseDimensionList(::mlir::AsmParser &odsParser,
+                   ::llvm::SmallVector<int64_t> &dimensions) {
+  return odsParser.parseDimensionList(dimensions, false, false);
+}
+
+template <typename... Args>
+static void printVargDimensionList(mlir::AsmPrinter &printer, Args &&...dims) {
+  printDimensionList(printer,
+                     llvm::SmallVector<int64_t>({std::forward<Args>(dims)...}));
+}
+
+template <typename... Args>
+static mlir::ParseResult parseVargDimensionList(mlir::AsmParser &odsParser,
+                                                Args &...dims) {
+  llvm::SmallVector<int64_t> dimensions;
+  mlir::ParseResult result = parseDimensionList(odsParser, dimensions);
+  if (succeeded(result)) {
+    llvm::SmallVector<std::tuple_element_t<0, std::tuple<Args...>> *> copy(
+        {&dims...});
+    assert(dimensions.size() == sizeof...(dims));
+    for (size_t i = 0; i < dimensions.size(); ++i) {
+      *copy[i] = dimensions[i];
+    }
+  }
+  return result;
+}
+} // namespace mlir::tt::ttir
+
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsEnums.cpp.inc"
 
 #define GET_ATTRDEF_CLASSES
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.cpp.inc"
-
-using namespace mlir;
-using namespace mlir::tt::ttir;
 
 // This DialectInlinerInterface is nearly identical to the one found in
 // mlir/lib/Dialect/Func/Extensions/InlinerExtension.cpp. We need
