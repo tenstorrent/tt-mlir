@@ -41,6 +41,9 @@ void createTTNNPipelineTTIRPasses(
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing());
   }
+  if (options.enableQuantDequantConversion) {
+    pm.addPass(mlir::tt::ttir::createTTIRQuantDequantConversion());
+  }
   pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
   // Fuse after TTIR -> TTIR decomposition to enable fusing of ops that are
   // decomposed.
