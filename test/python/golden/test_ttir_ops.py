@@ -1120,17 +1120,31 @@ def test_reduce_and(shape: Shape, dim_args: List[int], request):
     )
 
 
-@pytest.mark.skip("Run error")
+def reduce_or(
+    in0: Operand,
+    builder: TTIRBuilder,
+    dim_args: List[int],
+    keep_dim: bool = False,
+    unit_attrs: Optional[List[str]] = None,
+):
+    return builder.reduce_or(
+        in0, dim_args=dim_args, keep_dim=keep_dim, unit_attrs=unit_attrs
+    )
+
+
+@pytest.mark.skip(
+    "Generated flatbuffer will currently fail to run due to only floats being supported by the runtime. See issue #1775"
+)
 @pytest.mark.parametrize("shape", [(4, 4)])
 @pytest.mark.parametrize("dim_args", [[0, 1]])
 def test_reduce_or(shape: Shape, dim_args: List[int], request):
-    def reduce_or(
+    def reduce_or_wrapper(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
-        return builder.reduce_or(in0, dim_args=dim_args, unit_attrs=unit_attrs)
+        return reduce_or(in0, builder, dim_args=dim_args, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
-        reduce_or,
+        reduce_or_wrapper,
         [shape],
         [torch.int32],
         test_base=request.node.name,
@@ -1533,12 +1547,20 @@ hoisted_unary_ops = [
     create_hoisted_unary_op(reciprocal, "reciprocal"),
     create_hoisted_unary_op(neg, "neg"),
     pytest.param(
-        create_hoisted_unary_op(reshape, "reshape"),
-        marks=pytest.mark.xfail(reason="Reshape does not lower to loops properly"),
+        create_hoisted_unary_op(softmax, "softmax"),
+        marks=pytest.mark.xfail(
+            reason="Softmax does not lower to loops properly https://github.com/tenstorrent/tt-mlir/issues/3232"
+        ),
     ),
     pytest.param(
         create_hoisted_unary_op(reshape, "reshape"),
         marks=pytest.mark.xfail(reason="Reshape not compiling properly"),
+    ),
+    pytest.param(
+        create_hoisted_unary_op(max, "max"),
+        marks=pytest.mark.skip(
+            reason="max and torch max do not align, https://github.com/tenstorrent/tt-mlir/issues/3850"
+        ),
     ),
     create_hoisted_unary_op(transpose, "transpose"),
 ]
@@ -1776,6 +1798,193 @@ def test_unique_ops(
         inputs_shapes=inputs_shapes,
         inputs_types=inputs_dtypes,
         test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+def gather(
+    in0: Operand,
+    builder: TTIRBuilder,
+    indices_shape: Shape,
+    start_index_map: List[int],
+    offset_dims: List[int],
+    slice_sizes: List[int],
+    unit_attrs: Optional[List[str]] = None,
+):
+    # For now, just create zero indices - this tests the basic gather functionality
+    # In a real test, you'd want to create varied indices to test different gather patterns
+    indices = builder.zeros(indices_shape)
+
+    # Set collapsed_slice_dims to be the same as start_index_map
+    # This is what the GatherToEmbeddingConversionPattern expects
+    collapsed_slice_dims = start_index_map
+
+    # Set remaining parameters to empty lists for simplicity
+    operand_batching_dims = []
+    start_indices_batching_dims = []
+
+    # Set index_vector_dim correctly based on the use case
+    if len(indices_shape) == 1 and len(start_index_map) == 1:
+        # Single indices case - index vector dim is implicit
+        index_vector_dim = len(indices_shape)  # = 1
+    else:
+        # Multi-dimensional indices - last dimension contains index vectors
+        index_vector_dim = len(indices_shape) - 1
+
+    return builder.gather(
+        in0,
+        indices,
+        offset_dims=offset_dims,
+        collapsed_slice_dims=collapsed_slice_dims,
+        operand_batching_dims=operand_batching_dims,
+        start_indices_batching_dims=start_indices_batching_dims,
+        start_index_map=start_index_map,
+        index_vector_dim=index_vector_dim,
+        slice_sizes=slice_sizes,
+        unit_attrs=unit_attrs,
+    )
+
+
+@pytest.mark.parametrize(
+    "input_shape,indices_shape,start_index_map,offset_dims,slice_sizes",
+    [
+        ((100, 50), (10,), [0], [1], [1, 50]),  # Simple 1D indices
+        pytest.param(
+            (8, 16, 32),
+            (4, 2, 2),
+            [0, 2],
+            [1],
+            [1, 16, 1],  # Complex indices
+            marks=pytest.mark.skip(
+                reason="Multi-dimensional gather has known issues, but the builder golden may also be incorrect: https://github.com/tenstorrent/tt-mlir/issues/3884"
+            ),
+        ),
+    ],
+    ids=["simple_1d", "complex_indices"],
+)
+def test_gather(
+    input_shape: Shape,
+    indices_shape: Shape,
+    start_index_map: List[int],
+    offset_dims: List[int],
+    slice_sizes: List[int],
+    request,
+):
+    def gather_wrapper(in0: Operand, builder: TTIRBuilder):
+        return gather(
+            in0, builder, indices_shape, start_index_map, offset_dims, slice_sizes
+        )
+
+    compile_to_flatbuffer(
+        gather_wrapper,
+        [input_shape],
+        test_base=request.node.name,
+        target="ttnn",
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "input_shape,indices_shape,start_index_map,offset_dims,slice_sizes",
+    [
+        ((100, 50), (10,), [0], [1], [1, 50]),  # Simple 1D indices
+        (
+            (8, 16, 32),
+            (4, 2, 2),
+            [0, 2],
+            [1],
+            [1, 16, 1],
+        ),  # Complex indices)
+    ],
+    ids=["simple_1d", "complex_indices"],
+)
+# note: doesn't work on ttmetal because test generated (nonhoisted) ttir.zeros, which we need to support on device
+@pytest.mark.skip(
+    "Fails at runtime on simple_1d case, ticket: https://github.com/tenstorrent/tt-mlir/issues/3849"
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_hoisted_gather(
+    input_shape: Shape,
+    indices_shape: Shape,
+    start_index_map: List[int],
+    offset_dims: List[int],
+    slice_sizes: List[int],
+    target: str,
+    request,
+):
+    def gather_wrapper(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        return gather(
+            in0,
+            builder,
+            indices_shape,
+            start_index_map,
+            offset_dims,
+            slice_sizes,
+            unit_attrs=["should_hoist"],
+        )
+
+    compile_to_flatbuffer(
+        gather_wrapper,
+        [input_shape],
+        test_base=request.node.name,
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes,batch_dims_lhs,contract_dims_lhs,batch_dims_rhs,contract_dims_rhs",
+    [
+        # Standard matrix multiplication: [M, K] x [K, N] -> [M, N]
+        ([(10, 20), (20, 30), (10, 30)], [], [1], [], [0]),
+        # Batched matrix multiplication: [B, M, K] x [B, K, N] -> [B, M, N]
+        ([(5, 10, 20), (5, 20, 30), (5, 10, 30)], [0], [2], [0], [1]),
+        # 3D tensor @ 2D tensor: [B, M, K] x [K, N] -> [B, M, N]
+        ([(5, 10, 20), (20, 30), (5, 10, 30)], [], [2], [], [0]),
+    ],
+    ids=["standard_matmul", "batched_matmul", "3d_tensor_2d_tensor"],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.skip(
+    "Need to rework this, https://github.com/tenstorrent/tt-mlir/issues/3851"
+)
+def test_hoisted_dot_general(
+    shapes: List[Shape],
+    batch_dims_lhs: List[int],
+    contract_dims_lhs: List[int],
+    batch_dims_rhs: List[int],
+    contract_dims_rhs: List[int],
+    target: str,
+    request,
+):
+    def dot_general_wrapper(
+        in0: Operand,
+        in1: Operand,
+        out0: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return builder.dot_general(
+            in0,
+            in1,
+            out0,
+            batch_dims_lhs,
+            contract_dims_lhs,
+            batch_dims_rhs,
+            contract_dims_rhs,
+            unit_attrs=["should_hoist"],
+        )
+
+    compile_to_flatbuffer(
+        dot_general_wrapper,
+        shapes,
+        test_base=request.node.name,
+        target=target,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
