@@ -23,7 +23,8 @@ void registerLLVMToDynamicLibrary() {
         return translateLLVMToDyLib(op, os);
       },
       [](DialectRegistry &registry) {
-        registry.insert<mlir::tt::TTCoreDialect, mlir::LLVM::LLVMDialect>();
+        registry
+            .insert<mlir::tt::ttcore::TTCoreDialect, mlir::LLVM::LLVMDialect>();
         registerAllToLLVMIRTranslations(registry);
       });
 }

@@ -82,7 +82,7 @@ bool Conv2dConfigOverrideParser::parse(
       auto [paramName, paramValue] = param.split(paramNameValueSeparator);
 
       if (paramName == "dtype") {
-        auto dtype = mlir::tt::DataTypeStringToEnum(paramValue);
+        auto dtype = mlir::tt::ttcore::DataTypeStringToEnum(paramValue);
         if (!dtype) {
           opt.error("Invalid dtype: " + paramValue);
           return true;
@@ -93,7 +93,7 @@ bool Conv2dConfigOverrideParser::parse(
         }
         params.dtype = dtype;
       } else if (paramName == "weights_dtype") {
-        auto weightsDtype = mlir::tt::DataTypeStringToEnum(paramValue);
+        auto weightsDtype = mlir::tt::ttcore::DataTypeStringToEnum(paramValue);
         if (!weightsDtype) {
           opt.error("Invalid weights_dtype: " + paramValue);
           return true;
@@ -450,7 +450,8 @@ bool OutputLayoutOverrideParser::parse(
           return true;
         }
         params.memoryLayout = memoryLayout;
-      } else if (auto dataType = mlir::tt::DataTypeStringToEnum(param)) {
+      } else if (auto dataType =
+                     mlir::tt::ttcore::DataTypeStringToEnum(param)) {
         if (params.dataType.has_value()) {
           opt.error("Multiple data type parameters provided: " + param);
           return true;
@@ -502,8 +503,8 @@ std::string OutputLayoutOverrideParser::toString(
           mlir::tt::ttnn::stringifyLayout(params.memoryLayout.value())));
     }
     if (params.dataType.has_value()) {
-      parts.push_back(
-          std::string(mlir::tt::DataTypeEnumToString(params.dataType.value())));
+      parts.push_back(std::string(
+          mlir::tt::ttcore::DataTypeEnumToString(params.dataType.value())));
     }
 
     // Join parts with ":"

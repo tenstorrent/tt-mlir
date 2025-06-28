@@ -10,7 +10,7 @@ namespace mlir::tt::ttir {
 
 static std::optional<SmallVector<int64_t>>
 matchAndCalculateMatmulInterchange(ArrayRef<AffineMap> maps,
-                                   ArrayRef<IteratorType> iters,
+                                   ArrayRef<ttcore::IteratorType> iters,
                                    ArrayRef<int64_t> desiredInterchange) {
   if (desiredInterchange.empty()) {
     return std::nullopt;
@@ -20,13 +20,14 @@ matchAndCalculateMatmulInterchange(ArrayRef<AffineMap> maps,
     return std::nullopt;
   }
 
-  if (iters.back() != IteratorType::Reduction) {
+  if (iters.back() != ttcore::IteratorType::Reduction) {
     return std::nullopt;
   }
 
-  if (!llvm::all_of(iters.take_front(iters.size() - 1), [](IteratorType t) {
-        return t == IteratorType::Parallel;
-      })) {
+  if (!llvm::all_of(iters.take_front(iters.size() - 1),
+                    [](ttcore::IteratorType t) {
+                      return t == ttcore::IteratorType::Parallel;
+                    })) {
     return std::nullopt;
   }
 

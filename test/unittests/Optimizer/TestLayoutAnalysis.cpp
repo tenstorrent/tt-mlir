@@ -42,7 +42,7 @@ protected:
   void SetUp() override {
     // Register necessary dialects
     context.loadDialect<mlir::func::FuncDialect>();
-    context.loadDialect<mlir::tt::TTCoreDialect>();
+    context.loadDialect<mlir::tt::ttcore::TTCoreDialect>();
     context.loadDialect<mlir::tt::ttnn::TTNNDialect>();
 
     // Create a simple module with a function
@@ -69,7 +69,7 @@ protected:
   // Helper method to create a tensor type with given dimensions
   mlir::RankedTensorType createTensorType(llvm::ArrayRef<int64_t> shape,
                                           mlir::Type elementType) {
-    auto gridAttr = mlir::tt::GridAttr::get(&context, getMaxGrid());
+    auto gridAttr = mlir::tt::ttcore::GridAttr::get(&context, getMaxGrid());
     TTNNLayoutAttr layoutAttr = TTNNLayoutAttr::get(
         &context, shape, elementType, BufferType::DRAM, gridAttr,
         TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
@@ -111,7 +111,8 @@ protected:
     builder.create<mlir::tt::ttnn::EmptyOp>(
         builder.getUnknownLoc(), tensorType,
         mlir::tt::ttnn::ShapeAttr::get(&context, getTensorShape()),
-        mlir::tt::DataTypeAttr::get(&context, mlir::tt::DataType::Float32),
+        mlir::tt::ttcore::DataTypeAttr::get(
+            &context, mlir::tt::ttcore::DataType::Float32),
         mlir::tt::ttnn::LayoutAttr::get(&context, Layout::Tile), device,
         memConfig);
 
@@ -132,7 +133,7 @@ TEST_P(AllPossibleLayoutsAnalysisTest, GenerateAndCategorizeLayouts) {
 
   // Create the analysis input
   auto scalarTypes = createScalarTypeSet();
-  auto gridAttr = mlir::tt::GridAttr::get(&context, getMaxGrid());
+  auto gridAttr = mlir::tt::ttcore::GridAttr::get(&context, getMaxGrid());
   AllPossibleLayoutsAnalysisInput input(gridAttr, &scalarTypes, true);
 
   // Run the analysis

@@ -26,8 +26,10 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
 // TileMatmulBlockOp verification
 ::mlir::LogicalResult mlir::tt::ttir::TileMatmulBlockOp::verify() {
 
-  if (!llvm::isa<mlir::tt::TileType>(getA().getType().getElementType()) ||
-      !llvm::isa<mlir::tt::TileType>(getB().getType().getElementType())) {
+  if (!llvm::isa<mlir::tt::ttcore::TileType>(
+          getA().getType().getElementType()) ||
+      !llvm::isa<mlir::tt::ttcore::TileType>(
+          getB().getType().getElementType())) {
     return emitOpError(
         "MemRef operands to TileMatmulBlock must have ttcore.tile "
         "element type");
@@ -39,13 +41,15 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
 // TileTilizeBlockOp verification
 ::mlir::LogicalResult mlir::tt::ttir::TileTilizeBlockOp::verify() {
 
-  if (llvm::isa<mlir::tt::TileType>(getInput().getType().getElementType())) {
+  if (llvm::isa<mlir::tt::ttcore::TileType>(
+          getInput().getType().getElementType())) {
     return emitOpError(
         "MemRef operand to TileTilizeBlock must not have ttcore.tile "
         "element type");
   }
 
-  if (!llvm::isa<mlir::tt::TileType>(getOutput().getType().getElementType())) {
+  if (!llvm::isa<mlir::tt::ttcore::TileType>(
+          getOutput().getType().getElementType())) {
     return emitOpError("MemRef result of TileTilizeBlock must have ttcore.tile "
                        "element type");
   }
@@ -56,13 +60,15 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
 // TileUntilizeBlockOp verification
 ::mlir::LogicalResult mlir::tt::ttir::TileUntilizeBlockOp::verify() {
 
-  if (!llvm::isa<mlir::tt::TileType>(getInput().getType().getElementType())) {
+  if (!llvm::isa<mlir::tt::ttcore::TileType>(
+          getInput().getType().getElementType())) {
     return emitOpError(
         "MemRef operand to TileUntilizeBlock must have ttcore.tile "
         "element type");
   }
 
-  if (llvm::isa<mlir::tt::TileType>(getOutput().getType().getElementType())) {
+  if (llvm::isa<mlir::tt::ttcore::TileType>(
+          getOutput().getType().getElementType())) {
     return emitOpError(
         "MemRef result of TileUntilizeBlock must not have ttcore.tile "
         "element type");
@@ -182,7 +188,7 @@ int64_t mlir::tt::ttir::DMAOp::getNumElems() {
 
 size_t mlir::tt::ttir::DMAOp::getSizeBytes() {
   auto elementSizeBytes =
-      getElementSizeBytes(getSrcMemRefType().getElementType());
+      ttcore::getElementSizeBytes(getSrcMemRefType().getElementType());
   return getNumElems() * elementSizeBytes;
 }
 

@@ -20,13 +20,13 @@ include "mlir/Interfaces/InferIntRangeInterface.td"
 // Generic Region Op Traits and Classes
 //===----------------------------------------------------------------------===//
 
-def IsDeviceL1MemorySpace : CPred<"::llvm::cast<::mlir::tt::MemorySpaceAttr>(::llvm::cast<::mlir::MemRefType>($_self).getMemorySpace()).getValue() == ::mlir::tt::MemorySpace::DeviceL1">;
+def IsDeviceL1MemorySpace : CPred<"::llvm::cast<::mlir::tt::ttcore::MemorySpaceAttr>(::llvm::cast<::mlir::MemRefType>($_self).getMemorySpace()).getValue() == ::mlir::tt::ttcore::MemorySpace::DeviceL1">;
 
-def IsDeviceDRAMMemorySpace : CPred<"::llvm::cast<::mlir::tt::MemorySpaceAttr>(::llvm::cast<::mlir::MemRefType>($_self).getMemorySpace()).getValue() == ::mlir::tt::MemorySpace::DeviceDRAM">;
+def IsDeviceDRAMMemorySpace : CPred<"::llvm::cast<::mlir::tt::ttcore::MemorySpaceAttr>(::llvm::cast<::mlir::MemRefType>($_self).getMemorySpace()).getValue() == ::mlir::tt::ttcore::MemorySpace::DeviceDRAM">;
 
 def IsDeviceMemorySpace : Or<[IsDeviceL1MemorySpace, IsDeviceDRAMMemorySpace]>;
 
-def IsRegisterDstMemorySpace : CPred<"::llvm::cast<::mlir::tt::MemorySpaceAttr>(::llvm::cast<::mlir::MemRefType>($_self).getMemorySpace()).getValue() == ::mlir::tt::MemorySpace::RegisterDst">;
+def IsRegisterDstMemorySpace : CPred<"::llvm::cast<::mlir::tt::ttcore::MemorySpaceAttr>(::llvm::cast<::mlir::MemRefType>($_self).getMemorySpace()).getValue() == ::mlir::tt::ttcore::MemorySpace::RegisterDst">;
 
 def DeviceL1MemRef : Type<
   And<[IsDeviceL1MemorySpace, HasRankGreaterOrEqualPred<1>]>,

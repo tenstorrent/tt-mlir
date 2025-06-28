@@ -38,7 +38,7 @@ static ParseResult parseTupleOpType(OpAsmParser &parser,
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.cpp.inc"
 
-namespace mlir::tt {
+namespace mlir::tt::ttcore {
 
 LogicalResult GetTupleElementOp::inferReturnTypes(
     MLIRContext *, std::optional<Location> location, ValueRange operands,
@@ -185,4 +185,4 @@ LogicalResult LoadCachedOp::verify() {
   return success();
 }
 
-} // namespace mlir::tt
+} // namespace mlir::tt::ttcore

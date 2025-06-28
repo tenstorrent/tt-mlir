@@ -10,15 +10,14 @@
 
 #include <string>
 
-namespace mlir::tt {
+namespace mlir::tt::ttcore {
 
-void registerDevice(ModuleOp module,
-                    tt::Arch mockSystemDescArch = tt::Arch::WormholeB0,
+void registerDevice(ModuleOp module, Arch mockSystemDescArch = Arch::WormholeB0,
                     ArrayRef<int64_t> meshShape = {});
 
 void registerDevice(ModuleOp module, const std::string &systemDescPath,
                     ArrayRef<int64_t> meshShape = {});
 
-} // namespace mlir::tt
+} // namespace mlir::tt::ttcore
 
 #endif // TTMLIR_DIALECT_TTCORE_TRANSFORMS_TRANSFORMS_H

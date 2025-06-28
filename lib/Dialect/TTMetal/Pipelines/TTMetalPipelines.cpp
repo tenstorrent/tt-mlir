@@ -52,13 +52,13 @@ void createOptimizationPasses(OpPassManager &pm) {
 
 void createTTIRToTTMetalFrontendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
-  tt::TTCoreRegisterDevicePassOptions registerDeviceOptions;
+  ttcore::TTCoreRegisterDevicePassOptions registerDeviceOptions;
   {
     registerDeviceOptions.systemDescPath = options.systemDescPath;
     registerDeviceOptions.mockSystemDescArch = options.mockSystemDescArch;
     registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
   }
-  pm.addPass(tt::createTTCoreRegisterDevicePass(registerDeviceOptions));
+  pm.addPass(ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
   pm.addPass(mlir::createCanonicalizerPass());
   ttir::TTIRToTTIRGenericOptions toTTIRGenericOptions;
@@ -119,13 +119,13 @@ void createTTIRToTTMetalBackendPipeline(
 void createTTIRToTTMetalPipeline(OpPassManager &pm,
                                  const TTIRToTTMetalPipelineOptions &options) {
   // Create DeviceModule to wrap all ops.
-  pm.addPass(tt::createTTCoreWrapDeviceModulePass());
+  pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
   // Create CPUModuleOp to wrap hoisted ops (if any).
   pm.addPass(ttir::createTTIRHoistTransform());
 
   // Run regular ttir to ttmetal pipelines on IR in DeviceModule.
   OpPassManager &devicePm =
-      pm.nest<tt::DeviceModuleOp>().nest<mlir::ModuleOp>();
+      pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
   createTTIRToTTMetalFrontendPipeline(devicePm, options);
   createTTIRToTTMetalMiddleendPipeline(devicePm, options);
   createTTIRToTTMetalBackendPipeline(devicePm, options);

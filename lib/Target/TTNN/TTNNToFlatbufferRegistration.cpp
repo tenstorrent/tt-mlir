@@ -27,7 +27,7 @@ void registerTTNNToFlatbuffer() {
       },
       [](DialectRegistry &registry) {
         // clang-format off
-        registry.insert<mlir::tt::TTCoreDialect,
+        registry.insert<mlir::tt::ttcore::TTCoreDialect,
                         mlir::tt::ttnn::TTNNDialect,
                         mlir::tt::ttkernel::TTKernelDialect,
                         mlir::func::FuncDialect,

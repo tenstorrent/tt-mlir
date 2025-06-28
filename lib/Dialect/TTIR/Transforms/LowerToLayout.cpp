@@ -27,10 +27,12 @@ public:
 
   static LogicalResult lowerSystemLayoutChange(PatternRewriter &rewriter,
                                                ToLayoutOp op) {
-    MetalLayoutAttr inputLayout = op.getOrCreateInputLayout();
-    MetalLayoutAttr outputLayout = op.getOrCreateOutputLayout();
-    bool inputSystem = inputLayout.getMemorySpace() == MemorySpace::System;
-    bool outputSystem = outputLayout.getMemorySpace() == MemorySpace::System;
+    ttcore::MetalLayoutAttr inputLayout = op.getOrCreateInputLayout();
+    ttcore::MetalLayoutAttr outputLayout = op.getOrCreateOutputLayout();
+    bool inputSystem =
+        inputLayout.getMemorySpace() == ttcore::MemorySpace::System;
+    bool outputSystem =
+        outputLayout.getMemorySpace() == ttcore::MemorySpace::System;
     assert(inputSystem != outputSystem &&
            "one of input or output must be system for now");
     if (op.getLayout()) {
@@ -46,10 +48,10 @@ public:
 
   static LogicalResult lowerDatamovementGeneric(PatternRewriter &rewriter,
                                                 ToLayoutOp op) {
-    MetalLayoutAttr inputLayout = op.getOrCreateInputLayout();
-    MetalLayoutAttr outputLayout = op.getOrCreateOutputLayout();
-    if (inputLayout.getMemorySpace() == MemorySpace::System ||
-        outputLayout.getMemorySpace() == MemorySpace::System) {
+    ttcore::MetalLayoutAttr inputLayout = op.getOrCreateInputLayout();
+    ttcore::MetalLayoutAttr outputLayout = op.getOrCreateOutputLayout();
+    if (inputLayout.getMemorySpace() == ttcore::MemorySpace::System ||
+        outputLayout.getMemorySpace() == ttcore::MemorySpace::System) {
       // To/From host mem is a special case that is lowered to
       // ttmetal.enqueue_write_buffer or ttmetal.enqueue_read_buffer
       return lowerSystemLayoutChange(rewriter, op);
@@ -92,8 +94,8 @@ public:
                                                     ToLayoutOp op) {
     auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
     auto outputType = mlir::cast<RankedTensorType>(op.getOutput().getType());
-    bool inputTiled = tt::isTiled(inputType);
-    bool outputTiled = tt::isTiled(outputType);
+    bool inputTiled = ttcore::isTiled(inputType);
+    bool outputTiled = ttcore::isTiled(outputType);
     assert(inputTiled != outputTiled &&
            "one of input or output must be tiled for now");
 
@@ -144,7 +146,8 @@ public:
                                     Value input,
                                     RankedTensorType desiredType) const {
     // Create empty tensor with desired type and layout
-    auto layout = mlir::cast<MetalLayoutAttr>(desiredType.getEncoding());
+    auto layout =
+        mlir::cast<ttcore::MetalLayoutAttr>(desiredType.getEncoding());
     auto output = rewriter.create<ttir::EmptyOp>(
         loc, desiredType.getShape(), desiredType.getElementType(), layout);
     return rewriter.create<ttir::ToLayoutOp>(loc, input, output);
@@ -163,15 +166,15 @@ public:
   // Helper to create a new tensor type with modified layout
   RankedTensorType
   createModifiedType(MLIRContext *ctx, RankedTensorType baseType,
-                     MetalLayoutAttr baseLayout,
-                     std::optional<MemorySpace> newMemSpace = {},
+                     ttcore::MetalLayoutAttr baseLayout,
+                     std::optional<ttcore::MemorySpace> newMemSpace = {},
                      std::optional<ArrayRef<int64_t>> newGrid = {},
                      std::optional<Type> newElementType = {},
                      std::optional<ArrayRef<int64_t>> newTileShape = {}) const {
     // Use existing values if not overridden
     auto memSpace = newMemSpace.value_or(baseLayout.getMemorySpace());
     auto maybeBaseTypeLayout =
-        mlir::dyn_cast_or_null<MetalLayoutAttr>(baseType.getEncoding());
+        mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(baseType.getEncoding());
     const bool baseTypeHasLayout = maybeBaseTypeLayout != nullptr;
 
     // We need to create an owning version of gridShape for the case where we
@@ -188,10 +191,10 @@ public:
     Type elementType = newElementType.value_or(baseType.getElementType());
     llvm::ArrayRef<int64_t> tileShape =
         newTileShape.has_value() ? *newTileShape
-                                 : getTensorTileShapeOrEmpty(baseType);
+                                 : ttcore::getTensorTileShapeOrEmpty(baseType);
 
     // Create new layout
-    auto newLayout = MetalLayoutAttr::get(
+    auto newLayout = ttcore::MetalLayoutAttr::get(
         ctx, baseLayout.getLogicalShape(), gridShape.size(),
         baseLayout.getOobVal(), memSpace, baseLayout.getCollapsedIntervals(),
         baseLayout.getDimAlignments());
@@ -199,7 +202,7 @@ public:
     // For physical shape derivation, use tile shape ONLY if element type is
     // tiled
     ArrayRef<int64_t> tileShapeForPhysical;
-    if (mlir::isa<TileType>(elementType)) {
+    if (mlir::isa<ttcore::TileType>(elementType)) {
       // Element type is tiled: need tile shape to compute tile counts
       tileShapeForPhysical = tileShape;
     } else {
@@ -209,7 +212,7 @@ public:
 
     // Derive physical shape
     llvm::SmallVector<int64_t> physicalShape =
-        MetalLayoutAttr::derivePhysicalShape(
+        ttcore::MetalLayoutAttr::derivePhysicalShape(
             baseLayout.getLogicalShape(), gridShape, tileShapeForPhysical,
             newLayout.getCollapsedIntervals(), newLayout.getDimAlignments());
 
@@ -231,8 +234,10 @@ public:
     auto inputLayout = op.getOrCreateInputLayout();
     auto outputLayout = op.getOrCreateOutputLayout();
 
-    bool inputL1 = inputLayout.getMemorySpace() == MemorySpace::DeviceL1;
-    bool outputL1 = outputLayout.getMemorySpace() == MemorySpace::DeviceL1;
+    bool inputL1 =
+        inputLayout.getMemorySpace() == ttcore::MemorySpace::DeviceL1;
+    bool outputL1 =
+        outputLayout.getMemorySpace() == ttcore::MemorySpace::DeviceL1;
 
     // First prioritize moving the data into L1 so we can work with it in L1
     if (!inputL1) {
@@ -242,13 +247,13 @@ public:
         auto gridShape = outputLayout.getGridShape(outputType);
         auto bounceType =
             createModifiedType(rewriter.getContext(), inputType, inputLayout,
-                               MemorySpace::DeviceL1, gridShape);
+                               ttcore::MemorySpace::DeviceL1, gridShape);
         bounce(rewriter, op, bounceType);
       } else {
         // For other cases, we want to use input's current grid
         auto bounceType =
             createModifiedType(rewriter.getContext(), inputType, inputLayout,
-                               MemorySpace::DeviceL1);
+                               ttcore::MemorySpace::DeviceL1);
         bounce(rewriter, op, bounceType);
       }
     } else if (!outputL1) {
@@ -261,38 +266,38 @@ public:
         auto gridShape = inputLayout.getGridShape(inputType);
         auto bounceType =
             createModifiedType(rewriter.getContext(), outputType, outputLayout,
-                               MemorySpace::DeviceL1, gridShape);
+                               ttcore::MemorySpace::DeviceL1, gridShape);
         bounce(rewriter, op, bounceType);
       } else {
         // For other cases, we want to use output's current grid
         auto bounceType =
             createModifiedType(rewriter.getContext(), outputType, outputLayout,
-                               MemorySpace::DeviceL1);
+                               ttcore::MemorySpace::DeviceL1);
         bounce(rewriter, op, bounceType);
       }
-    } else if (tt::isTiled(inputType) != tt::isTiled(outputType)) {
+    } else if (ttcore::isTiled(inputType) != ttcore::isTiled(outputType)) {
       // Prioritize moving tiled data
-      if (tt::isTiled(inputType)) {
+      if (ttcore::isTiled(inputType)) {
         auto bounceType =
             createModifiedType(rewriter.getContext(), outputType, outputLayout,
                                /*memSpace=*/{},
                                /*grid=*/{}, inputType.getElementType(),
-                               getTensorTileShapeOrEmpty(inputType));
+                               ttcore::getTensorTileShapeOrEmpty(inputType));
         bounce(rewriter, op, bounceType);
       } else {
-        assert(tt::isTiled(outputType));
+        assert(ttcore::isTiled(outputType));
         auto bounceType =
             createModifiedType(rewriter.getContext(), inputType, inputLayout,
                                /*memSpace=*/{},
                                /*grid=*/{}, outputType.getElementType(),
-                               tt::getTensorTileShape(outputType));
+                               ttcore::getTensorTileShape(outputType));
         bounce(rewriter, op, bounceType);
       }
-    } else if (components.isLayoutChange && tt::isTiled(inputType)) {
+    } else if (components.isLayoutChange && ttcore::isTiled(inputType)) {
       // For now to flexibly support layout changes, we need to bounce to scalar
       // first Get scalar element type
       Type scalarType = inputType.getElementType();
-      if (auto tileType = mlir::dyn_cast<TileType>(scalarType)) {
+      if (auto tileType = mlir::dyn_cast<ttcore::TileType>(scalarType)) {
         scalarType = tileType.getElementType();
       }
 

@@ -24,7 +24,7 @@ void DFShardingPolicy::run() {
       return;
     }
 
-    deviceAttr = lookupDevice(func);
+    deviceAttr = ttcore::lookupDevice(func);
     mlir::tt::scheduler::Scheduler scheduler(&func);
     l1ChainConfigs->push_back(L1ChainConfig());
     llvm::SmallVector<mlir::Operation *> scheduleableOps;

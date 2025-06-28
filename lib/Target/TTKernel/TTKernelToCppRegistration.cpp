@@ -25,11 +25,11 @@ void registerTTKernelToCpp() {
         return translateTopLevelKernelsToCpp(mlir::cast<ModuleOp>(op), os);
       },
       [](DialectRegistry &registry) {
-        registry
-            .insert<mlir::tt::ttkernel::TTKernelDialect,
-                    mlir::tt::ttmetal::TTMetalDialect, mlir::tt::TTCoreDialect,
-                    mlir::tt::ttir::TTIRDialect, mlir::emitc::EmitCDialect,
-                    mlir::memref::MemRefDialect, mlir::func::FuncDialect>();
+        registry.insert<mlir::tt::ttkernel::TTKernelDialect,
+                        mlir::tt::ttmetal::TTMetalDialect,
+                        mlir::tt::ttcore::TTCoreDialect,
+                        mlir::tt::ttir::TTIRDialect, mlir::emitc::EmitCDialect,
+                        mlir::memref::MemRefDialect, mlir::func::FuncDialect>();
       });
 }
 

@@ -25,7 +25,7 @@ public:
         return type;
       }
 
-      elementType = toTTMLIRSupportedDataType(elementType);
+      elementType = mlir::tt::ttcore::toTTMLIRSupportedDataType(elementType);
       if (!elementType) {
         return {};
       }

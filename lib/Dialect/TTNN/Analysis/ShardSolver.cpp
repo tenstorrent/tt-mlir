@@ -56,7 +56,7 @@ ShardSolver::ShardSolver(
 
   // Cache DeviceAttr.
   //
-  deviceAttr = lookupDevice(shardSpecs.front().op);
+  deviceAttr = ttcore::lookupDevice(shardSpecs.front().op);
 
   // Populate operandOpEdges and userOpEdges.
   //
@@ -796,7 +796,7 @@ llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
 
   // Constraints are implemented for this op.
   //
-  auto deviceAttr = mlir::tt::lookupDevice(consumerOp);
+  auto deviceAttr = mlir::tt::ttcore::lookupDevice(consumerOp);
   assert(deviceAttr);
 
   // Map consumer operands to DRAM interleave or provided producerLayout
