@@ -8,7 +8,7 @@
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/Support/LLVM.h"
 
-namespace mlir::tt::Trait {
+namespace mlir::tt::ttcore::Trait {
 template <typename Ty>
 class TTCoreCreationOpTrait
     : public mlir::OpTrait::TraitBase<Ty, TTCoreCreationOpTrait> {};
@@ -16,6 +16,6 @@ class TTCoreCreationOpTrait
 template <typename Ty>
 class TTCoreDuplicateConstEvalTrait
     : public mlir::OpTrait::TraitBase<Ty, TTCoreDuplicateConstEvalTrait> {};
-} // namespace mlir::tt::Trait
+} // namespace mlir::tt::ttcore::Trait
 
 #endif

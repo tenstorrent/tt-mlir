@@ -13,8 +13,8 @@
 #include <type_traits>
 namespace mlir::tt::op_model::ttnn {
 namespace conversion {
-::tt::tt_metal::DataType getDataType(const DataType dataType);
-tt::DataType getDataType(const ::tt::tt_metal::DataType dataType);
+::tt::tt_metal::DataType getDataType(const ttcore::DataType dataType);
+ttcore::DataType getDataType(const ::tt::tt_metal::DataType dataType);
 
 ::ttnn::Shape getShape(const ::llvm::ArrayRef<int64_t> shape);
 llvm::SmallVector<int64_t> getShape(const ::ttnn::Shape &shape);

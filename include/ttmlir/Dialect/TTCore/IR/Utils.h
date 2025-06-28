@@ -12,7 +12,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/SymbolTable.h"
 
-namespace mlir::tt {
+namespace mlir::tt::ttcore {
 
 class DeviceOp;
 class DeviceAttr;
@@ -51,11 +51,11 @@ getConstsAndParams(mlir::func::FuncOp funcOp) {
   llvm::SmallPtrSet<mlir::BlockArgument, 4> constsAndParams;
 
   for (auto arg : funcOp.getArguments()) {
-    if (auto typeAttr = funcOp.getArgAttrOfType<mlir::tt::ArgumentTypeAttr>(
-            arg.getArgNumber(), mlir::tt::ArgumentTypeAttr::name)) {
+    if (auto typeAttr = funcOp.getArgAttrOfType<ArgumentTypeAttr>(
+            arg.getArgNumber(), ArgumentTypeAttr::name)) {
       auto argTypeValue = typeAttr.getValue();
-      if (argTypeValue == mlir::tt::ArgumentType::Parameter ||
-          argTypeValue == mlir::tt::ArgumentType::Constant) {
+      if (argTypeValue == ArgumentType::Parameter ||
+          argTypeValue == ArgumentType::Constant) {
         constsAndParams.insert(arg);
       }
     }
@@ -69,6 +69,6 @@ ArrayRef<int64_t> getTensorTileShape(RankedTensorType tensorType);
 
 ArrayRef<int64_t> getTensorTileShapeOrEmpty(RankedTensorType tensorType);
 
-} // namespace mlir::tt
+} // namespace mlir::tt::ttcore
 
 #endif // TTMLIR_DIALECT_TTCORE_IR_UTILS_H

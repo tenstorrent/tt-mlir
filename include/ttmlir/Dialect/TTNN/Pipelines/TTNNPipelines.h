@@ -163,16 +163,16 @@ struct TTIRToTTNNBackendPipelineOptions
   // Option to provide a fallback mock system descriptor arch to compile
   // against.
   //
-  Option<tt::Arch> mockSystemDescArch{
+  Option<ttcore::Arch> mockSystemDescArch{
       *this, OptionNames::mockSystemDescArch,
       llvm::cl::desc(
           "Arch name for constructing a mock system descriptor in lieu of "
           "system-desc-path."),
-      llvm::cl::values(clEnumValN(tt::Arch::WormholeB0, "wormhole_b0",
+      llvm::cl::values(clEnumValN(ttcore::Arch::WormholeB0, "wormhole_b0",
                                   "Use mock wormhole_b0 system desc."),
-                       clEnumValN(tt::Arch::Blackhole, "blackhole",
+                       clEnumValN(ttcore::Arch::Blackhole, "blackhole",
                                   "Use mock blackhole system desc.")),
-      llvm::cl::init(tt::Arch::WormholeB0)};
+      llvm::cl::init(ttcore::Arch::WormholeB0)};
 
   // Option to override maximum number of sharded layouts to be generated
   // in legal layout analysis.
@@ -224,21 +224,24 @@ struct TTIRToTTNNBackendPipelineOptions
                             llvm::cl::desc("Enable fusing pass."),
                             llvm::cl::init(false)};
 
-  Option<tt::TTArgumentTypeMap, tt::ArgumentTypeMapParser> argumentTypeMap{
-      *this, tt::OptionNames::argumentTypes,
-      llvm::cl::desc(
-          "Map of function name to argument types. To use this option in the "
-          "command line, you must provide a whitespace-free string\n\t"
-          " which is a sequence of phrases in the form "
-          "\"<FUNC_NAME_STR>=<ARG_TYPES>\" separated by semicolons, where "
-          "<FUNC_NAME_STR>\n\t"
-          " is the name of a function and <ARG_TYPES> is a sequence of "
-          "argument types separated by commas. Each of which must be one\n\t"
-          " of \"input\", \"parameter\" or \"constant\". \n\t"
-          " Example: "
-          "\"argument-types=forward=input,parameter,parameter,constant\""
-          "\n\n"),
-      llvm::cl::init(TTArgumentTypeMap())};
+  Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
+      argumentTypeMap{
+          *this, ttcore::OptionNames::argumentTypes,
+          llvm::cl::desc(
+              "Map of function name to argument types. To use this option in "
+              "the "
+              "command line, you must provide a whitespace-free string\n\t"
+              " which is a sequence of phrases in the form "
+              "\"<FUNC_NAME_STR>=<ARG_TYPES>\" separated by semicolons, where "
+              "<FUNC_NAME_STR>\n\t"
+              " is the name of a function and <ARG_TYPES> is a sequence of "
+              "argument types separated by commas. Each of which must be "
+              "one\n\t"
+              " of \"input\", \"parameter\" or \"constant\". \n\t"
+              " Example: "
+              "\"argument-types=forward=input,parameter,parameter,constant\""
+              "\n\n"),
+          llvm::cl::init(ttcore::TTArgumentTypeMap())};
 
   // TODO (azecevic): This pass is causing a lot of memory consumption and is
   // disabled by default (https://github.com/tenstorrent/tt-mlir/issues/2512).

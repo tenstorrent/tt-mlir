@@ -30,7 +30,7 @@ public:
   mlir::OwningOpRef<mlir::ModuleOp> module;
   mlir::OpBuilder builder = mlir::OpBuilder(&context);
   mlir::func::FuncOp func;
-  mlir::tt::DeviceAttr deviceAttr;
+  mlir::tt::ttcore::DeviceAttr deviceAttr;
 
   using OpMemSpec = GreedyL1InterleavedPolicy::OpMemSpec;
   using GreedyPolicyChoice = GreedyL1InterleavedPolicy::GreedyPolicyChoice;
@@ -40,9 +40,9 @@ public:
     context.loadDialect<TTNNDialect>();
     module = mlir::ModuleOp::create(builder.getUnknownLoc());
     builder.setInsertionPointToStart(&module->getBodyRegion().front());
-    mlir::tt::registerDevice(module.get());
+    mlir::tt::ttcore::registerDevice(module.get());
     createFuncOp();
-    deviceAttr = mlir::tt::lookupDevice(func);
+    deviceAttr = mlir::tt::ttcore::lookupDevice(func);
   }
 
   llvm::SmallVector<int64_t, 2> getTensorShape() {
@@ -90,13 +90,15 @@ public:
     if (legalConfigs.find(op) == legalConfigs.end()) {
       legalConfigs[op] = std::vector<OpConfig>{TTNNLayoutAttr::get(
           &context, getTensorRankedType().getShape(),
-          mlir::tt::TileType::get(builder.getF32Type()), memorySpace,
-          mlir::tt::GridAttr::get(&context, {8, 8}), tensorMemoryLayoutAttr)};
+          mlir::tt::ttcore::TileType::get(builder.getF32Type()), memorySpace,
+          mlir::tt::ttcore::GridAttr::get(&context, {8, 8}),
+          tensorMemoryLayoutAttr)};
     } else {
       legalConfigs[op].push_back(TTNNLayoutAttr::get(
           &context, getTensorRankedType().getShape(),
-          mlir::tt::TileType::get(builder.getF32Type()), memorySpace,
-          mlir::tt::GridAttr::get(&context, {8, 8}), tensorMemoryLayoutAttr));
+          mlir::tt::ttcore::TileType::get(builder.getF32Type()), memorySpace,
+          mlir::tt::ttcore::GridAttr::get(&context, {8, 8}),
+          tensorMemoryLayoutAttr));
     }
   }
 

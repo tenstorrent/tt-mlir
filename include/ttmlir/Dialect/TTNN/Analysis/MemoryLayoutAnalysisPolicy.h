@@ -19,7 +19,7 @@ protected:
   llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
   llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> *schedule;
   unsigned usableL1CacheSize = 0;
-  DeviceAttr deviceAttr;
+  ttcore::DeviceAttr deviceAttr;
 
 public:
   virtual ~MemoryLayoutAnalysisPolicy() {};

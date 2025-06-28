@@ -45,7 +45,7 @@ def ConstEvalHoistTransform: Pass<"const-eval-hoist-transform", "::mlir::ModuleO
 
   }];
 
-  let dependentDialects = ["::mlir::tt::TTCoreDialect"];
+  let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
 }
 
 def UndoConstEvalTransform : Pass<"undo-const-eval", "mlir::ModuleOp"> {
@@ -55,7 +55,7 @@ def UndoConstEvalTransform : Pass<"undo-const-eval", "mlir::ModuleOp"> {
     effectively undoing the transformations performed by ConstEvalHoistTransform.
   }];
 
-  let dependentDialects = ["::mlir::tt::TTCoreDialect"];
+  let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
 }
 
 def ReenableLostDPS: Pass<"ttir-reenable-dps", "::mlir::ModuleOp"> {

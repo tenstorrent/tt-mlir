@@ -100,20 +100,20 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
       .value("WidthSharded", mlir::tt::ttnn::TensorMemoryLayout::WidthSharded)
       .value("BlockSharded", mlir::tt::ttnn::TensorMemoryLayout::BlockSharded);
 
-  nb::enum_<mlir::tt::DataType>(m, "DataType")
-      .value("Float32", mlir::tt::DataType::Float32)
-      .value("Float16", mlir::tt::DataType::Float16)
-      .value("BFloat16", mlir::tt::DataType::BFloat16)
-      .value("BFP_Float8", mlir::tt::DataType::BFP_Float8)
-      .value("BFP_BFloat8", mlir::tt::DataType::BFP_BFloat8)
-      .value("BFP_Float4", mlir::tt::DataType::BFP_Float4)
-      .value("BFP_BFloat4", mlir::tt::DataType::BFP_BFloat4)
-      .value("BFP_Float2", mlir::tt::DataType::BFP_Float2)
-      .value("BFP_BFloat2", mlir::tt::DataType::BFP_BFloat2)
-      .value("UInt32", mlir::tt::DataType::UInt32)
-      .value("UInt16", mlir::tt::DataType::UInt16)
-      .value("UInt8", mlir::tt::DataType::UInt8)
-      .value("Int32", mlir::tt::DataType::Int32);
+  nb::enum_<mlir::tt::ttcore::DataType>(m, "DataType")
+      .value("Float32", mlir::tt::ttcore::DataType::Float32)
+      .value("Float16", mlir::tt::ttcore::DataType::Float16)
+      .value("BFloat16", mlir::tt::ttcore::DataType::BFloat16)
+      .value("BFP_Float8", mlir::tt::ttcore::DataType::BFP_Float8)
+      .value("BFP_BFloat8", mlir::tt::ttcore::DataType::BFP_BFloat8)
+      .value("BFP_Float4", mlir::tt::ttcore::DataType::BFP_Float4)
+      .value("BFP_BFloat4", mlir::tt::ttcore::DataType::BFP_BFloat4)
+      .value("BFP_Float2", mlir::tt::ttcore::DataType::BFP_Float2)
+      .value("BFP_BFloat2", mlir::tt::ttcore::DataType::BFP_BFloat2)
+      .value("UInt32", mlir::tt::ttcore::DataType::UInt32)
+      .value("UInt16", mlir::tt::ttcore::DataType::UInt16)
+      .value("UInt8", mlir::tt::ttcore::DataType::UInt8)
+      .value("Int32", mlir::tt::ttcore::DataType::Int32);
 
   nb::class_<mlir::tt::ttnn::InsertMemReconfigParams>(m,
                                                       "InsertMemReconfigParams")
@@ -196,7 +196,8 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
       .def("set_data_type_from_str",
            [](mlir::tt::ttnn::OutputLayoutOverrideParams &obj,
               const std::string &value) {
-             if (auto dataType_ = mlir::tt::DataTypeStringToEnum(value)) {
+             if (auto dataType_ =
+                     mlir::tt::ttcore::DataTypeStringToEnum(value)) {
                obj.dataType = dataType_;
              } else {
                throw std::invalid_argument("Invalid data type: " + value);
@@ -253,7 +254,7 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
       .def("set_dtype_from_str",
            [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
               const std::string &value) {
-             if (auto dtype_ = mlir::tt::DataTypeStringToEnum(value)) {
+             if (auto dtype_ = mlir::tt::ttcore::DataTypeStringToEnum(value)) {
                obj.dtype = dtype_;
              } else {
                throw std::invalid_argument("Invalid dtype: " + value);
@@ -262,7 +263,8 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
       .def("set_weights_dtype_from_str",
            [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
               const std::string &value) {
-             if (auto weightsDtype_ = mlir::tt::DataTypeStringToEnum(value)) {
+             if (auto weightsDtype_ =
+                     mlir::tt::ttcore::DataTypeStringToEnum(value)) {
                obj.weightsDtype = weightsDtype_;
              } else {
                throw std::invalid_argument("Invalid weights dtype: " + value);

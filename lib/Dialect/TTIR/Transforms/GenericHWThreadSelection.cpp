@@ -99,8 +99,8 @@ public:
     walkAndApplyPatterns(getOperation(), std::move(patterns));
 
     ModuleOp moduleOp = getOperation();
-    auto systemDesc =
-        moduleOp->getAttrOfType<SystemDescAttr>(SystemDescAttr::name);
+    auto systemDesc = moduleOp->getAttrOfType<mlir::tt::ttcore::SystemDescAttr>(
+        mlir::tt::ttcore::SystemDescAttr::name);
     auto chipDesc = systemDesc.getChipDescs().front();
     moduleOp.walk([&](GenericOp op) {
       // assert that the op has a valid HW thread selection

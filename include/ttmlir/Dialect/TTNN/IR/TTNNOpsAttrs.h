@@ -37,7 +37,8 @@ inline bool isShardedMemoryLayout(TensorMemoryLayout layout) {
          layout == TensorMemoryLayout::BlockSharded;
 }
 
-inline bool isMeshDeviceTensor(tt::TensorMeshShardingAttr tensorMeshSharding) {
+inline bool
+isMeshDeviceTensor(ttcore::TensorMeshShardingAttr tensorMeshSharding) {
   return tensorMeshSharding != nullptr;
 }
 

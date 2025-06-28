@@ -52,10 +52,10 @@ void applyConv2dConfigOverrides(ttnn::Conv2dOp op,
   // prepare_conv2d_weights.cpp where `weight_tensor_.dtype() ==
   // weights_bias_dtype`.
   //
-  DataType dtype = elementTypeToDataType(
+  ttcore::DataType dtype = ttcore::elementTypeToDataType(
       mlir::cast<RankedTensorType>(op->getOperand(0).getType())
           .getElementType());
-  DataType weightsDtype = elementTypeToDataType(
+  ttcore::DataType weightsDtype = ttcore::elementTypeToDataType(
       mlir::cast<RankedTensorType>(op->getOperand(1).getType())
           .getElementType());
 
@@ -192,18 +192,18 @@ bool LegalLayoutAnalysis::applyOverrides() {
   TTNNLayoutAttr layout = mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
   llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
 
-  GridAttr grid = GridAttr::get(op->getContext(),
-                                ArrayRef<int64_t>(layoutOverride.grid.value()));
+  ttcore::GridAttr grid = ttcore::GridAttr::get(
+      op->getContext(), ArrayRef<int64_t>(layoutOverride.grid.value()));
 
   // Create element type for the new layout.
   Type elementType = layout.getScalarElementType();
   if (layoutOverride.dataType.has_value()) {
-    elementType = mlir::tt::dataTypeToElementType(
+    elementType = mlir::tt::ttcore::dataTypeToElementType(
         op->getContext(), layoutOverride.dataType.value());
   }
 
   if (layoutOverride.memoryLayout == Layout::Tile) {
-    elementType = TileType::get(elementType);
+    elementType = ttcore::TileType::get(elementType);
   }
 
   analysisResult.push_back(TTNNLayoutAttr::get(
@@ -299,7 +299,7 @@ void LegalLayoutAnalysis::analysisImplementation() {
         overrideIt != analysisInput.outputLayoutOverrides->end()) {
       override = overrideIt->getValue();
       if (override->dataType.has_value()) {
-        scalarElementType = mlir::tt::dataTypeToElementType(
+        scalarElementType = mlir::tt::ttcore::dataTypeToElementType(
             op->getContext(), override->dataType.value());
       }
     }

@@ -169,7 +169,7 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
   RankedTensorType newOutputResultType = utils::RankedTensorTypeFactory::create(
       utils::RankedTensorTypeFactory::create(
           opResultType,
-          mlir::tt::dataTypeToElementType(
+          mlir::tt::ttcore::dataTypeToElementType(
               rewriter.getContext(),
               outputWorkaroundResults.tensorDataTypeResult.targetValue)),
       newOutputLayoutAttr);
@@ -190,8 +190,9 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
 
     if (outputWorkaroundResults.tensorDataTypeResult.isModified() &&
         op->getAttrDictionary().get("dtype")) {
-      DataTypeAttr updatedDataTypeAttr = rewriter.getAttr<DataTypeAttr>(
-          outputWorkaroundResults.tensorDataTypeResult.targetValue);
+      ttcore::DataTypeAttr updatedDataTypeAttr =
+          rewriter.getAttr<ttcore::DataTypeAttr>(
+              outputWorkaroundResults.tensorDataTypeResult.targetValue);
       op->setAttr("dtype", updatedDataTypeAttr);
     }
 
@@ -343,7 +344,7 @@ public:
     }
     uint32_t clusterAxis = op.getClusterAxis();
     auto device = op.getDevice();
-    auto deviceDesc = lookupDevice(op);
+    auto deviceDesc = ttcore::lookupDevice(op);
     ::llvm::ArrayRef<int64_t> meshShape = deviceDesc.getMeshShape();
     llvm::SmallVector<int64_t> inputTypeShape(inputType.getShape());
     llvm::SmallVector<int64_t> outputTypeShape(op.getType().getShape());
@@ -473,7 +474,7 @@ public:
     Location loc = op.getLoc();
     uint32_t clusterAxis = op.getClusterAxis();
     Value deviceValue = op.getDevice();
-    auto deviceDesc = lookupDevice(op);
+    auto deviceDesc = ttcore::lookupDevice(op);
     ::llvm::ArrayRef<int64_t> meshShape = deviceDesc.getMeshShape();
 
     // TODO(hongseok): Restore dynamic dimension selection once the issue
@@ -490,7 +491,7 @@ public:
       // significantly more memory than ReduceScatter + AllGather due to
       // internal padding and temporary buffers. To avoid potential memory
       // blowup, enforce a size constraint based on DRAM capacity.
-      if (exceedsAllGatherReduceMemLimit(getCurrentScopeSystemDesc(op),
+      if (exceedsAllGatherReduceMemLimit(ttcore::getCurrentScopeSystemDesc(op),
                                          inputType, meshShape[clusterAxis],
                                          0.05)) {
         return rewriteAsAllGatherLocalReduce(op, meshShape, rewriter);
@@ -628,30 +629,30 @@ private:
     ArrayAttr reduceDimAttr =
         rewriter.getI32ArrayAttr(llvm::ArrayRef<int32_t>{0});
     switch (op.getReduceType()) {
-    case ReduceType::Sum:
+    case ttcore::ReduceType::Sum:
       rewriter.replaceOpWithNewOp<ttnn::SumOp>(op, op.getType(), allGatherOp,
                                                false, reduceDimAttr);
       break;
-    case ReduceType::Mean:
+    case ttcore::ReduceType::Mean:
       rewriter.replaceOpWithNewOp<ttnn::MeanOp>(op, op.getType(), allGatherOp,
                                                 false, reduceDimAttr);
       break;
-    case ReduceType::Max:
+    case ttcore::ReduceType::Max:
       rewriter.replaceOpWithNewOp<ttnn::MaxOp>(op, op.getType(), allGatherOp,
                                                false, reduceDimAttr);
       break;
-    case ReduceType::Min:
+    case ttcore::ReduceType::Min:
       rewriter.replaceOpWithNewOp<ttnn::MinOp>(op, op.getType(), allGatherOp,
                                                false, reduceDimAttr);
       break;
-    case ReduceType::Std:
+    case ttcore::ReduceType::Std:
       return op.emitOpError() << "std is not supported";
-    case ReduceType::Var:
+    case ttcore::ReduceType::Var:
       return op.emitOpError() << "var is not supported";
     }
     return success();
   }
-  bool exceedsAllGatherReduceMemLimit(tt::SystemDescAttr systemDesc,
+  bool exceedsAllGatherReduceMemLimit(ttcore::SystemDescAttr systemDesc,
                                       RankedTensorType inputType,
                                       int64_t numOfDevicesInCluster,
                                       float memoryLimitFactor = 0.05) const {

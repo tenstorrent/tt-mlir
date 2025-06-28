@@ -25,8 +25,8 @@ TTNNRepeatFoldingWorkaround::matchAndRewrite(ttnn::RepeatOp op,
   auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(resultType.getEncoding());
   auto shapeAttr =
       ttnn::ShapeAttr::get(rewriter.getContext(), resultType.getShape());
-  auto dTypeAttr =
-      DataTypeAttr::get(rewriter.getContext(), layoutAttr.getDataType());
+  auto dTypeAttr = ttcore::DataTypeAttr::get(rewriter.getContext(),
+                                             layoutAttr.getDataType());
   auto layout = ttnn::LayoutAttr::get(op.getContext(), layoutAttr.getLayout());
 
   // Create a ZerosOp to be used with AddOp

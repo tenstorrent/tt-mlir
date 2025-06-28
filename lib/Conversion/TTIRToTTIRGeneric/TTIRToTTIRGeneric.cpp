@@ -49,7 +49,7 @@ protected:
   mlir::SmallVector<Value>
   toLayoutOperands(mlir::ConversionPatternRewriter &rewriter,
                    mlir::SmallVector<Value> operands, bool tiled,
-                   MemorySpace memorySpace) const {
+                   ttcore::MemorySpace memorySpace) const {
     mlir::SmallVector<Value> newOperands;
     for (Value value : operands) {
       mlir::RankedTensorType tensorType =
@@ -70,18 +70,18 @@ protected:
       llvm::SmallVector<int64_t> tileShape;
       assert(logicalShape.size() >= 2);
       if (tiled) {
-        auto defaultShape = TileType::getDefaultShape();
+        auto defaultShape = ttcore::TileType::getDefaultShape();
         tileShape.assign(defaultShape.begin(), defaultShape.end());
-        elementType = tt::TileType::get(elementType, tileShape);
+        elementType = ttcore::TileType::get(elementType, tileShape);
       }
 
       // Create the new MetalLayoutAttr with new element type.
-      tt::MetalLayoutAttr layout = tt::MetalLayoutAttr::get(
+      ttcore::MetalLayoutAttr layout = ttcore::MetalLayoutAttr::get(
           rewriter.getContext(), logicalShape, deviceGridRank,
-          tt::OOBVal::Undef, memorySpace);
+          ttcore::OOBVal::Undef, memorySpace);
 
       // Calculate new physical shape based on grid + tiling.
-      auto physicalShape = tt::MetalLayoutAttr::derivePhysicalShape(
+      auto physicalShape = ttcore::MetalLayoutAttr::derivePhysicalShape(
           logicalShape, gridShape, tileShape, layout.getCollapsedIntervals(),
           layout.getDimAlignments());
 
@@ -129,10 +129,10 @@ protected:
   static SmallVector<mlir::utils::IteratorType>
   iteratorTypeTTIRToLinalg(mlir::OpBuilder &builder,
                            const SmallVector<mlir::Attribute> &iterators) {
-    auto parallel = tt::IteratorTypeAttr::get(builder.getContext(),
-                                              tt::IteratorType::Parallel);
-    auto reduction = tt::IteratorTypeAttr::get(builder.getContext(),
-                                               tt::IteratorType::Reduction);
+    auto parallel = ttcore::IteratorTypeAttr::get(
+        builder.getContext(), ttcore::IteratorType::Parallel);
+    auto reduction = ttcore::IteratorTypeAttr::get(
+        builder.getContext(), ttcore::IteratorType::Reduction);
 
     SmallVector<mlir::utils::IteratorType> r;
     for (auto iterator : iterators) {
@@ -153,8 +153,8 @@ protected:
                                                       mlir::TypeRange outputs) {
     auto fn = [&](Type t) {
       mlir::RankedTensorType tensorType = mlir::cast<mlir::RankedTensorType>(t);
-      tt::MetalLayoutAttr layout =
-          mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding());
+      ttcore::MetalLayoutAttr layout =
+          mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
       block->addArgument(layout.getMemRefType(tensorType), loc);
     };
 
@@ -164,13 +164,15 @@ protected:
   }
 
   template <typename ConcreteOp>
-  static MemorySpace getDefaultMemorySpace(ConcreteOp op, MemorySpace dflt) {
+  static ttcore::MemorySpace getDefaultMemorySpace(ConcreteOp op,
+                                                   ttcore::MemorySpace dflt) {
     mlir::ModuleOp parent = op->template getParentOfType<mlir::ModuleOp>();
     if (!parent) {
       return dflt;
     }
-    tt::MemorySpaceAttr defaultMemSpaceAttr =
-        parent->getAttrOfType<tt::MemorySpaceAttr>(tt::MemorySpaceAttr::name);
+    ttcore::MemorySpaceAttr defaultMemSpaceAttr =
+        parent->getAttrOfType<ttcore::MemorySpaceAttr>(
+            ttcore::MemorySpaceAttr::name);
     return defaultMemSpaceAttr ? defaultMemSpaceAttr.getValue() : dflt;
   }
 
@@ -179,7 +181,7 @@ protected:
   }
 
   // Default memory spaces for {inputs, outputs}.
-  std::array<MemorySpace, 2> memorySpaces;
+  std::array<ttcore::MemorySpace, 2> memorySpaces;
   uint64_t deviceGridRank;
 
   static constexpr std::array<int64_t, 2> s_expectedInputGridShape{1, 1};
@@ -221,7 +223,8 @@ private:
 
     assert(numOperands == op->getNumOperands());
 
-    tt::GridAttr grid = tt::GridAttr::get(ctx, expectedInputGridShape());
+    ttcore::GridAttr grid =
+        ttcore::GridAttr::get(ctx, expectedInputGridShape());
 
     const std::size_t rank = grid.getShape().size();
 
@@ -283,8 +286,8 @@ private:
 
   static SmallVector<mlir::Attribute>
   getIteratorTypesArray(mlir::OpBuilder &builder, std::size_t rank) {
-    auto parallel = tt::IteratorTypeAttr::get(builder.getContext(),
-                                              tt::IteratorType::Parallel);
+    auto parallel = ttcore::IteratorTypeAttr::get(
+        builder.getContext(), ttcore::IteratorType::Parallel);
     return SmallVector<mlir::Attribute>(rank, parallel);
   }
 }; // end of class
@@ -334,7 +337,8 @@ private:
     // minus 1 for the scaler operand
     assert((numOperands - 1) == op->getNumOperands());
 
-    tt::GridAttr grid = tt::GridAttr::get(ctx, expectedInputGridShape());
+    ttcore::GridAttr grid =
+        ttcore::GridAttr::get(ctx, expectedInputGridShape());
 
     const std::size_t rank = grid.getShape().size();
 
@@ -436,10 +440,10 @@ private:
                         std::size_t rank) {
     mlir::ArrayAttr dimArg = getDimArg(op);
 
-    auto parallel = tt::IteratorTypeAttr::get(builder.getContext(),
-                                              tt::IteratorType::Parallel);
-    auto reduction = tt::IteratorTypeAttr::get(builder.getContext(),
-                                               tt::IteratorType::Reduction);
+    auto parallel = ttcore::IteratorTypeAttr::get(
+        builder.getContext(), ttcore::IteratorType::Parallel);
+    auto reduction = ttcore::IteratorTypeAttr::get(
+        builder.getContext(), ttcore::IteratorType::Reduction);
 
     SmallVector<mlir::Attribute> iterators(rank, parallel);
     forAllDims(rank, dimArg, [&](std::size_t index, bool dropped) {
@@ -455,7 +459,7 @@ private:
   static mlir::Value createScaler(mlir::OpBuilder &builder, mlir::Location loc,
                                   mlir::Type elementType) {
     mlir::RankedTensorType scalerType =
-        RankedTensorType::get(TileType::getDefaultShape(), elementType);
+        RankedTensorType::get(ttcore::TileType::getDefaultShape(), elementType);
 
     mlir::Attribute one;
     if (mlir::isa<mlir::FloatType>(elementType)) {
@@ -554,7 +558,8 @@ private:
 
     assert(numOperands == op->getNumOperands());
 
-    tt::GridAttr grid = tt::GridAttr::get(ctx, expectedInputGridShape());
+    ttcore::GridAttr grid =
+        ttcore::GridAttr::get(ctx, expectedInputGridShape());
 
     const std::size_t rank = grid.getShape().size();
 
@@ -643,10 +648,10 @@ private:
   static SmallVector<mlir::Attribute>
   getIteratorTypesArray(mlir::OpBuilder &builder, std::size_t rank) {
     assert(rank == 2 && "expected a rank 2 operation");
-    auto parallel = tt::IteratorTypeAttr::get(builder.getContext(),
-                                              tt::IteratorType::Parallel);
-    auto reduction = tt::IteratorTypeAttr::get(builder.getContext(),
-                                               tt::IteratorType::Reduction);
+    auto parallel = ttcore::IteratorTypeAttr::get(
+        builder.getContext(), ttcore::IteratorType::Parallel);
+    auto reduction = ttcore::IteratorTypeAttr::get(
+        builder.getContext(), ttcore::IteratorType::Reduction);
     return SmallVector<mlir::Attribute>{parallel, parallel, reduction};
   }
 

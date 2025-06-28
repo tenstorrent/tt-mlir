@@ -59,7 +59,7 @@ struct TTIRToTTIRGenericPass final
       target.addLegalDialect<mlir::func::FuncDialect>();
       target.addLegalDialect<mlir::linalg::LinalgDialect>();
 
-      target.addLegalDialect<tt::TTCoreDialect>();
+      target.addLegalDialect<ttcore::TTCoreDialect>();
 
       // An explicit list of legal ttir.* ops.
 
@@ -77,7 +77,7 @@ struct TTIRToTTIRGenericPass final
           >();
     }
 
-    DeviceAttr deviceAttr = lookupDevice(moduleOp);
+    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(moduleOp);
 
     TypeConverter typeConverter;
     {

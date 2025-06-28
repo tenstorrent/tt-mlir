@@ -187,11 +187,12 @@ public:
 
     // Get the max grid size from the system description.
     //
-    GridAttr deviceGrid = lookupDevice(moduleOp).getWorkerGrid();
+    ttcore::GridAttr deviceGrid =
+        ttcore::lookupDevice(moduleOp).getWorkerGrid();
 
-    SystemDescAttr systemDesc = mlir::cast<tt::SystemDescAttr>(
-        moduleOp->getAttr(tt::SystemDescAttr::name));
-    ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
+    ttcore::SystemDescAttr systemDesc = mlir::cast<ttcore::SystemDescAttr>(
+        moduleOp->getAttr(ttcore::SystemDescAttr::name));
+    ttcore::ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
     llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
 
     // Step 1: Run ScalarDataTypeAnalysis to collect all scalar types used in
@@ -535,7 +536,7 @@ private:
     }
 
     // Device op does not exist in the block, hence we need to create it.
-    DeviceAttr deviceAttr = lookupDevice(contextOp);
+    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(contextOp);
     auto currentInsertionPoint = builder.saveInsertionPoint();
     builder.setInsertionPoint(block, block->begin());
     llvm::SmallVector<int64_t> meshShape{deviceAttr.getMeshShape()};
@@ -558,7 +559,7 @@ private:
 
   static llvm::DenseMap<Operation *, Operation *> processMemReconfigEdges(
       const llvm::DenseMap<Edge, MemReconfigEntry> &memReconfigEntryMap,
-      GridAttr deviceGrid) {
+      ttcore::GridAttr deviceGrid) {
 
     // Mapping from producer op to inserted memory reconfig op.
     llvm::DenseMap<Operation *, Operation *> insertedMemoryReconfigOps;
@@ -635,8 +636,8 @@ private:
             consumerOp->getOperand(edge.operandIndex), // input value
             LayoutAttr::get(consumerOp->getContext(),
                             producerOpLayout.getLayout()),
-            DataTypeAttr::get(consumerOp->getContext(),
-                              producerOpLayout.getDataType()),
+            ttcore::DataTypeAttr::get(consumerOp->getContext(),
+                                      producerOpLayout.getDataType()),
             outputMemConfigAttr, getOrCreateDeviceOpValue(consumerOp, builder));
 
         consumerOp->setOperand(edge.operandIndex,
@@ -653,7 +654,7 @@ private:
   }
 
   void processSpillOps(const std::vector<Operation *> &spillToDramOps,
-                       GridAttr deviceGrid,
+                       ttcore::GridAttr deviceGrid,
                        const llvm::DenseMap<Operation *, Operation *>
                            &insertedMemoryReconfigOps) {
 
@@ -677,8 +678,8 @@ private:
 
       // Create a ToLayoutOp with the new DRAM layout.
       OpBuilder builder(spilledOp->getContext());
-      DataTypeAttr dataType =
-          DataTypeAttr::get(spilledOp->getContext(), dramLayout.getDataType());
+      ttcore::DataTypeAttr dataType = ttcore::DataTypeAttr::get(
+          spilledOp->getContext(), dramLayout.getDataType());
       LayoutAttr newLayout =
           LayoutAttr::get(spilledOp->getContext(), dramLayout.getLayout());
 

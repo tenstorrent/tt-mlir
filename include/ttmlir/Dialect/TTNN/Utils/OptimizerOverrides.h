@@ -59,7 +59,7 @@ public:
   void addOutputLayoutOverride(StringRef, OutputLayoutOverrideParams);
   void addOutputLayoutOverride(StringRef, SmallVector<int64_t> &, BufferType,
                                TensorMemoryLayout, tt::ttnn::Layout,
-                               tt::DataType);
+                               ttcore::DataType);
   void addConv2dConfigOverride(StringRef, Conv2dConfigOverrideParams);
 
   std::unordered_map<std::string, InsertMemReconfigParams>

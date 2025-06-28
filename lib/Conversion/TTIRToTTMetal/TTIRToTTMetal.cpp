@@ -48,8 +48,8 @@ public:
       elemType = mlir::cast<MemRefType>(elemType).getElementType();
     }
     // We could have a memref of tiles, so this needs to be the second query
-    if (mlir::isa<TileType>(elemType)) {
-      elemType = mlir::cast<TileType>(elemType).getElementType();
+    if (mlir::isa<ttcore::TileType>(elemType)) {
+      elemType = mlir::cast<ttcore::TileType>(elemType).getElementType();
     }
     assert(elemType.isIntOrFloat());
     return elemType;
@@ -57,7 +57,7 @@ public:
 
   static ArrayAttr
   convertThreadsToKernelConfigs(Builder &builder, mlir::ValueRange operands,
-                                ArrayAttr threads, GridAttr opGrid,
+                                ArrayAttr threads, ttcore::GridAttr opGrid,
                                 const SymbolTable &symbolTable) {
     SmallVector<Attribute> kernelConfigs;
     uint32_t nocIndex = 0;
@@ -132,7 +132,7 @@ public:
     }
 
     ArrayAttr threads = op.getThreads();
-    GridAttr opGrid = op.getGrid();
+    ttcore::GridAttr opGrid = op.getGrid();
     SymbolTable symbolTable(op->getParentOfType<ModuleOp>());
     auto kernelConfigs = convertThreadsToKernelConfigs(
         rewriter, adaptor.getOperands(), threads, opGrid, symbolTable);
@@ -155,7 +155,7 @@ public:
     assert(op.getMemref().getType().getMemorySpace() &&
            "No memref memory space found, failing.");
     auto memrefType = op.getMemref().getType();
-    assert(mlir::isa<tt::ShardLayoutAttr>(memrefType.getLayout()));
+    assert(mlir::isa<ttcore::ShardLayoutAttr>(memrefType.getLayout()));
     rewriter.replaceOpWithNewOp<ttmetal::CreateBufferOp>(op, memrefType,
                                                          address);
 
@@ -204,11 +204,11 @@ public:
     }
     MemRefType inputTy = mlir::cast<MemRefType>(input.getType());
     MemRefType outputTy = mlir::cast<MemRefType>(output.getType());
-    tt::MemorySpaceAttr inputMemorySpace =
-        mlir::dyn_cast_if_present<tt::MemorySpaceAttr>(
+    ttcore::MemorySpaceAttr inputMemorySpace =
+        mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
             inputTy.getMemorySpace());
-    tt::MemorySpaceAttr outputMemorySpace =
-        mlir::dyn_cast_if_present<tt::MemorySpaceAttr>(
+    ttcore::MemorySpaceAttr outputMemorySpace =
+        mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
             outputTy.getMemorySpace());
     bool inputMemorySpaceSet = inputMemorySpace != nullptr;
     bool outputMemorySpaceSet = outputMemorySpace != nullptr;
