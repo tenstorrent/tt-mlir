@@ -102,7 +102,8 @@ public:
       llvm::ArrayRef<int64_t> operandShape = operandType.getShape();
 
       llvm::SmallVector<int64_t> broadcastDimensions =
-          getBroadcastDimensions(operandShape, broadcastedShape);
+          ttmlir::utils::getBroadcastDimensions<int64_t>(operandShape,
+                                                         broadcastedShape);
       if (llvm::all_of(broadcastDimensions, [](int64_t i) { return i == 1; })) {
         continue;
       }
@@ -156,19 +157,6 @@ private:
     }
 
     return broadcastedShape;
-  }
-
-  llvm::SmallVector<int64_t>
-  getBroadcastDimensions(llvm::ArrayRef<int64_t> operandShape,
-                         llvm::ArrayRef<int64_t> targetShape) const {
-    llvm::SmallVector<int64_t> broadcastDimensions(operandShape.size(), 1);
-    for (size_t dim = 0; dim < operandShape.size(); dim++) {
-      if (operandShape[dim] < targetShape[dim]) {
-        broadcastDimensions[dim] = targetShape[dim];
-      }
-    }
-
-    return broadcastDimensions;
   }
 };
 } // namespace
