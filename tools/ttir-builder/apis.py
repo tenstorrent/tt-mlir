@@ -73,7 +73,7 @@ def get_loc_from_str(loc: Union[str, Location]) -> Location:
 
     Parameters
     ----------
-    loc : Union[str, Location]
+    loc : *Union[str, Location]*
         Either a string representing a location or an existing Location object
 
     Returns
@@ -123,9 +123,9 @@ class TypeInfo:
     ----------
         dtype : torch.dtype
             Base PyTorch data type (e.g. torch.float32, torch.qint32).
-        scale : Optional[float]
+        scale : *Optional[float]*
             Scaling factor for quantization. Required for quantized types.
-        zero_point : Optional[int]
+        zero_point : *Optional[int]*
             Zero point offset for quantization. Required for quantized types.
     """
 
@@ -258,7 +258,7 @@ class TTIRBuilder(TTIRBuilderOps):
         ----------
         operand : Operand
             The operand to generate and store a golden for
-        dtype : Union[torch.dtype, TypeInfo], optional
+        dtype : *Union[torch.dtype, TypeInfo]*, optional
             Data type of the golden tensor (default: torch.float32)
         Returns
         -------
@@ -287,7 +287,7 @@ class TTIRBuilder(TTIRBuilderOps):
         ----------
         operand : Operand
             The input operand to generate a golden for
-        dtype : Union[torch.dtype, TypeInfo]
+        dtype : *Union[torch.dtype, TypeInfo]*
             Data type of the golden tensor
         index : int
             Index to use for mapping the golden
@@ -337,7 +337,7 @@ class TTIRBuilder(TTIRBuilderOps):
         Sets the mesh shape for multi-device operations.
         Parameters
         ----------
-        mesh_shape : Tuple[int, int]
+        mesh_shape : *Tuple[int, int]*
             A tuple of (rows, columns) specifying the 2D mesh arrangement of devices
         """
         self.mesh_shape = mesh_shape
@@ -354,9 +354,9 @@ class TTIRBuilder(TTIRBuilderOps):
         Can override existing golden tensors if specified.
         Parameters
         ----------
-        inputs : List[torch.Tensor]
+        inputs : *List[torch.Tensor]*
             List of input tensors for the graph
-        outputs : Optional[List[torch.Tensor]], optional
+        outputs : *Optional[List[torch.Tensor]]*, optional
             List of output tensors for the graph (default: None)
         override : bool, optional
             Whether to override existing golden tensors (default: False)
@@ -579,9 +579,9 @@ class TTIRBuilder(TTIRBuilderOps):
         ----------
         shape : Shape
             The shape of the tensor type
-        data_type : Optional[Type], optional
+        data_type : *Optional[Type]*, optional
             The data type of the tensor (default: None)
-        encoding : Optional[Attribute], optional
+        encoding : *Optional[Attribute]*, optional
             Optional encoding attribute (default: None)
         Returns
         -------
@@ -609,13 +609,13 @@ class TTIRBuilder(TTIRBuilderOps):
         ----------
         shape : Shape
             The shape of the tensor
-        grid : Union[List, Tuple, ttcore.ir.GridAttr]
+        grid : *Union[List, Tuple, ttcore.ir.GridAttr]*
             Grid specification for the layout
         tiled : bool, optional
             Whether the layout is tiled (default: False)
         memorySpace : ttcore.MemorySpace, optional
             Memory space for the tensor (default: DeviceL1)
-        collapseIntervals : List[Tuple[int, int]], optional
+        collapseIntervals : *List[Tuple[int, int]]*, optional
             Intervals to collapse (default: [(0, -1)])
         oobVal : ttcore.OOBVal, optional
             Out-of-bounds value handling (default: Undef)
@@ -693,25 +693,25 @@ class TTIRBuilder(TTIRBuilderOps):
             Function that creates the operation using golden approach
         op_ttir_function : Callable
             Function that creates the operation using TTIR approach
-        inputs : List[Operand]
+        inputs : *List[Operand]*
             List of input operands for the operation
-        unit_attrs : Optional[List[str]], optional
+        unit_attrs : *Optional[List[str]]*, optional
             Optional list of unit attributes (default: None)
-        organize_ttir_args : Optional[Callable], optional
+        organize_ttir_args : *Optional[Callable]*, optional
             Function to organize TTIR arguments (default: None)
-        organize_golden_args : Optional[Callable], optional
+        organize_golden_args : *Optional[Callable]*, optional
             Function to organize golden arguments (default: None)
-        output_shape : Optional[Shape], optional
+        output_shape : *Optional[Shape]*, optional
             Shape of the output tensor (default: None)
-        output_type : Optional[Type], optional
+        output_type : *Optional[Type]*, optional
             Type of the output tensor (default: None)
-        output_create_fn : Optional[Callable], optional
+        output_create_fn : *Optional[Callable]*, optional
             Function to create output tensor (default: None)
         golden_kwargs : dict, optional
             Additional keyword arguments for golden function (default: {})
         ttir_kwargs : dict, optional
             Additional keyword arguments for TTIR function (default: {})
-        loc : Optional[Union[str, Location]], optional
+        loc : *Optional[Union[str, Location]]*, optional
             Source location information (default: None)
         Returns
         -------
@@ -818,9 +818,9 @@ class TTIRBuilder(TTIRBuilderOps):
             Function that creates the operation using golden approach
         op_ttir_function : Callable
             Function that creates the operation using TTIR approach
-        inputs : List[Operand]
+        inputs : *List[Operand]*
             List of input operands for the operation
-        unit_attrs : Optional[List[str]], optional
+        unit_attrs : *Optional[List[str]]*, optional
             Optional list of unit attributes (default: None)
         Returns
         -------
@@ -846,7 +846,7 @@ class TTIRBuilder(TTIRBuilderOps):
             Function that creates the operation using golden approach
         op_ttir_function : Callable
             Function that creates the operation using TTIR approach
-        inputs : List[Operand]
+        inputs : *List[Operand]*
             List of input operands for the operation
         kwargs : dict, optional
             Additional keyword arguments for both golden and TTIR functions (default: {})

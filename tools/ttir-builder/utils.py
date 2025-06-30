@@ -75,7 +75,7 @@ def shape_str(shape):
 
     Parameters
     ----------
-    shape : Union[Tuple[int, ...], List[int]]
+    shape : *Union[Tuple[int, ...], List[int]]*
         Shape to convert to string
 
     Returns
@@ -137,7 +137,7 @@ def create_custom_pipeline_fn(
         Pipeline string specification
     verify : bool, optional
         Whether to enable verification (default: True)
-    print_ir : Union[bool, str], optional
+    print_ir : *Union[bool, str]*, optional
         If True or a path string, enables IR printing (default: False)
 
     Returns
@@ -185,7 +185,7 @@ def build_mlir_module(
     fn : Callable
         Python function to be converted to MLIR
 
-    inputs_shapes : List[Shape]
+    inputs_shapes : *List[Shape]*
         Shapes of the respective ranked tensor inputs of the test function.
 
     module_dump : bool
@@ -383,10 +383,10 @@ def compile_to_flatbuffer(
     fn : Callable
         The TTIRBuilder function to compile. Must take `builder : TTIRBuilder` as a kwarg.
 
-    inputs_shapes : List[Shape]
+    inputs_shapes : *List[Shape]*
         Shapes of the respective ranked tensor inputs of the test function.
 
-    inputs_types : Optional[List[torch.dtype]], optional
+    inputs_types : *Optional[List[torch.dtype]]*, optional
         The dtypes to use for the inputs to `fn`. Note that if supplied,
         `len(inputs_shapes) == len(inputs_types)` must be true.
         Default is None.
@@ -402,14 +402,14 @@ def compile_to_flatbuffer(
     target : str
         Either "ttnn" or "ttmetal". This controls which backend to use.
 
-    custom_pipeline : Union[Callable, str], optional
+    custom_pipeline : *Union[Callable, str]*, optional
         Pipeline function to run.
         Can be either:
 
         - A Callable: custom_pipeline(module, options)
         - A str: "ttir-lower-to-layout,ttir-bufferization-pipeline"
 
-    mesh_shape : Optional[Tuple[int, int]], optional
+    mesh_shape : *Optional[Tuple[int, int]]*, optional
         A list that contains shape of the mesh to be applied on ttir to ttnn
         conversion path.
         Default is None.
@@ -418,7 +418,7 @@ def compile_to_flatbuffer(
         Set to True to print out generated TTIR MLIR module.
         Default is False.
 
-    print_ir : Union[bool, str], optional
+    print_ir : *Union[bool, str]*, optional
         Set to True to print IR to stdout. Set to dir path to print IR after
         each pass to its own file under that directory.
         Default is False.
