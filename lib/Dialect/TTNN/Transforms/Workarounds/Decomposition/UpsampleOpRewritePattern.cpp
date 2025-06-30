@@ -12,8 +12,8 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Support/LLVM.h"
-
 #include "llvm/Support/ErrorHandling.h"
+
 #include <cstdint>
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
@@ -26,18 +26,24 @@ enum UpsampleAxisLayout {
   DIM_COUNT = 4
 };
 
+constexpr int64_t TILE_WIDTH = tt::TileType::getDefaultShape()[1];
+
 int64_t getNumCores(llvm::ArrayRef<int64_t> workerGridShape, int64_t batchSize,
                     int64_t height, int64_t width) {
+  assert(workerGridShape.size() == 2 && "worker grid shape must be 2D");
+
   int64_t numCores = std::min(batchSize * height * width,
                               workerGridShape[0] * workerGridShape[1]);
+  // For height sharding strategy, we need to find the largest number of cores
+  // such that whole image (H, W) is kept in a single shard.
   while (numCores > 0) {
     if (batchSize * height % numCores == 0) {
       return numCores;
     }
     --numCores;
   }
-  // If no valid numCores found, return 0 to indicate failure.
-  return 0;
+
+  llvm_unreachable("proof that numCores >= 1 is trivial");
 }
 
 ttnn::CoreRangeSetAttr getShardGrid(MLIRContext *ctx,
@@ -48,9 +54,11 @@ ttnn::CoreRangeSetAttr getShardGrid(MLIRContext *ctx,
   // If `numCores` is less than `workerGridX`, we can use a single row of cores.
   if (numCores < workerGridX) {
     return ttnn::CoreRangeSetAttr::get(
-        ctx, ttnn::CoreRangeAttr::get(
-                 ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
-                 ttnn::CoreCoordAttr::get(ctx, numCores - 1, 0)));
+        ctx, /*core_ranges=*/{ttnn::CoreRangeAttr::get(
+            ctx,
+            /*start_coord=*/ttnn::CoreCoordAttr::get(ctx, /*x=*/0, /*y=*/0),
+            /*end_coord=*/
+            ttnn::CoreCoordAttr::get(ctx, /*x=*/numCores - 1, /*y=*/0))});
   }
 
   // If `numCores` is a multiple of `workerGridX`, we can use a full grid of
@@ -59,13 +67,17 @@ ttnn::CoreRangeSetAttr getShardGrid(MLIRContext *ctx,
     int64_t coreGridHeight = numCores / workerGridX;
     return ttnn::CoreRangeSetAttr::get(
         ctx,
-        ttnn::CoreRangeAttr::get(ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
-                                 ttnn::CoreCoordAttr::get(ctx, workerGridX - 1,
-                                                          coreGridHeight - 1)));
+        /*core_ranges=*/{ttnn::CoreRangeAttr::get(
+            ctx,
+            /*start_coord=*/ttnn::CoreCoordAttr::get(ctx, /*x=*/0, /*y=*/0),
+            /*end_coord=*/
+            ttnn::CoreCoordAttr::get(ctx, /*x=*/workerGridX - 1,
+                                     /*y=*/coreGridHeight - 1))});
   }
 
-  // Otherwise, we need to split the cores into two ranges, where the second
-  // range is partially filled row.
+  // Otherwise, we need to split the cores into two ranges, where the first
+  // range is a grid of maximal height, and the second range is partially filled
+  // row.
   int64_t coreGridXLarger = workerGridX;
   int64_t coreGridYLarger = numCores / coreGridXLarger;
 
@@ -74,14 +86,20 @@ ttnn::CoreRangeSetAttr getShardGrid(MLIRContext *ctx,
   int64_t coreGridYSmaller = coreGridYLarger + 1;
 
   return ttnn::CoreRangeSetAttr::get(
-      ctx, {ttnn::CoreRangeAttr::get(
-                ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
-                ttnn::CoreCoordAttr::get(ctx, coreGridXLarger - 1,
-                                         coreGridYLarger - 1)),
-            ttnn::CoreRangeAttr::get(
-                ctx, ttnn::CoreCoordAttr::get(ctx, 0, coreGridYSmaller - 1),
-                ttnn::CoreCoordAttr::get(ctx, coreGridXSmaller - 1,
-                                         coreGridYSmaller - 1))});
+      ctx, /*core_ranges=*/{
+          ttnn::CoreRangeAttr::get(
+              ctx,
+              /*start_coord=*/ttnn::CoreCoordAttr::get(ctx, /*x=*/0, /*y=*/0),
+              /*end_coord=*/
+              ttnn::CoreCoordAttr::get(ctx, /*x=*/coreGridXLarger - 1,
+                                       /*y=*/coreGridYLarger - 1)),
+          ttnn::CoreRangeAttr::get(
+              ctx, /*start_coord=*/
+              ttnn::CoreCoordAttr::get(ctx, /*x=*/0,
+                                       /*y=*/coreGridYSmaller - 1),
+              /*end_coord=*/
+              ttnn::CoreCoordAttr::get(ctx, /*x=*/coreGridXSmaller - 1,
+                                       /*y=*/coreGridYSmaller - 1))});
 }
 } // namespace
 
@@ -92,6 +110,10 @@ LogicalResult UpsampleOpBilinearShardingRewritePattern::matchAndRewrite(
   }
 
   RankedTensorType inputType = srcOp.getInput().getType();
+
+  // UpsampleOp in `bilinear` mode expects the input to be in `HeightSharded`
+  // memory layout, hence if it's already in that layout, we don't need to do
+  // anything.
   if (auto inputMemoryLayout =
           mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding())
               .getMemLayout();
@@ -105,16 +127,22 @@ LogicalResult UpsampleOpBilinearShardingRewritePattern::matchAndRewrite(
   auto inputWidth = inputType.getDimSize(WIDTH);
   auto inputChannel = inputType.getDimSize(CHANNEL);
 
+  assert(inputChannel % TILE_WIDTH == 0 &&
+         "input channel size must be a multiple of tile width");
+
+  // We need to find strategy for sharding the input tensor.
   tt::GridAttr workerGrid = lookupDevice(srcOp.getOperation()).getWorkerGrid();
   auto numCores =
       getNumCores(workerGrid.getShape(), inputBatch, inputHeight, inputWidth);
   ttnn::CoreRangeSetAttr shardGrid =
       getShardGrid(getContext(), workerGrid.getShape(), numCores);
 
+  // We are using `HeightSharded` memory layout for the input tensor, hence the
+  // shards are split by first three dimensions (N, H, W).
   auto inputShardHeight = inputBatch * inputHeight * inputWidth / numCores;
   auto inputShardWidth = inputChannel;
-  auto inputShardShape =
-      ttnn::ShapeAttr::get(getContext(), {inputShardHeight, inputShardWidth});
+  auto inputShardShape = ttnn::ShapeAttr::get(
+      getContext(), /*shape=*/{inputShardHeight, inputShardWidth});
   auto inputShardSpec = ttnn::ShardSpecAttr::get(
       getContext(), shardGrid, inputShardShape,
       ttnn::ShardOrientationAttr::get(getContext(),
@@ -124,18 +152,23 @@ LogicalResult UpsampleOpBilinearShardingRewritePattern::matchAndRewrite(
 
   auto inputShardedLayout = ttnn::TTNNLayoutAttr::get(
       getContext(), inputType.getShape(), inputType.getElementType(),
-      ttnn::BufferType::L1, tt::GridAttr::get(getContext(), {numCores, 1}),
+      ttnn::BufferType::L1,
+      tt::GridAttr::get(getContext(), /*shape=*/{numCores, 1}),
       ttnn::TensorMemoryLayoutAttr::get(
           getContext(), ttnn::TensorMemoryLayout::HeightSharded));
-  assert(inputShardedLayout.getLayout() == ttnn::Layout::RowMajor);
+  assert(inputShardedLayout.getLayout() == ttnn::Layout::RowMajor &&
+         "expected RowMajor layout");
   auto inputShardedMemoryConfig = ttnn::MemoryConfigAttr::get(
       getContext(),
       ttnn::TensorMemoryLayoutAttr::get(
           getContext(), ttnn::TensorMemoryLayout::HeightSharded),
       ttnn::BufferTypeAttr::get(getContext(), ttnn::BufferType::L1),
       inputShardSpec);
+
+  // Convert the input tensor to the target memory configuration.
   auto inputToMemoryConfigOp = rewriter.create<ttnn::ToMemoryConfigOp>(
-      srcOp.getInput().getLoc(),
+      ttmlir::utils::appendLocationSuffix(srcOp.getInput().getLoc(),
+                                          "to_memory_config"),
       inputType.cloneWithEncoding(inputShardedLayout), srcOp.getInput(),
       inputShardedMemoryConfig);
 
@@ -149,8 +182,8 @@ LogicalResult UpsampleOpBilinearShardingRewritePattern::matchAndRewrite(
 
   auto outputShardHeight = inputShardHeight * scaleH * scaleW;
   auto outputShardWidth = inputShardWidth;
-  auto outputShardShape =
-      ttnn::ShapeAttr::get(getContext(), {outputShardHeight, outputShardWidth});
+  auto outputShardShape = ttnn::ShapeAttr::get(
+      getContext(), /*shape=*/{outputShardHeight, outputShardWidth});
   auto outputShardSpec = ttnn::ShardSpecAttr::get(
       getContext(), shardGrid, outputShardShape,
       ttnn::ShardOrientationAttr::get(getContext(),
@@ -160,7 +193,7 @@ LogicalResult UpsampleOpBilinearShardingRewritePattern::matchAndRewrite(
   auto outputShardedLayout = ttnn::TTNNLayoutAttr::get(
       getContext(), srcOp.getType().getShape(),
       srcOp.getType().getElementType(), ttnn::BufferType::L1,
-      tt::GridAttr::get(getContext(), {numCores, 1}),
+      tt::GridAttr::get(getContext(), /*shape=*/{numCores, 1}),
       ttnn::TensorMemoryLayoutAttr::get(
           getContext(), ttnn::TensorMemoryLayout::HeightSharded));
   auto outputShardedMemoryConfig = ttnn::MemoryConfigAttr::get(
@@ -170,6 +203,8 @@ LogicalResult UpsampleOpBilinearShardingRewritePattern::matchAndRewrite(
       ttnn::BufferTypeAttr::get(getContext(), ttnn::BufferType::L1),
       outputShardSpec);
 
+  // UpsampleOp is done on height sharded input, and produces height shraded
+  // output.
   auto shardedUpsampleOp = rewriter.create<ttnn::UpsampleOp>(
       srcOp.getLoc(), srcOp.getType().cloneWithEncoding(outputShardedLayout),
       inputToMemoryConfigOp, srcOp.getScaleFactorAttr(), srcOp.getModeAttr(),
@@ -182,6 +217,8 @@ LogicalResult UpsampleOpBilinearShardingRewritePattern::matchAndRewrite(
       ttnn::BufferTypeAttr::get(getContext(), outputLayout.getBufferType()),
       ttnn::utils::createShardSpecIfNeeded(outputLayout, workerGrid));
 
+  // Since the output of the new UpsampleOp is height sharded, we need to
+  // convert it back to the original memory configuration.
   auto outputToMemoryConfigOp = rewriter.create<ttnn::ToMemoryConfigOp>(
       ttmlir::utils::appendLocationSuffix(shardedUpsampleOp.getLoc(),
                                           "to_memory_config"),
@@ -199,7 +236,6 @@ LogicalResult UpsampleOpBilinearPaddingRewritePattern::matchAndRewrite(
   }
 
   RankedTensorType inputType = srcOp.getInput().getType();
-  constexpr auto TILE_WIDTH = tt::TileType::getDefaultShape()[1];
 
   // UpsampleOp in `bilinear` mode expects CHANNEL dimension to be a multiple of
   // TILE_WIDTH, hence we don't apply this pattern if that's already the case.
@@ -274,6 +310,9 @@ LogicalResult UpsampleOpLayoutRewritePattern::matchAndRewrite(
   auto outputLayoutAttr =
       mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding());
 
+  // UpsampleOp expects the input and the output in `RowMajor` layout, and with
+  // `BFloat16` data type. Hence, if the condition is already met, we don't need
+  // to do anything.
   if (!inputLayoutAttr.isTiled() && !outputLayoutAttr.isTiled() &&
       inputLayoutAttr.getElementType().isBF16() &&
       outputLayoutAttr.getElementType().isBF16()) {
@@ -292,10 +331,14 @@ LogicalResult UpsampleOpLayoutRewritePattern::matchAndRewrite(
                                        deviceAttr.getWorkerGrid()));
   }
 
+  // Convert the input to `RowMajor` layout with `BFloat16` data type.
   auto inputToLayoutOp = ttnn::utils::createToLayoutOp(
       srcOp.getOperation(), srcOp.getInput(), rewriter, TARGET_LAYOUT,
       inputLayoutAttr.getBufferType(), inputLayoutAttr.getMemLayoutOpt(),
       TARGET_DTYPE, "to_layout");
+
+  // UpsampleOp is replace with the new one, that takes the input in the target
+  // configuration, and produces the output in the target configuration.
   auto targetLayoutUpsampleOp = rewriter.create<ttnn::UpsampleOp>(
       srcOp.getLoc(),
       outputType.cloneWithEncoding(outputLayoutAttr.withElementType(
@@ -304,6 +347,8 @@ LogicalResult UpsampleOpLayoutRewritePattern::matchAndRewrite(
           outputType.getShape())),
       inputToLayoutOp, srcOp.getScaleFactorAttr(), srcOp.getModeAttr(),
       /*memory_config=*/nullptr);
+
+  // Convert the output back to the original memory configuration.
   auto outputToLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
       ttmlir::utils::appendLocationSuffix(targetLayoutUpsampleOp.getLoc(),
                                           "to_layout"),
