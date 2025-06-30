@@ -25,14 +25,6 @@ Contents
 .. toctree::
    :maxdepth: 2
 
-   api
-
-API Reference
-=============
-
-.. autosummary::
-   :toctree:
-   :recursive:
-
-   ttir_builder.ops
-   ttir_builder.utils
+   apis
+   utils
+   ops

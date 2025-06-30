@@ -28,12 +28,6 @@ TT_MLIR_HOME = os.environ.get("TT_MLIR_HOME", "")
 OUTPUT_PATH = ""
 
 
-def autodoc_skip(func):
-    func.__autodoc_skip__ = True
-    return func
-
-
-@autodoc_skip
 class Marks:
     """
     Convenience class for adding pytest marks.
@@ -498,7 +492,3 @@ def compile_to_flatbuffer(
         module_logger.module_log if module_logger.module_log else [],
     )
     print(f"{target} flatbuffer created successfully.")
-
-
-# Remove autodoc_skip from Sphinx documentation
-del autodoc_skip
