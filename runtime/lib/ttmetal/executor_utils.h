@@ -104,31 +104,6 @@ inline std::shared_ptr<tt_metal::Buffer> createBufferFromBufferRef(
     tt_metal::IDevice *device, const target::metal::BufferRef *bufferRef,
     const DeviceAddressValidator &deviceAddressValidator) {
   const target::metal::BufferDesc *bufferDesc = bufferRef->desc();
-  const target::metal::ShardedBufferConfig *shardedBufferConfig =
-      bufferDesc->sharded_buffer_config();
-  const target::metal::ShardSpecBuffer *shardSpecBuffer =
-      shardedBufferConfig->shard_spec_buffer();
-  const target::metal::ShardSpec *shardSpec = shardSpecBuffer->shard_spec();
-
-  CoreRangeSet coreRangeSet =
-      common::toCoreRangeSet(shardSpec->core_range_set());
-  std::array<uint32_t, 2> shardShape = {
-      static_cast<uint32_t>(shardSpec->shard_shape()->y()),
-      static_cast<uint32_t>(shardSpec->shard_shape()->x()),
-  };
-  tt_metal::ShardSpec metalShardSpec(coreRangeSet, shardShape);
-
-  std::array<uint32_t, 2> pageShape = {
-      static_cast<uint32_t>(shardSpecBuffer->page_shape()->y()),
-      static_cast<uint32_t>(shardSpecBuffer->page_shape()->x()),
-  };
-  std::array<uint32_t, 2> tensorShapeInPages = {
-      static_cast<uint32_t>(shardSpecBuffer->tensor_shape_in_pages()->y()),
-      static_cast<uint32_t>(shardSpecBuffer->tensor_shape_in_pages()->x()),
-  };
-  tt_metal::ShardSpecBuffer metalShardSpecBuffer(metalShardSpec, pageShape,
-                                                 tensorShapeInPages);
-
   LOG_ASSERT(bufferDesc->memory_space() == target::MemorySpace::DeviceDRAM ||
              bufferDesc->memory_space() == target::MemorySpace::DeviceL1);
   tt_metal::BufferType bufferType =
@@ -136,23 +111,67 @@ inline std::shared_ptr<tt_metal::Buffer> createBufferFromBufferRef(
           ? tt_metal::BufferType::DRAM
           : tt_metal::BufferType::L1;
 
-  auto metalShardedBufferConfig = tt_metal::ShardedBufferConfig{
-      .device = device,
-      .size = shardedBufferConfig->size(),
-      .page_size = shardedBufferConfig->page_size(),
-      .buffer_type = bufferType,
-      .buffer_layout = tt_metal::TensorMemoryLayout::BLOCK_SHARDED,
-      .shard_parameters = metalShardSpecBuffer,
-  };
+  if (bufferDesc->buffer_config_as_ShardedBufferConfig()) {
+    const target::metal::ShardedBufferConfig *shardedBufferConfig =
+        bufferDesc->buffer_config_as_ShardedBufferConfig();
+    const target::metal::ShardSpecBuffer *shardSpecBuffer =
+        shardedBufferConfig->shard_spec_buffer();
+    const target::metal::ShardSpec *shardSpec = shardSpecBuffer->shard_spec();
 
-  LOG_TRACE(logger::LogRuntimeTTMetalBufferCreation, "Creating ",
-            logger::Buffer(bufferRef->global_id()), ": ", *bufferRef);
-  uint32_t address = deviceAddressValidator(bufferRef->address(),
-                                            bufferRef->desc()->memory_space());
-  std::shared_ptr<tt_metal::Buffer> buffer =
-      tt_metal::CreateBuffer(metalShardedBufferConfig, address);
+    CoreRangeSet coreRangeSet =
+        common::toCoreRangeSet(shardSpec->core_range_set());
+    std::array<uint32_t, 2> shardShape = {
+        static_cast<uint32_t>(shardSpec->shard_shape()->y()),
+        static_cast<uint32_t>(shardSpec->shard_shape()->x()),
+    };
+    tt_metal::ShardSpec metalShardSpec(coreRangeSet, shardShape);
 
-  return buffer;
+    std::array<uint32_t, 2> pageShape = {
+        static_cast<uint32_t>(shardSpecBuffer->page_shape()->y()),
+        static_cast<uint32_t>(shardSpecBuffer->page_shape()->x()),
+    };
+    std::array<uint32_t, 2> tensorShapeInPages = {
+        static_cast<uint32_t>(shardSpecBuffer->tensor_shape_in_pages()->y()),
+        static_cast<uint32_t>(shardSpecBuffer->tensor_shape_in_pages()->x()),
+    };
+    tt_metal::ShardSpecBuffer metalShardSpecBuffer(metalShardSpec, pageShape,
+                                                   tensorShapeInPages);
+
+    auto metalShardedBufferConfig = tt_metal::ShardedBufferConfig{
+        .device = device,
+        .size = shardedBufferConfig->size(),
+        .page_size = shardedBufferConfig->page_size(),
+        .buffer_type = bufferType,
+        .buffer_layout = tt_metal::TensorMemoryLayout::BLOCK_SHARDED,
+        .shard_parameters = metalShardSpecBuffer,
+    };
+
+    LOG_TRACE(logger::LogRuntimeTTMetalBufferCreation, "Creating ",
+              logger::Buffer(bufferRef->global_id()), ": ", *bufferRef);
+    uint32_t address = deviceAddressValidator(
+        bufferRef->address(), bufferRef->desc()->memory_space());
+    std::shared_ptr<tt_metal::Buffer> buffer =
+        tt_metal::CreateBuffer(metalShardedBufferConfig, address);
+
+    return buffer;
+  } else {
+    const target::metal::InterleavedBufferConfig *interleavedBufferConfig =
+        bufferDesc->buffer_config_as_InterleavedBufferConfig();
+
+    auto metalInterleavedBufferConfig = tt_metal::InterleavedBufferConfig{
+        .device = device,
+        .size = interleavedBufferConfig->size(),
+        .page_size = interleavedBufferConfig->page_size(),
+        .buffer_type = bufferType};
+
+    LOG_TRACE(logger::LogRuntimeTTMetalBufferCreation, "Creating ",
+              logger::Buffer(bufferRef->global_id()), ": ", *bufferRef);
+    uint32_t address = deviceAddressValidator(
+        bufferRef->address(), bufferRef->desc()->memory_space());
+    std::shared_ptr<tt_metal::Buffer> buffer =
+        tt_metal::CreateBuffer(metalInterleavedBufferConfig, address);
+    return buffer;
+  }
 }
 #pragma clang diagnostic pop
 
