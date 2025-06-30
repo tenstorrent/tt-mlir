@@ -34,9 +34,11 @@ public:
 
     SmallVector<Value> newConcatOperands;
 
-    // Do not check the final operand as it is the DPS operand
-    for (size_t i = 0; i < op->getNumOperands() - 1; i++) {
-
+    for (size_t i = 0; i < op->getNumOperands(); i++) {
+      // Skip DPS operands
+      if (op.isDpsInit(&op->getOpOperand(i))) {
+        continue;
+      }
       Value operand = op->getOperand(i);
       RankedTensorType operandType = cast<RankedTensorType>(operand.getType());
 
@@ -74,9 +76,12 @@ public:
   performCommuteDownwardsRewrite(ConcatOp op, PermuteOp permuteOperand,
                                  PatternRewriter &rewriter) const override {
     // Create inverse permutes for each of the other concat operands
-    // Do not check the last operand as it is the DPS operand
     SmallVector<Value> newConcatOperands;
-    for (size_t i = 0; i < op->getNumOperands() - 1; i++) {
+    for (size_t i = 0; i < op->getNumOperands(); i++) {
+      if (op.isDpsInit(&op->getOpOperand(i))) {
+        continue;
+      }
+
       Value operand = op->getOperand(i);
       if (operand.getDefiningOp() == permuteOperand) {
         newConcatOperands.push_back(permuteOperand.getOperand(0));
@@ -131,11 +136,13 @@ private:
     // - Are an identical TM
     // - Are on a consteval-able path
 
-    // Do not check the final operand as it is the DPS operand
-    for (uint32_t i = 0; i < op->getNumOperands() - 1; i++) {
+    for (uint32_t i = 0; i < op->getNumOperands(); i++) {
+      if (op.isDpsInit(&op->getOpOperand(i))) {
+        continue;
+      }
       if (checkIdenticalTms(op->getOperand(i).getDefiningOp(),
                             permuteOperand) ||
-          valueTracesToConstantArgs(op->getOperand(i), this->constParams)) {
+          valueTracesToConstantArgs(op->getOperand(i))) {
         continue;
       }
       return false;
@@ -163,8 +170,10 @@ public:
                                  "that this value is not -1");
 
     ArrayRef<int64_t> newConcatShape = reshapeUser.getType().getShape();
-    // Do not check the final operand as it is the DPS operand
-    for (int64_t i = 0; i < op->getNumOperands() - 1; i++) {
+    for (int64_t i = 0; i < op->getNumOperands(); i++) {
+      if (op.isDpsInit(&op->getOpOperand(i))) {
+        continue;
+      }
       Value operand = op->getOperand(i);
       RankedTensorType operandType = cast<RankedTensorType>(operand.getType());
       SmallVector<int32_t> newOperandShape(newConcatShape);
@@ -276,11 +285,13 @@ private:
     // - Are an identical TM
     // - Are on a consteval-able path
 
-    // Do not check the final operand as it is the DPS operand
-    for (uint32_t i = 0; i < op->getNumOperands() - 1; i++) {
+    for (uint32_t i = 0; i < op->getNumOperands(); i++) {
+      if (op.isDpsInit(&op->getOpOperand(i))) {
+        continue;
+      }
       if (checkIdenticalTms(op->getOperand(i).getDefiningOp(),
                             reshapeOperand) ||
-          valueTracesToConstantArgs(op->getOperand(i), this->constParams)) {
+          valueTracesToConstantArgs(op->getOperand(i))) {
         continue;
       }
       return false;
@@ -291,20 +302,15 @@ private:
 } // namespace
 
 template <CommuteDirection commuteDirection>
-void populateConcatCommutePatterns(
-    MLIRContext *ctx, RewritePatternSet &patterns,
-    const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams) {
-  patterns.insert<TTIRCommutePermuteThroughConcat<commuteDirection>>(
-      ctx, constParams);
-  patterns.insert<TTIRCommuteReshapeThroughConcat<commuteDirection>>(
-      ctx, constParams);
+void populateConcatCommutePatterns(MLIRContext *ctx,
+                                   RewritePatternSet &patterns) {
+  patterns.insert<TTIRCommutePermuteThroughConcat<commuteDirection>>(ctx);
+  patterns.insert<TTIRCommuteReshapeThroughConcat<commuteDirection>>(ctx);
 }
 
 template void populateConcatCommutePatterns<CommuteDirection::UPWARDS>(
-    MLIRContext *ctx, RewritePatternSet &patterns,
-    const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams);
+    MLIRContext *ctx, RewritePatternSet &patterns);
 template void populateConcatCommutePatterns<CommuteDirection::DOWNWARDS>(
-    MLIRContext *ctx, RewritePatternSet &patterns,
-    const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams);
+    MLIRContext *ctx, RewritePatternSet &patterns);
 
 } // namespace mlir::tt::ttir
