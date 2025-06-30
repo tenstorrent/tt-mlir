@@ -26,7 +26,7 @@ countTms(Operation *op,
     if (isa<TransposeOp, PermuteOp, ReshapeOp>(op)) {
       // If the TM lies on a constevalable subgraph then we will not count it
       // as it will be removed from the main graph.
-      if (!valueTracesToConstantArgs(op->getResult(0), constParams)) {
+      if (!valueTracesToConstantArgs(op->getResult(0))) {
         tmCount++;
       }
     }
@@ -53,7 +53,7 @@ public:
       return;
     }
 
-    auto constParams = mlir::tt::getConstsAndParams(funcOps[0]);
+    auto constParams = ttcore::getConstsAndParams(funcOps[0]);
     commuteAbovePatterns =
         getCommuteRewritePatternSet<CommuteDirection::UPWARDS>(constParams);
     commuteBelowPatterns =
@@ -130,11 +130,9 @@ private:
       llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams) {
     RewritePatternSet patterns(&getContext());
     populateElementwiseCommutePatterns<commuteDirection>(&getContext(),
-                                                         patterns, constParams);
-    populateBroadcastCommutePatterns<commuteDirection>(&getContext(), patterns,
-                                                       constParams);
-    populateConcatCommutePatterns<commuteDirection>(&getContext(), patterns,
-                                                    constParams);
+                                                         patterns);
+    populateBroadcastCommutePatterns<commuteDirection>(&getContext(), patterns);
+    populateConcatCommutePatterns<commuteDirection>(&getContext(), patterns);
 
     populateTTIRTMFusionPatterns(&getContext(), patterns);
     return patterns;

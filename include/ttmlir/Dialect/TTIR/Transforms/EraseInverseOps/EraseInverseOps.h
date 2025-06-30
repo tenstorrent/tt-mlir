@@ -5,41 +5,50 @@
 #ifndef TTMLIR_DIALECT_TTIR_TRANSFORMS_ERASEINVERSEOPS_ERASEINVERSEOPS_H
 #define TTMLIR_DIALECT_TTIR_TRANSFORMS_ERASEINVERSEOPS_ERASEINVERSEOPS_H
 
+#include "mlir/Analysis/TopologicalSortUtils.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 
 namespace mlir::tt::ttir {
 
 // This function will return true if a given Value is the result of operations
 // performed only between constant-like ops and/or block arguments in
-// `constParams`. `constParams` should contain all function arguments
-// which are consteval-able.
-static bool valueTracesToConstantArgs(
-    Value value, const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams) {
-  if (isa_and_nonnull<ConstantOp, ArangeOp, FullOp, EmptyOp, OnesOp>(
-          value.getDefiningOp())) {
-    return true;
-  }
+// which have been marked as consteval-able (Parameter or Constant
+// ArgumentType).
+static bool valueTracesToConstantArgs(const Value &value) {
 
-  if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(value)) {
-    if (constParams.contains(blockArg)) {
-      return true;
+  auto useDefChain = ttmlir::utils::getUseDefChain(value);
+  auto subgraphBlockArgs =
+      ttmlir::utils::filterBlockArguments(useDefChain.getArrayRef());
+  mlir::func::FuncOp funcOp = nullptr;
+
+  if (!subgraphBlockArgs.empty()) {
+    Block *argOwner = subgraphBlockArgs.front().getOwner();
+    if (!argOwner) {
+      return false;
     }
+    funcOp = dyn_cast_or_null<mlir::func::FuncOp>(argOwner->getParentOp());
+  }
+  if (!funcOp) {
     return false;
   }
 
-  if (Operation *op = value.getDefiningOp()) {
-
-    for (Value operand : op->getOperands()) {
-      if (!valueTracesToConstantArgs(operand, constParams)) {
+  for (auto blockArg : subgraphBlockArgs) {
+    if (auto typeAttr = funcOp.getArgAttrOfType<ttcore::ArgumentTypeAttr>(
+            blockArg.getArgNumber(), ttcore::ArgumentTypeAttr::name)) {
+      if (typeAttr.getValue() != ttcore::ArgumentType::Parameter &&
+          typeAttr.getValue() != ttcore::ArgumentType::Constant) {
         return false;
       }
+    } else {
+      return false;
     }
-
-    return true;
   }
-  llvm_unreachable("The end of this function should never be reached");
+
+  return true;
 }
 
 enum CommuteDirection { DOWNWARDS, UPWARDS };
@@ -48,10 +57,6 @@ template <typename TMOpType, typename CommutableOpOrInterface,
           CommuteDirection commuteDirection>
 class TTIRCommuteRewritePatternBase {
 public:
-  TTIRCommuteRewritePatternBase(
-      llvm::SmallPtrSet<mlir::BlockArgument, 4> constParams) {
-    this->constParams = constParams;
-  }
   virtual ~TTIRCommuteRewritePatternBase() noexcept = default;
 
 protected:
@@ -92,11 +97,11 @@ protected:
       // We have found a user that we can and should commute above `op`.
       performCommuteUpwardsRewrite(op, tmToCommute, rewriter);
 
-    } else {
+    } else if constexpr (commuteDirection == CommuteDirection::DOWNWARDS) {
       for (Value operand : op->getOperands()) {
         // We do not want to commute any tms downwards which are already a part
         // of a consteval-able path
-        if (valueTracesToConstantArgs(operand, constParams)) {
+        if (valueTracesToConstantArgs(operand)) {
           continue;
         }
         auto tmOperand = operand.getDefiningOp<TMOpType>();
@@ -126,17 +131,13 @@ protected:
         return failure();
       }
 
-      // We have found a user that we can and should commute above `op`.
+      // We have found a user that we can and should commute below `op`.
       performCommuteDownwardsRewrite(op, tmToCommute, rewriter);
+    } else {
+      llvm_unreachable("Invalid commute direction");
     }
     return success();
   }
-
-  // This is set is used to determine which function arguments can/will be
-  // hoisted into a consteval graph. This is used to determine if inserting
-  // a TM on the operand of some commutable op is essentially free, as
-  // it will be hoisted into the consteval graph.
-  llvm::SmallPtrSet<mlir::BlockArgument, 4> constParams;
 
 private:
   // This should return `true` if `tmUser` can be commuted above `op`.
@@ -204,12 +205,8 @@ class TTIRCommuteOpInterfaceRewritePattern
       public TTIRCommuteRewritePatternBase<TMOpType, CommutableOpInterface,
                                            commuteDirection> {
 public:
-  TTIRCommuteOpInterfaceRewritePattern(
-      mlir::MLIRContext *ctx,
-      const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams)
-      : OpInterfaceRewritePattern<CommutableOpInterface>(ctx),
-        TTIRCommuteRewritePatternBase<TMOpType, CommutableOpInterface,
-                                      commuteDirection>(constParams) {}
+  using OpInterfaceRewritePattern<
+      CommutableOpInterface>::OpInterfaceRewritePattern;
 
   LogicalResult matchAndRewrite(CommutableOpInterface op,
                                 PatternRewriter &rewriter) const override {
@@ -226,12 +223,7 @@ class TTIRCommuteOpRewritePattern
       public TTIRCommuteRewritePatternBase<TMOpType, CommutableOp,
                                            commuteDirection> {
 public:
-  TTIRCommuteOpRewritePattern(
-      mlir::MLIRContext *ctx,
-      const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams)
-      : OpRewritePattern<CommutableOp>(ctx),
-        TTIRCommuteRewritePatternBase<TMOpType, CommutableOp, commuteDirection>(
-            constParams) {}
+  using OpRewritePattern<CommutableOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(CommutableOp op,
                                 PatternRewriter &rewriter) const override {
@@ -311,17 +303,14 @@ inline Operation *getInverseTM(Operation *tm, Value input,
 }
 
 template <CommuteDirection commuteDirection>
-extern void populateElementwiseCommutePatterns(
-    MLIRContext *ctx, RewritePatternSet &patterns,
-    const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams);
+extern void populateElementwiseCommutePatterns(MLIRContext *ctx,
+                                               RewritePatternSet &patterns);
 template <CommuteDirection commuteDirection>
-extern void populateBroadcastCommutePatterns(
-    MLIRContext *ctx, RewritePatternSet &patterns,
-    const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams);
+extern void populateBroadcastCommutePatterns(MLIRContext *ctx,
+                                             RewritePatternSet &patterns);
 template <CommuteDirection commuteDirection>
-extern void populateConcatCommutePatterns(
-    MLIRContext *ctx, RewritePatternSet &patterns,
-    const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams);
+extern void populateConcatCommutePatterns(MLIRContext *ctx,
+                                          RewritePatternSet &patterns);
 
 } // namespace mlir::tt::ttir
 

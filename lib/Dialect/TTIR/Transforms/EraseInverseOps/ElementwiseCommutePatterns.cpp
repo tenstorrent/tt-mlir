@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 #include "ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/EraseInverseOps.h"
@@ -86,10 +87,17 @@ public:
         cast<RankedTensorType>(op->getResult(0).getType())
             .clone(tmOperand.getInput().getType().getShape());
     // For each of the other operands we must generate an inverse TM
-    // Do not want to do anything to the DPS operand (last one)
+    // Do not want to do anything to the DPS operand
     SmallVector<Value> newEltwiseOperands;
     for (uint32_t operandIdx = 0; operandIdx < op->getNumOperands() - 1;
          operandIdx++) {
+
+      if (auto asDpsOp =
+              dyn_cast<DestinationStyleOpInterface>(op.getOperation())) {
+        if (asDpsOp.isDpsInit(&asDpsOp->getOpOperand(operandIdx))) {
+          continue;
+        }
+      }
       Value operand = op->getOperand(operandIdx);
 
       if (operand.getDefiningOp() == tmOperand) {
@@ -147,10 +155,15 @@ private:
     // - Are an identical TM
     // - Are on a consteval-able path
 
-    // Do not check the final operand as it is the DPS operand
-    for (uint32_t i = 0; i < op->getNumOperands() - 1; i++) {
+    for (uint32_t i = 0; i < op->getNumOperands(); i++) {
+      if (auto asDpsOp =
+              dyn_cast<DestinationStyleOpInterface>(op.getOperation())) {
+        if (asDpsOp.isDpsInit(&asDpsOp->getOpOperand(i))) {
+          continue;
+        }
+      }
       if (checkIdenticalTms(op->getOperand(i).getDefiningOp(), tmOperand) ||
-          valueTracesToConstantArgs(op->getOperand(i), this->constParams)) {
+          valueTracesToConstantArgs(op->getOperand(i))) {
         continue;
       }
       return false;
@@ -161,9 +174,8 @@ private:
 } // namespace
 
 template <CommuteDirection commuteDirection>
-void populateElementwiseCommutePatterns(
-    MLIRContext *ctx, RewritePatternSet &patterns,
-    const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams) {
+void populateElementwiseCommutePatterns(MLIRContext *ctx,
+                                        RewritePatternSet &patterns) {
   patterns.add<
       TTIRCommuteTmsThroughElementwiseRewriter<PermuteOp, ElementwiseUnary,
                                                commuteDirection>,
@@ -172,15 +184,12 @@ void populateElementwiseCommutePatterns(
       TTIRCommuteTmsThroughElementwiseRewriter<PermuteOp, ElementwiseBinary,
                                                commuteDirection>,
       TTIRCommuteTmsThroughElementwiseRewriter<ReshapeOp, ElementwiseBinary,
-                                               commuteDirection>>(ctx,
-                                                                  constParams);
+                                               commuteDirection>>(ctx);
 }
 
 template void populateElementwiseCommutePatterns<CommuteDirection::UPWARDS>(
-    MLIRContext *ctx, RewritePatternSet &patterns,
-    const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams);
+    MLIRContext *ctx, RewritePatternSet &patterns);
 template void populateElementwiseCommutePatterns<CommuteDirection::DOWNWARDS>(
-    MLIRContext *ctx, RewritePatternSet &patterns,
-    const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams);
+    MLIRContext *ctx, RewritePatternSet &patterns);
 
 } // namespace mlir::tt::ttir

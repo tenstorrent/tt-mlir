@@ -198,6 +198,7 @@ public:
   using TTIRCommuteOpRewritePattern<
       ttir::ReshapeOp, ttir::BroadcastOp,
       commuteDirection>::TTIRCommuteOpRewritePattern;
+
   void performCommuteUpwardsRewrite(ttir::BroadcastOp op,
                                     ttir::ReshapeOp reshapeUser,
                                     PatternRewriter &rewriter) const override {
@@ -390,18 +391,14 @@ private:
 } // namespace
 
 template <CommuteDirection commuteDirection>
-void populateBroadcastCommutePatterns(
-    MLIRContext *ctx, RewritePatternSet &patterns,
-    const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams) {
+void populateBroadcastCommutePatterns(MLIRContext *ctx,
+                                      RewritePatternSet &patterns) {
   patterns.add<TTIRCommuteReshapeThroughBroadcast<commuteDirection>,
-               TTIRCommutePermuteThroughBroadcast<commuteDirection>>(
-      ctx, constParams);
+               TTIRCommutePermuteThroughBroadcast<commuteDirection>>(ctx);
 }
 
 template void populateBroadcastCommutePatterns<CommuteDirection::UPWARDS>(
-    MLIRContext *ctx, RewritePatternSet &patterns,
-    const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams);
+    MLIRContext *ctx, RewritePatternSet &patterns);
 template void populateBroadcastCommutePatterns<CommuteDirection::DOWNWARDS>(
-    MLIRContext *ctx, RewritePatternSet &patterns,
-    const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams);
+    MLIRContext *ctx, RewritePatternSet &patterns);
 } // namespace mlir::tt::ttir
