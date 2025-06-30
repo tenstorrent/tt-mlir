@@ -437,7 +437,8 @@ public:
           i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[0]);
       auto blockC =
           i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[1]);
-      rewriter.create<ttkernel::ComputeKernelHWStartupOp>(op->getLoc(), src, nullptr,dst);
+      rewriter.create<ttkernel::ComputeKernelHWStartupOp>(op->getLoc(), src,
+                                                          nullptr, dst);
       rewriter.create<ttkernel::TilizeInitOp>(op->getLoc(), src, blockC, dst);
       rewriter.create<ttkernel::ExperimentalTilizeBlockOp>(op->getLoc(), src,
                                                            dst, blockR, blockC);
@@ -452,7 +453,8 @@ public:
           i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[0]);
       auto blockC =
           i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[1]);
-      rewriter.create<ttkernel::ComputeKernelHWStartupOp>(op->getLoc(), src, nullptr, dst);
+      rewriter.create<ttkernel::ComputeKernelHWStartupOp>(op->getLoc(), src,
+                                                          nullptr, dst);
       rewriter.create<ttkernel::UntilizeInitOp>(op->getLoc(), src, dst);
       rewriter.create<ttkernel::ExperimentalUntilizeBlockOp>(
           op->getLoc(), src, dst, blockR, blockC);
