@@ -124,9 +124,15 @@ struct QuantizeConvolutionRewriter
   // quantize ops.
   LogicalResult checkQuantizeDequantizePair(SmallVector<Value> ops) const {
     for (auto op : ops) {
+      if (op.getDefiningOp() == nullptr) {
+        return failure();
+      }
       ttir::DequantizeOp dequantize =
           mlir::dyn_cast<ttir::DequantizeOp>(op.getDefiningOp());
       if (!dequantize) {
+        return failure();
+      }
+      if (dequantize.getInput().getDefiningOp() == nullptr) {
         return failure();
       }
       ttir::QuantizeOp quantize = mlir::dyn_cast<ttir::QuantizeOp>(
