@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "cdc0135403f21b2661e6abacce368c56d1a354c9")
+set(TT_METAL_VERSION "a46f78824d175632deb6f1208e1f30df37db7358")
 
 set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
 
@@ -97,7 +97,6 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
 elseif (CMAKE_BUILD_TYPE STREQUAL "Asan")
   set(TTMETAL_BUILD_TYPE "ASan")
 endif()
-set(TTMETAL_BUILD_TYPE "Release")
 
 set(METAL_BUILD_DIR ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
 set(METAL_INSTALL_PREFIX "${METAL_BUILD_DIR}")
