@@ -121,7 +121,7 @@ struct QuantizeConvolutionRewriter
 
   // helper function that takes an arbitrary set of mlir::Operations, checks
   // their inputs are both dequantize ops, then checks the inputs of those are
-  // quantize ops
+  // quantize ops.
   LogicalResult checkQuantizeDequantizePair(SmallVector<Value> ops) const {
     for (auto op : ops) {
       ttir::DequantizeOp dequantize =
@@ -136,7 +136,7 @@ struct QuantizeConvolutionRewriter
       }
       // check that dequantize and quantize have the same quantization scales
       // and zero points check both UniformQuantizedType and
-      // UniformQuantizedPerAxisType
+      // UniformQuantizedPerAxisType.
       auto dequantizeElementType =
           mlir::cast<RankedTensorType>(dequantize.getInput().getType())
               .getElementType();
@@ -204,13 +204,13 @@ struct QuantizeConvolutionRewriter
 
   LogicalResult matchAndRewrite(ttir::ConvolutionOp op,
                                 PatternRewriter &rewriter) const override {
-    // call the helper function for both op.getInput and op.getWeight
+    // call the helper function for both op.getInput and op.getWeight.
     SmallVector<Value> ops = {op.getInput(), op.getWeight()};
     if (failed(checkQuantizeDequantizePair(ops))) {
       return failure();
     }
 
-    // check the quantization is i8:f32
+    // check the quantization is i8:f32.
     auto quantInputOp = mlir::dyn_cast<ttir::QuantizeOp>(
         op.getInput().getDefiningOp()->getOperand(0).getDefiningOp());
     auto quantWeightOp = mlir::dyn_cast<ttir::QuantizeOp>(
@@ -229,10 +229,9 @@ struct QuantizeConvolutionRewriter
       return failure();
     }
 
-    // rewrite the convolution op to be quantized
-
+    // rewrite the convolution op to be quantized.
     // create the output quantized type, whose scale is input * weight and
-    // storage type is i32
+    // storage type is i32.
     auto storageType =
         IntegerType::get(rewriter.getContext(), 32, IntegerType::Signed);
     mlir::FailureOr<std::pair<int64_t, int64_t>> storageTypeMinMax =
@@ -254,7 +253,7 @@ struct QuantizeConvolutionRewriter
           quantInputType.getExpressedType(), scalesAndZeroPoints->first[0],
           scalesAndZeroPoints->second[0], storageTypeMin, storageTypeMax);
     } else {
-      // get the axis from the per-axis weight
+      // get the axis from the per-axis weight.
       quant::UniformQuantizedPerAxisType perAxisWeightType =
           dyn_cast<quant::UniformQuantizedPerAxisType>(quantWeightType);
       quantOutputType = quant::UniformQuantizedPerAxisType::get(
@@ -264,7 +263,7 @@ struct QuantizeConvolutionRewriter
           perAxisWeightType.getQuantizedDimension(), storageTypeMin,
           storageTypeMax);
     }
-    // output shape and encoding is same as original op output shape
+    // output shape and encoding is same as original op output shape.
     auto oldConvOutputType = cast<RankedTensorType>(op->getResult(0).getType());
     auto quantConvOutputType =
         RankedTensorType::get(oldConvOutputType.getShape(), quantOutputType,
@@ -278,12 +277,14 @@ struct QuantizeConvolutionRewriter
             op.getWindowStridesAttr(), op.getPaddingAttr(),
             op.getWindowReversalAttr(), op.getConvolutionLayoutAttr(),
             op.getFeatureGroupCountAttr(), op.getBatchGroupCountAttr());
-    llvm::errs() << quantConv << "\n";
-    //  gdb --args ttmlir-opt --ttir-quant-dequant-conversion
-    //  resnet_snippet_to_ttir.mlir
-    // create the quantized output
-    llvm::errs() << quantInputType << "\n" << quantWeightType << "\n";
-    return failure();
+    quantConv->setAttr("ttir.skip_qdq_commute", rewriter.getUnitAttr());
+    // now dequantize the convolution.
+    auto dequantize =
+        mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::DequantizeOp>(
+            rewriter, op->getLoc(), oldConvOutputType,
+            quantConv.getOperation()->getResult(0));
+    rewriter.replaceOp(op, dequantize);
+    return success();
   }
 };
 
