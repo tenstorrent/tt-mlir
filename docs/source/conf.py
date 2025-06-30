@@ -54,7 +54,7 @@ autodoc_default_options = {
 }
 autodoc_docstring_signature = True
 autodoc_typehints = "description"
-autodoc_member_order = "bysource"
+autodoc_member_order = "alphabetical"
 
 # Napoleon settings
 napoleon_numpy_docstring = True
