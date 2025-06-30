@@ -1,6 +1,13 @@
 // RUN: ttmlir-opt --ttir-quant-dequant-conversion %s | FileCheck %s
 module {
     func.func @test_quantized_conv(%arg0: tensor<1x3x224x224xf32>, %arg1: tensor<64x3x7x7xf32>) -> tensor<1x64x112x112xf32> {
+        // CHECK-LABEL: func.func @test_quantized_conv
+        // CHECK: "ttir.quantize"(%arg0
+        // CHECK: "ttir.quantize"(%arg1
+        // CHECK: "ttir.convolution"
+        // CHECK-SAME: ttir.skip_qdq_commute
+        // CHECK: "ttir.dequantize"
+        // CHECK: return
         %0 = ttir.empty() : tensor<1x3x224x224x!quant.uniform<i8:f32, 0.1>>
         %1 = "ttir.quantize"(%arg0, %0) : (tensor<1x3x224x224xf32>, tensor<1x3x224x224x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x3x224x224x!quant.uniform<i8:f32, 0.1>>
         %2 = ttir.empty() : tensor<1x3x224x224xf32>
