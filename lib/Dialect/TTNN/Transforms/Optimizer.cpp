@@ -27,15 +27,17 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/Visitors.h"
+#include "mlir/Support/LLVM.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
-#include <llvm/Support/Error.h>
-#include <mlir/Support/LLVM.h>
 
 namespace mlir::tt::ttnn {
 
@@ -773,41 +775,57 @@ private:
     }
   }
 
-  // Check if the op can be executed with row major layout on the input.
-  bool checkConstraintsForRowMajor(Operation *op,
-                                   std::vector<TTNNLayoutAttr> &inputLayouts,
-                                   OpConfig consumerConfig,
-                                   size_t l1CacheSize) {
-    TTNNLayoutAttr actLayout = inputLayouts[0];
+  // Converts TTNNLayoutAttr to RowMajor layout and returns new layout.
+  TTNNLayoutAttr convertTTNNLayoutToRowMajor(MLIRContext *context,
+                                             TTNNLayoutAttr layout,
+                                             llvm::ArrayRef<int64_t> shape) {
+    Type elementType =
+        utils::getElementType(context, Layout::RowMajor, layout.getDataType());
+    return layout.withElementType(elementType, shape);
+  }
 
-    Type elementType = utils::getElementType(op->getContext(), Layout::RowMajor,
-                                             actLayout.getDataType());
-    inputLayouts[0] = actLayout.withElementType(
-        elementType,
-        mlir::cast<RankedTensorType>(op->getOperand(0).getType()).getShape());
+  // Check if the op can be executed with row major layout on the input.
+  bool checkOpConstraints(Operation *op,
+                          std::vector<TTNNLayoutAttr> inputLayouts,
+                          size_t l1CacheSize, bool convertInputToRowMajor) {
+
+    if (convertInputToRowMajor) {
+      inputLayouts[0] = convertTTNNLayoutToRowMajor(
+          op->getContext(), inputLayouts[0],
+          mlir::cast<RankedTensorType>(op->getOperand(0).getType()).getShape());
+    }
 
     OpModel backend = mlir::dyn_cast<OpModel>(*op);
     assert(backend && "Backend constraints are not implemented for op");
 
-    auto rmOpConstraintsResult =
+    // Empty consumerConfig with conv2d config if conv2d op.
+    OpConfig consumerConfig;
+    if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(op)) {
+      consumerConfig.opSpecificAttr = conv2dOp.getConv2dConfigAttr();
+    }
+
+    auto opConstraintsResult =
         backend.getOpConstraints(inputLayouts, consumerConfig);
 
-    if (!rmOpConstraintsResult) {
-      op->emitOpError("Failed constraints call after inserting RM: " +
-                      llvm::toString(rmOpConstraintsResult.takeError()));
-      signalPassFailure();
+    if (!opConstraintsResult) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                   "Failed constraints call after: {}", op->getLoc());
+      op->emitWarning("Failed constraints call after: " +
+                      llvm::toString(opConstraintsResult.takeError()));
       return false;
     }
 
     auto [cBUsagePeak, tensorUsage, outputTensorUsage, outputLayout] =
-        rmOpConstraintsResult.get();
+        opConstraintsResult.get();
     constexpr float tensorL1UsageCap = 0.8;
     bool l1UsageValid =
         (outputTensorUsage + cBUsagePeak) < tensorL1UsageCap * l1CacheSize;
     if (!l1UsageValid) {
-      op->emitOpError("Failed L1 usage after inserting RM: " +
-                      llvm::toString(rmOpConstraintsResult.takeError()));
-      signalPassFailure();
+      op->emitWarning("L1 usage exceeded with " +
+                      std::to_string(outputTensorUsage + cBUsagePeak) +
+                      " out of " + std::to_string(l1CacheSize) +
+                      " scaled down to " +
+                      std::to_string(tensorL1UsageCap * l1CacheSize));
       return false;
     }
 
@@ -837,14 +855,11 @@ private:
         mlir::cast<TTNNLayoutAttr>(outputType.getEncoding());
 
     // Make a new layout with the same shape but row major.
-    Type elementType = utils::getElementType(op->getContext(), Layout::RowMajor,
-                                             inputLayout.getDataType());
-
-    // Tensor incoming to op will be row major.
-    TTNNLayoutAttr inputRowMajorLayout =
-        inputLayout.withElementType(elementType, inputType.getShape());
+    TTNNLayoutAttr inputRowMajorLayout = convertTTNNLayoutToRowMajor(
+        op->getContext(), inputLayout, inputType.getShape());
     RankedTensorType newInputTensorType = RankedTensorType::get(
-        inputType.getShape(), elementType, inputRowMajorLayout);
+        inputType.getShape(), inputRowMajorLayout.getElementType(),
+        inputRowMajorLayout);
 
     Location loc =
         ttmlir::utils::appendLocationSuffix(op->getLoc(), "_to_rm_before");
@@ -866,10 +881,11 @@ private:
 
     // Create new tensor type for the op's result.
     TTNNLayoutAttr outputRowMajorLayout = outputLayout.withElementType(
-        elementType,
+        outputLayout.getElementType(),
         mlir::cast<RankedTensorType>(op->getOperand(0).getType()).getShape());
     Type newTensorType = RankedTensorType::get(
-        outputType.getShape(), elementType, outputRowMajorLayout);
+        outputType.getShape(), outputRowMajorLayout.getElementType(),
+        outputRowMajorLayout);
 
     // Replace op's encoding with row major.
     op->getResult(0).setType(newTensorType);
@@ -911,6 +927,8 @@ private:
     }
   }
 
+  // Walks graph and for specific op types (MaxPool2d and Upsample) inserts
+  // necessary memory reconfigurations to convert tensors to row major layout.
   void insertRowMajorLayouts(func::FuncOp func, unsigned l1CacheSize) {
     func->walk([&](Operation *op) {
       if (!isa<ttnn::MaxPool2dOp>(op) && !isa<ttnn::UpsampleOp>(op)) {
@@ -921,26 +939,14 @@ private:
           mlir::cast<RankedTensorType>(op->getResult(0).getType());
       TTNNLayoutAttr resultLayout =
           mlir::cast<TTNNLayoutAttr>(resultType.getEncoding());
+
       if (resultLayout.hasShardedTensorMemoryLayout()) {
         return;
       }
 
       size_t numOperands = op->getNumOperands();
       assert(numOperands > 0 && "Expected at least one operand");
-
-      if (isa<ttnn::MaxPool2dOp>(op)) {
-        // Unequivocally surround with RM. Ideally we should query ttnn via
-        // getOpConstraints to see if RM is supported. But issue
-        // https://github.com/tenstorrent/tt-metal/issues/24358 blocks usage
-        // of getOpConstraints for MaxPool2d.
-        // TODO(rpavlovicTT): fix it once getOpConstraints is supported for
-        // MaxPool2d.
-        convertOpToRowMajorAndBack(op);
-        return;
-      }
-
       std::vector<TTNNLayoutAttr> inputLayouts;
-
       for (size_t i = 0; i < numOperands; i++) {
         auto operand = op->getOperand(i);
 
@@ -957,50 +963,37 @@ private:
         inputLayouts.push_back(layout);
       }
 
-      OpModel backend = mlir::dyn_cast<OpModel>(op);
-      assert(backend && "Backend constraints are not implemented for op");
-
-      // Empty consumerConfig with conv2d config if conv2d op.
-      OpConfig consumerConfig;
-      if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(op)) {
-        consumerConfig.opSpecificAttr = conv2dOp.getConv2dConfigAttr();
+      if (!inputLayouts[0].isTiled()) {
+        // Input is already in RowMajor, no need to convert.
+        return;
       }
 
-      llvm::Expected<op_model::ttnn::OpConstraints> opConstraintsResult =
-          backend.getOpConstraints(inputLayouts, consumerConfig);
-
-      bool failed = false;
-      if (!opConstraintsResult) {
-        failed = true;
-        op->emitWarning(llvm::toString(opConstraintsResult.takeError()));
+      if (isa<ttnn::MaxPool2dOp>(op)) {
+        // Unequivocally surround MaxPool2d with RM. Ideally we should query op
+        // constraints to see if RM is supported. But issue
+        // https://github.com/tenstorrent/tt-metal/issues/24358 blocks usage
+        // of getOpConstraints for MaxPool2d.
+        // TODO(rpavlovicTT): fix it once getOpConstraints is supported for
+        // MaxPool2d.
+        convertOpToRowMajorAndBack(op);
+        return;
       }
 
-      if (!failed) {
-        auto [cBUsagePeak, tensorUsage, outputTensorUsage, outputLayout] =
-            opConstraintsResult.get();
-        constexpr float tensorL1UsageCap = 0.8;
-        bool l1UsageValid =
-            (outputTensorUsage + cBUsagePeak) < tensorL1UsageCap * l1CacheSize;
-
-        if (!l1UsageValid) {
-          failed = true;
-          op->emitWarning("L1 usage exceeded with " +
-                          std::to_string(outputTensorUsage + cBUsagePeak) +
-                          " out of " + std::to_string(l1CacheSize) +
-                          " scaled down to " +
-                          std::to_string(tensorL1UsageCap * l1CacheSize));
-        }
-      }
-
-      if (!failed) {
-        // Constraints are satisfied, move on to next op.
+      // Let's check first if the op can be executed with the current layout.
+      if (checkOpConstraints(op, inputLayouts, l1CacheSize,
+                             /*convertInputToRowMajor=*/false)) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                     "Successfully passed constraints, no conversion needed");
         return;
       }
 
       // Failed to satisfy constraints, try with row major layout for the input
       // operand.
-      if (!checkConstraintsForRowMajor(op, inputLayouts, consumerConfig,
-                                       l1CacheSize)) {
+      if (!checkOpConstraints(op, inputLayouts, l1CacheSize,
+                              /*convertInputToRowMajor=*/true)) {
+        op->emitOpError(
+            "Failed to satisfy constraints with Tile and RM layouts");
+        signalPassFailure();
         return;
       }
 
