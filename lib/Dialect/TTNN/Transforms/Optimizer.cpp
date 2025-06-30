@@ -879,9 +879,10 @@ private:
     // Update op's operand.
     op->setOperand(0, memoryReconfigOpBefore->getResult(0));
 
-    // Create new tensor type for the op's result.
+    // Create new tensor type for the op's result. Reuse element type from the
+    // input.
     TTNNLayoutAttr outputRowMajorLayout = outputLayout.withElementType(
-        outputLayout.getElementType(),
+        inputRowMajorLayout.getElementType(),
         mlir::cast<RankedTensorType>(op->getOperand(0).getType()).getShape());
     Type newTensorType = RankedTensorType::get(
         outputType.getShape(), outputRowMajorLayout.getElementType(),
