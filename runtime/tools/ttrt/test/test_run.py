@@ -41,19 +41,18 @@ def test_flatbuffer_cmd_run():
     sub_process_command(command)
 
 
-@pytest.mark.skip()
-def test_dir_flatbuffer_run():
-    API.initialize_apis()
-    custom_args = {}
-    custom_args[
-        "--result-file"
-    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
-    custom_args["binary"] = DIRECTORY_PATH
-    run_instance = API.Run(args=custom_args)
-    run_instance()
+# This test causes a failure in pytest_runtest_teardown when skipped() so I will comment it out
+# def test_dir_flatbuffer_run():
+#     API.initialize_apis()
+#     custom_args = {}
+#     custom_args[
+#         "--result-file"
+#     ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+#     custom_args["binary"] = DIRECTORY_PATH
+#     run_instance = API.Run(args=custom_args)
+#     run_instance()
 
-
-# This test causes a different failure in pytest_runtest_teardown when skipped() so I will comment it out
+# This test causes a failure in pytest_runtest_teardown when skipped() so I will comment it out
 # def test_dir_flatbuffer_cmd_run():
 #     command = f"ttrt run {DIRECTORY_PATH} --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
 #     sub_process_command(command)
