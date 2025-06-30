@@ -195,7 +195,7 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
         Value view =
             blockedView(rewriter, op->getLoc(), operand.get(), newOperandType,
                         op.getIndexingMapsValue()[operand.getOperandNumber()],
-                        blockFactors);
+                        blockFactors, op.getIteratorTypesValue());
         rewriter.modifyOpInPlace(op, [&]() { operand.set(view); });
 
         if (dpsOp.isDpsInit(&operand)) {
@@ -219,43 +219,68 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
     }
 
     rewriter.setInsertionPointAfter(op);
-    auto emptyOp = rewriter.create<EmptyOp>(op->getLoc(), originalType);
-    auto toLayoutOp = rewriter.create<ToLayoutOp>(
-        op->getLoc(), op->getResult(0), emptyOp.getResult());
-    rewriter.replaceAllUsesExcept(op->getResult(0), toLayoutOp.getResult(0),
-                                  toLayoutOp);
+    auto viewLayoutOp = rewriter.create<ViewLayoutOp>(
+        op->getLoc(), originalType, op->getResult(0));
+    rewriter.replaceAllUsesExcept(op->getResult(0), viewLayoutOp.getResult(),
+                                  viewLayoutOp);
 
     return success();
   }
 
   static Value blockedView(PatternRewriter &rewriter, Location loc,
-                           Value tensor, RankedTensorType newOperandType,
+                           Value tensor, RankedTensorType newTensorType,
                            AffineMap indexingMap,
-                           ArrayRef<int64_t> blockFactors) {
-    auto emptyOp = rewriter.create<EmptyOp>(loc, newOperandType);
+                           ArrayRef<int64_t> blockFactors,
+                           SmallVector<ttcore::IteratorType> iteratorType) {
+    auto emptyOp = rewriter.create<EmptyOp>(loc, newTensorType);
     auto toLayoutOp =
         rewriter.create<ToLayoutOp>(loc, tensor, emptyOp.getResult());
     ttcore::MetalLayoutAttr metalLayout =
-        mlir::cast<ttcore::MetalLayoutAttr>(newOperandType.getEncoding());
-    SmallVector<int64_t> blockShape = indexingMap.compose(blockFactors);
-    for (auto [i, dim] :
-         llvm::enumerate(metalLayout.getGridShape(newOperandType))) {
-      // Handle the edge case where a 0 constant appears in the affine map, i.e.
-      // some kind of reduction or broadcast:
-      //   (d0, d1) -> (d0, 0)
-      if (blockShape[i] == 0) {
-        blockShape[i] = 1;
+        mlir::cast<ttcore::MetalLayoutAttr>(newTensorType.getEncoding());
+
+    SmallVector<int64_t> numBlocks = indexingMap.compose(blockFactors);
+
+    // Map iterator types according to the affine map
+    // For example: (d0, d1, d2) -> (d0, d2) with [parallel, parallel,
+    // reduction] should give [parallel, reduction]
+    SmallVector<ttcore::IteratorType> mappedIteratorTypes;
+
+    // Get the results of the indexing map
+    for (auto expr : indexingMap.getResults()) {
+      // If dimension expression, or symbol expression, push corresponding
+      // iterator type If constant, this is a reduction dimension
+      if (auto dimExpr = mlir::dyn_cast<mlir::AffineDimExpr>(expr)) {
+        mappedIteratorTypes.push_back(iteratorType[dimExpr.getPosition()]);
+      } else if (auto symbolExpr =
+                     mlir::dyn_cast<mlir::AffineSymbolExpr>(expr)) {
+        mappedIteratorTypes.push_back(iteratorType[symbolExpr.getPosition()]);
+      } else {
+        mappedIteratorTypes.push_back(ttcore::IteratorType::Reduction);
       }
-      blockShape[i] *= dim;
     }
 
-    auto viewOperandType = applyGridShape(newOperandType, blockShape);
+    for (auto [i, dim] :
+         llvm::enumerate(metalLayout.getGridShape(newTensorType))) {
+      // Handle the edge case where a 0 constant appears in the affine map, i.e.
+      // some kind of reduction or broadcast:
+      if (numBlocks[i] == 0) {
+        numBlocks[i] = 1;
+      }
+      // In the case of a reduction dim, we need to gather all of that dimension
+      // so we do not multiply the dim into the blocking factor.
+      if (mappedIteratorTypes[i] == ttcore::IteratorType::Parallel) {
+        numBlocks[i] *= dim;
+      }
+    }
+
+
+    auto viewOperandType = applyGridShape(newTensorType, numBlocks);
 
     // Do not insert ViewLayoutOp if the shapes are already identical.
     if (toLayoutOp.getType(0) == viewOperandType) {
       return toLayoutOp.getResult(0);
     }
-
+    
     return rewriter
         .create<ViewLayoutOp>(loc, toLayoutOp.getResult(0),
                               viewOperandType.getShape())
