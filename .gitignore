@@ -1,6 +1,6 @@
 .local
 **/build
-# third_party/tt-metal
+third_party/tt-metal
 third_party/ttnn-python
 .DS_STORE
 .vscode/*
@@ -43,7 +43,7 @@ test/lit.site.cfg.py
 /*.mlir
 
 # Root level log files (various tools generate logs)
-# /*.log
+/*.log
 
 # Obsidian editor files
 .obsidian/
