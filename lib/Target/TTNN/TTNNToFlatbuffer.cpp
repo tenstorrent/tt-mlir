@@ -1009,6 +1009,29 @@ template <typename AttrType>
 static AttrType getAttrFromConstantChain(mlir::Value tensorVal,
                                          const char *expectedTypeMsg) {
   mlir::Value firstInput = tensorVal;
+  // Recurse into the generated function for const-eval path.
+  if (mlir::tt::ttcore::LoadCachedOp loadCached =
+          firstInput.getDefiningOp<mlir::tt::ttcore::LoadCachedOp>()) {
+    mlir::FlatSymbolRefAttr symbolRef = loadCached.getCalleeAttr();
+    mlir::ModuleOp moduleOp = loadCached->getParentOfType<mlir::ModuleOp>();
+    mlir::func::FuncOp funcOp =
+        mlir::SymbolTable::lookupNearestSymbolFrom<mlir::func::FuncOp>(
+            moduleOp, symbolRef.getAttr());
+    if (!funcOp || funcOp.getNumArguments() > 0 || funcOp.getBody().empty()) {
+      llvm_unreachable("Invalid const-eval function structure.");
+    }
+    mlir::Block &entryBlock = funcOp.getBody().front();
+    mlir::Operation *terminator = entryBlock.getTerminator();
+    if (mlir::func::ReturnOp returnOp =
+            mlir::dyn_cast<mlir::func::ReturnOp>(terminator)) {
+      if (returnOp.getNumOperands() != 1) {
+        llvm_unreachable("Expected one return value from const-eval func.");
+      }
+      // Recurse on the returned value.
+      return getAttrFromConstantChain<AttrType>(returnOp.getOperand(0),
+                                                expectedTypeMsg);
+    }
+  }
   if constexpr (std::is_same_v<AttrType, int32_t>) {
     // typecast first op for per-tensor zp
     if (auto typeCastOp = firstInput.getDefiningOp<ttnn::TypecastOp>()) {
