@@ -487,27 +487,30 @@ def test_linear(shapes: List[Shape], request):
     )
 
 
+def pow(
+    in0: Operand,
+    in1: Operand,
+    builder: TTIRBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    in0_golden = builder._get_golden_tensor(in0)
+    in1_golden = builder._get_golden_tensor(in1)
+    randn_base_tensor = torch.randn(in0_golden.shape, dtype=in0_golden.dtype)
+    randn_exponent_tensor = torch.randn(in1_golden.shape, dtype=in1_golden.dtype)
+    if torch.is_floating_point(randn_exponent_tensor):
+        randn_base_tensor = torch.abs(randn_base_tensor)
+    output_golden = torch.pow(randn_base_tensor, randn_exponent_tensor)
+    builder.set_graph_input_output(
+        [randn_base_tensor, randn_exponent_tensor], [output_golden], override=True
+    )
+    return builder.pow(in0, in1, unit_attrs=unit_attrs)
+
+
 @pytest.mark.fails_golden
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_pow(shape: Shape, dtype: torch.dtype, target: str, request):
-    def pow(
-        in0: Operand,
-        in1: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        randn_base_tensor = torch.randn(shape, dtype=dtype)
-        randn_exponent_tensor = torch.randn(shape, dtype=dtype)
-        if torch.is_floating_point(randn_exponent_tensor):
-            randn_base_tensor = torch.abs(randn_base_tensor)
-        output_golden = torch.pow(randn_base_tensor, randn_exponent_tensor)
-        builder.set_graph_input_output(
-            [randn_base_tensor, randn_exponent_tensor], [output_golden], override=True
-        )
-        return builder.pow(in0, in1, unit_attrs=unit_attrs)
-
     compile_to_flatbuffer(
         pow,
         [shape, shape],
