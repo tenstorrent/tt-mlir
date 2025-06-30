@@ -774,7 +774,8 @@ class Binary(Flatbuffer):
         self,
         program_index,
         loop,
-        total_duration_ns,
+        total_submit_duration_ns,
+        total_get_outputs_duration_ns,
         total_ttnn_api_duration_ns=None,
         total_device_kernel_duration_ns=None,
     ):
@@ -787,8 +788,11 @@ class Binary(Flatbuffer):
             self.program_results[program_key][loop_key] = {}
 
         self.program_results[program_key][loop_key][
-            "total_duration_ns"
-        ] = total_duration_ns
+            "total_submit_duration_ns"
+        ] = total_submit_duration_ns
+        self.program_results[program_key][loop_key][
+            "total_get_outputs_duration_ns"
+        ] = total_get_outputs_duration_ns
         self.program_results[program_key][loop_key][
             "total_ttnn_api_duration_ns"
         ] = total_ttnn_api_duration_ns
