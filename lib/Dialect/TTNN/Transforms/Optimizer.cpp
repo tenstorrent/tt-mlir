@@ -773,6 +773,47 @@ private:
     }
   }
 
+  // Check if the op can be executed with row major layout on the input.
+  bool checkConstraintsForRowMajor(Operation *op,
+                                   std::vector<TTNNLayoutAttr> &inputLayouts,
+                                   OpConfig consumerConfig,
+                                   size_t l1CacheSize) {
+    TTNNLayoutAttr actLayout = inputLayouts[0];
+
+    Type elementType = utils::getElementType(op->getContext(), Layout::RowMajor,
+                                             actLayout.getDataType());
+    inputLayouts[0] = actLayout.withElementType(
+        elementType,
+        mlir::cast<RankedTensorType>(op->getOperand(0).getType()).getShape());
+
+    OpModel backend = mlir::dyn_cast<OpModel>(*op);
+    assert(backend && "Backend constraints are not implemented for op");
+
+    auto rmOpConstraintsResult =
+        backend.getOpConstraints(inputLayouts, consumerConfig);
+
+    if (!rmOpConstraintsResult) {
+      op->emitOpError("Failed constraints call after inserting RM: " +
+                      llvm::toString(rmOpConstraintsResult.takeError()));
+      signalPassFailure();
+      return false;
+    }
+
+    auto [cBUsagePeak, tensorUsage, outputTensorUsage, outputLayout] =
+        rmOpConstraintsResult.get();
+    constexpr float tensorL1UsageCap = 0.8;
+    bool l1UsageValid =
+        (outputTensorUsage + cBUsagePeak) < tensorL1UsageCap * l1CacheSize;
+    if (!l1UsageValid) {
+      op->emitOpError("Failed L1 usage after inserting RM: " +
+                      llvm::toString(rmOpConstraintsResult.takeError()));
+      signalPassFailure();
+      return false;
+    }
+
+    return true;
+  }
+
   // Surround op with memory reconfig ops that convert tensor to row major
   // layout for the op and revert the result back to tile layout. This will be
   // used as a workaround for MaxPool2d op which works with row major layout.
@@ -866,34 +907,12 @@ private:
       useOp->setOperand(use.second, memoryReconfigOpAfter->getResult(0));
       TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                    "Updated use: {}@{} input type: {}", useOp->getName(),
-                   useOp->getLoc(),
-                   useOp->getOperand(use.second).getType());
+                   useOp->getLoc(), useOp->getOperand(use.second).getType());
     }
   }
 
   void insertRowMajorLayouts(func::FuncOp func, unsigned l1CacheSize) {
-    // Walk through graph
-    // Pick ops that are not sharded
-    // We should do this after spillToDram to avoid interfering with shard
-    // chains but we should check if producer of input 0 is spillToDram, then we
-    // can change to RM along with changing memory config
-    //
-    // 0. Call getOpConstraints for that op, without output config
-    // 1. If it succeeds, check memory,
-    //      * if OOM go to step 3,
-    //      * else, declare success, move on to next op
-    // 2. If it fails, go to step 3
-    // 3. Change its input 0 to RM
-    // 4. Go to step 0
-
     func->walk([&](Operation *op) {
-      // if not a conv2d, maxpool2d, upsample skip
-      // skipping conv2d op for now
-      // processing only maxpool2d and upsample
-      // 1. maxpool2d insert RM always in front and after the op and change
-      // output layout to RM
-      // 2. do check op constraints with current layout and insert RM only if
-      // constraints are satisfied
       if (!isa<ttnn::MaxPool2dOp>(op) && !isa<ttnn::UpsampleOp>(op)) {
         return;
       }
@@ -943,7 +962,7 @@ private:
 
       // Empty consumerConfig with conv2d config if conv2d op.
       OpConfig consumerConfig;
-      if (auto conv2dOp = mlir::dyn_cast<mlir::tt::ttnn::Conv2dOp>(op)) {
+      if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(op)) {
         consumerConfig.opSpecificAttr = conv2dOp.getConv2dConfigAttr();
       }
 
@@ -980,41 +999,14 @@ private:
 
       // Failed to satisfy constraints, try with row major layout for the input
       // operand.
-      TTNNLayoutAttr actLayout = inputLayouts[0];
-
-      Type elementType = utils::getElementType(
-          op->getContext(), Layout::RowMajor, actLayout.getDataType());
-      [[maybe_unused]] TTNNLayoutAttr rowMajorLayout =
-          actLayout.withElementType(
-              elementType,
-              mlir::cast<RankedTensorType>(op->getOperand(0).getType())
-                  .getShape());
-
-      inputLayouts[0] = rowMajorLayout;
-      auto rmOpConstraintsResult =
-          backend.getOpConstraints(inputLayouts, consumerConfig);
-
-      if (!rmOpConstraintsResult) {
-        op->emitOpError("Failed constraints call after inserting RM: " +
-                        llvm::toString(rmOpConstraintsResult.takeError()));
-        signalPassFailure();
-        return;
-      }
-
-      auto [cBUsagePeak, tensorUsage, outputTensorUsage, outputLayout] =
-          rmOpConstraintsResult.get();
-      constexpr float tensorL1UsageCap = 0.8;
-      bool l1UsageValid =
-          (outputTensorUsage + cBUsagePeak) < tensorL1UsageCap * l1CacheSize;
-      if (!l1UsageValid) {
-        op->emitOpError("Failed L1 usage after inserting RM: " +
-                        llvm::toString(rmOpConstraintsResult.takeError()));
-        signalPassFailure();
+      if (!checkConstraintsForRowMajor(op, inputLayouts, consumerConfig,
+                                       l1CacheSize)) {
         return;
       }
 
       // Row major input passed constraints, let's add necessary conversions.
-      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "Successfully passed constraints after inserting RM");
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                   "Successfully passed constraints after inserting RM");
       convertOpToRowMajorAndBack(op);
     });
   }
