@@ -25,6 +25,8 @@ Contents
 .. toctree::
    :maxdepth: 2
 
+   api
+
 API Reference
 =============
 
@@ -32,6 +34,5 @@ API Reference
    :toctree:
    :recursive:
 
-   ttir_builder.apis
    ttir_builder.ops
    ttir_builder.utils

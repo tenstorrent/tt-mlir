@@ -49,7 +49,7 @@ autodoc_default_options = {
     "members": True,
     "undoc-members": False,
     "show-inheritance": True,
-    "inherited-members": True,
+    "inherited-members": False,
     "private-members": False,
 }
 autodoc_docstring_signature = True

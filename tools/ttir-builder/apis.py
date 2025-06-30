@@ -68,6 +68,19 @@ def get_loc_of_extra_file_callee(id: int = 0) -> Location:
 
 
 def get_loc_from_str(loc: Union[str, Location]) -> Location:
+    """
+    Converts a string location or Location object to a Location object.
+
+    Parameters
+    ----------
+    loc : Union[str, Location]
+        Either a string representing a location or an existing Location object
+
+    Returns
+    -------
+    Location
+        The resulting Location object
+    """
     if isinstance(loc, str):
         return Location.name(loc)
     else:
