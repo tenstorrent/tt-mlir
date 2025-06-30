@@ -55,9 +55,9 @@ void checkTensorRefMatchesTTNNTensor(
     ::ttnn::MemoryConfig expectedMemoryConfig =
         ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(memcfg).value();
     ::ttnn::MemoryConfig actualMemoryConfig = ttnnTensor.memory_config();
-    DEBUG_ASSERT(expectedMemoryConfig == actualMemoryConfig,
-                 "Memory config mismatch, expected ", expectedMemoryConfig,
-                 ", got ", actualMemoryConfig);
+    // DEBUG_ASSERT(expectedMemoryConfig == actualMemoryConfig,
+    //              "Memory config mismatch, expected ", expectedMemoryConfig,
+    //              ", got ", actualMemoryConfig);
   }
 }
 

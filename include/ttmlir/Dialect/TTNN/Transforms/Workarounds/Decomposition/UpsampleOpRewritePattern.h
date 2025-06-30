@@ -12,9 +12,31 @@
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 // TODO (azecevic): Add description!
-class UpsampleOpRewritePattern : public OpRewritePattern<ttnn::UpsampleOp> {
+class UpsampleOpBilinearShardingRewritePattern
+    : public OpRewritePattern<ttnn::UpsampleOp> {
 public:
-  using OpRewritePattern<ttnn::UpsampleOp>::OpRewritePattern;
+  UpsampleOpBilinearShardingRewritePattern(MLIRContext *ctx)
+      : OpRewritePattern<ttnn::UpsampleOp>(ctx, /*benefit=*/1) {}
+
+  LogicalResult matchAndRewrite(ttnn::UpsampleOp srcOp,
+                                PatternRewriter &rewriter) const override;
+};
+
+class UpsampleOpBilinearPaddingRewritePattern
+    : public OpRewritePattern<ttnn::UpsampleOp> {
+public:
+  UpsampleOpBilinearPaddingRewritePattern(MLIRContext *ctx)
+      : OpRewritePattern<ttnn::UpsampleOp>(ctx, /*benefit=*/2) {}
+
+  LogicalResult matchAndRewrite(ttnn::UpsampleOp srcOp,
+                                PatternRewriter &rewriter) const override;
+};
+
+class UpsampleOpLayoutRewritePattern
+    : public OpRewritePattern<ttnn::UpsampleOp> {
+public:
+  UpsampleOpLayoutRewritePattern(MLIRContext *ctx)
+      : OpRewritePattern<ttnn::UpsampleOp>(ctx, /*benefit=*/10) {}
 
   LogicalResult matchAndRewrite(ttnn::UpsampleOp srcOp,
                                 PatternRewriter &rewriter) const override;

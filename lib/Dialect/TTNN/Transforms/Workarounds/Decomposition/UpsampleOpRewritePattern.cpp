@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
@@ -76,9 +77,8 @@ ttnn::CoreRangeSetAttr getShardGrid(MLIRContext *ctx,
 }
 } // namespace
 
-LogicalResult
-UpsampleOpRewritePattern::matchAndRewrite(ttnn::UpsampleOp srcOp,
-                                          PatternRewriter &rewriter) const {
+LogicalResult UpsampleOpBilinearShardingRewritePattern::matchAndRewrite(
+    ttnn::UpsampleOp srcOp, PatternRewriter &rewriter) const {
   if (srcOp.getMode() != "bilinear") {
     return failure();
   }
@@ -121,6 +121,7 @@ UpsampleOpRewritePattern::matchAndRewrite(ttnn::UpsampleOp srcOp,
       ttnn::BufferType::L1, tt::GridAttr::get(getContext(), {numCores, 1}),
       ttnn::TensorMemoryLayoutAttr::get(
           getContext(), ttnn::TensorMemoryLayout::HeightSharded));
+  assert(inputShardedLayout.getLayout() == ttnn::Layout::RowMajor);
   auto inputShardedMemoryConfig = ttnn::MemoryConfigAttr::get(
       getContext(),
       ttnn::TensorMemoryLayoutAttr::get(
@@ -181,6 +182,65 @@ UpsampleOpRewritePattern::matchAndRewrite(ttnn::UpsampleOp srcOp,
       shardedUpsampleOp.getType().cloneWithEncoding(outputLayout),
       shardedUpsampleOp, outputMemoryConfig);
   rewriter.replaceOp(srcOp, outputToMemoryConfigOp);
+
+  return success();
+}
+
+LogicalResult UpsampleOpBilinearPaddingRewritePattern::matchAndRewrite(
+    ttnn::UpsampleOp srcOp, PatternRewriter &rewriter) const {
+  return failure();
+}
+
+LogicalResult UpsampleOpLayoutRewritePattern::matchAndRewrite(
+    ttnn::UpsampleOp srcOp, PatternRewriter &rewriter) const {
+  auto inputType = srcOp.getInput().getType();
+  auto outputType = srcOp.getType();
+
+  constexpr ttnn::Layout TARGET_LAYOUT = ttnn::Layout::RowMajor;
+  constexpr tt::DataType TARGET_DTYPE = tt::DataType::BFloat16;
+
+  auto inputLayoutAttr =
+      mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
+  auto outputLayoutAttr =
+      mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding());
+
+  if (!inputLayoutAttr.isTiled() && !outputLayoutAttr.isTiled() &&
+      inputLayoutAttr.getElementType().isBF16() &&
+      outputLayoutAttr.getElementType().isBF16()) {
+    return failure();
+  }
+
+  ttnn::MemoryConfigAttr outputMemoryConfig = srcOp.getMemoryConfigAttr();
+  if (!outputMemoryConfig) {
+    tt::DeviceAttr deviceAttr = tt::lookupDevice(srcOp);
+
+    outputMemoryConfig = ttnn::MemoryConfigAttr::get(
+        rewriter.getContext(), outputLayoutAttr.getMemLayout(),
+        ttnn::BufferTypeAttr::get(rewriter.getContext(),
+                                  outputLayoutAttr.getBufferType()),
+        utils::createShardSpecIfNeeded(outputLayoutAttr,
+                                       deviceAttr.getWorkerGrid()));
+  }
+
+  auto inputToLayoutOp = ttnn::utils::createToLayoutOp(
+      srcOp.getOperation(), srcOp.getInput(), rewriter, TARGET_LAYOUT,
+      inputLayoutAttr.getBufferType(), inputLayoutAttr.getMemLayoutOpt(),
+      TARGET_DTYPE, "to_layout");
+  auto targetLayoutUpsampleOp = rewriter.create<ttnn::UpsampleOp>(
+      srcOp.getLoc(),
+      outputType.cloneWithEncoding(outputLayoutAttr.withElementType(
+          ttnn::utils::getElementType(getContext(), TARGET_LAYOUT,
+                                      TARGET_DTYPE),
+          outputType.getShape())),
+      inputToLayoutOp, srcOp.getScaleFactorAttr(), srcOp.getModeAttr(),
+      /*memory_config=*/nullptr);
+  auto outputToLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
+      ttmlir::utils::appendLocationSuffix(targetLayoutUpsampleOp.getLoc(),
+                                          "to_layout"),
+      outputType, targetLayoutUpsampleOp, outputLayoutAttr.getLayout(),
+      tt::DataTypeAttr::get(getContext(), outputLayoutAttr.getDataType()),
+      outputMemoryConfig, utils::getOrInsertDevice(rewriter, srcOp));
+  rewriter.replaceOp(srcOp, outputToLayoutOp);
 
   return success();
 }

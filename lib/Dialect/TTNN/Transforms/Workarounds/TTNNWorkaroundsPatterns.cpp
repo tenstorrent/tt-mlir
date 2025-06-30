@@ -95,6 +95,7 @@ static bool workaroundInputOperand(
 
   // Apply the workarounds on the input operand by inserting the ToLayoutOp with
   // the desired tensor layout, buffer type and memory layout.
+  llvm::errs() << "Applying workarounds to input operand\n";
   mlir::Value insertedToLayoutOpValue = utils::createToLayoutOp(
       op.getOperation(), inputValue, rewriter,
       inputWorkaroundResults.tensorLayoutResult.targetValue,
@@ -259,11 +260,12 @@ class TTNNOperandsWorkaroundsRewriter
     : public OpInterfaceRewritePattern<wa::TTNNWorkaroundInterface> {
 public:
   TTNNOperandsWorkaroundsRewriter(MLIRContext *ctx)
-      : OpInterfaceRewritePattern<wa::TTNNWorkaroundInterface>(ctx) {}
+      : OpInterfaceRewritePattern<wa::TTNNWorkaroundInterface>(ctx,
+                                                               /*benefit=*/10) {
+  }
 
   LogicalResult matchAndRewrite(wa::TTNNWorkaroundInterface op,
                                 PatternRewriter &rewriter) const final {
-
     // To layout op is a special case, we don't want to rewrite it. We use it
     // to apply workarounds to the operands and results of TTNN operations.
     if (mlir::isa<ttnn::ToLayoutOp>(op.getOperation())) {
@@ -729,7 +731,10 @@ public:
               ttnn::MaxOp>,
           workarounds::decomposition::ReduceOpsPadInputRewritePattern<
               ttnn::MinOp>,
-          workarounds::decomposition::UpsampleOpRewritePattern>(&getContext());
+          workarounds::decomposition::UpsampleOpBilinearShardingRewritePattern,
+          workarounds::decomposition::UpsampleOpBilinearPaddingRewritePattern,
+          workarounds::decomposition::UpsampleOpLayoutRewritePattern>(
+          &getContext());
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);
