@@ -58,7 +58,7 @@ def update_device_tensor(program_context, tensor_ref, dst_tensor, src_tensor):
 
 
 def linear_model(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
-    builder._golden_check_level = GoldenCheckLevel.DISABLED
+    builder.golden_check_level = GoldenCheckLevel.DISABLED
     matmul_result = builder.matmul(in0, in1)
     output = builder.add(matmul_result, in2)
     return output
