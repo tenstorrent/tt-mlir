@@ -71,40 +71,49 @@ public:
       // will be removed from the activation paths, or until the maxIterations
       // is reached.
       uint64_t maxIterationsValue = maxIterations.getValue();
+      uint64_t numConsecutiveCountIncreases = 0;
       auto loopCondition = [maxIterationsValue](uint64_t iter) {
         return maxIterationsValue == 0 ? true : iter < maxIterationsValue;
       };
+
+      uint64_t previousAfterCommuteAboveTMCount =
+          std::numeric_limits<uint64_t>::max();
+      uint64_t previousAfterCommuteBelowTMCount =
+          std::numeric_limits<uint64_t>::max();
       for (uint64_t iter = 0; loopCondition(iter); ++iter) {
         // We do not yet have a way of returning the beginning state of the
         // graph So we will return after we have commuted the TMs above at least
         // once
-        uint64_t startingTMCount = countTms(funcOp, constParams);
-        uint64_t minTmCount = startingTMCount;
         applyCommuteAbovePatterns(funcOp);
-
         uint64_t afterCommuteAboveTMCount = countTms(funcOp, constParams);
-        if (afterCommuteAboveTMCount < minTmCount) {
-          minTmCount = afterCommuteAboveTMCount;
-        }
 
         applyCommuteBelowPatterns(funcOp);
-
         uint64_t afterCommuteBelowTMCount = countTms(funcOp, constParams);
-        if (afterCommuteBelowTMCount < minTmCount) {
-          minTmCount = afterCommuteBelowTMCount;
-        }
-        // If this is true then the minimal TM state has been reached at some
-        // point during these two pattern applications
-        if (minTmCount <= afterCommuteAboveTMCount &&
-            minTmCount <= afterCommuteBelowTMCount) {
-          // At this point the TMs are as far down the graph as they can be
-          // If there were less TMs when they were as far up as they could be
-          // then we must commute them up again.
+
+        if (afterCommuteAboveTMCount == previousAfterCommuteAboveTMCount &&
+            afterCommuteBelowTMCount == previousAfterCommuteBelowTMCount) {
+
           if (afterCommuteAboveTMCount < afterCommuteBelowTMCount) {
             applyCommuteAbovePatterns(funcOp);
           }
           break;
         }
+        if (afterCommuteAboveTMCount > previousAfterCommuteAboveTMCount ||
+            afterCommuteBelowTMCount > previousAfterCommuteBelowTMCount) {
+          numConsecutiveCountIncreases++;
+        } else {
+          numConsecutiveCountIncreases = 0;
+        }
+
+        if (numConsecutiveCountIncreases == 10) {
+          emitError(funcOp.getLoc())
+              << "TM count has increased for 10 consecutive iterations.";
+          signalPassFailure();
+          return;
+        }
+
+        previousAfterCommuteAboveTMCount = afterCommuteAboveTMCount;
+        previousAfterCommuteBelowTMCount = afterCommuteBelowTMCount;
       }
       // Surround with ifdef as this would otherwise unnecessarily count TMs
 #ifdef TTMLIR_ENABLE_DEBUG_LOGS
