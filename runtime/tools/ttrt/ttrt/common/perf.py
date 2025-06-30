@@ -176,11 +176,6 @@ class Perf:
                 artifacts_folder_path=self["--artifact-dir"],
             )
         )
-        self.query = Query(
-            {"--quiet": True, "--disable-eth-dispatch": self["--disable-eth-dispatch"]},
-            self.logger,
-            self.artifacts,
-        )
         self.ttnn_binaries = []
         self.ttmetal_binaries = []
         self.tracy_capture_tool_path = (
@@ -194,7 +189,6 @@ class Perf:
 
     def preprocess(self):
         self.logging.debug(f"------preprocessing perf API")
-        self.query()
 
         if self["--clean-artifacts"]:
             self.artifacts.clean_artifacts()
@@ -222,12 +216,6 @@ class Perf:
                 )
                 return
 
-            if not bin.check_system_desc(self.query):
-                self.logger.warning(
-                    "System desc does not match, are you sure that the binary is valid? - Skipped"
-                )
-                return
-
             if self["--program-index"] != "all":
                 if not bin.check_program_index_exists(int(self["--program-index"])):
                     self.logging.warning(
@@ -248,23 +236,6 @@ class Perf:
                 bin = Binary(self.logger, self.file_manager, path)
                 try:
                     bin.check_version(ignore=self["--ignore-version"])
-                except Exception as e:
-                    test_result = {
-                        "file_path": path,
-                        "result": "skip",
-                        "exception": str(e),
-                        "log_file": self.logger.file_name,
-                        "artifacts": self.artifacts.artifacts_folder_path,
-                        "program_index": self["--program-index"],
-                    }
-                    self.logging.warning(
-                        f"SKIP: test={path} was skipped with exception={str(e)}"
-                    )
-                    self.results.add_result(test_result)
-                    continue
-
-                try:
-                    bin.check_system_desc(self.query)
                 except Exception as e:
                     test_result = {
                         "file_path": path,
@@ -306,23 +277,6 @@ class Perf:
                 bin = Binary(self.logger, self.file_manager, path)
                 try:
                     bin.check_version(ignore=self["--ignore-version"])
-                except Exception as e:
-                    test_result = {
-                        "file_path": path,
-                        "result": "skip",
-                        "exception": str(e),
-                        "log_file": self.logger.file_name,
-                        "artifacts": self.artifacts.artifacts_folder_path,
-                        "program_index": self["--program-index"],
-                    }
-                    self.logging.warning(
-                        f"SKIP: test={path} was skipped with exception={str(e)}"
-                    )
-                    self.results.add_result(test_result)
-                    continue
-
-                try:
-                    bin.check_system_desc(self.query)
                 except Exception as e:
                     test_result = {
                         "file_path": path,
@@ -520,7 +474,6 @@ class Perf:
 
                     # copy all relevant files into perf folder for this test
                     perf_folder_path = self.artifacts.get_binary_perf_folder_path(bin)
-                    self.artifacts.save_binary(bin, self.query)
                     self.file_manager.copy_file(perf_folder_path, tracy_file_path)
                     self.file_manager.copy_file(
                         perf_folder_path, tracy_ops_times_file_path
