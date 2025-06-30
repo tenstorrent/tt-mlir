@@ -1,6 +1,7 @@
 include(ExternalProject)
-
-set(TT_METAL_VERSION "57fe73c861d9083b5abef3c029ada5af03d8d620")
+# e4a5fd7b62  # mid commit
+# 57fe73c861d9083b5abef3c029ada5af03d8d620 James - Most recent june 30 6AM
+set(TT_METAL_VERSION "e4a5fd7b62")
 
 set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
 
