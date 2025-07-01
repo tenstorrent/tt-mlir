@@ -38,27 +38,6 @@ namespace mlir::tt::ttir {
 
 namespace {
 
-class StablehloTypeConverter : public TypeConverter {
-public:
-  StablehloTypeConverter(MLIRContext *ctx) {
-    addConversion([](Type type) {
-      assert(isa<RankedTensorType>(type) &&
-             "only ranked tensor type supported");
-      return type;
-    });
-
-    // Convert scalars to 1D tensors.
-    addConversion([&](RankedTensorType type) -> RankedTensorType {
-      if (!type.getShape().empty()) {
-        return type;
-      }
-
-      return RankedTensorType::get(/*shape=*/{1}, type.getElementType(),
-                                   type.getEncoding());
-    });
-  }
-};
-
 struct ConvertStableHLOToTTIRPass
     : public ttir::impl::ConvertStableHLOToTTIRBase<
           ConvertStableHLOToTTIRPass> {
@@ -77,8 +56,7 @@ struct ConvertStableHLOToTTIRPass
     target.addLegalOp<mlir::func::ReturnOp>();
     target.addLegalOp<mlir::func::CallOp>();
 
-    // For now keep the same type assuming StableHLO ops operate on builtin
-    // tensor.
+    // Use the shared StablehloTypeConverter
     StablehloTypeConverter typeConverter(&getContext());
     RewritePatternSet patterns(&getContext());
 

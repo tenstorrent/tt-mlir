@@ -12,7 +12,8 @@ namespace mlir::tt {
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
 void populateStableHLOCompositeLegalizationPatterns(
-    MLIRContext *ctx, RewritePatternSet &patterns);
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    TypeConverter &typeConverter);
 
 std::unique_ptr<OperationPass<ModuleOp>>
 createLegalizeStableHLOCompositeToTTIRPass();
