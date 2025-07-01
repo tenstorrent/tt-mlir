@@ -38,7 +38,7 @@ func.func @reduce_large_grid(%arg0: tensor<256x384xf32>, %arg1: tensor<256x384xf
               ins(%arg2, %arg3: memref<8x12x!ttcore.tile<32x32, f32>, #l1>, memref<8x12x!ttcore.tile<32x32, f32>, #l1>)
               outs(%arg4: memref<8x1x!ttcore.tile<32x32, f32>, #l1>) {
               ^bb0(%a: !ttcore.tile<32x32, f32>, %b: !ttcore.tile<32x32, f32>, %c: !ttcore.tile<32x32, f32>):
-                  %8 = "ttir.tile_reduce_max" (%a, %b) {reduce_dim = #ttir<reduce_dim R>} : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+                  %8 = "ttir.tile_reduce_max" (%a, %b, %c) {reduce_dim = #ttir<reduce_dim R>} : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
                   linalg.yield %8: !ttcore.tile<32x32, f32>
           }
           "ttir.yield"() : () -> ()
@@ -94,7 +94,7 @@ func.func @reduce_prime(%arg0: tensor<32x608xf32>, %arg1: tensor<32x608xf32>) ->
                 ins(%arg2, %arg3: memref<1x19x!ttcore.tile<32x32, f32>, #l1>, memref<1x19x!ttcore.tile<32x32, f32>, #l1>)
                 outs(%arg4: memref<1x1x!ttcore.tile<32x32, f32>, #l1>) {
                 ^bb0(%a: !ttcore.tile<32x32, f32>, %b: !ttcore.tile<32x32, f32>, %c: !ttcore.tile<32x32, f32>):
-                    %8 = "ttir.tile_reduce_max" (%a, %b) {reduce_dim = #ttir<reduce_dim R>} : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+                    %8 = "ttir.tile_reduce_max" (%a, %b, %c) {reduce_dim = #ttir<reduce_dim R>} : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
                     linalg.yield %8: !ttcore.tile<32x32, f32>
             }
         "ttir.yield"() : () -> ()
