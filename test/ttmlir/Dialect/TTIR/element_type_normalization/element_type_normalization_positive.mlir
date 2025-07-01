@@ -83,7 +83,7 @@ func.func @constant_ui64() -> tensor<32x32xui64> {
 func.func @constant_f16() -> tensor<32x32xf16> {
   // CHECK: "ttir.full"
   // CHECK-SAME: value = 1.000000e+00 : f32
-  // CHECK-SAME: -> tensor<32x32xf16>
+  // CHECK-SAME: -> tensor<32x32xbf16>
   %0 = "ttir.constant"() <{value = dense<1.0> : tensor<32x32xf16>}> : () -> tensor<32x32xf16>
   return %0 : tensor<32x32xf16>
 }

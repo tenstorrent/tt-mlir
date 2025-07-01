@@ -284,84 +284,86 @@ inline void handleBoolToBFloat16(const bool *old_buffer, uint16_t *new_buffer,
   }
 }
 
-inline void handleFloat16ToBFloat16(const uint16_t *old_buffer, uint16_t *new_buffer,
-                   int64_t num_elements) {
+inline void handleFloat16ToBFloat16(const uint16_t *old_buffer,
+                                    uint16_t *new_buffer,
+                                    int64_t num_elements) {
   assert(old_buffer && new_buffer && "Buffer pointers must not be null");
   for (int64_t i = 0; i < num_elements; i++) {
-  uint16_t f16_bits = old_buffer[i];
-  
-  // Extract components from float16
-  uint16_t sign = (f16_bits >> 15) & 0x1;
-  uint16_t exponent = (f16_bits >> 10) & 0x1F;
-  uint16_t mantissa = f16_bits & 0x3FF;
-  
-  // Convert to bfloat16
-  if (exponent == 0 && mantissa == 0) {
-    // Zero
-    new_buffer[i] = sign << 15;
-  } else if (exponent == 0x1F) {
-    // Infinity or NaN
-    new_buffer[i] = (sign << 15) | 0x7F80 | ((mantissa != 0) ? 0x40 : 0);
-  } else {
-    // Normal numbers
-    // Adjust exponent bias: float16 bias is 15, bfloat16 bias is 127
-    int32_t new_exponent = (exponent == 0) ? 0 : (exponent - 15 + 127);
-    
-    if (new_exponent <= 0) {
-    // Underflow to zero
-    new_buffer[i] = sign << 15;
-    } else if (new_exponent >= 255) {
-    // Overflow to infinity
-    new_buffer[i] = (sign << 15) | 0x7F80;
+    uint16_t f16_bits = old_buffer[i];
+
+    // Extract components from float16
+    uint16_t sign = (f16_bits >> 15) & 0x1;
+    uint16_t exponent = (f16_bits >> 10) & 0x1F;
+    uint16_t mantissa = f16_bits & 0x3FF;
+
+    // Convert to bfloat16
+    if (exponent == 0 && mantissa == 0) {
+      // Zero
+      new_buffer[i] = sign << 15;
+    } else if (exponent == 0x1F) {
+      // Infinity or NaN
+      new_buffer[i] = (sign << 15) | 0x7F80 | ((mantissa != 0) ? 0x40 : 0);
     } else {
-    // Round mantissa from 10 bits to 7 bits
-    uint16_t rounded_mantissa = (mantissa + 0x8) >> 3;
-    if (rounded_mantissa >= 0x80) {
-      // Mantissa overflow, increment exponent
-      new_exponent++;
-      rounded_mantissa = 0;
+      // Normal numbers
+      // Adjust exponent bias: float16 bias is 15, bfloat16 bias is 127
+      int32_t new_exponent = (exponent == 0) ? 0 : (exponent - 15 + 127);
+
+      if (new_exponent <= 0) {
+        // Underflow to zero
+        new_buffer[i] = sign << 15;
+      } else if (new_exponent >= 255) {
+        // Overflow to infinity
+        new_buffer[i] = (sign << 15) | 0x7F80;
+      } else {
+        // Round mantissa from 10 bits to 7 bits
+        uint16_t rounded_mantissa = (mantissa + 0x8) >> 3;
+        if (rounded_mantissa >= 0x80) {
+          // Mantissa overflow, increment exponent
+          new_exponent++;
+          rounded_mantissa = 0;
+        }
+        new_buffer[i] = (sign << 15) | (new_exponent << 7) | rounded_mantissa;
+      }
     }
-    new_buffer[i] = (sign << 15) | (new_exponent << 7) | rounded_mantissa;
-    }
-  }
   }
 }
 
-inline void handleBFloat16ToFloat16(const uint16_t *old_buffer, uint16_t *new_buffer,
-                   int64_t num_elements) {
+inline void handleBFloat16ToFloat16(const uint16_t *old_buffer,
+                                    uint16_t *new_buffer,
+                                    int64_t num_elements) {
   assert(old_buffer && new_buffer && "Buffer pointers must not be null");
   for (int64_t i = 0; i < num_elements; i++) {
-  uint16_t bf16_bits = old_buffer[i];
-  
-  // Extract components from bfloat16
-  uint16_t sign = (bf16_bits >> 15) & 0x1;
-  uint16_t exponent = (bf16_bits >> 7) & 0xFF;
-  uint16_t mantissa = bf16_bits & 0x7F;
-  
-  // Convert to float16
-  if (exponent == 0 && mantissa == 0) {
-    // Zero
-    new_buffer[i] = sign << 15;
-  } else if (exponent == 0xFF) {
-    // Infinity or NaN
-    new_buffer[i] = (sign << 15) | 0x7C00 | ((mantissa != 0) ? 0x200 : 0);
-  } else {
-    // Normal numbers
-    // Adjust exponent bias: bfloat16 bias is 127, float16 bias is 15
-    int32_t new_exponent = exponent - 127 + 15;
-    
-    if (new_exponent <= 0) {
-    // Underflow to zero
-    new_buffer[i] = sign << 15;
-    } else if (new_exponent >= 31) {
-    // Overflow to infinity
-    new_buffer[i] = (sign << 15) | 0x7C00;
+    uint16_t bf16_bits = old_buffer[i];
+
+    // Extract components from bfloat16
+    uint16_t sign = (bf16_bits >> 15) & 0x1;
+    uint16_t exponent = (bf16_bits >> 7) & 0xFF;
+    uint16_t mantissa = bf16_bits & 0x7F;
+
+    // Convert to float16
+    if (exponent == 0 && mantissa == 0) {
+      // Zero
+      new_buffer[i] = sign << 15;
+    } else if (exponent == 0xFF) {
+      // Infinity or NaN
+      new_buffer[i] = (sign << 15) | 0x7C00 | ((mantissa != 0) ? 0x200 : 0);
     } else {
-    // Extend mantissa from 7 bits to 10 bits
-    uint16_t extended_mantissa = mantissa << 3;
-    new_buffer[i] = (sign << 15) | (new_exponent << 10) | extended_mantissa;
+      // Normal numbers
+      // Adjust exponent bias: bfloat16 bias is 127, float16 bias is 15
+      int32_t new_exponent = exponent - 127 + 15;
+
+      if (new_exponent <= 0) {
+        // Underflow to zero
+        new_buffer[i] = sign << 15;
+      } else if (new_exponent >= 31) {
+        // Overflow to infinity
+        new_buffer[i] = (sign << 15) | 0x7C00;
+      } else {
+        // Extend mantissa from 7 bits to 10 bits
+        uint16_t extended_mantissa = mantissa << 3;
+        new_buffer[i] = (sign << 15) | (new_exponent << 10) | extended_mantissa;
+      }
     }
-  }
   }
 }
 
@@ -439,19 +441,17 @@ inline void handleBufferCast(const void *old_buffer, void *new_buffer,
     detail::handleBoolToBFloat16(static_cast<const bool *>(old_buffer),
                                  static_cast<uint16_t *>(new_buffer),
                                  num_elements);
-  }
-  else if (oldDataType == tt::target::DataType::Float16 &&
-         newDataType == tt::target::DataType::BFloat16) {
+  } else if (oldDataType == tt::target::DataType::Float16 &&
+             newDataType == tt::target::DataType::BFloat16) {
     detail::handleFloat16ToBFloat16(static_cast<const uint16_t *>(old_buffer),
-                     static_cast<uint16_t *>(new_buffer),
-                     num_elements);
-    } else if (oldDataType == tt::target::DataType::BFloat16 &&
-         newDataType == tt::target::DataType::Float16) {
+                                    static_cast<uint16_t *>(new_buffer),
+                                    num_elements);
+  } else if (oldDataType == tt::target::DataType::BFloat16 &&
+             newDataType == tt::target::DataType::Float16) {
     detail::handleBFloat16ToFloat16(static_cast<const uint16_t *>(old_buffer),
-                     static_cast<uint16_t *>(new_buffer),
-                     num_elements);
-    }
-   else {
+                                    static_cast<uint16_t *>(new_buffer),
+                                    num_elements);
+  } else {
     throw std::runtime_error(
         "Unhandled buffer cast case: From " +
         std::string(target::EnumNameDataType(oldDataType)) + " to " +
