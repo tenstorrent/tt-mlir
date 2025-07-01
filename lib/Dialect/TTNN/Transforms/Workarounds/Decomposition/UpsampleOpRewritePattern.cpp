@@ -26,7 +26,7 @@ enum UpsampleAxisLayout {
   DIM_COUNT = 4
 };
 
-constexpr int64_t TILE_WIDTH = tt::TileType::getDefaultShape()[1];
+constexpr int64_t TILE_WIDTH = ttcore::TileType::getDefaultShape()[1];
 
 int64_t getNumCores(llvm::ArrayRef<int64_t> workerGridShape, int64_t batchSize,
                     int64_t height, int64_t width) {
@@ -131,7 +131,8 @@ LogicalResult UpsampleOpBilinearShardingRewritePattern::matchAndRewrite(
          "input channel size must be a multiple of tile width");
 
   // We need to find strategy for sharding the input tensor.
-  tt::GridAttr workerGrid = lookupDevice(srcOp.getOperation()).getWorkerGrid();
+  ttcore::GridAttr workerGrid =
+      ttcore::lookupDevice(srcOp.getOperation()).getWorkerGrid();
   auto numCores =
       getNumCores(workerGrid.getShape(), inputBatch, inputHeight, inputWidth);
   ttnn::CoreRangeSetAttr shardGrid =
@@ -153,7 +154,7 @@ LogicalResult UpsampleOpBilinearShardingRewritePattern::matchAndRewrite(
   auto inputShardedLayout = ttnn::TTNNLayoutAttr::get(
       getContext(), inputType.getShape(), inputType.getElementType(),
       ttnn::BufferType::L1,
-      tt::GridAttr::get(getContext(), /*shape=*/{numCores, 1}),
+      ttcore::GridAttr::get(getContext(), /*shape=*/{numCores, 1}),
       ttnn::TensorMemoryLayoutAttr::get(
           getContext(), ttnn::TensorMemoryLayout::HeightSharded));
   assert(inputShardedLayout.getLayout() == ttnn::Layout::RowMajor &&
@@ -193,7 +194,7 @@ LogicalResult UpsampleOpBilinearShardingRewritePattern::matchAndRewrite(
   auto outputShardedLayout = ttnn::TTNNLayoutAttr::get(
       getContext(), srcOp.getType().getShape(),
       srcOp.getType().getElementType(), ttnn::BufferType::L1,
-      tt::GridAttr::get(getContext(), /*shape=*/{numCores, 1}),
+      ttcore::GridAttr::get(getContext(), /*shape=*/{numCores, 1}),
       ttnn::TensorMemoryLayoutAttr::get(
           getContext(), ttnn::TensorMemoryLayout::HeightSharded));
   auto outputShardedMemoryConfig = ttnn::MemoryConfigAttr::get(
@@ -303,7 +304,7 @@ LogicalResult UpsampleOpLayoutRewritePattern::matchAndRewrite(
   auto outputType = srcOp.getType();
 
   constexpr ttnn::Layout TARGET_LAYOUT = ttnn::Layout::RowMajor;
-  constexpr tt::DataType TARGET_DTYPE = tt::DataType::BFloat16;
+  constexpr ttcore::DataType TARGET_DTYPE = ttcore::DataType::BFloat16;
 
   auto inputLayoutAttr =
       mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
@@ -321,7 +322,7 @@ LogicalResult UpsampleOpLayoutRewritePattern::matchAndRewrite(
 
   ttnn::MemoryConfigAttr outputMemoryConfig = srcOp.getMemoryConfigAttr();
   if (!outputMemoryConfig) {
-    tt::DeviceAttr deviceAttr = tt::lookupDevice(srcOp);
+    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(srcOp);
 
     outputMemoryConfig = ttnn::MemoryConfigAttr::get(
         rewriter.getContext(), outputLayoutAttr.getMemLayout(),
@@ -353,7 +354,7 @@ LogicalResult UpsampleOpLayoutRewritePattern::matchAndRewrite(
       ttmlir::utils::appendLocationSuffix(targetLayoutUpsampleOp.getLoc(),
                                           "to_layout"),
       outputType, targetLayoutUpsampleOp, outputLayoutAttr.getLayout(),
-      tt::DataTypeAttr::get(getContext(), outputLayoutAttr.getDataType()),
+      ttcore::DataTypeAttr::get(getContext(), outputLayoutAttr.getDataType()),
       outputMemoryConfig, utils::getOrInsertDevice(rewriter, srcOp));
   rewriter.replaceOp(srcOp, outputToLayoutOp);
 
