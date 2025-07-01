@@ -26,14 +26,14 @@ TEST(HandleFloat16ToBfloat16BufferCast, SanityBFloat16ToFloat16) {
   tt::runtime::utils::detail::handleBFloat16ToFloat16(bfloat_buffer,
                                                       float_buffer, 3);
 
-  EXPECT_EQ(bfloat_buffer[0], float16_neg_one);
-  EXPECT_EQ(bfloat_buffer[1], 0);
-  EXPECT_EQ(bfloat_buffer[2], float16_neg_one);
+  EXPECT_EQ(float_buffer[0], float16_neg_one);
+  EXPECT_EQ(float_buffer[1], 0);
+  EXPECT_EQ(float_buffer[2], float16_neg_one);
 }
 
 TEST(HandleFloat16ToBfloat16BufferCast, HandleFloat16Max) {
-  uint16_t bfloat16_from_float16_max = 0x477F; // = 65504.0f
-  uint16_t bfloat16_from_float16_min = 0xC77F; // = -65504.0f
+  uint16_t bfloat16_from_float16_max = 0x4780; // = 65504.0f
+  uint16_t bfloat16_from_float16_min = 0xc780; // = -65504.0f
   uint16_t float16_max = 0x7BFF;               // +65504.0
   uint16_t float16_min = 0xFBFF;               // -65504.0
   uint16_t float_buffer[] = {float16_min, float16_max};

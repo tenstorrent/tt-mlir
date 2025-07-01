@@ -288,43 +288,57 @@ inline void handleFloat16ToBFloat16(const uint16_t *old_buffer,
                                     uint16_t *new_buffer,
                                     int64_t num_elements) {
   assert(old_buffer && new_buffer && "Buffer pointers must not be null");
-  for (int64_t i = 0; i < num_elements; i++) {
-    uint16_t f16_bits = old_buffer[i];
 
-    // Extract components from float16
-    uint16_t sign = (f16_bits >> 15) & 0x1;
-    uint16_t exponent = (f16_bits >> 10) & 0x1F;
-    uint16_t mantissa = f16_bits & 0x3FF;
+  for (int64_t i = 0; i < num_elements; ++i) {
+    uint16_t f16 = old_buffer[i];
 
-    // Convert to bfloat16
-    if (exponent == 0 && mantissa == 0) {
-      // Zero
-      new_buffer[i] = sign << 15;
-    } else if (exponent == 0x1F) {
-      // Infinity or NaN
-      new_buffer[i] = (sign << 15) | 0x7F80 | ((mantissa != 0) ? 0x40 : 0);
-    } else {
-      // Normal numbers
-      // Adjust exponent bias: float16 bias is 15, bfloat16 bias is 127
-      int32_t new_exponent = (exponent == 0) ? 0 : (exponent - 15 + 127);
+    // Decompose float16
+    uint16_t sign = (f16 >> 15) & 0x1;
+    uint16_t exponent = (f16 >> 10) & 0x1F;
+    uint16_t mantissa = f16 & 0x3FF;
 
-      if (new_exponent <= 0) {
-        // Underflow to zero
-        new_buffer[i] = sign << 15;
-      } else if (new_exponent >= 255) {
-        // Overflow to infinity
-        new_buffer[i] = (sign << 15) | 0x7F80;
+    uint32_t f32_bits = 0;
+
+    if (exponent == 0) {
+      if (mantissa == 0) {
+        // Zero
+        f32_bits = static_cast<uint32_t>(sign) << 31;
       } else {
-        // Round mantissa from 10 bits to 7 bits
-        uint16_t rounded_mantissa = (mantissa + 0x8) >> 3;
-        if (rounded_mantissa >= 0x80) {
-          // Mantissa overflow, increment exponent
-          new_exponent++;
-          rounded_mantissa = 0;
+        // Subnormal float16 → normalize to float32 subnormal
+        // Shift mantissa left until leading 1
+        int shift = 0;
+        while ((mantissa & 0x400) == 0) {
+          mantissa <<= 1;
+          ++shift;
         }
-        new_buffer[i] = (sign << 15) | (new_exponent << 7) | rounded_mantissa;
+        mantissa &= 0x3FF; // Remove the leading 1
+        exponent = 1;
+        exponent -= shift;
+
+        int32_t exp32 = int32_t(exponent) - 15 + 127;
+        f32_bits = (static_cast<uint32_t>(sign) << 31) |
+                   (static_cast<uint32_t>(exp32) << 23) |
+                   (static_cast<uint32_t>(mantissa) << 13);
       }
+    } else if (exponent == 0x1F) {
+      // Inf or NaN
+      f32_bits = (static_cast<uint32_t>(sign) << 31) | (0xFF << 23) |
+                 (static_cast<uint32_t>(mantissa) << 13);
+    } else {
+      // Normalized number
+      int32_t exp32 = int32_t(exponent) - 15 + 127;
+      f32_bits = (static_cast<uint32_t>(sign) << 31) |
+                 (static_cast<uint32_t>(exp32) << 23) |
+                 (static_cast<uint32_t>(mantissa) << 13);
     }
+
+    // Convert float32 bits to bfloat16 with rounding-to-nearest-even
+    uint32_t lsb = (f32_bits >> 16) & 1;
+    uint32_t rounding_bias = 0x7FFF + lsb;
+    f32_bits += rounding_bias;
+
+    uint16_t bfloat16 = static_cast<uint16_t>(f32_bits >> 16);
+    new_buffer[i] = bfloat16;
   }
 }
 
