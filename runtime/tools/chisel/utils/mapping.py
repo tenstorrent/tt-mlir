@@ -209,6 +209,15 @@ def custom_max(x, dim=None, keepdim=False):
     return x
 
 
+def custom_argmax(x, dim=None, keepdim=False):
+    if dim is None:
+        return torch.argmax(x)
+    dim = reversed(sorted(dim))
+    for d in dim:
+        x = torch.argmax(x, d, keepdim=keepdim)
+    return x
+
+
 def custom_slice(x, begins=None, ends=None, step=None):
     if begins is None and ends is None and step is None:
         return x
@@ -297,6 +306,21 @@ def custom_avg_pool2d(*args, **kwargs):
     return out.permute(0, 2, 3, 1)
 
 
+def custom_embedding(*args, **kwargs):
+    # Extract the input tensor and the weight tensor
+    input_tensor = args[0]
+    weight_tensor = args[1]
+
+    # Convert the input tensor to long type if it is not already
+    if input_tensor.dtype != torch.long:
+        input_tensor = input_tensor.long()
+
+    # Perform the embedding lookup
+    result = torch.nn.functional.embedding(input_tensor, weight_tensor)
+
+    return result
+
+
 ttir_to_torch_mapping = {
     # do nothing
     "ttir.empty": OpMapping(lambda x=None, *args, **kwargs: None),
@@ -333,6 +357,9 @@ ttir_to_torch_mapping = {
     "ttir.prod": OpMapping(
         custom_prod, {"dim_arg": "dim", "keep_dim": "keepdim"}, unpack_inputs=False
     ),
+    "ttir.argmax": OpMapping(
+        custom_argmax, {"dim_arg": "dim", "keep_dim": "keepdim"}, unpack_inputs=False
+    ),
     "ttir.reshape": OpMapping(torch.reshape, {"shape": "shape"}, unpack_inputs=False),
     "ttir.rsqrt": OpMapping(torch.rsqrt, unpack_inputs=False),
     "ttir.sqrt": OpMapping(torch.sqrt, unpack_inputs=False),
@@ -346,7 +373,7 @@ ttir_to_torch_mapping = {
     ),
     "ttir.where": OpMapping(custom_where),
     "ttir.concat": OpMapping(torch.concat, {"dim": "dim"}, unpack_inputs=False),
-    "ttir.embedding": OpMapping(torch.nn.functional.embedding),
+    "ttir.embedding": OpMapping(custom_embedding),
     "ttir.slice": OpMapping(
         custom_slice,
         {"begins": "begins", "ends": "ends", "step": "step"},

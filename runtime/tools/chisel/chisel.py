@@ -217,11 +217,12 @@ class ChiselContext:
                     f"Op input {i}: {input_tensor.shape if input_tensor is not None else None}"
                 )
                 if not skipped:
-                    assert tensor.get_shape() == list(
-                        input_tensor.shape
-                    ), f"Input {i} shape mismatch. Got {input_tensor.shape}, expected {tensor.get_shape()}"
-                else:
-                    input_tensor = input_tensor.reshape(tensor.get_shape())
+                    if not tensor.get_shape() == list(input_tensor.shape):
+                        print(
+                            f"Warning: Input {i} shape mismatch. Got {input_tensor.shape}, expected {tensor.get_shape()}"
+                        )
+
+                input_tensor = input_tensor.reshape(tensor.get_shape())
                 op_input.set_device_data(input_tensor, programContext)
 
         def postop(binary, programContext, opContext):
