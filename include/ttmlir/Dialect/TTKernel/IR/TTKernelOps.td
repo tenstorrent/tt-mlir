@@ -658,16 +658,6 @@ def TTKernel_TilizeInitOp : TTKernel_Op<"tilize_init"> {
     let hasVerifier = 1;
 }
 
-def TTKernel_TilizeInitShortOp : TTKernel_Op<"tilize_init_short"> {
-    let summary = "TilizeInitShortOp call.";
-     let description = [{
-      Re-initialize for the tilize operation. This can be called after a full
-      init.
-     }];
-
-    let arguments = (ins TTKernel_CB:$cbIn, I32:$numiles, TTKernel_CB:$cbOut);
-}
-
 def TTKernel_TilizeUninitOp : TTKernel_Op<"tilize_uninit"> {
     let summary = "TilizeUninitOp call.";
     let description = [{
@@ -709,16 +699,6 @@ def TTKernel_UntilizeInitOp : TTKernel_Op<"untilize_init"> {
     let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut);
 
     let hasVerifier = 1;
-}
-
-def TTKernel_UntilizeInitShortOp : TTKernel_Op<"untilize_init_short"> {
-    let summary = "UntilizeInitShortOp call.";
-    let description = [{
-      Re-initialize for the tilize operation. This can be called after a full
-      init.
-    }];
-
-    let arguments = (ins TTKernel_CB:$cbIn);
 }
 
 def TTKernel_UntilizeUninitOp : TTKernel_Op<"untilize_uninit"> {
