@@ -444,11 +444,11 @@ binaryOpDTypeWorkaround(mlir::Operation *op, mlir::Type elementType) {
           mlir::cast<mlir::RankedTensorType>(op->getOperand(1).getType());
 
       if (lhsType.getShape() != rhsType.getShape()) {
-        return mlir::tt::ttcore::DataType::BFloat16;
+        return mlir::tt::ttcore::DataType::Float32;
       }
       return {};
     }
-    return mlir::tt::ttcore::DataType::BFloat16;
+    return mlir::tt::ttcore::DataType::Float32;
   }
   // Left shift and right shift ops have same requirements but they are not
   // implemented for TTNN dialect currently.
@@ -465,7 +465,7 @@ binaryOpDTypeWorkaround(mlir::Operation *op, mlir::Type elementType) {
       dType == mlir::tt::ttcore::DataType::BFP_BFloat4) {
     return {};
   }
-  return mlir::tt::ttcore::DataType::BFloat16;
+  return mlir::tt::ttcore::DataType::Float32;
 }
 
 // Factory method to create a set of workarounds for binary operation operands.
