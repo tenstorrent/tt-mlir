@@ -371,28 +371,30 @@ def TTIR_TileMaximumOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_maximum">{
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileReduceSumOp : TTIR_GenericRegionComputeOp<"tile_reduce_sum">{
-    let summary = "TTIR Tile Reduce Sum Op";
-    let description = [{
-        The `tile_reduce_sum` operation computes the weighted sum of all elements in the input tile over the specified reduction dim(s).
+def TTIR_TileReduceSumOp : TTIR_GenericRegionComputeOp<"tile_reduce_sum"> {
+  let summary = "TTIR Tile Reduce Sum Op";
+  let description = [{
+        The `tile_reduce_sum` operation computes the sum of all elements in the input A element-wise multiplied by B and input C over the specified reduction dim(s): result <- sum<dims>(A * B, C)
     }];
 
-    let arguments = (ins TTCore_Tile:$input,
-                         TTCore_Tile:$weight,
-                         TTIR_ReduceDimAttr:$reduce_dim);
-    let results = (outs TTCore_Tile:$result);
+  let arguments = (ins TTCore_Tile:$a,
+                       TTCore_Tile:$b,
+                       TTCore_Tile:$c,
+                       TTIR_ReduceDimAttr:$reduce_dim);
+  let results = (outs TTCore_Tile:$result);
 }
 
 def TTIR_TileReduceMaxOp : TTIR_GenericRegionComputeOp<"tile_reduce_max"> {
-    let summary = "TTIR Tile Reduce Max Op";
-    let description = [{
-        The `tile_reduce_max` operation computes the max of all elements in the input tile over the specified reduction dim(s).
+  let summary = "TTIR Tile Reduce Max Op";
+  let description = [{
+        The `tile_reduce_max` operation computes the max of all elements in the input A element-wise multiplied by B and input C over the specified reduction dim(s): result <- max<dims>(A * B, C)
     }];
 
-    let arguments = (ins TTCore_Tile:$a,
-                         TTCore_Tile:$b,
-                         TTIR_ReduceDimAttr:$reduce_dim);
-    let results = (outs TTCore_Tile:$result);
+  let arguments = (ins TTCore_Tile:$a,
+                       TTCore_Tile:$b,
+                       TTCore_Tile:$c,
+                       TTIR_ReduceDimAttr:$reduce_dim);
+  let results = (outs TTCore_Tile:$result);
 }
 
 def TTIR_TileMatmulOp : TTIR_GenericRegionComputeOp<"tile_matmul"> {

@@ -64,17 +64,34 @@ public:
     SmallVector<ttcore::IteratorType> mcastIterators;
     mcastIterators.reserve(grid.getShape().size());
     for (unsigned dim = 0; dim < grid.getShape().size(); dim++) {
-      unsigned dimPosition = operandIndexingMap.getDimPosition(dim);
+      AffineExpr result = operandIndexingMap.getResult(dim);
+      assert(mlir::isa<AffineDimExpr>(result) ||
+             mlir::isa<AffineConstantExpr>(result));
 
-      ttcore::IteratorType iteratorType =
-          mlir::cast<ttcore::IteratorTypeAttr>(iteratorTypes[dimPosition])
-              .getValue();
+      ttcore::IteratorType iteratorType;
+      if (AffineConstantExpr constant =
+              mlir::dyn_cast<AffineConstantExpr>(result)) {
+        assert(constant.getValue() == 0);
+        assert(grid.getShape()[dim] ==
+               1); // this is too conservative, I think there will be bcast
+        // cases in the future where this isn't true.  Probably best
+        // to have it as a canary when we hit this case tho
+
+        iteratorType = ttcore::IteratorType::Parallel;
+      } else {
+        auto dimId = mlir::cast<AffineDimExpr>(result);
+        unsigned dimPosition = dimId.getPosition();
+
+        iteratorType =
+            mlir::cast<ttcore::IteratorTypeAttr>(iteratorTypes[dimPosition])
+                .getValue();
+      }
       mcastIterators.push_back(iteratorType);
 
       // If the grid dimension is 1, we can special case it and always safely
       // fallback to mode parallel.  Reduction implies multicast, and while
-      // it'll be functionally correct, a multicast with a single core to itself
-      // is a redundant copy and more complicated than necessary.
+      // it'll be functionally correct, a multicast with a single core to
+      // itself is a redundant copy and more complicated than necessary.
       bool singleCore = grid.getShape()[dim] == 1;
       allParallel &=
           (iteratorType == ttcore::IteratorType::Parallel) || singleCore;

@@ -156,7 +156,7 @@ module {
     // CHECK: ttir.constant
     // CHECK: ttir.generic{{.+}}iterator_types = [#reduction, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["reduction", "parallel"]
-    // CHECK: ttir.tile_reduce_sum{{.+}}ttir<reduce_dim R>
+    // CHECK: ttir.tile_reduce_sum{{.+}}ttir<reduce_dim C>
     %1 = "ttir.sum"(%arg, %0) <{dim_arg = [-2: i32], keep_dim = true}> : (!ttype, tensor<1x96xf32>) -> tensor<1x96xf32>
     return %1: tensor<1x96xf32>
   }
@@ -167,7 +167,7 @@ module {
     // CHECK: ttir.constant
     // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #reduction]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "reduction"]
-    // CHECK: ttir.tile_reduce_sum{{.+}}ttir<reduce_dim C>
+    // CHECK: ttir.tile_reduce_sum{{.+}}ttir<reduce_dim R>
     %1 = "ttir.sum"(%arg, %0) <{dim_arg = [-1: i32], keep_dim = true}> : (!ttype, tensor<128x1xf32>) -> tensor<128x1xf32>
     return %1 : tensor<128x1xf32>
   }
