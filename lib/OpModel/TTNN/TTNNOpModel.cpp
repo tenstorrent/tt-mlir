@@ -431,7 +431,7 @@ getPrepareConv2dBiasOpOutputTensorSpec(
         conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
             padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
-        groups, device, localConfig, /*hasBias=*/std::nullopt);
+        groups, device, localConfig, /*compute_config_=*/std::nullopt);
   };
 
   auto output = operation::executeConstraintQuery(prepareConv2dBiasOpQuery);
@@ -1820,7 +1820,7 @@ llvm::Expected<OpConstraints> Conv2dOpInterface::getOpConstraints(
   ::ttnn::TensorSpec weightSpec = preparedWeightExp.get();
 
   // Prepare bias tensor if present.
-  std::optional<::tt::tt_metal::Tensor> biasSpec;
+  std::optional<::ttnn::TensorSpec> biasSpec;
   if (biasShape && biasLayout) {
     llvm::Expected<::ttnn::TensorSpec> preparedBiasExp =
         getPrepareConv2dBiasOpOutputTensorSpec(
@@ -1831,7 +1831,7 @@ llvm::Expected<OpConstraints> Conv2dOpInterface::getOpConstraints(
     if (!preparedBiasExp) {
       return preparedBiasExp.takeError();
     }
-    ::ttnn::TensorSpec biasSpec = preparedBiasExp.get();
+    biasSpec = preparedBiasExp.get();
   }
 
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -1909,7 +1909,7 @@ llvm::Expected<size_t> Conv2dOpInterface::getOpRuntime(
   ::ttnn::TensorSpec weightSpec = preparedWeightExp.get();
 
   // Prepare bias tensor if present.
-  std::optional<::tt::tt_metal::Tensor> biasSpec;
+  std::optional<::ttnn::TensorSpec> biasSpec;
   if (biasShape && biasLayout) {
     llvm::Expected<::ttnn::TensorSpec> preparedBiasExp =
         getPrepareConv2dBiasOpOutputTensorSpec(
@@ -1920,7 +1920,7 @@ llvm::Expected<size_t> Conv2dOpInterface::getOpRuntime(
     if (!preparedBiasExp) {
       return preparedBiasExp.takeError();
     }
-    ::ttnn::TensorSpec biasSpec = preparedBiasExp.get();
+    biasSpec = preparedBiasExp.get();
   }
 
   ::tt::tt_metal::distributed::MeshDevice *device =
