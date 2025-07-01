@@ -4,6 +4,9 @@
 
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOLegalizeComposite.h"
 
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
+
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -15,8 +18,6 @@
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "stablehlo/dialect/StablehloOps.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "llvm/ADT/ArrayRef.h"
 
 using namespace mlir;
@@ -75,7 +76,7 @@ public:
   }
 
 private:
-  const char *opName;
+  std::string opName;
 };
 
 } // namespace

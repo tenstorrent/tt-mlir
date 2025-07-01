@@ -19,8 +19,14 @@ let summary = "Convert Arith Dialect to StableHLO dialect.";
   let dependentDialects = ["mlir::stablehlo::StablehloDialect", "mlir::sdy::SdyDialect", "mlir::arith::ArithDialect"];
 }
 def LegalizeStableHLOCompositeToTTIR : Pass<"legalize-stablehlo-composite-to-ttir", "::mlir::ModuleOp"> {
-  let summary = "Legalize StableHLO composite operations by converting them to corresponding TTIR operations.";
+  let summary = "Legalize StableHLO composite operations directly to TTIR.";
   let constructor = "createLegalizeStableHLOCompositeToTTIRPass()";
+  let description = [{
+    This pass legalizes StableHLO composite operations based on the name attribute
+    directly to the corresponding TTIR operations.
+    This allows us to avoid the need for brittle fusion patterns.
+  }];
+
   let dependentDialects = ["mlir::stablehlo::StablehloDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 #endif
