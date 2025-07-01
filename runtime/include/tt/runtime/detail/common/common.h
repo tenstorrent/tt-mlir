@@ -6,6 +6,7 @@
 #define TT_RUNTIME_DETAIL_COMMON_COMMON_H
 
 #include <optional>
+#include <tt-metalium/fabric_types.hpp>
 
 #define FMT_HEADER_ONLY
 #include "tt-metalium/host_api.hpp"
@@ -36,6 +37,50 @@ getDispatchCoreType(std::optional<DispatchCoreType> dispatchCoreType) {
                : ::tt::tt_metal::DispatchCoreType::ETH;
   }
   return type;
+}
+
+[[nodiscard]] inline std::string trim_and_lower(std::string s) {
+  auto first = std::find_if_not(
+      s.begin(), s.end(), [](unsigned char ch) { return std::isspace(ch); });
+  if (first == s.end()) {
+    return {};
+  }
+  auto last = std::find_if_not(s.rbegin(), s.rend(), [](unsigned char ch) {
+                return std::isspace(ch);
+              }).base();
+  s.erase(last, s.end());
+  s.erase(s.begin(), first);
+  std::transform(s.begin(), s.end(), s.begin(), [](unsigned char ch) {
+    return static_cast<char>(std::tolower(ch));
+  });
+  return s;
+}
+
+inline ::tt::tt_metal::FabricConfig
+getFabricConfig(const std::string &fabricConfig) {
+  std::string s = trim_and_lower(fabricConfig);
+  if (s == "disabled") {
+    return ::tt::tt_metal::FabricConfig::DISABLED;
+  }
+  if (s == "fabric_1d") {
+    return ::tt::tt_metal::FabricConfig::FABRIC_1D;
+  }
+  if (s == "fabric_1d_ring") {
+    return ::tt::tt_metal::FabricConfig::FABRIC_1D_RING;
+  }
+  if (s == "fabric_2d") {
+    return ::tt::tt_metal::FabricConfig::FABRIC_2D;
+  }
+  if (s == "fabric_2d_torus") {
+    return ::tt::tt_metal::FabricConfig::FABRIC_2D_TORUS;
+  }
+  if (s == "fabric_2d_dynamic") {
+    return ::tt::tt_metal::FabricConfig::FABRIC_2D_DYNAMIC;
+  }
+  if (s == "custom") {
+    return ::tt::tt_metal::FabricConfig::CUSTOM;
+  }
+  return ::tt::tt_metal::FabricConfig::DISABLED;
 }
 
 inline CoreRangeSet toCoreRangeSet(

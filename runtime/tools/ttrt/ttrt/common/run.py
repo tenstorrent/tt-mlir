@@ -309,6 +309,13 @@ class Run:
             choices=None,
             help="Random ones vs zeroes density, 1 = 100% ones, 2 = 50% ones, 3 = 33% ones, etc.",
         )
+        Run.register_arg(
+            name="--fabric-config",
+            type=str,
+            default="",
+            choices=None,
+            help="Select fabric topology: disabled, fabric_1d, fabric_1d_ring, fabric_2d, fabric_2d_torus, fabric_2d_dynamic or custom (case-insensitive, default: disabled)",
+        )
 
     def __init__(self, args={}, logger=None, artifacts=None):
         for name, attributes in Run.registered_args.items():
@@ -555,6 +562,7 @@ class Run:
             mesh_options.dispatch_core_type = dispatch_core_type
             mesh_options.enable_program_cache = self["--enable-program-cache"]
             mesh_options.trace_region_size = self["--trace-region-size"]
+            mesh_options.fabric_config = self["--fabric-config"]
 
             # Initialize `device` to `None` for error handling in case device opening fails
             device = None
