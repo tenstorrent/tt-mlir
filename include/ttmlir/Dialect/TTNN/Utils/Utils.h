@@ -91,6 +91,11 @@ createShardSpecIfNeeded(TensorMemoryLayoutAttr tensorMemoryLayout,
 
 bool isTTNNTraceFunc(func::FuncOp funcOp);
 
+// Converts TTNNLayoutAttr to RowMajor layout and returns new layout.
+TTNNLayoutAttr convertTTNNLayoutToRowMajor(MLIRContext *context,
+                                           TTNNLayoutAttr layout,
+                                           llvm::ArrayRef<int64_t> shape);
+
 } // namespace mlir::tt::ttnn::utils
 
 #endif // TTMLIR_DIALECT_TTNN_UTILS_UTILS_H

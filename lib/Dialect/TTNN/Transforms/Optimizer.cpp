@@ -775,22 +775,14 @@ private:
     }
   }
 
-  // Converts TTNNLayoutAttr to RowMajor layout and returns new layout.
-  TTNNLayoutAttr convertTTNNLayoutToRowMajor(MLIRContext *context,
-                                             TTNNLayoutAttr layout,
-                                             llvm::ArrayRef<int64_t> shape) {
-    Type elementType =
-        utils::getElementType(context, Layout::RowMajor, layout.getDataType());
-    return layout.withElementType(elementType, shape);
-  }
-
   // Check if the op can be executed with row major layout on the input.
+  // TODO(rpavlovicTT) https://github.com/tenstorrent/tt-mlir/issues/3972
   bool checkOpConstraints(Operation *op,
                           std::vector<TTNNLayoutAttr> inputLayouts,
                           size_t l1CacheSize, bool convertInputToRowMajor) {
 
     if (convertInputToRowMajor) {
-      inputLayouts[0] = convertTTNNLayoutToRowMajor(
+      inputLayouts[0] = utils::convertTTNNLayoutToRowMajor(
           op->getContext(), inputLayouts[0],
           mlir::cast<RankedTensorType>(op->getOperand(0).getType()).getShape());
     }
@@ -855,7 +847,7 @@ private:
         mlir::cast<TTNNLayoutAttr>(outputType.getEncoding());
 
     // Make a new layout with the same shape but row major.
-    TTNNLayoutAttr inputRowMajorLayout = convertTTNNLayoutToRowMajor(
+    TTNNLayoutAttr inputRowMajorLayout = utils::convertTTNNLayoutToRowMajor(
         op->getContext(), inputLayout, inputType.getShape());
     RankedTensorType newInputTensorType = RankedTensorType::get(
         inputType.getShape(), inputRowMajorLayout.getElementType(),
@@ -863,6 +855,8 @@ private:
 
     Location loc =
         ttmlir::utils::appendLocationSuffix(op->getLoc(), "_to_rm_before");
+
+    // TODO(rpavlovicTT) https://github.com/tenstorrent/tt-mlir/issues/3973
     Operation *memoryReconfigOpBefore = builder.create<ttnn::ToLayoutOp>(
         loc, newInputTensorType, operand,
         LayoutAttr::get(op->getContext(), Layout::RowMajor),
@@ -930,6 +924,8 @@ private:
 
   // Walks graph and for specific op types (MaxPool2d and Upsample) inserts
   // necessary memory reconfigurations to convert tensors to row major layout.
+  // Note: in the long term this can be an analysis that is used by the
+  // optimizer to determine if a memory reconfig is needed for non-sharded ops.
   void insertRowMajorLayouts(func::FuncOp func, unsigned l1CacheSize) {
     func->walk([&](Operation *op) {
       if (!isa<ttnn::MaxPool2dOp>(op) && !isa<ttnn::UpsampleOp>(op)) {
@@ -958,14 +954,17 @@ private:
 
         RankedTensorType input =
             mlir::cast<RankedTensorType>(operand.getType());
-        auto layout = mlir::cast<TTNNLayoutAttr>(input.getEncoding());
+        auto layout = ttnn::utils::getLayoutAttrFromTensor(input);
 
         assert(layout && "Input operand must have a layout");
         inputLayouts.push_back(layout);
       }
+      assert(inputLayouts.size() > 0 && "Expected at least one input");
 
-      if (!inputLayouts[0].isTiled()) {
-        // Input is already in RowMajor, no need to convert.
+      if (!inputLayouts[0].isTiled() ||
+          inputLayouts[0].hasShardedTensorMemoryLayout()) {
+        // Input is already in RowMajor or has sharded tensor memory layout, no
+        // need to convert.
         return;
       }
 
