@@ -1017,16 +1017,17 @@ static AttrType getAttrFromConstantChain(mlir::Value tensorVal,
     mlir::func::FuncOp funcOp =
         mlir::SymbolTable::lookupNearestSymbolFrom<mlir::func::FuncOp>(
             moduleOp, symbolRef.getAttr());
-    if (!funcOp || funcOp.getNumArguments() > 0 || funcOp.getBody().empty()) {
-      llvm_unreachable("Invalid const-eval function structure.");
-    }
+    assert(funcOp && "Expected a non-null FuncOp.");
+    assert(funcOp.getNumArguments() == 0 &&
+           "Const-eval function should have no arguments.");
+    assert(!funcOp.getBody().empty() &&
+           "Const-eval function should have a body.");
     mlir::Block &entryBlock = funcOp.getBody().front();
     mlir::Operation *terminator = entryBlock.getTerminator();
     if (mlir::func::ReturnOp returnOp =
             mlir::dyn_cast<mlir::func::ReturnOp>(terminator)) {
-      if (returnOp.getNumOperands() != 1) {
-        llvm_unreachable("Expected one return value from const-eval func.");
-      }
+      assert(returnOp.getNumOperands() == 1 &&
+             "Expected one return value from const-eval func.");
       // Recurse on the returned value.
       return getAttrFromConstantChain<AttrType>(returnOp.getOperand(0),
                                                 expectedTypeMsg);
@@ -1043,28 +1044,20 @@ static AttrType getAttrFromConstantChain(mlir::Value tensorVal,
   }
   ttnn::ToDeviceOp toDeviceOp =
       mlir::dyn_cast<ttnn::ToDeviceOp>(firstInput.getDefiningOp());
-  if (!toDeviceOp) {
-    llvm_unreachable(
-        "Expected ttnn.to_device as defining op for per-tensor scale/zp.");
-  }
+  assert(toDeviceOp &&
+         "Expected ttnn.to_device as defining op for per-tensor scale/zp.");
   ttnn::ToLayoutOp toLayoutOp =
       mlir::dyn_cast<ttnn::ToLayoutOp>(toDeviceOp.getInput().getDefiningOp());
-  if (!toLayoutOp) {
-    llvm_unreachable(
-        "Expected ttnn.to_layout as defining op for per-tensor scale/zp.");
-  }
+  assert(toLayoutOp &&
+         "Expected ttnn.to_layout as defining op for per-tensor scale/zp.");
   ttnn::FromDeviceOp fromDeviceOp =
       mlir::dyn_cast<ttnn::FromDeviceOp>(toLayoutOp.getInput().getDefiningOp());
-  if (!fromDeviceOp) {
-    llvm_unreachable(
-        "Expected ttnn.from_device as defining op for per-tensor scale/zp.");
-  }
+  assert(fromDeviceOp &&
+         "Expected ttnn.from_device as defining op for per-tensor scale/zp.");
   ttnn::FullOp fullOp =
       mlir::dyn_cast<ttnn::FullOp>(fromDeviceOp.getInput().getDefiningOp());
-  if (!fullOp) {
-    llvm_unreachable(
-        "Expected ttnn.full as defining op for per-tensor scale/zp.");
-  }
+  assert(fullOp &&
+         "Expected ttnn.full as defining op for per-tensor scale/zp.");
   if constexpr (std::is_same_v<AttrType, float>) {
     if (auto fillValueAttr =
             mlir::dyn_cast<mlir::FloatAttr>(fullOp.getFillValue())) {
