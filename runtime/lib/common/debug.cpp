@@ -19,7 +19,7 @@ const Env &Env::get(bool dumpKernelsToDisk, bool loadKernelsFromDisk,
   return config;
 }
 
-const Hooks &
+Hooks &
 Hooks::get(std::optional<debug::Hooks::CallbackFn> preOperatorCallback,
            std::optional<debug::Hooks::CallbackFn> postOperatorCallback) {
   static Hooks config(preOperatorCallback, postOperatorCallback);

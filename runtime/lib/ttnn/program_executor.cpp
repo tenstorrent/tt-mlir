@@ -59,6 +59,8 @@
 #include "tt/runtime/perf.h"
 #include "tt/runtime/utils.h"
 
+#include <iostream>
+
 namespace tt::runtime::ttnn {
 
 using LogType = ::tt::runtime::logger::LogType;
@@ -100,6 +102,7 @@ void ProgramExecutor::runCallback(
     const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
   if (callback) {
+    std::cout << "I AM IN THE CALLBACK CALL" << std::endl;
     std::shared_ptr<void> programContextPtr =
         ::tt::runtime::utils::unsafe_borrow_shared(programContext);
     std::shared_ptr<void> opContextPtr =

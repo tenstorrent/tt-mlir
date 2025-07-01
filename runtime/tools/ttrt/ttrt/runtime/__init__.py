@@ -42,7 +42,6 @@ try:
         deallocate_tensor,
         WorkaroundEnv,
         get_op_loc_info,
-        unregister_hooks,
     )
 except ModuleNotFoundError:
     raise ImportError(

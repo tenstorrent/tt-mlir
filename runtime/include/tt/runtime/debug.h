@@ -61,7 +61,7 @@ inline std::ostream &operator<<(std::ostream &os, const Env &env) {
 struct Hooks {
   using CallbackFn = std::function<void(Binary, CallbackContext, OpContext)>;
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  static const Hooks &
+  static Hooks &
   get(std::optional<CallbackFn> preOperatorCallback = std::nullopt,
       std::optional<CallbackFn> postOperatorCallback = std::nullopt);
 #else
@@ -110,9 +110,7 @@ inline std::ostream &operator<<(std::ostream &os, const Hooks &hooks) {
   os << "debug::Hooks{\n"
      << "\t"
      << "preOperatorCallback: "
-     << static_cast<bool>(hooks.getPreOperatorCallback())
      << "postOperatorCallback: "
-     << static_cast<bool>(hooks.getPostOperatorCallback()) << ",\n"
      << "}";
   return os;
 }

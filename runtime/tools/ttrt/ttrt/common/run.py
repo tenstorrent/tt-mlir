@@ -486,8 +486,6 @@ class Run:
             import torch
 
             def convert_input_layouts(device, inputs, fbb, program_index):
-                import ttrt.runtime
-
                 inputs_converted = []
                 for input_index in range(len(inputs)):
                     input_layout = ttrt.runtime.get_layout(
@@ -512,12 +510,7 @@ class Run:
                 self["--blocking-cq"],
             )
             self.logging.debug(f"setting tt runtime debug env={debug_env}")
-            workaround_env = ttrt.runtime.WorkaroundEnv.get(
-                not self["--disable-swap-binary-operands"],
-                not self["--disable-read-update-index-for-kv-cache"],
-                not self["--disable-trace-implicit-from-device"],
-            )
-            self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
+            
             tracy_program_metadata = {
                 "disable_eth_dispatch": self["--disable-eth-dispatch"],
                 "enable_program_cache": self["--enable-program-cache"],
@@ -552,6 +545,7 @@ class Run:
             device = None
 
             for bin in binaries:
+                callback_env = None
 
                 try:
 
@@ -570,7 +564,7 @@ class Run:
                     self.logging.info(f"evaluating binary={bin.file_path}")
 
                     pre_op_callback_runtime_config = CallbackRuntimeConfig(
-                        device,
+                        None,
                         "",
                         self["--pcc"],
                         self["--atol"],
@@ -582,7 +576,7 @@ class Run:
                         self["--debugger"],
                     )
                     post_op_callback_runtime_config = CallbackRuntimeConfig(
-                        device,
+                        None,
                         "",
                         self["--pcc"],
                         self["--atol"],
@@ -598,6 +592,15 @@ class Run:
                         pre_op_get_callback_fn(pre_op_callback_runtime_config),
                         post_op_get_callback_fn(post_op_callback_runtime_config),
                     )
+                    self.logging.debug(f"setting tt runtime callback env={callback_env}")
+                    print(callback_env, flush=True)
+
+                    workaround_env = ttrt.runtime.WorkaroundEnv.get(
+                        not self["--disable-swap-binary-operands"],
+                        not self["--disable-read-update-index-for-kv-cache"],
+                        not self["--disable-trace-implicit-from-device"],
+                    )
+                    self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
 
                     if self["--save-artifacts"]:
                         self.artifacts.create_binary_artifacts_folder(bin)
@@ -1067,12 +1070,14 @@ class Run:
                     if self["--emitc"]:
                         ttrt.runtime.test.close_so(emitc_dylib_handle)
 
-                    ttrt.runtime.unregister_hooks()
-
                     # Only close the device it if was opened
                     if device is not None:
                         ttrt.runtime.close_mesh_device(device)
                         device = None
+
+                    if callback_env is not None:
+                        callback_env.unregister_hooks()
+                        callback_env = None
 
         self.logging.debug(f"executing ttnn binaries")
         _execute(self.ttnn_binaries)

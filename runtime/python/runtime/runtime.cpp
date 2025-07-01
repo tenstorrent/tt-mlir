@@ -379,6 +379,9 @@ void registerRuntimeBindings(nb::module_ &m) {
         std::stringstream os;
         os << hooks;
         return os.str();
+      })
+      .def("unregister_hooks", [](const tt::runtime::debug::Hooks &hooks) {
+        hooks.unregisterHooks();
       });
 
   nb::class_<tt::runtime::debug::Stats>(m, "DebugStats")
@@ -403,8 +406,5 @@ void registerRuntimeBindings(nb::module_ &m) {
         os << env;
         return os.str();
       });
-
-  m.def("unregister_hooks",
-        []() { ::tt::runtime::debug::Hooks::get().unregisterHooks(); });
 }
 } // namespace tt::runtime::python
