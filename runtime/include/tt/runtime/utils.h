@@ -315,7 +315,7 @@ inline void handleFloat16ToBFloat16(const uint16_t *old_buffer,
         exponent = 1;
         exponent -= shift;
 
-        int32_t exp32 = int32_t(exponent) - 15 + 127;
+        int32_t exp32 = static_cast<int32_t>(exponent) - 15 + 127;
         f32_bits = (static_cast<uint32_t>(sign) << 31) |
                    (static_cast<uint32_t>(exp32) << 23) |
                    (static_cast<uint32_t>(mantissa) << 13);
@@ -326,7 +326,7 @@ inline void handleFloat16ToBFloat16(const uint16_t *old_buffer,
                  (static_cast<uint32_t>(mantissa) << 13);
     } else {
       // Normalized number
-      int32_t exp32 = int32_t(exponent) - 15 + 127;
+      int32_t exp32 = static_cast<int32_t>(exponent) - 15 + 127;
       f32_bits = (static_cast<uint32_t>(sign) << 31) |
                  (static_cast<uint32_t>(exp32) << 23) |
                  (static_cast<uint32_t>(mantissa) << 13);
