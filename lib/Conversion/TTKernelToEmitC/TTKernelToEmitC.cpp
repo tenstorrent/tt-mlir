@@ -272,8 +272,6 @@ public:
       StringRef reduceType, reduceDim;
       if (mlir::isa<ttkernel::ReduceInitOp>(op)) {
         auto reduceInitOp = mlir::cast<ttkernel::ReduceInitOp>(op);
-        template_args.push_back(emitc::OpaqueAttr::get(
-            op.getContext(), "true")); // "at_start" template argument
         std::tie(reduceType, reduceDim) =
             getReduceTypeAndDim<ttkernel::ReduceInitOp>(reduceInitOp);
       } else {

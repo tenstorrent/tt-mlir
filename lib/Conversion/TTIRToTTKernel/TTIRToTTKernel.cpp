@@ -13,10 +13,16 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Value.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/IR/Constants.h"
+#include "llvm/Support/raw_ostream.h"
 
+#include <algorithm>
 #include <type_traits>
 #include <utility>
 
@@ -250,6 +256,10 @@ using ComputeOpMap = OpMap<
   std::pair<ttir::TileMulOp,      std::pair<ttkernel::MulTilesInitOp, ttkernel::MulTilesOp>>,
   std::pair<ttir::TileSubOp,      std::pair<ttkernel::SubTilesInitOp, ttkernel::SubTilesOp>>,
 
+  // Reductions FPU
+  std::pair<ttir::TileReduceSumOp, std::pair<ttkernel::ComputeKernelHWStartupOp, ttkernel::ReduceTileOp>>,
+  std::pair<ttir::TileReduceMaxOp, std::pair<ttkernel::ComputeKernelHWStartupOp, ttkernel::ReduceTileOp>>,
+
   // Elementwise SFPU
   std::pair<ttir::TileCeilOp,     std::pair<ttkernel::RoundingTileInitOp,   ttkernel::CeilTileOp>>,
   std::pair<ttir::TileCosOp,      std::pair<ttkernel::CosTileInitOp,        ttkernel::CosTileOp>>,
@@ -333,6 +343,41 @@ public:
       rewriter.create<ttkernel::MatmulTilesOp>(op->getLoc(), cbA, cbB,
                                                adaptor.getA(), adaptor.getB(),
                                                adaptor.getC(), transpose);
+    } else if constexpr (std::is_same_v<ConcreteOp, ttir::TileReduceSumOp> ||
+                         std::is_same_v<ConcreteOp, ttir::TileReduceMaxOp>) {
+      ttkernel::ReduceType reduce_type;
+      ttir::ReduceDim reduce_dim = op.getReduceDim();
+      if constexpr (std::is_same_v<ConcreteOp, ttir::TileReduceSumOp>) {
+        reduce_type = ttkernel::ReduceType::Sum;
+      } else {
+        reduce_type = ttkernel::ReduceType::Max;
+      }
+      ttkernel::ReduceDim kernel_reduce_dim;
+      switch (reduce_dim) {
+      case ttir::ReduceDim::C:
+        kernel_reduce_dim = ttkernel::ReduceDim::Col;
+        break;
+      case ttir::ReduceDim::R:
+        kernel_reduce_dim = ttkernel::ReduceDim::Row;
+        break;
+      case ttir::ReduceDim::RC:
+        kernel_reduce_dim = ttkernel::ReduceDim::Scalar;
+        break;
+      }
+
+      auto insertionPoint = rewriter.getInsertionPoint();
+      auto cbA = getCB(rewriter, op.getA());
+      auto cbB = getCB(rewriter, op.getB());
+      auto outCB = getOutCB(rewriter, op);
+      setInsertionPointAfterOperands(rewriter, {cbA, cbB, outCB});
+      rewriter.create<ttkernel::ComputeKernelHWStartupOp>(op->getLoc(), cbA,
+                                                          cbB, outCB);
+      rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+      rewriter.create<ttkernel::ReduceInitOp>(op->getLoc(), cbA, cbB, outCB,
+                                              reduce_type, kernel_reduce_dim);
+      rewriter.create<ttkernel::ReduceTileOp>(
+          op->getLoc(), cbA, cbB, adaptor.getA(), adaptor.getB(),
+          adaptor.getC(), reduce_type, kernel_reduce_dim);
     } else if constexpr (arity == 2) {
       auto dstIdx = getDstIdxFromResult(op.getResult());
       rewriter.create<InitOp>(op->getLoc(), getCB(rewriter, op.getLhs()),
@@ -1050,6 +1095,10 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRFPUOpsRewriter<ttir::TileMatmulOp>,
                ttkernel::TTIRFPUOpsRewriter<ttir::TileMulOp>,
                ttkernel::TTIRFPUOpsRewriter<ttir::TileSubOp>,
+
+               // Reductions FPU.
+               ttkernel::TTIRFPUOpsRewriter<ttir::TileReduceSumOp>,
+               ttkernel::TTIRFPUOpsRewriter<ttir::TileReduceMaxOp>,
 
                // Elementwise SFPU.
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileCeilOp>,
