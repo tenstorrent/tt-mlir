@@ -1,4 +1,4 @@
-# `ttir-builder` Overview
+# `ttir-builder`
 
 `ttir-builder` is a tool for creating TTIR operations. It provides support for MLIR modules to be generated from user-constructed ops, lowered into TTNN or TTMetal backends, and finally translated into executable flatbuffers. Or you can do all three at once!
 
