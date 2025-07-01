@@ -593,10 +593,8 @@ public:
 
         // Tilize & untilize
         TTKernelToEmitCOpaqueRewriter<ttkernel::TilizeInitOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::TilizeInitShortOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TilizeUninitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UntilizeInitOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::UntilizeInitShortOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UntilizeUninitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TilizeBlockOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalTilizeBlockOp>,
