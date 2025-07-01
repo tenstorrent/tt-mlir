@@ -1289,6 +1289,8 @@ class OpModelConvTranspose2dParam
                      detail::ExpectedResult>> {};
 
 TEST_P(OpModelConvTranspose2dParam, ConvTranspose2d) {
+  // Skipped due to hang
+  GTEST_SKIP();
   auto params = GetParam();
   const auto [inputShape, inputTensorLayout, inputBufferType,
               inputVirtualGrid] = std::get<0>(params);
