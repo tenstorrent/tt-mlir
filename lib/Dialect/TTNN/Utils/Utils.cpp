@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/Value.h"
 #include "llvm/Support/Casting.h"
@@ -89,6 +90,18 @@ RankedTensorTypeFactory::create(RankedTensorType tensorType,
 
 RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
                                                  Layout layout) {
+  // If the tensor is quantized, only update the layout in the encoding.
+  if (auto quantType =
+          dyn_cast<mlir::quant::QuantizedType>(tensorType.getElementType())) {
+    ttcore::DataType dataType =
+        mlir::tt::ttcore::elementTypeToDataType(quantType);
+    Type memrefElementType =
+        utils::getElementType(tensorType.getContext(), layout, dataType);
+    TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
+    TTNNLayoutAttr newEncoding =
+        oldEncoding.withElementType(memrefElementType, tensorType.getShape());
+    return RankedTensorType::get(tensorType.getShape(), quantType, newEncoding);
+  }
   ttcore::DataType dataType =
       mlir::tt::ttcore::elementTypeToDataType(tensorType.getElementType());
   Type memrefElementType =
