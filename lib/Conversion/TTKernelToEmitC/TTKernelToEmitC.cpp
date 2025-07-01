@@ -268,6 +268,8 @@ public:
 
   ArrayAttr getTemplateArgs(Builder &builder, SourceOp op) const {
     if constexpr (std::is_same_v<SourceOp, ttkernel::ReduceInitOp> ||
+                  std::is_same_v<SourceOp,
+                                 ttkernel::ExperimentalReduceInitShortOp> ||
                   std::is_same_v<SourceOp, ttkernel::ReduceTileOp>) {
       SmallVector<Attribute, 4> template_args;
       StringRef reduceType, reduceDim;
@@ -275,6 +277,11 @@ public:
         auto reduceInitOp = mlir::cast<ttkernel::ReduceInitOp>(op);
         std::tie(reduceType, reduceDim) =
             getReduceTypeAndDim<ttkernel::ReduceInitOp>(reduceInitOp);
+      } else if (mlir::isa<ttkernel::ExperimentalReduceInitShortOp>(op)) {
+        auto reduceOp = mlir::cast<ttkernel::ExperimentalReduceInitShortOp>(op);
+        std::tie(reduceType, reduceDim) =
+            getReduceTypeAndDim<ttkernel::ExperimentalReduceInitShortOp>(
+                reduceOp);
       } else {
         auto reduceOp = mlir::cast<ttkernel::ReduceTileOp>(op);
         std::tie(reduceType, reduceDim) =
@@ -628,6 +635,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::DivBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::DivBinaryTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExpTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalReduceInitShortOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExpTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FillTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FillTileOp>,
