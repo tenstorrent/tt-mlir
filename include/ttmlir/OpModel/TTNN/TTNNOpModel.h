@@ -223,17 +223,18 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 
 namespace ToLayoutOpInterface {
-llvm::Expected<OpConstraints> getOpConstraints(
-    mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
-    mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-    std::optional<mlir::tt::ttcore::DataType> outputDtype,
-    mlir::tt::ttnn::TTNNLayoutAttr outputLayout, bool passDevicePtr);
+llvm::Expected<OpConstraints>
+getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
+                 llvm::ArrayRef<int64_t> inputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                 std::optional<mlir::tt::ttcore::DataType> outputDtype,
+                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 
 llvm::Expected<size_t>
 getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
              mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
              std::optional<mlir::tt::ttcore::DataType> outputDtype,
-             mlir::tt::ttnn::TTNNLayoutAttr outputLayout, bool passDevicePtr);
+             mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 
 }; // namespace ToLayoutOpInterface
 

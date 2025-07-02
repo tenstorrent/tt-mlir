@@ -65,8 +65,7 @@ def TTNN_ToLayoutOp : TTNN_Op<"to_layout",
     let arguments = (ins AnyRankedTensor:$input,
                          TTNN_LayoutAttr:$layout,
                          OptionalAttr<TTCore_DataTypeAttr>:$dtype,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
-                         Optional<TTNN_Device>:$device);
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
     let results = (outs AnyRankedTensor:$result);
 
     let hasCanonicalizer = 1;

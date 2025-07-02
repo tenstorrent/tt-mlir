@@ -573,14 +573,11 @@ ToLayoutOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
     return check.takeError();
   }
 
-  auto deviceOperand = getDevice();
-  const bool passDevicePtr = !deviceOperand;
   ttcore::GridAttr deviceGrid =
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
   return op_model::ttnn::ToLayoutOpInterface::getOpConstraints(
-      deviceGrid, inputShape, inputs[0], getDtype(), opConfig.outputLayout,
-      passDevicePtr);
+      deviceGrid, inputShape, inputs[0], getDtype(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -591,11 +588,8 @@ ToLayoutOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
-  auto deviceOperand = getDevice();
-  const bool passDevicePtr = !deviceOperand;
-
   return op_model::ttnn::ToLayoutOpInterface::getOpRuntime(
-      inputShape, inputs[0], getDtype(), opConfig.outputLayout, passDevicePtr);
+      inputShape, inputs[0], getDtype(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

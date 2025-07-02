@@ -657,15 +657,9 @@ TEST_F(OpModelBase, toLayoutOp) {
       ShapeAttr::get(&context, tensorShape), nullptr,
       LayoutAttr::get(&context, Layout::RowMajor), nullptr, nullptr);
 
-  // Need to pass a GetDeviceOp to make sure the layout change happens on the
-  // device
-  GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
-      builder.getUnknownLoc(), builder.getType<DeviceType>(),
-      ttnn::MeshShapeAttr::get(builder.getContext(), 1, 1),
-      ttnn::MeshOffsetAttr::get(builder.getContext(), 0, 0));
-  ToLayoutOp toLayout = builder.create<ToLayoutOp>(
-      builder.getUnknownLoc(), tensor.getType(), tensor, Layout::Tile, nullptr,
-      nullptr, deviceOp);
+  ToLayoutOp toLayout =
+      builder.create<ToLayoutOp>(builder.getUnknownLoc(), tensor.getType(),
+                                 tensor, Layout::Tile, nullptr, nullptr);
 
   // Manually create the operand layouts for calling the backend to make sure
   // the layouts are propagated all the way
