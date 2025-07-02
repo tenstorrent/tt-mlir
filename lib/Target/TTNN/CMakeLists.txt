@@ -26,6 +26,6 @@ add_mlir_translation_library(TracedTTNNGraphToMLIR
 
     LINK_LIBS PUBLIC
     MLIRTTNNDialect
-    MLIRTTDialect
+    MLIRTTCoreDialect
     MLIRTTNNTransforms
 )

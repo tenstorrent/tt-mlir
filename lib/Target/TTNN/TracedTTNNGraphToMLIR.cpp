@@ -4,9 +4,9 @@
 
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Dialect/TT/IR/TTOps.h"
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
@@ -82,19 +82,20 @@ SmallVector<int64_t> parseShape(StringRef shapeStr) {
 }
 
 // Helper function to parse data type from string like "DataType::FLOAT32"
-DataTypeAttr parseDataType(StringRef dataTypeStr, MLIRContext *context) {
+ttcore::DataTypeAttr parseDataType(StringRef dataTypeStr,
+                                   MLIRContext *context) {
   if (dataTypeStr.contains("FLOAT32")) {
-    return DataTypeAttr::get(context, DataType::Float32);
+    return ttcore::DataTypeAttr::get(context, ttcore::DataType::Float32);
   }
   if (dataTypeStr.contains("FLOAT16")) {
-    return DataTypeAttr::get(context, DataType::Float16);
+    return ttcore::DataTypeAttr::get(context, ttcore::DataType::Float16);
   }
   if (dataTypeStr.contains("BFLOAT16")) {
-    return DataTypeAttr::get(context, DataType::BFloat16);
+    return ttcore::DataTypeAttr::get(context, ttcore::DataType::BFloat16);
   }
 
   // Default to float32
-  return DataTypeAttr::get(context, DataType::Float32);
+  return ttcore::DataTypeAttr::get(context, ttcore::DataType::Float32);
 }
 
 // Helper function to parse layout from string like "Layout::TILE"
@@ -146,14 +147,15 @@ static TensorMemoryLayoutAttr getMemoryLayoutAttr(MLIRContext *ctx,
   return TensorMemoryLayoutAttr{};
 }
 
-static TTNNLayoutAttr createLayoutAttr(MLIRContext *ctx, GridAttr deviceGrid,
+static TTNNLayoutAttr createLayoutAttr(MLIRContext *ctx,
+                                       ttcore::GridAttr deviceGrid,
                                        RankedTensorType type,
                                        BufferType bufferType = BufferType::DRAM,
                                        bool isTiled = true) {
 
   std::int64_t deviceGridRank = deviceGrid.getShape().size();
   // Default to single core grid
-  GridAttr tensorGrid = GridAttr::get(ctx, deviceGridRank);
+  ttcore::GridAttr tensorGrid = ttcore::GridAttr::get(ctx, deviceGridRank);
 
   llvm::ArrayRef<std::pair<int64_t, int64_t>> collapseDimsRef(
       g_defaultCollapseDims);
@@ -164,16 +166,16 @@ static TTNNLayoutAttr createLayoutAttr(MLIRContext *ctx, GridAttr deviceGrid,
   // Ex: for a quant p of fp32->int8, the storage type is int8.
   if (auto quantType =
           mlir::dyn_cast<mlir::quant::QuantizedType>(elementType)) {
-    elementType = isTiled ? TileType::get(quantType.getStorageType())
+    elementType = isTiled ? ttcore::TileType::get(quantType.getStorageType())
                           : quantType.getStorageType();
   } else {
-    elementType =
-        isTiled ? TileType::get(type.getElementType()) : type.getElementType();
+    elementType = isTiled ? ttcore::TileType::get(type.getElementType())
+                          : type.getElementType();
   }
   mlir::Attribute encoding = type.getEncoding();
-  TensorMeshShardingAttr tensorMeshShardingAttr;
+  ttcore::TensorMeshShardingAttr tensorMeshShardingAttr;
   if (auto encodingMeshSharding =
-          mlir::dyn_cast_if_present<TensorMeshShardingAttr>(encoding)) {
+          mlir::dyn_cast_if_present<ttcore::TensorMeshShardingAttr>(encoding)) {
     tensorMeshShardingAttr = encodingMeshSharding;
   } else if (auto layout =
                  mlir::dyn_cast_if_present<TTNNLayoutAttr>(encoding)) {
@@ -254,8 +256,8 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
           // Process arguments
           SmallVector<int64_t> shapeVec;
           ShapeAttr shapeAttr;
-          DataTypeAttr dataTypeAttr =
-              DataTypeAttr::get(context, DataType::Float32);
+          ttcore::DataTypeAttr dataTypeAttr =
+              ttcore::DataTypeAttr::get(context, ttcore::DataType::Float32);
 
           const llvm::json::Value &shapeObj = (*argsObj)[0];
           const llvm::json::Value &dtypeObj = (*argsObj)[1];
@@ -270,7 +272,7 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
               parseLayout(layoutType.getAsString()->str(), context);
 
           TTNNLayoutAttr layoutAttr = createLayoutAttr(
-              context, GridAttr::get(context),
+              context, ttcore::GridAttr::get(context),
               RankedTensorType::get(shapeVec, builder.getF32Type()));
 
           // Create ones operation
@@ -321,7 +323,7 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
               mlir::cast<RankedTensorType>(rhs.getType()).getShape().back()};
 
           TTNNLayoutAttr layoutAttr = createLayoutAttr(
-              context, GridAttr::get(context),
+              context, ttcore::GridAttr::get(context),
               RankedTensorType::get(shape, builder.getF32Type()));
 
           auto matmulOp = builder.create<ttnn::MatmulOp>(
@@ -358,7 +360,7 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
               mlir::cast<RankedTensorType>(rhs.getType()).getShape();
 
           TTNNLayoutAttr layoutAttr = createLayoutAttr(
-              context, GridAttr::get(context),
+              context, ttcore::GridAttr::get(context),
               RankedTensorType::get(shape, builder.getF32Type()));
 
           auto addOp = builder.create<ttnn::AddOp>(
@@ -381,7 +383,7 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
               mlir::cast<RankedTensorType>(input.getType()).getShape();
 
           TTNNLayoutAttr layoutAttr = createLayoutAttr(
-              context, GridAttr::get(context),
+              context, ttcore::GridAttr::get(context),
               RankedTensorType::get(shape, builder.getF32Type()));
 
           auto reluOp = builder.create<ttnn::ReluOp>(
@@ -401,7 +403,7 @@ OwningOpRef<ModuleOp> translateTracedTTNNGraphToMLIR(llvm::SourceMgr &sourceMgr,
               mlir::cast<RankedTensorType>(input.getType()).getShape();
 
           TTNNLayoutAttr layoutAttr = createLayoutAttr(
-              context, GridAttr::get(context),
+              context, ttcore::GridAttr::get(context),
               RankedTensorType::get(shape, builder.getF32Type()));
 
           // int dim = (*argsObj)[1].getAsNumber(); // not proprely traced, hack

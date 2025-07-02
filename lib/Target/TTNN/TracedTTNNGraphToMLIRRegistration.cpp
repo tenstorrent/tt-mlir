@@ -8,7 +8,7 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/Target/LLVMIR/Dialect/All.h"
 #include "mlir/Tools/mlir-translate/Translation.h"
-#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Target/TTNN/TracedTTNNGraphToMLIR.h"
 #include "llvm/Support/ErrorOr.h"
@@ -28,7 +28,7 @@ void registerTracedTTNNGraphToMLIR() {
       [](llvm::SourceMgr &sourceMgr,
          MLIRContext *context) -> OwningOpRef<Operation *> {
         // std::cout << "manually loading dialects..." << std::endl;
-        context->loadDialect<mlir::tt::TTDialect>();
+        context->loadDialect<mlir::tt::ttcore::TTCoreDialect>();
         context->loadDialect<mlir::tt::ttnn::TTNNDialect>();
         context->loadDialect<mlir::func::FuncDialect>();
         return translateTracedTTNNGraphToMLIR(sourceMgr, context);
@@ -36,7 +36,7 @@ void registerTracedTTNNGraphToMLIR() {
       [](DialectRegistry &registry) {
         // std::cout << "registering dialects..." << std::endl;
         // clang-format off
-        registry.insert<mlir::tt::TTDialect,
+        registry.insert<mlir::tt::ttcore::TTCoreDialect,
                         mlir::tt::ttnn::TTNNDialect,
                         mlir::func::FuncDialect
                         >();
