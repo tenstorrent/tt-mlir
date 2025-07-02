@@ -223,14 +223,10 @@ createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
       toFlatbuffer(cache, op.getDtype());
   std::optional<::mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
       op.getMemoryConfig();
-  ::mlir::Value device = op.getDevice();
-  if (device) {
-    device = getOperandThroughDPSOps(device);
-  }
+
   return ::tt::target::ttnn::CreateToLayoutOp(
       *cache.fbb, input, layout, dtype,
-      memoryConfig ? toFlatbuffer(cache, *memoryConfig) : 0,
-      device ? cache.at<::tt::target::DeviceRef>(device) : 0, output);
+      memoryConfig ? toFlatbuffer(cache, *memoryConfig) : 0, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ToDTypeOp>

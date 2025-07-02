@@ -65,8 +65,7 @@ def TTNN_ToLayoutOp : TTNN_Op<"to_layout",
     let arguments = (ins AnyRankedTensor:$input,
                          TTNN_LayoutAttr:$layout,
                          OptionalAttr<TTCore_DataTypeAttr>:$dtype,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
-                         Optional<TTNN_Device>:$device);
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
     let results = (outs AnyRankedTensor:$result);
 
     let hasCanonicalizer = 1;
@@ -1135,9 +1134,10 @@ def TTNN_PadOp: TTNN_Op<"pad"> {
       mlir::TypedValue<mlir::RankedTensorType> input = getInput();
       ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
             getResult().getType().getEncoding());
+      llvm::ArrayRef<int32_t> padding = getPadding();
       return
         wa::TTNNOperandsWorkaroundsFactory::createPadOpOperandsWorkarounds(
-                                                             input, layoutAttr);
+                                                    input, layoutAttr, padding);
     }
   }];
 }

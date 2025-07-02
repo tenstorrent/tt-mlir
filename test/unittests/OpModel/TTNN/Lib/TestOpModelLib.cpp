@@ -501,7 +501,7 @@ TEST_F(OpModelTest, ToLayout) {
 
   auto constraintsExp = ToLayoutOpInterface::getOpConstraints(
       CreateWorkerGrid(), tensorShape, layoutDRAMTiled, std::nullopt,
-      layoutDRAMRowMajor, true);
+      layoutDRAMRowMajor);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 131072);
@@ -510,24 +510,24 @@ TEST_F(OpModelTest, ToLayout) {
   ExpectLayoutsEQ(layoutDRAMRowMajor, opCstr.outputLayout);
 
   auto runtimeExp = ToLayoutOpInterface::getOpRuntime(
-      tensorShape, layoutDRAMTiled, std::nullopt, layoutDRAMRowMajor, true);
+      tensorShape, layoutDRAMTiled, std::nullopt, layoutDRAMRowMajor);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 
   constraintsExp = ToLayoutOpInterface::getOpConstraints(
       CreateWorkerGrid(), tensorShape, layoutDRAMTiled, std::nullopt,
-      layoutL1RowMajorHS, true);
+      layoutL1RowMajorHS);
   EXPECT_FALSE(static_cast<bool>(constraintsExp));
   llvm::consumeError(constraintsExp.takeError());
 
   runtimeExp = ToLayoutOpInterface::getOpRuntime(
-      tensorShape, layoutDRAMTiled, std::nullopt, layoutL1RowMajorHS, true);
+      tensorShape, layoutDRAMTiled, std::nullopt, layoutL1RowMajorHS);
   EXPECT_FALSE(static_cast<bool>(runtimeExp));
   llvm::consumeError(runtimeExp.takeError());
 
   constraintsExp = ToLayoutOpInterface::getOpConstraints(
       CreateWorkerGrid(), tensorShape, layoutDRAMTiled, std::nullopt,
-      layoutDRAMRowMajor, false);
+      layoutDRAMRowMajor);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 131072);
@@ -536,7 +536,7 @@ TEST_F(OpModelTest, ToLayout) {
   ExpectLayoutsEQ(layoutDRAMRowMajor, opCstr.outputLayout);
 
   runtimeExp = ToLayoutOpInterface::getOpRuntime(
-      tensorShape, layoutDRAMTiled, std::nullopt, layoutDRAMRowMajor, false);
+      tensorShape, layoutDRAMTiled, std::nullopt, layoutDRAMRowMajor);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 }

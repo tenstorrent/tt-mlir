@@ -333,7 +333,7 @@ TTNNOperandsWorkaroundsFactory::createSliceOpOperandsWorkarounds(
 
 // ConstantOp is not a TTNN (lib) operation, but it is used to create TTNN
 // tensors. Tensor is expected to be on host in ROW_MAJOR layout. This
-// workaround is used to guarantee those ivariants.
+// workaround is used to guarantee those invariants.
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds() {
   TTNNOperandWorkarounds hostRowMajorWorkaround = TTNNOperandWorkarounds();
@@ -544,14 +544,24 @@ TTNNOperandsWorkaroundsFactory::createArgMaxOpOperandsWorkarounds() {
 
 // Factory method to create a set of workarounds for Pad op operands.
 // tt-metal only supports float32 and bfloat16 data types.
-// tt-metal generates incorrect output for tile layout.
-// https://github.com/tenstorrent/tt-metal/issues/19513
+// tt-metal does not support front padding for tile layout.
+// https://github.com/tenstorrent/tt-metal/issues/10987
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createPadOpOperandsWorkarounds(
     mlir::TypedValue<mlir::RankedTensorType> input,
-    ttnn::TTNNLayoutAttr layoutAttr) {
+    ttnn::TTNNLayoutAttr layoutAttr, llvm::ArrayRef<int32_t> padding) {
   TTNNOperandWorkarounds operandWorkaround;
-  if (layoutAttr.isTiled()) {
+
+  // Determine whether front padding is applied. For each dimension, padding is
+  // specified as a tuple <front padding, back padding>, indicating the number
+  // of elements added before and after the data.
+  bool isFrontPadding =
+      llvm::any_of(llvm::enumerate(padding), [](const auto &indexedValue) {
+        const auto [index, value] = indexedValue;
+        return index++ % 2 == 0 && value != 0;
+      });
+
+  if (isFrontPadding && layoutAttr.isTiled()) {
     operandWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
   }
   if (isa<IntegerType>(input.getType().getElementType())) {
@@ -586,7 +596,7 @@ TTNNOperandsWorkaroundsFactory::createPermuteOpOperandWorkaround(
 // row-major inputs than there is for tile inputs.
 // There is no single issue in tt-metal for this. This workaround is here
 // to ensure we use the more generally-supported input layout for
-// convolutions in ttnn. For example, here is an issue highliting
+// convolutions in ttnn. For example, here is an issue highlighting
 // some convolutions that will not work when the input is in tile layout,
 // but will work when the input is in row-major layout:
 // https://github.com/tenstorrent/tt-metal/issues/19762

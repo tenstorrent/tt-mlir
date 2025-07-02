@@ -10,7 +10,7 @@ module attributes {} {
     // CHECK-SAME: {shape = [1 : i32, 1 : i32, 64 : i32, 64 : i32]}
     // CHECK-SAME: tensor<64x64xf32,
     // CHECK-SAME: -> tensor<1x1x64x64xf32
-    // CHECK: %[[ARG0:[0-9]+]] = "ttnn.to_layout"(%[[PRE_RESHAPE]],
+    // CHECK: %[[ARG0:[0-9]+]] = "ttnn.to_layout"(%[[PRE_RESHAPE]])
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
     // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: tensor<1x1x64x64xf32,
@@ -21,7 +21,7 @@ module attributes {} {
     // CHECK-SAME: tensor<1x1x64x64xbf16
     // CHECK-SAME: -> tensor<1x1x64x1xui32
     %2 = "ttnn.argmax"(%arg0) <{dim = 1 : i32, use_multicore = false}> : (tensor<64x64xf32, #ttnn_layout>) -> tensor<64x1xui32, #ttnn_layout1>
-    // CHECK: %[[TO_LAYOUT:[0-9]+]] = "ttnn.to_layout"(%[[ARG_MAX]],
+    // CHECK: %[[TO_LAYOUT:[0-9]+]] = "ttnn.to_layout"(%[[ARG_MAX]])
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<u32>
     // CHECK-SAME: layout = #ttnn.layout<tile>
     // CHECK-SAME: (tensor<1x1x64x1xui32
