@@ -15,7 +15,6 @@ from enum import Enum, auto
 import re
 from .ccl_golden import *
 from .ops import TTIRBuilderOps
-from sphinx.ext.autodoc import FunctionDocumenter
 
 # Alias for operands of ops which can be either BlockArguments, Values, or other
 # ops wrapped in OpView or Operation.

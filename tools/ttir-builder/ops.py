@@ -14,7 +14,6 @@ import torch
 from enum import Enum, auto
 import re
 from .ccl_golden import *
-from sphinx.ext.autodoc import FunctionDocumenter
 
 # Alias for operands of ops which can be either BlockArguments, Values, or other
 # ops wrapped in OpView or Operation.
