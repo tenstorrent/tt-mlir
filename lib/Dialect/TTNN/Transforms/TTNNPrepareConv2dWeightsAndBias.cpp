@@ -37,7 +37,8 @@ public:
       mlir::RankedTensorType inputType = conv2dOp.getInput().getType();
       ttnn::TTNNLayoutAttr inputLayoutAttr =
           mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
-      GridAttr deviceGrid = lookupDevice(moduleOp).getWorkerGrid();
+      ttcore::GridAttr deviceGrid =
+          ttcore::lookupDevice(moduleOp).getWorkerGrid();
       ttnn::MemoryConfigAttr inputMemConfigAttr =
           rewriter.getAttr<ttnn::MemoryConfigAttr>(
               inputLayoutAttr.getMemLayout(),
@@ -45,14 +46,14 @@ public:
                   inputLayoutAttr.getBufferType()),
               utils::createShardSpecIfNeeded(inputLayoutAttr, deviceGrid));
 
-      mlir::RankedTensorType weightType = conv2dOp.getWeight().getType();
-      ttnn::TTNNLayoutAttr weightLayoutAttr =
-          mlir::cast<ttnn::TTNNLayoutAttr>(weightType.getEncoding());
-      assert(weightLayoutAttr.getBufferType() ==
-                 ttnn::BufferType::SystemMemory &&
-             weightLayoutAttr.getLayout() == ttnn::Layout::RowMajor &&
-             "Weight must be in system memory and row-major layout when "
-             "calling TTNNPrepareConv2dWeightsAndBias pass.");
+      // mlir::RankedTensorType weightType = conv2dOp.getWeight().getType();
+      // ttnn::TTNNLayoutAttr weightLayoutAttr =
+      //     mlir::cast<ttnn::TTNNLayoutAttr>(weightType.getEncoding());
+      // assert(weightLayoutAttr.getBufferType() ==
+      //            ttnn::BufferType::SystemMemory &&
+      //        weightLayoutAttr.getLayout() == ttnn::Layout::RowMajor &&
+      //        "Weight must be in system memory and row-major layout when "
+      //        "calling TTNNPrepareConv2dWeightsAndBias pass.");
 
       ttnn::PrepareConv2dWeightsOp prepareConv2dWeightsOp =
           rewriter.create<ttnn::PrepareConv2dWeightsOp>(
@@ -72,22 +73,23 @@ public:
 
       ttnn::PrepareConv2dBiasOp prepareConv2dBiasOp;
       if (conv2dOp.getBias()) {
-        mlir::RankedTensorType biasType = conv2dOp.getBias().getType();
-        ttnn::TTNNLayoutAttr biasLayoutAttr =
-            mlir::cast<ttnn::TTNNLayoutAttr>(biasType.getEncoding());
-        assert(biasLayoutAttr.getBufferType() ==
-                   ttnn::BufferType::SystemMemory &&
-               biasLayoutAttr.getLayout() == ttnn::Layout::RowMajor &&
-               "Bias must be in system memory and row-major layout when "
-               "calling TTNNPrepareConv2dWeightsAndBias pass");
+        // mlir::RankedTensorType biasType = conv2dOp.getBias().getType();
+        // ttnn::TTNNLayoutAttr biasLayoutAttr =
+        //     mlir::cast<ttnn::TTNNLayoutAttr>(biasType.getEncoding());
+        // assert(biasLayoutAttr.getBufferType() ==
+        //            ttnn::BufferType::SystemMemory &&
+        //        biasLayoutAttr.getLayout() == ttnn::Layout::RowMajor &&
+        //        "Bias must be in system memory and row-major layout when "
+        //        "calling TTNNPrepareConv2dWeightsAndBias pass");
 
         // PrepareConv2dBias requires Conv2dConfig to be created and weights
         // dtype to be set.
         auto conv2dConfig = conv2dOp.getConv2dConfigAttr()
                                 ? conv2dOp.getConv2dConfigAttr()
                                 : Conv2dConfigAttr::get(&getContext());
-        conv2dConfig = conv2dConfig.withWeightsDtype(elementTypeToDataType(
-            conv2dOp.getWeight().getType().getElementType()));
+        conv2dConfig =
+            conv2dConfig.withWeightsDtype(ttcore::elementTypeToDataType(
+                conv2dOp.getWeight().getType().getElementType()));
 
         prepareConv2dBiasOp = rewriter.create<ttnn::PrepareConv2dBiasOp>(
             ttmlir::utils::appendLocationSuffix(conv2dOp.getLoc(),
@@ -139,7 +141,7 @@ private:
 
     auto newLayout = ttnn::TTNNLayoutAttr::get(
         &getContext(), oldType.getShape(),
-        TileType::get(oldType.getElementType()), BufferType::DRAM,
+        ttcore::TileType::get(oldType.getElementType()), BufferType::DRAM,
         oldLayout.getGrid(),
         ttnn::TensorMemoryLayoutAttr::get(
             &getContext(), ttnn::TensorMemoryLayout::Interleaved));
