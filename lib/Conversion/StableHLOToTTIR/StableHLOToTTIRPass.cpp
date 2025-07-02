@@ -56,7 +56,6 @@ struct ConvertStableHLOToTTIRPass
     target.addLegalOp<mlir::func::ReturnOp>();
     target.addLegalOp<mlir::func::CallOp>();
 
-    // Use the shared StablehloTypeConverter
     StablehloTypeConverter typeConverter(&getContext());
     RewritePatternSet patterns(&getContext());
 

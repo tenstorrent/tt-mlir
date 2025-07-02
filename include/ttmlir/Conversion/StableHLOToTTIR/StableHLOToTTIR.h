@@ -12,7 +12,7 @@
 namespace mlir::tt {
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
-// Shared TypeConverter for StableHLO to TTIR conversions
+// This converter is also used in the StableHLO legalize composite pass.
 class StablehloTypeConverter : public TypeConverter {
 public:
   StablehloTypeConverter(MLIRContext *ctx) {

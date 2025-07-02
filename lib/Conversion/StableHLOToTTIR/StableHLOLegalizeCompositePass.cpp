@@ -59,8 +59,16 @@ public:
         getTypeConverter()->convertType(srcOp.getResult(0).getType());
     auto outputType = mlir::cast<RankedTensorType>(convertedType);
 
-    ttir::utils::replaceOpWithNewDPSOp<TargetOp>(rewriter, srcOp, outputType,
-                                                 adaptor.getOperands());
+    auto compositeAttrs = srcOp.getCompositeAttributes();
+    SmallVector<NamedAttribute> namedAttrs;
+    if (compositeAttrs) {
+      for (const auto &attr : compositeAttrs) {
+        namedAttrs.push_back(attr);
+      }
+    }
+
+    ttir::utils::replaceOpWithNewDPSOp<TargetOp>(
+        rewriter, srcOp, outputType, adaptor.getOperands(), namedAttrs);
     return success();
   }
 
@@ -101,7 +109,6 @@ createLegalizeStableHLOCompositeToTTIRPass() {
 void populateStableHLOCompositeLegalizationPatterns(
     MLIRContext *context, RewritePatternSet &patterns,
     TypeConverter &typeConverter) {
-  // Register patterns for supported composite ops
   patterns.add<StableHLOToTTIRCompositeOpConversionPattern<ttir::GeluOp>>(
       typeConverter, context, "tenstorrent.gelu");
   patterns.add<StableHLOToTTIRCompositeOpConversionPattern<ttir::GeluOp>>(
