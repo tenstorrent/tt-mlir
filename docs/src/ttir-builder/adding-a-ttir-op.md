@@ -47,7 +47,7 @@ Example implementation:
 
     def cbrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         return self.op_proxy(
-            torch.mul,
+            cbrt_golden_function,
             ttir.CbrtOp,
             [in0],
             golden_kwargs={"input": golden_sign, "other": golden_cbrt},
