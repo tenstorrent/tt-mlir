@@ -8,7 +8,7 @@ module @jit_composite_fn attributes {mhlo.num_partitions = 1 : i32, mhlo.num_rep
     // CHECK: ttir.cbrt
     // CHECK: ttir.exp
     %0 = stablehlo.composite "tenstorrent.gelu_tanh" %arg0 {decomposition = @tenstorrent.gelu_tanh} : (tensor<2x2xf32>) -> tensor<2x2xf32>
-    %1 = stablehlo.composite "tt.mush" %arg0 {decomposition = @tt.mush} : (tensor<2x2xf32>) -> tensor<2x2xf32>
+    %1 = stablehlo.composite "abc.test" %arg0 {decomposition = @abc.test} : (tensor<2x2xf32>) -> tensor<2x2xf32>
     %2 = stablehlo.add %0, %1 : tensor<2x2xf32>
     return %2 : tensor<2x2xf32>
   }
@@ -32,7 +32,7 @@ module @jit_composite_fn attributes {mhlo.num_partitions = 1 : i32, mhlo.num_rep
     %12 = stablehlo.multiply %arg0, %11 : tensor<2x2xf32>
     return %12 : tensor<2x2xf32>
   }
-  func.func private @tt.mush(%arg0: tensor<2x2xf32>) -> tensor<2x2xf32> {
+  func.func private @abc.test(%arg0: tensor<2x2xf32>) -> tensor<2x2xf32> {
     %0 = stablehlo.cbrt %arg0 : tensor<2x2xf32>
     %1 = stablehlo.exponential %0 : tensor<2x2xf32>
     return %1 : tensor<2x2xf32>
