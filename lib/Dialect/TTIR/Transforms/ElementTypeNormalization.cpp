@@ -173,7 +173,7 @@ public:
       });
       addConversion([](RankedTensorType type) -> RankedTensorType {
         Type elementType = type.getElementType();
-        if (isa<BFloat8BType>(elementType)) {
+        if (isa<ttcore::BFloat8BType>(elementType)) {
           return type;
         }
 
@@ -181,7 +181,7 @@ public:
                "Only bfloat16 is supported in FuncBodyTypeConverter");
         assert(type.getEncoding() == nullptr &&
                "Encoding should be null for FuncBodyTypeConverter");
-        return type.clone(BFloat8BType::get(type.getContext()));
+        return type.clone(ttcore::BFloat8BType::get(type.getContext()));
       });
 
       auto materializeFunc = [](OpBuilder &builder, Type type,

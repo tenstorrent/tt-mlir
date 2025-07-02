@@ -291,7 +291,7 @@ private:
     }
 
     Operation *op = value.getDefiningOp();
-    if (op->hasTrait<mlir::tt::Trait::TTCoreCreationOpTrait>() &&
+    if (op->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>() &&
         op->isBeforeInBlock(conv2dOp)) {
       return true;
     }
@@ -314,15 +314,16 @@ private:
     mlir::func::FuncOp funcOp = conv2dOp->getParentOfType<mlir::func::FuncOp>();
     llvm::SmallPtrSet<BlockArgument, 4> constParams =
         mlir::tt::ttcore::getConstsAndParams(funcOp);
-    auto isConstant = [&constParams, conv2dOp](mlir::Value value) {
-      if (auto blockArg = mlir::dyn_cast<BlockArgument>(value)) {
-        return constParams.contains(blockArg);
-      }
-
-      Operation *op = value.getDefiningOp();
-      return op->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>() &&
-             op->isBeforeInBlock(conv2dOp);
-    };
+    // auto isConstant = [&constParams, conv2dOp](mlir::Value value) {
+    //   if (auto blockArg = mlir::dyn_cast<BlockArgument>(value)) {
+    //     return constParams.contains(blockArg);
+    //   }
+    //
+    //   Operation *op = value.getDefiningOp();
+    //   return op->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>()
+    //   &&
+    //          op->isBeforeInBlock(conv2dOp);
+    // };
 
     // Both scale and weight must be constant.
     if (!isConstant(constParams, conv2dOp, scale) ||

@@ -86,7 +86,7 @@ public:
 };
 
 template <typename ConcreteType>
-class CheckBFloat8BTrait 
+class CheckBFloat8BTrait
     : public mlir::OpTrait::TraitBase<ConcreteType, CheckBFloat8BTrait> {
 public:
   static LogicalResult verifyTrait(Operation *op) {
@@ -99,7 +99,7 @@ public:
       return mlir::success();
     }
 
-    TTNNLayoutAttr layoutAttr = 
+    TTNNLayoutAttr layoutAttr =
         mlir::cast<TTNNLayoutAttr>(resultType.getEncoding());
     Type elementType = resultType.getElementType();
     Type scalarElementType = layoutAttr.getScalarElementType();
@@ -110,7 +110,7 @@ public:
              << elementType << " and " << scalarElementType;
     }
 
-    if (!isa<BFloat8BType>(elementType)) {
+    if (!isa<ttcore::BFloat8BType>(elementType)) {
       return mlir::success();
     }
 

@@ -20,23 +20,23 @@ bool rewriteWeight(Conv2dOp srcOp, PatternRewriter &rewriter) {
   // rewrite.
   if (weightLayout.getLayout() == ttnn::Layout::RowMajor &&
       weightLayout.getBufferType() == ttnn::BufferType::DRAM &&
-      weightLayout.getDataType() == DataType::BFloat16) {
+      weightLayout.getDataType() == ttcore::DataType::BFloat16) {
     return false;
   }
 
   if (srcOp.getBias()) {
     ToLayoutOp biasToLayout = utils::createToLayoutOp(
         srcOp, srcOp.getBias(), rewriter, ttnn::Layout::RowMajor,
-        ttnn::BufferType::DRAM, TensorMemoryLayout::Interleaved, DataType::BFloat16,
-        "_to_layout_bias");
+        ttnn::BufferType::DRAM, TensorMemoryLayout::Interleaved,
+        ttcore::DataType::BFloat16, "_to_layout_bias");
     rewriter.modifyOpInPlace(
         srcOp, [&]() { srcOp.getBiasMutable().assign(biasToLayout); });
   }
 
   ToLayoutOp weightToLayout = utils::createToLayoutOp(
       srcOp, srcOp.getWeight(), rewriter, ttnn::Layout::RowMajor,
-      ttnn::BufferType::DRAM, TensorMemoryLayout::Interleaved, DataType::BFloat16,
-      "_to_layout_weight");
+      ttnn::BufferType::DRAM, TensorMemoryLayout::Interleaved,
+      ttcore::DataType::BFloat16, "_to_layout_weight");
 
   rewriter.modifyOpInPlace(
       srcOp, [&]() { srcOp.getWeightMutable().assign(weightToLayout); });
