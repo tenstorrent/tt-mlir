@@ -1,6 +1,6 @@
 include(ExternalProject)
-
-set(TT_METAL_VERSION "284285af9b")
+# metal commit 474011dcd85fa920823521703533d9d1ca92d98a + reversion of build breaking f8f93226e86efa6a8e02b253dfaeacfe470d7b1
+set(TT_METAL_VERSION "9b6a1a1aeb4e58eb85c20479b4b8fabd772f6621")
 
 set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
 
