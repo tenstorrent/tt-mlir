@@ -27,9 +27,10 @@ For more detailed information on `ttir-builder` APIs, utility functions, and sup
 
 ## Creating a TTIR module
 
-`build_mlir_module` defines an MLIR module specified as a python function. It wraps `fn` in a MLIR FuncOp then wraps that in an MLIR module, and finally ties arguments of that FuncOp to test function inputs. It will instantiate and pass a `TTIRBuilder` object as the last argument of `fn`.
+`build_mlir_module` defines an MLIR module specified as a python function. It wraps `fn` in a MLIR FuncOp then wraps that in an MLIR module, and finally ties arguments of that FuncOp to test function inputs. It will instantiate and pass a `TTIRBuilder` object as the last argument of `fn`. Each op returns an `OpView` type which is a type of `Operand` that can be passed into another builder op as an input.
 
 ```bash
+
 def build_mlir_module(
     fn: Callable,
     inputs_shapes: List[Shape],
@@ -549,6 +550,23 @@ def model(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
 
 Unless otherwise specified in the `GoldenCheckLevel`, all input and output tensors will generate and store a golden in `TTIRBuilder` as a `Golden` type. The `TTIRBuilder` class has an API to print stored goldens if you want access to the data they contain: `print_goldens(self)`.
 
+The `TTIRBuilder` API `get_golden_map(self)` is used to export golden data for flatbuffer construction. It returns a dictionary of golden tensor names and `GoldenTensor` objects.
+
+To get info from a `GoldenTensor` object, use the attributes supported by `ttmlir.passes`: `name`, `shape`, `strides`, `dtype`, `data`.
+
+```bash
+from ttmlir.passes import GoldenTensor
+from ttir_builder import TTIRBuilder
+
+shapes = [(32, 32), (32, 32), (32, 32)]
+
+def model(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
+    add_0 = builder.add(in0, in1)
+    builder.print_goldens()
+    print(builder.get_golden_map())
+    return add0
+```
+
 <details>
 
 ```bash
@@ -566,21 +584,10 @@ tensor([[ 4.0450e+00,  1.4274e+00,  5.9156e-01,  ..., -5.9834e-01,
           3.9376e-01,  7.3140e-01],
         [ 4.2420e+00,  1.7006e-01, -3.4861e-01,  ...,  1.1471e-01,
           1.6189e+00, -6.9106e-01]])
+{'input_0': <ttmlir._mlir_libs._ttmlir.passes.GoldenTensor object at 0x7f77c70fa0d0>, 'output_0': <ttmlir._mlir_libs._ttmlir.passes.GoldenTensor object at 0x7f77c6fc9590>}
 ```
 
 </details>
-
-The `TTIRBuilder` API `get_golden_map(self)` is used to export golden data for flatbuffer construction. It returns a dictionary of golden tensor names and `GoldenTensor` objects. Printing that map will look something like this:
-
-```bash
-{'input_0': <ttmlir._mlir_libs._ttmlir.passes.GoldenTensor object at 0x7f77c70fa0d0>, 'input_1': <ttmlir._mlir_libs._ttmlir.passes.GoldenTensor object at 0x7f77c70fa160>, 'input_2': <ttmlir._mlir_libs._ttmlir.passes.GoldenTensor object at 0x7f77c6fc9500>, 'output_0': <ttmlir._mlir_libs._ttmlir.passes.GoldenTensor object at 0x7f77c6fc9590>}
-```
-
-To get info from a `GoldenTensor` object, use the attributes supported by `ttmlir.passes`: `name`, `shape`, `strides`, `dtype`, `data`.
-
-```bash
-from ttmlir.passes import GoldenTensor
-```
 
 ### Setting golden data
 

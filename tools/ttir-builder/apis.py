@@ -25,6 +25,11 @@ Operand = Union[Value, OpView, Operation]
 Shape = Union[List[int], Tuple[int, ...]]
 
 
+def autodoc_skip(func):
+    func.__autodoc_skip__ = True
+    return func
+
+
 def get_loc_of_extra_file_callee(id: int = 0) -> Location:
     """
     When called, this function returns a `Location` referring to first
@@ -103,7 +108,7 @@ class Golden:
     # only for randomly generated tensors, for example args of MLIR function
     # wrapped around user-written op graph. Every other tensor is output of some
     # op from graph.
-    seed: Opional[int] = None
+    seed: Optional[int] = None
 
     def __repr__(self) -> str:
         s = f"\nRandom seed: {self.seed}" if self.seed is not None else ""
@@ -209,6 +214,7 @@ class TTIRBuilder(TTIRBuilderOps):
         """
         return self._ctx
 
+    @autodoc_skip
     def get_next_global_id(self) -> int:
         """
         Gets next global identifier.
@@ -332,6 +338,7 @@ class TTIRBuilder(TTIRBuilderOps):
             )
         return golden_info
 
+    @autodoc_skip
     def set_mesh_shape(self, mesh_shape: Tuple[int, int]):
         """
         Sets the mesh shape for multi-device operations.
@@ -487,6 +494,7 @@ class TTIRBuilder(TTIRBuilderOps):
 
     # ----- Utility Conversion ----
 
+    @autodoc_skip
     def get_datatype_from_torch_dtype(self, dtype: torch.dtype) -> DataType:
         """
         Returns a MLIR `DataType` obj corresponding to `dtype`.
@@ -511,6 +519,7 @@ class TTIRBuilder(TTIRBuilderOps):
             case None:
                 return DataType.Float32
 
+    @autodoc_skip
     def get_type_from_torch_dtype(self, dtype: Union[torch.dtype, TypeInfo]) -> Type:
         """
         Converts PyTorch dtype or TypeInfo to corresponding MLIR Type.
@@ -642,6 +651,7 @@ class TTIRBuilder(TTIRBuilderOps):
             extended_shape, elemType, layout, Location.unknown(ctx)
         )
 
+    @autodoc_skip
     def empty_from_tensor_type(
         self, shape: Shape, tensor_type: RankedTensorType
     ) -> OpView:
@@ -677,6 +687,7 @@ class TTIRBuilder(TTIRBuilderOps):
     def _organize_eltwise_golden(self, inputs: List[Operand]):
         return [self._get_golden_tensor(inp) for inp in inputs]
 
+    @autodoc_skip
     def op_proxy(
         self,
         op_golden_function: Callable,
@@ -810,6 +821,7 @@ class TTIRBuilder(TTIRBuilderOps):
             self._override_golden(output, golden)
             return op
 
+    @autodoc_skip
     def eltwise_proxy(
         self,
         op_golden_function: Callable,
@@ -836,6 +848,7 @@ class TTIRBuilder(TTIRBuilderOps):
         """
         return self.op_proxy(op_golden_function, op_ttir_function, inputs, unit_attrs)
 
+    @autodoc_skip
     def ccl_proxy(
         self,
         op_golden_function: Callable,
@@ -879,3 +892,7 @@ class TTIRBuilder(TTIRBuilderOps):
             golden_kwargs=kwargs,
             ttir_kwargs=kwargs,
         )
+
+
+# Remove autodoc_skip from Sphinx documentation
+del autodoc_skip

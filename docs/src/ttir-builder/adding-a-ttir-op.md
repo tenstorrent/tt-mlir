@@ -39,27 +39,26 @@ If Pytorch doesn't have an identical operation, your job is about to get a littl
 Example implementation:
 
 ```bash
-def softmax(
-    self, in0: Operand, dimension: int = 1, unit_attrs: Optional[List[str]] = None
-) -> OpView:
-    return self.op_proxy(
-        torch.nn.functional.softmax,
-        ttir.SoftmaxOp,
-        [in0],
-        golden_kwargs={"dim": dimension},
-        organize_ttir_args=lambda i, o, _: (
-            self._get_type(o),
-            i[0],
-            o,
-            dimension,
-        ),
-        unit_attrs=unit_attrs,
-    )
+    def cbrt_golden_function(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> torch.tensor:
+        golden = self._get_golden_tensor(in0)
+        golden_sign = torch.sign(golden)
+        golden_cbrt = torch.pow(torch.abs(golden), 1 / 3)
+        return golden_cbrt
+
+    def cbrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        return self.op_proxy(
+            torch.mul,
+            ttir.CbrtOp,
+            [in0],
+            golden_kwargs={"input": golden_sign, "other": golden_cbrt},
+            organize_golden_args=lambda i: 0,
+            unit_attrs=unit_attrs,
+        )
 ```
 
 ### Eltwise operations
 
-Eltwise ops require less specialized handling and call `op_proxy` through `eltwise_proxy`.
+Element-wise ops require less specialized handling and call `op_proxy` through `eltwise_proxy`.
 
 ```bash
 def eltwise_proxy(
@@ -102,7 +101,7 @@ pytestmark = pytest.mark.llmbox
 ```
 
 ## Running Silicon tests
-Follow these steps
+Follow these steps. The directory `test/python/golden` contains tests for modules, individual ops, and various machines.
 ```bash
 1. Build ttmlir
 source env/activate
@@ -119,10 +118,11 @@ ttrt query --save-artifacts
 export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys (path dumped in previous command)
 
 5. Generate test cases
-cmake --build build -- check-ttmlir
+pytest test/python/golden/test_ttir_ops.py
 
 6. Run test cases
-ttrt run build/test/ttmlir/Silicon
+ttrt run ttnn
+ttrt run ttmetal
 ```
 
 ## Sphinx documentation
