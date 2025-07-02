@@ -17,11 +17,11 @@ find_program(SPHINX_APIDOC_EXECUTABLE
 )
 
 if(NOT SPHINX_EXECUTABLE)
-    message(FATAL_ERROR "sphinx-build not found - required to build documentation. Make sure sphinx is installed.")
+    message(FATAL_ERROR "sphinx-build not found - required to build documentation. Make sure sphinx and sphinx-markdown-builder are installed.")
 endif()
 
 if(NOT SPHINX_APIDOC_EXECUTABLE)
-    message(FATAL_ERROR "sphinx-apidoc not found - required to build API documentation. Make sure sphinx is installed.")
+    message(FATAL_ERROR "sphinx-apidoc not found - required to build API documentation. Make sure sphinx and sphinx-markdown-builder are installed.")
 endif()
 
 # Configure paths
