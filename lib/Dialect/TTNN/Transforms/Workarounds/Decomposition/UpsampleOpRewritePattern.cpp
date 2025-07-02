@@ -320,6 +320,29 @@ LogicalResult UpsampleOpLayoutRewritePattern::matchAndRewrite(
     return failure();
   }
 
+  // Convert the input to `RowMajor` layout with `BFloat16` data type.
+  auto inputToLayoutOp = ttnn::utils::createToLayoutOp(
+      srcOp.getOperation(), srcOp.getInput(), rewriter, TARGET_LAYOUT,
+      inputLayoutAttr.getBufferType(), inputLayoutAttr.getMemLayoutOpt(),
+      TARGET_DTYPE, "to_layout");
+
+  // Information about new layout and data type needs to be encoded in the
+  // target output type.
+  auto targetElementType =
+      ttnn::utils::getElementType(getContext(), TARGET_LAYOUT, TARGET_DTYPE);
+  auto targetOutputType =
+      outputType
+          .cloneWithEncoding(outputLayoutAttr.withElementType(
+              targetElementType, outputType.getShape()))
+          .clone(targetElementType);
+
+  // UpsampleOp is replace with the new one, that takes the input in the target
+  // configuration, and produces the output in the target configuration.
+  auto targetLayoutUpsampleOp = rewriter.create<ttnn::UpsampleOp>(
+      srcOp.getLoc(), targetOutputType, inputToLayoutOp,
+      srcOp.getScaleFactorAttr(), srcOp.getModeAttr(),
+      /*memory_config=*/nullptr);
+
   ttnn::MemoryConfigAttr outputMemoryConfig = srcOp.getMemoryConfigAttr();
   if (!outputMemoryConfig) {
     ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(srcOp);
@@ -331,23 +354,6 @@ LogicalResult UpsampleOpLayoutRewritePattern::matchAndRewrite(
         utils::createShardSpecIfNeeded(outputLayoutAttr,
                                        deviceAttr.getWorkerGrid()));
   }
-
-  // Convert the input to `RowMajor` layout with `BFloat16` data type.
-  auto inputToLayoutOp = ttnn::utils::createToLayoutOp(
-      srcOp.getOperation(), srcOp.getInput(), rewriter, TARGET_LAYOUT,
-      inputLayoutAttr.getBufferType(), inputLayoutAttr.getMemLayoutOpt(),
-      TARGET_DTYPE, "to_layout");
-
-  // UpsampleOp is replace with the new one, that takes the input in the target
-  // configuration, and produces the output in the target configuration.
-  auto targetLayoutUpsampleOp = rewriter.create<ttnn::UpsampleOp>(
-      srcOp.getLoc(),
-      outputType.cloneWithEncoding(outputLayoutAttr.withElementType(
-          ttnn::utils::getElementType(getContext(), TARGET_LAYOUT,
-                                      TARGET_DTYPE),
-          outputType.getShape())),
-      inputToLayoutOp, srcOp.getScaleFactorAttr(), srcOp.getModeAttr(),
-      /*memory_config=*/nullptr);
 
   // Convert the output back to the original memory configuration.
   auto outputToLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
