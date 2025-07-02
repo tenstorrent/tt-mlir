@@ -12,13 +12,13 @@ namespace mlir::tt::ttir {
 struct AssociatedDMAWaits {
   AssociatedDMAWaits(Operation *op);
 
-  SmallVector<DMAWaitOp> get(DMAOp dmaOp) const {
+  SmallVector<DMAWaitOp> get(DMAOpInterface dmaOp) const {
     auto match = dmaWaitsMap.find(dmaOp);
     assert(match != dmaWaitsMap.end() && "Associated DMA wait not found.");
     return match->second;
   }
 
-  llvm::DenseMap<DMAOp, SmallVector<DMAWaitOp>> dmaWaitsMap;
+  llvm::DenseMap<DMAOpInterface, SmallVector<DMAWaitOp>> dmaWaitsMap;
 };
 
 } // namespace mlir::tt::ttir

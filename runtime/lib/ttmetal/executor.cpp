@@ -211,7 +211,6 @@ void MCQExecutor::execute(const target::metal::Command *command) {
 void MCQExecutor::execute(const target::metal::HostAllocCommand *command) {
   LOG_ASSERT(command->dst()->address() == 0);
   const auto *bufferDesc = command->dst()->desc();
-  LOG_ASSERT(bufferDesc->sharded_buffer_config() == nullptr);
   LOG_ASSERT(bufferDesc->shape()->size() > 0);
 
   std::vector<std::uint32_t> shape(bufferDesc->shape()->begin(),
@@ -303,11 +302,19 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
   }
 
   for (const target::metal::CBRef *cbRef : *command->cbs()) {
-    CoreRangeSet coreRangeSet =
-        common::toCoreRangeSet(cbRef->buffer_ref()
-                                   ->desc()
-                                   ->circular_buffer_config()
-                                   ->core_range_set());
+    const target::metal::BufferDesc *bufferDesc = cbRef->buffer_ref()->desc();
+    LOG_ASSERT(bufferDesc->buffer_detail_type() ==
+               target::metal::BufferDetail::MetalBuffer);
+    const target::metal::MetalBuffer *metalBuffer =
+        bufferDesc->buffer_detail_as_MetalBuffer();
+
+    // skip init if CircularBufferConfig is not present
+    if (!metalBuffer->circular_buffer_config()) {
+      continue;
+    }
+
+    CoreRangeSet coreRangeSet = common::toCoreRangeSet(
+        metalBuffer->circular_buffer_config()->core_range_set());
     tt_metal::CircularBufferConfig config =
         createCircularBufferConfig(cbRef, meshBuffers);
     tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
