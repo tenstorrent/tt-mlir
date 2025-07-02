@@ -37,12 +37,12 @@ TTAlchemist::TTAlchemist() {
   mlir::func::registerInlinerExtension(registry);
   mlir::LLVM::registerInlinerInterface(registry);
 
-  registry.insert<mlir::tt::TTCoreDialect, mlir::tt::ttir::TTIRDialect,
+  registry.insert<mlir::tt::ttcore::TTCoreDialect, mlir::tt::ttir::TTIRDialect,
                   mlir::tt::ttnn::TTNNDialect, mlir::func::FuncDialect,
                   mlir::emitc::EmitCDialect, mlir::LLVM::LLVMDialect>();
   context.appendDialectRegistry(registry);
 
-  context.loadDialect<mlir::tt::TTCoreDialect>();
+  context.loadDialect<mlir::tt::ttcore::TTCoreDialect>();
   context.loadDialect<mlir::tt::ttir::TTIRDialect>();
   context.loadDialect<mlir::tt::ttnn::TTNNDialect>();
   context.loadDialect<mlir::func::FuncDialect>();
