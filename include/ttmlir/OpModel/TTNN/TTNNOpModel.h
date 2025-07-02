@@ -273,6 +273,35 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 }; // namespace TransposeOpInterface
 
 //===----------------------------------------------------------------------===//
+// LinearOp
+//===----------------------------------------------------------------------===//
+
+namespace LinearOpInterface {
+    llvm::Expected<OpConstraints>
+    getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
+                     llvm::ArrayRef<int64_t> inputShapeA,
+                     mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+                     llvm::ArrayRef<int64_t> inputShapeB,
+                     mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+                     std::optional<llvm::ArrayRef<int64_t>> biasShape,
+                     std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout,
+                     llvm::ArrayRef<int64_t> outputShape,
+                     mlir::tt::ttnn::TTNNLayoutAttr outputLayout, bool transposeA,
+                     bool transposeB);
+    
+    llvm::Expected<size_t>
+    getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+                 llvm::ArrayRef<int64_t> inputShapeB,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+                 std::optional<llvm::ArrayRef<int64_t>> biasShape,
+                 std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout,
+                 llvm::ArrayRef<int64_t> outputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout,
+                 bool transposeA, bool transposeB);
+    }; // namespace LinearOpInterface
+
+//===----------------------------------------------------------------------===//
 // MatmulOp
 //===----------------------------------------------------------------------===//
 

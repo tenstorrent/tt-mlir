@@ -1481,6 +1481,118 @@ llvm::Expected<size_t> TransposeOpInterface::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// LinearOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints>
+LinearOpInterface::getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
+                                    llvm::ArrayRef<int64_t> inputShapeA,
+                                    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+                                    llvm::ArrayRef<int64_t> inputShapeB,
+                                    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+                                    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+                                    std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout,
+                                    llvm::ArrayRef<int64_t> outputShape,
+                                    mlir::tt::ttnn::TTNNLayoutAttr outputLayout,
+                                    bool transposeA, bool transposeB) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecAExp =
+      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA);
+  if (!inputSpecAExp) {
+    return inputSpecAExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpecA = inputSpecAExp.get();
+
+  auto inputSpecBExp =
+      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB);
+  if (!inputSpecBExp) {
+    return inputSpecBExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
+
+  std::optional<::tt::tt_metal::Tensor> biasTensor;
+  if (biasShape && biasLayout) {
+    ::ttnn::TensorSpec biasSpec =
+        conversion::getTensorSpec(biasShape.value(), biasLayout.value());
+    biasTensor = ::tt::tt_metal::create_device_tensor(biasSpec, device);
+  }
+
+  std::optional<::tt::tt_metal::DataType> outputDType =
+      detail::getNullableDataType(outputLayout);
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
+
+  // Create query closure
+  auto linearOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::linear, device, inputSpecA, inputSpecB, biasTensor,
+        transposeA, transposeB, outputMemoryConfig, outputDType);
+  };
+
+  return operation::getOpConstraints("LinearOpInterface",
+                                     inputLayoutA.getContext(), deviceGrid,
+                                     linearOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+LinearOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
+                                mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+                                llvm::ArrayRef<int64_t> inputShapeB,
+                                mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+                                std::optional<llvm::ArrayRef<int64_t>> biasShape,
+                                std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout,
+                                llvm::ArrayRef<int64_t> outputShape,
+                                mlir::tt::ttnn::TTNNLayoutAttr outputLayout,
+                                bool transposeA, bool transposeB) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecAExp =
+      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA);
+  if (!inputSpecAExp) {
+    return inputSpecAExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpecA = inputSpecAExp.get();
+
+  auto inputSpecBExp =
+      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB);
+  if (!inputSpecBExp) {
+    return inputSpecBExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
+
+  std::optional<::tt::tt_metal::Tensor> biasTensor;
+  if (biasShape && biasLayout) {
+    ::ttnn::TensorSpec biasSpec =
+        conversion::getTensorSpec(biasShape.value(), biasLayout.value());
+    biasTensor = ::tt::tt_metal::create_device_tensor(biasSpec, device);
+  }
+
+  std::optional<::tt::tt_metal::DataType> outputDType =
+      detail::getNullableDataType(outputLayout);
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
+
+  // Create query closure
+  auto linearOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(::ttnn::linear, device, inputSpecA,
+                                           inputSpecB, biasTensor, transposeA,
+                                           transposeB, outputMemoryConfig, outputDType);
+  };
+
+  return operation::getOpRuntime("LinearOpInterface", linearOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // MatmulOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints>

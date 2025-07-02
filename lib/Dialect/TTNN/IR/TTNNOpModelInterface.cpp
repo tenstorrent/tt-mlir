@@ -676,6 +676,63 @@ TransposeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// LinearOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::ttnn::OpConstraints>
+LinearOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
+
+  const auto inputShapeA = getA().getType().getShape();
+  const auto inputShapeB = getB().getType().getShape();
+
+  std::optional<llvm::ArrayRef<int64_t>> biasShape;
+  std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout;
+
+  if (inputs.size() == 3) {
+    biasShape = getBias().getType().getShape();
+    biasLayout = inputs[2];
+  }
+
+  const auto outputShape = getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  return op_model::ttnn::LinearOpInterface::getOpConstraints(
+      deviceGrid, inputShapeA, inputs[0], inputShapeB, inputs[1], biasShape,
+      biasLayout, outputShape, opConfig.outputLayout, false, false);
+}
+
+llvm::Expected<size_t>
+LinearOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                       const OpConfig &opConfig) {
+  assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
+
+  const auto inputShapeA = getA().getType().getShape();
+  const auto inputShapeB = getB().getType().getShape();
+
+  std::optional<llvm::ArrayRef<int64_t>> biasShape;
+  std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout;
+
+  if (inputs.size() == 3) {
+    biasShape = getBias().getType().getShape();
+    biasLayout = inputs[2];
+  }
+
+  const auto outputShape = getType().getShape();
+
+  return op_model::ttnn::LinearOpInterface::getOpRuntime(
+      inputShapeA, inputs[0], inputShapeB, inputs[1], biasShape,
+      biasLayout, outputShape, opConfig.outputLayout, false, false);
+}
+
+//===----------------------------------------------------------------------===//
 // MatmulOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
