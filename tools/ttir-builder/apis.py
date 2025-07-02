@@ -604,7 +604,7 @@ class TTIRBuilder(TTIRBuilderOps):
     def metal_tensor_layout(
         self,
         shape: Shape,
-        tiled=False,
+        tilize=False,
         oobVal=ttcore.OOBVal.Undef,
         memorySpace=ttcore.MemorySpace.DeviceL1,
     ):
