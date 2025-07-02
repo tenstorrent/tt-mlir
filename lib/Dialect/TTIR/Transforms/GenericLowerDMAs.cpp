@@ -14,6 +14,7 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "ttmlir/Support/Logger.h"
 
 #include <numeric>
 
@@ -141,6 +142,9 @@ public:
         } else {
           coalescingFactor =
               std::gcd(coalescingFactor, currentCoalescingFactor);
+
+          // current memory access can potentially be coalesced with next access!
+          currentCoalescingFactor = 1;
         }
         nextAddress = address;
         nextAddress.back() += elemSizeBytes;
@@ -163,6 +167,79 @@ public:
     }));
     SmallVector<Value> step(shardShape.size(), one);
     return std::make_tuple(lbs, ubs, step);
+  }
+
+  // Uses coalescing factor to build an optimized gather loop with uniform
+  // packet size.
+  static scf::LoopNest buildCoalescedGatherLoop(OpBuilder &builder,
+                                                Location loc, DMAOp dma,
+                                                ArrayRef<Value> streamIndex,
+                                                ArrayRef<int64_t> shardShape,
+                                                size_t coalescingFactor) {
+
+    assert(shardShape.size() == 2 &&
+           "coalesced DMA loops only supported for 2D shard shapes");
+
+    size_t outer_loop_bound_size = shardShape[0];
+    size_t inner_loop_bound_size = shardShape[1];
+
+    auto [lbs, ubs, steps] =
+        getLoopBounds(builder, loc, shardShape);
+    auto initVal = builder.create<arith::ConstantOp>(
+        dma.getLoc(), builder.getI1Type(), builder.getBoolAttr(false));
+
+    auto nullDmaTx = builder.create<ttir::NullTxOp>(dma.getLoc());
+    scf::LoopNest loopNest = scf::buildLoopNest(
+        builder, loc, lbs, ubs, steps, ValueRange(nullDmaTx),
+        [&](OpBuilder &builder, Location loc, ValueRange iters,
+            ValueRange /*args*/) {
+          SmallVector<Value> srcIndex =
+              llvm::to_vector(llvm::concat<Value>(streamIndex, iters));
+
+          Value cfExpr = builder.create<arith::ConstantOp>(
+              dma.getLoc(), builder.getIndexType(),
+              builder.getIndexAttr(coalescingFactor));
+          Value innerLoopDimExpr = builder.create<arith::ConstantOp>(
+              dma.getLoc(), builder.getIndexType(),
+              builder.getIndexAttr(inner_loop_bound_size));
+          auto zero = builder.create<arith::ConstantOp>(
+              loc, builder.getIndexType(),
+              builder.getIntegerAttr(builder.getIndexType(), 0));
+
+          //* construct guard function
+          //  if ((n_end * m) + n % cf == 0)
+          auto outerIterCount =
+              builder.create<arith::MulIOp>(loc, iters[0], innerLoopDimExpr)
+                  .getResult();
+          auto totalIterCount =
+              builder.create<arith::AddIOp>(loc, iters[1], outerIterCount)
+                  .getResult();
+          auto moduloIterCount =
+              builder.create<arith::RemSIOp>(loc, totalIterCount, cfExpr)
+                  .getResult();
+          auto predicate = builder.create<arith::CmpIOp>(
+              loc, arith::CmpIPredicate::eq, moduloIterCount, zero);
+
+          auto n = builder.create<ttir::NullTxOp>(dma.getLoc());
+
+          // build guarded expression
+          auto ifExpr = builder.create<scf::IfOp>(
+              loc, TypeRange(SmallVector<Value>{nullDmaTx}), predicate,
+              true /*addThenBlock*/, true /*addElseBlock*/);
+
+          auto thenBuilder = ifExpr.getThenBodyBuilder();
+          auto dmaOp = thenBuilder.create<ttir::DMAOp>(
+              dma.getLoc(), dma.getSrc(), srcIndex, dma.getDst(), iters,
+              coalescingFactor);
+          thenBuilder.create<scf::YieldOp>(dma.getLoc(), dmaOp->getResult(0));
+
+          auto elseBuilder = ifExpr.getElseBodyBuilder();
+          elseBuilder.create<scf::YieldOp>(dma.getLoc(), n->getResult(0));
+
+          return SmallVector<Value>{ifExpr.getResult(0)};
+        });
+    loopNest.loops[0]->dumpPretty();
+    return loopNest;
   }
 
   static scf::LoopNest
@@ -234,12 +311,23 @@ public:
           dma.getLoc(), dma.getSrc(), streamIndex, dma.getDst(),
           dma.getMcastStartIndex(), dma.getMcastShape());
     } else {
-      // Fallback to single tile gather for now, in the future we can chage this
-      // to support more sophisticated gathering.
-      scf::LoopNest loopNest = fallbackSingleTileGatherLoop(
-          rewriter, dma.getLoc(), dma, streamIndex, memrefShardShape);
-      assert(loopNest.loops.size() == memrefShardShape.size());
-      newDma = loopNest.loops.front();
+
+      bool canBuildCoalescedLoop = memrefShardShape.size() == 2;
+      if (canBuildCoalescedLoop) {
+        scf::LoopNest loopNest =
+            buildCoalescedGatherLoop(rewriter, dma.getLoc(), dma, streamIndex,
+                                     memrefShardShape, coalescingFactor);
+        newDma = loopNest.loops.front();
+      } else {
+        // Fallback to single tile/element gather for generality
+        TTMLIR_TRACE(ttmlir::LogComponent::General,
+                     "GenericLowerDMAs:Falling back to single element/tile "
+                     "gather for irregular DMA; perf will be suboptimal");
+        scf::LoopNest loopNest = fallbackSingleTileGatherLoop(
+            rewriter, dma.getLoc(), dma, streamIndex, memrefShardShape);
+        assert(loopNest.loops.size() == memrefShardShape.size());
+        newDma = loopNest.loops.front();
+      }
     }
 
     rewriter.replaceOp(dma, newDma);
@@ -287,11 +375,12 @@ public:
     dstIndices = applyMap(rewriter, dma.getLoc(), dstMemoryMap, dstIndices,
                           dma.isDstRemote());
 
+    BoolAttr dmaOpIsLowered = rewriter.getBoolAttr(true);
     rewriter.replaceOpWithNewOp<ttir::DMAOp>(
         dma, dma.getResult().getType(), dma.getSrc(), nullptr, srcIndices,
         dma.getDst(), nullptr, dstIndices,
         rewriter.getI64IntegerAttr(dma.getNumElems()), dma.getMcastStartIndex(),
-        dma.getMcastShape());
+        dma.getMcastShape(), dmaOpIsLowered);
 
     return success();
   }

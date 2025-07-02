@@ -1095,16 +1095,23 @@ static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
 //                |   |   +- Shard Dim Y
 //                |   +- Grid Dim X
 //                +- Grid Dim Y
-//     0,                                                 # Device index
-//     0,                                                 # Not Applicable
-//     (addr floordiv s4) mod 12,                         # Channel Idx
-//     (addr floordiv (s4 * 12)) * s4 + addr mod s4 + s5  # Channel Offset
+//     0,                                                                    # Device index
+//     0,                                                                    # Not Applicable
+//     global_page_index % num_dram_banks,                                   # Channel Idx
+//     (channel_page_index * PAGE_SIZE) + (addr % PAGE_SIZE) + base_address    # Byte Offset In Channel
 //   )
 //
 // Where `addr` is the linearized address as though it were indexing all of DRAM
 // flat:
 //   addr = (d0 * s2 * s3 * s1) + (d1 * s2 * s3) + d2
+//  
+// Where global_page_index is the global page index corresponding to the address:
+//   global_page_index  = addr floorDiv PAGE_SIZE
+// 
+// Where channel_page_index is the page index within a bank
+//   channel_page_index = global_page_index floorDiv NUM_DRAM_BANKS
 //
+
 static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
                                      GridAttr workerGrid, size_t numDramCores,
                                      size_t dramPageSize) {
@@ -1118,32 +1125,39 @@ static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
     shardVolumeExpr = shardDim * shardVolumeExpr;
   }
 
-  mlir::AffineExpr addr = getAffineDimExpr(workerMap.getNumDims(), context);
+  // addr is an expression representing the address as-if the memory was completely flat 
+  mlir::AffineExpr flatAddr = getAffineDimExpr(workerMap.getNumDims(), context);
   mlir::AffineExpr gridVolumeExpr = getAffineConstantExpr(1, context);
   for (int i = workerMap.getNumDims() - 1; i >= 0; i--) {
     mlir::AffineExpr dim = getAffineDimExpr(i, context);
     mlir::AffineExpr gridDim = getAffineSymbolExpr(i, context);
-    addr = dim * gridVolumeExpr * shardVolumeExpr + addr;
+    flatAddr = dim * gridVolumeExpr * shardVolumeExpr + flatAddr;
     gridVolumeExpr = gridVolumeExpr * gridDim;
   }
 
-  mlir::AffineExpr pageSizeExpr =
-      getAffineSymbolExpr(workerMap.getNumDims() * 2, context);
   mlir::AffineExpr baseAddressExpr =
       getAffineSymbolExpr(workerMap.getNumDims() * 2 + 1, context);
-  mlir::AffineExpr numDramCoresExpr =
-      getAffineConstantExpr(numDramCores, context);
+  // bgrady: in tt-metal, the number of banks used to compute dram addresses is
+  // 12/2 = 6 for wormhole. This seems to correspond to the number of dram cores
+  // per chip divided by 2?
+  assert(numDramCores % 2 == 0);
+  mlir::AffineExpr numDramBanksExpr =
+      getAffineConstantExpr(numDramCores/2, context);
+  mlir::AffineExpr dramPageSizeExpr =
+      getAffineConstantExpr(dramPageSize, context);
+  mlir::AffineExpr pageIndex = flatAddr.floorDiv(dramPageSizeExpr);
+  mlir::AffineExpr channelPageIndex = pageIndex.floorDiv(numDramBanksExpr);
+
   mlir::SmallVector<mlir::AffineExpr> dramMapResults = {
       getAffineConstantExpr(0, context),
       getAffineConstantExpr(0, context),
-      addr.floorDiv(pageSizeExpr) % numDramCoresExpr,
-      addr.floorDiv(pageSizeExpr * numDramCoresExpr) + addr % pageSizeExpr +
-          baseAddressExpr,
+      pageIndex % numDramBanksExpr,
+      (channelPageIndex * dramPageSizeExpr) + (flatAddr % dramPageSizeExpr) + baseAddressExpr
   };
 
-  return mlir::AffineMap::get(workerMap.getNumDims() + 1,
-                              workerMap.getNumDims() * 2 + 2, dramMapResults,
-                              context);
+  unsigned dim_count = workerMap.getNumDims() + 1;
+  unsigned symbol_count = workerMap.getNumDims() * 2 + 2;
+  return mlir::AffineMap::get(dim_count, symbol_count, dramMapResults, context);
 }
 
 static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,

@@ -605,6 +605,21 @@ public:
         ->getResult(0);
   }
 
+  static Value buildDramNocAddress(OpBuilder &rewriter, Location loc, Value cb, ValueRange index) {
+    auto baseAddr = castCBTypeAsAddress(rewriter, loc, cb);
+    assert(index.size() == 3);
+    auto bankID = index[1];
+    auto bankIDInt =
+        rewriter.create<arith::IndexCastOp>(loc, rewriter.getI32Type(), bankID);
+    auto offset = index[2];
+    auto offsetInt =
+        rewriter.create<arith::IndexCastOp>(loc, rewriter.getI32Type(), offset);
+    auto addr = rewriter.create<arith::AddIOp>(loc, baseAddr, offsetInt);
+
+    return rewriter.create<ttkernel::GetNocAddrFromBankIDOp>(loc, bankIDInt,
+                                                             addr);
+  }
+
   static Value buildNocAddress(OpBuilder &rewriter, Location loc, Value cb,
                                ValueRange index,
                                ttcore::ChipDescAttr chipDesc) {
@@ -646,17 +661,30 @@ public:
     assert(chipIds.size() == 1);
     auto chipDesc = systemDesc.getChipDesc(chipIds[0]);
 
-    // TODO(jdesousa): Temporary L1 assertion until DRAM is supported
-    assert(isL1MemorySpace(mlir::cast<ttcore::MemorySpaceAttr>(
-                               op.getSrcMemRefType().getMemorySpace())
-                               .getValue()) &&
-           isL1MemorySpace(mlir::cast<ttcore::MemorySpaceAttr>(
-                               op.getDstMemRefType().getMemorySpace())
-                               .getValue()) &&
-           "Expected src and dst memory spaces to be L1, failing.");
-
+    bool isDramDma = op.isSrcDeviceDram() || op.isDstDeviceDram();
     bool isRead = false;
-    if (op.isSrcLocal() && op.isDstLocal()) {
+    if (isDramDma) {
+      isRead = op.isSrcDeviceDram() && op.isDstDeviceL1();
+      if (isRead) {
+
+        auto dstL1Addr = buildL1Address<ttkernel::GetWritePtrOp>(
+            rewriter, op.getLoc(), adaptor.getDst(), op.getDstIndices());
+        auto nocAddr = buildDramNocAddress(
+            rewriter, op.getLoc(), adaptor.getSrc(), op.getSrcIndices());
+        auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
+        rewriter.create<ttkernel::NocAsyncReadOp>(op.getLoc(), nocAddr,
+                                                  dstL1Addr, size);
+      } else {
+        assert(op.isSrcDeviceL1() && op.isDstDeviceDram());
+        auto srcL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
+            rewriter, op.getLoc(), adaptor.getSrc(), op.getSrcIndices());
+        auto dstNocAddr = buildDramNocAddress(
+            rewriter, op.getLoc(), adaptor.getDst(), op.getDstIndices());
+        auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
+        rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Addr,
+                                                   dstNocAddr, size);
+      }
+    } else if (op.isSrcLocal() && op.isDstLocal()) {
       // Local to Local Datamovement & Multicast
 
       // Both src and dst are local, use the metal cb pointers to determine

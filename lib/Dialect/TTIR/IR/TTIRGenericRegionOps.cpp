@@ -251,7 +251,8 @@ mlir::LogicalResult mlir::tt::ttir::DMAOp::bufferize(
   mlir::bufferization::replaceOpWithNewBufferizedOp<mlir::tt::ttir::DMAOp>(
       rewriter, *this, getResult().getType(), src, getSrcAffineMapAttr(),
       getSrcIndices(), dst, getDstAffineMapAttr(), getDstIndices(),
-      getOptNumElemsAttr(), getMcastStartIndex(), getMcastShape());
+      getOptNumElemsAttr(), getMcastStartIndex(), getMcastShape(), 
+      getIsLoweredStateAttr());
 
   return mlir::success();
 }
