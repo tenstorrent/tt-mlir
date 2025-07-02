@@ -244,7 +244,7 @@ class Run:
             type=bool,
             default=False,
             choices=[True, False],
-            help="disable putting dispatch on ethernet cores - place it on worker cores instead",
+            help="disable putting dispatch on ethernet cores - place it on worker cores instead; necessary on blackhole",
         )
         Run.register_arg(
             name="--ignore-version",
