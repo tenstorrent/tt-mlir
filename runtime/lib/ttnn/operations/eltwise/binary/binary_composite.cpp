@@ -44,9 +44,9 @@ static void runEltwiseBinaryNGCompositeOp(
         const std::optional<const ::ttnn::DataType> &,
         const std::optional<::ttnn::MemoryConfig> &,
         const std::optional<::ttnn::Tensor> &,
-        tt::stl::Span<const ::ttnn::operations::unary::UnaryWithParam>,
-        tt::stl::Span<const ::ttnn::operations::unary::UnaryWithParam>,
-        tt::stl::Span<const ::ttnn::operations::unary::UnaryWithParam>,
+        ttsl::Span<const ::ttnn::operations::unary::UnaryWithParam>,
+        ttsl::Span<const ::ttnn::operations::unary::UnaryWithParam>,
+        ttsl::Span<const ::ttnn::operations::unary::UnaryWithParam>,
         std::optional<bool>)> &ttnnOp) {
 
   ::ttnn::Tensor *lhs = &(tensorPool.getTTNNTensorAndValidate(op->lhs()));

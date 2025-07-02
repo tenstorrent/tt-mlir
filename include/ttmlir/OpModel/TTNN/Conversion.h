@@ -13,8 +13,8 @@
 #include <type_traits>
 namespace mlir::tt::op_model::ttnn {
 namespace conversion {
-::tt::tt_metal::DataType getDataType(const DataType dataType);
-tt::DataType getDataType(const ::tt::tt_metal::DataType dataType);
+::tt::tt_metal::DataType getDataType(const ttcore::DataType dataType);
+ttcore::DataType getDataType(const ::tt::tt_metal::DataType dataType);
 
 ::ttnn::Shape getShape(const ::llvm::ArrayRef<int64_t> shape);
 llvm::SmallVector<int64_t> getShape(const ::ttnn::Shape &shape);
@@ -72,7 +72,7 @@ getTensorLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
 bool validateTensorSpec(const ::ttnn::TensorSpec &tensorSpec,
                         const ::tt::tt_metal::CoreCoord &computeGridSize);
 
-::ttnn::SmallVector<int>
+::ttsl::SmallVector<int>
 convertLLVMSmallVecToTTNNSmallVec(const ::llvm::ArrayRef<int64_t> vec);
 
 std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> getConv2dConfig(

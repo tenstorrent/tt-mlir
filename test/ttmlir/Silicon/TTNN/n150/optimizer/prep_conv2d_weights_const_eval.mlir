@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --tt-populate-argument-types="argument-types=prepare_conv2d_weights=input,parameter,parameter" --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true enable-const-eval=true" %s -o %t.mlir
+// RUN: ttmlir-opt --tt-populate-argument-types="argument-types=prepare_conv2d_weights=input,parameter,parameter" --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=false enable-const-eval=true" %s -o %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 

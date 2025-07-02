@@ -73,7 +73,7 @@ static bool ttAnnotationsExist(mlir::ModuleOp &rootModule) {
     // Check if ttir.name exists for any of the arguments.
     for (BlockArgument arg : funcOp.getBody().front().getArguments()) {
       if (auto currentArgAttrDict = funcOp.getArgAttrDict(arg.getArgNumber())) {
-        if (currentArgAttrDict.contains(mlir::tt::ArgumentTypeAttr::name)) {
+        if (currentArgAttrDict.contains(ttcore::ArgumentTypeAttr::name)) {
           return WalkResult::interrupt();
         }
       }
@@ -600,18 +600,19 @@ public:
       return mlir::failure();
     }
 
-    if (!currentArgAttrDict.contains(mlir::tt::ArgumentTypeAttr::name)) {
+    if (!currentArgAttrDict.contains(
+            mlir::tt::ttcore::ArgumentTypeAttr::name)) {
       funcOp.emitError("In function ")
           << funcOp.getName() << " argument #: " << arg->getArgNumber()
           << " is not annotated with ttir.name tensor annotations.\n";
       return mlir::failure();
     }
 
-    mlir::tt::ArgumentTypeAttr argumentTypeAttr =
-        mlir::cast<mlir::tt::ArgumentTypeAttr>(
-            currentArgAttrDict.get(mlir::tt::ArgumentTypeAttr::name));
-    mlir::tt::ArgumentType argTypeValue = argumentTypeAttr.getValue();
-    if (argTypeValue == mlir::tt::ArgumentType::Input) {
+    mlir::tt::ttcore::ArgumentTypeAttr argumentTypeAttr =
+        mlir::cast<mlir::tt::ttcore::ArgumentTypeAttr>(
+            currentArgAttrDict.get(mlir::tt::ttcore::ArgumentTypeAttr::name));
+    mlir::tt::ttcore::ArgumentType argTypeValue = argumentTypeAttr.getValue();
+    if (argTypeValue == mlir::tt::ttcore::ArgumentType::Input) {
       mlir::RankedTensorType tensorType =
           mlir::cast<mlir::RankedTensorType>(arg->getType());
       this->largestRank = std::max(this->largestRank, tensorType.getRank());
@@ -625,13 +626,14 @@ public:
                                    func::FuncOp &funcOp,
                                    BlockArgument *arg) override {
     llvm::SmallVector<mlir::NamedAttribute> newArgAttrs;
-    mlir::tt::ArgumentType argTypeValue = mlir::tt::ArgumentType::Default;
+    mlir::tt::ttcore::ArgumentType argTypeValue =
+        mlir::tt::ttcore::ArgumentType::Default;
 
     // Copy the current dictionary if it exists for the op.
     if (auto currentArgAttrDict = funcOp.getArgAttrDict(arg->getArgNumber())) {
-      mlir::tt::ArgumentTypeAttr argumentTypeAttr =
-          mlir::cast<mlir::tt::ArgumentTypeAttr>(
-              currentArgAttrDict.get(mlir::tt::ArgumentTypeAttr::name));
+      mlir::tt::ttcore::ArgumentTypeAttr argumentTypeAttr =
+          mlir::cast<mlir::tt::ttcore::ArgumentTypeAttr>(
+              currentArgAttrDict.get(mlir::tt::ttcore::ArgumentTypeAttr::name));
       argTypeValue = argumentTypeAttr.getValue();
       newArgAttrs =
           SmallVector<mlir::NamedAttribute>(currentArgAttrDict.getValue());
@@ -645,7 +647,7 @@ public:
     llvm::SmallVector<mlir::sdy::DimensionShardingAttr> dimShardings;
 
     if (argType.getRank() == this->largestRank &&
-        argTypeValue == mlir::tt::ArgumentType::Input) {
+        argTypeValue == mlir::tt::ttcore::ArgumentType::Input) {
       mlir::sdy::AxisRefAttr axisAttr =
           mlir::sdy::AxisRefAttr::get(context, "batch");
       mlir::sdy::DimensionShardingAttr dimShardingAttr =

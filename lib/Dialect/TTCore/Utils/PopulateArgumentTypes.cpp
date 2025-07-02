@@ -17,7 +17,7 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/Support/LogicalResult.h"
 
-namespace mlir::tt {
+namespace mlir::tt::ttcore {
 
 bool ArgumentTypeMapParser::parse(
     llvm::cl::Option &O, llvm::StringRef argName,
@@ -147,7 +147,7 @@ public:
 
   /// Return the dialect that must be loaded in the context before this pass.
   void getDependentDialects(::mlir::DialectRegistry &registry) const override {
-    registry.insert<mlir::tt::TTCoreDialect>();
+    registry.insert<mlir::tt::ttcore::TTCoreDialect>();
   }
 
   /// Explicitly declare the TypeID for this class. We declare an explicit
@@ -313,4 +313,4 @@ private:
   }
 };
 
-} // namespace mlir::tt
+} // namespace mlir::tt::ttcore

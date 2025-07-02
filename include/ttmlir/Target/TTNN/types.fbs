@@ -4,7 +4,6 @@ namespace tt.target.ttnn;
 
 enum TensorMemoryLayout: ushort {
   Interleaved,
-  SingleBank,
   HeightSharded,
   WidthSharded,
   BlockSharded,

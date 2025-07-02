@@ -38,7 +38,7 @@ def TTCore_DataType : I32EnumAttr<"DataType", "TT DataTypes",
                             TTCore_Int32
                            ]> {
   let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::tt";
+  let cppNamespace = "::mlir::tt::ttcore";
   let stringToSymbolFnName = "DataTypeStringToEnum";
   let symbolToStringFnName = "DataTypeEnumToString";
 }
@@ -54,7 +54,7 @@ def TTCore_Arch : I32EnumAttr<"Arch", "TT Arch",
                             TTCore_Blackhole,
                            ]> {
   let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::tt";
+  let cppNamespace = "::mlir::tt::ttcore";
 }
 
 
@@ -73,7 +73,7 @@ def TTCore_MemorySpace : I32EnumAttr<"MemorySpace", "TT MemorySpace",
                             TTCore_RegisterDst,
                            ]> {
   let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::tt";
+  let cppNamespace = "::mlir::tt::ttcore";
 }
 
 def TTCore_Parallel : I32EnumAttrCase<"Parallel", 0, "parallel">;
@@ -85,7 +85,7 @@ def TTCore_IteratorType : I32EnumAttr<"IteratorType", "TT IteratorType",
                             TTCore_Reduction,
                            ]> {
   let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::tt";
+  let cppNamespace = "::mlir::tt::ttcore";
 }
 
 def TTCore_Undef : I32EnumAttrCase<"Undef", 0, "undef">;
@@ -103,7 +103,7 @@ def TTCore_OOBVal : I32EnumAttr<"OOBVal", "TT OOBVal",
                             TTCore_NegInf,
                            ]> {
   let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::tt";
+  let cppNamespace = "::mlir::tt::ttcore";
 }
 
 def TTCore_ChipCapabilityPCIE : I32BitEnumAttrCaseBit<"PCIE", 0, "pcie">;
@@ -115,7 +115,7 @@ def TTCore_ChipCapability : I32BitEnumAttr<"ChipCapability", "TT Chip Capabiliti
                             TTCore_ChipCapabilityHostMMIO,
                            ]> {
   let genSpecializedAttr = 1;
-  let cppNamespace = "::mlir::tt";
+  let cppNamespace = "::mlir::tt::ttcore";
 }
 
 def TTCore_ReduceType_Sum  : I32EnumAttrCase<"Sum",  0, "sum">;
@@ -135,7 +135,7 @@ def TTCore_ReduceType: I32EnumAttr<"ReduceType", "TT Reduce Type",
                            TTCore_ReduceType_Var,
                           ]> {
   let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::tt";
+  let cppNamespace = "::mlir::tt::ttcore";
 }
 
 def TTCore_MeshShardDirection_FullToShard : I32EnumAttrCase<"FullToShard",  0, "full_to_shard">;
@@ -147,7 +147,7 @@ def TTCore_MeshShardDirection: I32EnumAttr<"MeshShardDirection", "TT MeshShardDi
                            TTCore_MeshShardDirection_ShardToFull,
                           ]> {
   let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::tt";
+  let cppNamespace = "::mlir::tt::ttcore";
 }
 
 def TTCore_MeshShardType_Identity  : I32EnumAttrCase<"Identity",  0, "identity">;
@@ -163,7 +163,7 @@ def TTCore_MeshShardType: I32EnumAttr<"MeshShardType", "TT MeshShardType",
                            TTCore_MeshShardType_Devices,
                           ]> {
   let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::tt";
+  let cppNamespace = "::mlir::tt::ttcore";
 }
 
 def TTCore_CPURoleHost : I32EnumAttrCase<"Host", 0, "host">;
@@ -175,7 +175,7 @@ def TTCore_CPURole : I32EnumAttr<"CPURole", "TT CPU Role",
                               TTCore_CPURoleDevice,
                             ]> {
   let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::tt";
+  let cppNamespace = "::mlir::tt::ttcore";
 }
 
 def TTCore_ArgumentType_Input : I32EnumAttrCase<"Input", 0, "input">;
@@ -191,7 +191,7 @@ def TTCore_ArgumentType : I32EnumAttr<"ArgumentType", "Argument Type",
                               TTCore_ArgumentType_Default,
                             ]> {
   let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::tt";
+  let cppNamespace = "::mlir::tt::ttcore";
   let stringToSymbolFnName = "ArgumentTypeStringToEnum";
   let symbolToStringFnName = "ArgumentTypeEnumToString";
 }

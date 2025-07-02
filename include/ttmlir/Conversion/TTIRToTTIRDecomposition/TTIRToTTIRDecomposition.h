@@ -10,11 +10,18 @@
 
 namespace mlir::tt {
 
+enum class DecompMode { TTNN, TTMetal, CPUFallback };
+
+#define GEN_PASS_DECL_TTIRTOTTIRDECOMPOSITION
+#include "ttmlir/Conversion/Passes.h.inc"
+
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter);
 
 std::unique_ptr<OperationPass<ModuleOp>> createTTIRToTTIRDecompositionPass();
+std::unique_ptr<OperationPass<ModuleOp>> createTTIRToTTIRDecompositionPass(
+    const TTIRToTTIRDecompositionOptions &options);
 
 } // namespace mlir::tt
 

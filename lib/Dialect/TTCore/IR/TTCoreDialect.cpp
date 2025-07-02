@@ -10,9 +10,12 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "llvm/ADT/TypeSwitch.h"
 
-using namespace mlir;
-using namespace mlir::tt;
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsDialect.cpp.inc"
 
+#define GET_ATTRDEF_CLASSES
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsAttrDefs.cpp.inc"
+
+namespace mlir::tt::ttcore {
 // This is needed to hoist ttcore.metal_layout attributes as named attributes
 // declared at the module level.
 struct TTOpAsmDialectInterface : public OpAsmDialectInterface {
@@ -38,17 +41,13 @@ struct TTOpAsmDialectInterface : public OpAsmDialectInterface {
     return AliasResult::NoAlias;
   }
 };
-
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsDialect.cpp.inc"
-
-#define GET_ATTRDEF_CLASSES
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsAttrDefs.cpp.inc"
+} // namespace mlir::tt::ttcore
 
 //===----------------------------------------------------------------------===//
 // TT dialect.
 //===----------------------------------------------------------------------===//
 
-void TTCoreDialect::initialize() {
+void mlir::tt::ttcore::TTCoreDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.cpp.inc"

@@ -18,8 +18,6 @@ inline ::tt::target::ttnn::TensorMemoryLayout toTargetTensorMemoryLayout(
   switch (tensorMemoryLayout) {
   case ::mlir::tt::ttnn::TensorMemoryLayout::Interleaved:
     return ::tt::target::ttnn::TensorMemoryLayout::Interleaved;
-  case ::mlir::tt::ttnn::TensorMemoryLayout::SingleBank:
-    return ::tt::target::ttnn::TensorMemoryLayout::SingleBank;
   case ::mlir::tt::ttnn::TensorMemoryLayout::HeightSharded:
     return ::tt::target::ttnn::TensorMemoryLayout::HeightSharded;
   case ::mlir::tt::ttnn::TensorMemoryLayout::WidthSharded:
@@ -64,29 +62,30 @@ toTargetTensorLayout(::mlir::tt::ttnn::Layout layout) {
   llvm_unreachable("Unsupported Layout");
 }
 
-inline ::tt::target::DataType toTargetDataType(::mlir::tt::DataType dataType) {
+inline ::tt::target::DataType
+toTargetDataType(::mlir::tt::ttcore::DataType dataType) {
   switch (dataType) {
-  case ::mlir::tt::DataType::Float32:
+  case ::mlir::tt::ttcore::DataType::Float32:
     return ::tt::target::DataType::Float32;
-  case ::mlir::tt::DataType::BFloat16:
+  case ::mlir::tt::ttcore::DataType::BFloat16:
     return ::tt::target::DataType::BFloat16;
-  case ::mlir::tt::DataType::BFP_BFloat8:
+  case ::mlir::tt::ttcore::DataType::BFP_BFloat8:
     return ::tt::target::DataType::BFP_BFloat8;
-  case ::mlir::tt::DataType::BFP_BFloat4:
+  case ::mlir::tt::ttcore::DataType::BFP_BFloat4:
     return ::tt::target::DataType::BFP_BFloat4;
-  case ::mlir::tt::DataType::UInt8:
+  case ::mlir::tt::ttcore::DataType::UInt8:
     return ::tt::target::DataType::UInt8;
-  case ::mlir::tt::DataType::UInt16:
+  case ::mlir::tt::ttcore::DataType::UInt16:
     return ::tt::target::DataType::UInt16;
-  case ::mlir::tt::DataType::UInt32:
+  case ::mlir::tt::ttcore::DataType::UInt32:
     return ::tt::target::DataType::UInt32;
-  case ::mlir::tt::DataType::Int32:
+  case ::mlir::tt::ttcore::DataType::Int32:
     return ::tt::target::DataType::Int32;
-  case ::mlir::tt::DataType::Float16:
-  case ::mlir::tt::DataType::BFP_Float2:
-  case ::mlir::tt::DataType::BFP_Float4:
-  case ::mlir::tt::DataType::BFP_Float8:
-  case ::mlir::tt::DataType::BFP_BFloat2:
+  case ::mlir::tt::ttcore::DataType::Float16:
+  case ::mlir::tt::ttcore::DataType::BFP_Float2:
+  case ::mlir::tt::ttcore::DataType::BFP_Float4:
+  case ::mlir::tt::ttcore::DataType::BFP_Float8:
+  case ::mlir::tt::ttcore::DataType::BFP_BFloat2:
     llvm_unreachable("Unsupported DataType");
   }
 

@@ -10,7 +10,7 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 
-MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(TT, tt, mlir::tt::TTCoreDialect)
+MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(TT, tt, mlir::tt::ttcore::TTCoreDialect)
 MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(TTIR, ttir, mlir::tt::ttir::TTIRDialect)
 MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(TTKernel, ttkernel,
                                       mlir::tt::ttkernel::TTKernelDialect)

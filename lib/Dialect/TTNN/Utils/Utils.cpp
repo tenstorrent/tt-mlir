@@ -15,34 +15,34 @@
 #include <optional>
 
 namespace mlir::tt::ttnn::utils {
-// Map TT::MemorySpace to TTNN::BufferType
+// Map ttcore::MemorySpace to TTNN::BufferType
 //
 mlir::tt::ttnn::BufferType
-toTTNNBufferType(const mlir::tt::MemorySpace memorySpace) {
+toTTNNBufferType(const mlir::tt::ttcore::MemorySpace memorySpace) {
   switch (memorySpace) {
-  case MemorySpace::System:
-  case MemorySpace::SystemMMIO:
+  case mlir::tt::ttcore::MemorySpace::System:
+  case mlir::tt::ttcore::MemorySpace::SystemMMIO:
     return BufferType::SystemMemory;
-  case MemorySpace::DeviceDRAM:
+  case mlir::tt::ttcore::MemorySpace::DeviceDRAM:
     return BufferType::DRAM;
-  case MemorySpace::DeviceL1:
+  case mlir::tt::ttcore::MemorySpace::DeviceL1:
     return BufferType::L1;
-  case MemorySpace::RegisterDst:
+  case mlir::tt::ttcore::MemorySpace::RegisterDst:
     llvm_unreachable("MemorySpace::RegisterDst not supported");
   }
 
   llvm_unreachable("Unknown MemorySpace");
 }
 
-mlir::tt::MemorySpace
+mlir::tt::ttcore::MemorySpace
 toTTMemorySpace(const mlir::tt::ttnn::BufferType bufferType) {
   switch (bufferType) {
   case ttnn::BufferType::SystemMemory:
-    return MemorySpace::System;
+    return mlir::tt::ttcore::MemorySpace::System;
   case ttnn::BufferType::DRAM:
-    return MemorySpace::DeviceDRAM;
+    return mlir::tt::ttcore::MemorySpace::DeviceDRAM;
   case ttnn::BufferType::L1:
-    return MemorySpace::DeviceL1;
+    return mlir::tt::ttcore::MemorySpace::DeviceL1;
   case ttnn::BufferType::L1Small:
     assert(false && "BufferType::L1Small not supported");
   case ttnn::BufferType::Trace:
@@ -65,7 +65,7 @@ RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
   TTNNLayoutAttr newEncoding =
       oldEncoding.withElementType(memrefElementType, tensorType.getShape());
   Type newElementType = memrefElementType;
-  if (TileType tileType = dyn_cast<TileType>(newElementType)) {
+  if (ttcore::TileType tileType = dyn_cast<ttcore::TileType>(newElementType)) {
     newElementType = tileType.getElementType();
   }
   return RankedTensorType::get(tensorType.getShape(), newElementType,
@@ -89,15 +89,15 @@ RankedTensorTypeFactory::create(RankedTensorType tensorType,
 
 RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
                                                  Layout layout) {
-  DataType dataType =
-      mlir::tt::elementTypeToDataType(tensorType.getElementType());
+  ttcore::DataType dataType =
+      mlir::tt::ttcore::elementTypeToDataType(tensorType.getElementType());
   Type memrefElementType =
       utils::getElementType(tensorType.getContext(), layout, dataType);
   return create(tensorType, memrefElementType);
 }
 
 RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
-                                                 GridAttr grid) {
+                                                 ttcore::GridAttr grid) {
   TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
   TTNNLayoutAttr newEncoding =
       oldEncoding.withGrid(tensorType.getShape(), grid);
@@ -105,7 +105,7 @@ RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
 }
 
 RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
-                                                 DataType dataType) {
+                                                 ttcore::DataType dataType) {
   TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
   Type nmemrefElementType = utils::getElementType(
       tensorType.getContext(), oldEncoding.getLayout(), dataType);
@@ -141,11 +141,11 @@ TTNNLayoutAttr getLayoutAttrFromTensor(RankedTensorType tensorType) {
 
 // Helper method to get the element type for the given tensor layout and data.
 Type getElementType(MLIRContext *context, Layout tensorLayout,
-                    DataType dataType) {
+                    ttcore::DataType dataType) {
   return tensorLayout == Layout::Tile
-             ? TileType::get(context, {ttnn::TILE_HEIGHT, ttnn::TILE_WIDTH},
-                             dataType)
-             : mlir::tt::dataTypeToElementType(context, dataType);
+             ? ttcore::TileType::get(
+                   context, {ttnn::TILE_HEIGHT, ttnn::TILE_WIDTH}, dataType)
+             : mlir::tt::ttcore::dataTypeToElementType(context, dataType);
 }
 
 // Save the IR to a file for debugging.
@@ -181,8 +181,9 @@ llvm::SmallVector<int64_t> getTilePaddedShape(llvm::ArrayRef<int64_t> shape) {
 }
 
 // Helper method to create a ShardSpecAttr if needed.
-std::optional<ShardSpecAttr> createShardSpecIfNeeded(TTNNLayoutAttr layoutAttr,
-                                                     GridAttr deviceGridAttr) {
+std::optional<ShardSpecAttr>
+createShardSpecIfNeeded(TTNNLayoutAttr layoutAttr,
+                        ttcore::GridAttr deviceGridAttr) {
   std::optional<ShardSpecAttr> shardSpecAttr = std::nullopt;
   TensorMemoryLayoutAttr tensorMemoryLayout = layoutAttr.getMemLayout();
   if (tensorMemoryLayout &&
@@ -194,10 +195,9 @@ std::optional<ShardSpecAttr> createShardSpecIfNeeded(TTNNLayoutAttr layoutAttr,
 }
 
 // Helper method to create a ShardSpecAttr if needed.
-std::optional<ShardSpecAttr>
-createShardSpecIfNeeded(TensorMemoryLayoutAttr tensorMemoryLayoutAttr,
-                        ShapeAttr shardShapeAttr, GridAttr shardGridAttr,
-                        GridAttr deviceGridAttr) {
+std::optional<ShardSpecAttr> createShardSpecIfNeeded(
+    TensorMemoryLayoutAttr tensorMemoryLayoutAttr, ShapeAttr shardShapeAttr,
+    ttcore::GridAttr shardGridAttr, ttcore::GridAttr deviceGridAttr) {
   std::optional<ShardSpecAttr> shardSpecAttr = std::nullopt;
   if (tensorMemoryLayoutAttr &&
       isShardedMemoryLayout(tensorMemoryLayoutAttr.getValue())) {

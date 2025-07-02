@@ -14,7 +14,7 @@
 #include "mlir/Pass/Pass.h"
 #include "llvm/Support/Casting.h"
 
-namespace mlir::tt {
+namespace mlir::tt::ttcore {
 #define GEN_PASS_DEF_TTCOREUNWRAPDEVICEMODULEPASS
 #define GEN_PASS_DEF_TTCOREWRAPDEVICEMODULEPASS
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h.inc"
@@ -27,7 +27,7 @@ public:
   void runOnOperation() override {
     ModuleOp rootModule = getOperation();
     if (rootModule->getParentOp() != nullptr ||
-        llvm::any_of(rootModule.getOps<tt::DeviceModuleOp>(),
+        llvm::any_of(rootModule.getOps<DeviceModuleOp>(),
                      [](auto) { return true; })) {
       return;
     }
@@ -42,7 +42,7 @@ public:
     innerModule.getBodyRegion().takeBody(rootModule.getBodyRegion());
     rootModule.getRegion().emplaceBlock();
     builder.setInsertionPointToStart(&rootModule.getBodyRegion().front());
-    auto deviceModule = builder.create<tt::DeviceModuleOp>(rootModule.getLoc());
+    auto deviceModule = builder.create<DeviceModuleOp>(rootModule.getLoc());
     builder.setInsertionPointToStart(&deviceModule.getBodyRegion().front());
     builder.clone(*innerModule);
     innerModule->erase();
@@ -62,8 +62,8 @@ public:
       return;
     }
 
-    tt::DeviceModuleOp deviceOp;
-    if (auto deviceOpsList = rootModule.getOps<tt::DeviceModuleOp>();
+    DeviceModuleOp deviceOp;
+    if (auto deviceOpsList = rootModule.getOps<DeviceModuleOp>();
         !deviceOpsList.empty()) {
       assert(std::distance(deviceOpsList.begin(), deviceOpsList.end()) == 1 &&
              "Top-level ModuleOp must contain 0 or 1 DeviceModuleOps!");
@@ -72,7 +72,7 @@ public:
       return;
     }
 
-    if (auto cpuOpsList = rootModule.getOps<tt::CPUModuleOp>();
+    if (auto cpuOpsList = rootModule.getOps<CPUModuleOp>();
         !cpuOpsList.empty()) {
       assert(std::distance(cpuOpsList.begin(), cpuOpsList.end()) == 1 &&
              "Top-level ModuleOp must contain 0 or 1 CPUModuleOps!");
@@ -102,4 +102,4 @@ public:
     deviceOp->erase();
   }
 };
-} // namespace mlir::tt
+} // namespace mlir::tt::ttcore

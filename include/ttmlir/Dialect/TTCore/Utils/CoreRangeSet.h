@@ -10,7 +10,7 @@
 
 #include <tuple>
 
-namespace mlir::tt::utils {
+namespace mlir::tt::ttcore::utils {
 
 using locSize2d = std::tuple<std::array<int32_t, 2>,  //  {{locX, locY},
                              std::array<int32_t, 2>>; //  {sizeX, sizeY}}
@@ -69,6 +69,6 @@ toCoreRangeSet(llvm::ArrayRef<int64_t> virtualGridShape,
   return coreRangeSet;
 }
 
-} // namespace mlir::tt::utils
+} // namespace mlir::tt::ttcore::utils
 
 #endif // TTMLIR_DIALECT_TTCORE_UTILS_CORERANGESET_H

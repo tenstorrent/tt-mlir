@@ -26,20 +26,27 @@ namespace mlir::tt::ttnn {
 void createTTNNPipelineTTIRPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
 
-  tt::TTCoreRegisterDevicePassOptions registerDeviceOptions;
+  ttcore::TTCoreRegisterDevicePassOptions registerDeviceOptions;
   {
     registerDeviceOptions.systemDescPath = options.systemDescPath;
     registerDeviceOptions.mockSystemDescArch = options.mockSystemDescArch;
     registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
   }
-  pm.addPass(mlir::tt::createTTCoreRegisterDevicePass(registerDeviceOptions));
+  pm.addPass(
+      mlir::tt::ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
 
-  pm.addPass(mlir::tt::createTTPopulateArgumentTypes(options.argumentTypeMap));
+  pm.addPass(
+      mlir::tt::ttcore::createTTPopulateArgumentTypes(options.argumentTypeMap));
   pm.addPass(mlir::createCanonicalizerPass());
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing());
   }
   pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
+  // Fuse after TTIR -> TTIR decomposition to enable fusing of ops that are
+  // decomposed.
+  if (options.enableFusing) {
+    pm.addPass(mlir::tt::ttir::createTTIRFusing());
+  }
   pm.addPass(mlir::createCanonicalizerPass());
 
   // Inlines all private functions. I.e flattens the program into the main
@@ -55,10 +62,18 @@ void createTTNNPipelineTTIRPasses(
     pm.addPass(mlir::tt::ttir::createTTIRExplicateTMs());
     pm.addPass(mlir::tt::ttir::createTTIREraseInverseOps());
   }
+  // Fuse TTIR ops after rest of TTIR pipeline.
+  if (options.enableFusing) {
+    pm.addPass(mlir::tt::ttir::createTTIRFusing());
+  }
 }
 
 void createTTNNPipelineAnalysisPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  // Add pass to check for unique operation locations if enabled
+  if (options.checkUniqueLocations) {
+    pm.addPass(mlir::tt::ttnn::createTTNNUniqueLocations());
+  }
   if (options.optimizerPassEnabled) {
     ttnn::TTNNOptimizerOptions optimizerOptions;
     optimizerOptions.insertMemReconfig = options.insertMemReconfig;
@@ -126,13 +141,13 @@ void createTTIRToTTNNBackendPipeline(
   // Element type normalization should be the first pass in the pipeline.
   pm.addPass(ttir::createElementTypeNormalization());
   // Create DeviceModule to wrap all ops.
-  pm.addPass(tt::createTTCoreWrapDeviceModulePass());
+  pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
   // Create CPUModuleOp to wrap hoisted ops (if any).
   pm.addPass(ttir::createTTIRHoistTransform());
 
   // Run regular TTIR to TTNN pipeline on DeviceModule.
   OpPassManager &devicePm =
-      pm.nest<tt::DeviceModuleOp>().nest<mlir::ModuleOp>();
+      pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
   createTTNNPipelineTTIRPasses(devicePm, options);
   createTTNNPipelineTTIRImplicitBroadcastFoldPass(devicePm, options);
 
@@ -172,7 +187,7 @@ void createTTIRToEmitCPipeline(OpPassManager &pm,
         "Trace currently not supported in createTTIRToEmitCPipeline");
   }
   createTTIRToTTNNBackendPipeline(pm, options);
-  pm.addPass(tt::createTTCoreUnwrapDeviceModulePass());
+  pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
   pm.addPass(createTTNNTuplifyTensors());
   pm.addPass(createTTNNCreateInputGenerators());
   pm.addPass(createConvertTTNNToEmitCPass());
@@ -191,7 +206,7 @@ void createTTIRToEmitCSOPipeline(OpPassManager &pm,
   // Construct pipeline from other pipelines/passes.
   //
   createTTIRToTTNNBackendPipeline(pm, options);
-  pm.addPass(tt::createTTCoreUnwrapDeviceModulePass());
+  pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
   pm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
   pm.addPass(createConvertTTNNToEmitCPass());
 }

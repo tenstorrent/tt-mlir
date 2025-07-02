@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Analysis/TopologicalSortUtils.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::ttir {
@@ -250,16 +251,30 @@ public:
     Conv2dOp conv2dOp = components->first;
     Value scaleValue = components->second;
 
-    // Insert before conv2d op.
-    rewriter.setInsertionPoint(conv2dOp);
-
     // Reshape scale to match weight dimensions and pre-multiply weights.
     Value reshapedScale =
-        createReshapedScale(rewriter, conv2dOp.getLoc(), scaleValue);
+        createReshapedScale(rewriter, conv2dOp.getLoc(), scaleValue,
+                            conv2dOp.getWeight().getType());
+
+    // Get UD chain starting from the reshaped scale. This chain will be
+    // moved before the conv2dOp to ensure that weight scale can be
+    // const-evaled.
+    SetVector<Value> udChain = ttmlir::utils::getUseDefChain(reshapedScale);
+    SetVector<Operation *> udChainOps =
+        ttmlir::utils::filterOperations(udChain.getArrayRef());
+    SetVector<Operation *> udChainSorted = topologicalSort(udChainOps);
+    for (auto *op : udChainSorted) {
+      op->moveBefore(conv2dOp);
+    }
+
+    rewriter.setInsertionPoint(conv2dOp);
+
+    // Create scaled weights by multiplying the original weights with the
+    // resshaped scale.
     Value scaledWeights = createScaledWeights(
         rewriter, conv2dOp.getLoc(), conv2dOp.getWeight(), reshapedScale);
 
-    // Update conv2d to use scaled weights and replace multiply operation
+    // Update conv2d to use scaled weights and replace multiply operation.
     rewriter.modifyOpInPlace(
         conv2dOp, [&]() { conv2dOp.getWeightMutable().assign(scaledWeights); });
     rewriter.replaceAllOpUsesWith(multiplyOp, conv2dOp);
@@ -293,23 +308,51 @@ private:
 
     mlir::func::FuncOp funcOp = conv2dOp->getParentOfType<mlir::func::FuncOp>();
     llvm::SmallPtrSet<BlockArgument, 4> constParams =
-        mlir::tt::getConstsAndParams(funcOp);
-    auto isConstant = [&constParams, conv2dOp](mlir::Value value) {
+        mlir::tt::ttcore::getConstsAndParams(funcOp);
+    auto isConstant = [&constParams](mlir::Value value) {
       if (auto blockArg = mlir::dyn_cast<BlockArgument>(value)) {
         return constParams.contains(blockArg);
       }
 
-      Operation *op = value.getDefiningOp();
-      return op->hasTrait<mlir::tt::Trait::TTCoreCreationOpTrait>() &&
-             op->isBeforeInBlock(conv2dOp);
+      Operation *defOp = value.getDefiningOp();
+      return defOp->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>();
     };
 
-    // Both scale and weight must be constant.
-    if (!isConstant(scale) || !isConstant(conv2dOp.getWeight())) {
+    // If weight is not constant, we cannot commute.
+    if (!isConstant(conv2dOp.getWeight())) {
       return false;
     }
 
-    return hasValidScaleShape(conv2dOp, scale.getType());
+    RankedTensorType scaleType = scale.getType();
+    // If scale is comming from broadcast then we want to use the input type
+    // to the broadcast to check the shape.
+    if (auto bcastOp =
+            mlir::dyn_cast_if_present<BroadcastOp>(scale.getDefiningOp())) {
+      scaleType = bcastOp.getInput().getType();
+    }
+
+    // Check if scale shape is with conv2d weight.
+    if (!hasValidScaleShape(conv2dOp, scaleType)) {
+      return false;
+    }
+
+    // Now we want to check if operations which produce scale are
+    // const-evalable. We do this by getting UD chain of the scale and then
+    // checking if all inputs into this chain are constants.
+    SetVector<Value> useDefChain = ttmlir::utils::getUseDefChain(scale);
+    SetVector<BlockArgument> useDefChainBlockArgs =
+        ttmlir::utils::filterBlockArguments(useDefChain.getArrayRef());
+    if (!all_of(useDefChainBlockArgs, isConstant)) {
+      return false;
+    }
+
+    // Since we want to move the scale chain before conv2dOp we want to make
+    // sure that the scale chain does not contain conv2dOp.
+    if (useDefChain.contains(conv2dOp)) {
+      return false;
+    }
+
+    return true;
   }
 
   // Scale must have rank 4 and shape (1, 1, 1, out_channels).
@@ -319,11 +362,31 @@ private:
            scaleType.getDimSize(3) == convOp.getOutputChannelSize();
   }
 
+  // There are two cases we want to handle here:
+  // 1. Input scale is a constant tensor that only neeeds reshaping
+  // 2. Input scale is a broadcast operation that needs reshaping
+  //
+  // In case of 1 we just add reshape operation to the scale tensor such that
+  // it has shape (out_channels, 1, 1, 1).
+  //
+  // In case of 2 we need to add reshape operation to the input of the of bcast
+  // and then we create new broadcast operation with the new reshaped scale
+  // which broadcasts the reshaped scale to the shape of the weight tensor.
   static Value createReshapedScale(mlir::PatternRewriter &rewriter,
-                                   Location loc, Value scaleValue) {
+                                   Location loc, Value scaleValue,
+                                   RankedTensorType weightType) {
+    // If scaleValue is broadcast operation we want to reshape its input.
+    // Otherwise we reshape the scaleValue itself.
+    Value reshapeInput = scaleValue;
+    if (auto bcastOp = mlir::dyn_cast_if_present<BroadcastOp>(
+            scaleValue.getDefiningOp())) {
+      rewriter.setInsertionPoint(bcastOp);
+      reshapeInput = bcastOp.getInput();
+    }
+
     // Get the scale's type.
     RankedTensorType scaleType =
-        mlir::cast<RankedTensorType>(scaleValue.getType());
+        mlir::cast<RankedTensorType>(reshapeInput.getType());
 
     // Create a new shape (out_channels, 1, 1, 1) from (1, 1, 1, out_channels).
     llvm::SmallVector<int64_t> newShape(scaleType.getShape());
@@ -334,11 +397,25 @@ private:
     // Convert to int32 for the reshape operation.
     llvm::SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
 
-    // Create and return the reshape operation.
-    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
+    // Create the reshape operation.
+    auto reshapedScale = ttir::utils::createDPSOp<ttir::ReshapeOp>(
         rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshape"),
         newShape, scaleType.getElementType(), scaleType.getEncoding(),
-        scaleValue, rewriter.getI32ArrayAttr(newShapeI32));
+        reshapeInput, rewriter.getI32ArrayAttr(newShapeI32));
+
+    // If scale value is not a broadcast operation we can return reshapedScale.
+    if (!isa_and_present<ttir::BroadcastOp>(scaleValue.getDefiningOp())) {
+      return reshapedScale;
+    }
+
+    // Otherwise we need to create a new broadcast operation that will take
+    // reshaped scale and brroadcast it to the shape of the weight tensor.
+    SmallVector<int64_t> broadcastDims =
+        ttmlir::utils::getBroadcastDimensions<int64_t>(
+            reshapedScale.getType().getShape(), weightType.getShape());
+    return ttir::utils::createDPSOp<ttir::BroadcastOp>(
+        rewriter, scaleValue.getLoc(), weightType, reshapedScale,
+        broadcastDims);
   }
 
   /// Create pre-multiplied weights.
@@ -392,6 +469,340 @@ public:
   }
 };
 
+class CacheFillUpdatePattern : public mlir::OpRewritePattern<ScatterOp> {
+  using mlir::OpRewritePattern<ScatterOp>::OpRewritePattern;
+
+public:
+  /// Pattern: scatter(input, indices, updates)
+  ///
+  /// This pattern detects when a ScatterOp is used as a fill/update for a
+  /// cache. We check for its input, indices, and update tensors to ensure they
+  /// match the expected cache fill/update pattern.
+  ///
+  /// Input pattern:
+  ///   %result = scatter(%cache, %indices, %updates)
+  ///   - Given a cache with shape (B, N, M, H) and a updates tensor with shape
+  ///   (B, N, S, H), the indices tensor should have shape (B, N, S, H, 4),
+  ///   representing the index where each element in %updates should placed in
+  ///   the %cache.
+  ///   - %indices can be tracked back to the function's cachePositions input
+  ///   that represents the indices of the cache to fill/update.
+  /// Output pattern:
+  ///   %result = fillCacheOp(%cache, %updates)
+  ///   or (if S == 1)
+  ///   %result = updateCacheOp(%cache, %updates, %update_index)
+  mlir::LogicalResult
+  matchAndRewrite(ScatterOp scatterOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    auto CachePositions = getCacheUpdatePositions(scatterOp);
+    if (!CachePositions) {
+      return mlir::failure();
+    }
+
+    auto cacheUpdateInputType =
+        mlir::cast<RankedTensorType>((*CachePositions).getType());
+    auto cacheUpdateInputShape = cacheUpdateInputType.getShape();
+    if (cacheUpdateInputShape.size() != 1) {
+      return mlir::failure();
+    }
+
+    Value cache = scatterOp.getInput();
+    Value updates = scatterOp.getUpdate();
+    auto batchOffsetAttr = rewriter.getI32IntegerAttr(0);
+
+    // If the cachePositions tensor has more than one element we assume it
+    // represents a set of aranged indices (0, cachePositions.size), so we
+    // replace it with FillCacheOp. If the tensor has only one element, we
+    // assume it represents the update index for UpateCacheOp.
+    if (cacheUpdateInputShape[0] != 1) {
+      rewriter.replaceOpWithNewOp<FillCacheOp>(
+          scatterOp, scatterOp.getResult().getType(), // Result type
+          cache,                                      // Cache tensor
+          updates,                                    // Updates tensor
+          batchOffsetAttr                             // Batch offset
+      );
+    } else {
+      rewriter.replaceOpWithNewOp<UpdateCacheOp>(
+          scatterOp, scatterOp.getResult().getType(), // Result type
+          cache,                                      // Cache tensor
+          updates,                                    // Updates tensor
+          *CachePositions,                            // Cache Idx
+          batchOffsetAttr                             // Batch offset
+      );
+    }
+
+    return mlir::success();
+  }
+
+private:
+  // Check if the scatter op is a cache fill/update, and track the
+  // cachePositions input tensor if it is.
+  //
+  // We are looking for:
+  // %indices = "ttir.concat"(%0, %1, %2, %3):
+  //        (B,N,S,H,1), (B,N,S,H,1), (B,N,S,H,1), (B,N,S,H,1)) -> (B,N,S,H,4)
+  // %result = "ttir.scatter"(%cache, %indices, %updates)
+  // Where:
+  //    1. %0, %1, and %3 come from a const aranged vector representing
+  //       the first, second, and fourth dimension indices of the cache.
+  //    2. %2 comes from the input representing the cachePositions tensor.
+  static std::optional<mlir::Value>
+  getCacheUpdatePositions(ttir::ScatterOp scatterOp) {
+    // Check that the scatter op inputs represent a cache fill/update:
+    //    1. The input is a 4D (B, N, M, H)
+    //    2. The update tensor is a 4D tensor (B, N, S, H)
+    //    3. The scatter indices is a 5D tensor (B, N, S, H, 4)
+    auto scatterIndices = scatterOp.getScatterIndices();
+    ArrayRef<int64_t> inputShape =
+        mlir::cast<RankedTensorType>(scatterOp.getInput().getType()).getShape();
+    ArrayRef<int64_t> scatterIdxShape =
+        mlir::cast<RankedTensorType>(scatterIndices.getType()).getShape();
+    ArrayRef<int64_t> updateShape =
+        mlir::cast<RankedTensorType>(scatterOp.getUpdate().getType())
+            .getShape();
+    if (inputShape.size() != 4 || scatterIdxShape.size() != 5 ||
+        updateShape.size() != 4) {
+      return std::nullopt;
+    }
+    for (size_t i = 0; i < updateShape.size(); ++i) {
+      if (scatterIdxShape[i] != updateShape[i]) {
+        return std::nullopt;
+      }
+    }
+    if (scatterIdxShape[4] != 4) {
+      return std::nullopt;
+    }
+    if (!(inputShape[0] == updateShape[0] && inputShape[1] == updateShape[1] &&
+          inputShape[3] == updateShape[3])) {
+      return std::nullopt;
+    }
+
+    // Check that the scatter indices input is a concat op that produces the
+    // scatter indices for a cache update/fill:
+    //    1. Check that the 1st, 2nd and 4th inputs come from a 1D const aranged
+    //    tensor
+    //    2. Check that the 3rd input comes from the cachePositions func input
+    ConcatOp concatOp = scatterIndices.getDefiningOp<ttir::ConcatOp>();
+    if (!concatOp) {
+      return std::nullopt;
+    }
+
+    mlir::OperandRange inputs = concatOp.getInputs();
+    int32_t dim = concatOp.getDim();
+    if (inputs.size() != 4 || dim != 4) {
+      return std::nullopt;
+    }
+
+    if (!isBroadcastedDimIndices(inputs[0], 0) ||
+        !isBroadcastedDimIndices(inputs[1], 1) ||
+        !isBroadcastedDimIndices(inputs[3], 3)) {
+      return std::nullopt;
+    }
+
+    auto cachePositionInput = getCachePositionsInput(inputs[2]);
+    return cachePositionInput;
+  }
+
+  // For the concat input that can be tracked to the cachePositions input,
+  // check the pattern and track value up to the cachePositions tensor input.
+  //  %1 = "ttir.reshape"(%arg, %0) -> (S, 1)
+  //  %3 = "ttir.reshape"(%1, %2) -> (1, 1, S, 1)
+  //  %5 = "ttir.broadcast"(%3, %4) -> (B, N, S, H)
+  //  %7 = "ttir.reshape"(%5, %6) -> (B, N, S, H, 1)
+  // Where:
+  //  1. %arg is (S, ) and is the cachePositions input tensor.
+  //  2. B, S and H are const values.
+  static std::optional<mlir::Value>
+  getCachePositionsInput(mlir::Value inputValue) {
+    // 1. Check that value is a reshape op.
+    // 2. Check that the reshape's input and output shapes are compatible:
+    //    - Output.rank() = Input.rank() + 1
+    //    - All the input dims are the same as the output dims except the
+    //      last one which is 1.
+    auto reshapeOp = inputValue.getDefiningOp<ttir::ReshapeOp>();
+    if (!reshapeOp) {
+      return std::nullopt;
+    }
+    auto reshapeInput = reshapeOp.getInput();
+    auto inputShape =
+        mlir::cast<RankedTensorType>(reshapeInput.getType()).getShape();
+    auto outputShape =
+        mlir::cast<RankedTensorType>(reshapeOp.getOutput().getType())
+            .getShape();
+    if (inputShape.size() != outputShape.size() - 1) {
+      return std::nullopt;
+    }
+    for (size_t i = 0; i < inputShape.size(); ++i) {
+      if (inputShape[i] != outputShape[i]) {
+        return std::nullopt;
+      }
+    }
+
+    // 1. Check that input to reshape is a broadcast op.
+    // 2. Check that the broadcast's input and output ranks are the same.
+    // 3. Check that all dims in broadcast input are 1 or inputShape[i] ==
+    //    outputShape[i]
+    auto broadcastOp = reshapeInput.getDefiningOp<BroadcastOp>();
+    if (!broadcastOp) {
+      return std::nullopt;
+    }
+    inputShape = mlir::cast<RankedTensorType>(broadcastOp.getInput().getType())
+                     .getShape();
+    outputShape =
+        mlir::cast<RankedTensorType>(broadcastOp.getOutput().getType())
+            .getShape();
+    if (inputShape.size() != outputShape.size()) {
+      return std::nullopt;
+    }
+    for (size_t i = 0; i < inputShape.size(); ++i) {
+      if (inputShape[i] != 1 && inputShape[i] != outputShape[i]) {
+        return std::nullopt;
+      }
+    }
+
+    // Check that the input to broadcast are reshapes and loop through them
+    // until we reach the input to the first reshape.
+    auto nextInput = broadcastOp.getInput();
+    while (auto intermediateReshapeOp =
+               nextInput.getDefiningOp<ttir::ReshapeOp>()) {
+      nextInput = intermediateReshapeOp.getInput();
+    }
+
+    // Check that the input of the reshape chain is a single dim flat
+    // tensor. We will assume that this is the cachePositions tensor.
+    // TODO(jazpur): Check that this is a 1D aranged tensor coming from the
+    // input.
+    auto inputTensor = nextInput;
+    auto inputTensorShape =
+        mlir::cast<RankedTensorType>(inputTensor.getType()).getShape();
+    if (inputTensorShape.size() != 1) {
+      return std::nullopt;
+    }
+
+    return inputTensor;
+  }
+
+  // For each (const) input of the concat op we check for:
+  //  %2 = "ttir.reshape"(%0, %1) -> (N, 1)
+  //  %4 = "ttir.reshape"(%2, %3) -> (N, 1, 1)
+  //  %6 = "ttir.reshape"(%4, %5) -> (1, N, 1, 1)
+  //  %8 = "ttir.broadcast"(%6, %7) -> (B, N, S, H)
+  //  %10 = "ttir.reshape"(%8, %9) -> (B, N, S, H, 1)
+  // Where:
+  //  1. %0 is a const aranged tensor with shape (N,))
+  //  2. depending on dimIdx, same pattern applies for the B, and H dims
+  static bool isBroadcastedDimIndices(mlir::Value inputValue, int64_t dimIdx) {
+    // 1. Check that valueInput is a reshape op.
+    // 2. Check that the reshape's input and output shapes are compatible:
+    //    - Output.rank() = input.rank() + 1
+    //    - All the input dims are the same as the output dims except the
+    //      last one which is 1.
+    auto reshapeOp = inputValue.getDefiningOp<ttir::ReshapeOp>();
+    if (!reshapeOp) {
+      return false;
+    }
+    auto reshapeInput = reshapeOp.getInput();
+    auto inputShape =
+        mlir::cast<RankedTensorType>(reshapeInput.getType()).getShape();
+    auto outputShape =
+        mlir::cast<RankedTensorType>(reshapeOp.getOutput().getType())
+            .getShape();
+    if (inputShape.size() != outputShape.size() - 1) {
+      return false;
+    }
+    for (size_t i = 0; i < inputShape.size(); ++i) {
+      if (inputShape[i] != outputShape[i]) {
+        return false;
+      }
+    }
+
+    // 1. Check that input to reshape is a broadcast op.
+    // 2. Check that broadcast input and output rank is the same.
+    // 3. Check that all dims in broadcast input are 1 or inputShape[i] ==
+    //    outputShape[i]
+    auto broadcastOp = reshapeInput.getDefiningOp<BroadcastOp>();
+    if (!broadcastOp) {
+      return false;
+    }
+    inputShape = mlir::cast<RankedTensorType>(broadcastOp.getInput().getType())
+                     .getShape();
+    outputShape =
+        mlir::cast<RankedTensorType>(broadcastOp.getOutput().getType())
+            .getShape();
+    if (inputShape.size() != outputShape.size()) {
+      return false;
+    }
+    for (size_t i = 0; i < inputShape.size(); ++i) {
+      if (inputShape[i] != 1 && inputShape[i] != outputShape[i]) {
+        return false;
+      }
+    }
+
+    // Check that the input to broadcast is a reshape and loop through it until
+    // we reach the input to the first reshape.
+    auto nextInput = broadcastOp.getInput();
+    while (auto intermediateReshapeOp =
+               nextInput.getDefiningOp<ttir::ReshapeOp>()) {
+      nextInput = intermediateReshapeOp.getInput();
+    }
+
+    // 1. Check that the first input of the reshape chain is a single dim flat
+    //    tensor.
+    // 2. Check that the input is a const aranged tensor.
+    auto arangedTensor = nextInput;
+    auto arangedTensorShape =
+        mlir::cast<RankedTensorType>(arangedTensor.getType()).getShape();
+    if (arangedTensorShape.size() != 1) {
+      return false;
+    }
+
+    auto tensorType = mlir::cast<RankedTensorType>(inputValue.getType());
+    auto tensorShape = tensorType.getShape();
+    int64_t dim = tensorShape[dimIdx];
+    if (!isConstArangedTensor(arangedTensor, dim)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  // We are looking for a pattern like to this (from bottom up):
+  //  %0 = "ttir.arange"() {arr_dim = 0, end = N, start = 0, step = 1} -> (N, )
+  //  %2 = "ttir.multiply"(%0, 1, %1) -> (N,)
+  //  %4 = "ttir.add"(%2, 0, %3) -> (N,)
+  static bool isConstArangedTensor(mlir::Value inputValue, int64_t dim) {
+    // 1. Check that inputValue is an add op.
+    // 2. Check that the add's input is a multiply op.
+    auto addOp = inputValue.getDefiningOp<AddOp>();
+    if (!addOp) {
+      return false;
+    }
+    auto addInput = addOp.getLhs();
+    auto multiplyOp = addInput.getDefiningOp<MultiplyOp>();
+    if (!multiplyOp) {
+      return false;
+    }
+
+    // 1. Check that the multiply's input is an arange op.
+    // 2. Check that the arange op has start=0, end=dim, step=1, and
+    //    arange_dim=0.
+    auto arangeOp = multiplyOp.getLhs().getDefiningOp<ArangeOp>();
+    if (!arangeOp) {
+      return false;
+    }
+    const int64_t arangeStart = arangeOp.getStart();
+    const int64_t arangeEnd = arangeOp.getEnd();
+    const int64_t arangeStep = arangeOp.getStep();
+    const int64_t arangeDim = arangeOp.getArangeDimension();
+    if (arangeStart != 0 || arangeEnd != dim || arangeStep != 1 ||
+        arangeDim != 0) {
+      return false;
+    }
+
+    return true;
+  }
+};
+
 class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
 public:
   using impl::TTIRFusingBase<TTIRFusingPass>::TTIRFusingBase;
@@ -420,6 +831,7 @@ public:
 
       patterns.add<SoftmaxFusionPattern>(&getContext());
       patterns.add<Conv2dWithMultiply>(&getContext());
+      patterns.add<CacheFillUpdatePattern>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);

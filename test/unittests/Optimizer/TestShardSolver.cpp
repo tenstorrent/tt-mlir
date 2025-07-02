@@ -37,7 +37,7 @@ public:
     context.loadDialect<TTNNDialect>();
     module = mlir::ModuleOp::create(builder.getUnknownLoc());
     builder.setInsertionPointToStart(&module->getBodyRegion().front());
-    mlir::tt::registerDevice(module.get());
+    mlir::tt::ttcore::registerDevice(module.get());
     createFuncOp();
   }
 
@@ -50,7 +50,7 @@ public:
         getTensorShape(), builder.getF32Type(),
         TTNNLayoutAttr::get(&context, getTensorShape(), builder.getF32Type(),
                             BufferType::DRAM,
-                            mlir::tt::GridAttr::get(&context, {1, 1}),
+                            mlir::tt::ttcore::GridAttr::get(&context, {1, 1}),
                             mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
                                 &context, TensorMemoryLayout::Interleaved)));
   }
@@ -101,14 +101,14 @@ public:
       legalConfigs[op] = std::vector<OpConfig>{TTNNLayoutAttr::get(
           &context, getTensorRankedType().getShape(), builder.getF32Type(),
           memorySpace,
-          mlir::tt::GridAttr::get(&context, {gridWidth, gridHeight}),
+          mlir::tt::ttcore::GridAttr::get(&context, {gridWidth, gridHeight}),
           mlir::tt::ttnn::TensorMemoryLayoutAttr::get(&context,
                                                       tensorMemoryLayout))};
     } else {
       legalConfigs[op].push_back(TTNNLayoutAttr::get(
           &context, getTensorRankedType().getShape(), builder.getF32Type(),
           memorySpace,
-          mlir::tt::GridAttr::get(&context, {gridWidth, gridHeight}),
+          mlir::tt::ttcore::GridAttr::get(&context, {gridWidth, gridHeight}),
           mlir::tt::ttnn::TensorMemoryLayoutAttr::get(&context,
                                                       tensorMemoryLayout)));
     }

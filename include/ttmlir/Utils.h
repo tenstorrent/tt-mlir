@@ -139,7 +139,7 @@ std::string join(Range &&R, llvm::StringRef separator) {
 //           return wrap(tt::CircularBufferAttributesAttr::get(
 //               unwrap(ctx), static_cast<tt::CB>(cb_id),
 //               mlir::cast<tt::CoreRangeAttr>(unwrap(core_range)), total_size,
-//               page_size, static_cast<tt::DataType>(data_format)));
+//               page_size, static_cast<ttcore::DataType>(data_format)));
 //         })
 //     .def_static("get", [](MlirContext ctx,
 //                           std::vector<MlirAttribute> attributesArray) {
@@ -486,6 +486,63 @@ OpType getOutermostLoopNest(mlir::ValueRange values) {
 
 } // namespace loop
 
+// Given a startng mlir::Value return a set of all values in the use-def
+// chain. This chain is not topologically sorted, so the order of values in the
+// result is not guaranteed. If you want to topologically sort the chain
+// use topologicalSort.
+inline llvm::SetVector<mlir::Value> getUseDefChain(mlir::Value start) {
+  llvm::SetVector<mlir::Value> useDefChain;
+  llvm::SmallVector<mlir::Value> worklist{start};
+  llvm::SmallPtrSet<mlir::Value, 4> visited;
+
+  while (!worklist.empty()) {
+    mlir::Value value = worklist.pop_back_val();
+    useDefChain.insert(value);
+
+    mlir::Operation *defOp = value.getDefiningOp();
+    if (!defOp) {
+      continue;
+    }
+
+    for (mlir::OpOperand &operand : defOp->getOpOperands()) {
+      mlir::Value operandValue = operand.get();
+      if (visited.contains(operandValue)) {
+        continue;
+      }
+      visited.insert(operandValue);
+      worklist.push_back(operandValue);
+    }
+  }
+
+  return useDefChain;
+}
+
+// Given list of mlir::Value filter out block arguments.
+inline llvm::SetVector<mlir::BlockArgument>
+filterBlockArguments(llvm::ArrayRef<mlir::Value> values) {
+  llvm::SetVector<mlir::BlockArgument> blockArgs;
+  for (mlir::Value value : values) {
+    if (auto blockArg = llvm::dyn_cast<mlir::BlockArgument>(value)) {
+      blockArgs.insert(blockArg);
+    }
+  }
+
+  return blockArgs;
+}
+
+// Given list of mlir::Value filter out operations that define them.
+// If value is not operation it is ignored.
+inline llvm::SetVector<mlir::Operation *>
+filterOperations(llvm::ArrayRef<mlir::Value> values) {
+  llvm::SetVector<mlir::Operation *> ops;
+  for (mlir::Value value : values) {
+    if (auto *op = value.getDefiningOp()) {
+      ops.insert(op);
+    }
+  }
+
+  return ops;
+}
 } // namespace ttmlir::utils
 
 #endif // TTMLIR_UTILS_H

@@ -1,21 +1,6 @@
 // RUN: ttmlir-opt %s | FileCheck %s
 
 #l1_ = #ttcore.memory_space<l1>
-// CHECK-LABEL: func @test_untilize_init_short
-func.func @test_untilize_init_short() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>} {
-  %tilized_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !ttkernel.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1_>>
-  "ttkernel.untilize_init_short"(%tilized_cb) : (!ttkernel.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1_>>) -> ()
-  return
-}
-
-// CHECK-LABEL: func @test_tilize_init_short
-func.func @test_tilize_init_short() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>} {
-  %tilized_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !ttkernel.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1_>>
-  %untilized_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !ttkernel.cb<memref<128x128xf32, #l1_>>
-  %num_tiles = arith.constant 4 : i32
-  "ttkernel.tilize_init_short"(%untilized_cb, %num_tiles, %tilized_cb) : (!ttkernel.cb<memref<128x128xf32, #l1_>>, i32, !ttkernel.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1_>>) -> ()
-  return
-}
 
 // CHECK-LABEL: func.func @test_tilize_uninit
 func.func @test_tilize_uninit() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>} {

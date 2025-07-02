@@ -32,7 +32,7 @@ private:
   bool shouldHoistOp(Operation *op) {
     bool shouldHoist = true;
     shouldHoist &= !::mlir::isa<func::ReturnOp>(op);
-    shouldHoist &= !::mlir::isa<mlir::tt::LoadCachedOp>(op);
+    shouldHoist &= !::mlir::isa<mlir::tt::ttcore::LoadCachedOp>(op);
     shouldHoist &= !::mlir::isa<mlir::tt::ttnn::TraceOp>(op);
     shouldHoist &= !::mlir::isa<mlir::tt::ttnn::GetDeviceOp>(op);
     return shouldHoist;

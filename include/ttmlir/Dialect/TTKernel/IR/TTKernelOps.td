@@ -19,6 +19,21 @@ def AnyMemRefOrCB: AnyTypeOf<[AnyNon0RankedMemRef, TTKernel_CB]>;
 def IndexLike: AnyTypeOf<[Index, I32]>;
 
 //===----------------------------------------------------------------------===//
+// TTKernel Compute Kernel Hardware Startup operation
+//===----------------------------------------------------------------------===//
+
+def TTKernel_ComputeKernelHWStartupOp : TTKernel_InitOp<"compute_kernel_hw_startup"> {
+    let summary = "compute_kernel_hw_startup";
+    let description = [{
+      Must be run at the start of compute kernel.
+    }];
+
+    let arguments = (ins TTKernel_CB:$icb0,
+                         Optional<TTKernel_CB>:$icb1,
+                         TTKernel_CB:$ocb);
+}
+
+//===----------------------------------------------------------------------===//
 // TTKernel Register operations
 //===----------------------------------------------------------------------===//
 
@@ -450,6 +465,25 @@ def TTKernel_RecipTileOp : TTKernel_SFPUOp<"recip_tile", [TTKernel_UnaryOpTrait]
     let arguments = (ins IndexLike:$tile_index);
 }
 
+def TTKernel_PowBinaryTilesInitOp : TTKernel_InitOp<"power_binary_tile_init"> {
+    let summary = "Short init function which configures compute unit for execution of power_binary_tile.";
+    let description = [{
+      Must be run before power_binary_tile.
+    }];
+}
+
+def TTKernel_PowBinaryTilesOp : TTKernel_SFPUOp<"power_binary_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Power operation between two tiles";
+    let description = [{
+      Performs element-wise computation of power operation
+      DST[dst0_index] <- DST[dst0_index] ^ DST[dst1_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index);
+}
+
 def TTKernel_ExpTileInitOp : TTKernel_InitOp<"exp_tile_init"> {
     let summary = "Short init function which configures compute unit for execution of exp_tile.";
     let description = [{
@@ -709,16 +743,6 @@ def TTKernel_TilizeInitOp : TTKernel_Op<"tilize_init"> {
     let hasVerifier = 1;
 }
 
-def TTKernel_TilizeInitShortOp : TTKernel_Op<"tilize_init_short"> {
-    let summary = "TilizeInitShortOp call.";
-     let description = [{
-      Re-initialize for the tilize operation. This can be called after a full
-      init.
-     }];
-
-    let arguments = (ins TTKernel_CB:$cbIn, I32:$numiles, TTKernel_CB:$cbOut);
-}
-
 def TTKernel_TilizeUninitOp : TTKernel_Op<"tilize_uninit"> {
     let summary = "TilizeUninitOp call.";
     let description = [{
@@ -760,16 +784,6 @@ def TTKernel_UntilizeInitOp : TTKernel_Op<"untilize_init"> {
     let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut);
 
     let hasVerifier = 1;
-}
-
-def TTKernel_UntilizeInitShortOp : TTKernel_Op<"untilize_init_short"> {
-    let summary = "UntilizeInitShortOp call.";
-    let description = [{
-      Re-initialize for the tilize operation. This can be called after a full
-      init.
-    }];
-
-    let arguments = (ins TTKernel_CB:$cbIn);
 }
 
 def TTKernel_UntilizeUninitOp : TTKernel_Op<"untilize_uninit"> {
@@ -1071,7 +1085,17 @@ def TTKernel_MyYOp : TTKernel_Op<"my_y"> {
 def TTKernel_GetNocMulticastAddrOp : TTKernel_Op<"get_noc_multicast_addr"> {
   let summary = "GetNocMulticastAddr";
   let description = [{
-    GetNocMulticastAddr
+    Default tt-metal get_noc_multicast_addr
+  }];
+
+  let arguments = (ins IndexLike:$noc_x_start, IndexLike:$noc_y_start, IndexLike:$noc_x_end, IndexLike:$noc_y_end, AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_Semaphore]>:$addr, Optional<I8>:$noc);
+  let results = (outs TTKernel_NocAddr:$mcastNocAddr);
+}
+
+def TTKernel_ExperimentalGetNocMulticastAddrOp : TTKernel_Op<"experimental::get_noc_multicast_addr"> {
+  let summary = "Experimental GetNocMulticastAddr";
+  let description = [{
+    Default tt-metal get_noc_multicast_addr, but flips mcast start and end coordinates on NOC1.
   }];
 
   let arguments = (ins IndexLike:$noc_x_start, IndexLike:$noc_y_start, IndexLike:$noc_x_end, IndexLike:$noc_y_end, AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_Semaphore]>:$addr, Optional<I8>:$noc);

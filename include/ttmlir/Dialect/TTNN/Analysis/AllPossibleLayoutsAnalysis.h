@@ -19,14 +19,14 @@
 namespace mlir::tt::ttnn {
 
 struct AllPossibleLayoutsAnalysisInput {
-  GridAttr maxGrid;
+  ttcore::GridAttr maxGrid;
   llvm::DenseSet<Type> *allowedScalarTypes;
   bool rowMajorAllowed;
 
   AllPossibleLayoutsAnalysisInput()
       : maxGrid(nullptr), allowedScalarTypes(nullptr), rowMajorAllowed(false) {}
 
-  AllPossibleLayoutsAnalysisInput(GridAttr maxGrid,
+  AllPossibleLayoutsAnalysisInput(ttcore::GridAttr maxGrid,
                                   llvm::DenseSet<Type> *allowedScalarTypes,
                                   bool rowMajorAllowed)
       : maxGrid(maxGrid), allowedScalarTypes(allowedScalarTypes),

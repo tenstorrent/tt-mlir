@@ -55,17 +55,22 @@ module {
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: ttir.tile_rsqrt
     %8 = "ttir.rsqrt"(%7, %out) : (!ttype, !ttype) -> !ttype
+    // named elementwise op, binary:
+    // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: ttir.tile_pow
+    %9 = "ttir.pow"(%7, %8, %out) : (!ttype, !ttype, !ttype) -> !ttype
     // named elementwise op, unary:
     // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: ttir.tile_negative
-    %9 = "ttir.neg"(%8, %out) : (!ttype, !ttype) -> !ttype
+    %10 = "ttir.neg"(%9, %out) : (!ttype, !ttype) -> !ttype
     // named elementwise op, unary:
     // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: ttir.tile_cos
-    %10 = "ttir.cos"(%9, %out) : (!ttype, !ttype) -> !ttype
-    return %10: !ttype
+    %11 = "ttir.cos"(%10, %out) : (!ttype, !ttype) -> !ttype
+    return %11: !ttype
   }
 
   // CHECK-LABEL: func @named_reductions_R

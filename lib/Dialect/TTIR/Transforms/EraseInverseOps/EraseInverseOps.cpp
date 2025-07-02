@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/EraseInverseOps.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 #include "mlir/IR/OperationSupport.h"
@@ -25,6 +26,7 @@ public:
     RewritePatternSet commutePatterns(&getContext());
     populateElementwiseCommutePatterns(&getContext(), commutePatterns);
     populateBroadcastCommutePatterns(&getContext(), commutePatterns);
+    populateTTIRTMFusionPatterns(&getContext(), commutePatterns);
 
     if (failed(applyPatternsGreedily(getOperation(),
                                      std::move(commutePatterns)))) {

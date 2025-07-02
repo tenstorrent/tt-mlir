@@ -426,12 +426,29 @@ Flatbuffer Flatbuffer::loadFromPath(const char *path) {
   return Flatbuffer(buffer);
 }
 
+Flatbuffer Flatbuffer::loadFromMemory(const void *memory, size_t size) {
+  // load a flatbuffer from memory
+  LOG_ASSERT(memory != nullptr, "Memory pointer is null");
+  LOG_ASSERT(size > 0, "Size must be greater than zero");
+  auto buffer = ::tt::runtime::utils::malloc_shared(size);
+  std::memcpy(buffer.get(), memory, size);
+  return Flatbuffer(buffer);
+}
+
 void Flatbuffer::store(const char *path) const {
   // store a flatbuffer to path
   std::ofstream fbb(path, std::ios::binary);
   auto size = ::flatbuffers::GetSizePrefixedBufferLength(
       static_cast<const uint8_t *>(handle.get()));
   fbb.write(reinterpret_cast<const char *>(handle.get()), size);
+}
+
+void Flatbuffer::storeToMemory(
+    std::vector<std::byte> &serializedFlatbuffer) const {
+  auto size = ::flatbuffers::GetSizePrefixedBufferLength(
+      static_cast<const uint8_t *>(handle.get()));
+  serializedFlatbuffer.resize(size);
+  std::memcpy(serializedFlatbuffer.data(), handle.get(), size);
 }
 
 std::string_view Flatbuffer::getFileIdentifier() const {

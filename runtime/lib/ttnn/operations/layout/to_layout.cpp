@@ -30,13 +30,8 @@ void run(const ::tt::target::ttnn::ToLayoutOp *op, ProgramContext &context) {
     dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->dtype()));
   }
 
-  ::ttnn::Tensor out;
-  ::ttnn::MeshDevice *targetDevice = nullptr;
-  if (op->device()) {
-    targetDevice = &(context.getMeshDevice());
-  }
-  out =
-      ::ttnn::to_layout(inputTensor, layout, dtype, memoryConfig, targetDevice);
+  ::ttnn::Tensor out =
+      ::ttnn::to_layout(inputTensor, layout, dtype, memoryConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

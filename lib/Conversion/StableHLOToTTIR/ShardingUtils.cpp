@@ -166,7 +166,7 @@ llvm::Expected<bool> MeshSharding::determineGSPMDShardingDims() {
 // https://github.com/sdasgup3/stablehlo/blob/80082431d1af0933e6202ecc8a6f8801e039235b/docs/spec.md#sharding-attribute
 llvm::Expected<bool>
 MeshSharding::convertGSPMDShardingToMeshSharding(StringRef shardingStr) {
-  shardType = mlir::tt::MeshShardType::Identity;
+  shardType = mlir::tt::ttcore::MeshShardType::Identity;
   lastTileDimReplicate = false;
 
   // Parse string and tokenize.
@@ -181,28 +181,28 @@ MeshSharding::convertGSPMDShardingToMeshSharding(StringRef shardingStr) {
   for (auto str : shardingStrTokens) {
     if (str.contains("manual")) {
       // manual: already sharded, so no action is needed
-      if (shardType != tt::MeshShardType::Identity) {
+      if (shardType != ttcore::MeshShardType::Identity) {
         return llvm::createStringError(std::errc::invalid_argument,
                                        "Fail to parse GSPMD sharding.");
       }
-      setNonDevicesShardType(tt::MeshShardType::Identity);
+      setNonDevicesShardType(ttcore::MeshShardType::Identity);
     } else if (str.contains("replicated")) {
       // replicated: all devices have whole data
-      if (shardType != tt::MeshShardType::Identity) {
+      if (shardType != ttcore::MeshShardType::Identity) {
         return llvm::createStringError(std::errc::invalid_argument,
                                        "Fail to parse GSPMD sharding.");
       }
-      setNonDevicesShardType(tt::MeshShardType::Replicate);
+      setNonDevicesShardType(ttcore::MeshShardType::Replicate);
     } else if (str.contains("maximal")) {
       // maximal: one device has whole data
-      if (shardType != tt::MeshShardType::Identity) {
+      if (shardType != ttcore::MeshShardType::Identity) {
         return llvm::createStringError(std::errc::invalid_argument,
                                        "Fail to parse GSPMD sharding.");
       }
-      setNonDevicesShardType(tt::MeshShardType::Maximal);
+      setNonDevicesShardType(ttcore::MeshShardType::Maximal);
     } else if (str.consume_front("device=")) {
       // maximal should followed by "device" to put data on
-      if (shardType != tt::MeshShardType::Maximal) {
+      if (shardType != ttcore::MeshShardType::Maximal) {
         return llvm::createStringError(std::errc::invalid_argument,
                                        "Fail to parse GSPMD sharding.");
       }
@@ -214,18 +214,18 @@ MeshSharding::convertGSPMDShardingToMeshSharding(StringRef shardingStr) {
       deviceIds.push_back(d);
     } else if (str.consume_front("devices=")) {
       // other: "devices" detail sharding plan
-      if (shardType != tt::MeshShardType::Identity) {
+      if (shardType != ttcore::MeshShardType::Identity) {
         return llvm::createStringError(std::errc::invalid_argument,
                                        "Fail to parse GSPMD sharding.");
       }
-      shardType = tt::MeshShardType::Devices;
+      shardType = ttcore::MeshShardType::Devices;
       auto error = parseGSPMDDevicesStr(str);
       if (auto e = error.takeError()) {
         return e;
       }
     } else if (str.contains("last_tile_dim_replicate")) {
       // other: replicate last tile dim
-      if (shardType != tt::MeshShardType::Devices) {
+      if (shardType != ttcore::MeshShardType::Devices) {
         return llvm::createStringError(
             std::errc::invalid_argument,
             "Fail to parse GSPMD sharding in last_tile_dim_replicate.");
@@ -237,7 +237,7 @@ MeshSharding::convertGSPMDShardingToMeshSharding(StringRef shardingStr) {
   }
 
   // Determine shard dims for devices.
-  if (shardType == tt::MeshShardType::Devices) {
+  if (shardType == ttcore::MeshShardType::Devices) {
     auto error = determineGSPMDShardingDims();
     if (auto e = error.takeError()) {
       return e;
@@ -256,13 +256,14 @@ MeshSharding::convertGSPMDShardingToMeshSharding(StringRef shardingStr) {
 //    false         devices   : mesh_shard op (devices)
 bool MeshSharding::determineMeshShardOpCreationAndShardType(
     bool foundSharding) {
-  assert(shardType == mlir::tt::MeshShardType::Replicate ||
-         shardType == mlir::tt::MeshShardType::Devices);
+  assert(shardType == mlir::tt::ttcore::MeshShardType::Replicate ||
+         shardType == mlir::tt::ttcore::MeshShardType::Devices);
 
   // If JAX expects pre-sharded input/return (foundSharding) and if it is
   // replicate, do not create mesh_shard op as the input/output shapes are
   // identical.
-  if (foundSharding && shardType == mlir::tt::MeshShardType::Replicate) {
+  if (foundSharding &&
+      shardType == mlir::tt::ttcore::MeshShardType::Replicate) {
     return false;
   }
 
@@ -283,7 +284,7 @@ bool MeshSharding::checkAndUpdateGSPMDArgSharding(
     mlir::StringAttr shardingAttr) {
   auto funcOp = srcOp->getParentOfType<mlir::func::FuncOp>();
   bool foundArgSharding = false;
-  mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr;
+  mlir::tt::ttcore::TensorMeshShardingAttr tensorMeshShardingAttr;
 
   if (auto blockArg =
           mlir::dyn_cast<mlir::BlockArgument>(srcOp->getOperand(0))) {
@@ -303,7 +304,7 @@ bool MeshSharding::checkAndUpdateGSPMDRetSharding(
     mlir::StringAttr shardingAttr) {
   auto funcOp = srcOp->getParentOfType<mlir::func::FuncOp>();
   bool foundRetSharding = false;
-  mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr;
+  mlir::tt::ttcore::TensorMeshShardingAttr tensorMeshShardingAttr;
 
   // Check if the GSPMD ShardToFull output is one of the return values.
   if (auto *funcReturnOp = funcOp.getBody().front().getTerminator()) {
@@ -363,7 +364,7 @@ MeshSharding::parseSdySharding(mlir::sdy::TensorShardingAttr sdySharding,
 // Convert sdy.sharding to meshSharding based on sdy::MeshAttr.
 llvm::Expected<bool> MeshSharding::convertSdyShardingToMeshSharding(
     sdy::TensorShardingAttr sdySharding, sdy::MeshAttr meshAttr,
-    tt::MeshShardDirection direction) {
+    ttcore::MeshShardDirection direction) {
 
   // Empty meshAttr indicates single device, so no need to convert.
   if (meshAttr.empty()) {
@@ -377,16 +378,16 @@ llvm::Expected<bool> MeshSharding::convertSdyShardingToMeshSharding(
   if (meshAttr.getAxes().empty()) {
     if (meshAttr.getDeviceIds().empty()) {
       // replicated
-      setNonDevicesShardType(mlir::tt::MeshShardType::Replicate);
+      setNonDevicesShardType(mlir::tt::ttcore::MeshShardType::Replicate);
     } else {
       // maximal
-      setNonDevicesShardType(mlir::tt::MeshShardType::Maximal);
+      setNonDevicesShardType(mlir::tt::ttcore::MeshShardType::Maximal);
       deviceIds = llvm::SmallVector<int64_t>(meshAttr.getDeviceIds());
     }
     return true;
   }
 
-  shardType = tt::MeshShardType::Devices;
+  shardType = ttcore::MeshShardType::Devices;
   auto error = parseSdySharding(sdySharding, meshAttr);
   if (auto e = error.takeError()) {
     return e;
@@ -399,7 +400,7 @@ llvm::Expected<bool> MeshSharding::convertSdyShardingToMeshSharding(
                       std::multiplies<int64_t>());
   // No partition indicates replicate to all devices.
   if (totalPartition == 1) {
-    setNonDevicesShardType(mlir::tt::MeshShardType::Replicate);
+    setNonDevicesShardType(mlir::tt::ttcore::MeshShardType::Replicate);
   }
 
   return true;
@@ -438,7 +439,7 @@ bool MeshSharding::checkAndUpdateShardyRetSharding(
 }
 
 // Get TensorMeshShardingAttr given MeshSharding info.
-mlir::tt::TensorMeshShardingAttr
+mlir::tt::ttcore::TensorMeshShardingAttr
 MeshSharding::getTensorMeshShardingAttr(mlir::PatternRewriter &rewriter) {
   // Empty meshShape indicates single device, so no TensorMeshShardingAttr needs
   // to be created.
@@ -450,13 +451,14 @@ MeshSharding::getTensorMeshShardingAttr(mlir::PatternRewriter &rewriter) {
   auto meshNameStrAttr = mlir::StringAttr::get(context, meshName);
   llvm::SmallVector<llvm::SmallVector<int64_t>> tensorAxes(
       shardShape.size(), llvm::SmallVector<int64_t>{});
-  llvm::SmallVector<TensorMeshShardingAxisAttr> tensorMeshShardingAxisAttr;
+  llvm::SmallVector<mlir::tt::ttcore::TensorMeshShardingAxisAttr>
+      tensorMeshShardingAxisAttr;
 
   // Only devices has sharding info, so rest shard_types return empty
   // TensorMeshShardingAxis.
-  if (shardType != mlir::tt::MeshShardType::Devices) {
-    return mlir::tt::TensorMeshShardingAttr::get(context, meshNameStrAttr,
-                                                 tensorMeshShardingAxisAttr);
+  if (shardType != mlir::tt::ttcore::MeshShardType::Devices) {
+    return mlir::tt::ttcore::TensorMeshShardingAttr::get(
+        context, meshNameStrAttr, tensorMeshShardingAxisAttr);
   }
 
   for (auto [shardIdx, shardDim] : llvm::enumerate(shardDims)) {
@@ -470,19 +472,20 @@ MeshSharding::getTensorMeshShardingAttr(mlir::PatternRewriter &rewriter) {
 
   for (auto [shape, axes] : llvm::zip_equal(shardShape, tensorAxes)) {
     tensorMeshShardingAxisAttr.push_back(
-        mlir::tt::TensorMeshShardingAxisAttr::get(context, shape, axes));
+        mlir::tt::ttcore::TensorMeshShardingAxisAttr::get(context, shape,
+                                                          axes));
   }
 
-  return mlir::tt::TensorMeshShardingAttr::get(context, meshNameStrAttr,
-                                               tensorMeshShardingAxisAttr);
+  return mlir::tt::ttcore::TensorMeshShardingAttr::get(
+      context, meshNameStrAttr, tensorMeshShardingAxisAttr);
 }
 
 // Get MeshSharding given MeshAttr, TensorMeshShardingAttr, and
 // MeshShardDirection.
 void MeshSharding::extractMeshShardingFromTensorMeshShardingAttr(
-    mlir::tt::MeshAttr meshAttr,
-    mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr,
-    mlir::tt::MeshShardDirection direction) {
+    mlir::tt::ttcore::MeshAttr meshAttr,
+    mlir::tt::ttcore::TensorMeshShardingAttr tensorMeshShardingAttr,
+    mlir::tt::ttcore::MeshShardDirection direction) {
   meshName = meshAttr.getName().str();
   meshShape = llvm::SmallVector<int64_t>(meshAttr.getShape());
   shardDirection = direction;
@@ -497,7 +500,7 @@ void MeshSharding::extractMeshShardingFromTensorMeshShardingAttr(
     }
   }
 
-  shardType = mlir::tt::MeshShardType::Devices;
+  shardType = mlir::tt::ttcore::MeshShardType::Devices;
 }
 
 FailureOr<std::unordered_map<std::string, std::string>>
@@ -505,8 +508,8 @@ MeshSharding::fillStrategyMapFromSharding(
     const mlir::tt::sharding_utils::MeshSharding &meshSharding,
     size_t num_devices) {
   std::unordered_map<std::string, std::string> strategy;
-  mlir::tt::MeshShardType meshType = meshSharding.getShardType();
-  if (meshType == mlir::tt::MeshShardType::Replicate) {
+  mlir::tt::ttcore::MeshShardType meshType = meshSharding.getShardType();
+  if (meshType == mlir::tt::ttcore::MeshShardType::Replicate) {
     // If there is only one device, the output will be replicated, but there is
     // no need to replicate.
     if (num_devices == 1) {
@@ -515,13 +518,13 @@ MeshSharding::fillStrategyMapFromSharding(
       strategy["strategy"] = "replicate";
       strategy["replication_factor"] = std::to_string(num_devices);
     }
-  } else if (meshType == mlir::tt::MeshShardType::Devices) {
+  } else if (meshType == mlir::tt::ttcore::MeshShardType::Devices) {
     llvm::ArrayRef<int64_t> meshShape = meshSharding.getMeshShape();
     assert(meshShape.size() == 2);
     strategy["strategy"] = "shard_2d";
     strategy["mesh_shape_y"] = std::to_string(meshShape[0]);
     strategy["mesh_shape_x"] = std::to_string(meshShape[1]);
-  } else if (meshType == mlir::tt::MeshShardType::Identity) {
+  } else if (meshType == mlir::tt::ttcore::MeshShardType::Identity) {
     strategy["strategy"] = "identity";
   } else {
     return mlir::failure();

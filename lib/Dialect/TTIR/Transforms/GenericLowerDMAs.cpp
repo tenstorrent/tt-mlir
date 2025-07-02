@@ -33,8 +33,9 @@ public:
   // bounds.
   static std::tuple<SmallVector<Value>, SmallVector<int64_t>>
   buildStreamIndex(OpBuilder &builder, Location loc,
-                   ArrayRef<int64_t> gridShape, ArrayRef<int64_t> shardShape,
-                   AffineMap dmaIndexingMap, AffineMap gridIndexingMap) {
+                   ArrayRef<int64_t> gridShape, ArrayRef<int64_t> blockFactors,
+                   ArrayRef<int64_t> shardShape, AffineMap dmaIndexingMap,
+                   AffineMap gridIndexingMap) {
     assert(dmaIndexingMap.getNumDims() == gridIndexingMap.getNumDims());
     assert(dmaIndexingMap.getNumResults() == gridIndexingMap.getNumResults());
     assert(dmaIndexingMap.getNumResults() == shardShape.size());
@@ -72,10 +73,23 @@ public:
           loc, builder.getIndexType(), builder.getI64IntegerAttr(dim));
       Value index;
       if (isGridDim) {
-        // TODO(#3231): Support blocked inputs that are multiples of the grid
-        // shape. Should be added as part of blocking support.
+        // The grid dimension is always 1-1 with the result position.  Consider
+        // the case where interchange moves k to the outermost loop. We'd have
+        // output map: (k, m, n) -> (m, n)
+        // In this example we want (m, n) to map to grid dims (0, 1) (not their
+        // dim positions i.e. (1, 2)).
+        const unsigned gridDim = result;
+
+        // gridI * blockFactorI + iterI
+        Value blockFactor = builder.create<arith::ConstantOp>(
+            loc, builder.getIndexType(),
+            builder.getIndexAttr(blockFactors[dim]));
         index = builder.create<CoreIndexOp>(loc, builder.getIndexType(),
-                                            builder.getI64IntegerAttr(dim));
+                                            builder.getI64IntegerAttr(gridDim));
+        index = builder.create<arith::MulIOp>(loc, builder.getIndexType(),
+                                              index, blockFactor);
+        index = builder.create<arith::AddIOp>(loc, builder.getIndexType(),
+                                              index, iterIndex);
       } else {
         index = iterIndex;
       }
@@ -87,7 +101,7 @@ public:
 
   static size_t getElementSizeBytes(MemRefType memref) {
     mlir::Type elementType = memref.getElementType();
-    auto tileType = mlir::dyn_cast<TileType>(elementType);
+    auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType);
     return tileType ? tileType.getSizeBytes()
                     : elementType.getIntOrFloatBitWidth() / 8;
   }
@@ -182,8 +196,8 @@ public:
 
     AffineMap dmaIndexingMap = *dma.getSrcAffineMap();
     MemRefType memref = dma.getSrcMemRefType();
-    DeviceLayoutInterface layout =
-        mlir::cast<DeviceLayoutInterface>(memref.getLayout());
+    ttcore::DeviceLayoutInterface layout =
+        mlir::cast<ttcore::DeviceLayoutInterface>(memref.getLayout());
     ArrayRef<int64_t> memrefGridShape = layout.getGridShape(memref);
     ArrayRef<int64_t> memrefShardShape = layout.getShardShape(memref);
 
@@ -198,9 +212,10 @@ public:
 
     auto [streamIndex, indexBounds] =
         buildStreamIndex(rewriter, dma.getLoc(), memrefGridShape,
-                         memrefShardShape, dmaIndexingMap, gridIndexingMap);
+                         genericParent.getBlockFactorsValue(), memrefShardShape,
+                         dmaIndexingMap, gridIndexingMap);
 
-    DeviceAttr device = genericParent.getDevice();
+    ttcore::DeviceAttr device = genericParent.getDevice();
     std::pair<MemRefType, AffineMap> underlyingMemrefAndView =
         mlir::cast<ttir::ViewOpInterface>(dma.getSrc().getDefiningOp())
             .applyViews();
@@ -261,7 +276,7 @@ public:
       dstIndices.push_back(zero);
     }
 
-    DeviceAttr device = lookupDevice(dma);
+    ttcore::DeviceAttr device = ttcore::lookupDevice(dma);
     AffineMap srcMemoryMap =
         getMemoryMap(device, dma.getSrc(), dma.isSrcRemote());
     AffineMap dstMemoryMap =
@@ -281,7 +296,8 @@ public:
     return success();
   }
 
-  static AffineMap getMemoryMap(DeviceAttr device, Value input, bool isRemote) {
+  static AffineMap getMemoryMap(ttcore::DeviceAttr device, Value input,
+                                bool isRemote) {
     if (isRemote) {
       std::pair<MemRefType, AffineMap> srcUnderlyingMemrefAndView =
           mlir::tt::ttir::applyViews(input.getDefiningOp());
@@ -323,7 +339,7 @@ public:
                                        ArrayRef<int64_t> shape,
                                        Type elementType, AffineMap map) {
     assert(map.isIdentity() && "Only identity maps are supported for now.");
-    auto tileType = mlir::dyn_cast<TileType>(elementType);
+    auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType);
     int64_t elementSizeBytes = tileType
                                    ? tileType.getSizeBytes()
                                    : elementType.getIntOrFloatBitWidth() / 8;

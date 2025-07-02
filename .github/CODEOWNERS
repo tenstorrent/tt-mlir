@@ -97,9 +97,9 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /test/unittests/Allocation @tenstorrent/forge-developers-mlir-d2m
 
 # TTIR Erase Inverse Ops Optimization Pass
-/include/ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/ @LPanosTT @azecevicTT
-/lib/Dialect/TTIR/Transforms/EraseInverseOps/ @LPanosTT @azecevicTT
-/test/ttmlir/Dialect/TTIR/erase_inverse_ops/ @LPanosTT @azecevicTT
+/include/ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/ @LPanosTT @azecevicTT @odjuricicTT
+/lib/Dialect/TTIR/Transforms/EraseInverseOps/ @LPanosTT @azecevicTT @odjuricicTT
+/test/ttmlir/Dialect/TTIR/erase_inverse_ops/ @LPanosTT @azecevicTT @odjuricicTT
 
 # TTNN Dialects
 /include/ttmlir/Dialect/TTNN/ @tenstorrent/forge-developers-mlir-core
@@ -107,13 +107,15 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /test/ttmlir/Dialect/TTNN/ @tenstorrent/forge-developers-mlir-core
 
 # TTNN Utils
-/include/ttmlir/Dialect/TTNN/Utils/ @tenstorrent/forge-developers-mlir-core @rpavlovicTT
+/include/ttmlir/Dialect/TTNN/Utils/ @tenstorrent/forge-developers-mlir-core @tenstorrent/forge-developers-mlir-optimizer
+/lib/Dialect/TTNN/Utils/ @tenstorrent/forge-developers-mlir-core @tenstorrent/forge-developers-mlir-optimizer
 
 # TTNN Optimizer
 /include/ttmlir/Dialect/TTNN/Analysis/ @tenstorrent/forge-developers-mlir-optimizer
 /include/ttmlir/OpModel/ @tenstorrent/forge-developers-mlir-optimizer @arminaleTT
 /include/ttmlir/Scheduler/ @tenstorrent/forge-developers-mlir-optimizer
 /lib/Dialect/TTNN/Analysis/ @tenstorrent/forge-developers-mlir-optimizer
+/lib/Dialect/TTNN/Transforms/Optimizer.cpp @tenstorrent/forge-developers-mlir-optimizer
 /lib/OpModel/ @tenstorrent/forge-developers-mlir-optimizer @arminaleTT
 /lib/Scheduler/ @tenstorrent/forge-developers-mlir-optimizer
 /test/ttmlir/Dialect/TTNN/optimizer/ @tenstorrent/forge-developers-mlir-optimizer

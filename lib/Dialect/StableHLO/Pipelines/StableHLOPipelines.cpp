@@ -34,7 +34,8 @@ void createAutomaticShardingPipeline(
   pm.addPass(mlir::sdy::createApplyShardingConstraintsPass());
 
   // Annotate arguments with tt tensor annotations if the exist.
-  pm.addPass(mlir::tt::createTTPopulateArgumentTypes(options.argumentTypeMap));
+  pm.addPass(
+      mlir::tt::ttcore::createTTPopulateArgumentTypes(options.argumentTypeMap));
 
   // Annotate arguments with sdy tensor annotations.
   ShardyAnnotateArgumentsPassOptions shardyAnnotateArgumentsOptions;

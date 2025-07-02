@@ -188,7 +188,7 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
   Conv2dParams params = *expectedParams;
 
   if (!getWeight().getDefiningOp<mlir::tt::ttnn::PrepareConv2dWeightsOp>() &&
-      !getWeight().getDefiningOp<mlir::tt::LoadCachedOp>()) {
+      !getWeight().getDefiningOp<mlir::tt::ttcore::LoadCachedOp>()) {
     // Only check when the weight is not prepared because it changes the shape
     // and ordering of dims.
     if (getWeight().getType().getDimSize(WEIGHT_OUT_CHANNEL) !=
@@ -812,7 +812,8 @@ template <typename Op>
 static ::mlir::LogicalResult namedOpVerify(Op op) {
   RankedTensorType output = op.getResult().getType();
   if (op.getDtype()) {
-    if (op.getDtype() != elementTypeToDataType(output.getElementType())) {
+    if (op.getDtype() !=
+        ttcore::elementTypeToDataType(output.getElementType())) {
       return op.emitOpError("Data type mismatch between op and output tensor.");
     }
   }
@@ -851,8 +852,8 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
       mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
 
   ttnn::ShapeAttr shapeAttr = ttnn::ShapeAttr::get(ctx, tensorType.getShape());
-  tt::DataTypeAttr dtypeAttr =
-      tt::DataTypeAttr::get(ctx, layoutAttr.getDataType());
+  ttcore::DataTypeAttr dtypeAttr =
+      ttcore::DataTypeAttr::get(ctx, layoutAttr.getDataType());
   ttnn::LayoutAttr tensorLayoutAttr =
       ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout());
 
@@ -1946,7 +1947,7 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 }
 
 ::mlir::OpFoldResult mlir::tt::ttnn::AllGatherOp::fold(FoldAdaptor adaptor) {
-  tt::DeviceAttr device = lookupDevice(*this);
+  ttcore::DeviceAttr device = ttcore::lookupDevice(*this);
   llvm::SmallVector<int64_t> meshShape{device.getMeshShape()};
   // AllGather Op is semantically meaningless when gathering across a single
   // mesh device.
@@ -1972,7 +1973,7 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 ::mlir::LogicalResult ReduceScatterOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   int32_t scatterDim = getScatterDim();
-  ::mlir::tt::ReduceType reduceType = getReduceType();
+  ::mlir::tt::ttcore::ReduceType reduceType = getReduceType();
 
   if (scatterDim >= inputType.getRank() || scatterDim < -inputType.getRank()) {
     return emitOpError(
@@ -1985,9 +1986,9 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
   // Currently TTNN only supports the following reduce types. Compiler is able
   // to model the full ReduceType list but only the following can be lowered
   // into TTNN.
-  if (reduceType != ::mlir::tt::ReduceType::Sum &&
-      reduceType != ::mlir::tt::ReduceType::Max &&
-      reduceType != ::mlir::tt::ReduceType::Min) {
+  if (reduceType != ::mlir::tt::ttcore::ReduceType::Sum &&
+      reduceType != ::mlir::tt::ttcore::ReduceType::Max &&
+      reduceType != ::mlir::tt::ttcore::ReduceType::Min) {
     return emitOpError("Invalid reduction op for reduce scatter op.");
   }
 
@@ -1996,7 +1997,7 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 
 ::mlir::OpFoldResult
 mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
-  tt::DeviceAttr device = lookupDevice(*this);
+  ttcore::DeviceAttr device = ttcore::lookupDevice(*this);
   llvm::SmallVector<int64_t> meshShape{device.getMeshShape()};
   // ReduceScatter Op is semantically meaningless when gathering across a single
   // mesh device.
@@ -2020,12 +2021,12 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult AllReduceOp::verify() {
-  ::mlir::tt::ReduceType reduceType = getReduceType();
+  ::mlir::tt::ttcore::ReduceType reduceType = getReduceType();
 
   // Currently TTNN only supports the following reduce types.
-  if (reduceType != ::mlir::tt::ReduceType::Sum &&
-      reduceType != ::mlir::tt::ReduceType::Max &&
-      reduceType != ::mlir::tt::ReduceType::Min) {
+  if (reduceType != ::mlir::tt::ttcore::ReduceType::Sum &&
+      reduceType != ::mlir::tt::ttcore::ReduceType::Max &&
+      reduceType != ::mlir::tt::ttcore::ReduceType::Min) {
     return emitOpError("Invalid reduction op for all reduce op.");
   }
 
@@ -2033,7 +2034,7 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
 }
 
 ::mlir::OpFoldResult mlir::tt::ttnn::AllReduceOp::fold(FoldAdaptor adaptor) {
-  tt::DeviceAttr device = lookupDevice(*this);
+  ttcore::DeviceAttr device = ttcore::lookupDevice(*this);
   llvm::SmallVector<int64_t> meshShape{device.getMeshShape()};
   // AllReduce Op is semantically meaningless when gathering across a single
   // mesh device.
@@ -2129,14 +2130,14 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
 ::mlir::LogicalResult MeshShardOp::verify() {
   llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
   llvm::ArrayRef<int64_t> shardShape = getShardShape();
-  ::mlir::tt::MeshShardType shardType = getShardType();
+  ::mlir::tt::ttcore::MeshShardType shardType = getShardType();
 
   // Check shard_type is not maximal.
-  if (shardType == ::mlir::tt::MeshShardType::Maximal) {
+  if (shardType == ::mlir::tt::ttcore::MeshShardType::Maximal) {
     return emitOpError("Invalid shard_type (maximal) for mesh_shard op.");
   }
 
-  if (shardType == ::mlir::tt::MeshShardType::Devices) {
+  if (shardType == ::mlir::tt::ttcore::MeshShardType::Devices) {
     // Check if rank(shardShape) is eqaul to rank(input).
     if (shardShape.size() != inputShape.size()) {
       return emitOpError("Invalid rank(shard_shape) != rank(input) for "
@@ -2173,10 +2174,10 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
   const ::mlir::RankedTensorType cacheType = getCache().getType();
   const ::mlir::RankedTensorType inputType = getInput().getType();
 
-  const DataType cacheDataType =
-      elementTypeToDataType(cacheType.getElementType());
-  const DataType inputDataType =
-      elementTypeToDataType(inputType.getElementType());
+  const ::mlir::tt::ttcore::DataType cacheDataType =
+      ::mlir::tt::ttcore::elementTypeToDataType(cacheType.getElementType());
+  const ::mlir::tt::ttcore::DataType inputDataType =
+      ::mlir::tt::ttcore::elementTypeToDataType(inputType.getElementType());
 
   if (cacheDataType != inputDataType) {
     return emitOpError(
@@ -2232,10 +2233,10 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
   const ::mlir::RankedTensorType cacheType = getCache().getType();
   const ::mlir::RankedTensorType inputType = getInput().getType();
 
-  const DataType cacheDataType =
-      elementTypeToDataType(cacheType.getElementType());
-  const DataType inputDataType =
-      elementTypeToDataType(inputType.getElementType());
+  const ::mlir::tt::ttcore::DataType cacheDataType =
+      ::mlir::tt::ttcore::elementTypeToDataType(cacheType.getElementType());
+  const ::mlir::tt::ttcore::DataType inputDataType =
+      ::mlir::tt::ttcore::elementTypeToDataType(inputType.getElementType());
 
   if (cacheDataType != inputDataType) {
     return emitOpError(
@@ -2442,20 +2443,10 @@ static mlir::LogicalResult
 verifyReduceProdOp(tt::ttnn::ProdOp *reduceOp,
                    mlir::RankedTensorType inputType) {
   int64_t inputTensorRank = inputType.getRank();
-  mlir::Type elementType = inputType.getElementType();
 
   if (inputTensorRank > 4) {
     return reduceOp->emitOpError(
         "Input tensor rank is greater than 4 for reduce(product).");
-  }
-
-  bool allDimensions = !reduceOp->getDimArg();
-  // [TODO](mmanzoor) Add workaround to typecast the input tensor to bfloat16
-  // then typecast the output again to match the requirements.
-  // https://github.com/tenstorrent/tt-mlir/issues/1864
-  if (allDimensions && !elementType.isBF16()) {
-    return reduceOp->emitOpError("TTNN only supports Reduce(prod) along all "
-                                 "dimensions for bfloat16 datatype.");
   }
 
   return mlir::success();
@@ -2607,7 +2598,7 @@ static bool isTensorOnDevice(::mlir::RankedTensorType tensorType) {
               return ::mlir::WalkResult::interrupt();
             }
 
-            if (::mlir::isa<::mlir::tt::LoadCachedOp>(op)) {
+            if (::mlir::isa<::mlir::tt::ttcore::LoadCachedOp>(op)) {
               emitOpError()
                   << "LoadCached op must not be nested within trace op";
               return ::mlir::WalkResult::interrupt();

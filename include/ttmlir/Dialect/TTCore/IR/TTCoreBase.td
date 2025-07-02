@@ -17,7 +17,7 @@ def TTCore_Dialect : Dialect {
     let description = [{
         This dialect defines types and attributes common to all TT dialects.
     }];
-    let cppNamespace = "::mlir::tt";
+    let cppNamespace = "::mlir::tt::ttcore";
 
     let useDefaultTypePrinterParser = 1;
     let useDefaultAttributePrinterParser = 1;
@@ -40,7 +40,7 @@ class TTCore_Op<string mnemonic, list<Trait> traits = []> :
 //===----------------------------------------------------------------------===//
 
 class TTCore_Trait<string name> : NativeOpTrait<name> {
-  let cppNamespace = "::mlir::tt::Trait";
+  let cppNamespace = "::mlir::tt::ttcore::Trait";
 }
 
 // Trait for ops which should be duplicated in all const-eval subgraphs + original.

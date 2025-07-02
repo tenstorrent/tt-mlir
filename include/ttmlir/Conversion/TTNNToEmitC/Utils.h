@@ -47,18 +47,18 @@ emitc::OpaqueAttr convertBoolAttr(Builder &builder, BoolAttr attr);
 
 // Create emitc::OpaqueAttr for ttnn::DataType
 //
-emitc::OpaqueAttr convertDType(Builder &builder, tt::DataTypeAttr attr);
+emitc::OpaqueAttr convertDType(Builder &builder, ttcore::DataTypeAttr attr);
 
 // Create emitc::OpaqueAttr for ttnn::operations::reduction::ReduceType
 emitc::OpaqueAttr convertReduceType(ConversionPatternRewriter &rewriter,
-                                    tt::ReduceType reduceType);
+                                    ttcore::ReduceType reduceType);
 
 // Create emitc::OpaqueAttr for ttnn::SmallVector used in Reduction ops
 //
 emitc::OpaqueAttr convertArrayAttrToTTNNSmallVector(Builder &builder,
                                                     ArrayAttr attr);
 
-// Create emitc::OpaqueAttr for tt::stl::Span from ArrayAttr of ints
+// Create emitc::OpaqueAttr for ttsl::Span from ArrayAttr of ints
 //
 emitc::OpaqueAttr convertArrayAttrToSpan(Builder &builder, ArrayAttr attr);
 

@@ -67,11 +67,11 @@ static bool insideEnqueueProgramOpRegion(mlir::Operation *op) {
 }
 
 static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
-  if (mlir::isa<tt::TileType>(scalarCB.getMemref().getElementType())) {
+  if (mlir::isa<ttcore::TileType>(scalarCB.getMemref().getElementType())) {
     return "Input to TilizeOp or Output to UntilizeOp must have scalar "
            "element type";
   }
-  if (!mlir::isa<tt::TileType>(tilizedCB.getMemref().getElementType())) {
+  if (!mlir::isa<ttcore::TileType>(tilizedCB.getMemref().getElementType())) {
     return "Input to UntilizeOp or Output to TilizeOp must have tile "
            "element type";
   }

@@ -35,11 +35,11 @@ public:
 
   void SetUp() override {
     // Initialize context and module
-    context.loadDialect<mlir::tt::TTCoreDialect>();
+    context.loadDialect<mlir::tt::ttcore::TTCoreDialect>();
     context.loadDialect<mlir::tt::ttnn::TTNNDialect>();
     module = mlir::ModuleOp::create(builder.getUnknownLoc());
     builder.setInsertionPointToStart(&module->getBodyRegion().front());
-    mlir::tt::registerDevice(module.get());
+    mlir::tt::ttcore::registerDevice(module.get());
   }
 
   static llvm::SmallVector<int64_t> GetPhysicalGridSize() {
@@ -104,7 +104,7 @@ public:
     const auto dtypeSelected =
         dtype.has_value() ? dtype.value() : builder.getBF16Type();
     return mlir::tt::ttnn::TTNNLayoutAttr::get(
-        &context, tensorShape, mlir::tt::TileType::get(dtypeSelected),
+        &context, tensorShape, mlir::tt::ttcore::TileType::get(dtypeSelected),
         bufferType,
         CreateGrid(&context, tensorMemoryLayout, virtualGridSelected,
                    physicalGrid),
@@ -138,7 +138,7 @@ public:
         memLayoutAttr);
   }
 
-  mlir::tt::GridAttr
+  mlir::tt::ttcore::GridAttr
   CreateGrid(::mlir::MLIRContext *context,
              const mlir::tt::ttnn::TensorMemoryLayout tensorMemoryLayout,
              const llvm::ArrayRef<int64_t> virtualGridSize,
@@ -148,12 +148,12 @@ public:
         createSingleDeviceVirtualToPhysicalAffineMap(
             context, tensorMemoryLayout, physicalGridSize);
 
-    return mlir::tt::GridAttr::get(context, virtualGridSize, affineMap);
+    return mlir::tt::ttcore::GridAttr::get(context, virtualGridSize, affineMap);
   }
 
-  mlir::tt::GridAttr CreateWorkerGrid(
+  mlir::tt::ttcore::GridAttr CreateWorkerGrid(
       const llvm::ArrayRef<int64_t> physicalGridSize = GetPhysicalGridSize()) {
-    return mlir::tt::GridAttr::get(&context, physicalGridSize);
+    return mlir::tt::ttcore::GridAttr::get(&context, physicalGridSize);
   }
 
   void ExpectLayoutsEQ(mlir::tt::ttnn::TTNNLayoutAttr layoutA,

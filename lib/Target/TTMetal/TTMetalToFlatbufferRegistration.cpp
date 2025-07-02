@@ -26,11 +26,11 @@ void registerTTMetalToFlatbuffer() {
         return translateTTMetalToFlatbuffer(op, os);
       },
       [](DialectRegistry &registry) {
-        registry
-            .insert<mlir::tt::TTCoreDialect, mlir::tt::ttmetal::TTMetalDialect,
-                    mlir::tt::ttkernel::TTKernelDialect,
-                    mlir::emitc::EmitCDialect, mlir::memref::MemRefDialect,
-                    mlir::LLVM::LLVMDialect, mlir::func::FuncDialect>();
+        registry.insert<mlir::tt::ttcore::TTCoreDialect,
+                        mlir::tt::ttmetal::TTMetalDialect,
+                        mlir::tt::ttkernel::TTKernelDialect,
+                        mlir::emitc::EmitCDialect, mlir::memref::MemRefDialect,
+                        mlir::LLVM::LLVMDialect, mlir::func::FuncDialect>();
         registerAllToLLVMIRTranslations(registry);
       });
 }

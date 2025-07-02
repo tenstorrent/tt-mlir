@@ -57,6 +57,8 @@ void SingletonDeviceContext::openDevice(const size_t traceRegionSize) {
       /* l1_small_size = */ ::tt::constants::L1_SMALL_SIZE,
       /* trace_region_size = */ traceRegionSize,
       /* num_hw_cqs = */ 1, dispatchCoreType);
+
+  m_device->disable_and_clear_program_cache();
 }
 
 void SingletonDeviceContext::closeDevice() {

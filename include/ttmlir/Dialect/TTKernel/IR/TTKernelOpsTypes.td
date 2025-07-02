@@ -33,7 +33,7 @@ def TTKernel_CB : TTKernel_Type<"CB", "cb"> {
         }
 
         int64_t getNumTiles() const {
-          assert(mlir::isa<mlir::tt::TileType>(getMemref().getElementType()) &&
+          assert(mlir::isa<mlir::tt::ttcore::TileType>(getMemref().getElementType()) &&
                  "getNumTiles only supports tile element type");
           return getNumElements();
         }

@@ -169,7 +169,7 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
   RankedTensorType newOutputResultType = utils::RankedTensorTypeFactory::create(
       utils::RankedTensorTypeFactory::create(
           opResultType,
-          mlir::tt::dataTypeToElementType(
+          mlir::tt::ttcore::dataTypeToElementType(
               rewriter.getContext(),
               outputWorkaroundResults.tensorDataTypeResult.targetValue)),
       newOutputLayoutAttr);
@@ -190,8 +190,9 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
 
     if (outputWorkaroundResults.tensorDataTypeResult.isModified() &&
         op->getAttrDictionary().get("dtype")) {
-      DataTypeAttr updatedDataTypeAttr = rewriter.getAttr<DataTypeAttr>(
-          outputWorkaroundResults.tensorDataTypeResult.targetValue);
+      ttcore::DataTypeAttr updatedDataTypeAttr =
+          rewriter.getAttr<ttcore::DataTypeAttr>(
+              outputWorkaroundResults.tensorDataTypeResult.targetValue);
       op->setAttr("dtype", updatedDataTypeAttr);
     }
 
@@ -343,7 +344,7 @@ public:
     }
     uint32_t clusterAxis = op.getClusterAxis();
     auto device = op.getDevice();
-    auto deviceDesc = lookupDevice(op);
+    auto deviceDesc = ttcore::lookupDevice(op);
     ::llvm::ArrayRef<int64_t> meshShape = deviceDesc.getMeshShape();
     llvm::SmallVector<int64_t> inputTypeShape(inputType.getShape());
     llvm::SmallVector<int64_t> outputTypeShape(op.getType().getShape());
@@ -375,8 +376,8 @@ public:
               reshapedShape.begin(), reshapedShape.end()));
 
       auto reshapedValue = rewriter.create<ttnn::ReshapeOp>(
-          loc, reshapedType, input, reshapedShapeAttr,
-          ttnn::MemoryConfigAttr());
+          ttmlir::utils::appendLocationSuffix(loc, "_reshape"), reshapedType,
+          input, reshapedShapeAttr, ttnn::MemoryConfigAttr());
 
       // Perform AllGather on reshaped input
       llvm::SmallVector<int64_t> preReshapeShape(
@@ -413,7 +414,8 @@ public:
           utils::RankedTensorTypeFactory::create(inputType, permutedShape);
 
       auto permutedInput = rewriter.create<ttnn::PermuteOp>(
-          loc, permutedType, input, rewriter.getDenseI64ArrayAttr(permutation),
+          ttmlir::utils::appendLocationSuffix(loc, "_permuteInput"),
+          permutedType, input, rewriter.getDenseI64ArrayAttr(permutation),
           ttnn::MemoryConfigAttr(), mlir::FloatAttr());
 
       permutedShape[0] = permutedShape[0] * meshShape[clusterAxis];
@@ -427,10 +429,13 @@ public:
 
       // Permute back
       auto outputType = mlir::cast<RankedTensorType>(op.getType());
-      rewriter.replaceOpWithNewOp<ttnn::PermuteOp>(
+
+      auto permutedAllGather = rewriter.replaceOpWithNewOp<ttnn::PermuteOp>(
           op, outputType, allGather.getResult(),
           rewriter.getDenseI64ArrayAttr(permutation), ttnn::MemoryConfigAttr(),
           mlir::FloatAttr());
+      permutedAllGather->setLoc(
+          ttmlir::utils::appendLocationSuffix(loc, "_permuteOutput"));
 
       return success();
     }
@@ -469,7 +474,7 @@ public:
     Location loc = op.getLoc();
     uint32_t clusterAxis = op.getClusterAxis();
     Value deviceValue = op.getDevice();
-    auto deviceDesc = lookupDevice(op);
+    auto deviceDesc = ttcore::lookupDevice(op);
     ::llvm::ArrayRef<int64_t> meshShape = deviceDesc.getMeshShape();
 
     // TODO(hongseok): Restore dynamic dimension selection once the issue
@@ -486,7 +491,7 @@ public:
       // significantly more memory than ReduceScatter + AllGather due to
       // internal padding and temporary buffers. To avoid potential memory
       // blowup, enforce a size constraint based on DRAM capacity.
-      if (exceedsAllGatherReduceMemLimit(getCurrentScopeSystemDesc(op),
+      if (exceedsAllGatherReduceMemLimit(ttcore::getCurrentScopeSystemDesc(op),
                                          inputType, meshShape[clusterAxis],
                                          0.05)) {
         return rewriteAsAllGatherLocalReduce(op, meshShape, rewriter);
@@ -512,7 +517,8 @@ public:
 
       // Create a new reshape op.
       ttnn::ReshapeOp preReshapeOp = rewriter.create<ttnn::ReshapeOp>(
-          loc, Type(reshapedInputType), op.getInput(), reshapedInputShapeAttr,
+          ttmlir::utils::appendLocationSuffix(loc, "_preReshape"),
+          Type(reshapedInputType), op.getInput(), reshapedInputShapeAttr,
           /* memory_config */ nullptr);
 
       // Determine new dimension since entire tensor shape got shifted.
@@ -529,8 +535,9 @@ public:
       // Create a new reduce scatter op.
       ttnn::ReduceScatterOp reduceScatterOp =
           rewriter.create<ttnn::ReduceScatterOp>(
-              loc, Type(scatteredInputType), preReshapeOp.getResult(),
-              deviceValue, op.getReduceType(), dimension, clusterAxis);
+              ttmlir::utils::appendLocationSuffix(loc, "_reduceScatter"),
+              Type(scatteredInputType), preReshapeOp.getResult(), deviceValue,
+              op.getReduceType(), dimension, clusterAxis);
 
       // We need to reshape the output to tensor rank=4 as well.
       RankedTensorType outputType = mlir::cast<RankedTensorType>(op.getType());
@@ -548,8 +555,9 @@ public:
 
       // Create a new all gather op.
       ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
-          loc, Type(reshapedOutputType), reduceScatterOp.getResult(),
-          deviceValue, dimension, clusterAxis);
+          ttmlir::utils::appendLocationSuffix(loc, "_allGather"),
+          Type(reshapedOutputType), reduceScatterOp.getResult(), deviceValue,
+          dimension, clusterAxis);
 
       rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
           op, Type(outputType), allGatherOp.getResult(),
@@ -570,7 +578,8 @@ public:
       // Create a new reducer scatter op.
       ttnn::ReduceScatterOp reduceScatterOp =
           rewriter.create<ttnn::ReduceScatterOp>(
-              loc, Type(scatteredInputType), op.getInput(), deviceValue,
+              ttmlir::utils::appendLocationSuffix(loc, "_reduceScatter"),
+              Type(scatteredInputType), op.getInput(), deviceValue,
               op.getReduceType(), dimension, clusterAxis);
 
       // Replace all_reduce op with all_gather op.
@@ -603,7 +612,8 @@ private:
         RankedTensorType::Builder(inputType).setShape(expandedInputShape);
 
     ttnn::ReshapeOp leadingReshapeOp = rewriter.create<ttnn::ReshapeOp>(
-        loc, reshapedInputType, op.getInput(), reshapedInputShapeAttr,
+        ttmlir::utils::appendLocationSuffix(loc, "_reshape"), reshapedInputType,
+        op.getInput(), reshapedInputShapeAttr,
         /* memory_config */ nullptr);
 
     // Create a new all gather op.
@@ -612,36 +622,37 @@ private:
         RankedTensorType::Builder(reshapedInputType)
             .setShape(expandedInputShape);
     ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
-        loc, allGatherOutputType, leadingReshapeOp.getResult(), deviceValue, 0,
+        ttmlir::utils::appendLocationSuffix(loc, "_allGather"),
+        allGatherOutputType, leadingReshapeOp.getResult(), deviceValue, 0,
         clusterAxis);
     // Create a new reduce op.
     ArrayAttr reduceDimAttr =
         rewriter.getI32ArrayAttr(llvm::ArrayRef<int32_t>{0});
     switch (op.getReduceType()) {
-    case ReduceType::Sum:
+    case ttcore::ReduceType::Sum:
       rewriter.replaceOpWithNewOp<ttnn::SumOp>(op, op.getType(), allGatherOp,
                                                false, reduceDimAttr);
       break;
-    case ReduceType::Mean:
+    case ttcore::ReduceType::Mean:
       rewriter.replaceOpWithNewOp<ttnn::MeanOp>(op, op.getType(), allGatherOp,
                                                 false, reduceDimAttr);
       break;
-    case ReduceType::Max:
+    case ttcore::ReduceType::Max:
       rewriter.replaceOpWithNewOp<ttnn::MaxOp>(op, op.getType(), allGatherOp,
                                                false, reduceDimAttr);
       break;
-    case ReduceType::Min:
+    case ttcore::ReduceType::Min:
       rewriter.replaceOpWithNewOp<ttnn::MinOp>(op, op.getType(), allGatherOp,
                                                false, reduceDimAttr);
       break;
-    case ReduceType::Std:
+    case ttcore::ReduceType::Std:
       return op.emitOpError() << "std is not supported";
-    case ReduceType::Var:
+    case ttcore::ReduceType::Var:
       return op.emitOpError() << "var is not supported";
     }
     return success();
   }
-  bool exceedsAllGatherReduceMemLimit(tt::SystemDescAttr systemDesc,
+  bool exceedsAllGatherReduceMemLimit(ttcore::SystemDescAttr systemDesc,
                                       RankedTensorType inputType,
                                       int64_t numOfDevicesInCluster,
                                       float memoryLimitFactor = 0.05) const {
