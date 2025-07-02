@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Support/Logger.h"
 
@@ -110,15 +111,13 @@ private:
   };
 
   struct OpCreationInfo {
-    mlir::Value device;
     LayoutInfo input;
     LayoutInfo output;
     OpsToCreate opsToCreate;
 
-    OpCreationInfo(mlir::Value device, const LayoutInfo &input,
-                   const LayoutInfo &output, const OpsToCreate &opsToCreate)
-        : device(device), input(input), output(output),
-          opsToCreate(opsToCreate) {}
+    OpCreationInfo(const LayoutInfo &input, const LayoutInfo &output,
+                   const OpsToCreate &opsToCreate)
+        : input(input), output(output), opsToCreate(opsToCreate) {}
 
     bool shouldUntilize() const {
       return opsToCreate.createToLayoutOp && !output.isTilized();
@@ -295,10 +294,11 @@ private:
     newResultType = utils::RankedTensorTypeFactory::create(
         newResultType, info.output.shardGrid);
 
+    mlir::Value device = utils::getOrInsertDevice(rewriter, op);
+
     // Create new ranked tensor type with host memory buffer type
-    return this->createOp<ttnn::ToDeviceOp>(rewriter, op, newResultType,
-                                            currentInput, info.device,
-                                            memoryConfigAttr);
+    return this->createOp<ttnn::ToDeviceOp>(
+        rewriter, op, newResultType, currentInput, device, memoryConfigAttr);
   }
 
   // FromDeviceOp
@@ -330,15 +330,11 @@ private:
     RankedTensorType newResultType = utils::RankedTensorTypeFactory::create(
         mlir::cast<RankedTensorType>(currentInput.getType()),
         info.output.layoutEnum);
-    BufferType bufferType =
-        mlir::cast<TTNNLayoutAttr>(newResultType.getEncoding()).getBufferType();
-    mlir::Value device =
-        bufferType == ttnn::BufferType::SystemMemory ? nullptr : info.device;
 
     return this->createOp<ttnn::ToLayoutOp>(rewriter, op, newResultType,
                                             currentInput, layoutAttr,
                                             /*dtype*/ nullptr,
-                                            /*memory_config*/ nullptr, device);
+                                            /*memory_config*/ nullptr);
   }
 
   template <typename OpType>
@@ -976,13 +972,7 @@ private:
       return failure();
     }
 
-    auto device = op.getDevice();
-    if (!device && !output.isOnHost()) {
-      op->emitError("Device not specified for device tensor");
-      return failure();
-    }
-
-    OpCreationInfo info(device, input, output, opsToCreate);
+    OpCreationInfo info(input, output, opsToCreate);
 
     Value currentInput = op.getInput();
 
