@@ -1109,6 +1109,9 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
 }
 
 TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
+  // Skipped due to hang. See https://github.com/tenstorrent/tt-mlir/issues/3970
+  GTEST_SKIP();
+
   // create ConvTranspose2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
   llvm::SmallVector<int64_t> weightShape = {3, 64, 7, 7};

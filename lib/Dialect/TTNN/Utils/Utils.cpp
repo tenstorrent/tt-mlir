@@ -212,4 +212,13 @@ bool isTTNNTraceFunc(func::FuncOp funcOp) {
   return funcOp->hasAttr(g_TTNNTraceAttrName);
 }
 
+// Converts TTNNLayoutAttr to RowMajor layout and returns new layout.
+TTNNLayoutAttr convertTTNNLayoutToRowMajor(MLIRContext *context,
+                                           TTNNLayoutAttr layout,
+                                           llvm::ArrayRef<int64_t> shape) {
+  Type elementType =
+      utils::getElementType(context, Layout::RowMajor, layout.getDataType());
+  return layout.withElementType(elementType, shape);
+}
+
 } // namespace mlir::tt::ttnn::utils
