@@ -119,7 +119,7 @@ inline mlir::ParseResult parseVargDimensionList(mlir::AsmParser &odsParser,
 
 inline std::optional<DataType> elementTypeToDataTypeImpl(Type elementType) {
   if (auto quant = dyn_cast<quant::QuantizedType>(elementType)) {
-    elementType = quant.getExpressedType();
+    elementType = quant.getStorageType();
   }
 
   if (isa<BFloat16Type>(elementType)) {
