@@ -44,8 +44,10 @@ public:
       newTMResultTypes.push_back(
           oldTMResultType.clone(operandType.getElementType()));
 
+      mlir::Location newLoc = ttmlir::utils::appendLocationSuffix(
+          tmUser->getLoc(), "_tm" + std::to_string(operandIdx));
       auto newTM = ttir::utils::createDPSOp<TMOpType>(
-          rewriter, op->getLoc(), newTMResultTypes[operandIdx],
+          rewriter, newLoc, newTMResultTypes[operandIdx],
           op->getOperand(operandIdx), tmUser->getAttrs());
 
       newEltwiseOperands.push_back(newTM);
@@ -135,10 +137,8 @@ private:
 
 void populateElementwiseCommutePatterns(MLIRContext *ctx,
                                         RewritePatternSet &patterns) {
-  patterns.add<TTIRCommuteTmsAboveElementwiseUnaryRewriter<TransposeOp>,
-               TTIRCommuteTmsAboveElementwiseUnaryRewriter<PermuteOp>,
+  patterns.add<TTIRCommuteTmsAboveElementwiseUnaryRewriter<PermuteOp>,
                TTIRCommuteTmsAboveElementwiseUnaryRewriter<ReshapeOp>,
-               TTIRCommuteTmsAboveElementwiseBinaryRewriter<TransposeOp>,
                TTIRCommuteTmsAboveElementwiseBinaryRewriter<PermuteOp>,
                TTIRCommuteTmsAboveElementwiseBinaryRewriter<ReshapeOp>>(ctx);
 }

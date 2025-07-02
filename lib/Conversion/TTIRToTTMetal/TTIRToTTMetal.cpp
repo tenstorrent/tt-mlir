@@ -42,9 +42,22 @@ public:
     return builder.getAttr<ttmetal::KernelArgsAttr>(rtArgs, ctArgs);
   }
 
+  static Type getOperandInnerElementType(const mlir::Value operand) {
+    auto elemType = operand.getType();
+    if (mlir::isa<MemRefType>(elemType)) {
+      elemType = mlir::cast<MemRefType>(elemType).getElementType();
+    }
+    // We could have a memref of tiles, so this needs to be the second query
+    if (mlir::isa<ttcore::TileType>(elemType)) {
+      elemType = mlir::cast<ttcore::TileType>(elemType).getElementType();
+    }
+    assert(elemType.isIntOrFloat());
+    return elemType;
+  }
+
   static ArrayAttr
-  convertThreadsToKernelConfigs(Builder &builder, ArrayAttr threads,
-                                GridAttr opGrid,
+  convertThreadsToKernelConfigs(Builder &builder, mlir::ValueRange operands,
+                                ArrayAttr threads, ttcore::GridAttr opGrid,
                                 const SymbolTable &symbolTable) {
     SmallVector<Attribute> kernelConfigs;
     uint32_t nocIndex = 0;
@@ -56,8 +69,19 @@ public:
       Attribute kernelConfig = nullptr;
       switch (thread.getThreadType()) {
       case ttir::ThreadType::Compute: {
+        bool fp32DestAccum = false;
+        for (size_t i = 0; i < operands.size(); ++i) {
+          auto elemType = getOperandInnerElementType(operands[i]);
+          if (elemType.getIntOrFloatBitWidth() == 32) {
+            fp32DestAccum = true;
+          }
+        }
+        // TODO (wenbinlyuTT): try fp32 unpack mode to improve accuracy, but it
+        // causes hang inside the tilize kernel
+        std::vector<UnpackToDestMode> unpackModes{UnpackToDestMode::Default};
         kernelConfig = builder.getAttr<ttmetal::ComputeConfigAttr>(
-            thread.getKernelSymbol(), coreRange, kernelArgs);
+            thread.getKernelSymbol(), coreRange, kernelArgs, fp32DestAccum,
+            unpackModes);
         break;
       }
       case ttir::ThreadType::Datamovement: {
@@ -108,10 +132,10 @@ public:
     }
 
     ArrayAttr threads = op.getThreads();
-    GridAttr opGrid = op.getGrid();
+    ttcore::GridAttr opGrid = op.getGrid();
     SymbolTable symbolTable(op->getParentOfType<ModuleOp>());
-    auto kernelConfigs =
-        convertThreadsToKernelConfigs(rewriter, threads, opGrid, symbolTable);
+    auto kernelConfigs = convertThreadsToKernelConfigs(
+        rewriter, adaptor.getOperands(), threads, opGrid, symbolTable);
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
         op, buffers, cbs, cbPorts, kernelConfigs);
     return success();
@@ -131,7 +155,7 @@ public:
     assert(op.getMemref().getType().getMemorySpace() &&
            "No memref memory space found, failing.");
     auto memrefType = op.getMemref().getType();
-    assert(mlir::isa<tt::ShardLayoutAttr>(memrefType.getLayout()));
+    assert(mlir::isa<ttcore::ShardLayoutAttr>(memrefType.getLayout()));
     rewriter.replaceOpWithNewOp<ttmetal::CreateBufferOp>(op, memrefType,
                                                          address);
 
@@ -180,11 +204,11 @@ public:
     }
     MemRefType inputTy = mlir::cast<MemRefType>(input.getType());
     MemRefType outputTy = mlir::cast<MemRefType>(output.getType());
-    tt::MemorySpaceAttr inputMemorySpace =
-        mlir::dyn_cast_if_present<tt::MemorySpaceAttr>(
+    ttcore::MemorySpaceAttr inputMemorySpace =
+        mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
             inputTy.getMemorySpace());
-    tt::MemorySpaceAttr outputMemorySpace =
-        mlir::dyn_cast_if_present<tt::MemorySpaceAttr>(
+    ttcore::MemorySpaceAttr outputMemorySpace =
+        mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
             outputTy.getMemorySpace());
     bool inputMemorySpaceSet = inputMemorySpace != nullptr;
     bool outputMemorySpaceSet = outputMemorySpace != nullptr;

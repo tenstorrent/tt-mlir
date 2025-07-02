@@ -40,7 +40,7 @@ static Value index(OpBuilder &rewriter, Location loc, int64_t value) {
 
 static std::pair<Value, Value>
 getVirtualCoordsFromLogicalCoords(OpBuilder &rewriter, Location loc,
-                                  ChipDescAttr chipDesc,
+                                  ttcore::ChipDescAttr chipDesc,
                                   ValueRange dstCoreIndex) {
   auto offset = chipDesc.getCoordTranslationOffsets();
 
@@ -81,8 +81,8 @@ static Value getDstIdxFromResult(Value ttirOpResult) {
   memref::StoreOp storeOp;
   for (Operation *op : ttirOpResult.getUsers()) {
     auto maybeStore = mlir::dyn_cast<memref::StoreOp>(op);
-    if (maybeStore && tt::getMemorySpace(maybeStore.getMemRef()) ==
-                          tt::MemorySpace::RegisterDst) {
+    if (maybeStore && ttcore::getMemorySpace(maybeStore.getMemRef()) ==
+                          ttcore::MemorySpace::RegisterDst) {
       storeOp = mlir::cast<memref::StoreOp>(op);
       break;
     }
@@ -104,8 +104,8 @@ static Value getInOrOutCB(ConversionPatternRewriter &rewriter, Operation *op) {
   assert(func && "Expected func op.");
   Value cb = nullptr;
   func.walk([&](LoadOrStoreOp loadStore) {
-    if (tt::getMemorySpace(loadStore.getMemRef()) ==
-        tt::MemorySpace::DeviceL1) {
+    if (ttcore::getMemorySpace(loadStore.getMemRef()) ==
+        ttcore::MemorySpace::DeviceL1) {
       cb = loadStore.getMemRef();
       return WalkResult::interrupt();
     }
@@ -213,8 +213,8 @@ public:
   matchAndRewrite(memref::StoreOp op, memref::StoreOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     auto load = mlir::dyn_cast<memref::LoadOp>(op.getValue().getDefiningOp());
-    bool storeToDst =
-        tt::getMemorySpace(op.getMemRef()) == tt::MemorySpace::RegisterDst;
+    bool storeToDst = ttcore::getMemorySpace(op.getMemRef()) ==
+                      ttcore::MemorySpace::RegisterDst;
 
     if (load && storeToDst) {
       // If we are coming from a load, then we are a copy tile. Pattern:
@@ -257,6 +257,7 @@ using ComputeOpMap = OpMap<
   std::pair<ttir::TileExpOp,      std::pair<ttkernel::ExpTileInitOp,        ttkernel::ExpTileOp>>,
   std::pair<ttir::TileMaximumOp,  std::pair<ttkernel::MaxTilesInitOp,       ttkernel::MaxTilesOp>>,
   std::pair<ttir::TileNegativeOp, std::pair<ttkernel::NegativeTileInitOp,   ttkernel::NegativeTileOp>>,
+  std::pair<ttir::TilePowOp,      std::pair<ttkernel::PowBinaryTilesInitOp, ttkernel::PowBinaryTilesOp>>,
   std::pair<ttir::TileRsqrtOp,    std::pair<ttkernel::RsqrtTileInitOp,      ttkernel::RsqrtTileOp>>,
   std::pair<ttir::TileSigmoidOp,  std::pair<ttkernel::SigmoidTileInitOp,    ttkernel::SigmoidTileOp>>,
   std::pair<ttir::TileSinOp,      std::pair<ttkernel::SinTileInitOp,        ttkernel::SinTileOp>>
@@ -382,7 +383,8 @@ public:
     rewriter.create<InitOp>(op->getLoc());
     if constexpr (std::is_same_v<SFPUOp, ttkernel::CeilTileOp>) {
       const auto elemType =
-          mlir::cast<TileType>(op.getInput().getType()).getElementType();
+          mlir::cast<ttcore::TileType>(op.getInput().getType())
+              .getElementType();
       const bool isCBF32 = llvm::isa<Float32Type>(elemType);
       if (isCBF32) {
         rewriter.create<ttkernel::CeilTileF32Op>(op->getLoc(),
@@ -437,6 +439,8 @@ public:
           i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[0]);
       auto blockC =
           i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[1]);
+      rewriter.create<ttkernel::ComputeKernelHWStartupOp>(op->getLoc(), src,
+                                                          nullptr, dst);
       rewriter.create<ttkernel::TilizeInitOp>(op->getLoc(), src, blockC, dst);
       rewriter.create<ttkernel::ExperimentalTilizeBlockOp>(op->getLoc(), src,
                                                            dst, blockR, blockC);
@@ -451,6 +455,8 @@ public:
           i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[0]);
       auto blockC =
           i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[1]);
+      rewriter.create<ttkernel::ComputeKernelHWStartupOp>(op->getLoc(), src,
+                                                          nullptr, dst);
       rewriter.create<ttkernel::UntilizeInitOp>(op->getLoc(), src, dst);
       rewriter.create<ttkernel::ExperimentalUntilizeBlockOp>(
           op->getLoc(), src, dst, blockR, blockC);
@@ -481,9 +487,9 @@ public:
       rewriter.create<ttkernel::TypecastTileInitOp>(op->getLoc());
 
       auto inDtype =
-          mlir::cast<tt::TileType>(operands[0].getType()).getDataType();
-      auto outDtype =
-          mlir::cast<tt::TileType>(op->getResult(0).getType()).getDataType();
+          mlir::cast<ttcore::TileType>(operands[0].getType()).getDataType();
+      auto outDtype = mlir::cast<ttcore::TileType>(op->getResult(0).getType())
+                          .getDataType();
       rewriter.create<ttkernel::TypecastTileOp>(
           op->getLoc(), i32(rewriter, op->getLoc(), 0), inDtype, outDtype);
     } else {
@@ -510,7 +516,7 @@ public:
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto device = lookupDevice(op);
+    auto device = ttcore::lookupDevice(op);
     for (Value input : adaptor.getValues()) {
       auto cb = mlir::dyn_cast<ttkernel::CBType>(input.getType());
       assert(cb && "Expected CB input type to await/yield, failing.");
@@ -565,7 +571,8 @@ public:
   }
 
   static Value buildNocAddress(OpBuilder &rewriter, Location loc, Value cb,
-                               ValueRange index, ChipDescAttr chipDesc) {
+                               ValueRange index,
+                               ttcore::ChipDescAttr chipDesc) {
     auto baseAddr = castCBTypeAsAddress(rewriter, loc, cb);
     assert(index.size() == 3);
     auto gridY = index[0];
@@ -598,17 +605,17 @@ public:
           op, "Unsupported DMA form that is not lowered.");
     }
 
-    auto device = lookupDevice(op);
-    auto systemDesc = getCurrentScopeSystemDesc(op);
+    auto device = ttcore::lookupDevice(op);
+    auto systemDesc = ttcore::getCurrentScopeSystemDesc(op);
     auto chipIds = device.getChipIds();
     assert(chipIds.size() == 1);
     auto chipDesc = systemDesc.getChipDesc(chipIds[0]);
 
     // TODO(jdesousa): Temporary L1 assertion until DRAM is supported
-    assert(isL1MemorySpace(mlir::cast<MemorySpaceAttr>(
+    assert(isL1MemorySpace(mlir::cast<ttcore::MemorySpaceAttr>(
                                op.getSrcMemRefType().getMemorySpace())
                                .getValue()) &&
-           isL1MemorySpace(mlir::cast<MemorySpaceAttr>(
+           isL1MemorySpace(mlir::cast<ttcore::MemorySpaceAttr>(
                                op.getDstMemRefType().getMemorySpace())
                                .getValue()) &&
            "Expected src and dst memory spaces to be L1, failing.");
@@ -727,8 +734,8 @@ public:
   LogicalResult
   matchAndRewrite(ttir::CoreIndexOp op, ttir::CoreIndexOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto device = lookupDevice(op);
-    auto systemDesc = getCurrentScopeSystemDesc(op);
+    auto device = ttcore::lookupDevice(op);
+    auto systemDesc = ttcore::getCurrentScopeSystemDesc(op);
     auto chipIds = device.getChipIds();
     assert(chipIds.size() == 1);
     auto chipDesc = systemDesc.getChipDesc(chipIds[0]);
@@ -835,7 +842,8 @@ public:
   matchAndRewrite(memref::CollapseShapeOp op,
                   memref::CollapseShapeOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    if (tt::getMemorySpace(op.getSrc()) == tt::MemorySpace::RegisterDst) {
+    if (ttcore::getMemorySpace(op.getSrc()) ==
+        ttcore::MemorySpace::RegisterDst) {
       rewriter.replaceOp(op, adaptor.getSrc());
       return success();
     }
@@ -950,8 +958,8 @@ public:
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto device = lookupDevice(op);
-    auto systemDesc = getCurrentScopeSystemDesc(op);
+    auto device = ttcore::lookupDevice(op);
+    auto systemDesc = ttcore::getCurrentScopeSystemDesc(op);
     auto chipIds = device.getChipIds();
     assert(chipIds.size() == 1);
     auto chipDesc = systemDesc.getChipDesc(chipIds[0]);
@@ -1058,6 +1066,7 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileExpOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileMaximumOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileNegativeOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TilePowOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileRsqrtOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileSigmoidOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileSinOp>,

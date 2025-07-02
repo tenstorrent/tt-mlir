@@ -50,6 +50,17 @@ bool isSharded(
              ::tt::target::ttnn::TensorMemoryLayout::BlockSharded;
 }
 
+// TODO (jnie): Add support for fp32, currently there's some precision loss
+// which causes some FE tests to fail.
+// Tracking here: https://github.com/tenstorrent/tt-metal/issues/21023
+bool canTilizeDataTypeOnDevice(const ::ttnn::DataType &dataType) {
+  return dataType == ::ttnn::DataType::BFLOAT16;
+}
+
+bool canUntilizeDataTypeOnDevice(const ::ttnn::DataType &dataType) {
+  return dataType == ::ttnn::DataType::BFLOAT16;
+}
+
 const ::tt::target::ttnn::TTNNBinary *
 getBinary(::tt::runtime::Flatbuffer binary) {
   bool isTTNN = ::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
@@ -164,8 +175,6 @@ MathFidelity toTTNNMathFidelity(::tt::target::MathFidelity mathFidelity) {
   switch (tensorMemoryLayout) {
   case ::tt::target::ttnn::TensorMemoryLayout::Interleaved:
     return ::ttnn::TensorMemoryLayout::INTERLEAVED;
-  case ::tt::target::ttnn::TensorMemoryLayout::SingleBank:
-    return ::ttnn::TensorMemoryLayout::SINGLE_BANK;
   case ::tt::target::ttnn::TensorMemoryLayout::HeightSharded:
     return ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED;
   case ::tt::target::ttnn::TensorMemoryLayout::WidthSharded:
@@ -311,12 +320,15 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
   return std::make_optional(memoryConfig);
 }
 
-::tt::runtime::Tensor createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor,
-                                                  bool retain) {
-  auto tensorPtr =
-      std::make_shared<::tt::runtime::ttnn::TTNNTensorWrapper>(tensor, retain);
+::tt::runtime::Tensor
+createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor,
+                            const std::optional<::ttnn::MeshEvent> &meshEvent,
+                            bool retain) {
+  auto tensorPtr = std::make_shared<::tt::runtime::ttnn::TTNNTensorWrapper>(
+      tensor, meshEvent, retain);
+
   return ::tt::runtime::Tensor(std::static_pointer_cast<void>(tensorPtr),
-                               nullptr, DeviceRuntime::TTNN);
+                               /*data=*/nullptr, DeviceRuntime::TTNN);
 }
 
 ::ttnn::Tensor &getTTNNTensorFromRuntimeTensor(::tt::runtime::Tensor tensor) {

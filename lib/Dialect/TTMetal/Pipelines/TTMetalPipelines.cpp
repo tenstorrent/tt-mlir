@@ -52,21 +52,29 @@ void createOptimizationPasses(OpPassManager &pm) {
 
 void createTTIRToTTMetalFrontendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
-  tt::TTCoreRegisterDevicePassOptions registerDeviceOptions;
+  ttcore::TTCoreRegisterDevicePassOptions registerDeviceOptions;
   {
     registerDeviceOptions.systemDescPath = options.systemDescPath;
     registerDeviceOptions.mockSystemDescArch = options.mockSystemDescArch;
     registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
   }
-  pm.addPass(tt::createTTCoreRegisterDevicePass(registerDeviceOptions));
+  pm.addPass(ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
   pm.addPass(mlir::createCanonicalizerPass());
-  pm.addPass(tt::createTTIRToTTIRGenericPass());
+  ttir::TTIRToTTIRGenericOptions toTTIRGenericOptions;
+  {
+    toTTIRGenericOptions.useTileMatmul = options.useTileMatmul;
+    toTTIRGenericOptions.defaultInputMemSpace = options.defaultInputMemSpace;
+    toTTIRGenericOptions.defaultOutputMemSpace = options.defaultOutputMemSpace;
+  }
+  pm.addPass(tt::createTTIRToTTIRGenericPass(toTTIRGenericOptions));
   pm.addPass(mlir::createCanonicalizerPass());
   ttir::TTIROptimizeTensorLayoutOptions optimizeTensorLayoutOptions;
   {
     optimizeTensorLayoutOptions.overrideDeviceShape =
         llvm::to_vector(options.overrideDeviceShape);
+    optimizeTensorLayoutOptions.maxDstRegisterSizeTiles =
+        options.maxDstRegisterSizeTiles;
   }
   pm.addPass(ttir::createTTIROptimizeTensorLayout(optimizeTensorLayoutOptions));
   pm.addPass(mlir::createCanonicalizerPass());
@@ -78,6 +86,12 @@ void createTTIRToTTMetalMiddleendPipeline(
   createTTIRBufferizationPipeline(pm);
   pm.addPass(ttir::createTTIRAllocate());
   pm.addPass(mlir::createCanonicalizerPass());
+  ttir::TTIRGenericApplyInterchangeOptions applyInterchangeOptions;
+  {
+    applyInterchangeOptions.matmulInterchange =
+        llvm::to_vector(options.matmulInterchange);
+  }
+  pm.addPass(ttir::createTTIRGenericApplyInterchange(applyInterchangeOptions));
   pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
   pm.addPass(ttir::createTTIRInsertDstRegisterAccess());
   pm.addPass(ttir::createTTIRGenericLinearizeMemref());
@@ -105,13 +119,13 @@ void createTTIRToTTMetalBackendPipeline(
 void createTTIRToTTMetalPipeline(OpPassManager &pm,
                                  const TTIRToTTMetalPipelineOptions &options) {
   // Create DeviceModule to wrap all ops.
-  pm.addPass(tt::createTTCoreWrapDeviceModulePass());
+  pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
   // Create CPUModuleOp to wrap hoisted ops (if any).
   pm.addPass(ttir::createTTIRHoistTransform());
 
   // Run regular ttir to ttmetal pipelines on IR in DeviceModule.
   OpPassManager &devicePm =
-      pm.nest<tt::DeviceModuleOp>().nest<mlir::ModuleOp>();
+      pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
   createTTIRToTTMetalFrontendPipeline(devicePm, options);
   createTTIRToTTMetalMiddleendPipeline(devicePm, options);
   createTTIRToTTMetalBackendPipeline(devicePm, options);

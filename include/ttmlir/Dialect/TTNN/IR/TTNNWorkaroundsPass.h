@@ -18,7 +18,7 @@ namespace mlir::tt::ttnn::wa {
 using TensorLayoutWorkaround = std::optional<Layout>;
 using TensorBufferTypeWorkaround = std::optional<BufferType>;
 using TensorMemoryLayoutWorkaround = std::optional<TensorMemoryLayout>;
-using TensorDataTypeWorkaround = std::optional<DataType>;
+using TensorDataTypeWorkaround = std::optional<ttcore::DataType>;
 
 // Struct that encapsulates operand workarounds.
 // It contains tensor layout, tensor buffer type and tensor memory layout
@@ -119,7 +119,7 @@ struct MemoryLayoutWorkaroundResult
     : public WorkaroundResult<std::optional<TensorMemoryLayout>> {};
 
 // Data type workaround result struct.
-struct DataTypeWorkaroundResult : public WorkaroundResult<DataType> {};
+struct DataTypeWorkaroundResult : public WorkaroundResult<ttcore::DataType> {};
 
 // Struct that encapsulates the result of applying the workarounds.
 // It contains the target tensor layout, buffer type and tensor memory layout
@@ -236,7 +236,7 @@ public:
 
   // Create workarounds for mesh shard op operands.
   static TTNNOperandsWorkarounds
-  createMeshShardOpOperandsWorkarounds(mlir::tt::MeshShardType shardType);
+  createMeshShardOpOperandsWorkarounds(ttcore::MeshShardType shardType);
 
   // Create workarounds for concat op operands.
   static TTNNOperandsWorkarounds
@@ -291,6 +291,11 @@ public:
   // Create workarounds for reduction op operands.
   static TTNNOperandsWorkarounds
   createReductionOpOperandsWorkarounds(mlir::Operation *op);
+
+  // Create workaround for reduce (full) product op operands.
+  static TTNNOperandsWorkarounds
+  createReduceProdOpOperandsWorkarounds(mlir::Type elementType,
+                                        bool allDimensions);
 };
 
 } // namespace mlir::tt::ttnn::wa

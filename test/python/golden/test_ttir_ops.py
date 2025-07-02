@@ -59,7 +59,7 @@ def cos(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = No
 
 
 # Special handling for tan PCC checks. Due to the vertical asymptote on the tan graph, small changes in input values result in large changes in output values at multiples of pi/2, so both graph and golden tensors must be constrained accordingly.
-@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 def test_tan(shape: Shape, dtype: torch.dtype, request):
     def tan(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
@@ -92,7 +92,7 @@ def tanh(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
 
 
 # Special handling for log PCC checks. Due to the vertical asymptote on the log graph, small changes in input values result in large changes in output values at negative values, so both graph and golden tensors must be constrained accordingly.
-@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 def test_log(shape: Shape, dtype: torch.dtype, request):
     def log(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
@@ -115,7 +115,7 @@ def test_log(shape: Shape, dtype: torch.dtype, request):
 
 
 # Special handling for log1p PCC checks. Due to the vertical asymptote on the log1p graph, small changes in input values result in large changes in output values at values below -1, so both graph and golden tensors must be constrained accordingly.
-@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 def test_log1p(shape: Shape, dtype: torch.dtype, request):
     def log1p(
@@ -201,8 +201,29 @@ def cbrt(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
     return builder.cbrt(in0, unit_attrs=unit_attrs)
 
 
-def rsqrt(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    return builder.rsqrt(in0, unit_attrs=unit_attrs)
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_rsqrt(shape: Shape, dtype: torch.dtype, target: str, request):
+    def rsqrt(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        input_tensor = torch.abs(torch.randn(shape, dtype=dtype))
+        golden_output_tensor = torch.rsqrt(input_tensor)
+        builder.set_graph_input_output(
+            [input_tensor], [golden_output_tensor], override=True
+        )
+        return builder.rsqrt(in0, unit_attrs=unit_attrs)
+
+    compile_to_flatbuffer(
+        rsqrt,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
 
 
 def sigmoid(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
@@ -466,13 +487,36 @@ def test_linear(shapes: List[Shape], request):
     )
 
 
-def pow(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.pow(in0, in1, unit_attrs=unit_attrs)
+@pytest.mark.fails_golden
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_pow(shape: Shape, dtype: torch.dtype, target: str, request):
+    def pow(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        randn_base_tensor = torch.randn(shape, dtype=dtype)
+        randn_exponent_tensor = torch.randn(shape, dtype=dtype)
+        if torch.is_floating_point(randn_exponent_tensor):
+            randn_base_tensor = torch.abs(randn_base_tensor)
+        output_golden = torch.pow(randn_base_tensor, randn_exponent_tensor)
+        builder.set_graph_input_output(
+            [randn_base_tensor, randn_exponent_tensor], [output_golden], override=True
+        )
+        return builder.pow(in0, in1, unit_attrs=unit_attrs)
+
+    compile_to_flatbuffer(
+        pow,
+        [shape, shape],
+        [dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
 
 
 def matmul(
@@ -1076,17 +1120,31 @@ def test_reduce_and(shape: Shape, dim_args: List[int], request):
     )
 
 
-@pytest.mark.skip("Run error")
+def reduce_or(
+    in0: Operand,
+    builder: TTIRBuilder,
+    dim_args: List[int],
+    keep_dim: bool = False,
+    unit_attrs: Optional[List[str]] = None,
+):
+    return builder.reduce_or(
+        in0, dim_args=dim_args, keep_dim=keep_dim, unit_attrs=unit_attrs
+    )
+
+
+@pytest.mark.skip(
+    "Generated flatbuffer will currently fail to run due to only floats being supported by the runtime. See issue #1775"
+)
 @pytest.mark.parametrize("shape", [(4, 4)])
 @pytest.mark.parametrize("dim_args", [[0, 1]])
 def test_reduce_or(shape: Shape, dim_args: List[int], request):
-    def reduce_or(
+    def reduce_or_wrapper(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
-        return builder.reduce_or(in0, dim_args=dim_args, unit_attrs=unit_attrs)
+        return reduce_or(in0, builder, dim_args=dim_args, unit_attrs=unit_attrs)
 
     compile_to_flatbuffer(
-        reduce_or,
+        reduce_or_wrapper,
         [shape],
         [torch.int32],
         test_base=request.node.name,
@@ -1402,7 +1460,7 @@ def create_hoisted_unary_op(op_func, name):
 
     def hoisted_op(in0, builder, **kwargs):
         # For unary ops
-        return op_func(in0, builder, unit_attrs=["should_hoist"], **kwargs)
+        return op_func(in0, builder, unit_attrs=["ttir.should_hoist"], **kwargs)
 
     # Set the name for better test identification
     hoisted_op.__name__ = f"hoisted_{name}"
@@ -1413,7 +1471,7 @@ def create_hoisted_binary_op(op_func, name):
     """Create a hoisted version of a binary operation by adding the should_hoist unit attribute"""
 
     def hoisted_op(in0, in1, builder, **kwargs):
-        return op_func(in0, in1, builder, unit_attrs=["should_hoist"], **kwargs)
+        return op_func(in0, in1, builder, unit_attrs=["ttir.should_hoist"], **kwargs)
 
     hoisted_op.__name__ = f"hoisted_{name}"
     return hoisted_op
@@ -1433,7 +1491,7 @@ def create_hoisted_permute_op(op_func, name):
         permutation.reverse()
 
         return op_func(
-            in0, in1, builder, permutation, unit_attrs=["should_hoist"], **kwargs
+            in0, in1, builder, permutation, unit_attrs=["ttir.should_hoist"], **kwargs
         )
 
     hoisted_op.__name__ = f"hoisted_{name}"
@@ -1450,7 +1508,7 @@ def create_hoisted_softmax_op(op_func, name):
             in0,
             builder,
             dimension=default_dimension,
-            unit_attrs=["should_hoist"],
+            unit_attrs=["ttir.should_hoist"],
             **kwargs,
         )
 
@@ -1465,7 +1523,13 @@ def create_hoisted_concat_op(op_func, name):
         # Default dimension for the hoisted version (dimension 0)
         default_dim = 0
         return op_func(
-            in0, in1, in2, default_dim, builder, unit_attrs=["should_hoist"], **kwargs
+            in0,
+            in1,
+            in2,
+            default_dim,
+            builder,
+            unit_attrs=["ttir.should_hoist"],
+            **kwargs,
         )
 
     hoisted_op.__name__ = f"hoisted_{name}"
@@ -1476,7 +1540,6 @@ def create_hoisted_concat_op(op_func, name):
 hoisted_unary_ops = [
     create_hoisted_unary_op(exp, "exp"),
     create_hoisted_unary_op(sqrt, "sqrt"),
-    create_hoisted_unary_op(rsqrt, "rsqrt"),
     create_hoisted_unary_op(abs, "abs"),
     create_hoisted_unary_op(ceil, "ceil"),
     create_hoisted_unary_op(floor, "floor"),
@@ -1484,12 +1547,20 @@ hoisted_unary_ops = [
     create_hoisted_unary_op(reciprocal, "reciprocal"),
     create_hoisted_unary_op(neg, "neg"),
     pytest.param(
-        create_hoisted_unary_op(reshape, "reshape"),
-        marks=pytest.mark.xfail(reason="Reshape does not lower to loops properly"),
+        create_hoisted_unary_op(softmax, "softmax"),
+        marks=pytest.mark.xfail(
+            reason="Softmax does not lower to loops properly https://github.com/tenstorrent/tt-mlir/issues/3232"
+        ),
     ),
     pytest.param(
         create_hoisted_unary_op(reshape, "reshape"),
         marks=pytest.mark.xfail(reason="Reshape not compiling properly"),
+    ),
+    pytest.param(
+        create_hoisted_unary_op(max, "max"),
+        marks=pytest.mark.skip(
+            reason="max and torch max do not align, https://github.com/tenstorrent/tt-mlir/issues/3850"
+        ),
     ),
     create_hoisted_unary_op(transpose, "transpose"),
 ]
@@ -1499,7 +1570,6 @@ hoisted_binary_ops = [
     create_hoisted_binary_op(multiply, "multiply"),
     create_hoisted_binary_op(subtract, "subtract"),
     create_hoisted_binary_op(div, "div"),
-    create_hoisted_binary_op(pow, "pow"),
 ]
 
 hoisted_ternary_ops = [
@@ -1577,7 +1647,7 @@ def test_hoisted_permute(shapes_and_perms, request, target: str):
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        return permute(in0, in1, builder, permutation, unit_attrs=["should_hoist"])
+        return permute(in0, in1, builder, permutation, unit_attrs=["ttir.should_hoist"])
 
     permute_wrapper.__name__ = "hoisted_permute"
 
@@ -1608,11 +1678,10 @@ unary_ops = [
     leaky_relu | Marks(pytest.mark.skip_target("ttmetal")),
     sqrt | Marks(pytest.mark.skip_target("ttmetal")),
     cbrt | Marks(pytest.mark.skip_target("ttmetal")),
-    rsqrt | Marks(pytest.mark.skip_target("ttmetal")),
-    sigmoid | Marks(pytest.mark.skip_target("ttmetal")),
+    sigmoid | Marks(pytest.mark.fails_golden),
     reciprocal | Marks(pytest.mark.skip_target("ttmetal")),
     is_finite | Marks(pytest.mark.skip_target("ttmetal")),
-    ceil | Marks(pytest.mark.skip_target("ttmetal")),
+    ceil | Marks(pytest.mark.fails_golden),
     sum | Marks(pytest.mark.skip_target("ttmetal")),
     mean | Marks(pytest.mark.skip_target("ttmetal")),
     max | Marks(pytest.mark.fails_golden, pytest.mark.skip_target("ttmetal")),
@@ -1660,7 +1729,6 @@ def test_unary_ops(
         remainder | Marks(pytest.mark.skip_target("ttmetal")),
         maximum,
         minimum | Marks(pytest.mark.skip_target("ttmetal")),
-        pow | Marks(pytest.mark.skip_target("ttmetal")),
         matmul | Marks(pytest.mark.skip_target("ttmetal")),
         logical_and | Marks(pytest.mark.skip_target("ttmetal")),
         logical_or | Marks(pytest.mark.skip_target("ttmetal")),
@@ -1730,6 +1798,193 @@ def test_unique_ops(
         inputs_shapes=inputs_shapes,
         inputs_types=inputs_dtypes,
         test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+def gather(
+    in0: Operand,
+    builder: TTIRBuilder,
+    indices_shape: Shape,
+    start_index_map: List[int],
+    offset_dims: List[int],
+    slice_sizes: List[int],
+    unit_attrs: Optional[List[str]] = None,
+):
+    # For now, just create zero indices - this tests the basic gather functionality
+    # In a real test, you'd want to create varied indices to test different gather patterns
+    indices = builder.zeros(indices_shape)
+
+    # Set collapsed_slice_dims to be the same as start_index_map
+    # This is what the GatherToEmbeddingConversionPattern expects
+    collapsed_slice_dims = start_index_map
+
+    # Set remaining parameters to empty lists for simplicity
+    operand_batching_dims = []
+    start_indices_batching_dims = []
+
+    # Set index_vector_dim correctly based on the use case
+    if len(indices_shape) == 1 and len(start_index_map) == 1:
+        # Single indices case - index vector dim is implicit
+        index_vector_dim = len(indices_shape)  # = 1
+    else:
+        # Multi-dimensional indices - last dimension contains index vectors
+        index_vector_dim = len(indices_shape) - 1
+
+    return builder.gather(
+        in0,
+        indices,
+        offset_dims=offset_dims,
+        collapsed_slice_dims=collapsed_slice_dims,
+        operand_batching_dims=operand_batching_dims,
+        start_indices_batching_dims=start_indices_batching_dims,
+        start_index_map=start_index_map,
+        index_vector_dim=index_vector_dim,
+        slice_sizes=slice_sizes,
+        unit_attrs=unit_attrs,
+    )
+
+
+@pytest.mark.parametrize(
+    "input_shape,indices_shape,start_index_map,offset_dims,slice_sizes",
+    [
+        ((100, 50), (10,), [0], [1], [1, 50]),  # Simple 1D indices
+        pytest.param(
+            (8, 16, 32),
+            (4, 2, 2),
+            [0, 2],
+            [1],
+            [1, 16, 1],  # Complex indices
+            marks=pytest.mark.skip(
+                reason="Multi-dimensional gather has known issues, but the builder golden may also be incorrect: https://github.com/tenstorrent/tt-mlir/issues/3884"
+            ),
+        ),
+    ],
+    ids=["simple_1d", "complex_indices"],
+)
+def test_gather(
+    input_shape: Shape,
+    indices_shape: Shape,
+    start_index_map: List[int],
+    offset_dims: List[int],
+    slice_sizes: List[int],
+    request,
+):
+    def gather_wrapper(in0: Operand, builder: TTIRBuilder):
+        return gather(
+            in0, builder, indices_shape, start_index_map, offset_dims, slice_sizes
+        )
+
+    compile_to_flatbuffer(
+        gather_wrapper,
+        [input_shape],
+        test_base=request.node.name,
+        target="ttnn",
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "input_shape,indices_shape,start_index_map,offset_dims,slice_sizes",
+    [
+        ((100, 50), (10,), [0], [1], [1, 50]),  # Simple 1D indices
+        (
+            (8, 16, 32),
+            (4, 2, 2),
+            [0, 2],
+            [1],
+            [1, 16, 1],
+        ),  # Complex indices)
+    ],
+    ids=["simple_1d", "complex_indices"],
+)
+# note: doesn't work on ttmetal because test generated (nonhoisted) ttir.zeros, which we need to support on device
+@pytest.mark.skip(
+    "Fails at runtime on simple_1d case, ticket: https://github.com/tenstorrent/tt-mlir/issues/3849"
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_hoisted_gather(
+    input_shape: Shape,
+    indices_shape: Shape,
+    start_index_map: List[int],
+    offset_dims: List[int],
+    slice_sizes: List[int],
+    target: str,
+    request,
+):
+    def gather_wrapper(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        return gather(
+            in0,
+            builder,
+            indices_shape,
+            start_index_map,
+            offset_dims,
+            slice_sizes,
+            unit_attrs=["should_hoist"],
+        )
+
+    compile_to_flatbuffer(
+        gather_wrapper,
+        [input_shape],
+        test_base=request.node.name,
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes,batch_dims_lhs,contract_dims_lhs,batch_dims_rhs,contract_dims_rhs",
+    [
+        # Standard matrix multiplication: [M, K] x [K, N] -> [M, N]
+        ([(10, 20), (20, 30), (10, 30)], [], [1], [], [0]),
+        # Batched matrix multiplication: [B, M, K] x [B, K, N] -> [B, M, N]
+        ([(5, 10, 20), (5, 20, 30), (5, 10, 30)], [0], [2], [0], [1]),
+        # 3D tensor @ 2D tensor: [B, M, K] x [K, N] -> [B, M, N]
+        ([(5, 10, 20), (20, 30), (5, 10, 30)], [], [2], [], [0]),
+    ],
+    ids=["standard_matmul", "batched_matmul", "3d_tensor_2d_tensor"],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.skip(
+    "Need to rework this, https://github.com/tenstorrent/tt-mlir/issues/3851"
+)
+def test_hoisted_dot_general(
+    shapes: List[Shape],
+    batch_dims_lhs: List[int],
+    contract_dims_lhs: List[int],
+    batch_dims_rhs: List[int],
+    contract_dims_rhs: List[int],
+    target: str,
+    request,
+):
+    def dot_general_wrapper(
+        in0: Operand,
+        in1: Operand,
+        out0: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return builder.dot_general(
+            in0,
+            in1,
+            out0,
+            batch_dims_lhs,
+            contract_dims_lhs,
+            batch_dims_rhs,
+            contract_dims_rhs,
+            unit_attrs=["should_hoist"],
+        )
+
+    compile_to_flatbuffer(
+        dot_general_wrapper,
+        shapes,
+        test_base=request.node.name,
+        target=target,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )

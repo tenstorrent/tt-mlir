@@ -123,8 +123,8 @@ public:
   }
 
   static unsigned getDstRegisterSizeTiles(Operation *op) {
-    auto device = lookupDevice(op);
-    auto systemDesc = getCurrentScopeSystemDesc(op);
+    auto device = ttcore::lookupDevice(op);
+    auto systemDesc = ttcore::getCurrentScopeSystemDesc(op);
     auto chipIds = device.getChipIds();
     auto chipDescs = systemDesc.getChipDescs();
     auto chipDescIndices = systemDesc.getChipDescIndices();
@@ -148,11 +148,12 @@ public:
     int64_t numDstSlices = dstRegisterSizeTiles / volume;
     SmallVector<int64_t> dstShape({numDstSlices});
     dstShape.append(cbType.getShape().begin(), cbType.getShape().end());
-    MemRefType dstType = MemRefType::get(
-        dstShape, cbType.getElementType(),
-        mlir::AffineMap::getMultiDimIdentityMap(dstShape.size(),
-                                                rewriter.getContext()),
-        rewriter.getAttr<MemorySpaceAttr>(MemorySpace::RegisterDst));
+    MemRefType dstType =
+        MemRefType::get(dstShape, cbType.getElementType(),
+                        mlir::AffineMap::getMultiDimIdentityMap(
+                            dstShape.size(), rewriter.getContext()),
+                        rewriter.getAttr<ttcore::MemorySpaceAttr>(
+                            ttcore::MemorySpace::RegisterDst));
 
     for (auto [loopNest, copyInfo] : copyInfos) {
       assert(copyInfo.getCbType() == cbType &&
@@ -178,7 +179,8 @@ public:
       // We're generating loads and stores for dst, so we can ignore loads and
       // stores that are already on dst.
       auto notDstMemspace = [](auto op) {
-        return op && getMemorySpace(op.getMemRef()) != MemorySpace::RegisterDst;
+        return op && ttcore::getMemorySpace(op.getMemRef()) !=
+                         ttcore::MemorySpace::RegisterDst;
       };
 
       // Collect loads to this op.

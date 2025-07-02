@@ -177,13 +177,6 @@ class Run:
             help="disable read update index for kv cache workaround",
         )
         Run.register_arg(
-            name="--disable-raw-host-data-pointer-wrapper",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="disable runtime raw host data pointer wrapper workaround",
-        )
-        Run.register_arg(
             name="--disable-trace-implicit-from-device",
             type=bool,
             default=False,
@@ -522,7 +515,6 @@ class Run:
             workaround_env = ttrt.runtime.WorkaroundEnv.get(
                 not self["--disable-swap-binary-operands"],
                 not self["--disable-read-update-index-for-kv-cache"],
-                not self["--disable-raw-host-data-pointer-wrapper"],
                 not self["--disable-trace-implicit-from-device"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
@@ -670,7 +662,7 @@ class Run:
                         inputs = []
                         outputs = []
                         for i in program.input_tensors:
-                            new_input = ttrt.runtime.create_tensor(
+                            new_input = ttrt.runtime.create_borrowed_host_tensor(
                                 i.data_ptr(),
                                 list(i.shape),
                                 list(i.stride()),
@@ -681,7 +673,7 @@ class Run:
 
                         for i in program.output_tensors:
                             outputs.append(
-                                ttrt.runtime.create_tensor(
+                                ttrt.runtime.create_borrowed_host_tensor(
                                     i.data_ptr(),
                                     list(i.shape),
                                     list(i.stride()),

@@ -31,7 +31,7 @@ class TensorDesc(BaseModel):
     layout: Optional[str] = Field(
         default=None,
         description="Layout of the tensor, e.g. Interleaved, "
-        "SingleBank, HeightSharded.",
+        "HeightSharded, WidthSharded.",
     )
     grid_shape: Optional[List[int]] = Field(
         default=None,

@@ -8,7 +8,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
-using namespace mlir::tt;
+using namespace mlir::tt::ttcore;
 
 MlirType ttmlirTTTileTypeGet(MlirContext ctx, unsigned height, unsigned width,
                              uint32_t dataType) {

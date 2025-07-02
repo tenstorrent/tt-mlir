@@ -51,11 +51,11 @@ public:
 
   void SetUp() override {
     // Initialize context and module
-    context.loadDialect<TTCoreDialect>();
+    context.loadDialect<mlir::tt::ttcore::TTCoreDialect>();
     context.loadDialect<ttir::TTIRDialect>();
     module = mlir::ModuleOp::create(builder.getUnknownLoc());
     builder.setInsertionPointToStart(&module->getBodyRegion().front());
-    mlir::tt::registerDevice(module.get());
+    mlir::tt::ttcore::registerDevice(module.get());
     createFuncOp();
   }
 

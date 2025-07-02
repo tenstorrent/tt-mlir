@@ -11,6 +11,33 @@
 !cb2_tiles = !ttkernel.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>
 
 module {
+  //===----------------------------------------------------------------------===//
+  // TTKernel Compute Kernel Hardware Startup operation
+  //===----------------------------------------------------------------------===//
+
+  // CHECK-LABEL: func @compute_kernel_hw_startup_unary
+  func.func @compute_kernel_hw_startup_unary() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    // CHECK: %[[INCB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+    %icb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+    // CHECK: %[[OCB:.*]] = emitc.literal "get_compile_time_arg_val(1)"
+    %ocb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb2_tiles
+    // CHECK: emitc.call_opaque "compute_kernel_hw_startup"(%[[INCB]], %[[OCB]])
+    "ttkernel.compute_kernel_hw_startup"(%icb, %ocb) : (!cb0_tiles, !cb2_tiles) -> ()
+    return
+  }
+
+  // CHECK-LABEL: func @compute_kernel_hw_startup_binary
+  func.func @compute_kernel_hw_startup_binary() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    // CHECK: %[[INCB0:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+    %icb0 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+    // CHECK: %[[INCB1:.*]] = emitc.literal "get_compile_time_arg_val(1)"
+    %icb1 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
+    // CHECK: %[[OCB:.*]] = emitc.literal "get_compile_time_arg_val(2)"
+    %ocb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 2 : i32}> : () -> !cb2_tiles
+    // CHECK: emitc.call_opaque "compute_kernel_hw_startup"(%[[INCB0]], %[[INCB1]], %[[OCB]])
+    "ttkernel.compute_kernel_hw_startup"(%icb0, %icb1, %ocb) : (!cb0_tiles, !cb1_tiles, !cb2_tiles) -> ()
+    return
+  }
 
   //===----------------------------------------------------------------------===//
   // TTKernel Register operations
@@ -352,7 +379,7 @@ module {
       // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
       %dst0_index = arith.constant 1 : i32
       // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
-      %dst1_index = arith.constant 1 : i32
+      %dst1_index = arith.constant 2 : i32
       // CHECK: emitc.call_opaque "max_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]])
       "ttkernel.max_tile"(%dst0_index, %dst1_index) : (i32, i32) -> ()
       return
@@ -370,7 +397,7 @@ module {
       // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
       %dst0_index = arith.constant 1 : i32
       // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
-      %dst1_index = arith.constant 1 : i32
+      %dst1_index = arith.constant 2 : i32
       // CHECK: emitc.call_opaque "div_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]])
       "ttkernel.div_binary_tile"(%dst0_index, %dst1_index) : (i32, i32) -> ()
       return
@@ -389,6 +416,24 @@ module {
       %dst_index = arith.constant 3 : i32
       // CHECK: emitc.call_opaque "recip_tile"(%[[DST_INDEX]])
       "ttkernel.recip_tile"(%dst_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @power_binary_tile_init
+    func.func @power_binary_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "power_binary_tile_init"()
+      "ttkernel.power_binary_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @power_binary_tile
+    func.func @power_binary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
+      %dst1_index = arith.constant 2 : i32
+      // CHECK: emitc.call_opaque "power_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]])
+      "ttkernel.power_binary_tile"(%dst0_index, %dst1_index) : (i32, i32) -> ()
       return
     }
 
@@ -605,18 +650,6 @@ module {
       return
     }
 
-    // CHECK-LABEL: func @tilize_init_short
-    func.func @tilize_init_short() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: %[[IN_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
-      %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_scalar
-      // CHECK: %[[OUT_CB:.*]] = emitc.literal "get_compile_time_arg_val(1)"
-      %out_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
-      // CHECK: %[[NUM_TILES:.*]] = "emitc.constant"
-      %num_tiles = arith.constant 3 : i32
-      // CHECK: emitc.call_opaque "tilize_init_short"(%[[IN_CB]], %[[NUM_TILES]], %[[OUT_CB]])
-      "ttkernel.tilize_init_short"(%in_cb, %num_tiles, %out_cb) : (!cb0_scalar, i32, !cb1_tiles) -> ()
-      return
-    }
 
     // CHECK-LABEL: func @tilize_uninit
     func.func @tilize_uninit() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
@@ -637,15 +670,6 @@ module {
       %out_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_scalar
       // CHECK: emitc.call_opaque "untilize_init"(%[[IN_CB]], %[[OUT_CB]])
       "ttkernel.untilize_init"(%in_cb, %out_cb) : (!cb0_tiles, !cb1_scalar) -> ()
-      return
-    }
-
-    // CHECK-LABEL: func @untilize_init_short
-    func.func @untilize_init_short() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: %[[IN_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
-      %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
-      // CHECK: emitc.call_opaque "untilize_init_short"(%[[IN_CB]])
-      "ttkernel.untilize_init_short"(%in_cb) : (!cb0_tiles) -> ()
       return
     }
 

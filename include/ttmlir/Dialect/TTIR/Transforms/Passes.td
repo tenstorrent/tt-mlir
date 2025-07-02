@@ -117,6 +117,7 @@ def TTIROptimizeTensorLayout: Pass<"ttir-optimize-tensor-layout", "::mlir::Modul
 
   list<Option> options = [
         ListOption<"overrideDeviceShape", "override-device-shape", "int64_t", "Override the device shape.">,
+        Option<"maxDstRegisterSizeTiles", "max-dst-register-size-tiles", "unsigned", "0", "Override the max dst size tiles or 0 if unset.">,
     ];
 }
 
@@ -364,6 +365,27 @@ def TTIRLowerToLayout: Pass<"ttir-lower-to-layout", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTIRGenericApplyInterchange : Pass<"ttir-generic-apply-interchange", "::mlir::ModuleOp"> {
+  let summary = "Apply loop interchange on generic ops.";
+  let description = [{
+    For example, the default matmul interchange looks like:
+      (m, n, k) -> (m, k)
+      (m, n, k) -> (k, n)
+      (m, n, k) -> (m, n)
+
+    This pass might choose a different interchange, such as
+    making the k dim the outermost loop, given interchange
+    (2, 0, 1):
+      (k, m, n) -> (m, k)
+      (k, m, n) -> (k, n)
+      (k, m, n) -> (m, n)
+  }];
+
+  list<Option> options = [
+      ListOption<"matmulInterchange", "matmul-interchange", "int64_t", "Set an interchange for generic ops that match matmul style indexing maps and iterator types. The interchange indices here always correspond to the innermost 3 dims.">,
+  ];
+}
+
 def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
   let summary = "Create streams required by generic ops.";
   let description = [{
@@ -415,7 +437,7 @@ def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
     }
     ```
   }];
-  let dependentDialects = ["::mlir::tt::TTCoreDialect", "::mlir::memref::MemRefDialect"];
+  let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect", "::mlir::memref::MemRefDialect"];
 }
 
 def TTIRImplicitBroadcastFold: Pass<"ttir-implicit-broadcast-fold", "::mlir::ModuleOp"> {
@@ -473,7 +495,7 @@ def TTIRHoistTransform: Pass<"ttir-cpu-hoist-transform", "::mlir::ModuleOp">
       }
   }];
 
-  let dependentDialects = ["::mlir::tt::TTCoreDialect"];
+  let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
 }
 
 def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::ModuleOp">
@@ -533,7 +555,7 @@ def TTIREraseInverseOps: Pass<"ttir-erase-inverse-ops", "::mlir::ModuleOp">
     on either end are inverses.
   }];
 
-  let dependentDialects = ["mlir::tt::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
+  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
 def TTIRExplicateTMs: Pass<"ttir-explicate-tms", "::mlir::ModuleOp">
@@ -543,7 +565,7 @@ def TTIRExplicateTMs: Pass<"ttir-explicate-tms", "::mlir::ModuleOp">
     This pass walks through the graph and explicates implicit broadcasts and reshapes on the graph edges.
   }];
 
-  let dependentDialects = ["mlir::tt::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
+  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
 def TTIRQuantDataTypeConversionPass : Pass<"ttir-quant-data-type-conversion", "::mlir::ModuleOp"> {

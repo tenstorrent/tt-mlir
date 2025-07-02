@@ -45,7 +45,7 @@ MemRefType getBufferType(Type type, bool isView) {
     return MemRefType::get(tensorType.getShape(), tensorType.getElementType());
   }
 
-  auto layout = mlir::cast<MetalLayoutAttr>(tensorType.getEncoding());
+  auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
   MLIRContext *ctx = tensorType.getContext();
 
   auto gridShape = layout.getGridShape(tensorType);
@@ -56,15 +56,15 @@ MemRefType getBufferType(Type type, bool isView) {
 
   MemRefLayoutAttrInterface layoutAttr;
   if (isView) {
-    layoutAttr = ViewLayoutAttr::get(ctx, fullMemrefShape.size());
+    layoutAttr = ttcore::ViewLayoutAttr::get(ctx, fullMemrefShape.size());
   } else {
     SmallVector<int64_t> shardStride = layout.getShardStride(tensorType);
-    layoutAttr = ShardLayoutAttr::get(ctx, shardStride, /*buffered=*/1);
+    layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride, /*buffered=*/1);
   }
 
-  return MemRefType::get(fullMemrefShape, tensorType.getElementType(),
-                         layoutAttr,
-                         MemorySpaceAttr::get(ctx, layout.getMemorySpace()));
+  return MemRefType::get(
+      fullMemrefShape, tensorType.getElementType(), layoutAttr,
+      ttcore::MemorySpaceAttr::get(ctx, layout.getMemorySpace()));
 }
 } // namespace mlir::tt::ttir
 
@@ -393,7 +393,7 @@ mlir::LogicalResult mlir::tt::ttir::ConstantOp::bufferize(
   auto memrefType = mlir::cast<mlir::MemRefType>(
       getBufferType(getResult(), options, invocationStack).value());
 
-  mlir::memref::GlobalOp global = createGlobal(
+  mlir::memref::GlobalOp global = ttcore::createGlobal(
       getOperation()->getParentOfType<ModuleOp>(), memrefType, getValue());
   mlir::bufferization::replaceOpWithNewBufferizedOp<memref::GetGlobalOp>(
       rewriter, *this, global.getType(), global.getName());
@@ -1765,78 +1765,24 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
   return success();
 }
 
-// TransposeOp can be removed if the both 'dim0' and 'dim1' are the same.
-static mlir::OpFoldResult
-foldIdentityTranspose(mlir::tt::ttir::TransposeOp op) {
-  if (op.getDim0() == op.getDim1()) {
-    return op.getInput();
-  }
-  return nullptr;
-}
-
-// Rewrite a transpose op to a canonical form where the 'dim0' is less than
-// 'dim1'.
-static mlir::OpFoldResult sortTansposeDims(mlir::tt::ttir::TransposeOp op) {
-  if (op.getDim0() < op.getDim1()) {
-    return nullptr;
-  }
-
-  auto oldDim0 = op.getDim0();
-  op.setDim0(op.getDim1());
-  op.setDim1(oldDim0);
-  return op.getResult();
-}
-
-// Rewrite tranpose dims to a canonical form where the 'dim0' and 'dim1' are
-// in range [0, N), where N is a rank of input tensor.
-static mlir::OpFoldResult
-forcePositiveTransposeDims(mlir::tt::ttir::TransposeOp op) {
-  if (op.getDim0() >= 0 && op.getDim1() >= 0) {
-    return nullptr;
-  }
-
-  if (op.getDim0() < 0) {
-    op.setDim0(op.getDim0() + op.getInput().getType().getRank());
-  } else if (op.getDim1() < 0) {
-    op.setDim1(op.getDim1() + op.getInput().getType().getRank());
-  }
-
-  return op.getResult();
-}
-
-// Transposing twice in the row over the same dimensions results in identity,
-// hence y = T(T(x)) can be replaced with y = x.
-static mlir::OpFoldResult
-foldInverseTransposeOperand(mlir::tt::ttir::TransposeOp op) {
-  if (auto producerOp =
-          op.getInput().getDefiningOp<mlir::tt::ttir::TransposeOp>()) {
-    if (op.getDim0() == producerOp.getDim0() &&
-        op.getDim1() == producerOp.getDim1()) {
-      return producerOp.getInput();
+void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
+  patterns.add(+[](TransposeOp op, mlir::PatternRewriter &rewriter) {
+    SmallVector<int64_t> permutation;
+    for (int64_t i = 0; i < op.getInput().getType().getRank(); ++i) {
+      permutation.push_back(i);
     }
-  }
-  return nullptr;
-}
-
-// TransposeOp folder
-mlir::OpFoldResult mlir::tt::ttir::TransposeOp::fold(FoldAdaptor adaptor) {
-  if (auto foldResult = foldIdentityTranspose(*this)) {
-    return foldResult;
-  }
-
-  if (auto foldResult = sortTansposeDims(*this)) {
-    return foldResult;
-  }
-
-  if (auto foldResult = forcePositiveTransposeDims(*this)) {
-    return foldResult;
-  }
-
-  if (auto foldResult = foldInverseTransposeOperand(*this)) {
-    return foldResult;
-  }
-
-  return nullptr;
+    int64_t dim0 = op.getDim0() < 0
+                       ? op.getDim0() + op.getInput().getType().getRank()
+                       : op.getDim0();
+    int64_t dim1 = op.getDim1() < 0
+                       ? op.getDim1() + op.getInput().getType().getRank()
+                       : op.getDim1();
+    std::swap(permutation[dim0], permutation[dim1]);
+    ttir::utils::replaceOpWithNewDPSOp<PermuteOp>(rewriter, op, op.getType(),
+                                                  op.getInput(), permutation);
+    return success();
+  });
 }
 
 //===----------------------------------------------------------------------===//
@@ -1851,8 +1797,8 @@ mlir::OpFoldResult mlir::tt::ttir::TypecastOp::fold(FoldAdaptor adaptor) {
   return {};
 }
 
-static bool isNarrowingConversion(const ::mlir::tt::DataType srcDtype,
-                                  const ::mlir::tt::DataType dstDtype) {
+static bool isNarrowingConversion(const ::mlir::tt::ttcore::DataType srcDtype,
+                                  const ::mlir::tt::ttcore::DataType dstDtype) {
   const bool srcIsFloat = isFloat(srcDtype);
   const bool dstIsFloat = isFloat(dstDtype);
   const auto srcNumberOfBits = getNumberOfBits(srcDtype);
@@ -1915,14 +1861,15 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
   if (conservativeFolding) {
     // Disable folding if it has the potential to cause too much numerical
     // differences.
-    auto dtypeIn =
-        elementTypeToDataType(producerOp.getInput().getType().getElementType());
+    auto dtypeIn = ttcore::elementTypeToDataType(
+        producerOp.getInput().getType().getElementType());
     auto dtypeMid =
-        elementTypeToDataType(op.getInput().getType().getElementType());
-    auto dtypeOut = elementTypeToDataType(op.getType().getElementType());
+        ttcore::elementTypeToDataType(op.getInput().getType().getElementType());
+    auto dtypeOut =
+        ttcore::elementTypeToDataType(op.getType().getElementType());
 
-    assert(dtypeMid ==
-           elementTypeToDataType(producerOp.getType().getElementType()));
+    assert(dtypeMid == ttcore::elementTypeToDataType(
+                           producerOp.getType().getElementType()));
 
     // If the 1st Op is narrowing and the 2nd Op is widening, we shouldn't fold.
     // FP->Int->FP is special and should never fold, due to its truncation
@@ -2083,10 +2030,12 @@ verifyLayoutOp(mlir::Operation *op, mlir::Type inputTensorOrMemrefTy,
       return op->emitOpError("Input and output types must be the same");
     }
 
-    auto inputLayout = mlir::dyn_cast_if_present<mlir::tt::MetalLayoutAttr>(
-        inputTy.getEncoding());
-    auto outputLayout = mlir::dyn_cast_if_present<mlir::tt::MetalLayoutAttr>(
-        outputTy.getEncoding());
+    auto inputLayout =
+        mlir::dyn_cast_if_present<mlir::tt::ttcore::MetalLayoutAttr>(
+            inputTy.getEncoding());
+    auto outputLayout =
+        mlir::dyn_cast_if_present<mlir::tt::ttcore::MetalLayoutAttr>(
+            outputTy.getEncoding());
 
     if (!inputLayout || !outputLayout) {
       // If the input/output tensor does not have a layout, we can early exit.
@@ -2137,7 +2086,8 @@ verifyLayoutOp(mlir::Operation *op, mlir::Type inputTensorOrMemrefTy,
     }
 
     auto inputDeviceLayout =
-        mlir::dyn_cast<mlir::tt::DeviceLayoutInterface>(inputTy.getLayout());
+        mlir::dyn_cast<mlir::tt::ttcore::DeviceLayoutInterface>(
+            inputTy.getLayout());
     if (checkMemrefGridShardForm && !inputDeviceLayout) {
       return op->emitOpError(
           "input memref must have device layout, i.e. have even rank, grid "
@@ -2145,7 +2095,8 @@ verifyLayoutOp(mlir::Operation *op, mlir::Type inputTensorOrMemrefTy,
     }
 
     auto outputDeviceLayout =
-        mlir::dyn_cast<mlir::tt::DeviceLayoutInterface>(outputTy.getLayout());
+        mlir::dyn_cast<mlir::tt::ttcore::DeviceLayoutInterface>(
+            outputTy.getLayout());
     if (checkMemrefGridShardForm && !outputDeviceLayout) {
       return op->emitOpError(
           "output memref must have device layout, i.e. have even rank, grid "
@@ -2176,9 +2127,8 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
     const bool hasInputLayout = inputTensor.getEncoding() != nullptr;
     const bool hasOutputLayout = outputTensor.getEncoding() != nullptr;
 
-    // Construct layouts with default values if no layout attr present.
-    auto inputLayout = getOrCreateInputLayout();
-    auto outputLayout = getOrCreateOutputLayout();
+    ttcore::MetalLayoutAttr inputLayout = getOrCreateInputLayout();
+    ttcore::MetalLayoutAttr outputLayout = getOrCreateOutputLayout();
 
     // Tensors without grids are assume to have 1 grids for comparison.
     auto inputGrid =
@@ -2204,7 +2154,6 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
     components.isFormatChange =
         inputTensor.getElementType() != outputTensor.getElementType();
 
-    // This field will track different logical ranks, different
     components.isLayoutChange =
         inputLayout.getNormalizedIntervals() !=
             outputLayout.getNormalizedIntervals() ||
@@ -2224,37 +2173,39 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
   return components;
 }
 
-mlir::tt::MetalLayoutAttr mlir::tt::ttir::ToLayoutOp::getOrCreateInputLayout() {
+static mlir::tt::ttcore::MetalLayoutAttr
+createDefaultLayout(mlir::MLIRContext *ctx, mlir::RankedTensorType tensorType) {
+  // This can be safely hardcoded for now; we may need to revisit in the future.
+  static constexpr size_t kDefaultGridRank = 2;
+  // Create default layout for tensor without encoding
+  llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
+
+  return mlir::tt::ttcore::MetalLayoutAttr::get(
+      ctx, logicalShape, kDefaultGridRank, mlir::tt::ttcore::OOBVal::Undef,
+      mlir::tt::ttcore::MemorySpace::System);
+}
+
+mlir::tt::ttcore::MetalLayoutAttr
+mlir::tt::ttir::ToLayoutOp::getOrCreateInputLayout() {
   auto tensorType = mlir::cast<mlir::RankedTensorType>(getInput().getType());
-  auto inputLayout =
-      mlir::dyn_cast_if_present<tt::MetalLayoutAttr>(tensorType.getEncoding());
+  auto inputLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+      tensorType.getEncoding());
   if (inputLayout) {
     return inputLayout;
   }
 
-  // Create default layout for tensor without encoding
-  llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
-
-  return tt::MetalLayoutAttr::get(getContext(), logicalShape,
-                                  logicalShape.size(), tt::OOBVal::Undef,
-                                  tt::MemorySpace::System);
+  return createDefaultLayout(getContext(), tensorType);
 }
 
-mlir::tt::MetalLayoutAttr
+mlir::tt::ttcore::MetalLayoutAttr
 mlir::tt::ttir::ToLayoutOp::getOrCreateOutputLayout() {
   auto tensorType = mlir::cast<mlir::RankedTensorType>(getOutput().getType());
-  auto outputLayout =
-      mlir::dyn_cast_if_present<tt::MetalLayoutAttr>(tensorType.getEncoding());
+  auto outputLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+      tensorType.getEncoding());
   if (outputLayout) {
     return outputLayout;
   }
-
-  // Create default layout for tensor without encoding
-  llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
-
-  return tt::MetalLayoutAttr::get(getContext(), logicalShape,
-                                  logicalShape.size(), tt::OOBVal::Undef,
-                                  tt::MemorySpace::System);
+  return createDefaultLayout(getContext(), tensorType);
 }
 
 mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::fold(
@@ -2351,7 +2302,7 @@ void mlir::tt::ttir::StreamLayoutOp::getCanonicalizationPatterns(
     }
 
     auto currentResultMemref = mlir::cast<MemRefType>(op.getResult().getType());
-    auto streamAttr = rewriter.getAttr<ViewLayoutAttr>(
+    auto streamAttr = rewriter.getAttr<ttcore::ViewLayoutAttr>(
         viewMemref.getLayout().getAffineMap().compose(
             currentResultMemref.getLayout().getAffineMap()));
     auto newMemref = MemRefType::get(
@@ -2537,10 +2488,11 @@ mlir::OpFoldResult mlir::tt::ttir::ViewLayoutOp::fold(FoldAdaptor adaptor) {
 
   // If we're dealing with memrefs, we need to compose the layouts.
   MemRefType resultType = mlir::cast<MemRefType>(getType());
-  ViewLayoutAttr inputView = mlir::cast<ViewLayoutAttr>(inputType.getLayout());
-  ViewLayoutAttr resultView =
-      mlir::cast<ViewLayoutAttr>(resultType.getLayout());
-  ViewLayoutAttr newView = inputView.compose(resultView);
+  ttcore::ViewLayoutAttr inputView =
+      mlir::cast<ttcore::ViewLayoutAttr>(inputType.getLayout());
+  ttcore::ViewLayoutAttr resultView =
+      mlir::cast<ttcore::ViewLayoutAttr>(resultType.getLayout());
+  ttcore::ViewLayoutAttr newView = inputView.compose(resultView);
   getResult().setType(MemRefType::Builder(resultType).setLayout(newView));
 
   return getResult();
@@ -2697,23 +2649,35 @@ mlir::OpFoldResult mlir::tt::ttir::ViewLayoutOp::fold(FoldAdaptor adaptor) {
   return success();
 }
 
-// If value is defined by TransposeOp with transpose dimensions
-// (rank - 2, rank - 1), return the input of the TransposeOp, otherwise return
-// std::nullopt. This is used for canonicalization of MatmulOp and LinearOp.
+// If value is defined by PermuteOp with permute dimensions
+// (..., rank - 2, rank - 1), return the input of the PermuteOp, otherwise
+// return std::nullopt. This is used for canonicalization of MatmulOp and
+// LinearOp.
 static std::optional<mlir::TypedValue<mlir::RankedTensorType>>
-getTransposeOpOperand(mlir::TypedValue<mlir::RankedTensorType> value) {
-  auto producerOp = value.getDefiningOp<mlir::tt::ttir::TransposeOp>();
-  if (!producerOp) {
+getPermuteOpOperand(mlir::TypedValue<mlir::RankedTensorType> value) {
+  auto producerPermuteOp = value.getDefiningOp<mlir::tt::ttir::PermuteOp>();
+  if (!producerPermuteOp) {
     return std::nullopt;
   }
 
   int64_t rank = value.getType().getRank();
-  if (rank < 2 || producerOp.getDim0() != rank - 2 ||
-      producerOp.getDim1() != rank - 1) {
+  // If the rank is less than two than it is impossible for this permute to be a
+  // transpose
+  bool rankIsLessThan2 = rank < 2;
+  // Ensure that the rightmost two dims are swapped by the permute
+  bool XYDimsTransposed =
+      producerPermuteOp.getPermutation()[rank - 2] == rank - 1 &&
+      producerPermuteOp.getPermutation()[rank - 1] == rank - 2;
+  // Ensure that the other dims are unchanged by the permute.
+  // Therefore this permute is equivalent to transpose(-1, -2)
+  bool otherDimsUnchanged =
+      std::is_sorted(producerPermuteOp.getPermutation().begin(),
+                     producerPermuteOp.getPermutation().end() - 2);
+  if (rankIsLessThan2 || !XYDimsTransposed || !otherDimsUnchanged) {
     return std::nullopt;
   }
 
-  return producerOp.getInput();
+  return producerPermuteOp.getInput();
 }
 
 // LinearOp canonicalization
@@ -2734,7 +2698,7 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
   // linear(transpose(a), b, bias transpose_a, transpose_b) ->
   //   linear(a, b, bias, !transpose_a, transpose_b)
   patterns.add(+[](ttir::LinearOp op, mlir::PatternRewriter &rewriter) {
-    auto inputACanonical = getTransposeOpOperand(op.getA());
+    auto inputACanonical = getPermuteOpOperand(op.getA());
     if (!inputACanonical) {
       return mlir::failure();
     }
@@ -2749,7 +2713,7 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
   // linear(a, transpose(b), bias transpose_a, transpose_b) ->
   //   linear(a, b, bias, transpose_a, !transpose_b)
   patterns.add(+[](ttir::LinearOp op, mlir::PatternRewriter &rewriter) {
-    auto inputBCanonical = getTransposeOpOperand(op.getB());
+    auto inputBCanonical = getPermuteOpOperand(op.getB());
     if (!inputBCanonical) {
       return mlir::failure();
     }
@@ -2901,7 +2865,7 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
   // matmul(transpose(a), b, transpose_a, transpose_b) ->
   //   matmul(a, b, !transpose_a, transpose_b)
   patterns.add(+[](ttir::MatmulOp op, mlir::PatternRewriter &rewriter) {
-    auto inputACanonical = getTransposeOpOperand(op.getA());
+    auto inputACanonical = getPermuteOpOperand(op.getA());
     if (!inputACanonical) {
       return mlir::failure();
     }
@@ -2916,7 +2880,7 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
   // matmul(a, transpose(b), transpose_a, transpose_b) ->
   //   matmul(a, b, transpose_a, !transpose_b)
   patterns.add(+[](ttir::MatmulOp op, mlir::PatternRewriter &rewriter) {
-    auto inputBCanonical = getTransposeOpOperand(op.getB());
+    auto inputBCanonical = getPermuteOpOperand(op.getB());
     if (!inputBCanonical) {
       return mlir::failure();
     }
@@ -3002,7 +2966,7 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
 
 // AllocOp verification
 ::mlir::LogicalResult mlir::tt::ttir::AllocOp::verify() {
-  auto layout = mlir::dyn_cast_if_present<mlir::tt::MetalLayoutAttr>(
+  auto layout = mlir::dyn_cast_if_present<mlir::tt::ttcore::MetalLayoutAttr>(
       getResult().getType().getEncoding());
   if (not layout) {
     return emitOpError("Result type missing layout attribute");
@@ -3180,12 +3144,12 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
 
 // AllReduceOp verification
 ::mlir::LogicalResult mlir::tt::ttir::AllReduceOp::verify() {
-  ::mlir::tt::ReduceType reduceType = getReduceType();
+  ::mlir::tt::ttcore::ReduceType reduceType = getReduceType();
 
   // Currently TTIR only supports the following reduce types.
-  if (reduceType != ::mlir::tt::ReduceType::Sum &&
-      reduceType != ::mlir::tt::ReduceType::Max &&
-      reduceType != ::mlir::tt::ReduceType::Min) {
+  if (reduceType != ::mlir::tt::ttcore::ReduceType::Sum &&
+      reduceType != ::mlir::tt::ttcore::ReduceType::Max &&
+      reduceType != ::mlir::tt::ttcore::ReduceType::Min) {
     return emitOpError("Invalid reduction op for all reduce op.");
   }
 
@@ -3199,13 +3163,13 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
 // ReduceScatterOp verification
 ::mlir::LogicalResult mlir::tt::ttir::ReduceScatterOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::tt::ReduceType reduceType = getReduceType();
+  ::mlir::tt::ttcore::ReduceType reduceType = getReduceType();
   int32_t scatterDim = getScatterDim();
 
   // Currently TTIR only supports the following reduce types.
-  if (reduceType != ::mlir::tt::ReduceType::Sum &&
-      reduceType != ::mlir::tt::ReduceType::Max &&
-      reduceType != ::mlir::tt::ReduceType::Min) {
+  if (reduceType != ::mlir::tt::ttcore::ReduceType::Sum &&
+      reduceType != ::mlir::tt::ttcore::ReduceType::Max &&
+      reduceType != ::mlir::tt::ttcore::ReduceType::Min) {
     return emitOpError("Invalid reduction op for reduce scatter op.");
   }
 
@@ -3273,7 +3237,7 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
   auto shardType = getShardType();
 
   // Currently, we are not supporting maximal from StableHLO.
-  if (shardType == mlir::tt::MeshShardType::Maximal) {
+  if (shardType == mlir::tt::ttcore::MeshShardType::Maximal) {
     return emitOpError("Invalid shard_type (maximal) for mesh_shard op.");
   }
 
@@ -3294,12 +3258,6 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
     return emitOpError("Batching currently not supported");
   }
 
-  for (uint64_t insertedWindowDims : getInsertedWindowDims()) {
-    if (inputShape[insertedWindowDims] != 1) {
-      return emitOpError("Dimension size to slice into must be 1");
-    }
-  }
-
   return success();
 }
 
@@ -3316,10 +3274,10 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
   const ::mlir::RankedTensorType cacheType = getCache().getType();
   const ::mlir::RankedTensorType inputType = getInput().getType();
 
-  const DataType cacheDataType =
-      elementTypeToDataType(cacheType.getElementType());
-  const DataType inputDataType =
-      elementTypeToDataType(inputType.getElementType());
+  const ttcore::DataType cacheDataType =
+      ttcore::elementTypeToDataType(cacheType.getElementType());
+  const ttcore::DataType inputDataType =
+      ttcore::elementTypeToDataType(inputType.getElementType());
 
   if (cacheDataType != inputDataType) {
     return emitOpError(
@@ -3375,10 +3333,10 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
   const ::mlir::RankedTensorType cacheType = getCache().getType();
   const ::mlir::RankedTensorType inputType = getInput().getType();
 
-  const DataType cacheDataType =
-      elementTypeToDataType(cacheType.getElementType());
-  const DataType inputDataType =
-      elementTypeToDataType(inputType.getElementType());
+  const ttcore::DataType cacheDataType =
+      ttcore::elementTypeToDataType(cacheType.getElementType());
+  const ttcore::DataType inputDataType =
+      ttcore::elementTypeToDataType(inputType.getElementType());
 
   if (cacheDataType != inputDataType) {
     return emitOpError(
@@ -3613,7 +3571,7 @@ mlir::LogicalResult mlir::tt::ttir::FullOp::bufferize(
   auto denseAttr =
       mlir::DenseElementsAttr::get(getResult().getType(), getFillValueAttr());
 
-  mlir::memref::GlobalOp global = createGlobal(
+  mlir::memref::GlobalOp global = ttcore::createGlobal(
       getOperation()->getParentOfType<ModuleOp>(), memrefType, denseAttr);
   mlir::bufferization::replaceOpWithNewBufferizedOp<memref::GetGlobalOp>(
       rewriter, *this, global.getType(), global.getName());
@@ -3757,16 +3715,17 @@ static mlir::LogicalResult verifyAffineBlocking(
         // Skip layout checks if the tensor type does not have a layout yet.
         continue;
       }
-      MetalLayoutAttr layout =
-          mlir::cast<MetalLayoutAttr>(tensorType.getEncoding());
+      ttcore::MetalLayoutAttr layout =
+          mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
       outputGridShape = layout.getGridShape(tensorType);
     } else {
       auto memref = mlir::cast<MemRefType>(operandType);
       // If the top level operand is a memref, the front half of its shape
       // is the grid shape, so we cut it off the back to get just the grid
       // shape.
-      mlir::tt::DeviceLayoutInterface layout =
-          mlir::cast<mlir::tt::DeviceLayoutInterface>(memref.getLayout());
+      mlir::tt::ttcore::DeviceLayoutInterface layout =
+          mlir::cast<mlir::tt::ttcore::DeviceLayoutInterface>(
+              memref.getLayout());
       outputGridShape = layout.getGridShape(memref);
     }
     if (!llvm::all_of(llvm::zip(outputGridShape, opGridShape), [](auto pair) {
@@ -3878,10 +3837,10 @@ static mlir::LogicalResult verifyAffineBlocking(
           // Skip layout checks if the tensor type does not have a layout yet
           continue;
         }
-        MetalLayoutAttr layout =
-            mlir::cast<MetalLayoutAttr>(tensorType.getEncoding());
+        ttcore::MetalLayoutAttr layout =
+            mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
         expectedMemorySpace =
-            MemorySpaceAttr::get(getContext(), layout.getMemorySpace());
+            ttcore::MemorySpaceAttr::get(getContext(), layout.getMemorySpace());
         expectedShardShape = layout.getShardShape(tensorType);
       } else {
         auto memref = mlir::cast<MemRefType>(operandType);
@@ -3889,10 +3848,11 @@ static mlir::LogicalResult verifyAffineBlocking(
         // If the top level operand is a memref, the front half of its shape
         // will include the grid shape, so we cut it off to get just the shard
         // shape.
-        mlir::tt::DeviceLayoutInterface layout =
-            mlir::cast<mlir::tt::DeviceLayoutInterface>(memref.getLayout());
+        mlir::tt::ttcore::DeviceLayoutInterface layout =
+            mlir::cast<mlir::tt::ttcore::DeviceLayoutInterface>(
+                memref.getLayout());
         expectedShardShape = layout.getShardShape(memref);
-        isStream = mlir::isa<tt::ViewLayoutAttr>(memref.getLayout());
+        isStream = mlir::isa<ttcore::ViewLayoutAttr>(memref.getLayout());
       }
 
       if (!isStream && expectedMemorySpace != blockMemref.getMemorySpace()) {
@@ -3951,10 +3911,10 @@ mlir::tt::ttir::GenericOp::getIndexingMapsValue() {
   });
 }
 
-mlir::SmallVector<mlir::tt::IteratorType>
+mlir::SmallVector<mlir::tt::ttcore::IteratorType>
 mlir::tt::ttir::GenericOp::getIteratorTypesValue() {
   return llvm::map_to_vector(getIteratorTypes(), [](Attribute a) {
-    return mlir::cast<IteratorTypeAttr>(a).getValue();
+    return mlir::cast<ttcore::IteratorTypeAttr>(a).getValue();
   });
 }
 
@@ -3971,14 +3931,14 @@ mlir::tt::ttir::GenericOp::getOperandGridShapes() {
   for (auto operand : this->getOperands()) {
     auto memrefType = mlir::dyn_cast<MemRefType>(operand.getType());
     if (memrefType) {
-      mlir::tt::DeviceLayoutInterface layout =
-          mlir::dyn_cast<mlir::tt::DeviceLayoutInterface>(
+      mlir::tt::ttcore::DeviceLayoutInterface layout =
+          mlir::dyn_cast<mlir::tt::ttcore::DeviceLayoutInterface>(
               memrefType.getLayout());
       gridShapes.emplace_back(layout.getGridShape(memrefType));
     } else {
       auto tensorType = mlir::cast<RankedTensorType>(operand.getType());
-      MetalLayoutAttr layout =
-          mlir::cast<MetalLayoutAttr>(tensorType.getEncoding());
+      ttcore::MetalLayoutAttr layout =
+          mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
       gridShapes.emplace_back(layout.getGridShape(tensorType));
     }
   }
@@ -3992,21 +3952,21 @@ mlir::tt::ttir::GenericOp::getOperandShardShapes(bool convertTileToScalar) {
 
   for (auto operand : this->getOperands()) {
     auto shapedType = mlir::cast<ShapedType>(operand.getType());
-    mlir::tt::DeviceLayoutInterface layout;
+    mlir::tt::ttcore::DeviceLayoutInterface layout;
     Type elementType;
 
     if (auto memrefType = mlir::dyn_cast<MemRefType>(shapedType)) {
-      layout =
-          mlir::cast<mlir::tt::DeviceLayoutInterface>(memrefType.getLayout());
+      layout = mlir::cast<mlir::tt::ttcore::DeviceLayoutInterface>(
+          memrefType.getLayout());
       elementType = memrefType.getElementType();
     } else {
       auto tensorType = mlir::cast<RankedTensorType>(shapedType);
-      layout =
-          mlir::cast<mlir::tt::DeviceLayoutInterface>(tensorType.getEncoding());
+      layout = mlir::cast<mlir::tt::ttcore::DeviceLayoutInterface>(
+          tensorType.getEncoding());
       elementType = tensorType.getElementType();
     }
 
-    auto tileType = mlir::dyn_cast<TileType>(elementType);
+    auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType);
     auto shardShape = layout.getShardShape(shapedType);
     shardShapes.emplace_back(
         (convertTileToScalar && tileType)

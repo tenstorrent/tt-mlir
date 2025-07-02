@@ -26,11 +26,12 @@ class TTIRGenericGenerateDatamovementRewriter
 public:
   using OpRewritePattern<GenericOp>::OpRewritePattern;
 
-  static bool isStream(Type ty) {
-    return mlir::isa<ViewLayoutAttr>(mlir::cast<MemRefType>(ty).getLayout());
+  static bool isStream(Value operand) {
+    return mlir::isa_and_nonnull<StreamLayoutOp>(operand.getDefiningOp());
   }
 
-  static bool compatibleDeviceGrid(DeviceAttr device, GridAttr grid) {
+  static bool compatibleDeviceGrid(ttcore::DeviceAttr device,
+                                   ttcore::GridAttr grid) {
     return device.getWorkerGrid().getShape().size() == grid.getShape().size();
   }
 
@@ -51,8 +52,8 @@ public:
     return semaphore;
   }
 
-  static SmallVector<IteratorType>
-  calculateMcastIterators(GridAttr grid, DeviceAttr device,
+  static SmallVector<ttcore::IteratorType>
+  calculateMcastIterators(ttcore::GridAttr grid, ttcore::DeviceAttr device,
                           AffineMap operandIndexingMap,
                           ArrayAttr iteratorTypes) {
     assert(grid.getShape().size() == 2 && "Currently only support 2D grid");
@@ -60,13 +61,14 @@ public:
     assert(compatibleDeviceGrid(device, grid));
 
     bool allParallel = true;
-    SmallVector<IteratorType> mcastIterators;
+    SmallVector<ttcore::IteratorType> mcastIterators;
     mcastIterators.reserve(grid.getShape().size());
     for (unsigned dim = 0; dim < grid.getShape().size(); dim++) {
       unsigned dimPosition = operandIndexingMap.getDimPosition(dim);
 
-      IteratorType iteratorType =
-          mlir::cast<IteratorTypeAttr>(iteratorTypes[dimPosition]).getValue();
+      ttcore::IteratorType iteratorType =
+          mlir::cast<ttcore::IteratorTypeAttr>(iteratorTypes[dimPosition])
+              .getValue();
       mcastIterators.push_back(iteratorType);
 
       // If the grid dimension is 1, we can special case it and always safely
@@ -74,10 +76,11 @@ public:
       // it'll be functionally correct, a multicast with a single core to itself
       // is a redundant copy and more complicated than necessary.
       bool singleCore = grid.getShape()[dim] == 1;
-      allParallel &= (iteratorType == IteratorType::Parallel) || singleCore;
+      allParallel &=
+          (iteratorType == ttcore::IteratorType::Parallel) || singleCore;
     }
 
-    return allParallel ? SmallVector<IteratorType>() : mcastIterators;
+    return allParallel ? SmallVector<ttcore::IteratorType>() : mcastIterators;
   }
 
   static Value createDMA(OpBuilder &builder, Location loc, Value src, Value dst,
@@ -103,8 +106,8 @@ public:
 
   static McastArguments
   calculateGatherMcastArguments(PatternRewriter &rewriter, Location loc,
-                                GridAttr grid,
-                                ArrayRef<IteratorType> mcastIterators) {
+                                ttcore::GridAttr grid,
+                                ArrayRef<ttcore::IteratorType> mcastIterators) {
     Value zero = rewriter.create<arith::ConstantOp>(
         loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
     Value one = rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexType(),
@@ -118,7 +121,7 @@ public:
     for (auto [dim, iteratorType] : llvm::enumerate(mcastIterators)) {
       Value core = rewriter.create<CoreIndexOp>(
           loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(dim));
-      if (iteratorType == IteratorType::Parallel) {
+      if (iteratorType == ttcore::IteratorType::Parallel) {
         args.senderCoreIndex.push_back(Value(core));
         args.mcastCoreIndex.push_back(Value(core));
         args.mcastShape.push_back(Value(one));
@@ -126,7 +129,7 @@ public:
         int64_t numDests = grid.getShape()[dim] - 1;
         Value gridDimMinusOne = rewriter.create<arith::ConstantOp>(
             loc, rewriter.getIndexType(), rewriter.getIndexAttr(numDests));
-        assert(iteratorType == IteratorType::Reduction);
+        assert(iteratorType == ttcore::IteratorType::Reduction);
         args.senderCoreIndex.push_back(zero);
         args.mcastCoreIndex.push_back(one);
         args.mcastShape.push_back(gridDimMinusOne);
@@ -145,11 +148,12 @@ public:
   // One implementation of mcast by which one core (the 0th core for the
   // respective dim) takes on the role of (the sender) gathering and sending the
   // data to all other cores (the receivers) via mcast along the same dimension.
-  static void createGatherMcastDMA(PatternRewriter &builder, Location loc,
-                                   Value src, Value dst,
-                                   AffineMap operandIndexingMap, GridAttr grid,
-                                   ArrayRef<IteratorType> mcastIterators,
-                                   MutableArrayRef<Region> regions) {
+  static void
+  createGatherMcastDMA(PatternRewriter &builder, Location loc, Value src,
+                       Value dst, AffineMap operandIndexingMap,
+                       ttcore::GridAttr grid,
+                       ArrayRef<ttcore::IteratorType> mcastIterators,
+                       MutableArrayRef<Region> regions) {
     McastArguments mcastArgs =
         calculateGatherMcastArguments(builder, loc, grid, mcastIterators);
     Value zero = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
@@ -194,7 +198,7 @@ public:
   static LogicalResult
   buildDatamovementBlock(PatternRewriter &builder, Location loc,
                          Value genericOperand, Value blockOperand,
-                         GridAttr grid, DeviceAttr device,
+                         ttcore::GridAttr grid, ttcore::DeviceAttr device,
                          AffineMap operandIndexingMap, ArrayAttr iteratorTypes,
                          bool isOutput, MutableArrayRef<Region> regions) {
     if (isOutput) {
@@ -202,12 +206,13 @@ public:
       builder.create<ttir::AwaitOp>(loc, blockOperand);
     }
 
-    if (isStream(genericOperand.getType())) {
+    if (isStream(genericOperand)) {
       assert(!isOutput && "Output streaming is not currently supported");
       Value src = isOutput ? blockOperand : genericOperand;
       Value dst = isOutput ? genericOperand : blockOperand;
-      SmallVector<IteratorType> mcastIterators = calculateMcastIterators(
-          grid, device, operandIndexingMap, iteratorTypes);
+      SmallVector<ttcore::IteratorType> mcastIterators =
+          calculateMcastIterators(grid, device, operandIndexingMap,
+                                  iteratorTypes);
       bool isMcast = !mcastIterators.empty();
       if (isMcast) {
         createGatherMcastDMA(builder, loc, src, dst, operandIndexingMap, grid,
@@ -261,7 +266,7 @@ public:
     // Insert the new data movement regions.
     unsigned outputOperandsIndex = generic.getOutputs().getBeginOperandIndex();
     unsigned outputOperandsLength = generic.getOutputs().size();
-    auto device = lookupDevice(generic);
+    auto device = ttcore::lookupDevice(generic);
     for (OpOperand &operand : generic->getOpOperands()) {
       Block *datamovementBlock =
           &newGeneric.getRegion(operand.getOperandNumber()).front();

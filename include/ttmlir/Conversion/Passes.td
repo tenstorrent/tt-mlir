@@ -30,6 +30,19 @@ def TTIRToTTIRDecomposition: Pass<"ttir-to-ttir-decomposition", "::mlir::ModuleO
   let summary = "Decomposes TTIR operations into simpler TTIR operations.";
   let constructor = "createTTIRToTTIRDecompositionPass()";
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+
+  let options = [
+    Option<"decompConfig", "config", "::mlir::tt::DecompMode", /*default=*/"::mlir::tt::DecompMode::TTNN",
+           "Decomposition configuration for different backends",
+           [{::llvm::cl::values(
+             clEnumValN(::mlir::tt::DecompMode::TTNN, "ttnn",
+                        "Default configuration for TTNN backend"),
+             clEnumValN(::mlir::tt::DecompMode::TTMetal, "ttmetal",
+                        "Configuration for TTMetal backend"),
+             clEnumValN(::mlir::tt::DecompMode::CPUFallback, "cpu-fallback",
+                        "Configuration for CPU fallback path")
+           )}]>
+  ];
 }
 
 def TTIRToTTIRGeneric: Pass<"ttir-to-ttir-generic", "::mlir::ModuleOp"> {
@@ -77,8 +90,21 @@ def TTIRToTTIRGeneric: Pass<"ttir-to-ttir-generic", "::mlir::ModuleOp"> {
       %7 = "ttir.to_layout"(%5, %6) : (tensor<256x1024xf32, #layout2>, tensor<256x1024xf32>) -> tensor<256x1024xf32>
     ```
   }];
-  let constructor = "createTTIRToTTIRGenericPass()";
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::linalg::LinalgDialect"];
+  let constructor = "createTTIRToTTIRGenericPass()";
+  let options = [
+      Option<"useTileMatmul", "use-tile-matmul", "bool", /*default=*/"true", "Use tile_matmul">,
+      Option<"defaultInputMemSpace", "default-input-memspace", "ttcore::MemorySpace", /*default=*/"ttcore::MemorySpace::DeviceL1", "Set default memspace for input tensors",
+          [{::llvm::cl::values(
+            clEnumValN(ttcore::MemorySpace::DeviceL1, "l1", "L1"),
+            clEnumValN(ttcore::MemorySpace::DeviceDRAM, "dram", "DRAM")
+          )}]>,
+      Option<"defaultOutputMemSpace", "default-output-memspace", "ttcore::MemorySpace", /*default=*/"ttcore::MemorySpace::DeviceL1", "Set default memspace for output tensors",
+          [{::llvm::cl::values(
+            clEnumValN(ttcore::MemorySpace::DeviceL1, "l1", "L1"),
+            clEnumValN(ttcore::MemorySpace::DeviceDRAM, "dram", "DRAM")
+          )}]>
+  ];
 }
 
 def ConvertTTIRToTTNN: Pass<"convert-ttir-to-ttnn", "::mlir::ModuleOp"> {

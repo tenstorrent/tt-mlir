@@ -44,7 +44,7 @@ struct ConvertTTIRToTTKernel
     target.addLegalDialect<arith::ArithDialect>();
     target.addLegalDialect<func::FuncDialect>();
     target.addLegalDialect<ttmetal::TTMetalDialect>();
-    target.addLegalDialect<tt::TTCoreDialect>();
+    target.addLegalDialect<ttcore::TTCoreDialect>();
     target.addLegalDialect<ttkernel::TTKernelDialect>();
     target.addLegalDialect<scf::SCFDialect>();
     target.addIllegalDialect<math::MathDialect>();
@@ -75,13 +75,14 @@ struct ConvertTTIRToTTKernel
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });
-    typeConverter.addConversion(
-        [](tt::TileType tile) { return IndexType::get(tile.getContext()); });
+    typeConverter.addConversion([](ttcore::TileType tile) {
+      return IndexType::get(tile.getContext());
+    });
     typeConverter.addConversion([](ttir::MemTxType memtx) {
       return IndexType::get(memtx.getContext());
     });
     typeConverter.addConversion([](MemRefType memref) -> Type {
-      if (tt::getMemorySpace(memref) == tt::MemorySpace::RegisterDst) {
+      if (ttcore::getMemorySpace(memref) == ttcore::MemorySpace::RegisterDst) {
         return IndexType::get(memref.getContext());
       }
       return ttkernel::CBType::get(memref.getContext(), memref);
