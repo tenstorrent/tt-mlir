@@ -275,7 +275,8 @@ public:
   // Create workarounds for pad op operands.
   static TTNNOperandsWorkarounds
   createPadOpOperandsWorkarounds(mlir::TypedValue<mlir::RankedTensorType> input,
-                                 ttnn::TTNNLayoutAttr layoutAttr);
+                                 ttnn::TTNNLayoutAttr layoutAttr,
+                                 llvm::ArrayRef<int32_t> padding);
 
   // Create workaround for permute op operands.
   static TTNNOperandsWorkarounds
