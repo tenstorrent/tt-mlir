@@ -80,7 +80,6 @@ protected:
   llvm::DenseSet<mlir::Type> createScalarTypeSet() {
     llvm::DenseSet<mlir::Type> types;
     types.insert(builder.getF32Type());
-    types.insert(builder.getF16Type());
     types.insert(builder.getBF16Type());
     return types;
   }
