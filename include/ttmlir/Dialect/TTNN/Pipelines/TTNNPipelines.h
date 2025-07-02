@@ -222,7 +222,7 @@ struct TTIRToTTNNBackendPipelineOptions
 
   Option<bool> enableFusing{*this, "enable-fusing-pass",
                             llvm::cl::desc("Enable fusing pass."),
-                            llvm::cl::init(true)};
+                            llvm::cl::init(false)};
 
   Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
       argumentTypeMap{
