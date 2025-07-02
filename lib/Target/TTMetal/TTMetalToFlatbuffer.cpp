@@ -217,15 +217,17 @@ memrefTypeToInterleavedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
                                               target::Dim2d elementShape) {
   auto deviceLayout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
       memref.getLayout());
-  if (!deviceLayout) {
-    return 0;
-  }
+  assert(!deviceLayout &&
+         "Sharded buffers cannot have interleaved config objects");
 
-  uint64_t pageSize =
-      elementShape.x() * elementShape.y() *
-      mlir::tt::ttcore::getElementSizeBytes(memref.getElementType());
-  uint64_t size =
-      device.getMemrefSizeBytes(memref, pageSize, /*includeBuffers=*/true);
+  auto tile =
+      mlir::dyn_cast_if_present<ttcore::TileType>(memref.getElementType());
+  assert(tile && "non-tiled layouts are not supported");
+  uint64_t pageSize = tile.getSizeBytes();
+  uint64_t numTiles = memref.getNumElements();
+  uint64_t size = ttmlir::utils::alignUp(
+      static_cast<size_t>(numTiles * pageSize), pageSize);
+
   return target::metal::CreateInterleavedBufferConfig(*cache.fbb, size,
                                                       pageSize);
 }
@@ -278,17 +280,22 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
 
   flatbuffers::Offset<void> bufferConfig = 0;
   target::metal::BufferConfig bufferConfigType;
-  // TODO(arminaleTT): how do we tell which config needs to be created??
-  if (1) { // CHANGE ME
-    bufferConfig = memrefTypeToShardedBufferConfigFlatbuffer(
-                       cache, memref, device, elementShape)
-                       .Union();
-    bufferConfigType = target::metal::BufferConfig::ShardedBufferConfig;
-  } else {
+
+  bool isDram =
+      memref.getMemorySpace() &&
+      mlir::cast<ttcore::MemorySpaceAttr>(memref.getMemorySpace()).getValue() ==
+          ttcore::MemorySpace::DeviceDRAM;
+  bool isSharded = mlir::isa<ttcore::ShardLayoutAttr>(memref.getLayout());
+  if (isDram && !isSharded) {
     bufferConfig = memrefTypeToInterleavedBufferConfigFlatbuffer(
                        cache, memref, device, elementShape)
                        .Union();
     bufferConfigType = target::metal::BufferConfig::InterleavedBufferConfig;
+  } else {
+    bufferConfig = memrefTypeToShardedBufferConfigFlatbuffer(
+                       cache, memref, device, elementShape)
+                       .Union();
+    bufferConfigType = target::metal::BufferConfig::ShardedBufferConfig;
   }
 
   flatbuffers::Offset<target::metal::CircularBufferConfig>
