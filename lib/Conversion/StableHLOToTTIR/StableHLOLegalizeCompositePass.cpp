@@ -37,7 +37,7 @@ class StableHLOToTTIRCompositeOpConversionPattern
 public:
   StableHLOToTTIRCompositeOpConversionPattern(TypeConverter &typeConverter,
                                               MLIRContext *context,
-                                              const char *opName)
+                                              llvm::StringRef opName)
       : OpConversionPattern<mlir::stablehlo::CompositeOp>(typeConverter,
                                                           context),
         opName(opName) {}
