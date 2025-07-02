@@ -1,4 +1,8 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
+// RUN: rm -rf %t.ttnn
+// RUN: rm -rf %t.mlir
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %s > %t.mlir
+// RUN: FileCheck %s --input-file=%t.mlir
+// RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 
 module {
   func.func @main(%arg0: tensor<1x128x128x384xf32>) -> tensor<1x132x132x384xf32> {

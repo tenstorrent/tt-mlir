@@ -1134,9 +1134,10 @@ def TTNN_PadOp: TTNN_Op<"pad"> {
       mlir::TypedValue<mlir::RankedTensorType> input = getInput();
       ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
             getResult().getType().getEncoding());
+      llvm::ArrayRef<int32_t> padding = getPadding();
       return
         wa::TTNNOperandsWorkaroundsFactory::createPadOpOperandsWorkarounds(
-                                                             input, layoutAttr);
+                                                    input, layoutAttr, padding);
     }
   }];
 }
