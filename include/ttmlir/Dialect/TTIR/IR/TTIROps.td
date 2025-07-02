@@ -4075,7 +4075,7 @@ def TTIR_UnsqueezeOp : TTIR_NamedOp<"unsqueeze"> {
     let hasVerifier = 1;
 }
 
-def TTIR_ClampScalarOp : TTIR_NamedOp<"clamp_scalar", [TTIR_ElementwiseUnary]> {
+def TTIR_ClampScalarOp : TTIR_NamedOp<"clamp_scalar"> {
     let summary = "Scalar value clamping operation.";
     let description = [{
       The `clamp_scalar` operation constrains all elements of a tensor to be within a specified range.

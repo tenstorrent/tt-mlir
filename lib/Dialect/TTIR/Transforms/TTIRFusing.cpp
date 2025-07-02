@@ -6,7 +6,7 @@
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
-#include "mlir/Analysis/TopologicalSortUtils.h"
+#include "mlir/IR/Value.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::ttir {
@@ -251,30 +251,16 @@ public:
     Conv2dOp conv2dOp = components->first;
     Value scaleValue = components->second;
 
-    // Reshape scale to match weight dimensions and pre-multiply weights.
-    Value reshapedScale =
-        createReshapedScale(rewriter, conv2dOp.getLoc(), scaleValue,
-                            conv2dOp.getWeight().getType());
-
-    // Get UD chain starting from the reshaped scale. This chain will be
-    // moved before the conv2dOp to ensure that weight scale can be
-    // const-evaled.
-    SetVector<Value> udChain = ttmlir::utils::getUseDefChain(reshapedScale);
-    SetVector<Operation *> udChainOps =
-        ttmlir::utils::filterOperations(udChain.getArrayRef());
-    SetVector<Operation *> udChainSorted = topologicalSort(udChainOps);
-    for (auto *op : udChainSorted) {
-      op->moveBefore(conv2dOp);
-    }
-
+    // Insert before conv2d op.
     rewriter.setInsertionPoint(conv2dOp);
 
-    // Create scaled weights by multiplying the original weights with the
-    // resshaped scale.
+    // Reshape scale to match weight dimensions and pre-multiply weights.
+    Value reshapedScale =
+        createReshapedScale(rewriter, conv2dOp.getLoc(), scaleValue);
     Value scaledWeights = createScaledWeights(
         rewriter, conv2dOp.getLoc(), conv2dOp.getWeight(), reshapedScale);
 
-    // Update conv2d to use scaled weights and replace multiply operation.
+    // Update conv2d to use scaled weights and replace multiply operation
     rewriter.modifyOpInPlace(
         conv2dOp, [&]() { conv2dOp.getWeightMutable().assign(scaledWeights); });
     rewriter.replaceAllOpUsesWith(multiplyOp, conv2dOp);
@@ -309,50 +295,22 @@ private:
     mlir::func::FuncOp funcOp = conv2dOp->getParentOfType<mlir::func::FuncOp>();
     llvm::SmallPtrSet<BlockArgument, 4> constParams =
         mlir::tt::ttcore::getConstsAndParams(funcOp);
-    auto isConstant = [&constParams](mlir::Value value) {
+    auto isConstant = [&constParams, conv2dOp](mlir::Value value) {
       if (auto blockArg = mlir::dyn_cast<BlockArgument>(value)) {
         return constParams.contains(blockArg);
       }
 
-      Operation *defOp = value.getDefiningOp();
-      return defOp->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>();
+      Operation *op = value.getDefiningOp();
+      return op->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>() &&
+             op->isBeforeInBlock(conv2dOp);
     };
 
-    // If weight is not constant, we cannot commute.
-    if (!isConstant(conv2dOp.getWeight())) {
+    // Both scale and weight must be constant.
+    if (!isConstant(scale) || !isConstant(conv2dOp.getWeight())) {
       return false;
     }
 
-    RankedTensorType scaleType = scale.getType();
-    // If scale is comming from broadcast then we want to use the input type
-    // to the broadcast to check the shape.
-    if (auto bcastOp =
-            mlir::dyn_cast_if_present<BroadcastOp>(scale.getDefiningOp())) {
-      scaleType = bcastOp.getInput().getType();
-    }
-
-    // Check if scale shape is with conv2d weight.
-    if (!hasValidScaleShape(conv2dOp, scaleType)) {
-      return false;
-    }
-
-    // Now we want to check if operations which produce scale are
-    // const-evalable. We do this by getting UD chain of the scale and then
-    // checking if all inputs into this chain are constants.
-    SetVector<Value> useDefChain = ttmlir::utils::getUseDefChain(scale);
-    SetVector<BlockArgument> useDefChainBlockArgs =
-        ttmlir::utils::filterBlockArguments(useDefChain.getArrayRef());
-    if (!all_of(useDefChainBlockArgs, isConstant)) {
-      return false;
-    }
-
-    // Since we want to move the scale chain before conv2dOp we want to make
-    // sure that the scale chain does not contain conv2dOp.
-    if (useDefChain.contains(conv2dOp)) {
-      return false;
-    }
-
-    return true;
+    return hasValidScaleShape(conv2dOp, scale.getType());
   }
 
   // Scale must have rank 4 and shape (1, 1, 1, out_channels).
@@ -362,31 +320,11 @@ private:
            scaleType.getDimSize(3) == convOp.getOutputChannelSize();
   }
 
-  // There are two cases we want to handle here:
-  // 1. Input scale is a constant tensor that only neeeds reshaping
-  // 2. Input scale is a broadcast operation that needs reshaping
-  //
-  // In case of 1 we just add reshape operation to the scale tensor such that
-  // it has shape (out_channels, 1, 1, 1).
-  //
-  // In case of 2 we need to add reshape operation to the input of the of bcast
-  // and then we create new broadcast operation with the new reshaped scale
-  // which broadcasts the reshaped scale to the shape of the weight tensor.
   static Value createReshapedScale(mlir::PatternRewriter &rewriter,
-                                   Location loc, Value scaleValue,
-                                   RankedTensorType weightType) {
-    // If scaleValue is broadcast operation we want to reshape its input.
-    // Otherwise we reshape the scaleValue itself.
-    Value reshapeInput = scaleValue;
-    if (auto bcastOp = mlir::dyn_cast_if_present<BroadcastOp>(
-            scaleValue.getDefiningOp())) {
-      rewriter.setInsertionPoint(bcastOp);
-      reshapeInput = bcastOp.getInput();
-    }
-
+                                   Location loc, Value scaleValue) {
     // Get the scale's type.
     RankedTensorType scaleType =
-        mlir::cast<RankedTensorType>(reshapeInput.getType());
+        mlir::cast<RankedTensorType>(scaleValue.getType());
 
     // Create a new shape (out_channels, 1, 1, 1) from (1, 1, 1, out_channels).
     llvm::SmallVector<int64_t> newShape(scaleType.getShape());
@@ -397,25 +335,11 @@ private:
     // Convert to int32 for the reshape operation.
     llvm::SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
 
-    // Create the reshape operation.
-    auto reshapedScale = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+    // Create and return the reshape operation.
+    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
         rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshape"),
         newShape, scaleType.getElementType(), scaleType.getEncoding(),
-        reshapeInput, rewriter.getI32ArrayAttr(newShapeI32));
-
-    // If scale value is not a broadcast operation we can return reshapedScale.
-    if (!isa_and_present<ttir::BroadcastOp>(scaleValue.getDefiningOp())) {
-      return reshapedScale;
-    }
-
-    // Otherwise we need to create a new broadcast operation that will take
-    // reshaped scale and brroadcast it to the shape of the weight tensor.
-    SmallVector<int64_t> broadcastDims =
-        ttmlir::utils::getBroadcastDimensions<int64_t>(
-            reshapedScale.getType().getShape(), weightType.getShape());
-    return ttir::utils::createDPSOp<ttir::BroadcastOp>(
-        rewriter, scaleValue.getLoc(), weightType, reshapedScale,
-        broadcastDims);
+        scaleValue, rewriter.getI32ArrayAttr(newShapeI32));
   }
 
   /// Create pre-multiplied weights.
