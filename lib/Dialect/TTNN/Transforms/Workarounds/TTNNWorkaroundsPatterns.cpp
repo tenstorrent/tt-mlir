@@ -13,6 +13,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpDimRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpRankRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceOpsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RepeatOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/UpsampleOpRewritePattern.h"
@@ -741,7 +742,8 @@ public:
               ttnn::MinOp>,
           workarounds::decomposition::UpsampleOpBilinearShardingRewritePattern,
           workarounds::decomposition::UpsampleOpBilinearPaddingRewritePattern,
-          workarounds::decomposition::UpsampleOpLayoutRewritePattern>(
+          workarounds::decomposition::UpsampleOpLayoutRewritePattern,
+          workarounds::decomposition::MultiplyOpDecompositionRewritePattern>(
           &getContext());
 
       runRewritePatterns(std::move(patterns),
