@@ -14,6 +14,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceOpsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RepeatOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/UpsampleOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -262,7 +263,6 @@ public:
 
   LogicalResult matchAndRewrite(wa::TTNNWorkaroundInterface op,
                                 PatternRewriter &rewriter) const final {
-
     // To layout op is a special case, we don't want to rewrite it. We use it
     // to apply workarounds to the operands and results of TTNN operations.
     if (mlir::isa<ttnn::ToLayoutOp>(op.getOperation())) {
@@ -727,7 +727,11 @@ public:
           workarounds::decomposition::ReduceOpsPadInputRewritePattern<
               ttnn::MaxOp>,
           workarounds::decomposition::ReduceOpsPadInputRewritePattern<
-              ttnn::MinOp>>(&getContext());
+              ttnn::MinOp>,
+          workarounds::decomposition::UpsampleOpBilinearShardingRewritePattern,
+          workarounds::decomposition::UpsampleOpBilinearPaddingRewritePattern,
+          workarounds::decomposition::UpsampleOpLayoutRewritePattern>(
+          &getContext());
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);
