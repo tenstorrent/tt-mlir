@@ -26,8 +26,6 @@
   core_grid = #ttnn.core_range_set<>,
   transpose_shards = true,
   output_layout = tile,
-  preprocess_weights_on_device = true,
-  always_preprocess_weights = true,
   enable_act_double_buffer = false,
   enable_weights_double_buffer = false,
   enable_split_reader = false,

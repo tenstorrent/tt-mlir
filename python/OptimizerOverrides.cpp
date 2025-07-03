@@ -234,12 +234,6 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
               &mlir::tt::ttnn::Conv2dConfigOverrideParams::transposeShards)
       .def_rw("output_layout",
               &mlir::tt::ttnn::Conv2dConfigOverrideParams::outputLayout)
-      .def_rw("preprocess_weights_on_device",
-              &mlir::tt::ttnn::Conv2dConfigOverrideParams::
-                  preprocessWeightsOnDevice)
-      .def_rw(
-          "always_preprocess_weights",
-          &mlir::tt::ttnn::Conv2dConfigOverrideParams::alwaysPreprocessWeights)
       .def_rw(
           "enable_act_double_buffer",
           &mlir::tt::ttnn::Conv2dConfigOverrideParams::enableActDoubleBuffer)
@@ -341,16 +335,6 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
              } else {
                throw std::invalid_argument("Invalid output layout: " + value);
              }
-           })
-      .def("set_preprocess_weights_on_device_from_str",
-           [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
-              const std::string &value) {
-             obj.preprocessWeightsOnDevice = (value == "True");
-           })
-      .def("set_always_preprocess_weights_from_str",
-           [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
-              const std::string &value) {
-             obj.alwaysPreprocessWeights = (value == "True");
            })
       .def("set_enable_act_double_buffer_from_str",
            [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,

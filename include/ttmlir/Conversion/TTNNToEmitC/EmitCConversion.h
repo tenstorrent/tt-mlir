@@ -1093,11 +1093,6 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
                  *attr.getOutputLayout());
       firstElement = false;
     }
-    if (attr.getPreprocessWeightsOnDevice()) {
-      rso << (firstElement ? "" : ", ") << ".preprocess_weights_on_device = "
-          << EmitCTypeConverter<bool>::convert(
-                 attr.getPreprocessWeightsOnDevice());
-    }
     rso << "}";
     return buf;
   }
