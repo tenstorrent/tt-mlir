@@ -16,6 +16,7 @@ namespace mlir::tt::ttnn::workarounds::decomposition {
 // layout, provided that the input tensor is already in a `RowMajor` layout and
 // has `BFloat16` data type, and that the channel axis is a multiple of the tile
 // width.
+// tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/18399
 class UpsampleOpBilinearShardingRewritePattern
     : public OpRewritePattern<ttnn::UpsampleOp> {
 public:

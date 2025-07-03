@@ -8,8 +8,7 @@
 
 module {
   func.func @test_layout_padding_sharding(%arg0: tensor<1x8x8x30xf32, #layout_tile_interleaved>) -> tensor<1x16x16x30xf32, #layout_tile_interleaved_out> {
-    %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    // CHECK: %[[TO_ROWMAJOR:.*]] = "ttnn.to_layout"(%arg0, %0)
+    // CHECK: %[[TO_ROWMAJOR:.*]] = "ttnn.to_layout"(%arg0)
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
     // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK: %[[PADDED:.*]] = "ttnn.pad"(%[[TO_ROWMAJOR]])
@@ -23,7 +22,7 @@ module {
     // CHECK: %[[SLICED:.*]] = "ttnn.slice"(%[[TO_INTERLEAVED]])
     // CHECK-SAME: begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32]
     // CHECK-SAME: ends = [1 : i32, 16 : i32, 16 : i32, 30 : i32]
-    // CHECK: %[[TO_TILE:.*]] = "ttnn.to_layout"(%[[SLICED]], %0)
+    // CHECK: %[[TO_TILE:.*]] = "ttnn.to_layout"(%[[SLICED]])
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<f32>
     // CHECK-SAME: layout = #ttnn.layout<tile>
     %1 = "ttnn.upsample"(%arg0) <{mode = "bilinear", scale_factor = 2 : si32}> : (tensor<1x8x8x30xf32, #layout_tile_interleaved>) -> tensor<1x16x16x30xf32, #layout_tile_interleaved_out>
