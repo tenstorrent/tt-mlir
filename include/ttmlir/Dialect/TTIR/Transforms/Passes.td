@@ -560,7 +560,7 @@ def TTIREraseInverseOps: Pass<"ttir-erase-inverse-ops", "::mlir::ModuleOp">
   list<Option> options = [
     Option<"enableCommuteUpwards", "enable-commute-upwards", "bool", "true", "Enable commuting upwards. This should only be false for testing purposes (i.e you want to test a commute downwards pattern)">,
     Option<"enableCommuteDownwards", "enable-commute-downwards", "bool", "true", "Enable commuting downwards. This should only be false for testing purposes (i.e you want to test a commute upwards pattern)">,
-    Option<"maxIterations", "max-iterations", "uint64_t", "0", "Maximum number of iterations to perform commuting. Setting to 0 will cause the the pass to run until no more TMs can be erased. This option may be useful for debugging infinite looping within the pass.">
+    Option<"maxIterations", "max-iterations", "uint64_t", "100", "Maximum number of iterations to perform commuting. The number of TMs is expected to converge before this limit is reached.">
   ];
 }
 

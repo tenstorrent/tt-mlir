@@ -23,10 +23,10 @@ countTms(Operation *op,
          const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams) {
   uint64_t tmCount = 0;
   op->walk([&](Operation *op) {
-    if (isa<TransposeOp, PermuteOp, ReshapeOp>(op)) {
+    if (op->hasTrait<tt::ttir::detail::TensorManipulationTrait>()) {
       // If the TM lies on a constevalable subgraph then we will not count it
       // as it will be removed from the main graph.
-      if (!valueTracesToConstantArgs(op->getResult(0))) {
+      if (!ttcore::valueTracesToConstantArgs(op->getResult(0))) {
         tmCount++;
       }
     }
@@ -59,28 +59,18 @@ public:
     commuteBelowPatterns =
         getCommuteRewritePatternSet<CommuteDirection::DOWNWARDS>(constParams);
     for (auto funcOp : funcOps) {
-      // Surround with ifdef as this would otherwise unnecessarily count TMs
-#ifdef TTMLIR_ENABLE_DEBUG_LOGS
       const int64_t nonConstevalableTMsBefore = countTms(funcOp, constParams);
-#endif
 
-      // If the maxIterations is 0, then the loop will run until no more TMs
-      // will be removed from the activation paths, or indefinetly if there
-      // is a bug in the algorithm and/or halting condition.
-      // If the maxIterations > 0 then the loop will run until no more TMs
-      // will be removed from the activation paths, or until the maxIterations
-      // is reached.
       uint64_t maxIterationsValue = maxIterations.getValue();
-      uint64_t numConsecutiveCountIncreases = 0;
-      auto loopCondition = [maxIterationsValue](uint64_t iter) {
-        return maxIterationsValue == 0 ? true : iter < maxIterationsValue;
-      };
-
       uint64_t previousAfterCommuteAboveTMCount =
           std::numeric_limits<uint64_t>::max();
       uint64_t previousAfterCommuteBelowTMCount =
           std::numeric_limits<uint64_t>::max();
-      for (uint64_t iter = 0; loopCondition(iter); ++iter) {
+
+      uint64_t iter = 0;
+      // The number of TM is expected to converge before maxIterations (default:
+      // 100) is reached.
+      for (; iter < maxIterationsValue; ++iter) {
         // We do not yet have a way of returning the beginning state of the
         // graph So we will return after we have commuted the TMs above at least
         // once
@@ -90,33 +80,29 @@ public:
         applyCommuteBelowPatterns(funcOp);
         uint64_t afterCommuteBelowTMCount = countTms(funcOp, constParams);
 
+        // If the number of TM is the same as in the previous iteration, we have
+        // converged.
         if (afterCommuteAboveTMCount == previousAfterCommuteAboveTMCount &&
             afterCommuteBelowTMCount == previousAfterCommuteBelowTMCount) {
 
+          // If the number of TM was smaller before commuting below, commute
+          // above one more time.
           if (afterCommuteAboveTMCount < afterCommuteBelowTMCount) {
             applyCommuteAbovePatterns(funcOp);
           }
           break;
         }
-        if (afterCommuteAboveTMCount > previousAfterCommuteAboveTMCount ||
-            afterCommuteBelowTMCount > previousAfterCommuteBelowTMCount) {
-          numConsecutiveCountIncreases++;
-        } else {
-          numConsecutiveCountIncreases = 0;
-        }
-
-        if (numConsecutiveCountIncreases == 10) {
-          emitError(funcOp.getLoc())
-              << "TM count has increased for 10 consecutive iterations.";
-          signalPassFailure();
-          return;
-        }
-
         previousAfterCommuteAboveTMCount = afterCommuteAboveTMCount;
         previousAfterCommuteBelowTMCount = afterCommuteBelowTMCount;
       }
-      // Surround with ifdef as this would otherwise unnecessarily count TMs
-#ifdef TTMLIR_ENABLE_DEBUG_LOGS
+      if (iter == maxIterationsValue) {
+        emitError(funcOp.getLoc())
+            << "EraseInverseOps: TM count has not converged after "
+            << maxIterationsValue << " iterations.";
+        signalPassFailure();
+        return;
+      }
+
       const int64_t nonConstevalableTMsAfter = countTms(funcOp, constParams);
       TTMLIR_DEBUG(ttmlir::LogComponent::General,
                    "Function: {} | Num TMs on the activation paths before "
@@ -126,7 +112,6 @@ public:
                    funcOp.getName(), nonConstevalableTMsBefore,
                    nonConstevalableTMsAfter,
                    nonConstevalableTMsBefore - nonConstevalableTMsAfter);
-#endif
     }
   }
 
@@ -141,7 +126,6 @@ private:
     populateElementwiseCommutePatterns<commuteDirection>(&getContext(),
                                                          patterns);
     populateBroadcastCommutePatterns<commuteDirection>(&getContext(), patterns);
-    populateConcatCommutePatterns<commuteDirection>(&getContext(), patterns);
 
     populateTTIRTMFusionPatterns(&getContext(), patterns);
     return patterns;

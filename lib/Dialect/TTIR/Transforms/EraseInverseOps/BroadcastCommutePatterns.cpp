@@ -285,8 +285,8 @@ private:
 
   bool isCommuteDownwardsViable(ttir::BroadcastOp op,
                                 ttir::ReshapeOp) const override {
-    // TODO(@LPanosTT): performCommuteDownwardsRewrite is not implemented, thus
-    // it is not viable for now
+    // TODO(@LPanosTT, #3950): performCommuteDownwardsRewrite is not
+    // implemented, thus it is not viable for now
     return false;
   }
 

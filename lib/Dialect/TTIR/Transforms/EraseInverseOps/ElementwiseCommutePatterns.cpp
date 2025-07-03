@@ -89,7 +89,7 @@ public:
     // For each of the other operands we must generate an inverse TM
     // Do not want to do anything to the DPS operand
     SmallVector<Value> newEltwiseOperands;
-    for (uint32_t operandIdx = 0; operandIdx < op->getNumOperands() - 1;
+    for (uint32_t operandIdx = 0; operandIdx < op->getNumOperands();
          operandIdx++) {
 
       if (auto asDpsOp =
@@ -104,8 +104,7 @@ public:
         newEltwiseOperands.push_back(tmOperand.getInput());
         continue;
       }
-      newEltwiseOperands.push_back(
-          getInverseTM(tmOperand, operand, rewriter)->getResult(0));
+      newEltwiseOperands.push_back(getInverseTM(tmOperand, operand, rewriter));
     }
 
     newEltwiseOperands.push_back(rewriter.create<ttir::EmptyOp>(
@@ -163,7 +162,7 @@ private:
         }
       }
       if (checkIdenticalTms(op->getOperand(i).getDefiningOp(), tmOperand) ||
-          valueTracesToConstantArgs(op->getOperand(i))) {
+          ttcore::valueTracesToConstantArgs(op->getOperand(i))) {
         continue;
       }
       return false;

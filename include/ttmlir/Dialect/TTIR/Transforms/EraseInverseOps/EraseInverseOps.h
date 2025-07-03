@@ -5,51 +5,15 @@
 #ifndef TTMLIR_DIALECT_TTIR_TRANSFORMS_ERASEINVERSEOPS_ERASEINVERSEOPS_H
 #define TTMLIR_DIALECT_TTIR_TRANSFORMS_ERASEINVERSEOPS_ERASEINVERSEOPS_H
 
-#include "mlir/Analysis/TopologicalSortUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Analysis/TopologicalSortUtils.h"
+
 namespace mlir::tt::ttir {
-
-// This function will return true if a given Value is the result of operations
-// performed only between constant-like ops and/or block arguments in
-// which have been marked as consteval-able (Parameter or Constant
-// ArgumentType).
-static bool valueTracesToConstantArgs(const Value &value) {
-
-  auto useDefChain = ttmlir::utils::getUseDefChain(value);
-  auto subgraphBlockArgs =
-      ttmlir::utils::filterBlockArguments(useDefChain.getArrayRef());
-  mlir::func::FuncOp funcOp = nullptr;
-
-  if (!subgraphBlockArgs.empty()) {
-    Block *argOwner = subgraphBlockArgs.front().getOwner();
-    if (!argOwner) {
-      return false;
-    }
-    funcOp = dyn_cast_or_null<mlir::func::FuncOp>(argOwner->getParentOp());
-  }
-  if (!funcOp) {
-    return false;
-  }
-
-  for (auto blockArg : subgraphBlockArgs) {
-    if (auto typeAttr = funcOp.getArgAttrOfType<ttcore::ArgumentTypeAttr>(
-            blockArg.getArgNumber(), ttcore::ArgumentTypeAttr::name)) {
-      if (typeAttr.getValue() != ttcore::ArgumentType::Parameter &&
-          typeAttr.getValue() != ttcore::ArgumentType::Constant) {
-        return false;
-      }
-    } else {
-      return false;
-    }
-  }
-
-  return true;
-}
 
 enum CommuteDirection { DOWNWARDS, UPWARDS };
 
@@ -101,7 +65,7 @@ protected:
       for (Value operand : op->getOperands()) {
         // We do not want to commute any tms downwards which are already a part
         // of a consteval-able path
-        if (valueTracesToConstantArgs(operand)) {
+        if (ttcore::valueTracesToConstantArgs(operand)) {
           continue;
         }
         auto tmOperand = operand.getDefiningOp<TMOpType>();
@@ -111,8 +75,8 @@ protected:
 
         // We do not want to attempt to commute any TM downwards which itself
         // has has more than one user
-        SmallVector<Operation *> users(tmOperand->getUsers());
-        if (users.size() > 1) {
+        if (std::distance(tmOperand->getUsers().begin(),
+                          tmOperand->getUsers().end()) > 1) {
           continue;
         }
 
@@ -261,45 +225,37 @@ inline bool checkAllUsersAreIdenticalTms(ArrayRef<Operation *> users) {
   });
 }
 
-inline Operation *getInverseTM(Operation *tm, Value input,
-                               PatternRewriter &rewriter) {
-
+inline PermuteOp getInverseTM(PermuteOp permuteOp, Value input,
+                              PatternRewriter &rewriter) {
   auto inputType = dyn_cast_or_null<RankedTensorType>(input.getType());
   if (!inputType) {
     llvm_unreachable("Input to inverse TM must be a ranked tensor type");
   }
 
-  if (PermuteOp permute = dyn_cast_or_null<PermuteOp>(tm); permute) {
-    SmallVector<int64_t> permutation(permute.getPermutation());
-    SmallVector<int64_t> inversePermutation;
+  SmallVector<int64_t> permutation(permuteOp.getPermutation());
+  SmallVector<int64_t> inversePermutation =
+      ttmlir::utils::inversePermutation(permutation);
 
-    for (size_t i = 0; i < permutation.size(); i++) {
-      int64_t *inverseIndexLocation = llvm::find(permutation, i);
-      if (inverseIndexLocation == permutation.end()) {
-        llvm_unreachable(
-            "PermutationOp attribute 'permutation' must contain one of each "
-            "value in the range [0, permutation.size()]");
-      }
-      inversePermutation.push_back(inverseIndexLocation - permutation.begin());
-    }
+  SmallVector<int64_t> outputShape = ttmlir::utils::applyPermutation(
+      inputType.getShape(), ArrayRef<int64_t>(inversePermutation));
+  RankedTensorType resultType = inputType.clone(outputShape);
+  return ttir::utils::createDPSOp<PermuteOp>(
+      rewriter, permuteOp->getLoc(), resultType, input, inversePermutation);
+}
 
-    SmallVector<int64_t> outputShape = ttmlir::utils::applyPermutation(
-        inputType.getShape(), ArrayRef<int64_t>(inversePermutation));
-    RankedTensorType resultType = inputType.clone(outputShape);
-    return ttir::utils::createDPSOp<PermuteOp>(
-        rewriter, permute->getLoc(), resultType, input, inversePermutation);
-  }
-  if (ReshapeOp reshape = dyn_cast_or_null<ReshapeOp>(tm); reshape) {
-
-    auto outputShape = reshape.getInput().getType().getShape();
-    RankedTensorType resultType = inputType.clone(outputShape);
-
-    return ttir::utils::createDPSOp<ReshapeOp>(
-        rewriter, reshape->getLoc(), resultType, input,
-        rewriter.getI32ArrayAttr(SmallVector<int32_t>(outputShape)));
+inline ReshapeOp getInverseTM(ReshapeOp reshapeOp, Value input,
+                              PatternRewriter &rewriter) {
+  auto inputType = dyn_cast_or_null<RankedTensorType>(input.getType());
+  if (!inputType) {
+    llvm_unreachable("Input to inverse TM must be a ranked tensor type");
   }
 
-  llvm_unreachable("Unknown TM type");
+  auto outputShape = reshapeOp.getInput().getType().getShape();
+  RankedTensorType resultType = inputType.clone(outputShape);
+
+  return ttir::utils::createDPSOp<ReshapeOp>(
+      rewriter, reshapeOp->getLoc(), resultType, input,
+      rewriter.getI32ArrayAttr(SmallVector<int32_t>(outputShape)));
 }
 
 template <CommuteDirection commuteDirection>
@@ -308,9 +264,6 @@ extern void populateElementwiseCommutePatterns(MLIRContext *ctx,
 template <CommuteDirection commuteDirection>
 extern void populateBroadcastCommutePatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns);
-template <CommuteDirection commuteDirection>
-extern void populateConcatCommutePatterns(MLIRContext *ctx,
-                                          RewritePatternSet &patterns);
 
 } // namespace mlir::tt::ttir
 
