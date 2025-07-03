@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNTraits.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ArgMaxOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpDimRewritePattern.h"
@@ -31,6 +32,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include "llvm/Support/raw_ostream.h"
 #include <optional>
 #include <tuple>
 #include <utility>
@@ -195,6 +197,15 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
           rewriter.getAttr<ttcore::DataTypeAttr>(
               outputWorkaroundResults.tensorDataTypeResult.targetValue);
       op->setAttr("dtype", updatedDataTypeAttr);
+    }
+
+    if (outputWorkaroundResults.tensorDataTypeResult.isModified() &&
+        op->hasTrait<ttnn::HasOutputDTypeTrait>()) {
+      ttcore::DataTypeAttr updatedDataTypeAttr =
+          rewriter.getAttr<ttcore::DataTypeAttr>(
+              outputWorkaroundResults.tensorDataTypeResult.targetValue);
+      op->setAttr(HasOutputDTypeTraitBase::getOutputDTypeAttributeName(),
+                  updatedDataTypeAttr);
     }
 
     if ((outputWorkaroundResults.tensorBufferTypeResult.isModified() ||
