@@ -63,7 +63,7 @@ public:
     auto newGeneric = rewriter.create<GenericOp>(
         op.getLoc(), op.getResults().getTypes(), op.getInputs(),
         op.getOutputs(), op.getGrid(), op.getBlockFactors(),
-        op.getIndexingMaps(), op.getIteratorTypes(),
+        op.getSubblockFactors(), op.getIndexingMaps(), op.getIteratorTypes(),
         rewriter.getArrayAttr(threads), op.getNumRegions() - 1);
 
     unsigned regionIndex = 0;

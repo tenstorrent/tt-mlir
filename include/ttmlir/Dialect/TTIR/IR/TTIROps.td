@@ -86,7 +86,8 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
 
       ```llvm
       %5 = "ttir.generic"(%1, %2, %3, %4) <{
-        block_factors = [1, 1],                      // The block factors that additionally divide a shard shape into smaller blocks.
+        block_factors = [1, 1],                      // The block factors that additionally divide a shard shape into smaller blocks. These blocks determine the data movement blocking.
+        subblock_factors = [1, 1],                   // The subblock factors that additionally divide a block into smaller subblocks. These subblocks determine the compute sub-blocking that respects the DST register size.
         grid = #ttcore.grid<1x1>,                    // The grid range of cores to dispatch work to.
         indexing_maps = [#map, #map, #map],          // Affine maps for indexing into the input/output tensors. See linalg.generic
         iterator_types = [#parallel, #parallel],     // Iterator types for the input/output tensors. See linalg.generic
@@ -105,6 +106,7 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
                          Variadic<AnyRankedTensorOrMemRef>:$outputs,
                          TTCore_GridAttr:$grid,
                          I64ArrayAttr:$block_factors,
+                         I64ArrayAttr:$subblock_factors,
                          AffineMapArrayAttr:$indexing_maps,
                          TTCore_IteratorTypeArrayAttr:$iterator_types,
                          TTIR_ThreadArrayAttr:$threads);
@@ -125,7 +127,8 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
                      "ArrayAttr": $iteratorTypes,
                      CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
                      CArg<"ttcore::GridAttr", "nullptr">: $grid,
-                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors),
+                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors,
+                     CArg<"ArrayRef<int64_t>", "{}">: $subblockFactors),
       [{
         assert(!indexingMaps.empty() && "expected non-empty indexing maps");
         assert(outputs.size() == 1 && "expected single output");
@@ -142,7 +145,10 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
         auto blockFactorsAttr = $_builder.getI64ArrayAttr(blockFactors.empty() ?
                                                           SmallVector<int64_t>(iteratorTypes.size(), 1) :
                                                           blockFactors);
-        build($_builder, $_state, TypeRange(outputs), inputs, outputs, grid, blockFactorsAttr, indexingMaps, iteratorTypes, threads, 1);
+        auto subblockFactorsAttr = $_builder.getI64ArrayAttr(subblockFactors.empty() ?
+                                                            SmallVector<int64_t>(iteratorTypes.size(), 1) :
+                                                            subblockFactors);
+        build($_builder, $_state, TypeRange(outputs), inputs, outputs, grid, blockFactorsAttr, subblockFactorsAttr, indexingMaps, iteratorTypes, threads, 1);
       }]>,
       OpBuilder<(ins "ValueRange": $inputs,
                      "ValueRange": $outputs,
@@ -151,9 +157,10 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
                      "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
                      CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
                      CArg<"ttcore::GridAttr", "nullptr">: $grid,
-                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors),
+                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors,
+                     CArg<"ArrayRef<int64_t>", "{}">: $subblockFactors),
       [{
-        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadType, grid, blockFactors);
+        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadType, grid, blockFactors, subblockFactors);
         llvm::SmallVector<Type> blockTypes = llvm::map_to_vector(TypeRange($_state.operands), [&](Type t) -> Type {
           mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
           auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
@@ -170,7 +177,8 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
                      "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
                      CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
                      CArg<"ttcore::GridAttr", "nullptr">: $grid,
-                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors),
+                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors,
+                     CArg<"ArrayRef<int64_t>", "{}">: $subblockFactors),
       [{
         assert(outputs.size() == 1 && "expected single output");
         RankedTensorType tensorType = mlir::cast<RankedTensorType>(outputs[0].getType());
@@ -178,7 +186,7 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
         const size_t rank = (maybeLayout != nullptr) ? maybeLayout.getShardShape(tensorType).size() : tensorType.getShape().size();
         auto [indexingMaps, iteratorTypes] = buildParallelAffineMapsAndIteratorTypes($_builder,
             inputs.size() + outputs.size(), rank);
-        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadRegionBuilder, singleThreadType, grid);
+        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadRegionBuilder, singleThreadType, grid, blockFactors, subblockFactors);
       }]>,
     ];
 
@@ -199,6 +207,7 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
       SmallVector<AffineMap> getIndexingMapsValue();
       SmallVector<ttcore::IteratorType> getIteratorTypesValue();
       SmallVector<int64_t> getBlockFactorsValue();
+      SmallVector<int64_t> getSubblockFactorsValue();
       SmallVector<SmallVector<int64_t>> getOperandGridShapes();
       SmallVector<SmallVector<int64_t>> getOperandShardShapes(bool convertTileToScalar = false);
       ThreadType getRegionThreadType(unsigned regionIndex) {

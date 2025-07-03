@@ -3924,6 +3924,13 @@ mlir::SmallVector<int64_t> mlir::tt::ttir::GenericOp::getBlockFactorsValue() {
   });
 }
 
+mlir::SmallVector<int64_t>
+mlir::tt::ttir::GenericOp::getSubblockFactorsValue() {
+  return llvm::map_to_vector(getSubblockFactors(), [](Attribute a) {
+    return mlir::cast<IntegerAttr>(a).getInt();
+  });
+}
+
 mlir::SmallVector<mlir::SmallVector<int64_t>>
 mlir::tt::ttir::GenericOp::getOperandGridShapes() {
   SmallVector<SmallVector<int64_t>> gridShapes;
@@ -4099,8 +4106,8 @@ mlir::LogicalResult mlir::tt::ttir::GenericOp::bufferize(
   }
   auto bufferGeneric = rewriter.create<mlir::tt::ttir::GenericOp>(
       getLoc(), ValueRange(), bufferInputs, bufferOutputs, getGrid(),
-      getBlockFactors(), getIndexingMaps(), getIteratorTypes(), getThreads(),
-      getNumRegions());
+      getBlockFactors(), getSubblockFactors(), getIndexingMaps(),
+      getIteratorTypes(), getThreads(), getNumRegions());
   for (mlir::Region &region : bufferGeneric.getRegions()) {
     region.takeBody(getRegion(region.getRegionNumber()));
   }

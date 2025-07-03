@@ -7,6 +7,14 @@
 
 include "mlir/Pass/PassBase.td"
 
+def TTIRGenericTileComputeLoops : Pass<"ttir-generic-tile-compute-loops", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+    This pass tiles affine compute loops according to the generic's subblock factors.
+  }];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+}
+
 def TTIRInsertDstRegisterAccess : Pass<"ttir-insert-dst-register-access", "::mlir::ModuleOp"> {
   let summary = "Insert dst register access.";
   let description = [{

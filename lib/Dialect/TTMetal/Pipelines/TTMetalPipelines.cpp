@@ -93,6 +93,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   }
   pm.addPass(ttir::createTTIRGenericApplyInterchange(applyInterchangeOptions));
   pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
+  pm.addPass(ttir::createTTIRGenericTileComputeLoops());
   pm.addPass(ttir::createTTIRInsertDstRegisterAccess());
   pm.addPass(ttir::createTTIRGenericLinearizeMemref());
   pm.addPass(mlir::createLowerAffinePass());
