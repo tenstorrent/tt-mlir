@@ -297,8 +297,8 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
              std::optional<llvm::ArrayRef<int64_t>> biasShape,
              std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout,
              llvm::ArrayRef<int64_t> outputShape,
-             mlir::tt::ttnn::TTNNLayoutAttr outputLayout,
-             bool transposeA, bool transposeB);
+             mlir::tt::ttnn::TTNNLayoutAttr outputLayout, bool transposeA,
+             bool transposeB);
 }; // namespace LinearOpInterface
 
 //===----------------------------------------------------------------------===//
