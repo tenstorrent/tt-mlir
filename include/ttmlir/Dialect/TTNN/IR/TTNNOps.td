@@ -1033,6 +1033,36 @@ def TTNN_SoftmaxOp : TTNN_Op<"softmax",
     let hasVerifier = 1;
 }
 
+def TTNN_SortOp : TTNN_Op<"sort"> {
+  let summary = "Sort op.";
+  let description = [{
+    Sorts elements of a tensor along a given dimension.
+
+    Input:
+      - input: AnyRankedTensor
+
+    Attributes:
+      - dim (int8): The dimension to sort along (default: -1, the last dim).
+      - descending (bool): If True, sort in descending order (default: False).
+      - stable (bool): If True, ensures stable sort (equal elements keep order).
+
+    Returns a tuple:
+      - values: the sorted tensor.
+      - indices: the original indices of the sorted values.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       DefaultValuedAttr<SI8Attr, "-1">:$dim,
+                       DefaultValuedAttr<BoolAttr, "false">:$descending,
+                       DefaultValuedAttr<BoolAttr, "false">:$stable,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$values,
+                      AnyRankedTensor:$indices);
+
+  let hasVerifier = 1;
+}
+
 def TTNN_TransposeOp : TTNN_Op<"transpose",
       [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
       > {
