@@ -793,7 +793,7 @@ MetalLayoutAttr::getDeviceShape(ArrayRef<int64_t> gridShape,
   deviceShape.reserve(physicalShape.size() * 2);
 
   assert(physicalShape.size() == gridShape.size() &&
-         "Grid rank must equalcollapsed tensor rank");
+         "Grid rank must equal to collapsed tensor rank");
   // Without tiling, distribute dimensions across grid.
   for (size_t i = 0; i < physicalShape.size(); ++i) {
     const int64_t dim = physicalShape[i];

@@ -607,6 +607,15 @@ public:
           i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[0]);
       auto blockC =
           i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[1]);
+
+      fprintf(stderr, "++ Tilize rewriter:\n");
+      fprintf(stderr, "++ uncollapsedMemrefType: ");
+      uncollapsedMemrefType.dump();
+      fprintf(stderr, "++ blockR: ");
+      blockR.dump();
+      fprintf(stderr, "++ blockC: ");
+      blockC.dump();
+
       rewriter.create<ttkernel::ComputeKernelHWStartupOp>(op->getLoc(), src,
                                                           nullptr, dst);
       rewriter.create<ttkernel::TilizeInitOp>(op->getLoc(), src, blockC, dst);
@@ -623,6 +632,15 @@ public:
           i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[0]);
       auto blockC =
           i32(rewriter, op->getLoc(), uncollapsedMemrefType.getShape()[1]);
+
+      fprintf(stderr, "++ Untilize rewriter:\n");
+      fprintf(stderr, "++ uncollapsedMemrefType: ");
+      uncollapsedMemrefType.dump();
+      fprintf(stderr, "++ blockR: ");
+      blockR.dump();
+      fprintf(stderr, "++ blockC: ");
+      blockC.dump();
+
       rewriter.create<ttkernel::ComputeKernelHWStartupOp>(op->getLoc(), src,
                                                           nullptr, dst);
       rewriter.create<ttkernel::UntilizeInitOp>(op->getLoc(), src);

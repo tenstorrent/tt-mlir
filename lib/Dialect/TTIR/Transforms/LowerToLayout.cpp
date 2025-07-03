@@ -296,6 +296,11 @@ class TTIRSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
                      std::optional<ArrayRef<int64_t>> newTensorGrid = {},
                      std::optional<Type> newElementType = {},
                      std::optional<ArrayRef<int64_t>> newTileShape = {}) {
+      fprintf(stderr, "++ modifyDeviceType: start\n");
+      fprintf(stderr, "++ Base type ");
+      baseType.dump();
+      fprintf(stderr, "++ Base layout ");
+      baseLayout.dump();
 
       assert(baseLayout && "modifyDeviceType requires a layout");
 
@@ -322,7 +327,11 @@ class TTIRSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       }
       auto deviceShape = layout.getDeviceShape(tensorGrid, tileShape);
 
-      return RankedTensorType::get(deviceShape, elementType, layout);
+      const auto ret = RankedTensorType::get(deviceShape, elementType, layout);
+      fprintf(stderr, "++ New tensor type: ");
+      ret.dump();
+      fprintf(stderr, "++ modifyDeviceType: finish\n");
+      return ret;
     }
 
   private:

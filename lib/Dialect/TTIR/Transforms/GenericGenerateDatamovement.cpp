@@ -64,6 +64,10 @@ public:
     SmallVector<ttcore::IteratorType> mcastIterators;
     mcastIterators.reserve(grid.getShape().size());
     for (unsigned dim = 0; dim < grid.getShape().size(); dim++) {
+      if (llvm::isa<AffineConstantExpr>(operandIndexingMap.getResult(dim))) {
+        mcastIterators.push_back(ttcore::IteratorType::Parallel);
+        continue;
+      }
       unsigned dimPosition = operandIndexingMap.getDimPosition(dim);
 
       ttcore::IteratorType iteratorType =
