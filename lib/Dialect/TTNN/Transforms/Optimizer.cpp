@@ -802,7 +802,9 @@ private:
     // Empty consumerConfig with conv2d config if conv2d op.
     OpConfig consumerConfig;
     if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(op)) {
-      consumerConfig.opSpecificAttr = conv2dOp.getConv2dConfigAttr();
+      Conv2dAttrs conv2dAttrs = {conv2dOp.getConv2dConfigAttr(),
+                                 conv2dOp.getComputeConfigAttr()};
+      consumerConfig.opSpecificAttrs = conv2dAttrs;
     }
 
     auto opConstraintsResult =

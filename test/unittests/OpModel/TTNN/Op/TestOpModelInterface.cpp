@@ -989,7 +989,8 @@ TEST_F(OpModelBase, PrepareConv2dWeightsOutput) {
 }
 
 TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
-  // Skipped due to hang. See https://github.com/tenstorrent/tt-mlir/issues/3901
+  // TODO(3901): Skipped due to hang. See
+  // https://github.com/tenstorrent/tt-mlir/issues/3901
   GTEST_SKIP();
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
@@ -1114,6 +1115,9 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
 }
 
 TEST_F(OpModelBase, conv2dInterfaceComputeKernelConfig) {
+  // TODO(3901): Skipped due to hang. See
+  // https://github.com/tenstorrent/tt-mlir/issues/3901
+  GTEST_SKIP();
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
   llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
@@ -1123,13 +1127,14 @@ TEST_F(OpModelBase, conv2dInterfaceComputeKernelConfig) {
 
   auto inputLayout = mlir::tt::ttnn::TTNNLayoutAttr::get(
       &context, inputShape, elemetType, mlir::tt::ttnn::BufferType::DRAM,
-      GridAttr::get(&context, 2),
+      ttcore::GridAttr::get(&context, 2),
       TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
   auto input = createEmptyTensor(inputShape, elemetType, inputLayout);
 
   auto weightLayout = mlir::tt::ttnn::TTNNLayoutAttr::get(
       &context, weightShape, elemetType,
-      mlir::tt::ttnn::BufferType::SystemMemory, GridAttr::get(&context, 2));
+      mlir::tt::ttnn::BufferType::SystemMemory,
+      ttcore::GridAttr::get(&context, 2));
   auto weight = createEmptyTensor(weightShape, elemetType, weightLayout);
 
   auto outputType = createRankedTensorType(outputShape);
@@ -1243,7 +1248,8 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
   OpModel backend = dyn_cast<OpModel>(convTranspose2d.getOperation());
   auto constraintsExp = backend.getOpConstraints(
       getInputLayouts(convTranspose2d),
-      OpConfig(getOutputLayout(convTranspose2d), goodConvConfig));
+      OpConfig(getOutputLayout(convTranspose2d),
+               Conv2dAttrs{goodConvConfig, std::nullopt}));
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cb_size, peak_size, output_size, outputLayout] =
       constraintsExp.get();
@@ -1254,9 +1260,10 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
   // Device hangs otherwise.
   mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
-  auto runtimeExp = backend.getOpRuntime(
-      getInputLayouts(convTranspose2d),
-      OpConfig(getOutputLayout(convTranspose2d), goodConvConfig));
+  auto runtimeExp =
+      backend.getOpRuntime(getInputLayouts(convTranspose2d),
+                           OpConfig(getOutputLayout(convTranspose2d),
+                                    Conv2dAttrs{goodConvConfig, std::nullopt}));
   ASSERT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_GT(runtimeExp.get(), 0);
 }
