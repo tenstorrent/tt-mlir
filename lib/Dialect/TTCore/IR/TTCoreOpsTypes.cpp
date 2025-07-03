@@ -772,16 +772,36 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::derivePhysicalShape(
     ArrayRef<int64_t> alignmentDims) {
   llvm::SmallVector<int64_t> physicalShape;
 
+  fprintf(stderr, "++ derivePhysicalShape: logicalShape [");
+  for (int64_t dim : logicalShape) {
+    fprintf(stderr, " %ld", dim);
+  }
+  fprintf(stderr, " ] gridShape [");
+  for (int64_t dim : gridShape) {
+    fprintf(stderr, " %ld", dim);
+  }
+  fprintf(stderr, " ] tileShape [");
+  for (int64_t dim : tileShape) {
+    fprintf(stderr, " %ld", dim);
+  }
+  fprintf(stderr, " ]\n");
+
   // Apply collapse intervals to get collapsed logical shape.
   llvm::SmallVector<int64_t> collapsedShape =
       applyCollapseIntervalsAndAlignments(logicalShape, collapseIntervals,
                                           alignmentDims);
 
+  fprintf(stderr, "++ Collapsed shape (w/ alignUp)");
+  for (int64_t dim : collapsedShape) {
+    fprintf(stderr, " %ld", dim);
+  }
+  fprintf(stderr, "\n");
+
   // Add grid dimensions to physical shape.
   physicalShape.append(gridShape.begin(), gridShape.end());
 
   assert(collapsedShape.size() == gridShape.size() &&
-         "Grid rank must equalcollapsed tensor rank");
+         "Grid rank must equal to collapsed tensor rank");
 
   if (tileShape.empty()) {
     // Without tiling, distribute dimensions across grid.
