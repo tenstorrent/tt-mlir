@@ -121,16 +121,6 @@ void applyConv2dConfigOverrides(ttnn::Conv2dOp op,
         conv2dConfigAttr.withOutputLayout(*overrides.outputLayout);
   }
 
-  if (overrides.preprocessWeightsOnDevice.has_value()) {
-    conv2dConfigAttr = conv2dConfigAttr.withPreprocessWeightsOnDevice(
-        *overrides.preprocessWeightsOnDevice);
-  }
-
-  if (overrides.alwaysPreprocessWeights.has_value()) {
-    conv2dConfigAttr = conv2dConfigAttr.withAlwaysPreprocessWeights(
-        *overrides.alwaysPreprocessWeights);
-  }
-
   if (overrides.enableActDoubleBuffer.has_value()) {
     conv2dConfigAttr = conv2dConfigAttr.withEnableActDoubleBuffer(
         *overrides.enableActDoubleBuffer);

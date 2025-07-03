@@ -45,8 +45,6 @@ TEST_F(Conv2dConfigOverrideTest, ParseFullConv2dConfigOverride) {
                     "shard_layout#block_sharded:"
                     "transpose_shards#true:"
                     "output_layout#row_major:"
-                    "preprocess_weights_on_device#false:"
-                    "always_preprocess_weights#false:"
                     "enable_act_double_buffer#false:"
                     "enable_weights_double_buffer#false:"
                     "enable_split_reader#false:"
@@ -83,10 +81,6 @@ TEST_F(Conv2dConfigOverrideTest, ParseFullConv2dConfigOverride) {
   ASSERT_TRUE(params.transposeShards.value());
   ASSERT_TRUE(params.outputLayout.has_value());
   ASSERT_EQ(params.outputLayout.value(), Layout::RowMajor);
-  ASSERT_TRUE(params.preprocessWeightsOnDevice.has_value());
-  ASSERT_FALSE(params.preprocessWeightsOnDevice.value());
-  ASSERT_TRUE(params.alwaysPreprocessWeights.has_value());
-  ASSERT_FALSE(params.alwaysPreprocessWeights.value());
   ASSERT_TRUE(params.enableActDoubleBuffer.has_value());
   ASSERT_FALSE(params.enableActDoubleBuffer.value());
   ASSERT_TRUE(params.enableWeightsDoubleBuffer.has_value());

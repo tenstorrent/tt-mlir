@@ -15,8 +15,6 @@ module {
     // CHECK-SAME: override_sharding_config = false
     // CHECK-SAME: transpose_shards = true
     // CHECK-SAME: output_layout = row_major
-    // CHECK-SAME: preprocess_weights_on_device = false
-    // CHECK-SAME: always_preprocess_weights = false
     // CHECK-SAME: enable_act_double_buffer = false
     // CHECK-SAME: enable_weights_double_buffer = false
     // CHECK-SAME: enable_split_reader = false
