@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOLegalizeComposite.h"
-#include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 
+#include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
