@@ -288,7 +288,7 @@ getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
                  llvm::ArrayRef<int64_t> outputShape,
                  mlir::tt::ttnn::TTNNLayoutAttr outputLayout, bool transposeA,
                  bool transposeB);
-    
+
 llvm::Expected<size_t>
 getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
              mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
