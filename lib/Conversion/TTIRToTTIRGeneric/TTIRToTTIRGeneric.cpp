@@ -21,6 +21,7 @@
 #include "llvm/Support/LogicalResult.h"
 
 #include <array>
+#include <magic_enum/magic_enum.hpp>
 
 // ----------------------------------------------------------------------------
 namespace mlir::tt {
@@ -50,14 +51,26 @@ protected:
   toLayoutOperands(mlir::ConversionPatternRewriter &rewriter,
                    mlir::SmallVector<Value> operands, bool tiled,
                    ttcore::MemorySpace memorySpace) const {
+    fprintf(stderr,
+            "++ toLayoutOperands: memorySpace %s, %zu operands, tiled %d\n",
+            magic_enum::enum_name(memorySpace).data(), operands.size(), tiled);
     mlir::SmallVector<Value> newOperands;
     for (Value value : operands) {
+      fprintf(stderr, "++ Operand");
+      value.dump();
       mlir::RankedTensorType tensorType =
           mlir::cast<mlir::RankedTensorType>(value.getType());
+      tensorType.dump();
 
       // Logical shape is initial tensor shape.
       llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
       assert(deviceGridRank <= logicalShape.size());
+
+      fprintf(stderr, "++ Logical shape");
+      for (int64_t dim : logicalShape) {
+        fprintf(stderr, " %ld", dim);
+      }
+      fprintf(stderr, "\n");
 
       // Create default grid shape based on deviceGridRank.
       llvm::SmallVector<int64_t> gridShape;
@@ -73,12 +86,15 @@ protected:
         auto defaultShape = ttcore::TileType::getDefaultShape();
         tileShape.assign(defaultShape.begin(), defaultShape.end());
         elementType = ttcore::TileType::get(elementType, tileShape);
+        fprintf(stderr, "++ Created tiled elementType");
+        elementType.dump();
       }
 
       // Create the new MetalLayoutAttr with new element type.
       ttcore::MetalLayoutAttr layout = ttcore::MetalLayoutAttr::get(
           rewriter.getContext(), logicalShape, deviceGridRank,
           ttcore::OOBVal::Undef, memorySpace);
+      layout.dump();
 
       // Calculate new physical shape based on grid + tiling.
       auto physicalShape = ttcore::MetalLayoutAttr::derivePhysicalShape(
@@ -123,6 +139,70 @@ protected:
                              std::size_t rank) {
     return SmallVector<mlir::AffineMap>(arity,
                                         builder.getMultiDimIdentityMap(rank));
+  }
+
+  static SmallVector<mlir::AffineMap>
+  getBroadcastAffineMapsArray(mlir::OpBuilder &builder, Value lhs, Value rhs,
+                              Value output) {
+    const auto lhsShape =
+        mlir::cast<mlir::RankedTensorType>(lhs.getType()).getShape();
+    const auto rhsShape =
+        mlir::cast<mlir::RankedTensorType>(rhs.getType()).getShape();
+    const auto outputShape =
+        mlir::cast<mlir::RankedTensorType>(output.getType()).getShape();
+
+    const int lhsRank = static_cast<int>(lhsShape.size());
+    const int rhsRank = static_cast<int>(rhsShape.size());
+    const int outputRank = static_cast<int>(outputShape.size());
+    const int deducedRank = std::max(lhsRank, rhsRank);
+    assert(deducedRank == outputRank);
+
+    mlir::SmallVector<mlir::AffineExpr> lhsExprs(deducedRank);
+    mlir::SmallVector<mlir::AffineExpr> rhsExprs(deducedRank);
+
+    fprintf(stderr, "++ A rank %d B rank %d final rank %d\n", lhsRank, rhsRank,
+            deducedRank);
+
+    llvm::SmallVector<int64_t> deducedShape(deducedRank);
+    // Process dimensions, starting from the trailing one.
+    for (int i = -1; i >= -deducedRank; i--) {
+      const int lhsDim = lhsRank + i;
+      const int rhsDim = rhsRank + i;
+      const int outputDim = deducedRank + i;
+
+      // Sizes of the current dimension, -1 means the dimension doesn't exist.
+      const int64_t lhsDimSize = (lhsDim >= 0) ? lhsShape[lhsDim] : -1;
+      const int64_t rhsDimSize = (rhsDim >= 0) ? rhsShape[rhsDim] : -1;
+
+      fprintf(stderr, "++ Reverse rank %d: A dim size %ld B dim size %ld\n", i,
+              lhsDimSize, rhsDimSize);
+
+      // Validate broadcasting compatibility: if both dimensions exist, then
+      // they must either be equal, or at least one of them is 1.
+      assert(!((lhsDimSize != -1) && (rhsDimSize != -1) &&
+               (lhsDimSize != rhsDimSize) && (lhsDimSize != 1) &&
+               (rhsDimSize != 1)));
+
+      if (lhsDimSize == 1 || lhsDimSize == -1) {
+        lhsExprs[outputDim] = builder.getAffineConstantExpr(0);
+      } else {
+        lhsExprs[outputDim] = builder.getAffineDimExpr(lhsDim);
+        deducedShape[outputDim] = lhsDimSize;
+      }
+
+      if (rhsDimSize == 1 || rhsDimSize == -1) {
+        rhsExprs[outputDim] = builder.getAffineConstantExpr(0);
+      } else {
+        rhsExprs[outputDim] = builder.getAffineDimExpr(rhsDim);
+        deducedShape[outputDim] = rhsDimSize;
+      }
+    }
+
+    assert(llvm::equal(deducedShape, outputShape));
+
+    return {AffineMap::get(deducedRank, 0, lhsExprs, builder.getContext()),
+            AffineMap::get(deducedRank, 0, rhsExprs, builder.getContext()),
+            builder.getMultiDimIdentityMap(deducedRank)};
   }
 
   // Convert from ttir enum to equivalent linalg enum.
@@ -208,6 +288,9 @@ private:
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
+    fprintf(stderr, "++ Named eltwise rewriter\n");
+    op->dump();
+
     mlir::MLIRContext *ctx = rewriter.getContext();
     mlir::Location loc = op->getLoc();
 
@@ -216,6 +299,9 @@ private:
     auto [inputs, outputs] =
         toLayoutOperands(rewriter, {origInputs, origOutputs},
                          /*tiled*/ true);
+    for (auto &in : inputs) {
+      in.dump();
+    }
 
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
@@ -228,8 +314,19 @@ private:
 
     const std::size_t rank = grid.getShape().size();
 
-    SmallVector<mlir::AffineMap> indexingMaps =
-        getAffineMapsArray(rewriter, numOperands, rank);
+    SmallVector<mlir::AffineMap> indexingMaps;
+    // llvm::isa<ttir::AddOp>(op) also works, but can't deal with variants
+    if constexpr (std::is_same_v<ttir::AddOp, ConcreteOp>) {
+      indexingMaps = getBroadcastAffineMapsArray(rewriter, op.getLhs(),
+                                                 op.getRhs(), op.getResult());
+      fprintf(stderr, "++ bcastMaps\n");
+    } else {
+      indexingMaps = getAffineMapsArray(rewriter, numOperands, rank);
+      fprintf(stderr, "++ indexingMaps\n");
+    }
+    for (auto &m : indexingMaps) {
+      m.dump();
+    }
     SmallVector<mlir::Attribute> iteratorTypes =
         getIteratorTypesArray(rewriter, rank);
 
