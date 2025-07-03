@@ -67,6 +67,7 @@ public:
     auto loopedGeneric = rewriter.create<GenericOp>(
         generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
         generic.getOutputs(), generic.getGrid(), generic.getBlockFactors(),
+        generic.getSubblockFactors(),
         /* indexing_maps */ rewriter.getArrayAttr({}),
         /* iterator_types */ rewriter.getArrayAttr({}), generic.getThreads(),
         generic.getNumRegions());

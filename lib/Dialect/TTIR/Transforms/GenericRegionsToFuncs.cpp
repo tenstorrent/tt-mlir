@@ -102,8 +102,8 @@ public:
       auto symbolicGeneric = builder.create<GenericOp>(
           generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
           generic.getOutputs(), generic.getGrid(), generic.getBlockFactors(),
-          generic.getIndexingMaps(), generic.getIteratorTypes(),
-          builder.getArrayAttr(threads),
+          generic.getSubblockFactors(), generic.getIndexingMaps(),
+          generic.getIteratorTypes(), builder.getArrayAttr(threads),
           /*numRegions*/ 0);
 
       generic.replaceAllUsesWith(symbolicGeneric);

@@ -72,8 +72,8 @@ static RankedTensorType calculateOptimalLayoutForTensorType(
 }
 
 static SmallVector<int64_t>
-calculateOutputBlockFactors(ArrayRef<int64_t> outputShardShape,
-                            unsigned dstRegisterSizeTiles) {
+calculateOutputSubblockFactors(ArrayRef<int64_t> outputShardShape,
+                               unsigned dstRegisterSizeTiles) {
   // The output operand always corresponds to the compute grid and is therefore
   // the only shape we care about when it comes to constraining on the dst
   // register size. We reverse the output shape to give the priority to the
@@ -101,14 +101,14 @@ calculateOutputBlockFactors(ArrayRef<int64_t> outputShardShape,
 }
 
 static SmallVector<int64_t>
-calculateOptimalBlockFactors(ArrayRef<AffineMap> indexingMaps,
-                             ArrayRef<int64_t> outputShardShape,
-                             unsigned dstRegisterSizeTiles) {
+calculateOptimalSubblockFactors(ArrayRef<AffineMap> indexingMaps,
+                                ArrayRef<int64_t> outputShardShape,
+                                unsigned dstRegisterSizeTiles) {
   assert(!indexingMaps.empty());
   MLIRContext *context = indexingMaps[0].getContext();
 
-  SmallVector<int64_t> outputBlockFactors =
-      calculateOutputBlockFactors(outputShardShape, dstRegisterSizeTiles);
+  SmallVector<int64_t> outputSubblockFactors =
+      calculateOutputSubblockFactors(outputShardShape, dstRegisterSizeTiles);
 
   //
   // Concat all of the indexing maps together, matmul example:
@@ -140,11 +140,11 @@ calculateOptimalBlockFactors(ArrayRef<AffineMap> indexingMaps,
   // enable downstream passes like allocation to adjust them based on memory
   // requirements.
   //
-  SmallVector<int64_t> flattenedBlockFactors(outputBlockFactors);
-  flattenedBlockFactors.resize(inverse.getNumDims(), 1);
+  SmallVector<int64_t> flattenedSubblockFactors(outputSubblockFactors);
+  flattenedSubblockFactors.resize(inverse.getNumDims(), 1);
 
   // Eval the affine map to get the buffer factors.
-  return inverse.compose(flattenedBlockFactors);
+  return inverse.compose(flattenedSubblockFactors);
 }
 
 namespace {
@@ -168,11 +168,16 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
         mlir::cast<ttcore::MetalLayoutAttr>(newTensorType.getEncoding());
     ArrayRef<int64_t> outputShardShape =
         metalLayout.getShardShape(newTensorType);
-    SmallVector<int64_t> blockFactors = calculateOptimalBlockFactors(
-        op.getIndexingMapsValue(), outputShardShape, dstRegisterSizeTiles);
+    SmallVector<int64_t> blockFactors = op.getBlockFactorsValue();
     bool blockFactorsChanged = blockFactors != op.getBlockFactorsValue();
+    SmallVector<int64_t> subbblockFactors = calculateOptimalSubblockFactors(
+        op.getIndexingMapsValue(), outputShardShape,
+        dstRegisterSizeTiles); // This will have to be outputBlockShape instead
+                               // of outputShardShape
+    bool subblockFactorsChanged =
+        subbblockFactors != op.getSubblockFactorsValue();
     if (op.getGrid().getShape() == metalLayout.getGridShape(newTensorType) &&
-        !blockFactorsChanged) {
+        !blockFactorsChanged && !subblockFactorsChanged) {
       return failure();
     }
 
@@ -183,6 +188,7 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
       op.setGridAttr(rewriter.getAttr<ttcore::GridAttr>(
           layout.getGridShape(newTensorType)));
       op.setBlockFactorsAttr(rewriter.getI64ArrayAttr(blockFactors));
+      op.setSubblockFactorsAttr(rewriter.getI64ArrayAttr(subbblockFactors));
     });
 
     auto dpsOp = mlir::cast<DestinationStyleOpInterface>(op.getOperation());
