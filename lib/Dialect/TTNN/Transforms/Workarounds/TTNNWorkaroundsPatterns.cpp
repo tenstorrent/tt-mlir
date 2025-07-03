@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNTraits.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ArgMaxOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpDimRewritePattern.h"
@@ -14,6 +15,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceOpsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RepeatOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/UpsampleOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -30,6 +32,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include "llvm/Support/raw_ostream.h"
 #include <optional>
 #include <tuple>
 #include <utility>
@@ -196,6 +199,15 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
       op->setAttr("dtype", updatedDataTypeAttr);
     }
 
+    if (outputWorkaroundResults.tensorDataTypeResult.isModified() &&
+        op->hasTrait<ttnn::HasOutputDTypeTrait>()) {
+      ttcore::DataTypeAttr updatedDataTypeAttr =
+          rewriter.getAttr<ttcore::DataTypeAttr>(
+              outputWorkaroundResults.tensorDataTypeResult.targetValue);
+      op->setAttr(HasOutputDTypeTraitBase::getOutputDTypeAttributeName(),
+                  updatedDataTypeAttr);
+    }
+
     if ((outputWorkaroundResults.tensorBufferTypeResult.isModified() ||
          outputWorkaroundResults.tensorMemoryLayoutResult.isModified()) &&
         op->getAttrDictionary().get("memory_config")) {
@@ -262,7 +274,6 @@ public:
 
   LogicalResult matchAndRewrite(wa::TTNNWorkaroundInterface op,
                                 PatternRewriter &rewriter) const final {
-
     // To layout op is a special case, we don't want to rewrite it. We use it
     // to apply workarounds to the operands and results of TTNN operations.
     if (mlir::isa<ttnn::ToLayoutOp>(op.getOperation())) {
@@ -727,7 +738,11 @@ public:
           workarounds::decomposition::ReduceOpsPadInputRewritePattern<
               ttnn::MaxOp>,
           workarounds::decomposition::ReduceOpsPadInputRewritePattern<
-              ttnn::MinOp>>(&getContext());
+              ttnn::MinOp>,
+          workarounds::decomposition::UpsampleOpBilinearShardingRewritePattern,
+          workarounds::decomposition::UpsampleOpBilinearPaddingRewritePattern,
+          workarounds::decomposition::UpsampleOpLayoutRewritePattern>(
+          &getContext());
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);

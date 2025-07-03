@@ -20,7 +20,7 @@ module @jit_transpose attributes {} {
     // CHECK-SAME: tensor<32x64xbf16,
     // CHECK-SAME: tensor<32x64xbf16,
     // CHECK-SAME: -> tensor<32x64xbf16,
-    %0 = "ttnn.add"(%arg0, %arg1) : (tensor<32x64xui16, #ttnn_layout>, tensor<32x64xui16, #ttnn_layout>) -> tensor<32x64xui16, #ttnn_layout>
+    %0 = "ttnn.add"(%arg0, %arg1) <{output_dtype = #ttcore.supportedDataTypes<u16>}> : (tensor<32x64xui16, #ttnn_layout>, tensor<32x64xui16, #ttnn_layout>) -> tensor<32x64xui16, #ttnn_layout>
     // CHECK: = "ttnn.to_layout"(%[[ADD]])
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<u16>,
     // CHECK-SAME:tensor<32x64xbf16,
@@ -42,7 +42,7 @@ module @jit_transpose attributes {} {
     // CHECK-SAME: tensor<32x64xbf16,
     // CHECK-SAME: tensor<32x64xbf16,
     // CHECK-SAME: -> tensor<32x64xbf16,
-    %0 = "ttnn.multiply"(%arg0, %arg1) : (tensor<32x64xsi32, #ttnn_layout1>, tensor<32x64xsi32, #ttnn_layout1>) -> tensor<32x64xsi32, #ttnn_layout1>
+    %0 = "ttnn.multiply"(%arg0, %arg1) <{output_dtype = #ttcore.supportedDataTypes<si32>}> : (tensor<32x64xsi32, #ttnn_layout1>, tensor<32x64xsi32, #ttnn_layout1>) -> tensor<32x64xsi32, #ttnn_layout1>
     // CHECK: = "ttnn.to_layout"(%[[MULTIPLY]]
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<si32>,
     // CHECK-SAME:tensor<32x64xbf16,
@@ -86,7 +86,7 @@ module @jit_transpose attributes {} {
     // CHECK-SAME: tensor<4x4xbf16,
     // CHECK-SAME: tensor<4x4xbf16,
     // CHECK-SAME: -> tensor<4x4xbf16,
-    %0 = "ttnn.add"(%arg0, %arg1) : (tensor<4x4xbf16, #ttnn_layout3>, tensor<4x4xbf16, #ttnn_layout3>) -> tensor<4x4xbf16, #ttnn_layout3>
+    %0 = "ttnn.add"(%arg0, %arg1) <{output_dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<4x4xbf16, #ttnn_layout3>, tensor<4x4xbf16, #ttnn_layout3>) -> tensor<4x4xbf16, #ttnn_layout3>
     // CHECK: = "ttnn.to_layout"(%[[ADD]])
     // CHECK-SAME: layout = #ttnn.layout<row_major>,
     // CHECK-SAME: tensor<4x4xbf16,

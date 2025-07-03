@@ -278,10 +278,7 @@ public:
 
     rewriter.replaceOpWithNewOp<TTNNOpTy>(
         op, this->getTypeConverter()->convertType(op.getResult().getType()),
-        adaptor.getLhs(), adaptor.getRhs(),
-        tt::ttir_to_ttnn::utils::getDataTypeAttrFromTensorLayout(
-            op.getResult().getType(), rewriter),
-        nullptr);
+        adaptor.getLhs(), adaptor.getRhs());
     return success();
   }
 };
@@ -1249,10 +1246,7 @@ public:
     Type outputType = this->getTypeConverter()->convertType(srcOp.getType());
     if (lhsType.getShape() == rhsType.getShape()) {
       rewriter.replaceOpWithNewOp<ttnn::SubtractOp>(
-          srcOp, outputType, adaptor.getLhs(), adaptor.getRhs(),
-          tt::ttir_to_ttnn::utils::getDataTypeAttrFromTensorLayout(
-              srcOp.getResult().getType(), rewriter),
-          nullptr);
+          srcOp, outputType, adaptor.getLhs(), adaptor.getRhs());
 
       // Broadcast for rhs operand require the operation to be commutative to
       // allow switching the order of operands. To allow this conversion, the
