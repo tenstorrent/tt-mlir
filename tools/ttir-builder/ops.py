@@ -3950,7 +3950,7 @@ class TTIRBuilderOps:
             [in0],
             golden_kwargs=golden_kwargs,
             output_type=self.get_type_from_torch_dtype(
-                TypeInfo(dtype=dtype, scale=scale, zero_point=zero_point)
+                dtype=dtype, scale=scale, zero_point=zero_point
             ),
             unit_attrs=unit_attrs,
         )
@@ -4064,7 +4064,7 @@ class TTIRBuilderOps:
             [in0],
             golden_kwargs=golden_kwargs,
             output_type=self.get_type_from_torch_dtype(
-                TypeInfo(dtype=dtype, scale=scale, zero_point=zero_point)
+                dtype=dtype, scale=scale, zero_point=zero_point
             ),
             unit_attrs=unit_attrs,
         )

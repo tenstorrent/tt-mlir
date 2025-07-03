@@ -519,16 +519,27 @@ class TTIRBuilder(TTIRBuilderOps):
                 return DataType.Float32
 
     @autodoc_skip
-    def get_type_from_torch_dtype(self, dtype: Union[torch.dtype, TypeInfo]) -> Type:
+    def get_type_from_torch_dtype(
+        self,
+        dtype: Union[torch.dtype, TypeInfo],
+        scale: Optional[float] = None,
+        zero_point: Optional[float] = None,
+    ) -> Type:
         """
         Converts PyTorch dtype or TypeInfo to corresponding MLIR Type.
         For quantized types (e.g. qint32), scale and zero_point must be provided via TypeInfo.
         For non-quantized types, a plain torch.dtype can be used.
         Args:
             dtype: Either a torch.dtype or TypeInfo containing dtype and quantization params.
+        scale : *Optional[float]*
+            Scaling factor for quantization. Required for quantized types.
+        zero_point : *Optional[int]*
+            Zero point offset for quantization. Required for quantized types.
         Returns:
             MLIR Type corresponding to the input dtype.
         """
+        if scale and zero_point:
+            dtype = TypeInfo(dtype=dtype, scale=scale, zero_point=zero_point)
         base_dtype = dtype.dtype if isinstance(dtype, TypeInfo) else dtype
 
         match base_dtype:
