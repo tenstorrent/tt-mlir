@@ -68,6 +68,23 @@ def shape_str(shape):
     return "x".join(map(str, shape))
 
 
+def shapes_list_str(shapes):
+    """
+    Converts a list of shapes to string, joined by "-".
+
+    Parameters
+    ----------
+    shapes : Sequence[*Union[Tuple[int, ...], List[int]]*]
+        Shapes to convert to string
+
+    Returns
+    -------
+    str
+        String representation of the shapes (e.g., '1x2-3x4' for input [(1, 2), (3, 4)])
+    """
+    return "-".join(shape_str(s) for s in shapes)
+
+
 def make_shard_shape(
     tensor_rank: int,
     shard_dims: Sequence[int],

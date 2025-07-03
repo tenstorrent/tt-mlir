@@ -105,6 +105,22 @@ def TTKernel_ReduceType : I32EnumAttr<"ReduceType", "TTKernel Reduce Types",
   let cppNamespace = "::mlir::tt::ttkernel";
 }
 
+def TTKernel_ReduceDimRow : I32EnumAttrCase<"Row", 0, "reduce_dim_row">;
+def TTKernel_ReduceDimCol : I32EnumAttrCase<"Col", 1, "reduce_dim_col">;
+def TTKernel_ReduceDimScalar : I32EnumAttrCase<"Scalar", 2, "reduce_dim_scalar">;
+def TTKernel_ReduceDimNone : I32EnumAttrCase<"None", 3, "reduce_dim_none">;
+
+def TTKernel_ReduceDim : I32EnumAttr<"ReduceDim", "TTKernel Reduce Dimensions",
+                         [
+                           TTKernel_ReduceDimRow,
+                           TTKernel_ReduceDimCol,
+                           TTKernel_ReduceDimScalar,
+                           TTKernel_ReduceDimNone
+                         ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttkernel";
+}
+
 def TTKernel_BcastTypeNone : I32EnumAttrCase<"None", 0, "bcast_type_none">;
 def TTKernel_BcastTypeCol : I32EnumAttrCase<"Col", 1, "bcast_type_col">;
 def TTKernel_BcastTypeRow : I32EnumAttrCase<"Row", 2, "bcast_type_row">;
@@ -121,18 +137,16 @@ def TTKernel_BcastType : I32EnumAttr<"BcastType", "TTKernel broadcast types",
   let cppNamespace = "::mlir::tt::ttkernel";
 }
 
-def TTKernel_ReduceDimRow : I32EnumAttrCase<"Row", 0, "reduce_dim_row">;
-def TTKernel_ReduceDimCol : I32EnumAttrCase<"Col", 1, "reduce_dim_col">;
-def TTKernel_ReduceDimScalar : I32EnumAttrCase<"Scalar", 2, "reduce_dim_scalar">;
-def TTKernel_ReduceDimNone : I32EnumAttrCase<"None", 3, "reduce_dim_none">;
+def TTKernel_BcastBinaryOpAdd : I32EnumAttrCase<"Add", 0, "add_bcast">;
+def TTKernel_BcastBinaryOpSub : I32EnumAttrCase<"Sub", 1, "sub_bcast">;
+def TTKernel_BcastBinaryOpMul : I32EnumAttrCase<"Mul", 2, "mul_bcast">;
 
-def TTKernel_ReduceDim : I32EnumAttr<"ReduceDim", "TTKernel Reduce Dimensions",
-                         [
-                           TTKernel_ReduceDimRow,
-                           TTKernel_ReduceDimCol,
-                           TTKernel_ReduceDimScalar,
-                           TTKernel_ReduceDimNone
-                         ]> {
+def TTKernel_BcastBinaryOp : I32EnumAttr<"BcastBinaryOp", "TTKernel Binary Ops with Tile-Level Broadcast",
+                             [
+                                TTKernel_BcastBinaryOpAdd,
+                                TTKernel_BcastBinaryOpSub,
+                                TTKernel_BcastBinaryOpMul
+                             ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttkernel";
 }

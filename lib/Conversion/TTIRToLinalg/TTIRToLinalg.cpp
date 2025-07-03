@@ -639,7 +639,7 @@ public:
     auto zerosConst =
         rewriter.create<tosa::ConstOp>(op.getLoc(), resultType, zerosAttr);
 
-    // Multiply by ones to implicitly broadcast
+    // Add by zeros to implicitly broadcast.
     auto result = rewriter.create<tosa::AddOp>(op.getLoc(), resultType, input,
                                                zerosConst);
 
