@@ -96,6 +96,19 @@ void registerRuntimeBindings(nb::module_ &m) {
                     ? std::nullopt
                     : std::make_optional(
                           nb::cast<tt::runtime::DispatchCoreType>(value));
+          })
+      .def_prop_rw(
+          "fabric_config",
+          [](const tt::runtime::MeshDeviceOptions &o) {
+            return o.fabricConfig.has_value() ? nb::cast(o.fabricConfig.value())
+                                              : nb::none();
+          },
+          [](tt::runtime::MeshDeviceOptions &o, nb::handle value) {
+            o.fabricConfig =
+                value.is_none()
+                    ? std::nullopt
+                    : std::make_optional(
+                          nb::cast<tt::runtime::FabricConfig>(value));
           });
 
   nb::class_<tt::runtime::Tensor>(m, "Tensor")
@@ -184,6 +197,16 @@ void registerRuntimeBindings(nb::module_ &m) {
   nb::enum_<::tt::runtime::DispatchCoreType>(m, "DispatchCoreType")
       .value("WORKER", ::tt::runtime::DispatchCoreType::WORKER)
       .value("ETH", ::tt::runtime::DispatchCoreType::ETH);
+
+  nb::enum_<::tt::runtime::FabricConfig>(m, "FabricConfig")
+      .value("DISABLED", ::tt::runtime::FabricConfig::DISABLED)
+      .value("FABRIC_1D", ::tt::runtime::FabricConfig::FABRIC_1D)
+      .value("FABRIC_1D_RING", ::tt::runtime::FabricConfig::FABRIC_1D_RING)
+      .value("FABRIC_2D", ::tt::runtime::FabricConfig::FABRIC_2D)
+      .value("FABRIC_2D_TORUS", ::tt::runtime::FabricConfig::FABRIC_2D_TORUS)
+      .value("FABRIC_2D_DYNAMIC",
+             ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC)
+      .value("CUSTOM", ::tt::runtime::FabricConfig::CUSTOM);
 
   nb::enum_<::tt::runtime::Arch>(m, "Arch")
       .value("GRAYSKULL", ::tt::runtime::Arch::GRAYSKULL)
