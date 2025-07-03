@@ -249,12 +249,19 @@ struct TTIRGenericTensorLayoutRewriter : public OpRewritePattern<GenericOp> {
       // Check if this is a dimension expression
       if (auto dimExpr = mlir::dyn_cast<mlir::AffineDimExpr>(expr)) {
         mappedIteratorTypes.push_back(iteratorType[dimExpr.getPosition()]);
+      } else if (auto symbolExpr =
+                     mlir::dyn_cast<mlir::AffineSymbolExpr>(expr)) {
+        mappedIteratorTypes.push_back(iteratorType[symbolExpr.getPosition()]);
+      } else {
+        mappedIteratorTypes.push_back(ttcore::IteratorType::Reduction);
       }
     }
 
     for (auto [i, dim] : llvm::enumerate(computeGrid)) {
       if (mappedIteratorTypes[i] == ttcore::IteratorType::Parallel) {
         numBlocks[i] *= dim;
+      } else {
+        numBlocks[i] = 1;
       }
     }
 
