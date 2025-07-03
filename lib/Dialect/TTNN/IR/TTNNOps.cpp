@@ -2688,17 +2688,12 @@ static bool isTensorOnDevice(::mlir::RankedTensorType tensorType) {
     auto outputType =
         llvm::dyn_cast<RankedTensorType>(getOutputTensor().getType());
 
-    if (!inputType || !outputType) {
-      return emitOpError("Input and output must be ranked tensor types.");
-    }
-
     if (inputType.getElementType() != outputType.getElementType() ||
         inputType.getShape() != outputType.getShape()) {
       return emitOpError(
           "Output tensor must match input tensor in shape and element type.");
     }
   }
-
   return success();
 }
 
