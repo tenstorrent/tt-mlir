@@ -5,11 +5,12 @@
 #ifndef TTMLIR_DIALECT_TTIR_UTILS_UTILS_H
 #define TTMLIR_DIALECT_TTIR_UTILS_UTILS_H
 
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Utils.h"
+
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Location.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Utils.h"
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallVector.h"
 
